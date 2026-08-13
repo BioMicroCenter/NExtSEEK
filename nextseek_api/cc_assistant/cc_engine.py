@@ -39,6 +39,7 @@ import docker
 from .attach import BridgeAttachSocket
 from .translate import CCStreamTranslator
 from .cc_config import CCPaths
+from . import cc_transcript_store
 from nextseek_api.cc_assistant import cc_session
 
 logger = logging.getLogger(__name__)
@@ -1379,6 +1380,72 @@ def run_cc_turn(
                 container.remove(force=True)
             except Exception:
                 pass
+        # #68: the fallback capture, for a turn that did NOT reach the
+        # ``query_complete`` gate above — a ``query_error`` result frame, the
+        # watchdog timeout (which returns before the gate), or either exception
+        # handler. Those three used to leave no CCSessionTranscript row, no
+        # ``raw/`` copy and no trace at all, so exactly the turns worth triaging
+        # were the only ones with no durable record.
+        #
+        # ONE fallback here rather than five patched branches: the finally runs
+        # on every path (a ``return`` inside the try does not skip it) and this
+        # is the only point at which the container is guaranteed stopped, so the
+        # read cannot race the agent's own appends.
+        #
+        # POSITION IS LOAD-BEARING, both ways. After the stop above, for that
+        # race. And BEFORE the scrub below, because scrub_transcript_store
+        # rewrites every jsonl in the store via os.replace, which stamps them
+        # all with a fresh mtime, and _newest_jsonl_under picks by mtime —
+        # capturing after the scrub could resolve to a DIFFERENT session's file.
+        #
+        # Its own try/except: a failure in here must never skip that scrub,
+        # which is the #72/#76 security control. The bytes persisted are
+        # scrubbed in-process by _read_turn_transcript exactly as the success
+        # path's are, so neither sink can carry the user's password even though
+        # the on-disk source has not been rewritten yet.
+        #
+        # Deliberately NOT on_turn_complete: that is _append_cc_turn_complete,
+        # which also appends a chat_log entry with status "completed". The
+        # service layer's own finally already appends a status "error" entry for
+        # this same turn, so calling it would double-log and mislabel a failed
+        # turn as completed — and chat_log is what the sticky-CC rule reads, so
+        # a failed CC turn would wrongly make the chat sticky. The row and the
+        # raw/ copy, nothing else.
+        #
+        # ``terminal``, not ``event``: ``terminal`` is initialised to None ahead
+        # of the try and so is bound on every path, while ``event`` is bound
+        # only on the normal-completion path and would raise UnboundLocalError
+        # from here on exactly the exception and timeout branches this exists for.
+        if not transcript_persisted and chat_session is not None and dirs.cc_state_mnt:
+            _terminal_class = terminal[0] if terminal else "<no terminal event>"
+            try:
+                fallback = _read_turn_transcript(
+                    dirs.cc_state_mnt,
+                    turn_start=translator._turn_start_ts,
+                    prior_lines=pre_turn_lines,
+                    environment=environment,
+                )
+                if fallback.turn:
+                    raw_copy = Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
+                    if not _safe_relpath(raw_copy.name):
+                        raise ValueError("bad transcript basename")
+                    raw_copy.parent.mkdir(parents=True, exist_ok=True)
+                    raw_copy.write_bytes(fallback.turn)
+                    cc_transcript_store.store_transcript(
+                        chat_session=chat_session,
+                        cc_session_id=translator.session_id or "",
+                        turn_id=str(run_id),
+                        raw_jsonl=fallback.turn,
+                    )
+                    logger.warning(
+                        "cc #68: persisted the transcript of a turn that did not "
+                        "complete (run_id=%s, terminal=%s, %d bytes)",
+                        run_id, _terminal_class, len(fallback.turn))
+            except Exception:  # noqa: BLE001 — must not skip the scrub below
+                logger.exception(
+                    "cc #68: could NOT persist the transcript of a turn that did "
+                    "not complete (run_id=%s, terminal=%s); that turn has no "
+                    "durable record", run_id, _terminal_class)
         # #72: scrub the SOURCE transcript, not just the derived copies. In the
         # finally (not the query_complete branch) because a turn that errored,
         # timed out or was budget-killed still leaves a jsonl behind holding
@@ -1609,7 +1676,11 @@ def _read_turn_transcript(
     paths that are already failing. Returns ``CapturedTranscript(b"", b"")``
     rather than raising when ``cc_state_mnt`` is falsy, the ``projects`` dir does
     not exist (turn 1 of a chat), no recent-enough jsonl appears within
-    ``attempts``, or the read fails.
+    ``attempts``, or ANY of the file I/O fails. That last clause covers the
+    LOCATE step as well as the read: ``_newest_jsonl_under`` calls ``p.stat()``
+    twice per candidate with no handler of its own, so a transcript vanishing
+    between the ``rglob`` and the ``stat`` raises ``OSError`` out of the search
+    — and everything past the guards below is pure byte work that cannot fail.
     """
     if not cc_state_mnt:
         return CapturedTranscript(b"", b"")
@@ -1620,20 +1691,24 @@ def _read_turn_transcript(
     if not root.is_dir():
         return CapturedTranscript(b"", b"")
 
-    jsonl_path = None
-    for attempt in range(attempts):
-        jsonl_path = _newest_jsonl_under(root, min_mtime=turn_start - 1)
-        if jsonl_path:
-            break
-        if attempt < attempts - 1:
-            time.sleep(0.2)
-    if not jsonl_path:
-        return CapturedTranscript(b"", b"")
-
+    # The LOCATE step is inside the try, not only the read: the store is live —
+    # the agent, a concurrent sweep or a sibling turn can unlink a jsonl between
+    # the rglob and the stat — and this helper is called from run_cc_turn's
+    # finally, where an escape would skip the #72/#76 scrub that follows it.
     try:
+        jsonl_path = None
+        for attempt in range(attempts):
+            jsonl_path = _newest_jsonl_under(root, min_mtime=turn_start - 1)
+            if jsonl_path:
+                break
+            if attempt < attempts - 1:
+                time.sleep(0.2)
+        if not jsonl_path:
+            return CapturedTranscript(b"", b"")
         raw = jsonl_path.read_bytes()
     except OSError:
-        logger.warning("cc #68: could not read transcript %s", jsonl_path, exc_info=True)
+        logger.warning("cc #68: could not read this turn's transcript under %s",
+                       root, exc_info=True)
         return CapturedTranscript(b"", b"")
 
     session = _scrub_secret_bytes(raw, environment)

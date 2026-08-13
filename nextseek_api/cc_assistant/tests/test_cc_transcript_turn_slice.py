@@ -416,6 +416,34 @@ def test_read_turn_transcript_swallows_an_unreadable_session(tmp_path, monkeypat
     assert got == cc_engine.CapturedTranscript(b"", b"")
 
 
+def test_read_turn_transcript_swallows_a_failure_in_the_LOCATE_step(
+    tmp_path, monkeypatch
+):
+    """Not just the read (#68 Task 4). ``_newest_jsonl_under`` walks the store
+    with ``rglob`` and then calls ``p.stat()`` twice per candidate, none of it
+    under a handler of its own — so a transcript unlinked between the walk and
+    the stat (the agent's own rotation, a concurrent sweep, a sibling turn)
+    raises ``OSError`` out of the SEARCH rather than out of the read.
+
+    This helper is called from ``run_cc_turn``'s ``finally``, where an escape
+    would skip the #72/#76 transcript scrub that follows it, so the guard has to
+    cover the whole locate-and-read, not only the last step of it.
+    """
+    turn_start = 10_000.0
+    mnt, _ = _store(tmp_path, body=_jsonl("a"), mtime=turn_start + 1)
+
+    def _vanished(self, *args, **kwargs):
+        raise OSError("transcript unlinked mid-scan")
+
+    monkeypatch.setattr(Path, "rglob", _vanished)
+
+    got = cc_engine._read_turn_transcript(
+        mnt, turn_start=turn_start, prior_lines={}, environment=ENV
+    )
+
+    assert got == cc_engine.CapturedTranscript(b"", b"")
+
+
 # --------------------------------------------------------------------------
 # run_cc_turn wiring — which captured member reaches which sink
 # --------------------------------------------------------------------------
