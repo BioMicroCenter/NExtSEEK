@@ -14,10 +14,17 @@ pins that decision: ``_scrub_secret_bytes`` (#72) replaces secrets with
 preserving but NOT length preserving. Any byte offset recorded before the turn
 is invalidated by the scrub of the bytes ahead of it.
 
+``_read_turn_transcript`` is the capture helper built on those three, and the
+AST tests at the bottom pin which of its two members reaches which sink in
+``run_cc_turn``: the per-turn sinks get the SLICE, the Debug-panel trace keeps
+the FULL session.
+
 Hermetic: tmp_path + stdlib only, no docker, no DB.
 """
 
+import ast
 import os
+import time as _real_time
 from pathlib import Path
 
 from nextseek_api.cc_assistant import cc_engine, cc_summary
@@ -216,3 +223,341 @@ def test_transcript_line_counts_skips_an_unreadable_file(tmp_path):
     # skip or the successful read — what must NOT happen is an exception.
     assert counts.get(str(good)) == 1
     assert set(counts) <= {str(good), str(bad)}
+
+
+# --------------------------------------------------------------------------
+# _read_turn_transcript — locate + read + scrub + slice, in one place
+# --------------------------------------------------------------------------
+
+
+class _FakeTime:
+    """Stands in for the ``time`` module inside ``cc_engine`` so the retry
+    loop's back-off is observable and free. Only ``sleep``/``time`` are used on
+    this code path."""
+
+    def __init__(self):
+        self.sleeps: list[float] = []
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+
+    def time(self):
+        return _real_time.time()
+
+
+def _store(tmp_path, *, body=b"", mtime=None, name="sess.jsonl"):
+    """Build a cc-state store and return ``(cc_state_mnt, session_path)``.
+
+    Mirrors the real layout: the session jsonl lives under
+    ``<cc_state_mnt>/projects/<mangled-cwd>/<session-uuid>.jsonl``.
+    """
+    cc_state = tmp_path / "cc-state"
+    path = cc_state / "projects" / "-data-projects-proj" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(body)
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
+    return str(cc_state), path
+
+
+def test_read_turn_transcript_without_a_cc_state_mount_is_empty():
+    for falsy in (None, ""):
+        assert cc_engine._read_turn_transcript(
+            falsy, turn_start=10_000.0, prior_lines={}, environment=ENV
+        ) == cc_engine.CapturedTranscript(b"", b"")
+
+
+def test_read_turn_transcript_missing_projects_dir_returns_without_sleeping(
+    tmp_path, monkeypatch
+):
+    """Turn 1 of a chat has no store yet. Sleeping 3 x 0.2s for a directory that
+    does not exist is pure latency on the reply."""
+    fake = _FakeTime()
+    monkeypatch.setattr(cc_engine, "time", fake)
+
+    got = cc_engine._read_turn_transcript(
+        str(tmp_path / "cc-state"), turn_start=10_000.0, prior_lines={}, environment=ENV
+    )
+
+    assert got == cc_engine.CapturedTranscript(b"", b"")
+    assert fake.sleeps == []
+
+
+def test_read_turn_transcript_ignores_a_session_older_than_this_turn(
+    tmp_path, monkeypatch
+):
+    """A store holding only PREVIOUS turns' files must read as "nothing yet",
+    not as this turn's transcript."""
+    fake = _FakeTime()
+    monkeypatch.setattr(cc_engine, "time", fake)
+    turn_start = 10_000.0
+    mnt, _ = _store(tmp_path, body=_jsonl("stale"), mtime=turn_start - 5)
+
+    got = cc_engine._read_turn_transcript(
+        mnt, turn_start=turn_start, prior_lines={}, environment=ENV
+    )
+
+    assert got == cc_engine.CapturedTranscript(b"", b"")
+    # retried three times, and did NOT sleep after the LAST attempt
+    assert fake.sleeps == [0.2, 0.2]
+
+
+def test_read_turn_transcript_never_sleeps_after_its_final_attempt(
+    tmp_path, monkeypatch
+):
+    fake = _FakeTime()
+    monkeypatch.setattr(cc_engine, "time", fake)
+    turn_start = 10_000.0
+    mnt, _ = _store(tmp_path, body=_jsonl("stale"), mtime=turn_start - 5)
+
+    cc_engine._read_turn_transcript(
+        mnt, turn_start=turn_start, prior_lines={}, environment=ENV, attempts=1
+    )
+
+    assert fake.sleeps == []
+
+
+def test_read_turn_transcript_slices_a_resumed_session(tmp_path):
+    """The #68 headline. ``--resume`` appends turn 2 to turn 1's file; the row
+    for turn 2 must hold turn 2, not turns 1..2.
+
+    ``prior_lines`` is built here by ``_transcript_line_counts`` off the SAME
+    root expression the helper resolves internally — that agreement is what
+    makes the lookup hit. A root spelled differently would miss every key and
+    silently degrade back to storing the whole cumulative session.
+    """
+    turn_start = 10_000.0
+    prior = _jsonl("turn-1 a", "turn-1 b")
+    mnt, path = _store(tmp_path, body=prior, mtime=turn_start - 50)
+
+    pre = cc_engine._transcript_line_counts(Path(mnt) / "projects")
+    assert pre == {str(path): 2}
+
+    new = b'{"type":"user","n":9,"content":"turn-2 only"}\n'
+    path.write_bytes(prior + new)
+    os.utime(path, (turn_start + 1, turn_start + 1))
+
+    got = cc_engine._read_turn_transcript(
+        mnt, turn_start=turn_start, prior_lines=pre, environment=ENV
+    )
+
+    assert got.session == prior + new       # the trace's input: everything
+    assert got.turn == new                  # the row's input: this turn only
+    assert cc_engine._jsonl_line_count(got.turn) == 1
+
+
+def test_read_turn_transcript_scrubs_both_members(tmp_path):
+    """#72 x #68: the scrub runs ONCE over the whole file and the slice is taken
+    from the scrubbed bytes, so neither member can carry the password. Scrubbing
+    after slicing would be a second full pass for the same result."""
+    turn_start = 10_000.0
+    prior = ('{"n":0,"content":"NEXTSEEK_PASSWORD=%s"}\n' % PW).encode()
+    new = ('{"n":1,"content":"leaked again: %s"}\n' % PW).encode()
+    mnt, path = _store(tmp_path, body=prior + new, mtime=turn_start + 1)
+
+    got = cc_engine._read_turn_transcript(
+        mnt, turn_start=turn_start, prior_lines={str(path): 1}, environment=ENV
+    )
+
+    assert PW.encode() not in got.session
+    assert PW.encode() not in got.turn
+    assert got.session.count(b"<REDACTED>") == 2
+    assert got.turn.count(b"<REDACTED>") == 1
+    assert b'"n":0' not in got.turn
+
+
+def test_read_turn_transcript_degrades_to_the_whole_session_on_a_key_miss(tmp_path):
+    """A file the pre-spawn snapshot never saw reads as ``prior_lines = 0``.
+    Storing too much beats storing nothing."""
+    turn_start = 10_000.0
+    body = _jsonl("a", "b", "c")
+    mnt, _ = _store(tmp_path, body=body, mtime=turn_start + 1)
+
+    got = cc_engine._read_turn_transcript(
+        mnt, turn_start=turn_start,
+        prior_lines={"/some/other/session.jsonl": 2}, environment=ENV,
+    )
+
+    assert got.session == body
+    assert got.turn == body
+
+
+def test_read_turn_transcript_turn_is_empty_only_if_the_session_is(tmp_path):
+    """``_turn_slice``'s invariant, asserted at the caller's boundary — this is
+    what stops a transcript row being written with an empty blob when the file
+    was rewritten, truncated, or the turn appended nothing."""
+    turn_start = 10_000.0
+    body = _jsonl("a", "b")
+    mnt, path = _store(tmp_path, body=body, mtime=turn_start + 1)
+
+    for stale in (2, 5, 99):
+        got = cc_engine._read_turn_transcript(
+            mnt, turn_start=turn_start, prior_lines={str(path): stale}, environment=ENV
+        )
+        assert got.session == body
+        assert got.turn == body, stale
+
+
+def test_read_turn_transcript_swallows_an_unreadable_session(tmp_path, monkeypatch):
+    """It is called from the reply path (and, from Task 4, from the finally):
+    a read error must degrade to "no transcript", never kill the turn."""
+    turn_start = 10_000.0
+    mnt, _ = _store(tmp_path, body=_jsonl("a"), mtime=turn_start + 1)
+
+    def _boom(self, *args, **kwargs):
+        raise OSError("vanished mid-turn")
+
+    monkeypatch.setattr(Path, "read_bytes", _boom)
+
+    got = cc_engine._read_turn_transcript(
+        mnt, turn_start=turn_start, prior_lines={}, environment=ENV
+    )
+
+    assert got == cc_engine.CapturedTranscript(b"", b"")
+
+
+# --------------------------------------------------------------------------
+# run_cc_turn wiring — which captured member reaches which sink
+# --------------------------------------------------------------------------
+
+
+def _run_cc_turn_ast():
+    src = Path(cc_engine.__file__).with_suffix(".py").read_text()
+    tree = ast.parse(src)
+    return next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "run_cc_turn"
+    )
+
+
+def _calls(fn, *, name=None, attr=None):
+    """Every ``ast.Call`` in ``fn`` to a bare name or to an ``x.attr``."""
+    out = []
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if name is not None and isinstance(func, ast.Name) and func.id == name:
+            out.append(node)
+        elif attr is not None and isinstance(func, ast.Attribute) and func.attr == attr:
+            out.append(node)
+    return out
+
+
+def test_the_debug_trace_still_parses_the_FULL_session():
+    """Deliberate, and pinned so a later refactor cannot silently swap the two
+    members. Slicing the summariser's input would change every Debug-panel
+    trace's ``steps``, ``transcript_line_count`` and ``turn_count`` — a separate
+    defect with its own blast radius, out of scope for #68 (see SPEC.md)."""
+    calls = _calls(_run_cc_turn_ast(), attr="parse_transcript")
+
+    assert len(calls) == 1, "expected exactly one parse_transcript call"
+    assert ast.unparse(calls[0].args[0]) == "captured.session"
+
+
+def test_the_two_per_turn_sinks_get_the_TURN_slice():
+    """The ``raw/transcript-<run_id>.jsonl`` copy and the ``CCSessionTranscript``
+    blob are both keyed per TURN, so both must hold one turn's records.
+
+    Stated as "no per-turn sink is handed a ``.session`` member" rather than as
+    an exact call list: the failure-path fallback adds a second capture with its
+    own local name, and that is correct as long as it too writes the slice.
+    """
+    fn = _run_cc_turn_ast()
+
+    written = [ast.unparse(c.args[0]) for c in _calls(fn, attr="write_bytes")]
+    assert "captured.turn" in written, (
+        f"the success path's raw/ copy must write the slice, got {written}"
+    )
+    assert not [a for a in written if a.endswith(".session")], (
+        f"a per-turn raw/ copy must never be handed the whole session: {written}"
+    )
+
+    payloads = _calls(fn, name="TurnCompletePayload")
+    assert len(payloads) == 1
+    keywords = {k.arg: k.value for k in payloads[0].keywords}
+    assert ast.unparse(keywords["raw_jsonl"]) == "captured.turn"
+
+
+def test_the_pre_spawn_snapshot_uses_the_same_root_expression_as_the_read():
+    """``_transcript_line_counts`` keys are NOT normalised — they are whatever
+    ``str(path)`` the caller's root produced. A root spelled differently here
+    than the one ``_read_turn_transcript`` resolves would miss every lookup and
+    silently store the whole cumulative session again, with no error."""
+    calls = _calls(_run_cc_turn_ast(), name="_transcript_line_counts")
+
+    assert len(calls) == 1
+    assert ast.unparse(calls[0].args[0]) == (
+        "Path(dirs.cc_state_mnt) / 'projects' if dirs.cc_state_mnt else None"
+    )
+
+
+def test_the_locals_the_finally_reads_are_bound_before_the_try():
+    """``pre_turn_lines`` and ``transcript_persisted`` are read by the finally
+    (that is where #68's fallback capture lives). Binding them INSIDE the try
+    means any exception raised before the assignment makes the finally itself
+    raise ``UnboundLocalError`` — replacing the real failure with a bogus one.
+
+    ``pre_turn_lines`` must additionally precede the spawn: it is a PRE-turn
+    count, and one taken after the agent started would already include some of
+    the records this turn is meant to keep.
+    """
+    fn = _run_cc_turn_ast()
+    tries = [n for n in fn.body if isinstance(n, ast.Try) and n.finalbody]
+    assert len(tries) == 1, "run_cc_turn's one top-level try/finally"
+
+    first: dict[str, int] = {}
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            bound = getattr(target, "id", None)
+            if bound in ("pre_turn_lines", "transcript_persisted"):
+                first[bound] = min(first.get(bound, node.lineno), node.lineno)
+
+    assert set(first) == {"pre_turn_lines", "transcript_persisted"}
+    assert first["pre_turn_lines"] < tries[0].lineno
+    assert first["transcript_persisted"] < tries[0].lineno
+
+    spawn = _calls(fn, name="_spawn_with_stale_name_retry")
+    assert spawn, "no spawn call found"
+    assert first["pre_turn_lines"] < spawn[0].lineno
+
+
+def test_transcript_persisted_is_set_only_after_the_write_returns():
+    """Not before the call and not in the ``except``: the flag means "a row
+    exists", so setting it around a call that raised would make the failure-path
+    fallback skip the very turn whose row is missing."""
+    fn = _run_cc_turn_ast()
+    calls = _calls(fn, name="on_turn_complete")
+    assert len(calls) == 1
+
+    def _sets_true(node):
+        return (
+            isinstance(node, ast.Assign)
+            and any(getattr(t, "id", None) == "transcript_persisted" for t in node.targets)
+            and isinstance(node.value, ast.Constant) and node.value.value is True
+        )
+
+    guarding = [
+        t for t in ast.walk(fn)
+        if isinstance(t, ast.Try)
+        and any(node is calls[0] for stmt in t.body for node in ast.walk(stmt))
+    ]
+    assert guarding, "the on_turn_complete call must stay inside its own try"
+    # the innermost such try — the outer one wraps the whole turn
+    innermost = max(guarding, key=lambda t: t.lineno)
+
+    in_body = [n for stmt in innermost.body for n in ast.walk(stmt) if _sets_true(n)]
+    assert len(in_body) == 1, (
+        "exactly one transcript_persisted = True belongs in the persist try's "
+        "BODY, right after the call: putting it after the try/except would set "
+        "it even when the handler swallowed a failed persist"
+    )
+    assert in_body[0].lineno > calls[0].lineno, "set it AFTER the call returns"
+
+    handled = [
+        n for h in ast.walk(fn) if isinstance(h, ast.ExceptHandler)
+        for stmt in h.body for n in ast.walk(stmt) if _sets_true(n)
+    ]
+    assert not handled, "an except handler must not mark a failed persist as done"

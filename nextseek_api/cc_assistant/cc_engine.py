@@ -1136,6 +1136,26 @@ def run_cc_turn(
     # sweep_since) from older strays. Sidecar + Django share the host clock.
     sweep_since = time.time()
 
+    # #68: line counts of this chat's transcript store BEFORE the agent is
+    # spawned. ``--resume`` appends this turn's records to the SAME session
+    # jsonl the previous turns wrote, so this is the only moment at which the
+    # boundary between "already stored in an earlier row" and "this turn" can be
+    # observed. Taken after the previous turn's finally scrubbed the store,
+    # which is safe because the scrub is line-count preserving (see the
+    # ``_turn_slice`` block comment).
+    #
+    # The root expression MUST match the one ``_read_turn_transcript`` resolves:
+    # ``_transcript_line_counts`` keys are un-normalised ``str(path)``, so a
+    # different spelling misses every lookup and silently degrades every row
+    # back to the whole cumulative session.
+    pre_turn_lines = _transcript_line_counts(
+        Path(dirs.cc_state_mnt) / "projects" if dirs.cc_state_mnt else None)
+    # #68: whether a CCSessionTranscript row exists for this turn yet. Bound
+    # BEFORE the try because the finally reads it: an exception raised between
+    # the try and an in-try assignment would make the finally raise
+    # UnboundLocalError and mask the real failure.
+    transcript_persisted = False
+
     translator = CCStreamTranslator()
     translator._turn_start_ts = time.time()
     terminal: tuple[str, dict[str, Any]] | None = None
@@ -1258,30 +1278,32 @@ def run_cc_turn(
             from django.utils import timezone
             from . import cc_summary, cc_trace
             from .cc_turn_complete import TurnCompletePayload
-            turn_start = translator._turn_start_ts
-            jsonl_path = None
-            for _ in range(3):
-                jsonl_path = _newest_jsonl_under(
-                    Path(dirs.cc_state_mnt) / "projects", min_mtime=turn_start - 1)
-                if jsonl_path:
-                    break
-                time.sleep(0.2)
-            raw = jsonl_path.read_bytes() if jsonl_path else b""
-            # #72: scrub secret VALUES (the per-request NExtSEEK password et al.)
-            # out of the raw transcript BEFORE either sink — the on-disk raw/ copy
-            # AND the assistant_cc_transcript blob below (raw_jsonl=raw). Without
-            # this a single tool call echoing the env writes the user's plaintext
-            # password into a permanent DB row.
-            raw = _scrub_secret_bytes(raw, environment)
-            if raw:
+            # Locate + read + scrub (#72) + slice (#68) in one place, shared with
+            # the failure fallback in the finally. ``captured.session`` is the
+            # whole --resume session file; ``captured.turn`` is only the records
+            # THIS turn appended. Both are already scrubbed, so neither sink can
+            # write the user's plaintext password to disk or into a DB row.
+            captured = _read_turn_transcript(
+                dirs.cc_state_mnt,
+                turn_start=translator._turn_start_ts,
+                prior_lines=pre_turn_lines,
+                environment=environment,
+            )
+            if captured.turn:
                 raw_copy = Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
                 raw_copy.parent.mkdir(parents=True, exist_ok=True)
                 if not _safe_relpath(raw_copy.name):
                     raise ValueError("bad transcript basename")
-                # write the SCRUBBED bytes (not shutil.copy2 of the raw file) so
-                # the on-disk copy carries no secrets either.
-                raw_copy.write_bytes(raw)
-            parsed = cc_summary.parse_transcript(raw) if raw else None
+                # The SCRUBBED per-TURN slice (not shutil.copy2 of the raw file):
+                # this copy is named for run_id, so it must hold that run's
+                # records rather than the whole conversation so far.
+                raw_copy.write_bytes(captured.turn)
+            # ...but the trace keeps the FULL session. extract_trace's steps,
+            # transcript_line_count and turn_count are conversation-scoped;
+            # feeding it the slice would change every Debug-panel trace, which is
+            # a separate defect and deliberately out of scope for #68.
+            parsed = (cc_summary.parse_transcript(captured.session)
+                      if captured.session else None)
             trace = cc_trace.extract_trace(
                 parsed, cc_session_id=translator.session_id or "",
                 ts=timezone.now().isoformat(),
@@ -1306,8 +1328,13 @@ def run_cc_turn(
                         cc_traces=[trace.model_dump()],
                         turn_id=str(run_id),
                         cc_session_id=translator.session_id,
-                        raw_jsonl=raw,
+                        raw_jsonl=captured.turn,
                     ))
+                    # #68: only once the write RETURNED. The finally's fallback
+                    # capture keys off this flag, so setting it any earlier (or
+                    # in the handler below) would skip exactly the turn whose row
+                    # is missing.
+                    transcript_persisted = True
                 except Exception:
                     logger.exception("CC persist failed after a successful turn "
                                      "(run_id=%s); delivering reply, trace not persisted", run_id)
@@ -1527,6 +1554,93 @@ def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
         except OSError:
             continue
     return counts
+
+
+class CapturedTranscript(NamedTuple):
+    """One turn's transcript capture, in the two shapes its readers need.
+
+    ``session`` is the WHOLE ``--resume`` session file (scrubbed) and feeds
+    ``cc_summary.parse_transcript`` / ``cc_trace.extract_trace``, which count
+    turns and steps across the conversation and would report differently off a
+    slice. ``turn`` is only the records this turn appended (scrubbed) and feeds
+    the two per-TURN-keyed sinks — the ``raw/transcript-<run_id>.jsonl`` copy and
+    the ``CCSessionTranscript`` blob — which otherwise store turns 1..N in row N.
+
+    Both are ``b""`` when there was nothing to capture, and by ``_turn_slice``'s
+    invariant ``turn`` is empty only when ``session`` is: a caller can gate on
+    either without risking a content-free transcript row.
+    """
+
+    session: bytes
+    turn: bytes
+
+
+def _read_turn_transcript(
+    cc_state_mnt: str | os.PathLike[str] | None,
+    *,
+    turn_start: float,
+    prior_lines: Mapping[str, int],
+    environment: Mapping[str, str],
+    attempts: int = 3,
+) -> CapturedTranscript:
+    """Locate, read, scrub and slice this turn's Claude Code session jsonl.
+
+    The one place that turns "a turn just ran" into bytes worth persisting, so
+    the success path and the #68 failure fallback in ``run_cc_turn``'s ``finally``
+    cannot drift apart.
+
+    ``turn_start`` is the pre-spawn timestamp; only a jsonl at least that recent
+    (minus a second of clock slack, as before) can be this turn's. The agent may
+    not have flushed the file by the time the stream ends, hence the retry —
+    ``attempts`` tries 0.2 s apart, with NO sleep after the last one.
+
+    ``prior_lines`` is the pre-spawn ``_transcript_line_counts`` snapshot; the
+    boundary for this file is ``prior_lines.get(str(resolved_path), 0)``. Those
+    keys are NOT normalised, so the ``projects`` root resolved here must be the
+    same expression the caller snapshotted — a mismatch silently reads as 0 and
+    degrades to storing the whole cumulative session.
+
+    The scrub (#72) runs ONCE over the full file and the slice is taken from the
+    scrubbed bytes: ``_scrub_secret_bytes`` is line-count preserving, so slicing
+    before or after is equivalent, and this way secrets cannot survive in either
+    member for the cost of one pass.
+
+    Total by contract — it runs on the reply path and, from the ``finally``, on
+    paths that are already failing. Returns ``CapturedTranscript(b"", b"")``
+    rather than raising when ``cc_state_mnt`` is falsy, the ``projects`` dir does
+    not exist (turn 1 of a chat), no recent-enough jsonl appears within
+    ``attempts``, or the read fails.
+    """
+    if not cc_state_mnt:
+        return CapturedTranscript(b"", b"")
+    root = Path(cc_state_mnt) / "projects"
+    # Checked up front rather than left to rglob: on turn 1 the store does not
+    # exist yet, and retrying an absent directory would spend the back-off
+    # budget as pure latency on the user's reply.
+    if not root.is_dir():
+        return CapturedTranscript(b"", b"")
+
+    jsonl_path = None
+    for attempt in range(attempts):
+        jsonl_path = _newest_jsonl_under(root, min_mtime=turn_start - 1)
+        if jsonl_path:
+            break
+        if attempt < attempts - 1:
+            time.sleep(0.2)
+    if not jsonl_path:
+        return CapturedTranscript(b"", b"")
+
+    try:
+        raw = jsonl_path.read_bytes()
+    except OSError:
+        logger.warning("cc #68: could not read transcript %s", jsonl_path, exc_info=True)
+        return CapturedTranscript(b"", b"")
+
+    session = _scrub_secret_bytes(raw, environment)
+    return CapturedTranscript(
+        session=session,
+        turn=_turn_slice(session, prior_lines.get(str(jsonl_path), 0)),
+    )
 
 
 def _publish_artifacts(
