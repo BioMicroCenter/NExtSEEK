@@ -84,13 +84,52 @@ def test_validate_refuses_mutated_posterior_row():
     assert any("posterior rows" in reason for reason in result.reasons)
 
 
-def test_validate_refuses_payload_drift_from_canonical_hash_inputs():
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("attempt_hash", "mutated-attempt"),
+        ("aggregate_hash", "mutated-aggregate"),
+        ("counts", {"retained_pairs": 999}),
+    ],
+)
+def test_validate_refuses_payload_drift_from_canonical_hash_inputs(field, replacement):
     generation = publish_generation(_manifest())
-    generation.payload = {**generation.payload, "counts": {"retained_pairs": 999}}
+    generation.payload = {**generation.payload, field: replacement}
     generation.save(update_fields=["payload"])
     result = validate_generation_for_activation(generation)
     assert not result.ok
-    assert any("payload counts" in reason for reason in result.reasons)
+    assert any(f"payload {field}" in reason for reason in result.reasons)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("input_hash", "mutated-input"),
+        ("config_fingerprint", "mutated-config"),
+        ("decision_status", "legacy_fallback"),
+    ],
+)
+def test_validate_refuses_stored_generation_field_drift(field, replacement):
+    generation = publish_generation(_manifest())
+    setattr(generation, field, replacement)
+    generation.save(update_fields=[field])
+
+    result = validate_generation_for_activation(generation)
+
+    assert not result.ok
+    assert any(f"stored {field}" in reason for reason in result.reasons)
+
+
+def test_validate_refuses_stored_parent_drift():
+    parent = publish_generation(_manifest(input_hash="parent"))
+    child = create_generation(_manifest(input_hash="child"), parent=parent)
+    child.parent = None
+    child.save(update_fields=["parent"])
+
+    result = validate_generation_for_activation(child)
+
+    assert not result.ok
+    assert any("stored parent_hash" in reason for reason in result.reasons)
 
 
 def test_validate_refuses_partial_publish():

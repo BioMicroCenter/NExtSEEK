@@ -1,4 +1,6 @@
 """Runtime-critical Bayesian router wiring and fail-open behavior."""
+import asyncio
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -28,12 +30,52 @@ def _snapshot(**overrides):
     return GenerationSnapshot(**values)
 
 
-def test_generated_type_builder_contains_every_corpus_family():
-    builder = runtime_type_builder()
+def test_generated_type_builder_contains_every_corpus_family(monkeypatch):
+    monkeypatch.setenv("GCP_API_KEY", "type-builder-contract-only")
+    snapshot = corpus_snapshot()
+    builder = runtime_type_builder(snapshot)
+    from dmac_assistant.router.baml_client import b
     from dmac_assistant.router.baml_client.type_builder import TypeBuilder
+    from dmac_assistant.router.baml_client.types import ClassificationInput
 
     assert isinstance(builder, TypeBuilder)
-    assert builder.ClassifiedFamily.type() is not None
+    request = asyncio.run(
+        b.request.ClassifyQuery(
+            input=ClassificationInput(user_query="contract probe", history=[]),
+            baml_options={"tb": builder},
+        )
+    )
+    prompt = request.body.json()["contents"][0]["parts"][0]["text"]
+    enum_section = prompt.split("ClassifiedFamily\n----\n", 1)[1].split(
+        "\n\nAnswer in JSON", 1
+    )[0]
+    effective_families = {
+        line[2:].split(":", 1)[0]
+        for line in enum_section.splitlines()
+        if line.startswith("- ")
+    }
+    assert effective_families == set(snapshot.families)
+
+    parsed_families = {
+        str(
+            getattr(
+                b.parse.ClassifyQuery(
+                    json.dumps({"task_family": family, "reasoning": "runtime enum proof"}),
+                    baml_options={"tb": builder},
+                ).task_family,
+                "value",
+                family,
+            )
+        )
+        for family in snapshot.families
+    }
+    assert parsed_families == set(snapshot.families)
+
+    unrelated = b.parse.ClassifyQuery(
+        json.dumps({"task_family": None, "reasoning": "unrelated"}),
+        baml_options={"tb": builder},
+    )
+    assert unrelated.task_family is None
 
 
 def test_classifier_supplies_generated_type_builder_to_baml(monkeypatch):
@@ -49,7 +91,11 @@ def test_classifier_supplies_generated_type_builder_to_baml(monkeypatch):
     monkeypatch.setattr(b, "ClassifyQuery", classify)
     result = cc_router._classify_query("find mice")
     assert result[:2] == ("sample_search", "baml")
-    assert captured["tb"].ClassifiedFamily is not None
+    parsed = b.parse.ClassifyQuery(
+        json.dumps({"task_family": "sample_search", "reasoning": "captured builder"}),
+        baml_options={"tb": captured["tb"]},
+    )
+    assert getattr(parsed.task_family, "value", parsed.task_family) == "sample_search"
 
 
 def test_store_exception_falls_back_without_blocking(monkeypatch):
@@ -75,10 +121,11 @@ def test_selector_rejects_corrupt_or_incompatible_snapshot(overrides):
 
 def test_router_falls_back_when_selector_itself_raises(settings, monkeypatch):
     settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = True
-    monkeypatch.setattr(cc_router, "corpus_snapshot", mock.Mock())
-    monkeypatch.setattr(cc_router, "runtime_type_builder", mock.Mock())
+    current = corpus_snapshot()
+    monkeypatch.setattr(cc_router, "corpus_snapshot", lambda: current)
     monkeypatch.setattr(cc_router, "_classify_query", lambda *_: ("sample_search", "baml", "ok"))
-    monkeypatch.setattr(posterior_selector, "select_route", mock.Mock(side_effect=RuntimeError("db")))
+    selector = mock.Mock(side_effect=RuntimeError("db"))
+    monkeypatch.setattr(posterior_selector, "select_route", selector)
     fallback = cc_router.RouteDecision(
         route=cc_router.ROUTE_NS,
         model_class=None,
@@ -90,6 +137,7 @@ def test_router_falls_back_when_selector_itself_raises(settings, monkeypatch):
     assert cc_router.decide("find mice") == fallback.__class__(
         **{**fallback.__dict__, "task_family": "sample_search", "family_source": "baml", "reasoning": "posterior fallback: legacy"}
     )
+    selector.assert_called_once_with("sample_search")
 
 
 def test_deploy_templates_default_posterior_router_off():

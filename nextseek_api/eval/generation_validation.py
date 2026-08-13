@@ -75,6 +75,20 @@ def validate_generation_for_activation(
     if not isinstance(canonical, dict):
         reasons.append("hash: canonical hash inputs missing")
     else:
+        stored_generation_fields = {
+            "input_hash": generation.input_hash,
+            "config_fingerprint": generation.config_fingerprint,
+            "decision_status": generation.decision_status,
+            "parent_hash": (
+                generation.parent.generation_hash if generation.parent_id else None
+            ),
+        }
+        for key, stored_value in stored_generation_fields.items():
+            if stored_value != canonical.get(key):
+                reasons.append(
+                    f"hash: stored {key} differs from canonical generation"
+                )
+
         actual_groups = _canonical_groups(
             {
                 "name": row.task_family,
@@ -87,7 +101,16 @@ def validate_generation_for_activation(
         )
         if actual_groups != _canonical_groups(canonical.get("groups") or []):
             reasons.append("hash: family posterior rows differ from canonical generation")
-        for key in ("compatibility_keys", "counts", "exclusions", "fit_diagnostics", "decision_results", "source_provenance"):
+        for key in (
+            "attempt_hash",
+            "aggregate_hash",
+            "compatibility_keys",
+            "counts",
+            "exclusions",
+            "fit_diagnostics",
+            "decision_results",
+            "source_provenance",
+        ):
             if (payload.get(key) or {}) != (canonical.get(key) or {}):
                 reasons.append(f"hash: payload {key} differs from canonical generation")
 
@@ -107,12 +130,6 @@ def validate_generation_for_activation(
                 reasons.append("compatibility: corpus_hash does not match current corpus")
         except Exception as exc:  # noqa: BLE001
             reasons.append(f"compatibility: current corpus unavailable ({type(exc).__name__})")
-
-    if generation.parent_id:
-        parent_hash = generation.parent.generation_hash
-        payload_parent = payload.get("parent_hash")
-        if payload_parent and payload_parent != parent_hash:
-            reasons.append("parent: payload parent_hash mismatch")
 
     if payload.get("stale") is True:
         reasons.append("staleness: generation marked stale")
