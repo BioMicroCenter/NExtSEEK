@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 import sys
@@ -148,6 +149,98 @@ def test_coverage_lane_uses_owned_coverage_driver_not_pytest_cov():
     manifest = json.loads(MANIFEST.read_text())
     for source in manifest["coverage_contract"]["required_source_paths"]:
         assert source in driver
+
+
+def test_coverage_lane_binds_exact_pytest_selection_and_only_ratified_ignores():
+    spec = importlib.util.spec_from_file_location("plan008_coverage_driver", ROOT / "scripts/run_attribute_coverage.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    manifest = json.loads(MANIFEST.read_text())
+    deadline = manifest["deadline_contract"]
+    assert list(module.PYTEST_SELECTION) == deadline["t08_coverage_roots"]
+    assert list(module.PYTEST_IGNORES) == deadline["t08_coverage_ignores"]
+    assert len(module.PYTEST_IGNORES) == 2
+
+
+def test_deadline_freeze_rejects_deferred_tasks_and_expensive_lanes_before_boundary():
+    manifest = json.loads(MANIFEST.read_text())
+    assert manifest["deadline_execution_freeze"] is True
+    text = RUNNER.read_text()
+    for value in ("task-10", "task-11", "task-11p", "benchmark", "raw-full"):
+        assert value in text
+    assert text.index("deadline_freeze=") < text.index("evidence_root=")
+
+
+def test_deadline_coverage_and_mutant_proof_gates_are_machine_bound():
+    manifest = json.loads(MANIFEST.read_text())
+    deadline = manifest["deadline_contract"]
+    assert {
+        key: deadline["t08_coverage_baselines"]["nextseek_api/attributes/jobs.py"][key]
+        for key in (
+            "minimum_covered_statements", "maximum_statements", "maximum_missing_statements",
+            "minimum_covered_branches", "maximum_branches",
+        )
+    } == {
+        "minimum_covered_statements": 220,
+        "maximum_statements": 255,
+        "maximum_missing_statements": 35,
+        "minimum_covered_branches": 49,
+        "maximum_branches": 78,
+    }
+    assert deadline["t09p_coverage"]["minimum_percent_each"] == 95.0
+    coverage_driver = (ROOT / "scripts/run_attribute_coverage.py").read_text()
+    validator = (ROOT / "scripts/validate_attribute_api_evidence.py").read_text()
+    mutant_runner = (ROOT / "scripts/run_attribute_mutants.py").read_text()
+    for token in ("t08_coverage_baselines", "t09p_coverage", "minimum_covered_statements"):
+        assert token in coverage_driver and token in validator
+    for phase in ("original", "mutated", "restored"):
+        assert phase in mutant_runner and phase in validator
+
+
+def test_t08_deadline_coverage_rejects_residual_regression():
+    spec = importlib.util.spec_from_file_location("plan008_coverage_driver", ROOT / "scripts/run_attribute_coverage.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    module.ROOT = ROOT / ".claude/worktrees/task-08-async-orchestration"
+    manifest = json.loads(MANIFEST.read_text())
+    payload = {"files": {
+        "nextseek_api/attributes/jobs.py": {"summary": {
+            "covered_lines": 219, "num_statements": 255, "missing_lines": 36,
+            "covered_branches": 49, "num_branches": 78, "excluded_lines": 0,
+        }, "missing_lines": [143, 144, 145, 147, 150, 151, 157, 158, 160, 166, 220, 247, 248, 252, 253, 254, 255, 274, 306, 318, 376, 383, 457, 467, 482, 502, 504, 505, 508, 509, 510, 511, 517, 518, 519, 520], "missing_branches": [], "excluded_lines": [122, 181]},
+        "nextseek_api/attributes/tasks.py": {"summary": {
+            "covered_lines": 5, "num_statements": 8, "missing_lines": 3,
+            "covered_branches": 0, "num_branches": 0, "excluded_lines": 0,
+        }, "missing_lines": [17, 19, 20], "missing_branches": [], "excluded_lines": []},
+    }}
+    with pytest.raises(SystemExit, match="task-08 residual coverage regressed"):
+        module.enforce_deadline_coverage("task-08", manifest, payload)
+
+
+def test_t09p_primary_nodes_are_exactly_bound_to_assigned_lanes():
+    manifest = json.loads(MANIFEST.read_text())
+    deadline = manifest["deadline_contract"]
+    primary = deadline["t09p_primary_nodes"]
+    assert {lane: len(nodes) for lane, nodes in primary.items()} == {
+        "unit": 7, "db": 7, "worker": 2, "openapi": 3,
+    }
+    assert sum(map(len, primary.values())) == 19
+    runner = manifest["runner_contract"]
+    for lane in ("db", "worker", "openapi"):
+        selected = runner[f"{lane}_lane_contract"]["task-09p"]["node_arguments"]
+        assert selected == primary[lane]
+    unit_selected = runner["unit_lane_contract"]["task-09p"]["node_arguments"]
+    assert len(unit_selected) == len(set(unit_selected)) == 24
+    assert set(unit_selected) == set(primary["unit"] + deadline["t09p_supplemental_nodes"]["unit"])
+    assert len(deadline["t09p_supplemental_nodes"]["unit"]) == 17
+    assert deadline["t09p_parameterized_primary"] == {
+        "nextseek_api/attributes/tests/test_views_db.py::test_unset_threshold_zero_creates_durable_pending_job_and_relative_status_url": [
+            "positive-row", "zero-row", "definition-only",
+        ]
+    }
+    assert deadline["t09p_exact_focused_passed"] == 40
 
 
 def test_runner_rejects_unknown_lane_without_running_pytest():

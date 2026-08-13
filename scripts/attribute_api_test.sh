@@ -64,12 +64,25 @@ if [[ -f "$repo_root/.git" ]]; then
   fi
 fi
 branch_name="$(git branch --show-current)"
-if [[ "$branch_name" =~ ^task/([0-9]{2})- ]]; then
+if [[ "$branch_name" =~ ^task/09p- ]]; then
+  task_id="task-09p"
+elif [[ "$branch_name" =~ ^task/([0-9]{2})- ]]; then
   task_id="task-${BASH_REMATCH[1]}"
 elif [[ "$branch_name" =~ -t([0-9][0-9])$ ]]; then
   task_id="task-${BASH_REMATCH[1]}"
 else
   task_id="${ATTRIBUTE_TEST_TASK_ID:-task-00}"
+fi
+deadline_freeze="$(python3 - <<'PY'
+import json
+print("1" if json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")).get("deadline_execution_freeze") else "0")
+PY
+)" || exit 65
+if [[ "$deadline_freeze" == "1" ]]; then
+  if [[ "$task_id" == "task-10" || "$task_id" == "task-11" || "$task_id" == "task-11p" || "$lane" == "benchmark" || "$lane" == "raw-full" ]]; then
+    echo "Plan 008 deadline freeze rejects deferred task/lane before boundary creation" >&2
+    exit 64
+  fi
 fi
 if [[ "$lane" == "unit" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
@@ -111,6 +124,16 @@ for node in contract[sys.argv[1]]["node_arguments"]:
 PY
   )
   [[ ${#test_args[@]} -gt 0 ]] || { echo "missing exact DB lane selection for $task_id" >&2; exit 64; }
+fi
+if [[ "$lane" == "worker" ]]; then
+  mapfile -t test_args < <(python3 - "$task_id" <<'PY'
+import json, sys
+manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
+for node in manifest["runner_contract"]["worker_lane_contract"][sys.argv[1]]["node_arguments"]:
+    print(node)
+PY
+  )
+  [[ ${#test_args[@]} -gt 0 ]] || { echo "missing exact worker lane selection for $task_id" >&2; exit 64; }
 fi
 if [[ "$lane" == "schema" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
@@ -179,7 +202,9 @@ started_at="$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
 
 if [[ "$lane" != "lint" && "$lane" != "coverage" && "$lane" != "mutants" ]]; then
   command=(python -m pytest -q -p no:cacheprovider)
-  if [[ "$lane" == "full" ]]; then command+=(-p scripts.attribute_pytest_reporter); fi
+  if [[ "$lane" == "full" || ( "$task_id" == "task-09p" && "$lane" =~ ^(unit|db|worker|openapi)$ ) ]]; then
+    command+=(-p scripts.attribute_pytest_reporter)
+  fi
   command+=("${test_args[@]}")
 fi
 reference_image_id="$(docker image inspect --format '{{.Id}}' nextseek-nextseek)" || exit 65
