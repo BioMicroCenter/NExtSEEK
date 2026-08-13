@@ -348,11 +348,6 @@ WRITE = "write"
 # non-mutating in read_safe_endpoints.json, which records the audited rationale
 # and the viewset method verified for each.
 POST_AS_READ = "post-as-read"
-# Reads as a query endpoint, but read_safe_endpoints.json carries NO entry for
-# it, so nothing has formally attested it. Called out as its own label rather
-# than folded into POST_AS_READ: writing it there would manufacture an
-# attestation the audit never made. See the test below.
-POST_AS_READ_UNATTESTED = "post-as-read-unattested"
 
 ADVERTISED_MUTATIONS = {
     ("DELETE", "/nextseek_api/samples/{uid}/"): WRITE,
@@ -375,7 +370,9 @@ ADVERTISED_MUTATIONS = {
     ("POST", "/nextseek_api/samples/"): WRITE,
     ("POST", "/nextseek_api/samples/advanced_search/"): POST_AS_READ,
     ("POST", "/nextseek_api/schema_rag/ingest/"): WRITE,
-    ("POST", "/nextseek_api/schema_rag/retrieve/"): POST_AS_READ_UNATTESTED,
+    # #86, audited 2026-08-13: WRITE, not post-as-read. See
+    # SCHEMA_RAG_RETRIEVE_AUTO_INGEST below for the finding and the evidence.
+    ("POST", "/nextseek_api/schema_rag/retrieve/"): WRITE,
     ("POST", "/nextseek_api/sops/"): WRITE,
 }
 
@@ -437,32 +434,68 @@ def test_post_as_read_endpoints_are_attested_in_the_read_safety_audit():
             )
 
 
-def test_the_unattested_post_as_read_endpoint_is_still_unattested():
-    """Self-cleaning exemption, like KNOWN_DIVERGENCES above.
+# ---------------------------------------------------------------------------
+# #86: the read-safety audit of POST /nextseek_api/schema_rag/retrieve/
+# ---------------------------------------------------------------------------
+# The endpoint used to carry a third label, POST_AS_READ_UNATTESTED: it reads
+# like a query, sits next to the three POSTs the 2026-07-06 audit cleared, and
+# that audit never covered it. #86 asked for the audit to be done and the
+# endpoint either attested in read_safe_endpoints.json or dropped from the
+# agent's context.
+#
+# Audited 2026-08-13. It is NOT read-safe, so it is labelled WRITE above and
+# deliberately stays out of read_safe_endpoints.json. retrieve_endpoints
+# auto-ingests: given a schema_url whose session is missing or expired — the
+# first-call case, since RetrieveRequest accepts schema_url with no session_id
+# (nextseek_api/models.py:2123-2136) — it calls ingest_schema, the same function
+# behind POST /schema_rag/ingest/, which this table already labels WRITE. That
+# path deletes .duckdb files (session.py cleanup_expired_sessions), performs an
+# uncredentialed server-side HTTP GET of the caller-supplied URL (the fetch #94
+# is about), creates a DuckDB file and inserts rows (session.py create_session,
+# db.py init_session_db / insert_endpoints).
+#
+# Attesting it read-safe would have un-gated all of that for the agent's
+# api-read op, which write_gate blocks today precisely because the endpoint is
+# absent from the allowlist. Removing it from min_api_endpoints.json instead is
+# a maintainer ruling, not a test change, and is left open.
+SCHEMA_RAG_RETRIEVE = ("POST", "/nextseek_api/schema_rag/retrieve/")
+SCHEMA_RAG_SERVICE = REPO_ROOT / "nextseek_api" / "schema_rag" / "service.py"
+SCHEMA_RAG_RETRIEVE_AUTO_INGEST = "ingest_schema("
 
-    POST schema_rag/retrieve/ runs a semantic search over an already-ingested
-    OpenAPI schema and returns matching endpoints. By behaviour it is a query,
-    and it sits next to the three POSTs the 2026-07-06 read-safety audit did
-    clear — but that audit never covered it, so no attestation exists. It is
-    advertised to the agent regardless.
 
-    This fails the moment someone audits it and adds the entry, forcing the
-    label to be corrected to POST_AS_READ instead of the exemption quietly
-    outliving the gap it describes.
-    """
-    unattested = sorted(
-        pair for pair, label in ADVERTISED_MUTATIONS.items()
-        if label == POST_AS_READ_UNATTESTED
+def test_schema_rag_retrieve_is_classified_write():
+    """The audit's conclusion, pinned so it cannot be quietly softened."""
+    assert ADVERTISED_MUTATIONS[SCHEMA_RAG_RETRIEVE] == WRITE, (
+        "POST /schema_rag/retrieve/ was audited on 2026-08-13 and found to "
+        "auto-ingest (see the comment above). Re-labelling it as a read "
+        "requires re-doing that audit, not editing this line."
     )
-    assert unattested == [("POST", "/nextseek_api/schema_rag/retrieve/")]
-    entries = json.loads((BAKED_DIR / "read_safe_endpoints.json").read_text())
-    attested = {
-        (method.upper(), e["endpoint"])
-        for e in entries
-        for method in e.get("methods", [])
-    }
-    for pair in unattested:
-        assert pair not in attested, (
-            f"{pair} now HAS a read-safety attestation — relabel it "
-            "POST_AS_READ and delete this test."
-        )
+
+
+def test_schema_rag_retrieve_still_auto_ingests():
+    """Self-cleaning attestation, like test_known_divergences_still_actually_diverge.
+
+    The WRITE label above rests on one fact: retrieve_endpoints can call
+    ingest_schema. If that branch is ever removed, this fails and forces the
+    classification to be re-derived rather than silently inherited from an audit
+    whose premise no longer holds.
+
+    Read as source text rather than imported so this module stays stdlib-only.
+    """
+    text = SCHEMA_RAG_SERVICE.read_text(encoding="utf-8")
+    marker = "\ndef retrieve_endpoints("
+    start = text.find(marker)
+    assert start != -1, (
+        f"retrieve_endpoints is gone from {SCHEMA_RAG_SERVICE} — re-run the "
+        "read-safety audit of POST /schema_rag/retrieve/ against whatever "
+        "replaced it."
+    )
+    end = text.find("\ndef ", start + len(marker))
+    body = text[start:end if end != -1 else len(text)]
+    assert SCHEMA_RAG_RETRIEVE_AUTO_INGEST in body, (
+        "retrieve_endpoints no longer calls ingest_schema, which is the whole "
+        "basis for classifying POST /schema_rag/retrieve/ as WRITE above.\n"
+        "Re-run the read-safety audit: if it is now genuinely non-mutating it "
+        "can become POST_AS_READ with an entry in read_safe_endpoints.json; "
+        "until someone checks, leave it WRITE."
+    )
