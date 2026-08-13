@@ -138,3 +138,7 @@ follow it exactly (rollback tags before rebuilds, mysqldump gate before
 migration deploys, scoped service recreation, the post-deploy verification
 checklist, and the Container-CC isolation invariants). The Container-CC
 subsystem specifics live in `nextseek_api/cc_assistant/DEPLOY.md`.
+
+## Session reports / handoffs
+
+- 2026-08-04 — Superuser-only Users admin ViewSet merged to dev and pushed (6d99f85); mints SEEK logins via Rails runner. HTTP E2E deferred until deploy on shared box. See `.claude/reports/2026-08-04-users-admin-viewset-shipped.json`.

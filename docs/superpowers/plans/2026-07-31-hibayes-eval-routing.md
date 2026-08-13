@@ -833,20 +833,20 @@ the 127-pair predecessor, or any replacement corpus through NExtSEEK and Contain
 Producer mechanics are exercised hermetically with stored records and synthetic fixtures; they do
 not satisfy or require a new paired benchmark.
 
-- [ ] Port the reviewed ordinary-Nessie harness as an explicit task with source-by-source tests.
+- [x] Port the reviewed ordinary-Nessie harness as an explicit task with source-by-source tests.
   Its existing `manifest.json` remains an ordinary run artifact and must never be renamed and
   presented as Bayesian evidence.
-- [ ] Implement a NExtSEEK-owned paired producer. It must execute the same immutable question
+- [x] Implement a NExtSEEK-owned paired producer. It must execute the same immutable question
   identity exactly once per requested arm using two unique session/execution IDs and a server-side
   route override that cannot be undone by sticky-session or downstream router state.
-- [ ] Record requested route, actual route, route source, question/corpus hashes, execution/session
+- [x] Record requested route, actual route, route source, question/corpus hashes, execution/session
   IDs, source SHA/diff hash, image digest, model/client identity, timestamps, status, and raw result
   references for both arms and for every turn in a multi-turn arm. Validate every per-turn route and
   route source against the forced arm; a final-summary label is not enough.
-- [ ] Reject missing, duplicate, swapped, copied, same-session, or same-execution arms;
+- [x] Reject missing, duplicate, swapped, copied, same-session, or same-execution arms;
   requested/actual route mismatches on any turn; unapproved models; changed questions; sticky
   overrides; and partial pairs. A missing arm is pending/excluded, never a loss.
-- [ ] Emit a non-empty, schema-versioned `bayes_manifest.json` only from real completed paired
+- [x] Emit a non-empty, schema-versioned `bayes_manifest.json` only from real completed paired
   executions. Validate with strict models (`extra=forbid`), canonical hashes, referential integrity,
   and conservation counts. No hand-authored `BayesManifest` fixture may prove the producer.
 
@@ -857,9 +857,19 @@ route. Future promoted occurrences still execute independently through both forc
 finished product is later used; that future behavior is not a rerun or acceptance condition for the
 completed `set3_final` evidence.
 
+> **Progress (2026-08-13):** V4-2 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`).
+> Lane C **48/48** incl. authenticated HTTP cross + product mutation killers; set3 schema_version note;
+> SDD final review APPROVED. Evidence: `plan018-v4-2-closeout.json`, `plan018-v4-2-lane-c.sidecar.json`.
+> Published V14 SHA remains `af99a24b…` (local progress only; not republished).
+
 ### V4-3 — Judgment attempts, exact DD-44 aggregation, and outcome conservation
 
-- [ ] Keep DD-44 at exactly three sequential evaluator calls per eligible arm. There is no pilot or
+> **Progress (2026-08-13):** V4-3 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`).
+> Full DD-44 mutant matrix **14/14**; human-annotation validators; V8-D goldens; attrition/sensitivity;
+> pytest-cov **≥95%** on critical modules; Lane C **80/80**. Evidence: `plan018-v4-3-closeout.json`,
+> `plan018-v4-3-dd44-mutation-manifest.json`. Published V14 SHA remains `af99a24b…` (local only).
+
+- [x] Keep DD-44 at exactly three sequential evaluator calls per eligible arm. There is no pilot or
   amendment escape hatch inside this plan; only the maintainer may independently reopen the
   decision later. Store every immutable canonical raw request and response payload (or a
   durable content-addressed artifact reference that is retrieved and hash-verified during replay),
@@ -867,29 +877,36 @@ completed `set3_final` evidence.
   fingerprint, model/client, prompt/evaluator versions, start/end timestamps, retry linkage,
   token/cost facts, status/error class, and payload hashes. A hash without retrievable bytes is not
   replay evidence.
-- [ ] Implement and golden-test the actual DD-44 aggregation stated in the verified facts above.
+- [x] Implement and golden-test the actual DD-44 aggregation stated in the verified facts above.
   Do not add, infer, or route on a nonexistent confidence output.
-- [ ] Define one total outcome mapping from DD-44 output to desired/not-desired/excluded. Unknown
+- [x] Define one total outcome mapping from DD-44 output to desired/not-desired/excluded. Unknown
   enum values and incomplete aggregation fail closed; they are not coerced to success.
-- [ ] Inspect criterion-level `unevaluable`, zero-criteria, provider-outage, missing-arm, timeout,
+- [x] Inspect criterion-level `unevaluable`, zero-criteria, provider-outage, missing-arm, timeout,
   and infrastructure statuses before scoring. Publish counts for each exclusion reason.
-- [ ] Own human annotations with a strict, versioned, `extra=forbid` schema. Bind each annotation
+- [x] Own human annotations with a strict, versioned, `extra=forbid` schema. Bind each annotation
   to run, corpus, case, question hash, arm/execution, annotator authority/provenance, vocabulary
   version, timestamp, and immutable content hash; reject orphan, duplicate, stale, unauthorized, or
   conflicting annotations. The complete observed vocabulary (`pass`, `real`, `masked`, `policy`,
   `drift`, `notrun`) and every future/unknown value must have an approved total mapping to scored,
   excluded-by-reason, pending, or hard failure. Sidecar labels never override judge output silently.
-- [ ] Enforce the conservation equation for every run and each arm:
+- [x] Enforce the conservation equation for every run and each arm:
   `input = scored_desired + scored_not_desired + excluded_by_reason + pending`.
   Pair inclusion additionally requires two retained arms.
-- [ ] Apply V14's configurable default minimum of five retained pairs and two discordant pairs for
-  any winner. Report differential attrition and sensitivity bounds; never hide a route-specific
-  exclusion imbalance or use it to bypass the support rule.
+- [x] Apply V14's configurable default minimum of five retained pairs for any winner, and two
+  discordant pairs for **quality** winners only (ruling B, 2026-08-12). Latency winners after ROPE
+  require retained minimum plus ROPE and latency posteriors, not discordant count. Report differential
+  attrition and sensitivity bounds; never hide a route-specific exclusion imbalance or use it to
+  bypass the support rule.
 
 **V4-3 DONE:** raw-attempt replay deterministically reproduces aggregates and totals, deliberate
 failure/outage/unknown-status tests fail safely, and no excluded or pending case reaches the fit.
 
 ### V4-4 — Paired model and operational decision contract (resolved by V14)
+
+> **Progress (2026-08-13):** V4-4 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> recovery-feasibility JSON PASS; Lane A **30/30**; stale artifact banners; preflight pointers).
+> Ruling **B** amended V14 support. Evidence: `plan018-v4-4-remediation-closeout.json`,
+> `plan018-v4-4-recovery-mcmc.json`, `plan018-v4-4-cold-outcome-review.md` (PASS).
 
 `nextseek_api/eval/router_models_proposal.py` already defines the arm-level pydantic data contract.
 V4-4 is not another row-schema design exercise. It covers only the remaining pair-preserving
@@ -951,10 +968,11 @@ fingerprinted defaults. A clear quality winner is selected regardless of latency
 veto or overturn it. There are no taxonomy-specific exceptions; genuine one-route-only capability
 is protected by combined-success evidence itself.
 
-**Quality equivalence gate.** Latency may affect a winner only when support passes and
-`P(abs(quality_advantage_ns) <= 0.10 | evidence) >= 0.95`. The ROPE half-width `0.10` and
-equivalence probability `0.95` are configurable, versioned and fingerprinted. Outside a clear
-quality winner or this equivalence gate, the result is indecisive and uses the exact legacy fallback.
+**Quality equivalence gate.** Latency may affect a winner only when the retained-pair minimum passes
+and `P(abs(quality_advantage_ns) <= 0.10 | evidence) >= 0.95`. Discordant-pair count is not required
+on the latency path (ruling B). The ROPE half-width `0.10` and equivalence probability `0.95` are
+configurable, versioned and fingerprinted. Outside a clear quality winner or this equivalence gate,
+the result is indecisive and uses the exact legacy fallback.
 
 **Paired robust latency model.** Let
 `d = log(latency_ns / latency_cc) = log(latency_ns) - log(latency_cc)`. Model `d` with the paired
@@ -1047,8 +1065,9 @@ frequentist calibration, coverage, type-I error or power. V4-4 DONE requires:
 - independent recomputation matching eligibility and winner exactly for every fit, with negative
   controls publishing no winner; and
 - mutation tests proving cost and the `25%` slowdown warning cannot affect a winner, latency cannot
-  overturn a quality winner, insufficient support/discordance cannot win, the complete-set FDR rule
-  cannot cherry-pick, and `unrelated` always takes its permanent canned spend-gate path.
+  overturn a quality winner, insufficient retained support cannot win, insufficient discordance cannot
+  **quality**-win (latency may win with zero discordance when ROPE and speed hold), the complete-set
+  FDR rule cannot cherry-pick, and `unrelated` always takes its permanent canned spend-gate path.
 
 Before the suite proceeds, run five representative fits selected from the already frozen
 eight-by-five matrix and measure their durations. Those five are the first five of the required
@@ -1068,21 +1087,25 @@ route. V14 resolves the former V4-4 design STOP; it does not execute or authoriz
 
 ### V4-5 — Immutable generation publication and activation
 
+> **Progress (2026-08-13):** V4-5 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> prior cold PASS @ `a89fb3dc`). Lane C 32/32, Lane M **12/12** (payload-canonical tamper oracle),
+> verifier 22/22. Live DB activation and production routing enablement remain separately gated.
+
 Candidate activation means changing the active posterior-generation pointer. Candidate creation,
 test-database activation, and local or isolated-harness activation require no approval. Ask first
 before changing that pointer in the live NExtSEEK database. Production routing enablement is a
 separate live mutation and requires its own at-time question and approval.
 
-- [ ] Publish immutable candidate generations containing complete input/attempt/aggregate hashes,
+- [x] Publish immutable candidate generations containing complete input/attempt/aggregate hashes,
   all compatibility keys, counts/exclusions, fit diagnostics, decision results, source provenance,
   creation time, and parent generation. Candidate creation and active-generation selection are
   separate transactions and permissions.
-- [ ] Validate schema, hashes, taxonomy/corpus compatibility, staleness, sample/precision gates,
+- [x] Validate schema, hashes, taxonomy/corpus compatibility, staleness, sample/precision gates,
   and decision status before activation. Partial publication, mutable overwrite, or filename-only
   validation fails closed.
-- [ ] Use atomic compare-and-swap activation with an audit row and retain the prior active
+- [x] Use atomic compare-and-swap activation with an audit row and retain the prior active
   generation for rollback. Readers use one snapshotted generation per turn.
-- [ ] Preserve the V2 observational risk overlay as telemetry-only (`may_reroute=false`). V4's
+- [x] Preserve the V2 observational risk overlay as telemetry-only (`may_reroute=false`). V4's
   comparative selector is the sole possible posterior reroute seam.
 
 **V4-5 DONE:** corruption, mixed generations, incompatibility, failed validation, concurrent
@@ -1090,6 +1113,10 @@ activation, and rollback are exercised against the real store; none can produce 
 view or silently activate a candidate.
 
 ### V4-6 — Router split and explicit call-count contract
+
+> **Progress (2026-08-13):** V4-6 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> cold PASS @ `3da7aedd`). Lane C **36/36**; verifier **28/28**. TurnLedger `attempted_route`/`attempted_source`
+> persisted (migration `0018`). Live DB activation and production routing enablement remain separately gated.
 
 The classifier and router must be structurally separate. The classifier schema returns only a
 taxonomy version plus family/unrelated classification and classification provenance; it contains no
@@ -1109,35 +1136,49 @@ consequences. Pre-transport validation failures make no classifier provider call
 paths are unacceptable, implementation stops for a revised architecture; it may not fake separation
 with two thin wrappers around one route-bearing output.
 
-- [ ] Test every row with real generated clients and separate provider-transport call tracing,
+- [x] Test every row with real generated clients and separate provider-transport call tracing,
   including model/destination equivalence when off and fallback on corpus/TypeBuilder/provider/
   parse/returned-label/storage/compatibility failures. Pre-transport failures must prove zero
   classifier provider calls; post-attempt failures must prove exactly one. Classification failure
   must not fabricate a family.
-- [ ] A selected route must carry generation ID and decision provenance to the ledger. Failures
+- [x] A selected route must carry generation ID and decision provenance to the ledger. Failures
   never block a turn and never silently choose a posterior route.
-- [ ] Prevent sticky-session and downstream stages from overriding the audited selection unless an
+- [x] Prevent sticky-session and downstream stages from overriding the audited selection unless an
   explicit safety fallback records both attempted and actual routes.
 
 ### V4-7 — Separate experimental evidence from observational monitoring
 
+> **Progress (2026-08-13):** V4-7 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> cold PASS @ `62911a17`). Lane C **36/36** (monitoring alerts); Lane M **15/15**; verifier **30/30**.
+> Playbook (`playbook.py`/`ns_digest`) deferred Task 11 per `evidence/plan018-v4-7-playbook-descope.md`.
+> Live DB activation and production routing enablement remain separately gated.
+
 Forced paired evidence and policy-selected online traffic are different data products with distinct
 schemas, lineage, storage, fit entry points, and publication labels.
 
-- [ ] The comparative route posterior may update only from approved forced/randomized paired
+- [x] The comparative route posterior may update only from approved forced/randomized paired
   evidence under the V4 estimand. Policy-selected online outcomes must not update it unless a
   separately reviewed assignment/causal-identification strategy is approved.
-- [ ] Online observations may update route-conditional quality monitoring and playbook guidance.
-  They must carry assignment propensity/policy/generation where available and display selection
-  caveats. They cannot claim the counterfactual route would be better.
-- [ ] Add a hard schema/type boundary and tests proving online rows cannot enter the paired fitter.
-  Alert on policy drift, family mix, missingness, and route-specific outcome changes.
+- [x] Online observations may update route-conditional quality monitoring. Playbook guidance
+  (`playbook.py` / `ns_digest` injection) remains **Task 11** — V4-7 delivers thin
+  `route_monitoring.py` only (see `evidence/plan018-v4-7-playbook-descope.md`).
+  They must carry assignment propensity/policy/generation where available (or explicit
+  `propensity_unavailable` + reason when not logged) and display selection caveats. They
+  cannot claim the counterfactual route would be better.
+- [x] Add a hard schema/type boundary and tests proving online rows cannot enter the paired fitter.
+  Operational alerts on policy drift, family mix, missingness, and route-specific outcome
+  changes are implemented in `route_monitoring.py` (V4-7 remediation).
 
 This replaces the goal/Stage 2 sentence that says real usage updates the comparative baseline.
 Allowing the routing policy to train its own comparison from its selected traffic would create a
 self-confirming feedback loop.
 
 ### V4-8 — Paid-run authorization, reservation, and resumability
+
+> **Progress (2026-08-13):** V4-8 **hermetic CLOSED** (cold-review remediation rollup **PASS** @ `07d17ed3`;
+> prior cold review PARTIAL remediated). Lane M **10/10** multiprocess crash×4 + broker redelivery;
+> verifier **39/39**; AST-derived seam inventory; independent conservation. Real paid pilot / live DB /
+> production routing remain separately gated.
 
 No live/provider call occurs before a maintainer approves an immutable run manifest hash binding:
 corpus and question IDs/hashes, taxonomy, requested pairs/turns/arms, three judge calls for every
@@ -1146,12 +1187,12 @@ the maximum approved retry calls, clients/models and versions, retry policy, rat
 per-call and worst-case total estimates, hard caps, source SHA/diff hash, image digest, schemas,
 output location, and approval expiry. Retained-arm count is a post-run reconciliation field only.
 
-- [ ] Atomically reserve budget before each provider call. Concurrency cannot overspend; retries
+- [x] Atomically reserve budget before each provider call. Concurrency cannot overspend; retries
   consume the same run's cap; exhaustion stops cleanly. Approval is for one exact hash and cannot
   be replayed for changed inputs or a later run.
-- [ ] Resume by stable arm and attempt IDs. Completed calls are never repeated; partial work remains
+- [x] Resume by stable arm and attempt IDs. Completed calls are never repeated; partial work remains
   pending; cache keys bind the complete judge input and every relevant version.
-- [ ] Reconcile estimates, reservations, provider usage, attempts, cache hits, exclusions, and
+- [x] Reconcile estimates, reservations, provider usage, attempts, cache hits, exclusions, and
   outputs after the run. No schedule or default command can enter this lane.
 
 Unit/integration tests use fake providers. The first real pilot and every larger paid run are
