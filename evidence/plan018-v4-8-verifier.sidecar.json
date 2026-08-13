@@ -1,9 +1,9 @@
 {
   "schema": "plan018-v4-8-verifier/v1",
-  "recorded_at": "2026-08-13T01:15:27Z",
+  "recorded_at": "2026-08-13T01:34:26Z",
   "gate": "PASS",
-  "checks_passed": 40,
-  "checks_total": 40,
+  "checks_passed": 47,
+  "checks_total": 47,
   "errors": [],
   "checks": [
     {
@@ -187,9 +187,49 @@
       "detail": "refuse"
     },
     {
-      "name": "lane_c_smoke_recorded",
+      "name": "lane_c_junit_exists",
       "pass": true,
-      "detail": "passed=35; note=full V4-8 Lane C suite green"
+      "detail": "/repo/evidence/plan018-v4-8-lane-c.junit.xml"
+    },
+    {
+      "name": "lane_c_sidecar_exists",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-lane-c.sidecar.json"
+    },
+    {
+      "name": "lane_c_sidecar_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "lane_c_sources_match_evidence",
+      "pass": true,
+      "detail": "all"
+    },
+    {
+      "name": "lane_c_sidecar_counts_exact",
+      "pass": true,
+      "detail": "{\"errors\": 0, \"expected_deselected\": 4, \"failed\": 0, \"passed\": 35, \"skipped\": 0, \"tests\": 35, \"unexpected_deselected\": 0}"
+    },
+    {
+      "name": "lane_c_junit_hash_matches_sidecar",
+      "pass": true,
+      "detail": "c73cb8fcf3f377a7e58cae59fc32746ea90a1449ec63e51800c92c1b723a14d1"
+    },
+    {
+      "name": "lane_c_junit_all_passed",
+      "pass": true,
+      "detail": "tests=35,failures=0,errors=0,skipped=0,suites=1"
+    },
+    {
+      "name": "migration_graph_unique_leaf",
+      "pass": true,
+      "detail": "0018_turn_ledger_attempted_provenance"
+    },
+    {
+      "name": "migration_0017_in_on_disk_lineage",
+      "pass": true,
+      "detail": "0001_initial,0002_querytask,0003_chatsession_title,0004_chatsession_extra_state_state_only,0005_chatsession_extra_state_column,0005_ensure_chatsession_extra_state_column,0006_merge_extra_state_guards,0007_ccsessiontranscript,0008_heal_cc_transcript_fk,0009_normalize_chat_log_turn_ids,0010_turn_ledger,0011_turn_judgment,0012_posterior_generation,0013_family_posterior,0014_generation_activation_and_reservation,0015_v4_5_generation_audit_and_turn_pin,0016_paired_run_registry,0017_paid_run_state,0018_turn_ledger_attempted_provenance"
     },
     {
       "name": "migration_leaf_evidence_exists",
@@ -197,12 +237,7 @@
       "detail": "/repo/evidence/plan018-migration-leaf.json"
     },
     {
-      "name": "migration_0017_in_lineage",
-      "pass": true,
-      "detail": "0001_initial.py,0002_querytask.py,0003_chatsession_title.py,0004_chatsession_extra_state_state_only.py,0005_chatsession_extra_state_column.py,0005_ensure_chatsession_extra_state_column.py,0006_merge_extra_state_guards.py,0007_ccsessiontranscript.py,0008_heal_cc_transcript_fk.py,0009_normalize_chat_log_turn_ids.py,0010_turn_ledger.py,0011_turn_judgment.py,0012_posterior_generation.py,0013_family_posterior.py,0014_generation_activation_and_reservation.py,0015_v4_5_generation_audit_and_turn_pin.py,0016_paired_run_registry.py,0017_paid_run_state.py,0018_turn_ledger_attempted_provenance.py"
-    },
-    {
-      "name": "migration_leaf_0018",
+      "name": "migration_leaf_evidence_matches_on_disk",
       "pass": true,
       "detail": "0018_turn_ledger_attempted_provenance.py"
     }

@@ -1,9 +1,9 @@
 {
   "schema": "plan018-v4-7-verifier/v1",
-  "recorded_at": "2026-08-13T01:15:26Z",
+  "recorded_at": "2026-08-13T01:34:26Z",
   "gate": "PASS",
-  "checks_passed": 32,
-  "checks_total": 32,
+  "checks_passed": 33,
+  "checks_total": 33,
   "errors": [],
   "checks": [
     {
@@ -149,7 +149,17 @@
     {
       "name": "lane_c_junit_all_passed",
       "pass": true,
-      "detail": "tests=30,failures=0,errors=0"
+      "detail": "tests=30,failures=0,errors=0,skipped=0,suites=1"
+    },
+    {
+      "name": "migration_graph_unique_leaf",
+      "pass": true,
+      "detail": "0018_turn_ledger_attempted_provenance"
+    },
+    {
+      "name": "migration_0016_in_on_disk_lineage",
+      "pass": true,
+      "detail": "0001_initial,0002_querytask,0003_chatsession_title,0004_chatsession_extra_state_state_only,0005_chatsession_extra_state_column,0005_ensure_chatsession_extra_state_column,0006_merge_extra_state_guards,0007_ccsessiontranscript,0008_heal_cc_transcript_fk,0009_normalize_chat_log_turn_ids,0010_turn_ledger,0011_turn_judgment,0012_posterior_generation,0013_family_posterior,0014_generation_activation_and_reservation,0015_v4_5_generation_audit_and_turn_pin,0016_paired_run_registry,0017_paid_run_state,0018_turn_ledger_attempted_provenance"
     },
     {
       "name": "migration_leaf_evidence_exists",
@@ -157,12 +167,7 @@
       "detail": "/repo/evidence/plan018-migration-leaf.json"
     },
     {
-      "name": "migration_0016_in_lineage",
-      "pass": true,
-      "detail": "0001_initial.py,0002_querytask.py,0003_chatsession_title.py,0004_chatsession_extra_state_state_only.py,0005_chatsession_extra_state_column.py,0005_ensure_chatsession_extra_state_column.py,0006_merge_extra_state_guards.py,0007_ccsessiontranscript.py,0008_heal_cc_transcript_fk.py,0009_normalize_chat_log_turn_ids.py,0010_turn_ledger.py,0011_turn_judgment.py,0012_posterior_generation.py,0013_family_posterior.py,0014_generation_activation_and_reservation.py,0015_v4_5_generation_audit_and_turn_pin.py,0016_paired_run_registry.py,0017_paid_run_state.py,0018_turn_ledger_attempted_provenance.py"
-    },
-    {
-      "name": "migration_leaf_0018",
+      "name": "migration_leaf_evidence_matches_on_disk",
       "pass": true,
       "detail": "0018_turn_ledger_attempted_provenance.py"
     }

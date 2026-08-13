@@ -152,7 +152,8 @@
     "lane_m": "evidence/plan018-v4-8-lane-m.sidecar.json",
     "inventory": "evidence/plan018-v4-8-provider-seam-inventory.json",
     "lane_a_log": "evidence/plan018-v4-8-lane-a.log",
-    "lane_c_prereq": "evidence/plan018-v4-8-prereq.json#lane_c_smoke",
+    "lane_c_junit": "evidence/plan018-v4-8-lane-c.junit.xml",
+    "lane_c_sidecar": "evidence/plan018-v4-8-lane-c.sidecar.json",
     "verifier": "evidence/plan018-v4-8-verifier.sidecar.json",
     "cold_review": "evidence/plan018-v4-8-cold-outcome-review.md",
     "rollup_cold_review": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md"

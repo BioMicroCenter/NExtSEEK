@@ -15,6 +15,8 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+from plan018_verifier_support import summarize_junit
+
 _CALL_TABLE_ROWS = (
     "flag_off",
     "flag_on_unrelated",
@@ -102,14 +104,17 @@ def main() -> int:
     record("lane_c_junit_exists", lane_junit.is_file(), str(lane_junit))
     if lane_junit.is_file():
         try:
-            suite = ElementTree.parse(lane_junit).getroot().find("testsuite")
-            tests = int(suite.attrib.get("tests", "0")) if suite is not None else 0
-            failures = int(suite.attrib.get("failures", "-1")) if suite is not None else -1
-            errors_count = int(suite.attrib.get("errors", "-1")) if suite is not None else -1
+            summary = summarize_junit(lane_junit)
             record(
                 "lane_c_junit_all_passed",
-                tests > 0 and failures == 0 and errors_count == 0,
-                f"tests={tests},failures={failures},errors={errors_count}",
+                summary.tests == 42
+                and summary.failures == 0
+                and summary.errors == 0
+                and summary.skipped == 0,
+                (
+                    f"tests={summary.tests},failures={summary.failures},"
+                    f"errors={summary.errors},skipped={summary.skipped},suites={summary.suites}"
+                ),
             )
         except ElementTree.ParseError as exc:
             record("lane_c_junit_all_passed", False, f"invalid junit: {exc}")

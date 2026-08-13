@@ -1,11 +1,13 @@
 {
   "schema": "plan018-v4-8-closeout/v1",
-  "recorded_at": "2026-08-12T22:05:00Z",
+  "recorded_at": "2026-08-13T01:30:00Z",
+  "original_closeout_recorded_at": "2026-08-12T22:05:00Z",
   "gate": "PASS",
-  "worktree_sha": "5bec28d9",
+  "worktree_sha": "3060e3e9ccf4aafacbd16ce79547755d83da23a2",
+  "v4_8_implementation_worktree_sha": "5bec28d9",
   "base_sha": "fa48b42b",
   "next_gate": "V4-9",
-  "v4_8_status": "HERMETIC_ROLLUP_COLD_PASS",
+  "v4_8_status": "CLOSED_BY_REMEDIATION_ROLLUP_PASS",
   "v4_8_cold_review": "PARTIAL_HISTORICAL_SUPERSEDED_BY_ROLLUP_PASS",
   "v4_8_cold_review_ref": "evidence/plan018-v4-8-cold-outcome-review.md",
   "v4_8_rollup_cold_review": {
@@ -33,7 +35,8 @@
     "lane_m": "evidence/plan018-v4-8-lane-m.sidecar.json",
     "inventory": "evidence/plan018-v4-8-provider-seam-inventory.json",
     "lane_a_log": "evidence/plan018-v4-8-lane-a.log",
-    "lane_c_prereq": "evidence/plan018-v4-8-prereq.json#lane_c_smoke",
+    "lane_c_junit": "evidence/plan018-v4-8-lane-c.junit.xml",
+    "lane_c_sidecar": "evidence/plan018-v4-8-lane-c.sidecar.json",
     "lane_m_log": "evidence/plan018-v4-8-lane-m.log",
     "verifier": "evidence/plan018-v4-8-verifier.sidecar.json",
     "sdd_review": "evidence/plan018-v4-8-sdd-final-review.md",
@@ -49,11 +52,9 @@
     "Real provider transport unplugged; fake transport only",
     "Online chat BAML seams classified out_of_v48_scope — not wired through eval manifests"
   ],
-  "authorization_asks": [
-    "Proceed to V4-9 hermetic?",
-    "Push V4-8 implementation on ultraplan/hibayes-eval-routing?",
-    "Vault-sync / republish living-plan V4-8 DONE Progress on deploydocs?",
-    "First real paid pilot — separate ask, default no",
-    "Live DB activation / production routing — separately gated, default no"
+  "authorization_asks": [],
+  "future_authorization_gates": [
+    "Any paid/provider pilot remains a separate at-time approval.",
+    "Live DB activation and production routing enablement remain separately gated."
   ]
 }

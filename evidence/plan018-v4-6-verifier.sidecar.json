@@ -1,6 +1,6 @@
 {
   "schema": "plan018-v4-6-verifier/v1",
-  "recorded_at": "2026-08-13T01:15:26Z",
+  "recorded_at": "2026-08-13T01:34:26Z",
   "gate": "PASS",
   "checks_passed": 28,
   "checks_total": 28,
@@ -139,7 +139,7 @@
     {
       "name": "lane_c_junit_all_passed",
       "pass": true,
-      "detail": "tests=42,failures=0,errors=0"
+      "detail": "tests=42,failures=0,errors=0,skipped=0,suites=1"
     },
     {
       "name": "call_table_rows_complete",

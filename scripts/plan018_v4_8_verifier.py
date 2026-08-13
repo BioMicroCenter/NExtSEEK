@@ -8,11 +8,13 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.etree import ElementTree
 
 _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+from plan018_verifier_support import derive_migration_graph, summarize_junit
 from nextseek_api.eval.seam_inventory import (  # noqa: E402
     build_inventory,
     find_unvisited_paid_run_gated,
@@ -30,6 +32,15 @@ _REQUIRED_MODULES = (
     "nextseek_api/eval/paid_run_schedule.py",
     "nextseek_api/eval/seam_inventory.py",
     "nextseek_api/migrations/0017_paid_run_state.py",
+)
+
+_LANE_C_SOURCE_FILES = (
+    "nextseek_api/cc_assistant/tests/test_v4_8_gate.py",
+    "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py",
+    "nextseek_api/cc_assistant/tests/test_v4_8_reconciliation.py",
+    "nextseek_api/cc_assistant/tests/test_v4_8_reserve.py",
+    "nextseek_api/cc_assistant/tests/test_v4_8_resume.py",
+    "nextseek_api/cc_assistant/tests/test_run_authorization.py",
 )
 
 
@@ -130,26 +141,78 @@ def main() -> int:
     schedule = (_REPO / "nextseek_api/eval/paid_run_schedule.py").read_text()
     record("schedule_refuses_default", "ScheduleRefused" in schedule, "refuse")
 
-    prereq = _REPO / "evidence/plan018-v4-8-prereq.json"
-    if prereq.is_file():
-        lane_c_smoke = json.loads(prereq.read_text()).get("lane_c_smoke") or {}
-        passed = lane_c_smoke.get("passed", 0)
-        note = str(lane_c_smoke.get("note", ""))
+    lane_junit = _REPO / "evidence/plan018-v4-8-lane-c.junit.xml"
+    record("lane_c_junit_exists", lane_junit.is_file(), str(lane_junit))
+    lane_sidecar = _REPO / "evidence/plan018-v4-8-lane-c.sidecar.json"
+    record("lane_c_sidecar_exists", lane_sidecar.is_file(), str(lane_sidecar))
+    lane_data = json.loads(lane_sidecar.read_text()) if lane_sidecar.is_file() else {}
+    if lane_sidecar.is_file():
+        record("lane_c_sidecar_gate_pass", lane_data.get("gate") == "PASS", str(lane_data.get("gate")))
+        source_hashes = lane_data.get("source_files") or {}
+        source_mismatches = [
+            rel
+            for rel in _LANE_C_SOURCE_FILES
+            if source_hashes.get(rel) != _sha(_REPO / rel)
+        ]
         record(
-            "lane_c_smoke_recorded",
-            isinstance(passed, int) and passed > 0 and "green" in note.lower(),
-            f"passed={passed}; note={note}",
+            "lane_c_sources_match_evidence",
+            set(source_hashes) == set(_LANE_C_SOURCE_FILES) and not source_mismatches,
+            ",".join(source_mismatches) if source_mismatches else "all",
         )
+        counts = lane_data.get("counts") or {}
+        record(
+            "lane_c_sidecar_counts_exact",
+            counts
+            == {
+                "tests": 35,
+                "passed": 35,
+                "failed": 0,
+                "errors": 0,
+                "skipped": 0,
+                "expected_deselected": 4,
+                "unexpected_deselected": 0,
+            },
+            json.dumps(counts, sort_keys=True),
+        )
+        record(
+            "lane_c_junit_hash_matches_sidecar",
+            lane_junit.is_file() and lane_data.get("junit_sha256") == _sha(lane_junit),
+            str(lane_data.get("junit_sha256")),
+        )
+    if lane_junit.is_file():
+        try:
+            summary = summarize_junit(lane_junit)
+            record(
+                "lane_c_junit_all_passed",
+                summary.tests == 35
+                and summary.failures == 0
+                and summary.errors == 0
+                and summary.skipped == 0,
+                (
+                    f"tests={summary.tests},failures={summary.failures},"
+                    f"errors={summary.errors},skipped={summary.skipped},suites={summary.suites}"
+                ),
+            )
+        except ElementTree.ParseError as exc:
+            record("lane_c_junit_all_passed", False, f"invalid junit: {exc}")
+
+    graph = derive_migration_graph(_REPO / "nextseek_api/migrations")
+    expected_leaf = "0018_turn_ledger_attempted_provenance"
+    record("migration_graph_unique_leaf", graph.leaves == (expected_leaf,), ",".join(graph.leaves))
+    record(
+        "migration_0017_in_on_disk_lineage",
+        "0017_paid_run_state" in graph.ancestors_of(expected_leaf),
+        ",".join(sorted(graph.ancestors_of(expected_leaf))),
+    )
 
     leaf = _REPO / "evidence/plan018-migration-leaf.json"
     record("migration_leaf_evidence_exists", leaf.is_file(), str(leaf))
     if leaf.is_file():
         data = json.loads(leaf.read_text())
         files = set(data.get("files") or [])
-        record("migration_0017_in_lineage", "0017_paid_run_state.py" in files, ",".join(sorted(files)))
         record(
-            "migration_leaf_0018",
-            data.get("leaf") == "0018_turn_ledger_attempted_provenance.py",
+            "migration_leaf_evidence_matches_on_disk",
+            data.get("leaf") == f"{expected_leaf}.py" and "0017_paid_run_state.py" in files,
             data.get("leaf", ""),
         )
 

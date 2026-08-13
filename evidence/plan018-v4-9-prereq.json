@@ -48,12 +48,13 @@
     "V4-7": {
       "path": "evidence/plan018-v4-7-verifier.sidecar.json",
       "gate": "PASS",
-      "checks": "32/32"
+      "checks": "33/33"
     },
     "V4-8": {
       "path": "evidence/plan018-v4-8-verifier.sidecar.json",
       "gate": "PASS",
-      "checks": "40/40"
+      "checks": "47/47",
+      "lane_c": "evidence/plan018-v4-8-lane-c.sidecar.json"
     }
   },
   "migration_lineage": {
