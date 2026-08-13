@@ -13,22 +13,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
 
-CRITICAL_MODULES = (
-    "nessie_tests/bayes_manifest.py",
-    "nessie_tests/bayesian.py",
-    "nessie_tests/export.py",
-    "nextseek_api/eval/human_annotations.py",
-    "nextseek_api/eval/conservation.py",
-    "nextseek_api/eval/disposition.py",
-    "nextseek_api/eval/judge.py",
-    "nextseek_api/eval/judge_models.py",
-    "nextseek_api/eval/attempt_store.py",
-    "nextseek_api/eval/stage_c_runner.py",
-)
+OWNERSHIP_MAP = Path("evidence/plan018-v4-9-task2-ownership.json")
+
+def critical_modules(root: Path = Path(".")) -> tuple[str, ...]:
+    """Derive the cluster from the checked-in task ownership map, never a duplicate."""
+    data = json.loads((root / OWNERSHIP_MAP).read_text(encoding="utf-8"))
+    return tuple(data["task_2"]["critical_modules"])
+
+CRITICAL_MODULES = critical_modules()
 
 FLOOR_PCT = 95.0
 
@@ -55,10 +52,16 @@ def evaluate_coverage(coverage: dict[str, Any]) -> tuple[list[str], dict[str, An
         if not isinstance(summary, dict):
             errors.append(f"missing coverage for {path}")
             continue
-        statements = int(summary.get("num_statements", 0))
+        if not all(isinstance(summary.get(k), int) for k in ("num_statements", "covered_lines", "num_branches", "covered_branches")):
+            errors.append(f"invalid or missing counters for {path}")
+            continue
+        statements = int(summary["num_statements"])
         covered_lines = int(summary.get("covered_lines", 0))
         branches = int(summary.get("num_branches", 0))
         covered_branches = int(summary.get("covered_branches", 0))
+        if statements <= 0 or branches < 0 or covered_lines < 0 or covered_branches < 0 or covered_lines > statements or covered_branches > branches:
+            errors.append(f"impossible coverage counters for {path}")
+            continue
         line_pct = _percent(covered_lines, statements)
         branch_pct = _percent(covered_branches, branches)
         modules[path] = {
@@ -73,9 +76,9 @@ def evaluate_coverage(coverage: dict[str, Any]) -> tuple[list[str], dict[str, An
         total_covered_lines += covered_lines
         total_branches += branches
         total_covered_branches += covered_branches
-        if line_pct < FLOOR_PCT:
+        if covered_lines * 100 < statements * 95:
             errors.append(f"{path} statement coverage {line_pct:.1f}% is below {FLOOR_PCT:.1f}%")
-        if branch_pct < FLOOR_PCT:
+        if branches and covered_branches * 100 < branches * 95:
             errors.append(f"{path} branch coverage {branch_pct:.1f}% is below {FLOOR_PCT:.1f}%")
 
     aggregate = {
@@ -87,9 +90,9 @@ def evaluate_coverage(coverage: dict[str, Any]) -> tuple[list[str], dict[str, An
         "branch_pct": _percent(total_covered_branches, total_branches),
     }
     if len(modules) == len(CRITICAL_MODULES):
-        if aggregate["statement_pct"] < FLOOR_PCT:
+        if total_covered_lines * 100 < total_statements * 95:
             errors.append(f"aggregate statement coverage {aggregate['statement_pct']:.1f}% is below {FLOOR_PCT:.1f}%")
-        if aggregate["branch_pct"] < FLOOR_PCT:
+        if total_branches == 0 or total_covered_branches * 100 < total_branches * 95:
             errors.append(f"aggregate branch coverage {aggregate['branch_pct']:.1f}% is below {FLOOR_PCT:.1f}%")
     return errors, {"modules": modules, "aggregate": aggregate}
 
@@ -103,6 +106,8 @@ def main() -> int:
     result = {
         "schema": "plan018-v4-9-task2-coverage/v1",
         "critical_modules": list(CRITICAL_MODULES),
+        "ownership_map_sha256": hashlib.sha256(OWNERSHIP_MAP.read_bytes()).hexdigest(),
+        "raw_coverage_sha256": hashlib.sha256(args.coverage_json.read_bytes()).hexdigest(),
         "threshold_statement_pct": FLOOR_PCT,
         "threshold_branch_pct": FLOOR_PCT,
         "gate": "PASS" if not errors else "FAIL",

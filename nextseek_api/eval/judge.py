@@ -109,7 +109,7 @@ def aggregate_rationale(
     for ev in evaluations:
         if ev.outcome.value == aggregate_outcome_value:
             return ev.rationale
-    return evaluations[0].rationale
+    raise ValueError("no rationale matches the aggregate outcome; retrieved attempts are inconsistent")
 
 
 def functional_success_from_outcome(outcome: str) -> bool:

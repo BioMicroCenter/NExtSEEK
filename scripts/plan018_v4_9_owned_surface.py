@@ -58,6 +58,20 @@ CONTROL_ENTRIES: tuple[dict[str, Any], ...] = (
     {"path": ".superpowers/sdd/2026-08-13-plan018-v4-9/task-1-report.md", "classification": "task_report", "cluster": "v4_9_owned_surface_control", "oracle": {"id": "task_report", "target": ORACLE_REGISTRY["task_report"]["target"]}, "rationale": "Required Task 1 report, not product behavior.", "sources": ["task_1_control"], "change": "task_1_control"},
 )
 
+# Task 2 artifacts are controls over the immutable source inventory: they do
+# not redefine historical ownership, but make its current coverage gate
+# reproducible and visible to --current validation.
+CONTROL_ENTRIES += (
+    {"path": "evidence/plan018-v4-9-task2-ownership.json", "classification": "task_ownership", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Pinned task-to-path evolution mapping for Task 2.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "scripts/plan018_v4_9_task2_coverage.py", "classification": "validator_tooling", "cluster": "v4_9_task2", "oracle": {"id": "validator_self", "target": ORACLE_REGISTRY["validator_self"]["target"]}, "rationale": "Task 2 source-bound coverage validator.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "scripts/test_plan018_v4_9_task2_coverage.py", "classification": "validator_test", "cluster": "v4_9_task2", "oracle": {"id": "validator_self", "target": ORACLE_REGISTRY["validator_self"]["target"]}, "rationale": "Task 2 validator adversarial tests.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "nextseek_api/eval/tests/test_v4_9_task2_behavior.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Task 2 behavioral and defensive-fault tests.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "evidence/plan018-v4-9-task2-coverage.raw.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Raw Task 2 coverage evidence.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "evidence/plan018-v4-9-task2-coverage.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Validated Task 2 coverage summary.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "evidence/plan018-v4-9-task2-evidence.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Task 2 command, provenance, and no-external-effects evidence.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": ".superpowers/sdd/2026-08-13-plan018-v4-9/task-2-report.md", "classification": "task_report", "cluster": "v4_9_task2", "oracle": {"id": "task_report", "target": ORACLE_REGISTRY["task_report"]["target"]}, "rationale": "Required Task 2 report.", "sources": ["task_2_control"], "change": "task_2_control"},
+)
+
 
 @dataclass(frozen=True)
 class DiffRecord:

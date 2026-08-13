@@ -96,3 +96,20 @@ in the collection accounting.
 Implementation commit: `4b61e9590681c63b4af6d4ee255ac2bf6905eb3d` —
 `test(plan018-v4-9): gate task 2 branch coverage`. This report is committed in the
 immediately following local documentation commit so the implementation SHA is stable.
+
+## Fix round 1
+
+The original cluster list was replaced with the pinned
+`evidence/plan018-v4-9-task2-ownership.json` task-to-path mapping. It includes the previously
+omitted existing Task-2 export/schema paths and assigns fitter/store/spend/paired-boundary paths to
+Tasks 3/4; the two declared-absent artifact modules are explicit rather than silently omitted.
+Task-2 controls/evidence are now manifest controls, and
+`python3 scripts/plan018_v4_9_owned_surface.py validate --current` passes after regeneration.
+
+The coverage validator now derives its set from that mapping, rejects invalid/zero/impossible
+counters, and applies the 95% floor with integer arithmetic before display rounding. The DD-44
+corrupt no-match rationale case now fails closed with `ValueError` rather than returning a
+contradictory first rationale. Fresh focused verification: 16 passed; owned-surface generation and
+current validation passed. The previously recorded ten-module coverage evidence is retained as
+historical evidence only and must be regenerated for the expanded mapped cluster before a final
+Task-2 PASS claim.

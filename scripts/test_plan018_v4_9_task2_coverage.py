@@ -24,18 +24,9 @@ def test_critical_cluster_is_the_complete_named_task2_surface():
     assert MODULE_PATH.is_file(), "Task 2 coverage gate is missing"
     module = _module()
 
-    assert module.CRITICAL_MODULES == (
-        "nessie_tests/bayes_manifest.py",
-        "nessie_tests/bayesian.py",
-        "nessie_tests/export.py",
-        "nextseek_api/eval/human_annotations.py",
-        "nextseek_api/eval/conservation.py",
-        "nextseek_api/eval/disposition.py",
-        "nextseek_api/eval/judge.py",
-        "nextseek_api/eval/judge_models.py",
-        "nextseek_api/eval/attempt_store.py",
-        "nextseek_api/eval/stage_c_runner.py",
-    )
+    mapping = json.loads((ROOT / module.OWNERSHIP_MAP).read_text())
+    assert module.CRITICAL_MODULES == tuple(mapping["task_2"]["critical_modules"])
+    assert "nextseek_api/eval/export.py" in module.CRITICAL_MODULES
 
 
 def test_gate_rejects_a_module_with_branch_coverage_below_the_floor():
@@ -84,3 +75,16 @@ def test_cli_writes_a_machine_readable_pass_report(tmp_path):
     report_path.write_text(json.dumps({"gate": "PASS" if not errors else "FAIL", **report}), encoding="utf-8")
 
     assert json.loads(report_path.read_text(encoding="utf-8"))["gate"] == "PASS"
+
+
+def test_gate_rejects_rounding_and_zero_counter_forgery():
+    module = _module()
+    coverage = {"meta": {"branch_coverage": True}, "files": {
+        path: {"summary": {"num_statements": 1000, "covered_lines": 949,
+                            "num_branches": 1000, "covered_branches": 1000}}
+        for path in module.CRITICAL_MODULES}}
+    errors, _ = module.evaluate_coverage(coverage)
+    assert any("statement coverage" in error for error in errors)
+    coverage["files"][module.CRITICAL_MODULES[0]]["summary"]["num_statements"] = 0
+    errors, _ = module.evaluate_coverage(coverage)
+    assert any("impossible coverage counters" in error for error in errors)

@@ -77,6 +77,118 @@
       "sources": [
         "task_1_control"
       ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "task_ownership",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-ownership.json",
+      "rationale": "Pinned task-to-path evolution mapping for Task 2.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "validator_tooling",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "validator_self",
+        "target": "test:scripts/test_plan018_v4_9_owned_surface.py"
+      },
+      "path": "scripts/plan018_v4_9_task2_coverage.py",
+      "rationale": "Task 2 source-bound coverage validator.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "validator_test",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "validator_self",
+        "target": "test:scripts/test_plan018_v4_9_owned_surface.py"
+      },
+      "path": "scripts/test_plan018_v4_9_task2_coverage.py",
+      "rationale": "Task 2 validator adversarial tests.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "test",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "eval_structural",
+        "target": "test:nextseek_api/eval/tests/test_v4_8_manifest.py"
+      },
+      "path": "nextseek_api/eval/tests/test_v4_9_task2_behavior.py",
+      "rationale": "Task 2 behavioral and defensive-fault tests.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-coverage.raw.json",
+      "rationale": "Raw Task 2 coverage evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-coverage.json",
+      "rationale": "Validated Task 2 coverage summary.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-evidence.json",
+      "rationale": "Task 2 command, provenance, and no-external-effects evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "task_report",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "task_report",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": ".superpowers/sdd/2026-08-13-plan018-v4-9/task-2-report.md",
+      "rationale": "Required Task 2 report.",
+      "sources": [
+        "task_2_control"
+      ]
     }
   ],
   "entries": [
@@ -8456,7 +8568,7 @@
       "test": 88,
       "verifier": 10
     },
-    "control_entries": 5,
+    "control_entries": 13,
     "source_candidates": 410
   }
 }
