@@ -106,6 +106,51 @@ def test_current_git_deletion_of_owned_path_is_rejected(git_checkout: Path):
     assert "owned path deleted without explicit current change" in result.stderr
 
 
+def test_staged_git_addition_is_rejected(git_checkout: Path):
+    added = git_checkout / "staged-unclassified" / "new-surface.bin"
+    added.parent.mkdir()
+    added.write_bytes(b"new")
+    _git(git_checkout, "add", str(added.relative_to(git_checkout)))
+
+    result = _validate_current(git_checkout)
+
+    assert result.returncode == 1
+    assert "unclassified new path" in result.stderr
+
+
+def test_staged_git_deletion_of_owned_path_is_rejected(git_checkout: Path):
+    _git(git_checkout, "rm", "nessie_tests/runner.py")
+
+    result = _validate_current(git_checkout)
+
+    assert result.returncode == 1
+    assert "owned path deleted without explicit current change" in result.stderr
+
+
+def test_staged_git_rename_of_owned_path_is_rejected(git_checkout: Path):
+    _git(git_checkout, "mv", "nessie_tests/runner.py", "nessie_tests/runner_staged.py")
+
+    result = _validate_current(git_checkout)
+
+    assert result.returncode == 1
+    assert "owned path renamed without explicit current change" in result.stderr
+    assert "nessie_tests/runner.py -> nessie_tests/runner_staged.py" in result.stderr
+
+
+@pytest.mark.parametrize("action", ("delete", "rename"))
+def test_unstaged_owned_deletion_or_rename_is_rejected(git_checkout: Path, action: str):
+    old = git_checkout / "nessie_tests" / "runner.py"
+    if action == "delete":
+        old.unlink()
+    else:
+        old.rename(old.with_name("runner_unstaged.py"))
+
+    result = _validate_current(git_checkout)
+
+    assert result.returncode == 1
+    assert "owned path deleted without explicit current change" in result.stderr or "owned path renamed without explicit current change" in result.stderr
+
+
 def test_current_git_rename_of_owned_path_is_rejected_with_both_sides(git_checkout: Path):
     _git(git_checkout, "mv", "nessie_tests/runner.py", "nessie_tests/runner_renamed.py")
     _commit(git_checkout, "test: rename owned path")
@@ -149,3 +194,20 @@ def test_immutable_accepted_ownership_identity_mismatch_is_rejected(git_checkout
 
     assert result.returncode == 1
     assert "immutable accepted ownership identity mismatch" in result.stderr
+
+
+def test_mutated_machine_readable_ownership_rules_are_rejected_before_regeneration(git_checkout: Path):
+    rules_path = git_checkout / "evidence" / "plan018-v4-0-accepted-ownership-rules.json"
+    rules = json.loads(rules_path.read_text())
+    rules["rules"].append({"id": "injected", "match": "glob", "glob": "evil/**", "owner": "injected"})
+    rules_path.write_text(json.dumps(rules, indent=2) + "\n")
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "generate", "--root", str(git_checkout)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode == 1
+    assert "immutable ownership rules document digest mismatch" in result.stderr

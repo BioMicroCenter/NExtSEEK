@@ -70,7 +70,7 @@
       "cluster": "v4_9_owned_surface_control",
       "oracle": {
         "id": "task_report",
-        "target": "validator:.superpowers/sdd/2026-08-13-plan018-v4-9/task-1-report.md"
+        "target": "validator:evidence/plan018-preflight.json"
       },
       "path": ".superpowers/sdd/2026-08-13-plan018-v4-9/task-1-report.md",
       "rationale": "Required Task 1 report, not product behavior.",

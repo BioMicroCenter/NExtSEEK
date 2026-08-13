@@ -18,6 +18,7 @@ SCHEMA = "plan018-v4-9-owned-surface/v1"
 BASE_SHA = "6881b6a870d68a6efaeb483b111cb9244488c5f9"
 SOURCE_SHA = "517dffd18554a409e5d8e4b7fe43c8ffbb03bb09"
 OWNERSHIP_RULES = "evidence/plan018-v4-0-accepted-ownership-rules.json"
+OWNERSHIP_RULES_SHA256 = "faf30fb866ed56520fa367dd5c25a408ffcc2f5a516a90240e9cdb7805db921b"
 ORACLE_KINDS = frozenset({"coverage", "structural", "regeneration", "mutation", "justified_exclusion"})
 
 
@@ -46,7 +47,7 @@ ORACLE_REGISTRY: dict[str, dict[str, str]] = {
     "documentation_review": {"kind": "justified_exclusion", "target": "validator:evidence/plan018-v4-0-ownership-map.md"},
     "validator_self": {"kind": "structural", "target": "test:scripts/test_plan018_v4_9_owned_surface.py"},
     "manifest_regeneration": {"kind": "regeneration", "target": "command:python3 scripts/plan018_v4_9_owned_surface.py generate --check"},
-    "task_report": {"kind": "justified_exclusion", "target": "validator:.superpowers/sdd/2026-08-13-plan018-v4-9/task-1-report.md"},
+    "task_report": {"kind": "justified_exclusion", "target": "validator:evidence/plan018-preflight.json"},
 }
 
 CONTROL_ENTRIES: tuple[dict[str, Any], ...] = (
@@ -89,10 +90,10 @@ def _blob_sha(root: Path, commit: str, path: str) -> str:
     return _git(root, "rev-parse", f"{commit}:{path}").strip()
 
 
-def _records(root: Path, left: str, right: str) -> list[DiffRecord]:
+def _parse_records(raw: bytes) -> list[DiffRecord]:
     # Name-status with rename detection preserves every deletion and both paths
     # of a rename/copy instead of collapsing to only the destination path.
-    fields = _git(root, "diff", "--name-status", "--find-renames", "-z", f"{left}..{right}", text=False).decode().split("\0")
+    fields = raw.decode().split("\0")
     records: list[DiffRecord] = []
     index = 0
     while index < len(fields) - 1:
@@ -111,11 +112,17 @@ def _records(root: Path, left: str, right: str) -> list[DiffRecord]:
     return records
 
 
+def _records(root: Path, left: str, right: str) -> list[DiffRecord]:
+    return _parse_records(_git(root, "diff", "--name-status", "--find-renames", "-z", f"{left}..{right}", text=False))
+
+
 def _tree_paths(root: Path, commit: str) -> set[str]:
     return set(_git(root, "ls-tree", "-r", "--name-only", commit).splitlines())
 
 
 def _accepted_rules(root: Path) -> dict[str, Any]:
+    if hashlib.sha256((root / OWNERSHIP_RULES).read_bytes()).hexdigest() != OWNERSHIP_RULES_SHA256:
+        raise ValueError("immutable ownership rules document digest mismatch")
     return json.loads((root / OWNERSHIP_RULES).read_text())
 
 
@@ -237,7 +244,7 @@ def _source_identity(root: Path, base_sha: str, source_sha: str) -> dict[str, An
         "source_tree_sha": _git(root, "rev-parse", f"{source_sha}^{{tree}}").strip(),
         "base_to_source_records_sha256": hashlib.sha256(json.dumps([record.as_json() for record in _records(root, base_sha, source_sha)], sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
         "accepted_ownership": rules["accepted_ownership"],
-        "accepted_ownership_rules_sha256": hashlib.sha256((root / OWNERSHIP_RULES).read_bytes()).hexdigest(),
+        "accepted_ownership_rules_sha256": OWNERSHIP_RULES_SHA256,
     }
 
 
@@ -280,6 +287,8 @@ def oracle_errors(entry: dict[str, Any], *, root: Path) -> list[str]:
 
 def _current_records(root: Path, source_sha: str) -> list[DiffRecord]:
     records = _records(root, source_sha, "HEAD")
+    records.extend(_parse_records(_git(root, "diff", "--cached", "--name-status", "--find-renames", "-z", text=False)))
+    records.extend(_parse_records(_git(root, "diff", "--name-status", "--find-renames", "-z", text=False)))
     records.extend(DiffRecord("??", None, path) for path in _git(root, "ls-files", "--others", "--exclude-standard").splitlines() if path)
     return records
 
