@@ -138,8 +138,27 @@ class DataGrid(object):
         return data
     
     def sqlQuery_select_filters(self, filtersdic, fieldMapping):
+        """Build a bound WHERE fragment from datagrid filter rules.
+
+        Returns ``(fragment, params)``. Every client-supplied rule value is
+        emitted as a ``LIKE %s`` placeholder with the wildcards moved onto the
+        *bound* value (``f"%{value}%"``), so the statement text is constant
+        modulo the number of rules and no value can reach it (#93). This is
+        the sibling of the concatenation defect fixed in ``seek/search.py``.
+
+        The column identifier is never client-controlled: the client picks a
+        *key* of ``fieldMapping`` and the emitted name is always the
+        server-owned *value*, so the ``field_dg in fieldMapping`` guard below
+        already closes the identifier surface.
+
+        The signature change from a bare string to a 2-tuple broke nothing:
+        as of this commit ``grep -rn sqlQuery_select_filters`` over the repo
+        finds only this definition (plus the #93 design docs) — the method has
+        no in-repo caller, so the binding here is prophylactic.
+        """
         filterRules = filtersdic['filterRules']     # such as [{"field":"unit","op":"contains","value":"Amon"}]
         sqlquery_filter = ""
+        params = []
         n = 0
         for rule in filterRules:
             field_dg = rule["field"]
@@ -147,18 +166,19 @@ class DataGrid(object):
             op = rule["op"]
             if field_dg in fieldMapping:
                 field_db = fieldMapping[field_dg]
-            
+
                 if n==0:
                     sqlquery_filter += " WHERE " + field_db
                 else:
                     sqlquery_filter += " AND " + field_db
                 if op=="contains":
-                    sqlquery_filter += " LIKE '%" + str(value) + "%' "
+                    sqlquery_filter += " LIKE %s "
                 else:
-                    sqlquery_filter += " LIKE '%" + str(value) + "%' "
+                    sqlquery_filter += " LIKE %s "
+                params.append(f"%{value}%")
             n += 1
-        
-        return sqlquery_filter    
+
+        return sqlquery_filter, params
     
     
     def __retrieve(self):
