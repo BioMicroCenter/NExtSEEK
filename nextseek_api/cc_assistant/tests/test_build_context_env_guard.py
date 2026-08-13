@@ -143,25 +143,21 @@ def test_gitignore_covers_env_bak_copies():
 # .dockerignore strips `.gitignore` and `.claude/` from the build context on
 # purpose, so a test that reads either one cannot pass in the image lane
 # (`-w /app ... -m "not host_only"`): under /app those paths simply do not
-# exist. The tests below enforce the mechanism this change chose --
-# `@pytest.mark.host_only`, which `pyproject.toml` registers for exactly this
-# case -- so the image lane deselects such a test while the host lane
-# (DEPLOYMENT.md:446, which bind-mounts a real checkout at /repo) still runs it.
+# exist. The fix is `@pytest.mark.host_only`, which `pyproject.toml` registers
+# for exactly this case: the image lane deselects such a test, the host lane
+# (DEPLOYMENT.md:446, which bind-mounts a real checkout at /repo) runs it.
 #
-# Be aware the repo carries TWO mechanisms for this one situation, and these
-# guards enforce only the marker. The sibling
-# `nextseek_api/cc_assistant/tests/test_step7_proxy_port.py:236` solves the
-# identical problem for `test_real_secret_filename_is_gitignored` with
-# `@pytest.mark.skipif(not GITIGNORE_FILE.exists(), ...)`, and its skip reason
-# names this same .dockerignore mechanism ("`.gitignore` is excluded from the
-# image build context (.dockerignore), so this runs against the working
-# checkout"). The divergence is real and unresolved. #89 chose the marker
-# because skipif keys off the *input's absence*, not the lane: delete
-# `.gitignore` from the repo and a genuine regression becomes a green skip in
-# every lane, including the host lane whose whole job is to catch it. Aligning
-# that sibling is a known follow-up and is outside this change's file set --
-# until it lands, do not read these guards as a claim that the marker is the
-# only mechanism in the tree.
+# That is already this directory's uniform convention -- four sibling modules
+# carry a module-level `pytestmark = pytest.mark.host_only`
+# (test_step7_proxy_port.py, test_step7_sidecar_port.py,
+# test_step7_cc_runtime_port.py, test_plugin_container_claude_md.py). The three
+# tests guarded here were the outliers. Two of those modules also put a
+# `skipif(not <guarded file>.exists())` on one test, which is redundant belt
+# inside an already-deselected module rather than a rival mechanism; do not
+# copy it here. The marker is a claim about the *lane*, skipif is a claim about
+# the thing under test -- delete `.gitignore` from the repo and skipif turns a
+# real regression into a green skip in every lane, including the host lane
+# whose whole job is to catch it.
 #
 # Keys are repo-relative input paths; values are the pytest node ids that read
 # them, as `<filename>.py::<Class>::<method>` / `<filename>.py::<function>`.
@@ -223,6 +219,22 @@ def _module_pytestmark_is_host_only(tree) -> bool:
     return False
 
 
+def _is_unittest_testcase(node) -> bool:
+    """True for `class X(TestCase)` / `class X(unittest.TestCase)`.
+
+    pytest collects TestCase subclasses regardless of ``python_classes``, so a
+    class named anything at all is still live coverage -- and still capable of
+    hiding a mark. Without this, an over-marked
+    ``@pytest.mark.host_only class SkillChecks(unittest.TestCase)`` would delete
+    image-lane coverage with the complement guard below staying green.
+    """
+    for base in node.bases:
+        name = base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", None)
+        if name == "TestCase":
+            return True
+    return False
+
+
 def _guarded_filenames() -> list:
     return sorted(
         {nid.split("::", 1)[0] for ids in IMAGE_ABSENT_INPUTS.values() for nid in ids}
@@ -239,8 +251,11 @@ def _host_only_by_node_id(filename: str):
     two of the three nodes guarded here use.
 
     Names are filtered by pytest's default collection rules
-    (``python_classes = Test*``, ``python_functions = test*``), so the map is
-    the set of collectible tests and not the modules' private helpers.
+    (``python_classes = Test*``, ``python_functions = test*``) *plus* the
+    unittest exception -- a ``TestCase`` subclass is collected whatever it is
+    called -- so the map is the set of collectible tests and not the modules'
+    private helpers. Known gap, pre-existing and deliberately not closed here:
+    a ``Test*`` class nested inside another class is not walked.
 
     Returns ``None`` if the module file itself is gone, so a renamed or moved
     *module* reaches the callers' "renamed or moved?" branch instead of raising
@@ -258,7 +273,9 @@ def _host_only_by_node_id(filename: str):
             marked[f"{filename}::{stmt.name}"] = module_marked or any(
                 _is_host_only_mark(d) for d in stmt.decorator_list
             )
-        elif isinstance(stmt, ast.ClassDef) and stmt.name.startswith("Test"):
+        elif isinstance(stmt, ast.ClassDef) and (
+            stmt.name.startswith("Test") or _is_unittest_testcase(stmt)
+        ):
             class_marked = module_marked or any(
                 _is_host_only_mark(d) for d in stmt.decorator_list
             )
@@ -305,10 +322,10 @@ def test_no_other_test_in_those_modules_is_host_only():
 
     Per-test marks only -- never a module-level ``pytestmark``, never a mark on
     ``TestSkillAndPointers``. That per-test-not-per-class call is the whole
-    judgment of #89: 37 of the 40 tests in these two modules read only inputs
-    the image ships and pass in the image lane today, including
-    ``TestSkillAndPointers::test_pointers_present``, a sibling method of two of
-    the three marked nodes. A module- or class-level mark would delete that
+    judgment of #89: every test in these two modules *except* the three above
+    reads only inputs the image ships and passes in the image lane today,
+    including ``TestSkillAndPointers::test_pointers_present``, a sibling method
+    of two of the three marked nodes. A module- or class-level mark would delete that
     coverage while ``test_tests_reading_image_absent_inputs_are_host_only``
     stayed green, which makes it the most likely way this fix gets silently
     undone. So assert the complement: the marked set is exactly
