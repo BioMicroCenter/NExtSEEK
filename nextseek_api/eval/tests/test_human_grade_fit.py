@@ -113,7 +113,79 @@ def _patch_authenticated_bayes_manifest(monkeypatch, mutate):
     )
 
 
-def test_authenticated_manifest_corpus_fingerprint_must_match_current(monkeypatch):
+def _patch_current_corpus(monkeypatch, tmp_path, mutate):
+    import nextseek_api.eval.human_grade_fit as human_grade_fit
+
+    payload = json.loads(Path(corpus_snapshot().corpus_path).read_text())
+    mutate(payload)
+    changed_path = tmp_path / "current-corpus.json"
+    changed_path.write_text(json.dumps(payload, sort_keys=True))
+    changed = corpus_snapshot(changed_path)
+    monkeypatch.setattr(human_grade_fit, "corpus_snapshot", lambda: changed)
+    return changed
+
+
+def _first_variant(payload):
+    return next(
+        variant
+        for family in payload["families"].values()
+        for variant in family["variants"]
+    )
+
+
+def _remove_first_variant(payload):
+    next(iter(payload["families"].values()))["variants"].pop(0)
+
+
+def _add_variant(payload):
+    family_name, family = next(iter(payload["families"].items()))
+    family["variants"].append({"id": "compatibility.added", "family": family_name})
+
+
+def _change_variant_family(payload):
+    variant = _first_variant(payload)
+    variant["family"] = next(name for name in payload["families"] if name != variant["family"])
+
+
+def _add_family(payload):
+    payload["families"]["compatibility_added_family"] = {"description": "", "variants": []}
+
+
+def test_current_corpus_annotation_drift_is_compatible(monkeypatch, tmp_path):
+    changed = _patch_current_corpus(
+        monkeypatch,
+        tmp_path,
+        lambda payload: payload.__setitem__("_compatibility_annotation", "content drift"),
+    )
+    result = build_human_grade_fit(DELIVERY)
+    provenance = result.publication_evidence.source_provenance
+    assert provenance["training_corpus_sha256"] == DEFAULT_EVIDENCE_IDENTITY.member_sha256[
+        "corpus/corpus.json"
+    ]
+    assert provenance["current_compatible_corpus_sha256"] == changed.corpus_sha256
+    assert result.publication_evidence.compatibility_keys == {
+        "taxonomy_version": changed.taxonomy_version,
+        "corpus_hash": changed.corpus_sha256,
+    }
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda payload: payload.__setitem__("version", 3), "version drift"),
+        (_remove_first_variant, "variant ID drift"),
+        (_add_variant, "variant ID drift"),
+        (_change_variant_family, "variant family mapping drift"),
+        (_add_family, "family set drift"),
+    ],
+)
+def test_current_corpus_semantic_drift_refuses(monkeypatch, tmp_path, mutate, message):
+    _patch_current_corpus(monkeypatch, tmp_path, mutate)
+    with pytest.raises(EvidenceIntegrityError, match=message):
+        build_human_grade_fit(DELIVERY)
+
+
+def test_authenticated_manifest_corpus_fingerprint_must_match_training(monkeypatch):
     _patch_authenticated_bayes_manifest(
         monkeypatch,
         lambda manifest: manifest["run_meta"].__setitem__("corpus_fingerprint", "0" * 64),
@@ -244,6 +316,12 @@ def test_publication_manifest_is_current_corpus_compatible_and_honest(prepared):
     assert manifest.counts["input_arms"] == 298
     assert manifest.counts["retained_pairs"] == 149
     assert manifest.source_provenance["corpus_version"] == 2
+    assert manifest.source_provenance["training_corpus_sha256"] == (
+        DEFAULT_EVIDENCE_IDENTITY.member_sha256["corpus/corpus.json"]
+    )
+    assert manifest.source_provenance["current_compatible_corpus_sha256"] == (
+        current.corpus_sha256
+    )
     assert manifest.source_provenance["corpus_sha256"] == current.corpus_sha256
     assert manifest.source_provenance["functional_success_source"] == "human_grades"
     assert manifest.source_provenance["judge_calls_used"] == 0

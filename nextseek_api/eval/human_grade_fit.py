@@ -289,6 +289,84 @@ def _canonical_hash(value: Any) -> str:
     ).hexdigest()
 
 
+def _corpus_semantics(
+    payload: Any,
+    *,
+    source: str,
+) -> tuple[Any, frozenset[str], dict[str, str]]:
+    if not isinstance(payload, dict):
+        raise EvidenceIntegrityError(f"{source} corpus must be an object")
+    families = payload.get("families")
+    if not isinstance(families, dict):
+        raise EvidenceIntegrityError(f"{source} corpus families must be an object")
+    family_names = frozenset(str(name) for name in families)
+    variant_families: dict[str, str] = {}
+    for family_name, family_payload in families.items():
+        if not isinstance(family_payload, dict) or not isinstance(
+            family_payload.get("variants"), list
+        ):
+            raise EvidenceIntegrityError(
+                f"{source} corpus family {family_name!r} must contain a variants list"
+            )
+        for variant in family_payload["variants"]:
+            if not isinstance(variant, dict):
+                raise EvidenceIntegrityError(f"{source} corpus variant must be an object")
+            variant_id = variant.get("id")
+            declared_family = variant.get("family")
+            if not isinstance(variant_id, str) or not variant_id:
+                raise EvidenceIntegrityError(f"{source} corpus variant id must be nonempty")
+            if variant_id in variant_families:
+                raise EvidenceIntegrityError(
+                    f"{source} corpus contains duplicate variant id {variant_id!r}"
+                )
+            if not isinstance(declared_family, str) or declared_family not in family_names:
+                raise EvidenceIntegrityError(
+                    f"{source} corpus variant {variant_id!r} has an undeclared family"
+                )
+            variant_families[variant_id] = declared_family
+    return payload.get("version"), family_names, variant_families
+
+
+def _require_current_corpus_compatible(
+    training_payload: dict[str, Any],
+    current,
+) -> None:
+    current_raw = Path(current.corpus_path).read_bytes()
+    current_sha256 = hashlib.sha256(current_raw).hexdigest()
+    if current_sha256 != current.corpus_sha256:
+        raise EvidenceIntegrityError("current router corpus changed while checking compatibility")
+    current_payload = json.loads(current_raw)
+    training_version, training_families, training_variants = _corpus_semantics(
+        training_payload,
+        source="training",
+    )
+    current_version, current_families, current_variants = _corpus_semantics(
+        current_payload,
+        source="current",
+    )
+    if current_version != training_version:
+        raise EvidenceIntegrityError(
+            f"current corpus version drift: training={training_version!r}, current={current_version!r}"
+        )
+    if current_families != training_families:
+        raise EvidenceIntegrityError("current corpus family set drift")
+    missing = sorted(set(training_variants) - set(current_variants))
+    added = sorted(set(current_variants) - set(training_variants))
+    if missing or added:
+        raise EvidenceIntegrityError(
+            f"current corpus variant ID drift: missing={missing}, added={added}"
+        )
+    changed = sorted(
+        variant_id
+        for variant_id in training_variants
+        if current_variants[variant_id] != training_variants[variant_id]
+    )
+    if changed:
+        raise EvidenceIntegrityError(
+            f"current corpus variant family mapping drift: changed={changed}"
+        )
+
+
 def _stack_identity(run_meta: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     git_sha = run_meta.get("git_sha")
     if not isinstance(git_sha, str) or not git_sha.strip():
@@ -452,8 +530,14 @@ def _publication_evidence_from_derived_facts(
     from nextseek_api.eval.publish import PublicationEvidence
 
     current = corpus_snapshot()
-    if source_hashes.get("corpus_sha256") != current.corpus_sha256:
-        raise EvidenceIntegrityError("prepared source corpus no longer matches the router corpus")
+    member_hashes = source_hashes.get("member_sha256")
+    if not isinstance(member_hashes, dict):
+        raise EvidenceIntegrityError("prepared source member hashes are missing")
+    training_corpus_sha256 = source_hashes.get("training_corpus_sha256")
+    if training_corpus_sha256 != member_hashes.get("corpus/corpus.json"):
+        raise EvidenceIntegrityError("prepared training corpus hash is not source-authenticated")
+    if source_hashes.get("current_compatible_corpus_sha256") != current.corpus_sha256:
+        raise EvidenceIntegrityError("prepared compatible corpus no longer matches the router corpus")
     grade_hashes = source_hashes.get("human_grade_sha256")
     if not isinstance(grade_hashes, dict) or set(grade_hashes) != {"ns", "cc"}:
         raise EvidenceIntegrityError("prepared human-grade source hashes are incomplete")
@@ -487,6 +571,8 @@ def _publication_evidence_from_derived_facts(
         "judge_calls_used": 0,
         "judge_comparison_gates_initial_fit": False,
         "corpus_version": 2,
+        "training_corpus_sha256": training_corpus_sha256,
+        "current_compatible_corpus_sha256": current.corpus_sha256,
         "corpus_sha256": current.corpus_sha256,
         "model_mode": model_mode.value,
         "initial_release_override": model_mode is ModelMode.initial_human_grade,
@@ -552,8 +638,8 @@ def build_human_grade_fit(
     if corpus_payload.get("version") != 2:
         raise EvidenceIntegrityError("transferred corpus is not version 2")
     current = corpus_snapshot()
-    if current.corpus_sha256 != identity.member_sha256["corpus/corpus.json"]:
-        raise EvidenceIntegrityError("transferred corpus does not match the current router corpus")
+    _require_current_corpus_compatible(corpus_payload, current)
+    training_corpus_sha256 = identity.member_sha256["corpus/corpus.json"]
 
     manifest_raw = json.loads(members["set3_final/bayes_manifest.json"])
     from nessie_tests.bayes_manifest import BayesManifest
@@ -599,7 +685,7 @@ def build_human_grade_fit(
     expected_ids = set(pair_ids)
     run_meta = _validate_run_meta(
         manifest_raw.get("run_meta"),
-        corpus_sha256=current.corpus_sha256,
+        corpus_sha256=training_corpus_sha256,
         pair_ids=pair_ids,
     )
     stack_id, stack_provenance = _stack_identity(run_meta)
@@ -712,6 +798,8 @@ def build_human_grade_fit(
         "artifact_validity_sha256": identity.artifact_validity_sha256,
         "human_grade_sha256": grade_hashes,
         "corpus_version": 2,
+        "training_corpus_sha256": training_corpus_sha256,
+        "current_compatible_corpus_sha256": current.corpus_sha256,
         "corpus_sha256": current.corpus_sha256,
         "stack_identity": stack_provenance,
     }
