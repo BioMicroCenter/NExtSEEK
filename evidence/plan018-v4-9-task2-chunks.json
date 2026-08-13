@@ -8,6 +8,7 @@
     "tests": 675,
     "xfail": 0
   },
+  "chunk_max_node_ids": 50,
   "chunks": [
     {
       "counts": {
@@ -923,59 +924,37 @@
       "predicate": "exact collected node IDs 650..674"
     }
   ],
-  "collection_manifest": "evidence/plan018-v4-9-task2-chunks.json",
-  "collection_manifest_sha256": "6e0b1c30cfe9e69606835b2ffcbe4806555c4c4ff3560adb632a2ab568b79b2a",
-  "coverage_errors": [
-    "nessie_tests/bayes_manifest.py branch coverage 62.5% is below 95.0%",
-    "nessie_tests/bayesian.py statement coverage 70.7% is below 95.0%",
-    "nessie_tests/bayesian.py branch coverage 50.0% is below 95.0%",
-    "nessie_tests/export.py statement coverage 23.8% is below 95.0%",
-    "nessie_tests/export.py branch coverage 1.3% is below 95.0%",
-    "nextseek_api/eval/export.py statement coverage 0.0% is below 95.0%",
-    "nextseek_api/eval/export.py branch coverage 0.0% is below 95.0%",
-    "nextseek_api/eval/exporter.py statement coverage 0.0% is below 95.0%",
-    "nextseek_api/eval/exporter.py branch coverage 0.0% is below 95.0%",
-    "nextseek_api/eval/functional_inputs.py statement coverage 0.0% is below 95.0%",
-    "nextseek_api/eval/functional_inputs.py branch coverage 0.0% is below 95.0%",
-    "nextseek_api/eval/artifact_validity_proposal.py statement coverage 0.0% is below 95.0%",
-    "nextseek_api/eval/artifact_validity_proposal.py branch coverage 0.0% is below 95.0%",
-    "nextseek_api/eval/router_models_proposal.py statement coverage 78.9% is below 95.0%",
-    "nextseek_api/eval/router_models_proposal.py branch coverage 45.8% is below 95.0%",
-    "aggregate statement coverage 49.6% is below 95.0%",
-    "aggregate branch coverage 35.1% is below 95.0%"
-  ],
-  "coverage_summary": "evidence/plan018-v4-9-task2-coverage.json",
-  "coverage_summary_sha256": "3ee897ed800f01375914e575ff25ec0652e97bba7911f308293e56bc269bfed8",
   "full_collection": "evidence/plan018-v4-9-task2-full-collection.txt",
   "full_collection_sha256": "c159e6224815e4cf135cf0f1721f9f1934be34e9bf31f8d02cb3159a52e2df0d",
-  "gate": "FAIL",
-  "network": "docker --network none",
-  "owned_surface_sha256": "a39dcc267f36c01089e32a44b482ff83445319fce4b6071ae36da8943cb0c242",
-  "ownership_map_sha256": "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df",
-  "producer_or_network_execution": false,
-  "raw_coverage": "evidence/plan018-v4-9-task2-coverage.raw.json",
-  "raw_coverage_sha256": "fd04ee6a2cd9b30817935e14e63f52f71aeeeed3925ede1a3bca002ad30a59fd",
-  "schema": "plan018-v4-9-task2-evidence/v2",
-  "source_sha256": {
-    "nessie_tests/bayes_manifest.py": "e586c3ee3a283f676985850037a1653ced10648d3c9fbb481b9632054d154328",
-    "nessie_tests/bayesian.py": "e203cd33cc7a14c6f8ae208d19a0caf05a735012fc2c62b5f3cbab2a5b520f01",
-    "nessie_tests/export.py": "05d498c1752068dd45026e03d8ec69695bab7de83ebc1c8c56ba1b712fddc6d9",
-    "nextseek_api/eval/artifact_validity_proposal.py": "d663fa865840d94d245acf16750d3cc76b2fb95975e1ddeb9cad5b2c4fe541d9",
-    "nextseek_api/eval/attempt_store.py": "e64e55f5efe740f77fad4b7f9930dc843fbcc98c4491675bebc27c0809d386e8",
-    "nextseek_api/eval/conservation.py": "4a6b19d1c7c9b0f0f6b221d02504b591936a7bda6a72ef2720450f5505383704",
-    "nextseek_api/eval/disposition.py": "58bdcdfb2345f408ec701457e7670dd889331e2a2cf1dcafac57c1b9ddcb98ed",
-    "nextseek_api/eval/export.py": "27578ffbc0b11a4560e13b6daa88884ddc4861674edf5491948da7cd8e2e38a1",
-    "nextseek_api/eval/exporter.py": "b651555df63c06ed1ee7f6f243e292e5544f4d62d5ee95bcc315840fb1849445",
-    "nextseek_api/eval/functional_inputs.py": "1639dd81b0c47ec2762b460d819bec8c529953f28ee2092ea044fa2e4dd160bf",
-    "nextseek_api/eval/human_annotations.py": "934c9728b586af2ddf01d21e9d0234e9536731b9af3b27dabb17bd274e3d7a7b",
-    "nextseek_api/eval/judge.py": "c38374907f4384a3f2e627c76dff94b6aeb9774dbd602c4b6531b0aa7fb6d650",
-    "nextseek_api/eval/judge_models.py": "7220a19340e71479a5dbe454c85987dd5db381870722f829577483e491fc536a",
-    "nextseek_api/eval/router_models_proposal.py": "1fdf69be9ed3f3ca9654a8785bc1e331b60419f5bf9882f9ec882b0647eed658",
-    "nextseek_api/eval/stage_c_runner.py": "35aeb539c7664f424a0141d7d2c1430510722935e10d43043576072bdb670b85"
-  },
-  "transferred_evidence_dir": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07",
-  "transferred_evidence_sha256": {
-    "MANIFEST.json": "d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2",
-    "testquestions.zip": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814"
-  }
+  "partition_errors": [],
+  "schema": "plan018-v4-9-task2-collection/v1",
+  "test_targets": [
+    "nessie_tests/tests/test_bayes_report.py",
+    "nessie_tests/tests/test_bayesian.py",
+    "nessie_tests/tests/test_cli.py",
+    "nessie_tests/tests/test_collect.py",
+    "nessie_tests/tests/test_corpus.py",
+    "nessie_tests/tests/test_evaluate.py",
+    "nessie_tests/tests/test_export.py",
+    "nessie_tests/tests/test_merge_grades.py",
+    "nessie_tests/tests/test_retired.py",
+    "nessie_tests/tests/test_run_case.py",
+    "nessie_tests/tests/test_runner.py",
+    "nessie_tests/tests/test_sources.py",
+    "nessie_tests/tests/test_strict_manifest_schema.py",
+    "nessie_tests/tests/test_unified_corpus.py",
+    "nessie_tests/tests/test_v4_2_set3_replay.py",
+    "nextseek_api/eval/tests/test_attempt_store.py",
+    "nextseek_api/eval/tests/test_conservation.py",
+    "nextseek_api/eval/tests/test_disposition.py",
+    "nextseek_api/eval/tests/test_human_annotations.py",
+    "nextseek_api/eval/tests/test_judge_aggregation.py",
+    "nextseek_api/eval/tests/test_judge_mutations.py",
+    "nextseek_api/eval/tests/test_stage_c_runner.py",
+    "nextseek_api/eval/tests/test_v14_pair_input.py",
+    "nextseek_api/eval/tests/test_v4_7_fit_refuse.py",
+    "nextseek_api/eval/tests/test_v4_7_mutation_killers.py",
+    "nextseek_api/eval/tests/test_v4_7_schemas.py",
+    "nextseek_api/eval/tests/test_v4_9_task2_behavior.py"
+  ]
 }

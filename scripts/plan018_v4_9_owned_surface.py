@@ -70,6 +70,12 @@ CONTROL_ENTRIES += (
     {"path": "evidence/plan018-v4-9-task2-coverage.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Validated Task 2 coverage summary.", "sources": ["task_2_control"], "change": "task_2_control"},
     {"path": "evidence/plan018-v4-9-task2-evidence.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Task 2 command, provenance, and no-external-effects evidence.", "sources": ["task_2_control"], "change": "task_2_control"},
     {"path": ".superpowers/sdd/2026-08-13-plan018-v4-9/task-2-report.md", "classification": "task_report", "cluster": "v4_9_task2", "oracle": {"id": "task_report", "target": ORACLE_REGISTRY["task_report"]["target"]}, "rationale": "Required Task 2 report.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "evidence/plan018-v4-9-task2-full-collection.txt", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Exact intended Task 2 collection node IDs.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "evidence/plan018-v4-9-task2-chunks.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Bounded Task 2 chunk predicates, JUnit hashes, and partition proof.", "sources": ["task_2_control"], "change": "task_2_control"},
+)
+CONTROL_ENTRIES += tuple(
+    {"path": f"evidence/plan018-v4-9-task2-chunk-{index:02d}.junit.xml", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Bounded Task 2 chunk JUnit evidence.", "sources": ["task_2_control"], "change": "task_2_control"}
+    for index in range(14)
 )
 
 

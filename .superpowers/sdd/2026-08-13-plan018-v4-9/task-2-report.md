@@ -2,6 +2,38 @@
 
 ## Outcome
 
+**Status: PARTIAL / measured RED as of 2026-08-13.** The original ten-module PASS
+evidence below is obsolete and non-authoritative after the Task-2 ownership map was
+expanded to fifteen modules. The authenticated bounded rerun selected 675 exact node
+IDs in fourteen disjoint chunks and produced 14 JUnits; it found the expanded gate at
+**898/1809 statements (49.6%)** and **195/556 branches (35.1%)**, below both 95%
+floors. Task 2 is not complete.
+
+The current fail-closed summary is `evidence/plan018-v4-9-task2-coverage.json`; the
+raw coverage, full collection, chunk manifest, and per-chunk JUnits are SHA-bound by
+the runner. `judge_models.py` has no branches, so its branch floor is explicitly N/A,
+not a synthetic 100% claim.
+
+| Module | Statements | Branches |
+| --- | ---: | ---: |
+| `nessie_tests/bayes_manifest.py` | 95.0% | 62.5% |
+| `nessie_tests/bayesian.py` | 70.7% | 50.0% |
+| `nessie_tests/export.py` | 23.8% | 1.3% |
+| `nextseek_api/eval/artifact_validity_proposal.py` | 0.0% | 0.0% |
+| `nextseek_api/eval/export.py` | 0.0% | 0.0% |
+| `nextseek_api/eval/exporter.py` | 0.0% | 0.0% |
+| `nextseek_api/eval/functional_inputs.py` | 0.0% | 0.0% |
+| `nextseek_api/eval/router_models_proposal.py` | 78.9% | 45.8% |
+
+The remaining Task-2 modules clear the measured floor: `attempt_store`,
+`conservation`, `disposition`, `human_annotations`, `judge`, `judge_models`
+(branchless), and `stage_c_runner`. No producer, provider, network, live DB,
+deployment, or registry action occurred: the bounded Docker worktree-mount lane used
+`--network none` and mounted only the exact V4-2 transferred-evidence directory
+read-only, with SHA pins for `testquestions.zip` and `MANIFEST.json`.
+
+## Historical claim (VOID for expanded ownership)
+
 Task 2 is complete as a hermetic coverage gate: the source-derived paired producer,
 schema/export, attempt-storage, DD-44 judgment, disposition, conservation, and Stage-C
 cluster passes the required per-module and aggregate 95% statement and branch floors.

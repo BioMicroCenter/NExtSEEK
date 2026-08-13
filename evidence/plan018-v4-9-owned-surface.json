@@ -189,6 +189,230 @@
       "sources": [
         "task_2_control"
       ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-full-collection.txt",
+      "rationale": "Exact intended Task 2 collection node IDs.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunks.json",
+      "rationale": "Bounded Task 2 chunk predicates, JUnit hashes, and partition proof.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-00.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-01.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-02.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-03.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-04.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-05.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-06.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-07.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-08.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-09.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-10.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-11.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-12.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-13.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
     }
   ],
   "entries": [
@@ -8568,7 +8792,7 @@
       "test": 88,
       "verifier": 10
     },
-    "control_entries": 13,
+    "control_entries": 29,
     "source_candidates": 410
   }
 }
