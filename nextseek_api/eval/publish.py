@@ -7,13 +7,80 @@ from typing import Any
 
 from nextseek_api.eval.generation_store import GenerationManifest, publish_generation
 
-__all__ = ["FitGroup", "FitResult", "publish"]
+__all__ = [
+    "FitGroup",
+    "FitResult",
+    "PublicationEvidence",
+    "PublicationEvidenceRequired",
+    "manifest_for_combined",
+    "publish",
+]
 
-_DEFAULT_PAIRED_PROVENANCE = {
-    "paired_run_id": "combined-fit-local",
-    "evidence_kind": "paired_experimental",
-    "route_source": "forced",
-}
+
+class PublicationEvidenceRequired(ValueError):
+    """A statistical result is not evidence provenance and cannot invent it."""
+
+
+@dataclass(frozen=True)
+class PublicationEvidence:
+    input_hash: str
+    attempt_hash: str
+    aggregate_hash: str
+    compatibility_keys: dict[str, str]
+    counts: dict[str, int]
+    exclusions: dict[str, int]
+    fit_diagnostics: dict[str, Any]
+    source_provenance: dict[str, Any]
+    family_retained_pairs: dict[str, int]
+
+    def validate(
+        self,
+        *,
+        for_publication: bool,
+        allow_initial_release_override: bool = False,
+    ) -> None:
+        missing_hashes = [
+            name
+            for name in ("input_hash", "attempt_hash", "aggregate_hash")
+            if not getattr(self, name)
+        ]
+        if missing_hashes:
+            raise PublicationEvidenceRequired(f"missing evidence hashes: {missing_hashes}")
+        if set(self.compatibility_keys) != {"taxonomy_version", "corpus_hash"}:
+            raise PublicationEvidenceRequired(
+                "compatibility_keys must contain exactly taxonomy_version and corpus_hash"
+            )
+        if int(self.counts.get("retained_pairs", -1)) < 0:
+            raise PublicationEvidenceRequired("counts.retained_pairs is required")
+        required_provenance = {
+            "paired_run_id",
+            "evidence_kind",
+            "route_source",
+            "model_mode",
+            "functional_success_source",
+        }
+        missing = required_provenance - set(self.source_provenance)
+        if missing:
+            raise PublicationEvidenceRequired(f"missing source provenance: {sorted(missing)}")
+        if self.source_provenance.get("functional_success_source") == "human_grades":
+            if self.source_provenance.get("judge_calls_used") != 0:
+                raise PublicationEvidenceRequired(
+                    "human-grade fit must record judge_calls_used=0"
+                )
+        authoritative = self.fit_diagnostics.get("authoritative") is True
+        diagnostics_ok = self.fit_diagnostics.get("diagnostics_ok") is True
+        if for_publication and not (authoritative and diagnostics_ok):
+            is_honest_initial_release = (
+                allow_initial_release_override
+                and self.source_provenance.get("model_mode") == "initial_human_grade"
+                and self.source_provenance.get("initial_release_override") is True
+                and not authoritative
+            )
+            if not is_honest_initial_release:
+                raise PublicationEvidenceRequired(
+                    "publication requires authoritative diagnostics, or an explicit "
+                    "initial_human_grade release override"
+                )
 
 
 @dataclass
@@ -51,19 +118,29 @@ def _route_from_status(status: str, default: str = "container_cc") -> str:
     return default
 
 
-def _groups_from_combined(fit_result) -> tuple[list[FitGroup], GenerationManifest]:
+def manifest_for_combined(
+    fit_result: object,
+    evidence: PublicationEvidence,
+    *,
+    for_publication: bool = False,
+    allow_initial_release_override: bool = False,
+) -> GenerationManifest:
     from nextseek_api.eval.fit.v14.combined import CombinedFitResult
     from nextseek_api.eval.fit.v14.decision import decision_status_to_band
 
     if not isinstance(fit_result, CombinedFitResult):
         raise TypeError(f"unsupported fit result type: {type(fit_result)!r}")
+    evidence.validate(
+        for_publication=for_publication,
+        allow_initial_release_override=allow_initial_release_override,
+    )
     groups = [
         FitGroup(
             name=candidate.family,
             route=_route_from_status(candidate.status.value),
             posterior_mean=max(0.0, 1.0 - candidate.local_error_prob),
             band=decision_status_to_band(candidate.status.value),
-            n_total=1,
+            n_total=int(evidence.family_retained_pairs.get(candidate.family, 0)),
         )
         for candidate in fit_result.decision.candidates
     ]
@@ -71,12 +148,16 @@ def _groups_from_combined(fit_result) -> tuple[list[FitGroup], GenerationManifes
         "activated_families": list(fit_result.decision.activated_families),
         "posterior_expected_fdr": fit_result.decision.posterior_expected_fdr,
     }
-    fp = fit_result.decision.config_fingerprint
+    missing_families = [group.name for group in groups if group.n_total < 1]
+    if missing_families:
+        raise PublicationEvidenceRequired(
+            f"missing retained-pair counts for fit families: {missing_families}"
+        )
     manifest = GenerationManifest(
-        input_hash=fp,
-        attempt_hash=fp,
-        aggregate_hash=fp,
-        config_fingerprint=fp,
+        input_hash=evidence.input_hash,
+        attempt_hash=evidence.attempt_hash,
+        aggregate_hash=evidence.aggregate_hash,
+        config_fingerprint=fit_result.decision.config_fingerprint,
         decision_status=fit_result.decision.generation_status,
         groups=[
             {
@@ -89,27 +170,41 @@ def _groups_from_combined(fit_result) -> tuple[list[FitGroup], GenerationManifes
             }
             for g in groups
         ],
-        compatibility_keys={"taxonomy_version": "v14", "corpus_hash": fp[:16]},
-        counts={"retained_pairs": max(len(groups), 5)},
+        compatibility_keys=dict(evidence.compatibility_keys),
+        counts=dict(evidence.counts),
+        exclusions=dict(evidence.exclusions),
+        fit_diagnostics=dict(evidence.fit_diagnostics),
         decision_results=payload_extra,
-        source_provenance={"origin": "combined_fit_result", **_DEFAULT_PAIRED_PROVENANCE},
+        source_provenance=dict(evidence.source_provenance),
     )
-    return groups, manifest
+    return manifest
 
 
 def _manifest_from_fit_result(fit_result: FitResult) -> GenerationManifest:
     payload = dict(fit_result.payload or {})
     compat = fit_result.compatibility_keys or payload.pop("compatibility_keys", {})
-    if not compat:
-        compat = {"taxonomy_version": "local", "corpus_hash": fit_result.input_hash[:16]}
     counts = fit_result.counts or payload.pop("counts", {})
+    provenance = fit_result.source_provenance or payload.pop("source_provenance", {})
+    missing = [
+        name
+        for name in ("input_hash", "attempt_hash", "aggregate_hash", "config_fingerprint")
+        if not getattr(fit_result, name)
+    ]
+    if missing:
+        raise PublicationEvidenceRequired(f"FitResult missing explicit fields: {missing}")
+    if set(compat) != {"taxonomy_version", "corpus_hash"}:
+        raise PublicationEvidenceRequired(
+            "FitResult requires exact taxonomy_version/corpus_hash compatibility keys"
+        )
     if "retained_pairs" not in counts:
-        counts = {**counts, "retained_pairs": max(len(fit_result.groups), 5)}
+        raise PublicationEvidenceRequired("FitResult requires counts.retained_pairs")
+    if not provenance:
+        raise PublicationEvidenceRequired("FitResult requires explicit source_provenance")
     return GenerationManifest(
-        input_hash=fit_result.input_hash or "local",
-        attempt_hash=fit_result.attempt_hash or fit_result.input_hash or "local",
-        aggregate_hash=fit_result.aggregate_hash or fit_result.input_hash or "local",
-        config_fingerprint=fit_result.config_fingerprint or "local",
+        input_hash=fit_result.input_hash,
+        attempt_hash=fit_result.attempt_hash,
+        aggregate_hash=fit_result.aggregate_hash,
+        config_fingerprint=fit_result.config_fingerprint,
         decision_status=fit_result.decision_status,
         groups=[
             {
@@ -127,18 +222,32 @@ def _manifest_from_fit_result(fit_result: FitResult) -> GenerationManifest:
         exclusions=fit_result.exclusions or payload.pop("exclusions", {}),
         fit_diagnostics=fit_result.fit_diagnostics or payload.pop("fit_diagnostics", {}),
         decision_results=fit_result.decision_results or payload,
-        source_provenance=fit_result.source_provenance
-        or payload.pop("source_provenance", {"origin": "fit_result"}),
+        source_provenance=provenance,
     )
 
 
-def publish(fit_result: FitResult | object) -> int:
+def publish(
+    fit_result: FitResult | object,
+    *,
+    evidence: PublicationEvidence | None = None,
+    allow_initial_release_override: bool = False,
+) -> int:
     """Create or return an immutable generation; returns group count."""
     if isinstance(fit_result, FitResult):
         manifest = _manifest_from_fit_result(fit_result)
         groups = fit_result.groups
     else:
-        groups, manifest = _groups_from_combined(fit_result)
+        if evidence is None:
+            raise PublicationEvidenceRequired(
+                "CombinedFitResult requires explicit PublicationEvidence"
+            )
+        manifest = manifest_for_combined(
+            fit_result,
+            evidence,
+            for_publication=True,
+            allow_initial_release_override=allow_initial_release_override,
+        )
+        groups = manifest.groups
     from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
 
     validate_publish_provenance(dict(manifest.source_provenance or {}))

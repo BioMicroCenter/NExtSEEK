@@ -7,7 +7,7 @@ from nextseek_api.eval.fit.v14.decision import CandidateDecision, DecisionStatus
 from nextseek_api.eval.fit.v14.latency_model import LatencyFitResult
 from nextseek_api.eval.fit.v14.quality_model import QualityFitResult
 from nextseek_api.eval.paired_run_registry import register_paired_run
-from nextseek_api.eval.publish import FitGroup, FitResult, publish
+from nextseek_api.eval.publish import FitGroup, FitResult, PublicationEvidence, publish
 
 pytestmark = pytest.mark.django_db
 
@@ -144,7 +144,24 @@ def test_publish_combined_fit_result_uses_decision_bands():
         decision=decision,
         diagnostics_ok=True,
     )
-    count = publish(combined)
+    evidence = PublicationEvidence(
+        input_hash="input-combined-test",
+        attempt_hash="attempt-combined-test",
+        aggregate_hash="aggregate-combined-test",
+        compatibility_keys={"taxonomy_version": "2", "corpus_hash": "corpus-combined-test"},
+        counts={"retained_pairs": 5},
+        exclusions={},
+        fit_diagnostics={"authoritative": True, "diagnostics_ok": True},
+        source_provenance={
+            "paired_run_id": "combined-fit-local",
+            "evidence_kind": "paired_experimental",
+            "route_source": "forced",
+            "model_mode": "authoritative_mcmc",
+            "functional_success_source": "stored_judgments",
+        },
+        family_retained_pairs={"sample_search": 5},
+    )
+    count = publish(combined, evidence=evidence)
     assert count == 1
     row = FamilyPosterior.objects.get(task_family="sample_search")
     assert row.band == "Reliable"
