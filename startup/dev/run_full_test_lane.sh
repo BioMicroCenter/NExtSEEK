@@ -103,7 +103,7 @@ set -u
 # ---------------------------------------------------------------------------
 # Pinned identities
 # ---------------------------------------------------------------------------
-APP_IMAGE="nextseek-nextseek:latest"
+APP_IMAGE="ghcr.io/biomicrocenter/nextseek:baseline-20260805"
 APP_IMAGE_ID_PIN="sha256:dee946d11cde79b5002b569f80900adc988e09c68aeaa7c3467eac42cfb512c4"
 MYSQL_IMAGE="mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b"
 

@@ -207,7 +207,7 @@ if [[ "$lane" != "lint" && "$lane" != "coverage" && "$lane" != "mutants" ]]; the
   fi
   command+=("${test_args[@]}")
 fi
-reference_image_id="$(docker image inspect --format '{{.Id}}' nextseek-nextseek)" || exit 65
+reference_image_id="$(docker image inspect --format '{{.Id}}' ghcr.io/biomicrocenter/nextseek:baseline-20260805)" || exit 65
 if [[ "$reference_image_id" != "sha256:dee946d11cde79b5002b569f80900adc988e09c68aeaa7c3467eac42cfb512c4" ]]; then
   echo "reference image identity drift" >&2; exit 65
 fi

@@ -203,7 +203,8 @@ def test_t08_deadline_coverage_rejects_residual_regression():
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
-    module.ROOT = ROOT / ".claude/worktrees/task-08-async-orchestration"
+    task08_root = ROOT / ".claude/worktrees/task-08-async-orchestration"
+    module.ROOT = task08_root if (task08_root / "nextseek_api/attributes/jobs.py").is_file() else ROOT
     manifest = json.loads(MANIFEST.read_text())
     payload = {"files": {
         "nextseek_api/attributes/jobs.py": {"summary": {

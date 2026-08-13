@@ -1244,8 +1244,8 @@ def test_dispatch_outbox_publish_failure_retains_pending_and_retries(disposable_
 
 
 # ---------------------------------------------------------------------------
-# 8. MutationJobService.create: atomic pending creation + armed crash point
-#    leaves no partially-created job (Amendment 2026-08-08 (1), Review
+# 8. MutationJobService.create: atomic pending creation + armed mid-create
+#    crash rolls back every row (deadline amendment, Review
 #    Blocker 5). Not one of the 14 frozen Chain-C nodes -- Section 3's node
 #    list is closed -- so these emit no chain-c record; they are pure
 #    disposable-DB proofs of the amendment's own required behavior.
@@ -1320,7 +1320,7 @@ def test_mutation_job_service_create_commits_job_and_outbox_pending_atomically(d
 
 
 @pytest.mark.django_db(transaction=True)
-def test_mutation_job_service_create_armed_crash_leaves_no_partially_created_job(disposable_attribute_db, attribute_faults, django_db_blocker):
+def test_mutation_job_service_create_armed_mid_create_crash_rolls_back_all_rows(disposable_attribute_db, attribute_faults, django_db_blocker):
     django_db_blocker.unblock()
     database = disposable_attribute_db
     assertion_count = 0
@@ -1335,26 +1335,20 @@ def test_mutation_job_service_create_armed_crash_leaves_no_partially_created_job
     assert before_count == 0
     assertion_count += 1
 
-    # Section 3's own convention (see run_stored_job): every attribute_fault
-    # call site sits between two already-durable states, never inside an
-    # atomic block. MutationJobService.create follows the same rule -- the
-    # fault fires only after the job+partitions+outbox_state transaction has
-    # already committed, so a raise here can prove the committed row is
-    # genuinely non-partial, not merely that a rollback erased everything.
-    #
     # `observed(...)` is a cumulative counter over the whole shared control
     # file, not scoped to this test -- `attribute_fault()` bumps it on every
     # call regardless of whether the point is armed (only the *raise* is
     # conditional). Capture a baseline and assert the delta, not an absolute
     # value, so this assertion holds regardless of what any sibling node
     # already observed against the same point earlier in the same run.
-    before_observed = attribute_faults.observed("async.after_acceptance_before_outbox_publish")
-    attribute_faults.arm("async.after_acceptance_before_outbox_publish")
+    point = "async.during_atomic_job_creation_after_job_before_partitions"
+    before_observed = attribute_faults.observed(point)
+    attribute_faults.arm(point)
     try:
         with pytest.raises(InjectedAttributeFault):
             MutationJobService().create(plan, dict(plan.actor), "asynchronous")
         assertion_count += 1
-        assert attribute_faults.observed("async.after_acceptance_before_outbox_publish") == before_observed + 1
+        assert attribute_faults.observed(point) == before_observed + 1
         assertion_count += 1
     finally:
         attribute_faults.clear()
@@ -1362,32 +1356,10 @@ def test_mutation_job_service_create_armed_crash_leaves_no_partially_created_job
     jobs = list(AttributeMutationJob.objects.filter(
         canonical_submitted_request_sha256=plan.canonical_submitted_request_sha256,
     ))
-    # Exactly one job exists -- neither zero (the write silently vanished)
-    # nor a row visibly missing its partitions/outbox flip (a genuine
-    # partial create). The raise from the armed fault happened strictly
-    # after this row (and every one of its partitions) was already durable.
-    assert len(jobs) == 1
+    assert jobs == []
     assertion_count += 1
-    job = jobs[0]
-    assert job.outbox_state == "pending"
-    assertion_count += 1
-    assert job.outbox_payload == {"task": "attribute_mutations.run"}
-    assertion_count += 1
-    stored = list(AttributeMutationPartition.objects.filter(job=job).order_by("sample_type_id"))
-    assert [row.sample_type_id for row in stored] == [item.sample_type_id for item in plan.executable_types]
-    assertion_count += 1
-    assert [row.idempotency_key for row in stored] == [item.idempotency_key for item in plan.executable_types]
-    assertion_count += 1
-
-    # The durably-committed job is not stuck: a fresh dispatch pass after
-    # clearing the fault proves it is exactly as publishable as an unarmed
-    # creation would have left it -- no leftover partial/inconsistent state.
-    sender = MagicMock()
-    sender.return_value.id = "b5-crash-retry-message-id"
-    published = dispatch_outbox(mutation_job_store(), sender, limit=10, owner="test-dispatcher-b5-crash")
-    assert published == 1
-    assertion_count += 1
-    job.refresh_from_db()
-    assert job.outbox_state == "published"
+    assert AttributeMutationPartition.objects.filter(
+        job__canonical_submitted_request_sha256=plan.canonical_submitted_request_sha256,
+    ).count() == 0
     assertion_count += 1
     assert assertion_count >= 1

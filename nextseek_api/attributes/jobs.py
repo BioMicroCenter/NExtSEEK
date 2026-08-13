@@ -547,20 +547,12 @@ class MutationJobService:
         (`plan.executable_types` already excludes them, along with
         `failed`/`plan_delta_required` types).
 
-        `attribute_fault("async.after_acceptance_before_outbox_publish")`
-        fires immediately *after* the transaction above has committed --
-        matching this module's own convention everywhere else (see
-        `run_stored_job`'s fault calls, always positioned between two
-        already-durable states, never inside an atomic block): the
-        frozen crash point is therefore armed against a job that is, by
-        construction, already fully and durably committed (job row +
-        every partition row + the correct `outbox_state`), never a
-        partially-created one. When armed, the raised
-        `InjectedAttributeFault` propagates to the caller, but the row this
-        method already committed remains exactly as durable and complete as
-        the unarmed case -- there is no code path that commits only the job
-        row without its partitions, or the partitions without the job, or
-        an asynchronous job without its `outbox_state="pending"` flip.
+        `attribute_fault("async.during_atomic_job_creation_after_job_before_partitions")`
+        fires after the job INSERT and before the first partition INSERT,
+        inside the same transaction. An armed fault therefore rolls back
+        the job and every partition together. The dispatcher-owned
+        `async.after_acceptance_before_outbox_publish` point is deliberately
+        not fired here.
         """
         from nextseek_api.attributes.models_db import AttributeMutationJob, AttributeMutationPartition
         from nextseek_api.attributes.planner import build_resolved_plan_envelope
@@ -584,6 +576,7 @@ class MutationJobService:
                 outbox_state="pending" if outbox_pending else "not_required",
                 outbox_payload={"task": "attribute_mutations.run"} if outbox_pending else {},
             )
+            attribute_fault("async.during_atomic_job_creation_after_job_before_partitions")
             for type_plan in plan.executable_types:
                 AttributeMutationPartition.objects.create(
                     job=job, sample_type_id=type_plan.sample_type_id,
@@ -592,5 +585,4 @@ class MutationJobService:
                     expected_after_semantic_fingerprint=type_plan.expected_after_semantic_fingerprint,
                     created_identity_tokens=[list(item) for item in type_plan.created_identity_tokens],
                 )
-        attribute_fault("async.after_acceptance_before_outbox_publish")
         return job
