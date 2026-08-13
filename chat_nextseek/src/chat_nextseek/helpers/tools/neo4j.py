@@ -6,6 +6,54 @@ import re
 from ...config import ChatConfig
 
 
+# A trailing `[SKIP n] LIMIT n`, which is the shape the graph prompt asks for.
+_TRAILING_LIMIT_RE = re.compile(
+    r"\s+(?:SKIP\s+(?:\d+|\$\w+)\s+)?LIMIT\s+(\d+|\$\w+)\s*;?\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def split_trailing_limit(cypher: str, parameters: dict | None = None) -> "tuple[str | None, int | None]":
+    """
+    Return ``(body_without_limit, effective_limit)`` for a query ending in LIMIT.
+
+    ``(None, None)`` when there is no trailing LIMIT, or when it is a parameter that
+    is not bound to an integer.
+    """
+    if not cypher:
+        return None, None
+    m = _TRAILING_LIMIT_RE.search(cypher)
+    if not m:
+        return None, None
+    token = m.group(1)
+    if token.startswith("$"):
+        value = (parameters or {}).get(token[1:])
+    else:
+        value = token
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        return None, None
+    return cypher[: m.start()], limit
+
+
+def _probe_total(db_session, body: str, params: dict) -> int | None:
+    """
+    Count the rows the query WOULD have returned without its LIMIT.
+
+    Raising the cap (250 -> 5000) only moved the wall: graph.tissue_cell_impact's
+    legitimate answer is 10,688, so it can never fit under any sane limit. The
+    answer is to report the true total alongside a capped preview.
+
+    The ``CALL () { }`` wrap preserves DISTINCT and ORDER BY without having to parse
+    the projection. The body is a prefix of an already write-checked query, so this
+    introduces no new write surface.
+    """
+    probe = f"CALL () {{\n{body}\n}}\nRETURN count(*) AS __total"
+    record = db_session.run(probe, params).single()
+    return int(record["__total"]) if record and record.get("__total") is not None else None
+
+
 def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = None) -> dict:
     """
     Execute a read-only Cypher query against the configured Neo4j instance.
@@ -54,10 +102,31 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                 except Exception:
                     pass
             print(f"[DEBUG][GRAPHDB] Query returned {len(records)} records")
+
+            # `count` is len(records) and always has been, so a query that hit its
+            # LIMIT reported the limit as if it were the answer. Probe for the real
+            # total instead of raising the cap again.
+            body, effective_limit = split_trailing_limit(cypher, params)
+            total: int | None = len(records)
+            truncated = False
+            if effective_limit is not None and len(records) >= effective_limit:
+                truncated = True
+                total = None
+                try:
+                    total = _probe_total(db_session, body, params)
+                    print(f"[DEBUG][GRAPHDB] Result hit LIMIT {effective_limit}; true total = {total}")
+                except Exception as probe_err:
+                    # Best effort: an unknown total is still more information than a
+                    # capped count presented as complete.
+                    print(f"[DEBUG][GRAPHDB] Total probe failed: {probe_err!r}")
+
             return {
                 "ok": True,
                 "data": records,
                 "count": len(records),
+                "total": total,
+                "truncated": truncated,
+                "limit": effective_limit,
                 "cypher": cypher,
                 "parameters": params,
                 "counters": counters,

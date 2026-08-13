@@ -1,9 +1,4 @@
-from pathlib import Path
-
-import pytest
-
 from nessie_tests import consistency as c
-from nessie_tests.conftest import path_accessible
 
 
 def _fake_drive(mapping):
@@ -262,7 +257,7 @@ _TURNS = Path("/home/cdemu/nessie-run-seed6b/turns.json")
 _CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
 
 
-@pytest.mark.skipif(not path_accessible(_TURNS), reason=f"stored run evidence absent: {_TURNS}")
+@pytest.mark.skipif(not _TURNS.exists(), reason=f"stored run evidence absent: {_TURNS}")
 def test_replay_the_tenth_case_the_triage_missed():
     """cons.nhp_sequencing_engine, driven from its OWN turns in the stored run.
 

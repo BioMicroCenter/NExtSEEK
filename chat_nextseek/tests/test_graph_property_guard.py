@@ -111,3 +111,41 @@ def test_graph_agent_keeps_valid_relationship_property_cypher():
         out = graph_agent(_config(REL_SCHEMA), user_query="samples from RNA-seq assay",
                           entity_result={})
     assert out.cypher == good.cypher
+
+
+# ---------------------------------------------- string literals (2026-07-29)
+#
+# repro.cypher_uid_dot failed in the probe run with:
+#   "Graph agent could not produce valid Cypher; properties ['SEQ'] do not exist"
+#
+# `unknown_cypher_properties` scans the RAW cypher. `_CYPHER_PROP_RE` is
+# `\b<ident>\.(<ident>)`, so an inlined sample-type literal like 'D.SEQ' reads as
+# a property access on a variable named D and the guard rejects a valid query.
+#
+# Nondeterministic in practice: the 2026-07-29 seed-0 run bound it as $type and
+# passed; the probe run inlined it and failed. Every dotted sample type is
+# affected — D.SEQ, D.FLOW, A.SCXP, D.MSP, A.ALN.
+#
+# The other two guards in this module already mask before scanning.
+
+
+def test_an_inlined_dotted_sample_type_is_not_read_as_a_property():
+    # `type` and `UID` are both in SCHEMA; only the 'D.SEQ' literal is at issue.
+    cypher = "MATCH (s:Sample) WHERE s.type = 'D.SEQ' RETURN s.UID AS uid"
+    assert unknown_cypher_properties(cypher, known_node_properties(SCHEMA)) == []
+
+
+def test_a_dotted_sample_type_in_a_list_literal_is_not_read_as_a_property():
+    cypher = "MATCH (s:Sample) WHERE s.type IN ['D.SEQ', 'A.SCXP'] RETURN s"
+    assert unknown_cypher_properties(cypher, known_node_properties(SCHEMA)) == []
+
+
+def test_a_real_unknown_property_is_still_flagged_alongside_a_dotted_literal():
+    """Masking must not blunt the guard: s.Lab is still invented."""
+    cypher = "MATCH (s:Sample) WHERE s.type = 'D.SEQ' AND s.Lab = 'SHA' RETURN s"
+    assert unknown_cypher_properties(cypher, known_node_properties(SCHEMA)) == ["Lab"]
+
+
+def test_a_dotted_value_in_a_double_quoted_literal_is_ignored():
+    cypher = 'MATCH (s:Sample) WHERE s.type = "A.SCXP" RETURN s'
+    assert unknown_cypher_properties(cypher, known_node_properties(SCHEMA)) == []

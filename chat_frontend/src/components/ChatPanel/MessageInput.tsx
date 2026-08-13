@@ -7,13 +7,11 @@ import { UploadControl } from "./UploadControl";
 
 export interface SendOptions {
   pipeline: "standard" | "plan";
-  useProd: boolean;
 }
 
 interface MessageInputProps {
   onSend: (message: string, opts: SendOptions) => void;
   disabled?: boolean;
-  isAdmin?: boolean;
   apiService?: NextseekApiService;
 }
 
@@ -27,19 +25,18 @@ function readInitialQuery(): string {
   }
 }
 
-export function MessageInput({ onSend, disabled, isAdmin = false, apiService }: MessageInputProps) {
+export function MessageInput({ onSend, disabled, apiService }: MessageInputProps) {
   const [value, setValue] = useState<string>(() => readInitialQuery());
   // Pipeline mode is fixed to "standard" — the Standard/Planner selector was
   // removed from the UI, but the field is still sent so the backend contract
   // (SendOptions.pipeline) is unchanged.
   const [pipeline] = useState<"standard" | "plan">("standard");
-  const [useProd, setUseProd] = useState<boolean>(false);
   const { textareaRef, handleInput, resetHeight } = useAutoResize();
 
   const handleSend = () => {
     const trimmed = value.trim();
     if (!trimmed) return;
-    onSend(trimmed, { pipeline, useProd: isAdmin && useProd });
+    onSend(trimmed, { pipeline });
     setValue("");
     resetHeight();
   };
@@ -69,20 +66,6 @@ export function MessageInput({ onSend, disabled, isAdmin = false, apiService }: 
           disabled={disabled}
           rows={1}
         />
-        <div className="flex flex-col items-end gap-1">
-          {isAdmin && (
-            <label className="flex items-center gap-1 text-xs cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={useProd}
-                onChange={(e) => setUseProd(e.target.checked)}
-                disabled={disabled}
-                aria-label="Use prod database"
-              />
-              <span>PROD</span>
-            </label>
-          )}
-        </div>
         <Button
           data-testid="send-button"
           className="shrink-0 rounded-lg p-0"

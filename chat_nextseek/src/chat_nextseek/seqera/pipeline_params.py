@@ -11,6 +11,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from ..luria.run_script import has_local_luria_ref
+
 _NFCORE_DIR = Path(__file__).resolve().parent.parent / "reports" / "templates" / "nfcore"
 
 
@@ -23,6 +25,24 @@ def load_pipeline_context(pipeline_key: str) -> dict[str, Any]:
         return {"params": {}, "reference_resources": []}
     doc = json.loads(path.read_text())
     return {"params": doc.get("params") or {}, "reference_resources": list(doc.get("reference_resources") or [])}
+
+
+@lru_cache(maxsize=None)
+def _load_pipeline_doc(pipeline_key: str) -> dict[str, Any]:
+    """Full curated JSON for a pipeline ({} if absent)."""
+    path = _NFCORE_DIR / f"{(pipeline_key or '').strip().lower()}.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def process_args_for(pipeline_key: str, protocol: str | None) -> dict[str, str]:
+    """{process_name: ext_args} the curated JSON declares a protocol needs — e.g. scrnaseq
+    'dropseq' -> {'SIMPLEAF_QUANT': '--knee'}. Read from <key>.json 'protocol_process_args'.
+    Data-driven (the JSON owns which protocol needs which process args); {} when none."""
+    if not protocol:
+        return {}
+    table = _load_pipeline_doc(pipeline_key).get("protocol_process_args") or {}
+    entry = table.get(str(protocol).strip()) or {}
+    return {k: v for k, v in entry.items() if not str(k).startswith("_")}
 
 
 @lru_cache(maxsize=1)
@@ -42,11 +62,28 @@ def resolve_bundle_for_species(species: str | None) -> str | None:
     return table.get(str(species).strip().lower())
 
 
+def gencode_for_genome_key(genome_key: str | None) -> bool:
+    """True if the bundle whose igenomes_key == genome_key is GENCODE-formatted.
+
+    Used by the Luria backend: its local reference genomes (luria.config) are
+    GENCODE GTFs for human/mouse but Ensembl for the macaques, so `--gencode`
+    must follow the genome. This is deliberately NOT applied on the Tower path,
+    where the same key resolves to (non-GENCODE) AWS iGenomes references.
+    """
+    if not genome_key:
+        return False
+    for bundle in (load_reference_bundles().get("bundles") or {}).values():
+        if bundle.get("igenomes_key") == genome_key:
+            return bool(bundle.get("gencode"))
+    return False
+
+
 def build_reference_params(pipeline_key: str, bundle_key: str | None) -> tuple[dict[str, Any], str]:
     """Return (reference_params, reference_status) for a pipeline + bundle.
 
-    status: 'configured'             -> store_root set, explicit resource paths emitted
-            'igenomes_fallback'      -> store_root unset, bundle has igenomes_key -> {'genome': key}
+    status: 'local_luria'            -> genome key has a local Luria ref (LURIA_GENOMES) -> {'genome': key}
+            'configured'             -> store_root set, explicit resource paths emitted
+            'igenomes_fallback'      -> store_root unset, bundle has igenomes_key, NO local ref -> {'genome': key}
             'unconfigured_no_fallback' -> store_root unset and no igenomes_key (e.g. PDX combo)
             'no_bundle'              -> bundle_key is None/unknown
     """
@@ -59,6 +96,11 @@ def build_reference_params(pipeline_key: str, bundle_key: str | None) -> tuple[d
     store_root = reg.get("store_root")
     ctx = load_pipeline_context(pipeline_key)
     wanted = set(ctx.get("reference_resources") or [])
+    igenomes_key = bundle.get("igenomes_key")
+    # Local Luria reference wins: the submit path injects it as --fasta/--gtf
+    # (path > iGenomes), so report it honestly rather than as an iGenomes fallback.
+    if igenomes_key and has_local_luria_ref(igenomes_key):
+        return {"genome": igenomes_key}, "local_luria"
     if store_root:
         params: dict[str, Any] = {}
         for name, templated in (bundle.get("resources") or {}).items():

@@ -1,6 +1,5 @@
 from pathlib import Path
 import pytest
-from nessie_tests.conftest import path_accessible
 from nessie_tests import manifest as M
 from nessie_tests import report
 
@@ -185,10 +184,16 @@ def test_a_genuine_pass_is_still_a_pass(tmp_path):
 
 
 def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
-    """`README.md` tells the operator that a vacuous turn stays visible in the
-    observation table with its rows marked SKIPPED. Drives the REAL runner over
-    the real `tree.then_ask_about` — NS seed, container_cc follow-up — so the
-    claim is held against the harness rather than against a hand-built entry."""
+    """`README.md` tells the operator that a SKIPPED row stays visible in the
+    observation table and is counted apart from the passes. Drives the REAL runner
+    over the real `tree.then_ask_about` — NS seed, container_cc follow-up — so the
+    claim is held against the harness rather than against a hand-built entry.
+
+    That turn is no longer VACUOUS: #35 gave it `last_reply matches_re \\b38\\b`, so
+    the fixture reply carries the real answer and the turn has one scored criterion
+    beside its two skips. The README claim under test is about the skipped ROWS, not
+    about vacuity, and it still holds — the summary must count the skips separately
+    and never say `all passed`."""
     from nessie_tests import corpus, runner
 
     corpus_json = Path(__file__).resolve().parents[1] / "corpus.json"
@@ -203,7 +208,7 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
     cc_follow = {"status": "completed", "progress": [
         {"event": "route_decided", "data": {"route": "container_cc", "source": "baml"}},
         {"event": "query_complete", "data": {
-            "reply": "I have no idea what you are talking about", "mode": "cc"}}]}
+            "reply": "38 of them are sequencing samples.", "mode": "cc"}}]}
 
     seen = []
 
@@ -341,7 +346,7 @@ def test_route_sources_round_trips(tmp_path):
     assert M.load_manifest(p).entries[0].route_sources == ["baml", "sticky"]
 
 
-@pytest.mark.skipif(not path_accessible(SEED6B), reason=f"stored run evidence absent: {SEED6B}")
+@pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
 def test_the_stored_seed6b_run_still_loads():
     """Real run evidence, written before `route_sources` existed."""
     loaded = M.load_manifest(SEED6B)
@@ -408,7 +413,7 @@ def test_a_known_fail_that_asserted_nothing_is_not_rendered_as_xfail(tmp_path):
     assert "xfail" not in doc
 
 
-@pytest.mark.skipif(not path_accessible(SEED6B), reason=f"stored run evidence absent: {SEED6B}")
+@pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
 def test_the_stored_seed6b_run_still_loads_after_the_new_status():
     """Real 142 KB run evidence written before `no_assertions` existed."""
     loaded = M.load_manifest(SEED6B)
@@ -455,7 +460,7 @@ def test_cost_summary_of_an_empty_run_is_a_truthful_zero():
     assert "unmeasured" not in s["cost_display"]
 
 
-@pytest.mark.skipif(not path_accessible(SEED6B), reason=f"stored run evidence absent: {SEED6B}")
+@pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
 def test_the_stored_seed6b_run_still_totals_its_real_spend():
     """$1.4791 across 5 cases that had at least one container_cc TURN.
 

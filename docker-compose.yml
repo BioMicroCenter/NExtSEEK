@@ -3,6 +3,14 @@ services:
     build: .
     container_name: ${INSTANCE_PREFIX:-}nextseek
     restart: always
+    environment:
+      # cc_engine spawns the per-turn CC agent container via docker-py and mounts
+      # subpaths of this volume BY NAME. The compose `name:` indirection only
+      # covers this service's own /dmac/users mount, not the sibling container's
+      # docker-py Mount, so the prefixed volume name must reach cc_config here or
+      # cc_engine falls back to the bare `dmac-cc-users` and the mount 404s on a
+      # --instance install. Same INSTANCE_PREFIX the volume itself carries.
+      DMAC_CC_USERS_VOLUME: ${INSTANCE_PREFIX:-}dmac-cc-users
     env_file:
       - ./docker/db.env
       - ./docker/nextseek.env
@@ -19,6 +27,14 @@ services:
       - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
       - ./outputs:/app/outputs:z
       - ./logs:/app/logs:z
+      # Luria SLURM launch backend. LURIAKEY is the host path to the operator's
+      # private key, bind-mounted read-only at the SAME path inside so the value
+      # of LURIA_KEY needs no translation. Defaults to /dev/null so the stack
+      # still comes up when the Luria backend is unused.
+      - ${LURIAKEY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
+      # Writable ssh dir: ssh.py copies the key here and chmods 0600, which it
+      # cannot do on the read-only bind above.
+      - nextseek-luria-ssh:/app/.ssh
       # Additive (Container-CC route): lets the assistant worker spawn sibling
       # `claude` containers on the host Docker daemon. Used only by the new
       # cc-assistant endpoints; the existing assistant never touches it.
@@ -71,7 +87,13 @@ services:
     env_file:
       - ./docker/bedrock-proxy/proxy-secret.env
     networks:
+      # On dmac-cc-net (internal, F1) so the agent reaches it, AND on the
+      # dedicated dmac-cc-egress network so the proxy itself can still reach
+      # bedrock-runtime.<region>.amazonaws.com. The agent is NOT on cc-egress,
+      # so it inherits no internet path. Still never on `default` — db/seek/
+      # solr/neo4j cannot reach the proxy.
       - dmac-cc-net
+      - dmac-cc-egress
     # :8080 must be reachable ONLY on dmac-cc-net (R-8/gate G5) — no host
     # `ports:` publish here, ever.
 
@@ -179,7 +201,7 @@ services:
     restart: always
     stop_grace_period: 1m30s
     ports:
-      - "127.0.0.1:3306:3306"
+      - "127.0.0.1:${DB_PORT:-3306}:3306"
     env_file:
       - ./docker/db.env
     volumes:
@@ -194,6 +216,23 @@ services:
       - neo4j-data:/data
     environment:
       NEO4J_AUTH: "neo4j/demopassword"
+      # Kill any transaction that runs longer than this. The graph agent generates
+      # its Cypher with an LLM, so it is not always sane: on 2026-08-05 it emitted
+      # `MATCH (m:Sample) WHERE (m)-[:DERIVED_FROM*0..]->(s) OR (s)-[...]->(m)`,
+      # an unanchored scan of every Sample testing an unbounded path in both
+      # directions. That never finishes. The Django thread blocks on the bolt
+      # socket, and once enough of them do, the single ASGI process stops serving
+      # entirely -- it wedged the whole stack twice and burned 19 benchmark arms.
+      #
+      # Killing the query afterwards does NOT release the threads; only a restart
+      # does. So this bound is the only thing that keeps one bad generated query
+      # from taking the app down with it.
+      #
+      # 120s is ~1800x the healthy version of that same lineage query (66ms), so
+      # it fires only on the pathological case. `agents/graph.py:299,446` already
+      # catch driver errors, so a terminated transaction surfaces as one failed
+      # graph step rather than an outage.
+      NEO4J_db_transaction_timeout: "120s"
     ports:
       - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
       - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
@@ -273,6 +312,16 @@ networks:
   # through this file. No manual `docker network create`/`connect` needed.
   dmac-cc-net:
     name: dmac-cc-net
+    # F1: no NAT/gateway. The per-turn agent (spawned onto this net via docker-py)
+    # runs `claude --permission-mode auto` with the requesting user's plaintext
+    # NExtSEEK password in its env — an internal net removes the L3 path a
+    # prompt-injected or jailbroken turn would use to exfiltrate it. bedrock-proxy
+    # keeps AWS egress via dmac-cc-egress below; the agent is not on that net.
+    internal: true
+  # F1: egress-capable network carrying ONLY bedrock-proxy, so the proxy can reach
+  # AWS Bedrock while dmac-cc-net stays internal. No other service joins this.
+  dmac-cc-egress:
+    name: dmac-cc-egress
 
 
 volumes:
@@ -297,5 +346,16 @@ volumes:
   # Container-CC per-project/per-user trees (G7-10). Created by
   # `./startup.sh install` (startup/steps/volumes.py REQUIRED_VOLUMES), same as
   # the six SEEK/NExtSEEK volumes above.
+  # Writable ssh dir for the Luria launch backend. Compose-managed (not external
+  # like the six above) because startup/steps/volumes.py does not create it and
+  # it holds no seeded data — only a 0600 copy of the operator's key.
+  nextseek-luria-ssh:
+    name: ${INSTANCE_PREFIX:-}nextseek-luria-ssh
+
   dmac-cc-users:
     external: true
+    # Must carry INSTANCE_PREFIX like the six volumes above: volumes.py builds
+    # every REQUIRED_VOLUMES entry as f"{prefix}{name}", so without this an
+    # --instance install creates `{prefix}dmac-cc-users` while compose looks up
+    # the bare name and silently attaches ANOTHER instance's CC user tree.
+    name: ${INSTANCE_PREFIX:-}dmac-cc-users

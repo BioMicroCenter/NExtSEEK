@@ -44,15 +44,22 @@ class SeekSession(object):
         self.__session = session
 
     def __authenticate(self, headers, username, password):
+        # session.auth = (...) is the same Latin-1 HTTPBasicAuth path as
+        # requests' auth= kwarg, so encode the header ourselves (#52). Imported
+        # inside the method to avoid the seekdb <-> nextseek_api import cycle.
+        from nextseek_api.helpers import basic_auth_header
         session = requests.Session()
         session.headers.update(headers)
-        session.auth = (username, password)
+        session.headers.update(basic_auth_header((username, password)))
         return session
-    
+
     def loginShell(self):
+        from nextseek_api.helpers import basic_auth_header
         session = requests.Session()
         session.headers.update(self.__headers_json)
-        session.auth = (input('Username:'), getpass.getpass('Password'))
+        session.headers.update(
+            basic_auth_header((input('Username:'), getpass.getpass('Password')))
+        )
         self.__session = session
         
     def getSeekURL(self, seekurl):

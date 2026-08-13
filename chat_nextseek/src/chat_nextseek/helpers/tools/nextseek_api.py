@@ -10,15 +10,108 @@ import requests
 
 from ...config import ChatConfig
 from ...session import SessionState
+from ..results import DEFAULT_API_PAGE_SIZE
+
+
+# --------------------------------------------------------------------------
+# Write boundary: this tool is READ-ONLY.
+#
+# `method` arrives straight from the api_agent's plan, so a single mis-parsed turn
+# could otherwise issue DELETE against a live sample record. Mutation belongs on the
+# container_cc path, where `nextseek-api-write` exits WRITE_BLOCKED without an
+# explicit `--confirmed-write` and the skill demands plain-text confirmation first.
+# On this path there is no confirmation step, so there is no write.
+#
+# This mirrors the Neo4j tool, which has always been hard-blocked before the driver
+# opens (`helpers/tools/neo4j.py`, `_WRITE_KEYWORDS`). The asymmetry was the bug.
+#
+# The rule is (method, path) PAIRS, not method alone: this API uses POST for both
+# search and create, so a method-only allowlist would either block the three search
+# POSTs or permit sample creation.
+# --------------------------------------------------------------------------
+
+_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# The only POSTs that are reads. Everything else that POSTs — notably
+# `/nextseek_api/samples/`, which CREATES a sample and is one path segment away from
+# `/nextseek_api/samples/advanced_search/` — is denied.
+_READ_POST_PATHS = frozenset({
+    "/nextseek_api/admin/samples/retrieve/",
+    "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+    "/nextseek_api/samples/advanced_search/",
+})
+
+
+def _normalize_endpoint_path(endpoint: str) -> str:
+    """Canonicalise to `/a/b/` form.
+
+    Callers are inconsistent about the leading slash (the URL build does
+    `endpoint.lstrip('/')`) and about the trailing one, so normalise both rather than
+    let a stray character decide an allow.
+    """
+    path = str(endpoint or "").split("?", 1)[0].strip().strip("/")
+    return f"/{path}/" if path else "/"
+
+
+def _canonical_method(method: str | None) -> str:
+    """Canonicalise the verb: strip surrounding whitespace and control characters,
+    upper-case. This is the form both the decision AND the outgoing request use."""
+    return str(method or "").strip().upper()
+
+
+def _is_read_only_pair(verb: str, path: str) -> bool:
+    """The policy itself, over ALREADY-CANONICAL inputs.
+
+    DEFAULT-DENY. Reads are allowed unconditionally; POST is allowed only for the
+    three known search endpoints; every other verb — PATCH, PUT, DELETE, or anything
+    unrecognised — is denied whatever the path. That last clause is the property that
+    survives the catalog changing: a mutating endpoint added later is denied because
+    nothing allowed it, not permitted because nothing forbade it.
+    """
+    if verb in _READ_METHODS:
+        return True
+    if verb == "POST":
+        return path in _READ_POST_PATHS
+    return False
+
+
+def _is_read_only_request(endpoint: str, method: str | None) -> bool:
+    """True when this (method, path) pair may leave the process. Canonicalises first."""
+    return _is_read_only_pair(_canonical_method(method), _normalize_endpoint_path(endpoint))
 
 
 def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=None, queryParameters=None):
     """
     Send an HTTP request to the NExtSEEK API with optional basic auth and schema validation.
     Logs request/response previews, parses JSON when possible, and returns a structured dict with ok/status details.
+
+    Read-only: mutating (method, path) pairs are refused here, before any network work.
     """
+    # Canonicalise ONCE, then decide, validate, build the URL and dispatch on the same
+    # two strings. Approving one form and sending another is the classic parser
+    # differential; `verb` and `path` below are what was approved and what goes out.
+    verb = _canonical_method(method)
+    path = _normalize_endpoint_path(endpoint)
+
+    # First decision in the function on purpose — the refusal must not depend on
+    # config state, request-body validation, or anything else that could be absent.
+    if not _is_read_only_pair(verb, path):
+        msg = (
+            f"Write operations are not permitted on the NExtSEEK REST path: "
+            f"{method} {endpoint} was blocked. This tool is read-only; sample "
+            f"creation, modification and deletion must go through the confirmed-write "
+            f"path, not the assistant's REST corridor."
+        )
+        print(f"[DEBUG][API] Blocked write request: {method} {endpoint!r}")
+        return {
+            "ok": False,
+            "error": msg,
+            "endpoint": endpoint,
+            "method": method,
+        }
+
     requestBody = requestBody or {}
-    queryParameters = {"page_size": 1000, **(queryParameters or {})}
+    queryParameters = {"page_size": DEFAULT_API_PAGE_SIZE, **(queryParameters or {})}
 
     base = config.NEXTSEEK_BASE_URL
     if not base:
@@ -31,18 +124,18 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
             "method": method,
         }
 
-    is_valid, error_payload = config.validate_request_body(endpoint, requestBody, method)
+    is_valid, error_payload = config.validate_request_body(path, requestBody, verb)
     if not is_valid:
         return error_payload
 
-    url = f"{base}/{endpoint.lstrip('/')}"
+    url = f"{base}/{path.lstrip('/')}"
     auth = (config.API_USER, config.API_PASS) if config.API_USER and config.API_PASS else None
     request_timeout = 90
-    if endpoint == "/nextseek_api/samples/advanced_search/":
+    if path == "/nextseek_api/samples/advanced_search/":
         request_timeout = 120
 
     print("[DEBUG][API] Request:")
-    print(f"  METHOD: {method}")
+    print(f"  METHOD: {verb}")
     print(f"  URL:    {url}")
     print(f"  PARAMS: {queryParameters}")
     print(f"  BODY:   {requestBody}")
@@ -51,7 +144,7 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
 
     try:
         resp = requests.request(
-            method=method,
+            method=verb,
             url=url,
             auth=auth,
             params=queryParameters,
@@ -73,7 +166,8 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
             "ok": resp.ok,
             "url": url,
             "status_code": resp.status_code,
-            "method": method,
+            # `verb`/`url` so the record matches the request that was actually sent.
+            "method": verb,
             "query": queryParameters,
             "body": requestBody,
             "data": _sanitize_api_row_strings(data),
@@ -306,10 +400,44 @@ def _should_retry_advanced_search(plan: dict, api_plan: dict, api_result_full: d
     return (total == 0) or (row_count == 0)
 
 
+# A SINGLE-term retry that matches more than this is not answering the question that
+# was asked; it is the ladder falling off the bottom. Task 797's ladder "succeeded"
+# on the term "1" with 2,057 rows for a two-UID question.
+RETRY_SINGLE_TOTAL_CEILING = 200
+
+# Tokens that carry no search meaning on their own. A UID like NHP-220524FLY-1-PUB
+# splits into ['NHP','220524FLY','1','PUB']; the increment and the publication suffix
+# match essentially everything.
+_USELESS_RETRY_TOKEN_RE = re.compile(r"^(?:\d+|PUB\d*)$", re.IGNORECASE)
+
+
+def _is_useful_retry_token(term: str) -> bool:
+    """A retry term must be at least 3 characters and not a bare increment or PUB suffix."""
+    return len(term) >= 3 and not _USELESS_RETRY_TOKEN_RE.match(term)
+
+
 def _split_retry_keyword(keyword: str) -> list[str]:
-    """Split compact search phrases into useful retry terms while preserving the original elsewhere."""
+    """Split compact search phrases into useful retry terms while preserving the original elsewhere.
+
+    Tokens shorter than 3 characters, purely numeric tokens and PUB suffixes are
+    dropped: they are UID structure, not search terms, and searching them alone
+    returns an arbitrary slice of the database.
+    """
     terms = [part for part in re.split(r"[\s_\-/]+", keyword.strip()) if part]
-    return list(dict.fromkeys(terms))
+    return list(dict.fromkeys(t for t in terms if _is_useful_retry_token(t)))
+
+
+def _original_search_was_unfiltered(api_plan: dict) -> bool:
+    """True when the original request carried no filter at all (e.g. "how many samples
+    are there"), in which case a large total is the honest answer and the SINGLE
+    ceiling must not apply."""
+    body = api_plan.get("requestBody") or {}
+    if (body.get("filter_searchText") or "").strip():
+        return False
+    return not any(
+        key.startswith("filter_") and value not in (None, "", [], {})
+        for key, value in body.items()
+    )
 
 
 def _has_expandable_keyword(keywords: list[str]) -> bool:
@@ -357,6 +485,8 @@ def _retry_advanced_search_if_empty(config: ChatConfig, plan: dict, api_plan: di
 
     terms = _retry_terms(plan, api_plan)
     base_body = dict(api_plan.get("requestBody") or {})
+    original_search = (base_body.get("filter_searchText") or "").strip()
+    unfiltered = _original_search_was_unfiltered(api_plan)
 
     for label, search_text in _advanced_search_retry_attempts(terms):
         retry_body = dict(base_body)
@@ -376,7 +506,26 @@ def _retry_advanced_search_if_empty(config: ChatConfig, plan: dict, api_plan: di
 
         total, row_count = _extract_total_and_rows(retry_result)
         if (total and total > 0) or (row_count and row_count > 0):
+            # A single leftover token that matches a large slice of the database is
+            # the ladder falling off the bottom, not an answer. Task 797 "succeeded"
+            # on the term "1" with 2,057 rows for a two-UID question.
+            if label == "SINGLE" and not unfiltered and (total or 0) > RETRY_SINGLE_TOTAL_CEILING:
+                print(
+                    f"[DEBUG][API][RETRY] Rejecting {label}: filter_searchText={search_text!r} "
+                    f"total={total} exceeds ceiling {RETRY_SINGLE_TOTAL_CEILING}; "
+                    "a single leftover term is not an answer to a filtered question"
+                )
+                continue
+
             print(f"[DEBUG][API][RETRY] Success with {label}: filter_searchText={search_text!r} total={total} rows={row_count}")
+            if search_text != original_search:
+                # Recorded so the reply can disclose that these rows are not the
+                # user's terms. Undisclosed substitution is the actual defect.
+                retry_api_plan["retry_substituted_search"] = {
+                    "original": original_search,
+                    "used": search_text,
+                    "label": label,
+                }
             return retry_api_plan, retry_result
 
         print(f"[DEBUG][API][RETRY] No results with {label}: filter_searchText={search_text!r} total={total} rows={row_count}")

@@ -476,3 +476,55 @@
 			return true;
 		}
 
+
+// === NExtSEEK sample-search UI rework helpers =========================
+// Shared by the Simple (#simple_dgtable) and Advanced (#advanced_dgtable)
+// search grids. Added 2026-07: discoverable column filters, ellipsis+tooltip
+// cells, and a reset control. Frontend-only; no backend contract change.
+
+function nsEscapeHtml(value) {
+	return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+		return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+	});
+}
+
+// EasyUI column formatter: render a single-line, ellipsis-truncated cell whose
+// full (escaped) value is exposed via the native title tooltip on hover.
+function nsEllipsisFormatter(value, row, index) {
+	var raw = value == null ? '' : String(value);
+	// The cell body renders the value as-is so app-generated markup keeps
+	// working — sample links in the UID column, key/value highlight spans in
+	// the Attribute:Value column. The tooltip uses the plain-text form (tags
+	// stripped), HTML-escaped for safe use in the title attribute.
+	var text = raw.replace(/<[^>]*>/g, '');
+	return '<span class="ns-ellip" title="' + nsEscapeHtml(text) + '">' + raw + '</span>';
+}
+
+// Enable an always-visible filter row: a 'contains' text filter on each field
+// in textFields, and a no-input 'label' filter on each field in labelFields
+// (needed to suppress the default text filter EasyUI would otherwise add to
+// structural columns like the checkbox and id).
+function nsEnableColumnFilters(dg, textFields, labelFields) {
+	var specs = [];
+	(labelFields || []).forEach(function (f) { specs.push({ field: f, type: 'label' }); });
+	(textFields || []).forEach(function (f) { specs.push({ field: f, type: 'text' }); });
+	dg.datagrid('enableFilter', specs);
+	// EasyUI renders the filter inputs with no placeholder, which is a big part
+	// of why the row is easy to miss — add a "filter" cue to each one.
+	try {
+		dg.datagrid('getPanel').find('.datagrid-filter-row input').attr('placeholder', 'filter');
+	} catch (e) {}
+}
+
+// Reset a search tab: clear each input (handles easyui combobox, easyui
+// textbox, and plain inputs) and remove any active column filters from dg.
+function nsResetSearch(dg, inputSelectors) {
+	(inputSelectors || []).forEach(function (sel) {
+		var $el = $(sel);
+		if (!$el.length) { return; }
+		if ($el.data('combobox')) { try { $el.combobox('clear'); return; } catch (e) {} }
+		if ($el.data('textbox'))  { try { $el.textbox('clear');  return; } catch (e) {} }
+		$el.val('');
+	});
+	if (dg) { try { dg.datagrid('clearFilter'); } catch (e) {} }
+}

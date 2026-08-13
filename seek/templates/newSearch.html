@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block main %}
+<script type="text/javascript" src="{{STATIC_URL}}js/ns_sample_download.js"></script>
 <div id="search_tab" class="easyui-tabs" style="width:auto;height:1400px;">
 	<div title="Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
 		<div class="easyui-layout" style="width:auto;height:900px;">
@@ -175,35 +176,14 @@
 													deleteSamples(ids, kind="allids")
 												}
 												
-												async function downloadSamples(dg) {
+												function downloadSamples(dg) {
 													const selections = dg.datagrid("getSelections")
-													if (selections.length == 0) {
-														alert("No samples have been selected for download")
-														return;
-													}
-													
-													const formData = new FormData()
-													formData.append("includeSampleTree", "0")
-													formData.append("allids", JSON.stringify(selections.map(({ id }) => id)))
-													formData.append("sampletype_id", "")
-													
-													try {
-														const response = await fetch("/seek/samples/download/", {
-															method: "POST",
-															headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
-															body: formData
-															})
-															
-															if (response.ok) {
-																const response_json = await response.json()
-																console.log(response_json)
-																window.location.href = response_json.link
-															}
-															} catch (e) {
-																console.error(e)
-															}
-														}
-														
+													// These grids expose `uuid`, not `uid`, and select via getSelections
+													// rather than a `ck` column, so nsCollectSelectedUids does not apply.
+													// Numeric SEEK ids are resolved server-side by admin_retrieve_samples.
+													return nsDownloadSamples(selections.map(s => String(s.id)),
+													                         {includeTree: false})
+												}
 														async function getSampleTypes() {
 															try {
 																const response = await fetch(`/nextseek_api/sample_types/`)

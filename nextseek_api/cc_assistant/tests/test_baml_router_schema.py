@@ -1,7 +1,15 @@
 """F §12.5: byte-identical copies; history schema; the prompt's history+CURRENT
 region matches an exact snapshot (whitelist — any steer, however worded, breaks
-it); route_capabilities.json pinned by hash (G-4, F-10)."""
-import hashlib
+it) (G-4, F-10).
+
+This module does NOT pin route_capabilities.json. The sha256 pin that once did
+was deliberately deleted (see the note atop
+nextseek_api/cc_assistant/tests/test_f_constraint_pins.py): the registry is
+*meant* to change, so a content hash gated nothing. Its successor is the
+behavioural suite nextseek_api/assistant/tests/test_route_capabilities.py,
+which asserts the registry's invariants instead of its bytes. Do not
+reintroduce a hash pin here.
+"""
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[3]
@@ -29,6 +37,22 @@ PROMPT_REGION = """\
     ## CURRENT message (respond to THIS)
     {{ input.user_query }}
 """
+
+
+def test_module_docstring_does_not_claim_a_hash_pin():
+    """This file claimed to pin route_capabilities.json by hash. It never did —
+    that pin was deleted on purpose — and it imported hashlib without using it.
+    Guard both halves so the false claim cannot come back."""
+    source = Path(__file__).read_text()
+    doc = __doc__ or ""
+    assert "pinned by hash" not in doc
+    imports = [ln for ln in source.splitlines()
+               if ln.startswith("import ") or ln.startswith("from ")]
+    assert not [ln for ln in imports if "hashlib" in ln], imports
+    # ...and the docstring points at the guard that actually exists.
+    successor = _REPO / "nextseek_api" / "assistant" / "tests" / "test_route_capabilities.py"
+    assert "assistant/tests/test_route_capabilities.py" in doc
+    assert successor.is_file()
 
 
 def test_router_baml_copies_byte_identical():

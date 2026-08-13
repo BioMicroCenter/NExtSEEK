@@ -22,7 +22,7 @@ def _by_target(mounts):
 
 def test_input_and_shared_mounted_ro():
     mounts = _by_target(cc_engine._build_volumes(
-        paths=_paths(), project_dirname="42-px", user_id="alice", cc_state_key="S1",
+        paths=_paths(), project_dirname="42-px", user_id="alice", cc_state_key="S1", run_id="R1",
     ))
 
     inp = mounts["/data/input"]
@@ -37,11 +37,11 @@ def test_input_and_shared_mounted_ro():
 
 def test_scratch_rw_and_cc_state_rw():
     mounts = _by_target(cc_engine._build_volumes(
-        paths=_paths(), project_dirname="42-px", user_id="alice", cc_state_key="S1",
+        paths=_paths(), project_dirname="42-px", user_id="alice", cc_state_key="S1", run_id="R1",
     ))
 
     scratch = mounts["/data/scratch"]
-    assert scratch["VolumeOptions"]["Subpath"] == "42-px/alice/scratch"
+    assert scratch["VolumeOptions"]["Subpath"] == "42-px/alice/scratch/R1"  # #70/#36 per-turn
     assert scratch["ReadOnly"] is False
 
     state = mounts["/home/user/.claude"]
@@ -51,7 +51,7 @@ def test_scratch_rw_and_cc_state_rw():
 
 def test_build_volumes_omits_claude_state_when_no_key():
     mounts = cc_engine._build_volumes(
-        paths=_paths(), project_dirname="42-px", user_id="alice", cc_state_key=None,
+        paths=_paths(), project_dirname="42-px", user_id="alice", cc_state_key=None, run_id="R1",
     )
 
     assert not any(m["Target"] == "/home/user/.claude" for m in mounts)
@@ -79,6 +79,7 @@ def test_transcripts_mount_rides_along_ro():
         project_dirname="42-px",
         user_id="alice",
         cc_state_key="S1",
+        run_id="R1",
         transcripts_subpath="42-px/alice/_memory/S1/transcripts",
     ))
 
@@ -90,7 +91,7 @@ def test_transcripts_mount_rides_along_ro():
 
 def test_no_legacy_flat_or_host_sources_emitted():
     mounts = cc_engine._build_volumes(
-        paths=_paths(), project_dirname="42-px", user_id="alice", cc_state_key="S1",
+        paths=_paths(), project_dirname="42-px", user_id="alice", cc_state_key="S1", run_id="R1",
     )
 
     for m in mounts:

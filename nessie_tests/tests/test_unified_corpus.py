@@ -139,7 +139,10 @@ def test_the_hand_written_annotations_survived_adoption():
                       "_promoted_2026_08_06": 17, "_added_2026_08_06": 8,
                       "_added_2026_08_06_qset": 58, "_edited_2026_08_06_qset": 86,
                       "_deselected_2026_08_06_qset": 76,
-                      "_promoted_2026_08_06_qset": 4}
+                      "_promoted_2026_08_06_qset": 4,
+                      # 2026-08-11, issue #35 close-out: the one variant the issue
+                      # names by hand. Criteria only, both question texts unchanged.
+                      "_edited_2026_08_11_issue35": 1}
 
 
 def test_fingerprint_is_over_the_unified_corpus_only():

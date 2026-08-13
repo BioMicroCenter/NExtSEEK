@@ -1,26 +1,12 @@
 <script type = "text/javascript">
-function downloadSamples(dg, url_download) {
-	var includeSampleTree = 1;
-	return downloadSamples_new(dg, url_download, includeSampleTree);
-
-	var includeSampleTree = 0;
-	if (url_download == '/seek/samples/download/') {
-		$.messager.confirm({
-			title: 'Download Samples...',
-			msg: 'Do you want to include parent samples?',
-			ok: 'Yes',
-			cancel: 'No',
-			fn: function(r) {
-				if (r) {
-					includeSampleTree = 1;
-				} else {
-					includeSampleTree = 0;
-				}
-				return downloadSamples_new(dg, url_download, includeSampleTree);
-			}
-		});
-	}
-	return;
+/* Downloads the checked rows with their full DERIVED_FROM tree.
+ *
+ * This used to hold an "include parent samples?" prompt that never ran: the
+ * function returned unconditionally on its third line, so the prompt below it
+ * was unreachable and includeSampleTree was always 1. Behavior is unchanged --
+ * reviving the prompt would be a UX change, not a refactor. */
+function downloadSamples(dg) {
+	return nsDownloadSamples(nsCollectSelectedUids(dg), {includeTree: true});
 }
 
 function showSampleErrorMsg(errorMsg) {
@@ -37,154 +23,10 @@ function showSampleErrorMsg(errorMsg) {
 	return;
 }
 
-function downloadSamples_new(dg, url_download, includeSampleTree) {
-	var sampletype_id = $('#advanced_sample_type').combobox('getValue');
-	if (sampletype_id == 0) {}
-
-	var rows = dg.datagrid('getRows');
-	if (rows.length == 0) {
-		alert('No sample in the table is selected for download.');
-		return;
-	}
-
-	var allIds = [];
-    var allUids = "";
-	for (var i = 0; i < rows.length; i++) {
-		var row = rows[i];
-		if (row.ck) {
-			allIds.push(row.id);
-            var regex = /(?<=>).*?(?=<)/g;
-            uid = row.uid.match(regex)[0];
-            allUids += uid + "\n";
-		} else {}
-	}
-
-	if (allIds.length == 0 || allUids.length == 0) {
-		alert('No sample in the table is selected for download.');
-		return;
-	}
-
-	var attributeFilter = '';
-	if (includeSampleTree == 1) {
-		attributeFilter = getTreeChecked();
-	}
-
-	var allids = JSON.stringify(allIds);
-	var win = $.messager.progress({
-		title: 'Please wait',
-		msg: 'Downloading samples...'
-	});
-
-    var new_retrieval_url = '/seek/admin/retrieve/';
-        
-    var formData = new FormData();
-    formData.append("csrfmiddlewaretoken", '{{ csrf_token }}');
-    formData.append("retrieval_uids", allUids);
-
-    fetch(new_retrieval_url, {
-            method: 'POST',
-            headers: {"X-CSRFToken": "{{ csrf_token }}"},
-            body: formData,
-          })
-      .then(response => {
-                  if (response.ok) {
-                    return response.blob();
-                  } else {
-                    $.messager.progress('close');
-                    throw new Error('Download failed');
-                  }
-                })
-      .then(blob => {
-                  $.messager.progress('close');
-                  const downloadUrl = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = downloadUrl;
-                  var d = new Date();
-                  a.download = 'download-samples-' + d.getFullYear() + '-' + (d.getMonth() + 1) + "-" + d.getDate() + '_' + d.getHours() + '-' + d.getMinutes() + '.xlsx';
-                  document.body.appendChild(a);
-                  a.click();
-                  setTimeout(() => {
-                                URL.revokeObjectURL(downloadUrl);
-                                document.body.removeChild(a);
-                              }, 0);
-                })
-      .catch(error => {
-                  console.error('Download error:', error);
-                });
-
-
-	//$.post(url_download, {
-	//	'csrfmiddlewaretoken': '{{ csrf_token }}',
-	//	'allids': allids,
-	//	'sampletype_id': sampletype_id,
-	//	'includeSampleTree': includeSampleTree,
-	//	'attributeFilter': attributeFilter
-	//}, function(data) {
-	//	$.messager.progress('close');
-	//	var obj = jQuery.parseJSON(data);
-	//	var msg = obj.msg;
-	//	var status = obj.status;
-	//	var link = obj.link;
-	//	if (status == 1) {
-	//		window.location.href = link;
-	//	} else {
-	//		showSampleErrorMsg(msg);
-	//	}
-	//	return;
-	//});
-}
-
-function downloadSamples0(dg, url_download) {
-	var includeSampleTree = 1;
-	return downloadSamples_new(dg, url_download, includeSampleTree);
-	
-    //The folowing is the old format of the sample download, where
-	// all sample types are saved in one sheet, instead of individual sheets.
-	var sampletype_id = $('#advanced_sample_type').combobox('getValue');
-	if (sampletype_id == 0) {}
-
-	var rows = dg.datagrid('getRows');
-	if (rows.length == 0) {
-		alert('No sample in the table is selected for download.');
-		return;
-	}
-
-	var allIds = [];
-	for (var i = 0; i < rows.length; i++) {
-		var row = rows[i];
-		if (row.ck) {
-			allIds.push(row.id);
-		} else {}
-	}
-
-	if (allIds.length == 0) {
-		alert('No sample in the table is selected for download.');
-		return;
-	}
-
-	var allids = JSON.stringify(allIds);
-	var win = $.messager.progress({
-		title: 'Please wait',
-		msg: 'Downloading samples...'
-	});
-	$.post(url_download, {
-		'csrfmiddlewaretoken': '{{ csrf_token }}',
-		'allids': allids,
-		'sampletype_id': sampletype_id,
-		'includeSampleTree': includeSampleTree
-	}, function(data) {
-		$.messager.progress('close');
-		var obj = jQuery.parseJSON(data);
-		var msg = obj.msg;
-		var status = obj.status;
-		var link = obj.link;
-		if (status == 1) {
-			window.location.href = link;
-		} else {
-			showSampleErrorMsg(msg);
-		}
-		return;
-	});
+/* Same story as downloadSamples: everything after the third line was dead,
+ * so this always downloaded the full tree. Behavior preserved. */
+function downloadSamples0(dg) {
+	return nsDownloadSamples(nsCollectSelectedUids(dg), {includeTree: true});
 }
 
 function deleteSamples(dg, url_delete) {
@@ -359,16 +201,19 @@ function sendSamples(dg, url_publish) {
 		<thead>
 			<tr>
 				<th data-options="field:'ck',width:100,align:'center', checkbox:true, editor:{type:'checkbox',options:{on:'Y',off:'N'}}">Select file</th>
-				<th data-options="field:'idurl',width:60" sortable="true"><b>ID</b></th>
-				<th data-options="field:'uuid',width:200,editor:'text'" sortable="true"><b>UID</b></th>
-				<th data-options="field:'sample_type',width:100" sortable="true"><b>Sample Type</b></th>
-				<th data-options="field:'attributeValue',align:'left',width:900"><b>Attribute:Value</b></th>
+				<!-- Link the UID rather than the ID, matching the Simple Search grid.
+				     reformatDataForClient emits `id`/`uuid` plain and `idurl`/`uid` as
+				     anchors to /seek/sample/id=<id>/, so this is a straight field swap. -->
+				<th data-options="field:'id',width:60" sortable="true"><b>ID</b></th>
+				<th data-options="field:'uid',width:200,editor:'text',formatter: nsEllipsisFormatter" sortable="true"><b>UID</b></th>
+				<th data-options="field:'sample_type',width:100,formatter: nsEllipsisFormatter" sortable="true"><b>Sample Type</b></th>
+				<th data-options="field:'attributeValue',align:'left',width:900,formatter: nsEllipsisFormatter"><b>Attribute:Value</b></th>
 			</tr>
 		</thead>
 	</table>
 
 	<div id="advanced_tb_toolbar" style="height:auto">
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="downloadSamples0($('#advanced_dgtable'), '/seek/samples/download/')">Download samples</a>
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="downloadSamples0($('#advanced_dgtable'))">Download samples</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="deleteSamples($('#advanced_dgtable'), '/seek/samples/delete/')">Delete samples</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="publishSamples($('#advanced_dgtable'), '/seek/samples/publish/')">Publish samples to FairdomHub</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="sendSamples($('#advanced_dgtable'), ' ')">Send to Sample Retrieval</a>

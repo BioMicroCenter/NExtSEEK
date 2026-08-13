@@ -1,70 +1,195 @@
 {
-  "port_source_path": "/home/taishajo/work/dmac-assistant/sidecar",
-  "port_source_commit": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
-  "port_source_verified_clean_tree": true,
-  "generated_at": "2026-07-02T09:54:00Z",
-  "task": "PLAN-7 Task 12 (G7-11): port the NS sidecar source into NExtSEEK",
-  "byte_identical_files": [
-    "__init__.py",
-    "app/__init__.py",
-    "app/config.py",
-    "app/contract.py",
-    "app/exceptions.py",
-    "app/granular_models.py",
-    "app/healthcheck.py",
-    "app/ns_client.py",
-    "app/ops.py",
-    "app/server.py",
-    "app/staging.py",
-    "app/write_gate.py"
-  ],
-  "adapted_files": [
-    {
-      "path": "Dockerfile",
-      "adaptation": "COPY source paths only -- changed from the source's repo-root-relative `sidecar/__init__.py` / `sidecar/app/` to this port's build-context-relative `__init__.py` / `app/`, because this port builds with context = docker/ns-sidecar/ itself (the source's compose set `context: ..`, i.e. repo root). The COPY *destination* paths (/app/sidecar/__init__.py, /app/sidecar/app/) are preserved byte-identical to upstream -- they create the `sidecar` package name inside the image, which `python -m sidecar.app.server` + PYTHONPATH=/app requires (import-layout invariant, iter-1 L-5). No sidecar logic, dependency pins, user/uid, WORKDIR/PYTHONPATH, or CMD changed."
-    },
-    {
-      "path": ".dockerignore",
-      "adaptation": "new file -- the pinned source did not carry a .dockerignore of its own (its Dockerfile relied on the repo-root .dockerignore via `context: ..`). Adapted from docker/bedrock-proxy/.dockerignore's pattern (PLAN-7 Task 4 precedent) for this build context root; excludes the upstream local-dev env overlay files (local-nextseek*.env) and any .env file from ever entering the Docker build context."
-    }
-  ],
-  "not_ported": [
-    {
-      "path": "docker-compose.yml",
-      "reason": "The task brief explicitly scopes this task to source-port + parity tests + standalone build proof ONLY -- do NOT port/wire the upstream compose fragment. The source's docker-compose.yml is a standalone sidecar compose (its own `name:`, network join incl. the dead post-T16 `nextseek-local` backend-network attachment, container_name) written and tested against the upstream local dev stack -- reference only. Root-compose wiring is a later task's job (13-15). See test_step7_sidecar_port.py::test_standalone_sidecar_compose_not_ported."
-    }
-  ],
-  "file_inventory": [
-    {"path": "__init__.py", "size_bytes": 0, "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-    {"path": "app/__init__.py", "size_bytes": 0, "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
-    {"path": "app/config.py", "size_bytes": 1449, "sha256": "2e79ac3f162df3fb1782be583db775da2faa3890378ecd582922603766ffc9df"},
-    {"path": "app/contract.py", "size_bytes": 4956, "sha256": "f40e5f49aead01a7e55cb0eb68165dd1f09a5773455868ca518ccfbb8769f6b4"},
-    {"path": "app/exceptions.py", "size_bytes": 793, "sha256": "172d216e9c7373a491007c2eb4b39992b863c78f383f8a4cbd07a76a3ec8b0fb"},
-    {"path": "app/granular_models.py", "size_bytes": 9028, "sha256": "231aff9f576efb6e620f62019ce031e34fe59558a03f5b5247f55e4e5663a347"},
-    {"path": "app/healthcheck.py", "size_bytes": 1551, "sha256": "bb0bb5db69201a895ea6c55bad3f74142971a550c167e9e0b8b99c2b1dfb8ba3"},
-    {"path": "app/ns_client.py", "size_bytes": 5030, "sha256": "e565dea4c67bccb1fcccc14356b0c1988b1cd0e4f9f4606e7c06a519b0f59ae5"},
-    {"path": "app/ops.py", "size_bytes": 6801, "sha256": "e1ed9947f06d92b98b9c324643b839274601b40d2c9ba80578677a4541c07dfb"},
-    {"path": "app/server.py", "size_bytes": 6026, "sha256": "dd2a9266dba4fb61287c1b18eb1fb639408abedb6dbd3a2fddf69a5113f3c17b"},
-    {"path": "app/staging.py", "size_bytes": 4529, "sha256": "a34b2c40c8a3b8f907960d1b4f2ad6ac38c60703d1c64d0a7c37860527814ac9"},
-    {"path": "app/write_gate.py", "size_bytes": 1140, "sha256": "86ec8f617cd287d89b35856307bd7a04fdd0bdafc4edbc789391eb69ce4b788e"},
-    {"path": "Dockerfile", "size_bytes": 1643, "sha256": "862786c54e6960b3d13e23fe95a45431ac8f4feb7b448b4ffea6ee045e1ecf76"},
-    {"path": ".dockerignore", "size_bytes": 1071, "sha256": "c7e99b4ba63f10d30214d1d56f5305aebf42ba002ba867dfed8f29871a17d18e"}
-  ],
-  "mapping_table": [
-    {"dest": "docker/ns-sidecar/__init__.py", "source": "sidecar/__init__.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/__init__.py", "source": "sidecar/app/__init__.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/config.py", "source": "sidecar/app/config.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/contract.py", "source": "sidecar/app/contract.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/exceptions.py", "source": "sidecar/app/exceptions.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/granular_models.py", "source": "sidecar/app/granular_models.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/healthcheck.py", "source": "sidecar/app/healthcheck.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/ns_client.py", "source": "sidecar/app/ns_client.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/ops.py", "source": "sidecar/app/ops.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/server.py", "source": "sidecar/app/server.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/staging.py", "source": "sidecar/app/staging.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/app/write_gate.py", "source": "sidecar/app/write_gate.py", "status": "byte-identical"},
-    {"dest": "docker/ns-sidecar/Dockerfile", "source": "sidecar/Dockerfile", "status": "adapted (COPY source path only, see adapted_files)"},
-    {"dest": "docker/ns-sidecar/.dockerignore", "source": "none (new)", "status": "new file, adapted from docker/bedrock-proxy/.dockerignore pattern"},
-    {"dest": "N/A", "source": "sidecar/docker-compose.yml", "status": "not ported -- reference only, see not_ported"}
-  ]
+ "port_source_path": "/home/taishajo/work/dmac-assistant/sidecar",
+ "port_source_commit": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
+ "port_source_verified_clean_tree": true,
+ "generated_at": "2026-07-02T09:54:00Z",
+ "task": "PLAN-7 Task 12 (G7-11): port the NS sidecar source into NExtSEEK",
+ "byte_identical_files": [
+  "__init__.py",
+  "app/__init__.py",
+  "app/config.py",
+  "app/exceptions.py",
+  "app/granular_models.py",
+  "app/healthcheck.py",
+  "app/ns_client.py",
+  "app/server.py",
+  "app/staging.py",
+  "app/write_gate.py"
+ ],
+ "adapted_files": [
+  {
+   "path": "Dockerfile",
+   "adaptation": "COPY source paths only -- changed from the source's repo-root-relative `sidecar/__init__.py` / `sidecar/app/` to this port's build-context-relative `__init__.py` / `app/`, because this port builds with context = docker/ns-sidecar/ itself (the source's compose set `context: ..`, i.e. repo root). The COPY *destination* paths (/app/sidecar/__init__.py, /app/sidecar/app/) are preserved byte-identical to upstream -- they create the `sidecar` package name inside the image, which `python -m sidecar.app.server` + PYTHONPATH=/app requires (import-layout invariant, iter-1 L-5). No sidecar logic, dependency pins, user/uid, WORKDIR/PYTHONPATH, or CMD changed."
+  },
+  {
+   "path": ".dockerignore",
+   "adaptation": "new file -- the pinned source did not carry a .dockerignore of its own (its Dockerfile relied on the repo-root .dockerignore via `context: ..`). Adapted from docker/bedrock-proxy/.dockerignore's pattern (PLAN-7 Task 4 precedent) for this build context root; excludes the upstream local-dev env overlay files (local-nextseek*.env) and any .env file from ever entering the Docker build context."
+  }
+ ],
+ "not_ported": [
+  {
+   "path": "docker-compose.yml",
+   "reason": "The task brief explicitly scopes this task to source-port + parity tests + standalone build proof ONLY -- do NOT port/wire the upstream compose fragment. The source's docker-compose.yml is a standalone sidecar compose (its own `name:`, network join incl. the dead post-T16 `nextseek-local` backend-network attachment, container_name) written and tested against the upstream local dev stack -- reference only. Root-compose wiring is a later task's job (13-15). See test_step7_sidecar_port.py::test_standalone_sidecar_compose_not_ported."
+  }
+ ],
+ "file_inventory": [
+  {
+   "path": "__init__.py",
+   "size_bytes": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "path": "app/__init__.py",
+   "size_bytes": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "path": "app/config.py",
+   "size_bytes": 1449,
+   "sha256": "2e79ac3f162df3fb1782be583db775da2faa3890378ecd582922603766ffc9df"
+  },
+  {
+   "path": "app/contract.py",
+   "size_bytes": 5295,
+   "sha256": "e05942c28710855a5fc4b14777fbd6c6713b5ded981711e86676f6fad28be891"
+  },
+  {
+   "path": "app/exceptions.py",
+   "size_bytes": 793,
+   "sha256": "172d216e9c7373a491007c2eb4b39992b863c78f383f8a4cbd07a76a3ec8b0fb"
+  },
+  {
+   "path": "app/granular_models.py",
+   "size_bytes": 9028,
+   "sha256": "231aff9f576efb6e620f62019ce031e34fe59558a03f5b5247f55e4e5663a347"
+  },
+  {
+   "path": "app/healthcheck.py",
+   "size_bytes": 1551,
+   "sha256": "bb0bb5db69201a895ea6c55bad3f74142971a550c167e9e0b8b99c2b1dfb8ba3"
+  },
+  {
+   "path": "app/ns_client.py",
+   "size_bytes": 5030,
+   "sha256": "e565dea4c67bccb1fcccc14356b0c1988b1cd0e4f9f4606e7c06a519b0f59ae5"
+  },
+  {
+   "path": "app/ops.py",
+   "size_bytes": 8079,
+   "sha256": "24fdd247a9a2b05e6770d3c7ef7bd733c7d9c6e38339a3ece9083dc48a5dec7c"
+  },
+  {
+   "path": "app/server.py",
+   "size_bytes": 6026,
+   "sha256": "dd2a9266dba4fb61287c1b18eb1fb639408abedb6dbd3a2fddf69a5113f3c17b"
+  },
+  {
+   "path": "app/staging.py",
+   "size_bytes": 4529,
+   "sha256": "a34b2c40c8a3b8f907960d1b4f2ad6ac38c60703d1c64d0a7c37860527814ac9"
+  },
+  {
+   "path": "app/write_gate.py",
+   "size_bytes": 1140,
+   "sha256": "86ec8f617cd287d89b35856307bd7a04fdd0bdafc4edbc789391eb69ce4b788e"
+  },
+  {
+   "path": "Dockerfile",
+   "size_bytes": 1643,
+   "sha256": "862786c54e6960b3d13e23fe95a45431ac8f4feb7b448b4ffea6ee045e1ecf76"
+  },
+  {
+   "path": ".dockerignore",
+   "size_bytes": 1071,
+   "sha256": "c7e99b4ba63f10d30214d1d56f5305aebf42ba002ba867dfed8f29871a17d18e"
+  }
+ ],
+ "mapping_table": [
+  {
+   "dest": "docker/ns-sidecar/__init__.py",
+   "source": "sidecar/__init__.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/__init__.py",
+   "source": "sidecar/app/__init__.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/config.py",
+   "source": "sidecar/app/config.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/contract.py",
+   "source": "sidecar/app/contract.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/exceptions.py",
+   "source": "sidecar/app/exceptions.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/granular_models.py",
+   "source": "sidecar/app/granular_models.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/healthcheck.py",
+   "source": "sidecar/app/healthcheck.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/ns_client.py",
+   "source": "sidecar/app/ns_client.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/ops.py",
+   "source": "sidecar/app/ops.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/server.py",
+   "source": "sidecar/app/server.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/staging.py",
+   "source": "sidecar/app/staging.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/app/write_gate.py",
+   "source": "sidecar/app/write_gate.py",
+   "status": "byte-identical"
+  },
+  {
+   "dest": "docker/ns-sidecar/Dockerfile",
+   "source": "sidecar/Dockerfile",
+   "status": "adapted (COPY source path only, see adapted_files)"
+  },
+  {
+   "dest": "docker/ns-sidecar/.dockerignore",
+   "source": "none (new)",
+   "status": "new file, adapted from docker/bedrock-proxy/.dockerignore pattern"
+  },
+  {
+   "dest": "N/A",
+   "source": "sidecar/docker-compose.yml",
+   "status": "not ported -- reference only, see not_ported"
+  }
+ ],
+ "local_additions_beyond_port_source": [
+  {
+   "path": "app/contract.py",
+   "addition": "Registered the reingest ops run-ls + build-upload-xlsx (KNOWN_OPS set, _RunLsArgs / _BuildUploadXlsxArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature."
+  },
+  {
+   "path": "app/ops.py",
+   "addition": "Added the run-ls + build-upload-xlsx forwarders (_run_ls, _build_upload_xlsx) that proxy to the NExtSEEK /assistant/run-ls/ and /build-upload-xlsx/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature."
+  }
+ ],
+ "notes": "2026-07-22 (dev/v3 reconciliation Wave 5): contract.py + ops.py are NO LONGER byte-identical to port_source_commit a429f137 -- the reingest ops were added directly to this NExtSEEK copy rather than upstream-first. Pins + inventory updated consciously per the test_step7_sidecar_port drift-guard contract. TODO(taisha): fold the reingest sidecar ops into dmac-assistant upstream, then re-port and restore byte-identity."
 }

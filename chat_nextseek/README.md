@@ -116,25 +116,25 @@ uv run --with pytest --with pytest-asyncio pytest tests/ --ignore=tests/evaluato
 
 ### E2E tests — `e2e.py`
 
-End-to-end variants exercising every active agent via `chat_nextseek.orchestrator.run_query`. Catalog at [`e2e/catalog.json`](e2e/catalog.json): **362 variants across 11 task families** (each one assays / NExtSEEK-endpoint combination):
+End-to-end variants exercising every active agent via `chat_nextseek.orchestrator.run_query`. Catalog at [`e2e/catalog.json`](e2e/catalog.json): **11 task families** (each one assays / NExtSEEK-endpoint combination). The per-family variant counts drift as cases are added, so they are deliberately not frozen here; `uv run e2e.py --list` prints each family with its live count.
 
-| Family | Variants | What it covers |
-|---|---|---|
-| `search_advanced` | 66 | `/samples/advanced_search/` — keyword + sampletype + attribute filters |
-| `search_tree` | 15 | `/sample-tree/{uid}/tree/` — lineage / derivation |
-| `search_parents_by_child` | 18 | `/sample_types/get_parents/parents_by_child_types/` — find parents by descendant assay |
-| `search_retrieve` | 19 | `/admin/samples/retrieve/` and `/samples/{uid}/` — UID lookup |
-| `refine_and_recall` | 47 | Multi-turn refine + ask-about-last-results (uses `chat_log` + `results_history`) |
-| `graph_query` | 59 | Neo4j Cypher via graph_agent — counts, multi-hop, project/study scope |
-| `reporting` | 64 | Reporter SQL summaries + GEO / SRA / PRIDE artifact emission |
-| `pipeline_nfcore` | 22 | full-agentic nf-core flow: resolve_samples → write_samplesheet → configure_run → submit_to_tower |
-| `system_question` | 27 | Catalog / capability / definition lookups |
-| `unsupported` | 7 | Out-of-scope (weather, charts, statistical analysis) |
-| `writes_unsupported` | 19 | Destructive admin (create investigation, register sample, update field) — must route to unsupported |
+| Family | What it covers |
+|---|---|
+| `search_advanced` | `/samples/advanced_search/` — keyword + sampletype + attribute filters |
+| `search_tree` | `/sample-tree/{uid}/tree/` — lineage / derivation |
+| `search_parents_by_child` | `/sample_types/get_parents/parents_by_child_types/` — find parents by descendant assay |
+| `search_retrieve` | `/admin/samples/retrieve/` and `/samples/{uid}/` — UID lookup |
+| `refine_and_recall` | Multi-turn refine + ask-about-last-results (uses `chat_log` + `results_history`) |
+| `graph_query` | Neo4j Cypher via graph_agent — counts, multi-hop, project/study scope |
+| `reporting` | Reporter SQL summaries + GEO / SRA / PRIDE artifact emission |
+| `pipeline_nfcore` | full-agentic nf-core flow: resolve_samples → write_samplesheet → configure_run → submit_to_luria |
+| `system_question` | Catalog / capability / definition lookups |
+| `unsupported` | Out-of-scope (weather, charts, statistical analysis) |
+| `writes_unsupported` | Destructive admin (create investigation, register sample, update field) — must route to unsupported |
 
 ```bash
-uv run e2e.py                                    # default: sample at ratio 0.33 (~120 variants)
-uv run e2e.py --ratio full                       # all 362 variants
+uv run e2e.py                                    # default: sample at ratio 0.33
+uv run e2e.py --ratio full                       # every variant in the catalog
 uv run e2e.py --ratio 0.1 --seed 42              # ~11 variants (one per family, reproducible)
 uv run e2e.py --family pipeline_nfcore           # one family only
 uv run e2e.py --variant advanced.basic_ndma      # one variant (the cheapest smoke)
@@ -150,7 +150,7 @@ uv run e2e.py --init-env [--force]               # generate chat_nextseek/.env f
 - `outputs/e2e_<ts>/report.html` — single-page family-grouped report
 - `outputs/e2e_<ts>/<variant_id>/turns/<label>/` — per-turn query, reply, debug.json, orchestrator run-root
 
-Sampler enforces `max(1, round(N × ratio))` per family so every family gets at least one variant per run (variants whose `requires_env` aren't satisfied are reported as `skipped`, e.g. the `pipeline_nfcore` Tower-submit variant needs `TOWER_ACCESS_TOKEN`).
+Sampler enforces `max(1, round(N × ratio))` per family so every family gets at least one variant per run (variants whose `requires_env` aren't satisfied are reported as `skipped`, e.g. `pipeline.tower_submit` still declares `requires_env: TOWER_ACCESS_TOKEN, TOWER_WORKSPACE_ID`, so with Tower retired it reports `skipped`).
 
 ### Browser E2E (Phase E)
 
@@ -201,7 +201,7 @@ User Query
     |-> [Graph Agent]    -- generate Cypher -> Neo4j graph DB
     |-> [Memory Agent]   -- answer follow-ups from cached results
     |       +-> [Memory Coder] -- structured code generation for deterministic computation
-    |-> [Pipeline Agent] -- full-agentic nf-core / Seqera Tower flow (one tool-loop: resolve → samplesheet → configure → submit)
+    |-> [Pipeline Agent] -- full-agentic nf-core flow, Luria SLURM launch (one tool-loop: resolve → samplesheet → configure → submit)
     +-> [System Agent]   -- answer capabilities / catalog entity questions
     |
 [Chatter Agent]  -- summarize results for the user
@@ -216,11 +216,12 @@ Each agent can be independently routed to a different LLM provider via the catal
 ```
 agents/              entity, parser, api, reporter, chatter, memory, system, graph, seqera, planner/
 helpers/             generic utilities (dates, lineage, lab_code, results, text, json_io) + tools/ (nextseek_api, neo4j, catalog_match, memory_code)
-pipeline/            full-agentic nf-core agent: agent.py (tool loop) + agent_tools.py (resolve_samples, write_samplesheet, configure_run, submit_to_tower, conclude)
+pipeline/            full-agentic nf-core agent: agent.py (tool loop) + agent_tools.py (resolve_samples, write_samplesheet, configure_run, submit_to_luria, conclude, handoff)
+luria/               Luria SLURM launch backend: ssh.py, submitter.py, run_script.py, fetchngs_helpers.py, templates/, pipelines/scrnaseq_2_7_1_star/ (provision.sh clones and patches the nf-core/scrnaseq 2.7.1 tree on Luria for the whitelist-less STARsolo path, run_star_validation.sh is the SLURM batch script that runs a validation job against that clone; see `LURIA_VENDORED_PIPELINES` in run_script.py)
 reports/             runners, metadata, protocols, nfcore, outputs, templates_meta + exporters/ + templates/ (incl. nfcore/<key>.json curated params + reference_bundles.json)
 schemas/             Pydantic models
 prompts/             *.txt prompt files
-seqera/              Tower client + Datasets v2 + ENA + samplesheet/launch emitter + pipeline_params (curated params + species→reference bundles)
+seqera/              ENA + samplesheet/launch emitter + pipeline_params (curated params + species→reference bundles); also the dormant Tower client + Datasets v2
 context/             cached catalogs (API spec, sampletypes, assays, Neo4j)
 evaluator/           BAML eval harness + dashboard
 portable.py          stable public surface for external consumers (dmac_assistant plugin)
@@ -231,30 +232,31 @@ session.py           SQLite + MySQL session state
 
 `agents.py` and `helpers.py` were previously monolith modules and now exist only as their respective folder packages. External consumers should import via `chat_nextseek.portable`; legacy `chat_nextseek.agents.<name>` / `chat_nextseek.helpers.<name>` import paths remain pinned by `tests/test_portable_contract.py`.
 
-## nf-core / Seqera integration
+## nf-core pipeline integration (Luria launch)
 
-When a query asks for an nf-core samplesheet (e.g. *"make me an nf-core samplesheet for NHP-220630FLY-1-PUB"*), the **pipeline agent** runs a single full-agentic tool loop (`pipeline/agent.py`, one Bedrock conversation per session). The LLM picks the pipeline, judges data-type fit, groups samples into cohorts, and steers run params with the user; five tools do the deterministic I/O:
+> **Seqera Tower is retired.** MIT's Luria SLURM cluster is the only launch target exposed to the model: `build_pipeline_tool_schemas` (`pipeline/agent_tools.py`) never appends `submit_to_tower`. The Tower code path (`tool_submit_to_tower`, its schema, `seqera/tower_client.py`, `seqera/tower_datasets.py`, `emitter.emit_launch_artifacts`) is left in place, **dormant**, for a future re-enable. Do not delete it as dead code.
+
+When a query asks for an nf-core samplesheet (e.g. *"make me an nf-core samplesheet for NHP-220630FLY-1-PUB"*), the **pipeline agent** runs a single full-agentic tool loop (`pipeline/agent.py`, one Bedrock conversation per session). The LLM picks the pipeline, judges data-type fit, groups samples into cohorts, and steers run params with the user. Six tools are exposed (five when Luria is unconfigured): four do the deterministic I/O, two are terminal and intercepted by the loop rather than dispatched.
 
 1. **`resolve_samples`** — resolves UIDs to their leaf accessions (SRR/SRX/ERR/PRJ) and on to ENA HTTPS FASTQ URLs (no FASTQ download — Nextflow stages HTTPS URLs directly), surfaces per-leaf grouping fields the LLM uses to form cohorts, and detects the samples' species plus the chosen pipeline's curated param menu.
 2. **`write_samplesheet`** — emits **one** `samplesheet.csv` (CSV only) with a `cohort` column when grouped (not per-cohort files), plus biology enrichment columns pulled from lineage parents. It rejects any accession the agent didn't first resolve (a guardrail against hallucinated refs).
-3. **`configure_run`** — builds the Tower YAMLs (`params.yml` + `launch.yml`) from a curated per-pipeline param menu (`reports/templates/nfcore/<key>.json`) plus a species-defaulted reference genome (`seqera/pipeline_params.py` + `reference_bundles.json`). It infers the organism from metadata when there's no clean organism field (e.g. `Strain` C57BL6 → mouse → `GRCm39`), validates params against the curated subset, and lets the user steer (aligner, genome, skip steps). With no curated reference store configured it falls back to the iGenomes `genome` key and says so.
-4. **`submit_to_tower`** — when the Tower env is configured, submits to Tower's REST API directly (no external `tw` binary). On a host without a shared filesystem mount to the compute env, the samplesheet is uploaded to a Tower-managed Dataset (Tower Datasets v2 API) and referenced by URL. The same `TOWER_ACCESS_TOKEN` covers both dataset upload and workflow launch.
-5. **`conclude`** — ends the loop with the final reply.
+3. **`configure_run`** — calls `emitter.emit_luria_launch_artifacts` to write `params.yml` + a minimal `launch.yml` (no Tower env, no bucket staging) from a curated per-pipeline param menu (`reports/templates/nfcore/<key>.json`) plus a species-defaulted reference genome (`seqera/pipeline_params.py` + `reference_bundles.json`). It infers the organism from metadata when there's no clean organism field (e.g. `Strain` C57BL6 → mouse → `GRCm39`), validates params against the curated subset, and lets the user steer (aligner, genome, skip steps). With no curated reference store configured it falls back to the iGenomes `genome` key and says so.
+4. **`submit_to_luria`** — exposed only when `config.LURIA_ENV_COMPLETE`. Ssh's to `luria.mit.edu` and `sbatch`es a generated `run.sh` wrapping `nextflow run` (`luria/submitter.py`, `luria/run_script.py`, `luria/ssh.py`); the submitter rebuilds `params.yml` on-cluster. Accepts optional SLURM overrides (`job_name`, `partition`, `time`, `cpus`, `mem`); invalid values fall back to defaults. If Luria is not configured it returns the local samplesheet/launch path instead of failing.
+5. **`conclude`** — ends the loop with the final reply and an `outcome` of `submitted` / `rejected` / `cancelled` / `answered`.
+6. **`handoff`** — always exposed, never gated. The agent calls it when the user's message is not about building, configuring or launching a pipeline (a sample search, a lineage question, a report). `pipeline/agent.py` clears the build state and returns `action="passthrough"` so the orchestrator's normal parser handles that turn. This is what stops an open build from trapping the conversation; the build state is discarded, so it is a genuine abandon rather than a pause.
 
 Supported pipelines: `rnaseq, scrnaseq, atacseq, chipseq, sarek, methylseq, ampliseq, fetchngs`.
 
-Required env vars to enable launch.yml emission:
+Required env vars for the Luria launch path (`config.build_luria_env`; the host is hardcoded to `luria.mit.edu`):
 
 ```bash
-TOWER_ACCESS_TOKEN=...
-TOWER_WORKSPACE_ID=org/workspace       # qualified name or numeric ID
-SEQERA_COMPUTE_ENV=...                  # existing compute env name in Tower
-SEQERA_WORK_BUCKET=...                  # work-dir + outdir prefix (HPC path or s3:// URI)
-SEQERA_AUTO_LAUNCH=false                # true to submit inline via Tower REST API
-SEQERA_DEFAULT_PROFILE=docker           # e.g. singularity for HPC
-SEQERA_INPUT_DIR=...                    # optional shared mount; if missing, falls back to Tower Datasets upload
-TOWER_API_ENDPOINT=...                  # optional; default https://api.cloud.seqera.io
+LURIA_USER=...                          # cluster username
+LURIAKEY=/path/to/private_key           # host path to the ssh private key
+LURIA_WORKING_PATH=...                  # cluster-side run root
+PIPELINE_LAUNCH_MODE=luria              # optional; 'luria' is the default (invalid values fall back to it)
 ```
+
+All three of `LURIA_USER` / `LURIAKEY` / `LURIA_WORKING_PATH` must be set: `config.luria_env_complete` gates whether `submit_to_luria` is offered to the model at all.
 
 ## Logging
 

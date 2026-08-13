@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
 import shutil
 import sys
@@ -39,9 +40,12 @@ from .llm_clients import LLMFatalError
 from .helpers import (
     _extract_required_paths,
     _retry_advanced_search_if_empty,
+    api_row_count,
+    build_api_result_meta,
     fix_sample_endpoint,
     generate_report_outputs,
     log_api_call,
+    reporter_reply_footer,
     run_reporter_summary,
     shortlist_catalog,
     slim_api_result_for_llm,
@@ -53,6 +57,188 @@ from .session import SessionState
 from .tee import Tee
 
 SendEvent = Callable[[str, dict[str, Any]], None]
+
+_LOG = logging.getLogger(__name__)
+
+# --------------------------------------------------------------------------
+# Turn identity
+# --------------------------------------------------------------------------
+#
+# Every entry point below (run_query, run_query_plan, run_pipeline_launch)
+# used to carry the same four-line seam: override config.API_USER/API_PASS
+# only `if credentials:` and only for the truthy halves. With absent session
+# credentials the turn proceeded as whatever account ChatConfig was built
+# with -- `demo`/`demopassword` in the shipped template -- silently answering
+# with a different identity's permissions than the asking user's.
+#
+# `credentials is None` means something DIFFERENT from an empty mapping, and
+# the distinction is what makes fail-closed safe to default:
+#
+#   * Every request-scoped caller (nextseek_api/services/assistant.py,
+#     cc_assistant.py, evaluator.py) passes a MAPPING even when it could not
+#     resolve the caller -- the values are simply None. That is the case this
+#     gate exists for: a real asking user exists and we failed to bind to them.
+#   * `credentials is None` comes from the single-operator surfaces (cli.py,
+#     app.py, mcp_server.py, e2e/runner.py) where the ChatConfig credentials
+#     ARE the operator's own identity and there is nobody to impersonate.
+#     Those warn but are never refused.
+#
+# Two known consequences of that split, both verified, neither an oversight:
+#
+#   * DRF TOKEN callers are now REFUSED. AssistantViewSet (and CCAssistantViewSet)
+#     list TokenAuthentication in authentication_classes and _check_auth resolves
+#     ["BASIC","SESSION","TOKEN"], but credential resolution (assistant.py:728)
+#     resolves only ["BASIC","SESSION"] and then falls back to
+#     request.session.get(...), which is empty for a token request. So a token
+#     caller arrives here as {"api_user": None, "api_pass": None} and is refused.
+#     That is this gate working as intended -- a token caller previously ran
+#     silently as the service account, which IS the hole -- but it is an
+#     undocumented break of a supported auth mode. The real repair belongs in
+#     services/assistant.py (resolve TOKEN into credentials, or 401 at the front
+#     door); it is filed as a follow-up, not fixable from here.
+#   * One single-operator surface passes a MAPPING and so CAN be refused:
+#     evaluator/runner.py::_build_retry_credentials returns None when the config
+#     has neither half and a complete dict when it has both -- but a PARTIAL
+#     mapping when only API_USER or only API_PASS is set. A half-configured
+#     batch-evaluator CLI therefore refuses. Only reachable on a misconfigured
+#     ChatConfig; the clean repair (return None unless both halves are present)
+#     is filed as a follow-up. Do not read the bullet above as absolute.
+#
+# Default is OFF (fail closed). The nessie_tests harness authenticates over
+# HTTP Basic (nessie_tests/http_driver.py) which assistant.py resolves via
+# resolve_seek_auth into a complete pair, so it never takes this path.
+_ALLOW_SERVICE_ACCOUNT_FALLBACK_DEFAULT = False
+
+_IDENTITY_LOG_MARK = "[SECURITY][IDENTITY]"
+
+_IDENTITY_REFUSAL_REPLY = (
+    "**This request was not run.**\n\n"
+    "The assistant could not establish which NExtSEEK account this turn belongs to. "
+    "Running it anyway would answer using a shared service account's permissions "
+    "rather than yours, so the turn was refused instead. Sign in again (or supply "
+    "Basic-auth credentials) and retry.\n\n"
+    "_Operators: set `NEXTSEEK_ALLOW_SERVICE_ACCOUNT_FALLBACK` on the ChatConfig "
+    "to re-enable the service-account fallback._"
+)
+
+
+def _coerce_setting_bool(value: Any, *, default: bool) -> bool:
+    """Mirror ChatConfig._coerce_bool so a string 'false' from a config_map stays false."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _emit_identity_warning(message: str) -> None:
+    """Warn on both surfaces an operator actually reads.
+
+    Both land in CONTAINER stdout/stderr -- `docker logs nextseek` -- and NOT in
+    the per-turn outputs/<ts>_<user>/console.txt trace. The identity gate runs
+    before _ensure_query_log_dir, which is what installs the Tee onto
+    sys.stdout/sys.stderr, so by design there is no per-turn trace yet (on the
+    refuse branch there never will be: no run directory is created for a turn
+    that did not run). Look in `docker logs`, not in outputs/, when triaging
+    "why did this turn answer as someone else?".
+
+    logging.warning carries the severity a log aggregator can filter on; with no
+    chat_nextseek logger and no root handler configured in dmac/settings.py it
+    reaches stderr via Python's lastResort handler. The print matches this
+    module's diagnostic convention and keeps the line adjacent to the rest of
+    the turn's output.
+    """
+    _LOG.warning(message)
+    print(message)
+
+
+def _credentials_are_complete(credentials: dict[str, str] | None) -> bool:
+    """True only when BOTH halves of a per-request identity are present.
+
+    A half-supplied pair is worse than none: the old code applied the supplied
+    half and left the other on the service account, producing a mixed identity
+    (user A's name, the service account's password). Partial counts as missing.
+    """
+    if not isinstance(credentials, dict):
+        return False
+    return bool(credentials.get("api_user")) and bool(credentials.get("api_pass"))
+
+
+def _service_account_fallback_allowed(config: ChatConfig) -> bool:
+    """Read the fallback setting off the config object (threaded from settings, never os.getenv)."""
+    return _coerce_setting_bool(
+        getattr(config, "NEXTSEEK_ALLOW_SERVICE_ACCOUNT_FALLBACK", None),
+        default=_ALLOW_SERVICE_ACCOUNT_FALLBACK_DEFAULT,
+    )
+
+
+def _identity_gate(
+    session: SessionState | SessionStateProxy,
+    config: ChatConfig,
+    credentials: dict[str, str] | None,
+    send_event: SendEvent | None,
+    *,
+    entry_point: str,
+) -> tuple[ChatConfig, dict[str, Any] | None]:
+    """Bind the turn to the caller's identity, or refuse to impersonate.
+
+    Returns ``(config, refusal)``. When ``refusal`` is not None the entry point
+    must return it unchanged: it is an already-emitted ``query_complete``
+    payload carrying a user-facing explanation, chosen over raising so the
+    caller renders a diagnosable refusal instead of a 500 (a bare raise escapes
+    run_query through its re-raising ``except Exception`` and becomes a task
+    crash reported as "Internal pipeline error").
+
+    On the happy path a SHALLOW copy of config is made so the shared singleton
+    is never mutated; LLM clients, catalogs, and prompts stay shared by reference.
+    """
+    if _credentials_are_complete(credentials):
+        config = copy.copy(config)
+        config.API_USER = credentials["api_user"]
+        config.API_PASS = credentials["api_pass"]
+        return config, None
+
+    # Name the account only. NEVER the password -- not the value, not a mask,
+    # not a length hint.
+    account = getattr(config, "API_USER", None) or "<unset>"
+    request_scoped = credentials is not None
+    supplied = [
+        key for key in ("api_user", "api_pass")
+        if isinstance(credentials, dict) and credentials.get(key)
+    ]
+    if supplied:
+        detail = f"incomplete per-request credentials (only {', '.join(supplied)} supplied)"
+    elif request_scoped:
+        detail = "no per-request credentials"
+    else:
+        detail = "no per-request identity supplied (single-operator surface)"
+
+    if request_scoped and not _service_account_fallback_allowed(config):
+        message = (
+            f"{_IDENTITY_LOG_MARK} {entry_point}: refusing this turn -- {detail}; "
+            f"falling back to the configured account {account!r} is disabled "
+            f"(NEXTSEEK_ALLOW_SERVICE_ACCOUNT_FALLBACK)."
+        )
+        _emit_identity_warning(message)
+        debug_payload: dict[str, Any] = {
+            "identity_refused": True,
+            "reason": detail,
+            "fallback_account": str(account),
+            "entry_point": entry_point,
+        }
+        try:
+            session["last_debug"] = debug_payload
+        except Exception:  # pragma: no cover - exotic session proxies
+            pass
+        return config, _emit_query_complete(
+            send_event, _IDENTITY_REFUSAL_REPLY, debug_payload, None,
+        )
+
+    _emit_identity_warning(
+        f"{_IDENTITY_LOG_MARK} {entry_point}: {detail}; this turn runs as the "
+        f"configured account {account!r}, NOT as the asking user."
+    )
+    return config, None
 
 
 def _emit_query_complete(
@@ -77,6 +263,52 @@ def _emit_query_complete(
     if send_event:
         send_event("query_complete", payload)
     return payload
+
+
+def run_pipeline_launch(
+    session: SessionState | SessionStateProxy,
+    config: ChatConfig,
+    user_text: str,
+    send_event: SendEvent | None = None,
+    *,
+    credentials: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Deterministic CC → pipeline_agent bridge entry (query/async mode='pipeline').
+
+    Starts the pipeline wizard directly from a CC-composed summary message — no
+    parser/reporter classification. Runs on the async task path, so pipeline_agent's
+    real first reply is surfaced (no canned turn) and there is no 30 s bin ReadTimeout.
+    Follow-up turns continue via the F9 router gate → _handle_pipeline_agent_turn.
+
+    credentials — see _identity_gate. An incomplete per-request identity refuses
+    the turn rather than launching a pipeline as the service account.
+    """
+    config, identity_refusal = _identity_gate(
+        session, config, credentials, send_event, entry_point="run_pipeline_launch",
+    )
+    if identity_refusal is not None:
+        return identity_refusal
+
+    log_dir = _ensure_query_log_dir(session, config)
+    if send_event:
+        send_event("agent_started", {"agent": "pipeline_agent", "mode": "pipeline"})
+
+    pa_start = pipeline_agent.start(session, config, user_query=user_text, log_dir=log_dir)
+    reply = pa_start.get("reply") or ""
+    snapshot = pipeline_agent.snapshot_for_chat_log(session)
+    debug_payload = {"pipeline_agent": snapshot}
+    session["last_debug"] = debug_payload
+    append_turn(
+        session,
+        user_query=user_text,
+        mode="pipeline_agent",
+        intent_summary="pipeline_agent launched (cc bridge)",
+        tool_summary={"pipeline_key": snapshot.get("pipeline_key"),
+                      "cohorts": snapshot.get("cohort_count")},
+        assistant_reply=reply,
+        wizard_state=snapshot,
+    )
+    return _emit_query_complete(send_event, reply, debug_payload, None)
 
 
 def _sanitize_output_component(value: str | None, default: str = "unknown") -> str:
@@ -215,7 +447,7 @@ def _execute_graph_turn(
     )
 
     history = session.get("results_history", [])
-    bundle_id = len(history) + 1
+    bundle_id = _next_bundle_id(session)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     graph_debug_path = _write_graph_debug(
         log_dir, ts,
@@ -280,6 +512,32 @@ def _execute_graph_turn(
     )
     print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
     return _emit_query_complete(send_event, reply, debug_payload, bundle_id, files=result_files or None)
+
+
+BUNDLE_SEQ_KEY = "bundle_seq"
+
+
+def _next_bundle_id(session) -> int:
+    """Allocate a monotonic bundle id for this session.
+
+    These ids used to be ``len(results_history) + 1``. That silently collides
+    whenever an append does not survive (concurrent writers reading a stale
+    snapshot of the JSON column, a trim, a failed save): two different searches
+    get the same id, and a later "what were those results?" resolves to whichever
+    bundle answers to that id — which may be a different question entirely.
+
+    A counter that only ever moves forward cannot collide, and it survives a lost
+    append because it is stored separately from the history it indexes.
+    """
+    history = session.get("results_history") or []
+    highest_seen = max((b.get("id") or 0) for b in history) if history else 0
+    try:
+        stored = int(session.get(BUNDLE_SEQ_KEY) or 0)
+    except (TypeError, ValueError):
+        stored = 0
+    nxt = max(stored, highest_seen, len(history)) + 1
+    session[BUNDLE_SEQ_KEY] = nxt
+    return nxt
 
 
 def _handle_pipeline_agent_turn(
@@ -347,16 +605,17 @@ def run_query(
     Shared query orchestrator for Streamlit, CLI, and async/SSE consumers.
     Runs the full agent pipeline, updates session state, and emits optional progress events.
 
-    credentials — optional dict with keys 'api_user' and/or 'api_pass'.  When provided,
-    a shallow copy of config is made so the shared singleton is never mutated; all LLM
-    clients, catalogs, and prompts remain shared by reference.
+    credentials — optional dict with keys 'api_user' and 'api_pass'.  When BOTH are
+    present a shallow copy of config is made so the shared singleton is never mutated;
+    all LLM clients, catalogs, and prompts remain shared by reference.  Anything less
+    than a complete pair is an unresolved identity: see _identity_gate, which warns and
+    (by default) refuses the turn rather than running it as the service account.
     """
-    if credentials:
-        config = copy.copy(config)
-        if credentials.get("api_user"):
-            config.API_USER = credentials["api_user"]
-        if credentials.get("api_pass"):
-            config.API_PASS = credentials["api_pass"]
+    config, identity_refusal = _identity_gate(
+        session, config, credentials, send_event, entry_point="run_query",
+    )
+    if identity_refusal is not None:
+        return identity_refusal
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
@@ -619,7 +878,13 @@ def run_query(
 
                 current_agent = "search"
                 send_event("search_started", {"source": "reporter", "project": project, "summary_mode": summary_mode})
-                reporter_result, saved_files, reporter_summary = run_reporter_summary(config, reporter_plan, log_dir)
+                # "an annual progress report for the Kamm project" resolves Kamm as a
+                # LAB, so reporter_plan.project stays null and the report would run
+                # across every project while describing itself as Kamm's. Hand the
+                # resolved lab codes down so the summary can scope itself instead.
+                _lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
+                reporter_result, saved_files, reporter_summary = run_reporter_summary(
+                    config, reporter_plan, log_dir, lab_codes=_lab_codes)
                 send_event(
                     "search_complete",
                     {
@@ -662,8 +927,9 @@ def run_query(
                 reply_lines = [
                     narrative.strip(),
                     "",
-                    f"- **Rows returned:** {reporter_result.get('rows_returned')}",
-                    f"- **Download report:** `{reporter_result.get('uuid_report_file')}`",
+                    *reporter_reply_footer(
+                        config, reporter_result, saved_files, summary_mode
+                    ),
                 ]
                 # Surface a clear hint when the connected DB has no data for the
                 # requested project (e.g. local dev DB aliased to MYSQL_HOST_PROD).
@@ -708,7 +974,7 @@ def run_query(
                     debug_payload["report_saved_files"] = saved_files
 
             history = session.get("results_history", [])
-            bundle_id = len(history) + 1
+            bundle_id = _next_bundle_id(session)
             result_files = build_saved_report_file_manifest(saved_files)
             report_writer_output_payload = (
                 report_writer_output.model_dump()
@@ -929,9 +1195,11 @@ def run_query(
                 },
             )
 
-            api_result_slim = slim_api_result_for_llm(api_result_full)
+            # api_plan_dict, not api_plan: APIRequestPlan has extra="ignore", so
+            # re-validating drops retry_substituted_search recorded by the retry ladder.
+            api_result_slim = slim_api_result_for_llm(api_result_full, api_plan=api_plan_dict)
             history = session.get("results_history", [])
-            bundle_id = len(history) + 1
+            bundle_id = _next_bundle_id(session)
             raw_json_path = None
             try:
                 entry = artifact_store.write_json(
@@ -947,11 +1215,11 @@ def run_query(
             except Exception as e:
                 print("[DEBUG][API_LOG] Failed to write raw API result file:", repr(e))
 
-            debug_payload["api_result_meta"] = {
-                "ok": api_result_full.get("ok"),
-                "status_code": api_result_full.get("status_code"),
-                "url": api_result_full.get("url"),
-            }
+            # api_plan_dict for the same reason slim_api_result_for_llm takes it:
+            # APIRequestPlan has extra="ignore", so the re-validated object drops
+            # queryParameters/retry_substituted_search that the disclosure reads.
+            debug_payload["api_result_meta"] = build_api_result_meta(
+                api_result_full, api_plan_dict, bundle_id=bundle_id)
             debug_payload["api_result_slim"] = api_result_slim
             debug_payload["api_result_full"] = api_result_full
             debug_payload["raw_json_path"] = raw_json_path
@@ -1118,14 +1386,13 @@ def run_query_plan(
     Planner-based orchestrator: entity -> parser -> planner -> executor -> chatter -> evaluator.
     Parallel structure to `run_query`, using the same result contract.
 
-    credentials — same shallow-copy semantics as run_query.
+    credentials — same shallow-copy and identity-gate semantics as run_query.
     """
-    if credentials:
-        config = copy.copy(config)
-        if credentials.get("api_user"):
-            config.API_USER = credentials["api_user"]
-        if credentials.get("api_pass"):
-            config.API_PASS = credentials["api_pass"]
+    config, identity_refusal = _identity_gate(
+        session, config, credentials, send_event, entry_point="run_query_plan",
+    )
+    if identity_refusal is not None:
+        return identity_refusal
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
@@ -1365,7 +1632,7 @@ def run_query_plan(
             reply = f"Plan halted: {stop_reason}\n\n{reply}"
 
         history = session.get("results_history", [])
-        bundle_id = len(history) + 1
+        bundle_id = _next_bundle_id(session)
         result_files: list[dict[str, Any]] = []
         raw_result_paths: dict[int, str] = {}
         graph_debug_paths: dict[int, str] = {}
@@ -1589,7 +1856,7 @@ def run_query_plan(
         traceback.print_exc()
         reply = f"An unexpected error occurred in the planner pipeline: {e}"
         try:
-            append_turn(session, user_query=user_query, mode="error_plan_pipeline",
+            append_turn(session, user_query=user_text, mode="error_plan_pipeline",
                         assistant_reply=reply, status="error", error=repr(e))
         except Exception:
             print("[FATAL] failed to log chat_log turn for plan pipeline error")

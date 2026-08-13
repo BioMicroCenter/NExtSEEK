@@ -181,10 +181,44 @@ def _select_study_summary(study: Mapping[str, Any] | None) -> str | None:
     """
     Return the best available study summary, preferring 'summary (abstract)' then 'summary'.
     Keeps GEO population tolerant of missing fields while still returning None when nothing is present.
+
+    ``*summary (abstract)`` is MANDATORY in the GEO template. When the writer did
+    not produce one, fall back to the experimental design rather than shipping a
+    blank required cell — a workbook that looks complete but is not is worse than
+    one carrying a slightly generic abstract.
     """
     if not isinstance(study, Mapping):
         return None
-    return _geo_get(study, "*summary (abstract)", "summary (abstract)", "summary") or None
+    return (
+        _geo_get(study, "*summary (abstract)", "summary (abstract)", "summary")
+        or _geo_get(study, "*experimental design", "experimental design")
+        or None
+    )
+
+
+def _select_study_title(study: Mapping[str, Any] | None,
+                        samples: "list[Mapping[str, Any]] | None" = None) -> str | None:
+    """Best available study title. ``*title`` is MANDATORY in the GEO template.
+
+    Observed 2026-07-24: a GEO workbook was generated with every protocol, both
+    sample rows and the contributors filled in, but ``*title`` and
+    ``*summary (abstract)`` — the only two required study fields — left empty.
+    """
+    if not isinstance(study, Mapping):
+        return None
+    explicit = _geo_get(study, "*title", "title")
+    if explicit:
+        return explicit
+    design = _geo_get(study, "*experimental design", "experimental design")
+    if design:
+        # First sentence of the design reads as a serviceable working title.
+        return str(design).split(".")[0].strip()[:255] or None
+    for sample in samples or []:
+        if isinstance(sample, Mapping):
+            candidate = _geo_get(sample, "*title", "title")
+            if candidate:
+                return str(candidate)
+    return None
 
 
 def _populate_geo_seq_workbook(wb, report: Mapping[str, Any]) -> None:
@@ -207,7 +241,7 @@ def _populate_geo_seq_workbook(wb, report: Mapping[str, Any]) -> None:
     contributor_row = _find_first_row_with_label(meta_sheet, "contributor") or 15
     supplementary_row = _find_first_row_with_label(meta_sheet, "supplementary file") or 22
 
-    _write_cell(meta_sheet, title_row, 2, _geo_get(study, "*title", "title"))
+    _write_cell(meta_sheet, title_row, 2, _select_study_title(study, samples))
     _write_cell(meta_sheet, summary_row, 2, _select_study_summary(study))
     _write_cell(meta_sheet, design_row, 2, _geo_get(study, "*experimental design", "experimental design"))
 

@@ -30,7 +30,6 @@ import re
 import pytest
 
 from nessie_tests import corpus, evaluate, route_observer
-from nessie_tests.conftest import path_accessible
 
 CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus.json"
 
@@ -418,7 +417,7 @@ _MANIFEST = _EVIDENCE / "manifest.json"
 _TURNS = _EVIDENCE / "turns.json"
 
 requires_seed6b = pytest.mark.skipif(
-    not (path_accessible(_MANIFEST) and path_accessible(_TURNS)),
+    not (_MANIFEST.exists() and _TURNS.exists()),
     reason="stored 2026-08-03 seed-6 run evidence is not on this host")
 
 

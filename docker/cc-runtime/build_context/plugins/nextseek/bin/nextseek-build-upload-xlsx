@@ -1,0 +1,31 @@
+#!/bin/sh
+# nextseek-build-upload-xlsx — render NExtSEEK 4-sheet upload workbook(s) from rows.
+# Given CC-composed rows (one per output sample), the server renders one workbook
+# per sample type and returns them as downloadable artifacts for review. Does NOT
+# upload to NExtSEEK — the user reviews the workbook(s) and uploads them.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+ROWS=""
+EXISTING=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rows) ROWS="$2"; shift 2 ;;
+    --rows=*) ROWS="${1#--rows=}"; shift ;;
+    --existing-parent-uids) EXISTING="$2"; shift 2 ;;
+    --existing-parent-uids=*) EXISTING="${1#--existing-parent-uids=}"; shift ;;
+    --help)
+      echo "Usage: nextseek-build-upload-xlsx --rows '<json array>' [--existing-parent-uids <csv>]"
+      echo ""
+      echo "Each row: {\"SampleType\": \"A.*\", \"json_metadata\": {\"Parent\": \"<UID>\", ...}, \"assay_ids\": [..]}."
+      echo "Renders one 4-sheet upload workbook per sample type and returns it for review."
+      echo "Pass the input cohort's UIDs via --existing-parent-uids so Parent links QA cleanly."
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$ROWS" ] || nextseek_die 3 "missing --rows"
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent build-upload-xlsx --rows "$ROWS" --existing-parent-uids "$EXISTING"

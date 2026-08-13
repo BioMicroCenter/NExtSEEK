@@ -233,11 +233,17 @@ The guard against the obvious hazard: a case that evaluated **zero** criteria
 drift, exactly like an `xpass`. `known_fail` does not excuse it: the tag claims
 the case fails, and a case that tested nothing showed neither that nor its
 absence. The rule is per CASE, not per turn — a multi-turn case that really
-asserted something on one turn did assert something, and the vacuous turn stays
-visible in `report.html`'s observation table: each of its rows is classed
+asserted something on one turn did assert something, and a skipped turn stays
+visible in `report.html`'s observation table: each such row is classed
 `skipped`, labelled `SKIPPED` in words, carries the reason that skipped it, and
 is counted apart from the passes in the table's summary line, which reads
-`observed (6 criteria, 2 skipped)` and never `all passed`.
+`observed (7 criteria, 2 skipped)` and never `all passed`.
+
+As of the #35 close-out (2026-08-11) **no turn in the corpus is vacuous on any
+route** — `tree.then_ask_about:follow_up` was the last one and now carries an
+observable `last_reply` assertion. The skipped-row rendering above still applies
+to the individual skips that remain (`chat_log.length`, and `outcome_observed` on
+a container_cc arm); it is pinned by the test named below either way.
 
 That sentence was FALSE for the whole of its first day in this file: `report.py`
 never read `CriterionObservation.skipped`, a skipped row carries `passed=True`,

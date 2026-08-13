@@ -5,6 +5,7 @@ import time
 import datetime
 import simplejson
 import json
+import html
 import logging
 import xlwt
 import operator
@@ -33,6 +34,7 @@ from .dbtable_sops import DBtable_sops
 from .dbtable_policies import DBtable_policies
 
 from .dbtable_ontology import DBtable_ontology
+from nextseek_api.services.sample_workbook import write_samples_workbook
 from concurrent.futures import ThreadPoolExecutor
 from api_app.updateTrees import updateTrees
 from neo4j import GraphDatabase
@@ -937,15 +939,9 @@ class DBtable_sample(DBtable):
         return final_df
 
     def sampleRetrievalData(self, children_uids, output):
-        parsed_df = self.__parse_children_uids(children_uids)
-        parsed_df['sample_type'] = parsed_df['uuid'].str.extract(r'([A-Z]+\.[A-Z]+|[A-Z]+)', expand=False)
-
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            for sample_type, sample_type_df in parsed_df.groupby('sample_type'):
-                sample_type_df = sample_type_df.drop(columns=['uuid', 'sample_type'])
-                sample_type_df.replace("", pd.NA, inplace=True)
-                sample_type_df.dropna(axis=1, how='all', inplace=True)
-                sample_type_df.to_excel(writer, sheet_name=sample_type, index=False)
+        # Sheet layout, README included, is owned by
+        # nextseek_api.services.sample_workbook so it cannot drift per call path.
+        write_samples_workbook(self.__parse_children_uids(children_uids), output)
 
     def __batchUploadTest(self, seekdb, sampleType, diclist, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced=False):
         user_seek = seekdb.user_seek
@@ -1700,7 +1696,9 @@ class DBtable_sample(DBtable):
         
     def __getSamplelink(self, sample_uid, sample_id):
         sample_url = "/seek/sample/id=" + str(sample_id) + "/"
-        samplelink = '<a href="' + sample_url + '" target="_blank">' + str(sample_uid) + '</a>'
+        # The uid column is rendered as raw HTML by the client; escape the uid
+        # text so a sample uid containing markup cannot inject script.
+        samplelink = '<a href="' + sample_url + '" target="_blank">' + html.escape(str(sample_uid)) + '</a>'
         return samplelink
     
         
@@ -3037,13 +3035,50 @@ class DBtable_sample(DBtable):
     
     
     def __formatSampleUIDLink(self, sample_uid):
-        url = "/seek/sampletree/uid=" + sample_uid + "/";
-        weblink = '<a href="' + url + '" target="_blank">' + str(sample_uid) + '</a>'
+        url = "/seek/sampletree/uid=" + str(sample_uid) + "/";
+        # Rendered as raw HTML by the client; escape the untrusted uid in both
+        # the href attribute and the link text to prevent HTML injection.
+        weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(str(sample_uid)) + '</a>'
         return weblink
 
     def __formatSopUIDLink(self, sop_uid):
-        url = "/seek/sop/uid=" + sop_uid + "/";
-        weblink = '<a href="' + url + '" target="_blank">' + str(sop_uid) + '</a>'
+        # This used to point at /seek/sop/uid=<uid>/, whose route and view were
+        # both removed in 5834cda when the SOP pages moved to nextseek_api, so
+        # every protocol link on the sample page 404'd. Link to the SOP in SEEK
+        # instead, which is where the SOPs table already sends users. The SEEK
+        # route is id-based, so resolve the UID (stored as sops.title) to its
+        # id; only reached from getSampleInfo for a single sample, so the
+        # lookup is per protocol on one detail page, not per grid row.
+        sop_uid = str(sop_uid).strip()
+
+        # Not every Protocol value is a NExtSEEK SOP UID: samples also record it
+        # as a full URL into FAIRDOMHub or another SEEK instance (e.g.
+        # https://fairdomhub.org/sops/795). Those are already addressable, so
+        # link them straight through rather than failing a UID lookup and
+        # degrading them to plain text. The 'http' prefix check blocks
+        # javascript:/data: schemes, matching __formatExternalLink.
+        if sop_uid[0:4].lower() == 'http':
+            return '<a href="' + html.escape(sop_uid) + '" target="_blank">' + html.escape(sop_uid) + '</a>'
+
+        sop_id = None
+        try:
+            dbsop = DBtable_sops("DEFAULT")
+            records = dbsop.queryRecordsByConstraint({'title': sop_uid})
+            if records is not None and len(records) == 1:
+                sop_id = records[0]['id']
+        except Exception:
+            logger.exception('failed resolving SOP UID to a SEEK id: %s', sop_uid)
+            sop_id = None
+
+        # No unambiguous match: render the UID as plain text rather than emit a
+        # link that is known to go nowhere.
+        if sop_id is None:
+            return html.escape(sop_uid)
+
+        url = settings.SEEK_PUBLIC_URL + "/sops/" + str(sop_id)
+        # Rendered as raw HTML by the client; escape the untrusted uid in both
+        # the href attribute and the link text to prevent HTML injection.
+        weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(sop_uid) + '</a>'
         return weblink
     
     def __formatExternalLink(self, urlValue):
@@ -3059,13 +3094,17 @@ class DBtable_sample(DBtable):
                         if i>0:
                             weblink += ","
                         
-                        weblink += '<a href="' + vi + '" target="_blank">' + vi + '</a>'
+                        # 'http' prefix check above blocks javascript:/data:
+                        # schemes; escape to prevent href/text HTML injection.
+                        weblink += '<a href="' + html.escape(vi) + '" target="_blank">' + html.escape(vi) + '</a>'
                         i += 1
         else:
             vi = urlValue.strip()
             if len(vi)>0:
                 if vi[0:4].lower()=='http':
-                    weblink = '<a href="' + vi + '" target="_blank">' + vi + '</a>'
+                    # 'http' prefix check blocks javascript:/data: schemes;
+                    # escape to prevent href/text HTML injection.
+                    weblink = '<a href="' + html.escape(vi) + '" target="_blank">' + html.escape(vi) + '</a>'
         
         return weblink
     
@@ -3885,7 +3924,14 @@ class DBtable_sample(DBtable):
         defaultStyle = "color:red;"
         if style is None:
             style = defaultStyle
-        
+
+        # The result is rendered as raw HTML by the client, so HTML-escape the
+        # untrusted keyword/value before splicing them into the highlight span.
+        # html.escape maps each character independently, so substring matching
+        # on the escaped strings is equivalent to matching on the originals.
+        keyword = html.escape(str(keyword))
+        value = html.escape(str(value))
+
         if keyword in value:
             newKeyword = '<span style="' + style + '">' + keyword + '</span>'
             value = value.replace(keyword, newKeyword)
@@ -3961,9 +4007,9 @@ class DBtable_sample(DBtable):
                             ki += 1            
                 elif ':' in term:
                     term = self.__getCleanKeyword(term)
-                    if term in value or term.lower() in valuel:     
+                    if term in value or term.lower() in valuel:
                         if ki==0:
-                            attributeValue += key + ':' + str(value)
+                            attributeValue += key + ':' + html.escape(str(value))
                         else:
                             attributeValue += separator + key + ':' + self.__highlightKeyword(term, value)
                         ki += 1

@@ -69,10 +69,18 @@ def test_resolve_bundle_for_species_is_case_insensitive():
     assert pp.resolve_bundle_for_species(None) is None
 
 
-def test_build_reference_params_igenomes_fallback_when_store_unconfigured():
+def test_build_reference_params_local_luria_for_registered_genome():
     params, status = pp.build_reference_params("rnaseq", "GRCm39")
     assert params == {"genome": "GRCm39"}
-    assert status == "igenomes_fallback"
+    assert status == "local_luria"   # GRCm39 has a local Luria ref -> not an iGenomes fallback
+
+
+def test_build_reference_params_igenomes_fallback_for_unregistered(monkeypatch):
+    bundles = {"store_root": None, "species_to_bundle": {"zeb": "GRCz11"},
+               "bundles": {"GRCz11": {"igenomes_key": "GRCz11"}}}   # not in LURIA_GENOMES
+    monkeypatch.setattr(pp, "load_reference_bundles", lambda: bundles)
+    params, status = pp.build_reference_params("rnaseq", "GRCz11")
+    assert params == {"genome": "GRCz11"} and status == "igenomes_fallback"
 
 
 def test_build_reference_params_pdx_no_fallback():
@@ -82,47 +90,51 @@ def test_build_reference_params_pdx_no_fallback():
 
 
 def test_build_reference_params_emits_paths_when_store_configured(monkeypatch):
+    # GRCz11 (zebrafish) is NOT in LURIA_GENOMES, so the top-priority local_luria status
+    # does not preempt the configured store_root path this test exercises.
     bundles = {
         "store_root": "/refs",
-        "species_to_bundle": {"mouse": "GRCm39"},
-        "bundles": {"GRCm39": {"igenomes_key": "GRCm39", "gencode": True,
-                               "resources": {"fasta": "{store_root}/GRCm39/genome.fa",
-                                             "gtf": "{store_root}/GRCm39/genes.gtf",
-                                             "star_index": "{store_root}/GRCm39/index/star/"}}}}
+        "species_to_bundle": {"zebrafish": "GRCz11"},
+        "bundles": {"GRCz11": {"igenomes_key": "GRCz11", "gencode": True,
+                               "resources": {"fasta": "{store_root}/GRCz11/genome.fa",
+                                             "gtf": "{store_root}/GRCz11/genes.gtf",
+                                             "star_index": "{store_root}/GRCz11/index/star/"}}}}
     monkeypatch.setattr(pp, "load_reference_bundles", lambda: bundles)
-    params, status = pp.build_reference_params("rnaseq", "GRCm39")
+    params, status = pp.build_reference_params("rnaseq", "GRCz11")
     assert status == "configured"
-    assert params["fasta"] == "/refs/GRCm39/genome.fa"
-    assert params["gtf"] == "/refs/GRCm39/genes.gtf"
-    assert params["star_index"] == "/refs/GRCm39/index/star/"
+    assert params["fasta"] == "/refs/GRCz11/genome.fa"
+    assert params["gtf"] == "/refs/GRCz11/genes.gtf"
+    assert params["star_index"] == "/refs/GRCz11/index/star/"
     assert "rsem_index" not in params
     assert params["gencode"] is True
 
 
 def test_build_reference_params_configured_skips_gencode_for_pipeline_without_it(monkeypatch):
     # A bundle's gencode flag must NOT be stamped onto a pipeline that has no gencode param.
+    # GRCz11 (not in LURIA_GENOMES) so the configured store_root path is exercised rather
+    # than the top-priority local_luria status.
     bundles = {
         "store_root": "/refs",
-        "species_to_bundle": {"human": "GRCh38"},
-        "bundles": {"GRCh38": {"igenomes_key": "GRCh38", "gencode": True,
-                               "resources": {"fasta": "{store_root}/GRCh38/genome.fa",
-                                             "bwa_index": "{store_root}/GRCh38/bwa/"}}}}
+        "species_to_bundle": {"zebrafish": "GRCz11"},
+        "bundles": {"GRCz11": {"igenomes_key": "GRCz11", "gencode": True,
+                               "resources": {"fasta": "{store_root}/GRCz11/genome.fa",
+                                             "bwa_index": "{store_root}/GRCz11/bwa/"}}}}
     monkeypatch.setattr(pp, "load_reference_bundles", lambda: bundles)
-    params, status = pp.build_reference_params("atacseq", "GRCh38")  # atacseq has no gencode param
+    params, status = pp.build_reference_params("atacseq", "GRCz11")  # atacseq has no gencode param
     assert status == "configured"
     assert "gencode" not in params
-    assert params["fasta"] == "/refs/GRCh38/genome.fa"
-    assert params["bwa_index"] == "/refs/GRCh38/bwa/"
+    assert params["fasta"] == "/refs/GRCz11/genome.fa"
+    assert params["bwa_index"] == "/refs/GRCz11/bwa/"
 
 
 def test_build_run_params_merges_defaults_bundle_and_overrides():
     merged, errors, status = pp.build_run_params(
         "rnaseq", agent_params={"aligner": "hisat2"}, bundle_key="GRCm39")
     assert errors == []
-    assert merged["aligner"] == "hisat2"          # override beats curated default
-    assert merged["pseudo_aligner"] == "salmon"   # curated default present
-    assert merged["genome"] == "GRCm39"            # igenomes fallback reference
-    assert status == "igenomes_fallback"
+    assert merged["aligner"] == "hisat2"
+    assert merged["pseudo_aligner"] == "salmon"
+    assert merged["genome"] == "GRCm39"
+    assert status == "local_luria"   # was igenomes_fallback before the local-ref bias
 
 
 def test_build_run_params_rejects_unknown_key():

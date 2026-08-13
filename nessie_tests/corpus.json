@@ -8252,8 +8252,8 @@
                 },
                 {
                   "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
+                  "op": "matches_re",
+                  "value": "(sample-tree|samples/retrieve)"
                 },
                 {
                   "field": "api_ok",
@@ -8275,6 +8275,11 @@
                   "field": "chat_log.length",
                   "op": "gte",
                   "value": 2
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b38\\b"
                 }
               ]
             }
@@ -8287,7 +8292,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "third variant on NHP-220630FLY-5-PUB. Its follow-up (38 sequencing samples) is already covered by the type breakdown recorded on retrieve.single_nhp."
+          "_deselected_2026_08_06_qset": "third variant on NHP-220630FLY-5-PUB. Its follow-up (38 sequencing samples) is already covered by the type breakdown recorded on retrieve.single_nhp.",
+          "_edited_2026_08_11_issue35": "CRITERIA ONLY -- both question texts unchanged. This variant is issue #35's own named example of a criterion that pins one of several VALID endpoints: the seed asserted `api_plan.endpoint contains sample-tree`, but min_api_endpoints_enriched.json offers two defensible answers to 'show me everything derived from X' and says so in its own llm_hint -- /nextseek_api/sample-tree/{uid}/tree/ for the lineage, /nextseek_api/admin/samples/retrieve/ for the associated-sample export. Relaxed to `matches_re (sample-tree|samples/retrieve)` so the case scores the ANSWER, not the route the planner happened to pick. || The follow_up turn asserted only parser_plan.mode plus chat_log.length, and `chat_log.` is in evaluate._UNOBSERVABLE_FIELD_PREFIXES, so it scored on plan shape alone and could not detect a wrong answer -- it was one of the per-turn vacuous turns named in test_overlay_content. Added `last_reply matches_re \\b38\\b`. || VERIFIED: Neo4j cypher-shell, read-only, 2026-08-11: (d)-[:DERIVED_FROM*1..10]->(:Sample{uuid:'NHP-220630FLY-5-PUB'}) = 221 distinct descendants, of which D.SEQ = 38. Type breakdown TIS 72, DNA 38, D.SEQ 38, BAC 33, PAV 15, D.FLOW 13, A.SCXP 5, D.IMG 4, A.FLOW 2, A.DBMM 1 -- matches the breakdown recorded on retrieve.single_nhp exactly."
         },
         {
           "id": "tree.what_is_the_parent_chain_for_n",

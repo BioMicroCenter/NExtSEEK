@@ -21,6 +21,7 @@ def _subpaths(project_dirname: str, user_id: str) -> dict[str, str]:
         project_dirname=project_dirname,
         user_id=user_id,
         cc_state_key="S1",
+        run_id="R1",
     )
     return {m["Target"]: m["VolumeOptions"]["Subpath"] for m in mounts}
 
@@ -32,8 +33,8 @@ def test_same_project_shares_shared_but_not_private_subpaths():
     assert alice["/data/shared"] == bob["/data/shared"] == "42-liver/shared"
     assert alice["/data/input"] == "42-liver/alice/input"
     assert bob["/data/input"] == "42-liver/bob/input"
-    assert alice["/data/scratch"] == "42-liver/alice/scratch"
-    assert bob["/data/scratch"] == "42-liver/bob/scratch"
+    assert alice["/data/scratch"] == "42-liver/alice/scratch/R1"   # #70/#36 per-turn
+    assert bob["/data/scratch"] == "42-liver/bob/scratch/R1"
     assert alice["/home/user/.claude"] == "42-liver/alice/cc-state/S1"
     assert bob["/home/user/.claude"] == "42-liver/bob/cc-state/S1"
     # only shared overlaps between the two users
@@ -49,7 +50,7 @@ def test_different_projects_are_fully_disjoint_including_shared():
 
 def test_private_and_shared_are_readonly_and_only_scratch_and_state_rw():
     mounts = {m["Target"]: m for m in cc_engine._build_volumes(
-        paths=_paths(), project_dirname="42-liver", user_id="alice", cc_state_key="S1",
+        paths=_paths(), project_dirname="42-liver", user_id="alice", cc_state_key="S1", run_id="R1",
     )}
 
     assert mounts["/data/input"]["ReadOnly"] is True

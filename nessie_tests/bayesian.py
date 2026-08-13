@@ -186,7 +186,6 @@ def run_paired(*, base_url, auth_header, out_dir, corpus_path=None,
         superseded.append(prior_meta)
 
     manifest = BayesManifest(
-        schema_version="bayes_manifest/v1",
         run_meta={
             "mode": "bayesian",
             "arms": list(ARMS),

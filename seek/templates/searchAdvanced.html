@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block main %}
+<script type="text/javascript" src="{{STATIC_URL}}js/ns_sample_download.js"></script>
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-filter.js"></script>
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-export.js"></script>
 <script type="text/javascript" src="{{STATIC_URL}}js/custom/datagrid-custom.js"></script>
@@ -31,8 +32,33 @@ $(document).ready(function() {
         }
 });
 	
+/* The Advanced Sample Search grid is built while its tab is still hidden, so
+   EasyUI measures it at zero height and its body stays collapsed (~8px) even
+   after rows load -- the grid renders every row into a container nothing can
+   see. A resize once it is actually visible is what lays it out. Pair this with
+   the `#search_tab .layout-panel-center { display: block !important; }` rule in
+   nextseek.css, which un-hides the panel itself; neither half works alone. */
+function nsResizeGridsIn(container) {
+	if (!container || !container.length) { return; }
+	container.find('.datagrid-f').each(function () {
+		try { $(this).datagrid('resize'); } catch (e) {}
+	});
+}
+
+$(document).ready(function () {
+	$('#search_tab').tabs({
+		onSelect: function (title, index) {
+			nsResizeGridsIn($('#search_tab').tabs('getTab', index));
+		}
+	});
+});
+
 $(document).ready(function(){
     $('#advanced_dgtable').datagrid({
+		onLoadSuccess: function () {
+			// Results arrive while the tab may still have been hidden at build time.
+			$(this).datagrid('resize');
+		},
 		onCheck: function(index,row){
 		    row.ck = true;
 		},
@@ -80,12 +106,13 @@ $(document).ready(function(){
 });
 
 $(function(){
-    var dg = $('#advanced_dgtable').datagrid();
-    dg.datagrid('enableFilter', [{
-		field:'id',
-		type:'label'
-    }]);
-	
+    var dg = $('#advanced_dgtable');
+    nsEnableColumnFilters(
+        dg,
+        ['uuid', 'sample_type', 'attributeValue'],
+        ['ck', 'idurl']
+    );
+
     var dg = $('#retrieval_dgtable').datagrid();
 		dg.datagrid('enableFilter', [{
 		field:'id',
@@ -102,8 +129,6 @@ $(function(){
 	    </div>
             <div id="center_div" data-options="region:'center',border:false" style="height: 300px;">
                 {% include "pages/samples_stable.embed.html" %}
-	    </div>
-            <div id="center_div" data-options="region:'south',border:false" style="height: 300px;">
 	    </div>
 	</div>
    </div>
@@ -122,12 +147,22 @@ $(function(){
     <div title="Sample Retrieval" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
 	<div class="easyui-layout" style="width:auto;height:1700px;">
 	    <div id="north_div2" data-options="region:'north',border:false" style="width:auto; height: 400px;">
-            <form action="/seek/admin/retrieve/" method="POST">
+            <form id="ns_retrieval_form" onsubmit="event.preventDefault(); nsRetrieveSamples();">
                 {% csrf_token %}
                 <label for="retrieval_uids">UIDs to retrieve:</label>
                 <input id="retrieval_uids" class="easyui-textbox" label="" name="retrieval_uids" multiline="true" style="width:100%;height:120px">
                 <button type="submit">Retrieve Samples</button>
             </form>
+            <script type="text/javascript">
+                function nsRetrieveSamples() {
+                    // easyui-textbox replaces the underlying input, so read through
+                    // its API and fall back to the raw element if it is not built yet.
+                    var $box = $('#retrieval_uids');
+                    var raw = $box.hasClass('textbox-f') ? $box.textbox('getValue') : $box.val();
+                    return nsDownloadSamples(String(raw || '').trim().split(/\s+/),
+                                             {includeTree: true});
+                }
+            </script>
 	    </div>
 	</div>
     </div>

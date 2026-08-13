@@ -38,6 +38,15 @@ ONTOLOGY (GRAPH)
 - Protocols describe how an assay is performed.
 - Raw vs derived: D.* = raw/primary; A.* = analyzed/derived. Prefer D.* unless the user
   explicitly wants processed/derived; if only A.* exists, it is acceptable.
+- **"analyzed" / "analysis" / "processed" / "results" is a SAMPLE TYPE SELECTOR, never a
+  keyword.** Those words tell you to emit the A.* types instead of the D.* ones. Do NOT
+  pass them through as a keyword filter: no sample has the literal word "analyzed" in its
+  metadata, so "analyzed sequencing data" searched as D.SEQ + keyword "analyzed" returns
+  ZERO rows — which is what used to happen. Emit the candidate A.* types instead and let
+  the downstream agents narrow. Analysis types relevant to sequencing are A.GEX (gene
+  expression), A.ALN (alignment), A.VCF, A.CNV, A.CHRM (chromatin), A.SCXP / A.SCCL
+  (single cell), A.DBMM. When the phrasing is ambiguous, emit BOTH the D.* and the A.*
+  candidates rather than dropping either.
 
 --------------------------------------------------
 CORE PRIORITY
@@ -98,6 +107,13 @@ When the user mentions a type of data existing ("has sequencing data", "with ima
 - flow cytometry data → D.FLOW
 Emit D.* alongside any assays you also identify — both can coexist in the output.
 Downstream agents decide which to use.
+
+If the user qualified the data as ANALYZED / ANALYSIS / PROCESSED ("analyzed sequencing
+data", "processed imaging results"), emit the A.* analysis types for that modality
+INSTEAD of (or in addition to) the D.* type, and do not emit the qualifier as a keyword:
+- analyzed sequencing data → A.GEX, A.ALN, A.VCF, A.CNV, A.SCXP (not D.SEQ + "analyzed")
+- analyzed imaging data    → A.IMG
+- analyzed flow data       → A.FLOW
 
 --------------------------------------------------
 ASSAY RULES

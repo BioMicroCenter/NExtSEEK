@@ -7,6 +7,10 @@ import { SessionAuthService } from "@/lib/services/sessionAuth";
 import { ChatPanel } from "@/components/ChatPanel";
 import { CompactToolbar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
+import { getForceRoute } from "@/lib/forceRoute";
+import { getUseProd } from "@/lib/useProd";
+import { getMaxTurnLength } from "@/lib/maxTurnLength";
+import { adoptTerminalSession } from "@/lib/sessionAdoption";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -15,8 +19,11 @@ import type {
   SearchCompleteData,
   QueryCompleteData,
   QueryErrorData,
+  RouteDecidedData,
+  CcTurnMetaData,
 } from "@/lib/types/api";
 import type { DebugData, DebugEntry } from "@/lib/types/chat";
+import { makeDebugEntry, routeDecidedSummary, ccTurnMetaSummary, queryErrorSummary } from "@/lib/debugEntries";
 
 export function EmbeddedApp() {
   const [rightOpen, setRightOpen] = useState(false);
@@ -35,6 +42,7 @@ export function EmbeddedApp() {
   const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
+    handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
     handleSearchStarted,
@@ -104,6 +112,19 @@ export function EmbeddedApp() {
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
           break;
         }
+        case "route_decided": {
+          handleRouteDecided(event.data as RouteDecidedData);
+          const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData));
+          pendingDebugRef.current.push(entry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
+          break;
+        }
+        case "cc_turn_meta": {
+          const entry = makeDebugEntry("container_cc", ccTurnMetaSummary(event.data as CcTurnMetaData));
+          pendingDebugRef.current.push(entry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
+          break;
+        }
         case "search_started": {
           handleSearchStarted(event.data as SearchStartedData);
           break;
@@ -131,22 +152,26 @@ export function EmbeddedApp() {
           });
           resetProcessing();
           setDebugData((prev) => ({ ...prev, bundleId: d.bundle_id }));
-          const authSid = serviceRef.current.sessionId ?? d.session_id;
-          if (authSid) {
-            if (sessions.pendingNewChat) sessions.promoteCreatedSession(authSid);
-            else sessions.refresh();
-          }
+          adoptTerminalSession(sessions, serviceRef.current.sessionId ?? d.session_id);
           break;
         }
         case "query_error": {
           const d = event.data as QueryErrorData;
           addSystemMessage(`Error: ${d.error}`);
+          const errEntry = makeDebugEntry(d.agent || "error", queryErrorSummary(d));
+          pendingDebugRef.current.push(errEntry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, errEntry] }));
           resetProcessing();
+          // #38: the backend created the session before the turn failed, and
+          // query_error carries the same session_id. Without adopting it,
+          // pendingNewChat stays true and the NEXT send posts force_new again,
+          // producing a second empty session.
+          adoptTerminalSession(sessions, serviceRef.current.sessionId ?? d.session_id);
           break;
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
+    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
   );
 
   const handleQueryError = useCallback(
@@ -160,10 +185,16 @@ export function EmbeddedApp() {
       pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
       setIsQuerying(true);
-      const opts =
+      const base =
         sessions.activeSessionId ? { sessionId: sessions.activeSessionId } :
         sessions.pendingNewChat   ? { forceNew: true } :
         {};
+      const opts = {
+        ...base,
+        forceRoute: isAdmin ? getForceRoute() : ("auto" as const),
+        useProd: isAdmin ? getUseProd() : false,
+        maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
+      };
       serviceRef.current
         .submitQuery(text, mode, opts, handleProgress, handleQueryError)
         .finally(() => {
@@ -171,7 +202,7 @@ export function EmbeddedApp() {
           setIsQuerying(false);
         });
     },
-    [addUserMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat],
+    [addUserMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
   );
 
   const handleArtifactDownload = useCallback(
@@ -236,7 +267,6 @@ export function EmbeddedApp() {
           onArtifactDownload={handleArtifactDownload}
           onCcArtifactDownload={handleCcArtifactDownload}
           apiService={serviceRef.current}
-          isAdmin={isAdmin}
         />
       </div>
       <RightSidebar
@@ -244,6 +274,7 @@ export function EmbeddedApp() {
         onOpenChange={setRightOpen}
         debugData={debugData}
         onDownload={handleDownload}
+        isAdmin={isAdmin}
       />
     </div>
   );

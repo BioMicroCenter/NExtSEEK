@@ -4,7 +4,8 @@ Runs ONE headless ``claude`` container per CC query:
 
 * private user input mounted READ-ONLY at ``/data/input``,
 * project shared input mounted READ-ONLY at ``/data/shared``,
-* per-user RW scratch mounted at ``/data/scratch``,
+* PER-TURN RW scratch mounted at ``/data/scratch`` (#70/#36 — the user-scoped
+  scratch root is never mounted into an agent),
 * after the turn, a host-side copier publishes new scratch files to the user's
   nested output dir.
 
@@ -19,6 +20,7 @@ while the bridge reads/writes the same dirs at ``CCPaths.user_root_mount``.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -28,7 +30,8 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
+from urllib.parse import quote, quote_plus
 
 import docker
 
@@ -67,11 +70,45 @@ _DEFAULT_BEDROCK_PROXY_URL = os.environ.get(
 # that stops + force-removes the container if the turn overruns. All overridable.
 _DEFAULT_MAX_BUDGET_USD = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "0.50"))
 _DEFAULT_MAX_TURNS = os.environ.get("NEXTSEEK_CC_MAX_TURNS", "50")
-_TIMEOUT_HARD_MAX = 180  # seconds; project rule (run_headless._TIMEOUT_HARD_MAX)
+# Hard ceiling on a single turn's wall-clock. Historically a fixed 180s project
+# rule; now env-configurable (default 180) so a deployment can raise it for heavy
+# ops (e.g. reingest) while keeping a bounded default. Per-request overrides —
+# the Debug panel's max-turn-length control — are clamped to this ceiling
+# server-side (see clamp_turn_timeout), so the UI can never exceed what the
+# deployment allows.
+_TIMEOUT_HARD_MAX = int(os.environ.get("NEXTSEEK_CC_TIMEOUT_HARD_MAX", "180"))
+_TIMEOUT_FLOOR = 30  # never allow a turn shorter than this
 _DEFAULT_TURN_TIMEOUT = min(
     int(os.environ.get("NEXTSEEK_CC_TIMEOUT_SECONDS", str(_TIMEOUT_HARD_MAX))),
     _TIMEOUT_HARD_MAX,
 )
+
+# #73 (production DoS): hard cgroup ceilings for the per-turn sibling container.
+# Cost/turn/time caps above bound spend and wall-clock, but NOT RAM/CPU/PIDs/disk
+# — so a single turn (malicious, or an accidental huge query result / artifact
+# write) can exhaust the host and starve the co-tenant mysql/neo4j/seek serving
+# real users; the kernel OOM killer selects by RSS (the JVM/mysqld), not the
+# agent. All env-tunable, same pattern as the caps above.
+_DEFAULT_MEM_LIMIT = os.environ.get("NEXTSEEK_CC_MEM_LIMIT", "4g")
+_DEFAULT_NANO_CPUS = int(os.environ.get("NEXTSEEK_CC_NANO_CPUS", str(2_000_000_000)))
+_DEFAULT_PIDS_LIMIT = int(os.environ.get("NEXTSEEK_CC_PIDS_LIMIT", "512"))
+# Portable per-file write cap (fsize ulimit, bytes). storage_opt is unusable on
+# overlayfs + the containerd snapshotter (no xfs pquota) and would only cap the
+# rootfs anyway, not the scratch volume; the fsize ulimit brakes runaway writes.
+_DEFAULT_FSIZE_BYTES = int(os.environ.get("NEXTSEEK_CC_FSIZE_BYTES", str(10 * 1024 ** 3)))
+
+
+def clamp_turn_timeout(seconds: int | None) -> int:
+    """Clamp a requested per-turn wall-clock (seconds) to
+    ``[_TIMEOUT_FLOOR, _TIMEOUT_HARD_MAX]``.
+
+    ``None`` / non-positive returns the configured default. The hard ceiling is
+    env-bounded (``NEXTSEEK_CC_TIMEOUT_HARD_MAX``), so a UI override can never
+    exceed what the deployment allows.
+    """
+    if not seconds or seconds <= 0:
+        return _DEFAULT_TURN_TIMEOUT
+    return max(_TIMEOUT_FLOOR, min(int(seconds), _TIMEOUT_HARD_MAX))
 
 # I-4 (audit B2): user_id / project flow into bind-mount SOURCES, so they must be
 # validated before any path interpolation or a ``..`` user_id is a host-dir escape.
@@ -114,6 +151,11 @@ _CONTAINER_SHARED = "/data/shared"
 # is here. Running in /data/scratch leaves the agent with no plugin guidance, so
 # it never invokes nextseek-query. The agent writes artifacts to /data/scratch
 # per the container CLAUDE.md.
+# #70/#36 note: this stays /home/user, so a bare relative path from the agent
+# does NOT land in scratch. Per-turn isolation is therefore achieved by mounting
+# the per-run subtree AT _CONTAINER_SCRATCH (see _build_volumes) rather than by
+# moving the workdir — moving it would break plugin discovery, which is the very
+# thing this constant exists to preserve.
 _CONTAINER_WORKDIR = "/home/user"
 # The agent's HOME .claude (session transcripts + config). Mounted per chat
 # session so --resume finds the transcript across the ephemeral per-turn
@@ -307,6 +349,171 @@ def _redact_env(env: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def _secret_variants(environment: Mapping[str, str]) -> list[bytes]:
+    """#72: every on-the-wire ENCODING of a secret value, longest-first.
+
+    Scrubbing the UTF-8 plaintext alone is not enough, because the tools the
+    agent actually reaches for do not print the plaintext:
+
+    * ``curl -v -u user:pass`` (and requests' ``HTTPBasicAuth``) emit
+      ``Authorization: Basic <base64("user:pass")>`` — the plaintext never
+      appears, so a plaintext-only scrub leaves a trivially decodable
+      credential in the transcript.
+    * ``curl https://user:pass@host`` and any URL built with ``urlencode``
+      percent-encode the password — with ``+`` for a space in a form body
+      (``quote_plus``) but ``%20`` in a URL path (``quote``): two distinct
+      strings, and a space is legal in a SEEK password.
+    * The transcript is JSONL, so a password containing ``"`` or ``\\`` — both
+      legal — is stored ESCAPED (``pa\\"ss``), and its plaintext then appears
+      nowhere in the file. That case is why the escaped body is covered here
+      and not left to chance: without it the scrub does not merely miss one
+      encoding, it silently no-ops entirely, source file included, with no
+      signal that it did.
+
+    Longest-first ordering matters twice over: a value containing a shorter
+    one is masked whole, and the padded base64 form is consumed before its
+    own unpadded prefix.
+
+    Deliberately NOT covered, because the scrub defends against an ACCIDENTAL
+    echo (an ``env`` dump, a ``curl -v``, a traceback) and not against an agent
+    that is trying to exfiltrate — which no literal-match filter can stop:
+    ``base64(password)`` with no username (nothing in the agent's toolbelt emits
+    it; Basic auth always encodes the pair), base64 at a non-3-byte-aligned
+    offset (Basic auth pins the offset at 0), a value split across two JSON
+    strings (the emitter would have to chunk it, and the plaintext then exists
+    contiguously nowhere), and lowercase percent-hex (urllib, requests, curl and
+    ``encodeURIComponent`` all emit uppercase; matching it needs a ``%XX``-aware
+    transform, which is a moving part inside a security-critical function bought
+    for no known emitter).
+    """
+    secrets = {v for k in _REDACTED_ENV_KEYS if (v := environment.get(k))}
+    # Not secrets themselves — only the left half of the Basic-auth pair.
+    users = {u for k in ("NEXTSEEK_USERNAME", "API_USER") if (u := environment.get(k))}
+    variants: set[bytes] = set()
+    for value in secrets:
+        variants.add(value.encode("utf-8"))
+        # url-encoded (userinfo in a URL, path/query) and its form-body cousin
+        variants.add(quote(value, safe="").encode("utf-8"))
+        variants.add(quote_plus(value).encode("utf-8"))
+        # JSON-escaped body, as the transcript writer stores it. Both forms:
+        # ensure_ascii=True escapes non-ASCII to \\uXXXX, False leaves it UTF-8.
+        # For a password needing neither, these collapse into the plaintext.
+        variants.add(json.dumps(value)[1:-1].encode("utf-8"))
+        variants.add(json.dumps(value, ensure_ascii=False)[1:-1].encode("utf-8"))
+        for user in users:
+            encoded = base64.b64encode(f"{user}:{value}".encode("utf-8"))
+            variants.add(encoded)
+            variants.add(encoded.rstrip(b"="))  # emitters that drop padding
+    variants.discard(b"")
+    return sorted(variants, key=len, reverse=True)
+
+
+def _scrub_secret_bytes(raw: bytes, environment: Mapping[str, str]) -> bytes:
+    """#72: replace any secret VALUE present in the agent env with ``<REDACTED>``
+    inside the raw transcript bytes, before they are copied to disk or persisted
+    into ``assistant_cc_transcript``.
+
+    The leak is the value appearing verbatim inside a ``tool_result`` string — an
+    accidental ``env``/``printenv``, a ``curl -v`` printing the Basic-auth tuple,
+    a requests/urllib traceback — so this is a literal-VALUE replacement over the
+    jsonl bytes. ``_redact_env`` is key-based and cannot cover this.
+
+    Idempotent: ``<REDACTED>`` contains no secret, so re-running is a no-op.
+    """
+    if not raw:
+        return raw
+    for needle in _secret_variants(environment):
+        raw = raw.replace(needle, b"<REDACTED>")
+    return raw
+
+
+def transcript_scrubber(environment: Mapping[str, str]) -> Callable[[bytes], bytes]:
+    """Bind ``environment`` to a ``bytes -> bytes`` scrub for read/copy points
+    that hold credentials but not the whole agent env (memory staging)."""
+    return lambda raw: _scrub_secret_bytes(raw, environment)
+
+
+class ScrubReport(NamedTuple):
+    """Outcome of one ``scrub_transcript_store`` pass.
+
+    ``rewritten`` alone cannot tell a caller whether the store is clean: a pass
+    that scrubbed nothing because there was nothing to scrub and a pass that
+    scrubbed nothing because every file threw both report 0. ``skipped`` is the
+    count of files this function KNOWS it left unscrubbed.
+    """
+
+    rewritten: int
+    skipped: int
+
+
+def scrub_transcript_store(
+    cc_state_dir: Path | str, environment: Mapping[str, str]
+) -> ScrubReport:
+    """#72: scrub the SOURCE session transcripts in place.
+
+    The per-session jsonl under ``<cc_state>/projects`` is the origin of every
+    other copy, and it is deliberately never deleted — ``--resume`` needs it
+    across the ephemeral per-turn containers. Scrubbing only the derived copies
+    (the ``raw/`` file and the DB blob) therefore left the plaintext password
+    sitting in the ``cc-state`` volume indefinitely, where two production paths
+    re-read it: ``cc_memory_io.stage_transcripts`` copies it into a dir mounted
+    read-only into LATER agent containers, and ``cc_sweep`` feeds it verbatim to
+    the summarizer whose output lands in the merged ``CLAUDE.md``.
+
+    Rewritten via tmp + ``os.replace`` so a reader never observes a truncated
+    file and the jsonl stays structurally valid: ``<REDACTED>`` carries no quote
+    or backslash, so replacing a value inside a JSON string cannot break the
+    escaping that ``--resume`` parses.
+
+    Every file it cannot scrub is LOGGED with its path and the error, and
+    counted in ``ScrubReport.skipped``. ``cc_sweep`` re-reads these same files
+    raw and has no credentials of its own to scrub with, so this function is the
+    single thing standing between the store and the summarizer: skipping a file
+    quietly is a silent leak into the merged ``CLAUDE.md``, and a bare return
+    count cannot distinguish "scrubbed 0, skipped 0" from "scrubbed 0,
+    skipped 4".
+    """
+    root = Path(cc_state_dir) / "projects"
+    if not root.is_dir():
+        return ScrubReport(0, 0)
+    rewritten = 0
+    skipped = 0
+    for path in root.rglob("*.jsonl"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            skipped += 1
+            logger.warning("cc #72: cannot read transcript %s, left unscrubbed: %r",
+                           path, exc)
+            continue
+        clean = _scrub_secret_bytes(raw, environment)
+        if clean == raw:
+            continue
+        tmp = path.with_name(path.name + ".scrub-tmp")
+        try:
+            tmp.write_bytes(clean)
+            os.replace(tmp, path)
+            # os.replace installs a NEW inode owned by root (Django); the agent
+            # runs as uid 1001 and must still read/append it on the next turn.
+            # Same world-permission approach as the mount backing dirs above.
+            try:
+                os.chmod(path, 0o666)
+            except OSError:
+                pass
+            rewritten += 1
+        except OSError as exc:
+            skipped += 1
+            logger.warning("cc #72: failed to scrub transcript %s, left "
+                           "unscrubbed: %r", path, exc)
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+    return ScrubReport(rewritten=rewritten, skipped=skipped)
+
+
 def _cc_limit_args(max_budget_usd: float) -> list[str]:
     """OI-5 per-turn caps: turn count + hard USD budget (both exit-with-error)."""
     args = ["--max-turns", _DEFAULT_MAX_TURNS]
@@ -425,6 +632,21 @@ def _run_kwargs(
         "tty": False,
         "stdout": True,
         "stderr": True,
+        # #73: hard resource ceilings so one turn cannot DoS the co-tenant
+        # mysql/neo4j/seek. memswap_limit == mem_limit, or the cap escapes into
+        # swap. fsize ulimit is the portable disk brake (see _DEFAULT_FSIZE_BYTES).
+        "mem_limit": _DEFAULT_MEM_LIMIT,
+        "memswap_limit": _DEFAULT_MEM_LIMIT,
+        "nano_cpus": _DEFAULT_NANO_CPUS,
+        "pids_limit": _DEFAULT_PIDS_LIMIT,
+        "ulimits": [docker.types.Ulimit(
+            name="fsize", soft=_DEFAULT_FSIZE_BYTES, hard=_DEFAULT_FSIZE_BYTES)],
+        # F15: reap the sibling even when the parent Django worker dies mid-turn
+        # (a SIGKILL/worker-recycle skips the finally-block remove, orphaning the
+        # container on dmac-cc-net with an rw mount and live spend). Safe here:
+        # the code never container.wait()s or inspects post-exit, and the now-
+        # redundant finally remove(force=True) is already guarded by except pass.
+        "auto_remove": True,
     }
 
 
@@ -473,6 +695,7 @@ def _build_volumes(
     project_dirname: str,
     user_id: str,
     cc_state_key: str | None,
+    run_id: str,
     transcripts_subpath: str | None = None,
 ) -> list[dict]:
     """Engine-API ``Mount`` payloads (volume subpaths of ``dmac-cc-users``) for
@@ -491,12 +714,23 @@ def _build_volumes(
     """
     from .cc_provision import build_user_dirs
 
-    dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
+    dirs = build_user_dirs(
+        paths, project_dirname, user_id, session_id=cc_state_key, run_id=run_id
+    )
     vol = paths.users_volume
     mounts: list[dict] = [
         _mount_volume_subpath(vol, _CONTAINER_INPUT, dirs.input_subpath, read_only=True),
         _mount_volume_subpath(vol, _CONTAINER_SHARED, dirs.shared_subpath, read_only=True),
-        _mount_volume_subpath(vol, _CONTAINER_SCRATCH, dirs.scratch_subpath, read_only=False),
+        # #70/#36: the PER-TURN subtree, not the user-scoped scratch root. Scratch
+        # used to be mounted whole and read-write, so one turn could read, act on
+        # and overwrite files another turn left behind — and a bare
+        # ``/data/scratch/foo.json`` from two different turns was the SAME file.
+        # The user root is now not mounted into the agent at all; nothing in the
+        # agent's contract needs cross-turn scratch (prior artifacts are published
+        # host-side into output/, which is not an agent mount either).
+        _mount_volume_subpath(
+            vol, _CONTAINER_SCRATCH, dirs.run_scratch_subpath, read_only=False
+        ),
     ]
     if cc_state_key and dirs.cc_state_subpath:
         mounts.append(
@@ -571,8 +805,15 @@ def run_cc_turn(
     from .cc_provision import build_user_dirs
 
     effective_session_id = session_id
-    dirs = build_user_dirs(paths, project_dirname, user_id, session_id=cc_state_key)
-    scratch_mount = Path(dirs.scratch_mnt)
+    dirs = build_user_dirs(
+        paths, project_dirname, user_id, session_id=cc_state_key, run_id=run_id
+    )
+    # #70/#36: every turn-scoped consumer of "scratch" — the pre/post snapshot
+    # diff that publishes artifacts, the path mappings the agent reports paths
+    # with, and the sidecar staging sweep — must address the SAME per-turn
+    # subtree the agent has mounted at /data/scratch. Re-pointing the mount
+    # without re-pointing these would silently publish nothing.
+    scratch_mount = Path(dirs.run_scratch_mnt)
     output_mount = Path(dirs.output_mnt)
     mount_root = Path(paths.user_root_mount.rstrip("/"))
 
@@ -582,7 +823,8 @@ def run_cc_turn(
     # (root in nextseek) mkdirs + chmod 0777 each one via user_root_mount.
     mounts = _build_volumes(
         paths=paths, project_dirname=project_dirname, user_id=user_id,
-        cc_state_key=cc_state_key, transcripts_subpath=transcripts_subpath,
+        cc_state_key=cc_state_key, run_id=run_id,
+        transcripts_subpath=transcripts_subpath,
     )
     for _m in mounts:
         _backing = mount_root / _m["VolumeOptions"]["Subpath"]
@@ -595,11 +837,12 @@ def run_cc_turn(
         except OSError:
             pass
 
-    # Per-run working dir lives under the user's scratch subpath.
-    user_scratch = Path(dirs.scratch_mnt)
-    (user_scratch / run_id).mkdir(parents=True, exist_ok=True)
+    # Per-run working dir lives under the user's scratch subpath. The mount pass
+    # above already mkdir'd it (it is now the scratch mount's own backing dir);
+    # kept for the chmod and as a belt-and-braces preflight.
+    scratch_mount.mkdir(parents=True, exist_ok=True)
     try:
-        os.chmod(user_scratch / run_id, 0o777)
+        os.chmod(scratch_mount, 0o777)
     except OSError:
         pass
 
@@ -633,7 +876,7 @@ def run_cc_turn(
         "output": {"container_root": _CONTAINER_OUTPUT,
                    "logical_root": dirs.output_mnt},
         "scratch": {"container_root": _CONTAINER_SCRATCH,
-                    "logical_root": dirs.scratch_mnt},
+                    "logical_root": dirs.run_scratch_mnt},
     }
     # OI-3: the COMPLETE agent env from the single builder — zero AWS/backend
     # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
@@ -741,7 +984,11 @@ def run_cc_turn(
                 from . import cc_staging
                 cc_staging.sweep_user_staging(
                     user_root_mount=paths.user_root_mount,
-                    scratch_dir=dirs.scratch_mnt,
+                    # #70/#36: sweep into THIS turn's scratch subtree — that is
+                    # what the publish diff below looks at, and what the agent
+                    # had mounted. Sweeping into the user root would drop these
+                    # artifacts outside the diffed tree entirely.
+                    scratch_dir=dirs.run_scratch_mnt,
                     api_user=api_user,
                     user_id=user_id,
                     project_dirname=project_dirname,
@@ -781,12 +1028,20 @@ def run_cc_turn(
                     break
                 time.sleep(0.2)
             raw = jsonl_path.read_bytes() if jsonl_path else b""
+            # #72: scrub secret VALUES (the per-request NExtSEEK password et al.)
+            # out of the raw transcript BEFORE either sink — the on-disk raw/ copy
+            # AND the assistant_cc_transcript blob below (raw_jsonl=raw). Without
+            # this a single tool call echoing the env writes the user's plaintext
+            # password into a permanent DB row.
+            raw = _scrub_secret_bytes(raw, environment)
             if raw:
                 raw_copy = Path(dirs.output_mnt) / "raw" / f"transcript-{run_id}.jsonl"
                 raw_copy.parent.mkdir(parents=True, exist_ok=True)
                 if not _safe_relpath(raw_copy.name):
                     raise ValueError("bad transcript basename")
-                shutil.copy2(jsonl_path, raw_copy)
+                # write the SCRUBBED bytes (not shutil.copy2 of the raw file) so
+                # the on-disk copy carries no secrets either.
+                raw_copy.write_bytes(raw)
             parsed = cc_summary.parse_transcript(raw) if raw else None
             trace = cc_trace.extract_trace(
                 parsed, cc_session_id=translator.session_id or "",
@@ -835,6 +1090,20 @@ def run_cc_turn(
         send_event("query_error", {"error": f"Container-CC turn failed: {type(exc).__name__}",
                                    "agent": "container_cc", "cc_session_id": translator.session_id})
     finally:
+        # Stop the agent BEFORE scrubbing (#72). Order matters: on any exception
+        # that leaves the container ALIVE — an attach failure, a mid-stream
+        # docker error — the agent goes on writing its transcript, so a scrub
+        # that ran first would be overtaken by the tail appended after it, and
+        # nothing re-scrubs that tail unless the same chat happens to run
+        # another turn. Stopping first also closes the smaller race the other
+        # way: scrub_transcript_store rewrites via tmp + os.replace, which would
+        # silently discard whatever a still-running agent appended between the
+        # read and the swap.
+        #
+        # Both calls stay best-effort: the container is spawned with
+        # auto_remove=True, so a clean stop usually removes it and the remove()
+        # below is the belt-and-braces path for a container that outlived its
+        # own cleanup. Neither failing may skip the scrub.
         if container is not None:
             try:
                 container.stop(timeout=5)
@@ -844,6 +1113,22 @@ def run_cc_turn(
                 container.remove(force=True)
             except Exception:
                 pass
+        # #72: scrub the SOURCE transcript, not just the derived copies. In the
+        # finally (not the query_complete branch) because a turn that errored,
+        # timed out or was budget-killed still leaves a jsonl behind holding
+        # whatever the agent echoed before it died — and that file survives for
+        # --resume, gets staged read-only into later agents, and is fed to the
+        # summarizer. Best-effort: a scrub failure must never fail the turn.
+        try:
+            if dirs.cc_state_mnt:
+                report = scrub_transcript_store(Path(dirs.cc_state_mnt), environment)
+                if report.skipped:
+                    logger.warning(
+                        "cc #72: transcript store scrub left %d of %d file(s) "
+                        "UNSCRUBBED (run_id=%s) — cc_sweep will read those raw",
+                        report.skipped, report.skipped + report.rewritten, run_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("cc #72: transcript store scrub failed", exc_info=True)
 
 
 def _snapshot_tree(root: Path) -> dict[str, tuple[int, int]]:

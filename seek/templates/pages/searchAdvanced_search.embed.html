@@ -250,14 +250,15 @@
 					<input id="input_searchText" class="easyui-textbox" label="" name="input_searchText" multiline="true" style="width:320px;height:120px">
 				</div>
 			</div>
-		</div>
 
-		<div class="row show-grid">
-			<div class="col-xs-10 col-sm-5 col-md-5"></div>
-			<div class="col-xs-4 col-sm-2 col-md-2">
-				<a href="#" class="easyui-linkbutton" style="width:100px; height:40px; font-size:16px;" onclick="searchAdvanced(0)"><span class="glyphicon glyphicon-search">&nbsp;</span><b>Search</b></a>
+			<div class="row show-grid">
+				<div class="col-xs-12" style="text-align:right; padding-right:24px;">
+					<span class="ns-search-actions">
+						<a href="javascript:void(0)" class="ns-btn-reset" onclick="nsResetSearch($('#advanced_dgtable'), ['#input_searchValue','#input_logic','#advanced_sample_type','#input_searchText']); document.getElementById('id_partial').checked = true;">Reset</a>
+						<a href="javascript:void(0)" class="ns-btn-search" onclick="searchAdvanced(0)"><span class="glyphicon glyphicon-search"></span> Search</a>
+					</span>
+				</div>
 			</div>
-			<div class="col-xs-10 col-sm-5 col-md-5"></div>
 		</div>
 	</form>
 </div>

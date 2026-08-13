@@ -26,7 +26,6 @@ import re
 import pytest
 
 from nessie_tests import evaluate
-from nessie_tests.conftest import path_accessible
 from nessie_tests.route_observer import RouteObservation
 
 OBS = RouteObservation("nextseek_query", None, "baml", "", "graph_query", "graph_query")
@@ -689,7 +688,7 @@ _MANIFEST = _EVIDENCE / "manifest.json"
 _TURNS = _EVIDENCE / "turns.json"
 
 requires_seed6b = pytest.mark.skipif(
-    not (path_accessible(_MANIFEST) and path_accessible(_TURNS)),
+    not (_MANIFEST.exists() and _TURNS.exists()),
     reason="stored 2026-08-03 seed-6 run evidence is not on this host")
 
 # The one case of the three the floor change fixed by itself.

@@ -24,7 +24,8 @@ def _paths() -> CCPaths:
 
 
 def _mounts(**kwargs):
-    base = dict(paths=_paths(), project_dirname="proj", user_id="alice", cc_state_key="sess")
+    base = dict(paths=_paths(), project_dirname="proj", user_id="alice",
+                cc_state_key="sess", run_id="a1")
     base.update(kwargs)
     return cc_engine._build_volumes(**base)
 
@@ -37,7 +38,9 @@ def _by_target(mounts):
 EXPECTED_SUBPATHS = {
     "/data/input": "proj/alice/input",
     "/data/shared": "proj/shared",            # project-scoped: NO user segment (SPEC-2 D5)
-    "/data/scratch": "proj/alice/scratch",
+    # #70/#36: PER-TURN, not the user-scoped scratch root. The root is never
+    # mounted into an agent, so one turn cannot read or clobber another's files.
+    "/data/scratch": "proj/alice/scratch/a1",
     "/home/user/.claude": "proj/alice/cc-state/sess",
     "/home/user/.cc-memory/transcripts": "proj/alice/_memory/sess/transcripts",
 }
@@ -185,9 +188,35 @@ def test_two_users_same_project_share_shared_but_not_private():
     bob = _by_target(_mounts(user_id="bob"))
     assert alice["/data/shared"]["VolumeOptions"]["Subpath"] == "proj/shared"
     assert bob["/data/shared"]["VolumeOptions"]["Subpath"] == "proj/shared"
-    assert alice["/data/scratch"]["VolumeOptions"]["Subpath"] == "proj/alice/scratch"
-    assert bob["/data/scratch"]["VolumeOptions"]["Subpath"] == "proj/bob/scratch"
+    assert alice["/data/scratch"]["VolumeOptions"]["Subpath"] == "proj/alice/scratch/a1"
+    assert bob["/data/scratch"]["VolumeOptions"]["Subpath"] == "proj/bob/scratch/a1"
     assert alice["/data/input"]["VolumeOptions"]["Subpath"] != bob["/data/input"]["VolumeOptions"]["Subpath"]
+
+
+def test_two_turns_same_user_get_disjoint_scratch(tmp_path):
+    """#70/#36: the per-TURN guarantee, the one the user-scoped mount lacked."""
+    one = _by_target(_mounts(run_id="run1"))["/data/scratch"]
+    two = _by_target(_mounts(run_id="run2"))["/data/scratch"]
+    assert one["VolumeOptions"]["Subpath"] == "proj/alice/scratch/run1"
+    assert two["VolumeOptions"]["Subpath"] == "proj/alice/scratch/run2"
+    assert one["VolumeOptions"]["Subpath"] != two["VolumeOptions"]["Subpath"]
+
+
+def test_user_scoped_scratch_root_is_never_mounted_into_an_agent():
+    """The shared root must not appear as any mount's Subpath — mounting it
+    read-only would still let a turn READ another turn's leftovers."""
+    subs = {m["VolumeOptions"]["Subpath"] for m in _mounts(run_id="run1")}
+    assert "proj/alice/scratch" not in subs
+
+
+def test_build_volumes_requires_a_run_id():
+    """Required, not defaulted: a caller that forgets it must fail loudly
+    rather than silently regress to the shared user-scoped scratch."""
+    with pytest.raises(TypeError):
+        cc_engine._build_volumes(
+            paths=_paths(), project_dirname="proj", user_id="alice",
+            cc_state_key="sess",
+        )
 
 
 def test_different_projects_fully_disjoint_including_shared():
@@ -360,8 +389,9 @@ def test_path_mappings_env_uses_locked_logical_root_schema(tmp_path, monkeypatch
     assert mappings == {
         "output": {"container_root": "/data/output",
                    "logical_root": f"{root}/proj/alice/output"},
+        # #70/#36: the agent reports paths against its OWN per-turn subtree.
         "scratch": {"container_root": "/data/scratch",
-                    "logical_root": f"{root}/proj/alice/scratch"},
+                    "logical_root": f"{root}/proj/alice/scratch/a1"},
     }
     assert "host_root" not in env["DMAC_PATH_MAPPINGS"]
 

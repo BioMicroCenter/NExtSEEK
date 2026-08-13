@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 from nessie_tests import evaluate
-from nessie_tests.conftest import path_accessible
 from nessie_tests.route_observer import RouteObservation
 
 NS_PAYLOAD = {"status": "completed", "progress": [
@@ -265,7 +264,7 @@ def test_membership_still_works_for_a_bare_label():
 # --------------------------------------------------------------------------- #
 
 def test_unobservable_fields_are_recognised():
-    for f in ("pipeline_agent.active", "pipeline_agent.launch_plan.params.genome",
+    for f in ("pipeline_agent.launch_plan.params.genome",
               "chat_log.length", "ui_text.assistant_reply"):
         assert evaluate.is_unobservable(f, "true")
     assert evaluate.is_unobservable("trio", "trio_match")
@@ -274,7 +273,10 @@ def test_unobservable_fields_are_recognised():
 def test_observable_fields_are_not_swept_up():
     for f in ("api_ok", "neo4j_ok", "last_reply", "api_result_meta.row_count",
               "graph_result.count", "reporter_result.ok", "parser_plan.mode",
-              "api_artifact.samplesheet.csv"):
+              "api_artifact.samplesheet.csv",
+              # #66: ships on query_complete.debug, so it resolves over HTTP.
+              "pipeline_agent.active", "pipeline_agent.pipeline_key",
+              "pipeline_agent.cohort_count", "pipeline_agent.message_count"):
         assert not evaluate.is_unobservable(f, "true"), f
 
 
@@ -289,7 +291,10 @@ class _Obs:
 
 def test_an_unobservable_criterion_is_skipped_not_failed():
     passed, results, _ = evaluate.evaluate_turn(
-        _payload(), [{"field": "pipeline_agent.active", "op": "true", "value": None}], _Obs())
+        _payload(),
+        [{"field": "pipeline_agent.launch_plan.params.genome", "op": "nonempty",
+          "value": None}],
+        _Obs())
 
     assert passed is True, "an unevaluable criterion must not fail the case"
     assert results[0]["skipped"] is True
@@ -297,9 +302,11 @@ def test_an_unobservable_criterion_is_skipped_not_failed():
 
 
 def test_the_eq_false_case_no_longer_fails_on_none():
-    """pipeline.reject_non_directive: `eq False` failed only because None != False."""
+    """A `eq False` criterion on a still-unobservable field is skipped, not failed."""
     passed, results, _ = evaluate.evaluate_turn(
-        _payload(), [{"field": "pipeline_agent.active", "op": "eq", "value": False}], _Obs())
+        _payload(),
+        [{"field": "pipeline_agent.launch_plan.active", "op": "eq", "value": False}],
+        _Obs())
 
     assert passed is True
     assert results[0]["skipped"] is True
@@ -308,14 +315,91 @@ def test_the_eq_false_case_no_longer_fails_on_none():
 def test_observable_criteria_alongside_skipped_ones_are_still_evaluated():
     passed, results, _ = evaluate.evaluate_turn(
         _payload(),
-        [{"field": "pipeline_agent.active", "op": "true", "value": None},
+        [{"field": "pipeline_agent.launch_plan.params.genome", "op": "nonempty",
+          "value": None},
          {"field": "api_result_meta.row_count", "op": "gte", "value": 999}],
         _Obs())
 
     assert passed is False, "a real criterion must still be able to fail"
     by_field = {r["field"]: r for r in results}
-    assert by_field["pipeline_agent.active"].get("skipped") is True
+    assert by_field["pipeline_agent.launch_plan.params.genome"].get("skipped") is True
     assert by_field["api_result_meta.row_count"]["passed"] is False
+
+
+# --------------------------------------------------------------------------- #
+# #66 item 1 — `pipeline_agent.*` is NOT session-only state.
+#
+# `orchestrator.run_pipeline_launch` (:298-300) sets
+# `debug_payload = {"pipeline_agent": pipeline_agent.snapshot_for_chat_log(session)}`
+# and hands it to `_emit_query_complete`, so the snapshot ships on
+# `query_complete.debug`. `resolve_field`'s own `pipeline_agent.` branch is guarded
+# by `session is not None` — which nessie never satisfies — so these fall through to
+# the generic dot-notation fallback over `debug` and resolve there.
+#
+# The snapshot carries exactly `active`, `pipeline_key`, `cohort_count`,
+# `message_count` (pipeline/agent.py:52-59). `launch_plan` is not in it and stays
+# skipped.
+# --------------------------------------------------------------------------- #
+
+def _pipeline_payload(snapshot, reply="launched"):
+    return {"progress": [{"event": "query_complete",
+                          "data": {"reply": reply,
+                                   "debug": {"pipeline_agent": dict(snapshot)}}}]}
+
+
+_SNAPSHOT = {"active": True, "pipeline_key": "rnaseq",
+             "cohort_count": 2, "message_count": 3}
+
+
+def test_pipeline_agent_snapshot_fields_are_assertable_and_actually_pass():
+    """Not merely un-skipped: they must resolve to the snapshot's real values."""
+    passed, results, _ = evaluate.evaluate_turn(
+        _pipeline_payload(_SNAPSHOT),
+        [{"field": "pipeline_agent.active", "op": "true", "value": None},
+         {"field": "pipeline_agent.pipeline_key", "op": "eq", "value": "rnaseq"},
+         {"field": "pipeline_agent.cohort_count", "op": "gte", "value": 1}],
+        _Obs())
+
+    assert passed is True
+    for row in results:
+        assert row.get("skipped") is not True, f"{row['field']} still skipped"
+        assert row["passed"] is True, row
+
+
+def test_pipeline_agent_active_is_a_real_assertion_that_can_go_red():
+    """The point of un-skipping: a turn that launched nothing must now fail."""
+    passed, results, _ = evaluate.evaluate_turn(
+        _pipeline_payload({"active": False, "pipeline_key": None,
+                           "cohort_count": 0, "message_count": 0}),
+        [{"field": "pipeline_agent.active", "op": "true", "value": None}],
+        _Obs())
+
+    assert passed is False
+    assert results[0].get("skipped") is not True
+    assert results[0]["passed"] is False
+
+
+def test_a_turn_that_emitted_no_snapshot_now_fails_rather_than_skipping():
+    """Deliberate consequence: no `pipeline_agent` key on debug resolves to None."""
+    passed, results, _ = evaluate.evaluate_turn(
+        _payload(), [{"field": "pipeline_agent.active", "op": "true", "value": None}],
+        _Obs())
+
+    assert passed is False
+    assert results[0].get("skipped") is not True
+
+
+def test_launch_plan_is_the_only_pipeline_agent_subfamily_still_skipped():
+    assert evaluate.is_unobservable("pipeline_agent.launch_plan.params.aligner",
+                                    "nonempty") is True
+    # A launch_plan key really is absent from the snapshot, so skipping is correct.
+    assert "launch_plan" not in _SNAPSHOT
+
+
+def test_the_unobservable_prefix_tuple_is_pinned():
+    """Widening this back out is a decision, not an accident."""
+    assert evaluate._UNOBSERVABLE_FIELD_PREFIXES == (
+        "pipeline_agent.launch_plan.", "chat_log.", "ui_text.")
 
 
 # --------------------------------------------------------------------------- #
@@ -412,7 +496,7 @@ _TURNS = _EVIDENCE / "turns.json"
 _MANIFEST = _EVIDENCE / "manifest.json"
 
 requires_seed6b = pytest.mark.skipif(
-    not (path_accessible(_TURNS) and path_accessible(_MANIFEST)),
+    not (_TURNS.exists() and _MANIFEST.exists()),
     reason=f"stored run evidence absent: {_EVIDENCE}",
 )
 
@@ -560,14 +644,14 @@ def test_the_cc_skip_names_the_route_so_a_manifest_reader_can_tell_them_apart():
     """Two different skips now exist; a manifest that cannot distinguish them is useless."""
     cc_passed, cc_results, _ = evaluate.evaluate_turn(
         _cc_no_debug_payload(),
-        _crits(["outcome_observed"]) + [{"field": "pipeline_agent.active", "op": "true",
-                                         "value": None}],
+        _crits(["outcome_observed"]) + [{"field": "pipeline_agent.launch_plan.params.genome",
+                                         "op": "nonempty", "value": None}],
         OBS_CC, last_reply="done")
     assert cc_passed is True
     by_field = _by_field(cc_results)
 
     cc_reason = by_field["outcome_observed"]["reason"]
-    http_reason = by_field["pipeline_agent.active"]["reason"]
+    http_reason = by_field["pipeline_agent.launch_plan.params.genome"]["reason"]
 
     assert "container_cc" in cc_reason
     assert cc_reason != http_reason
@@ -616,14 +700,16 @@ def test_the_cc_skip_does_not_extend_to_inline_engine_criteria():
 def test_the_http_unobservable_family_still_skips_on_every_route():
     """Regression lock on the pre-existing skip: it was never route-conditional."""
     for route in ("container_cc", "nextseek_query", "unrelated", None):
-        assert evaluate.is_unobservable("pipeline_agent.active", "true", route=route)
+        assert evaluate.is_unobservable("pipeline_agent.launch_plan.params.genome",
+                                        "nonempty", route=route)
         assert evaluate.is_unobservable("chat_log.length", "gte", route=route)
         assert evaluate.is_unobservable("x", "trio_match", route=route)
 
 
 def test_the_route_argument_is_optional_so_existing_callers_are_unaffected():
     assert evaluate.is_unobservable("outcome_observed", "true") is False
-    assert evaluate.is_unobservable("pipeline_agent.active", "true") is True
+    assert evaluate.is_unobservable("pipeline_agent.launch_plan.params.genome",
+                                    "nonempty") is True
     assert evaluate.unobservable_reason("outcome_observed", "true") is None
     assert evaluate.unobservable_reason("outcome_observed", "true",
                                         route="container_cc") == evaluate.CC_UNOBSERVABLE_REASON
@@ -696,7 +782,7 @@ _TREE_CC_FOLLOWUP = {"status": "completed", "progress": [
      "data": {"route": "container_cc", "model_class": "opus", "source": "baml",
               "reasoning": ""}},
     {"event": "query_complete",
-     "data": {"reply": "3 of them are sequencing samples.", "mode": "cc"}}]}
+     "data": {"reply": "38 of them are sequencing samples.", "mode": "cc"}}]}
 
 _OBS_TREE_NS = RouteObservation("nextseek_query", None, "baml", "", "new_search", "sample-tree")
 
@@ -714,6 +800,12 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
     failing it. `_outcome_observed` still resolves False on that turn — the fix is
     that it is no longer SCORED, not that it became true — and the case is not
     vacuous because the seed turn really evaluated four criteria.
+
+    #35 then gave the follow-up its own observable assertion, `last_reply matches_re
+    \\b38\\b` (D.SEQ descendants of NHP-220630FLY-5-PUB, verified against Neo4j), so
+    the fixture reply has to carry the real answer. That is the point of the
+    criterion: a CC arm that answers the question passes and one that does not
+    fails, which was not true when the turn scored plan shape alone.
     """
     v = _merged_variant("tree.then_ask_about")
     seed = next(t for t in v.turns if t.label == "seed")
@@ -728,7 +820,7 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
 
     follow_passed, follow_results, _ = evaluate.evaluate_turn(
         _TREE_CC_FOLLOWUP, list(follow.pass_criteria), OBS_CC,
-        last_reply="3 of them are sequencing samples.")
+        last_reply="38 of them are sequencing samples.")
     assert follow_passed
     assert {r["field"] for r in follow_results if r.get("skipped")} == {
         "chat_log.length", "outcome_observed"}
@@ -1108,14 +1200,19 @@ def test_every_forcing_only_skip_is_flagged_structurally_for_the_runner():
                    "api_artifact.a.csv.rows_gte")
         + [{"field": "api_ok", "op": "true", "value": None},
            {"field": "outcome_observed", "op": "true", "value": None},
+           {"field": "pipeline_agent.launch_plan.params.genome", "op": "nonempty",
+            "value": None},
+           # #66: no longer HTTP-unobservable, so on a FORCED cc arm it lands in
+           # the forcing-only bucket like any other NS-pipeline-internal field.
            {"field": "pipeline_agent.active", "op": "true", "value": None}],
         OBS_CC, last_reply="done", forced=True)
 
     by_field = _by_field(results)
     for field in ("api_artifact.a.csv", "api_artifact.b.csv",
-                  "api_artifact.a.csv.rows_gte", "api_ok"):
+                  "api_artifact.a.csv.rows_gte", "api_ok",
+                  "pipeline_agent.active"):
         assert by_field[field]["forced_skip"] is True, field
-    for field in ("outcome_observed", "pipeline_agent.active"):
+    for field in ("outcome_observed", "pipeline_agent.launch_plan.params.genome"):
         assert by_field[field]["skipped"] is True
         assert by_field[field]["forced_skip"] is False, (
             f"{field} is skipped with or without forcing and must not be counted")

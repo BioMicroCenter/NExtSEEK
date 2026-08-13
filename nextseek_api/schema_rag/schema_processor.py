@@ -13,7 +13,9 @@ This module provides:
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import jsonref
 import requests
@@ -22,6 +24,78 @@ import yaml
 from .errors import SchemaFetchError
 
 logger = logging.getLogger(__name__)
+
+
+def _own_public_hosts() -> set:
+    """Hostnames (no port) by which this app is known publicly.
+
+    Wildcards are deliberately excluded: ALLOWED_HOSTS is often "*" in dev, and
+    treating that as "everything is us" would rewrite unrelated external URLs.
+    """
+    candidates = []
+    for env_key in ("NEXTSEEK_BASE_URL", "NEXTSEEK_HOSTNAME", "NEXTSEEK_PROD_URL"):
+        value = os.getenv(env_key)
+        if value:
+            candidates.append(value)
+    try:
+        from django.conf import settings
+
+        candidates.extend(settings.ALLOWED_HOSTS or [])
+    except Exception:  # settings unconfigured (standalone import) — env only
+        pass
+
+    hosts = set()
+    for raw in candidates:
+        entry = (raw or "").strip()
+        if not entry or "*" in entry:
+            continue
+        # Accept bare hosts, host:port, and full URLs alike.
+        if "//" not in entry:
+            entry = "//" + entry
+        host = urlsplit(entry).hostname
+        if host:
+            hosts.add(host.lower())
+    return hosts
+
+
+def resolve_transport_url(schema_url: str) -> str:
+    """Rewrite a schema URL pointing at our OWN public host to the internal one.
+
+    The container cannot resolve (or reach) its own public FQDN/published port:
+    the public URL tracks the host-published port, which is auto-bumped when
+    8000 is busy and in any case is not routable from inside. Ingesting our own
+    OpenAPI schema by its public URL therefore died with SCHEMA_FETCH_FAILED.
+
+    Strictly additive: only the scheme+netloc of a URL whose host is one of
+    OUR public hosts is swapped for NEXTSEEK_INTERNAL_BASE_URL. Any unrelated
+    external URL, and every URL when the internal base is unset, is returned
+    untouched. Path, query and fragment are always preserved.
+
+    Same primitive as chat_nextseek.config._resolve_nextseek_base_url.
+    """
+    internal = (os.getenv("NEXTSEEK_INTERNAL_BASE_URL") or "").strip().rstrip("/")
+    if not internal:
+        return schema_url
+
+    parts = urlsplit(schema_url)
+    if not parts.hostname:
+        return schema_url
+    if parts.hostname.lower() not in _own_public_hosts():
+        return schema_url
+
+    internal_parts = urlsplit(internal)
+    if not internal_parts.netloc:
+        return schema_url
+
+    rewritten = urlunsplit((
+        internal_parts.scheme or parts.scheme,
+        internal_parts.netloc,
+        internal_parts.path.rstrip("/") + parts.path,
+        parts.query,
+        parts.fragment,
+    ))
+    logger.info("Rewrote schema URL %s -> %s (own public host)", schema_url, rewritten)
+    return rewritten
 
 
 class OpenAPISchemaProcessor:
@@ -57,9 +131,12 @@ class OpenAPISchemaProcessor:
         Raises:
             SchemaFetchError: If fetch, parse, or resolution fails.
         """
-        # Step 1: HTTP GET
+        # Step 1: HTTP GET. Fetch over the container-internal URL when the
+        # caller named our own public host, which is not resolvable from in
+        # here; the caller-supplied schema_url is still what gets recorded.
+        transport_url = resolve_transport_url(schema_url)
         try:
-            response = requests.get(schema_url, timeout=self.timeout)
+            response = requests.get(transport_url, timeout=self.timeout)
             response.raise_for_status()
         except requests.RequestException as e:
             logger.error("Failed to fetch schema from %s: %s", schema_url, e)

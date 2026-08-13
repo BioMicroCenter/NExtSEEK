@@ -5,6 +5,10 @@ import { useSessions } from "@/hooks/useSessions";
 import { ChatPanel } from "@/components/ChatPanel";
 import { HeaderBar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
+import { getForceRoute } from "@/lib/forceRoute";
+import { getUseProd } from "@/lib/useProd";
+import { getMaxTurnLength } from "@/lib/maxTurnLength";
+import { adoptTerminalSession } from "@/lib/sessionAdoption";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -13,8 +17,11 @@ import type {
   SearchCompleteData,
   QueryCompleteData,
   QueryErrorData,
+  RouteDecidedData,
+  CcTurnMetaData,
 } from "@/lib/types/api";
 import type { DebugData, DebugEntry } from "@/lib/types/chat";
+import { makeDebugEntry, routeDecidedSummary, ccTurnMetaSummary, queryErrorSummary } from "@/lib/debugEntries";
 
 interface AppLayoutProps {
   credentialError: string | null;
@@ -32,6 +39,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
+    handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
     handleSearchStarted,
@@ -102,6 +110,19 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           }));
           break;
         }
+        case "route_decided": {
+          handleRouteDecided(event.data as RouteDecidedData);
+          const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData));
+          pendingDebugRef.current.push(entry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
+          break;
+        }
+        case "cc_turn_meta": {
+          const entry = makeDebugEntry("container_cc", ccTurnMetaSummary(event.data as CcTurnMetaData));
+          pendingDebugRef.current.push(entry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
+          break;
+        }
         case "search_started": {
           handleSearchStarted(event.data as SearchStartedData);
           break;
@@ -129,22 +150,26 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           });
           resetProcessing();
           setDebugData((prev) => ({ ...prev, bundleId: d.bundle_id }));
-          const authSid = getAuthoritativeSessionId() ?? d.session_id;
-          if (authSid) {
-            if (sessions.pendingNewChat) sessions.promoteCreatedSession(authSid);
-            else sessions.refresh();
-          }
+          adoptTerminalSession(sessions, getAuthoritativeSessionId() ?? d.session_id);
           break;
         }
         case "query_error": {
           const d = event.data as QueryErrorData;
           addSystemMessage(`Error: ${d.error}`);
+          const errEntry = makeDebugEntry(d.agent || "error", queryErrorSummary(d));
+          pendingDebugRef.current.push(errEntry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, errEntry] }));
           resetProcessing();
+          // #38: the backend created the session before the turn failed, and
+          // query_error carries the same session_id. Without adopting it,
+          // pendingNewChat stays true and the NEXT send posts force_new again,
+          // producing a second empty session.
+          adoptTerminalSession(sessions, getAuthoritativeSessionId() ?? d.session_id);
           break;
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
+    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
   );
 
   const handleQueryError = useCallback(
@@ -157,13 +182,19 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
       addUserMessage(text);
       pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
-      const opts =
+      const base =
         sessions.activeSessionId ? { sessionId: sessions.activeSessionId } :
         sessions.pendingNewChat   ? { forceNew: true } :
         {};
+      const opts = {
+        ...base,
+        forceRoute: isAdmin ? getForceRoute() : ("auto" as const),
+        useProd: isAdmin ? getUseProd() : false,
+        maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
+      };
       submitQuery(text, mode, opts, handleProgress, handleQueryError);
     },
-    [addUserMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat],
+    [addUserMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
   );
 
   const handleArtifactDownload = useCallback(
@@ -227,7 +258,6 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           onArtifactDownload={handleArtifactDownload}
           onCcArtifactDownload={handleCcArtifactDownload}
           apiService={apiService}
-          isAdmin={isAdmin}
         />
       </div>
       <RightSidebar
@@ -235,6 +265,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         onOpenChange={setRightOpen}
         debugData={debugData}
         onDownload={handleDownload}
+        isAdmin={isAdmin}
       />
     </div>
   );

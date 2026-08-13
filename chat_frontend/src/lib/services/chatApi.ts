@@ -39,27 +39,31 @@ export class NextseekApiService {
   async submitQuery(
     query: string,
     mode: string | { pipeline: "standard" | "plan"; useProd?: boolean },
-    opts: { sessionId?: string | null; forceNew?: boolean },
+    opts: { sessionId?: string | null; forceNew?: boolean; forceRoute?: "auto" | "ns" | "cc"; useProd?: boolean; maxTurnLengthS?: number | null },
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ): Promise<void> {
     const baseUrl = this.auth.getApiBaseUrl();
 
-    // Build body — accept either the legacy plain-string mode or the new
-    // {pipeline, useProd} shape coming from MessageInput.
-    let modeStr: string;
-    let useProd = false;
-    if (typeof mode === "string") {
-      modeStr = mode;
-    } else {
-      modeStr = mode.pipeline;
-      useProd = Boolean(mode.useProd);
-    }
-    const body: Record<string, unknown> = { query, mode: modeStr, use_prod: useProd };
+    // Build body — accept either the legacy plain-string mode or the {pipeline}
+    // object from MessageInput. The PROD toggle is a sticky admin control now in
+    // the Debug panel, read from opts at send time (mirrors force_route); the
+    // server re-checks admin and ignores it for non-admins.
+    const modeStr: string = typeof mode === "string" ? mode : mode.pipeline;
+    const body: Record<string, unknown> = { query, mode: modeStr, use_prod: Boolean(opts.useProd) };
     if (opts.sessionId) {
       body.session_id = opts.sessionId;
     } else if (opts.forceNew) {
       body.force_new = true;
+    }
+    // Admin-only route override (server re-checks admin + ignores for non-admins).
+    if (opts.forceRoute && opts.forceRoute !== "auto") {
+      body.force_route = opts.forceRoute;
+    }
+    // Admin-only per-turn timeout override (server admin-gates + clamps to the
+    // env-bounded hard ceiling). Omitted when unset -> server uses its default.
+    if (opts.maxTurnLengthS && opts.maxTurnLengthS > 0) {
+      body.max_turn_length_s = opts.maxTurnLengthS;
     }
 
     // 1. POST async query
