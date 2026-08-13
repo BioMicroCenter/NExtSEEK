@@ -260,6 +260,7 @@ PEOPLE_FETCH_DESC = (
 PEOPLE_FETCH_CURRENT_DESC = (
     "**SUMMARY:** Fetch profile details for the currently authenticated user.\n\n"
     "**USE WHEN:** The user wants to view full details for themselves.\n\n"
+    "**ACCEPTS:** No request body. Requires authentication (Basic or Session).\n\n"
     "**RETURNS:** Full person metadata including name, email, institution, and all linked projects, studies, assays, data files, and publications.\n\n"
     "**TRIGGER PHRASES:** get current person, fetch my profile, current person details, current profile, show my account\n\n"
     "**EXAMPLES:**\n"

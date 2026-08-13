@@ -19,3 +19,10 @@ deferred, or residuals left when a plan/task completes — follow
 structured body, validate it with `scripts/validate_issue.py`, and ask the
 user before filing (the repo is public). Do not let deferred defects
 languish uncreated.
+
+For **adding or changing `nextseek_api` ViewSets** — follow
+[`.claude/skills/nextseek-viewset/SKILL.md`](.claude/skills/nextseek-viewset/SKILL.md):
+pydantic request/response models, `endpoint_descriptions.py` constants,
+Basic+Session auth, project-scoping rules, and drf-spectacular examples.
+Validate with `scripts/validate_viewset_conventions.py` before calling the
+work done.

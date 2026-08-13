@@ -116,6 +116,9 @@ anything under `static/`, run it after the rebuild or your change isn't served.
   (`scripts/validate_issue.py` — on this box run it via the repo-mounted
   container lane), and ask the user before filing. Claude Code users: the
   committed `nextseek-issues` skill automates this workflow.
+- **New `nextseek_api` ViewSets follow the committed skill.** When adding or
+  changing REST ViewSets, read [`.claude/skills/nextseek-viewset/SKILL.md`](.claude/skills/nextseek-viewset/SKILL.md)
+  and run `scripts/validate_viewset_conventions.py` before calling the work done.
 
 ## Debugging a failing stack
 
