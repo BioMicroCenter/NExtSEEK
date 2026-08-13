@@ -1777,7 +1777,10 @@ class DBtable_sample(DBtable):
         orderby = filtersdic['orderby'] 
         startNo = filtersdic['startNo'] 
         endNo = filtersdic['endNo']
-        sqlquery_where = self.__sqlQuery_select_records_filters_advanced(filtersdic)
+        # #93: the WHERE builder now hands back (fragment, params). The two must
+        # travel together all the way to cursor.execute -- the fragment holds
+        # only %s placeholders and every client-supplied value is in params.
+        sqlquery_where, params = self.__sqlQuery_select_records_filters_advanced(filtersdic)
         sqlqueryMega = sqlquery_select + sqlquery_from + sqlquery_where
         if len(orderby)==0:
             orderby = " ORDER BY A.id desc"
@@ -1785,8 +1788,13 @@ class DBtable_sample(DBtable):
             sqlqueryMega = sqlquery_select + sqlquery_from + sqlquery_where + orderby
         else:
             sqlqueryMega = " SELECT count(A.id) " + sqlquery_from
+            # #93: this branch DISCARDS sqlquery_where, so the statement it
+            # returns carries no placeholders at all. The params must be dropped
+            # with it -- handing the cursor more params than %s raises at
+            # execute time and would turn a count query into a 500.
+            params = []
         logger.debug(sqlqueryMega)
-        return sqlqueryMega
+        return sqlqueryMega, params
 
     def __getParentUIDs(self, sampleDic):
         uids = []
@@ -3900,11 +3908,76 @@ class DBtable_sample(DBtable):
         reportData = simplejson.dumps(data, default=str)
         return reportData
     
+    def __retrieveCustomSQL(self, sqlquery, headers, db_alias, params):
+        '''Run a SELECT that carries bound parameters and return a list of dicts.
+
+        WHY THIS DUPLICATE EXISTS (#93). The execute site for advanced search is
+        self.db.queryToListDics (dmac/dbconnection.py:222) -> retrieve_custom_sql
+        (dmac/dbconn_django.py:288), which does cursor.execute(sqlquery) and
+        accepts no params argument at all. #93 converts the WHERE builders in
+        seek/search.py to emit %s placeholders, so those values now have to reach
+        a cursor.execute that takes them. Widening retrieve_custom_sql is the
+        architecturally right fix and would serve every future caller, but both
+        of those files are outside this change's file set and may be owned by
+        another fixer in the same batch, so it was rejected on the lane rule
+        rather than on merit (see SPEC.md, "The fix rejected"). Recorded as a
+        residual: collapse this helper into retrieve_custom_sql once one owner
+        holds both files.
+
+        When params is empty the statement has no placeholders, so this delegates
+        to the untouched path and nothing changes for callers that do not filter
+        -- mirroring the params-is-None back-compat branch feaa816 put on
+        __runQuery.
+
+        The row-to-dict loop below, including the headers dimension check and its
+        logger.error early return, reproduces dmac/dbconn_django.py:294-316
+        verbatim so the two paths cannot drift in what they return.
+        '''
+        if not params:
+            return self.db.queryToListDics(sqlquery, headers, db_alias)
+
+        from django.db import connections
+        # dbconn_django's db_alias-is-None branch uses django.db.connection,
+        # which is the 'default' alias; connections['default'] is that same
+        # connection.
+        cursor = connections[db_alias if db_alias else 'default'].cursor()
+
+        cursor.execute(sqlquery, params)
+        objs = cursor.fetchall()
+        rowslist = list(objs)
+        # `rowi` is never incremented, so the dimension check below runs on every
+        # row rather than only the first. Preserved verbatim from
+        # dmac/dbconn_django.py: it is a pre-existing quirk and #93 is a binding
+        # change, not a rewrite.
+        rowi = 0
+        diclist = []
+        for listi in rowslist:
+            if rowi==0:
+                nlen = len(listi)
+                if headers==None:
+                    headers = []
+                    for i in range(nlen):
+                        headers.append(str(i))
+                else:
+                    if nlen<len(headers):
+                        logger.error("Error: Dimension of headers not match!")
+                        return diclist
+
+            dici = {}
+            for coli, header in enumerate(headers):
+                dici[header] = listi[coli]
+
+            diclist.append(dici)
+        return diclist
+
     def __retrieveRecords_advanced(self, user_seek, filtersdic):
-        sqlquery = self.__sqlQuery_select_records(filtersdic)
+        # #93: the filter values are bound now, so the params have to be handed
+        # to an execute that accepts them (see __retrieveCustomSQL). Passing the
+        # statement alone would leave literal %s in the SQL.
+        sqlquery, params = self.__sqlQuery_select_records(filtersdic)
         headers = SAMPLE_HEADERS
         db_alias = settings.SEEK_DATABASE
-        jdata = self.db.queryToListDics(sqlquery, headers, db_alias)
+        jdata = self.__retrieveCustomSQL(sqlquery, headers, db_alias, params)
         total = len(jdata)
         #sqlquery = self.__sqlQuery_select_records(filtersdic, False)
         #total = self.db.getQueryValue(sqlquery, db_alias)
@@ -3919,17 +3992,33 @@ class DBtable_sample(DBtable):
         return data
         
     def __sqlQuery_select_records_filters_advanced(self, filtersdic):
+        '''Build the advanced-search WHERE clause.
+
+        Output:
+            (sqlquery_filter, params) since #93. The fragment contains only %s
+            placeholders; every client-supplied value is in params.
+        '''
         from .search import Search
         spi = Search('')
-        sqlquery_filter = spi.designSearchAdvanced(filtersdic, SAMPLE_FILTER_MAPPING)            
+        # #93: designSearchAdvanced returns (fragment, params) on all four of its
+        # return paths instead of splicing request values in as quoted literals.
+        sqlquery_filter, params = spi.designSearchAdvanced(filtersdic, SAMPLE_FILTER_MAPPING)
         if 'project_id' in filtersdic:
             project_id = filtersdic['project_id']
             if int(project_id)>0:
+                # Preserved verbatim: this wraps whatever WHERE the builder
+                # emitted in parentheses so the project scope ANDs against the
+                # whole filter rather than only its last term.
                 sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (')
-                sqlquery_filter = sqlquery_filter + ") AND D.project_id=" + str(project_id)    
-            
+                # #93: bind the project scope too. The int() above only
+                # *validates* it -- the value concatenated here was the
+                # uncast original, so binding closes the shape rather than
+                # relying on that guard staying in place.
+                sqlquery_filter = sqlquery_filter + ") AND D.project_id=%s"
+                params = params + [project_id]
+
         logger.debug(sqlquery_filter)
-        return sqlquery_filter
+        return sqlquery_filter, params
             
     
     def __highlightKeyword(self, keyword, value, style=None):
@@ -4043,7 +4132,10 @@ class DBtable_sample(DBtable):
         spi = Search('')
         tableField = 'json_metadata'
         categoryField = 'sample_type_id'
-        query, terms = spi.designSearchPubmed(searchText, tableField, categoryField)
+        # #93: designSearchPubmed returns (query, params, keywords) on every path.
+        # This call site wants only the keywords -- `query` is built and then
+        # discarded here, never executed -- so its params are discarded with it.
+        query, _params, terms = spi.designSearchPubmed(searchText, tableField, categoryField)
         
         sampletype_id = 0
         
