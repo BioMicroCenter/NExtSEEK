@@ -93,4 +93,6 @@ in the collection accounting.
 
 ## Commit
 
-`d00e86c328463236d2399462b27e79567c6d532e` — `test(plan018-v4-9): gate task 2 branch coverage`.
+Implementation commit: `4b61e9590681c63b4af6d4ee255ac2bf6905eb3d` —
+`test(plan018-v4-9): gate task 2 branch coverage`. This report is committed in the
+immediately following local documentation commit so the implementation SHA is stable.
