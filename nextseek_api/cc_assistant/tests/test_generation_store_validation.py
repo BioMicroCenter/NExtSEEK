@@ -13,10 +13,15 @@ from nextseek_api.eval.generation_store import (
     publish_generation,
 )
 from nextseek_api.eval.generation_validation import ValidationError, validate_generation_for_activation
-from nextseek_api.assistant.models_db import ChatSession, GenerationActivationAudit, TurnLedger
+from nextseek_api.assistant.models_db import (
+    ChatSession,
+    FamilyPosterior,
+    GenerationActivationAudit,
+    PosteriorGeneration,
+    TurnLedger,
+)
 from nextseek_api.cc_assistant.family_labels import corpus_snapshot
 from nextseek_api.eval.paired_run_registry import register_paired_run
-from nextseek_api.assistant.models_db import FamilyPosterior
 
 pytestmark = pytest.mark.django_db
 
@@ -118,6 +123,24 @@ def test_validate_refuses_stored_generation_field_drift(field, replacement):
 
     assert not result.ok
     assert any(f"stored {field}" in reason for reason in result.reasons)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("generation_hash", "f" * 64),
+        ("input_hash", "mutated-input"),
+    ],
+)
+def test_activate_refuses_stale_instance_after_db_identity_mutation(field, replacement):
+    generation = publish_generation(_manifest())
+    stale = PosteriorGeneration.objects.get(pk=generation.pk)
+    PosteriorGeneration.objects.filter(pk=generation.pk).update(**{field: replacement})
+
+    with pytest.raises(ValidationError):
+        activate_generation(stale, expected_hash=EMPTY_ACTIVE_HASH)
+
+    assert not GenerationActivationAudit.objects.exists()
 
 
 def test_validate_refuses_stored_parent_drift():

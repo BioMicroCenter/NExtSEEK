@@ -339,26 +339,56 @@ def activate_generation(
     from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
 
     require_activate_permission(activated_by)
-    payload = generation.payload or {}
-    canonical = payload.get("_canonical_hash_inputs") or {}
-    provenance = dict(canonical.get("source_provenance") or payload.get("source_provenance") or {})
-    validate_publish_provenance(provenance)
-    require_valid_for_activation(generation)
-    current_hash = get_current_active_hash()
-    if expected_hash != current_hash:
-        raise ActivationError("stale CAS — expected hash does not match active generation")
     with transaction.atomic():
+        # Lock the singleton first, matching rollback's lock order. Then lock
+        # the target and current generation rows in primary-key order so
+        # activation cannot deadlock with another pointer mutation.
         pointer, _ = ActiveGenerationPointer.objects.select_for_update().get_or_create(
             pk=1,
             defaults={"expected_hash": EMPTY_ACTIVE_HASH},
         )
-        locked_hash = pointer.active.generation_hash if pointer.active_id else EMPTY_ACTIVE_HASH
+        generation_ids = {generation.pk}
+        if pointer.active_id is not None:
+            generation_ids.add(pointer.active_id)
+        locked_generations = {
+            candidate.pk: candidate
+            for candidate in PosteriorGeneration.objects.select_for_update()
+            .filter(pk__in=generation_ids)
+            .order_by("pk")
+        }
+        locked_generation = locked_generations[generation.pk]
+        locked_current = locked_generations.get(pointer.active_id)
+
+        # Lock the current child rows before validating. Validation deliberately
+        # re-queries them, but these locks keep its DB-backed identity snapshot
+        # stable until the active pointer and audit row are committed.
+        list(
+            FamilyPosterior.objects.select_for_update()
+            .filter(generation=locked_generation)
+            .order_by("task_family", "route")
+        )
+
+        payload = locked_generation.payload or {}
+        canonical = payload.get("_canonical_hash_inputs") or {}
+        provenance = dict(
+            canonical.get("source_provenance")
+            or payload.get("source_provenance")
+            or {}
+        )
+        validate_publish_provenance(provenance)
+        require_valid_for_activation(locked_generation)
+
+        locked_hash = (
+            locked_current.generation_hash
+            if locked_current is not None
+            else EMPTY_ACTIVE_HASH
+        )
         if expected_hash != locked_hash:
             raise ActivationError("stale CAS — expected hash does not match active generation")
         previous_hash = locked_hash
         pointer.previous = pointer.active
-        pointer.active = generation
-        pointer.expected_hash = generation.generation_hash
+        pointer.active = locked_generation
+        pointer.expected_hash = locked_generation.generation_hash
         pointer.activated_by = activated_by
         pointer.activated_at = dj_timezone.now()
         pointer.save(
@@ -375,7 +405,7 @@ def activate_generation(
         _record_audit(
             action="activate",
             previous_hash=previous_hash,
-            active_hash=generation.generation_hash,
+            active_hash=locked_generation.generation_hash,
             activated_by=activated_by,
         )
     return pointer
