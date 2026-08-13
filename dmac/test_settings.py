@@ -2,8 +2,8 @@
 Test settings that use SQLite in-memory database.
 Usage: uv run python manage.py test --settings=dmac.test_settings ...
 
-Plan 018 V4-2 Lane C product-seam tests mount this module via
-``DJANGO_SETTINGS_MODULE=dmac.test_settings`` (see evidence/plan018-v4-2-lane-c.sidecar.json).
+SchemaGenerator and product-seam tests mount this module via
+``DJANGO_SETTINGS_MODULE=dmac.test_settings`` (see OPS-TESTING-HARNESSES.md §3.4a).
 """
 
 from dmac.settings import *  # noqa: F401, F403
@@ -37,12 +37,12 @@ TEST_CASES = {
     },
 }
 
-# Lane C HTTP cross tests touch chat config / ledger paths that read these attrs.
-SECRET_KEY = "plan018-lane-c-test-secret"
+# HTTP / schema tests touch chat config / ledger paths that read these attrs.
+SECRET_KEY = "nextseek-test-secret"
 NEO4J_DATABASE = {
     "NAME": "neo4j",
     "URI": "neo4j://127.0.0.1",
-    "AUTH": ("neo4j", "lane-test"),
+    "AUTH": ("neo4j", "test"),
 }
 SEEK_URL = "http://seek:3000"
 PUBLISH_URL = SEEK_URL

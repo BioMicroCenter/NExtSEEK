@@ -83,6 +83,7 @@ ASSISTANT_QUERY_ASYNC_DESC = (
     "**RETURNS:** `{task_id, session_id}` with HTTP 202. The pipeline runs in the background.\n\n"
     "**PROGRESS:** Connect via WebSocket `ws://host/ws/assistant/progress/{task_id}/` "
     "or poll `GET /assistant/tasks/{task_id}/progress/`.\n\n"
+    "**TRIGGER PHRASES:** async query, submit query async, background query, task progress\n\n"
     "**EXAMPLES:**\n"
     '- `POST /nextseek_api/assistant/query/async/` with `{"query": "Find me mice treated with NDMA"}`\n'
 )
@@ -96,6 +97,7 @@ ASSISTANT_TASK_PROGRESS_DESC = (
     "- `status`: `pending` | `running` | `completed` | `error`\n"
     "- `progress`: array of `{event, data}` objects (agent_started, agent_complete, etc.)\n"
     "- `result`: final payload (only set when status is completed or error)\n\n"
+    "**TRIGGER PHRASES:** task progress, poll query status, async task status\n\n"
     "**EXAMPLES:**\n"
     "- `GET /nextseek_api/assistant/tasks/abc123-def456/progress/`\n"
 )

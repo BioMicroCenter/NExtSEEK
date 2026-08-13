@@ -11,6 +11,7 @@ EVALUATOR_RETRY_CONTEXT_BY_TASK_DESC = (
     "**ACCEPTS:** `task_id` as a path parameter (UUID). Admin-only.\n\n"
     "**RETURNS:** Normalized evaluator payload with sections: `lookup`, `run`, "
     "`routing`, `retry_context`, and `raw` (embedded source payloads).\n\n"
+    "**TRIGGER PHRASES:** evaluator retry context, task retry context, inspect run, debug task\n\n"
     "**EXAMPLES:**\n"
     "- `GET /nextseek_api/evaluator/tasks/abc123-def456/retry-context/`\n"
 )
@@ -23,6 +24,7 @@ EVALUATOR_RETRY_CONTEXT_BY_BUNDLE_DESC = (
     "**ACCEPTS:** `session_id` (UUID) and `bundle_id` (int) as path parameters. "
     "Admin-only.\n\n"
     "**RETURNS:** Same normalized evaluator payload as the task-based endpoint.\n\n"
+    "**TRIGGER PHRASES:** evaluator bundle context, session bundle retry, historical bundle debug\n\n"
     "**EXAMPLES:**\n"
     "- `GET /nextseek_api/evaluator/sessions/abc123/bundles/1/retry-context/`\n"
 )
@@ -36,6 +38,7 @@ EVALUATOR_RUNS_LIST_DESC = (
     "Supports pagination via `page` and `page_size`. Admin-only.\n\n"
     "**RETURNS:** Paginated list of `{task_id, session_id, status, query, has_bundle, "
     "user_id, created_at}` summary rows.\n\n"
+    "**TRIGGER PHRASES:** list evaluator runs, browse query tasks, filter assistant runs\n\n"
     "**EXAMPLES:**\n"
     "- `GET /nextseek_api/evaluator/runs/`\n"
     "- `GET /nextseek_api/evaluator/runs/?status=completed&has_bundle=true`\n"
@@ -55,6 +58,7 @@ EVALUATOR_RETRY_EXECUTE_DESC = (
     "If the admin authenticates via Token auth, the system falls back to service account "
     "credentials (API_USER/API_PASS env vars). The `credential_source` field indicates "
     "which credentials were used.\n\n"
+    "**TRIGGER PHRASES:** evaluator retry execute, resubmit query, retry assistant run\n\n"
     "**EXAMPLES:**\n"
     '- `POST /nextseek_api/evaluator/retry/` with '
     '`{"task_id": "abc123", "query": "Find mice treated with NDMA", "mode": "standard"}`\n'
