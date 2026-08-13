@@ -109,7 +109,10 @@ def main() -> int:
 
         django.setup()
         call_command("migrate", "--run-syncdb", verbosity=0, interactive=False)
-        from nextseek_api.eval.generation_store import GenerationManifest, publish_generation
+        from nextseek_api.cc_assistant.tests.generation_test_factory import (
+            _publish_generation_for_test,
+        )
+        from nextseek_api.eval.generation_store import GenerationManifest
         from nextseek_api.eval.generation_validation import validate_generation_for_activation
         from nextseek_api.eval.paired_run_registry import register_paired_run
 
@@ -139,11 +142,12 @@ def main() -> int:
             counts={"retained_pairs": 10},
             source_provenance={
                 "paired_run_id": paired_run_id,
+                "paired_run_content_hash": "0" * 64,
                 "evidence_kind": "paired_experimental",
                 "route_source": "forced",
             },
         )
-        generation = publish_generation(manifest)
+        generation = _publish_generation_for_test(manifest)
         generation.generation_hash = "0" * 64
         generation.save(update_fields=["generation_hash"])
         result = validate_generation_for_activation(generation)

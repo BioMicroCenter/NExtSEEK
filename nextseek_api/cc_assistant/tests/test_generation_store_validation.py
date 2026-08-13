@@ -10,7 +10,9 @@ from nextseek_api.eval.generation_store import (
     get_active_snapshot,
     get_pinned_snapshot_for_turn,
     pin_generation_for_turn,
-    publish_generation,
+)
+from nextseek_api.cc_assistant.tests.generation_test_factory import (
+    _publish_generation_for_test,
 )
 from nextseek_api.eval.generation_validation import ValidationError, validate_generation_for_activation
 from nextseek_api.assistant.models_db import (
@@ -65,14 +67,14 @@ def _manifest(**overrides):
 
 
 def test_validate_refuses_missing_compatibility_keys():
-    generation = publish_generation(_manifest(compatibility_keys={}))
+    generation = _publish_generation_for_test(_manifest(compatibility_keys={}))
     result = validate_generation_for_activation(generation)
     assert not result.ok
     assert any("compatibility" in reason for reason in result.reasons)
 
 
 def test_validate_refuses_compatibility_with_stale_current_corpus():
-    generation = publish_generation(
+    generation = _publish_generation_for_test(
         _manifest(compatibility_keys={"taxonomy_version": "old", "corpus_hash": "stale"})
     )
     result = validate_generation_for_activation(generation)
@@ -81,7 +83,7 @@ def test_validate_refuses_compatibility_with_stale_current_corpus():
 
 
 def test_validate_refuses_mutated_posterior_row():
-    generation = publish_generation(_manifest())
+    generation = _publish_generation_for_test(_manifest())
     row = FamilyPosterior.objects.get(generation=generation)
     row.posterior_mean = 0.1
     row.save(update_fields=["posterior_mean"])
@@ -99,7 +101,7 @@ def test_validate_refuses_mutated_posterior_row():
     ],
 )
 def test_validate_refuses_payload_drift_from_canonical_hash_inputs(field, replacement):
-    generation = publish_generation(_manifest())
+    generation = _publish_generation_for_test(_manifest())
     generation.payload = {**generation.payload, field: replacement}
     generation.save(update_fields=["payload"])
     result = validate_generation_for_activation(generation)
@@ -116,7 +118,7 @@ def test_validate_refuses_payload_drift_from_canonical_hash_inputs(field, replac
     ],
 )
 def test_validate_refuses_stored_generation_field_drift(field, replacement):
-    generation = publish_generation(_manifest())
+    generation = _publish_generation_for_test(_manifest())
     setattr(generation, field, replacement)
     generation.save(update_fields=[field])
 
@@ -134,7 +136,7 @@ def test_validate_refuses_stored_generation_field_drift(field, replacement):
     ],
 )
 def test_activate_refuses_stale_instance_after_db_identity_mutation(field, replacement):
-    generation = publish_generation(_manifest())
+    generation = _publish_generation_for_test(_manifest())
     stale = PosteriorGeneration.objects.get(pk=generation.pk)
     PosteriorGeneration.objects.filter(pk=generation.pk).update(**{field: replacement})
 
@@ -145,7 +147,7 @@ def test_activate_refuses_stale_instance_after_db_identity_mutation(field, repla
 
 
 def test_validate_refuses_stored_parent_drift():
-    parent = publish_generation(_manifest(input_hash="parent"))
+    parent = _publish_generation_for_test(_manifest(input_hash="parent"))
     child = create_generation(_manifest(input_hash="child"), parent=parent)
     child.parent = None
     child.save(update_fields=["parent"])
@@ -157,7 +159,7 @@ def test_validate_refuses_stored_parent_drift():
 
 
 def test_validate_refuses_partial_publish():
-    generation = publish_generation(_manifest())
+    generation = _publish_generation_for_test(_manifest())
     generation.payload = {**(generation.payload or {}), "partial_publish": True}
     generation.save(update_fields=["payload"])
     result = validate_generation_for_activation(generation)
@@ -165,7 +167,7 @@ def test_validate_refuses_partial_publish():
 
 
 def test_validate_refuses_filename_only_validation():
-    generation = publish_generation(_manifest())
+    generation = _publish_generation_for_test(_manifest())
     generation.payload = {**(generation.payload or {}), "filename_only_validation": True}
     generation.save(update_fields=["payload"])
     result = validate_generation_for_activation(generation)
@@ -174,7 +176,7 @@ def test_validate_refuses_filename_only_validation():
 
 
 def test_validate_refuses_stale_generation():
-    generation = publish_generation(_manifest())
+    generation = _publish_generation_for_test(_manifest())
     generation.payload = {**(generation.payload or {}), "stale": True}
     generation.save(update_fields=["payload"])
     result = validate_generation_for_activation(generation)
@@ -183,21 +185,21 @@ def test_validate_refuses_stale_generation():
 
 
 def test_validate_refuses_invalid_decision_status():
-    generation = publish_generation(_manifest(decision_status="not_a_real_status"))
+    generation = _publish_generation_for_test(_manifest(decision_status="not_a_real_status"))
     result = validate_generation_for_activation(generation)
     assert not result.ok
     assert any("decision_status" in reason for reason in result.reasons)
 
 
 def test_validate_refuses_precision_floor_on_retained_pairs():
-    generation = publish_generation(_manifest(counts={"retained_pairs": 1}))
+    generation = _publish_generation_for_test(_manifest(counts={"retained_pairs": 1}))
     result = validate_generation_for_activation(generation)
     assert not result.ok
     assert any("precision" in reason or "retained" in reason for reason in result.reasons)
 
 
 def test_validate_refuses_precision_floor_on_n_total():
-    generation = publish_generation(
+    generation = _publish_generation_for_test(
         _manifest(
             groups=[
                 {
@@ -216,13 +218,13 @@ def test_validate_refuses_precision_floor_on_n_total():
 
 
 def test_activate_refuses_invalid_generation():
-    generation = publish_generation(_manifest(compatibility_keys={}))
+    generation = _publish_generation_for_test(_manifest(compatibility_keys={}))
     with pytest.raises(ValidationError):
         activate_generation(generation, expected_hash=EMPTY_ACTIVE_HASH)
 
 
 def test_activation_writes_audit_row():
-    generation = publish_generation(_manifest())
+    generation = _publish_generation_for_test(_manifest())
     activate_generation(generation, expected_hash=EMPTY_ACTIVE_HASH)
     assert GenerationActivationAudit.objects.filter(action="activate").count() == 1
 
@@ -244,8 +246,8 @@ def turn(db):
 
 
 def test_pin_generation_for_turn_is_stable_after_activation(turn):
-    gen_a = publish_generation(_manifest(input_hash="a"))
-    gen_b = publish_generation(_manifest(input_hash="b"))
+    gen_a = _publish_generation_for_test(_manifest(input_hash="a"))
+    gen_b = _publish_generation_for_test(_manifest(input_hash="b"))
     activate_generation(gen_a, expected_hash=EMPTY_ACTIVE_HASH)
     pin_generation_for_turn(turn)
     pinned = get_pinned_snapshot_for_turn(turn)
@@ -263,6 +265,6 @@ def test_live_publish_requires_maintainer_approval():
 
 
 def test_live_activate_requires_maintainer_approval():
-    generation = publish_generation(_manifest(input_hash="live-act"))
+    generation = _publish_generation_for_test(_manifest(input_hash="live-act"))
     with pytest.raises(PermissionError, match="live activation"):
         activate_generation(generation, expected_hash=EMPTY_ACTIVE_HASH, activated_by="live:ops")

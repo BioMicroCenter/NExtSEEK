@@ -239,14 +239,16 @@ def test_flag_on_posterior_decisive_transport_skips_route_llm(settings, monkeypa
         EMPTY_ACTIVE_HASH,
         GenerationManifest,
         activate_generation,
-        publish_generation,
+    )
+    from nextseek_api.cc_assistant.tests.generation_test_factory import (
+        _publish_generation_for_test,
     )
     from nextseek_api.eval.paired_run_registry import register_paired_run
 
     current = corpus_snapshot()
     paired_run_id = "v46-decisive-transport"
     register_paired_run(paired_run_id=paired_run_id, schema_version="v1", content_hash="0" * 64)
-    gen = publish_generation(GenerationManifest(
+    gen = _publish_generation_for_test(GenerationManifest(
         input_hash="input-z",
         attempt_hash="attempt-z",
         aggregate_hash="aggregate-z",
