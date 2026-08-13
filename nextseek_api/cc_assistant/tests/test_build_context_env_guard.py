@@ -15,7 +15,9 @@ everywhere -- except ``test_gitignore_covers_env_bak_copies``, which reads
 context by design, and REPO_ROOT is ``/app`` inside the image, so that one test
 is marked ``host_only``: deselected in the image lane, run in the host lane
 (DEPLOYMENT.md:446) and in worktree lanes, which bind-mount a real checkout.
-The IMAGE_ABSENT_INPUTS guards at the bottom keep that marker honest (#89).
+The IMAGE_ABSENT_INPUTS guards at the bottom hold that marker to exactly its
+justification, in both directions -- the input really is stripped from the
+image, and the marked set is exactly the tests that read one (#89).
 """
 
 import ast
@@ -141,9 +143,25 @@ def test_gitignore_covers_env_bak_copies():
 # .dockerignore strips `.gitignore` and `.claude/` from the build context on
 # purpose, so a test that reads either one cannot pass in the image lane
 # (`-w /app ... -m "not host_only"`): under /app those paths simply do not
-# exist. Every such test must carry `@pytest.mark.host_only`, so the image lane
-# deselects it while the host lane (DEPLOYMENT.md:446, which bind-mounts a real
-# checkout at /repo) still runs it.
+# exist. The tests below enforce the mechanism this change chose --
+# `@pytest.mark.host_only`, which `pyproject.toml` registers for exactly this
+# case -- so the image lane deselects such a test while the host lane
+# (DEPLOYMENT.md:446, which bind-mounts a real checkout at /repo) still runs it.
+#
+# Be aware the repo carries TWO mechanisms for this one situation, and these
+# guards enforce only the marker. The sibling
+# `nextseek_api/cc_assistant/tests/test_step7_proxy_port.py:236` solves the
+# identical problem for `test_real_secret_filename_is_gitignored` with
+# `@pytest.mark.skipif(not GITIGNORE_FILE.exists(), ...)`, and its skip reason
+# names this same .dockerignore mechanism ("`.gitignore` is excluded from the
+# image build context (.dockerignore), so this runs against the working
+# checkout"). The divergence is real and unresolved. #89 chose the marker
+# because skipif keys off the *input's absence*, not the lane: delete
+# `.gitignore` from the repo and a genuine regression becomes a green skip in
+# every lane, including the host lane whose whole job is to catch it. Aligning
+# that sibling is a known follow-up and is outside this change's file set --
+# until it lands, do not read these guards as a claim that the marker is the
+# only mechanism in the tree.
 #
 # Keys are repo-relative input paths; values are the pytest node ids that read
 # them, as `<filename>.py::<Class>::<method>` / `<filename>.py::<function>`.
@@ -205,7 +223,13 @@ def _module_pytestmark_is_host_only(tree) -> bool:
     return False
 
 
-def _host_only_by_node_id(filename: str) -> dict:
+def _guarded_filenames() -> list:
+    return sorted(
+        {nid.split("::", 1)[0] for ids in IMAGE_ABSENT_INPUTS.values() for nid in ids}
+    )
+
+
+def _host_only_by_node_id(filename: str):
     """Map every test node id in a sibling test module to whether it is host_only.
 
     Handles all three shapes a mark can take: module-level ``pytestmark``, a
@@ -213,22 +237,33 @@ def _host_only_by_node_id(filename: str) -> dict:
     inside a class*. That last shape is the one
     ``scripts/verify_host_only_allowlist.py`` cannot see, and it is the shape
     two of the three nodes guarded here use.
+
+    Names are filtered by pytest's default collection rules
+    (``python_classes = Test*``, ``python_functions = test*``), so the map is
+    the set of collectible tests and not the modules' private helpers.
+
+    Returns ``None`` if the module file itself is gone, so a renamed or moved
+    *module* reaches the callers' "renamed or moved?" branch instead of raising
+    FileNotFoundError from inside the guard.
     """
-    tree = ast.parse((TESTS_DIR / filename).read_text(encoding="utf-8"))
+    path = TESTS_DIR / filename
+    if not path.is_file():
+        return None
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     module_marked = _module_pytestmark_is_host_only(tree)
     funcdefs = (ast.FunctionDef, ast.AsyncFunctionDef)
     marked = {}
     for stmt in tree.body:
-        if isinstance(stmt, funcdefs):
+        if isinstance(stmt, funcdefs) and stmt.name.startswith("test"):
             marked[f"{filename}::{stmt.name}"] = module_marked or any(
                 _is_host_only_mark(d) for d in stmt.decorator_list
             )
-        elif isinstance(stmt, ast.ClassDef):
+        elif isinstance(stmt, ast.ClassDef) and stmt.name.startswith("Test"):
             class_marked = module_marked or any(
                 _is_host_only_mark(d) for d in stmt.decorator_list
             )
             for sub in stmt.body:
-                if isinstance(sub, funcdefs):
+                if isinstance(sub, funcdefs) and sub.name.startswith("test"):
                     marked[f"{filename}::{stmt.name}::{sub.name}"] = class_marked or any(
                         _is_host_only_mark(d) for d in sub.decorator_list
                     )
@@ -244,15 +279,12 @@ def test_tests_reading_image_absent_inputs_are_host_only():
     assertion has no business triggering.
     """
     expected = sorted({nid for ids in IMAGE_ABSENT_INPUTS.values() for nid in ids})
-    marked_by_file = {
-        filename: _host_only_by_node_id(filename)
-        for filename in sorted({nid.split("::", 1)[0] for nid in expected})
-    }
+    marked_by_file = {fn: _host_only_by_node_id(fn) for fn in _guarded_filenames()}
 
     unmarked, unknown = [], []
     for node_id in expected:
         marked = marked_by_file[node_id.split("::", 1)[0]]
-        if node_id not in marked:
+        if marked is None or node_id not in marked:
             unknown.append(node_id)
         elif not marked[node_id]:
             unmarked.append(node_id)
@@ -265,4 +297,45 @@ def test_tests_reading_image_absent_inputs_are_host_only():
     assert not problems, (
         "these tests read inputs .dockerignore strips from the image, so they "
         "fail the image lane unless deselected (#89) -- " + "; ".join(problems)
+    )
+
+
+def test_no_other_test_in_those_modules_is_host_only():
+    """The other half of the guard: nothing in those modules may be OVER-marked.
+
+    Per-test marks only -- never a module-level ``pytestmark``, never a mark on
+    ``TestSkillAndPointers``. That per-test-not-per-class call is the whole
+    judgment of #89: 37 of the 40 tests in these two modules read only inputs
+    the image ships and pass in the image lane today, including
+    ``TestSkillAndPointers::test_pointers_present``, a sibling method of two of
+    the three marked nodes. A module- or class-level mark would delete that
+    coverage while ``test_tests_reading_image_absent_inputs_are_host_only``
+    stayed green, which makes it the most likely way this fix gets silently
+    undone. So assert the complement: the marked set is exactly
+    IMAGE_ABSENT_INPUTS, no more.
+    """
+    intended = {nid for ids in IMAGE_ABSENT_INPUTS.values() for nid in ids}
+
+    problems, over = [], []
+    for filename in _guarded_filenames():
+        marked = _host_only_by_node_id(filename)
+        if marked is None:
+            problems.append(f"module not found, renamed or moved?: {filename}")
+            continue
+        over.extend(
+            sorted(
+                nid
+                for nid, is_marked in marked.items()
+                if is_marked and nid not in intended
+            )
+        )
+    if over:
+        problems.append(
+            "marked @pytest.mark.host_only, but their inputs ARE shipped in the "
+            "image -- the mark deletes real image-lane coverage instead of "
+            "protecting anything: " + ", ".join(over)
+        )
+    assert not problems, (
+        "over-marked host_only in the IMAGE_ABSENT_INPUTS modules (#89) -- "
+        + "; ".join(problems)
     )
