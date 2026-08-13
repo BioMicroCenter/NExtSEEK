@@ -548,7 +548,8 @@ def test_duplicate_delivery_two_workers_one_effect_one_terminalization(disposabl
 
 
 @pytest.mark.django_db(transaction=True)
-def test_cancel_blocked_real_transaction_finishes_active_and_skips_later(disposable_attribute_db, django_db_blocker):
+def test_cancel_blocked_real_transaction_finishes_active_and_skips_later(
+        disposable_attribute_db, django_db_blocker, monkeypatch):
     django_db_blocker.unblock()
     database = disposable_attribute_db
     assertion_count = 0
@@ -570,7 +571,34 @@ def test_cancel_blocked_real_transaction_finishes_active_and_skips_later(disposa
 
     request_time = timezone.now()
 
-    cancel_result = {"observed_claim": False}
+    # Hold the real T07 SEEK transaction at its frozen in-transaction fault
+    # point.  Population size is not a synchronization primitive: on a fast
+    # disposable database the 2,000-row rewrite can commit between two 100ms
+    # polling reads, making the required cancellation boundary unobservable.
+    # This test-local name-binding replacement is the same established
+    # fault-barrier technique used by test_sync_recovery.  It changes no
+    # production code: the real claim, transaction, mutation, commit, progress,
+    # and terminal CAS all still run end to end; only the instant at the real
+    # async.during_active_type hook is held until the cancellation write is
+    # independently observed and durably persisted.
+    import nextseek_api.attributes.executor as executor_module
+
+    real_attribute_fault = executor_module.attribute_fault
+    active_type_held = threading.Event()
+    release_active_type = threading.Event()
+    held_once = {"done": False}
+
+    def _held_attribute_fault(point):
+        if point == "async.during_active_type" and not held_once["done"]:
+            held_once["done"] = True
+            active_type_held.set()
+            if not release_active_type.wait(timeout=15):
+                raise AssertionError("cancellation writer never released the active-type barrier")
+        return real_attribute_fault(point)
+
+    monkeypatch.setattr(executor_module, "attribute_fault", _held_attribute_fault)
+
+    cancel_result = {"observed_claim": False, "request_persisted": False, "error": None}
 
     def _partition_1_is_claimed():
         # T03's own `AttributeMutationPartition.claim()` never touches
@@ -593,10 +621,17 @@ def test_cancel_blocked_real_transaction_finishes_active_and_skips_later(disposa
             return False
 
     def _cancel_once_first_type_is_claimed():
-        cancel_result["observed_claim"] = _wait_until(_partition_1_is_claimed, timeout=15)
-        AttributeMutationJob.objects.filter(pk=job.pk).update(
-            cancellation_requested_at=timezone.now(), cancellation_actor_seek_person_id=ACTOR["person_id"],
-        )
+        try:
+            if not active_type_held.wait(timeout=15):
+                return
+            cancel_result["observed_claim"] = _partition_1_is_claimed()
+            cancel_result["request_persisted"] = AttributeMutationJob.objects.filter(pk=job.pk).update(
+                cancellation_requested_at=timezone.now(), cancellation_actor_seek_person_id=ACTOR["person_id"],
+            ) == 1
+        except Exception as exc:  # surfaced in the parent thread below
+            cancel_result["error"] = repr(exc)
+        finally:
+            release_active_type.set()
 
     canceller = threading.Thread(target=_cancel_once_first_type_is_claimed, daemon=True)
     canceller.start()
@@ -621,7 +656,13 @@ def test_cancel_blocked_real_transaction_finishes_active_and_skips_later(disposa
     canceller.join(timeout=15)
     boundary_observed_at = timezone.now()
 
+    assert cancel_result["error"] is None, cancel_result["error"]
+    assertion_count += 1
+    assert active_type_held.is_set(), "real transaction never reached the active-type fault barrier"
+    assertion_count += 1
     assert cancel_result["observed_claim"], "canceller thread never observed type 1's partition claim"
+    assertion_count += 1
+    assert cancel_result["request_persisted"], "cancellation request was not durably persisted at the barrier"
     assertion_count += 1
     assert result["state"] == "partial"
     assertion_count += 1
