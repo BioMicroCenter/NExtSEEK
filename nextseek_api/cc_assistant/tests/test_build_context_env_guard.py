@@ -10,6 +10,7 @@ representative paths, so the protection is functional, not textual.
 Hermetic: stdlib only, no git, no docker.
 """
 
+import ast
 import re
 from pathlib import Path
 
@@ -121,3 +122,136 @@ def test_gitignore_covers_env_bak_copies():
         "docker/bedrock-proxy/proxy-secret.env",
     ):
         assert required in lines, f".gitignore lost the `{required}` rule"
+
+
+# ---------------------------------------------------------------------------
+# Drift guard for issue #89 -- tests whose inputs the image does not ship.
+#
+# .dockerignore strips `.gitignore` and `.claude/` from the build context on
+# purpose, so a test that reads either one cannot pass in the image lane
+# (`-w /app ... -m "not host_only"`): under /app those paths simply do not
+# exist. Every such test must carry `@pytest.mark.host_only`, so the image lane
+# deselects it while the host lane (DEPLOYMENT.md:446, which bind-mounts a real
+# checkout at /repo) still runs it.
+#
+# Keys are repo-relative input paths; values are the pytest node ids that read
+# them, as `<filename>.py::<Class>::<method>` / `<filename>.py::<function>`.
+# Filenames only: every module named here is a sibling of this file, and every
+# one of them IS shipped in the image -- it is their *inputs* that are not.
+IMAGE_ABSENT_INPUTS = {
+    ".gitignore": ("test_build_context_env_guard.py::test_gitignore_covers_env_bak_copies",),
+    ".claude/skills/nextseek-issues/SKILL.md": (
+        "test_issue_conventions_guard.py::TestSkillAndPointers::test_skill_exists_with_frontmatter",
+        "test_issue_conventions_guard.py::TestSkillAndPointers::test_skill_hard_rules",
+    ),
+}
+
+TESTS_DIR = Path(__file__).resolve().parent
+
+
+def test_image_absent_inputs_are_excluded_from_build_context():
+    """The premise behind the host_only markers: the image genuinely lacks these.
+
+    Reads only .dockerignore, which the image does ship, so this runs in every
+    lane. If a future .dockerignore edit re-admitted `.gitignore` or `.claude/`,
+    the markers below would be over-marking and this test says so.
+    """
+    leaked = sorted(path for path in IMAGE_ABSENT_INPUTS if not _excluded(path))
+    assert not leaked, (
+        "IMAGE_ABSENT_INPUTS claims .dockerignore keeps these out of the image, "
+        "but they would enter the build context: " + ", ".join(leaked)
+    )
+
+
+def _is_host_only_mark(node) -> bool:
+    """True for `pytest.mark.host_only` and `pytest.mark.host_only(...)`."""
+    if isinstance(node, ast.Call):
+        node = node.func
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "host_only"
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+    )
+
+
+def _module_pytestmark_is_host_only(tree) -> bool:
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign):
+            targets = stmt.targets
+        elif isinstance(stmt, ast.AnnAssign):
+            targets = [stmt.target]
+        else:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in targets):
+            continue
+        value = stmt.value
+        if value is None:
+            continue
+        marks = value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value]
+        if any(_is_host_only_mark(m) for m in marks):
+            return True
+    return False
+
+
+def _host_only_by_node_id(filename: str) -> dict:
+    """Map every test node id in a sibling test module to whether it is host_only.
+
+    Handles all three shapes a mark can take: module-level ``pytestmark``, a
+    decorator on the class, and a decorator on a plain function *or on a method
+    inside a class*. That last shape is the one
+    ``scripts/verify_host_only_allowlist.py`` cannot see, and it is the shape
+    two of the three nodes guarded here use.
+    """
+    tree = ast.parse((TESTS_DIR / filename).read_text(encoding="utf-8"))
+    module_marked = _module_pytestmark_is_host_only(tree)
+    funcdefs = (ast.FunctionDef, ast.AsyncFunctionDef)
+    marked = {}
+    for stmt in tree.body:
+        if isinstance(stmt, funcdefs):
+            marked[f"{filename}::{stmt.name}"] = module_marked or any(
+                _is_host_only_mark(d) for d in stmt.decorator_list
+            )
+        elif isinstance(stmt, ast.ClassDef):
+            class_marked = module_marked or any(
+                _is_host_only_mark(d) for d in stmt.decorator_list
+            )
+            for sub in stmt.body:
+                if isinstance(sub, funcdefs):
+                    marked[f"{filename}::{stmt.name}::{sub.name}"] = class_marked or any(
+                        _is_host_only_mark(d) for d in sub.decorator_list
+                    )
+    return marked
+
+
+def test_tests_reading_image_absent_inputs_are_host_only():
+    """Every node id in IMAGE_ABSENT_INPUTS must carry @pytest.mark.host_only.
+
+    AST, not import: this package has no ``__init__.py`` (so there is no dotted
+    path to the sibling), and ``test_issue_conventions_guard`` exec's
+    ``scripts/validate_issue.py`` at import time -- a side effect this
+    assertion has no business triggering.
+    """
+    expected = sorted({nid for ids in IMAGE_ABSENT_INPUTS.values() for nid in ids})
+    marked_by_file = {
+        filename: _host_only_by_node_id(filename)
+        for filename in sorted({nid.split("::", 1)[0] for nid in expected})
+    }
+
+    unmarked, unknown = [], []
+    for node_id in expected:
+        marked = marked_by_file[node_id.split("::", 1)[0]]
+        if node_id not in marked:
+            unknown.append(node_id)
+        elif not marked[node_id]:
+            unmarked.append(node_id)
+
+    problems = []
+    if unmarked:
+        problems.append("missing @pytest.mark.host_only: " + ", ".join(unmarked))
+    if unknown:
+        problems.append("node id not found, renamed or moved?: " + ", ".join(unknown))
+    assert not problems, (
+        "these tests read inputs .dockerignore strips from the image, so they "
+        "fail the image lane unless deselected (#89) -- " + "; ".join(problems)
+    )
