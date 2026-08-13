@@ -560,6 +560,14 @@ def publish_human_grade_fit(
     from nextseek_api.eval.paired_run_registry import register_paired_run
     from nextseek_api.eval.publish import manifest_for_combined as _manifest
 
+    # Refuse an unauthorized/non-authoritative publication before the registry
+    # or any other durable state is mutated.
+    _manifest(
+        prepared.fit,
+        prepared.publication_evidence,
+        for_publication=True,
+        allow_initial_release_override=allow_initial_release_override,
+    )
     register_paired_run(
         paired_run_id=prepared.paired_batch.paired_run_id,
         schema_version=prepared.paired_batch.schema_version,

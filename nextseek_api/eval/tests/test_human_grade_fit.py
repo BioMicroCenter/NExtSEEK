@@ -128,6 +128,17 @@ def test_initial_human_grade_publication_requires_explicit_override(initial_rele
     assert manifest.source_provenance["initial_release_override"] is True
 
 
+@pytest.mark.django_db
+def test_refused_dev_publication_writes_no_paired_registry(prepared):
+    from nextseek_api.assistant.models_db import PairedRunRegistry
+
+    with pytest.raises(PublicationEvidenceRequired):
+        publish_human_grade_fit(prepared)
+    assert not PairedRunRegistry.objects.filter(
+        paired_run_id=prepared.paired_batch.paired_run_id
+    ).exists()
+
+
 def test_publication_manifest_is_current_corpus_compatible_and_honest(prepared):
     manifest = manifest_for_combined(prepared.fit, prepared.publication_evidence)
     current = corpus_snapshot()
