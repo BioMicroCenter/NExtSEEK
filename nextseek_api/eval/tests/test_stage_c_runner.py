@@ -112,3 +112,9 @@ def test_stage_c_replay_partial_when_incomplete(tmp_path: Path) -> None:
     runner2.run_arm("arm-x", "fp", flaky)
     replay = runner2.replay_arm("arm-x")
     assert replay.aggregate.get("replay_partial") is True
+
+
+def test_stage_c_replay_refuses_unknown_arm_without_reachable_attempt_bytes(tmp_path: Path) -> None:
+    """A replay request with no durable attempts cannot be promoted to a result."""
+    with pytest.raises(StageCRunnerError, match="no attempts"):
+        StageCRunner(AttemptStore(tmp_path)).replay_arm("absent-arm")

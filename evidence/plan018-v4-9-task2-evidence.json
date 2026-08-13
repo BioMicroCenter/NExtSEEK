@@ -1,0 +1,80 @@
+{
+  "schema": "plan018-v4-9-task2-evidence/v1",
+  "task": "Task 2 — producer, schema/export, judgment, conservation, and Stage-C coverage",
+  "gate": "PASS",
+  "scope_derivation": {
+    "authority": [
+      "docs/superpowers/plans/2026-08-13-plan018-v4-9.md Task 2",
+      "docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md V4-2, V4-3, V5-3 §2, and V9",
+      "evidence/plan018-v4-9-owned-surface.json"
+    ],
+    "critical_modules": [
+      "nessie_tests/bayes_manifest.py",
+      "nessie_tests/bayesian.py",
+      "nessie_tests/export.py",
+      "nextseek_api/eval/human_annotations.py",
+      "nextseek_api/eval/conservation.py",
+      "nextseek_api/eval/disposition.py",
+      "nextseek_api/eval/judge.py",
+      "nextseek_api/eval/judge_models.py",
+      "nextseek_api/eval/attempt_store.py",
+      "nextseek_api/eval/stage_c_runner.py"
+    ],
+    "excluded_as_other_task_or_absent": [
+      "fit, generation/store, activation, router, monitoring, and spend modules are Tasks 3/4",
+      "artifact_sources.py and artifact_validity.py are declared absent ownership entries and cannot be covered before creation"
+    ]
+  },
+  "coverage": {
+    "raw_coverage_json": "evidence/plan018-v4-9-task2-coverage.raw.json",
+    "raw_coverage_sha256": "7a41e16681a70eca6eb8a7a402ab4489a837540d61df8e329ff5a6c690a9576e",
+    "summary_json": "evidence/plan018-v4-9-task2-coverage.json",
+    "summary_sha256": "66f4766b530a8d2f0a7b0e8743d91b0459a6fa446543ceaaed9e4564b282bae1",
+    "threshold_statement_pct": 95.0,
+    "threshold_branch_pct": 95.0,
+    "aggregate": {"statements": 1095, "covered_lines": 1082, "statement_pct": 98.8, "branches": 356, "covered_branches": 345, "branch_pct": 96.9},
+    "per_module": {
+      "nessie_tests/bayes_manifest.py": {"statement_pct": 100.0, "branch_pct": 100.0},
+      "nessie_tests/bayesian.py": {"statement_pct": 98.3, "branch_pct": 95.8},
+      "nessie_tests/export.py": {"statement_pct": 97.0, "branch_pct": 95.5},
+      "nextseek_api/eval/human_annotations.py": {"statement_pct": 100.0, "branch_pct": 100.0},
+      "nextseek_api/eval/conservation.py": {"statement_pct": 100.0, "branch_pct": 97.4},
+      "nextseek_api/eval/disposition.py": {"statement_pct": 98.6, "branch_pct": 96.9},
+      "nextseek_api/eval/judge.py": {"statement_pct": 100.0, "branch_pct": 100.0},
+      "nextseek_api/eval/judge_models.py": {"statement_pct": 100.0, "branch_pct": 100.0},
+      "nextseek_api/eval/attempt_store.py": {"statement_pct": 100.0, "branch_pct": 96.2},
+      "nextseek_api/eval/stage_c_runner.py": {"statement_pct": 100.0, "branch_pct": 100.0}
+    }
+  },
+  "coverage_collection": {
+    "lane": "docker worktree mount + dmac.test_settings",
+    "network": "docker --network none",
+    "producer_or_network_execution": false,
+    "command_shape": "uv run --project /app --no-sync python -m coverage run --branch ... -m pytest ...",
+    "cumulative_collection_counts": {"selected": 250, "passed": 248, "skipped": 2, "xfail": 0, "deselected": 93},
+    "nonexecution_note": "The two skips are the pre-existing root-only unreadable-file tests in nessie_tests/tests/test_export.py. No unexpected xfail occurred. Bounded chunks preserve the full named collection; the two 16-test Bayesian chunks are complementary partitions."
+  },
+  "fault_injection": {
+    "purpose": "exercise fail-closed defensive branches with explicit inconsistent dependency/internal-state doubles, not no-op line execution",
+    "cases": [
+      "AttemptStore payload reader returns bytes inconsistent with request or response hash -> verify_attempt raises AttemptStoreError",
+      "Human annotation vocabulary/config inconsistency -> unmapped label raises; corpus identity mismatch -> orphan rejection",
+      "Corrupt bucket object at either paired arm -> fit admission excludes and discordance ignores it",
+      "Stage-C replay with no durable attempts -> StageCRunnerError",
+      "DD-44 retrieved evaluations contain no aggregate-outcome match -> deterministic first rationale fallback",
+      "Partial pair with only CC entry -> completed_arms preserves CC completion"
+    ]
+  },
+  "source_sha256": {
+    "nessie_tests/bayes_manifest.py": "e586c3ee3a283f676985850037a1653ced10648d3c9fbb481b9632054d154328",
+    "nessie_tests/bayesian.py": "e203cd33cc7a14c6f8ae208d19a0caf05a735012fc2c62b5f3cbab2a5b520f01",
+    "nessie_tests/export.py": "05d498c1752068dd45026e03d8ec69695bab7de83ebc1c8c56ba1b712fddc6d9",
+    "nextseek_api/eval/human_annotations.py": "934c9728b586af2ddf01d21e9d0234e9536731b9af3b27dabb17bd274e3d7a7b",
+    "nextseek_api/eval/conservation.py": "4a6b19d1c7c9b0f0f6b221d02504b591936a7bda6a72ef2720450f5505383704",
+    "nextseek_api/eval/disposition.py": "58bdcdfb2345f408ec701457e7670dd889331e2a2cf1dcafac57c1b9ddcb98ed",
+    "nextseek_api/eval/judge.py": "02f36a9fbed06fdd8249948b53330249a28148203d73390d7756724ee40027ff",
+    "nextseek_api/eval/judge_models.py": "7220a19340e71479a5dbe454c85987dd5db381870722f829577483e491fc536a",
+    "nextseek_api/eval/attempt_store.py": "e64e55f5efe740f77fad4b7f9930dc843fbcc98c4491675bebc27c0809d386e8",
+    "nextseek_api/eval/stage_c_runner.py": "35aeb539c7664f424a0141d7d2c1430510722935e10d43043576072bdb670b85"
+  }
+}

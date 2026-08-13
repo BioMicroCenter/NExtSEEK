@@ -62,6 +62,14 @@ def test_completed_arms_reports_only_arms_that_actually_ran():
     assert bm.completed_arms(m) == {("a", "ns"), ("a", "cc"), ("b", "ns")}
 
 
+def test_completed_arms_keeps_a_completed_cc_arm_when_the_ns_record_is_missing():
+    """Recovery resumes per arm; a malformed partial pair cannot repay its CC half."""
+    manifest = bm.BayesManifest(run_meta={}, pairs=[
+        bm.BayesPair(id="only-cc", family="f", hibayes_subtype=None, ns=None, cc=_entry("only-cc")),
+    ])
+    assert bm.completed_arms(manifest) == {("only-cc", "cc")}
+
+
 # --- Task 5: the paired orchestrator -----------------------------------------
 
 

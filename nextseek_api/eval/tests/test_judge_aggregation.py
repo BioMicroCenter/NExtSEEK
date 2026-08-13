@@ -95,6 +95,13 @@ def test_aggregate_rationale_first_matching_outcome() -> None:
     assert aggregate_rationale(evs, "FullySatisfied") == "good"
 
 
+def test_aggregate_rationale_falls_back_when_corrupt_attempts_have_no_aggregate_match() -> None:
+    """A corrupted retrieved attempt sequence still returns a deterministic rationale."""
+    evs = (_ev("NotSatisfied", rationale="first"), _ev("NotSatisfied", rationale="second"),
+           _ev("NotSatisfied", rationale="third"))
+    assert aggregate_rationale(evs, "FullySatisfied") == "first"
+
+
 def test_aggregate_three_evaluations_exactly_three() -> None:
     evs = (_ev(), _ev(), _ev())
     agg = aggregate_three_evaluations(evs)

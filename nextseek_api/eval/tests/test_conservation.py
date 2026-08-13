@@ -160,6 +160,23 @@ def test_count_discordant_skips_missing_and_excluded_arms() -> None:
     assert count_discordant_pairs(pairs, buckets) == 0
 
 
+def test_fit_and_discordance_fail_closed_for_corrupt_non_scored_bucket_values() -> None:
+    """A corrupted bucket type is excluded rather than admitted to a paired fit."""
+    pairs = [{"pair_id": "p1", "query_id": "q1", "family": "f", "ns_arm_id": "ns1", "cc_arm_id": "cc1"}]
+    corrupted = type("CorruptBucket", (), {"bucket": object()})()
+    buckets = {
+        "ns1": corrupted,
+        "cc1": ArmBucket(query_id="q1", route="cc", bucket=OutcomeBucket.desired, scored_value=True),
+    }
+    assert build_fit_admission(pairs, buckets).excluded_pair_ids == ["p1"]
+    assert count_discordant_pairs(pairs, buckets) == 0
+
+    buckets["ns1"] = ArmBucket(query_id="q1", route="ns", bucket=OutcomeBucket.desired, scored_value=True)
+    buckets["cc1"] = corrupted
+    assert build_fit_admission(pairs, buckets).excluded_pair_ids == ["p1"]
+    assert count_discordant_pairs(pairs, buckets) == 0
+
+
 def test_fit_admission_rejects_non_scored_bucket_types() -> None:
     pairs = [{"pair_id": "p1", "query_id": "q1", "family": "f", "ns_arm_id": "ns1", "cc_arm_id": "cc1"}]
     buckets = {
