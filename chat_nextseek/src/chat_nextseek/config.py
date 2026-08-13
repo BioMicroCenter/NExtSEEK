@@ -1308,19 +1308,39 @@ class ChatConfig:
 
         schema_url = f"{self.NEXTSEEK_BASE_URL}/nextseek_api/schema/"
 
+        # The schema route requires authentication (#77); an anonymous fetch
+        # gets a 401 and silently disables body validation (#94). Send the same
+        # Basic credentials every other REST call already carries — see
+        # helpers/tools/nextseek_api.py, and orchestrator.py which binds them
+        # per turn onto a copy of this config.
+        api_user = getattr(self, "API_USER", None)
+        api_pass = getattr(self, "API_PASS", None)
+        auth = (api_user, api_pass) if api_user and api_pass else None
+
         print(f"[CONFIG][SCHEMA] Fetching schema from {schema_url}")
         try:
             # (2s connect, 5s read): connect SUCCEEDS against a bound-but-
             # unserved listener (cold boot), so the read timeout is the only
             # lever bounding the stall — keep it short; the lazy property
             # retries once on the next access anyway.
-            resp = requests.get(schema_url, timeout=(2, 5))
+            resp = requests.get(schema_url, timeout=(2, 5), auth=auth)
         except Exception as e:
             print(f"[CONFIG][SCHEMA] Request to schema URL failed: {e!r}")
             return {}
 
         if resp.status_code != 200:
             print(f"[CONFIG][SCHEMA] Non-200 when fetching schema: {resp.status_code}")
+            if resp.status_code in (401, 403):
+                # Name the account only. NEVER the password -- not the value,
+                # not a mask, not a length hint (orchestrator.py:200-201).
+                account = api_user or "<unset>"
+                print(
+                    "[CONFIG][SCHEMA] CREDENTIALS REJECTED by the schema endpoint "
+                    f"(sent as user {account!r}). Set API_USER / API_PASS to an "
+                    "account that can read /nextseek_api/schema/. "
+                    "Request-body validation is now DISABLED: "
+                    "validate_request_body will pass every body through unchecked."
+                )
             return {}
 
         try:
