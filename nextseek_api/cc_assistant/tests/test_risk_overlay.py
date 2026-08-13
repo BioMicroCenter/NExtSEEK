@@ -6,9 +6,12 @@ from nextseek_api.eval.generation_store import (
     EMPTY_ACTIVE_HASH,
     GenerationManifest,
     activate_generation,
-    publish_generation,
+)
+from nextseek_api.cc_assistant.tests.generation_test_factory import (
+    _publish_generation_for_test,
 )
 from nextseek_api.eval.paired_run_registry import register_paired_run
+from nextseek_api.cc_assistant.family_labels import corpus_snapshot
 
 pytestmark = pytest.mark.django_db
 
@@ -31,6 +34,7 @@ def _approved_risk_overlay_run():
 
 @pytest.fixture
 def brittle_posterior(db):
+    current = corpus_snapshot()
     manifest = GenerationManifest(
         input_hash="in",
         attempt_hash="attempt",
@@ -46,17 +50,21 @@ def brittle_posterior(db):
                 "n_total": 10,
             }
         ],
-        compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "abc"},
+        compatibility_keys={
+            "taxonomy_version": current.taxonomy_version,
+            "corpus_hash": current.corpus_sha256,
+        },
         counts={"retained_pairs": 10},
         source_provenance=dict(_PAIRED_PROVENANCE),
     )
-    generation = publish_generation(manifest)
+    generation = _publish_generation_for_test(manifest)
     activate_generation(generation, expected_hash=EMPTY_ACTIVE_HASH)
     return FamilyPosterior.objects.get(task_family="batch_upload_preparation")
 
 
 @pytest.fixture
 def sparse_posterior(db):
+    current = corpus_snapshot()
     manifest = GenerationManifest(
         input_hash="sparse",
         attempt_hash="sparse-a",
@@ -72,11 +80,14 @@ def sparse_posterior(db):
                 "n_total": 2,
             }
         ],
-        compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "sparse"},
+        compatibility_keys={
+            "taxonomy_version": current.taxonomy_version,
+            "corpus_hash": current.corpus_sha256,
+        },
         counts={"retained_pairs": 10},
         source_provenance=dict(_PAIRED_PROVENANCE),
     )
-    generation = publish_generation(manifest)
+    generation = _publish_generation_for_test(manifest)
     activate_generation(generation, expected_hash=EMPTY_ACTIVE_HASH)
 
 

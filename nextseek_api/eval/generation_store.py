@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 import threading
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
 from django.db import connection, transaction
@@ -29,7 +29,6 @@ __all__ = [
     "PublishError",
     "PermissionError",
     "activate_generation",
-    "create_generation",
     "get_active_snapshot",
     "get_current_active_hash",
     "get_pinned_snapshot_for_turn",
@@ -87,13 +86,6 @@ class PublishError(RuntimeError):
 
 class PermissionError(RuntimeError):
     pass
-
-
-class _AuthenticatedHumanPublishCapability:
-    __slots__ = ()
-
-
-_AUTHENTICATED_HUMAN_PUBLISH_CAPABILITY = _AuthenticatedHumanPublishCapability()
 
 
 @dataclass(frozen=True)
@@ -237,59 +229,10 @@ def create_generation(
     parent: PosteriorGeneration | None = None,
     actor: str = "local",
 ) -> PosteriorGeneration:
-    require_publish_permission(actor)
-    parent_hash = parent.generation_hash if parent else None
-    if parent_hash != manifest.parent_hash:
-        manifest = replace(manifest, parent_hash=parent_hash)
-    gen_hash = generation_content_hash(**manifest.to_hash_kwargs())
-    existing = PosteriorGeneration.objects.filter(generation_hash=gen_hash).first()
-    if existing is not None:
-        return existing
-    existing_input = PosteriorGeneration.objects.filter(input_hash=manifest.input_hash).first()
-    if existing_input is not None and existing_input.generation_hash != gen_hash:
-        raise PublishError("overwrite refused — input_hash already bound to a different generation")
-    payload = manifest.to_payload()
-    payload["partial_publish"] = False
-    payload["_canonical_hash_inputs"] = manifest.to_hash_kwargs()
-    with transaction.atomic():
-        generation = PosteriorGeneration.objects.create(
-            generation_hash=gen_hash,
-            input_hash=manifest.input_hash,
-            config_fingerprint=manifest.config_fingerprint,
-            decision_status=manifest.decision_status,
-            payload=payload,
-            parent=parent,
-        )
-        if _should_abort_publish_after_generation():
-            raise PublishAbort(
-                "test abort after generation row before family posteriors"
-            )
-        fitted_at = dj_timezone.now()
-        for group in manifest.groups:
-            FamilyPosterior.objects.create(
-                generation=generation,
-                task_family=group["name"],
-                route=group["route"],
-                posterior_mean=float(group["posterior_mean"]),
-                band=str(group["band"]),
-                n_total=int(group["n_total"]),
-                fitted_at=group.get("fitted_at") or fitted_at,
-            )
-    return generation
-
-
-def _publish_authenticated_generation(
-    manifest: GenerationManifest,
-    *,
-    capability: _AuthenticatedHumanPublishCapability,
-    actor: str = "local",
-) -> PosteriorGeneration:
-    if capability is not _AUTHENTICATED_HUMAN_PUBLISH_CAPABILITY:
-        raise PublishError("invalid authenticated human-fit publication capability")
-    from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
-
-    validate_publish_provenance(dict(manifest.source_provenance or {}))
-    return create_generation(manifest, actor=actor)
+    del manifest, parent, actor
+    raise PublishError(
+        "direct generation creation is disabled; use the authenticated human-fit publisher"
+    )
 
 
 def publish_generation(manifest: GenerationManifest, *, actor: str = "local") -> PosteriorGeneration:

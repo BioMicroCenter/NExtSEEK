@@ -5,7 +5,12 @@ import pytest
 
 from nextseek_api.eval.evidence_kinds import OnlineEvidenceRejected, UnapprovedPairedRun
 from nextseek_api.eval.fit.fit_boundary import validate_publish_provenance
-from nextseek_api.eval.generation_store import GenerationManifest, PublishError, publish_generation
+from nextseek_api.eval.generation_store import (
+    GenerationManifest,
+    PublishError,
+    create_generation,
+    publish_generation,
+)
 from nextseek_api.eval.paired_run_registry import register_paired_run
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -78,6 +83,14 @@ def test_self_registered_arbitrary_manifest_cannot_publish():
     })
     with pytest.raises(PublishError, match="authenticated human-fit publisher"):
         publish_generation(manifest)
+
+
+def test_arbitrary_manifest_cannot_use_direct_create():
+    from nextseek_api.assistant.models_db import PosteriorGeneration
+
+    with pytest.raises(PublishError, match="authenticated human-fit publisher"):
+        create_generation(_manifest("direct-create"))
+    assert PosteriorGeneration.objects.count() == 0
 
 
 def test_publish_refuses_registered_run_with_wrong_content_hash():

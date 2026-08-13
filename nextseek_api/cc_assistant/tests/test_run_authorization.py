@@ -7,12 +7,15 @@ from nextseek_api.eval.generation_store import (
     ActivationError,
     GenerationManifest,
     activate_generation,
-    publish_generation,
+)
+from nextseek_api.cc_assistant.tests.generation_test_factory import (
+    _publish_generation_for_test,
 )
 from nextseek_api.eval.paired_run_registry import register_paired_run
 from nextseek_api.eval.provider_gate import AuthorizationError, guarded_provider_call
 from nextseek_api.eval.run_authorization import approve_run_manifest, manifest_hash, reserve_budget
 from nextseek_api.eval.tests.v4_8_fixtures import sample_manifest_dict, sample_run_manifest
+from nextseek_api.cc_assistant.family_labels import corpus_snapshot
 
 pytestmark = pytest.mark.django_db
 
@@ -25,6 +28,7 @@ def approved_manifest():
 def _generation_manifest(
     *, input_hash: str, attempt_hash: str, aggregate_hash: str, n_total: int
 ) -> GenerationManifest:
+    current = corpus_snapshot()
     paired_run_id = "run-authorization-generation"
     register_paired_run(
         paired_run_id=paired_run_id,
@@ -46,7 +50,10 @@ def _generation_manifest(
                 "n_total": n_total,
             }
         ],
-        compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "abc"},
+        compatibility_keys={
+            "taxonomy_version": current.taxonomy_version,
+            "corpus_hash": current.corpus_sha256,
+        },
         counts={"retained_pairs": 10},
         source_provenance={
             "paired_run_id": paired_run_id,
@@ -131,8 +138,8 @@ def test_activate_generation_cas_refuses_stale_hash():
         aggregate_hash="aggregate-b",
         n_total=11,
     )
-    gen_a = publish_generation(manifest_a)
-    gen_b = publish_generation(manifest_b)
+    gen_a = _publish_generation_for_test(manifest_a)
+    gen_b = _publish_generation_for_test(manifest_b)
     activate_generation(gen_a, expected_hash=EMPTY_ACTIVE_HASH)
     with pytest.raises(ActivationError, match="stale CAS"):
         activate_generation(gen_b, expected_hash=gen_b.generation_hash)

@@ -12,21 +12,24 @@ from nextseek_api.eval.generation_store import (
     PublishAbort,
     PublishError,
     activate_generation,
-    create_generation,
     get_active_snapshot,
     get_current_active_hash,
-    publish_generation,
     rollback_generation,
     set_test_abort_activate_after_pointer_mutate,
     set_test_abort_publish_after_generation,
 )
+from nextseek_api.cc_assistant.tests.generation_test_factory import (
+    _publish_generation_for_test,
+)
 from nextseek_api.assistant.models_db import FamilyPosterior, PosteriorGeneration
+from nextseek_api.cc_assistant.family_labels import corpus_snapshot
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
 def _manifest(suffix: str, **overrides):
     run_id = f"paired-{suffix}"
+    current = corpus_snapshot()
     base = {
         "input_hash": f"input-{suffix}",
         "attempt_hash": f"attempt-{suffix}",
@@ -42,7 +45,10 @@ def _manifest(suffix: str, **overrides):
                 "n_total": 10,
             }
         ],
-        "compatibility_keys": {"taxonomy_version": "v1", "corpus_hash": f"corpus-{suffix}"},
+        "compatibility_keys": {
+            "taxonomy_version": current.taxonomy_version,
+            "corpus_hash": current.corpus_sha256,
+        },
         "counts": {"retained_pairs": 10},
         "source_provenance": {
             "paired_run_id": run_id,
@@ -63,16 +69,16 @@ def _manifest(suffix: str, **overrides):
 
 
 def test_mysql_stale_cas_refused():
-    gen_a = publish_generation(_manifest("a"))
-    gen_b = publish_generation(_manifest("b"))
+    gen_a = _publish_generation_for_test(_manifest("a"))
+    gen_b = _publish_generation_for_test(_manifest("b"))
     activate_generation(gen_a, expected_hash=EMPTY_ACTIVE_HASH)
     with pytest.raises(ActivationError, match="stale CAS"):
         activate_generation(gen_b, expected_hash=gen_b.generation_hash)
 
 
 def test_mysql_two_activators_second_loses_race():
-    gen_a = publish_generation(_manifest("race-a"))
-    gen_b = publish_generation(_manifest("race-b"))
+    gen_a = _publish_generation_for_test(_manifest("race-a"))
+    gen_b = _publish_generation_for_test(_manifest("race-b"))
     activate_generation(gen_a, expected_hash=EMPTY_ACTIVE_HASH)
     barrier = threading.Barrier(2)
     results: list[str] = []
@@ -98,14 +104,14 @@ def test_mysql_two_activators_second_loses_race():
 
 def test_mysql_immutable_overwrite_refused():
     manifest = _manifest("immutable")
-    create_generation(manifest)
+    _publish_generation_for_test(manifest)
     with pytest.raises(PublishError, match="overwrite refused"):
-        create_generation(_manifest("immutable", aggregate_hash="mutated-aggregate"))
+        _publish_generation_for_test(_manifest("immutable", aggregate_hash="mutated-aggregate"))
 
 
 def test_mysql_rollback_restores_previous():
-    gen_a = publish_generation(_manifest("rb-a"))
-    gen_b = publish_generation(_manifest("rb-b"))
+    gen_a = _publish_generation_for_test(_manifest("rb-a"))
+    gen_b = _publish_generation_for_test(_manifest("rb-b"))
     activate_generation(gen_a, expected_hash=EMPTY_ACTIVE_HASH)
     activate_generation(gen_b, expected_hash=gen_a.generation_hash)
     rollback_generation(expected_hash=gen_b.generation_hash)
@@ -113,7 +119,7 @@ def test_mysql_rollback_restores_previous():
 
 
 def test_mysql_reader_observes_single_generation_hash():
-    gen_a = publish_generation(_manifest("reader-a"))
+    gen_a = _publish_generation_for_test(_manifest("reader-a"))
     activate_generation(gen_a, expected_hash=EMPTY_ACTIVE_HASH)
     seen = set()
 
@@ -132,8 +138,8 @@ def test_mysql_reader_observes_single_generation_hash():
 
 
 def test_mysql_parent_mismatch_refused_on_validation():
-    parent = publish_generation(_manifest("parent"))
-    child = publish_generation(_manifest("child"))
+    parent = _publish_generation_for_test(_manifest("parent"))
+    child = _publish_generation_for_test(_manifest("child"))
     child.parent = parent
     child.payload = {**(child.payload or {}), "parent_hash": "deadbeef"}
     child.save(update_fields=["parent", "payload"])
@@ -142,7 +148,7 @@ def test_mysql_parent_mismatch_refused_on_validation():
 
 
 def test_mysql_corruption_refused_on_activate():
-    generation = publish_generation(_manifest("corrupt"))
+    generation = _publish_generation_for_test(_manifest("corrupt"))
     before = get_current_active_hash()
     generation.generation_hash = "0" * 64
     generation.save(update_fields=["generation_hash"])
@@ -152,7 +158,7 @@ def test_mysql_corruption_refused_on_activate():
 
 
 def test_mysql_payload_canonical_tamper_refused_on_activate():
-    generation = publish_generation(_manifest("canonical-tamper"))
+    generation = _publish_generation_for_test(_manifest("canonical-tamper"))
     before = get_current_active_hash()
     payload = dict(generation.payload or {})
     canonical = dict(payload.get("_canonical_hash_inputs") or {})
@@ -166,13 +172,13 @@ def test_mysql_payload_canonical_tamper_refused_on_activate():
 
 
 def test_mysql_taxonomy_corpus_incompat_refused():
-    generation = publish_generation(_manifest("incompat", compatibility_keys={}))
+    generation = _publish_generation_for_test(_manifest("incompat", compatibility_keys={}))
     with pytest.raises(ValidationError, match="compatibility"):
         activate_generation(generation, expected_hash=EMPTY_ACTIVE_HASH)
 
 
 def test_mysql_partial_publish_refused():
-    generation = publish_generation(_manifest("partial"))
+    generation = _publish_generation_for_test(_manifest("partial"))
     generation.payload = {**(generation.payload or {}), "partial_publish": True}
     generation.save(update_fields=["payload"])
     with pytest.raises(ValidationError, match="partial"):
@@ -183,7 +189,7 @@ def test_mysql_crash_publish_boundary_leaves_no_incomplete_generation():
     set_test_abort_publish_after_generation(True)
     try:
         with pytest.raises(PublishAbort):
-            create_generation(_manifest("crash-pub"))
+            _publish_generation_for_test(_manifest("crash-pub"))
     finally:
         set_test_abort_publish_after_generation(False)
     assert PosteriorGeneration.objects.filter(input_hash="input-crash-pub").count() == 0
@@ -191,7 +197,7 @@ def test_mysql_crash_publish_boundary_leaves_no_incomplete_generation():
 
 
 def test_mysql_crash_activation_boundary_leaves_pointer_unchanged():
-    generation = publish_generation(_manifest("crash-act"))
+    generation = _publish_generation_for_test(_manifest("crash-act"))
     set_test_abort_activate_after_pointer_mutate(True)
     try:
         with pytest.raises(ActivationAbort):

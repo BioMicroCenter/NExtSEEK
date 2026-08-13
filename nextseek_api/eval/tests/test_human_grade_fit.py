@@ -451,19 +451,19 @@ def test_wrong_registered_content_hash_refuses_generation_publication(initial_re
 
 
 @pytest.mark.django_db
-def test_post_registration_publish_failure_rolls_back_registry(initial_release, monkeypatch):
+def test_post_registration_publish_failure_rolls_back_registry(initial_release):
     from nextseek_api.assistant.models_db import PairedRunRegistry, PosteriorGeneration
     from nextseek_api.eval import generation_store
 
-    def fail_publish(*args, **kwargs):
-        raise RuntimeError("synthetic publish failure")
-
-    monkeypatch.setattr(generation_store, "_publish_authenticated_generation", fail_publish)
-    with pytest.raises(RuntimeError, match="synthetic publish failure"):
-        publish_human_grade_fit(
-            initial_release,
-            allow_initial_release_override=True,
-        )
+    generation_store.set_test_abort_publish_after_generation(True)
+    try:
+        with pytest.raises(generation_store.PublishAbort, match="test abort"):
+            publish_human_grade_fit(
+                initial_release,
+                allow_initial_release_override=True,
+            )
+    finally:
+        generation_store.set_test_abort_publish_after_generation(False)
     assert PairedRunRegistry.objects.count() == 0
     assert PosteriorGeneration.objects.count() == 0
 

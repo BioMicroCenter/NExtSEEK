@@ -5,6 +5,7 @@ from nextseek_api.eval.generation_store import (
     EMPTY_ACTIVE_HASH,
     GenerationManifest,
     PermissionError,
+    PublishError,
     activate_generation,
     create_generation,
     get_active_snapshot,
@@ -148,7 +149,7 @@ def test_activate_refuses_stale_instance_after_db_identity_mutation(field, repla
 
 def test_validate_refuses_stored_parent_drift():
     parent = _publish_generation_for_test(_manifest(input_hash="parent"))
-    child = create_generation(_manifest(input_hash="child"), parent=parent)
+    child = _publish_generation_for_test(_manifest(input_hash="child"), parent=parent)
     child.parent = None
     child.save(update_fields=["parent"])
 
@@ -260,7 +261,7 @@ def test_pin_generation_for_turn_is_stable_after_activation(turn):
 
 
 def test_live_publish_requires_maintainer_approval():
-    with pytest.raises(PermissionError, match="live publish"):
+    with pytest.raises(PublishError, match="authenticated human-fit publisher"):
         create_generation(_manifest(input_hash="live-pub"), actor="live:maintainer")
 
 

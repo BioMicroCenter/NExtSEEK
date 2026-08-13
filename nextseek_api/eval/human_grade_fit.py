@@ -849,7 +849,9 @@ def publish_human_grade_fit(
 ):
     """Register the exact paired batch and publish; never activates implicitly."""
     from django.db import transaction
+    from django.utils import timezone as dj_timezone
 
+    from nextseek_api.assistant.models_db import FamilyPosterior, PosteriorGeneration
     from nextseek_api.eval.conservation import build_fit_admission as checked_admission
     from nextseek_api.eval.disposition import classify_arm as checked_classify_arm
     from nextseek_api.eval.fit.v14.pair_rows import build_pair_rows as checked_pair_rows
@@ -973,6 +975,52 @@ def publish_human_grade_fit(
         for_publication=True,
         allow_initial_release_override=allow_initial_release_override,
     )
+
+    def persist_authenticated_generation():
+        """Lexically scoped write: reachable only after all authentication above."""
+        generation_store.require_publish_permission(actor)
+        generation_hash = generation_store.generation_content_hash(
+            **manifest.to_hash_kwargs()
+        )
+        existing = PosteriorGeneration.objects.filter(
+            generation_hash=generation_hash
+        ).first()
+        if existing is not None:
+            return existing
+        existing_input = PosteriorGeneration.objects.filter(
+            input_hash=manifest.input_hash
+        ).first()
+        if existing_input is not None and existing_input.generation_hash != generation_hash:
+            raise generation_store.PublishError(
+                "overwrite refused — input_hash already bound to a different generation"
+            )
+        payload = manifest.to_payload()
+        payload["partial_publish"] = False
+        payload["_canonical_hash_inputs"] = manifest.to_hash_kwargs()
+        generation = PosteriorGeneration.objects.create(
+            generation_hash=generation_hash,
+            input_hash=manifest.input_hash,
+            config_fingerprint=manifest.config_fingerprint,
+            decision_status=manifest.decision_status,
+            payload=payload,
+        )
+        if generation_store._should_abort_publish_after_generation():
+            raise generation_store.PublishAbort(
+                "test abort after generation row before family posteriors"
+            )
+        fitted_at = dj_timezone.now()
+        for group in manifest.groups:
+            FamilyPosterior.objects.create(
+                generation=generation,
+                task_family=group["name"],
+                route=group["route"],
+                posterior_mean=float(group["posterior_mean"]),
+                band=str(group["band"]),
+                n_total=int(group["n_total"]),
+                fitted_at=group.get("fitted_at") or fitted_at,
+            )
+        return generation
+
     with transaction.atomic():
         register_paired_run(
             paired_run_id=prepared.paired_batch.paired_run_id,
@@ -980,11 +1028,7 @@ def publish_human_grade_fit(
             content_hash=actual_paired_hash,
         )
         validate_publish_provenance(derived_evidence.source_provenance)
-        return generation_store._publish_authenticated_generation(
-            manifest,
-            capability=generation_store._AUTHENTICATED_HUMAN_PUBLISH_CAPABILITY,
-            actor=actor,
-        )
+        return persist_authenticated_generation()
 
 
 def activate_human_grade_generation(
