@@ -19,9 +19,10 @@ stopped), not five patched branches.
 Three properties of the fix are load-bearing and each has its own test here:
 
 * it is ordered AFTER ``container.stop()`` and BEFORE ``scrub_transcript_store``
-  — capture must not move after the scrub, which rewrites every jsonl via
-  ``os.replace`` and so restamps them all with a fresh mtime, while
-  ``_newest_jsonl_under`` picks by mtime;
+  — capture must not move after the scrub, which rewrites every dirty jsonl via
+  ``os.replace`` and so restamps it with a fresh mtime, while
+  ``_newest_jsonl_under`` picks by mtime, so a post-scrub capture resolves to
+  the wrong file and the turn ends up persisted nowhere;
 * it carries its own ``try/except``, so a failure inside it can never skip the
   #72/#76 scrub that follows;
 * it does NOT call ``on_turn_complete`` (that is ``_append_cc_turn_complete``,
@@ -485,8 +486,24 @@ def test_the_capture_runs_before_the_scrub_restamps_every_jsonl(harness):
     which stamps it with a FRESH mtime, and ``_newest_jsonl_under`` picks by
     mtime. A stale session file in the same store — far too old to be a
     candidate while the turn was running — becomes the newest file in that store
-    the instant the scrub touches it. A capture moved after the scrub would
-    therefore persist ANOTHER session's transcript under this run's turn_id.
+    the instant the scrub touches it, so a capture moved after the scrub
+    resolves to THAT file instead of this turn's.
+
+    WHAT THAT COSTS, stated as the code now behaves rather than as it behaved
+    when this test was written. Moving the block used to file the stale file's
+    bytes under this run's ``turn_id``. Since ``turn_is_attributable`` it does
+    not: the stale file was in the pre-turn snapshot and gained no records, so
+    the capture is declined and the run persists NOTHING — #68 silently not
+    working. Run the mutation and the failure is ``expected exactly one row for
+    aa11, got 0``, with the decline logged as "the store gained no records this
+    turn"; it is not a misattributed row.
+
+    So the two assertions below are not two views of one failure. The first is
+    the live one and pins the real post-``6dcc21e`` consequence. The second is
+    defence in depth for the one path by which misattribution survives — a file
+    the snapshot has no entry for because ``_transcript_line_counts`` skipped it
+    as unreadable, which reads as ``prior_lines == 0`` and so as attributable.
+    Neither is redundant, and neither is the other's mechanism.
     """
     stale = harness.state / "projects" / "-home-user" / "sess-old.jsonl"
     stale.parent.mkdir(parents=True, exist_ok=True)
@@ -502,7 +519,10 @@ def test_the_capture_runs_before_the_scrub_restamps_every_jsonl(harness):
         "fixture is only meaningful if the scrub really did make the stale file "
         "the newest jsonl in this store"
     )
+    # The live assertion: post-scrub capture resolves to `stale`, which is not
+    # attributable, so the fallback declines and this turn gets NO row at all.
     assert harness.blob(RUN1) == mine
+    # Defence in depth, for the snapshot-miss path described above only.
     assert b"OTHER SESSION" not in harness.blob(RUN1)
 
 

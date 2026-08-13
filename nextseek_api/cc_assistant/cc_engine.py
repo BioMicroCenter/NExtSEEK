@@ -1390,9 +1390,22 @@ def run_cc_turn(
         #
         # POSITION IS LOAD-BEARING, both ways. After the stop above, for that
         # race. And BEFORE the scrub below, because scrub_transcript_store
-        # rewrites every jsonl in the store via os.replace, which stamps them
-        # all with a fresh mtime, and _newest_jsonl_under picks by mtime —
-        # capturing after the scrub could resolve to a DIFFERENT session's file.
+        # rewrites every DIRTY jsonl in the store via os.replace, which stamps
+        # it with a fresh mtime, and _newest_jsonl_under picks by mtime — so a
+        # capture moved after the scrub resolves to whichever file the scrub
+        # touched last, which need not be this turn's.
+        #
+        # What that costs is no longer misattribution. turn_is_attributable
+        # (below) intercepts first: any file the scrub restamped was already
+        # present in the pre-turn snapshot and gained no records during the
+        # turn, so the capture is declined. The post-scrub failure mode is
+        # therefore that this turn is persisted NOWHERE — #68 silently not
+        # working — rather than another session's bytes filed under this
+        # run_id. Misattribution survives only where the snapshot has no entry
+        # for the file the scrub made newest, i.e. one _transcript_line_counts
+        # skipped as unreadable. Both outcomes are wrong; the ordering is what
+        # prevents them, and test_the_capture_runs_before_the_scrub_restamps_
+        # every_jsonl pins it behaviourally.
         #
         # Its own try/except: a failure in here must never skip that scrub,
         # which is the #72/#76 security control. The bytes persisted are
