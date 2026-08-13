@@ -56,7 +56,9 @@ class TestHostileValueIsBound:
         assert "S.unit" in fragment
         # the client-supplied key must not reach the statement text
         assert "OR" not in fragment
-        assert "1=1" not in fragment
+        # spelled the way the payload actually spells it: PAYLOAD contains
+        # "1'='1", never "1=1", so the old `"1=1" not in fragment` could not fail.
+        assert "'1'='1" not in fragment
 
 
 class TestStatementTextIsValueInvariant:

@@ -7,9 +7,14 @@ parameter list instead. A value containing ``'``, ``--``, ``;`` or ``UNION``
 must change only the params.
 
 Hermetic by construction: ``seek.search`` imports nothing at module scope that
-needs a database or the Django app registry, and none of the paths exercised
-here reach ``__getCategoryClause`` (the one builder that queries the DB).
+needs a database or the Django app registry. The one builder that *would* touch
+the DB, ``__getCategoryClause``, is exercised with its sample-type lookup
+stubbed at the point of use (see ``_stubbed_sample_type_lookup``), so no test
+here opens a connection or needs a fixture.
 """
+
+from contextlib import contextmanager
+from unittest import mock
 
 import pytest
 
@@ -45,6 +50,24 @@ def _render(query, params):
     assert "%s" not in rest, "more placeholders than params: %r %r" % (query, params)
     out.append(rest)
     return "".join(out)
+
+
+SAMPLE_TYPE_ID = 15
+
+
+@contextmanager
+def _stubbed_sample_type_lookup(sample_type_id=SAMPLE_TYPE_ID):
+    """Stub the DB-backed sample-type lookup at its point of use.
+
+    ``__getCategoryClause`` does ``from .dbtable_sampletype import
+    DBtable_sampletype`` *inside* the function body, so the name is resolved
+    from the module every call and patching the module attribute is enough.
+    The real class is never constructed, which keeps this file's no-DB,
+    no-fixture character intact.
+    """
+    with mock.patch("seek.dbtable_sampletype.DBtable_sampletype") as stub:
+        stub.return_value.getSampleTypeID.return_value = sample_type_id
+        yield stub
 
 
 class TestIdentifierAllowlist:
@@ -118,6 +141,44 @@ class TestDesignSearchPubmedBinding:
         query, params, keywords = Search("").designSearchPubmed(expr)
         assert query == "WHERE json_metadata LIKE %s "
         assert params == ["%" + expr + "%"]
+
+
+class TestCategoryConstraintBinding:
+    """The ``CD8[MUS]`` path — the only builder in the file emitting TWO params.
+
+    ``__designConstraint`` concatenates the keyword's placeholder and then the
+    category clause's, and appends their params in that same order. Every other
+    builder emits at most one param per call, so a params-ordering regression is
+    only observable here. That makes this the one place worth asserting the
+    *order* of the list rather than just its contents.
+    """
+
+    def test_category_keyword_emits_two_placeholders_and_binds_in_order(self):
+        with _stubbed_sample_type_lookup() as stub:
+            fragment, params = Search("")._Search__designConstraint(
+                "json_metadata", "CD8[MUS]"
+            )
+        assert fragment == "(json_metadata LIKE %s  AND sample_type_id=%s)"
+        assert "'" not in fragment
+        # the ordering IS the point: keyword param first, sample-type id second
+        assert params == ["%CD8%", SAMPLE_TYPE_ID]
+        assert fragment.count("%s") == len(params)
+        rendered = _render(fragment, params)
+        assert rendered.index("'%CD8%'") < rendered.index("'%d'" % SAMPLE_TYPE_ID)
+        # the bracketed category, not the whole keyword, drives the lookup
+        stub.return_value.getSampleTypeID.assert_called_once_with("MUS")
+
+    def test_hostile_category_keyword_leaves_no_quote_and_binds_verbatim(self):
+        payload = "CD8'; DROP TABLE samples--"
+        with _stubbed_sample_type_lookup():
+            fragment, params = Search("")._Search__designConstraint(
+                "json_metadata", payload + "[MUS]"
+            )
+        assert "'" not in fragment
+        assert "DROP TABLE" not in fragment
+        # byte-identical to the benign fragment above: text invariance
+        assert fragment == "(json_metadata LIKE %s  AND sample_type_id=%s)"
+        assert params == ["%" + payload + "%", SAMPLE_TYPE_ID]
 
 
 class TestDesignSearchMatchKeywordsBinding:
