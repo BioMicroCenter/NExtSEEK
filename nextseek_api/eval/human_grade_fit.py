@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import zipfile
 from collections import Counter
 from dataclasses import dataclass
@@ -56,6 +57,19 @@ __all__ = [
 
 class EvidenceIntegrityError(ValueError):
     pass
+
+
+_STACK_COMPONENTS = (
+    "nextseek_image",
+    "container_agent_image",
+    "sidecar_image",
+    "seek_image",
+)
+_OCI_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_LEGACY_STACK_DEBT = (
+    "authenticated transferred evidence records only the source git SHA; "
+    "the original four immutable runtime image digests cannot be reconstructed"
+)
 
 
 class ModelMode(str, Enum):
@@ -271,6 +285,51 @@ def _canonical_hash(value: Any) -> str:
     ).hexdigest()
 
 
+def _stack_identity(run_meta: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    git_sha = run_meta.get("git_sha")
+    if not isinstance(git_sha, str) or not git_sha.strip():
+        raise EvidenceIntegrityError("bayes_manifest run_meta.git_sha is required")
+    git_sha = git_sha.strip()
+    digests = {
+        name: run_meta[name]
+        for name in _STACK_COMPONENTS
+        if run_meta.get(name) not in (None, "")
+    }
+    if not digests:
+        return f"legacy-git-sha-only:{git_sha}", {
+            "stack_identity_status": "legacy_git_sha_only",
+            "stack_identity_debt": _LEGACY_STACK_DEBT,
+            "source_git_sha": git_sha,
+            "stack_image_digests": {},
+        }
+    if set(digests) != set(_STACK_COMPONENTS):
+        missing = sorted(set(_STACK_COMPONENTS) - set(digests))
+        raise EvidenceIntegrityError(
+            f"partial four-image stack identity; missing immutable digests: {missing}"
+        )
+    malformed = [
+        name for name in _STACK_COMPONENTS
+        if not isinstance(digests[name], str)
+        or _OCI_DIGEST_RE.fullmatch(digests[name]) is None
+    ]
+    if malformed:
+        raise EvidenceIntegrityError(
+            f"stack image identities must be immutable lowercase OCI digests: {malformed}"
+        )
+    canonical = "stack-v1" + "".join(
+        f"{len(name)}:{name}{len(digests[name])}:{digests[name]}"
+        for name in _STACK_COMPONENTS
+    )
+    stack_hash = hashlib.sha256(canonical.encode()).hexdigest()
+    ordered = {name: digests[name] for name in _STACK_COMPONENTS}
+    return f"stack-v1:sha256:{stack_hash}", {
+        "stack_identity_status": "exact_four_image_digests",
+        "stack_identity_debt": None,
+        "source_git_sha": git_sha,
+        "stack_image_digests": ordered,
+    }
+
+
 def build_human_grade_fit(
     delivery: str | Path,
     *,
@@ -331,13 +390,24 @@ def build_human_grade_fit(
     if len(set(pair_ids)) != 149:
         raise EvidenceIntegrityError("paired manifest contains duplicate pair ids")
     expected_ids = set(pair_ids)
+    run_meta = manifest_raw.get("run_meta") or {}
+    if run_meta.get("corpus_fingerprint") != current.corpus_sha256:
+        raise EvidenceIntegrityError(
+            "authenticated bayes_manifest run_meta.corpus_fingerprint does not "
+            "match the current router corpus"
+        )
+    if run_meta.get("selected_ids") != pair_ids:
+        raise EvidenceIntegrityError(
+            "authenticated bayes_manifest run_meta.selected_ids must exactly match "
+            "the ordered pair IDs"
+        )
+    stack_id, stack_provenance = _stack_identity(run_meta)
     for arm in ("ns", "cc"):
         if set(runtime[arm]) != expected_ids or set(grades[arm]) != expected_ids:
             raise EvidenceIntegrityError(f"{arm} runtime/grade query ids do not conserve pairs")
     if set(artifacts) != {(query_id, arm) for query_id in expected_ids for arm in ("ns", "cc")}:
         raise EvidenceIntegrityError("artifact-validity arms do not exactly match the 149 pairs")
 
-    stack_id = f"set3-final:{manifest_raw.get('run_meta', {}).get('git_sha', 'unknown')}"
     arms: list[HumanFitArm] = []
     pair_specs: list[dict[str, Any]] = []
     arm_records: dict[str, dict[str, Any]] = {}
@@ -443,6 +513,7 @@ def build_human_grade_fit(
         "human_grade_sha256": grade_hashes,
         "corpus_version": 2,
         "corpus_sha256": current.corpus_sha256,
+        "stack_identity": stack_provenance,
     }
     aggregate_rows = [
         {
@@ -482,6 +553,7 @@ def build_human_grade_fit(
         "model_mode": model_mode.value,
         "initial_release_override": model_mode is ModelMode.initial_human_grade,
         "source_hashes": source_hashes,
+        **stack_provenance,
     }
     diagnostics = {
         "model_mode": model_mode.value,
@@ -559,6 +631,32 @@ def publish_human_grade_fit(
     from nextseek_api.eval.generation_store import publish_generation
     from nextseek_api.eval.paired_run_registry import register_paired_run
     from nextseek_api.eval.publish import manifest_for_combined as _manifest
+
+    # Pydantic's frozen model prevents field replacement, but its nested dicts
+    # remain mutable. Re-authenticate the exact content boundary before any
+    # registry row, refit, or generation can be written.
+    actual_paired_hash = content_hash_for_batch(
+        prepared.paired_batch.pairs,
+        prepared.paired_batch.arm_records,
+    )
+    if actual_paired_hash != prepared.paired_content_hash:
+        raise EvidenceIntegrityError(
+            "prepared paired batch content hash changed after authentication"
+        )
+    provenance = prepared.publication_evidence.source_provenance
+    if provenance.get("paired_run_content_hash") != actual_paired_hash:
+        raise EvidenceIntegrityError(
+            "source provenance is not bound to the paired batch content hash"
+        )
+    if provenance.get("source_hashes") != prepared.source_hashes:
+        raise EvidenceIntegrityError("publication source hashes changed after preparation")
+    expected_input_hash = _canonical_hash(
+        {"sources": prepared.source_hashes, "paired_run": actual_paired_hash}
+    )
+    if prepared.publication_evidence.input_hash != expected_input_hash:
+        raise EvidenceIntegrityError(
+            "publication input hash is not bound to authenticated source and paired content"
+        )
 
     # Refuse an unauthorized/non-authoritative publication before the registry
     # or any other durable state is mutated.

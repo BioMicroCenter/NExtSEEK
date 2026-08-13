@@ -1,7 +1,9 @@
 """Human-grade initial fit: functional labels never replace arm outcomes."""
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
+import json
 from pathlib import Path
 
 import pytest
@@ -91,6 +93,44 @@ def test_hash_tampering_refused_before_archive_members_are_parsed():
         )
 
 
+def _patch_authenticated_bayes_manifest(monkeypatch, mutate):
+    import nextseek_api.eval.human_grade_fit as human_grade_fit
+
+    original = human_grade_fit._verified_source_bytes
+
+    def authenticated_with_semantic_mutation(delivery, identity):
+        members, artifact = original(delivery, identity)
+        changed = dict(members)
+        manifest = json.loads(changed["set3_final/bayes_manifest.json"])
+        mutate(manifest)
+        changed["set3_final/bayes_manifest.json"] = json.dumps(manifest).encode()
+        return changed, artifact
+
+    monkeypatch.setattr(
+        human_grade_fit,
+        "_verified_source_bytes",
+        authenticated_with_semantic_mutation,
+    )
+
+
+def test_authenticated_manifest_corpus_fingerprint_must_match_current(monkeypatch):
+    _patch_authenticated_bayes_manifest(
+        monkeypatch,
+        lambda manifest: manifest["run_meta"].__setitem__("corpus_fingerprint", "0" * 64),
+    )
+    with pytest.raises(EvidenceIntegrityError, match="corpus_fingerprint"):
+        build_human_grade_fit(DELIVERY)
+
+
+def test_authenticated_manifest_selected_ids_must_exactly_match_pairs(monkeypatch):
+    _patch_authenticated_bayes_manifest(
+        monkeypatch,
+        lambda manifest: manifest["run_meta"]["selected_ids"].reverse(),
+    )
+    with pytest.raises(EvidenceIntegrityError, match="selected_ids"):
+        build_human_grade_fit(DELIVERY)
+
+
 def test_dev_dry_run_report_is_deterministic_and_explicitly_non_authoritative(prepared):
     assert prepared.report_json() == prepared.report_json()
     report = prepared.report()
@@ -153,9 +193,73 @@ def test_publication_manifest_is_current_corpus_compatible_and_honest(prepared):
     assert manifest.source_provenance["functional_success_source"] == "human_grades"
     assert manifest.source_provenance["judge_calls_used"] == 0
     assert manifest.source_provenance["model_mode"] == "dev_analytic"
+    assert manifest.source_provenance["stack_identity_status"] == "legacy_git_sha_only"
+    assert manifest.source_provenance["stack_identity_debt"]
+    assert manifest.source_provenance["source_git_sha"] == "26609bd"
+    assert manifest.source_provenance["stack_image_digests"] == {}
     assert manifest.fit_diagnostics["authoritative"] is False
     assert manifest.input_hash != manifest.attempt_hash
     assert manifest.attempt_hash != manifest.aggregate_hash
+
+
+@pytest.mark.django_db
+def test_nested_paired_batch_mutation_refuses_before_any_durable_write(initial_release):
+    from nextseek_api.assistant.models_db import PairedRunRegistry, PosteriorGeneration
+
+    changed = deepcopy(initial_release)
+    changed.paired_batch.pairs[0]["family"] = "post-prepare-mutation"
+    with pytest.raises(EvidenceIntegrityError, match="paired batch content hash"):
+        publish_human_grade_fit(
+            changed,
+            allow_initial_release_override=True,
+        )
+    assert PairedRunRegistry.objects.count() == 0
+    assert PosteriorGeneration.objects.count() == 0
+
+
+def test_exact_four_digest_stack_identity_is_used(monkeypatch):
+    digests = {
+        "nextseek_image": "sha256:" + "1" * 64,
+        "container_agent_image": "sha256:" + "2" * 64,
+        "sidecar_image": "sha256:" + "3" * 64,
+        "seek_image": "sha256:" + "4" * 64,
+    }
+
+    _patch_authenticated_bayes_manifest(
+        monkeypatch,
+        lambda manifest: manifest["run_meta"].update(digests),
+    )
+    result = build_human_grade_fit(DELIVERY)
+    provenance = result.publication_evidence.source_provenance
+    assert provenance["stack_identity_status"] == "exact_four_image_digests"
+    assert provenance["stack_identity_debt"] is None
+    assert provenance["stack_image_digests"] == digests
+    assert all(arm.row.stack_id.startswith("stack-v1:sha256:") for arm in result.arms)
+
+
+def test_partial_stack_digest_identity_is_refused(monkeypatch):
+    _patch_authenticated_bayes_manifest(
+        monkeypatch,
+        lambda manifest: manifest["run_meta"].__setitem__(
+            "nextseek_image", "sha256:" + "1" * 64
+        ),
+    )
+    with pytest.raises(EvidenceIntegrityError, match="partial four-image stack identity"):
+        build_human_grade_fit(DELIVERY)
+
+
+def test_legacy_stack_cannot_claim_authoritative_publication(prepared):
+    authoritative_claim = replace(
+        prepared.publication_evidence,
+        fit_diagnostics={"authoritative": True, "diagnostics_ok": True},
+        source_provenance={
+            **prepared.publication_evidence.source_provenance,
+            "model_mode": "authoritative_mcmc",
+            "initial_release_override": False,
+        },
+    )
+    with pytest.raises(PublicationEvidenceRequired, match="legacy git-SHA-only"):
+        publication_manifest(prepared.fit, authoritative_claim, for_publication=True)
 
 
 @pytest.mark.django_db

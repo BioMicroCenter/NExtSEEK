@@ -7,7 +7,13 @@ from nextseek_api.eval.fit.v14.decision import CandidateDecision, DecisionStatus
 from nextseek_api.eval.fit.v14.latency_model import LatencyFitResult
 from nextseek_api.eval.fit.v14.quality_model import QualityFitResult
 from nextseek_api.eval.paired_run_registry import register_paired_run
-from nextseek_api.eval.publish import FitGroup, FitResult, PublicationEvidence, publish
+from nextseek_api.eval.publish import (
+    FitGroup,
+    FitResult,
+    PublicationEvidence,
+    PublicationEvidenceRequired,
+    publish,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -35,8 +41,8 @@ def _approved_publish_run():
 def fit_result():
     return FitResult(
         groups=[
-            FitGroup("batch_upload_preparation"),
-            FitGroup("cc_sandbox_contract"),
+            FitGroup("batch_upload_preparation", "container_cc", 0.97, "Reliable", 5),
+            FitGroup("cc_sandbox_contract", "container_cc", 0.97, "Reliable", 5),
         ],
         input_hash="input-a",
         attempt_hash="attempt-a",
@@ -44,7 +50,12 @@ def fit_result():
         config_fingerprint="cfg-a",
         compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "corpus-a"},
         counts={"retained_pairs": 10},
-        source_provenance=dict(_PAIRED_PROVENANCE),
+        fit_diagnostics={"authoritative": True, "diagnostics_ok": True},
+        source_provenance={
+            **_PAIRED_PROVENANCE,
+            "model_mode": "authoritative_mcmc",
+            "functional_success_source": "stored_judgments",
+        },
     )
 
 
@@ -67,7 +78,12 @@ def sparse_fit_result():
         decision_status="empty_candidate_set",
         compatibility_keys={"taxonomy_version": "v1", "corpus_hash": "sparse"},
         counts={"retained_pairs": 10},
-        source_provenance=dict(_PAIRED_PROVENANCE),
+        fit_diagnostics={"authoritative": True, "diagnostics_ok": True},
+        source_provenance={
+            **_PAIRED_PROVENANCE,
+            "model_mode": "authoritative_mcmc",
+            "functional_success_source": "stored_judgments",
+        },
     )
 
 
@@ -100,6 +116,18 @@ def test_republishing_replaces_rather_than_duplicates(fit_result):
         FamilyPosterior.objects.filter(task_family=fit_result.groups[0].name).count()
         == 1
     )
+
+
+def test_generic_publish_refuses_non_authoritative_result_without_override(fit_result):
+    fit_result.fit_diagnostics = {"authoritative": False, "diagnostics_ok": False}
+    with pytest.raises(PublicationEvidenceRequired, match="authoritative diagnostics"):
+        publish(fit_result)
+    assert PosteriorGeneration.objects.count() == 0
+
+
+def test_fit_group_has_no_fabricated_statistical_defaults():
+    with pytest.raises(TypeError):
+        FitGroup("family-only")
 
 
 def test_publish_combined_fit_result_uses_decision_bands():

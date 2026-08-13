@@ -69,6 +69,10 @@ class PublicationEvidence:
                 )
         authoritative = self.fit_diagnostics.get("authoritative") is True
         diagnostics_ok = self.fit_diagnostics.get("diagnostics_ok") is True
+        legacy_stack = (
+            self.source_provenance.get("stack_identity_status")
+            == "legacy_git_sha_only"
+        )
         if for_publication and not (authoritative and diagnostics_ok):
             is_honest_initial_release = (
                 allow_initial_release_override
@@ -81,15 +85,26 @@ class PublicationEvidence:
                     "publication requires authoritative diagnostics, or an explicit "
                     "initial_human_grade release override"
                 )
+        if for_publication and legacy_stack:
+            is_explicit_initial_release = (
+                allow_initial_release_override
+                and self.source_provenance.get("model_mode") == "initial_human_grade"
+                and self.source_provenance.get("initial_release_override") is True
+            )
+            if not is_explicit_initial_release:
+                raise PublicationEvidenceRequired(
+                    "legacy git-SHA-only stack identity requires an explicit "
+                    "initial_human_grade release override"
+                )
 
 
 @dataclass
 class FitGroup:
     name: str
-    route: str = "container_cc"
-    posterior_mean: float = 0.97
-    band: str = "Reliable"
-    n_total: int = 40
+    route: str
+    posterior_mean: float
+    band: str
+    n_total: int
     fitted_at: datetime | None = None
 
 
@@ -235,6 +250,20 @@ def publish(
     """Create or return an immutable generation; returns group count."""
     if isinstance(fit_result, FitResult):
         manifest = _manifest_from_fit_result(fit_result)
+        PublicationEvidence(
+            input_hash=fit_result.input_hash,
+            attempt_hash=fit_result.attempt_hash,
+            aggregate_hash=fit_result.aggregate_hash,
+            compatibility_keys=dict(manifest.compatibility_keys),
+            counts=dict(manifest.counts),
+            exclusions=dict(manifest.exclusions),
+            fit_diagnostics=dict(manifest.fit_diagnostics),
+            source_provenance=dict(manifest.source_provenance),
+            family_retained_pairs={group.name: group.n_total for group in fit_result.groups},
+        ).validate(
+            for_publication=True,
+            allow_initial_release_override=allow_initial_release_override,
+        )
         groups = fit_result.groups
     else:
         if evidence is None:
