@@ -216,7 +216,7 @@ class DBtable_sample(DBtable):
         self.fieldMapping = SAMPLE_FILTER_MAPPING
         self.excludeFields = []
 
-    def __runQuery(self, query, withColumns=False):
+    def __runQuery(self, query, withColumns=False, params=None):
         db = settings.DATABASES[SEEK_DATABASE]
         conn = MySQLdb.connect(host=db['HOST'],
                                user=db['USER'],
@@ -225,7 +225,13 @@ class DBtable_sample(DBtable):
         cursor = conn.cursor()
         
         try:
-            cursor.execute(query)
+            # `params is None` keeps the three pre-existing callers byte-identical;
+            # anything that builds %s placeholders passes its values here instead
+            # of interpolating them into the statement.
+            if params is None:
+                cursor.execute(query)
+            else:
+                cursor.execute(query, params)
             results = cursor.fetchall()
             if withColumns:
                 columns = [col[0] for col in cursor.description]
@@ -895,25 +901,31 @@ class DBtable_sample(DBtable):
         if not uids:
             return pd.DataFrame(columns=["id", "sample_type_id", "uuid", "json_metadata"])
 
-        uids_str = ', '.join(f"'{uid}'" for uid in uids)
-        project_ids_str = ', '.join(f"'{pid}'" for pid in user_project_ids)
+        # Bound, never inlined: a quote in a uuid or project id broke out of
+        # the literal. Only the schema name is interpolated (views.py:829).
+        uid_placeholders = ', '.join(['%s'] * len(uids))
 
         if admin:
             query = f"""
             SELECT id,sample_type_id,uuid,json_metadata
             FROM {db["NAME"]}.samples
-            WHERE uuid IN ({uids_str})
+            WHERE uuid IN ({uid_placeholders})
             """
+            params = list(uids)
         else:
+            # Sentinel: valid SQL matching nothing when no mapped projects.
+            scoped_project_ids = [str(pid) for pid in user_project_ids] or ['']
+            project_placeholders = ', '.join(['%s'] * len(scoped_project_ids))
             query = f"""
             SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
             FROM {db["NAME"]}.samples s
             JOIN {db["NAME"]}.projects_samples ps
             ON s.id = ps.sample_id
-            WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
+            WHERE s.uuid IN ({uid_placeholders}) AND ps.sample_id = s.id AND ps.project_id IN ({project_placeholders})
             """
+            params = list(uids) + scoped_project_ids
 
-        result = self.__runQuery(query, withColumns=True)
+        result = self.__runQuery(query, withColumns=True, params=params)
         if not result:
             # Query failed (e.g. transient DB error). Degrade to an empty frame
             # so the endpoint returns a clean 404 instead of a 500 unpack crash.
