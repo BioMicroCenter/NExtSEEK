@@ -155,6 +155,32 @@ def test_stale_canonical_bytes_fail_check(tmp_path: Path):
         )
 
 
+def test_duplicate_row_in_canonical_fails_check(tmp_path: Path):
+    plugins_root = tmp_path / "build_context" / "plugins"
+    dockerfile = tmp_path / "Dockerfile"
+    plugin_dir = _write_plugin_tree(plugins_root, "dup-plugin")
+    _write_dockerfile(dockerfile, copy_plugins=("dup-plugin",))
+    canonical = tmp_path / "canonical" / "ops.json"
+    expected = _independent_canonical_bytes(OPS)
+    canonical.parent.mkdir(parents=True)
+    rows = json.loads(expected.decode("utf-8"))
+    duplicated = [*rows, rows[0]]
+    canonical.write_bytes(
+        (json.dumps(duplicated, sort_keys=True, separators=(",", ":")) + "\n").encode(
+            "utf-8"
+        )
+    )
+    baked = plugin_dir / BAKED_OPS_RELATIVE
+    baked.parent.mkdir(parents=True, exist_ok=True)
+    baked.write_bytes(expected)
+    with pytest.raises(SystemExit):
+        check_export(
+            canonical_path=canonical,
+            plugins_root=plugins_root,
+            dockerfile_path=dockerfile,
+        )
+
+
 def test_extra_field_in_baked_copy_fails_check(tmp_path: Path):
     plugins_root = tmp_path / "build_context" / "plugins"
     dockerfile = tmp_path / "Dockerfile"
