@@ -216,6 +216,28 @@ def test_push_success_sequence_and_marker(mock_run: MagicMock, repo: Path) -> No
 
 
 @patch("startup.steps.registry_push.subprocess.run")
+def test_push_uses_clean_git_root_but_records_runtime_state(
+    mock_run: MagicMock, repo: Path
+) -> None:
+    calls: list[list[str]] = []
+    mock_run.side_effect = _happy_run_dispatcher(calls)
+    clean_source = repo / "clean-source"
+
+    outcome = push_baseline(
+        repo,
+        compose_project_name="nextseek",
+        today=TODAY,
+        git_root=clean_source,
+    )
+
+    assert outcome.status == "pushed"
+    git_calls = [call for call in calls if call[:2] == ["git", "-C"]]
+    assert git_calls
+    assert all(call[2] == str(clean_source) for call in git_calls)
+    assert read_state(repo)["last_attempt"]["status"] == "pushed"
+
+
+@patch("startup.steps.registry_push.subprocess.run")
 def test_gate_failure_pushes_nothing_and_records(mock_run: MagicMock, repo: Path) -> None:
     def dispatch(cmd, **kwargs):
         if cmd[:2] == ["docker", "run"]:
@@ -583,6 +605,35 @@ def test_rebuild_nextseek_triggers_baseline_push(
     assert mock_up.call_args.kwargs["force_recreate"] is True
     mock_push.assert_called_once()
     assert mock_push.call_args.kwargs["compose_project_name"] == "nextseek"
+
+
+@patch("startup.cli.load_instance")
+def test_rebuild_can_build_clean_source_and_recreate_from_runtime_root(
+    mock_load: MagicMock,
+) -> None:
+    from typer.testing import CliRunner
+
+    from startup import cli
+
+    mock_load.return_value = _instance_state()
+    clean_source = Path("/clean/origin-dev")
+    with patch(
+        "startup.lib.deploy_source.resolve_verified_source",
+        return_value=clean_source,
+    ), patch("startup.steps.rollback_tags.create_verified", return_value=()), patch(
+        "startup.lib.docker_ops.compose_build"
+    ) as mock_build, patch("startup.lib.docker_ops.compose_up") as mock_up, patch(
+        "startup.steps.registry_push.push_baselines", return_value=()
+    ) as mock_push:
+        result = CliRunner().invoke(
+            cli.app,
+            ["rebuild", "--source-tree", str(clean_source)],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert mock_build.call_args.kwargs["project_dir"] == clean_source
+    assert mock_up.call_args.kwargs["project_dir"] == cli.REPO_ROOT
+    assert mock_push.call_args.kwargs["git_root"] == clean_source
 
 
 @patch("startup.cli.load_instance")

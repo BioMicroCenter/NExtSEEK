@@ -253,24 +253,26 @@ docker logs -f nextseek        # until gunicorn workers are up; no FAILED marker
 
 ### 3.3 If the deploy clone is owned by a different account
 
-On shared servers the deploy clone (build context) may be owned by a service
-account while operators work from their own accounts without sudo. All reads,
-writes, and compose commands against the deploy clone then go through a
-helper container that acts as the owning uid + the docker group:
+On shared servers the installed runtime checkout may be owned by a service
+account or carry unrelated operator-owned files. Do not stash, discard, or
+bake those files. Fast-forward that checkout to the exact deployed
+`origin/dev`, create a separate clean detached worktree at the same SHA, and
+use it only as the image source:
 
 ```bash
-SA=<absolute path to the deploy clone>
-docker run --rm --user <owner-uid>:<docker-gid> -e HOME=/tmp \
-  -v /var/run/docker.sock:/var/run/docker.sock -v "$SA":"$SA" -w "$SA" \
-  docker:cli docker compose -p nextseek build nextseek
+git fetch origin dev
+git worktree add --detach <clean-path> origin/dev
+./startup.sh rebuild --source-tree <clean-path>
 ```
 
-Sync the deploy clone from a working clone with a fast-forward-only fetch
-(run inside the same helper pattern, using an image that has git):
-`git fetch <working-clone-path> <branch> && git merge --ff-only FETCH_HEAD`
-(needs `git config --global --add safe.directory '*'` and
-`-c protocol.file.allow=always` inside the helper). Never edit the deploy
-clone in place; never commit from it.
+The CLI proves the source is clean and exactly `origin/dev`, proves the
+runtime checkout is at the same commit, and refuses dirty runtime deployment
+controls (`docker-compose.yml` and `startup/`). It builds from the clean tree
+but recreates services from the installed runtime checkout, so `outputs/`,
+`logs/`, local settings, and other existing bind mounts retain their original
+host paths. A helper container acting as the owning uid may still be required
+to fast-forward or invoke the service-account checkout; never edit or commit
+from that checkout.
 
 ---
 

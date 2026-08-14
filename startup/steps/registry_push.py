@@ -213,6 +213,7 @@ def push_baseline(
     today: datetime.date | None = None,
     local_image: str | None = None,
     registry_image: str = REGISTRY_IMAGE,
+    git_root: Path | None = None,
 ) -> PushOutcome:
     """Gate → tag → login → push → logout. Returns an outcome; NEVER raises."""
     if compose_project_name != CANONICAL_PROJECT:
@@ -253,7 +254,7 @@ def push_baseline(
             _record(repo_root, outcome)
             return outcome
 
-        tag = f"{registry_image}:{compute_baseline_tag(repo_root, today=today)}"
+        tag = f"{registry_image}:{compute_baseline_tag(git_root or repo_root, today=today)}"
         tag_result = subprocess.run(
             ["docker", "tag", local_image, tag], capture_output=True, text=True
         )
@@ -338,17 +339,20 @@ def push_baselines(
     repo_root: Path,
     compose_project_name: str,
     images: tuple[ImagePolicy, ...],
+    git_root: Path | None = None,
 ) -> tuple[PushOutcome, ...]:
     """Push each rebuilt first-party image without letting registry failures escape."""
-    return tuple(
-        push_baseline(
-            repo_root,
-            compose_project_name=compose_project_name,
-            local_image=image.local_image,
-            registry_image=image.registry_image,
-        )
-        for image in images
-    )
+    outcomes = []
+    for image in images:
+        kwargs = {
+            "compose_project_name": compose_project_name,
+            "local_image": image.local_image,
+            "registry_image": image.registry_image,
+        }
+        if git_root is not None:
+            kwargs["git_root"] = git_root
+        outcomes.append(push_baseline(repo_root, **kwargs))
+    return tuple(outcomes)
 
 
 def render_outcome(outcome: PushOutcome) -> None:

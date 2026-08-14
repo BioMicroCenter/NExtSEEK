@@ -80,6 +80,13 @@ The default app component rebuilds one shared image and recreates `nextseek`,
 SEEK, or Solr. `--service` remains an alias for `--component`; arbitrary
 Compose services are rejected.
 
+If the installed runtime checkout contains unrelated operator-owned files,
+use `./startup.sh rebuild --source-tree <clean-origin-dev-worktree>`. The CLI
+builds from that verified clean source while recreating from the installed
+instance, preserving its existing bind-mounted output, log, and configuration
+paths. Runtime/source SHAs must match, and dirty deployment-control files are
+refused.
+
 After a rebuild on the canonical instance (compose project `nextseek`), the
 CLI tries to push each rebuilt image to its private GHCR package, gated by the
 DEPLOYMENT.md §5.2 baked-secret check. **This step never fails the rebuild**:

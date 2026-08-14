@@ -470,9 +470,18 @@ def rebuild(
         "--service",
         help="app, cc-agent, nextseek-sidecar, bedrock-proxy, or custom-stack",
     ),
+    source_tree: Path | None = typer.Option(
+        None,
+        "--source-tree",
+        help=(
+            "Clean checkout at exact origin/dev used only as the image build context; "
+            "runtime services retain this instance's existing bind-mount paths."
+        ),
+    ),
 ) -> None:
     """Safely rebuild a first-party component without touching volumes."""
     from startup.lib.docker_ops import compose_build, compose_up
+    from startup.lib.deploy_source import DeploySourceError, resolve_verified_source
     from startup.lib.rebuild_policy import resolve_component
     from startup.steps import rollback_tags
 
@@ -487,11 +496,25 @@ def rebuild(
         ui.fail(str(exc))
         raise typer.Exit(code=2) from exc
 
+    build_root = REPO_ROOT
+    if source_tree is not None:
+        try:
+            build_root = resolve_verified_source(REPO_ROOT, source_tree)
+        except DeploySourceError as exc:
+            ui.fail(str(exc))
+            ui.remediation(
+                "fetch origin/dev, fast-forward the runtime checkout, and use a clean "
+                "detached worktree at that exact SHA"
+            )
+            raise typer.Exit(code=1) from exc
+
     ui.banner(f"Rebuilding {policy.name} for instance {state.name}")
+    if build_root != REPO_ROOT:
+        ui.info(f"clean deploy source: {build_root}")
     with ui.spinner("creating verified pre-rebuild rollback tags"):
         try:
             prepared = rollback_tags.create_verified(
-                [image.local_image for image in policy.images], REPO_ROOT
+                [image.local_image for image in policy.images], build_root
             )
         except rollback_tags.RollbackTagError as exc:
             ui.fail(str(exc))
@@ -503,7 +526,7 @@ def rebuild(
     with ui.spinner(f"building {policy.name}"):
         compose_build(
             services=policy.build_services,
-            project_dir=REPO_ROOT,
+            project_dir=build_root,
             env=state.compose_env(),
         )
     if policy.restart_services:
@@ -528,6 +551,7 @@ def rebuild(
             REPO_ROOT,
             compose_project_name=state.compose_project_name,
             images=policy.images,
+            git_root=build_root,
         ):
             registry_push.render_outcome(outcome)
     except Exception as exc:

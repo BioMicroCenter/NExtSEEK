@@ -19,6 +19,9 @@ routes you and holds the hard gates.
   `--component bedrock-proxy`.
 - **Every first-party image**: use `--component custom-stack`. This never
   rebuilds or restarts nginx, databases, SEEK, or Solr.
+- **Dirty shared runtime checkout**: use `--source-tree <clean-origin-dev>`.
+  Images build from that verified clean checkout while recreation continues
+  from the installed instance, preserving its existing bind-mounted paths.
 
 Every rebuild verb first creates and verifies local rollback tags, uses
 `--no-deps --force-recreate` for long-running targets, gates each fresh image
@@ -46,6 +49,8 @@ but produces a loud banner and red doctor check. Do not bypass this with raw
 
 1. Deploy only committed code from `origin/dev` — never `docker cp` fixes
    into a running container (ephemeral; lost on recreate).
+   `--source-tree` refuses a dirty tree, a SHA other than `origin/dev`, a
+   runtime/source SHA mismatch, or dirty runtime deployment-control files.
 2. Require the rebuild CLI's verified pre-tags. If raw image work is explicitly
    approved, create and inspect equivalent tags before replacing any image.
 3. mysqldump gate before any deploy whose range includes a Django migration.
