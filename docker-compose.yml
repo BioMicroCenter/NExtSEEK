@@ -1,6 +1,9 @@
 services:
   nextseek:
     build: .
+    # Every app-code process below runs this same image. COMPOSE_PROJECT_NAME
+    # keeps canonical and port-offset instances isolated from one another.
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     container_name: ${INSTANCE_PREFIX:-}nextseek
     restart: always
     environment:
@@ -307,7 +310,7 @@ services:
   # `nextseek`/batch_upload worker containers, so an attribute-mutation
   # backlog or crash can never starve or be starved by batch uploads.
   attribute_mutation_worker:
-    build: .
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     env_file: [./docker/db.env, ./docker/nextseek.env]
     depends_on:
       seek: {condition: service_started}
@@ -335,7 +338,7 @@ services:
   # `attribute_mutations` messages. A request process never publishes
   # directly (Section 6).
   attribute_mutation_dispatcher:
-    build: .
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     env_file: [./docker/db.env, ./docker/nextseek.env]
     depends_on:
       seek: {condition: service_started}
@@ -364,7 +367,7 @@ services:
   # consume either Celery queue, only scan/claim/reconcile via the default
   # database.
   attribute_mutation_recovery_scheduler:
-    build: .
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     env_file: [./docker/db.env, ./docker/nextseek.env]
     depends_on:
       seek: {condition: service_started}

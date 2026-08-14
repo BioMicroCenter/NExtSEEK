@@ -43,6 +43,19 @@ def test_compose_up_can_force_recreate(mock_run: MagicMock) -> None:
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_can_exclude_dependencies(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_up(
+        services=["nextseek"],
+        project_dir="/repo",
+        env={},
+        no_deps=True,
+    )
+    args = mock_run.call_args.args[0]
+    assert "--no-deps" in args
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
 def test_compose_up_passes_env(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     compose_up(services=["db"], project_dir="/repo", env={"INSTANCE_PREFIX": "test-"})

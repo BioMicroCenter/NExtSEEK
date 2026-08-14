@@ -16,6 +16,7 @@ import orjson
 import pytest
 
 from startup.steps import registry_push
+from startup.lib.rebuild_policy import ImagePolicy
 from startup.steps.registry_push import (
     GHCR_ENV_OVERRIDE_VAR,
     REGISTRY_IMAGE,
@@ -26,6 +27,7 @@ from startup.steps.registry_push import (
     credential_env_path,
     load_credentials,
     push_baseline,
+    push_baselines,
     read_state,
 )
 
@@ -290,6 +292,28 @@ def test_non_canonical_instance_is_skipped_without_docker_calls(
     assert read_state(repo) is None
 
 
+@patch("startup.steps.registry_push.push_baseline")
+def test_push_baselines_maps_each_local_image_to_its_registry(
+    mock_push: MagicMock, repo: Path
+) -> None:
+    mock_push.side_effect = [
+        registry_push.PushOutcome(status="pushed", registry_image="ghcr.io/org/a"),
+        registry_push.PushOutcome(status="pushed", registry_image="ghcr.io/org/b"),
+    ]
+    images = (
+        ImagePolicy(local_image="local-a:latest", registry_image="ghcr.io/org/a"),
+        ImagePolicy(local_image="local-b:latest", registry_image="ghcr.io/org/b"),
+    )
+    outcomes = push_baselines(repo, "nextseek", images)
+    assert len(outcomes) == 2
+    assert mock_push.call_args_list[0].kwargs == {
+        "compose_project_name": "nextseek",
+        "local_image": "local-a:latest",
+        "registry_image": "ghcr.io/org/a",
+    }
+    assert mock_push.call_args_list[1].kwargs["local_image"] == "local-b:latest"
+
+
 # ---------------------------------------------------------------------------
 # Doctor check
 # ---------------------------------------------------------------------------
@@ -340,6 +364,58 @@ def test_doctor_ok_when_last_attempt_pushed(tmp_path: Path) -> None:
     name, ok, detail = check_registry_baseline(tmp_path)
     assert ok is True
     assert "baseline-20260807-abc1234" in detail
+
+
+def test_doctor_fails_when_new_marker_omits_first_party_images(tmp_path: Path) -> None:
+    (tmp_path / "startup").mkdir()
+    _write_state(
+        tmp_path,
+        {
+            "images": {
+                REGISTRY_IMAGE: {
+                    "last_success": {"at": "2026-08-14T12:00:00", "tag": "t"},
+                    "last_attempt": {
+                        "at": "2026-08-14T12:00:00",
+                        "status": "pushed",
+                        "detail": "",
+                    },
+                }
+            }
+        },
+    )
+    _, ok, detail = check_registry_baseline(tmp_path)
+    assert ok is False
+    assert "never pushed" in detail
+    assert "nextseek-cc-agent" in detail
+
+
+@patch("startup.steps.registry_push.subprocess.run")
+def test_first_non_app_push_migrates_legacy_app_state(
+    mock_run: MagicMock, repo: Path
+) -> None:
+    _write_state(
+        repo,
+        {
+            "last_success": {"at": "2026-08-06T12:00:00", "tag": "legacy-app"},
+            "last_attempt": {
+                "at": "2026-08-06T12:00:00",
+                "status": "pushed",
+                "detail": "",
+            },
+        },
+    )
+    calls: list[list[str]] = []
+    mock_run.side_effect = _happy_run_dispatcher(calls)
+    outcome = push_baseline(
+        repo,
+        compose_project_name="nextseek",
+        local_image="dmac-assistant:poc",
+        registry_image="ghcr.io/biomicrocenter/nextseek-cc-agent",
+        today=TODAY,
+    )
+    assert outcome.status == "pushed"
+    state = read_state(repo)
+    assert state["images"][REGISTRY_IMAGE]["last_success"]["tag"] == "legacy-app"
 
 
 def test_load_credentials_ignores_lines_without_equals(tmp_path: Path) -> None:
@@ -481,41 +557,54 @@ def _instance_state():
     )
 
 
-@patch("startup.steps.registry_push.render_outcome")
-@patch("startup.steps.registry_push.push_baseline")
 @patch("startup.cli.load_instance")
 def test_rebuild_nextseek_triggers_baseline_push(
-    mock_load: MagicMock, mock_push: MagicMock, mock_render: MagicMock
+    mock_load: MagicMock,
 ) -> None:
     from typer.testing import CliRunner
 
     from startup.cli import app
 
     mock_load.return_value = _instance_state()
-    with patch("startup.lib.docker_ops.compose_up"):
+    with patch("startup.steps.rollback_tags.create_verified", return_value=()), \
+         patch("startup.lib.docker_ops.compose_build") as mock_build, \
+         patch("startup.lib.docker_ops.compose_up") as mock_up, \
+         patch("startup.steps.registry_push.push_baselines", return_value=()) as mock_push:
         result = CliRunner().invoke(app, ["rebuild"])
     assert result.exit_code == 0
+    assert mock_build.call_args.kwargs["services"] == ("nextseek",)
+    assert mock_up.call_args.kwargs["services"] == (
+        "nextseek",
+        "attribute_mutation_worker",
+        "attribute_mutation_dispatcher",
+        "attribute_mutation_recovery_scheduler",
+    )
+    assert mock_up.call_args.kwargs["no_deps"] is True
+    assert mock_up.call_args.kwargs["force_recreate"] is True
     mock_push.assert_called_once()
     assert mock_push.call_args.kwargs["compose_project_name"] == "nextseek"
 
 
-@patch("startup.steps.registry_push.push_baseline")
 @patch("startup.cli.load_instance")
-def test_rebuild_other_service_does_not_push(mock_load: MagicMock, mock_push: MagicMock) -> None:
+def test_rebuild_cc_agent_builds_without_starting_container(mock_load: MagicMock) -> None:
     from typer.testing import CliRunner
 
     from startup.cli import app
 
     mock_load.return_value = _instance_state()
-    with patch("startup.lib.docker_ops.compose_up"):
-        result = CliRunner().invoke(app, ["rebuild", "--service", "nextseek_nginx"])
+    with patch("startup.steps.rollback_tags.create_verified", return_value=()), \
+         patch("startup.lib.docker_ops.compose_build") as mock_build, \
+         patch("startup.lib.docker_ops.compose_up") as mock_up, \
+         patch("startup.steps.registry_push.push_baselines", return_value=()) as mock_push:
+        result = CliRunner().invoke(app, ["rebuild", "--component", "cc-agent"])
     assert result.exit_code == 0
-    mock_push.assert_not_called()
+    assert mock_build.call_args.kwargs["services"] == ("cc-agent",)
+    mock_up.assert_not_called()
+    mock_push.assert_called_once()
 
 
-@patch("startup.steps.registry_push.push_baseline")
 @patch("startup.cli.load_instance")
-def test_rebuild_survives_push_step_blowing_up(mock_load: MagicMock, mock_push: MagicMock) -> None:
+def test_rebuild_survives_push_step_blowing_up(mock_load: MagicMock) -> None:
     """Even if the push step somehow raises despite its contract, the rebuild
     command must still exit 0 — the deploy is never hostage to the registry."""
     from typer.testing import CliRunner
@@ -523,7 +612,42 @@ def test_rebuild_survives_push_step_blowing_up(mock_load: MagicMock, mock_push: 
     from startup.cli import app
 
     mock_load.return_value = _instance_state()
-    mock_push.side_effect = RuntimeError("contract violated")
-    with patch("startup.lib.docker_ops.compose_up"):
+    with patch("startup.steps.rollback_tags.create_verified", return_value=()), \
+         patch("startup.lib.docker_ops.compose_build"), \
+         patch("startup.lib.docker_ops.compose_up"), \
+         patch(
+             "startup.steps.registry_push.push_baselines",
+             side_effect=RuntimeError("contract violated"),
+         ):
         result = CliRunner().invoke(app, ["rebuild"])
     assert result.exit_code == 0
+
+
+@patch("startup.cli.load_instance")
+def test_rebuild_aborts_before_build_when_rollback_tag_fails(mock_load: MagicMock) -> None:
+    from typer.testing import CliRunner
+
+    from startup.cli import app
+    from startup.steps.rollback_tags import RollbackTagError
+
+    mock_load.return_value = _instance_state()
+    with patch(
+        "startup.steps.rollback_tags.create_verified",
+        side_effect=RollbackTagError("missing source"),
+    ), patch("startup.lib.docker_ops.compose_build") as mock_build:
+        result = CliRunner().invoke(app, ["rebuild"])
+    assert result.exit_code == 1
+    assert "missing source" in result.output
+    mock_build.assert_not_called()
+
+
+@patch("startup.cli.load_instance")
+def test_rebuild_rejects_unknown_component(mock_load: MagicMock) -> None:
+    from typer.testing import CliRunner
+
+    from startup.cli import app
+
+    mock_load.return_value = _instance_state()
+    result = CliRunner().invoke(app, ["rebuild", "--component", "nextseek_nginx"])
+    assert result.exit_code == 2
+    assert "unknown rebuild component" in result.output

@@ -1,9 +1,9 @@
 """Automated off-box rollback-baseline push to GHCR (DEPLOYMENT.md §5.2).
 
-After a rebuild of the canonical instance, the freshly built image is gated
-for baked secrets, tagged ``baseline-<YYYYMMDD>-<shortsha>``, and pushed to
-the private org package — so a known-good image survives disk cleanups on the
-deploy host (which have destroyed every local rollback tag before).
+After a rebuild of the canonical instance, each freshly built first-party
+image is gated for baked secrets, tagged ``baseline-<YYYYMMDD>-<shortsha>``,
+and pushed to its private org package — so known-good images survive disk
+cleanups on the deploy host (which have destroyed local rollback tags before).
 
 Contract: this step NEVER fails the deploy. ``push_baseline`` returns an
 outcome for every failure mode instead of raising; failures are surfaced as a
@@ -28,6 +28,7 @@ from pathlib import Path
 import orjson
 
 from startup.lib import ui
+from startup.lib.rebuild_policy import ImagePolicy, registry_images
 
 REGISTRY_IMAGE = "ghcr.io/biomicrocenter/nextseek"
 GHCR_ENV_OVERRIDE_VAR = "NEXTSEEK_GHCR_ENV"
@@ -59,6 +60,7 @@ class PushOutcome:
     remediation: str = ""
     tag: str | None = None
     digest: str | None = None
+    registry_image: str = REGISTRY_IMAGE
 
 
 def credential_env_path() -> Path:
@@ -132,7 +134,8 @@ def baked_secret_gate(image: str) -> tuple[bool, str]:
     catch-all because push_baseline wraps everything."""
     probe = _image_sh(
         image,
-        "ls /app/.env /app/docker/*env* /app/dmac/local_settings.py 2>/dev/null; true",
+        "ls /app/.env /app/*secret*.env /app/docker/*env* "
+        "/app/dmac/local_settings.py /home/user/.env /opt/dmac/.env 2>/dev/null; true",
     )
     if probe.returncode != 0:
         return False, f"gate probe could not run (exit {probe.returncode}): {probe.stderr.strip()}"
@@ -169,9 +172,27 @@ def read_state(repo_root: Path) -> dict | None:
 def _record(repo_root: Path, outcome: PushOutcome) -> None:
     state = read_state(repo_root) or {"last_success": None}
     now = datetime.datetime.now().isoformat(timespec="seconds")
-    state["last_attempt"] = {"at": now, "status": outcome.status, "detail": outcome.detail}
+    attempt = {"at": now, "status": outcome.status, "detail": outcome.detail}
+    images = state.setdefault("images", {})
+    if REGISTRY_IMAGE not in images and state.get("last_attempt"):
+        images[REGISTRY_IMAGE] = {
+            "last_attempt": state["last_attempt"],
+            "last_success": state.get("last_success"),
+        }
+    image_state = images.setdefault(outcome.registry_image, {"last_success": None})
+    image_state["last_attempt"] = attempt
     if outcome.status == "pushed":
-        state["last_success"] = {"at": now, "tag": outcome.tag, "digest": outcome.digest}
+        image_state["last_success"] = {
+            "at": now,
+            "tag": outcome.tag,
+            "digest": outcome.digest,
+        }
+    # Preserve the original app-only fields so old tooling can read the marker
+    # while new doctor logic evaluates every first-party image independently.
+    if outcome.registry_image == REGISTRY_IMAGE:
+        state["last_attempt"] = attempt
+        if outcome.status == "pushed":
+            state["last_success"] = image_state["last_success"]
     _state_path(repo_root).write_bytes(orjson.dumps(state, option=orjson.OPT_INDENT_2))
 
 
@@ -190,6 +211,8 @@ def push_baseline(
     repo_root: Path,
     compose_project_name: str,
     today: datetime.date | None = None,
+    local_image: str | None = None,
+    registry_image: str = REGISTRY_IMAGE,
 ) -> PushOutcome:
     """Gate → tag → login → push → logout. Returns an outcome; NEVER raises."""
     if compose_project_name != CANONICAL_PROJECT:
@@ -198,10 +221,11 @@ def push_baseline(
         return PushOutcome(
             status="skipped",
             detail=f"instance '{compose_project_name}' is not the canonical deploy instance",
+            registry_image=registry_image,
         )
     cred_path = credential_env_path()
     try:
-        local_image = f"{compose_project_name}-nextseek:latest"
+        local_image = local_image or f"{compose_project_name}-nextseek:latest"
         gate_ok, gate_detail = baked_secret_gate(local_image)
         if not gate_ok:
             outcome = PushOutcome(
@@ -213,6 +237,7 @@ def push_baseline(
                     "test_build_context_env_guard.py), rebuild, and the next "
                     "rebuild will push automatically. DEPLOYMENT.md §5.2."
                 ),
+                registry_image=registry_image,
             )
             _record(repo_root, outcome)
             return outcome
@@ -223,11 +248,12 @@ def push_baseline(
                 status="no_credentials",
                 detail=f"no usable GHCR credential at {cred_path}",
                 remediation=_nudge(cred_path),
+                registry_image=registry_image,
             )
             _record(repo_root, outcome)
             return outcome
 
-        tag = f"{REGISTRY_IMAGE}:{compute_baseline_tag(repo_root, today=today)}"
+        tag = f"{registry_image}:{compute_baseline_tag(repo_root, today=today)}"
         tag_result = subprocess.run(
             ["docker", "tag", local_image, tag], capture_output=True, text=True
         )
@@ -237,6 +263,7 @@ def push_baseline(
                 detail=f"docker tag failed: {tag_result.stderr.strip()}",
                 remediation=_nudge(cred_path),
                 tag=tag,
+                registry_image=registry_image,
             )
             _record(repo_root, outcome)
             return outcome
@@ -257,6 +284,7 @@ def push_baseline(
                         "lost org access. " + _nudge(cred_path)
                     ),
                     tag=tag,
+                    registry_image=registry_image,
                 )
             else:
                 push = subprocess.run(
@@ -272,6 +300,7 @@ def push_baseline(
                             "package access. " + _nudge(cred_path)
                         ),
                         tag=tag,
+                        registry_image=registry_image,
                     )
                 else:
                     digest = ""
@@ -283,6 +312,7 @@ def push_baseline(
                         detail=f"pushed {tag}",
                         tag=tag,
                         digest=digest or None,
+                        registry_image=registry_image,
                     )
         finally:
             # Shared box: never leave the credential in ~/.docker/config.json.
@@ -295,12 +325,30 @@ def push_baseline(
             status="error",
             detail=f"unexpected failure in baseline push step: {exc}",
             remediation=_nudge(cred_path),
+            registry_image=registry_image,
         )
         try:
             _record(repo_root, outcome)
         except Exception:
             pass
         return outcome
+
+
+def push_baselines(
+    repo_root: Path,
+    compose_project_name: str,
+    images: tuple[ImagePolicy, ...],
+) -> tuple[PushOutcome, ...]:
+    """Push each rebuilt first-party image without letting registry failures escape."""
+    return tuple(
+        push_baseline(
+            repo_root,
+            compose_project_name=compose_project_name,
+            local_image=image.local_image,
+            registry_image=image.registry_image,
+        )
+        for image in images
+    )
 
 
 def render_outcome(outcome: PushOutcome) -> None:
@@ -320,7 +368,7 @@ def render_outcome(outcome: PushOutcome) -> None:
 
 
 def check_registry_baseline(repo_root: Path) -> tuple[str, bool, str]:
-    """Doctor check: red until the most recent push attempt succeeded."""
+    """Doctor check: red until every attempted first-party image is protected."""
     state = read_state(repo_root)
     if state is None:
         return (
@@ -329,6 +377,36 @@ def check_registry_baseline(repo_root: Path) -> tuple[str, bool, str]:
             "never pushed from this host — images are unrecoverable after a "
             "disk cleanup until a rebuild pushes to GHCR (DEPLOYMENT.md §5.2)",
         )
+    image_states = state.get("images")
+    if image_states:
+        required = {image.registry_image for image in registry_images()}
+        missing = sorted(required - set(image_states))
+        failed = []
+        for image_name, image_state in image_states.items():
+            attempt = image_state.get("last_attempt") or {}
+            if attempt.get("status") != "pushed":
+                failed.append(
+                    f"{image_name}: {attempt.get('status', '?')} ({attempt.get('detail', '')})"
+                )
+        if missing or failed:
+            parts = []
+            if missing:
+                parts.append("never pushed: " + ", ".join(missing))
+            if failed:
+                parts.append("failed: " + "; ".join(failed))
+            return "off-box baseline", False, " | ".join(parts)
+        successes = [
+            image_states[image_name].get("last_success", {}).get("at", "?")
+            for image_name in required
+        ]
+        return (
+            "off-box baseline",
+            True,
+            f"all {len(required)} first-party images protected; latest push {max(successes)}",
+        )
+
+    # Backward-compatible read of the original app-only marker. The first
+    # rebuild under the new CLI writes `images` and activates full coverage.
     attempt = state.get("last_attempt") or {}
     if attempt.get("status") != "pushed":
         return (

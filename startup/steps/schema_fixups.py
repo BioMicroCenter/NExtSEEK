@@ -40,9 +40,20 @@ from hashlib import sha256
 from pathlib import Path
 
 import orjson
-from MySQLdb import DatabaseError
 
 from startup.lib.docker_ops import compose_exec, compose_port
+
+
+def _database_error_type():
+    """Load mysqlclient only in the DB-backed fixup path.
+
+    Non-DB startup commands (doctor/rebuild/etc.) run in the intentionally
+    isolated startup environment and must remain importable without host
+    mysqlclient build tooling.
+    """
+    from MySQLdb import DatabaseError
+
+    return DatabaseError
 
 # The literal frozen T03 fault-point identity vocabulary from Section 11.5 of
 # the task spec, bound into every ddl-telemetry/v1 `operation.fault_point_ids`
@@ -404,7 +415,7 @@ def attribute_index_readiness(connection, index: ManagedIndex) -> tuple[str, tup
         if not _table_exists_on_connection(connection, index.database, index.table):
             return ("table_missing", None)
         shape = parse_mysql_index_shape(_statistics_rows(connection, index))
-    except DatabaseError:
+    except _database_error_type():
         raise
     if shape is None:
         return ("absent", None)
@@ -591,7 +602,7 @@ def observe_concurrent_lock_probe(connection, index: ManagedIndex) -> dict:
         cursor.fetchone()
         outcome = "succeeded"
         error_code = None
-    except DatabaseError as exc:
+    except _database_error_type() as exc:
         outcome = "errored"
         error_code = str(exc.args[0]) if exc.args else str(exc)
     duration = max(time.monotonic() - start, 0.0)

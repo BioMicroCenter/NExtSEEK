@@ -62,19 +62,28 @@ Destructive: drops all volumes for the current instance and re-runs install.
 
 ### `rebuild`
 
-Rebuilds and restarts one service without touching volumes. Default service
-is `nextseek`.
+Safely rebuilds one first-party component without touching volumes. Before any
+build it creates and verifies a local rollback tag for every affected image.
+Long-running targets are recreated with `--no-deps --force-recreate`.
 
 ```
-./startup.sh rebuild
-./startup.sh rebuild --service nextseek_nginx
+./startup.sh rebuild                              # shared app image + all app runtimes
+./startup.sh rebuild --component cc-agent         # build-only; no persistent container
+./startup.sh rebuild --component nextseek-sidecar
+./startup.sh rebuild --component bedrock-proxy
+./startup.sh rebuild --component custom-stack     # all first-party images
 ```
 
-After a `nextseek` rebuild on the canonical instance (compose project
-`nextseek`), the CLI automatically tries to push an off-box rollback baseline
-to the private GHCR package (`ghcr.io/biomicrocenter/nextseek:baseline-<date>-<sha>`),
-gated by the DEPLOYMENT.md §5.2 baked-secret check. **This step never fails
-the rebuild**: with no credential (or an expired one) it prints a banner
+The default app component rebuilds one shared image and recreates `nextseek`,
+`attribute_mutation_worker`, `attribute_mutation_dispatcher`, and
+`attribute_mutation_recovery_scheduler`. It does not touch nginx, databases,
+SEEK, or Solr. `--service` remains an alias for `--component`; arbitrary
+Compose services are rejected.
+
+After a rebuild on the canonical instance (compose project `nextseek`), the
+CLI tries to push each rebuilt image to its private GHCR package, gated by the
+DEPLOYMENT.md §5.2 baked-secret check. **This step never fails the rebuild**:
+with no credential (or an expired one) it prints a banner
 telling the deployer how to fix it, records the failure in
 `startup/.ghcr-push-state.json` (gitignored), and `./startup.sh doctor` keeps
 flagging it until a push succeeds. Credential: a classic PAT with

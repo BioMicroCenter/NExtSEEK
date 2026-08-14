@@ -32,8 +32,9 @@ def compose_up(
     detached: bool = True,
     build: bool = False,
     force_recreate: bool = False,
+    no_deps: bool = False,
 ) -> None:
-    """Run `docker compose up [-d] [--build] [--force-recreate] <services...>`."""
+    """Run ``docker compose up`` for an explicit service set."""
     cmd = ["docker", "compose", "up"]
     if detached:
         cmd.append("-d")
@@ -41,6 +42,8 @@ def compose_up(
         cmd.append("--build")
     if force_recreate:
         cmd.append("--force-recreate")
+    if no_deps:
+        cmd.append("--no-deps")
     cmd.extend(services)
     result = subprocess.run(
         cmd,

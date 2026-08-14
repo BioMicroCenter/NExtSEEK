@@ -22,6 +22,7 @@ package = false
 test = [
     "pytest>=8.0.0",
     "pytest-cov>=7.1.0",
+    "pyyaml>=6.0.2",
 ]
 maintainer = [
     "python-dotenv>=1.0.0",
