@@ -110,6 +110,15 @@ anything under `static/`, run it after the rebuild or your change isn't served.
 - **Don't commit** the raw `filestore/` working dir or `startup/seed/filestore.tar.gz`
   (both gitignored — the snapshot is hosted on S3 and downloaded on demand),
   `logs/`, `outputs/`, or `.env` files.
+- **Deferred work becomes a GitHub issue, not a silent TODO.** When you find a
+  bug you won't fix now, or finish a plan with residuals, draft a structured
+  issue per [docs/ISSUE-CONVENTIONS.md](docs/ISSUE-CONVENTIONS.md), validate it
+  (`scripts/validate_issue.py` — on this box run it via the repo-mounted
+  container lane), and ask the user before filing. Claude Code users: the
+  committed `nextseek-issues` skill automates this workflow.
+- **New `nextseek_api` ViewSets follow the committed skill.** When adding or
+  changing REST ViewSets, read [`.claude/skills/nextseek-viewset/SKILL.md`](.claude/skills/nextseek-viewset/SKILL.md)
+  and run `scripts/validate_viewset_conventions.py` before calling the work done.
 
 ## Debugging a failing stack
 
@@ -125,3 +134,14 @@ For deeper SEEK/assistant issues see `startup/README.md` and
 `NExtSTEPS.md` (repo root) lists the credentials, env vars, and config to
 change before exposing an install beyond a private localhost demo. Rotating the
 default `demo`/`user` passwords is the minimum.
+
+**Deploying, redeploying, rolling back, or verifying a real instance:**
+`DEPLOYMENT.md` (repo root) is the authoritative deployment-hygiene runbook —
+follow it exactly (rollback tags before rebuilds, mysqldump gate before
+migration deploys, scoped service recreation, the post-deploy verification
+checklist, and the Container-CC isolation invariants). The Container-CC
+subsystem specifics live in `nextseek_api/cc_assistant/DEPLOY.md`.
+
+## Session reports / handoffs
+
+- 2026-08-04 — Superuser-only Users admin ViewSet merged to dev and pushed (6d99f85); mints SEEK logins via Rails runner. HTTP E2E deferred until deploy on shared box. See `.claude/reports/2026-08-04-users-admin-viewset-shipped.json`.

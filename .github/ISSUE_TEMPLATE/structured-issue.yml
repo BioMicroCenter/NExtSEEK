@@ -1,0 +1,78 @@
+name: Structured issue
+description: "File a NExtSEEK issue following docs/ISSUE-CONVENTIONS.md (types, areas, evidence epistemics)."
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Conventions: [docs/ISSUE-CONVENTIONS.md](../blob/dev/docs/ISSUE-CONVENTIONS.md).
+        Title rule: state the observed behavior — "X does Y when Z", never "Fix X".
+        Maintainers apply the matching `type:` / `area:` labels at triage (forms cannot map dropdowns to labels).
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type
+      description: "Exactly one. Disambiguation: performance-of-a-bug → bug; anything security-relevant → security; data damage from a code defect → two issues (bug + data-hygiene)."
+      options: [bug, enhancement, task, docs, performance, security, data-hygiene, design-question, ops]
+    validations:
+      required: true
+  - type: input
+    id: areas
+    attributes:
+      label: Areas
+      description: "Comma-separated, at least one. Open set — lowercase with -/_ separators; check existing `area:` labels before inventing a new one."
+      placeholder: "cc_assistant, chat_nextseek, nextseek_api, seek-proxy, ui, upload, batch-upload, sample-search, project-search, router, schema-rag, search-solr, graph-neo4j, deployment, installer, seek"
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority (optional)
+      options: [low, medium, high]
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: "1-3 sentences: the observed behavior or need, plain language."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: "file:line at a stated commit, commands + outputs, logs. Tag EVERY claim with one of: test-proven | reproduced-live | code-reading | inference. No secrets — this repo is public."
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: "What breaks, for whom, how often; severity rationale."
+    validations:
+      required: true
+  - type: textarea
+    id: root_cause
+    attributes:
+      label: Root cause
+      description: "Real analysis only. If not established, leave the pre-filled sentinel exactly as is."
+      value: "Not established — do not guess."
+    validations:
+      required: true
+  - type: textarea
+    id: fix_direction
+    attributes:
+      label: Suggested fix direction (optional)
+      description: "Known candidates, prior art (commit refs). Explicitly non-binding."
+  - type: textarea
+    id: verification_recipe
+    attributes:
+      label: Verification recipe
+      description: "How a future implementer confirms the issue exists now AND confirms it fixed later (commands, test lane)."
+    validations:
+      required: true
+  - type: textarea
+    id: provenance
+    attributes:
+      label: Provenance
+      description: "Origin (plan/report/outstanding-items id, date observed), related issues/PRs."
+    validations:
+      required: true

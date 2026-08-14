@@ -4,9 +4,12 @@ from __future__ import annotations
 import re
 from typing import List
 
-# UID format: optional A./D. prefix, 3+ uppercase letters, 6-digit date,
-# 2-5 uppercase lab abbreviation, dash, index, optional -PUB suffix
-UID_RE = re.compile(r"^([AD]\.)?[A-Z]{3,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?$")
+# UID format: optional single-letter dotted prefix (A./D./M./…), 2+ uppercase
+# type letters, 6-digit date, 2-5 uppercase lab abbreviation, dash, index,
+# optional -PUB suffix
+UID_RE = re.compile(
+    r"\A([A-Z]\.)?[A-Z]{2,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?\Z"
+)
 
 # Semicolons only — names may contain spaces, commas, hyphens
 _PARENT_SPLIT_RE = re.compile(r";")

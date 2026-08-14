@@ -70,6 +70,18 @@ is `nextseek`.
 ./startup.sh rebuild --service nextseek_nginx
 ```
 
+After a `nextseek` rebuild on the canonical instance (compose project
+`nextseek`), the CLI automatically tries to push an off-box rollback baseline
+to the private GHCR package (`ghcr.io/biomicrocenter/nextseek:baseline-<date>-<sha>`),
+gated by the DEPLOYMENT.md §5.2 baked-secret check. **This step never fails
+the rebuild**: with no credential (or an expired one) it prints a banner
+telling the deployer how to fix it, records the failure in
+`startup/.ghcr-push-state.json` (gitignored), and `./startup.sh doctor` keeps
+flagging it until a push succeeds. Credential: a classic PAT with
+`write:packages` (owner must be a BioMicroCenter org member) in
+`~/.config/nextseek/ghcr.env` as `GHCR_USER=…` / `GHCR_TOKEN=…` (mode 600;
+override the path with `NEXTSEEK_GHCR_ENV`). See DEPLOYMENT.md §5.2.
+
 ### `seed-filestore`
 
 Loads `startup/seed/filestore.tar.gz` into the running `seek` container's
@@ -125,6 +137,26 @@ Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
 | `.env` | gitignored | Non-secret compose project + published port vars |
 | `startup/.instance.json` | gitignored | Per-instance state (name, prefix, ports) |
 | `logs/` | gitignored | Container runtime logs |
+
+## Tests & coverage
+
+The startup CLI is deployment-critical and holds a **95% minimum** coverage
+bar (currently ~99%). Hermetic suite (no docker daemon touched):
+
+```
+uv run --project startup --group test python -m pytest startup/tests/
+```
+
+Coverage gate (fails under 95%):
+
+```
+uv run --project startup --group test python -m pytest startup/tests/ \
+  --cov=startup.cli --cov=startup.lib --cov=startup.steps --cov-fail-under=95
+```
+
+Integration lanes: `test_integration_startup.py` chains real git repos, real
+state files, and multi-command CLI flows (docker mocked); set
+`NEXTSEEK_STARTUP_DOCKER_TESTS=1` to also run the opt-in real-docker tests.
 
 ## Known failure modes
 
