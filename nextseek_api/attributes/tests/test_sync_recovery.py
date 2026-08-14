@@ -228,18 +228,18 @@ def _sha256_of_outcomes(value):
 def _crash_web_owner_at(database, attribute_faults, *, type_id, attr_id, point):
     job, plan, partitions = _seed_single_type_job(database, type_id=type_id, attr_id=attr_id)
     owner = f"web:test:{uuid.uuid4()}"
+    before_observed = attribute_faults.observed(point)
     attribute_faults.arm(point)
     process = _spawn_web_owner(job.job_id, owner)
     deadline = time.monotonic() + 30
     hit = False
-    control_path = attribute_faults.control_path
-    import json as _json
     while time.monotonic() < deadline:
-        if control_path.is_file():
-            durable = _json.loads(control_path.read_text())
-            if any(event.get("point") == point for event in durable.get("events", [])):
-                hit = True
-                break
+        # Read through the controller's flock-protected transaction.  A raw
+        # read can observe the brief truncate/write window while the child
+        # process durably records the injected fault.
+        if attribute_faults.observed(point) > before_observed:
+            hit = True
+            break
         if process.poll() is not None:
             break
         time.sleep(0.05)
