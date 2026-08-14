@@ -142,8 +142,33 @@ EXPECTED_SOURCE_ONLY = frozenset({
 KNOWN_DIVERGENCES = frozenset({"neo4j_schema.json"})
 
 
+# Suffixes of files that are GENERATED into the context directory at runtime
+# rather than authored into it. They are gitignored
+# (chat_nextseek/.gitignore:50), so `git status` never shows them, but this
+# guard reads the directory rather than the index and would otherwise count
+# them as un-baked source files and fail.
+#
+# `.npz` is the semantic catalog's embedding matrix cache: catalog_semantic.py
+# writes `<cache_dir>/<name>.embeddings.npz`, and cache_dir is wired to
+# CONTEXT_DIR. Any test that touches the semantic catalog materialises
+# `assays.embeddings.npz` and `sampletypes.embeddings.npz` here, so the guard
+# passed on a fresh checkout and failed on one that had run the suite a few
+# times — a false positive that cost real debugging time.
+#
+# Excluding them is correct rather than a workaround: this guard is about
+# CONTEXT PACK MEMBERSHIP — which authored files did or did not get baked into
+# the agent image — and a derived cache is not a pack member. That the cache
+# lands in a source-controlled directory at all is a separate defect, tracked
+# in issue #102.
+_DERIVED_SUFFIXES = frozenset({".npz"})
+
+
 def _files(directory: Path) -> set[str]:
-    return {p.name for p in directory.iterdir() if p.is_file()}
+    return {
+        p.name
+        for p in directory.iterdir()
+        if p.is_file() and p.suffix not in _DERIVED_SUFFIXES
+    }
 
 
 def _shared_names() -> list[str]:
@@ -539,4 +564,36 @@ def test_schema_rag_retrieve_still_auto_ingests():
         "can become POST_AS_READ with an entry in read_safe_endpoints.json; if "
         "the call merely moved into a helper it is still a write. Until someone "
         "checks, leave it WRITE."
+    )
+
+
+def test_generated_embedding_caches_do_not_count_as_context_files(tmp_path):
+    """A runtime-generated cache must not be mistaken for an un-baked source file.
+
+    catalog_semantic.py writes `<name>.embeddings.npz` into CONTEXT_DIR, so any
+    checkout that has run the suite accumulates them. They are gitignored, so
+    `git status` is clean and the failure looks like a real drift regression.
+    Without the suffix filter in `_files`, `test_source_only_files_are_the_
+    expected_ones` fails on a working checkout and passes on a fresh one.
+    """
+    (tmp_path / "capabilities.md").write_text("authored")
+    (tmp_path / "assays.embeddings.npz").write_bytes(b"\x00generated")
+    (tmp_path / "sampletypes.embeddings.npz").write_bytes(b"\x00generated")
+
+    assert _files(tmp_path) == {"capabilities.md"}
+
+
+def test_the_real_context_dir_has_no_undeclared_generated_files(tmp_path):
+    """The suffix filter is a declared allowance, not a blanket 'ignore junk'.
+
+    If some other generator starts writing a new artifact type into the context
+    pack, that must surface as a drift failure rather than being silently
+    absorbed — so this pins that `.npz` is the only extension being excused.
+    """
+    on_disk = {p.suffix for p in SOURCE_DIR.iterdir() if p.is_file()}
+    excused = on_disk & _DERIVED_SUFFIXES
+    assert excused <= {".npz"}, (
+        f"a new generated artifact type appeared in the context pack: {excused}. "
+        "Decide whether it belongs in the pack (bake it) or is derived "
+        "(add it to _DERIVED_SUFFIXES with the reason)."
     )
