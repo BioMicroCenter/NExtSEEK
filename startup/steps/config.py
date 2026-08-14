@@ -211,6 +211,7 @@ def render_root_env(repo_root: Path, compose_env: Mapping[str, str]) -> Path:
         "SEEK_PORT",
         "NEO4J_HTTP_PORT",
         "NEO4J_BOLT_PORT",
+        "DB_PORT",
         "INSTANCE_PREFIX",
     ]
     output = repo_root / ".env"

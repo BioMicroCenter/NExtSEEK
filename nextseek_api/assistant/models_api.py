@@ -17,6 +17,8 @@ class QueryRequest(BaseModel):
     force_new: bool = Field(False, description="If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one.")
     use_prod: bool = Field(False, description="If true and a NEXTSEEK_CHAT_CONFIG_PROD is configured, route this query through the prod ChatConfig (real production tables) instead of the default dev/docker one. Admin-only on the UI; ignored if a prod config wasn't built.")
     fresh_session: bool = Field(False, description="If true, run this turn as a clean room: skip the Step-1c cross-session memory layer (no rendered ~/.claude/CLAUDE.md, no raw-transcript mount). 1b resume within this chat still applies.")
+    force_route: Optional[Literal["auto", "ns", "cc"]] = Field(None, description="Admin-only: supersede the BAML router for this query. 'ns' forces the core chat_nextseek path, 'cc' forces Container-Claude-Code, 'auto'/None uses the router. Ignored for non-admins (the server re-checks is_staff/is_superuser).")
+    max_turn_length_s: Optional[int] = Field(None, ge=1, description="Admin-only: per-turn wall-clock cap (seconds) for a Container-CC turn. Clamped server-side to [30, NEXTSEEK_CC_TIMEOUT_HARD_MAX]; None uses the configured default. Ignored for non-admins (the server re-checks is_staff/is_superuser).")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -290,6 +292,23 @@ class ReportOpRequest(BaseModel):
         if v not in _REPORT_MODES:
             raise ValueError(f"bad report mode: {v!r}")
         return v
+
+
+class RunLsRequest(BaseModel):
+    """POST /assistant/run-ls/ body — recursive read-only listing of a Luria run dir."""
+    run_dir: str = Field(..., description="Absolute path under <LURIA working_path>/runs.")
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+class BuildUploadXlsxRequest(BaseModel):
+    """POST /assistant/build-upload-xlsx/ body — render 4-sheet upload workbook(s)."""
+    rows: str = Field(..., description="JSON array of {SampleType, json_metadata, assay_ids} rows.")
+    existing_parent_uids: str = Field("", description="Comma-separated existing parent UIDs (for Parent QA).")
+    use_prod: bool = False
+    session_id: Optional[UUID] = Field(
+        None, description="Optional chat session to attach the workbook bundle to.")
+    model_config = ConfigDict(extra="forbid")
 
 
 class SubmissionRequest(BaseModel):

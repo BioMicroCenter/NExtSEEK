@@ -155,8 +155,9 @@ docker compose up -d --no-deps --force-recreate nextseek
 
 **7. Before exposing to anyone you don't trust:** work through
 [`NExtSTEPS.md`](NExtSTEPS.md) — rotate `demo`/`user` passwords, MySQL and
-Neo4j credentials, ensure `DJANGO_DEBUG` stays **unset** (the code treats
-ANY non-empty value — including the string `False` — as debug-on), configure
+Neo4j credentials, ensure `DJANGO_DEBUG` stays **unset** (the code enables
+debug only for `1`, `true` or `yes`, case-insensitive and whitespace-stripped;
+anything else, including absent/empty/`false`, is debug-off), configure
 `ALLOWED_HOSTS`/CSRF, and put a TLS-terminating reverse proxy in front
 (nginx here serves plain HTTP on `127.0.0.1:${NEXTSEEK_PORT:-8000}`; TLS is
 out of scope of this repo).

@@ -75,7 +75,7 @@ class DBtable_clades(DBtable):
             JOIN {self.dbname}.clades c ON stc.clade_id = c.id
             JOIN {seekdb}.projects p ON ps.project_id = p.id
             WHERE p.id = {project_id}
-            GROUP BY st_group, c.title
+            GROUP BY p.id, p.title, st_group, c.title, c.color, c.order
             ORDER BY c.order
         """
         data = self.__sendQuery(query)

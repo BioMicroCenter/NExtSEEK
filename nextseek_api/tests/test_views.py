@@ -187,6 +187,51 @@ class TestGetCladeColor:
 
         assert get_clade_color("BadType") == "#000000"
 
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    def test_sample_type_is_parameterized_not_interpolated(self, mock_settings, mock_mysql):
+        """sample_type is caller-supplied; it must never be inlined into SQL.
+
+        The query used to build `WHERE st.title = '{sample_type}'` with an
+        f-string, so a single quote in sample_type breaks out of the literal.
+        Mirrors the already-safe twin in services/entity_tree.py.
+        """
+        _setup_settings(mock_settings)
+        from nextseek_api.views import get_clade_color
+
+        conn, cur = _mysql_cursor(fetchone_val=("#FF5733",))
+        mock_mysql.connect.return_value = conn
+
+        payload = "NHP' UNION SELECT '#DEADBE'-- "
+        assert get_clade_color(payload) == "#FF5733"
+
+        cur.execute.assert_called_once()
+        args, kwargs = cur.execute.call_args
+        sql = args[0]
+        params = args[1] if len(args) > 1 else kwargs.get("args")
+
+        # The value travels as a bound parameter, never in the statement.
+        assert params == [payload], f"sample_type was not bound: {params!r}"
+        assert payload not in sql
+        assert "UNION" not in sql.upper()
+        assert "st.title = %s" in sql
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    def test_quote_in_sample_type_does_not_change_statement(self, mock_settings, mock_mysql):
+        """Two different sample_types must produce the identical SQL text."""
+        _setup_settings(mock_settings)
+        from nextseek_api.views import get_clade_color
+
+        seen = []
+        for value in ("NHP_blood", "O'Brien'; DROP TABLE clades; --"):
+            conn, cur = _mysql_cursor(fetchone_val=("#FF5733",))
+            mock_mysql.connect.return_value = conn
+            get_clade_color(value)
+            seen.append(cur.execute.call_args[0][0])
+
+        assert seen[0] == seen[1]
+
 
 # ===========================================================================
 # SampleTreeViewSet
@@ -194,6 +239,11 @@ class TestGetCladeColor:
 
 
 class TestSampleTreeViewSet:
+    """NOTE: these tests run as a superuser (``_admin_user()``). get_tree is
+    project-scoped (#60) and a non-superuser is gated on SEEK project
+    membership before the traversal runs, which is covered separately by
+    TestSampleTreeProjectScope below."""
+
 
     def _vs(self):
         from nextseek_api.views import SampleTreeViewSet
@@ -217,7 +267,7 @@ class TestSampleTreeViewSet:
         )
         mock_gdb.driver.return_value = _driver(_graph([parent, child], [rel]))
 
-        req = _auth_request("get", "/")
+        req = _auth_request("get", "/", user=_admin_user())
         vs = self._vs()
         vs.request = req
         resp = vs.get_tree(req, uid="PAT-1")
@@ -232,7 +282,7 @@ class TestSampleTreeViewSet:
     @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("u", "p"), {}))
     @patch(f"{_VIEWS}._resolve_uid_to_seek_id", return_value=None)
     def test_sample_not_found(self, mock_resolve, mock_auth):
-        req = _auth_request("get", "/")
+        req = _auth_request("get", "/", user=_admin_user())
         vs = self._vs()
         vs.request = req
         resp = vs.get_tree(req, uid="INVALID")
@@ -258,7 +308,7 @@ class TestSampleTreeViewSet:
         _setup_settings(mock_s)
         mock_gdb.driver.return_value = _driver(side_effect=AuthError("Auth failed"))
 
-        req = _auth_request("get", "/")
+        req = _auth_request("get", "/", user=_admin_user())
         vs = self._vs()
         vs.request = req
         resp = vs.get_tree(req, uid="42")
@@ -274,7 +324,7 @@ class TestSampleTreeViewSet:
         _setup_settings(mock_s)
         mock_gdb.driver.return_value = _driver(side_effect=Neo4jError("Query failed"))
 
-        req = _auth_request("get", "/")
+        req = _auth_request("get", "/", user=_admin_user())
         vs = self._vs()
         vs.request = req
         resp = vs.get_tree(req, uid="42")
@@ -289,7 +339,7 @@ class TestSampleTreeViewSet:
         _setup_settings(mock_s)
         mock_gdb.driver.return_value = _driver(side_effect=RuntimeError("Unexpected"))
 
-        req = _auth_request("get", "/")
+        req = _auth_request("get", "/", user=_admin_user())
         vs = self._vs()
         vs.request = req
         resp = vs.get_tree(req, uid="42")
@@ -313,7 +363,7 @@ class TestSampleTreeViewSet:
         )
         mock_gdb.driver.return_value = _driver(_graph([parent], [rel]))
 
-        req = _auth_request("get", "/")
+        req = _auth_request("get", "/", user=_admin_user())
         vs = self._vs()
         vs.request = req
         resp = vs.get_tree(req, uid="42")
@@ -332,7 +382,7 @@ class TestSampleTreeViewSet:
         _setup_settings(mock_s)
         mock_gdb.driver.return_value = _driver(_graph([], []))
 
-        req = _auth_request("get", "/")
+        req = _auth_request("get", "/", user=_admin_user())
         vs = self._vs()
         vs.request = req
         resp = vs.get_tree(req, uid="42")
@@ -374,7 +424,7 @@ class TestSampleTreeViewSet:
         )
         mock_gdb.driver.return_value = _driver(_graph([node], [rel]))
 
-        req = _auth_request("get", "/")
+        req = _auth_request("get", "/", user=_admin_user())
         vs = self._vs()
         vs.request = req
         resp = vs.get_tree(req, uid="42")
@@ -390,7 +440,7 @@ class TestSampleTreeViewSet:
         _setup_settings(mock_s)
         mock_gdb.driver.return_value = _driver(_graph([], []))
 
-        req = _auth_request("get", "/")
+        req = _auth_request("get", "/", user=_admin_user())
         vs = self._vs()
         vs.request = req
         vs.get_tree(req, uid=None, pk="99")
@@ -1132,3 +1182,538 @@ class TestAdminSampleViewSet:
         vs.request = req
         resp = vs.admin_retrieve_samples(req)
         assert resp.status_code == 200
+
+
+class TestAdminSampleViewSetUnification:
+    """Task 4: un-gated, project-scoped, include_tree-aware sample retrieval."""
+
+    def _vs(self):
+        from nextseek_api.views import AdminSampleViewSet
+        vs = AdminSampleViewSet()
+        vs.format_kwarg = None
+        vs.kwargs = {}
+        return vs
+
+    def _df(self, rows):
+        import pandas as pd
+        return pd.DataFrame(rows)
+
+    def test_endpoint_is_not_admin_gated(self):
+        from nextseek_api.views import AdminSampleViewSet
+        from rest_framework.permissions import IsAdminUser, IsAuthenticated
+
+        assert IsAuthenticated in AdminSampleViewSet.permission_classes
+        assert IsAdminUser not in AdminSampleViewSet.permission_classes
+
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    def test_seekdb_is_built_from_the_resolved_credentials(self, mock_auth, mock_seekdb, mock_dbs):
+        """SeekDB(None, None, None) never sets __server, so getCurrentUser() always
+        raised and every caller fell through to an empty project list."""
+        mock_seekdb.return_value = _seekdb_mock([7])
+        mock_dbs.return_value.getChildrenUIDs.return_value = self._df([
+            {"id": 1, "uuid": "NHP-1", "sample_type_id": 12, "json_metadata": "{}"},
+        ])
+
+        req = _auth_request("post", "/", data={"identifiers": ["NHP-1"]}, user=_admin_user())
+        vs = self._vs()
+        vs.request = req
+        vs.admin_retrieve_samples(req)
+
+        mock_seekdb.assert_called_once_with(None, "alice", "pw")
+
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    def test_non_staff_user_gets_project_scoped_rows_not_404(self, mock_auth, mock_seekdb, mock_dbs):
+        mock_seekdb.return_value = _seekdb_mock([7])
+        mock_dbs.return_value.getChildrenUIDs.return_value = self._df([
+            {"id": 1, "uuid": "TIS-1", "sample_type_id": 13, "json_metadata": "{}"},
+        ])
+
+        user = MagicMock()
+        user.is_authenticated = True
+        user.is_staff = False
+        user.is_superuser = False
+        req = _auth_request("post", "/", data={"identifiers": ["TIS-1"]}, user=user)
+        vs = self._vs()
+        vs.request = req
+        resp = vs.admin_retrieve_samples(req)
+
+        assert resp.status_code == 200
+        # The caller's real projects reached getChildrenUIDs instead of [].
+        assert mock_dbs.return_value.getChildrenUIDs.call_args[0][1] == ["7"]
+        assert mock_dbs.return_value.getChildrenUIDs.call_args[0][2] is False
+
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_include_tree_defaults_to_true(self, mock_auth, mock_seekdb, mock_dbs):
+        mock_seekdb.return_value = _seekdb_mock([1])
+        mock_dbs.return_value.getChildrenUIDs.return_value = self._df([
+            {"id": 1, "uuid": "NHP-1", "sample_type_id": 12, "json_metadata": "{}"},
+        ])
+
+        req = _auth_request("post", "/", data={"identifiers": ["NHP-1"]}, user=_admin_user())
+        vs = self._vs()
+        vs.request = req
+        vs.admin_retrieve_samples(req)
+
+        mock_dbs.return_value.getChildrenUIDs.assert_called_once()
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_include_tree_false_skips_neo4j(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        _setup_settings(mock_s)
+        mock_seekdb.return_value = _seekdb_mock([1])
+        conn, cur = _mysql_cursor(
+            fetchall_val=[(1, 12, "NHP-1", "{}")],
+            description=[("id",), ("sample_type_id",), ("uuid",), ("json_metadata",)],
+        )
+        mock_mysql.connect.return_value = conn
+
+        req = _auth_request(
+            "post", "/",
+            data={"identifiers": ["NHP-1"], "include_tree": False},
+            user=_admin_user(),
+        )
+        vs = self._vs()
+        vs.request = req
+        resp = vs.admin_retrieve_samples(req)
+
+        assert resp.status_code == 200
+        mock_dbs.return_value.getChildrenUIDs.assert_not_called()
+
+
+# ===========================================================================
+# AdminSampleViewSet — SQL injection in the include_tree=False MySQL fallback
+# ===========================================================================
+
+
+class TestAdminSampleRetrieveSQLInjection:
+    """The MySQL fallback built ``WHERE uuid IN ('a', 'b')`` by interpolating
+    caller-supplied identifiers, so a single quote breaks out of the literal.
+
+    ``identifiers`` is the POST body of admin_retrieve_samples and is not
+    format-validated (models.py:1974 is a plain List[str]); the endpoint is
+    gated on IsAuthenticated only, and ``include_tree=false`` deliberately
+    raises Neo4jError to land in this except-branch, so any authenticated
+    caller reaches it on demand.
+    """
+
+    _PAYLOAD = "NHP-1' UNION SELECT id, sample_type_id, uuid, json_metadata FROM testdb.samples WHERE '1'='1"
+
+    def _vs(self):
+        from nextseek_api.views import AdminSampleViewSet
+        vs = AdminSampleViewSet()
+        vs.format_kwarg = None
+        vs.kwargs = {}
+        return vs
+
+    @staticmethod
+    def _executed(cur):
+        """Return (sql, params) for the fallback SELECT."""
+        args, kwargs = cur.execute.call_args
+        sql = args[0]
+        params = args[1] if len(args) > 1 else kwargs.get("args")
+        return sql, params
+
+    def _run(self, mock_mysql, mock_seekdb, user, project_ids, identifiers):
+        mock_seekdb.return_value = _seekdb_mock(project_ids)
+        conn, cur = _mysql_cursor(
+            fetchall_val=[(1, 12, "NHP-1", "{}")],
+            description=[("id",), ("sample_type_id",), ("uuid",), ("json_metadata",)],
+        )
+        mock_mysql.connect.return_value = conn
+
+        req = _auth_request(
+            "post", "/",
+            data={"identifiers": identifiers, "include_tree": False},
+            user=user,
+        )
+        vs = self._vs()
+        vs.request = req
+        return vs.admin_retrieve_samples(req), cur
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_uids_are_bound_not_interpolated(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        _setup_settings(mock_s)
+        resp, cur = self._run(mock_mysql, mock_seekdb, _admin_user(), [1], [self._PAYLOAD])
+
+        assert resp.status_code == 200
+        sql, params = self._executed(cur)
+        assert params is not None, "identifiers were interpolated into the statement, not bound"
+        assert list(params) == [self._PAYLOAD]
+        assert self._PAYLOAD not in sql
+        assert "UNION" not in sql.upper()
+        assert "IN (%s)" in sql
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_quote_in_uid_does_not_change_the_statement(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        """Two single-identifier requests must produce byte-identical SQL."""
+        _setup_settings(mock_s)
+        seen = []
+        for value in ("NHP-1", "O'Brien'; DROP TABLE samples; --"):
+            _, cur = self._run(mock_mysql, mock_seekdb, _admin_user(), [1], [value])
+            seen.append(self._executed(cur)[0])
+        assert seen[0] == seen[1]
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_project_scoped_branch_binds_uids_and_project_ids(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        """The non-superuser branch interpolated project ids too."""
+        _setup_settings(mock_s)
+        user = MagicMock()
+        user.is_authenticated = True
+        user.is_staff = False
+        user.is_superuser = False
+
+        resp, cur = self._run(mock_mysql, mock_seekdb, user, [7, 8], [self._PAYLOAD, "TIS-2"])
+
+        assert resp.status_code == 200
+        sql, params = self._executed(cur)
+        assert params is not None, "identifiers/project ids were interpolated, not bound"
+        assert list(params) == [self._PAYLOAD, "TIS-2", "7", "8"]
+        assert self._PAYLOAD not in sql
+        assert "'7'" not in sql and "'8'" not in sql
+        assert "s.uuid IN (%s, %s)" in sql
+        assert "ps.project_id IN (%s, %s)" in sql
+
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.settings")
+    @patch(f"{_VIEWS}.DBtable_sample")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("a", "p"), {}))
+    def test_no_project_ids_still_matches_nothing(self, mock_auth, mock_seekdb, mock_dbs, mock_s, mock_mysql):
+        """A caller with no mapped projects must stay syntactically valid and
+        select nothing, as the old `IN ('')` sentinel did."""
+        _setup_settings(mock_s)
+        user = MagicMock()
+        user.is_authenticated = True
+        user.is_staff = False
+        user.is_superuser = False
+
+        resp, cur = self._run(mock_mysql, mock_seekdb, user, [], ["NHP-1"])
+
+        assert resp.status_code == 200
+        sql, params = self._executed(cur)
+        assert params is not None
+        assert list(params) == ["NHP-1", ""]
+        assert "ps.project_id IN (%s)" in sql
+
+
+# ===========================================================================
+# SampleTreeViewSet — project scoping (#60)
+# ===========================================================================
+
+
+class TestSampleTreeProjectScope:
+    """get_tree resolves ANY uid and walks DERIVED_FROM from it with no
+    membership predicate, so before this fix any authenticated caller could
+    read the lineage of any sample in the instance by UID.
+
+    The admin bypass is is_superuser ALONE, deliberately: dmac/views.py:80,:97
+    set is_staff = 1 on every SEEK user at login, so an is_staff bypass would
+    make this scoping a no-op for every account.
+    """
+
+    _VISIBLE_SQL_TABLE = "projects_samples"
+
+    def _vs(self):
+        from nextseek_api.views import SampleTreeViewSet
+        vs = SampleTreeViewSet()
+        vs.format_kwarg = None
+        return vs
+
+    def _user(self, is_staff=False, is_superuser=False):
+        u = MagicMock()
+        u.is_authenticated = True
+        u.is_staff = is_staff
+        u.is_superuser = is_superuser
+        return u
+
+    @staticmethod
+    def _scope_calls(cur):
+        """Every projects_samples membership query run on this cursor."""
+        out = []
+        for c in cur.execute.call_args_list:
+            sql = c[0][0]
+            if TestSampleTreeProjectScope._VISIBLE_SQL_TABLE in sql:
+                params = c[0][1] if len(c[0]) > 1 else c[1].get("args")
+                out.append((sql, params))
+        return out
+
+    def test_endpoint_requires_authentication(self):
+        from nextseek_api.views import SampleTreeViewSet
+        from rest_framework.permissions import IsAuthenticated
+
+        assert IsAuthenticated in SampleTreeViewSet.permission_classes
+
+    # -- root gate ----------------------------------------------------------
+
+    @patch(f"{_VIEWS}.GraphDatabase")
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    @patch(f"{_VIEWS}._resolve_uid_to_seek_id", return_value="42")
+    @patch(f"{_VIEWS}.settings")
+    def test_non_member_root_is_404_and_never_reaches_neo4j(
+        self, mock_s, mock_resolve, mock_auth, mock_seekdb, mock_mysql, mock_gdb
+    ):
+        _setup_settings(mock_s)
+        mock_seekdb.return_value = _seekdb_mock([7])
+        conn, cur = _mysql_cursor(fetchall_val=[])  # sample 42 is in no project of the caller's
+        mock_mysql.connect.return_value = conn
+
+        req = _auth_request("get", "/", user=self._user())
+        vs = self._vs()
+        vs.request = req
+        resp = vs.get_tree(req, uid="NHP-1")
+
+        assert resp.status_code == 404
+        mock_gdb.driver.assert_not_called()
+
+        # The filter really was applied, with the caller's own project ids bound.
+        calls = self._scope_calls(cur)
+        assert calls, "no projects_samples membership query was issued"
+        sql, params = calls[0]
+        assert "project_id IN (%s)" in sql
+        assert "sample_id IN (%s)" in sql
+        assert list(params) == [42, "7"]
+
+    @patch(f"{_VIEWS}.GraphDatabase")
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    @patch(f"{_VIEWS}._resolve_uid_to_seek_id", return_value="42")
+    @patch(f"{_VIEWS}.get_clade_color", return_value="#A3D46F")
+    @patch(f"{_VIEWS}.settings")
+    def test_member_root_is_served(
+        self, mock_s, mock_color, mock_resolve, mock_auth, mock_seekdb, mock_mysql, mock_gdb
+    ):
+        _setup_settings(mock_s)
+        mock_seekdb.return_value = _seekdb_mock([7])
+        conn, cur = _mysql_cursor(fetchall_val=[(42,)])
+        mock_mysql.connect.return_value = conn
+        node = _make_node({"uuid": "NHP-1", "id": 42, "type": "NHP"})
+        mock_gdb.driver.return_value = _driver(_graph([node], []))
+
+        req = _auth_request("get", "/", user=self._user())
+        vs = self._vs()
+        vs.request = req
+        resp = vs.get_tree(req, uid="NHP-1")
+
+        assert resp.status_code == 200
+        assert {n["uuid"] for n in resp.data["nodes"]} == {"NHP-1"}
+
+    @patch(f"{_VIEWS}.GraphDatabase")
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    @patch(f"{_VIEWS}._resolve_uid_to_seek_id", return_value="42")
+    @patch(f"{_VIEWS}.settings")
+    def test_caller_with_no_projects_sees_nothing(
+        self, mock_s, mock_resolve, mock_auth, mock_seekdb, mock_mysql, mock_gdb
+    ):
+        """Fails closed: an unresolvable/empty project list must not mean
+        'unfiltered'."""
+        _setup_settings(mock_s)
+        mock_seekdb.return_value = _seekdb_mock([])
+        conn, cur = _mysql_cursor(fetchall_val=[(42,)])
+        mock_mysql.connect.return_value = conn
+
+        req = _auth_request("get", "/", user=self._user())
+        vs = self._vs()
+        vs.request = req
+        resp = vs.get_tree(req, uid="NHP-1")
+
+        assert resp.status_code == 404
+        # No project ids => no query at all, and certainly no traversal.
+        assert self._scope_calls(cur) == []
+        mock_gdb.driver.assert_not_called()
+
+    # -- the admin predicate ------------------------------------------------
+
+    @patch(f"{_VIEWS}.GraphDatabase")
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    @patch(f"{_VIEWS}._resolve_uid_to_seek_id", return_value="42")
+    @patch(f"{_VIEWS}.settings")
+    def test_is_staff_alone_does_not_bypass_scoping(
+        self, mock_s, mock_resolve, mock_auth, mock_seekdb, mock_mysql, mock_gdb
+    ):
+        """Every synced SEEK user is is_staff (dmac/views.py:80,:97). If staff
+        bypassed the filter this whole fix would be a no-op."""
+        _setup_settings(mock_s)
+        mock_seekdb.return_value = _seekdb_mock([7])
+        conn, cur = _mysql_cursor(fetchall_val=[])
+        mock_mysql.connect.return_value = conn
+
+        req = _auth_request("get", "/", user=self._user(is_staff=True))
+        vs = self._vs()
+        vs.request = req
+        resp = vs.get_tree(req, uid="NHP-1")
+
+        assert resp.status_code == 404
+        assert self._scope_calls(cur), "staff skipped the membership query"
+
+    @patch(f"{_VIEWS}.GraphDatabase")
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    @patch(f"{_VIEWS}._resolve_uid_to_seek_id", return_value="42")
+    @patch(f"{_VIEWS}.get_clade_color", return_value="#A3D46F")
+    @patch(f"{_VIEWS}.settings")
+    def test_superuser_bypasses_scoping_entirely(
+        self, mock_s, mock_color, mock_resolve, mock_auth, mock_seekdb, mock_mysql, mock_gdb
+    ):
+        _setup_settings(mock_s)
+        conn, cur = _mysql_cursor(fetchall_val=[])
+        mock_mysql.connect.return_value = conn
+        node = _make_node({"uuid": "NHP-1", "id": 42, "type": "NHP"})
+        mock_gdb.driver.return_value = _driver(_graph([node], []))
+
+        req = _auth_request("get", "/", user=self._user(is_superuser=True))
+        vs = self._vs()
+        vs.request = req
+        resp = vs.get_tree(req, uid="NHP-1")
+
+        assert resp.status_code == 200
+        assert self._scope_calls(cur) == []
+        mock_seekdb.assert_not_called()
+
+    # -- lineage pruning ----------------------------------------------------
+
+    @patch(f"{_VIEWS}.GraphDatabase")
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    @patch(f"{_VIEWS}._resolve_uid_to_seek_id", return_value="200")
+    @patch(f"{_VIEWS}.get_clade_color", return_value="#A3D46F")
+    @patch(f"{_VIEWS}.settings")
+    def test_foreign_lineage_nodes_are_pruned_consistently(
+        self, mock_s, mock_color, mock_resolve, mock_auth, mock_seekdb, mock_mysql, mock_gdb
+    ):
+        """A sample the caller owns can have a parent in a project they cannot
+        see. That parent must not leak, and the surviving child must not keep a
+        dangling parentId (static/js/dag/dag.js graphStratify throws on one)."""
+        _setup_settings(mock_s)
+        mock_seekdb.return_value = _seekdb_mock([7])
+
+        # Root 200 is visible; ancestor 100 is not.
+        conn, cur = _mysql_cursor()
+        cur.fetchall.side_effect = [[(200,)], [(200,)]]
+        mock_mysql.connect.return_value = conn
+
+        parent = _make_node({"uuid": "PAT-1", "id": 100, "type": "PAT"})
+        child = _make_node({"uuid": "TIS-1", "id": 200, "type": "TIS"})
+        rel = _make_rel(
+            {"uuid": "TIS-1", "id": 200, "type": "TIS"},
+            {"uuid": "PAT-1", "id": 100, "type": "PAT"},
+            {"child_id": 200, "parent_id": 100},
+        )
+        mock_gdb.driver.return_value = _driver(_graph([parent, child], [rel]))
+
+        req = _auth_request("get", "/", user=self._user())
+        vs = self._vs()
+        vs.request = req
+        resp = vs.get_tree(req, uid="TIS-1")
+
+        assert resp.status_code == 200
+        uuids = {n["uuid"] for n in resp.data["nodes"]}
+        assert uuids == {"TIS-1"}, f"foreign lineage leaked: {uuids}"
+        assert resp.data["total_rels"] == 0, "relationship to a pruned node survived"
+
+        # No dangling parent ids: every parentId must name a returned node.
+        returned_ids = {n["id"] for n in resp.data["nodes"]}
+        for n in resp.data["nodes"]:
+            assert set(n["parentIds"]) <= returned_ids
+
+    @patch(f"{_VIEWS}.GraphDatabase")
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    @patch(f"{_VIEWS}._resolve_uid_to_seek_id", return_value="200")
+    @patch(f"{_VIEWS}.get_clade_color", return_value="#A3D46F")
+    @patch(f"{_VIEWS}.settings")
+    def test_wholly_visible_lineage_is_returned_intact(
+        self, mock_s, mock_color, mock_resolve, mock_auth, mock_seekdb, mock_mysql, mock_gdb
+    ):
+        _setup_settings(mock_s)
+        mock_seekdb.return_value = _seekdb_mock([7])
+
+        conn, cur = _mysql_cursor()
+        cur.fetchall.side_effect = [[(200,)], [(100,), (200,)]]
+        mock_mysql.connect.return_value = conn
+
+        parent = _make_node({"uuid": "PAT-1", "id": 100, "type": "PAT"})
+        child = _make_node({"uuid": "TIS-1", "id": 200, "type": "TIS"})
+        rel = _make_rel(
+            {"uuid": "TIS-1", "id": 200, "type": "TIS"},
+            {"uuid": "PAT-1", "id": 100, "type": "PAT"},
+            {"child_id": 200, "parent_id": 100},
+        )
+        mock_gdb.driver.return_value = _driver(_graph([parent, child], [rel]))
+
+        req = _auth_request("get", "/", user=self._user())
+        vs = self._vs()
+        vs.request = req
+        resp = vs.get_tree(req, uid="TIS-1")
+
+        assert resp.status_code == 200
+        assert {n["uuid"] for n in resp.data["nodes"]} == {"PAT-1", "TIS-1"}
+        assert resp.data["total_rels"] == 1
+        tis = next(n for n in resp.data["nodes"] if n["uuid"] == "TIS-1")
+        assert tis["parentIds"] == ["100"]
+
+    @patch(f"{_VIEWS}.GraphDatabase")
+    @patch(f"{_VIEWS}.MySQLdb")
+    @patch(f"{_VIEWS}.SeekDB")
+    @patch(f"{_VIEWS}.resolve_seek_auth", return_value=(("alice", "pw"), {}))
+    @patch(f"{_VIEWS}._resolve_uid_to_seek_id", return_value="200")
+    @patch(f"{_VIEWS}.get_clade_color", return_value="#A3D46F")
+    @patch(f"{_VIEWS}.settings")
+    def test_pruning_does_not_depend_on_rel_properties(
+        self, mock_s, mock_color, mock_resolve, mock_auth, mock_seekdb, mock_mysql, mock_gdb
+    ):
+        """Relationship visibility is decided from the graph endpoints, not from
+        child_id/parent_id properties, which a DERIVED_FROM edge need not carry."""
+        _setup_settings(mock_s)
+        mock_seekdb.return_value = _seekdb_mock([7])
+
+        conn, cur = _mysql_cursor()
+        cur.fetchall.side_effect = [[(200,)], [(100,), (200,)]]
+        mock_mysql.connect.return_value = conn
+
+        parent = _make_node({"uuid": "PAT-1", "id": 100, "type": "PAT"})
+        child = _make_node({"uuid": "TIS-1", "id": 200, "type": "TIS"})
+        rel = _make_rel(
+            {"uuid": "TIS-1", "id": 200, "type": "TIS"},
+            {"uuid": "PAT-1", "id": 100, "type": "PAT"},
+            {},  # no child_id / parent_id properties at all
+        )
+        mock_gdb.driver.return_value = _driver(_graph([parent, child], [rel]))
+
+        req = _auth_request("get", "/", user=self._user())
+        vs = self._vs()
+        vs.request = req
+        resp = vs.get_tree(req, uid="TIS-1")
+
+        assert resp.status_code == 200
+        assert resp.data["total_rels"] == 1

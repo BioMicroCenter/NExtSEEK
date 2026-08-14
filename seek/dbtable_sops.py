@@ -6,6 +6,7 @@ import datetime
 import simplejson
 import json
 import zipfile
+import html
 import logging
 logger = logging.getLogger(__name__)
 
@@ -144,10 +145,22 @@ class DBtable_sops(DBtable):
         outfilename = uid
         return outfilename
 
-    def __getWeblink(self, uid):
-        url = "/seek/sop/uid=" + uid + "/"
-        weburl = settings.SEEK_DATAFILE_SERVER + url
-        weblink = '<a href="' + url + '" target="_blank">' + weburl + '</a>'
+    def __getWeblink(self, uid, sop_id=None):
+        # /seek/sop/uid=<uid>/ lost both its route and its view in 5834cda when
+        # the SOP pages moved to nextseek_api, so this link 404'd. Point at the
+        # SOP in SEEK instead, matching __getSeeklink and the SOPs table. The
+        # SEEK route is id-based; callers that already hold the id pass it, and
+        # the UID (sops.title) is resolved only as a fallback.
+        if sop_id is None:
+            sop_id = self.__getIDfromUID(uid)
+
+        # No unambiguous match: render the UID as plain text rather than emit a
+        # link that is known to go nowhere.
+        if sop_id is None:
+            return html.escape(str(uid))
+
+        seek_url = settings.SEEK_PUBLIC_URL + "/sops/" + str(sop_id)
+        weblink = '<a href="' + html.escape(seek_url) + '" target="_blank">' + html.escape(seek_url) + '</a>'
         return weblink
     
     def __getUploadPath(self, creator):
@@ -219,7 +232,7 @@ class DBtable_sops(DBtable):
                 dfrecord['originalname'] = originalfilename
                 dfrecord['originalname_url'] = self.__getSeeklink(originalfilename, asset_id)
                 dfrecord['notes'] = 'Warning: File already uploaded in Seek'
-                dfrecord['fileurl'] = self.__getWeblink(record['title'])
+                dfrecord['fileurl'] = self.__getWeblink(record['title'], asset_id)
                 return asset_id, dfrecord
             
         return 0, dfrecord
@@ -724,7 +737,7 @@ class DBtable_sops(DBtable):
             datadic['id'] = data['id']
             datadic['uid'] = data['title']
             datadic['title'] = data['title']
-            datadic['fileurl'] = self.__getWeblink(data['title'])
+            datadic['fileurl'] = self.__getWeblink(data['title'], data['id'])
             if data['id'] in fdatadic:
                 fi = fdatadic[data['id']]
                 datadic['originalname'] = self.__getSeeklink(fi['original_filename'], data['id'])

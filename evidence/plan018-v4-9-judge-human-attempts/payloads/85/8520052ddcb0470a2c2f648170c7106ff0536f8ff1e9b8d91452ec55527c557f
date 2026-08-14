@@ -1,0 +1,1 @@
+{"outcome":"AppropriateClarification","usefulness_score":4,"primary_issue":"OverBroadSearch","needs_human_review":false,"review_priority":"Low","rationale":"The agent correctly identified that the API does not support global metadata aggregations without a scope and provided a clear, actionable request for the user to specify a project or study to proceed."}

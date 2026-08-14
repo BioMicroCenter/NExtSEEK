@@ -1,0 +1,40 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "V4-2-product-seams-lane-c",
+  "recorded_at": "2026-08-12T23:45:00Z",
+  "exit_status": 0,
+  "counts": {
+    "tests": 48,
+    "passed": 48,
+    "failures": 0,
+    "errors": 0
+  },
+  "summary_lines": [
+    "48 passed in 17.26s"
+  ],
+  "paid_or_live_resources_used": false,
+  "docker_worktree_mount": true,
+  "settings_module": "dmac.test_settings",
+  "modules": [
+    "test_route_override.py",
+    "test_ns_run_root_event.py",
+    "test_decide_route_sticky_cc.py",
+    "test_decide_route_pipeline_gate.py",
+    "test_v4_2_force_route_http.py",
+    "test_v4_2_product_mutations.py"
+  ],
+  "oracles": [
+    "http_admin_force_route_ns",
+    "http_admin_force_route_cc",
+    "http_nonadmin_force_ignored",
+    "http_force_beats_sticky",
+    "http_sticky_applies",
+    "mutation_nonadmin_drop",
+    "mutation_admin_forced",
+    "mutation_sticky_attempted",
+    "mutation_force_beats_sticky",
+    "mutation_disjoint_task_ids",
+    "mutation_swapped_routes"
+  ],
+  "gate": "PASS"
+}

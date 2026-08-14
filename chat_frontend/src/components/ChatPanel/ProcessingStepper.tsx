@@ -9,6 +9,9 @@ import {
   BookOpen,
   Network,
   FileDown,
+  Terminal,
+  FileText,
+  Search,
   Check,
   Loader2,
   ChevronDown,
@@ -18,6 +21,7 @@ import { cn } from "@/lib/utils";
 import type { Step } from "@/lib/types/chat";
 
 const AGENT_ICONS: Record<string, React.ElementType> = {
+  // NS pipeline agents
   entity: Brain,
   parser: Route,
   api: Code,
@@ -27,6 +31,16 @@ const AGENT_ICONS: Record<string, React.ElementType> = {
   memory: BookOpen,
   graph: Network,
   report_writer: FileDown,
+  // Container-CC trace: router decision, thinking, and tool calls
+  router: Route,
+  thinking: Brain,
+  Bash: Terminal,
+  Read: FileText,
+  Write: FileText,
+  Edit: FileText,
+  MultiEdit: FileText,
+  Grep: Search,
+  Glob: Search,
 };
 
 interface ProcessingStepperProps {
@@ -78,7 +92,7 @@ export function ProcessingStepper({ steps }: ProcessingStepperProps) {
 
               return (
                 <div
-                  key={step.agentName}
+                  key={step.index}
                   data-testid={`step-${step.agentName}`}
                   data-status={step.status}
                   className={cn(

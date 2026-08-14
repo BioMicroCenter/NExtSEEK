@@ -1,0 +1,156 @@
+{
+  "schema": "plan018-v4-6-verifier/v1",
+  "recorded_at": "2026-08-13T01:34:26Z",
+  "gate": "PASS",
+  "checks_passed": 28,
+  "checks_total": 28,
+  "errors": [],
+  "checks": [
+    {
+      "name": "evidence_plan018-v4-6-phase0-publish.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-6-phase0-publish.json"
+    },
+    {
+      "name": "plan018-v4-6-phase0-publish.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-6-prereq.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-6-prereq.json"
+    },
+    {
+      "name": "plan018-v4-6-prereq.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-6-family-labels.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-6-family-labels.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-6-family-labels.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-6-calltable.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-6-calltable.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-6-calltable.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-6-selector.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-6-selector.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-6-selector.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "inventory_exists",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-6-callsite-inventory.json"
+    },
+    {
+      "name": "inventory_complete",
+      "pass": true,
+      "detail": "complete"
+    },
+    {
+      "name": "inventory_seams",
+      "pass": true,
+      "detail": "8"
+    },
+    {
+      "name": "router_baml_dual_identity",
+      "pass": true,
+      "detail": "0391e9d3aaa583a67cf4c728ef253729ece3c7007f299de77909790dbafa761b"
+    },
+    {
+      "name": "classifier_baml_exists",
+      "pass": true,
+      "detail": "both"
+    },
+    {
+      "name": "classifier_baml_dual_identity",
+      "pass": true,
+      "detail": "bytes"
+    },
+    {
+      "name": "classifier_no_route_field",
+      "pass": true,
+      "detail": " {\n  task_family ClassifiedFamily?\n  reasoning   string\n}\n\n"
+    },
+    {
+      "name": "module_family_labels.py",
+      "pass": true,
+      "detail": "family_labels.py"
+    },
+    {
+      "name": "module_baml_introspect.py",
+      "pass": true,
+      "detail": "baml_introspect.py"
+    },
+    {
+      "name": "module_posterior_selector.py",
+      "pass": true,
+      "detail": "posterior_selector.py"
+    },
+    {
+      "name": "module_transport_trace.py",
+      "pass": true,
+      "detail": "transport_trace.py"
+    },
+    {
+      "name": "no_route_capabilities_read",
+      "pass": true,
+      "detail": "grep"
+    },
+    {
+      "name": "posterior_flag_default_off",
+      "pass": true,
+      "detail": "getattr default False"
+    },
+    {
+      "name": "may_reroute_only_false",
+      "pass": true,
+      "detail": "False,False,False,False,False,False"
+    },
+    {
+      "name": "route_source_posterior",
+      "pass": true,
+      "detail": "enum"
+    },
+    {
+      "name": "lane_c_junit_exists",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-6-lane-c.junit.xml"
+    },
+    {
+      "name": "lane_c_junit_all_passed",
+      "pass": true,
+      "detail": "tests=42,failures=0,errors=0,skipped=0,suites=1"
+    },
+    {
+      "name": "call_table_rows_complete",
+      "pass": true,
+      "detail": "all"
+    }
+  ],
+  "hashes": {
+    "router_baml_sha256": "0391e9d3aaa583a67cf4c728ef253729ece3c7007f299de77909790dbafa761b",
+    "classifier_baml_sha256": "3ccafc47ce67ab2c153a9b709e1ebd152eac681bb70d166234f110d5fb66273e",
+    "corpus_sha256": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652"
+  },
+  "paid_or_live_resources_used": false
+}

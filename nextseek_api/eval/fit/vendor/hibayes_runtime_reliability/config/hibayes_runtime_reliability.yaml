@@ -1,0 +1,25 @@
+# DMAC Assistant — HiBayes runtime-reliability default thresholds (DD-06).
+# Edit values here to retune the banding without touching code.
+#
+# Bands (in band_for evaluation order):
+#   1. n_total < min_n_for_classification    -> TooUncertain  (R-04 mitigation)
+#   2. mean >= reliable_mean_floor AND P(<strong_floor) < reliable_p_lt_strong_max
+#                                            -> Reliable
+#   3. P(<acceptable_floor) >= brittle_p_lt_acceptable_min
+#                                            -> Brittle
+#   4. mean >= watch_mean_floor AND P(<acceptable_floor) < watch_p_lt_acceptable_max
+#                                            -> Watch
+#   5. otherwise                             -> TooUncertain
+
+reliable_mean_floor: 0.95
+reliable_p_lt_strong_max: 0.20
+
+watch_mean_floor: 0.80
+watch_p_lt_acceptable_max: 0.30
+
+brittle_p_lt_acceptable_min: 0.50
+
+strong_floor: 0.90
+acceptable_floor: 0.80
+
+min_n_for_classification: 3

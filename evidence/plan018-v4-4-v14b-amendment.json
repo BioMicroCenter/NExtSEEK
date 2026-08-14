@@ -1,0 +1,14 @@
+{
+  "schema": "plan018-v4-4-v14b-amendment/v1",
+  "date": "2026-08-12",
+  "ruling": "B",
+  "summary": "Discordance (>=2) required only for quality winners; latency-after-ROPE requires retained>=5 plus ROPE and latency posteriors.",
+  "files_amended": [
+    "work/NExtSEEK-deploydocs/docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md",
+    "work/NExtSEEK-plan018/nextseek_api/eval/fit/v14/decision.py"
+  ],
+  "decision_paths": {
+    "quality_winner": ["retained>=5", "discordant>=2", "directional quality posterior>=0.95"],
+    "latency_after_rope": ["retained>=5", "ROPE>=0.95", "latency posterior>=0.95", "discordant not required"]
+  }
+}

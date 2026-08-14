@@ -35,6 +35,7 @@ router.register(r"assistant", views.AssistantViewSet, basename="assistant")
 # Additive: router + Container-Claude-Code assistant (does NOT replace assistant).
 router.register(r"cc-assistant", views.CCAssistantViewSet, basename="cc-assistant")
 router.register(r"evaluator", views.EvaluatorViewSet, basename="evaluator")
+router.register(r"admin/project-export", views.ProjectExportViewSet, basename="admin-project-export")
 
 
 urlpatterns = [

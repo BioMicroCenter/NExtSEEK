@@ -89,4 +89,61 @@ describe("useProcessingState", () => {
     expect(result.current.processingState.steps).toHaveLength(0);
     expect(result.current.processingState.mode).toBeNull();
   });
+
+  // --- Container-CC trace mode (#4) ---
+
+  it("CC route_decided starts the trace with a router step", () => {
+    const { result } = renderHook(() => useProcessingState());
+    act(() => result.current.handleRouteDecided({ route: "container_cc", reasoning: "needs code" }));
+    const st = result.current.processingState;
+    expect(st.mode).toBe("container_cc");
+    expect(st.steps).toHaveLength(1);
+    expect(st.steps[0].agentName).toBe("router");
+    expect(st.steps[0].label).toBe("Router → container_cc");
+    expect(st.steps[0].detail).toBe("needs code");
+    expect(st.steps[0].status).toBe("complete");
+  });
+
+  it("CC search_started appends a tool step with detail; search_complete closes it and keeps the detail", () => {
+    const { result } = renderHook(() => useProcessingState());
+    act(() => result.current.handleRouteDecided({ route: "container_cc", reasoning: "" }));
+    act(() => result.current.handleSearchStarted({ source: "Bash", detail: "ls -la" }));
+    let st = result.current.processingState;
+    expect(st.steps).toHaveLength(2);
+    expect(st.steps[1].agentName).toBe("Bash");
+    expect(st.steps[1].detail).toBe("ls -la");
+    expect(st.steps[1].status).toBe("active");
+    act(() => result.current.handleSearchComplete({ source: "Bash" }));
+    st = result.current.processingState;
+    expect(st.steps[1].status).toBe("complete");
+    expect(st.steps[1].detail).toBe("ls -la");
+  });
+
+  it("CC search_complete with ok=false marks the step as error", () => {
+    const { result } = renderHook(() => useProcessingState());
+    act(() => result.current.handleRouteDecided({ route: "container_cc", reasoning: "" }));
+    act(() => result.current.handleSearchStarted({ source: "Bash", detail: "boom" }));
+    act(() => result.current.handleSearchComplete({ source: "Bash", ok: false }));
+    expect(result.current.processingState.steps[1].status).toBe("error");
+  });
+
+  it("CC repeated tools each get their own step with unique indices", () => {
+    const { result } = renderHook(() => useProcessingState());
+    act(() => result.current.handleRouteDecided({ route: "container_cc", reasoning: "" }));
+    act(() => result.current.handleSearchStarted({ source: "Bash", detail: "a" }));
+    act(() => result.current.handleSearchComplete({ source: "Bash" }));
+    act(() => result.current.handleSearchStarted({ source: "Bash", detail: "b" }));
+    const st = result.current.processingState;
+    expect(st.steps).toHaveLength(3);
+    expect(new Set(st.steps.map((s) => s.index)).size).toBe(3);
+    expect(st.steps[1].detail).toBe("a");
+    expect(st.steps[2].detail).toBe("b");
+  });
+
+  it("NS route_decided leaves the stepper untouched", () => {
+    const { result } = renderHook(() => useProcessingState());
+    act(() => result.current.handleRouteDecided({ route: "nextseek_query", reasoning: "lookup" }));
+    expect(result.current.processingState.steps).toHaveLength(0);
+    expect(result.current.processingState.mode).toBeNull();
+  });
 });

@@ -1,0 +1,31 @@
+{
+  "schema": "plan018-v4-4-phase0-publish/v1",
+  "recorded_at": "2026-08-11T21:20:00Z",
+  "gate": "PASS",
+  "implementation_branch": {
+    "name": "ultraplan/hibayes-eval-routing",
+    "repo": "/home/taishajo/work/NExtSEEK-plan018",
+    "head_sha": "107f40a6ef5145f9c0510ddebe4faa03f1a0fdf8",
+    "remote": "origin/ultraplan/hibayes-eval-routing",
+    "commits_pushed": 6,
+    "paid_or_live_resources_used": false
+  },
+  "living_plan": {
+    "repo": "/home/taishajo/work/NExtSEEK-deploydocs",
+    "branch": "dev",
+    "commit": "ccd5c4c4",
+    "origin_dev": "ccd5c4c4",
+    "plan_path": "docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md",
+    "plan_sha256": "93f3314ba042a0cbe1e13d36b0033aed9f17869a628f24b3b5d811049155940f",
+    "published_v14_contract_sha256": "af99a24b765f04330cf25b09c005a80002d175890f66743d2b2115b9b2f74a6e",
+    "note": "Progress markers only; V14 contract bytes unchanged except local banners"
+  },
+  "registry": {
+    "asset_id": "nextseek--plan-018",
+    "storage": "vault",
+    "vault_path": "vault/nextseek/nextseek--plan-018__2026-07-31-hibayes-eval-routing.md",
+    "vault_sha256": "93f3314ba042a0cbe1e13d36b0033aed9f17869a628f24b3b5d811049155940f",
+    "registry_commit": "f6ae296",
+    "remote": "origin/machine/fairdata-dev"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schema": "plan018-remediation-closeout/v1",
+  "recorded_at": "2026-08-13T01:15:00Z",
+  "gate": "REMEDIATION_PASS",
+  "worktree_sha": "07d17ed3",
+  "pushed_sha": "07d17ed3",
+  "vault_sync": "evidence/plan018-remediation-vault-sync.json",
+  "branch": "ultraplan/hibayes-eval-routing",
+  "rollup_cold_review": {
+    "path": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md",
+    "subagent_id": "07c68592-3fe7-4b5c-b33b-7a443b84e0a7",
+    "verdict": "PASS",
+    "parent_transcript_id": "f1ace383-f8c3-4bc1-8e31-71d5d8329da1"
+  },
+  "prior_redispatch_rollup": "evidence/plan018-cold-review-redispatch-2026-08-12.json",
+  "commits": [
+    "3c6a17e2",
+    "f8b79155",
+    "04baa2f2",
+    "2d12a426",
+    "1118bb6a",
+    "fdfd6eb2",
+    "b9112234",
+    "ef600db4",
+    "8e31d26f",
+    "100b4941",
+    "3060e3e9"
+  ],
+  "maintainer_preauthorized": ["push", "vault_sync_deploydocs"],
+  "residual_debt": []
+}

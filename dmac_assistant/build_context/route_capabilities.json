@@ -4,10 +4,16 @@
       "route_name": "nextseek_query",
       "description": "Deterministic NExtSEEK pipeline via chat_nextseek (no Claude reasoning loop).",
       "tools": [
-        "entity_agent", "parser_agent", "api_agent", "graph_agent",
-        "reporter_agent", "memory_agent", "system_agent"
+        "entity_agent",
+        "parser_agent",
+        "api_agent",
+        "graph_agent",
+        "reporter_agent",
+        "memory_agent",
+        "system_agent",
+        "pipeline_agent"
       ],
-      "best_for": "Structured biomedical sample / project / study queries that map onto chat_nextseek's pipeline.",
+      "best_for": "Structured biomedical sample / project / study queries that map onto chat_nextseek's pipeline, plus questions about the catalog itself: what exists in it, how much of each thing there is, and who the caller is to it.",
       "not_for": "File I/O, code execution, free-form reasoning, multi-tool work outside chat_nextseek.",
       "task_families": [
         {
@@ -20,11 +26,23 @@
           ]
         },
         {
-          "name": "lineage_or_graph",
-          "description": "Graph traversal: lineage, study membership, assay-on-sample.",
+          "name": "system_or_catalog_question",
+          "description": "Questions ABOUT the NExtSEEK catalog or the system itself, rather than searches THROUGH it. Handled by system_agent (downstream mode: system_question). Four sub-intents: (a) what a named catalog entity IS — an assay, sample type, project, study, or protocol; (b) what the system can DO and who the caller IS to it: its capabilities, the difference between search modes, and the asker's own identity, session and access scope (who am I, what account am I authenticated as, what am I allowed to see); (c) what EXISTS as options — which assays, sample types, endpoints, or graph relationships are available; (d) how the catalog is SHAPED: frequency, distribution and counts by category over the registered metadata, including how many of each kind there are, how they break down across investigations or projects, and which categories are most or least common. Sub-intent (d) is bookkeeping over what is registered, not reasoning about measurements, so grouping and ranking the catalog's own categories stays here and is not open_ended_analysis; the presence of an aggregation or a ranking does not make a catalog question analytical. Sub-intent (b) needs no shell and no container: NExtSEEK already resolves the authenticated user and their permissions from the request that carried the question, so a container agent inspecting its environment learns nothing NExtSEEK does not already hold. Such a question is in scope for NExtSEEK even when it names no sample, uses no first-person wording ('Tell me about Tissue collection' is as much a catalog question as 'what assays do I have access to'), and sounds like ordinary biology. NExtSEEK's registered names ARE ordinary lab vocabulary — Tissue Collection, RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex are all real catalog entries. Do not treat a plain-language biological noun as evidence the question is unrelated. If the user actually wants records back rather than an explanation, that is sample_search instead.",
           "example_queries": [
-            "How many samples are in the GBM study?",
-            "What assays were run on study X?"
+            "Tell me about Tissue collection.",
+            "What is a TIS sample?",
+            "Show me all assays I have access to.",
+            "What sample types can I search for?",
+            "What relationships are in the graph?"
+          ]
+        },
+        {
+          "name": "lineage_or_graph",
+          "description": "Graph traversal: lineage, study membership, assay-on-sample. Handles a named study or project directly, matching both Study and Investigation nodes. Use this for a straightforward 'what/how many samples are in <study>' question.",
+          "example_queries": [
+            "How many samples are in the MetNet study?",
+            "What assays were run on the Griffith study?",
+            "What mice are in the Impact study?"
           ]
         },
         {
@@ -38,28 +56,50 @@
         {
           "name": "memory_lookup",
           "description": "Follow-up Q&A against the last result set.",
-          "example_queries": ["What sample types were in those results?"]
+          "example_queries": [
+            "What sample types were in those results?"
+          ]
         },
         {
           "name": "reporter_summary",
           "description": "Project / RPPR-style summaries.",
-          "example_queries": ["Give me an RPPR summary for SRP."]
+          "example_queries": [
+            "Give me an RPPR summary for SRP."
+          ]
+        },
+        {
+          "name": "pipeline_build_and_launch",
+          "description": "Build and launch an nf-core / Seqera pipeline run: resolve samples, group into cohorts, write the samplesheet, configure run params (species + reference bundles), and submit to Seqera/Tower. Handled by chat_nextseek's full-agentic pipeline_agent on the NS path.",
+          "example_queries": [
+            "Run rnaseq on these mice, group by exposure, and submit to Tower.",
+            "Launch the sarek pipeline for the D.SEQ samples in the Impact study.",
+            "Build an nf-core scrnaseq samplesheet for these samples and configure the run."
+          ]
         }
       ]
     },
     {
       "route_name": "container_cc",
       "description": "Container Claude Code: full agentic environment with file I/O, code execution, and arbitrary plugins / skills (including the nextseek-batch-upload skill).",
-      "tools": ["nextseek-api", "nextseek-batch-upload", "bash", "filesystem", "skill-runner"],
+      "tools": [
+        "nextseek-api-read",
+        "nextseek-api-write",
+        "nextseek-batch-upload",
+        "nextseek-run-ls",
+        "nextseek-build-upload-xlsx",
+        "bash",
+        "filesystem"
+      ],
       "best_for": "Open-ended reasoning, file I/O, code, multi-tool workflows, and building/validating NExtSEEK batch-upload create/update sheets.",
-      "not_for": "Pure NExtSEEK lookups that chat_nextseek answers deterministically.",
+      "not_for": "Pure NExtSEEK lookups that chat_nextseek answers deterministically, or building/launching nf-core pipelines (those go to the nextseek_query pipeline_build_and_launch route). Also not for the caller's own identity, session or access scope, and not for counting, grouping or ranking the catalog's registered metadata: both of those are nextseek_query system_or_catalog_question work. Having a shell is not a reason to route here when NExtSEEK already holds the answer.",
       "task_families": [
         {
-          "name": "file_io_and_summarization",
-          "description": "Read project files mounted at /data/projects, summarize, transform.",
+          "name": "export_and_file_delivery",
+          "description": "Produce a file the user takes away, or read and summarize one already on disk. The writable path is /data/scratch; the read-only mounts are /data/input and /data/shared. The baked catalog under /app/plugins/nextseek/context/ and the docs under /app/docs/nextseek/ are always readable. There is no /data/projects mount. Document extraction handles text, HTML and markdown only - PDF and DOCX are not supported.",
           "example_queries": [
-            "Read /data/projects/Foo/notes.md and summarize.",
-            "Walk me through the sample tree extraction pipeline."
+            "Export the metadata for these samples and their descendants to a spreadsheet.",
+            "Write me a CSV summarizing those results with UID, sample type and project.",
+            "Summarize what sample types this instance supports for single-cell work."
           ]
         },
         {
@@ -71,13 +111,57 @@
           ]
         },
         {
-          "name": "batch_upload_preparation",
-          "description": "Build and validate (never upload) a NExtSEEK batch-upload workbook to create or update sample metadata via the nextseek-batch-upload skill — including normalizing or fixing attribute values and preparing an update / re-ingestion sheet for existing samples. Any request to create, update, modify, normalize, or re-ingest samples — even one that also asks to find the samples first — belongs here.",
+          "name": "harmonization",
+          "description": "Reconcile near-duplicate VALUES of a sample attribute and propose a canonical mapping. The tell is that the user points at values that look inconsistent - spelling, casing, abbreviation, or two names for one thing - rather than at records. This is the step BEFORE batch_upload_preparation: harmonization decides which values should merge and what the canonical form is; batch_upload_preparation writes that decision into a workbook. Propose the mapping and confirm it with the user before building anything. No dedicated op exists: read the values with a search op, cluster them, and hand the accepted mapping onward.",
           "example_queries": [
-            "Can you create an update sheet for re-ingestion?",
-            "Build me an update sheet to normalize the genotypes in the database.",
+            "Some of these genotype terms look like the same thing written differently - can you normalize them?",
+            "The Lab field has several spellings of the same lab. What should they collapse to?",
+            "Build me an update sheet to normalize the genotypes in the database."
+          ]
+        },
+        {
+          "name": "batch_upload_preparation",
+          "description": "Build and validate (never upload) a NExtSEEK batch-upload workbook to create or update sample metadata from user-supplied material (protocol text, a description, or a mapping the user has already accepted) via the nextseek-batch-upload skill. The tell is that the user supplies the rows or has ALREADY AGREED what the values should become, and now wants a sheet built. If the user is still asking WHICH values should merge, that is harmonization, not this. Registering finished pipeline-run OUTPUTS as new analysis samples is also not this - see pipeline_output_reingest.",
+          "example_queries": [
             "Prepare a batch-upload workbook that sets Scientist to Jane Doe on these UIDs.",
-            "Make an upload spreadsheet to create new samples from this protocol text."
+            "Make an upload spreadsheet to create new samples from this protocol text.",
+            "Build the update sheet for the mapping we just agreed."
+          ]
+        },
+        {
+          "name": "entity_write_via_api",
+          "description": "Create, update or delete an Investigation, Study, Project, Assay or other NExtSEEK record through the REST API, using the nextseek-api tool. This is a WRITE against the live API, and is distinct from batch_upload_preparation, which builds a reviewable sample-metadata workbook and never writes anything. The tell: the user names a single entity and an action on it ('create an investigation called X', 'rename study Y', 'delete the test project'), rather than supplying material to turn into sample rows.",
+          "example_queries": [
+            "Create me an investigation called Testing 404.",
+            "Update the title of study 12 to 'CD8 depletion cohort'.",
+            "Delete the investigation I made yesterday."
+          ]
+        },
+        {
+          "name": "open_ended_analysis",
+          "description": "Analytical or comparative reasoning over MEASURED data, rather than retrieval or bookkeeping of it: statistical comparison, differential expression, clustering, correlation, quality assessment, or an open 'is X better than Y' / 'what does this suggest' judgement. Needs code execution and iteration, which the deterministic pipeline does not provide. NOT descriptive statistics over the catalog's own metadata: counting, grouping and ranking what is registered (how many of each sample type, assay or project there are, which categories are most or least common, how records distribute across investigations) is a catalog question that nextseek_query answers deterministically under system_or_catalog_question. A group-by-and-rank over the catalog is not this family, however statistical it sounds; route here only when the answer needs reasoning the counts themselves cannot supply.",
+          "example_queries": [
+            "Is the RNA quality better in the Impact samples or the MetNet ones?",
+            "Run a differential expression comparison between the treated and control mice.",
+            "Cluster these samples by their metadata and tell me what the groups have in common."
+          ]
+        },
+        {
+          "name": "ambiguous_study_resolution",
+          "description": "Reconcile a named study/cohort ACROSS STORES when the graph alone cannot settle it, because 'study' is not one thing in NExtSEEK. A study name can be (a) an Investigation node, (b) a Study node — usually the full publication title, or (c) only a metadata attribute on the samples themselves (e.g. Study on an NHP/MUS/PAT record), when no publication exists yet. Only case (c) genuinely needs this route: nextseek_query's graph path now disjoins Study.title and Investigation.title itself, so it resolves (a) and (b) on its own. Route here ONLY when: (i) the user says a previous study answer looked wrong, empty or suspicious; or (ii) the named scope is not one of the known graph names AND reads like a descriptive cohort, condition or timepoint label rather than a project code — 'a 4 week study', 'the CD8 depletion study', 'the high-dose arm'. The known investigation names are CSBC, Griffith, Impact, MetNet, SRP and Shoulders; a Study node is normally a full publication title. A study membership question naming any of those, or any name that simply might be a project, stays on nextseek_query (lineage_or_graph) — including when it returns zero, because zero can be the correct answer. Do not route here merely because the name is unfamiliar to you. Worked example: '4 week' is not a Study or Investigation node - it is a Cohort value on NHP records (2 samples as '4 week', 237 more as '4wk'), which is exactly case (c).",
+          "example_queries": [
+            "Which samples belong to the CD8 depletion study? I don't think it's a project.",
+            "That study search came back empty — can you check whether it's a publication or a metadata field?",
+            "Find me the samples from the 4 week study."
+          ]
+        },
+        {
+          "name": "pipeline_output_reingest",
+          "description": "Register the OUTPUTS of a FINISHED nf-core / Luria pipeline run as new A.* analysis samples, by listing the run directory and building a reviewable upload workbook for the user to inspect (never uploads). Handled by the nextseek skill's nextseek-run-ls + nextseek-build-upload-xlsx ops — NOT nextseek-batch-upload. The tell: the user points at a finished run, a run directory, or 'the outputs of the run I just launched'.",
+          "example_queries": [
+            "Reingest the outputs of my finished scrnaseq run into a NExtSEEK upload sheet.",
+            "Register the outputs of run nfcore_gideon-4wk_260711 as new A.SCXP analysis samples.",
+            "My pipeline at /net/bmc-pub10/.../runs/<run> just finished — build the reingest upload sheet."
           ]
         }
       ]

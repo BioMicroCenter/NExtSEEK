@@ -140,13 +140,19 @@
 
 	async function loadDataGrid() {
 		sops = await listSops()
-		const dg = $('#dgtable').datagrid({
-			data: sops
-		});
+		// enableFilter installs the loadFilter that both applies the column
+		// filters and slices rows down to the current page. It only re-runs the
+		// load itself when filter rules are already active, which is never true
+		// on first paint — so the grid has to be populated AFTER it is
+		// installed. Loading first (datagrid({data: ...})) renders every row at
+		// once and leaves the pager's next/last buttons wired to the default
+		// server-side handler, which does nothing without a url option.
+		const dg = $('#dgtable');
 		dg.datagrid('enableFilter', [{
 			field:'id',
 			type:'label'
 		}]);
+		dg.datagrid('loadData', sops || []);
 	}
 
 	loadDataGrid()

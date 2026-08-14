@@ -12,7 +12,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SIDECAR_OPS = frozenset(
-    {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission"}
+    {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission",
+     "run-ls", "build-upload-xlsx"}
 )
 
 # §12 — fixed error code → CLI exit code. The thin client maps a sidecar error
@@ -139,6 +140,17 @@ class _SubmissionArgs(BaseModel):
         return v
 
 
+class _RunLsArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_dir: str
+
+
+class _BuildUploadXlsxArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rows: str
+    existing_parent_uids: str = ""
+
+
 _OP_ARG_MODELS = {
     "entity": _QueryArg,
     "parse": _QueryArg,
@@ -147,6 +159,8 @@ _OP_ARG_MODELS = {
     "api-write": ApiWriteArgs,
     "report": _ReportArgs,
     "generate-submission": _SubmissionArgs,
+    "run-ls": _RunLsArgs,
+    "build-upload-xlsx": _BuildUploadXlsxArgs,
 }
 
 

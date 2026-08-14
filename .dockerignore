@@ -3,6 +3,7 @@
 # For now we COPY the dir into the image but skip its heavy / stateful subtrees.
 chat_nextseek/.venv/
 chat_nextseek/.git/
+.claude/
 chat_nextseek/outputs/
 chat_nextseek/old/
 chat_nextseek/__pycache__/

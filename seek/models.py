@@ -205,7 +205,32 @@ class Sample_types_clades(models.Model):
 
     class Meta:
         db_table = "sample_types_clades"
-        
+
+
+class Sample_types_context(models.Model):
+    _DATABASE = NEXTSEEK_DATABASE
+
+    sampletype_id = models.IntegerField(default=None, null=True)
+    sample_type = models.CharField(max_length=32, default=None, null=True)
+    name = models.CharField(max_length=255, default=None, null=True)
+    description = models.TextField(default=None, null=True)
+    required_metadata = models.TextField(default=None, null=True)
+    standard_metadata = models.TextField(default=None, null=True)
+    possible_metadata_fields = models.TextField(default=None, null=True)
+    clade = models.CharField(max_length=64, default=None, null=True)
+    sampletype_file_link = models.CharField(max_length=255, default=None, null=True)
+    associated_assay_parents = models.TextField(default=None, null=True)
+    associated_assay_children = models.TextField(default=None, null=True)
+    parent_sampletypes = models.TextField(default=None, null=True)
+    child_sampletypes = models.TextField(default=None, null=True)
+    tags = models.TextField(db_column="Tags", default=None, null=True)
+
+    def __unicode__(self):
+        return self.sample_type
+
+    class Meta:
+        db_table = "sample_types_context"
+
 class Sample_attributes(models.Model):
     _DATABASE = SEEK_DATABASE
     

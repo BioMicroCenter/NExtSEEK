@@ -8,7 +8,12 @@ from typing import Any
 # hard-depends on chat_nextseek (no circular import: chat_memory pulls in only
 # stdlib, never nextseek_api). The chat_log ENTRY turn_id is derived through the
 # SAME helper the NS writer uses, so both paths share one derivation + schema.
-from chat_nextseek.chat_memory import next_turn_id
+from chat_nextseek.chat_memory import (
+    REPLY_PREVIEW_CHARS,
+    _strip_debug_block,
+    _truncate,
+    next_turn_id,
+)
 
 
 @dataclass
@@ -36,6 +41,14 @@ def serialize_cc_chat_log_entry(payload: TurnCompletePayload, *, turn_id: int) -
     return {
         "user_query": payload.user_query,
         "assistant_reply": payload.assistant_reply,
+        # chat_memory.format_for_prompt renders `assistant_reply_preview`, which only
+        # the NS writer used to set (chat_memory.py:235). Without it a CC answer was
+        # invisible to the next NExtSEEK turn: turn 796's parser saw the user query
+        # and nothing else, and discarded CC's correct answer. Same helpers as the NS
+        # writer so both sides truncate and strip identically.
+        "assistant_reply_preview": _truncate(
+            _strip_debug_block(payload.assistant_reply or ""), REPLY_PREVIEW_CHARS
+        ),
         "mode": "cc",
         "ts": payload.ts,
         "artifacts": payload.artifacts,

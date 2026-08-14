@@ -1,0 +1,114 @@
+{
+  "actual_call_count": 0,
+  "actual_spend_usd": null,
+  "agreement_count": 0,
+  "comparisons": [],
+  "disagreement_count": 0,
+  "disagreements": [],
+  "estimated_call_count": 12,
+  "estimated_spend_usd": null,
+  "evaluator_version": "plan018-v4-9-human-comparison-v1",
+  "kind": "plan018_v4_9_judge_human_sample",
+  "mode": "dry_run",
+  "model_id": "gemini-3.1-pro-preview",
+  "prompt_version": "functional_evaluator.baml:DD-22",
+  "schema_version": 1,
+  "selected_arms": [
+    {
+      "arm": "ns",
+      "arm_id": "memory.turn_1_write_the_list_of_ndma_tr::ns",
+      "evaluation_input": {
+        "answer_provided": true,
+        "artifact_expected": false,
+        "artifact_kind": "NONE_EXPECTED",
+        "artifact_status": "NotExpected",
+        "declared_artifact_count": 0,
+        "expected_behavior": "UsePriorContext",
+        "failure_mode": "none",
+        "final_answer": "I can't turn that request into a valid NExtSEEK operation yet.\n\nReason from parser: Follow-up to a rejected unsupported request. No file was written; the system has no file-write capability. Downstream unsupported handler should clarify that no file was created.",
+        "query_text": "turn 1 (write): Write the UIDs of the NDMA-treated mice to a file called ndma_cohort.txt in your scratch directory.\nturn 2 (recall): What did you name that file, and where did you put it?",
+        "runtime_success": true,
+        "task_family": "cross_session_memory"
+      },
+      "human_functional_success": false,
+      "input_sha256": "cb47236bed4de31fd2b7327d6baab9d80bb1ee5e33e5f82bd341ab0d94a6edc2",
+      "task_family": "cross_session_memory"
+    },
+    {
+      "arm": "ns",
+      "arm_id": "pbct.no_match::ns",
+      "evaluation_input": {
+        "answer_provided": true,
+        "artifact_expected": false,
+        "artifact_kind": "NONE_EXPECTED",
+        "artifact_status": "NotExpected",
+        "declared_artifact_count": 1,
+        "expected_behavior": "AnswerDirectly",
+        "failure_mode": "none",
+        "final_answer": "No matches were found for zebrafish (Danio rerio) associated with single-cell ATAC-seq data. \n\nThis null result may occur if there are currently no datasets in the graph database linking zebrafish samples to this specific assay type, or if the organism is registered under a different taxonomic name or alias.\n\n**Debug info**\n\n```json\n{\n  \"entity\": {\n    \"sampletypes\": [\n      {\n        \"code\": \"D.SEQ\",\n        \"name\": \"Sequencing Data\"\n      },\n      {\n        \"code\": \"A.CHRM\",\n        \"name\": \"Chromatin Sequencing Analysis\"\n      }\n    ],\n    \"assays\": [\n      {\n        \"code\": \"Single Cell Sequencing\",\n        \"name\": \"Single Cell Sequencing\"\n      },\n      {\n        \"code\": \"Chromatin Sequencing Analysis\",\n        \"name\": \"Chromatin Sequencing Analysis\"\n      }\n    ],\n    \"projects\": []\n  },\n  \"parser\": {\n    \"mode\": \"graph_query\",\n    \"intent_summary\": \"Find zebrafish source samples that have derived data from single-cell ATAC-seq experiments (D.SEQ / A.CHRM data with 'Single Cell Sequencing' assay on the DERIVED_FROM relationship and ATAC-seq keyword).\"\n  },\n  \"graph\": {\n    \"cypher\": \"MATCH (seq:Sample)-[r1:DERIVED_FROM]->(parent:Sample)\\nWHERE r1.internal_assay_title = $assay1\\n  AND EXISTS {\\n    MATCH (chrm:Sample)-[r2:DERIVED_FROM]->(seq)\\n    WHERE r2.internal_assay_title = $assay2\\n  }\\nMATCH (parent)-[:DERIVED_FROM*0..]->(ancestor:Sample)\\nWHERE NOT (ancestor)-[:DERIVED_FROM]->(:Sample)\\nRETURN DISTINCT ancestor.id AS id, ancestor.uuid AS uuid, ancestor.type AS type\\nLIMIT 5000\",\n    \"explanation\": \"This query finds root source samples that have downstream descendants with 'Single Cell Sequencing' and 'Chromatin Sequencing Analysis' assays; note that 'zebrafish' and 'ATAC-seq' are metadata attributes not stored in the graph and must be filtered via the REST API.\",\n    \"parameters\": {\n      \"assay1\": \"Single Cell Sequencing\",\n      \"assay2\": \"Chromatin Sequencing Analysis\"\n    }\n  },\n  \"neo4j\": {\n    \"ok\": true,\n    \"count\": 0,\n    \"error\": null\n  }\n}\n```",
+        "query_text": "Find zebrafish with single-cell ATAC-seq data.",
+        "runtime_success": true,
+        "task_family": "lineage_tree"
+      },
+      "human_functional_success": true,
+      "input_sha256": "9626368bde59900750d587fd297507806bec9208e1f4b94635b54f48215c2eca",
+      "task_family": "lineage_tree"
+    },
+    {
+      "arm": "cc",
+      "arm_id": "harmon.the_scientist_field_looks_like_i::cc",
+      "evaluation_input": {
+        "answer_provided": true,
+        "artifact_expected": false,
+        "artifact_kind": "NONE_EXPECTED",
+        "artifact_status": "NotExpected",
+        "declared_artifact_count": 0,
+        "expected_behavior": "AnswerDirectly",
+        "failure_mode": "none",
+        "final_answer": "I've hit my two-attempt budget on this, and both attempts returned the same blocker, so I'll stop and explain rather than keep trying.\n\n**What I attempted**\n1. `nextseek-parse` on \"List all distinct values of the Scientist field across all samples\" → returned `mode: \"unsupported\"`.\n2. `nextseek-query` on \"List every sample with its Scientist field value…\" → refused for the same reason.\n\n**What the tools reported**\nBoth told me the same thing: NExtSEEK has **no endpoint that returns distinct values of a metadata field (like `Scientist`) across the whole database**, and it doesn't support an unfiltered bulk export of every sample record. `Scientist` is a per-sample metadata field, not a graph-aggregatable property. The parser did note that `/nextseek_api/people/` lists *registered researchers* — but that's the user registry, not the free-text `Scientist` values actually recorded on sample records, so it won't reveal the data-entry duplicates you're asking about.\n\nTo find duplicate/variant Scientist names, I need a **scope** so the query is a supported filtered lookup rather than a whole-database aggregation.\n\n**One question to unblock:** Which project, study, or investigation should I scope this to? For example, \"the Impact project\" or \"the SRP study.\" Once I have a scope, I can pull those samples' Scientist values and identify which entries look like the same person under different spellings, with a suggested canonical form for each.",
+        "query_text": "The Scientist field looks like it has the same people entered under different names. Which entries are duplicates of each other, and what should each one be?",
+        "runtime_success": true,
+        "task_family": "harmonization"
+      },
+      "human_functional_success": false,
+      "input_sha256": "ec4c55af296846b1a615df29f4a6aecbaaaddd0669ae9620e5ba875309b13888",
+      "task_family": "harmonization"
+    },
+    {
+      "arm": "cc",
+      "arm_id": "path.recount_dseq_from_scratch::cc",
+      "evaluation_input": {
+        "answer_provided": true,
+        "artifact_expected": false,
+        "artifact_kind": "NONE_EXPECTED",
+        "artifact_status": "NotExpected",
+        "declared_artifact_count": 1,
+        "expected_behavior": "AnswerDirectly",
+        "failure_mode": "none",
+        "final_answer": "Done. Here's the count worked out from scratch, with the method shown.\n\n## Result\n\n**There are 2,057 D.SEQ (Sequencing Data) samples in the database.**\n\n## Method\n\nI didn't take any pre-existing \"sequencing-sample number\" — I derived it fresh:\n\n1. **Resolved the term.** Confirmed the sample type you meant maps to the canonical NExtSEEK code `D.SEQ` = \"Sequencing Data\" (the vocabulary auto-resolver and the parser both agreed).\n\n2. **Parsed the question into a plan.** `nextseek-parse` classified \"count all D.SEQ samples\" as a **global count of a single sample type with no other filters**, and routed it to a graph `count()` query rather than a REST search — its stated rule for a bare whole-type count.\n\n3. **Executed the count against the graph.** The run issued this exact Cypher against Neo4j:\n\n   ```cypher\n   MATCH (s:Sample) WHERE s.type = $type RETURN count(s) AS total\n   -- parameters: { type: \"D.SEQ\" }\n   ```\n\n   Neo4j returned successfully (`ok: true`), yielding a total of **2,057**.\n\nSo the number is a live `count(s)` over every `Sample` node whose `type = \"D.SEQ\"` — not a cached or reported figure.\n\nOne process note for transparency: my first attempt to run the count via the direct graph op was blocked by the container's permission classifier, so I ran the equivalent single-shot query op instead. Same underlying Cypher, same result. If you'd like, I can break the 2,057 down (e.g. by project, lab, or published vs. unpublished).",
+        "query_text": "I don't trust the sequencing-sample number — work out how many D.SEQ samples there are from scratch and show me your method.",
+        "runtime_success": true,
+        "task_family": "retrieval_path_selection"
+      },
+      "human_functional_success": true,
+      "input_sha256": "5d3f8d41b3797180bfbe50f8ac973c4688d5d30b7d79be39dbf6c1601a881a89",
+      "task_family": "retrieval_path_selection"
+    }
+  ],
+  "selection": {
+    "absolute_max_arms": 6,
+    "algorithm": "sha256-stratified-v1",
+    "calls_per_arm": 3,
+    "ineligible_missing_final_answer": 9,
+    "max_arms": 4
+  },
+  "source": {
+    "archive_sha256": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
+    "delivery_manifest_sha256": "d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2",
+    "member_sha256": {
+      "testquestions/set3_final/hibayes/hibayes_functional_eval_inputs.csv": "a5fd5eff58d52aa4895a62956ee9837d7771a891025e29fb40786fcf522c3ce8",
+      "testquestions/set3_final/hibayes/hibayes_functional_usefulness_human_cc.csv": "b40d13e3a1bcc2ed0fcd607c3fc6c4fe1ac6a601129cf7978346da1d4edec76b",
+      "testquestions/set3_final/hibayes/hibayes_functional_usefulness_human_ns.csv": "c1ed72e72b2fa1811d15c1fb8a88b8af791072947038901c4b0d356b8e0e3cef"
+    }
+  }
+}

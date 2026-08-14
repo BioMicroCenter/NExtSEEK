@@ -1,0 +1,11 @@
+{
+  "schema": "plan018-baseline-correction/v1",
+  "recorded_at": "2026-08-11T10:11:00-04:00",
+  "user_stated": "baml_client/ is generated; do not create it yourself; wrong environment; stop and examine previous reports",
+  "action": "Removed incorrectly seeded baml_client; stopped further improvised harness runs; corrected harness recipe to cite OPS-TESTING-HARNESSES.md \u00a73.1/\u00a73.2/\u00a73.3 and DEPLOYMENT.md \u00a77; prior baseline-hermetic gate results void",
+  "authorities": [
+    "work/OPS-TESTING-HARNESSES.md \u00a73.1 \u00a73.2 \u00a73.3",
+    "DEPLOYMENT.md \u00a77 hermetic / host_only / in-container rows",
+    "work/state/.claude/reports/2026-07-29-crashed-sessions-reconstructed-luria-resolved-ghcr-chosen-image-secret-bake-fixed.json (baml-cli generate --from dmac_assistant/baml_src)"
+  ]
+}

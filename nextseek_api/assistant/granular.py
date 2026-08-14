@@ -185,6 +185,79 @@ def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_
     return result
 
 
+
+_RUN_LS_CAP = 2_000_000  # bytes of `ls -laR` returned to CC before truncation (well under the 16 MiB WS cap)
+
+
+def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
+    """Read-only recursive listing of a finished Luria run dir (reingest input).
+
+    Validates ``run_dir`` is under ``<LURIA working_path>/runs`` (no traversal),
+    then SSHes Luria and runs ``ls -laR``. Returns the tree text (capped). Never
+    writes to Luria.
+    """
+    import shlex
+    luria_env = getattr(config, "LURIA_ENV", None) or {}
+    working_path = str(luria_env.get("working_path") or "").rstrip("/")
+    if not working_path or not luria_env.get("key"):
+        raise OpValidationError("Luria is not configured (LURIA_ENV incomplete)")
+    runs_root = working_path + "/runs"
+    run_dir = os.path.normpath(str(args["run_dir"]))
+    if run_dir != runs_root and not run_dir.startswith(runs_root + "/"):
+        raise OpValidationError(f"run_dir must be under {runs_root}")
+    from chat_nextseek.luria.ssh import prepare_key, ssh_run
+    key_path = prepare_key(luria_env["key"])
+    out = ssh_run(luria_env, f"ls -laR {shlex.quote(run_dir)}", key_path=key_path)
+    return {"run_dir": run_dir, "truncated": len(out) > _RUN_LS_CAP, "tree": out[:_RUN_LS_CAP]}
+
+
+def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_dir):
+    """Render one 4-sheet upload workbook per A.* sample type from CC-composed rows.
+
+    args["rows"]: JSON array of {"SampleType", "json_metadata", "assay_ids"}. Runs QA
+    per type (a HARD_REJECT type is skipped, its report returned). Returns the rendered
+    workbooks under ``saved_files`` plus the per-type QA reports. No NExtSEEK write —
+    the user reviews the workbook(s) and uploads them via the batch-upload UI.
+    """
+    from nextseek_api.assistant.reingest_qa import HARD_REJECT, qa_rows
+    from nextseek_api.assistant.upload_workbook import render_upload_workbook
+
+    try:
+        rows = json.loads(args["rows"])
+    except ValueError as exc:
+        raise OpValidationError(f"rows is not valid JSON: {exc}") from exc
+    if not isinstance(rows, list) or not rows:
+        raise OpValidationError("rows must be a non-empty JSON array")
+
+    existing = {u.strip() for u in str(args.get("existing_parent_uids") or "").split(",") if u.strip()}
+
+    by_type: dict[str, list] = {}
+    for row in rows:
+        st = str((row or {}).get("SampleType") or "").strip()
+        if not st:
+            raise OpValidationError("every row needs a SampleType")
+        by_type.setdefault(st, []).append(row)
+
+    out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
+    known = set(by_type)  # permissive here; the real catalog validates on upload
+    saved_files: dict[str, str] = {}
+    qa: dict[str, dict] = {}
+    for st, st_rows in by_type.items():
+        report = qa_rows(st_rows, sample_type=st, known_sampletypes=known,
+                         existing_parent_uids=existing)
+        qa[st] = {"disposition": report.disposition, "hard": report.hard, "soft": report.soft}
+        if report.disposition == HARD_REJECT:
+            continue
+        safe_name = st.replace("/", "_").replace(" ", "_")          # readable filename (keeps the dot)
+        # The artifact KEY is the download URL segment, which the route only
+        # accepts as [\w]+ — so it must be word-chars only (A.SCXP -> A_SCXP).
+        # The file on disk keeps the dot; download serves it by its real name.
+        safe_key = safe_name.replace(".", "_").replace("-", "_")
+        path = os.path.join(out_root, f"reingest_{safe_name}.xlsx")
+        render_upload_workbook(st, st_rows, path)
+        saved_files[f"reingest_{safe_key}"] = path
+    return {"saved_files": saved_files, "qa": qa}
+
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity,
     "parse": _parse,
@@ -193,4 +266,6 @@ _HANDLERS: dict[str, Callable] = {
     "api-write": _api_write,
     "report": _report,
     "generate-submission": _generate_submission,
+    "run-ls": _run_ls,
+    "build-upload-xlsx": _build_upload_xlsx,
 }

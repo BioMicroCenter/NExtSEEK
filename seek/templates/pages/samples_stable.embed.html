@@ -29,34 +29,66 @@
 	});
 
 	$(function () {
-		var dg = $('#simple_dgtable').datagrid();
-		dg.datagrid('enableFilter', [{
-			field: 'id',
-			type: 'label'
-		}]);
+		var dg = $('#simple_dgtable');
+		nsEnableColumnFilters(
+			dg,
+			['uid', 'sample_type', 'assays', 'first_name', 'attributeValue'],
+			['ck', 'id']
+		);
 	});
 
-	function simple_downloadSamples(dg, url_download) {
-		var includeSampleTree = 0;
-		if (url_download == '/seek/samples/download/') {
-			$.messager.confirm({
-				title: 'Download Samples...',
-				msg: 'Include all associated samples?',
-				ok: 'Yes',
-				cancel: 'No',
-				fn: function (r) {
-					if (r) {
-						includeSampleTree = 1;
-					} else {
-						includeSampleTree = 0;
-					}
-					return simple_downloadSamples_new(dg, url_download, includeSampleTree);
-				}
-			});
-		} else {
-			return simple_downloadSamples_new(dg, url_download, includeSampleTree);
+	function simple_downloadSamples(dg) {
+		// This prompt is the one include-tree prompt in the codebase that actually
+		// ran, so its answer is preserved and now drives include_tree.
+		$.messager.confirm({
+			title: 'Download Samples...',
+			msg: 'Include all associated samples?',
+			ok: 'Yes',
+			cancel: 'No',
+			fn: function (r) {
+				nsDownloadSamples(nsCollectSelectedUids(dg), {includeTree: !!r});
+			}
+		});
+	}
+
+	/* "Export samples to Import" -- the ImmPort export via /seek/samples/export/.
+	 * NOT a sample download: it needs a chosen sample type, posts numeric ids, and
+	 * redirects to a generated file. It shared simple_downloadSamples with the
+	 * download button only because that function was overloaded on its url argument. */
+	function simple_exportSamples(dg, url_export) {
+		var sampletype_id = $('#simple_sample_type').combobox('getValue');
+		if (sampletype_id == 0) {
+			alert('No sample type is selected.');
+			return;
 		}
-		return;
+
+		var rows = dg.datagrid('getRows');
+		var allIds = [];
+		for (var i = 0; i < rows.length; i++) {
+			if (rows[i].ck) {
+				allIds.push(rows[i].id);
+			}
+		}
+		if (allIds.length == 0) {
+			alert('No sample in the table is selected for export.');
+			return;
+		}
+
+		$.messager.progress({title: 'Please wait', msg: 'Exporting samples...'});
+		$.post(url_export, {
+			'csrfmiddlewaretoken': '{{ csrf_token }}',
+			'allids': JSON.stringify(allIds),
+			'sampletype_id': sampletype_id
+		}, function (data) {
+			$.messager.progress('close');
+			var obj = jQuery.parseJSON(data);
+			if (obj.status == 1) {
+				window.location.href = obj.link;
+			} else {
+				simple_showSampleErrorMsg(obj.msg);
+			}
+			return;
+		});
 	}
 
 	function simple_showSampleErrorMsg(errorMsg) {
@@ -73,103 +105,6 @@
 		return;
 	}
 
-	function simple_downloadSamples_new(dg, url_download, includeSampleTree) {
-		var sampletype_id = $('#simple_sample_type').combobox('getValue');
-		if (sampletype_id == 0) {
-			alert('No sample type is selected.');
-			return;
-		}
-
-		var rows = dg.datagrid('getRows');
-		if (rows.length == 0) {
-			alert('No sample in the table is selected for download.');
-			return;
-		}
-
-		var allIds = [];
-        var allUids = "";
-		for (var i = 0; i < rows.length; i++) {
-			var row = rows[i];
-			if (row.ck) {
-				allIds.push(row.id);
-                var regex = /(?<=>).*?(?=<)/g;
-                uid = row.uid.match(regex)[0];
-                allUids += uid + "\n";
-			} else {
-			}
-		}
-
-		if (allIds.length == 0 || allUids.length == 0) {
-			alert('No sample in the table is selected for download.');
-			return;
-		}
-		var attributeFilter = '';
-		var allids = JSON.stringify(allIds);
-		//var allUids = JSON.stringify(allUids);
-		var win = $.messager.progress({
-			title: 'Please wait',
-			msg: 'Searching for samples...'
-		});
-
-        if (includeSampleTree == 1) {
-            var new_retrieval_url = '/seek/admin/retrieve/';
-            
-            var formData = new FormData();
-            formData.append("csrfmiddlewaretoken", '{{ csrf_token }}');
-            formData.append("retrieval_uids", allUids);
-
-            fetch(new_retrieval_url, {
-                    method: 'POST',
-                    headers: {"X-CSRFToken": "{{ csrf_token }}"},
-                    body: formData,
-                  })
-              .then(response => {
-                          if (response.ok) {
-                            return response.blob();
-                          } else {
-                            $.messager.progress('close');
-                            throw new Error('Download failed');
-                          }
-                        })
-              .then(blob => {
-                          $.messager.progress('close');
-                          const downloadUrl = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = downloadUrl;
-                          var d = new Date();
-                          a.download = 'download-samples-' + d.getFullYear() + '-' + (d.getMonth() + 1) + "-" + d.getDate() + '_' + d.getHours() + '-' + d.getMinutes() + '.xlsx';
-                          document.body.appendChild(a);
-                          a.click();
-                          setTimeout(() => {
-                                        URL.revokeObjectURL(downloadUrl);
-                                        document.body.removeChild(a);
-                                      }, 0);
-                        })
-              .catch(error => {
-                          console.error('Download error:', error);
-                        });
-        } else {
-            $.post(url_download, {
-            	'csrfmiddlewaretoken': '{{ csrf_token }}',
-            	'allids': allids,
-            	'sampletype_id': sampletype_id,
-            	'includeSampleTree': includeSampleTree,
-            	'attributeFilter': attributeFilter
-            }, function (data) {
-            	$.messager.progress('close');
-            	var obj = jQuery.parseJSON(data);
-            	var msg = obj.msg;
-            	var status = obj.status;
-            	var link = obj.link;
-            	if (status == 1) {
-            		window.location.href = link;
-            	} else {
-            		simple_showSampleErrorMsg(msg);
-            	}
-            	return;
-            });
-        }
-	}
 
 	function simple_deleteSamples(dg, url_delete) {
 		var rows = dg.datagrid('getRows');
@@ -363,13 +298,13 @@
 					data-options="field: 'ck', width: 100, align: 'center', checkbox: true, editor: { type: 'checkbox', options: { on: 'Y', off: 'N' } }">
 					Select file</th>
 				<th data-options="field: 'id', width: 30" sortable=" true"><b>ID</b></th>
-				<th data-options="field: 'uid', width: 200, editor: 'text'" sortable=" true"><b>UID</b></th>
+				<th data-options="field: 'uid', width: 200, editor: 'text', formatter: nsEllipsisFormatter" sortable=" true"><b>UID</b></th>
 				<!---th data-options="field: 'parent_uids', width: 200, editor: 'text'" sortable=" true"><b>Parent UIDs</b></th>
 				<th data-options="field: 'created_at', align: 'left', width: 60"><b>Updated AT</b></th--->
-				<th data-options="field: 'sample_type', width: 100" sortable=" true"><b>Sample Type</b></th>
-				<th data-options="field: 'assays', width: 120" sortable=" true"><b>Assays</b></th>
-				<th data-options="field: 'first_name', align: 'left', width: 100"><b>Contributor</b></th>
-				<th data-options="field: 'attributeValue',align:'left',width:900"><b>Attribute:Value</b></th>
+				<th data-options="field: 'sample_type', width: 100, formatter: nsEllipsisFormatter" sortable=" true"><b>Sample Type</b></th>
+				<th data-options="field: 'assays', width: 120, formatter: nsEllipsisFormatter" sortable=" true"><b>Assays</b></th>
+				<th data-options="field: 'first_name', align: 'left', width: 100, formatter: nsEllipsisFormatter"><b>Contributor</b></th>
+				<th data-options="field: 'attributeValue',align:'left',width:900, formatter: nsEllipsisFormatter"><b>Attribute:Value</b></th>
 				<!---th data-options=" field: 'json_metadata', align: 'left', width: 900"><b>Meta Data</b></th--->
 			</tr>
 		</thead>
@@ -377,13 +312,13 @@
 
 	<div id="simple_tb_toolbar" style="height: auto">
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"
-			onclick="simple_downloadSamples($('#simple_dgtable'), '/seek/samples/download/')">Download samples</a>
+			onclick="simple_downloadSamples($('#simple_dgtable'))">Download samples</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-remove', plain: true"
 			onclick="simple_deleteSamples($('#simple_dgtable'), '/seek/samples/delete/')">Delete samples</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"
 			onclick="simple_publishSamples($('#simple_dgtable'), '/seek/samples/publish/')">Publish samples to FairdomHub</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"
-			onclick="simple_downloadSamples($('#simple_dgtable'), '/seek/samples/export/')">Export samples to Import</a>
+			onclick="simple_exportSamples($('#simple_dgtable'), '/seek/samples/export/')">Export samples to Import</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-timeline', plain: true"
 			onclick="showTimeline($('#simple_dgtable'))">View Timeline</a>
 	</div>

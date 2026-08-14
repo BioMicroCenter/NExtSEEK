@@ -1,0 +1,85 @@
+{
+  "schema": "plan018-v4-3-verifier/v1",
+  "recorded_at": "2026-08-13T01:34:18Z",
+  "gate": "PASS",
+  "zip_path": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip",
+  "route_execution": false,
+  "set3_rerun": false,
+  "paid_or_live_resources_used": false,
+  "checks_passed": 14,
+  "checks_total": 14,
+  "errors": [],
+  "checks": [
+    {
+      "name": "v13a_zip_exists",
+      "pass": true,
+      "detail": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
+    },
+    {
+      "name": "v13a_zip_sha",
+      "pass": true,
+      "detail": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814"
+    },
+    {
+      "name": "dd44_three_call_aggregate",
+      "pass": true,
+      "detail": "NotSatisfied"
+    },
+    {
+      "name": "dd44_outcome_plurality",
+      "pass": true,
+      "detail": "NotSatisfied"
+    },
+    {
+      "name": "stage_c_complete",
+      "pass": true,
+      "detail": "Complete"
+    },
+    {
+      "name": "replay_matches_aggregate",
+      "pass": true,
+      "detail": "FullySatisfied"
+    },
+    {
+      "name": "provider_outage_excluded",
+      "pass": true,
+      "detail": "excluded"
+    },
+    {
+      "name": "conservation_balanced",
+      "pass": true,
+      "detail": "3"
+    },
+    {
+      "name": "fit_admission_nonempty",
+      "pass": true,
+      "detail": "1"
+    },
+    {
+      "name": "fit_admission_no_pending",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "support_gate_fixture",
+      "pass": true,
+      "detail": "{\"passes\": true, \"retained_pairs\": 1, \"discordant_pairs\": 1, \"min_retained_pairs\": 1, \"min_discordant_pairs\": 1, \"attrition_report\": {\"excluded_pairs\": 0, \"pending_pairs\": 0}, \"differential_attrition\": {\"by_route\": {\"ns\": {\"input\": 1, \"excluded\": 0, \"pending\": 0, \"scored\": 1}, \"cc\": {\"input\": 1, \"excluded\": 0, \"pending\": 0, \"scored\": 1}}, \"exclusion_rate_delta\": 0.0, \"route_imbalance\": false, \"detail\": \"exclusion+pending rate delta=0.000 across routes ['cc', 'ns']\"}, \"sensitivity_bounds\": {\"retained_pairs\": {\"observed\": 1, \"min\": 1, \"max\": 1, \"min_passes_gate\": true, \"max_passes_gate\": true}, \"discordant_pairs\": {\"observed\": 1, \"min\": 1, \"max\": 1, \"min_passes_gate\": true, \"max_passes_gate\": true}, \"pending_pairs\": 0, \"excluded_pairs\": 0}}"
+    },
+    {
+      "name": "differential_attrition_report",
+      "pass": true,
+      "detail": "exclusion+pending rate delta=0.000 across routes ['cc', 'ns']"
+    },
+    {
+      "name": "sensitivity_bounds_present",
+      "pass": true,
+      "detail": "{\"retained_pairs\": {\"observed\": 1, \"min\": 1, \"max\": 1, \"min_passes_gate\": true, \"max_passes_gate\": true}, \"discordant_pairs\": {\"observed\": 1, \"min\": 1, \"max\": 1, \"min_passes_gate\": true, \"max_passes_gate\": true}, \"pending_pairs\": 0, \"excluded_pairs\": 0}"
+    },
+    {
+      "name": "v4_8_authorization_note",
+      "pass": true,
+      "detail": "Live three-call provider judgment requires separate V4-8 authorization"
+    }
+  ],
+  "v4_8_note": "Live three-call provider judgment requires separate V4-8 authorization"
+}

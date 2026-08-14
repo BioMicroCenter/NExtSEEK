@@ -95,6 +95,17 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     samples, studies, code, or files — select `unrelated`. Do NOT route such
     queries to `container_cc` or `nextseek_query`.
 
+    A question is NOT `unrelated` merely because its subject sounds like general
+    biology or ordinary laboratory vocabulary. NExtSEEK's registered assays,
+    sample types and protocols have plain-language names — Tissue Collection,
+    RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex —
+    so "tell me about tissue collection" is a catalog question about this
+    database, not small talk about biology. The same applies when the user names
+    no sample and uses no first-person wording: "What is a TIS sample?" is in
+    scope exactly as much as "what assays do I have access to". Reserve
+    `unrelated` for subjects that could not plausibly be an entry in a sample
+    catalog at all.
+
     {{ ctx.output_format }}
   "#
 }

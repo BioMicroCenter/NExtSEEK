@@ -1,0 +1,14 @@
+{
+  "schema": "plan018-v4-6-phase0-publish/v1",
+  "recorded_at": "2026-08-12T19:10:00Z",
+  "gate": "PASS",
+  "worktree": "/home/taishajo/work/NExtSEEK-plan018",
+  "implementation_branch": "ultraplan/hibayes-eval-routing",
+  "worktree_sha": "0a5b052a2d74d1df319b55c8b505d38e69cf23f3",
+  "deploydocs_branch": "dev",
+  "deploydocs_sha": "3c5f531c",
+  "living_plan_sha256": "a48e4a24cea0cfc37161c861009797c1249c90a3c7b3495b6b43b278d9f9394e",
+  "registry_asset": "nextseek--plan-018",
+  "registry_sha256": "a48e4a24cea0cfc37161c861009797c1249c90a3c7b3495b6b43b278d9f9394e",
+  "paid_or_live_resources_used": false
+}

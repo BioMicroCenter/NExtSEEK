@@ -1,0 +1,252 @@
+{
+  "schema": "plan018-v4-8-verifier/v1",
+  "recorded_at": "2026-08-13T01:34:26Z",
+  "gate": "PASS",
+  "checks_passed": 47,
+  "checks_total": 47,
+  "errors": [],
+  "checks": [
+    {
+      "name": "evidence_plan018-v4-8-phase0-publish.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-phase0-publish.json"
+    },
+    {
+      "name": "plan018-v4-8-phase0-publish.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-8-prereq.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-prereq.json"
+    },
+    {
+      "name": "plan018-v4-8-prereq.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-8-manifest.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-manifest.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-8-manifest.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-8-reserve.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-reserve.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-8-reserve.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-8-gate.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-gate.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-8-gate.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-8-resume.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-resume.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-8-resume.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-8-lane-m.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-lane-m.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-8-lane-m.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "module_nextseek_api/eval/run_manifest.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/run_manifest.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/run_authorization.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/run_authorization.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/provider_gate.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/provider_gate.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/fake_provider.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/fake_provider.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/judging_engine.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/judging_engine.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/spend_conservation.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/spend_conservation.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/reconciliation.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/reconciliation.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/paid_run_state.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/paid_run_state.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/paid_run_schedule.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/paid_run_schedule.py"
+    },
+    {
+      "name": "module_nextseek_api/eval/seam_inventory.py",
+      "pass": true,
+      "detail": "nextseek_api/eval/seam_inventory.py"
+    },
+    {
+      "name": "module_nextseek_api/migrations/0017_paid_run_state.py",
+      "pass": true,
+      "detail": "nextseek_api/migrations/0017_paid_run_state.py"
+    },
+    {
+      "name": "inventory_ast_derivation",
+      "pass": true,
+      "detail": "ast_source_scan"
+    },
+    {
+      "name": "inventory_exists",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-provider-seam-inventory.json"
+    },
+    {
+      "name": "inventory_covers_ast_sites",
+      "pass": true,
+      "detail": "all"
+    },
+    {
+      "name": "inventory_no_unvisited_paid_run_gated",
+      "pass": true,
+      "detail": "all wired"
+    },
+    {
+      "name": "inventory_disk_no_unvisited",
+      "pass": true,
+      "detail": "all wired"
+    },
+    {
+      "name": "inventory_status",
+      "pass": true,
+      "detail": "complete"
+    },
+    {
+      "name": "gate_has_crash_flags",
+      "pass": true,
+      "detail": "crash hooks"
+    },
+    {
+      "name": "gate_calls_reserve",
+      "pass": true,
+      "detail": "reserve"
+    },
+    {
+      "name": "approve_manifest_refuses_overrides",
+      "pass": true,
+      "detail": "override refusal"
+    },
+    {
+      "name": "conservation_attempt_id_accounting",
+      "pass": true,
+      "detail": "attempt buckets"
+    },
+    {
+      "name": "schedule_refuses_default",
+      "pass": true,
+      "detail": "refuse"
+    },
+    {
+      "name": "lane_c_junit_exists",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-lane-c.junit.xml"
+    },
+    {
+      "name": "lane_c_sidecar_exists",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-8-lane-c.sidecar.json"
+    },
+    {
+      "name": "lane_c_sidecar_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "lane_c_sources_match_evidence",
+      "pass": true,
+      "detail": "all"
+    },
+    {
+      "name": "lane_c_sidecar_counts_exact",
+      "pass": true,
+      "detail": "{\"errors\": 0, \"expected_deselected\": 4, \"failed\": 0, \"passed\": 35, \"skipped\": 0, \"tests\": 35, \"unexpected_deselected\": 0}"
+    },
+    {
+      "name": "lane_c_junit_hash_matches_sidecar",
+      "pass": true,
+      "detail": "c73cb8fcf3f377a7e58cae59fc32746ea90a1449ec63e51800c92c1b723a14d1"
+    },
+    {
+      "name": "lane_c_junit_all_passed",
+      "pass": true,
+      "detail": "tests=35,failures=0,errors=0,skipped=0,suites=1"
+    },
+    {
+      "name": "migration_graph_unique_leaf",
+      "pass": true,
+      "detail": "0018_turn_ledger_attempted_provenance"
+    },
+    {
+      "name": "migration_0017_in_on_disk_lineage",
+      "pass": true,
+      "detail": "0001_initial,0002_querytask,0003_chatsession_title,0004_chatsession_extra_state_state_only,0005_chatsession_extra_state_column,0005_ensure_chatsession_extra_state_column,0006_merge_extra_state_guards,0007_ccsessiontranscript,0008_heal_cc_transcript_fk,0009_normalize_chat_log_turn_ids,0010_turn_ledger,0011_turn_judgment,0012_posterior_generation,0013_family_posterior,0014_generation_activation_and_reservation,0015_v4_5_generation_audit_and_turn_pin,0016_paired_run_registry,0017_paid_run_state,0018_turn_ledger_attempted_provenance"
+    },
+    {
+      "name": "migration_leaf_evidence_exists",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-migration-leaf.json"
+    },
+    {
+      "name": "migration_leaf_evidence_matches_on_disk",
+      "pass": true,
+      "detail": "0018_turn_ledger_attempted_provenance.py"
+    }
+  ],
+  "hashes": {
+    "run_manifest_sha256": "0e938608a22649a57df811c4150963d7f6d99008927dddad4c1240e62278f7b4",
+    "provider_gate_sha256": "c525b9cb58b3df894c3d4cb3880adfd364920b4582aeb6ae03345b47e4fe6ddb",
+    "migration_0017_sha256": "e59b06d8344394ec8ecbd2051fc5a3d6f03bf5c68ca5edd3e70fe928fa22e4fa",
+    "seam_inventory_sha256": "efe56e92fc7b9752b364251530b5ab5ff631c72dbdf99e404b372839bc813735"
+  },
+  "paid_or_live_resources_used": false
+}

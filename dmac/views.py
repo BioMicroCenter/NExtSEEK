@@ -265,8 +265,19 @@ def index(request):
         )    
     
 def signup_seek(request):
-    url = settings.SEEK_PUBLIC_URL + "/signup"
-    HttpResponseRedirect(url)
+    """Hand account creation off to SEEK, which owns the user records.
+
+    Target is the *browser-reachable* SEEK base URL (SEEK_PUBLIC_URL), never the
+    internal docker hostname SEEK_URL (http://seek:3000) — that name only
+    resolves inside the compose network, not in the user's browser. Falls back
+    to SEEK_URL only so a misconfigured host still redirects somewhere
+    inspectable instead of looping back onto this view.
+    """
+    base = (
+        getattr(settings, "SEEK_PUBLIC_URL", "")
+        or getattr(settings, "SEEK_URL", "")
+    )
+    return HttpResponseRedirect(base.rstrip("/") + "/signup")
 
 
 

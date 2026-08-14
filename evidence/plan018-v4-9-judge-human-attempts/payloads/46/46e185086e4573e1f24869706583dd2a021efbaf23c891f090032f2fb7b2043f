@@ -1,0 +1,1 @@
+{"outcome":"FullySatisfied","usefulness_score":4,"primary_issue":"NoIssue","needs_human_review":false,"review_priority":"Low","rationale":"The agent correctly executed a graph query that yielded no results and accurately communicated the null finding to the user."}

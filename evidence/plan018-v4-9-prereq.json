@@ -1,0 +1,74 @@
+{
+  "schema": "plan018-v4-9-prereq/v1",
+  "recorded_at": "2026-08-13T01:16:00Z",
+  "integration_base": {
+    "sha": "14b2734fdc21b9b36bcb3c1e41f37fb15b44e78c",
+    "branch": "ultraplan/hibayes-eval-routing-v4-9",
+    "origin_dev_merged": true,
+    "original_dirty_worktree_touched": false
+  },
+  "v4_0": {
+    "closeout": "evidence/plan018-v4-0-closeout.json",
+    "status": "CLOSED",
+    "forward_migrate": "evidence/plan018-v4-0-forward-migrate.sidecar.json",
+    "forward_migrate_gate": "PASS"
+  },
+  "v4_1": {
+    "closeout": "evidence/plan018-v4-1-closeout.json",
+    "gate": "PASS",
+    "v13a_verification": "evidence/plan018-v4-1-v13a-verify.json",
+    "v13a_gate": "PASS"
+  },
+  "verifier_results": {
+    "V4-2": {
+      "path": "evidence/plan018-v4-2-verifier.sidecar.json",
+      "gate": "PASS",
+      "checks": "22/22"
+    },
+    "V4-3": {
+      "path": "evidence/plan018-v4-3-verifier.sidecar.json",
+      "gate": "PASS",
+      "checks": "14/14"
+    },
+    "V4-4": {
+      "path": "evidence/plan018-v4-4-verifier.sidecar.json",
+      "gate": "PASS",
+      "checks": "13/13"
+    },
+    "V4-5": {
+      "path": "evidence/plan018-v4-5-verifier.sidecar.json",
+      "gate": "PASS",
+      "checks": "22/22"
+    },
+    "V4-6": {
+      "path": "evidence/plan018-v4-6-verifier.sidecar.json",
+      "gate": "PASS",
+      "checks": "28/28"
+    },
+    "V4-7": {
+      "path": "evidence/plan018-v4-7-verifier.sidecar.json",
+      "gate": "PASS",
+      "checks": "33/33"
+    },
+    "V4-8": {
+      "path": "evidence/plan018-v4-8-verifier.sidecar.json",
+      "gate": "PASS",
+      "checks": "47/47",
+      "lane_c": "evidence/plan018-v4-8-lane-c.sidecar.json"
+    }
+  },
+  "migration_lineage": {
+    "ref": "evidence/plan018-migration-leaf.json",
+    "leaf": "0018_turn_ledger_attempted_provenance.py",
+    "v4_7_membership": "0016_paired_run_registry.py",
+    "v4_8_membership": "0017_paid_run_state.py"
+  },
+  "v4_8_rollup_cold_review": {
+    "verdict": "PASS",
+    "ref": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md",
+    "subagent_id": "07c68592-3fe7-4b5c-b33b-7a443b84e0a7",
+    "evaluation_sha": "3060e3e9ccf4aafacbd16ce79547755d83da23a2"
+  },
+  "verification_lane": "docker worktree mount using repository source at /repo; V4-5 used dmac.test_settings; the V13-A zip was mounted read-only",
+  "paid_or_live_resources_used": false
+}

@@ -1,0 +1,63 @@
+{
+  "schema": "plan018-cold-review-redispatch/v1",
+  "recorded_at": "2026-08-12T22:00:00Z",
+  "parent_session": "f1ace383-f8c3-4bc1-8e31-71d5d8329da1",
+  "prompt_verbatim": "Execution is complete. Ultra think, then evaluate the actual outcome against the original spec and each task's stated success conditions. For each task: mark it pass, partial, or fail, and explain why. Identify any success conditions that were satisfied technically but not in spirit. Produce a final verdict on whether my original will was carried out, and flag any residual debt — things that technically work but shouldn't be left as-is.",
+  "gates": [
+    {
+      "gate": "V4-2",
+      "verdict": "PASS with partials",
+      "subagent_id": "950bd91d-63c8-4241-af28-f4f5af4be30c",
+      "artifact": "evidence/plan018-v4-2-cold-outcome-review.md",
+      "provenance_ok": true,
+      "prior_closed_claim_contested": false,
+      "notes": "Core port/manifests/host lane/verifier meet DONE; Task 3 product seams partial (unit-level not HTTP/mutation depth)"
+    },
+    {
+      "gate": "V4-3",
+      "verdict": "PASS with documented partials",
+      "subagent_id": "68bfa57a-1afc-4d89-9abf-3590be46ff4a",
+      "artifact": "evidence/plan018-v4-3-cold-outcome-review.md",
+      "provenance_ok": true,
+      "prior_closed_claim_contested": false,
+      "notes": "Living-plan DONE replay met; Tasks 0,3,4,5,6 partial on oracle exhaustiveness, V8-D goldens, human-annotation ingest, attrition reporting"
+    },
+    {
+      "gate": "V4-4",
+      "verdict": "PASS",
+      "subagent_id": "d6825579-cd2e-4966-a128-5f3568f13961",
+      "artifact": "evidence/plan018-v4-4-cold-outcome-review.md",
+      "provenance_ok": true,
+      "prior_closed_claim_contested": false,
+      "notes": "Post-remediation V14 DONE met; residual evidence hygiene (stale feasibility JSON, inflated test counts, VOID prior cold PASS refs)"
+    },
+    {
+      "gate": "V4-6",
+      "verdict": "PASS (hermetic)",
+      "subagent_id": "03872180-5af6-4e37-b141-3fcb1b8970f6",
+      "artifact": "evidence/plan018-v4-6-cold-outcome-review.md",
+      "provenance_ok": true,
+      "prior_closed_claim_contested": true,
+      "notes": "Prior parent-written cold PASS VOID; Tasks 3-5,7 partial on mock transport, ledger fields, premature living-plan cold PASS"
+    },
+    {
+      "gate": "V4-7",
+      "verdict": "PASS (partial on monitoring alerts)",
+      "subagent_id": "76605394-d667-4183-b7c5-9a7aacafd224",
+      "artifact": "evidence/plan018-v4-7-cold-outcome-review.md",
+      "provenance_ok": true,
+      "prior_closed_claim_contested": true,
+      "notes": "Prior parent-written cold PASS VOID; Task 4/6 partial on drift/missingness alerts and checkbox overshoot"
+    }
+  ],
+  "summary": {
+    "all_provenance_ok": true,
+    "parent_wrote_cold_reviews": false,
+    "void_prior_reviews_replaced": 5,
+    "pass_count": 5,
+    "fail_count": 0,
+    "contested_prior_closed_claims": ["V4-6", "V4-7"]
+  },
+  "not_redispatched": ["V4-5", "V4-8"],
+  "paid_or_live_resources_used": false
+}

@@ -1,0 +1,94 @@
+{
+  "schema": "plan018-v4-3-dd44-mutation-manifest/v1",
+  "recorded_at": "2026-08-12T23:30:00Z",
+  "authority": "V5-3 §2 DD-44 oracle",
+  "test_module": "nextseek_api/eval/tests/test_judge_mutations.py",
+  "operators": [
+    "aggregate_outcome",
+    "aggregate_primary_issue",
+    "aggregate_review_priority",
+    "aggregate_usefulness_score_median",
+    "aggregate_needs_human_review",
+    "aggregate_rationale"
+  ],
+  "mutants": [
+    {
+      "id": "aggregate_outcome_first_vote",
+      "operator": "aggregate_outcome",
+      "description": "Return first vote instead of plurality/tie-break"
+    },
+    {
+      "id": "aggregate_outcome_invert_failure_partition",
+      "operator": "aggregate_outcome",
+      "description": "Prefer success partition instead of failure-partition tie-break"
+    },
+    {
+      "id": "aggregate_outcome_plurality_bypass",
+      "operator": "aggregate_outcome",
+      "description": "Return last vote; bypass plurality winner"
+    },
+    {
+      "id": "aggregate_primary_issue_first_only",
+      "operator": "aggregate_primary_issue",
+      "description": "Return first vote instead of majority/severity tie-break"
+    },
+    {
+      "id": "aggregate_primary_issue_reverse_severity",
+      "operator": "aggregate_primary_issue",
+      "description": "Reverse severity order for three-way tie"
+    },
+    {
+      "id": "aggregate_primary_issue_no_issue_always",
+      "operator": "aggregate_primary_issue",
+      "description": "Always return NoIssue"
+    },
+    {
+      "id": "aggregate_review_priority_min",
+      "operator": "aggregate_review_priority",
+      "description": "Return minimum priority instead of maximum"
+    },
+    {
+      "id": "aggregate_review_priority_first",
+      "operator": "aggregate_review_priority",
+      "description": "Return first vote instead of max"
+    },
+    {
+      "id": "aggregate_usefulness_mean",
+      "operator": "aggregate_usefulness_score_median",
+      "description": "Return integer mean instead of median"
+    },
+    {
+      "id": "aggregate_usefulness_max",
+      "operator": "aggregate_usefulness_score_median",
+      "description": "Return max instead of median"
+    },
+    {
+      "id": "aggregate_needs_review_all",
+      "operator": "aggregate_needs_human_review",
+      "description": "Require all flags true instead of OR"
+    },
+    {
+      "id": "aggregate_needs_review_none",
+      "operator": "aggregate_needs_human_review",
+      "description": "Always return false"
+    },
+    {
+      "id": "aggregate_rationale_last_match",
+      "operator": "aggregate_rationale",
+      "description": "Return last matching rationale instead of first"
+    },
+    {
+      "id": "aggregate_rationale_always_first",
+      "operator": "aggregate_rationale",
+      "description": "Return first evaluation rationale regardless of outcome"
+    }
+  ],
+  "oracle_fixtures": {
+    "outcome_votes": ["NotSatisfied", "AppropriateClarification", "AppropriateBoundary"],
+    "primary_issue_votes": ["Timeout", "RuntimeFailure", "NoIssue"],
+    "review_priority_votes": ["Low", "High", "Medium"],
+    "usefulness_scores": [1, 3, 4],
+    "needs_human_review_flags": [false, false, true]
+  },
+  "paid_or_live_resources_used": false
+}

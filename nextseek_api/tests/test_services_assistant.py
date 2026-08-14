@@ -1158,3 +1158,229 @@ class PermissionDeniedTests(TestCase):
     def test_test_cases_permission_denied(self):
         resp = self.client.get("/nextseek_api/assistant/test-cases/")
         self.assertEqual(resp.status_code, 403)
+
+
+# ============================================================================
+# OpenAPI request examples must actually validate (#39)
+# ============================================================================
+
+
+class OpenApiExamplesValidateTests(TestCase):
+    """Every request-only OpenApiExample declared for a QueryRequest-typed
+    endpoint must validate against QueryRequest.
+
+    QueryRequest.mode is Field(...) — required — so an example that omits it is
+    copy-pasteable straight into a 422. Scanned from source (rather than from a
+    generated schema) so new examples are covered automatically, and so the
+    check does not depend on whether a given viewset reaches the public schema.
+    """
+
+    MODULES = ("services/assistant.py", "services/cc_assistant.py")
+
+    @staticmethod
+    def _query_request_examples(path):
+        """(module, example_name, value) for each request_only OpenApiExample
+        under an @extend_schema(request=QueryRequest, ...)."""
+        import ast
+
+        tree = ast.parse(path.read_text())
+        found = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "extend_schema"):
+                continue
+            kw = {k.arg: k.value for k in node.keywords}
+            request = kw.get("request")
+            if not (isinstance(request, ast.Name) and request.id == "QueryRequest"):
+                continue
+            examples = kw.get("examples")
+            if not isinstance(examples, ast.List):
+                continue
+            for ex in examples.elts:
+                if not (isinstance(ex, ast.Call)
+                        and isinstance(ex.func, ast.Name)
+                        and ex.func.id == "OpenApiExample"):
+                    continue
+                exkw = {k.arg: k.value for k in ex.keywords}
+                if "value" not in exkw:
+                    continue
+                name = exkw.get("name")
+                name = name.value if isinstance(name, ast.Constant) else "<unnamed>"
+                found.append((name, ast.literal_eval(exkw["value"])))
+        return found
+
+    def test_every_query_request_example_validates(self):
+        from pydantic import ValidationError as PydanticValidationError
+
+        from nextseek_api.assistant.models_api import QueryRequest
+
+        repo_root = Path(__file__).resolve().parents[2]
+        checked = 0
+        for rel in self.MODULES:
+            path = repo_root / "nextseek_api" / rel
+            examples = self._query_request_examples(path)
+            self.assertTrue(examples, f"no QueryRequest examples found in {rel}")
+            for name, value in examples:
+                with self.subTest(module=rel, example=name):
+                    try:
+                        QueryRequest.model_validate(value)
+                    except PydanticValidationError as exc:
+                        self.fail(
+                            f"{rel} example {name!r} would 422 if copied: {exc}"
+                        )
+                    checked += 1
+        self.assertGreaterEqual(checked, 4)
+
+    def test_mode_is_required_on_query_request(self):
+        """The premise of the test above: drop this and it silently passes."""
+        from nextseek_api.assistant.models_api import QueryRequest
+
+        self.assertTrue(QueryRequest.model_fields["mode"].is_required())
+
+
+# ============================================================================
+# "Most recent session" lookups must not sort over results_history (#40)
+# ============================================================================
+
+
+class MostRecentSessionSortBufferTests(TestCase):
+    """MySQL raises errno 1038 ("Out of sort memory") when a filesort has to
+    carry the multi-MB results_history JSON column. Every "reuse the user's
+    most recent chat" lookup must therefore keep that column out of the
+    ORDER BY query.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        # Class-level (one write batch for the whole class) rather than per-test
+        # setUp: these rows are read-only here, and the suite shares one SQLite
+        # file with pipeline threads that outlive their tests.
+        cls.user = User.objects.create_user("sortbuf", password="x")
+        # Two sessions so the ORDER BY actually has something to order.
+        ChatSession.objects.create(user=cls.user, results_history=[{"user_query": "old"}])
+        cls.newest = ChatSession.objects.create(
+            user=cls.user, results_history=[{"user_query": "new"}]
+        )
+
+    @staticmethod
+    def _ordering_queries(captured):
+        return [q["sql"] for q in captured if "ORDER BY" in q["sql"].upper()]
+
+    def test_helper_keeps_results_history_out_of_the_sort(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from nextseek_api.services.assistant import _most_recent_session
+
+        with CaptureQueriesContext(connection) as ctx:
+            got = _most_recent_session(self.user)
+
+        self.assertEqual(got.session_id, self.newest.session_id)
+        ordering = self._ordering_queries(ctx.captured_queries)
+        self.assertTrue(ordering, "expected an ORDER BY query")
+        for sql in ordering:
+            self.assertNotIn("results_history", sql, f"sorted over the blob: {sql}")
+
+    def test_helper_returns_a_fully_loaded_row(self):
+        """Not .defer() — callers hand this straight to DictSessionAdapter,
+        which reads results_history in __init__. A deferred field would cost a
+        second query per turn."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from nextseek_api.services.assistant import _most_recent_session
+
+        got = _most_recent_session(self.user)
+        with CaptureQueriesContext(connection) as ctx:
+            self.assertEqual(got.results_history, [{"user_query": "new"}])
+        self.assertEqual(
+            len(ctx.captured_queries), 0,
+            "results_history was deferred and lazily re-fetched",
+        )
+
+    def test_helper_returns_none_for_a_user_with_no_sessions(self):
+        from nextseek_api.services.assistant import _most_recent_session
+
+        other = User.objects.create_user("nosessions", password="x")
+        self.assertIsNone(_most_recent_session(other))
+
+    def test_helper_returns_none_when_the_row_vanishes_between_the_two_queries(self):
+        """TOCTOU: the two-step lookup must keep the pre-#40 contract.
+
+        The ordered ``values_list`` query and the ``get()`` by primary key are
+        two round trips with no transaction around them. A concurrent delete
+        (another tab's "delete chat", a retention sweep) landing in that window
+        makes ``get()`` raise ``ChatSession.DoesNotExist``. Before #40 the
+        single ``.first()`` simply returned ``None`` and every caller then
+        created a fresh session, so raising here would be a new 500 on the hot
+        Container-CC path.
+
+        The race is simulated for real, not mocked: the row is deleted from
+        inside the patched ``get`` and the genuine ORM call is then allowed to
+        run and raise its genuine ``DoesNotExist``.
+        """
+        from nextseek_api.services.assistant import _most_recent_session
+
+        racer = User.objects.create_user("toctou", password="x")
+        doomed = ChatSession.objects.create(user=racer, results_history=[])
+
+        real_get = ChatSession.objects.get
+        calls = []
+
+        def racing_get(*args, **kwargs):
+            calls.append(kwargs)
+            # The window: the row is gone by the time the PK fetch executes.
+            ChatSession.objects.filter(session_id=doomed.session_id).delete()
+            return real_get(*args, **kwargs)
+
+        with patch.object(ChatSession.objects, "get", side_effect=racing_get):
+            got = _most_recent_session(racer)
+
+        self.assertEqual(len(calls), 1, "expected exactly one PK fetch")
+        self.assertIsNone(got)
+
+    def test_cc_resolve_session_keeps_results_history_out_of_the_sort(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from nextseek_api.services.cc_assistant import CCAssistantViewSet
+
+        vs = CCAssistantViewSet()
+        request = MagicMock()
+        request.user = self.user
+        req = MagicMock()
+        req.session_id = None
+        req.force_new = False
+
+        with CaptureQueriesContext(connection) as ctx:
+            got = vs._resolve_session(request, req)
+
+        self.assertEqual(got.session_id, self.newest.session_id)
+        ordering = self._ordering_queries(ctx.captured_queries)
+        self.assertTrue(ordering, "expected an ORDER BY query")
+        for sql in ordering:
+            self.assertNotIn("results_history", sql, f"sorted over the blob: {sql}")
+
+    def test_no_naive_most_recent_lookup_survives_in_either_module(self):
+        """Source guard: the three sites that used to do a bare
+        `.order_by("-updated_at").first()` on a full ChatSession queryset must
+        all go through the helper (or the two-step lookup in list_sessions)."""
+        import re
+
+        repo_root = Path(__file__).resolve().parents[2]
+        # filter(...) -> order_by("-updated_at") -> first(), with nothing in
+        # between. The helper survives because .values_list() sits in the
+        # chain; list_sessions survives because it has no .first().
+        pattern = re.compile(
+            r"ChatSession\.objects\.filter\([^()]*\)"
+            r"\s*\.order_by\(\s*[\"']-updated_at[\"']\s*\)"
+            r"\s*\.first\(\)"
+        )
+        offenders = []
+        for rel in ("services/assistant.py", "services/cc_assistant.py"):
+            text = (repo_root / "nextseek_api" / rel).read_text()
+            # Collapse the multi-line chained form onto one line first.
+            flat = re.sub(r"\n\s*", " ", text)
+            offenders += [f"{rel}: {m.group(0)}" for m in pattern.finditer(flat)]
+        self.assertEqual(offenders, [], f"unsorted-blob lookups remain: {offenders}")

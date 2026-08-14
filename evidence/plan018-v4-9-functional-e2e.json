@@ -1,0 +1,34 @@
+{
+  "schema_version": "plan018-v4-9-functional-e2e/v1",
+  "executed_at": "2026-08-13T15:56:17-04:00",
+  "database": "sqlite-memory-disposable",
+  "network": "provider enabled only for classifier call",
+  "classifier": {
+    "live": true,
+    "provider_client": "GCPReasoner",
+    "model": "gemini-3.1-pro-preview",
+    "input_tokens": 808,
+    "output_tokens": 60,
+    "task_family": "sample_search"
+  },
+  "fit": {
+    "functional_success_source": "human_grades",
+    "input_arms": 298,
+    "retained_pairs": 149,
+    "authoritative": false,
+    "initial_release_override": true,
+    "generation_hash": "f68fcc14e791bd6d8a2e07da54a848f457f1967529f57ad2f67941226aff415d"
+  },
+  "router": {
+    "query": "Find me mice treated with NDMA.",
+    "route": "container_cc",
+    "route_source": "posterior",
+    "generation_hash_matches_active": true
+  },
+  "recovery": {
+    "corrupt_generation_fallback": true,
+    "additional_provider_calls": 0
+  },
+  "live_persistent_state_mutated": false,
+  "result": "PASS"
+}

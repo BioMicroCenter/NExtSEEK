@@ -14,9 +14,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 def authenticate(headers):
+    # session.auth = (...) is the same Latin-1 HTTPBasicAuth path as requests'
+    # auth= kwarg, so encode the header ourselves (#52).
+    from nextseek_api.helpers import basic_auth_header
     session = requests.Session()
     session.headers.update(headers)
-    session.auth = ('username', getpass.getpass('Password')) 
+    session.headers.update(basic_auth_header(('username', getpass.getpass('Password'))))
     return session
 
 def json_for_resource(session, headers_json, url, type, id):

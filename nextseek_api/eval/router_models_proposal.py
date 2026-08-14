@@ -40,6 +40,7 @@ class RouteSource(str, Enum):
     baml = "baml"            # chosen by the router -> observational
     sticky = "sticky"
     heuristic = "heuristic"
+    posterior = "posterior"
 
 
 class FamilySource(str, Enum):

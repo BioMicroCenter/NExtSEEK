@@ -6,6 +6,9 @@ import type { ProgressEvent, TestCase } from "@/lib/types/api";
 interface SubmitQueryOpts {
   sessionId?: string | null;
   forceNew?: boolean;
+  forceRoute?: "auto" | "ns" | "cc";
+  useProd?: boolean;
+  maxTurnLengthS?: number | null;
 }
 
 type SubmitMode = string | { pipeline: "standard" | "plan"; useProd?: boolean };

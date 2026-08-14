@@ -124,8 +124,13 @@ class SeekAPI(object):
         
     def getPageRequests(self, seekurl):
         import requests
+        # Imported inside the method: nextseek_api.helpers imports seek.seekdb,
+        # which imports this module, so a top-level import here would cycle.
+        from nextseek_api.helpers import basic_auth_header
         urlIn = self.__server + seekurl
-        response = requests.get(urlIn, auth=(self.__username, self.__password), verify=False)
+        response = requests.get(urlIn,
+                                headers=basic_auth_header((self.__username, self.__password)),
+                                verify=False)
         htmlpage = response.text
         htmlpage = self.__reviseURLs(htmlpage)
         return self.__getHtmlpageDiv(htmlpage, 'content')
@@ -186,10 +191,15 @@ class SeekAPI(object):
 
     def getCurrentUser(self):
         import requests
+        # Basic auth is encoded here rather than passed as requests' auth= so a
+        # non-Latin-1 password doesn't raise UnicodeEncodeError (#52). Imported
+        # inside the method to avoid the seekdb <-> seekapi import cycle.
+        from nextseek_api.helpers import basic_auth_header
+        headers = {"content-type": "application/json",
+                   "accept": "application/json"}
+        headers.update(basic_auth_header((self.__username, self.__password)))
         req = requests.get(self.__server + "/people/current",
-                           auth=(self.__username, self.__password),
-                           headers = {"content-type": "application/json",
-                                      "accept": "application/json"})
+                           headers=headers)
         return req.json()
     
     def getProjects(self):

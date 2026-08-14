@@ -1,0 +1,31 @@
+{
+  "schema": "plan018-v4-5-remediation-lane-c/v1",
+  "gate": "PASS",
+  "lane": "C",
+  "settings_module": "dmac.test_settings",
+  "recipe": "docker worktree mount + dmac.test_settings (V4-3)",
+  "tests": [
+    "nextseek_api/eval/tests/test_generation_store_v45.py",
+    "nextseek_api/cc_assistant/tests/test_generation_store_validation.py",
+    "nextseek_api/cc_assistant/tests/test_risk_overlay.py",
+    "nextseek_api/cc_assistant/tests/test_eval_publish.py",
+    "nextseek_api/cc_assistant/tests/test_run_authorization.py"
+  ],
+  "refusal_classes": [
+    "compatibility",
+    "partial_publish",
+    "filename_only_validation",
+    "stale_generation",
+    "invalid_decision_status",
+    "precision_floor_retained_pairs",
+    "precision_floor_n_total",
+    "activate_fail_closed",
+    "live_publish_permission",
+    "live_activate_permission"
+  ],
+  "combined_fit_result_publish": true,
+  "counts": {"passed": 32, "failed": 0},
+  "log": "evidence/plan018-v4-5-remediation-lane-c.log",
+  "junit": "evidence/plan018-v4-5-remediation-lane-c.junit.xml",
+  "paid_or_live_resources_used": false
+}

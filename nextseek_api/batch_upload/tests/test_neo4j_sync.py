@@ -23,6 +23,7 @@ from nextseek_api.batch_upload.neo4j_sync import (
     build_study_node_payloads,
     bulk_merge_in_study_relationships,
     delete_derived_from_for_uuids,
+    find_missing_in_study_endpoints,
     enrich_parent_titles,
     refresh_assays_for_uuids,
 )
@@ -167,6 +168,130 @@ class TestBulkMergeInStudyRelationships:
         total = bulk_merge_in_study_relationships(driver, "testdb", rows, chunk_size=2)
         assert total == 5
         assert driver.execute_query.call_count == 3
+
+
+# ── #44: the silently-dropped IN_STUDY edge ──────────────────────────────────
+#
+# `build_in_study_payloads_enriched` warns and counts when it cannot determine a
+# study_id at all. The gap is the row that HAS one: `MATCH (st:Study {id: row.study_id})`
+# yields nothing when the Study node is absent, so UNWIND drops the row and the query
+# returns a smaller `processed` count. No exception, no warning, no counter — the
+# upload reports success while the relationship is missing from the graph.
+
+
+class TestInStudyDropsAreVisible:
+    def test_a_short_processed_count_is_warned_about(self, caplog):
+        # 5 rows in, the driver reports only 2 merged: 3 endpoints did not exist.
+        driver = _mock_driver([2])
+        rows = [InStudyRelRow(sample_uuid=f"UID-{i}", study_id=1) for i in range(5)]
+
+        with caplog.at_level("WARNING"):
+            total = bulk_merge_in_study_relationships(driver, "testdb", rows)
+
+        assert total == 2
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any("IN_STUDY" in m and "3 of 5" in m for m in warnings), warnings
+
+    def test_each_short_chunk_is_warned_about_separately(self, caplog):
+        # 5 rows at chunk_size 2 -> chunks of 2, 2, 1.
+        # chunk 0: 2 of 2 merged, silent. chunk 1: 0 of 2. chunk 2: 0 of 1.
+        driver = _mock_driver([2, 0, 0])
+        rows = [InStudyRelRow(sample_uuid=f"UID-{i}", study_id=1) for i in range(5)]
+
+        with caplog.at_level("WARNING"):
+            total = bulk_merge_in_study_relationships(driver, "testdb", rows, chunk_size=2)
+
+        assert total == 2
+        warnings = [r.getMessage() for r in caplog.records
+                    if r.levelname == "WARNING" and "IN_STUDY" in r.getMessage()]
+        assert len(warnings) == 2, warnings
+        assert "2 of 2" in warnings[0]
+        assert "1 of 1" in warnings[1]
+
+    def test_a_fully_matched_merge_stays_silent(self, caplog):
+        driver = _mock_driver([5])
+        rows = [InStudyRelRow(sample_uuid=f"UID-{i}", study_id=1) for i in range(5)]
+
+        with caplog.at_level("WARNING"):
+            total = bulk_merge_in_study_relationships(driver, "testdb", rows)
+
+        assert total == 5
+        assert not [r for r in caplog.records if "IN_STUDY" in r.getMessage()]
+
+    def test_a_driver_returning_no_records_counts_the_whole_chunk_as_dropped(self, caplog):
+        driver = MagicMock()
+        empty = MagicMock()
+        empty.records = []
+        driver.execute_query = MagicMock(return_value=empty)
+        rows = [InStudyRelRow(sample_uuid=f"UID-{i}", study_id=1) for i in range(3)]
+
+        with caplog.at_level("WARNING"):
+            total = bulk_merge_in_study_relationships(driver, "testdb", rows)
+
+        assert total == 0
+        assert any("3 of 3" in r.getMessage() for r in caplog.records)
+
+
+class TestFindMissingInStudyEndpoints:
+    """The audit that names what the MERGE dropped. READ-ONLY by construction."""
+
+    @staticmethod
+    def _driver(missing_studies, missing_samples):
+        driver = MagicMock()
+        calls = [missing_studies, missing_samples]
+        idx = [0]
+
+        def _execute_query(cypher, params, database_=None):
+            result = MagicMock()
+            result.records = [{"missing": calls[idx[0]]}]
+            idx[0] += 1
+            return result
+
+        driver.execute_query = MagicMock(side_effect=_execute_query)
+        return driver
+
+    def test_no_rows_short_circuits_without_querying(self):
+        driver = MagicMock()
+        assert find_missing_in_study_endpoints(driver, "testdb", []) == ([], [])
+        driver.execute_query.assert_not_called()
+
+    def test_missing_endpoints_are_reported_sorted(self):
+        driver = self._driver([9, 7], ["UID-b", "UID-a"])
+        rows = [InStudyRelRow(sample_uuid="UID-a", study_id=7),
+                InStudyRelRow(sample_uuid="UID-b", study_id=9)]
+
+        studies, samples = find_missing_in_study_endpoints(driver, "testdb", rows)
+
+        assert studies == [7, 9]
+        assert samples == ["UID-a", "UID-b"]
+
+    def test_nothing_missing_returns_empty_lists(self):
+        driver = self._driver([], [])
+        rows = [InStudyRelRow(sample_uuid="UID-a", study_id=7)]
+        assert find_missing_in_study_endpoints(driver, "testdb", rows) == ([], [])
+
+    def test_the_audit_never_mutates_the_graph(self):
+        driver = self._driver([7], [])
+        rows = [InStudyRelRow(sample_uuid="UID-a", study_id=7)]
+        find_missing_in_study_endpoints(driver, "testdb", rows)
+
+        for call_args in driver.execute_query.call_args_list:
+            cypher = call_args[0][0].upper()
+            for mutating in ("MERGE", "CREATE", "DELETE", "SET ", "REMOVE"):
+                assert mutating not in cypher, f"audit query mutates: {cypher}"
+
+    def test_endpoints_are_deduplicated_before_querying(self):
+        driver = self._driver([], [])
+        rows = [InStudyRelRow(sample_uuid="UID-a", study_id=7),
+                InStudyRelRow(sample_uuid="UID-a", study_id=7),
+                InStudyRelRow(sample_uuid="UID-b", study_id=7)]
+
+        find_missing_in_study_endpoints(driver, "testdb", rows)
+
+        study_params = driver.execute_query.call_args_list[0][0][1]
+        sample_params = driver.execute_query.call_args_list[1][0][1]
+        assert study_params["ids"] == [7]
+        assert sample_params["uuids"] == ["UID-a", "UID-b"]
 
 
 # ── TestBuildOfTypePayloads ──────────────────────────────────────────────────
@@ -1198,6 +1323,90 @@ class TestEnrichParentTitlesVariantKeys:
         ]
         enrich_parent_titles(node_rows, input_models, sql_conn=None)
         assert node_rows[0].parent_titles == ["My_Antibody_Parent"]
+
+
+class TestUploadAllInStudyCoverageMetrics:
+    """#44: the drop must reach Metrics, not just the log.
+
+    `in_study_warnings` already existed but only ever counted rows the BUILDER
+    rejected. A row that reached the MERGE and was dropped by its MATCH left every
+    counter untouched, so a caller reading Metrics saw a clean run.
+    """
+
+    @staticmethod
+    def _run(merged_count, rows_count=5, missing=([7], ["UID-2"])):
+        from nextseek_api.batch_upload.neo4j_sync import upload_all
+        from nextseek_api.batch_upload.models import DirectionComputation
+
+        rows = [InStudyRelRow(sample_uuid=f"UID-{i}", study_id=7)
+                for i in range(rows_count)]
+
+        with patch("neo4j.GraphDatabase") as mock_gdb, \
+             patch("nextseek_api.batch_upload.neo4j_sync."
+                   "build_in_study_payloads_enriched", return_value=(rows, 0, {})), \
+             patch("nextseek_api.batch_upload.neo4j_sync."
+                   "build_study_node_payloads", return_value=([], [], [])), \
+             patch("nextseek_api.batch_upload.neo4j_sync."
+                   "bulk_merge_in_study_relationships",
+                   return_value=merged_count) as merge, \
+             patch("nextseek_api.batch_upload.neo4j_sync."
+                   "find_missing_in_study_endpoints",
+                   return_value=missing) as audit:
+            mock_driver = MagicMock()
+            mock_gdb.driver.return_value = mock_driver
+            mock_driver.execute_query.return_value = MagicMock(
+                counters=MagicMock(nodes_created=0, nodes_matched=0,
+                                   relationships_created=0),
+                records=[],
+            )
+
+            metrics = upload_all(
+                outcomes={},
+                input_models=[],
+                sql_conn=MagicMock(),
+                neo4j_config=MagicMock(
+                    NEO4J_UPLOAD_ENABLED=True, URI="bolt://localhost",
+                    NEO4J_USER="u", PASSWORD="p", NEO4J_DB="testdb",
+                    NEO4J_NODE_CHUNK=500, NEO4J_REL_CHUNK=500,
+                ),
+                direction_computation=DirectionComputation(
+                    parents_of={}, assays_by_uid={}, direction_by_pair={},
+                    child_uids_by_assay={}, conflicts_by_assay={},
+                ),
+            )
+            return metrics, merge, audit
+
+    def test_dropped_edges_are_counted(self):
+        metrics, _merge, _audit = self._run(merged_count=2, rows_count=5)
+
+        assert metrics.in_study_rels_attempted == 5
+        assert metrics.in_study_rels_created == 2
+        assert metrics.in_study_rels_dropped == 3
+
+    def test_dropped_edges_reach_the_existing_warning_counter(self):
+        """So a caller already reading in_study_warnings sees the silent drops."""
+        metrics, _merge, _audit = self._run(merged_count=2, rows_count=5)
+        assert metrics.in_study_warnings == 3
+
+    def test_the_audit_runs_only_when_something_was_dropped(self):
+        _metrics, _merge, audit = self._run(merged_count=5, rows_count=5)
+        audit.assert_not_called()
+
+        _metrics, _merge, audit = self._run(merged_count=1, rows_count=5)
+        audit.assert_called_once()
+
+    def test_a_complete_merge_reports_zero_dropped(self):
+        metrics, _merge, _audit = self._run(merged_count=5, rows_count=5)
+
+        assert metrics.in_study_rels_attempted == 5
+        assert metrics.in_study_rels_dropped == 0
+        assert metrics.in_study_warnings == 0
+
+    def test_coverage_is_auditable_from_metrics_alone(self):
+        """attempted == created + dropped, so a reader needs no log access."""
+        metrics, _merge, _audit = self._run(merged_count=2, rows_count=5)
+        assert (metrics.in_study_rels_created
+                + metrics.in_study_rels_dropped) == metrics.in_study_rels_attempted
 
 
 class TestParentTitlesIndex:

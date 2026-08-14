@@ -25,12 +25,20 @@ class TaskProgressConsumer(AsyncWebsocketConsumer):
     terminal status (completed / error) it sends a final ``done``
     frame and closes the socket.
 
-    Auth model (UUID-as-capability):
-        Browser WebSocket API cannot send custom Authorization headers.
-        Instead, the task_id UUID itself acts as a capability token:
-        only the authenticated caller of POST /query/async/ receives
-        the UUID, and UUIDv4 is cryptographically random. If a Django
-        session cookie is present, ownership is still enforced.
+    Auth model (authenticated owner only):
+        Both an authenticated user AND ownership of the task are
+        required.  The task_id UUID is NOT a capability token: a
+        connection holding a valid UUID but carrying no authenticated
+        user is rejected.  This matches the HTTP endpoint serving the
+        same data, GET /assistant/tasks/{task_id}/progress/, which
+        checks auth and then loads the task filtered by request.user.
+
+        Browser WebSocket API cannot send custom Authorization headers,
+        so the authenticated user comes from the Django session cookie
+        via channels' AuthMiddlewareStack (see dmac/asgi.py).  A client
+        that authenticates only by Basic/Token header is anonymous here
+        and must fall back to polling the HTTP progress endpoint, which
+        the chat frontend already does when the socket fails to open.
     """
 
     POLL_INTERVAL = 0.3  # seconds
@@ -65,8 +73,9 @@ class TaskProgressConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
-        # Verify task exists (UUID-as-capability; ownership checked
-        # only when a session cookie provides an authenticated user)
+        # Verify the caller is an authenticated user who owns this task.
+        # None also covers "task does not exist" — the two are deliberately
+        # indistinguishable to the client, as on the HTTP progress endpoint.
         task_info = await self._get_task_info()
         if task_info is None:
             await self.close()
@@ -84,17 +93,28 @@ class TaskProgressConsumer(AsyncWebsocketConsumer):
     # ------------------------------------------------------------------
     @database_sync_to_async
     def _get_task_info(self):
-        """Return (status, user_id) or None if task not found."""
+        """Return {"status", "user_id"}, or None if the caller may not have it.
+
+        None means "no stream for you" and covers all three refusals:
+        unauthenticated, task not found, and task owned by someone else.
+        """
         from nextseek_api.assistant.models_db import QueryTask
+
+        # Authentication is mandatory — holding the task_id is not enough.
+        # "user" is missing from the scope when no auth middleware is installed
+        # and is AnonymousUser when the connection carries no session; getattr
+        # keeps a non-Django object in that slot from raising here.
+        user = self.scope.get("user")
+        if user is None or not getattr(user, "is_authenticated", False):
+            return None
 
         try:
             task = QueryTask.objects.get(task_id=self.task_id)
         except QueryTask.DoesNotExist:
             return None
 
-        # Check ownership if user is authenticated
-        user = self.scope.get("user")
-        if user and user.is_authenticated and task.user_id != user.pk:
+        # Ownership is mandatory too.
+        if task.user_id != user.pk:
             return None
 
         return {"status": task.status, "user_id": task.user_id}

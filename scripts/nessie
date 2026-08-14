@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Thin host wrapper: run the Nessie test harness inside the nextseek container
+# and copy the report out. Forwards all args to `manage.py nessie`.
+#
+#   ./scripts/nessie --tier route
+#   ./scripts/nessie --tier full --scope all
+#
+# Container name via $NESSIE_CONTAINER (default: nextseek); adjust for an
+# instance-prefixed deployment.
+set -uo pipefail
+NS="${NESSIE_CONTAINER:-nextseek}"
+
+docker exec "$NS" uv run manage.py nessie "$@"
+rc=$?
+
+# Copy the report out even on a FAIL gate (so you can inspect it), then
+# propagate the harness's exit code.
+docker cp "$NS":/app/nessie_out ./nessie_out >/dev/null 2>&1 \
+  && echo "report: ./nessie_out/report.html" || true
+exit $rc

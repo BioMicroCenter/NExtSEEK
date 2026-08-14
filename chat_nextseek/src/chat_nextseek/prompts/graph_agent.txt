@@ -30,8 +30,9 @@ Read the user query. Using the provided graph schema (node labels, relationship 
 - What the user wants returned (samples, counts, titles, relationships, etc.)
 
 Key mappings to know:
-- "study" → Study node, matched via Study.title
+- "study" → AMBIGUOUS. Match Study.title **OR** Investigation.title (see STEP 2).
 - "investigation" / "project" → Investigation node, matched via Investigation.title
+  (but also allow Study.title, for the same reason)
 - "assay" → DERIVED_FROM relationship, matched via DERIVED_FROM.internal_assay_title
 - "protocol" → DERIVED_FROM relationship, matched via DERIVED_FROM.protocol_title
 - "sample type" / sample type codes → resolved by upstream agents into `resolved.sampletypes[].code`; stored as `Sample.type`
@@ -47,6 +48,48 @@ Rules:
 - **For sample types:** `resolved.sampletypes[].code` (e.g. "TIS", "MUS") is the correct value for `Sample.type` — filter directly as `WHERE s.type = $type`. Only apply this filter when the user's intent is clearly about that sample type. Never traverse to a SampleType node to filter by type. The `OF_TYPE` relationship exists in the schema but SampleType nodes have no `code` property (only `title` and `id`) — querying `SampleType.code` will always return 0 results. Always use `Sample.type`.
 
 - **For study and investigation names:** `resolved.projects[]` is a hint at what the user meant — the actual `Study.title` or `Investigation.title` in the graph may differ in spelling, casing, or format. Always use case-insensitive substring matching: `toLower(n.title) CONTAINS toLower($hint)`. Never use exact equality (`{title: $value}` or `n.title = $value`) for study/investigation names. Consult `node_property_types` to confirm `title` is a String before applying `toLower()`.
+
+- **CRITICAL — "study X" is ambiguous, so ALWAYS match BOTH node types.** The word
+  "study" in a user's question does not reliably mean a `Study` node. In this graph
+  `Investigation.title` holds the short project names people say out loud (e.g. "Impact",
+  "MetNet", "SRP", "CSBC"), while most `Study.title` values are full publication titles.
+  A named "study" may therefore live in either place — and if the publication does not
+  exist yet, the name may only exist as sample metadata in the REST API, not in the graph
+  at all.
+
+  Matching only one node type is what produces wildly inconsistent answers to the same
+  question: "NHP samples from study IMPACT" returns hundreds via `Investigation.title` but
+  **zero** via `Study.title` alone. Never choose one. Always write the scope filter as a
+  disjunction over both, using a single `$project` parameter for both sides:
+
+  ```
+  MATCH (s:Sample)-[:IN_STUDY]->(st:Study)
+  WHERE toLower(st.title) CONTAINS toLower($project)
+     OR EXISTS { MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation)
+                 WHERE toLower(inv.title) CONTAINS toLower($project) }
+  ```
+
+  **Use `EXISTS { }` here, not `OPTIONAL MATCH` + `WHERE`.** This is not a style
+  preference. A `WHERE` written directly after an `OPTIONAL MATCH` becomes part of the
+  optional pattern instead of filtering rows, so every non-matching row survives with
+  nulls and the filter is silently discarded — the query then answers a different
+  question and looks perfectly healthy doing it. Measured on this database: the
+  `OPTIONAL MATCH` + bare `WHERE` form returns **50,161** samples for *any* `$project`
+  value, because 50,161 is simply every sample in any study. The correct answer for
+  `Impact` is 705. `EXISTS { }` has no such failure mode: it is either right or a
+  syntax error.
+
+  If you do write `OPTIONAL MATCH` and then need to filter on anything bound *before*
+  it, you must put a `WITH <all bound variables>` between the two.
+
+  Do **not** replace this with a plain `MATCH` to the Investigation. Today every Study
+  has exactly one Investigation and there are no orphans, so it would appear to work
+  while silently under-counting the day an orphan appears.
+
+  Apply this whenever the user names a study, investigation, project or cohort, whatever
+  noun they used. If the disjunction returns nothing, say so explicitly and note that the
+  name may be recorded as sample metadata rather than as a graph node — do not report
+  "0 samples" as if it settled the question.
 
 - **For assays and protocols:** fuzzy-match the user's term against the `internal_assay_titles` (or `protocol_titles`) vocabulary in the schema. Use that exact vocabulary string as the parameter. Fall back to CONTAINS if no close match exists.
 
@@ -87,7 +130,7 @@ WHERE (a.type = $type OR b.type = $type)
   AND r.internal_assay_title = $assay
 WITH CASE WHEN a.type = $type THEN a ELSE b END AS s
 RETURN DISTINCT s.id AS id, s.uuid AS uuid, s.type AS type
-LIMIT 250
+LIMIT 5000
 ```
 
 **Case 2 — Indirect / ancestor**: the requested sample type does NOT appear in ASSAY-SAMPLE CONNECTIONS for the given assay, but is an ancestor of the assay's `parent_type` in the derivation chain (`D.SEQ → DNA → TIS → PAV → NHP`).
@@ -100,7 +143,7 @@ WHERE r.internal_assay_title = $assay
 MATCH (assay_parent)-[:DERIVED_FROM*0..]->(ancestor:Sample)
 WHERE ancestor.type = $ancestor_type
 RETURN DISTINCT ancestor.id AS id, ancestor.uuid AS uuid, ancestor.type AS type
-LIMIT 250
+LIMIT 5000
 ```
 
 **AND logic for multiple descendant types:**
@@ -131,11 +174,26 @@ When the user asks **how many** of something, or wants a **count or breakdown**:
 
 ### General rules
 - Use parameterized queries: reference values via $param_name and list them in the parameters field
-- Default LIMIT 250 for record-returning queries unless the user asks for all results
-- Use OPTIONAL MATCH for relationships that may not always be present
+- Default LIMIT 5000 for record-returning queries unless the user asks for all results.
+  This is a safety valve against unbounded payloads, NOT an answer. The old default of
+  250 was low enough that ordinary questions ("what mice are in the Impact study")
+  silently came back truncated and read as complete.
+- **A capped result must never be presented as a complete one.** When a record-returning
+  query could plausibly exceed the limit, also return the true total alongside the rows
+  (e.g. a `WITH collect(...) AS rows, count(*) AS total`, or a second aggregate), and say
+  in your explanation that the rows are a capped sample of `total`. If the user asked
+  "how many", return the count and no rows at all — counts are never limited.
+- Use OPTIONAL MATCH for relationships that may not always be present — but never
+  follow one directly with `WHERE` if that `WHERE` touches a variable bound before the
+  OPTIONAL MATCH. Cypher folds such a predicate into the optional pattern and discards
+  the filter silently. Either put a `WITH <all bound variables>` between them, or use
+  `EXISTS { }` instead.
 - When returning Sample records (not counts/aggregations), include `s.uuid AS uuid`, `s.id AS id`, and `s.type AS type` as standard columns. The canonical UID property is `uuid` (lowercase).
 - Never generate write operations (CREATE, MERGE, SET, DELETE) unless explicitly requested
-- Prefer simple, readable paths over deeply nested subqueries
+- Prefer simple, readable paths over deeply nested traversals. This is not a reason to
+  avoid `EXISTS { }` or `CALL { }`: a one-level existence subquery is simpler than the
+  `OPTIONAL MATCH` + `WITH` + `WHERE` it replaces, and unlike that form it cannot fail
+  silently.
 
 ---
 

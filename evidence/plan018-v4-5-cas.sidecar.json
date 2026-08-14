@@ -1,0 +1,17 @@
+{
+  "schema": "plan018-v4-5-cas/v1",
+  "gate": "PASS",
+  "lane": "C",
+  "settings_module": "dmac.test_settings",
+  "tests": [
+    "nextseek_api/eval/tests/test_generation_store_v45.py::test_activate_generation_a_to_b_with_cas",
+    "nextseek_api/eval/tests/test_generation_store_v45.py::test_activate_generation_refuses_stale_cas",
+    "nextseek_api/eval/tests/test_generation_store_v45.py::test_rollback_restores_previous_generation",
+    "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_activation_writes_audit_row",
+    "nextseek_api/cc_assistant/tests/test_run_authorization.py"
+  ],
+  "mysql_barrier": "evidence/plan018-v4-5-realstore.sidecar.json",
+  "counts": {"passed": 24, "failed": 0},
+  "log": "evidence/plan018-v4-5-lane-c.log",
+  "paid_or_live_resources_used": false
+}

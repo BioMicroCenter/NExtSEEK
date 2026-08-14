@@ -55,13 +55,73 @@ class DictSessionAdapter:
 
     # --- persistence ---
 
+    @staticmethod
+    def _merge_history(stored: list, cached: list) -> list:
+        """Union of what is already persisted and what this turn produced.
+
+        A turn reads the whole ``results_history`` JSON column into memory at
+        start and writes the whole thing back at the end. Two turns running
+        concurrently (gunicorn runs several sync workers, and each turn executes
+        in a daemon thread) both read the same snapshot, and the second write
+        erases the first turn's bundle. The symptom is subtle and bad: recall
+        then resolves a follow-up question against whichever bundle survived.
+
+        Merging by bundle id instead of overwriting keeps both. Bundles from
+        this turn win on conflict, since they are the fresher version of the
+        same id.
+        """
+        merged: list = []
+        index: dict = {}
+        for bundle in list(stored) + list(cached):
+            if not isinstance(bundle, dict):
+                continue
+            bundle_id = bundle.get("id")
+            if bundle_id is None:
+                merged.append(bundle)
+                continue
+            if bundle_id in index:
+                merged[index[bundle_id]] = bundle
+            else:
+                index[bundle_id] = len(merged)
+                merged.append(bundle)
+        return merged
+
     def save(self) -> None:
-        """Persist the cache back to the Django ChatSession model."""
-        self._session.results_history = self._cache.get("results_history", [])
-        self._session.last_debug = self._cache.get("last_debug", {})
-        self._session.extra_state = {
-            k: v for k, v in self._cache.items() if k not in _TYPED_KEYS
-        }
-        self._session.save(update_fields=[
-            "results_history", "last_debug", "extra_state", "updated_at",
-        ])
+        """Persist the cache back to the Django ChatSession model.
+
+        Done under a row lock so the read-merge-write cycle cannot interleave
+        with another turn in the same session.
+        """
+        from django.db import transaction  # local: keeps import cost off module load
+
+        cached_history = self._cache.get("results_history", [])
+        last_debug = self._cache.get("last_debug", {})
+        extra_state = {k: v for k, v in self._cache.items() if k not in _TYPED_KEYS}
+        fields = ["results_history", "last_debug", "extra_state", "updated_at"]
+
+        try:
+            with transaction.atomic():
+                locked = (
+                    ChatSession.objects.select_for_update()
+                    .get(pk=self._session.pk)
+                )
+                locked.results_history = self._merge_history(
+                    locked.results_history or [], cached_history
+                )
+                locked.last_debug = last_debug
+                locked.extra_state = extra_state
+                locked.save(update_fields=fields)
+                self._session.results_history = locked.results_history
+                self._session.last_debug = locked.last_debug
+                self._session.extra_state = locked.extra_state
+                self._cache["results_history"] = locked.results_history
+                return
+        except Exception:
+            # Backends without row locking (or a session row that vanished) must
+            # still persist the turn rather than lose it outright.
+            pass
+
+        self._session.results_history = cached_history
+        self._session.last_debug = last_debug
+        self._session.extra_state = extra_state
+        self._session.save(update_fields=fields)

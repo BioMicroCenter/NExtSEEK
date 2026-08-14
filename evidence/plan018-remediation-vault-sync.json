@@ -1,0 +1,18 @@
+{
+  "schema": "plan018-remediation-vault-sync/v1",
+  "recorded_at": "2026-08-13T01:30:00Z",
+  "gate": "PASS",
+  "implementation_branch": "ultraplan/hibayes-eval-routing",
+  "implementation_sha": "07d17ed3",
+  "deploydocs_branch": "dev",
+  "deploydocs_sha": "62d54572",
+  "living_plan_sha256": "ec7ae55d67ea5df6b99b28b9e627ad5f4a8d45315f0d8a02fb23b30700ad6da4",
+  "registry_asset": "nextseek--plan-018",
+  "registry_commit": "012d0ac",
+  "rollup_cold_review": {
+    "path": "evidence/plan018-cold-review-remediation-rollup-2026-08-12.md",
+    "subagent_id": "07c68592-3fe7-4b5c-b33b-7a443b84e0a7",
+    "verdict": "PASS"
+  },
+  "paid_or_live_resources_used": false
+}

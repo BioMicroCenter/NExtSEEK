@@ -1,0 +1,28 @@
+#!/bin/sh
+# nextseek-pipeline — hand a CC-composed cohort summary to NS pipeline_agent.
+# Starts the pipeline launch wizard for THIS chat session; the interactive
+# confirm/launch turns then run on the NS route. Read-only w.r.t. NExtSEEK data.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+MESSAGE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --message) MESSAGE="$2"; shift 2 ;;
+    --message=*) MESSAGE="${1#--message=}"; shift ;;
+    --help)
+      echo "Usage: nextseek-pipeline --message \"<summary of the cohort + metadata + pipeline>\""
+      echo ""
+      echo "Hands a comprehensive natural-language summary to the NExtSEEK pipeline"
+      echo "agent and starts the launch wizard. Include the explicit sample UIDs, the"
+      echo "species/genome, relevant metadata, and the nf-core pipeline to run."
+      echo "Continue in chat to confirm genome/params."
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$MESSAGE" ] || nextseek_die 3 "missing --message"
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent pipeline --message "$MESSAGE"

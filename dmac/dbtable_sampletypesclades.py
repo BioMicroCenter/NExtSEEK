@@ -70,6 +70,16 @@ class DBtable_sample_types_clades(DBtable):
         return data
 
     def getAllCounts(self):
+        # ONLY_FULL_GROUP_BY is on by default in the mysql:8.0 image and is not
+        # overridden anywhere in this tree. A bare ``GROUP BY st.description``
+        # therefore raises error 1055 -- c.title, c.color and st.id are selected
+        # without aggregation and are not functionally dependent on the grouping
+        # key -- and seek.views.projects swallows it, silently rendering the
+        # projects page with no clade tables at all.
+        #
+        # Group by every non-aggregated column instead. c.id is the clades
+        # primary key, which makes c.title / c.color / c.order (the ORDER BY is
+        # subject to the same rule) functionally dependent and legal to select.
         seekdb = SEEK_DATABASE['NAME']
         data = self.__sendQuery(f"""
             SELECT
@@ -82,7 +92,7 @@ class DBtable_sample_types_clades(DBtable):
             JOIN {self.dbname}.sample_types_clades stc ON stc.sample_type_id = s.sample_type_id
             JOIN {self.dbname}.clades c ON c.id = stc.clade_id
             JOIN {seekdb}.sample_types st ON st.id = stc.sample_type_id
-            GROUP BY st.description
+            GROUP BY c.id, st.id, st.description
             ORDER BY c.order, st.description
         """)
 

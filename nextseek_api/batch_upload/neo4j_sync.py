@@ -215,7 +215,20 @@ def bulk_merge_of_type_relationships(
 def bulk_merge_in_study_relationships(
     driver, db_name: str, in_study_rows: List[InStudyRelRow], chunk_size: int = 20_000
 ) -> int:
-    """MERGE (Sample)-[:IN_STUDY]->(Study). Returns count processed."""
+    """MERGE (Sample)-[:IN_STUDY]->(Study). Returns count processed.
+
+    The two MATCHes are the silent half of issue #44. `build_in_study_payloads_enriched`
+    warns and counts when it cannot work out a study_id at all, but a row that HAS a
+    study_id and reaches this query still produces no edge if the Study node does not
+    exist: UNWIND + MATCH simply yields no rows for it. The sample is dropped with no
+    warning, no counter and no effect on the return value, so the upload reports
+    success while the graph quietly lacks the relationship.
+
+    `count(r)` is one r per row that matched both endpoints, so a chunk whose processed
+    count is short of its row count dropped exactly that many edges. Log it here; the
+    caller turns the shortfall into `Metrics.in_study_rels_dropped` and folds it into
+    `in_study_warnings`, and `find_missing_in_study_endpoints` names the culprits.
+    """
     total = 0
     cypher = """
     UNWIND $rows AS row
@@ -232,10 +245,64 @@ def bulk_merge_in_study_relationships(
             return driver.execute_query(cypher, {"rows": data}, database_=db_name)
 
         result = _retry(_run)
-        if result.records:
-            total += result.records[0]["processed"]
+        processed = result.records[0]["processed"] if result.records else 0
+        total += processed
+
+        dropped = len(chunk) - processed
+        if dropped > 0:
+            log.warning(
+                "IN_STUDY: %d of %d rows in chunk %d matched no Sample or Study node "
+                "and were silently dropped",
+                dropped, len(chunk), i // chunk_size,
+            )
 
     return total
+
+
+def find_missing_in_study_endpoints(
+    driver, db_name: str, in_study_rows: List[InStudyRelRow]
+) -> Tuple[List[int], List[str]]:
+    """Which IN_STUDY endpoints do not exist as nodes. READ-ONLY.
+
+    Names the rows `bulk_merge_in_study_relationships` had to drop, so the shortfall
+    it reports is actionable rather than just a number. Deliberately mutation-free:
+    creating the missing nodes, or backfilling the edges, is a data decision that
+    belongs to an operator, not to a sync that was only asked to merge.
+
+    Returns (missing_study_ids, missing_sample_uuids), both sorted.
+    """
+    if not in_study_rows:
+        return [], []
+
+    study_ids = sorted({r.study_id for r in in_study_rows})
+    sample_uuids = sorted({r.sample_uuid for r in in_study_rows})
+
+    missing_studies_cypher = """
+    UNWIND $ids AS sid
+    OPTIONAL MATCH (st:Study {id: sid})
+    WITH sid, st WHERE st IS NULL
+    RETURN collect(sid) AS missing
+    """
+    missing_samples_cypher = """
+    UNWIND $uuids AS uid
+    OPTIONAL MATCH (s:Sample {uuid: uid})
+    WITH uid, s WHERE s IS NULL
+    RETURN collect(uid) AS missing
+    """
+
+    def _missing(cypher, params):
+        def _run():
+            return driver.execute_query(cypher, params, database_=db_name)
+
+        result = _retry(_run)
+        if not result.records:
+            return []
+        return list(result.records[0]["missing"] or [])
+
+    return (
+        sorted(_missing(missing_studies_cypher, {"ids": study_ids})),
+        sorted(_missing(missing_samples_cypher, {"uuids": sample_uuids})),
+    )
 
 
 def build_study_node_payloads(
@@ -1184,6 +1251,25 @@ def upload_all(
                 driver, db_name, in_study_rows, neo4j_config.NEO4J_REL_CHUNK
             )
             metrics.in_study_rels_created = is_count
+
+            # #44: a row whose Study node is missing is dropped by the MERGE's MATCH
+            # with no error. The shortfall is the only evidence it happened, so make
+            # it a counter and name the endpoints that caused it.
+            metrics.in_study_rels_attempted = len(in_study_rows)
+            dropped = max(0, len(in_study_rows) - is_count)
+            metrics.in_study_rels_dropped = dropped
+            if dropped:
+                in_study_warn_count += dropped
+                missing_studies, missing_samples = find_missing_in_study_endpoints(
+                    driver, db_name, in_study_rows
+                )
+                log.warning(
+                    "IN_STUDY: %d of %d relationships were dropped — "
+                    "%d missing Study node(s) %s, %d missing Sample node(s) %s",
+                    dropped, len(in_study_rows),
+                    len(missing_studies), missing_studies[:20],
+                    len(missing_samples), missing_samples[:20],
+                )
         metrics.in_study_warnings = in_study_warn_count
 
     finally:

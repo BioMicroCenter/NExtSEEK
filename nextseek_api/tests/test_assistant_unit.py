@@ -404,6 +404,10 @@ class ViewSetTests(TestCase):
 
         content = b"".join(resp.streaming_content).decode()
         self.assertIn(str(session.session_id), content)
+        # The stream must actually have completed, not merely mentioned the id
+        # (a query_error payload also carries session_id).
+        self.assertIn("event: query_complete", content)
+        self.assertNotIn("event: query_error", content)
         # No new session should have been created
         self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
 
@@ -434,6 +438,8 @@ class ViewSetTests(TestCase):
 
         content = b"".join(resp.streaming_content).decode()
         self.assertIn(str(auto_session.session_id), content)
+        self.assertIn("event: query_complete", content)
+        self.assertNotIn("event: query_error", content)
 
     @patch("nextseek_api.services.assistant.DictSessionAdapter")
     @patch("nextseek_api.services.assistant.run_query")
@@ -455,6 +461,8 @@ class ViewSetTests(TestCase):
 
         content = b"".join(resp.streaming_content).decode()
         self.assertIn(str(session.session_id), content)
+        self.assertIn("event: query_complete", content)
+        self.assertNotIn("event: query_error", content)
 
 
 # ---------------------------------------------------------------------------

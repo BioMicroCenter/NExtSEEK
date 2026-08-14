@@ -8,6 +8,11 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# ssh/scp client for the Luria SLURM launch backend (chat_nextseek/luria/ssh.py).
+# Required only when PIPELINE_LAUNCH_MODE=luria; harmless otherwise.
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . /app/
 
 RUN uv sync

@@ -155,8 +155,35 @@ def _generate_submission(args, config, session, write_gate, stage, stage_bytes, 
     return stage("generate-submission", result)
 
 
+def _run_ls(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
+    envelope = ns_client.call_op("run-ls", {"run_dir": args["run_dir"]},
+                                 base_url=config.base_url, auth=config.auth)
+    return envelope["result"]
+
+
+def _build_upload_xlsx(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
+    body = {"rows": args["rows"]}
+    if args.get("existing_parent_uids"):
+        body["existing_parent_uids"] = args["existing_parent_uids"]
+    envelope = ns_client.call_op("build-upload-xlsx", body,
+                                 base_url=config.base_url, auth=config.auth)
+    result = envelope["result"]
+    download = envelope.get("download")
+    if download:
+        staged_files = {}
+        for art in download["artifacts"]:
+            data = ns_client.fetch_artifact(art["url"],
+                                            base_url=config.base_url, auth=config.auth)
+            staged_files[art["key"]] = stage_bytes("build-upload-xlsx", art["key"], data)
+        commit_bytes()  # exactly once after ALL artifacts are staged
+        result["staged_files"] = staged_files
+        return result
+    return stage("build-upload-xlsx", result)
+
+
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity, "parse": _parse, "graph": _graph,
     "api-read": _api_read, "api-write": _api_write,
     "report": _report, "generate-submission": _generate_submission,
+    "run-ls": _run_ls, "build-upload-xlsx": _build_upload_xlsx,
 }

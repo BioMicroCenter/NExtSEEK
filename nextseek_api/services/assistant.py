@@ -81,6 +81,8 @@ from nextseek_api.assistant.models_api import (
     ParseOpResponse,
     ReportOpRequest,
     ReportOpResponse,
+    RunLsRequest,
+    BuildUploadXlsxRequest,
     SubmissionRequest,
     SubmissionResponse,
 )
@@ -96,7 +98,7 @@ from rest_framework.authentication import (
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
 
-from chat_nextseek.orchestrator import run_query, run_query_plan
+from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
 from chat_nextseek.config import ChatConfig
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
@@ -158,8 +160,51 @@ def _error_response(title: str, detail: str, http_status: int) -> Response:
     )
 
 
-def _auto_title_if_unset(chat_session: ChatSession) -> None:
+def _most_recent_session(user) -> "ChatSession | None":
+    """The user's most recently updated ChatSession, or None.
+
+    Two-step lookup: only ``session_id`` enters the ORDER BY query, so the
+    multi-MB JSON columns (``results_history`` / ``last_debug``) never land in
+    the MySQL sort buffer. A plain ``.order_by("-updated_at").first()`` selects
+    every column and raises "Out of sort memory, consider increasing
+    server sort buffer size" (errno 1038) once ``results_history`` outgrows
+    ``sort_buffer_size``. Same rationale as ``list_sessions`` below.
+
+    Deliberately NOT ``.defer("results_history")``: every caller hands the
+    returned object to ``DictSessionAdapter``, which reads ``results_history``
+    in ``__init__``, so a deferred field would just trigger a second query.
+    The second ``get()`` here fetches the full row by primary key with no
+    filesort at all.
+
+    Two queries with no transaction around them is a TOCTOU window: a
+    concurrent delete landing between them makes ``get()`` raise
+    ``DoesNotExist``. The pre-split implementation was a single ``.first()``
+    that returned ``None``, and every caller treats ``None`` as "make a fresh
+    session", so the miss is swallowed here to keep that contract rather than
+    turning a lost race into a 500 on the hot Container-CC path.
+    """
+    session_id = (
+        ChatSession.objects.filter(user=user)
+        .order_by("-updated_at")
+        .values_list("session_id", flat=True)
+        .first()
+    )
+    if session_id is None:
+        return None
+    try:
+        return ChatSession.objects.get(session_id=session_id)
+    except ChatSession.DoesNotExist:
+        return None
+
+
+def _auto_title_if_unset(chat_session: ChatSession, fallback_query: str = "") -> None:
     """Populate ChatSession.title from the first user query if currently NULL.
+
+    Titles from the first ``user_query`` in ``results_history`` (the NS path).
+    Container-CC and out-of-scope turns persist to ``extra_state`` / the
+    transcript rather than ``results_history``, so they carry no ``user_query``
+    here — for those, fall back to ``fallback_query`` (this turn's query) so
+    their chats title too instead of being stuck on "New chat".
 
     Idempotent: subsequent calls on a session with a title set are a no-op.
     A manually-set title is therefore never overwritten — frontend rename
@@ -174,6 +219,8 @@ def _auto_title_if_unset(chat_session: ChatSession) -> None:
         if uq:
             first_user_query = uq
             break
+    if not first_user_query:
+        first_user_query = (fallback_query or "").strip()
     if not first_user_query:
         return
     title = " ".join(first_user_query.split())[:60]
@@ -215,6 +262,8 @@ _GRANULAR_REQUEST_MODELS = {
     "api-write": ApiWriteRequest,
     "report": ReportOpRequest,
     "generate-submission": SubmissionRequest,
+    "run-ls": RunLsRequest,
+    "build-upload-xlsx": BuildUploadXlsxRequest,
 }
 
 
@@ -267,6 +316,10 @@ def _granular_args(op: str, req) -> dict:
         return {"mode": req.mode, "project": req.project}
     if op == "generate-submission":
         return {"type": req.type, "uids": req.uids, "query": req.query}
+    if op == "run-ls":
+        return {"run_dir": req.run_dir}
+    if op == "build-upload-xlsx":
+        return {"rows": req.rows, "existing_parent_uids": req.existing_parent_uids}
     return {}
 
 
@@ -646,12 +699,12 @@ class AssistantViewSet(viewsets.ViewSet):
         examples=[
             OpenApiExample(
                 name="Simple query (auto-session)",
-                value={"query": "Find me mice treated with NDMA"},
+                value={"query": "Find me mice treated with NDMA", "mode": "standard"},
                 request_only=True,
             ),
             OpenApiExample(
                 name="Query with explicit session",
-                value={"session_id": "abc12345-def6-7890-abcd-ef1234567890", "query": "Find me mice treated with NDMA"},
+                value={"session_id": "abc12345-def6-7890-abcd-ef1234567890", "query": "Find me mice treated with NDMA", "mode": "standard"},
                 request_only=True,
             ),
         ],
@@ -689,11 +742,7 @@ class AssistantViewSet(viewsets.ViewSet):
             chat_session = ChatSession.objects.create(user=request.user)
         else:
             # No session_id — reuse most recent or auto-create
-            chat_session = (
-                ChatSession.objects.filter(user=request.user)
-                .order_by("-updated_at")
-                .first()
-            )
+            chat_session = _most_recent_session(request.user)
             if chat_session is None:
                 chat_session = ChatSession.objects.create(user=request.user)
 
@@ -779,7 +828,7 @@ class AssistantViewSet(viewsets.ViewSet):
         examples=[
             OpenApiExample(
                 name="Async query (auto-session)",
-                value={"query": "Find me mice treated with NDMA"},
+                value={"query": "Find me mice treated with NDMA", "mode": "standard"},
                 request_only=True,
             ),
         ],
@@ -816,11 +865,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # Frontend "New chat" path — unconditionally create.
             chat_session = ChatSession.objects.create(user=request.user)
         else:
-            chat_session = (
-                ChatSession.objects.filter(user=request.user)
-                .order_by("-updated_at")
-                .first()
-            )
+            chat_session = _most_recent_session(request.user)
             if chat_session is None:
                 chat_session = ChatSession.objects.create(user=request.user)
 
@@ -865,6 +910,8 @@ class AssistantViewSet(viewsets.ViewSet):
                 match getattr(req, "mode", "standard"):
                     case "plan":
                         run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                    case "pipeline":
+                        run_pipeline_launch(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
                     case _:
                         run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
             except Exception:
@@ -1202,7 +1249,7 @@ class AssistantViewSet(viewsets.ViewSet):
         # report + generate-submission both persist real artifacts to disk (the
         # reporter summary / the submission-emitter workbooks), so both need a
         # writable run-root under an allowed artifact root.
-        outputs_dir = _granular_outputs_dir() if op in ("report", "generate-submission") else None
+        outputs_dir = _granular_outputs_dir() if op in ("report", "generate-submission", "build-upload-xlsx") else None
 
         try:
             result = run_op(
@@ -1220,7 +1267,7 @@ class AssistantViewSet(viewsets.ViewSet):
         resp_body = {"op": op, "result": result}
         # report/generate-submission produce artifacts; register a bundle so they
         # are fetchable over HTTP via download_artifact, and hand back the URLs.
-        if op in ("report", "generate-submission"):
+        if op in ("report", "generate-submission", "build-upload-xlsx"):
             resp_body["download"] = self._register_artifact_bundle(request, req, op, result)
         return Response(resp_body, status=status.HTTP_200_OK)
 
@@ -1241,13 +1288,15 @@ class AssistantViewSet(viewsets.ViewSet):
         history = chat_session.results_history or []
         bundle_id = max((b.get("id", 0) for b in history if isinstance(b, dict)), default=0) + 1
         saved_files = result.get("saved_files") if isinstance(result, dict) else None
-        if op == "report":
-            bundle = {"id": bundle_id, "mode": "reporter",
-                      "report_saved_files": saved_files or {}, "report_writer_output": {}}
-        else:  # generate-submission — real emitter workbooks in saved_files PLUS
-               # the on-the-fly all_tables xlsx built from the writer output.
+        if op == "generate-submission":
+            # real emitter workbooks in saved_files PLUS the on-the-fly all_tables xlsx.
             bundle = {"id": bundle_id, "mode": "generate-submission",
                       "report_saved_files": saved_files or {}, "report_writer_output": result}
+        else:  # report / build-upload-xlsx — saved_files (report file / reingest workbooks)
+               # are served directly; no writer-output payload.
+            bundle = {"id": bundle_id,
+                      "mode": "reingest" if op == "build-upload-xlsx" else "reporter",
+                      "report_saved_files": saved_files or {}, "report_writer_output": {}}
         history.append(bundle)
         chat_session.results_history = history
         chat_session.save(update_fields=["results_history", "updated_at"])
@@ -1342,3 +1391,25 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="generate-submission")
     def generate_submission(self, request):
         return self._run_granular_op(request, "generate-submission")
+
+    @extend_schema(
+        operation_id="Assistant: Run Ls",
+        description="Recursive read-only listing (ls -laR) of a finished Luria run dir (reingest step 1).",
+        tags=["Assistant"],
+        request=RunLsRequest,
+        responses={401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="run-ls")
+    def run_ls(self, request):
+        return self._run_granular_op(request, "run-ls")
+
+    @extend_schema(
+        operation_id="Assistant: Build Upload Xlsx",
+        description="Render NExtSEEK 4-sheet upload workbook(s) from reingest rows (one per sample type).",
+        tags=["Assistant"],
+        request=BuildUploadXlsxRequest,
+        responses={401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="build-upload-xlsx")
+    def build_upload_xlsx(self, request):
+        return self._run_granular_op(request, "build-upload-xlsx")

@@ -2,60 +2,21 @@
 
 Report resolution: PROJECT map first (unchanged); on a miss, INVESTIGATION map ->
 Neo4j-scoped sample report (the relational DB has no sample->investigation link).
+
+This module used to pre-populate sys.modules with stub `chat_nextseek.helpers`,
+`chat_nextseek.artifacts` and `chat_nextseek.reports.outputs` modules at import time,
+to avoid a heavy/circular import that no longer exists. It never restored them, so
+every alphabetically-later test module that imported one of those paths failed to
+collect (test_lineage_leaves, test_portable_contract, test_report_code). The stubs
+are gone; the real modules import cleanly.
 """
 from __future__ import annotations
 
-import sys
 import types
 
-# runners.py's `chat_nextseek.helpers` package eagerly imports heavy deps
-# (mysql.connector, numpy, neo4j, ...) and re-exports runners (circular). To test
-# the pure report logic hermetically, pre-populate sys.modules with just the
-# submodules runners imports, so importing runners never runs the heavy __init__.
-def _mk(name, **attrs):
-    m = types.ModuleType(name)
-    m.__dict__.update(attrs)
-    return m
+import pytest
 
-_pkg = _mk("chat_nextseek.helpers"); _pkg.__path__ = []  # type: ignore[attr-defined]
-sys.modules["chat_nextseek.helpers"] = _pkg
-sys.modules["chat_nextseek.helpers.dates"] = _mk(
-    "chat_nextseek.helpers.dates",
-    _normalize_project_id=lambda config, project: (
-        None if project is None
-        else project if isinstance(project, int)
-        else int(str(project).strip()) if str(project).strip().isdigit()
-        else config.PROJECT_NAME_TO_ID[str(project).strip().upper()]
-        if str(project).strip().upper() in getattr(config, "PROJECT_NAME_TO_ID", {})
-        else (_ for _ in ()).throw(ValueError(f"Unknown project '{project}'"))
-    ),
-    _normalize_years=lambda years: [str(y).strip()[-2:] for y in years],
-    _month_range_to_yymmdd_bounds=lambda mr: ("000000", "999999"),
-    _day_range_to_yymmdd_bounds=lambda dr: ("000000", "999999"),
-)
-_tools = _mk("chat_nextseek.helpers.tools"); _tools.__path__ = []  # type: ignore[attr-defined]
-sys.modules["chat_nextseek.helpers.tools"] = _tools
-sys.modules["chat_nextseek.helpers.tools.neo4j"] = _mk(
-    "chat_nextseek.helpers.tools.neo4j",
-    tool_neo4j_query=lambda *a, **k: {"ok": True, "data": []},
-)
-
-
-class _FakeArtifactStore:
-    def __init__(self, root):
-        self.root = root
-
-    def write_json(self, **kwargs):
-        return {"path": f"/tmp/{kwargs.get('filename', 'r.json')}"}
-
-
-sys.modules["chat_nextseek.artifacts"] = _mk("chat_nextseek.artifacts", ArtifactStore=_FakeArtifactStore)
-sys.modules["chat_nextseek.reports.nfcore"] = _mk("chat_nextseek.reports.nfcore", top_items=lambda *a, **k: [])
-sys.modules["chat_nextseek.reports.outputs"] = _mk(
-    "chat_nextseek.reports.outputs", persist_report_file=lambda *a, **k: None
-)
-
-from chat_nextseek.reports import runners  # noqa: E402
+from chat_nextseek.reports import runners
 
 
 class _Cfg:
@@ -127,3 +88,136 @@ def test_sample_report_dispatches_investigation_when_not_a_project(monkeypatch, 
     res = runners.run_project_sample_report(Cfg(), "IMPACT")
     assert called.get("hit") is True
     assert res["scope"] == "investigation"
+
+
+# ---------------------------------------------------------------------------
+# T1.2 — every summary runner must resolve investigations, not just `samples`.
+#
+# PROJECT_NAME_TO_ID holds only {PUB, PUBLISHED, PUBLISHED DATA}; the six
+# investigations live in INVESTIGATION_NAME_TO_ID. run_project_protocols_report and
+# run_project_published_report called _normalize_project_id bare, so
+# report.build_me_a_full_nih_report_for raised
+# ValueError("Unknown project 'SRP'. Expected one of: ['PUB','PUBLISHED',
+# 'PUBLISHED DATA'] or a numeric project_id.") — identically in baseline task 751 and
+# post-fix task 815 — and the whole reply became "The reporter agent could not run
+# the project report.", while report.how_many_samples_were_uploaded_6 resolved the
+# same string "SRP" to investigation 6 because summary_mode "samples" was the only
+# mode that touched the guarded runner.
+# ---------------------------------------------------------------------------
+
+
+class _ScopeCfg:
+    PROJECT_NAME_TO_ID = {"PUB": 1, "PUBLISHED": 1, "PUBLISHED DATA": 1}
+    INVESTIGATION_NAME_TO_ID = {"SRP": 6, "IMPACT": 3, "METNET": 4}
+
+    def __init__(self, rows=()):
+        self._db_conn = _FakeConn(list(rows))
+
+    def _connect_db(self, **k):
+        return self._db_conn
+
+
+class _FakeCursor:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def execute(self, *a, **k):
+        return None
+
+    def fetchall(self):
+        return self._rows
+
+    def fetchone(self):
+        return {}
+
+    def close(self):
+        return None
+
+
+class _FakeConn:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def cursor(self, **k):
+        return _FakeCursor(self._rows)
+
+
+def test_resolve_report_scope_classifies_all_three_cases():
+    cfg = _ScopeCfg()
+    assert runners._resolve_report_scope(cfg, "PUB") == ("project", 1)
+    assert runners._resolve_report_scope(cfg, "SRP") == ("investigation", (6, "SRP"))
+    assert runners._resolve_report_scope(cfg, None) == ("all", None)
+    assert runners._resolve_report_scope(cfg, "  ") == ("all", None)
+    assert runners._resolve_report_scope(cfg, 42) == ("project", 42)
+
+
+def test_resolve_report_scope_still_raises_for_a_genuinely_unknown_name():
+    with pytest.raises(ValueError):
+        runners._resolve_report_scope(_ScopeCfg(), "NOT A REAL SCOPE")
+
+
+def test_protocols_report_no_longer_dies_on_an_investigation_name(tmp_path):
+    """Was: ValueError('Unknown project SRP'). Protocols cannot be narrowed to an
+    investigation, so it reports everything and says so rather than raising."""
+    result = runners.run_project_protocols_report(_ScopeCfg(), "SRP", outputs_root=tmp_path)
+
+    assert result["ok"] is True
+    assert result["scope"]["kind"] == "investigation"
+    assert result["scope"]["unsupported"] is True
+    assert result["scope"]["investigation_id"] == 6
+
+
+def test_published_report_no_longer_dies_on_an_investigation_name(tmp_path, monkeypatch):
+    """published already filters on the raw project string, so it works the moment
+    resolution stops raising."""
+    monkeypatch.setattr(runners, "tool_neo4j_query", lambda *a, **k: {"ok": True, "data": []})
+
+    result = runners.run_project_published_report(_ScopeCfg(), "SRP", outputs_root=tmp_path)
+
+    assert result["scope"]["kind"] == "investigation"
+    assert result["scope"]["investigation_id"] == 6
+
+
+@pytest.mark.parametrize("summary_mode", ["samples", "protocols", "published", "RPPR"])
+def test_every_summary_mode_resolves_an_investigation_name(summary_mode, tmp_path, monkeypatch):
+    """Only `samples` was covered before; the other three raised."""
+    monkeypatch.setattr(runners, "tool_neo4j_query", lambda *a, **k: {"ok": True, "data": []})
+    monkeypatch.setattr(
+        runners, "_neo4j_investigation_sample_uuids", lambda *a, **k: ["TIS-230101SHA-1"]
+    )
+    plan = types.SimpleNamespace(
+        project="SRP", years=[], month_range=None, day_range=None,
+        summary_mode=summary_mode, reporter_context=None,
+    )
+
+    reporter_result, _saved, _summary = runners.run_reporter_summary(_ScopeCfg(), plan, tmp_path)
+
+    assert reporter_result.get("ok") is True, reporter_result.get("error")
+    assert "Unknown project" not in str(reporter_result.get("error") or "")
+
+
+def test_rppr_samples_block_survives_a_failing_protocols_block(tmp_path, monkeypatch):
+    """
+    The single blanket `except` around all three blocks discarded the *successful*
+    samples block along with the failure (task 815).
+    """
+    monkeypatch.setattr(
+        runners, "_neo4j_investigation_sample_uuids", lambda *a, **k: ["TIS-230101SHA-1"]
+    )
+
+    def _boom(*a, **k):
+        raise RuntimeError("protocols exploded")
+
+    monkeypatch.setattr(runners, "run_project_protocols_report", _boom)
+    monkeypatch.setattr(runners, "tool_neo4j_query", lambda *a, **k: {"ok": True, "data": []})
+    plan = types.SimpleNamespace(
+        project="SRP", years=[], month_range=None, day_range=None,
+        summary_mode="RPPR", reporter_context=None,
+    )
+
+    reporter_result, _saved, _summary = runners.run_reporter_summary(_ScopeCfg(), plan, tmp_path)
+
+    assert reporter_result["ok"] is True, "one failing block killed the whole report"
+    assert reporter_result["samples"]["rows_returned"] == 1
+    assert reporter_result["protocols"]["ok"] is False
+    assert reporter_result["protocols"]["block"] == "protocols"

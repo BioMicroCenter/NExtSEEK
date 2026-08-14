@@ -1,0 +1,1 @@
+{"outcome":"AppropriateClarification","usefulness_score":4,"primary_issue":"UnsupportedRequest","needs_human_review":false,"review_priority":"Low","rationale":"The agent correctly identified that whole-database aggregation for metadata fields is not supported by the API and appropriately asked the user to provide a specific scope (e.g., a project) to proceed."}

@@ -1,0 +1,55 @@
+{
+  "schema": "plan018-v4-7-prereq/v1",
+  "recorded_at": "2026-08-12T20:15:00Z",
+  "gate": "PASS",
+  "phase0_ref": "evidence/plan018-v4-7-phase0-publish.json",
+  "phase0_gate": "PASS-WITH-LOCAL-DEPLOYDOCS",
+  "preflight_next_gate": "V4-7",
+  "v4_0_status": "CLOSED",
+  "v4_1_status": "CLOSED",
+  "v4_2_status": "CLOSED",
+  "v4_3_status": "CLOSED",
+  "v4_4_status": "CLOSED",
+  "v4_5_status": "CLOSED",
+  "v4_6_status": "CLOSED",
+  "v4_6_closeout": "evidence/plan018-v4-6-closeout.json",
+  "v4_6_vault_sync": "evidence/plan018-v4-6-vault-sync.json",
+  "worktree_sha": "c6086d92",
+  "base_sha": "b2cca5d7cf56330673442024612be27819b69a9c",
+  "migration_leaf_baseline": "0015_v4_5_generation_audit_and_turn_pin",
+  "migration_leaf_target": "0016_paired_run_registry",
+  "lane_c_recipe": "docker worktree mount + dmac.test_settings (V4-3)",
+  "lane_c_smoke": {
+    "module": "nextseek_api/cc_assistant/tests/test_risk_overlay.py",
+    "exit_status": 0,
+    "passed": 5
+  },
+  "lane_a_smoke": {
+    "module": "nextseek_api/eval/tests/test_v4_7_schemas.py",
+    "recipe": "host uv run --no-project --with pytest --with pydantic --noconftest",
+    "exit_status": 0,
+    "passed": 11
+  },
+  "lane_m_script": "scripts/plan018_lane_m_mysql.sh",
+  "ownership_map_amended": true,
+  "ownership_map_v4_7_paths": [
+    "nextseek_api/eval/evidence_kinds.py",
+    "nextseek_api/eval/paired_run.py",
+    "nextseek_api/eval/online_observation.py",
+    "nextseek_api/eval/fit/fit_boundary.py",
+    "nextseek_api/eval/paired_run_registry.py",
+    "nextseek_api/cc_assistant/route_monitoring.py",
+    "nextseek_api/migrations/0016_paired_run_registry.py"
+  ],
+  "inventory_scaffold": "evidence/plan018-v4-7-seam-inventory.json",
+  "v4_6_closeout_hygiene": "vault_sync fields refreshed to match plan018-v4-6-vault-sync.json",
+  "hard_refuses": [
+    "no live NExtSEEK DB activation without at-time ask",
+    "no production routing enablement (flag default off)",
+    "no paid/provider calls",
+    "no deploy",
+    "no push after Phase 0 unless asked",
+    "no host Django uv run --no-project for cc_assistant tests"
+  ],
+  "paid_or_live_resources_used": false
+}

@@ -294,3 +294,41 @@ class AuthTests(GranularEndpointBase):
 def test_chat_nextseek_resolves_to_merged_tree():
     import chat_nextseek
     assert "chat_nextseek/src" in chat_nextseek.__file__.replace("\\", "/")
+
+
+class ReingestEndpointTests(GranularEndpointBase):
+    """The run-ls / build-upload-xlsx HTTP endpoints must be routed and
+    CSRF-exempt like every other granular op. Regression lock: Wave 5 shipped
+    the handlers, models, and sidecar forwarders but omitted these two @action
+    methods, so the sidecar's POST hit a CSRF-enforcing fallback and 403'd —
+    which the agent misread as an auth failure. Handler-only tests (test_run_ls_op)
+    did not catch it because they call run_op directly, never the URL."""
+
+    def test_run_ls_endpoint_is_routed_and_csrf_exempt(self):
+        # patch run_op so the endpoint returns without SSHing Luria; the point is
+        # that the URL resolves and Basic/session auth passes CSRF, not the SSH.
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"run_dir": "/x/runs/r", "truncated": False, "tree": "total 0"}):
+            resp = self.client.post(f"{self.BASE}/run-ls/",
+                                    {"run_dir": "/x/runs/r"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        self.assertEqual(body["op"], "run-ls")
+        self.assertEqual(body["result"]["tree"], "total 0")
+
+    def test_run_ls_missing_run_dir_returns_422(self):
+        resp = self.client.post(f"{self.BASE}/run-ls/", {}, format="json")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()["code"], "VALIDATION")
+
+    def test_build_upload_xlsx_endpoint_is_routed_and_returns_bundle(self):
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"summary": {}, "saved_files": {}, "rows": []}):
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"rows": "[]"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        self.assertEqual(body["op"], "build-upload-xlsx")
+        # build-upload-xlsx is an artifact op -> a download bundle is registered
+        self.assertIn("download", body)
+        self.assertEqual(body["download"]["bundle_id"], 1)
