@@ -11,6 +11,7 @@ CANONICAL_CAPABILITIES_REL = (
 BAKED_CAPABILITIES_REL = (
     "docker/cc-runtime/build_context/plugins/nextseek/context/capabilities.md"
 )
+ROUTE_CAPABILITIES_REL = "dmac_assistant/build_context/route_capabilities.json"
 
 COMMAND_OPS_BEGIN = "<!-- BEGIN PLAN005-GEN:command-ops -->"
 COMMAND_OPS_END = "<!-- END PLAN005-GEN:command-ops -->"

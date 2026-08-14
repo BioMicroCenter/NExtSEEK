@@ -27,6 +27,7 @@ from build_tools.gen_op_surfaces.constants import (
     CAPABILITIES_COPY_BEGIN,
     CAPABILITIES_COPY_END,
     CLAUDE_MD_REL,
+    ROUTE_CAPABILITIES_REL,
     CLAUDE_OPS_BEGIN,
     CLAUDE_OPS_END,
     CLAUDE_PLUGINS_BEGIN,
@@ -54,6 +55,7 @@ from build_tools.gen_op_surfaces.docker_blocks import (
     emit_plugin_path_block,
 )
 from build_tools.gen_op_surfaces.paths import resolve_under_root
+from build_tools.gen_op_surfaces.route_capabilities import emit_route_capabilities
 from build_tools.gen_op_surfaces.skills import (
     discover_skill_surface_paths,
     emit_skill_ops_block,
@@ -219,6 +221,11 @@ def surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
             rel_path=BAKED_CAPABILITIES_REL,
             kind="whole_file",
             emit=capabilities_bytes,
+        ),
+        SurfaceTarget(
+            rel_path=ROUTE_CAPABILITIES_REL,
+            kind="whole_file",
+            emit=emit_route_capabilities,
         ),
         *_command_surface_targets(repo_root),
         *_skill_surface_targets(repo_root),

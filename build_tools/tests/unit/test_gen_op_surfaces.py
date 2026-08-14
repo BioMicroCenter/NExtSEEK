@@ -15,7 +15,18 @@ from build_tools.gen_op_surfaces.constants import (
     EXIT_CHANGES_WRITTEN,
     EXIT_ERROR,
     EXIT_NO_CHANGE,
+    ROUTE_CAPABILITIES_REL,
 )
+
+
+def _capabilities_only_targets() -> tuple[SurfaceTarget, ...]:
+    return (
+        SurfaceTarget(
+            rel_path=BAKED_CAPABILITIES_REL,
+            kind="whole_file",
+            emit=capabilities_bytes,
+        ),
+    )
 from build_tools.gen_op_surfaces.emit import (
     SurfaceTarget,
     capabilities_bytes,
@@ -28,7 +39,8 @@ from build_tools.gen_op_surfaces.paths import PathEscapeError, resolve_under_roo
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXPORT_MODULE = "nextseek_api.cc_assistant.op_registry.export"
 GEN_MODULE = "build_tools.gen_op_surfaces"
-PYTHONPATH = f"{REPO_ROOT}:{REPO_ROOT / 'dmac_assistant' / 'src'}"
+PYTHONPATH = f"{REPO_ROOT}:{REPO_ROOT / 'dmac_assistant' / 'src'}:{REPO_ROOT / 'chat_nextseek' / 'src'}"
+DMAC_PYTHON = Path("/home/taishajo/work/dmac-assistant/.venv/bin/python3")
 
 
 def _env(**extra: str) -> dict[str, str]:
@@ -142,7 +154,7 @@ def test_stale_capabilities_copy_fails_check(tmp_path: Path) -> None:
     canonical.write_bytes(b"canonical bytes\n")
     baked.write_bytes(b"stale bytes\n")
     with pytest.raises(SystemExit) as exc:
-        check_surfaces(repo_root=repo)
+        check_surfaces(repo_root=repo, targets=_capabilities_only_targets())
     assert exc.value.code != 0
 
 
@@ -154,8 +166,8 @@ def test_write_surfaces_is_idempotent(tmp_path: Path) -> None:
     baked.parent.mkdir(parents=True)
     canonical.write_bytes(b"same\n")
     baked.write_bytes(b"same\n")
-    assert write_surfaces(repo_root=repo) == EXIT_NO_CHANGE
-    assert write_surfaces(repo_root=repo) == EXIT_NO_CHANGE
+    assert write_surfaces(repo_root=repo, targets=_capabilities_only_targets()) == EXIT_NO_CHANGE
+    assert write_surfaces(repo_root=repo, targets=_capabilities_only_targets()) == EXIT_NO_CHANGE
 
 
 def test_write_surfaces_returns_exit_changes_written(tmp_path: Path) -> None:
@@ -166,9 +178,9 @@ def test_write_surfaces_returns_exit_changes_written(tmp_path: Path) -> None:
     baked.parent.mkdir(parents=True)
     canonical.write_bytes(b"canonical\n")
     baked.write_bytes(b"stale\n")
-    assert write_surfaces(repo_root=repo) == EXIT_CHANGES_WRITTEN
+    assert write_surfaces(repo_root=repo, targets=_capabilities_only_targets()) == EXIT_CHANGES_WRITTEN
     assert baked.read_bytes() == b"canonical\n"
-    assert write_surfaces(repo_root=repo) == EXIT_NO_CHANGE
+    assert write_surfaces(repo_root=repo, targets=_capabilities_only_targets()) == EXIT_NO_CHANGE
 
 
 def test_check_mode_does_not_mutate_committed_targets(tmp_path: Path) -> None:
@@ -182,7 +194,7 @@ def test_check_mode_does_not_mutate_committed_targets(tmp_path: Path) -> None:
     baked.write_bytes(payload)
     for path in (canonical, baked):
         path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
-    check_surfaces(repo_root=repo)
+    check_surfaces(repo_root=repo, targets=_capabilities_only_targets())
     assert canonical.read_bytes() == payload
     assert baked.read_bytes() == payload
 
@@ -194,11 +206,15 @@ def _run_module_cli(
     cwd: Path,
     env: dict[str, str],
     with_pydantic: bool = False,
+    python: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    cmd = ["uv", "run", "--no-project"]
-    if with_pydantic:
-        cmd.extend(["--with", "pydantic"])
-    cmd.extend(["python", "-m", module, *args])
+    if python:
+        cmd = [python, "-m", module, *args]
+    else:
+        cmd = ["uv", "run", "--no-project"]
+        if with_pydantic:
+            cmd.extend(["--with", "pydantic"])
+        cmd.extend(["python", "-m", module, *args])
     return subprocess.run(
         cmd,
         cwd=cwd,
@@ -209,13 +225,18 @@ def _run_module_cli(
     )
 
 
+def test_surface_targets_include_route_capabilities() -> None:
+    paths = [target.rel_path for target in surface_targets(REPO_ROOT)]
+    assert ROUTE_CAPABILITIES_REL in paths
+
+
 def test_gen_op_surfaces_check_cli_exits_zero() -> None:
     result = _run_module_cli(
         GEN_MODULE,
         ["--check", "--root", str(REPO_ROOT)],
         cwd=REPO_ROOT,
         env=_env(TMPDIR="/tmp"),
-        with_pydantic=True,
+        python=str(DMAC_PYTHON),
     )
     assert result.returncode == 0, result.stderr or result.stdout
 
@@ -266,7 +287,7 @@ def test_readonly_repo_mount_no_write_oracle_for_export_and_gen_surfaces() -> No
             ["--check", "--root", str(REPO_ROOT)],
             cwd=REPO_ROOT,
             env=env,
-            with_pydantic=True,
+            python=str(DMAC_PYTHON),
         )
         assert surfaces.returncode == 0, surfaces.stderr or surfaces.stdout
 
