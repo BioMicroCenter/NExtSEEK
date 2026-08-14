@@ -399,6 +399,12 @@ class Metrics(BaseModel):
     # new; a caller can now check created + dropped == rels_input without
     # reading the log.
     derived_from_rels_dropped: int = 0
+    # Parent-changed children whose stored json_metadata could not be read, so
+    # the stale-edge delete declined to run for them at all. The third loss
+    # class in this family and counted for the same reason as the other two:
+    # the delete quietly not happening is indistinguishable from a clean run,
+    # and it leaves a removed parent's edge in the graph.
+    parent_changed_children_skipped_unreadable: int = 0
     of_type_rels_created: int = 0
     in_study_rels_created: int = 0
     # #44: IN_STUDY rows whose Sample or Study node did not exist are dropped by the

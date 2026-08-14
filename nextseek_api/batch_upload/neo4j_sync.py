@@ -581,6 +581,19 @@ def delete_stale_derived_from_for_uuids(
     touched at all; the caller uses that for children whose stored metadata it
     could not read, because deleting on unknown truth is what caused the bug.
 
+    Two deliberate differences from `delete_derived_from_for_uuids`, both
+    invisible at the call site:
+
+    - The parent is matched as `(p:Sample)` where the old query matched an
+      untyped `()`. Empty in practice — every writer of this edge
+      (`bulk_merge_relationships`, `orphan_resolution`, `dbtable_sample`)
+      requires a Sample on both ends — but the keep-set is compared against
+      `p.uuid`, so restricting the pattern to the label that actually carries
+      that property is the honest scope rather than an implicit assumption.
+    - `upload_all` passes `NEO4J_REL_CHUNK` (20,000) rather than letting this
+      default to 10,000, because these rows are relationship work and belong on
+      the relationship budget with every other edge operation in the stage.
+
     Returns count of deleted relationships.
     """
     if not keep_by_child:
@@ -1610,6 +1623,14 @@ def upload_all(
     # step 5 is about to re-MERGE. A parent genuinely REMOVED is in neither, so
     # it is still cleared, which is the case the delete exists for.
     keep_by_child: Dict[str, Set[str]] = {}
+    # Deleting on unknown truth is exactly what this fix is about, so a child
+    # whose stored metadata we could not read is left alone. The residual: a
+    # parent genuinely removed from such a child keeps its stale edge until the
+    # next successful sync. Counted, not just logged — the delete quietly
+    # declining to run is the same shape of invisible loss as the two counters
+    # above, and `len(keep_by_child) + this == len(parent_changed_uuids)` lets a
+    # reader account for every parent-changed row from Metrics alone.
+    skipped_unreadable: List[str] = []
     if parent_changed_uuids:
         rebuild_parents: Dict[str, Set[str]] = {}
         for row in derived_from_rows:
@@ -1617,21 +1638,18 @@ def upload_all(
         unreadable = set(unreadable_parent_metadata)
         for uid in parent_changed_uuids:
             if uid in unreadable:
+                skipped_unreadable.append(uid)
                 continue
             keep_by_child[uid] = (
                 stored_parents.get(uid, set()) | rebuild_parents.get(uid, set())
             )
-        if unreadable:
-            # Deleting on unknown truth is exactly what this fix is about, so a
-            # child whose stored metadata we could not read is left alone. The
-            # residual: a parent genuinely removed from such a child keeps its
-            # stale edge until the next successful sync. Visible, and the far
-            # cheaper of the two failures.
+        if skipped_unreadable:
             log.warning(
                 "DERIVED_FROM: could not read stored metadata for %d parent-changed "
                 "sample(s), so their stale edges were NOT deleted (first 20): %s",
-                len(unreadable), sorted(unreadable)[:20],
+                len(skipped_unreadable), sorted(skipped_unreadable)[:20],
             )
+    metrics.parent_changed_children_skipped_unreadable = len(skipped_unreadable)
 
     st_node_rows = build_sample_type_node_payloads(outcomes, input_models, sql_conn)
 

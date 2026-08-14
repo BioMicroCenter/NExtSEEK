@@ -537,3 +537,26 @@ class TestDerivedFromCoverageInSummaryCsv:
         )
         assert "derived_from_dropped=2" in content
         assert "children_missing_parents=3" in content
+
+    def test_children_skipped_as_unreadable_are_printed(self, tmp_path):
+        """The delete declining to run is a loss class too, and needs the same
+        denominator treatment as the two counters above it."""
+        content = self._write(
+            tmp_path, parent_changed_children_skipped_unreadable=4)
+        assert "parent_changed_skipped_unreadable=4" in content
+
+    def test_the_unreadable_counter_is_emitted_even_at_zero(self, tmp_path):
+        content = self._write(tmp_path)
+        assert "parent_changed_skipped_unreadable=0" in content
+
+    def test_all_three_loss_classes_are_reported_apart(self, tmp_path):
+        """Different causes, different fixes: no Sample node vs no parent row
+        vs the delete declining to run at all."""
+        content = self._write(
+            tmp_path, rels_input=10, derived_from_rels_created=8,
+            derived_from_rels_dropped=2, skipped_children_missing_parents=3,
+            parent_changed_children_skipped_unreadable=4,
+        )
+        assert "derived_from_dropped=2" in content
+        assert "children_missing_parents=3" in content
+        assert "parent_changed_skipped_unreadable=4" in content

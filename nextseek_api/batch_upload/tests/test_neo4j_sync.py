@@ -2525,15 +2525,33 @@ class TestUploadAllNarrowedParentChangedDelete:
         assert cap["keep_by_child"] == {"C-1": {"A", "X"}}
 
     def test_a_parent_dropped_from_the_stored_metadata_is_still_cleared(self):
-        # stored: Parent=A (Z is gone).  The edge to Z must NOT be kept.
+        """The graph holds C-1->A and C-1->Z. The sheet moved Parent to A, so Z
+        is gone from the stored metadata and its edge must go with it.
+
+        Asserting `"Z" not in keep` alone would be vacuous — Z appears nowhere
+        in the inputs. The property is only real once composed with the delete
+        that consumes the keep-set, so this drives the REAL delete with the
+        captured keep-set and asserts on the Cypher and params actually sent.
+        """
         _m, cap, _s = _UploadAllHarness.run(
             derived_from_rows=[_df_row("C-1", "A")],
             merged_count=1,
             outcomes=self._OUTCOMES,
             stored_parents={"C-1": {"A"}},
         )
-        assert cap["keep_by_child"] == {"C-1": {"A"}}
-        assert "Z" not in cap["keep_by_child"]["C-1"]
+        keep = cap["keep_by_child"]
+        assert keep == {"C-1": {"A"}}
+
+        driver = _mock_driver_deleted([1])
+        delete_stale_derived_from_for_uuids(driver, "testdb", keep)
+        cypher = driver.execute_query.call_args[0][0]
+        params = driver.execute_query.call_args[0][1]
+
+        # Z is not in the protected list, and the clause deletes exactly what
+        # is not in that list — so Z's edge is deleted, A's is not.
+        assert params["rows"] == [{"child_uuid": "C-1", "keep_uuids": ["A"]}]
+        assert "WHERE NOT" in cypher
+        assert "IN row.keep_uuids" in cypher
 
     def test_every_parent_removed_leaves_an_empty_keep_set(self):
         _m, cap, _s = _UploadAllHarness.run(
@@ -2601,6 +2619,71 @@ class TestUploadAllNarrowedParentChangedDelete:
             derived_from_rows=[_df_row("C-1", "A")], merged_count=1)
         stubs["delete_stale_derived_from_for_uuids"].assert_not_called()
         assert cap == {}
+
+
+class TestUploadAllUnreadableSkipMetric:
+    """The skip is a real loss class and needs a denominator like its neighbours.
+
+    Skipping the delete for a child whose stored metadata will not parse leaves
+    a genuinely removed parent's edge in place. That trade is deliberate, but a
+    log line alone is exactly the treatment this commit exists to condemn: a
+    reader with only Metrics could not tell a clean run from one that silently
+    declined to clean up.
+    """
+
+    _TWO = {
+        "C-1": RowOutcome(status="success", sample_id=101, parent_changed=True),
+        "C-2": RowOutcome(status="success", sample_id=102, parent_changed=True),
+    }
+
+    def test_a_skipped_child_is_counted(self):
+        metrics, _cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-2", "A")],
+            merged_count=1,
+            outcomes=self._TWO,
+            stored_parents={"C-2": {"A"}},
+            unreadable=["C-1"],
+        )
+        assert metrics.parent_changed_children_skipped_unreadable == 1
+
+    def test_a_batch_with_nothing_unreadable_reports_zero(self):
+        metrics, _cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-1", "A")],
+            merged_count=1,
+            outcomes=self._TWO,
+            stored_parents={"C-1": {"A"}, "C-2": set()},
+        )
+        assert metrics.parent_changed_children_skipped_unreadable == 0
+
+    def test_a_batch_with_no_parent_changed_samples_reports_zero(self):
+        metrics, _cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-1", "A")], merged_count=1)
+        assert metrics.parent_changed_children_skipped_unreadable == 0
+
+    def test_the_metric_counts_deletes_actually_skipped_not_the_raw_list(self):
+        """A uuid that is not parent-changed was never going to be deleted, so
+        it is not a skip. Counting the returned list instead would inflate."""
+        metrics, cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-2", "A")],
+            merged_count=1,
+            outcomes=self._TWO,
+            stored_parents={"C-2": {"A"}},
+            unreadable=["C-1", "NOT-IN-THIS-BATCH"],
+        )
+        assert metrics.parent_changed_children_skipped_unreadable == 1
+        assert cap["keep_by_child"] == {"C-2": {"A"}}
+
+    def test_the_count_and_the_kept_children_account_for_every_parent_changed_row(self):
+        """skipped + deleted == parent-changed, so a reader needs no log."""
+        metrics, cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-2", "A")],
+            merged_count=1,
+            outcomes=self._TWO,
+            stored_parents={"C-2": {"A"}},
+            unreadable=["C-1"],
+        )
+        assert (len(cap["keep_by_child"])
+                + metrics.parent_changed_children_skipped_unreadable) == 2
 
 
 class TestUploadAllSkippedChildrenMetric:

@@ -210,6 +210,14 @@ def write_summary_csv(
                 "children_missing_parents="
                 f"{neo4j_metrics.skipped_children_missing_parents}"
             )
+            # The third loss class: the stale-edge delete declined to run for
+            # these children because their stored metadata would not parse, so
+            # a parent removed from one of them keeps its edge. Also always
+            # emitted — the delete not happening looks exactly like a clean run.
+            neo4j_row["assay_ids"] = (
+                "parent_changed_skipped_unreadable="
+                f"{neo4j_metrics.parent_changed_children_skipped_unreadable}"
+            )
             writer.writerow(neo4j_row)
 
     log.info("Summary CSV written to %s", output_path)
