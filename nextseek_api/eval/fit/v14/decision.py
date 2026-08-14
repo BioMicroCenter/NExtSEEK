@@ -9,13 +9,16 @@ import numpy as np
 
 from nextseek_api.eval.conservation import FitAdmission, SupportGateConfig, check_support_gate
 from nextseek_api.eval.fit.v14.fit_config import V14FitConfig
-from nextseek_api.eval.fit.v14.latency_model import LatencyFitResult, latency_win_probability
+from nextseek_api.eval.fit.v14.latency_model import (
+    DescriptiveLatencyResult,
+    LatencyFitResult,
+    latency_win_probability,
+)
 from nextseek_api.eval.fit.v14.pair_rows import JointQualityState, PairFitRow
 from nextseek_api.eval.fit.v14.quality_model import QualityFitResult
 
 __all__ = [
     "CandidateDecision",
-    "DecisionOutcome",
     "DecisionStatus",
     "GenerationDecision",
     "apply_complete_set_fdr",
@@ -120,7 +123,7 @@ def decide_family(
     rows: Sequence[PairFitRow],
     family: str,
     quality: QualityFitResult,
-    latency: LatencyFitResult,
+    latency: LatencyFitResult | DescriptiveLatencyResult,
     cfg: V14FitConfig,
 ) -> CandidateDecision:
     if family == "unrelated":
@@ -145,6 +148,12 @@ def decide_family(
 
     p_eq = float(np.mean(np.abs(adv) <= cfg.rope_half_width))
     if p_eq >= p_thr:
+        if isinstance(latency, DescriptiveLatencyResult):
+            return CandidateDecision(
+                family=family,
+                status=DecisionStatus.indecisive,
+                local_error_prob=1.0,
+            )
         ns_lat_p = latency_win_probability(
             latency.posterior_log_d, ratio_threshold=cfg.latency_ratio_threshold, ns_wins=True
         )
@@ -195,7 +204,9 @@ def apply_complete_set_fdr(candidates: Sequence[CandidateDecision], cfg: V14FitC
 def evaluate_generation(
     rows: Sequence[PairFitRow],
     quality_by_family: dict[str, QualityFitResult],
-    latency_by_family: dict[str, LatencyFitResult],
+    latency_by_family: dict[
+        str, LatencyFitResult | DescriptiveLatencyResult
+    ],
     cfg: V14FitConfig,
     *,
     config_fingerprint: str,

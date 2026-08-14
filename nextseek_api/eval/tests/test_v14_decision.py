@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 
 import numpy as np
-import pytest
 
 from nextseek_api.eval.fit.v14.decision import (
     CandidateDecision,
@@ -12,13 +11,15 @@ from nextseek_api.eval.fit.v14.decision import (
     apply_complete_set_fdr,
     decide_family,
     discordant_pair_count,
-    legacy_fallback,
     quality_discordance_ok,
     retained_support_ok,
     unrelated_spend_gate_path,
 )
-from nextseek_api.eval.fit.v14.fit_config import V14FitConfig, config_fingerprint
-from nextseek_api.eval.fit.v14.latency_model import LatencyFitResult
+from nextseek_api.eval.fit.v14.fit_config import V14FitConfig
+from nextseek_api.eval.fit.v14.latency_model import (
+    DescriptiveLatencyResult,
+    LatencyFitResult,
+)
 from nextseek_api.eval.fit.v14.pair_rows import JointQualityState, LatencyObservationKind, PairFitRow
 from nextseek_api.eval.fit.v14.quality_model import QualityFitResult
 
@@ -114,6 +115,21 @@ def test_latency_only_after_equivalence():
         )
     d = decide_family(rows, "fam_a", _quality(0.02), _latency(-0.7), cfg)
     assert d.status == DecisionStatus.latency_ns
+
+
+def test_missing_latency_posterior_is_indecisive_only_after_quality_equivalence():
+    cfg = V14FitConfig(min_discordant_pairs=2)
+    unavailable = DescriptiveLatencyResult("fam_a", observation_count=8)
+
+    equivalent = decide_family(
+        _both_succeed_rows(), "fam_a", _quality(0.02), unavailable, cfg
+    )
+    quality_winner = decide_family(
+        _rows(), "fam_a", _quality(0.25), unavailable, cfg
+    )
+
+    assert equivalent.status == DecisionStatus.indecisive
+    assert quality_winner.status == DecisionStatus.quality_ns
 
 
 def test_insufficient_support_legacy():

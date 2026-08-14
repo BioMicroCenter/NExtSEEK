@@ -6,13 +6,17 @@ import math
 import numpy as np
 
 from nextseek_api.eval.fit.v14 import combined
+from nextseek_api.eval.fit.v14.decision import DecisionStatus, evaluate_generation
 from nextseek_api.eval.fit.v14.fit_config import V14FitConfig
 from nextseek_api.eval.fit.v14.pair_rows import (
     JointQualityState,
     LatencyObservationKind,
     PairFitRow,
 )
-from nextseek_api.eval.fit.v14.quality_model import fit_quality_models
+from nextseek_api.eval.fit.v14.quality_model import (
+    DescriptiveQualityResult,
+    fit_quality_models,
+)
 
 
 def _rows(family: str, states: list[JointQualityState]) -> list[PairFitRow]:
@@ -46,8 +50,34 @@ def test_generation_calls_one_shared_quality_fit(monkeypatch):
 
     assert calls == [("sparse", "supported")]
     assert set(result.quality) == {"sparse", "supported"}
-    assert all(not fit.authoritative for fit in result.quality.values())
-    assert all(fit.diagnostics_scope == "non_authoritative" for fit in result.quality.values())
+    assert all(isinstance(fit, DescriptiveQualityResult) for fit in result.quality.values())
+    assert all(
+        not hasattr(fit, "posterior_samples_advantage")
+        and not hasattr(fit, "rhat_max")
+        and not hasattr(fit, "ess_bulk_min")
+        for fit in result.quality.values()
+    )
+    assert result.decision.generation_status == "profile_only"
+    assert result.decision.activated_families == ()
+    assert all(
+        candidate.status == DecisionStatus.legacy_fallback
+        and not candidate.activated
+        for candidate in result.decision.candidates
+    )
+
+    # The descriptive result cannot cross the ordinary posterior-decision seam.
+    try:
+        evaluate_generation(
+            rows,
+            result.quality,  # type: ignore[arg-type]
+            result.latency,
+            V14FitConfig(),
+            config_fingerprint="profile-only-refuse",
+        )
+    except (AttributeError, TypeError):
+        pass
+    else:  # pragma: no cover - the forbidden crossing is the assertion
+        raise AssertionError("descriptive quality result entered posterior evaluation")
 
 
 def test_shared_model_uses_indexed_multivariate_family_offsets():

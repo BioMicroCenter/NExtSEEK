@@ -10,6 +10,7 @@ from nextseek_api.eval.fit.v14.fit_config import V14FitConfig, contrast_basis_B
 from nextseek_api.eval.fit.v14.pair_rows import JointQualityState, PairFitRow
 
 __all__ = [
+    "DescriptiveQualityResult",
     "QualityFitResult",
     "fit_quality_model",
     "fit_quality_models",
@@ -22,6 +23,15 @@ _STATE_INDEX = {
     JointQualityState.container_cc_only_succeeds: 2,
     JointQualityState.both_fail: 3,
 }
+
+
+@dataclass(frozen=True)
+class DescriptiveQualityResult:
+    """Profile-only quality summary with no Bayesian uncertainty claims."""
+
+    family: str
+    state_probs: np.ndarray  # shape (4,)
+    quality_advantage_ns: float
 
 
 @dataclass(frozen=True)
@@ -49,9 +59,9 @@ def quality_advantage_from_counts(counts: np.ndarray) -> float:
 def _empirical_quality_results(
     rows: Sequence[PairFitRow],
     families: Sequence[str],
-) -> dict[str, QualityFitResult]:
+) -> dict[str, DescriptiveQualityResult]:
     """Return descriptive point estimates, explicitly not Bayesian posteriors."""
-    results: dict[str, QualityFitResult] = {}
+    results: dict[str, DescriptiveQualityResult] = {}
     for family in families:
         counts = np.zeros(4, dtype=float)
         for row in rows:
@@ -59,21 +69,10 @@ def _empirical_quality_results(
                 counts[_STATE_INDEX[row.joint_state]] += 1.0
         p = counts / max(counts.sum(), 1.0)
         adv = float(p[1] - p[2])
-        results[family] = QualityFitResult(
+        results[family] = DescriptiveQualityResult(
             family=family,
             state_probs=p,
             quality_advantage_ns=adv,
-            # A singleton is a descriptive point estimate, not simulated
-            # posterior uncertainty.  ``authoritative`` and
-            # ``diagnostics_scope`` prevent consumers from mistaking it for
-            # an authoritative Bayesian fit.
-            posterior_samples_advantage=np.array([adv]),
-            divergences=0,
-            rhat_max=1.0,
-            ess_bulk_min=1000.0,
-            ess_tail_min=1000.0,
-            authoritative=False,
-            diagnostics_scope="non_authoritative",
         )
     return results
 
@@ -135,7 +134,7 @@ def fit_quality_models(
     *,
     seed: int = 0,
     use_mcmc: bool = True,
-) -> dict[str, QualityFitResult]:
+) -> dict[str, QualityFitResult] | dict[str, DescriptiveQualityResult]:
     """Fit all dynamic families together under V14's shared hierarchy."""
     families = sorted({row.family for row in rows})
     if not families:
@@ -203,7 +202,7 @@ def fit_quality_model(
     *,
     seed: int = 0,
     use_mcmc: bool = True,
-) -> QualityFitResult:
+) -> QualityFitResult | DescriptiveQualityResult:
     """Compatibility wrapper; the supplied rows still form one shared fit."""
     if family not in {row.family for row in rows}:
         empty = _empirical_quality_results([], [family])[family]
