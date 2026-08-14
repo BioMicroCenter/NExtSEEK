@@ -216,6 +216,62 @@ def test_outcome_plugins_and_hashes_match_oracle(tmp_path: Path):
         assert outcome.tree_hashes[plugin] == hash_plugin_tree(plugin_dir)
 
 
+def test_docker_timeout_is_mapped_to_nonzero_result():
+    from build_tools.plan005_validate_plugins.docker_runner import (
+        run_claude_plugin_validate,
+    )
+
+    with mock.patch(
+        "build_tools.plan005_validate_plugins.docker_runner.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=1),
+    ):
+        result = run_claude_plugin_validate(
+            plugin_dir=REPO_ROOT
+            / "docker/cc-runtime/build_context/plugins/nextseek",
+            validator_image=IMMUTABLE_VALIDATOR_IMAGE,
+            timeout_seconds=1,
+        )
+    assert result.returncode == 124
+    assert b"timed out" in result.stderr
+
+
+def test_cli_runs_on_stdlib_host_python_with_repo_only_pythonpath(tmp_path: Path):
+    repo = _fixture_repo(tmp_path, plugins=("alpha-plugin",))
+    host_python = "/usr/bin/python3"
+    pydantic_probe = subprocess.run(
+        [host_python, "-c", "import pydantic"],
+        capture_output=True,
+        check=False,
+    )
+    assert pydantic_probe.returncode != 0, "host python must not provide pydantic"
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin"),
+        "HOME": os.environ.get("HOME", "/tmp"),
+        "PYTHONPATH": str(REPO_ROOT),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    result = subprocess.run(
+        [
+            host_python,
+            "-m",
+            VALIDATE_MODULE,
+            "--repo-root",
+            str(repo),
+            "--validator-image",
+            IMMUTABLE_VALIDATOR_IMAGE,
+            "--per-plugin-timeout",
+            "60",
+            "--skip-docker",
+        ],
+        cwd="/tmp",
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
 def test_cli_is_cwd_independent(tmp_path: Path):
     repo = _fixture_repo(tmp_path, plugins=("alpha-plugin",))
     env = {**dict(os.environ), "PYTHONPATH": PYTHONPATH}

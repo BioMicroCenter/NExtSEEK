@@ -20,27 +20,34 @@ def run_claude_plugin_validate(
     timeout_seconds: int,
 ) -> DockerRunResult:
     """Run `claude plugin validate --strict` network-disabled without a shell."""
-    completed = subprocess.run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "-v",
-            f"{plugin_dir.resolve()}:/plugin:ro",
-            "--entrypoint",
-            "claude",
-            validator_image,
-            "plugin",
-            "validate",
-            "--strict",
-            "/plugin",
-        ],
-        capture_output=True,
-        timeout=timeout_seconds,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "-v",
+                f"{plugin_dir.resolve()}:/plugin:ro",
+                "--entrypoint",
+                "claude",
+                validator_image,
+                "plugin",
+                "validate",
+                "--strict",
+                "/plugin",
+            ],
+            capture_output=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or b""
+        stderr = (exc.stderr or b"") + (
+            f"plugin validate timed out after {timeout_seconds}s\n".encode("utf-8")
+        )
+        return DockerRunResult(returncode=124, stdout=stdout, stderr=stderr)
     return DockerRunResult(
         returncode=completed.returncode,
         stdout=completed.stdout,
