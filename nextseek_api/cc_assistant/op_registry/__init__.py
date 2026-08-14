@@ -5,6 +5,12 @@ from nextseek_api.cc_assistant.op_registry.install_oracle import (
     InstallOracleError,
     discover_install,
 )
+from nextseek_api.cc_assistant.op_registry.plugin_identity import (
+    PluginIdentity,
+    PluginIdentityError,
+    load_and_validate_manifest,
+    validate_plugin_identity,
+)
 from nextseek_api.cc_assistant.op_registry.models import (
     AllowlistSpec,
     ArgSpec,
@@ -32,6 +38,8 @@ __all__ = [
     "GateClass",
     "InstallDiscovery",
     "InstallOracleError",
+    "PluginIdentity",
+    "PluginIdentityError",
     "OPS",
     "OpList",
     "OpSpec",
@@ -40,4 +48,6 @@ __all__ = [
     "SkillRow",
     "Transport",
     "discover_install",
+    "load_and_validate_manifest",
+    "validate_plugin_identity",
 ]

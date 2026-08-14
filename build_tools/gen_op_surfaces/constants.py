@@ -12,5 +12,8 @@ BAKED_CAPABILITIES_REL = (
     "docker/cc-runtime/build_context/plugins/nextseek/context/capabilities.md"
 )
 
+COMMAND_OPS_BEGIN = "<!-- BEGIN PLAN005-GEN:command-ops -->"
+COMMAND_OPS_END = "<!-- END PLAN005-GEN:command-ops -->"
+
 MARKER_PREFIX = "<!-- BEGIN PLAN005-GEN:"
 MARKER_SUFFIX = "-->"

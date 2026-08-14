@@ -9,9 +9,15 @@ from pathlib import Path
 from typing import Literal
 
 from build_tools.gen_op_surfaces.blocks import render_marked_file
+from build_tools.gen_op_surfaces.commands import (
+    discover_command_surface_paths,
+    emit_command_ops_block,
+)
 from build_tools.gen_op_surfaces.constants import (
     BAKED_CAPABILITIES_REL,
     CANONICAL_CAPABILITIES_REL,
+    COMMAND_OPS_BEGIN,
+    COMMAND_OPS_END,
     EXIT_CHANGES_WRITTEN,
     EXIT_NO_CHANGE,
 )
@@ -44,15 +50,33 @@ def capabilities_bytes(repo_root: Path) -> bytes:
     return canonical.read_bytes()
 
 
+def _command_surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
+    command_targets: list[SurfaceTarget] = []
+    for plugin_dir, rel_path in discover_command_surface_paths(repo_root):
+        command_targets.append(
+            SurfaceTarget(
+                rel_path=rel_path,
+                kind="marked_block",
+                begin_marker=COMMAND_OPS_BEGIN,
+                end_marker=COMMAND_OPS_END,
+                emit=lambda root, pd=plugin_dir: emit_command_ops_block(
+                    root,
+                    plugin_dir=pd,
+                ),
+            )
+        )
+    return tuple(command_targets)
+
+
 def surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
     """Return declared generated targets in stable sorted order."""
-    del repo_root
     targets = (
         SurfaceTarget(
             rel_path=BAKED_CAPABILITIES_REL,
             kind="whole_file",
             emit=capabilities_bytes,
         ),
+        *_command_surface_targets(repo_root),
     )
     return tuple(sorted(targets, key=lambda item: item.rel_path))
 

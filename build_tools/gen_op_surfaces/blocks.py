@@ -43,6 +43,8 @@ def render_marked_file(
     end_idx = original.index(end_marker)
     prefix = original[: begin_idx + len(begin_marker)]
     suffix = original[end_idx:]
+    if block_content and not prefix.endswith("\n"):
+        block_content = "\n" + block_content
     if block_content and not block_content.endswith("\n"):
         block_content = block_content + "\n"
     return prefix + block_content + suffix
