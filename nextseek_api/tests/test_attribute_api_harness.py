@@ -163,6 +163,22 @@ def test_coverage_lane_binds_exact_pytest_selection_and_only_ratified_ignores():
     assert len(module.PYTEST_IGNORES) == 2
 
 
+def test_subprocess_coverage_preserves_parent_omit_contract(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location("plan008_subprocess_coverage", ROOT / "scripts/run_attribute_coverage.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    parent_omit = tuple(module.Coverage().config.run_omit)
+    assert parent_omit
+    monkeypatch.delenv("COVERAGE_PROCESS_START", raising=False)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    module._enable_subprocess_coverage(tmp_path, tmp_path / ".coverage", run_omit=parent_omit)
+    generated = (tmp_path / "subprocess.coveragerc").read_text()
+    assert "omit =\n" in generated
+    for pattern in parent_omit:
+        assert f"    {pattern}\n" in generated
+
+
 def test_deadline_freeze_rejects_deferred_tasks_and_expensive_lanes_before_boundary():
     manifest = json.loads(MANIFEST.read_text())
     assert manifest["deadline_execution_freeze"] is True

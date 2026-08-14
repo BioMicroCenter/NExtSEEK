@@ -160,7 +160,7 @@ def ensure_report_lists_all_sources(coverage: Coverage, output: Path) -> None:
     output.write_text(json.dumps(payload, indent=4) + "\n")
 
 
-def _enable_subprocess_coverage(run_root: Path, data_file: Path) -> None:
+def _enable_subprocess_coverage(run_root: Path, data_file: Path, *, run_omit: tuple[str, ...]) -> None:
     sitecustomize_dir = run_root / "subprocess_sitecustomize"
     sitecustomize_dir.mkdir(parents=True, exist_ok=True)
     (sitecustomize_dir / "sitecustomize.py").write_text(
@@ -198,6 +198,13 @@ def _enable_subprocess_coverage(run_root: Path, data_file: Path) -> None:
         "parallel = True\n"
         "branch = True\n"
         "source =\n" + "".join(f"    {root}\n" for root in source_roots())
+        # Preserve the parent coverage process's existing repository omit
+        # contract exactly.  Without this, the generated subprocess config
+        # scans the attributes test/migration trees that .coveragerc normally
+        # omits, and combine() adds those unmeasured files as 0%-covered source
+        # to the aggregate denominator.  This is configuration parity, not a
+        # new omission or a coverage-scope reduction.
+        + "omit =\n" + "".join(f"    {pattern}\n" for pattern in run_omit)
     )
     os.environ["COVERAGE_PROCESS_START"] = str(subprocess_coveragerc)
     existing_pythonpath = os.environ.get("PYTHONPATH", "")
@@ -293,7 +300,9 @@ def main() -> int:
         data_file=str(data_file), branch=True, source=source_roots(),
     )
     coverage.start()
-    _enable_subprocess_coverage(run_root, data_file)
+    _enable_subprocess_coverage(
+        run_root, data_file, run_omit=tuple(coverage.config.run_omit),
+    )
     pytest_args = ["-q", "-p", "no:cacheprovider"]
     if raw_full:
         pytest_args += ["-p", "scripts.attribute_pytest_reporter", "--ignore=nextseek_api/attributes/tests/test_final_gate.py"]
