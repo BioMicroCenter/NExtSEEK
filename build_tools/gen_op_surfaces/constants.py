@@ -18,6 +18,24 @@ COMMAND_OPS_END = "<!-- END PLAN005-GEN:command-ops -->"
 SKILL_OPS_BEGIN = "<!-- BEGIN PLAN005-GEN:skill-ops -->"
 SKILL_OPS_END = "<!-- END PLAN005-GEN:skill-ops -->"
 
+DOCKERFILE_REL = "docker/cc-runtime/Dockerfile"
+COMPOSE_REL = "docker-compose.yml"
+
+PLUGIN_COPY_BEGIN = "# BEGIN PLAN005-GEN:plugin-copy"
+PLUGIN_COPY_END = "# END PLAN005-GEN:plugin-copy"
+PLUGIN_PATH_BEGIN = "# BEGIN PLAN005-GEN:plugin-path"
+PLUGIN_PATH_END = "# END PLAN005-GEN:plugin-path"
+CAPABILITIES_COPY_BEGIN = "# BEGIN PLAN005-GEN:capabilities-copy"
+CAPABILITIES_COPY_END = "# END PLAN005-GEN:capabilities-copy"
+ADDITIONAL_CONTEXTS_BEGIN = "# BEGIN PLAN005-GEN:additional-contexts"
+ADDITIONAL_CONTEXTS_END = "# END PLAN005-GEN:additional-contexts"
+
+NAMED_CAPABILITIES_CONTEXT = "chat_nextseek"
+CANONICAL_CAPABILITIES_IN_CONTEXT = (
+    "src/chat_nextseek/context/capabilities.md"
+)
+IMAGE_CAPABILITIES_PATH = "/app/plugins/nextseek/context/capabilities.md"
+
 SKILL_OPS_FIELDS = (
     "op_id",
     "bin_name",

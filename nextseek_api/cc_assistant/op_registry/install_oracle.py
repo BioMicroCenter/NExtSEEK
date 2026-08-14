@@ -12,6 +12,10 @@ PLUGIN_COPY_RE = re.compile(
 )
 PLUGIN_PATH_RE = re.compile(r"/app/plugins/(?P<plugin>[^/]+)/bin")
 ENV_PATH_RE = re.compile(r"^ENV\s+PATH=(.+)$")
+BROAD_PLUGIN_COPY_RE = re.compile(
+    r"^COPY\s+(?:--\S+\s+)*build_context/plugins(?:/?|\./)\s+/app/plugins/?\s*$"
+)
+LITERAL_PATH_REF = "${PATH}"
 SHIM_PREFIX = "nextseek-"
 MANIFEST_RELATIVE = Path(".claude-plugin") / "plugin.json"
 
@@ -92,6 +96,7 @@ def discover_install(
     _ensure_no_traversal(copy_destinations)
     _ensure_manifests_for_copy_plugins(copy_plugins, manifest_plugins, plugins_root)
     _ensure_copy_path_agreement(copy_plugins, path_plugins)
+    _ensure_plugin_bins(copy_plugins, plugins_root)
 
     plugins = tuple(sorted(copy_plugins))
     return InstallDiscovery(
@@ -116,6 +121,11 @@ def _parse_copy_destinations(dockerfile_text: str) -> tuple[CopyDestination, ...
             continue
         if ".." in stripped:
             raise InstallOracleError(f"unsafe traversal in Dockerfile line: {stripped}")
+        if BROAD_PLUGIN_COPY_RE.match(stripped):
+            raise InstallOracleError(
+                "broad COPY of the plugins directory is forbidden: "
+                f"{stripped}"
+            )
         match = PLUGIN_COPY_RE.match(stripped)
         if not match:
             continue
@@ -151,9 +161,18 @@ def _parse_path_entries(dockerfile_text: str) -> tuple[PathEntry, ...]:
         env_match = ENV_PATH_RE.match(stripped)
         if not env_match:
             continue
-        for plugin_name in PLUGIN_PATH_RE.findall(env_match.group(1)):
+        path_value = env_match.group(1)
+        plugin_names = PLUGIN_PATH_RE.findall(path_value)
+        if plugin_names and LITERAL_PATH_REF not in path_value:
+            raise InstallOracleError(
+                "plugin PATH must preserve literal ${PATH}: "
+                f"{stripped}"
+            )
+        for plugin_name in plugin_names:
             if plugin_name in seen:
-                continue
+                raise InstallOracleError(
+                    f"duplicate PATH entry for installed plugin {plugin_name!r}"
+                )
             seen.add(plugin_name)
             entries.append(
                 PathEntry(
@@ -285,6 +304,23 @@ def _ensure_manifests_for_copy_plugins(
             raise InstallOracleError(
                 f"installed plugin {plugin_name!r} missing manifest at {MANIFEST_RELATIVE}"
             )
+
+
+def manifest_plugin_dirs(plugins_root: Path) -> tuple[str, ...]:
+    """Return directory names of manifest-bearing plugin trees, sorted."""
+    return tuple(manifest.plugin_dir for manifest in _scan_manifests(plugins_root))
+
+
+def _ensure_plugin_bins(copy_plugins: set[str], plugins_root: Path) -> None:
+    missing = [
+        name
+        for name in sorted(copy_plugins)
+        if not (plugins_root / name / "bin").is_dir()
+    ]
+    if missing:
+        raise InstallOracleError(
+            "installed plugin missing bin directory: " + ", ".join(missing)
+        )
 
 
 def _ensure_copy_path_agreement(copy_plugins: set[str], path_plugins: set[str]) -> None:

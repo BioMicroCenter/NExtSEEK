@@ -14,14 +14,30 @@ from build_tools.gen_op_surfaces.commands import (
     emit_command_ops_block,
 )
 from build_tools.gen_op_surfaces.constants import (
+    ADDITIONAL_CONTEXTS_BEGIN,
+    ADDITIONAL_CONTEXTS_END,
     BAKED_CAPABILITIES_REL,
     CANONICAL_CAPABILITIES_REL,
+    CAPABILITIES_COPY_BEGIN,
+    CAPABILITIES_COPY_END,
     COMMAND_OPS_BEGIN,
     COMMAND_OPS_END,
+    COMPOSE_REL,
+    DOCKERFILE_REL,
     EXIT_CHANGES_WRITTEN,
     EXIT_NO_CHANGE,
+    PLUGIN_COPY_BEGIN,
+    PLUGIN_COPY_END,
+    PLUGIN_PATH_BEGIN,
+    PLUGIN_PATH_END,
     SKILL_OPS_BEGIN,
     SKILL_OPS_END,
+)
+from build_tools.gen_op_surfaces.docker_blocks import (
+    emit_additional_contexts_block,
+    emit_capabilities_copy_block,
+    emit_plugin_copy_block,
+    emit_plugin_path_block,
 )
 from build_tools.gen_op_surfaces.paths import resolve_under_root
 from build_tools.gen_op_surfaces.skills import (
@@ -92,6 +108,57 @@ def _skill_surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
     return tuple(skill_targets)
 
 
+def _docker_surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
+    targets: list[SurfaceTarget] = []
+    dockerfile = repo_root / DOCKERFILE_REL
+    if dockerfile.is_file():
+        text = dockerfile.read_text(encoding="utf-8")
+        if PLUGIN_COPY_BEGIN in text and PLUGIN_COPY_END in text:
+            targets.append(
+                SurfaceTarget(
+                    rel_path=DOCKERFILE_REL,
+                    kind="marked_block",
+                    begin_marker=PLUGIN_COPY_BEGIN,
+                    end_marker=PLUGIN_COPY_END,
+                    emit=emit_plugin_copy_block,
+                )
+            )
+        if CAPABILITIES_COPY_BEGIN in text and CAPABILITIES_COPY_END in text:
+            targets.append(
+                SurfaceTarget(
+                    rel_path=DOCKERFILE_REL,
+                    kind="marked_block",
+                    begin_marker=CAPABILITIES_COPY_BEGIN,
+                    end_marker=CAPABILITIES_COPY_END,
+                    emit=emit_capabilities_copy_block,
+                )
+            )
+        if PLUGIN_PATH_BEGIN in text and PLUGIN_PATH_END in text:
+            targets.append(
+                SurfaceTarget(
+                    rel_path=DOCKERFILE_REL,
+                    kind="marked_block",
+                    begin_marker=PLUGIN_PATH_BEGIN,
+                    end_marker=PLUGIN_PATH_END,
+                    emit=emit_plugin_path_block,
+                )
+            )
+    compose = repo_root / COMPOSE_REL
+    if compose.is_file():
+        text = compose.read_text(encoding="utf-8")
+        if ADDITIONAL_CONTEXTS_BEGIN in text and ADDITIONAL_CONTEXTS_END in text:
+            targets.append(
+                SurfaceTarget(
+                    rel_path=COMPOSE_REL,
+                    kind="marked_block",
+                    begin_marker=ADDITIONAL_CONTEXTS_BEGIN,
+                    end_marker=ADDITIONAL_CONTEXTS_END,
+                    emit=emit_additional_contexts_block,
+                )
+            )
+    return tuple(targets)
+
+
 def surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
     """Return declared generated targets in stable sorted order."""
     targets = (
@@ -102,6 +169,7 @@ def surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
         ),
         *_command_surface_targets(repo_root),
         *_skill_surface_targets(repo_root),
+        *_docker_surface_targets(repo_root),
     )
     return tuple(sorted(targets, key=lambda item: item.rel_path))
 

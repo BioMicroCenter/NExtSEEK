@@ -113,6 +113,10 @@ services:
   cc-agent:
     build:
       context: ./docker/cc-runtime
+# BEGIN PLAN005-GEN:additional-contexts
+      additional_contexts:
+        chat_nextseek: ./chat_nextseek
+# END PLAN005-GEN:additional-contexts
     image: dmac-assistant:poc
     network_mode: none
     command: ["true"]

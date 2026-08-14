@@ -211,6 +211,67 @@ def test_copy_path_disagreement_fails(tmp_path: Path):
         )
 
 
+def test_copied_plugin_absent_from_path_fails(tmp_path: Path):
+    with pytest.raises(InstallOracleError, match="COPY.*PATH|PATH.*COPY"):
+        _discover(
+            tmp_path,
+            copy_plugins=("copied-plugin",),
+            path_plugins=(),
+        )
+
+
+def test_duplicate_path_entries_fail(tmp_path: Path):
+    with pytest.raises(InstallOracleError, match="duplicate"):
+        _discover(
+            tmp_path,
+            copy_plugins=("dup-path-plugin",),
+            extra_dockerfile_lines=(
+                'ENV PATH="/app/plugins/dup-path-plugin/bin:${PATH}"',
+            ),
+        )
+
+
+def test_broad_plugins_directory_copy_fails(tmp_path: Path):
+    with pytest.raises(InstallOracleError, match="broad"):
+        _discover(
+            tmp_path,
+            copy_plugins=("ok-plugin",),
+            extra_dockerfile_lines=(
+                "COPY build_context/plugins/ /app/plugins/",
+            ),
+        )
+
+
+def test_missing_plugin_bin_directory_fails(tmp_path: Path):
+    plugins_root = tmp_path / "build_context" / "plugins"
+    dockerfile = tmp_path / "Dockerfile"
+    plugin_dir = plugins_root / "no-bin-plugin"
+    plugin_dir.mkdir(parents=True)
+    _write_manifest(plugin_dir)
+    _write_dockerfile(dockerfile, copy_plugins=("no-bin-plugin",))
+    with pytest.raises(InstallOracleError, match="bin"):
+        discover_install(plugins_root=plugins_root, dockerfile_path=dockerfile)
+
+
+def test_plugin_path_without_literal_braced_path_fails(tmp_path: Path):
+    plugins_root = tmp_path / "build_context" / "plugins"
+    dockerfile = tmp_path / "Dockerfile"
+    _write_plugin_tree(plugins_root, "plain-path-plugin")
+    dockerfile.write_text(
+        "\n".join(
+            [
+                "FROM scratch",
+                "COPY build_context/plugins/plain-path-plugin/ /app/plugins/plain-path-plugin/",
+                'ENV PATH="/app/plugins/plain-path-plugin/bin:/usr/bin"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(InstallOracleError, match=r"\$\{PATH\}"):
+        discover_install(plugins_root=plugins_root, dockerfile_path=dockerfile)
+
+
 def test_non_executable_shim_fails(tmp_path: Path):
     plugins_root = tmp_path / "build_context" / "plugins"
     dockerfile = tmp_path / "Dockerfile"
