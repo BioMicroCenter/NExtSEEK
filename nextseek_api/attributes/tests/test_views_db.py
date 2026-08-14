@@ -53,6 +53,8 @@ def test_real_product_synchronous_path_terminalizes_200(disposable_attribute_db,
     )
     assert response.status_code == 200
     assert response.data["mode"] == "synchronous"
+    assert response.data["counts"]["affected_samples"] == 1
+    assert response.data["counts"]["updated_samples"] == 1
     job = AttributeMutationJob.objects.get()
     assert job.state == "succeeded"
     assert job.terminal_result == response.data
