@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 from nextseek_api.eval.fit.v14.decision import DecisionStatus, GenerationDecision
-from nextseek_api.eval.fit.v14.recovery_matrix import RecoveryScenario, ground_truth
+from nextseek_api.eval.fit.v14.recovery_matrix import RecoveryScenario
 
 __all__ = [
     "FEASIBILITY_SLOT_INDICES",
@@ -36,7 +36,11 @@ def slot_winner(decision: GenerationDecision) -> str:
     for c in decision.candidates:
         if not c.activated:
             continue
-        if c.status in {DecisionStatus.quality_ns, DecisionStatus.latency_ns}:
+        if c.status in {
+            DecisionStatus.quality_ns,
+            DecisionStatus.quality_equivalent_ns,
+            DecisionStatus.latency_ns,
+        }:
             return "ns"
         if c.status in {DecisionStatus.quality_cc, DecisionStatus.latency_cc}:
             return "cc"

@@ -46,7 +46,7 @@ class RecoverySlot:
 
 def matrix_fingerprint() -> str:
     payload = {
-        "contract": "v14b-ruling-b",
+        "contract": "v14c-quality-equivalence-ns",
         "scenarios": [s.value for s in RECOVERY_SCENARIOS],
         "seeds": list(recovery_seeds()),
     }
@@ -221,7 +221,11 @@ def build_scenario_rows(scenario: RecoveryScenario) -> list[PairFitRow]:
 
 
 def ground_truth(scenario: RecoveryScenario) -> str:
-    if scenario in {RecoveryScenario.ns_strong_quality, RecoveryScenario.quality_eq_ns_faster}:
+    if scenario in {
+        RecoveryScenario.ns_strong_quality,
+        RecoveryScenario.quality_eq_ns_faster,
+        RecoveryScenario.right_censor_30pct,
+    }:
         return "strong_ns"
     if scenario in {RecoveryScenario.cc_strong_quality, RecoveryScenario.quality_eq_cc_faster}:
         return "strong_cc"

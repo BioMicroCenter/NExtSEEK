@@ -345,6 +345,18 @@ def test_initial_human_grade_publication_requires_explicit_override(initial_rele
     assert len(shared_diagnostics) == 1
 
 
+def test_initial_release_routes_proven_equivalence_to_ns(initial_release):
+    by_family = {
+        candidate.family: candidate
+        for candidate in initial_release.fit.decision.candidates
+    }
+
+    graph = by_family["graph_traversal"]
+    assert graph.status.value == "quality_equivalent_ns"
+    assert graph.activated
+    assert "graph_traversal" in initial_release.fit.decision.activated_families
+
+
 @pytest.mark.django_db
 def test_refused_dev_publication_writes_no_paired_registry(prepared):
     from nextseek_api.assistant.models_db import PairedRunRegistry

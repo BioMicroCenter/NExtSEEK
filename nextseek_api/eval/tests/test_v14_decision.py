@@ -117,7 +117,7 @@ def test_latency_only_after_equivalence():
     assert d.status == DecisionStatus.latency_ns
 
 
-def test_missing_latency_posterior_is_indecisive_only_after_quality_equivalence():
+def test_missing_latency_posterior_defaults_ns_only_after_quality_equivalence():
     cfg = V14FitConfig(min_discordant_pairs=2)
     unavailable = DescriptiveLatencyResult("fam_a", observation_count=8)
 
@@ -128,8 +128,20 @@ def test_missing_latency_posterior_is_indecisive_only_after_quality_equivalence(
         _rows(), "fam_a", _quality(0.25), unavailable, cfg
     )
 
-    assert equivalent.status == DecisionStatus.indecisive
+    assert equivalent.status == DecisionStatus.quality_equivalent_ns
+    assert equivalent.local_error_prob == 0.0
     assert quality_winner.status == DecisionStatus.quality_ns
+
+
+def test_inconclusive_latency_defaults_ns_after_quality_equivalence():
+    cfg = V14FitConfig(min_discordant_pairs=2)
+
+    decision = decide_family(
+        _both_succeed_rows(), "fam_a", _quality(0.02), _latency(0.0), cfg
+    )
+
+    assert decision.status == DecisionStatus.quality_equivalent_ns
+    assert decision.local_error_prob == 0.0
 
 
 def test_insufficient_support_legacy():
@@ -161,15 +173,39 @@ def test_fdr_over_limit_activates_none():
     assert all(c.status == DecisionStatus.multiplicity_indecisive for c in final)
 
 
-def test_fdr_cannot_cherry_pick_subset():
+def test_fdr_retains_largest_safe_subset():
     cfg = V14FitConfig(fdr_threshold=0.05)
     cands = [
         CandidateDecision("a", DecisionStatus.quality_ns, 0.01),
         CandidateDecision("b", DecisionStatus.quality_cc, 0.15),
     ]
     final, fdr, status = apply_complete_set_fdr(cands, cfg)
-    assert status == "multiplicity_indecisive"
-    assert all(not c.activated for c in final)
+    assert status == "activated_subset"
+    assert fdr == 0.01
+    assert [(c.family, c.status, c.activated) for c in final] == [
+        ("a", DecisionStatus.quality_ns, True),
+        ("b", DecisionStatus.multiplicity_indecisive, False),
+    ]
+
+
+def test_fdr_subset_is_order_independent_and_preserves_non_winners():
+    cfg = V14FitConfig(fdr_threshold=0.05)
+    cands = [
+        CandidateDecision("fallback", DecisionStatus.legacy_fallback, 0.0),
+        CandidateDecision("weak", DecisionStatus.quality_cc, 0.20),
+        CandidateDecision("strong_b", DecisionStatus.quality_cc, 0.04),
+        CandidateDecision("strong_a", DecisionStatus.quality_ns, 0.01),
+    ]
+
+    final, fdr, status = apply_complete_set_fdr(cands, cfg)
+
+    assert status == "activated_subset"
+    assert fdr == 0.025
+    by_family = {c.family: c for c in final}
+    assert by_family["strong_a"].activated
+    assert by_family["strong_b"].activated
+    assert by_family["weak"].status == DecisionStatus.multiplicity_indecisive
+    assert by_family["fallback"].status == DecisionStatus.legacy_fallback
 
 
 def test_cost_does_not_affect_winner():
