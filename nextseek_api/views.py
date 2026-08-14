@@ -26,7 +26,6 @@ from seek.seekdb import SeekDB
 from seek.dbtable_sample import DBtable_sample
 from seek.timeline.services.timeline_service import run_All, get_event_data
 from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
-from seek.views import get_children_uids, sample_retrieval_data
 from .batch_upload.views import BatchUploadViewSet
 
 logger = logging.getLogger(__name__)
