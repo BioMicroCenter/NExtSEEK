@@ -235,3 +235,9 @@ startup/seed/filestore.tar.gz
 # tree is ~325M per run. They are deliverables, not source, and a `git add -A`
 # that swept one in would be very hard to undo.
 nessie_bayes_*/
+
+# graphify knowledge-graph output: ~62MB per build, of which graph.json alone is
+# ~29MB. Regenerable from the tree at any time (`/graphify . --update`), so it is
+# a local index, not source — and a `git add -A` that swept it in would be hard
+# to undo on a repo this widely forked.
+graphify-out/
