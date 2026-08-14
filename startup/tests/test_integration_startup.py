@@ -91,10 +91,12 @@ def test_rebuild_then_doctor_reports_pushed_baseline(
     monkeypatch.setenv(GHCR_ENV_OVERRIDE_VAR, str(cred))
 
     calls: list[list[str]] = []
-    with patch("startup.lib.docker_ops.compose_up"), \
+    with patch("startup.steps.rollback_tags.create_verified", return_value=()), \
+         patch("startup.lib.docker_ops.compose_build"), \
+         patch("startup.lib.docker_ops.compose_up"), \
          patch("startup.steps.registry_push.subprocess.run") as mock_run:
         mock_run.side_effect = _happy_run_dispatcher(calls)
-        result = runner.invoke(cli.app, ["rebuild"])
+        result = runner.invoke(cli.app, ["rebuild", "--component", "custom-stack"])
     assert result.exit_code == 0, result.output
     assert "off-box rollback baseline pushed" in result.output
 
@@ -110,7 +112,7 @@ def test_rebuild_then_doctor_reports_pushed_baseline(
     assert "off-box baseline" in result.output
     # rich wraps long lines at console width — compare whitespace-free
     compact = "".join(result.output.split())
-    assert "lastpushghcr.io/biomicrocenter/nextseek:baseline-" in compact
+    assert "all4first-partyimagesprotected" in compact
 
 
 def test_rebuild_without_credentials_then_doctor_goes_red(
@@ -131,7 +133,9 @@ def test_rebuild_without_credentials_then_doctor_goes_red(
     monkeypatch.setenv(GHCR_ENV_OVERRIDE_VAR, str(tmp_path / "absent.env"))
 
     calls: list[list[str]] = []
-    with patch("startup.lib.docker_ops.compose_up"), \
+    with patch("startup.steps.rollback_tags.create_verified", return_value=()), \
+         patch("startup.lib.docker_ops.compose_build"), \
+         patch("startup.lib.docker_ops.compose_up"), \
          patch("startup.steps.registry_push.subprocess.run") as mock_run:
         mock_run.side_effect = _happy_run_dispatcher(calls)
         result = runner.invoke(cli.app, ["rebuild"])

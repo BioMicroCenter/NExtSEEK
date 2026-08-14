@@ -11,7 +11,6 @@ from startup.lib.docker_ops import (
     DockerOpsError,
     compose_build,
     compose_up,
-    compose_down,
     compose_exec,
     volume_exists,
     volume_create,
@@ -41,6 +40,38 @@ def test_compose_up_can_force_recreate(mock_run: MagicMock) -> None:
     args = mock_run.call_args.args[0]
     assert "--force-recreate" in args
     assert args[-1] == "nextseek_nginx"
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_can_exclude_dependencies(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_up(
+        services=["nextseek"],
+        project_dir="/repo",
+        env={},
+        no_deps=True,
+    )
+    args = mock_run.call_args.args[0]
+    assert "--no-deps" in args
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_force_recreate_preserves_named_volumes(mock_run: MagicMock) -> None:
+    """Routine rebuild recreation must never renew or delete attached volumes."""
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_up(
+        services=["attribute_mutation_worker", "attribute_mutation_dispatcher"],
+        project_dir="/repo",
+        env={},
+        force_recreate=True,
+        no_deps=True,
+    )
+    args = mock_run.call_args.args[0]
+    assert "--force-recreate" in args
+    assert "--no-deps" in args
+    assert "--renew-anon-volumes" not in args
+    assert "down" not in args
+    assert "-v" not in args
 
 
 @patch("startup.lib.docker_ops.subprocess.run")

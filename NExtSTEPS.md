@@ -277,9 +277,9 @@ run the §6 verification checklist. In short:
 
 ```bash
 git fetch origin dev && git merge --ff-only origin/dev
-docker tag nextseek-nextseek:latest nextseek-nextseek:pre-<change>
-./startup.sh rebuild              # rebuilds nextseek image, restarts container
-                                    # entrypoint runs `manage.py migrate` on startup
+./startup.sh rebuild              # verifies a pre-tag, rebuilds the shared app
+                                  # image, and recreates every app-code runtime;
+                                  # entrypoint runs `manage.py migrate` on startup
 ```
 
 If only `static/` (CSS/JS) changed and you need to apply it to a running

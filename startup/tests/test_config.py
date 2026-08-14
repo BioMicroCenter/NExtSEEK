@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from startup.steps.config import (
     ConfigValues,
     default_values,
@@ -158,7 +156,7 @@ def test_real_template_renders_public_and_internal_urls(tmp_path: Path) -> None:
 def test_real_template_internal_url_never_inherits_bumped_port(tmp_path: Path) -> None:
     rendered = _render_real_template(tmp_path, port=8001)
     internal_lines = [
-        l for l in rendered.splitlines() if l.startswith("NEXTSEEK_INTERNAL_BASE_URL=")
+        line for line in rendered.splitlines() if line.startswith("NEXTSEEK_INTERNAL_BASE_URL=")
     ]
     assert internal_lines == ['NEXTSEEK_INTERNAL_BASE_URL="http://127.0.0.1:8000"']
 
@@ -167,7 +165,7 @@ def test_env_example_internal_url_parity_with_template() -> None:
     """Tripwire: the hand-maintained example must carry the same internal URL."""
     example = (_REPO_ROOT / "docker" / "nextseek.env.example").read_text()
     lines = [
-        l for l in example.splitlines() if l.startswith("NEXTSEEK_INTERNAL_BASE_URL=")
+        line for line in example.splitlines() if line.startswith("NEXTSEEK_INTERNAL_BASE_URL=")
     ]
     assert lines == ['NEXTSEEK_INTERNAL_BASE_URL="http://127.0.0.1:8000"']
     # The public base URL keeps its NEXTSEEK_HOSTNAME derivation.

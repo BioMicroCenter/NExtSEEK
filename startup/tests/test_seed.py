@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
 from startup.steps.seed import (
     SEED_FILES,
     seed_files_present,
@@ -17,6 +15,8 @@ from startup.steps.seed import (
     parse_neo4j_cypher_dump,
     _cypher_map_to_dict,
 )
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_seed_files_constant() -> None:

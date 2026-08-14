@@ -4,8 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from startup.lib.instance import (
     InstanceState,
     resolve_instance_name,

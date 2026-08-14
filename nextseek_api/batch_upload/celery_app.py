@@ -35,6 +35,7 @@ app.config_from_object(
         "task_routes": {
             "batch_upload.*": {"queue": "batch_upload"},
             "cc_assistant.*": {"queue": "batch_upload"},
+            "attribute_mutations.*": {"queue": "attribute_mutations"},
         },
         "beat_schedule": {
             "cc-1c-summary-sweep": {
@@ -48,7 +49,7 @@ app.config_from_object(
 )
 
 # Auto-discover tasks in this package
-app.autodiscover_tasks(["nextseek_api.batch_upload"])
+app.autodiscover_tasks(["nextseek_api.batch_upload", "nextseek_api.attributes"])
 
 # Step 1c Celery sweep (registers cc_assistant.sweep_cc_summaries)
 import nextseek_api.cc_assistant.cc_sweep  # noqa: F401, E402
