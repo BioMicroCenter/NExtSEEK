@@ -73,6 +73,7 @@ class OpSpec(BaseModel):
     published_path: bool = False
     per_op_gate_enabled: bool = False
     available: bool = True
+    skill_name: str | None = None
     skill_row: SkillRow | None = None
 
 
