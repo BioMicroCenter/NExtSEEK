@@ -232,6 +232,23 @@ class TestWriteSummaryCsv:
         with open(path) as f:
             assert "protocols_unresolved=2" in f.read()
 
+    def test_csv_reports_external_protocol_links_apart_from_failures(self, tmp_path):
+        """An external link is not a failure, so it must be countable without
+        being folded into protocols_unresolved."""
+        path = str(tmp_path / "summary.csv")
+        metrics = Metrics(
+            elapsed_ms_total=150.0, protocols_unresolved=2,
+            protocols_external_links=7,
+        )
+        totals = {"processed": 5, "success": 5, "skipped": 0, "failed": 0,
+                  "elapsed_s": 1.0, "throughput_rps": 5.0}
+        write_summary_csv(path, [], totals, neo4j_metrics=metrics)
+
+        with open(path) as f:
+            content = f.read()
+        assert "external_protocol_links=7" in content
+        assert "protocols_unresolved=2" in content
+
     def test_csv_reports_zero_unresolved_protocols_explicitly(self, tmp_path):
         """0 must be printed, not omitted: a reader has to be able to tell
         "none" from "this run predates the counter"."""

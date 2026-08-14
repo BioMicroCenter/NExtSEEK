@@ -258,7 +258,7 @@ class InputRowModel(BaseModel):
             #     local sop_id would reject perfectly good rows.
             if self.sop_id is not None:
                 protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
-                parsed, _title = parse_protocol_value(protocol_val)
+                parsed = parse_protocol_value(protocol_val).sop_id
                 if parsed is not None and int(self.sop_id) != parsed:
                     raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
 
@@ -403,6 +403,10 @@ class Metrics(BaseModel):
     # a silent null is indistinguishable from "this sample has no protocol",
     # so it is counted rather than inferred.
     protocols_unresolved: int = 0
+    # Protocol values pointing at a SOP hosted elsewhere. Counted apart from
+    # protocols_unresolved because these are fine: the edge correctly has no
+    # LOCAL protocol, and folding them together would bury the real failures.
+    protocols_external_links: int = 0
     sample_type_nodes_created: int = 0
     study_nodes_created: int = 0
     investigation_nodes_created: int = 0

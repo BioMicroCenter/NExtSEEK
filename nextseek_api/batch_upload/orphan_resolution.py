@@ -141,13 +141,24 @@ def _extract_protocol(
     named no SOP — a null protocol on a resolved orphan's edge is otherwise
     indistinguishable from a sample that genuinely has no protocol.
 
-    Uses the same three-format rule as the ingest path (see
+    Uses the same rule as the ingest path (see
     ``helpers.parse_protocol_value``): production stores the SOP *title* in
     Protocol far more often than a ``/sops/<id>`` URL, and this function
-    understood only the URL.
+    understood only the URL. A Protocol linking to a SOP on another instance is
+    likewise not a failure — there is simply no local id — so it costs no query
+    and is not reported.
     """
     protocol_str = meta.get("Protocol") or meta.get("protocol") or ""
-    protocol_id, title = parse_protocol_value(protocol_str)
+    ref = parse_protocol_value(protocol_str)
+    protocol_id, title = ref.sop_id, ref.title
+
+    if ref.external_url is not None:
+        log.info(
+            "Orphan resolution: Protocol %r links to an external SOP; the "
+            "DERIVED_FROM edge records no local protocol",
+            ref.external_url,
+        )
+        return None, None, None
 
     if protocol_id is None and title is not None:
         resolved, ambiguous = lookup_sop_ids_by_title([title], sql_conn)

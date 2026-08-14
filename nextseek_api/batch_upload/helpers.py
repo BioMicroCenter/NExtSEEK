@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 from urllib.parse import urlsplit
 
 from sqlalchemy import text
@@ -180,7 +180,18 @@ def _local_sop_id_from_url(value: str) -> Optional[int]:
     else:
         # No scheme and no host: a site-relative path, so it is ours by
         # construction. This is the form production actually stores (4,446).
-        path = value
+        #
+        # Scan parts.path, NOT the raw value. urlsplit puts a query string in
+        # parts.query, so scanning the raw value read
+        # "/redirect?url=https://fairdomhub.org/sops/795" as OUR id 795 — the
+        # foreign-integer mis-stamp the host check above exists to prevent,
+        # surviving in the one branch that skipped parsing.
+        path = parts.path
+        if not path.startswith("/"):
+            # A site-relative URL starts at the root. Anything else is free
+            # text that happens to contain a path, e.g. "Protocol/sops/12
+            # notes", and belongs in a title lookup.
+            return None
 
     m = _SOP_URL_RE.search(path)
     if not m:
@@ -191,36 +202,57 @@ def _local_sop_id_from_url(value: str) -> Optional[int]:
         return None
 
 
-def parse_protocol_value(value: Any) -> Tuple[Optional[int], Optional[str]]:
-    """Split a ``Protocol`` metadata value into a SOP id or a SOP title.
+class ProtocolRef(NamedTuple):
+    """What a sample's ``Protocol`` value points at. At most one field is set.
 
-    Returns ``(sop_id, title)`` with at most one of them set:
+    ``sop_id``       a SOP on THIS instance, already resolved
+    ``title``        a SOP title still to be looked up in ``sops``
+    ``external_url`` a SOP hosted somewhere else — nothing to look up, and not
+                     a problem: ``dbtable_sample.__formatSopUIDLink`` renders
+                     exactly these as outbound links
 
-    1. ``/sops/<id>`` on THIS instance  → ``(id, None)``   — id taken verbatim
-    2. ``…/uid=<title>[/]``             → ``(None, title)`` — one trailing slash removed
-    3. anything else                    → ``(None, value)`` — look it up by title
+    All three None means the sample records no protocol at all.
+    """
 
-    Case 3 deliberately includes external URLs: they carry no id we can trust,
-    and a title lookup on them simply finds nothing, which the caller then
-    reports rather than silently dropping.
+    sop_id: Optional[int] = None
+    title: Optional[str] = None
+    external_url: Optional[str] = None
 
-    ``(None, None)`` means the sample records no protocol at all — nothing to
-    resolve and nothing to report.
+
+def parse_protocol_value(value: Any) -> ProtocolRef:
+    """Classify a ``Protocol`` metadata value. See :class:`ProtocolRef`.
+
+    1. ``/sops/<id>`` on THIS instance  → ``sop_id``, taken verbatim
+    2. ``…/uid=<title>[/]``             → ``title``, one trailing slash removed
+    3. an ``http(s)://`` URL            → ``external_url``
+    4. anything else                    → ``title``
+
+    Order matters between 2 and 3: ``/seek/sop/uid=<title>/`` values are
+    usually absolute URLs, so testing the scheme first would stop every one of
+    them resolving.
+
+    Case 3 tests for the scheme separator rather than
+    ``__formatSopUIDLink``'s four-character ``http`` prefix. That is a
+    deliberate, strictly safer divergence: it still catches every real URL
+    while leaving a title like "httpd hardening SOP v2" a title.
     """
     s = "" if value is None else str(value).strip()
     if not s:
-        return None, None
+        return ProtocolRef()
 
     sop_id = _local_sop_id_from_url(s)
     if sop_id is not None:
-        return sop_id, None
+        return ProtocolRef(sop_id=sop_id)
 
     _before, marker, after = s.partition(_SOP_UID_MARKER)
     if marker:
         title = (after[:-1] if after.endswith("/") else after).strip()
-        return (None, title) if title else (None, None)
+        return ProtocolRef(title=title) if title else ProtocolRef()
 
-    return None, s
+    if s.lower().startswith(("http://", "https://")):
+        return ProtocolRef(external_url=s)
+
+    return ProtocolRef(title=s)
 
 
 def lookup_sop_ids_by_title(

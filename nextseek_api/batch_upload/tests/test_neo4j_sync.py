@@ -1845,7 +1845,7 @@ class TestUploadAllProtocolMetrics:
     """The unresolved count must reach Metrics, like #44's dropped IN_STUDY rows."""
 
     @staticmethod
-    def _run(protocol_map_side_effect, error_collector=None):
+    def _run(protocol_map_side_effect, error_collector=None, external=()):
         from nextseek_api.batch_upload.models import DirectionComputation
         from nextseek_api.batch_upload.neo4j_sync import upload_all
 
@@ -1854,6 +1854,8 @@ class TestUploadAllProtocolMetrics:
             if ec is not None:
                 for uid, msg in protocol_map_side_effect:
                     ec.add(0, uid, ErrorType.PROTOCOL_UNRESOLVED, msg)
+                for uid, msg in external:
+                    ec.add(0, uid, ErrorType.PROTOCOL_EXTERNAL_LINK, msg)
             return []
 
         with patch("neo4j.GraphDatabase") as mock_gdb, \
@@ -1886,6 +1888,16 @@ class TestUploadAllProtocolMetrics:
         metrics = self._run([("C-1", "m1"), ("C-2", "m2")])
         assert metrics.protocols_unresolved == 2
 
+    def test_external_links_are_counted_separately(self):
+        """Same delta mechanism, a different counter — an external link must
+        never inflate the number an operator reads as "problems"."""
+        metrics = self._run(
+            [("C-1", "m1")],
+            external=[("C-2", "link"), ("C-3", "link")],
+        )
+        assert metrics.protocols_unresolved == 1
+        assert metrics.protocols_external_links == 2
+
     def test_zero_when_everything_resolved(self):
         assert self._run([]).protocols_unresolved == 0
 
@@ -1902,3 +1914,153 @@ class TestUploadAllProtocolMetrics:
         ec.add(0, "OLD", ErrorType.PROTOCOL_UNRESOLVED, "from an earlier stage")
         metrics = self._run([("C-1", "m1")], error_collector=ec)
         assert metrics.protocols_unresolved == 1
+
+
+class TestDanglingSopIds:
+    """An id that resolves but names no `sops` row.
+
+    /sops/9999 (or a sheet sop_id=9999) wrote protocol_id=9999 with
+    protocol_title=None and reported nothing — the exact shape a wrong id would
+    take, so it is the diagnostic you would most want to exist.
+    """
+
+    @staticmethod
+    def _run(protocol, sop_rows, model=None, ec=None):
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201)]
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [(101, json.dumps({"Protocol": protocol}))]
+        by_id = MagicMock()
+        by_id.fetchall.return_value = sop_rows
+        conn.execute.side_effect = [parent_result, child_result, by_id]
+
+        rows = build_derived_from_payloads_from_db(
+            {"C-1": {"P-1"}}, conn, {},
+            {"C-1": _outcome("success", sample_id=101)},
+            [model or _input("C-1")],
+            error_collector=ec,
+        )
+        return rows, conn
+
+    def test_dangling_local_sop_id_is_reported(self):
+        ec = ErrorCollector()
+        self._run("/sops/9999", sop_rows=[], ec=ec)
+        errs = ec.errors_for_uid("C-1")
+        assert len(errs) == 1
+        assert errs[0].error_type is ErrorType.PROTOCOL_UNRESOLVED
+        assert "9999" in errs[0].message
+
+    def test_dangling_sheet_sop_id_is_reported(self):
+        """The sheet still wins — but a sheet id can be wrong too."""
+        ec = ErrorCollector()
+        model = InputRowModel(
+            UID="C-1", SampleType="Blood", json_metadata="{}", sop_id=9999,
+        )
+        self._run("", sop_rows=[], model=model, ec=ec)
+        assert len(ec.errors_for_uid("C-1")) == 1
+
+    def test_a_dangling_id_reads_differently_from_an_unmatched_title(self):
+        """Otherwise a wrong-id write is indistinguishable from a typo'd SOP name."""
+        dangling = ErrorCollector()
+        self._run("/sops/9999", sop_rows=[], ec=dangling)
+
+        conn = MagicMock()
+        parent = MagicMock(); parent.fetchall.return_value = [("P-1", 201)]
+        child = MagicMock()
+        child.fetchall.return_value = [(101, json.dumps({"Protocol": "No Such SOP"}))]
+        by_title = MagicMock(); by_title.fetchall.return_value = []
+        conn.execute.side_effect = [parent, child, by_title]
+        title = ErrorCollector()
+        build_derived_from_payloads_from_db(
+            {"C-1": {"P-1"}}, conn, {},
+            {"C-1": _outcome("success", sample_id=101)}, [_input("C-1")],
+            error_collector=title,
+        )
+
+        assert (dangling.errors_for_uid("C-1")[0].message
+                != title.errors_for_uid("C-1")[0].message)
+
+    def test_the_dangling_id_is_still_written_to_the_edge(self):
+        """Deliberate: nulling it would silently discard what the sheet said.
+        The edge is reported, not rewritten."""
+        rows, _ = self._run("/sops/9999", sop_rows=[])
+        assert rows[0].protocol_id == 9999
+        assert rows[0].protocol_title is None
+
+    def test_a_resolvable_id_is_not_reported(self):
+        ec = ErrorCollector()
+        rows, _ = self._run("/sops/5", sop_rows=[(5, "SOP Five")], ec=ec)
+        assert rows[0].protocol_title == "SOP Five"
+        assert ec.all_errors() == []
+
+
+class TestExternalProtocolLinks:
+    """An http Protocol that is not one of our SOPs is a legitimate external
+    link (seek/dbtable_sample.py:3074-3081), not an ingest failure."""
+
+    _LOCAL = TestDerivedFromProtocolResolution._LOCAL
+
+    @staticmethod
+    def _run(protocols, ec=None):
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201)]
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [
+            (101 + i, json.dumps({"Protocol": p})) for i, p in enumerate(protocols)
+        ]
+        conn.execute.side_effect = [parent_result, child_result]
+
+        uids = [f"C-{i + 1}" for i in range(len(protocols))]
+        rows = build_derived_from_payloads_from_db(
+            {u: {"P-1"} for u in uids},
+            conn, {},
+            {u: _outcome("success", sample_id=101 + i) for i, u in enumerate(uids)},
+            [_input(u) for u in uids],
+            error_collector=ec,
+        )
+        return rows, conn
+
+    def test_an_external_link_issues_no_sops_query(self):
+        """1,855 live values would otherwise ask sops for a URL as a title."""
+        with override_settings(**self._LOCAL):
+            _rows, conn = self._run(["https://fairdomhub.org/sops/795"])
+        assert conn.execute.call_count == 2
+        assert not any(
+            "FROM sops" in str(c[0][0]) for c in conn.execute.call_args_list
+        )
+
+    def test_an_external_link_is_not_recorded_as_an_error(self):
+        ec = ErrorCollector()
+        with override_settings(**self._LOCAL):
+            self._run(["https://fairdomhub.org/sops/795"], ec=ec)
+        errs = ec.errors_for_uid("C-1")
+        assert len(errs) == 1
+        assert errs[0].error_type is ErrorType.PROTOCOL_EXTERNAL_LINK
+        assert errs[0].severity is Severity.INFO
+
+    def test_external_link_entries_share_one_message_so_they_group(self):
+        """_group_errors keys on (type, message), so a per-row URL would defeat
+        the grouping and reproduce the wall of entries this avoids."""
+        ec = ErrorCollector()
+        with override_settings(**self._LOCAL):
+            self._run(
+                ["https://fairdomhub.org/sops/795", "https://fairdomhub.org/sops/1"],
+                ec=ec,
+            )
+        messages = {e.message for e in ec.all_errors()}
+        assert len(ec.all_errors()) == 2
+        assert len(messages) == 1
+
+    def test_an_external_link_does_not_count_as_unresolved(self):
+        ec = ErrorCollector()
+        with override_settings(**self._LOCAL):
+            self._run(["https://fairdomhub.org/sops/795"], ec=ec)
+        assert ec.count_by_type().get(ErrorType.PROTOCOL_UNRESOLVED, 0) == 0
+
+    def test_the_edge_carries_no_protocol_for_an_external_link(self):
+        with override_settings(**self._LOCAL):
+            rows, _ = self._run(["https://fairdomhub.org/sops/795"])
+        assert rows[0].protocol_id is None
+        assert rows[0].protocol_title is None

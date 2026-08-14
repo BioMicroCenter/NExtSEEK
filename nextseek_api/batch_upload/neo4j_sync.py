@@ -887,48 +887,94 @@ def _resolve_internal_assays(
     return result_map
 
 
-def _report_unresolved_protocols(
-    unresolved: Dict[int, str],
-    ambiguous: Dict[str, int],
+# Identical for every row on purpose: validation._group_errors keys on
+# (type, message), so embedding the URL here would defeat the grouping and
+# reproduce the per-row wall this classification exists to avoid. The URLs
+# themselves go to the aggregate log line below.
+_EXTERNAL_PROTOCOL_MESSAGE = (
+    "Protocol is a URL to a SOP outside this NExtSEEK instance, so the "
+    "DERIVED_FROM edge records no local protocol id. Expected, not an error."
+)
+
+
+def _row_index_for(
+    uid: Optional[str], uid_to_model: Dict[str, InputRowModel]
+) -> int:
+    """The sheet row a child came from, or the pipeline's -1 "no row" sentinel."""
+    model = uid_to_model.get(uid) if uid else None
+    if model is not None and model.original_row_index is not None:
+        return model.original_row_index
+    return -1
+
+
+def _report_protocol_problems(
+    problems: Dict[int, str],
     child_id_to_uuid: Dict[int, str],
     uid_to_model: Dict[str, InputRowModel],
     error_collector: Optional[ErrorCollector],
 ) -> None:
-    """Surface Protocol values that named no SOP.
+    """Surface Protocol values that did not yield a usable SOP.
 
-    The edge is still written — it just carries no protocol. That used to be a
-    null nobody counted, which is exactly how the whole 4-sheet upload path
-    lost its protocols unnoticed. Recorded per row like every other ingest
+    ``problems`` maps a child sample_id to its already-composed message, so the
+    caller can say precisely what went wrong (an unmatched title, an ambiguous
+    one, or an id no ``sops`` row matches) while the row lookup, the collector
+    entry and the aggregate log stay in one place.
+
+    The edge is still written — it just carries no usable protocol. That used
+    to be a null nobody counted, which is exactly how the whole 4-sheet upload
+    path lost its protocols unnoticed. Recorded per row like every other ingest
     problem (the ErrorCollector feeds the summary CSV's ``reason`` column and
     the API's ``errors[]``), and logged once in aggregate.
     """
-    for sid, value in sorted(unresolved.items()):
+    for sid, message in sorted(problems.items()):
         uid = child_id_to_uuid.get(sid)
-        model = uid_to_model.get(uid) if uid else None
-        row_index = (
-            model.original_row_index
-            if model is not None and model.original_row_index is not None
-            else -1
-        )
-        n_matches = ambiguous.get(value)
-        if n_matches:
-            message = (
-                f"Protocol {value!r} matches {n_matches} SOPs; refusing to guess. "
-                f"The DERIVED_FROM edge for {uid or sid} carries no protocol."
-            )
-        else:
-            message = (
-                f"Protocol {value!r} matches no SOP on this instance (not a local "
-                f"/sops/<id> URL, and no sops.title equals it). The DERIVED_FROM "
-                f"edge for {uid or sid} carries no protocol."
-            )
         log.warning("%s", message)
         if error_collector is not None:
-            error_collector.add(row_index, uid, ErrorType.PROTOCOL_UNRESOLVED, message)
+            error_collector.add(
+                _row_index_for(uid, uid_to_model),
+                uid,
+                ErrorType.PROTOCOL_UNRESOLVED,
+                message,
+            )
 
     log.warning(
-        "DERIVED_FROM: %d child sample(s) recorded a Protocol that resolved to no SOP",
-        len(unresolved),
+        "DERIVED_FROM: %d child sample(s) recorded a Protocol that did not "
+        "resolve to a usable SOP",
+        len(problems),
+    )
+
+
+def _report_external_protocol_links(
+    external_links: Dict[int, str],
+    child_id_to_uuid: Dict[int, str],
+    uid_to_model: Dict[str, InputRowModel],
+    error_collector: Optional[ErrorCollector],
+) -> None:
+    """Account for Protocol values that link to a SOP hosted elsewhere.
+
+    Deliberately NOT reported as a problem. ``__formatSopUIDLink`` treats an
+    http-prefixed Protocol as a legitimate external link, and 1,855 stored
+    values are fairdomhub.org URLs; warning on each of them every time a batch
+    carrying them is uploaded is how an operator learns to ignore the field,
+    and then a genuine unmatched title goes unnoticed. INFO severity, a distinct type, and one shared message so
+    the whole set collapses to a single group.
+    """
+    for sid in sorted(external_links):
+        uid = child_id_to_uuid.get(sid)
+        if error_collector is not None:
+            error_collector.add(
+                _row_index_for(uid, uid_to_model),
+                uid,
+                ErrorType.PROTOCOL_EXTERNAL_LINK,
+                _EXTERNAL_PROTOCOL_MESSAGE,
+            )
+
+    sample = sorted(set(external_links.values()))[:20]
+    log.info(
+        "DERIVED_FROM: %d child sample(s) link to an external SOP; no local "
+        "protocol recorded for them. Distinct URLs (first 20): %s",
+        len(external_links),
+        sample,
     )
 
 
@@ -1014,6 +1060,10 @@ def build_derived_from_payloads_from_db(
     child_protocol_map: Dict[int, Optional[int]] = {}
     # sample_id -> the Protocol value that still needs a title lookup
     pending_titles: Dict[int, str] = {}
+    # sample_id -> a Protocol pointing at a SOP on another instance
+    external_links: Dict[int, str] = {}
+    # sample_id -> why this child ended up with no usable protocol
+    problems: Dict[int, str] = {}
     for chunk_start in range(0, len(child_ids), 1000):
         chunk = child_ids[chunk_start : chunk_start + 1000]
         params = {f"c_{i}": c for i, c in enumerate(chunk)}
@@ -1032,9 +1082,12 @@ def build_derived_from_payloads_from_db(
             try:
                 meta = _json_loads(jmeta) if jmeta else {}
                 protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
-                sop_id, title = parse_protocol_value(protocol_val)
-                if title is not None:
-                    pending_titles[sid] = title
+                ref = parse_protocol_value(protocol_val)
+                sop_id = ref.sop_id
+                if ref.title is not None:
+                    pending_titles[sid] = ref.title
+                elif ref.external_url is not None:
+                    external_links[sid] = ref.external_url
             except (json.JSONDecodeError, TypeError):
                 pass
             child_protocol_map[sid] = sop_id
@@ -1047,18 +1100,24 @@ def build_derived_from_payloads_from_db(
         resolved_titles, ambiguous_titles = lookup_sop_ids_by_title(
             set(pending_titles.values()), sql_conn
         )
-        unresolved: Dict[int, str] = {}
         for sid, title in pending_titles.items():
             resolved_id = resolved_titles.get(title)
             if resolved_id is not None:
                 child_protocol_map[sid] = resolved_id
+                continue
+            who = child_id_to_uuid.get(sid) or sid
+            n_matches = ambiguous_titles.get(title)
+            if n_matches:
+                problems[sid] = (
+                    f"Protocol {title!r} matches {n_matches} SOPs; refusing to "
+                    f"guess. The DERIVED_FROM edge for {who} carries no protocol."
+                )
             else:
-                unresolved[sid] = title
-        if unresolved:
-            _report_unresolved_protocols(
-                unresolved, ambiguous_titles, child_id_to_uuid, uid_to_model,
-                error_collector,
-            )
+                problems[sid] = (
+                    f"Protocol {title!r} matches no SOP on this instance (not a "
+                    f"local /sops/<id> URL, and no sops.title equals it). The "
+                    f"DERIVED_FROM edge for {who} carries no protocol."
+                )
 
     # Step 2: Protocol titles
     sop_ids = [v for v in child_protocol_map.values() if v is not None]
@@ -1073,6 +1132,30 @@ def build_derived_from_payloads_from_db(
             rows = sql_conn.execute(sql, params).fetchall()
             for sid, title in rows:
                 sop_titles[sid] = title
+
+    # Step 2b: an id that named no sops row. A local /sops/9999, or a sheet
+    # sop_id=9999, wrote protocol_id=9999 with protocol_title=None and reported
+    # nothing — and that is the exact shape a WRONG id would take, so it is the
+    # diagnostic most worth having. The id is still written: nulling it would
+    # discard what the sheet said, so the edge is reported, not rewritten.
+    for sid, resolved_sop_id in child_protocol_map.items():
+        if resolved_sop_id is None or resolved_sop_id in sop_titles:
+            continue
+        who = child_id_to_uuid.get(sid) or sid
+        problems[sid] = (
+            f"Protocol resolved to SOP id {resolved_sop_id}, which matches no row "
+            f"in sops. The DERIVED_FROM edge for {who} records that id with no "
+            f"title."
+        )
+
+    if problems:
+        _report_protocol_problems(
+            problems, child_id_to_uuid, uid_to_model, error_collector
+        )
+    if external_links:
+        _report_external_protocol_links(
+            external_links, child_id_to_uuid, uid_to_model, error_collector
+        )
 
     # Step 3: Shared assays — resolve real internal_assay_id via junction table
     # 3a. Collect ALL shared assay_ids across all (child, parent) pairs
@@ -1232,9 +1315,9 @@ def upload_all(
     # populated either way; the delta keeps entries from an earlier stage (or an
     # earlier call on the same collector) out of THIS run's count.
     protocol_errors = error_collector if error_collector is not None else ErrorCollector()
-    protocol_errors_before = protocol_errors.count_by_type().get(
-        ErrorType.PROTOCOL_UNRESOLVED, 0
-    )
+    counts_before = protocol_errors.count_by_type()
+    unresolved_before = counts_before.get(ErrorType.PROTOCOL_UNRESOLVED, 0)
+    external_before = counts_before.get(ErrorType.PROTOCOL_EXTERNAL_LINK, 0)
     derived_from_rows = build_derived_from_payloads_from_db(
         direction_computation.parents_of,
         sql_conn,
@@ -1243,9 +1326,12 @@ def upload_all(
         input_models,
         error_collector=protocol_errors,
     )
+    counts_after = protocol_errors.count_by_type()
     metrics.protocols_unresolved = (
-        protocol_errors.count_by_type().get(ErrorType.PROTOCOL_UNRESOLVED, 0)
-        - protocol_errors_before
+        counts_after.get(ErrorType.PROTOCOL_UNRESOLVED, 0) - unresolved_before
+    )
+    metrics.protocols_external_links = (
+        counts_after.get(ErrorType.PROTOCOL_EXTERNAL_LINK, 0) - external_before
     )
     metrics.rels_input = len(derived_from_rows)
 

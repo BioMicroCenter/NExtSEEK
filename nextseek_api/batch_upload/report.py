@@ -186,6 +186,11 @@ def write_summary_csv(
             neo4j_row["access_type"] = (
                 f"protocols_unresolved={neo4j_metrics.protocols_unresolved}"
             )
+            # Kept apart from the count above: these edges are correct, they
+            # just point at a SOP we do not host.
+            neo4j_row["uid_generated"] = (
+                f"external_protocol_links={neo4j_metrics.protocols_external_links}"
+            )
             writer.writerow(neo4j_row)
 
     log.info("Summary CSV written to %s", output_path)

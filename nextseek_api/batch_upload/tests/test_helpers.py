@@ -234,37 +234,59 @@ class TestParseProtocolValue:
 
     # ── format 1: /sops/<id> on this instance ──────────────────────────
     def test_site_relative_sops_url_yields_the_id(self):
-        assert parse_protocol_value("/sops/5") == (5, None)
+        assert parse_protocol_value("/sops/5") == (5, None, None)
 
     def test_absolute_local_seek_url_yields_the_id(self):
         with override_settings(**_LOCAL):
-            assert parse_protocol_value("http://localhost:3000/sops/5") == (5, None)
+            assert parse_protocol_value("http://localhost:3000/sops/5") == (5, None, None)
 
     def test_a_local_host_on_another_port_still_yields_the_id(self):
         """Same instance, different published port — the id is still ours."""
         with override_settings(**_LOCAL):
-            assert parse_protocol_value("https://localhost:8443/sops/5") == (5, None)
+            assert parse_protocol_value("https://localhost:8443/sops/5") == (5, None, None)
 
     def test_an_allowed_host_yields_the_id(self):
         with override_settings(**_LOCAL):
             assert parse_protocol_value(
                 "https://nextseek.example.edu/sops/12"
-            ) == (12, None)
+            ) == (12, None, None)
 
     def test_loopback_is_local_even_with_nothing_configured(self):
         """dmac.settings leaves SEEK_PUBLIC_URL "" and ALLOWED_HOSTS [""] on a
         host with no env, and a loopback URL can only ever be this machine."""
         with override_settings(SEEK_PUBLIC_URL="", SEEK_URL="", ALLOWED_HOSTS=[""]):
-            assert parse_protocol_value("http://127.0.0.1:8000/sops/5") == (5, None)
-            assert parse_protocol_value("http://localhost/sops/5") == (5, None)
+            assert parse_protocol_value("http://127.0.0.1:8000/sops/5") == (5, None, None)
+            assert parse_protocol_value("http://localhost/sops/5") == (5, None, None)
+
+    # ── format 1, anchored: only a real PATH is scanned ────────────────
+    def test_a_query_string_carrying_a_foreign_sops_url_yields_no_id(self):
+        """urlsplit puts this after '?', so scanning the raw value read
+        someone else's 795 as ours. No scheme and no netloc is not a licence
+        to skip parsing."""
+        with override_settings(**_LOCAL):
+            ref = parse_protocol_value(
+                "/redirect?url=https://fairdomhub.org/sops/795"
+            )
+        assert ref.sop_id is None
+
+    def test_a_local_url_with_the_id_only_in_the_query_yields_no_id(self):
+        with override_settings(**_LOCAL):
+            assert parse_protocol_value(
+                "http://localhost:3000/redirect?url=/sops/795"
+            ).sop_id is None
+
+    def test_free_text_containing_a_sops_path_yields_no_id(self):
+        """A site-relative URL starts with '/'. Free text is a title."""
+        ref = parse_protocol_value("Protocol/sops/12 notes")
+        assert ref.sop_id is None
+        assert ref.title == "Protocol/sops/12 notes"
 
     # ── format 1, anchored: a foreign host must NOT yield an id ────────
     def test_fairdomhub_url_does_not_yield_a_foreign_integer(self):
         """795 is FAIRDOMHub's id. Stamping local sops.id 795 is a mis-record."""
         with override_settings(**_LOCAL):
-            sop_id, title = parse_protocol_value("https://fairdomhub.org/sops/795")
-        assert sop_id is None
-        assert title == "https://fairdomhub.org/sops/795"
+            ref = parse_protocol_value("https://fairdomhub.org/sops/795")
+        assert ref.sop_id is None
 
     def test_foreign_host_falls_through_to_title_resolution_only(self):
         with override_settings(**_LOCAL):
@@ -289,36 +311,78 @@ class TestParseProtocolValue:
     def test_uid_url_with_trailing_slash_yields_the_title(self):
         assert parse_protocol_value(
             "http://localhost:8000/seek/sop/uid=P.FOR-200623-V1_x.docx/"
-        ) == (None, "P.FOR-200623-V1_x.docx")
+        ) == (None, "P.FOR-200623-V1_x.docx", None)
 
     def test_uid_url_without_trailing_slash_yields_the_title(self):
         assert parse_protocol_value(
             "http://localhost:8000/seek/sop/uid=P.FOR-200623-V1_x.docx"
-        ) == (None, "P.FOR-200623-V1_x.docx")
+        ) == (None, "P.FOR-200623-V1_x.docx", None)
 
     def test_uid_url_with_an_empty_uid_yields_nothing(self):
-        assert parse_protocol_value("http://localhost:8000/seek/sop/uid=/") == (None, None)
+        assert parse_protocol_value("http://localhost:8000/seek/sop/uid=/") == (None, None, None)
+
+    # ── an http URL that is not one of ours: a LINK, not an error ──────
+    def test_external_http_url_is_classified_as_a_link_not_a_title(self):
+        """dbtable_sample.__formatSopUIDLink treats an http-prefixed Protocol
+        as a legitimate external SOP link. Returning it as a "title" made any
+        upload carrying one of the 1,855 fairdomhub-shaped values query sops
+        for something that cannot exist and then report a warning."""
+        with override_settings(**_LOCAL):
+            ref = parse_protocol_value("https://fairdomhub.org/sops/795")
+        assert ref.sop_id is None
+        assert ref.title is None
+        assert ref.external_url == "https://fairdomhub.org/sops/795"
+
+    def test_an_http_url_on_our_own_host_that_is_not_a_sop_link_is_a_link(self):
+        with override_settings(**_LOCAL):
+            ref = parse_protocol_value("http://localhost:3000/documents/5")
+        assert ref.external_url == "http://localhost:3000/documents/5"
+        assert ref.title is None
+
+    def test_the_scheme_check_is_case_insensitive(self):
+        with override_settings(**_LOCAL):
+            assert parse_protocol_value(
+                "HTTPS://fairdomhub.org/sops/795"
+            ).external_url == "HTTPS://fairdomhub.org/sops/795"
+
+    def test_a_uid_url_is_a_title_not_an_external_link(self):
+        """Ordering: the uid= form wins over the http prefix, or every
+        /seek/sop/uid=<title>/ value would stop resolving."""
+        ref = parse_protocol_value(
+            "http://127.0.0.1:8000/seek/sop/uid=P.FOR-200623-V1_x.docx/"
+        )
+        assert ref.title == "P.FOR-200623-V1_x.docx"
+        assert ref.external_url is None
+
+    def test_a_title_merely_starting_with_http_is_not_a_link(self):
+        """The house rule tests only the first 4 characters; requiring the
+        scheme separator is strictly safer and costs nothing."""
+        ref = parse_protocol_value("httpd hardening SOP v2")
+        assert ref.title == "httpd hardening SOP v2"
+        assert ref.external_url is None
 
     # ── format 3: bare title (97,767 of 163,393 production samples) ────
     def test_bare_title_is_returned_for_title_lookup(self):
         assert parse_protocol_value("P.FOR-200623-V1_x.docx") == (
             None,
             "P.FOR-200623-V1_x.docx",
+            None,
         )
 
     def test_title_is_stripped(self):
         assert parse_protocol_value("  P.FOR-200623-V1_x.docx  ") == (
             None,
             "P.FOR-200623-V1_x.docx",
+            None,
         )
 
     def test_title_containing_a_colon_is_not_mistaken_for_a_url(self):
-        assert parse_protocol_value("SOP: extraction v2") == (None, "SOP: extraction v2")
+        assert parse_protocol_value("SOP: extraction v2") == (None, "SOP: extraction v2", None)
 
     # ── nothing at all ─────────────────────────────────────────────────
     @pytest.mark.parametrize("value", ["", "   ", None])
     def test_empty_values_yield_neither(self, value):
-        assert parse_protocol_value(value) == (None, None)
+        assert parse_protocol_value(value) == (None, None, None)
 
 
 def _conn_returning(rows):

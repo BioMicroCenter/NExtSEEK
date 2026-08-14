@@ -589,7 +589,6 @@ class TestExtractProtocol:
                 {"Protocol": "https://fairdomhub.org/sops/795"}, conn
             )
         assert (sop_id, title) == (None, None)
-        assert unresolved == "https://fairdomhub.org/sops/795"
 
     def test_absent_protocol_is_not_reported_as_unresolved(self):
         conn = MagicMock()
@@ -637,3 +636,20 @@ class TestResolveOrphansProtocolReporting:
     def test_resolved_protocol_is_not_counted(self):
         stats = self._resolve("Known SOP", title_rows=[(7, "Known SOP")])
         assert stats["protocols_unresolved"] == 0
+
+
+class TestExtractProtocolExternalLinks:
+    """The orphan path must classify external links the same way ingest does."""
+
+    def test_external_url_is_not_reported_as_unresolved(self):
+        with override_settings(
+            SEEK_PUBLIC_URL="http://localhost:3000",
+            SEEK_URL="http://seek:3000",
+            ALLOWED_HOSTS=["127.0.0.1"],
+        ):
+            conn = MagicMock()
+            result = _extract_protocol(
+                {"Protocol": "https://fairdomhub.org/sops/795"}, conn
+            )
+        assert result == (None, None, None)
+        conn.execute.assert_not_called()

@@ -26,6 +26,11 @@ class ErrorType(Enum):
     # uploads; its DERIVED_FROM edge just carries no protocol, which used to be
     # a null nobody counted.
     PROTOCOL_UNRESOLVED = "protocol_unresolved"
+    # A sample's Protocol points at a SOP hosted elsewhere. Recorded so the
+    # missing protocol_id is accounted for, but NOT a problem: these are
+    # legitimate external links, and a wall of warnings on rows that are fine
+    # is how the field stops being read at all.
+    PROTOCOL_EXTERNAL_LINK = "protocol_external_link"
     CYCLE_UNRESOLVABLE = "CYCLE_UNRESOLVABLE"
     UNKNOWN = "UNKNOWN"
 
@@ -54,6 +59,7 @@ _SEVERITY_MAP: Dict[ErrorType, Severity] = {
     ErrorType.DUPLICATE: Severity.INFO,
     ErrorType.PARENT_FAILED: Severity.ERROR,
     ErrorType.PROTOCOL_UNRESOLVED: Severity.WARNING,
+    ErrorType.PROTOCOL_EXTERNAL_LINK: Severity.INFO,
     ErrorType.CYCLE_UNRESOLVABLE: Severity.ERROR,
 }
 
