@@ -1187,11 +1187,11 @@ def test_compose_attribute_mutation_recovery_scheduler_exact_shape_and_no_broker
         assert arg not in {"-Q", "--queue"}
 
 
-def test_compose_attribute_mutation_broker_volume_is_disposable_not_external():
+def test_compose_attribute_mutation_broker_is_named_and_persistent_across_recreate():
     volumes = yaml.safe_load(COMPOSE_PATH.read_text())["volumes"]
-    # A plain compose-managed volume, unlike every `external: true` SEEK/
-    # NExtSEEK volume above it -- disposable Celery broker state, not
-    # durable app data (matches the compose file's own comment).
+    # A compose-managed named volume is reattached by `compose up
+    # --force-recreate`; routine app rebuilds neither renew nor delete it.
+    # `startup.sh reset` remains the explicit destructive boundary.
     assert volumes["attribute_mutation_broker"] is None
 
 

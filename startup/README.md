@@ -77,8 +77,11 @@ Long-running targets are recreated with `--no-deps --force-recreate`.
 The default app component rebuilds one shared image and recreates `nextseek`,
 `attribute_mutation_worker`, `attribute_mutation_dispatcher`, and
 `attribute_mutation_recovery_scheduler`. It does not touch nginx, databases,
-SEEK, or Solr. `--service` remains an alias for `--component`; arbitrary
-Compose services are rejected.
+SEEK, or Solr. The worker and dispatcher reattach the existing
+`attribute_mutation_broker` SQLite named volume: rebuild never renews or
+deletes it. The explicitly destructive `reset` command does delete volumes.
+`--service` remains an alias for `--component`; arbitrary Compose services are
+rejected.
 
 If the installed runtime checkout contains unrelated operator-owned files,
 use `./startup.sh rebuild --source-tree <clean-origin-dev-worktree>`. The CLI

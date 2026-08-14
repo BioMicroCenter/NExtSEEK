@@ -26,6 +26,9 @@ routes you and holds the hard gates.
 Every rebuild verb first creates and verifies local rollback tags, uses
 `--no-deps --force-recreate` for long-running targets, gates each fresh image
 for baked secrets, and attempts its component-specific private GHCR baseline.
+The app rebuild reattaches the existing `attribute_mutation_broker` SQLite
+named volume; it does not renew or delete it. Only the explicitly destructive
+`reset` path drops volumes.
 Local rollback failure aborts before building; GHCR failure remains non-fatal
 but produces a loud banner and red doctor check. Do not bypass this with raw
 `docker compose build` / `up`.

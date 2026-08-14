@@ -448,7 +448,8 @@ volumes:
 
   # Task-08 durable async orchestration: the SQLAlchemy/SQLite Celery
   # broker transport shared by attribute_mutation_worker and
-  # attribute_mutation_dispatcher. A plain compose-managed volume (not
-  # `external`, not part of startup.sh's REQUIRED_VOLUMES) -- disposable
-  # broker state, not durable app data.
+  # attribute_mutation_dispatcher. This compose-managed named volume survives
+  # normal `startup.sh rebuild` recreation; only destructive volume operations
+  # such as the explicitly-confirmed `startup.sh reset` remove it. The durable
+  # MySQL job/outbox records remain the application audit source of truth.
   attribute_mutation_broker:

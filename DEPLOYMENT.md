@@ -23,8 +23,8 @@ Related docs (each has a distinct job — don't cross-purpose them):
 ## 0. Topology at a glance
 
 One `docker-compose.yml` at the repo root defines the whole stack:
-**10 services, 2 networks, 7 external named volumes** (volumes are created by
-`./startup.sh install`, never by compose itself).
+**13 services, 2 networks, and 9 named volumes**. Seven volumes are external;
+two are Compose-managed, including the attribute Celery SQLite broker.
 
 | Service | Image | Host port | Network(s) | Role |
 |---|---|---|---|---|
@@ -62,6 +62,13 @@ Key facts every operator must internalize:
   `NEXTSEEK_SERVER=gunicorn` explicitly in `docker/nextseek.env` on every
   deployment unless you have decided otherwise; under gunicorn the chat UI
   uses HTTP polling for progress (no WebSocket).
+- Asynchronous attribute mutations use Celery's SQLAlchemy transport over
+  SQLite at `/var/lib/attribute-broker/broker.sqlite3`. The worker and outbox
+  dispatcher share the named `attribute_mutation_broker` volume. Routine
+  `./startup.sh rebuild` recreation preserves and reattaches it; image rollback
+  tags and GHCR do **not** contain or back up broker data. `./startup.sh reset`
+  deletes volumes by design and therefore deletes this broker unless the
+  operator separately preserves it.
 
 ---
 
@@ -230,6 +237,9 @@ git diff --name-only HEAD@{1} HEAD -- '*migrations*'
 #    cc-agent is build-only: the next chat turn uses the new image; there is no
 #    persistent agent container. The app cohort is nextseek + all three
 #    attribute worker/dispatcher/recovery runtimes sharing its image.
+#    The worker and dispatcher reattach the existing
+#    attribute_mutation_broker SQLite volume; rebuild does not remove or renew
+#    that volume.
 
 # 4. Watch the boot (entrypoint runs collectstatic → DB probe → migrate):
 docker logs -f nextseek        # until gunicorn workers are up; no FAILED markers
