@@ -321,10 +321,10 @@ services:
       - attribute_mutation_broker:/var/lib/attribute-broker
     environment:
       CELERY_BROKER_URL: sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3
-    command: ["uv", "run", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker", "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h", "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}"]
+    command: ["uv", "run", "--no-sync", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker", "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h", "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "uv run celery -A nextseek_api.batch_upload.celery_app inspect ping --timeout=5 -d attribute_mutations@$${HOSTNAME} | grep -q pong"]
+      test: ["CMD-SHELL", "uv run --no-sync celery -A nextseek_api.batch_upload.celery_app inspect ping --timeout=5 -d attribute_mutations@$${HOSTNAME} | grep -q pong"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -349,10 +349,10 @@ services:
       - attribute_mutation_broker:/var/lib/attribute-broker
     environment:
       CELERY_BROKER_URL: sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3
-    command: ["uv", "run", "python", "manage.py", "dispatch_attribute_outbox"]
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "dispatch_attribute_outbox"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "uv", "run", "python", "manage.py", "check_attribute_outbox_heartbeat"]
+      test: ["CMD", "uv", "run", "--no-sync", "python", "manage.py", "check_attribute_outbox_heartbeat"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -375,10 +375,10 @@ services:
     volumes:
       - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
       - ./logs:/app/logs:z
-    command: ["uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30"]
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--check-heartbeat", "--max-age-seconds", "90"]
+      test: ["CMD", "uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--check-heartbeat", "--max-age-seconds", "90"]
       interval: 30s
       timeout: 10s
       retries: 3

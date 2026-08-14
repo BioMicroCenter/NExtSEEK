@@ -1130,13 +1130,13 @@ def _compose_services():
 def test_compose_attribute_mutation_worker_exact_shape():
     service = _compose_services()["attribute_mutation_worker"]
     assert service["command"] == [
-        "uv", "run", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker",
+        "uv", "run", "--no-sync", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker",
         "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h",
         "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}",
     ]
     assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
     assert service["healthcheck"] == {
-        "test": ["CMD-SHELL", "uv run celery -A nextseek_api.batch_upload.celery_app inspect ping --timeout=5 -d attribute_mutations@$${HOSTNAME} | grep -q pong"],
+        "test": ["CMD-SHELL", "uv run --no-sync celery -A nextseek_api.batch_upload.celery_app inspect ping --timeout=5 -d attribute_mutations@$${HOSTNAME} | grep -q pong"],
         "interval": "30s", "timeout": "10s", "retries": 3,
     }
     assert service["deploy"]["resources"]["limits"] == {
@@ -1148,10 +1148,10 @@ def test_compose_attribute_mutation_worker_exact_shape():
 
 def test_compose_attribute_mutation_dispatcher_exact_shape():
     service = _compose_services()["attribute_mutation_dispatcher"]
-    assert service["command"] == ["uv", "run", "python", "manage.py", "dispatch_attribute_outbox"]
+    assert service["command"] == ["uv", "run", "--no-sync", "python", "manage.py", "dispatch_attribute_outbox"]
     assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
     assert service["healthcheck"] == {
-        "test": ["CMD", "uv", "run", "python", "manage.py", "check_attribute_outbox_heartbeat"],
+        "test": ["CMD", "uv", "run", "--no-sync", "python", "manage.py", "check_attribute_outbox_heartbeat"],
         "interval": "30s", "timeout": "10s", "retries": 3,
     }
     assert service["deploy"]["resources"]["limits"] == {
@@ -1164,11 +1164,11 @@ def test_compose_attribute_mutation_dispatcher_exact_shape():
 def test_compose_attribute_mutation_recovery_scheduler_exact_shape_and_no_broker_ability():
     service = _compose_services()["attribute_mutation_recovery_scheduler"]
     assert service["command"] == [
-        "uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30",
+        "uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30",
     ]
     assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
     assert service["healthcheck"] == {
-        "test": ["CMD", "uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--check-heartbeat", "--max-age-seconds", "90"],
+        "test": ["CMD", "uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--check-heartbeat", "--max-age-seconds", "90"],
         "interval": "30s", "timeout": "10s", "retries": 3,
     }
     assert service["deploy"]["resources"]["limits"] == {
