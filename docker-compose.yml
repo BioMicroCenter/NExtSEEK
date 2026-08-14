@@ -333,7 +333,7 @@ services:
       resources:
         limits:
           cpus: "${ATTRIBUTE_MUTATION_WORKER_CPUS:-1.0}"
-          memory: "${ATTRIBUTE_MUTATION_WORKER_MEMORY:-768M}"
+          memory: "${ATTRIBUTE_MUTATION_WORKER_MEMORY:-1G}"
 
   # The transactional-outbox dispatcher: the sole publisher for
   # `attribute_mutations` messages. A request process never publishes
@@ -362,7 +362,7 @@ services:
       resources:
         limits:
           cpus: "${ATTRIBUTE_MUTATION_DISPATCHER_CPUS:-0.25}"
-          memory: "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-512M}"
+          memory: "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-1G}"
 
   # Idempotent synchronous-job recovery scheduler (Section 3). Deliberately
   # has no broker volume/env and runs no Celery command: it can never
@@ -389,7 +389,7 @@ services:
       resources:
         limits:
           cpus: "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}"
-          memory: "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-512M}"
+          memory: "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-1G}"
 
 
 networks:
