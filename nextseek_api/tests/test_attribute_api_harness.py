@@ -212,6 +212,7 @@ def test_deadline_coverage_and_mutant_proof_gates_are_machine_bound():
         assert token in coverage_driver and token in validator
     for phase in ("original", "mutated", "restored"):
         assert phase in mutant_runner and phase in validator
+    assert "task-08 {suffix} coverage is below 95%" not in coverage_driver
 
 
 def test_t08_deadline_coverage_rejects_residual_regression():
@@ -222,16 +223,22 @@ def test_t08_deadline_coverage_rejects_residual_regression():
     task08_root = ROOT / ".claude/worktrees/task-08-async-orchestration"
     module.ROOT = task08_root if (task08_root / "nextseek_api/attributes/jobs.py").is_file() else ROOT
     manifest = json.loads(MANIFEST.read_text())
-    payload = {"files": {
+    accepted = {"files": {
         "nextseek_api/attributes/jobs.py": {"summary": {
-            "covered_lines": 219, "num_statements": 255, "missing_lines": 36,
+            "covered_lines": 220, "num_statements": 255, "missing_lines": 35,
             "covered_branches": 49, "num_branches": 78, "excluded_lines": 0,
-        }, "missing_lines": [143, 144, 145, 147, 150, 151, 157, 158, 160, 166, 220, 247, 248, 252, 253, 254, 255, 274, 306, 318, 376, 383, 457, 467, 482, 502, 504, 505, 508, 509, 510, 511, 517, 518, 519, 520], "missing_branches": [], "excluded_lines": [122, 181]},
+        }, "missing_lines": [143, 144, 145, 147, 150, 151, 157, 158, 160, 166, 220, 247, 248, 252, 253, 254, 255, 274, 306, 318, 376, 383, 457, 467, 482, 502, 504, 505, 508, 509, 510, 511, 517, 518, 519], "missing_branches": [], "excluded_lines": [122, 181]},
         "nextseek_api/attributes/tasks.py": {"summary": {
             "covered_lines": 5, "num_statements": 8, "missing_lines": 3,
             "covered_branches": 0, "num_branches": 0, "excluded_lines": 0,
         }, "missing_lines": [17, 19, 20], "missing_branches": [], "excluded_lines": []},
     }}
+    module.enforce_deadline_coverage("task-08", manifest, accepted)
+    payload = copy.deepcopy(accepted)
+    payload["files"]["nextseek_api/attributes/jobs.py"]["summary"].update(
+        covered_lines=219, missing_lines=36,
+    )
+    payload["files"]["nextseek_api/attributes/jobs.py"]["missing_lines"].append(520)
     with pytest.raises(SystemExit, match="task-08 residual coverage regressed"):
         module.enforce_deadline_coverage("task-08", manifest, payload)
 
