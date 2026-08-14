@@ -31,6 +31,12 @@ class ErrorType(Enum):
     # legitimate external links, and a wall of warnings on rows that are fine
     # is how the field stops being read at all.
     PROTOCOL_EXTERNAL_LINK = "protocol_external_link"
+    # A child's metadata names a parent UID that matches no row in `samples`,
+    # so no DERIVED_FROM edge can be built for it. The child itself uploads
+    # fine; only this one lineage edge is lost, which is why it is a WARNING
+    # and not an ERROR — but it used to be a bare `continue` with no counter,
+    # no message and no effect on any total.
+    PARENT_NOT_FOUND = "parent_not_found"
     CYCLE_UNRESOLVABLE = "CYCLE_UNRESOLVABLE"
     UNKNOWN = "UNKNOWN"
 
@@ -60,6 +66,7 @@ _SEVERITY_MAP: Dict[ErrorType, Severity] = {
     ErrorType.PARENT_FAILED: Severity.ERROR,
     ErrorType.PROTOCOL_UNRESOLVED: Severity.WARNING,
     ErrorType.PROTOCOL_EXTERNAL_LINK: Severity.INFO,
+    ErrorType.PARENT_NOT_FOUND: Severity.WARNING,
     ErrorType.CYCLE_UNRESOLVABLE: Severity.ERROR,
 }
 

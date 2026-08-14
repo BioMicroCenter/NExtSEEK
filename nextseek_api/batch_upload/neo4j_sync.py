@@ -161,7 +161,21 @@ def bulk_merge_sample_type_nodes(
 def bulk_merge_relationships(
     driver, db_name: str, derived_from_rows: List[DerivedFromRelRow], chunk_size: int = 20_000
 ) -> int:
-    """MERGE DERIVED_FROM relationships. Returns count processed."""
+    """MERGE (Sample)-[:DERIVED_FROM]->(Sample). Returns count processed.
+
+    The two MATCHes are the same silent half that `bulk_merge_in_study_relationships`
+    documents for IN_STUDY, and this is the relationship that matters most: roughly
+    90,000 DERIVED_FROM edges have been found present in MySQL and absent from the
+    graph. A row whose child or parent Sample node does not exist produces no rows
+    from the UNWIND, so the edge is dropped with no error, no counter, and no
+    effect on the return value.
+
+    `count(r)` is one r per row that matched BOTH endpoints, so a chunk whose
+    processed count is short of its row count dropped exactly that many edges. Log
+    it here; the caller turns the shortfall into `Metrics.derived_from_rels_dropped`
+    (against the `rels_input` denominator it already recorded), and
+    `find_missing_derived_from_endpoints` names the culprits.
+    """
     total = 0
     cypher = """
     UNWIND $rows AS row
@@ -183,10 +197,58 @@ def bulk_merge_relationships(
             return driver.execute_query(cypher, {"rows": data}, database_=db_name)
 
         result = _retry(_run)
-        if result.records:
-            total += result.records[0]["processed"]
+        processed = result.records[0]["processed"] if result.records else 0
+        total += processed
+
+        dropped = len(chunk) - processed
+        if dropped > 0:
+            log.warning(
+                "DERIVED_FROM: %d of %d rows in chunk %d matched no child or parent "
+                "Sample node and were silently dropped",
+                dropped, len(chunk), i // chunk_size,
+            )
 
     return total
+
+
+def find_missing_derived_from_endpoints(
+    driver, db_name: str, derived_from_rows: List[DerivedFromRelRow]
+) -> Tuple[List[str], List[str]]:
+    """Which DERIVED_FROM endpoints do not exist as nodes. READ-ONLY.
+
+    Names the rows `bulk_merge_relationships` had to drop, so the shortfall it
+    reports is actionable rather than just a number. Deliberately mutation-free
+    for the same reason as `find_missing_in_study_endpoints`: creating the
+    missing nodes, or backfilling the edges, is a data decision that belongs to
+    an operator, not to a sync that was only asked to merge.
+
+    Returns (missing_child_uuids, missing_parent_uuids), both sorted.
+    """
+    if not derived_from_rows:
+        return [], []
+
+    child_uuids = sorted({r.child_uuid for r in derived_from_rows})
+    parent_uuids = sorted({r.parent_uuid for r in derived_from_rows})
+
+    missing_cypher = """
+    UNWIND $uuids AS uid
+    OPTIONAL MATCH (s:Sample {uuid: uid})
+    WITH uid, s WHERE s IS NULL
+    RETURN collect(uid) AS missing
+    """
+
+    def _missing(uuids):
+        def _run():
+            return driver.execute_query(
+                missing_cypher, {"uuids": uuids}, database_=db_name
+            )
+
+        result = _retry(_run)
+        if not result.records:
+            return []
+        return sorted(result.records[0]["missing"] or [])
+
+    return _missing(child_uuids), _missing(parent_uuids)
 
 
 def bulk_merge_of_type_relationships(
@@ -461,9 +523,16 @@ def bulk_merge_in_investigation_relationships(
 def delete_derived_from_for_uuids(
     driver, db_name: str, uuids: List[str], chunk_size: int = 10_000
 ) -> int:
-    """Delete all DERIVED_FROM relationships where child is one of the given UUIDs.
+    """Delete ALL DERIVED_FROM relationships where child is one of the given UUIDs.
 
     Returns count of deleted relationships.
+
+    NOT used by the parent-changed path any more — see
+    `delete_stale_derived_from_for_uuids`, which needs a keep-set because this
+    unconditional form deleted edges the sheet-derived rebuild could not
+    replace. Kept because "remove this sample's lineage entirely" is still a
+    meaningful operation, but a caller that intends to rebuild afterwards
+    wants the narrowed one.
     """
     if not uuids:
         return 0
@@ -487,6 +556,131 @@ def delete_derived_from_for_uuids(
             deleted_total += result.records[0]["deleted"]
 
     return deleted_total
+
+
+def delete_stale_derived_from_for_uuids(
+    driver,
+    db_name: str,
+    keep_by_child: Dict[str, Set[str]],
+    chunk_size: int = 10_000,
+) -> int:
+    """Delete a parent-changed sample's DERIVED_FROM edges EXCEPT its keep-set.
+
+    The unconditional delete this replaces was wider than the rebuild that
+    follows it. `parents_of` is computed in Stage 2 from the SHEET, but
+    `deep_merge_metadata` is "new keys overwrite, old preserved", so a parent
+    key the sheet omits survives into the stored metadata and is absent from
+    the rebuild set. Deleting every outgoing edge and rebuilding only what the
+    sheet declared left MySQL declaring a parent the graph no longer did.
+
+    `keep_by_child` is what the child's CURRENT stored metadata declares, union
+    the pairs step 5 is about to re-MERGE. Everything else is stale by
+    definition and is cleared — including the case that matters most, a parent
+    genuinely REMOVED: it is gone from the stored metadata, so it is not in the
+    keep-set, so its edge goes. A child absent from `keep_by_child` is not
+    touched at all; the caller uses that for children whose stored metadata it
+    could not read, because deleting on unknown truth is what caused the bug.
+
+    Returns count of deleted relationships.
+    """
+    if not keep_by_child:
+        return 0
+
+    deleted_total = 0
+    # A Sample node with no uuid can never be in a keep-set and can never be
+    # rebuilt, so coalesce rather than let `null IN [...]` make it un-deletable.
+    cypher = """
+    UNWIND $rows AS row
+    MATCH (c:Sample {uuid: row.child_uuid})-[r:DERIVED_FROM]->(p:Sample)
+    WHERE NOT coalesce(p.uuid, '') IN row.keep_uuids
+    DELETE r
+    RETURN count(r) AS deleted
+    """
+
+    rows = [
+        {"child_uuid": child, "keep_uuids": sorted(keep)}
+        for child, keep in sorted(keep_by_child.items())
+    ]
+
+    for i in range(0, len(rows), chunk_size):
+        chunk = rows[i : i + chunk_size]
+
+        def _run(data=chunk):
+            return driver.execute_query(cypher, {"rows": data}, database_=db_name)
+
+        result = _retry(_run)
+        if result.records:
+            deleted_total += result.records[0]["deleted"]
+
+    return deleted_total
+
+
+def parents_declared_in_stored_metadata(
+    uuids: List[str],
+    outcomes: Dict[str, RowOutcome],
+    sql_conn: Connection,
+) -> Tuple[Dict[str, Set[str]], List[str]]:
+    """Parent UIDs each sample's CURRENT stored json_metadata declares.
+
+    Same move as `refresh_assays_for_uuids`: for parent-changed samples the
+    spreadsheet is not the truth, the post-merge MySQL row is. This is the
+    authority the narrowed delete's keep-set is built from.
+
+    The token rules are `dag.extract_parents`'s, reproduced here from the same
+    two helpers it uses (`collect_parent_tokens` + `UID_RE`) rather than
+    imported, because that function caches on the JSON string and cannot
+    distinguish "no parents" from "unparseable" — and this caller must.
+
+    Returns ({uuid: set(parent_uids)}, [uuids whose metadata could not be read]).
+    A uuid appears in exactly one of the two: an unreadable sample is left OUT
+    of the map so a caller cannot mistake it for a sample with no parents.
+    """
+    if not uuids:
+        return {}, []
+
+    sid_to_uuid: Dict[int, str] = {}
+    for uid in uuids:
+        outcome = outcomes.get(uid)
+        if outcome and outcome.sample_id is not None:
+            sid_to_uuid[outcome.sample_id] = uid
+
+    parents_by_uuid: Dict[str, Set[str]] = {}
+    unreadable: Set[str] = {u for u in uuids if u not in set(sid_to_uuid.values())}
+
+    if sid_to_uuid:
+        sid_list = list(sid_to_uuid.keys())
+        seen_sids: Set[int] = set()
+        for chunk_start in range(0, len(sid_list), 1000):
+            chunk = sid_list[chunk_start : chunk_start + 1000]
+            params = {f"m{i}": sid for i, sid in enumerate(chunk)}
+            placeholders = ", ".join(f":m{i}" for i in range(len(chunk)))
+            sql = text(
+                f"SELECT id, json_metadata FROM samples WHERE id IN ({placeholders})"
+            )
+            for sid, jmeta in sql_conn.execute(sql, params).fetchall():
+                uid = sid_to_uuid.get(sid)
+                if uid is None:
+                    continue
+                seen_sids.add(sid)
+                try:
+                    meta = _json_loads(jmeta) if jmeta else {}
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    unreadable.add(uid)
+                    continue
+                if not isinstance(meta, dict):
+                    unreadable.add(uid)
+                    continue
+                parents_by_uuid[uid] = {
+                    t for t in collect_parent_tokens(meta) if UID_RE.match(t)
+                }
+
+        # A sample_id the query returned no row for: the sample is gone. Its
+        # stored parents are unknown, not empty.
+        for sid, uid in sid_to_uuid.items():
+            if sid not in seen_sids:
+                unreadable.add(uid)
+
+    return parents_by_uuid, sorted(unreadable)
 
 
 def refresh_assays_for_uuids(
@@ -978,6 +1172,44 @@ def _report_external_protocol_links(
     )
 
 
+def _report_missing_parents(
+    missing_by_child: Dict[str, List[str]],
+    uid_to_model: Dict[str, InputRowModel],
+    error_collector: Optional[ErrorCollector],
+) -> None:
+    """Surface parent UIDs that match no row in `samples`.
+
+    These were two bare `continue`s. `Metrics.skipped_children_missing_parents`
+    was declared for exactly this and never assigned anywhere in the codebase,
+    so a batch could lose lineage MySQL still declares and report a clean run —
+    the same shape as the ~90,000 DERIVED_FROM edges already found missing from
+    the graph.
+
+    One entry per CHILD, not per pair, so the count matches what the metric is
+    named and so a child that lost five parents is one report line, not five.
+    """
+    for child_uid in sorted(missing_by_child):
+        missing = sorted(missing_by_child[child_uid])
+        message = (
+            f"{len(missing)} parent reference(s) match no sample in the database, "
+            f"so no DERIVED_FROM edge was built for them: {', '.join(missing)}"
+        )
+        log.warning("DERIVED_FROM: %s references %s", child_uid, message)
+        if error_collector is not None:
+            error_collector.add(
+                _row_index_for(child_uid, uid_to_model),
+                child_uid,
+                ErrorType.PARENT_NOT_FOUND,
+                message,
+            )
+
+    log.warning(
+        "DERIVED_FROM: %d child sample(s) named a parent that does not exist "
+        "in `samples`; their edges were not built",
+        len(missing_by_child),
+    )
+
+
 def build_derived_from_payloads_from_db(
     parent_child_rels: Dict[str, Set[str]],
     sql_conn: Connection,
@@ -1192,16 +1424,25 @@ def build_derived_from_payloads_from_db(
 
     results: List[DerivedFromRelRow] = []
     seen: Set[Tuple[int, int]] = set()
+    # Both of these used to be bare `continue`s. See _report_missing_parents.
+    missing_parents_by_child: Dict[str, List[str]] = {}
+    children_without_sample_id: List[str] = []
 
     for child_uid, parent_uids in parent_child_rels.items():
         child_id = child_uuid_to_id.get(child_uid)
         if not child_id:
+            # No sample_id in outcomes means the row failed or was skipped
+            # without one, so it has no Sample node either and no edge was ever
+            # possible. Expected rather than a loss, but it is still lineage the
+            # sheet asked for and did not get, so it does not stay invisible.
+            children_without_sample_id.append(child_uid)
             continue
         child_assays = assays_by_uid.get(child_uid, set())
 
         for parent_uid in parent_uids:
             parent_id = parent_uuid_to_id.get(parent_uid)
             if not parent_id:
+                missing_parents_by_child.setdefault(child_uid, []).append(parent_uid)
                 continue
 
             key = (child_id, parent_id)
@@ -1258,6 +1499,16 @@ def build_derived_from_payloads_from_db(
                 internal_assay_title=internal_assay_title,
             ))
 
+    if missing_parents_by_child:
+        _report_missing_parents(missing_parents_by_child, uid_to_model, error_collector)
+    if children_without_sample_id:
+        log.warning(
+            "DERIVED_FROM: %d child sample(s) had no sample_id, so no edge could "
+            "be built for them (first 20): %s",
+            len(children_without_sample_id),
+            sorted(children_without_sample_id)[:20],
+        )
+
     return results
 
 
@@ -1307,9 +1558,16 @@ def upload_all(
         if outcome.parent_changed and outcome.sample_id is not None
     ]
     effective_assays = dict(direction_computation.assays_by_uid)
+    stored_parents: Dict[str, Set[str]] = {}
+    unreadable_parent_metadata: List[str] = []
     if parent_changed_uuids:
         refreshed_assays = refresh_assays_for_uuids(parent_changed_uuids, outcomes, sql_conn)
         effective_assays.update(refreshed_assays)
+        # The keep-set for step 4's delete. Read here, in the MySQL phase,
+        # because phase 2 does no more SQL I/O.
+        stored_parents, unreadable_parent_metadata = parents_declared_in_stored_metadata(
+            parent_changed_uuids, outcomes, sql_conn
+        )
 
     # A local collector when the caller supplied none, so the Metrics counter is
     # populated either way; the delta keeps entries from an earlier stage (or an
@@ -1334,6 +1592,46 @@ def upload_all(
         counts_after.get(ErrorType.PROTOCOL_EXTERNAL_LINK, 0) - external_before
     )
     metrics.rels_input = len(derived_from_rows)
+    metrics.skipped_children_missing_parents = (
+        counts_after.get(ErrorType.PARENT_NOT_FOUND, 0)
+        - counts_before.get(ErrorType.PARENT_NOT_FOUND, 0)
+    )
+
+    # ── the parent-changed delete's keep-set ─────────────────────────────
+    #
+    # Step 4 used to delete EVERY outgoing DERIVED_FROM edge for a
+    # parent-changed sample and step 5 rebuilt only what the sheet declared.
+    # Those two sets are not the same: `parents_of` comes from the sheet in
+    # stage 2, but `deep_merge_metadata` preserves keys the sheet omits, so a
+    # parent like AntibodyParent survives into MySQL while being absent from
+    # the rebuild. Net effect was MySQL declaring a parent the graph did not.
+    #
+    # Keep = what the stored (post-merge) metadata declares, union the pairs
+    # step 5 is about to re-MERGE. A parent genuinely REMOVED is in neither, so
+    # it is still cleared, which is the case the delete exists for.
+    keep_by_child: Dict[str, Set[str]] = {}
+    if parent_changed_uuids:
+        rebuild_parents: Dict[str, Set[str]] = {}
+        for row in derived_from_rows:
+            rebuild_parents.setdefault(row.child_uuid, set()).add(row.parent_uuid)
+        unreadable = set(unreadable_parent_metadata)
+        for uid in parent_changed_uuids:
+            if uid in unreadable:
+                continue
+            keep_by_child[uid] = (
+                stored_parents.get(uid, set()) | rebuild_parents.get(uid, set())
+            )
+        if unreadable:
+            # Deleting on unknown truth is exactly what this fix is about, so a
+            # child whose stored metadata we could not read is left alone. The
+            # residual: a parent genuinely removed from such a child keeps its
+            # stale edge until the next successful sync. Visible, and the far
+            # cheaper of the two failures.
+            log.warning(
+                "DERIVED_FROM: could not read stored metadata for %d parent-changed "
+                "sample(s), so their stale edges were NOT deleted (first 20): %s",
+                len(unreadable), sorted(unreadable)[:20],
+            )
 
     st_node_rows = build_sample_type_node_payloads(outcomes, input_models, sql_conn)
 
@@ -1394,11 +1692,14 @@ def upload_all(
             )
             metrics.sample_type_nodes_created = st_created
 
-        # 4. Delete stale DERIVED_FROM for parent-changed samples
-        if parent_changed_uuids:
-            deleted_count = delete_derived_from_for_uuids(driver, db_name, parent_changed_uuids)
+        # 4. Delete stale DERIVED_FROM for parent-changed samples — everything
+        #    except each child's keep-set, computed above.
+        if keep_by_child:
+            deleted_count = delete_stale_derived_from_for_uuids(
+                driver, db_name, keep_by_child, neo4j_config.NEO4J_REL_CHUNK
+            )
             log.info("Neo4j: deleted %d stale DERIVED_FROM for %d parent-changed samples",
-                     deleted_count, len(parent_changed_uuids))
+                     deleted_count, len(keep_by_child))
 
         # 5. MERGE DERIVED_FROM
         if derived_from_rows:
@@ -1406,6 +1707,25 @@ def upload_all(
                 driver, db_name, derived_from_rows, neo4j_config.NEO4J_REL_CHUNK
             )
             metrics.derived_from_rels_created = df_count
+
+            # The same silent drop #44 fixed for IN_STUDY, on the relationship
+            # that has already been found ~90,000 edges short in production.
+            # `rels_input` is the denominator and was already recorded; nothing
+            # ever compared the two.
+            dropped = max(0, len(derived_from_rows) - df_count)
+            metrics.derived_from_rels_dropped = dropped
+            if dropped:
+                missing_children, missing_parents = find_missing_derived_from_endpoints(
+                    driver, db_name, derived_from_rows
+                )
+                log.warning(
+                    "DERIVED_FROM: %d of %d relationships were dropped — "
+                    "%d missing child Sample node(s) %s, "
+                    "%d missing parent Sample node(s) %s",
+                    dropped, len(derived_from_rows),
+                    len(missing_children), missing_children[:20],
+                    len(missing_parents), missing_parents[:20],
+                )
 
         # 6. MERGE OF_TYPE
         if of_type_rows:

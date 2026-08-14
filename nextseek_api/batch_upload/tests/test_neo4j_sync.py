@@ -25,9 +25,13 @@ from nextseek_api.batch_upload.neo4j_sync import (
     build_sample_type_node_payloads,
     build_study_node_payloads,
     bulk_merge_in_study_relationships,
+    bulk_merge_relationships,
     delete_derived_from_for_uuids,
+    delete_stale_derived_from_for_uuids,
+    find_missing_derived_from_endpoints,
     find_missing_in_study_endpoints,
     enrich_parent_titles,
+    parents_declared_in_stored_metadata,
     refresh_assays_for_uuids,
 )
 from nextseek_api.batch_upload.identity import hash_identity
@@ -2064,3 +2068,577 @@ class TestExternalProtocolLinks:
             rows, _ = self._run(["https://fairdomhub.org/sops/795"])
         assert rows[0].protocol_id is None
         assert rows[0].protocol_title is None
+
+
+# ── DERIVED_FROM drop accounting ─────────────────────────────────────────────
+
+
+def _df_row(child="C-1", parent="P-1", child_id=1, parent_id=2):
+    from nextseek_api.batch_upload.models import DerivedFromRelRow
+    return DerivedFromRelRow(
+        child_id=child_id, child_uuid=child,
+        parent_id=parent_id, parent_uuid=parent,
+    )
+
+
+class TestBulkMergeRelationships:
+    """The DERIVED_FROM twin of the IN_STUDY drop accounting.
+
+    The double MATCH yields nothing for a row whose Sample node is absent, so the
+    edge is dropped with no error. `count(r)` short of the chunk size is the only
+    evidence, and nothing compared the two.
+    """
+
+    def test_merges_and_returns_the_processed_count(self):
+        driver = _mock_driver([3])
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(3)]
+
+        assert bulk_merge_relationships(driver, "testdb", rows) == 3
+        assert driver.execute_query.call_count == 1
+        cypher = driver.execute_query.call_args[0][0]
+        assert "DERIVED_FROM" in cypher and "MERGE" in cypher
+        params = driver.execute_query.call_args[0][1]
+        assert [r["child_uuid"] for r in params["rows"]] == ["C-0", "C-1", "C-2"]
+
+    def test_empty_rows_never_touch_the_driver(self):
+        driver = MagicMock()
+        assert bulk_merge_relationships(driver, "testdb", []) == 0
+        driver.execute_query.assert_not_called()
+
+    def test_chunking(self):
+        driver = _mock_driver([2, 2, 1])
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(5)]
+
+        assert bulk_merge_relationships(driver, "testdb", rows, chunk_size=2) == 5
+        assert driver.execute_query.call_count == 3
+
+    def test_a_short_chunk_is_warned_about(self, caplog):
+        driver = _mock_driver([2])
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(5)]
+
+        with caplog.at_level("WARNING"):
+            total = bulk_merge_relationships(driver, "testdb", rows)
+
+        assert total == 2
+        warnings = [r.getMessage() for r in caplog.records
+                    if r.levelname == "WARNING" and "DERIVED_FROM" in r.getMessage()]
+        assert any("3 of 5" in m for m in warnings), warnings
+
+    def test_each_short_chunk_is_warned_about_separately(self, caplog):
+        # 5 rows at chunk_size 2 -> chunks of 2, 2, 1.
+        # chunk 0: 2 of 2, silent. chunk 1: 0 of 2. chunk 2: 0 of 1.
+        driver = _mock_driver([2, 0, 0])
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(5)]
+
+        with caplog.at_level("WARNING"):
+            total = bulk_merge_relationships(driver, "testdb", rows, chunk_size=2)
+
+        assert total == 2
+        warnings = [r.getMessage() for r in caplog.records
+                    if r.levelname == "WARNING" and "DERIVED_FROM" in r.getMessage()]
+        assert len(warnings) == 2, warnings
+        assert "2 of 2" in warnings[0]
+        assert "1 of 1" in warnings[1]
+
+    def test_a_fully_matched_merge_stays_silent(self, caplog):
+        driver = _mock_driver([5])
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(5)]
+
+        with caplog.at_level("WARNING"):
+            total = bulk_merge_relationships(driver, "testdb", rows)
+
+        assert total == 5
+        assert not [r for r in caplog.records if "DERIVED_FROM" in r.getMessage()]
+
+    def test_a_driver_returning_no_records_counts_the_whole_chunk_as_dropped(self, caplog):
+        driver = MagicMock()
+        empty = MagicMock()
+        empty.records = []
+        driver.execute_query = MagicMock(return_value=empty)
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(3)]
+
+        with caplog.at_level("WARNING"):
+            total = bulk_merge_relationships(driver, "testdb", rows)
+
+        assert total == 0
+        assert any("3 of 3" in r.getMessage() for r in caplog.records)
+
+
+class TestFindMissingDerivedFromEndpoints:
+    """Names what the MERGE dropped. READ-ONLY by construction."""
+
+    @staticmethod
+    def _driver(missing_children, missing_parents):
+        driver = MagicMock()
+        calls = [missing_children, missing_parents]
+        idx = [0]
+
+        def _execute_query(cypher, params, database_=None):
+            result = MagicMock()
+            result.records = [{"missing": calls[idx[0]]}]
+            idx[0] += 1
+            return result
+
+        driver.execute_query = MagicMock(side_effect=_execute_query)
+        return driver
+
+    def test_no_rows_short_circuits_without_querying(self):
+        driver = MagicMock()
+        assert find_missing_derived_from_endpoints(driver, "testdb", []) == ([], [])
+        driver.execute_query.assert_not_called()
+
+    def test_missing_endpoints_are_reported_sorted(self):
+        driver = self._driver(["C-b", "C-a"], ["P-b", "P-a"])
+        rows = [_df_row("C-a", "P-a"), _df_row("C-b", "P-b")]
+
+        children, parents = find_missing_derived_from_endpoints(driver, "testdb", rows)
+
+        assert children == ["C-a", "C-b"]
+        assert parents == ["P-a", "P-b"]
+
+    def test_nothing_missing_returns_empty_lists(self):
+        driver = self._driver([], [])
+        rows = [_df_row("C-a", "P-a")]
+        assert find_missing_derived_from_endpoints(driver, "testdb", rows) == ([], [])
+
+    def test_the_audit_never_mutates_the_graph(self):
+        driver = self._driver(["C-a"], [])
+        rows = [_df_row("C-a", "P-a")]
+        find_missing_derived_from_endpoints(driver, "testdb", rows)
+
+        for call_args in driver.execute_query.call_args_list:
+            cypher = call_args[0][0].upper()
+            for mutating in ("MERGE", "CREATE", "DELETE", "SET ", "REMOVE"):
+                assert mutating not in cypher, f"audit query mutates: {cypher}"
+
+    def test_endpoints_are_deduplicated_before_querying(self):
+        driver = self._driver([], [])
+        rows = [_df_row("C-a", "P-a"), _df_row("C-a", "P-a"), _df_row("C-b", "P-a")]
+
+        find_missing_derived_from_endpoints(driver, "testdb", rows)
+
+        child_params = driver.execute_query.call_args_list[0][0][1]
+        parent_params = driver.execute_query.call_args_list[1][0][1]
+        assert child_params["uuids"] == ["C-a", "C-b"]
+        assert parent_params["uuids"] == ["P-a"]
+
+
+class TestSkippedChildrenMissingParents:
+    """`Metrics.skipped_children_missing_parents` existed but was never assigned.
+
+    `build_derived_from_payloads_from_db` drops a (child, parent) pair at a bare
+    `continue` when the parent UUID names no row in `samples`. That is a
+    lineage edge MySQL declares and the graph will never get, and it was silent.
+    """
+
+    @staticmethod
+    @patch("nextseek_api.batch_upload.neo4j_sync._resolve_internal_assays", return_value={})
+    def _run(parent_child_rels, found_parents, _mock_resolve, ec=None):
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = found_parents
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [
+            (100 + i, "{}") for i in range(len(parent_child_rels))
+        ]
+        conn.execute.side_effect = [parent_result, child_result]
+
+        outcomes = {uid: _outcome("success", sample_id=100 + i)
+                    for i, uid in enumerate(parent_child_rels)}
+        models = [_input(uid) for uid in parent_child_rels]
+        return build_derived_from_payloads_from_db(
+            parent_child_rels, conn, {}, outcomes, models, error_collector=ec,
+        )
+
+    def test_a_parent_absent_from_mysql_is_reported_not_dropped_silently(self):
+        ec = ErrorCollector()
+        rows = self._run({"C-1": {"P-1", "P-GONE"}}, [("P-1", 201)], ec=ec)
+
+        assert [r.parent_uuid for r in rows] == ["P-1"]
+        errs = [e for e in ec.all_errors() if e.error_type is ErrorType.PARENT_NOT_FOUND]
+        assert len(errs) == 1
+        assert errs[0].uid == "C-1"
+        assert "P-GONE" in errs[0].message
+
+    def test_the_counter_counts_children_not_pairs(self):
+        """The field is named skipped_children_missing_parents, so one child
+        that lost two parents is one child, not two."""
+        ec = ErrorCollector()
+        self._run({"C-1": {"P-GONE-A", "P-GONE-B"}}, [], ec=ec)
+
+        errs = [e for e in ec.all_errors() if e.error_type is ErrorType.PARENT_NOT_FOUND]
+        assert len(errs) == 1, [e.message for e in errs]
+        assert "P-GONE-A" in errs[0].message and "P-GONE-B" in errs[0].message
+
+    def test_every_parent_present_reports_nothing(self):
+        ec = ErrorCollector()
+        rows = self._run({"C-1": {"P-1"}}, [("P-1", 201)], ec=ec)
+
+        assert len(rows) == 1
+        assert ec.count_by_type().get(ErrorType.PARENT_NOT_FOUND, 0) == 0
+
+    def test_a_missing_parent_is_a_warning_not_an_error(self):
+        """The child still uploads; only this one edge is lost. ERROR severity
+        here would drown the genuine row failures."""
+        ec = ErrorCollector()
+        self._run({"C-1": {"P-GONE"}}, [], ec=ec)
+        errs = [e for e in ec.all_errors() if e.error_type is ErrorType.PARENT_NOT_FOUND]
+        assert errs[0].severity is Severity.WARNING
+
+
+# ── the narrowed parent-changed delete ───────────────────────────────────────
+
+
+class TestParentsDeclaredInStoredMetadata:
+    """Post-merge truth for the delete's keep-set.
+
+    `parents_of` comes from the SHEET, but `deep_merge_metadata` preserves keys
+    the sheet omits, so the STORED metadata can declare parents the rebuild set
+    has never heard of. Same pattern as `refresh_assays_for_uuids`: go back to
+    MySQL for exactly these uuids rather than trust the sheet.
+    """
+
+    @staticmethod
+    def _run(rows_returned, uuids=("C-1",), sample_ids=(101,)):
+        conn = MagicMock()
+        result = MagicMock()
+        result.fetchall.return_value = rows_returned
+        conn.execute.return_value = result
+        outcomes = {u: _outcome("success", sample_id=s)
+                    for u, s in zip(uuids, sample_ids)}
+        return parents_declared_in_stored_metadata(list(uuids), outcomes, conn)
+
+    def test_no_uuids_short_circuits_without_querying(self):
+        conn = MagicMock()
+        assert parents_declared_in_stored_metadata([], {}, conn) == ({}, [])
+        conn.execute.assert_not_called()
+
+    def test_uid_parent_tokens_are_returned(self):
+        meta = json.dumps({"Parent": "NHP-260225MIT-1;NHP-260225MIT-2"})
+        parents, unreadable = self._run([(101, meta)])
+        assert parents == {"C-1": {"NHP-260225MIT-1", "NHP-260225MIT-2"}}
+        assert unreadable == []
+
+    def test_variant_parent_keys_are_included(self):
+        """The whole point: AntibodyParent survives a merge that only names Parent."""
+        meta = json.dumps({
+            "Parent": "NHP-260225MIT-1",
+            "AntibodyParent": "NHP-260225MIT-9",
+        })
+        parents, _ = self._run([(101, meta)])
+        assert parents == {"C-1": {"NHP-260225MIT-1", "NHP-260225MIT-9"}}
+
+    def test_non_uid_tokens_are_not_treated_as_parent_uuids(self):
+        """An unresolved name is not a Sample uuid, so it cannot protect an edge."""
+        meta = json.dumps({"Parent": "Some Unresolved Name"})
+        parents, unreadable = self._run([(101, meta)])
+        assert parents == {"C-1": set()}
+        assert unreadable == []
+
+    def test_unparseable_metadata_is_reported_unreadable_not_parentless(self):
+        """Silently reading it as 'no parents' would authorise deleting every edge."""
+        parents, unreadable = self._run([(101, "{not json")])
+        assert unreadable == ["C-1"]
+        assert "C-1" not in parents
+
+    def test_a_sample_with_no_row_is_unreadable(self):
+        parents, unreadable = self._run([])
+        assert unreadable == ["C-1"]
+        assert parents == {}
+
+    def test_null_metadata_is_read_as_no_parents(self):
+        """NULL json_metadata is a real, readable state: this sample has none."""
+        parents, unreadable = self._run([(101, None)])
+        assert parents == {"C-1": set()}
+        assert unreadable == []
+
+
+class TestDeleteStaleDerivedFromForUuids:
+    """The narrowed delete: everything EXCEPT the keep-set, per child."""
+
+    def test_no_children_never_touches_the_driver(self):
+        driver = MagicMock()
+        assert delete_stale_derived_from_for_uuids(driver, "testdb", {}) == 0
+        driver.execute_query.assert_not_called()
+
+    def test_the_keep_set_is_sent_per_child_and_excluded_from_the_delete(self):
+        driver = _mock_driver_deleted([1])
+        result = delete_stale_derived_from_for_uuids(
+            driver, "testdb", {"C-1": {"P-KEEP", "P-ALSO"}},
+        )
+
+        assert result == 1
+        cypher = driver.execute_query.call_args[0][0]
+        assert "DELETE" in cypher and "DERIVED_FROM" in cypher
+        assert "NOT" in cypher and "keep_uuids" in cypher
+        params = driver.execute_query.call_args[0][1]
+        assert params["rows"] == [
+            {"child_uuid": "C-1", "keep_uuids": ["P-ALSO", "P-KEEP"]}
+        ]
+
+    def test_an_empty_keep_set_clears_every_edge_for_that_child(self):
+        """A parent genuinely removed leaves nothing to keep, so nothing is kept."""
+        driver = _mock_driver_deleted([2])
+        result = delete_stale_derived_from_for_uuids(driver, "testdb", {"C-1": set()})
+
+        assert result == 2
+        params = driver.execute_query.call_args[0][1]
+        assert params["rows"] == [{"child_uuid": "C-1", "keep_uuids": []}]
+
+    def test_chunking(self):
+        driver = _mock_driver_deleted([2, 1])
+        keep = {f"C-{i}": set() for i in range(5)}
+        result = delete_stale_derived_from_for_uuids(driver, "testdb", keep, chunk_size=3)
+        assert result == 3
+        assert driver.execute_query.call_count == 2
+
+    def test_the_delete_is_scoped_to_the_named_children_only(self):
+        driver = _mock_driver_deleted([0])
+        delete_stale_derived_from_for_uuids(driver, "testdb", {"C-1": {"P-1"}})
+        cypher = driver.execute_query.call_args[0][0]
+        assert "row.child_uuid" in cypher
+
+
+class _UploadAllHarness:
+    """Drive upload_all with every neighbour stubbed, so a test asserts on one thing."""
+
+    @staticmethod
+    def run(*, derived_from_rows, merged_count, outcomes=None,
+            stored_parents=None, unreadable=None, missing=(["C-9"], ["P-9"]),
+            build_side_effect=None, error_collector=None):
+        from nextseek_api.batch_upload.neo4j_sync import upload_all
+        from nextseek_api.batch_upload.models import DirectionComputation
+
+        captured = {}
+
+        def _capture_delete(driver, db_name, keep_by_child, chunk_size=10_000):
+            captured["keep_by_child"] = keep_by_child
+            return 0
+
+        build_stub = (
+            MagicMock(side_effect=build_side_effect) if build_side_effect
+            else MagicMock(return_value=derived_from_rows)
+        )
+
+        stubs = dict(
+            build_payloads=MagicMock(return_value=([], {})),
+            enrich_parent_titles=MagicMock(),
+            refresh_assays_for_uuids=MagicMock(return_value={}),
+            parents_declared_in_stored_metadata=MagicMock(
+                return_value=(stored_parents or {}, list(unreadable or []))),
+            build_derived_from_payloads_from_db=build_stub,
+            build_sample_type_node_payloads=MagicMock(return_value=[]),
+            build_of_type_payloads=MagicMock(return_value=[]),
+            build_in_study_payloads_enriched=MagicMock(return_value=([], 0, {})),
+            build_study_node_payloads=MagicMock(return_value=([], [], [])),
+            delete_stale_derived_from_for_uuids=MagicMock(side_effect=_capture_delete),
+            bulk_merge_relationships=MagicMock(return_value=merged_count),
+            find_missing_derived_from_endpoints=MagicMock(return_value=missing),
+        )
+
+        with patch("neo4j.GraphDatabase") as mock_gdb, \
+             patch.multiple("nextseek_api.batch_upload.neo4j_sync", **stubs):
+            mock_driver = MagicMock()
+            mock_gdb.driver.return_value = mock_driver
+            mock_driver.execute_query.return_value = MagicMock(records=[])
+
+            metrics = upload_all(
+                outcomes=outcomes or {},
+                input_models=[],
+                sql_conn=MagicMock(),
+                neo4j_config=MagicMock(
+                    NEO4J_UPLOAD_ENABLED=True, URI="bolt://localhost",
+                    NEO4J_USER="u", PASSWORD="p", NEO4J_DB="testdb",
+                    NEO4J_NODE_CHUNK=500, NEO4J_REL_CHUNK=500,
+                ),
+                direction_computation=DirectionComputation(
+                    parents_of={}, assays_by_uid={}, direction_by_pair={},
+                    child_uids_by_assay={}, conflicts_by_assay={},
+                ),
+                error_collector=error_collector,
+            )
+        return metrics, captured, stubs
+
+
+class TestUploadAllDerivedFromCoverageMetrics:
+    """#44's sibling: `rels_input` and `derived_from_rels_created` both existed
+    and nothing ever compared them, so a dropped edge left a clean-looking run.
+    """
+
+    def test_dropped_edges_are_counted(self):
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(5)]
+        metrics, _cap, _stubs = _UploadAllHarness.run(
+            derived_from_rows=rows, merged_count=2)
+
+        assert metrics.rels_input == 5
+        assert metrics.derived_from_rels_created == 2
+        assert metrics.derived_from_rels_dropped == 3
+
+    def test_a_complete_merge_reports_zero_dropped(self):
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(5)]
+        metrics, _cap, _stubs = _UploadAllHarness.run(
+            derived_from_rows=rows, merged_count=5)
+
+        assert metrics.derived_from_rels_dropped == 0
+
+    def test_the_audit_runs_only_when_something_was_dropped(self):
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(5)]
+
+        _m, _c, stubs = _UploadAllHarness.run(derived_from_rows=rows, merged_count=5)
+        stubs["find_missing_derived_from_endpoints"].assert_not_called()
+
+        _m, _c, stubs = _UploadAllHarness.run(derived_from_rows=rows, merged_count=1)
+        stubs["find_missing_derived_from_endpoints"].assert_called_once()
+
+    def test_coverage_is_auditable_from_metrics_alone(self):
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(5)]
+        metrics, _cap, _stubs = _UploadAllHarness.run(
+            derived_from_rows=rows, merged_count=2)
+        assert (metrics.derived_from_rels_created
+                + metrics.derived_from_rels_dropped) == metrics.rels_input
+
+    def test_the_drop_is_named_in_the_log(self, caplog):
+        rows = [_df_row(f"C-{i}", f"P-{i}") for i in range(5)]
+        with caplog.at_level("WARNING"):
+            _UploadAllHarness.run(derived_from_rows=rows, merged_count=2)
+        msgs = [r.getMessage() for r in caplog.records if "DERIVED_FROM" in r.getMessage()]
+        assert any("C-9" in m and "P-9" in m for m in msgs), msgs
+
+
+class TestUploadAllNarrowedParentChangedDelete:
+    """The delete used to remove EVERY outgoing edge for a parent-changed sample,
+    then rebuild only what the SHEET declared. `deep_merge_metadata` preserves
+    parent keys the sheet omits, so those parents survived into MySQL and lost
+    their edge. The keep-set is stored-metadata parents UNION the rebuild set.
+    """
+
+    _OUTCOMES = {"C-1": RowOutcome(status="success", sample_id=101, parent_changed=True)}
+
+    def test_a_parent_the_sheet_never_mentioned_keeps_its_edge(self):
+        # stored: Parent=A, AntibodyParent=X.  sheet: Parent=A only.
+        _m, cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-1", "A")],
+            merged_count=1,
+            outcomes=self._OUTCOMES,
+            stored_parents={"C-1": {"A", "X"}},
+        )
+        assert cap["keep_by_child"] == {"C-1": {"A", "X"}}
+
+    def test_a_parent_dropped_from_the_stored_metadata_is_still_cleared(self):
+        # stored: Parent=A (Z is gone).  The edge to Z must NOT be kept.
+        _m, cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-1", "A")],
+            merged_count=1,
+            outcomes=self._OUTCOMES,
+            stored_parents={"C-1": {"A"}},
+        )
+        assert cap["keep_by_child"] == {"C-1": {"A"}}
+        assert "Z" not in cap["keep_by_child"]["C-1"]
+
+    def test_every_parent_removed_leaves_an_empty_keep_set(self):
+        _m, cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[],
+            merged_count=0,
+            outcomes=self._OUTCOMES,
+            stored_parents={"C-1": set()},
+        )
+        assert cap["keep_by_child"] == {"C-1": set()}
+
+    def test_the_rebuild_set_is_never_deleted_even_if_stored_metadata_omits_it(self):
+        """Deleting an edge the very next step recreates is pure churn."""
+        _m, cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-1", "A")],
+            merged_count=1,
+            outcomes=self._OUTCOMES,
+            stored_parents={"C-1": set()},
+        )
+        assert cap["keep_by_child"] == {"C-1": {"A"}}
+
+    def test_unreadable_stored_metadata_skips_the_delete_for_that_child(self):
+        """Truth unknown -> delete nothing. Staleness is recoverable; the 90k
+        missing edges this file has already cost are the other failure mode."""
+        _m, cap, stubs = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-1", "A")],
+            merged_count=1,
+            outcomes=self._OUTCOMES,
+            stored_parents={},
+            unreadable=["C-1"],
+        )
+        # The only parent-changed child was skipped, so there is nothing left
+        # to delete and the driver is not touched at all.
+        stubs["delete_stale_derived_from_for_uuids"].assert_not_called()
+        assert cap == {}
+
+    def test_a_readable_child_is_still_deleted_alongside_an_unreadable_one(self):
+        """One unreadable sample must not disable the delete for the rest."""
+        outcomes = {
+            "C-1": RowOutcome(status="success", sample_id=101, parent_changed=True),
+            "C-2": RowOutcome(status="success", sample_id=102, parent_changed=True),
+        }
+        _m, cap, _s = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-2", "A")],
+            merged_count=1,
+            outcomes=outcomes,
+            stored_parents={"C-2": {"A"}},
+            unreadable=["C-1"],
+        )
+        assert cap["keep_by_child"] == {"C-2": {"A"}}
+
+    def test_skipping_an_unreadable_child_is_warned_about(self, caplog):
+        with caplog.at_level("WARNING"):
+            _UploadAllHarness.run(
+                derived_from_rows=[_df_row("C-1", "A")],
+                merged_count=1,
+                outcomes=self._OUTCOMES,
+                stored_parents={},
+                unreadable=["C-1"],
+            )
+        assert any("C-1" in r.getMessage() and "DERIVED_FROM" in r.getMessage()
+                   for r in caplog.records if r.levelname == "WARNING")
+
+    def test_no_parent_changed_samples_means_no_delete_at_all(self):
+        _m, cap, stubs = _UploadAllHarness.run(
+            derived_from_rows=[_df_row("C-1", "A")], merged_count=1)
+        stubs["delete_stale_derived_from_for_uuids"].assert_not_called()
+        assert cap == {}
+
+
+class TestUploadAllSkippedChildrenMetric:
+    """`Metrics.skipped_children_missing_parents` was declared and never assigned.
+
+    The builder reports through the ErrorCollector; upload_all turns the delta
+    into the metric, the same way it already does for protocols_unresolved.
+    """
+
+    def test_the_metric_carries_the_builders_skips(self):
+        def _build(*args, **kwargs):
+            kwargs["error_collector"].add(
+                -1, "C-1", ErrorType.PARENT_NOT_FOUND, "missing parent")
+            kwargs["error_collector"].add(
+                -1, "C-2", ErrorType.PARENT_NOT_FOUND, "missing parent")
+            return []
+
+        metrics, _cap, stubs = _UploadAllHarness.run(
+            derived_from_rows=[], merged_count=0, build_side_effect=_build)
+        assert metrics.skipped_children_missing_parents == 2
+
+    def test_a_clean_batch_reports_zero(self):
+        metrics, _cap, _stubs = _UploadAllHarness.run(
+            derived_from_rows=[], merged_count=0)
+        assert metrics.skipped_children_missing_parents == 0
+
+    def test_entries_already_on_a_shared_collector_are_not_recounted(self):
+        """upload_all takes a delta, not a total: the collector is shared with
+        earlier stages and a pre-existing entry is not this stage's skip."""
+        ec = ErrorCollector()
+        ec.add(-1, "EARLIER", ErrorType.PARENT_NOT_FOUND, "from another stage")
+
+        def _build(*args, **kwargs):
+            kwargs["error_collector"].add(
+                -1, "C-1", ErrorType.PARENT_NOT_FOUND, "missing parent")
+            return []
+
+        metrics, _cap, _stubs = _UploadAllHarness.run(
+            derived_from_rows=[], merged_count=0,
+            build_side_effect=_build, error_collector=ec)
+        assert metrics.skipped_children_missing_parents == 1

@@ -176,7 +176,14 @@ def write_summary_csv(
             neo4j_row["row_index"] = "NEO4J"
             neo4j_row["uid"] = f"nodes_created={neo4j_metrics.nodes_created}"
             neo4j_row["status"] = f"nodes_matched={neo4j_metrics.nodes_matched}"
-            neo4j_row["reason"] = f"derived_from={neo4j_metrics.derived_from_rels_created}"
+            # A numerator with no denominator cannot be read: "derived_from=8"
+            # looks identical whether 8 or 8,000 edges were attempted. The
+            # attempted count is `rels_input`, which was already recorded and
+            # never printed.
+            neo4j_row["reason"] = (
+                f"derived_from={neo4j_metrics.derived_from_rels_created}"
+                f"/{neo4j_metrics.rels_input}"
+            )
             neo4j_row["sample_type"] = f"of_type={neo4j_metrics.of_type_rels_created}"
             neo4j_row["sample_id"] = f"st_nodes={neo4j_metrics.sample_type_nodes_created}"
             neo4j_row["assays_linked_count"] = f"elapsed={neo4j_metrics.elapsed_ms_total:.0f}ms"
@@ -190,6 +197,18 @@ def write_summary_csv(
             # just point at a SOP we do not host.
             neo4j_row["uid_generated"] = (
                 f"external_protocol_links={neo4j_metrics.protocols_external_links}"
+            )
+            # The two halves of a lost lineage edge, kept apart because they
+            # have different causes and different fixes: dropped = the row was
+            # built and the graph had no Sample node for an endpoint;
+            # children_missing_parents = the parent is not in `samples` at all,
+            # so no row was ever built. Always emitted, including as 0.
+            neo4j_row["topo_level"] = (
+                f"derived_from_dropped={neo4j_metrics.derived_from_rels_dropped}"
+            )
+            neo4j_row["json_metadata"] = (
+                "children_missing_parents="
+                f"{neo4j_metrics.skipped_children_missing_parents}"
             )
             writer.writerow(neo4j_row)
 

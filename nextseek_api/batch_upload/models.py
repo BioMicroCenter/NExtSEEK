@@ -387,8 +387,18 @@ class Metrics(BaseModel):
     rels_created: int = 0
     rels_matched: int = 0
     eligible_children: int = 0
+    # Children whose metadata names a parent UID that matches no row in
+    # `samples`, so no edge could even be BUILT for it. Complements
+    # derived_from_rels_dropped below, which is the other half of the same
+    # loss: the row was built and the graph had no node to hang it on.
     skipped_children_missing_parents: int = 0
     derived_from_rels_created: int = 0
+    # Same reasoning as in_study_rels_dropped: rows whose Sample node did not
+    # exist are dropped by the MERGE's double MATCH with no error. The
+    # attempted half is already `rels_input` above, so only the shortfall is
+    # new; a caller can now check created + dropped == rels_input without
+    # reading the log.
+    derived_from_rels_dropped: int = 0
     of_type_rels_created: int = 0
     in_study_rels_created: int = 0
     # #44: IN_STUDY rows whose Sample or Study node did not exist are dropped by the
