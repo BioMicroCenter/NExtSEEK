@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
+
 from . import schemas
 
 ATTRIBUTE_COMPONENTS = {
@@ -39,3 +41,29 @@ ATTRIBUTE_EXAMPLES = (
         },
     },
 )
+
+
+class SeekPersonAuthenticationScheme(OpenApiAuthenticationExtension):
+    """Swagger alternatives accepted by ``SeekPersonAuthentication``."""
+
+    target_class = "nextseek_api.attributes.auth.SeekPersonAuthentication"
+    name = ["seekToken", "seekSession", "seekBasic"]
+
+    def get_security_requirement(self, auto_schema):
+        return [{name: []} for name in self.name]
+
+    def get_security_definition(self, auto_schema):
+        return [
+            {
+                "type": "apiKey", "in": "header", "name": "Authorization",
+                "description": "NExtSEEK token authentication using `Token <key>`.",
+            },
+            {
+                "type": "apiKey", "in": "cookie", "name": "sessionid",
+                "description": "Authenticated NExtSEEK browser session cookie.",
+            },
+            {
+                "type": "http", "scheme": "basic",
+                "description": "NExtSEEK username and password using HTTP Basic authentication.",
+            },
+        ]

@@ -382,6 +382,16 @@ SPECTACULAR_SETTINGS = {
     ],
 }
 
+# Native attribute mutation routing. Small batches complete in-request; larger
+# affected-sample sets use the durable worker/outbox path. Both settings remain
+# environment-overridable for the measured T10 deployment profile.
+ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD = int(
+    os.environ.get("ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD", "5000")
+)
+ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM = int(
+    os.environ.get("ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM", "1")
+)
+
 ####################
 # CORS SETTINGS    #
 ####################

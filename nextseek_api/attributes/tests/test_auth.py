@@ -389,3 +389,27 @@ def test_nonadmin_cannot_cancel_valid_creator_job(seek_auth_boundary):
     response = seek_auth_boundary._dispatch(ordinary, CancelProbe.as_view())
     assert response.status_code == 200
     assert response.data["allowed"] is False
+
+
+def test_attribute_action_evaluates_permission_exactly_once_before_validation():
+    from unittest.mock import MagicMock, patch
+
+    from rest_framework.test import APIRequestFactory, force_authenticate
+
+    from nextseek_api.attributes.auth import AuthenticatedSeekPerson
+    from nextseek_api.attributes.views import AttributeViewSet
+
+    request = APIRequestFactory().post(
+        "/nextseek_api/attributes/batch-create/", {"targets": []}, format="json",
+    )
+    force_authenticate(
+        request, user=MagicMock(is_authenticated=True),
+        token=AuthenticatedSeekPerson(42, 84, "permission-test", "session"),
+    )
+    trace = []
+    with patch("nextseek_api.attributes.auth.SeekAuthenticated.has_permission", side_effect=lambda *_: trace.append("authenticated") or True), \
+         patch("nextseek_api.attributes.auth.IsSeekAdmin.has_permission", side_effect=lambda *_: trace.append("admin") or True), \
+         patch("nextseek_api.attributes.views.CREATE_REQUEST_ADAPTER.validate_python", side_effect=lambda *_: trace.append("validate") or (_ for _ in ()).throw(ValueError("stop"))):
+        with pytest.raises(ValueError, match="stop"):
+            AttributeViewSet.as_view({"post": "batch_create"})(request)
+    assert trace == ["authenticated", "admin", "validate"]

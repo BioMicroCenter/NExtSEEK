@@ -1,9 +1,17 @@
 import json
 from pathlib import Path
 
+import pytest
+from drf_spectacular.generators import SchemaGenerator
+
 from nextseek_api.attributes import openapi, schemas
 
 SCHEMA_CONTRACT = Path("/home/taishajo/work/state/attribute-viewset/verification/SCHEMA-CONTRACT.json")
+
+
+@pytest.fixture(scope="module")
+def product_schema():
+    return SchemaGenerator().get_schema(request=None, public=True)
 
 
 def schema_allows_null(node):
@@ -125,3 +133,54 @@ def test_json_schema_forbids_extras_and_preserves_nullable_relationships():
     assert record["properties"]["id"]["description"].startswith("Database primary key")
     assert "owning sample type" in record["properties"]["sample_type_id"]["description"].lower()
     assert "value type" in record["properties"]["sample_attribute_type_id"]["description"].lower()
+
+
+def test_attribute_openapi_has_exact_eight_method_path_pairs(product_schema):
+    observed = {
+        (method.upper(), path)
+        for path, path_item in product_schema["paths"].items()
+        if path.startswith("/nextseek_api/attributes/")
+        for method in path_item
+        if method in {"get", "post", "patch", "put", "delete"}
+    }
+    assert observed == {
+        ("GET", "/nextseek_api/attributes/"),
+        ("GET", "/nextseek_api/attributes/{id}/"),
+        ("POST", "/nextseek_api/attributes/search/"),
+        ("POST", "/nextseek_api/attributes/batch-create/"),
+        ("PATCH", "/nextseek_api/attributes/batch-patch/"),
+        ("POST", "/nextseek_api/attributes/batch-delete/"),
+        ("GET", "/nextseek_api/attributes/jobs/{job_id}/"),
+        ("POST", "/nextseek_api/attributes/jobs/{job_id}/cancel/"),
+    }
+
+
+def _mutation_schema(product_schema, status):
+    return product_schema["paths"]["/nextseek_api/attributes/batch-create/"]["post"]["responses"][status]["content"]["application/json"]["schema"]
+
+
+def test_partial_dry_run_207_uses_preview_union_branch(product_schema):
+    response = _mutation_schema(product_schema, "207")
+    assert {item["$ref"] for item in response["oneOf"]} == {
+        "#/components/schemas/MutationPreviewResponse",
+        "#/components/schemas/MutationCompletedResponse",
+    }
+    assert response["discriminator"]["mapping"]["dry_run"].endswith("/MutationPreviewResponse")
+
+
+def test_partial_sync_207_uses_completed_union_branch(product_schema):
+    response = _mutation_schema(product_schema, "207")
+    assert response["discriminator"]["mapping"]["synchronous"].endswith("/MutationCompletedResponse")
+
+
+def test_runtime_bodies_match_exact_200_202_207_4xx_branches(product_schema):
+    operation = product_schema["paths"]["/nextseek_api/attributes/batch-create/"]["post"]
+    assert set(operation["responses"]) == {"200", "202", "207", "400", "401", "403", "409", "422"}
+    assert operation["security"] == [{"seekToken": []}, {"seekSession": []}, {"seekBasic": []}]
+    assert set(product_schema["components"]["securitySchemes"]) >= {"seekToken", "seekSession", "seekBasic"}
+    for status in ("409", "422"):
+        refs = {item["$ref"] for item in _mutation_schema(product_schema, status)["oneOf"]}
+        assert refs == {
+            "#/components/schemas/MutationCompletedResponse",
+            "#/components/schemas/AttributeErrorResponse",
+        }
