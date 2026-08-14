@@ -11,14 +11,39 @@ Two defects, one failure mode:
 
 1. ``__storeSample`` and ``__batchUploadTest`` both discarded every exception
    from ``storeSampleNeo4j``.
-2. ``extractParents`` called ``.split(';')`` on whatever the metadata held, so a
-   single non-string parent value -- an integer arriving from an Excel cell --
-   raised ``AttributeError`` and, thanks to (1), took *all* of that sample's
-   parent edges down with it, silently.
+2. ``extractParents`` emitted an empty token for any blank ``*Parent`` value,
+   and the empty token detonated downstream.
+
+Defect 2 is the one that fires on ordinary sheets, and the mechanism is worth
+stating exactly because it is not the obvious one:
+
+* ``__getRecordToJson`` writes EVERY attribute of the sample type into
+  ``json_metadata``, not only the ones the uploader filled in. Any sample type
+  carrying an unused ``*Parent`` attribute therefore ships a blank one on every
+  row.
+* A blank or absent cell becomes ``' '`` or ``''`` -- ``toString(None)`` returns
+  a single space (``dmac/conversion.py``).
+* The old ``extractParents`` turned that into an ``''`` token.
+* ``getSampleID('')`` finds no record and returns ``None``.
+* ``getConnectingRelationships`` interpolates that straight into SQL as
+  ``aa.asset_id = None``, MySQL rejects it, ``__runQuery`` swallows the error
+  and returns ``None``, and ``len(None)`` raises ``TypeError``.
+* ``storeSampleNeo4j`` writes parents in a loop, so the ``TypeError`` abandoned
+  every parent token ORDERED AFTER the blank one. Tokens already merged stayed.
+  Silent, partial lineage loss.
+
+So the empty-token filter is the line that fixes a real and common failure;
+``test_blank_parent_cell_does_not_abandon_later_parents`` is its regression.
+
+The ``isinstance`` guard is defence-in-depth rather than a fix for a reachable
+path on THIS route: ``__getRecordToJson`` runs every value through ``toString``
+first, so an integer from an Excel cell arrives here as ``"12345"``. It still
+belongs -- ``storeSampleNeo4j`` is a public method and ``extractParents`` is
+reachable from any caller with a raw dict -- but it is not what was breaking.
 
 The modern route's equivalent helper,
-``nextseek_api.batch_upload.helpers.collect_parent_tokens``, has carried this
-guard (and tests, in ``nextseek_api/batch_upload/tests/test_helpers.py``) all
+``nextseek_api.batch_upload.helpers.collect_parent_tokens``, has carried both
+guards (and tests, in ``nextseek_api/batch_upload/tests/test_helpers.py``) all
 along; ``extractParents`` now matches it for empty and non-string values. It
 deliberately does NOT match it for key matching: see
 ``test_key_matching_stays_case_sensitive``.
@@ -80,6 +105,21 @@ class TestExtractParents:
     def test_interior_empty_token_dropped(self):
         """"A;;B" used to yield an empty middle token."""
         assert _sample_table().extractParents({"Parent": "A;;B"}) == ["A", "B"]
+
+    def test_blank_parent_cell_does_not_abandon_later_parents(self):
+        """The production failure, in one line.
+
+        A sample type with an unused ``*Parent`` attribute ships a blank value
+        on every row (``__getRecordToJson`` emits every attribute, and
+        ``toString(None)`` is ``' '``). The old code turned that into an ``''``
+        token; ``getSampleID('')`` returned None, ``getConnectingRelationships``
+        put ``aa.asset_id = None`` into SQL, ``__runQuery`` swallowed the MySQL
+        error and returned None, and ``len(None)`` raised TypeError -- which the
+        bare ``except`` discarded, abandoning every parent ordered AFTER the
+        blank. Ordering matters, so this asserts on order.
+        """
+        meta = {"AntibodyParent": " ", "Parent": "NHP-260225MIT-1"}
+        assert _sample_table().extractParents(meta) == ["NHP-260225MIT-1"]
 
     def test_only_semicolons_yields_no_tokens(self):
         assert _sample_table().extractParents({"Parent": ";;;"}) == []
@@ -332,7 +372,11 @@ class TestBatchUploadTestCountsLineageFailures:
         msg, status, diclist_new = _call_batch_upload_test(table, nrows=3)
 
         assert "lineage" in msg.lower()
-        assert "3" in msg
+        # Specific to the batch-count sentence: a bare "3" also matches the
+        # "out of in total 3 samples" summary, which is always present.
+        assert "for 3 of them" in msg
+        # And it must not tell the uploader to do the one thing that cannot work.
+        assert "re-upload" not in msg.lower().replace("re-uploading will not", "")
 
     def test_row_is_still_returned_in_the_feedback_sheet(self):
         table = _sample_table()
@@ -354,13 +398,24 @@ class TestFeedbackDictGraphCallIsLoggedOncePerBatch:
     written anything. The effective lineage write is the one in
     ``__storeSample``.
 
-    It is therefore logged once per batch, not once per row, and deliberately
-    kept out of the uploader-facing count: counting it would report a lineage
-    failure for every sample of every upload while the real write succeeded.
+    It is therefore logged once per batch, not once per row, at WARNING rather
+    than ERROR, and deliberately kept out of the uploader-facing count: counting
+    it would report a lineage failure for every sample of every upload while the
+    real write succeeded.
+
+    Suppression is by CAUSE, not by location: only the known-dead ``KeyError``
+    is routed to the quiet path. Any other exception here is a real graph
+    failure and gets the full S603 treatment.
     """
 
     def test_feedback_shaped_dict_cannot_reach_the_graph(self):
-        """Pins the premise above: this call can only ever raise."""
+        """Pins the premise above, in isolation.
+
+        The stronger evidence is ``test_logged_once_per_batch_not_once_per_row``
+        below, which leaves BOTH the real ``storeSampleNeo4j`` and the real
+        feedback-dict construction in play, so the KeyError it counts is raised
+        by production code rather than by a dict this test wrote.
+        """
         feedback = {"Mouse::UID": "MOU-260101MIT-1", "Sample Name": "m1"}
         with pytest.raises(KeyError) as exc:
             _sample_table().storeSampleNeo4j("Mouse", feedback)
@@ -376,14 +431,83 @@ class TestFeedbackDictGraphCallIsLoggedOncePerBatch:
             False,
         )
 
-        with caplog.at_level(logging.ERROR, logger="seek.dbtable_sample"):
+        with caplog.at_level(logging.WARNING, logger="seek.dbtable_sample"):
             msg, status, diclist_new = _call_batch_upload_test(table, nrows=3)
 
-        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
-        assert len(errors) == 1
-        text = errors[0].getMessage()
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        text = warnings[0].getMessage()
         assert "3" in text
-        assert errors[0].exc_info is not None, "no traceback captured"
+        assert warnings[0].exc_info is not None, "no traceback captured"
+
+    def test_dead_call_does_not_pollute_the_error_channel(self, caplog):
+        """It fires on every upload; at ERROR it would train operators to ignore
+        the level that carries the genuine lineage failure."""
+        table = _sample_table()
+        table._DBtable_sample__verifySampleUID = lambda *a, **k: ("", 1)
+        table._DBtable_sample__storeSample = lambda *a, **k: (
+            "Info: stored",
+            1,
+            "MOU-260101MIT-1",
+            False,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="seek.dbtable_sample"):
+            _call_batch_upload_test(table, nrows=3)
+
+        assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+class TestFeedbackCallStillSurfacesRealFailures:
+    """Narrowing to KeyError must not become "suppress everything here"."""
+
+    def _arrange(self, table, exc):
+        table._DBtable_sample__verifySampleUID = lambda *a, **k: ("", 1)
+        table._DBtable_sample__storeSample = lambda *a, **k: (
+            "Info: stored",
+            1,
+            "MOU-260101MIT-1",
+            False,
+        )
+
+        def boom(sampleType, record):
+            raise exc
+
+        table.storeSampleNeo4j = boom
+
+    def test_non_keyerror_denies_the_batch_its_success(self):
+        table = _sample_table()
+        self._arrange(table, RuntimeError("neo4j unreachable"))
+
+        msg, status, diclist_new = _call_batch_upload_test(table, nrows=2)
+
+        assert status is False
+
+    def test_non_keyerror_reaches_the_uploader_with_the_s603_code(self):
+        from seek.dbtable_sample import SAMPLE_ERRORCODE
+
+        table = _sample_table()
+        self._arrange(table, RuntimeError("neo4j unreachable"))
+
+        msg, status, diclist_new = _call_batch_upload_test(table, nrows=2)
+
+        assert SAMPLE_ERRORCODE["603"] in msg
+        assert "neo4j unreachable" in msg
+        # The batch-count sentence specifically -- "lineage"/"2" alone also
+        # match the per-sample S603 text and the "out of in total 2" summary,
+        # so they do not prove the batch counter moved.
+        assert "for 2 of them" in msg
+
+    def test_non_keyerror_is_logged_at_error_with_a_traceback(self, caplog):
+        table = _sample_table()
+        self._arrange(table, RuntimeError("neo4j unreachable"))
+
+        with caplog.at_level(logging.WARNING, logger="seek.dbtable_sample"):
+            _call_batch_upload_test(table, nrows=2)
+
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(errors) == 2, "one per affected row"
+        assert all(r.exc_info is not None for r in errors)
 
     def test_it_does_not_reach_the_uploader_facing_count(self):
         """Every row fails this call; surfacing it would be a false alarm."""
