@@ -15,5 +15,18 @@ BAKED_CAPABILITIES_REL = (
 COMMAND_OPS_BEGIN = "<!-- BEGIN PLAN005-GEN:command-ops -->"
 COMMAND_OPS_END = "<!-- END PLAN005-GEN:command-ops -->"
 
+SKILL_OPS_BEGIN = "<!-- BEGIN PLAN005-GEN:skill-ops -->"
+SKILL_OPS_END = "<!-- END PLAN005-GEN:skill-ops -->"
+
+SKILL_OPS_FIELDS = (
+    "op_id",
+    "bin_name",
+    "purpose",
+    "transport",
+    "gate_class",
+    "availability",
+    "per_op_gate_enabled",
+)
+
 MARKER_PREFIX = "<!-- BEGIN PLAN005-GEN:"
 MARKER_SUFFIX = "-->"

@@ -20,8 +20,14 @@ from build_tools.gen_op_surfaces.constants import (
     COMMAND_OPS_END,
     EXIT_CHANGES_WRITTEN,
     EXIT_NO_CHANGE,
+    SKILL_OPS_BEGIN,
+    SKILL_OPS_END,
 )
 from build_tools.gen_op_surfaces.paths import resolve_under_root
+from build_tools.gen_op_surfaces.skills import (
+    discover_skill_surface_paths,
+    emit_skill_ops_block,
+)
 
 
 @dataclass(frozen=True, order=True)
@@ -68,6 +74,24 @@ def _command_surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
     return tuple(command_targets)
 
 
+def _skill_surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
+    skill_targets: list[SurfaceTarget] = []
+    for skill_name, rel_path in discover_skill_surface_paths(repo_root):
+        skill_targets.append(
+            SurfaceTarget(
+                rel_path=rel_path,
+                kind="marked_block",
+                begin_marker=SKILL_OPS_BEGIN,
+                end_marker=SKILL_OPS_END,
+                emit=lambda root, name=skill_name: emit_skill_ops_block(
+                    root,
+                    skill_name=name,
+                ),
+            )
+        )
+    return tuple(skill_targets)
+
+
 def surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
     """Return declared generated targets in stable sorted order."""
     targets = (
@@ -77,6 +101,7 @@ def surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
             emit=capabilities_bytes,
         ),
         *_command_surface_targets(repo_root),
+        *_skill_surface_targets(repo_root),
     )
     return tuple(sorted(targets, key=lambda item: item.rel_path))
 
