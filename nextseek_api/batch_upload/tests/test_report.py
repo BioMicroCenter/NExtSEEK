@@ -221,6 +221,29 @@ class TestWriteSummaryCsv:
         assert "NEO4J" in content
         assert "nodes_created=5" in content
 
+    def test_csv_reports_unresolved_protocols(self, tmp_path):
+        """Edges written with no protocol must be countable from the report."""
+        path = str(tmp_path / "summary.csv")
+        metrics = Metrics(elapsed_ms_total=150.0, protocols_unresolved=2)
+        totals = {"processed": 5, "success": 5, "skipped": 0, "failed": 0,
+                  "elapsed_s": 1.0, "throughput_rps": 5.0}
+        write_summary_csv(path, [], totals, neo4j_metrics=metrics)
+
+        with open(path) as f:
+            assert "protocols_unresolved=2" in f.read()
+
+    def test_csv_reports_zero_unresolved_protocols_explicitly(self, tmp_path):
+        """0 must be printed, not omitted: a reader has to be able to tell
+        "none" from "this run predates the counter"."""
+        path = str(tmp_path / "summary.csv")
+        metrics = Metrics(elapsed_ms_total=150.0)
+        totals = {"processed": 5, "success": 5, "skipped": 0, "failed": 0,
+                  "elapsed_s": 1.0, "throughput_rps": 5.0}
+        write_summary_csv(path, [], totals, neo4j_metrics=metrics)
+
+        with open(path) as f:
+            assert "protocols_unresolved=0" in f.read()
+
     def test_csv_includes_new_columns(self, tmp_path):
         path = str(tmp_path / "summary.csv")
         summaries = [

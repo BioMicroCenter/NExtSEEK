@@ -1,7 +1,16 @@
 """Tests for nextseek_api.batch_upload.helpers."""
-import pytest
+from unittest.mock import MagicMock
 
-from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens, split_parent_field
+import pytest
+from django.test import override_settings
+
+from nextseek_api.batch_upload.helpers import (
+    UID_RE,
+    collect_parent_tokens,
+    lookup_sop_ids_by_title,
+    parse_protocol_value,
+    split_parent_field,
+)
 
 
 class TestSplitParentField:
@@ -205,3 +214,166 @@ class TestCollectParentTokens:
         meta = {"Parent": "NHP-260225MIT-1;FutureSample", "Treatment1Parent": "AnotherName"}
         result = collect_parent_tokens(meta)
         assert result == ["NHP-260225MIT-1", "FutureSample", "AnotherName"]
+
+
+# ── Protocol -> SOP resolution ────────────────────────────────────────────
+
+_LOCAL = dict(
+    SEEK_PUBLIC_URL="http://localhost:3000",
+    SEEK_URL="http://seek:3000",
+    ALLOWED_HOSTS=["127.0.0.1", "nextseek.example.edu"],
+)
+
+
+class TestParseProtocolValue:
+    """The three production Protocol shapes, and the host anchoring.
+
+    Ground truth: on the live database this rule reproduced the stored
+    protocol_id on 200,000 of 200,000 sampled DERIVED_FROM edges.
+    """
+
+    # ── format 1: /sops/<id> on this instance ──────────────────────────
+    def test_site_relative_sops_url_yields_the_id(self):
+        assert parse_protocol_value("/sops/5") == (5, None)
+
+    def test_absolute_local_seek_url_yields_the_id(self):
+        with override_settings(**_LOCAL):
+            assert parse_protocol_value("http://localhost:3000/sops/5") == (5, None)
+
+    def test_a_local_host_on_another_port_still_yields_the_id(self):
+        """Same instance, different published port — the id is still ours."""
+        with override_settings(**_LOCAL):
+            assert parse_protocol_value("https://localhost:8443/sops/5") == (5, None)
+
+    def test_an_allowed_host_yields_the_id(self):
+        with override_settings(**_LOCAL):
+            assert parse_protocol_value(
+                "https://nextseek.example.edu/sops/12"
+            ) == (12, None)
+
+    def test_loopback_is_local_even_with_nothing_configured(self):
+        """dmac.settings leaves SEEK_PUBLIC_URL "" and ALLOWED_HOSTS [""] on a
+        host with no env, and a loopback URL can only ever be this machine."""
+        with override_settings(SEEK_PUBLIC_URL="", SEEK_URL="", ALLOWED_HOSTS=[""]):
+            assert parse_protocol_value("http://127.0.0.1:8000/sops/5") == (5, None)
+            assert parse_protocol_value("http://localhost/sops/5") == (5, None)
+
+    # ── format 1, anchored: a foreign host must NOT yield an id ────────
+    def test_fairdomhub_url_does_not_yield_a_foreign_integer(self):
+        """795 is FAIRDOMHub's id. Stamping local sops.id 795 is a mis-record."""
+        with override_settings(**_LOCAL):
+            sop_id, title = parse_protocol_value("https://fairdomhub.org/sops/795")
+        assert sop_id is None
+        assert title == "https://fairdomhub.org/sops/795"
+
+    def test_foreign_host_falls_through_to_title_resolution_only(self):
+        with override_settings(**_LOCAL):
+            assert parse_protocol_value("https://other.seek.org/sops/1")[0] is None
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # A local hostname is not enough — a non-HTTP service on this host
+            # is a different service, and its ids are not our sops.id.
+            "ftp://localhost/sops/5",
+            # No host at all. Also the shape __formatSopUIDLink's 'http' prefix
+            # check exists to block.
+            "javascript:/sops/5",
+        ],
+    )
+    def test_non_http_scheme_never_yields_an_id(self, value):
+        with override_settings(**_LOCAL):
+            assert parse_protocol_value(value)[0] is None
+
+    # ── format 2: uid=<title> URL ──────────────────────────────────────
+    def test_uid_url_with_trailing_slash_yields_the_title(self):
+        assert parse_protocol_value(
+            "http://localhost:8000/seek/sop/uid=P.FOR-200623-V1_x.docx/"
+        ) == (None, "P.FOR-200623-V1_x.docx")
+
+    def test_uid_url_without_trailing_slash_yields_the_title(self):
+        assert parse_protocol_value(
+            "http://localhost:8000/seek/sop/uid=P.FOR-200623-V1_x.docx"
+        ) == (None, "P.FOR-200623-V1_x.docx")
+
+    def test_uid_url_with_an_empty_uid_yields_nothing(self):
+        assert parse_protocol_value("http://localhost:8000/seek/sop/uid=/") == (None, None)
+
+    # ── format 3: bare title (97,767 of 163,393 production samples) ────
+    def test_bare_title_is_returned_for_title_lookup(self):
+        assert parse_protocol_value("P.FOR-200623-V1_x.docx") == (
+            None,
+            "P.FOR-200623-V1_x.docx",
+        )
+
+    def test_title_is_stripped(self):
+        assert parse_protocol_value("  P.FOR-200623-V1_x.docx  ") == (
+            None,
+            "P.FOR-200623-V1_x.docx",
+        )
+
+    def test_title_containing_a_colon_is_not_mistaken_for_a_url(self):
+        assert parse_protocol_value("SOP: extraction v2") == (None, "SOP: extraction v2")
+
+    # ── nothing at all ─────────────────────────────────────────────────
+    @pytest.mark.parametrize("value", ["", "   ", None])
+    def test_empty_values_yield_neither(self, value):
+        assert parse_protocol_value(value) == (None, None)
+
+
+def _conn_returning(rows):
+    conn = MagicMock()
+    result = MagicMock()
+    result.fetchall.return_value = rows
+    conn.execute.return_value = result
+    return conn
+
+
+class TestLookupSopIdsByTitle:
+    """sops.title is unique in production (553 rows, 553 distinct titles), but
+    the house rule in seek/dbtable_sample.py::__formatSopUIDLink keeps a
+    ``len(records) == 1`` guard, so this keeps it too."""
+
+    def test_resolves_a_unique_title(self):
+        conn = _conn_returning([(7, "P.FOR-200623-V1_x.docx")])
+        resolved, ambiguous = lookup_sop_ids_by_title(
+            ["P.FOR-200623-V1_x.docx"], conn
+        )
+        assert resolved == {"P.FOR-200623-V1_x.docx": 7}
+        assert ambiguous == {}
+
+    def test_an_ambiguous_title_is_not_resolved(self):
+        conn = _conn_returning([(7, "Dup SOP"), (9, "Dup SOP")])
+        resolved, ambiguous = lookup_sop_ids_by_title(["Dup SOP"], conn)
+        assert resolved == {}
+        assert ambiguous == {"Dup SOP": 2}
+
+    def test_an_unknown_title_resolves_to_nothing(self):
+        conn = _conn_returning([])
+        resolved, ambiguous = lookup_sop_ids_by_title(["No Such SOP"], conn)
+        assert resolved == {}
+        assert ambiguous == {}
+
+    def test_collation_case_difference_still_resolves(self):
+        """MySQL's default collation matches case-insensitively, so the row
+        that comes back can differ in case from the value we asked for."""
+        conn = _conn_returning([(7, "P.FOR-200623-V1_X.DOCX")])
+        resolved, _ = lookup_sop_ids_by_title(["p.for-200623-v1_x.docx"], conn)
+        assert resolved == {"p.for-200623-v1_x.docx": 7}
+
+    def test_empty_input_issues_no_sql(self):
+        conn = MagicMock()
+        assert lookup_sop_ids_by_title([], conn) == ({}, {})
+        conn.execute.assert_not_called()
+
+    def test_blank_titles_are_never_looked_up(self):
+        conn = MagicMock()
+        assert lookup_sop_ids_by_title(["", "   ", None], conn) == ({}, {})
+        conn.execute.assert_not_called()
+
+    def test_titles_are_bound_as_parameters_not_interpolated(self):
+        conn = _conn_returning([])
+        lookup_sop_ids_by_title(["O'Brien SOP"], conn)
+        _sql, params = conn.execute.call_args[0]
+        assert "O'Brien SOP" in params.values()
+        assert "O'Brien" not in str(_sql)

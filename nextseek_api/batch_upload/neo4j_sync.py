@@ -10,7 +10,6 @@ try:
 except ImportError:
     _json_loads = json.loads
 import random
-import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -19,7 +18,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .config import Neo4jConfig
-from .helpers import UID_RE, collect_parent_tokens, split_parent_field
+from .errors import ErrorCollector, ErrorType
+from .helpers import (
+    UID_RE,
+    collect_parent_tokens,
+    lookup_sop_ids_by_title,
+    parse_protocol_value,
+    split_parent_field,
+)
 from .identity import extract_identity, hash_identity
 from .models import (
     DerivedFromRelRow,
@@ -38,8 +44,6 @@ from .models import (
 )
 
 log = logging.getLogger(__name__)
-
-_SOP_URL_RE = re.compile(r"/sops/(\d+)")
 
 # ── retry decorator ───────────────────────────────────────────────────────
 
@@ -883,20 +887,72 @@ def _resolve_internal_assays(
     return result_map
 
 
+def _report_unresolved_protocols(
+    unresolved: Dict[int, str],
+    ambiguous: Dict[str, int],
+    child_id_to_uuid: Dict[int, str],
+    uid_to_model: Dict[str, InputRowModel],
+    error_collector: Optional[ErrorCollector],
+) -> None:
+    """Surface Protocol values that named no SOP.
+
+    The edge is still written — it just carries no protocol. That used to be a
+    null nobody counted, which is exactly how the whole 4-sheet upload path
+    lost its protocols unnoticed. Recorded per row like every other ingest
+    problem (the ErrorCollector feeds the summary CSV's ``reason`` column and
+    the API's ``errors[]``), and logged once in aggregate.
+    """
+    for sid, value in sorted(unresolved.items()):
+        uid = child_id_to_uuid.get(sid)
+        model = uid_to_model.get(uid) if uid else None
+        row_index = (
+            model.original_row_index
+            if model is not None and model.original_row_index is not None
+            else -1
+        )
+        n_matches = ambiguous.get(value)
+        if n_matches:
+            message = (
+                f"Protocol {value!r} matches {n_matches} SOPs; refusing to guess. "
+                f"The DERIVED_FROM edge for {uid or sid} carries no protocol."
+            )
+        else:
+            message = (
+                f"Protocol {value!r} matches no SOP on this instance (not a local "
+                f"/sops/<id> URL, and no sops.title equals it). The DERIVED_FROM "
+                f"edge for {uid or sid} carries no protocol."
+            )
+        log.warning("%s", message)
+        if error_collector is not None:
+            error_collector.add(row_index, uid, ErrorType.PROTOCOL_UNRESOLVED, message)
+
+    log.warning(
+        "DERIVED_FROM: %d child sample(s) recorded a Protocol that resolved to no SOP",
+        len(unresolved),
+    )
+
+
 def build_derived_from_payloads_from_db(
     parent_child_rels: Dict[str, Set[str]],
     sql_conn: Connection,
     assays_by_uid: Dict[str, Set[int]],
     outcomes: Dict[str, RowOutcome],
     input_models: List[InputRowModel],
+    error_collector: Optional[ErrorCollector] = None,
 ) -> List[DerivedFromRelRow]:
     """Build DERIVED_FROM payloads with protocol and assay context.
 
-    4-step process:
+    5-step process:
     Step 0: Parent ID lookup
     Step 1: Child metadata (Protocol)
+    Step 1b: Protocol titles -> sops.id, for the Protocol values that are not
+             a local /sops/<id> URL (in production, nearly all of them)
     Step 2: Protocol titles
     Step 3: Shared assays
+
+    ``error_collector`` receives one PROTOCOL_UNRESOLVED entry per child whose
+    Protocol names no SOP we can find, so the batch report shows it instead of
+    the edge quietly carrying a null.
     """
     if not parent_child_rels:
         return []
@@ -956,6 +1012,8 @@ def build_derived_from_payloads_from_db(
     # Step 1: Child metadata (Protocol extraction)
     child_ids = list(child_uuid_to_id.values())
     child_protocol_map: Dict[int, Optional[int]] = {}
+    # sample_id -> the Protocol value that still needs a title lookup
+    pending_titles: Dict[int, str] = {}
     for chunk_start in range(0, len(child_ids), 1000):
         chunk = child_ids[chunk_start : chunk_start + 1000]
         params = {f"c_{i}": c for i, c in enumerate(chunk)}
@@ -974,12 +1032,33 @@ def build_derived_from_payloads_from_db(
             try:
                 meta = _json_loads(jmeta) if jmeta else {}
                 protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
-                m = _SOP_URL_RE.search(str(protocol_val))
-                if m:
-                    sop_id = int(m.group(1))
+                sop_id, title = parse_protocol_value(protocol_val)
+                if title is not None:
+                    pending_titles[sid] = title
             except (json.JSONDecodeError, TypeError):
                 pass
             child_protocol_map[sid] = sop_id
+
+    # Step 1b: resolve Protocol values that carry a SOP TITLE rather than a
+    # local /sops/<id> URL. This is the production-majority shape (97,767 of
+    # 163,393 samples), and the traditional 4-sheet upload path has no sop_id
+    # column at all, so without this every one of its edges lost its protocol.
+    if pending_titles:
+        resolved_titles, ambiguous_titles = lookup_sop_ids_by_title(
+            set(pending_titles.values()), sql_conn
+        )
+        unresolved: Dict[int, str] = {}
+        for sid, title in pending_titles.items():
+            resolved_id = resolved_titles.get(title)
+            if resolved_id is not None:
+                child_protocol_map[sid] = resolved_id
+            else:
+                unresolved[sid] = title
+        if unresolved:
+            _report_unresolved_protocols(
+                unresolved, ambiguous_titles, child_id_to_uuid, uid_to_model,
+                error_collector,
+            )
 
     # Step 2: Protocol titles
     sop_ids = [v for v in child_protocol_map.values() if v is not None]
@@ -1109,11 +1188,14 @@ def upload_all(
     sql_conn: Connection,
     neo4j_config: Neo4jConfig,
     insertable_samples: Optional[List[InsertableSample]] = None,
+    error_collector: Optional[ErrorCollector] = None,
 ) -> Metrics:
     """Full Neo4j upload: constraints -> Sample nodes -> SampleType nodes ->
     DERIVED_FROM -> OF_TYPE -> IN_STUDY.
 
-    Returns Metrics with all counters.
+    Returns Metrics with all counters. ``error_collector``, when given, gathers
+    the per-row problems this stage finds (unresolvable Protocol values) so
+    they reach the batch report; the count also lands in Metrics either way.
     """
     if not neo4j_config.NEO4J_UPLOAD_ENABLED:
         log.info("Neo4j upload disabled, skipping")
@@ -1146,12 +1228,24 @@ def upload_all(
         refreshed_assays = refresh_assays_for_uuids(parent_changed_uuids, outcomes, sql_conn)
         effective_assays.update(refreshed_assays)
 
+    # A local collector when the caller supplied none, so the Metrics counter is
+    # populated either way; the delta keeps entries from an earlier stage (or an
+    # earlier call on the same collector) out of THIS run's count.
+    protocol_errors = error_collector if error_collector is not None else ErrorCollector()
+    protocol_errors_before = protocol_errors.count_by_type().get(
+        ErrorType.PROTOCOL_UNRESOLVED, 0
+    )
     derived_from_rows = build_derived_from_payloads_from_db(
         direction_computation.parents_of,
         sql_conn,
         effective_assays,
         outcomes,
         input_models,
+        error_collector=protocol_errors,
+    )
+    metrics.protocols_unresolved = (
+        protocol_errors.count_by_type().get(ErrorType.PROTOCOL_UNRESOLVED, 0)
+        - protocol_errors_before
     )
     metrics.rels_input = len(derived_from_rows)
 

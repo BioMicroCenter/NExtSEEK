@@ -180,6 +180,12 @@ def write_summary_csv(
             neo4j_row["sample_type"] = f"of_type={neo4j_metrics.of_type_rels_created}"
             neo4j_row["sample_id"] = f"st_nodes={neo4j_metrics.sample_type_nodes_created}"
             neo4j_row["assays_linked_count"] = f"elapsed={neo4j_metrics.elapsed_ms_total:.0f}ms"
+            # Edges written with no protocol because the sample's Protocol named
+            # no SOP. Always emitted, including as 0: a reader has to be able to
+            # tell "none" from "this column did not exist yet".
+            neo4j_row["access_type"] = (
+                f"protocols_unresolved={neo4j_metrics.protocols_unresolved}"
+            )
             writer.writerow(neo4j_row)
 
     log.info("Summary CSV written to %s", output_path)

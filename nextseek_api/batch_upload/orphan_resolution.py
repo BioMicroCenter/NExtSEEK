@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import text
@@ -25,7 +24,12 @@ except ImportError:
         return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-from .helpers import collect_parent_tokens, split_parent_field
+from .helpers import (
+    collect_parent_tokens,
+    lookup_sop_ids_by_title,
+    parse_protocol_value,
+    split_parent_field,
+)
 from .identity import hash_identity
 
 log = logging.getLogger(__name__)
@@ -103,7 +107,7 @@ def discover_orphans(
 # Resolve helpers & constants
 # ---------------------------------------------------------------------------
 
-_SOP_URL_RE = re.compile(r"/sops/(\d+)")
+_SOP_TITLE_SQL = text("SELECT title FROM sops WHERE id = :id")
 
 _FETCH_METADATA_SQL = text(
     "SELECT json_metadata FROM samples WHERE id = :sample_id"
@@ -127,17 +131,41 @@ SET r.protocol_id = row.protocol_id,
 """
 
 
-def _extract_protocol(meta: dict, sql_conn: Any) -> Tuple[Optional[int], Optional[str]]:
-    """Extract protocol_id and protocol_title from sample metadata."""
+def _extract_protocol(
+    meta: dict, sql_conn: Any
+) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+    """Extract protocol_id and protocol_title from sample metadata.
+
+    Returns ``(protocol_id, protocol_title, unresolved_value)``. The third
+    element is the raw Protocol string when the sample recorded one but it
+    named no SOP — a null protocol on a resolved orphan's edge is otherwise
+    indistinguishable from a sample that genuinely has no protocol.
+
+    Uses the same three-format rule as the ingest path (see
+    ``helpers.parse_protocol_value``): production stores the SOP *title* in
+    Protocol far more often than a ``/sops/<id>`` URL, and this function
+    understood only the URL.
+    """
     protocol_str = meta.get("Protocol") or meta.get("protocol") or ""
-    m = _SOP_URL_RE.search(str(protocol_str))
-    if not m:
-        return None, None
-    protocol_id = int(m.group(1))
-    row = sql_conn.execute(
-        text("SELECT title FROM sops WHERE id = :id"), {"id": protocol_id}
-    ).fetchone()
-    return protocol_id, (row[0] if row else None)
+    protocol_id, title = parse_protocol_value(protocol_str)
+
+    if protocol_id is None and title is not None:
+        resolved, ambiguous = lookup_sop_ids_by_title([title], sql_conn)
+        protocol_id = resolved.get(title)
+        if protocol_id is None:
+            log.warning(
+                "Orphan resolution: Protocol %r matches %s; the DERIVED_FROM edge "
+                "carries no protocol",
+                str(protocol_str),
+                f"{ambiguous[title]} SOPs" if title in ambiguous else "no SOP",
+            )
+            return None, None, str(protocol_str)
+
+    if protocol_id is None:
+        return None, None, None
+
+    row = sql_conn.execute(_SOP_TITLE_SQL, {"id": protocol_id}).fetchone()
+    return protocol_id, (row[0] if row else None), None
 
 
 def resolve_orphans(
@@ -155,9 +183,10 @@ def resolve_orphans(
     Does NOT modify parent_titles — it is permanent metadata.
 
     Returns:
-        {"resolved": int, "edges_created": int}
+        {"resolved": int, "edges_created": int, "protocols_unresolved": int}
     """
     resolved = 0
+    protocols_unresolved = 0
     edge_rows: List[dict] = []
 
     for orphan in orphans:
@@ -187,7 +216,11 @@ def resolve_orphans(
 
                 # Build DERIVED_FROM edge payload
                 p_info = parent_info.get(uid, {})
-                protocol_id, protocol_title = _extract_protocol(meta, sql_conn)
+                protocol_id, protocol_title, unresolved_protocol = _extract_protocol(
+                    meta, sql_conn
+                )
+                if unresolved_protocol is not None:
+                    protocols_unresolved += 1
                 edge_rows.append({
                     "child_uuid": child_uuid,
                     "parent_uuid": p_info.get("uuid", uid),
@@ -227,8 +260,14 @@ def resolve_orphans(
         edges_created = len(edge_rows)
 
     log.info(
-        "Orphan resolution: %d samples resolved, %d edges created",
+        "Orphan resolution: %d samples resolved, %d edges created, "
+        "%d edge(s) with an unresolvable Protocol",
         resolved,
         edges_created,
+        protocols_unresolved,
     )
-    return {"resolved": resolved, "edges_created": edges_created}
+    return {
+        "resolved": resolved,
+        "edges_created": edges_created,
+        "protocols_unresolved": protocols_unresolved,
+    }

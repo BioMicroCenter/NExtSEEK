@@ -3,6 +3,9 @@ import json
 import pytest
 from unittest.mock import MagicMock, call, patch
 
+from django.test import override_settings
+
+from nextseek_api.batch_upload.errors import ErrorCollector, ErrorType, Severity
 from nextseek_api.batch_upload.models import (
     InStudyRelRow,
     InputRowModel,
@@ -1637,3 +1640,265 @@ class TestBuildStudyNodePayloadsFallback:
         study_rows, inv_rows, inv_rels = build_study_node_payloads({6}, conn, fallback_titles=fallback)
         assert len(study_rows) == 1
         assert study_rows[0].title == "MetNet"
+
+
+# ── TestDerivedFromProtocolResolution ───────────────────────────────────────
+
+
+class TestDerivedFromProtocolResolution:
+    """Protocol -> protocol_id on the DERIVED_FROM edge.
+
+    Production stores the SOP *title* in Protocol for 97,767 of 163,393
+    samples and an internal ``/sops/<id>`` URL for only 4,446, so resolving by
+    URL alone silently wrote a null protocol on almost every 4-sheet upload
+    (that path has no ``sop_id`` column at all).
+    """
+
+    _LOCAL = dict(
+        SEEK_PUBLIC_URL="http://localhost:3000",
+        SEEK_URL="http://seek:3000",
+        ALLOWED_HOSTS=["127.0.0.1"],
+    )
+
+    @staticmethod
+    def _run(protocol, sop_rows=None, title_rows=None, model=None, ec=None):
+        """One child (sample_id 101, UID C-1) with one parent, given Protocol.
+
+        ``title_rows`` is the SELECT id,title FROM sops WHERE title IN (...)
+        result; ``sop_rows`` is the SELECT id,title ... WHERE id IN (...) one.
+        """
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201)]
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [(101, json.dumps({"Protocol": protocol}))]
+
+        results = [parent_result, child_result]
+        if title_rows is not None:
+            by_title = MagicMock()
+            by_title.fetchall.return_value = title_rows
+            results.append(by_title)
+        if sop_rows is not None:
+            by_id = MagicMock()
+            by_id.fetchall.return_value = sop_rows
+            results.append(by_id)
+        conn.execute.side_effect = results
+
+        rows = build_derived_from_payloads_from_db(
+            {"C-1": {"P-1"}},
+            conn,
+            {},
+            {"C-1": _outcome("success", sample_id=101)},
+            [model or _input("C-1")],
+            error_collector=ec,
+        )
+        return rows, conn
+
+    # ── format 1: /sops/<id> (the only shape that worked before) ────────
+    def test_internal_sops_url_still_resolves(self):
+        rows, _ = self._run("/sops/5", sop_rows=[(5, "SOP Five")])
+        assert rows[0].protocol_id == 5
+        assert rows[0].protocol_title == "SOP Five"
+
+    # ── format 2: uid=<title> URL ──────────────────────────────────────
+    def test_uid_url_resolves_by_title(self):
+        with override_settings(**self._LOCAL):
+            rows, _ = self._run(
+                "http://127.0.0.1:8000/seek/sop/uid=P.FOR-200623-V1_x.docx/",
+                title_rows=[(7, "P.FOR-200623-V1_x.docx")],
+                sop_rows=[(7, "P.FOR-200623-V1_x.docx")],
+            )
+        assert rows[0].protocol_id == 7
+        assert rows[0].protocol_title == "P.FOR-200623-V1_x.docx"
+
+    # ── format 3: bare title — the production majority ─────────────────
+    def test_bare_title_resolves(self):
+        rows, _ = self._run(
+            "P.FOR-200623-V1_x.docx",
+            title_rows=[(7, "P.FOR-200623-V1_x.docx")],
+            sop_rows=[(7, "P.FOR-200623-V1_x.docx")],
+        )
+        assert rows[0].protocol_id == 7
+        assert rows[0].protocol_title == "P.FOR-200623-V1_x.docx"
+
+    def test_bare_title_that_matches_nothing_yields_no_protocol(self):
+        rows, _ = self._run("No Such SOP", title_rows=[])
+        assert rows[0].protocol_id is None
+        assert rows[0].protocol_title is None
+
+    def test_ambiguous_title_is_not_resolved(self):
+        """Two SOPs share the title: guess nothing (dbtable_sample's rule)."""
+        rows, _ = self._run("Dup SOP", title_rows=[(7, "Dup SOP"), (9, "Dup SOP")])
+        assert rows[0].protocol_id is None
+
+    # ── the external-host mis-record path ──────────────────────────────
+    def test_fairdomhub_url_does_not_stamp_a_local_sop(self):
+        """1,855 live Protocol values are fairdomhub.org URLs. The unanchored
+        regex turned https://fairdomhub.org/sops/795 into local sops.id 795."""
+        with override_settings(**self._LOCAL):
+            rows, conn = self._run("https://fairdomhub.org/sops/795", title_rows=[])
+        assert rows[0].protocol_id is None
+        # And no SOP was fetched by id either — 795 never became a local id.
+        assert not any(
+            "FROM sops WHERE id IN" in str(c[0][0])
+            for c in conn.execute.call_args_list
+        )
+
+    # ── precedence: a sheet-supplied sop_id still wins ─────────────────
+    def test_sheet_sop_id_beats_a_resolvable_title(self):
+        model = InputRowModel(
+            UID="C-1", SampleType="Blood",
+            json_metadata=json.dumps({"Protocol": "P.FOR-200623-V1_x.docx"}),
+            sop_id=42,
+        )
+        rows, conn = self._run(
+            "P.FOR-200623-V1_x.docx", sop_rows=[(42, "Sheet SOP")], model=model,
+        )
+        assert rows[0].protocol_id == 42
+        assert rows[0].protocol_title == "Sheet SOP"
+        # No title lookup was issued at all — the sheet short-circuits it.
+        assert not any(
+            "WHERE title IN" in str(c[0][0]) for c in conn.execute.call_args_list
+        )
+
+    def test_sheet_sop_id_beats_an_external_url(self):
+        """A local sop_id and a foreign SOP URL can legitimately disagree —
+        unlike a LOCAL /sops/<id> URL, which InputRowModel already refuses to
+        let contradict sop_id, so that pairing cannot distinguish anything."""
+        model = InputRowModel(
+            UID="C-1", SampleType="Blood",
+            json_metadata=json.dumps({"Protocol": "https://fairdomhub.org/sops/795"}),
+            sop_id=42,
+        )
+        with override_settings(**self._LOCAL):
+            rows, _ = self._run(
+                "https://fairdomhub.org/sops/795",
+                sop_rows=[(42, "Sheet SOP")],
+                model=model,
+            )
+        assert rows[0].protocol_id == 42
+        assert rows[0].protocol_title == "Sheet SOP"
+
+    # ── no Protocol at all: unchanged, and not reported ────────────────
+    def test_absent_protocol_issues_no_title_lookup(self):
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201)]
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [(101, "{}")]
+        conn.execute.side_effect = [parent_result, child_result]
+
+        ec = ErrorCollector()
+        rows = build_derived_from_payloads_from_db(
+            {"C-1": {"P-1"}}, conn, {},
+            {"C-1": _outcome("success", sample_id=101)}, [_input("C-1")],
+            error_collector=ec,
+        )
+        assert rows[0].protocol_id is None
+        assert conn.execute.call_count == 2
+        assert ec.all_errors() == []
+
+    # ── an unresolved Protocol must be visible, not a silent null ──────
+    def test_unresolved_protocol_is_collected_as_an_error(self):
+        ec = ErrorCollector()
+        model = InputRowModel(
+            UID="C-1", SampleType="Blood",
+            json_metadata=json.dumps({"Protocol": "No Such SOP"}),
+            original_row_index=3,
+        )
+        self._run("No Such SOP", title_rows=[], model=model, ec=ec)
+
+        errs = ec.errors_for_uid("C-1")
+        assert len(errs) == 1
+        assert errs[0].error_type is ErrorType.PROTOCOL_UNRESOLVED
+        assert errs[0].severity is Severity.WARNING
+        assert errs[0].row_index == 3
+        assert "No Such SOP" in errs[0].message
+
+    def test_ambiguous_protocol_says_so(self):
+        ec = ErrorCollector()
+        self._run("Dup SOP", title_rows=[(7, "Dup SOP"), (9, "Dup SOP")], ec=ec)
+        assert "2" in ec.errors_for_uid("C-1")[0].message
+
+    def test_resolved_protocol_is_not_reported(self):
+        ec = ErrorCollector()
+        self._run(
+            "P.FOR-200623-V1_x.docx",
+            title_rows=[(7, "P.FOR-200623-V1_x.docx")],
+            sop_rows=[(7, "P.FOR-200623-V1_x.docx")],
+            ec=ec,
+        )
+        assert ec.all_errors() == []
+
+    def test_no_collector_still_resolves(self):
+        """The collector is optional; resolution must not depend on it."""
+        rows, _ = self._run(
+            "P.FOR-200623-V1_x.docx",
+            title_rows=[(7, "P.FOR-200623-V1_x.docx")],
+            sop_rows=[(7, "P.FOR-200623-V1_x.docx")],
+            ec=None,
+        )
+        assert rows[0].protocol_id == 7
+
+
+class TestUploadAllProtocolMetrics:
+    """The unresolved count must reach Metrics, like #44's dropped IN_STUDY rows."""
+
+    @staticmethod
+    def _run(protocol_map_side_effect, error_collector=None):
+        from nextseek_api.batch_upload.models import DirectionComputation
+        from nextseek_api.batch_upload.neo4j_sync import upload_all
+
+        def _fake_build(*args, **kwargs):
+            ec = kwargs.get("error_collector")
+            if ec is not None:
+                for uid, msg in protocol_map_side_effect:
+                    ec.add(0, uid, ErrorType.PROTOCOL_UNRESOLVED, msg)
+            return []
+
+        with patch("neo4j.GraphDatabase") as mock_gdb, \
+             patch("nextseek_api.batch_upload.neo4j_sync."
+                   "build_derived_from_payloads_from_db", side_effect=_fake_build):
+            mock_driver = MagicMock()
+            mock_gdb.driver.return_value = mock_driver
+            mock_driver.execute_query.return_value = MagicMock(
+                counters=MagicMock(nodes_created=0, nodes_matched=0,
+                                   relationships_created=0),
+                records=[],
+            )
+            return upload_all(
+                outcomes={},
+                input_models=[],
+                sql_conn=MagicMock(),
+                neo4j_config=MagicMock(
+                    NEO4J_UPLOAD_ENABLED=True, URI="bolt://localhost",
+                    NEO4J_USER="u", PASSWORD="p", NEO4J_DB="testdb",
+                    NEO4J_NODE_CHUNK=500, NEO4J_REL_CHUNK=500,
+                ),
+                direction_computation=DirectionComputation(
+                    parents_of={}, assays_by_uid={}, direction_by_pair={},
+                    child_uids_by_assay={}, conflicts_by_assay={},
+                ),
+                error_collector=error_collector,
+            )
+
+    def test_unresolved_protocols_are_counted(self):
+        metrics = self._run([("C-1", "m1"), ("C-2", "m2")])
+        assert metrics.protocols_unresolved == 2
+
+    def test_zero_when_everything_resolved(self):
+        assert self._run([]).protocols_unresolved == 0
+
+    def test_errors_reach_the_caller_s_collector(self):
+        ec = ErrorCollector()
+        metrics = self._run([("C-1", "m1")], error_collector=ec)
+        assert [e.uid for e in ec.all_errors()] == ["C-1"]
+        assert metrics.protocols_unresolved == 1
+
+    def test_pre_existing_entries_are_not_double_counted(self):
+        """A collector already carrying this error type from an earlier call
+        must not inflate this run's count."""
+        ec = ErrorCollector()
+        ec.add(0, "OLD", ErrorType.PROTOCOL_UNRESOLVED, "from an earlier stage")
+        metrics = self._run([("C-1", "m1")], error_collector=ec)
+        assert metrics.protocols_unresolved == 1

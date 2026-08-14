@@ -22,6 +22,10 @@ class ErrorType(Enum):
     DB_CONN = "DB_CONN"
     DUPLICATE = "DUPLICATE"
     PARENT_FAILED = "PARENT_FAILED"
+    # A sample records a Protocol that names no SOP we can find. The row still
+    # uploads; its DERIVED_FROM edge just carries no protocol, which used to be
+    # a null nobody counted.
+    PROTOCOL_UNRESOLVED = "protocol_unresolved"
     CYCLE_UNRESOLVABLE = "CYCLE_UNRESOLVABLE"
     UNKNOWN = "UNKNOWN"
 
@@ -49,6 +53,7 @@ _SEVERITY_MAP: Dict[ErrorType, Severity] = {
     ErrorType.VALIDATION_ASSAY: Severity.INFO,
     ErrorType.DUPLICATE: Severity.INFO,
     ErrorType.PARENT_FAILED: Severity.ERROR,
+    ErrorType.PROTOCOL_UNRESOLVED: Severity.WARNING,
     ErrorType.CYCLE_UNRESOLVABLE: Severity.ERROR,
 }
 

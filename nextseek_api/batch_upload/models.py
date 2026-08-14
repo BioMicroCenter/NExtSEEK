@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .helpers import parse_protocol_value
+
 try:
     import orjson
 
@@ -42,7 +44,6 @@ def _minify_json_string(json_value: Union[str, dict]) -> str:
 
 
 _ASSAY_ID_RE = re.compile(r"\d+")
-_SOP_URL_RE = re.compile(r"/sops/(\d+)")
 
 
 # ── 1. SampleTypeDescription ──────────────────────────────────────────────
@@ -244,13 +245,22 @@ class InputRowModel(BaseModel):
                 raise ValueError("UID column does not match json_metadata.UID")
 
             # 2) SOP consistency if sop_id provided and Protocol encodes SOP
+            #
+            # This is VALIDATION, not resolution: it stays purely syntactic (no
+            # DB), so it can only compare two integers. It shares
+            # parse_protocol_value only to agree with the ingest path on what
+            # "the Protocol encodes a SOP id" means. Two consequences, both
+            # intended:
+            #   * a title-shaped Protocol carries no id, so there is nothing to
+            #     disagree with — ingest resolves it by title later;
+            #   * an id in a FOREIGN SOP URL (fairdomhub.org/sops/795, 1,855
+            #     live values) is not in our sops table, so comparing it to a
+            #     local sop_id would reject perfectly good rows.
             if self.sop_id is not None:
                 protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
-                m = _SOP_URL_RE.search(str(protocol_val))
-                if m:
-                    parsed = int(m.group(1))
-                    if int(self.sop_id) != parsed:
-                        raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
+                parsed, _title = parse_protocol_value(protocol_val)
+                if parsed is not None and int(self.sop_id) != parsed:
+                    raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
 
         # 3) assay_titles length consistency if provided
         if self.assay_titles is not None:
@@ -388,6 +398,11 @@ class Metrics(BaseModel):
     in_study_rels_attempted: int = 0
     in_study_rels_dropped: int = 0
     in_study_warnings: int = 0
+    # Children whose json_metadata Protocol named no SOP, so their DERIVED_FROM
+    # edge carries no protocol. Same reasoning as in_study_rels_dropped above:
+    # a silent null is indistinguishable from "this sample has no protocol",
+    # so it is counted rather than inferred.
+    protocols_unresolved: int = 0
     sample_type_nodes_created: int = 0
     study_nodes_created: int = 0
     investigation_nodes_created: int = 0
