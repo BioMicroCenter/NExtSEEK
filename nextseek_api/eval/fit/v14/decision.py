@@ -9,13 +9,16 @@ import numpy as np
 
 from nextseek_api.eval.conservation import FitAdmission, SupportGateConfig, check_support_gate
 from nextseek_api.eval.fit.v14.fit_config import V14FitConfig
-from nextseek_api.eval.fit.v14.latency_model import LatencyFitResult, latency_win_probability
+from nextseek_api.eval.fit.v14.latency_model import (
+    DescriptiveLatencyResult,
+    LatencyFitResult,
+    latency_win_probability,
+)
 from nextseek_api.eval.fit.v14.pair_rows import JointQualityState, PairFitRow
 from nextseek_api.eval.fit.v14.quality_model import QualityFitResult
 
 __all__ = [
     "CandidateDecision",
-    "DecisionOutcome",
     "DecisionStatus",
     "GenerationDecision",
     "apply_complete_set_fdr",
@@ -33,6 +36,7 @@ __all__ = [
 class DecisionStatus(str, Enum):
     quality_ns = "quality_ns"
     quality_cc = "quality_cc"
+    quality_equivalent_ns = "quality_equivalent_ns"
     latency_ns = "latency_ns"
     latency_cc = "latency_cc"
     indecisive = "indecisive"
@@ -120,7 +124,7 @@ def decide_family(
     rows: Sequence[PairFitRow],
     family: str,
     quality: QualityFitResult,
-    latency: LatencyFitResult,
+    latency: LatencyFitResult | DescriptiveLatencyResult,
     cfg: V14FitConfig,
 ) -> CandidateDecision:
     if family == "unrelated":
@@ -145,6 +149,13 @@ def decide_family(
 
     p_eq = float(np.mean(np.abs(adv) <= cfg.rope_half_width))
     if p_eq >= p_thr:
+        equivalence_error = 1.0 - p_eq
+        if isinstance(latency, DescriptiveLatencyResult):
+            return CandidateDecision(
+                family=family,
+                status=DecisionStatus.quality_equivalent_ns,
+                local_error_prob=equivalence_error,
+            )
         ns_lat_p = latency_win_probability(
             latency.posterior_log_d, ratio_threshold=cfg.latency_ratio_threshold, ns_wins=True
         )
@@ -167,35 +178,87 @@ def decide_family(
                 )
             )
             return CandidateDecision(family=family, status=DecisionStatus.latency_cc, local_error_prob=err)
+        return CandidateDecision(
+            family=family,
+            status=DecisionStatus.quality_equivalent_ns,
+            local_error_prob=equivalence_error,
+        )
     return CandidateDecision(family=family, status=DecisionStatus.indecisive, local_error_prob=1.0)
 
 
 def apply_complete_set_fdr(candidates: Sequence[CandidateDecision], cfg: V14FitConfig) -> tuple[tuple[CandidateDecision, ...], float | None, str]:
     winners = [c for c in candidates if c.status in {
         DecisionStatus.quality_ns, DecisionStatus.quality_cc,
+        DecisionStatus.quality_equivalent_ns,
         DecisionStatus.latency_ns, DecisionStatus.latency_cc,
     }]
     if not winners:
         return tuple(candidates), None, "empty_candidate_set"
-    fdr = float(np.mean([c.local_error_prob for c in winners]))
-    if fdr > cfg.fdr_threshold:
-        out = []
-        for c in candidates:
-            out.append(CandidateDecision(c.family, DecisionStatus.multiplicity_indecisive, c.local_error_prob))
-        return tuple(out), fdr, "multiplicity_indecisive"
+
+    winner_ids = {id(candidate) for candidate in winners}
+    ranked = sorted(
+        winners,
+        key=lambda candidate: (
+            candidate.local_error_prob,
+            candidate.family,
+            candidate.status.value,
+        ),
+    )
+    selected_count = 0
+    selected_fdr: float | None = None
+    for index in range(1, len(ranked) + 1):
+        prefix_fdr = float(
+            np.mean([candidate.local_error_prob for candidate in ranked[:index]])
+        )
+        if prefix_fdr <= cfg.fdr_threshold:
+            selected_count = index
+            selected_fdr = prefix_fdr
+        else:
+            break
+
+    selected_ids = {id(candidate) for candidate in ranked[:selected_count]}
+    if not selected_ids:
+        rejected = tuple(
+            CandidateDecision(
+                candidate.family,
+                DecisionStatus.multiplicity_indecisive,
+                candidate.local_error_prob,
+            )
+            if id(candidate) in winner_ids
+            else candidate
+            for candidate in candidates
+        )
+        proposed_fdr = float(
+            np.mean([candidate.local_error_prob for candidate in winners])
+        )
+        return rejected, proposed_fdr, "multiplicity_indecisive"
+
     activated = []
     for c in candidates:
-        if c in winners:
+        if id(c) in selected_ids:
             activated.append(CandidateDecision(c.family, c.status, c.local_error_prob, activated=True))
+        elif id(c) in winner_ids:
+            activated.append(
+                CandidateDecision(
+                    c.family,
+                    DecisionStatus.multiplicity_indecisive,
+                    c.local_error_prob,
+                )
+            )
         else:
             activated.append(c)
-    return tuple(activated), fdr, "activated_all"
+    generation_status = (
+        "activated_all" if selected_count == len(winners) else "activated_subset"
+    )
+    return tuple(activated), selected_fdr, generation_status
 
 
 def evaluate_generation(
     rows: Sequence[PairFitRow],
     quality_by_family: dict[str, QualityFitResult],
-    latency_by_family: dict[str, LatencyFitResult],
+    latency_by_family: dict[
+        str, LatencyFitResult | DescriptiveLatencyResult
+    ],
     cfg: V14FitConfig,
     *,
     config_fingerprint: str,

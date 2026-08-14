@@ -9,7 +9,20 @@ import numpy as np
 from nextseek_api.eval.fit.v14.fit_config import V14FitConfig
 from nextseek_api.eval.fit.v14.pair_rows import LatencyObservationKind, PairFitRow
 
-__all__ = ["LatencyFitResult", "fit_latency_model", "latency_win_probability"]
+__all__ = [
+    "DescriptiveLatencyResult",
+    "LatencyFitResult",
+    "fit_latency_model",
+    "latency_win_probability",
+]
+
+
+@dataclass(frozen=True)
+class DescriptiveLatencyResult:
+    """Records available latency observations without posterior claims."""
+
+    family: str
+    observation_count: int
 
 
 @dataclass(frozen=True)
@@ -51,17 +64,12 @@ def fit_latency_model(
     *,
     seed: int = 0,
     use_mcmc: bool = True,
-) -> LatencyFitResult:
+) -> LatencyFitResult | DescriptiveLatencyResult:
     d_obs, kinds = _extract_d_obs(rows, family)
     if not d_obs or not use_mcmc:
-        return LatencyFitResult(
+        return DescriptiveLatencyResult(
             family=family,
-            posterior_log_d=np.array([0.0]),
-            posterior_ns_faster_prob=0.5,
-            divergences=0,
-            rhat_max=1.0,
-            ess_bulk_min=1000.0,
-            ess_tail_min=1000.0,
+            observation_count=len(d_obs),
         )
 
     import jax.numpy as jnp
@@ -85,8 +93,6 @@ def fit_latency_model(
                     numpyro.sample(f"d_{i}", dist.TruncatedNormal(loc, sigma, low=y[i]), obs=y[i])
                 elif kind == "upper":
                     numpyro.sample(f"d_{i}", dist.TruncatedNormal(loc, sigma, high=y[i]), obs=y[i])
-
-    import numpyro
 
     numpyro.set_host_device_count(max(cfg.num_chains, 1))
 

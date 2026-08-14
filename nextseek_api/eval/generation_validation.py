@@ -14,6 +14,7 @@ __all__ = [
 ALLOWED_DECISION_STATUSES = frozenset(
     {
         "activated_all",
+        "activated_subset",
         "empty_candidate_set",
         "multiplicity_indecisive",
         "legacy_fallback",
@@ -137,8 +138,11 @@ def validate_generation_for_activation(
     counts = payload.get("counts") or {}
     min_pairs = int(payload.get("min_retained_pairs") or counts.get("min_retained_pairs") or 5)
     retained = int(counts.get("retained_pairs") or 0)
-    if retained < min_pairs and generation.decision_status == "activated_all":
-        reasons.append("precision: retained_pairs below minimum for activated_all")
+    if retained < min_pairs and generation.decision_status in {
+        "activated_all",
+        "activated_subset",
+    }:
+        reasons.append("precision: retained_pairs below minimum for activated generation")
 
     for row in posteriors:
         if row.n_total < 1:

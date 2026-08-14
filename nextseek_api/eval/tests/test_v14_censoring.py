@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import math
 
-from nextseek_api.eval.fit.v14.latency_model import _extract_d_obs
+from nextseek_api.eval.fit.v14.fit_config import V14FitConfig
+from nextseek_api.eval.fit.v14.latency_model import (
+    DescriptiveLatencyResult,
+    _extract_d_obs,
+    fit_latency_model,
+)
 from nextseek_api.eval.fit.v14.pair_rows import (
     JointQualityState,
     LatencyObservationKind,
@@ -84,3 +89,13 @@ def test_extract_d_obs_all_four_kinds():
     assert len(obs) == 3
     assert kinds == ["observed", "lower", "upper"]
     assert obs[0] == -0.5
+
+
+def test_non_mcmc_latency_is_descriptive_not_a_singleton_posterior():
+    result = fit_latency_model([], "f", V14FitConfig(), use_mcmc=False)
+
+    assert isinstance(result, DescriptiveLatencyResult)
+    assert result.observation_count == 0
+    assert not hasattr(result, "posterior_log_d")
+    assert not hasattr(result, "rhat_max")
+    assert not hasattr(result, "ess_bulk_min")

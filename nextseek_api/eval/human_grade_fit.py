@@ -18,7 +18,7 @@ from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 from urllib.parse import urlsplit
 
 from nextseek_api.cc_assistant.family_labels import corpus_snapshot
@@ -42,6 +42,9 @@ from nextseek_api.eval.router_models_proposal import (
     FamilySource,
     RouteSource,
 )
+
+if TYPE_CHECKING:
+    from nextseek_api.eval.publish import PublicationEvidence
 
 __all__ = [
     "DEFAULT_EVIDENCE_IDENTITY",
@@ -82,6 +85,14 @@ class ModelMode(str, Enum):
 
     @property
     def authoritative(self) -> bool:
+        return self is ModelMode.authoritative_mcmc
+
+    @property
+    def quality_mcmc(self) -> bool:
+        return self is not ModelMode.dev_analytic
+
+    @property
+    def latency_mcmc(self) -> bool:
         return self is ModelMode.authoritative_mcmc
 
 
@@ -145,15 +156,36 @@ class HumanGradeFit:
             "model": {
                 "mode": self.model_mode.value,
                 "authoritative": self.model_mode.authoritative,
+                "quality_fit_mode": (
+                    "pooled_mcmc"
+                    if self.model_mode.quality_mcmc
+                    else "descriptive_profile_only"
+                ),
+                "latency_fit_mode": (
+                    "mcmc"
+                    if self.model_mode.latency_mcmc
+                    else "descriptive_profile_only"
+                ),
+                "publication_authority": (
+                    "authoritative"
+                    if self.model_mode.authoritative
+                    else "provisional"
+                ),
                 "initial_release_override_required": (
                     self.model_mode is ModelMode.initial_human_grade
                 ),
                 "diagnostics_ok": self.fit.diagnostics_ok,
                 "config_fingerprint": self.fit.decision.config_fingerprint,
                 "residual_debt": (
-                    "non-MCMC empirical fit; does not satisfy original V14 diagnostics"
-                    if not self.model_mode.authoritative
-                    else None
+                    None
+                    if self.model_mode.authoritative
+                    else (
+                        "pooled quality MCMC; publication remains provisional pending "
+                        "human-grade review and immutable four-image stack provenance; "
+                        "latency remains descriptive"
+                        if self.model_mode is ModelMode.initial_human_grade
+                        else "descriptive profile only; cannot publish or activate"
+                    )
                 ),
             },
             "conservation": {
@@ -528,6 +560,7 @@ def _publication_evidence_from_derived_facts(
     pair_rows: tuple[PairFitRow, ...],
 ):
     from nextseek_api.eval.publish import PublicationEvidence
+    from nextseek_api.eval.fit.v14.latency_model import LatencyFitResult
 
     current = corpus_snapshot()
     member_hashes = source_hashes.get("member_sha256")
@@ -575,6 +608,16 @@ def _publication_evidence_from_derived_facts(
         "current_compatible_corpus_sha256": current.corpus_sha256,
         "corpus_sha256": current.corpus_sha256,
         "model_mode": model_mode.value,
+        "quality_fit_mode": (
+            "pooled_mcmc" if fit.quality_mcmc else "descriptive_profile_only"
+        ),
+        "latency_fit_mode": (
+            "mcmc" if fit.latency_mcmc else "descriptive_profile_only"
+        ),
+        "publication_authority": (
+            "authoritative" if model_mode.authoritative else "provisional"
+        ),
+        "human_grade_review_status": "provisional_pending_case_review",
         "initial_release_override": model_mode is ModelMode.initial_human_grade,
         "source_hashes": source_hashes,
         **stack_provenance,
@@ -582,24 +625,40 @@ def _publication_evidence_from_derived_facts(
     diagnostics = {
         "model_mode": model_mode.value,
         "authoritative": model_mode.authoritative,
+        "quality_mcmc": fit.quality_mcmc,
+        "latency_mcmc": fit.latency_mcmc,
         "initial_release_override": model_mode is ModelMode.initial_human_grade,
         "diagnostics_ok": fit.diagnostics_ok,
         "quality": {
-            family: {
-                "divergences": result.divergences,
-                "rhat_max": result.rhat_max,
-                "ess_bulk_min": result.ess_bulk_min,
-                "ess_tail_min": result.ess_tail_min,
-            }
+            family: (
+                {
+                    "fit_kind": "pooled_mcmc",
+                    "diagnostics_scope": result.diagnostics_scope,
+                    "divergences": result.divergences,
+                    "rhat_max": result.rhat_max,
+                    "ess_bulk_min": result.ess_bulk_min,
+                    "ess_tail_min": result.ess_tail_min,
+                }
+                if fit.quality_mcmc
+                else {"fit_kind": "descriptive_profile_only"}
+            )
             for family, result in sorted(fit.quality.items())
         },
         "latency": {
-            family: {
-                "divergences": result.divergences,
-                "rhat_max": result.rhat_max,
-                "ess_bulk_min": result.ess_bulk_min,
-                "ess_tail_min": result.ess_tail_min,
-            }
+            family: (
+                {
+                    "fit_kind": "mcmc",
+                    "divergences": result.divergences,
+                    "rhat_max": result.rhat_max,
+                    "ess_bulk_min": result.ess_bulk_min,
+                    "ess_tail_min": result.ess_tail_min,
+                }
+                if isinstance(result, LatencyFitResult)
+                else {
+                    "fit_kind": "descriptive_unavailable",
+                    "observation_count": result.observation_count,
+                }
+            )
             for family, result in sorted(fit.latency.items())
         },
     }
@@ -783,7 +842,8 @@ def build_human_grade_fit(
         pair_rows,
         cfg,
         seed=seed,
-        use_mcmc=model_mode.authoritative,
+        quality_use_mcmc=model_mode.quality_mcmc,
+        latency_use_mcmc=model_mode.latency_mcmc,
     )
     grade_hashes = {
         arm: identity.member_sha256[
@@ -946,7 +1006,8 @@ def publish_human_grade_fit(
         checked_rows,
         prepared.fit_config,
         seed=prepared.seed,
-        use_mcmc=prepared.model_mode.authoritative,
+        quality_use_mcmc=prepared.model_mode.quality_mcmc,
+        latency_use_mcmc=prepared.model_mode.latency_mcmc,
     )
     derived_evidence = _publication_evidence_from_derived_facts(
         model_mode=prepared.model_mode,
