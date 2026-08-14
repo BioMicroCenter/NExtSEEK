@@ -166,61 +166,73 @@ class TestCountBranchDropsTheWhereClause:
         assert sql.count("%s") == len(params)
 
 
-class TestRetrieveCustomSQLBindsParams:
-    """``__retrieveCustomSQL`` is the execute site #93 had to add.
+class TestSharedExecutorBindsParams:
+    """``dmac/dbconn_django.py:retrieve_custom_sql`` is the execute site.
 
-    ``dmac/dbconn_django.py:retrieve_custom_sql`` takes no params argument at
-    all, and that file is outside this change's file set (SPEC.md, "The fix
-    rejected"), so ``DBtable_sample`` grew a private duplicate that binds.
+    #93 originally could not widen this function -- it took no params argument
+    and lived outside that change's file set -- so ``DBtable_sample`` grew a
+    private duplicate, ``__retrieveCustomSQL``. #99 gave the shared executor an
+    optional ``params`` argument and deleted the duplicate, so these tests moved
+    onto the real shared path they always should have covered.
     """
 
     @staticmethod
-    def _run(params, headers, rows):
-        inst = _instance()
-        inst.db = MagicMock()
+    def _conn():
+        """Build DBconn_django without __init__, which opens a real connection."""
+        from dmac.dbconn_django import DBconn_django
+
+        return DBconn_django.__new__(DBconn_django)
+
+    def _run(self, params, headers, rows, db_alias="seek"):
+        conn = self._conn()
         cursor = MagicMock()
         cursor.fetchall.return_value = rows
         alias_conn = MagicMock()
         alias_conn.cursor.return_value = cursor
+        conn.cursor = MagicMock()
 
-        # The method does `from django.db import connections` at call time, so
-        # patching the module attribute is enough; a plain dict is a good enough
-        # stand-in for ConnectionHandler's __getitem__.
-        with patch("django.db.connections", {"seek": alias_conn}):
-            out = inst._DBtable_sample__retrieveCustomSQL(
+        with patch("dmac.dbconn_django.connections", {"seek": alias_conn}):
+            out = conn.retrieve_custom_sql(
                 "SELECT A.id FROM samples A WHERE A.sample_type_id=%s",
                 headers,
-                "seek",
+                db_alias,
                 params,
             )
-        return out, cursor, inst.db
+        return out, cursor, conn
 
     def test_params_are_handed_to_cursor_execute(self):
-        out, cursor, db = self._run([PAYLOAD], ["id"], [(1,)])
+        out, cursor, _ = self._run([PAYLOAD], ["id"], [(1,)])
 
         cursor.execute.assert_called_once_with(
             "SELECT A.id FROM samples A WHERE A.sample_type_id=%s", [PAYLOAD]
         )
         assert out == [{"id": 1}]
-        db.queryToListDics.assert_not_called()
 
-    def test_empty_params_delegates_to_the_untouched_path(self):
-        """Back-compat: no placeholders means nothing changes for that caller."""
-        inst = _instance()
-        inst.db = MagicMock()
-        inst.db.queryToListDics.return_value = [{"id": 1}]
+    def test_empty_params_executes_the_statement_alone(self):
+        """Back-compat: every pre-#99 caller passes no params and must be unaffected."""
+        out, cursor, _ = self._run([], ["id"], [(1,)])
 
-        out = inst._DBtable_sample__retrieveCustomSQL(
-            "SELECT A.id FROM samples A", ["id"], "seek", []
-        )
-
-        inst.db.queryToListDics.assert_called_once_with(
-            "SELECT A.id FROM samples A", ["id"], "seek"
+        cursor.execute.assert_called_once_with(
+            "SELECT A.id FROM samples A WHERE A.sample_type_id=%s"
         )
         assert out == [{"id": 1}]
 
+    def test_params_omitted_entirely_is_still_the_old_signature(self):
+        """The three-positional-argument call sites must keep working verbatim."""
+        conn = self._conn()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [(1,)]
+        alias_conn = MagicMock()
+        alias_conn.cursor.return_value = cursor
+
+        with patch("dmac.dbconn_django.connections", {"seek": alias_conn}):
+            out = conn.retrieve_custom_sql("SELECT 1", ["id"], "seek")
+
+        cursor.execute.assert_called_once_with("SELECT 1")
+        assert out == [{"id": 1}]
+
     def test_headers_wider_than_the_row_returns_early(self):
-        """The dimension check copied verbatim from dbconn_django.py:307-309."""
+        """The dimension check at dbconn_django.py:307-309."""
         out, _, _ = self._run([PAYLOAD], ["id", "title", "uid"], [(1,)])
 
         assert out == []
@@ -229,6 +241,46 @@ class TestRetrieveCustomSQLBindsParams:
         out, _, _ = self._run([PAYLOAD], None, [(1, "x")])
 
         assert out == [{"0": 1, "1": "x"}]
+
+
+class TestQueryToListDicsForwardsParams:
+    """``dmac/dbconnection.py:queryToListDics`` is the path DBtable_sample uses."""
+
+    def test_params_reach_the_executor(self):
+        from dmac.dbconnection import DBconnection
+
+        db = DBconnection.__new__(DBconnection)
+        inner = MagicMock()
+        inner.retrieve_custom_sql.return_value = [{"id": 1}]
+        db._DBconnection__dbconn = inner
+
+        out = db.queryToListDics("SELECT %s", ["id"], "seek", [PAYLOAD])
+
+        inner.retrieve_custom_sql.assert_called_once_with(
+            "SELECT %s", ["id"], "seek", [PAYLOAD]
+        )
+        assert out == [{"id": 1}]
+
+    def test_params_default_to_none(self):
+        from dmac.dbconnection import DBconnection
+
+        db = DBconnection.__new__(DBconnection)
+        inner = MagicMock()
+        db._DBconnection__dbconn = inner
+
+        db.queryToListDics("SELECT 1")
+
+        inner.retrieve_custom_sql.assert_called_once_with("SELECT 1", None, None, None)
+
+
+class TestTheDuplicateExecutorIsGone:
+    def test_dbtable_sample_no_longer_carries_a_private_copy(self):
+        """#99: two implementations of one executor drift. Keep it at one."""
+        from seek.dbtable_sample import DBtable_sample
+
+        assert not hasattr(DBtable_sample, "_DBtable_sample__retrieveCustomSQL"), (
+            "the private duplicate is back; route through queryToListDics instead"
+        )
 
 
 class TestRetrieveRecordsAdvancedThreadsParamsToTheExecuteSite:
@@ -248,22 +300,11 @@ class TestRetrieveRecordsAdvancedThreadsParamsToTheExecuteSite:
         inst.db.queryToListDics.return_value = []
         inst.reformatDataForClient = MagicMock(return_value=[])
 
-        seen = {}
-
-        def _capture(sqlquery, headers, db_alias, params):
-            seen["sql"] = sqlquery
-            seen["params"] = params
-            return []
-
-        inst._DBtable_sample__retrieveCustomSQL = _capture
-
         inst._DBtable_sample__retrieveRecords_advanced(None, _filters(PAYLOAD))
 
-        if seen:
-            sql, params = seen["sql"], seen["params"]
-        else:
-            sql = inst.db.queryToListDics.call_args[0][0]
-            params = None
+        call = inst.db.queryToListDics.call_args
+        sql = call[0][0]
+        params = call[0][3] if len(call[0]) > 3 else call[1].get("params")
 
         assert PAYLOAD not in sql, "the request value was spliced into the executed statement"
         assert "UNION" not in sql.upper()
