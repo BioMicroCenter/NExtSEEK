@@ -324,10 +324,11 @@ services:
     command: ["uv", "run", "--no-sync", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker", "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h", "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "uv run --no-sync celery -A nextseek_api.batch_upload.celery_app inspect ping --timeout=5 -d attribute_mutations@$${HOSTNAME} | grep -q pong"]
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "worker"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -352,15 +353,16 @@ services:
     command: ["uv", "run", "--no-sync", "python", "manage.py", "dispatch_attribute_outbox"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "uv", "run", "--no-sync", "python", "manage.py", "check_attribute_outbox_heartbeat"]
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "dispatcher"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
+      start_period: 60s
     deploy:
       resources:
         limits:
           cpus: "${ATTRIBUTE_MUTATION_DISPATCHER_CPUS:-0.25}"
-          memory: "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-256M}"
+          memory: "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-512M}"
 
   # Idempotent synchronous-job recovery scheduler (Section 3). Deliberately
   # has no broker volume/env and runs no Celery command: it can never
@@ -378,15 +380,16 @@ services:
     command: ["uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--check-heartbeat", "--max-age-seconds", "90"]
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "recovery"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
+      start_period: 60s
     deploy:
       resources:
         limits:
           cpus: "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}"
-          memory: "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-256M}"
+          memory: "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-512M}"
 
 
 networks:
