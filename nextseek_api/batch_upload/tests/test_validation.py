@@ -11,9 +11,20 @@ from unittest.mock import patch
 
 import pytest
 
-from nextseek_api.batch_upload.models import ConvertedBatch, InputRowModel, ValidationResult
+from nextseek_api.batch_upload.errors import (
+    ErrorCollector,
+    ErrorType,
+    Severity,
+    classify_severity,
+)
+from nextseek_api.batch_upload.models import (
+    BatchUploadTotals,
+    ConvertedBatch,
+    InputRowModel,
+    ValidationResult,
+)
 from nextseek_api.batch_upload.prefetch import clear_caches as _clear_prefetch_caches
-from nextseek_api.batch_upload.validation import run_validation_multi
+from nextseek_api.batch_upload.validation import _finalize, run_validation_multi
 from nextseek_api.batch_upload.tests.test_orchestrator_levels import (
     FakeConnection,
     FakeDB,
@@ -302,3 +313,175 @@ class TestRunValidationMulti:
         cycle_errors = [e for e in result.errors if e.type == "CYCLE_UNRESOLVABLE"]
         assert len(cycle_errors) == 2
         assert "dag" in result.checks_run
+
+
+class TestSeverityDecidesValid:
+    """Issue #105: `valid` must be computed from RowError.severity, not from the
+    mere presence of an entry in the projected `errors[]` list.
+
+    `_project_errors` drops `severity`, so a sheet carrying only WARNING/INFO
+    entries — a forward reference to a not-yet-uploaded parent being the
+    motivating case — used to be reported `valid=False`. The danger is a curator
+    "fixing" the sheet by deleting the reference and destroying the lineage.
+    """
+
+    def test_orphan_parent_warning_does_not_invalidate_the_sheet(self):
+        """A parent UID in neither the batch nor the DB is a WARNING, not a block.
+
+        LEVELS records the child as an orphan and the pipeline treats it as a
+        root sample; `orphan_resolution` reconciles it once the parent lands.
+        The entry must still be reported, but must not fail the sheet.
+        """
+        rows = [
+            _make_row(UID_A),
+            # Forward reference: parent not in this batch and not in the DB.
+            _make_row(UID_B, parent_uid="NHP-260101TST-999"),
+        ]
+
+        result = _run_validation(rows, FakeDB(), checks=frozenset({"structure", "dag"}))
+
+        orphan = [e for e in result.errors if "treating as root sample" in e.message]
+        assert len(orphan) == 1, "the warning must still be reported, not filtered"
+        assert orphan[0].uid == UID_B
+        assert result.totals.failed == 0
+        assert result.valid is True
+
+    def test_blocking_error_alongside_a_warning_still_invalidates(self):
+        """A WARNING does not cancel out an ERROR sharing the same sheet.
+
+        The blocking entry here is CYCLE_UNRESOLVABLE, which is graded ERROR and
+        does NOT increment ``totals.failed`` — so this asserts the severity gate
+        specifically, not the uninsertable-row guard that would mask it.
+        """
+        rows = [
+            # A <-> B dependency cycle: two CYCLE_UNRESOLVABLE (ERROR) entries.
+            _make_row(UID_A, parent_uid=UID_B),
+            _make_row(UID_B, parent_uid=UID_A),
+            # Plus a forward reference: one orphan WARNING.
+            _make_row("NHP-260101TST-3", parent_uid="NHP-260101TST-999"),
+        ]
+
+        result = _run_validation(rows, FakeDB(), checks=frozenset({"structure", "dag"}))
+
+        assert any("treating as root sample" in e.message for e in result.errors)
+        assert len([e for e in result.errors if e.type == "CYCLE_UNRESOLVABLE"]) == 2
+        assert classify_severity(ErrorType.CYCLE_UNRESOLVABLE) is Severity.ERROR
+        # Nothing failed TRANSFORM: only the severity gate can make this False.
+        assert result.totals.failed == 0
+        assert result.totals.error is None
+        assert result.valid is False
+
+    def test_transform_failure_blocks_even_when_its_severity_is_non_blocking(self):
+        """A row that could not be transformed blocks, whatever severity it got.
+
+        `resolve_sample_type_id` raises ``ValueError("Sample type not found: …")``;
+        `_classify_validation_error` sees "sample type" and labels it
+        VALIDATION_SAMPLE_TYPE, which `_SEVERITY_MAP` grades WARNING. The row is
+        nonetheless uninsertable (it is counted in ``totals.failed``), so the
+        sheet is not valid. Guards the regression that a severity-only test
+        would let through.
+        """
+        good = _make_row(UID_A)
+        bad = InputRowModel(
+            UID=UID_B,
+            SampleType="NoSuchSampleType",
+            json_metadata="{}",
+            assay_ids=[],
+            original_row_index=1,
+        )
+
+        result = _run_validation([good, bad], FakeDB())
+
+        st_errors = [e for e in result.errors if e.type == "VALIDATION_SAMPLE_TYPE"]
+        assert len(st_errors) == 1
+        assert classify_severity(ErrorType.VALIDATION_SAMPLE_TYPE) is Severity.WARNING
+        assert result.totals.failed == 1
+        assert result.valid is False
+
+    def test_summary_names_the_warnings_on_an_otherwise_valid_sheet(self):
+        """A valid sheet carrying warnings must not read "No issues"."""
+        rows = [
+            _make_row(UID_A),
+            _make_row(UID_B, parent_uid="NHP-260101TST-999"),
+        ]
+
+        result = _run_validation(rows, FakeDB(), checks=frozenset({"structure", "dag"}))
+
+        assert result.valid is True
+        assert result.summary == "No blocking errors (1 non-blocking issue)"
+
+
+class TestFinalizeSeverityGate:
+    """Unit-level coverage of the severity gate in `_finalize`.
+
+    Exercised directly because CRITICAL is unreachable through
+    `run_validation_multi`: the only CRITICAL type is DB_CONN and its sole emit
+    site is in INSERT (`insert.py`), a stage validation never reaches.
+    """
+
+    @staticmethod
+    def _finalize_with(*severities):
+        collector = ErrorCollector()
+        for i, sev in enumerate(severities):
+            collector.add(
+                row_index=i,
+                uid=None,
+                error_type=ErrorType.UNKNOWN,
+                message=f"entry {i}",
+                severity=sev,
+            )
+        totals = BatchUploadTotals(processed=1, success=1, skipped=0, failed=0)
+        return _finalize(totals, collector, {}, ["structure"], [], set())
+
+    @pytest.mark.parametrize(
+        "severity,blocks",
+        [
+            (Severity.CRITICAL, True),
+            (Severity.ERROR, True),
+            (Severity.WARNING, False),
+            (Severity.INFO, False),
+        ],
+    )
+    def test_each_severity_blocks_or_does_not(self, severity, blocks):
+        result = self._finalize_with(severity)
+
+        assert len(result.errors) == 1, "every entry is reported regardless"
+        assert result.valid is (not blocks)
+
+    def test_one_critical_among_warnings_invalidates(self):
+        result = self._finalize_with(
+            Severity.WARNING, Severity.INFO, Severity.CRITICAL, Severity.WARNING
+        )
+
+        assert len(result.errors) == 4
+        assert result.valid is False
+
+    def test_grouped_warning_summary_names_distinct_and_total(self):
+        """Warnings that collapse into groups keep the distinct/total phrasing."""
+        collector = ErrorCollector()
+        for i in range(5):
+            collector.add(
+                row_index=i, uid=None, error_type=ErrorType.UNKNOWN,
+                message="same message", severity=Severity.WARNING,
+            )
+        totals = BatchUploadTotals(processed=5, success=5, skipped=0, failed=0)
+
+        result = _finalize(totals, collector, {}, ["structure"], [], set())
+
+        assert result.valid is True
+        assert result.summary == "No blocking errors (1 distinct non-blocking issue, 5 total)"
+
+    def test_pipeline_abort_still_invalidates_a_warning_only_sheet(self):
+        """`totals.error` blocks independently of severity."""
+        collector = ErrorCollector()
+        collector.add(
+            row_index=0, uid=None, error_type=ErrorType.UNKNOWN,
+            message="w", severity=Severity.WARNING,
+        )
+        totals = BatchUploadTotals(
+            processed=0, success=0, skipped=0, failed=0, error="No valid rows after CONVERT",
+        )
+
+        result = _finalize(totals, collector, {}, ["structure"], [], set())
+
+        assert result.valid is False
