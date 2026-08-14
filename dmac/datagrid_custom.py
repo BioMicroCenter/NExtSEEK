@@ -69,33 +69,33 @@ class DataGrid(object):
         return startNo, endNo
 
     def __getFilteringParameters(self, ret):
-        filterRules = []
-        sqlquery_filter = ""
+        """Parse the client's ``filterRules`` JSON. Returns the rules only.
+
+        This used to also concatenate a SQL fragment from those rules, splicing
+        both ``rule["field"]`` as a bare column identifier and ``rule["value"]``
+        into ``LIKE '%...%'`` with no allowlist and no binding (#95). That
+        fragment was dead: it was assigned to ``filtersdic['sqlquery_filter']``
+        and ``self.sqlquery_filter``, and a repo-wide sweep over .py/.html/.js
+        found writes at three sites and **no reads anywhere** -- no ``.get``,
+        no dict spread, no template reference. ``retrieve_table_list``
+        (``dmac/dbconn_django.py:731``) reads ``filterRules`` and builds a
+        Django ORM ``Q()`` instead.
+
+        It is deleted rather than allowlisted because there is nothing to keep
+        working: an unused SQL builder one caller away from being first-order,
+        whose identifier half could not be fixed by binding anyway. The live
+        sibling that *does* emit SQL, ``__sqlQuery_select_filters`` below, maps
+        the client's key through a server-owned ``fieldMapping`` and binds the
+        value; that is the pattern any future caller should use.
+        """
         if 'filterRules' not in ret:
-            return sqlquery_filter, filterRules
-        
+            return []
+
         filterRules = ret['filterRules']
         if filterRules is None:
-            return sqlquery_filter, filterRules
-        
-        filterRules = json.loads(filterRules)
-    
-        n = 0
-        for rule in filterRules:
-            field = rule["field"]
-            value = rule["value"]
-            op = rule["op"]
-            if n==0:
-                sqlquery_filter += field
-            else:
-                sqlquery_filter += " AND " + field
-            if op=="contains":
-                sqlquery_filter += " LIKE '%" + str(value) + "%' "
-            else:
-                sqlquery_filter += " LIKE '%" + str(value) + "%' "
-            n += 1
-        
-        return sqlquery_filter, filterRules
+            return []
+
+        return json.loads(filterRules)
     
     def getDatagridFilters(self, ret):
         filtersdic = {}
@@ -111,9 +111,7 @@ class DataGrid(object):
         filtersdic['startNo'] = startNo
         filtersdic['endNo'] = endNo
     
-        sqlquery_filter, filterRules = self.__getFilteringParameters(ret)
-        filtersdic['sqlquery_filter'] = sqlquery_filter
-        filtersdic['filterRules'] = filterRules
+        filtersdic['filterRules'] = self.__getFilteringParameters(ret)
     
         return filtersdic
     
@@ -283,7 +281,7 @@ class DataGrid(object):
         self.orderby, self.limit = self.__querySuffix(ret)
         self.suffix = self.orderby + self.limit
         self.startNo, self.endNo = self.__getStartRows(self.limit)
-        self.sqlquery_filter, self.filterRules = self.__getFilteringParameters(ret)
+        self.filterRules = self.__getFilteringParameters(ret)
         
         msg = operation
         status = 0
