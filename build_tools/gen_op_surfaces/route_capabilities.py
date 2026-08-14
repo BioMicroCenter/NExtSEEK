@@ -7,6 +7,7 @@ from typing import Any
 
 from nextseek_api.cc_assistant.op_registry.install_oracle import discover_install
 from nextseek_api.cc_assistant.op_registry.ns_capabilities import (
+    MAX_PROJECTION_UTF8_BYTES,
     STALE_PIPELINE_PHRASE,
     load_ns_projection,
 )
@@ -21,6 +22,7 @@ from nextseek_api.cc_assistant.op_registry.paired_evidence import (
 from nextseek_api.cc_assistant.op_registry.routes import (
     CONTAINER_CC_ROUTE,
     GENERIC_CC_BUILTINS,
+    NEXTSEEK_QUERY_TOOLS,
 )
 from nessie_tests import corpus as nessie_corpus
 from nessie_tests import export as nexport
@@ -246,10 +248,33 @@ def build_route_capabilities_payload(
     cc_families = _task_families_for_route(
         route=CC_ROUTE, evidence=payload, descriptions=descriptions
     )
+    ns_tools = list(NEXTSEEK_QUERY_TOOLS)
+    if len(ns_tools) != len(set(ns_tools)):
+        raise RouteCapabilitiesError("nextseek_query.tools contains duplicates")
+    leaked_labels = set(ns_tools) & set(projection.tools)
+    if leaked_labels:
+        raise RouteCapabilitiesError(
+            "nextseek_query.tools must stay fallback-router agent symbols; "
+            f"capability labels leaked: {sorted(leaked_labels)}"
+        )
     ns_route = {
         **projection.route_level_object(),
+        "tools": ns_tools,
         "task_families": ns_families,
     }
+    route_level = {
+        key: ns_route[key]
+        for key in ("route_name", "description", "tools", "best_for", "not_for")
+    }
+    route_level_size = len(
+        json.dumps(route_level, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    if route_level_size > MAX_PROJECTION_UTF8_BYTES:
+        raise RouteCapabilitiesError(
+            f"NS route-level object is {route_level_size} UTF-8 bytes "
+            f"(limit {MAX_PROJECTION_UTF8_BYTES}) before task families; "
+            "failing for maintainer review (generator must not truncate)"
+        )
     cc_tools = container_cc_tools(repo_root=repo_root)
     cc_route = {
         "route_name": CONTAINER_CC_ROUTE.route_name,
@@ -261,8 +286,6 @@ def build_route_capabilities_payload(
     }
     if len(cc_tools) != len(set(cc_tools)):
         raise RouteCapabilitiesError("container_cc.tools contains duplicates")
-    if len(projection.tools) != len(set(projection.tools)):
-        raise RouteCapabilitiesError("nextseek_query.tools contains duplicates")
     document = {"routes": [ns_route, cc_route]}
     rendered = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
     for phrase in FORBIDDEN_PROMPT_PHRASES:

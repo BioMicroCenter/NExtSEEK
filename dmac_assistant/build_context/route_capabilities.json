@@ -4,14 +4,14 @@
       "route_name": "nextseek_query",
       "description": "The NExtSEEK Chat Assistant lets you query the NExtSEEK biological sample repository using plain English. Under the hood it translates your questions into NExtSEEK REST API calls and Neo4j graph database queries, then summarizes the results for you. The repository holds biological samples, experimental data files, metadata records, and organizational structures (projects, investigations, studies) from across multiple research programs. You do not need to know any API syntax, Cypher, or SQL — just describe what you want.",
       "tools": [
-        "Sample Search",
-        "Graph Queries",
-        "Sample Lineage",
-        "Upload Statistics and Reporting",
-        "Follow-up Questions",
-        "Search Refinements",
-        "Entity and Catalog Information",
-        "System Capabilities Questions"
+        "entity_agent",
+        "parser_agent",
+        "api_agent",
+        "graph_agent",
+        "reporter_agent",
+        "memory_agent",
+        "system_agent",
+        "pipeline_agent"
       ],
       "best_for": "Requests supported by the NS capability authority: Sample Search; Graph Queries; Sample Lineage; Upload Statistics and Reporting; Follow-up Questions; Search Refinements; Entity and Catalog Information; System Capabilities Questions.",
       "not_for": "Not intended for: Generate visualizations or charts.; Perform statistical analysis.; Explain external scientific concepts.; Answer questions about data outside NExtSEEK.; Compare groups analytically..",

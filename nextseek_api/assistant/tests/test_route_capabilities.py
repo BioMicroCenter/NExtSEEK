@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import re
+import subprocess
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,10 @@ from nextseek_api.cc_assistant.op_registry.paired_evidence import (
     arm_success,
     load_committed_evidence,
 )
-from nextseek_api.cc_assistant.op_registry.routes import GENERIC_CC_BUILTINS
+from nextseek_api.cc_assistant.op_registry.routes import (
+    GENERIC_CC_BUILTINS,
+    NEXTSEEK_QUERY_TOOLS,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CANONICAL_MD = REPO_ROOT / CANONICAL_CAPABILITIES_REL
@@ -314,10 +318,35 @@ def test_ns_fields_match_independent_markdown_oracle() -> None:
     payload = json.loads(ROUTE_JSON.read_text(encoding="utf-8"))
     ns = _route_map(payload)[NS_ROUTE]
     assert ns["description"] == expected["description"] == produced.description
-    assert ns["tools"] == expected["tools"] == list(produced.tools)
     assert ns["best_for"] == expected["best_for"] == produced.best_for
     assert ns["not_for"] == expected["not_for"] == produced.not_for
+    assert list(produced.tools) == expected["tools"]
+    for label in expected["tools"]:
+        assert label in ns["best_for"]
+        assert label not in ns["tools"]
     assert STALE_PIPELINE_PHRASE not in json.dumps(ns)
+
+
+def test_ns_tools_keep_fallback_router_agent_vocabulary() -> None:
+    payload = json.loads(ROUTE_JSON.read_text(encoding="utf-8"))
+    ns = _route_map(payload)[NS_ROUTE]
+    assert ns["tools"] == list(NEXTSEEK_QUERY_TOOLS)
+    baml = (REPO_ROOT / "dmac_assistant/baml_src/router.baml").read_text(encoding="utf-8")
+    assert "class RouteCapability" in baml
+    assert "tools          string[]" in baml
+    raw = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(REPO_ROOT),
+            "show",
+            "a9d69522:dmac_assistant/build_context/route_capabilities.json",
+        ],
+        text=True,
+    )
+    pinned = json.loads(raw)
+    pinned_ns = next(route for route in pinned["routes"] if route["route_name"] == NS_ROUTE)
+    assert ns["tools"] == pinned_ns["tools"]
 
 
 def test_container_tools_match_independent_install_and_ops_oracle() -> None:

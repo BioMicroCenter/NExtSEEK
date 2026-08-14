@@ -5,6 +5,20 @@ from nextseek_api.cc_assistant.op_registry.models import RouteSpec
 
 GENERIC_CC_BUILTINS: tuple[str, ...] = ("bash", "filesystem", "skill-runner")
 
+# Fallback BAML RouteQuery interpolates route.tools as "Tools / plugins / skills".
+# nextseek_query.tools is that router-facing vocabulary (chat_nextseek pipeline
+# stages), not capabilities.md H3 labels. Labels belong in best_for / not_for.
+NEXTSEEK_QUERY_TOOLS: tuple[str, ...] = (
+    "entity_agent",
+    "parser_agent",
+    "api_agent",
+    "graph_agent",
+    "reporter_agent",
+    "memory_agent",
+    "system_agent",
+    "pipeline_agent",
+)
+
 CONTAINER_CC_ROUTE = RouteSpec(
     route_name="container_cc",
     description=(
