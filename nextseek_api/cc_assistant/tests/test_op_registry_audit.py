@@ -33,6 +33,7 @@ NEXTSEEK_RUNNER = NEXTSEEK_BIN / "_nextseek_runner.py"
 BATCH_RUNNER = NEXTSEEK_BIN / "_batch_upload_runner.py"
 WS_CONTRACT = NEXTSEEK_BIN / "_ws_contract.py"
 GRANULAR = REPO_ROOT / "nextseek_api" / "assistant" / "granular.py"
+WRITE_GATE = REPO_ROOT / "nextseek_api" / "assistant" / "write_gate.py"
 READ_SAFE_JSON = REPO_ROOT / "nextseek_api" / "assistant" / "read_safe_endpoints.json"
 ROUTE_CAPABILITIES = REPO_ROOT / "dmac_assistant" / "build_context" / "route_capabilities.json"
 CAPABILITIES_MD = (
@@ -65,6 +66,10 @@ def _parse_frozenset_assignment(path: Path, name: str) -> frozenset[str]:
 
 
 def _parse_dict_keys(path: Path, name: str) -> frozenset[str]:
+    return frozenset(_parse_dict_key_to_handler(path, name))
+
+
+def _parse_dict_key_to_handler(path: Path, name: str) -> dict[str, str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     candidates: list[ast.Dict] = []
     for node in tree.body:
@@ -83,12 +88,61 @@ def _parse_dict_keys(path: Path, name: str) -> frozenset[str]:
             candidates.append(node.value)
     if not candidates:
         raise AssertionError(f"{name!r} dict not found in {path}")
-    keys: list[str] = []
+    mapping: dict[str, str] = {}
     for candidate in candidates:
-        for key in candidate.keys:
-            if isinstance(key, ast.Constant) and isinstance(key.value, str):
-                keys.append(key.value)
-    return frozenset(keys)
+        for key, value in zip(candidate.keys, candidate.values):
+            if not (
+                isinstance(key, ast.Constant)
+                and isinstance(key.value, str)
+                and isinstance(value, ast.Name)
+            ):
+                continue
+            mapping[key.value] = value.id
+    if not mapping:
+        raise AssertionError(f"{name!r} dict had no string-key/name-value pairs in {path}")
+    return mapping
+
+
+def _expected_handler_name(runner_key: str, *, prefix: str) -> str:
+    return f"{prefix}{runner_key.replace('-', '_')}"
+
+
+def _required_flags_in_order(
+    forwarded: tuple[str, ...], required: tuple[str, ...]
+) -> tuple[str, ...]:
+    required_set = set(required)
+    return tuple(flag for flag in forwarded if flag in required_set)
+
+
+def _batch_forwarded_flags(text: str, runner_key: str) -> tuple[str, ...]:
+    forwarded: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("set --"):
+            continue
+        if stripped.startswith('set -- "$@"'):
+            forwarded.extend(re.findall(r"--[\w-]+", stripped))
+            continue
+        parts = stripped.split()
+        if len(parts) >= 3 and parts[2] == runner_key:
+            forwarded.extend(re.findall(r"--[\w-]+", stripped))
+    if forwarded:
+        return tuple(forwarded)
+    exec_match = re.search(
+        rf'exec python "\$SCRIPT_DIR/_batch_upload_runner\.py"\s+{re.escape(runner_key)}\s+"\$@"\s*$',
+        text,
+        flags=re.MULTILINE,
+    )
+    if exec_match:
+        return ()
+    exec_match = re.search(
+        rf'exec python "\$SCRIPT_DIR/_batch_upload_runner\.py"\s+{re.escape(runner_key)}\s+(.+)$',
+        text,
+        flags=re.MULTILINE,
+    )
+    if exec_match:
+        return tuple(re.findall(r"--[\w-]+", exec_match.group(1)))
+    return ()
 
 
 @dataclass(frozen=True)
@@ -137,17 +191,7 @@ def _parse_shim(path: Path) -> ParsedShim:
             runner_key = extract_match.group(1)
         else:
             raise AssertionError(f"{path.name}: cannot determine batch subcommand")
-        exec_match = re.search(
-            rf'exec python "\$SCRIPT_DIR/_batch_upload_runner\.py"\s+(.+)$',
-            text,
-            flags=re.MULTILINE,
-        )
-        forwarded: list[str] = []
-        if exec_match:
-            tail = exec_match.group(1)
-            if tail.startswith(runner_key):
-                tail = tail[len(runner_key) :]
-            forwarded = re.findall(r"--[\w-]+", tail)
+        forwarded = list(_batch_forwarded_flags(text, runner_key))
         return ParsedShim(path.name, runner_module, runner_key, tuple(forwarded))
     raise AssertionError(f"{path.name}: unknown runner reference")
 
@@ -205,22 +249,57 @@ def test_subcmd_runner_keys_match_ops():
     assert ops_keys == subcmd_keys
 
 
+def test_dispatch_handlers_match_runner_keys():
+    dispatch = _parse_dict_key_to_handler(NEXTSEEK_RUNNER, "_DISPATCH")
+    for op in OPS:
+        if op.backend is not Backend.dispatch or not op.available:
+            continue
+        expected = _expected_handler_name(op.runner_key, prefix="_dispatch_")
+        actual = dispatch[op.runner_key]
+        assert actual == expected, (
+            f"{op.op_id}: _DISPATCH[{op.runner_key!r}] maps to {actual!r}, expected {expected!r}"
+        )
+
+
+def test_subcmd_handlers_match_runner_keys():
+    subcmds = _parse_dict_key_to_handler(BATCH_RUNNER, "_CMDS")
+    for op in OPS:
+        if op.backend is not Backend.subcmd or not op.available:
+            continue
+        expected = _expected_handler_name(op.runner_key, prefix="_cmd_")
+        actual = subcmds[op.runner_key]
+        assert actual == expected, (
+            f"{op.op_id}: _CMDS[{op.runner_key!r}] maps to {actual!r}, expected {expected!r}"
+        )
+
+
 def test_each_shim_runner_key_and_argv_forwarding():
     ops = _ops_by_bin()
     for shim_path in _installed_shims():
         parsed = _parse_shim(shim_path)
         op = ops[parsed.bin_name]
         assert op.runner_key == parsed.runner_key
+        expected_flags = tuple(arg.flag for arg in op.argv if arg.required)
+        passthrough = False
         if op.backend is Backend.dispatch:
             assert parsed.runner_module == QUERY_RUNNER
-            expected_flags = tuple(arg.flag for arg in op.argv if arg.required)
-            for flag in expected_flags:
-                assert flag in parsed.forwarded_argv, (
-                    f"{parsed.bin_name}: required flag {flag} not forwarded"
-                )
+            runner_flags = tuple(
+                flag for flag in parsed.forwarded_argv if flag != "--agent"
+            )
         else:
             assert parsed.runner_module == BATCH_RUNNER_NAME
-            assert parsed.runner_key == op.runner_key
+            runner_flags = parsed.forwarded_argv
+            passthrough = (
+                f'exec python "$SCRIPT_DIR/_batch_upload_runner.py" {parsed.runner_key} "$@"'
+                in shim_path.read_text(encoding="utf-8")
+            )
+        if op.backend is Backend.subcmd and passthrough:
+            continue
+        actual_required = _required_flags_in_order(runner_flags, expected_flags)
+        assert actual_required == expected_flags, (
+            f"{parsed.bin_name}: required argv forwarding {actual_required!r} "
+            f"!= expected order {expected_flags!r} (full forwarded {runner_flags!r})"
+        )
 
 
 def test_sidecar_transport_matches_ws_contract_and_handlers():
@@ -243,18 +322,50 @@ def test_local_subcommand_transport_matches_batch_runner():
     assert local_ops == _parse_dict_keys(BATCH_RUNNER, "_CMDS")
 
 
+def _expected_gate_class(op: OpSpec) -> GateClass:
+    if op.transport is Transport.viewset:
+        return GateClass.unrouted
+    if op.transport is Transport.local_subcommand:
+        return GateClass.read
+    if op.transport is not Transport.sidecar:
+        raise AssertionError(f"unexpected transport for {op.op_id}: {op.transport}")
+
+    write_gate_sid = _parse_frozenset_assignment(WRITE_GATE, "SIDECAR_OPS")
+    read_class_ops = write_gate_sid - {"api-read", "api-write"}
+    handler_ops = _parse_dict_keys(GRANULAR, "_HANDLERS")
+
+    if op.runner_key == "api-write":
+        return GateClass.write_confirm
+    if op.runner_key == "api-read":
+        return GateClass.read
+    if op.runner_key in read_class_ops:
+        return GateClass.read
+    if op.runner_key in handler_ops:
+        return GateClass.read
+    raise AssertionError(
+        f"no enforcement policy for sidecar op {op.op_id!r} ({op.runner_key!r})"
+    )
+
+
 def test_gate_class_matches_enforcement():
-    api_write = next(o for o in OPS if o.op_id == "api-write")
-    api_read = next(o for o in OPS if o.op_id == "api-read")
-    assert api_write.gate_class is GateClass.write_confirm
-    assert api_read.gate_class is GateClass.read
+    runner_text = NEXTSEEK_RUNNER.read_text(encoding="utf-8")
+    assert "if not args.confirmed_write:" in runner_text
+    assert '_err("WRITE_BLOCKED"' in runner_text
+    batch_bins = {
+        op.bin_name for op in OPS if op.transport is Transport.local_subcommand
+    }
+    for shim_path in _installed_shims():
+        if shim_path.name not in batch_bins:
+            continue
+        text = shim_path.read_text(encoding="utf-8")
+        assert "--confirmed-write" in text
+        assert "forbidden" in text.casefold()
+
     for op in OPS:
-        if op.transport is Transport.viewset:
-            assert op.gate_class is GateClass.unrouted
-        elif op.transport is Transport.local_subcommand:
-            assert op.gate_class is GateClass.read
-        elif op.op_id in {"entity", "parse", "graph", "report", "generate-submission", "run-ls", "build-upload-xlsx"}:
-            assert op.gate_class is GateClass.read
+        expected = _expected_gate_class(op)
+        assert op.gate_class is expected, (
+            f"{op.op_id}: gate_class {op.gate_class!r} != enforcement-derived {expected!r}"
+        )
 
 
 def test_read_safe_endpoints_schema_and_ops_api_read_agree():
