@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Literal
 
 from build_tools.gen_op_surfaces.blocks import render_marked_file
+from build_tools.gen_op_surfaces.claude_md import (
+    emit_claude_ops_block,
+    emit_claude_plugins_block,
+    emit_claude_skills_block,
+    guard_claude_md_render,
+)
 from build_tools.gen_op_surfaces.commands import (
     discover_command_surface_paths,
     emit_command_ops_block,
@@ -20,12 +26,20 @@ from build_tools.gen_op_surfaces.constants import (
     CANONICAL_CAPABILITIES_REL,
     CAPABILITIES_COPY_BEGIN,
     CAPABILITIES_COPY_END,
+    CLAUDE_MD_REL,
+    CLAUDE_OPS_BEGIN,
+    CLAUDE_OPS_END,
+    CLAUDE_PLUGINS_BEGIN,
+    CLAUDE_PLUGINS_END,
+    CLAUDE_SKILLS_BEGIN,
+    CLAUDE_SKILLS_END,
     COMMAND_OPS_BEGIN,
     COMMAND_OPS_END,
     COMPOSE_REL,
     DOCKERFILE_REL,
     EXIT_CHANGES_WRITTEN,
     EXIT_NO_CHANGE,
+    NEXTSEEK_DOCS_BEGIN,
     PLUGIN_COPY_BEGIN,
     PLUGIN_COPY_END,
     PLUGIN_PATH_BEGIN,
@@ -159,6 +173,45 @@ def _docker_surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
     return tuple(targets)
 
 
+def _claude_md_surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
+    path = repo_root / CLAUDE_MD_REL
+    if not path.is_file():
+        return tuple()
+    text = path.read_text(encoding="utf-8")
+    targets: list[SurfaceTarget] = []
+    if CLAUDE_PLUGINS_BEGIN in text and CLAUDE_PLUGINS_END in text:
+        targets.append(
+            SurfaceTarget(
+                rel_path=CLAUDE_MD_REL,
+                kind="marked_block",
+                begin_marker=CLAUDE_PLUGINS_BEGIN,
+                end_marker=CLAUDE_PLUGINS_END,
+                emit=emit_claude_plugins_block,
+            )
+        )
+    if CLAUDE_SKILLS_BEGIN in text and CLAUDE_SKILLS_END in text:
+        targets.append(
+            SurfaceTarget(
+                rel_path=CLAUDE_MD_REL,
+                kind="marked_block",
+                begin_marker=CLAUDE_SKILLS_BEGIN,
+                end_marker=CLAUDE_SKILLS_END,
+                emit=emit_claude_skills_block,
+            )
+        )
+    if CLAUDE_OPS_BEGIN in text and CLAUDE_OPS_END in text:
+        targets.append(
+            SurfaceTarget(
+                rel_path=CLAUDE_MD_REL,
+                kind="marked_block",
+                begin_marker=CLAUDE_OPS_BEGIN,
+                end_marker=CLAUDE_OPS_END,
+                emit=emit_claude_ops_block,
+            )
+        )
+    return tuple(targets)
+
+
 def surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
     """Return declared generated targets in stable sorted order."""
     targets = (
@@ -170,6 +223,7 @@ def surface_targets(repo_root: Path) -> tuple[SurfaceTarget, ...]:
         *_command_surface_targets(repo_root),
         *_skill_surface_targets(repo_root),
         *_docker_surface_targets(repo_root),
+        *_claude_md_surface_targets(repo_root),
     )
     return tuple(sorted(targets, key=lambda item: item.rel_path))
 
@@ -192,6 +246,8 @@ def _render_target_bytes(target: SurfaceTarget, repo_root: Path) -> bytes:
         target.end_marker or "",
         block,
     )
+    if target.rel_path == CLAUDE_MD_REL and NEXTSEEK_DOCS_BEGIN in original:
+        guard_claude_md_render(original=original, updated=updated)
     return updated.encode("utf-8")
 
 

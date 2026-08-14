@@ -215,6 +215,7 @@ def test_gen_op_surfaces_check_cli_exits_zero() -> None:
         ["--check", "--root", str(REPO_ROOT)],
         cwd=REPO_ROOT,
         env=_env(TMPDIR="/tmp"),
+        with_pydantic=True,
     )
     assert result.returncode == 0, result.stderr or result.stdout
 
@@ -265,6 +266,7 @@ def test_readonly_repo_mount_no_write_oracle_for_export_and_gen_surfaces() -> No
             ["--check", "--root", str(REPO_ROOT)],
             cwd=REPO_ROOT,
             env=env,
+            with_pydantic=True,
         )
         assert surfaces.returncode == 0, surfaces.stderr or surfaces.stdout
 

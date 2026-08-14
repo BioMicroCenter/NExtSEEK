@@ -30,6 +30,20 @@ CAPABILITIES_COPY_END = "# END PLAN005-GEN:capabilities-copy"
 ADDITIONAL_CONTEXTS_BEGIN = "# BEGIN PLAN005-GEN:additional-contexts"
 ADDITIONAL_CONTEXTS_END = "# END PLAN005-GEN:additional-contexts"
 
+CLAUDE_MD_REL = "docker/cc-runtime/container/CLAUDE.md"
+CONTENT_HASH_REL = "docker/cc-runtime/docs/nextseek/.content-hash"
+NEXTSEEK_DOCS_PIN_REF = "a9d69522"
+
+CLAUDE_PLUGINS_BEGIN = "<!-- BEGIN PLAN005-GEN:plugins -->"
+CLAUDE_PLUGINS_END = "<!-- END PLAN005-GEN:plugins -->"
+CLAUDE_SKILLS_BEGIN = "<!-- BEGIN PLAN005-GEN:skills -->"
+CLAUDE_SKILLS_END = "<!-- END PLAN005-GEN:skills -->"
+CLAUDE_OPS_BEGIN = "<!-- BEGIN PLAN005-GEN:operations -->"
+CLAUDE_OPS_END = "<!-- END PLAN005-GEN:operations -->"
+
+NEXTSEEK_DOCS_BEGIN = "<!-- BEGIN NEXTSEEK-DOCS (auto-generated) -->"
+NEXTSEEK_DOCS_END = "<!-- END NEXTSEEK-DOCS (auto-generated) -->"
+
 NAMED_CAPABILITIES_CONTEXT = "chat_nextseek"
 CANONICAL_CAPABILITIES_IN_CONTEXT = (
     "src/chat_nextseek/context/capabilities.md"
