@@ -49,6 +49,28 @@ def test_materialize_verifies_blob_identity(tmp_path: Path):
     assert identities["tool_tree"] == identities["subject_tree"]
 
 
+def test_materialize_preserves_git_executable_mode(tmp_path: Path):
+    repo = tmp_path / "repo"
+    dest = tmp_path / "dest"
+    repo.mkdir()
+    _git_init(repo)
+    script = repo / "run-tool"
+    script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    script.chmod(0o755)
+    subprocess.run(["git", "add", "run-tool"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "add tool"], cwd=repo, check=True)
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    materialize_base_tree(repo_root=repo, base=head, dest=dest)
+    assert (dest / "run-tool").stat().st_mode & 0o111 == 0o111
+
+
 def test_materialize_refuses_wrong_blob(tmp_path: Path):
     repo = tmp_path / "repo"
     dest = tmp_path / "dest"

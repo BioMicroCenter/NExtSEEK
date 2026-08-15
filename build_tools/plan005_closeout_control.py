@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
@@ -640,6 +641,10 @@ def _validate_materialized_base(
     for relative in sorted(expected_fixed):
         if _git_blob_sha(subject / relative) != expected[relative][1]:
             raise CloseoutError(f"immutable-base materialized blob mismatch: {relative}")
+        expected_mode = int(expected[relative][0][-3:], 8)
+        actual_mode = stat.S_IMODE((subject / relative).stat().st_mode)
+        if actual_mode != expected_mode:
+            raise CloseoutError(f"immutable-base materialized mode mismatch: {relative}")
 
     index_path = baseline_dir / "base.index"
     env = dict(os.environ)

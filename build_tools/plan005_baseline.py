@@ -103,6 +103,9 @@ def materialize_base_tree(
         if digest != sha:
             raise BaselineError(f"wrong blob at {path}: {digest} != {sha}")
         target.write_bytes(data)
+        if mode not in {"100644", "100755"}:
+            raise BaselineError(f"unsupported blob mode {mode} at {path}")
+        target.chmod(0o755 if mode == "100755" else 0o644)
         blob_manifest[path] = sha
     extracted = {
         p.relative_to(dest).as_posix()
