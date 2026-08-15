@@ -1198,8 +1198,9 @@ def test_gap3_fourteen_production_units():
             "PAID_PROJECTIONS = []\nPAID_PROJECTIONS = 1\n"
             "    for op, model, projected, args_dict in PAID_PROJECTIONS:\n"
         )
-    surv = load_cc("scripts/verify_merge_survivals.py")
-    assert surv.has("docker-compose.yml", "dmac-cc-net") in (True, False)
+    with pytest.raises(SystemExit) as surv_ex:
+        load_cc("scripts/verify_merge_survivals.py")
+    assert surv_ex.value.code == 0
     dry = load_cc("scripts/step7_validator_dry_run.py")
     assert hasattr(dry, "main")
     hostf = load_cc("scripts/step7_gate3d_host_finalize.py")
