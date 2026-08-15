@@ -37,7 +37,10 @@ class CloseoutError(ValueError):
 
 
 def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except FileNotFoundError as exc:
+        raise CloseoutError(f"missing bound evidence file: {path}") from exc
 
 
 def presented_diff_hash(repo_root: Path, artifact_paths: list[str]) -> str:
@@ -364,6 +367,232 @@ def _baml_manifest(repo_root: Path, relative: str) -> dict[str, str]:
     }
 
 
+def coerce_hash_manifest(raw: object, *, files_root: Path | None = None) -> dict[str, str]:
+    if isinstance(raw, dict):
+        return {str(key): str(value) for key, value in raw.items()}
+    if isinstance(raw, list):
+        if files_root is None:
+            raise CloseoutError("BAML filename-set manifest is RED without file hashes")
+        mapped: dict[str, str] = {}
+        for name in raw:
+            path = files_root / str(name)
+            if not path.is_file():
+                raise CloseoutError(f"BAML manifest path missing: {name}")
+            mapped[str(name)] = sha256_file(path)
+        return mapped
+    raise CloseoutError("BAML manifest must be a path→sha256 map")
+
+
+def router_client_subset(manifest: dict[str, str]) -> dict[str, str]:
+    prefix = "dmac_assistant/src/dmac_assistant/router/baml_client/"
+    out: dict[str, str] = {}
+    for key, digest in manifest.items():
+        if key.startswith(prefix):
+            out[key[len(prefix) :]] = digest
+        elif "/" not in key or not key.startswith("dmac_assistant/"):
+            out[key] = digest
+    return out
+
+
+def assert_baml_hash_equality(
+    *,
+    current_src: dict[str, str],
+    current_client: dict[str, str],
+    baseline_src: dict[str, str],
+    baseline_client: dict[str, str],
+    setup_client: dict[str, str],
+) -> None:
+    if current_src != baseline_src:
+        raise CloseoutError("STOP: BAML source path→sha256 drifted from immutable-base")
+    setup_router = router_client_subset(setup_client) or setup_client
+    if current_client != baseline_client:
+        raise CloseoutError(
+            "STOP: BAML generated-client path→sha256 drifted from immutable-base"
+        )
+    if current_client != setup_router:
+        raise CloseoutError(
+            "STOP: BAML generated-client path→sha256 drifted from 04-baml-setup"
+        )
+
+
+def validate_plan_copies(plan_path: Path, plan_mirror: Path, approved_plan_sha: str) -> tuple[str, str]:
+    plan_hash = sha256_file(plan_path)
+    mirror_hash = sha256_file(plan_mirror)
+    if plan_hash != approved_plan_sha:
+        raise CloseoutError("plan SHA mismatch vs --approved-plan-sha")
+    if plan_hash != mirror_hash:
+        raise CloseoutError("unequal plan copies")
+    return plan_hash, mirror_hash
+
+
+def validate_record_commit_times(
+    records: list[dict[str, Any]],
+    *,
+    identity: dict[str, str],
+    commit_time: str,
+) -> None:
+    for record in records:
+        pre = record.get("pre") or {}
+        post = record.get("post") or {}
+        for snap in (pre, post):
+            if snap.get("head") != identity["head"]:
+                raise CloseoutError(f"{record['name']}: record-time HEAD mismatch")
+            if snap.get("tree") != identity["tree"]:
+                raise CloseoutError(f"{record['name']}: record-time tree mismatch")
+        if record["start_time"] < commit_time:
+            raise CloseoutError(
+                f"{record['name']}: stale timestamp preceding final commit"
+            )
+
+
+JUNIT_RELS: dict[str, str] = {
+    "05-future-op": "artifacts/future-op/future-op.junit.xml",
+    "06-audit-a": "artifacts/audit-a/audit-a.junit.xml",
+    "07-assistant-route": "artifacts/assistant-route/assistant-route.junit.xml",
+    "08-build-tools": "artifacts/build-tools/build-tools.junit.xml",
+    "12-coverage-run": "artifacts/coverage-run/cc-assistant.junit.xml",
+}
+COVERAGE_JSON_REL = "artifacts/coverage-json/cc-assistant-coverage.json"
+GENERATED_TARGET_RELS: tuple[str, ...] = (
+    "nextseek_api/cc_assistant/op_registry/ops.json",
+    "docker/cc-runtime/build_context/plugins/nextseek/context/ops.json",
+    "docker/cc-runtime/build_context/plugins/nextseek/commands/nextseek.md",
+    "docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek/SKILL.md",
+    "docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek-batch-upload/SKILL.md",
+    "docker/cc-runtime/container/CLAUDE.md",
+    "dmac_assistant/build_context/route_capabilities.json",
+    "docker/cc-runtime/Dockerfile",
+    "docker-compose.yml",
+    "chat_nextseek/src/chat_nextseek/context/capabilities.md",
+)
+
+
+def validate_on_disk_record_hashes(
+    records: list[dict[str, Any]], evidence_root: Path
+) -> None:
+    for record in records:
+        after = record.get("evidence_root_after") or {}
+        for rel, digest in after.items():
+            path = evidence_root / rel
+            if path.is_file() and sha256_file(path) != digest:
+                raise CloseoutError(f"on-disk hash drifted from record: {rel}")
+
+
+def validate_producer_consumer(
+    records: list[dict[str, Any]], evidence_root: Path
+) -> list[dict[str, str]]:
+    by_name = {row["name"]: row for row in records}
+    bindings: list[dict[str, str]] = []
+    coverage_json = evidence_root / COVERAGE_JSON_REL
+    if not coverage_json.is_file():
+        raise CloseoutError("missing 13-coverage-json output")
+    coverage_digest = sha256_file(coverage_json)
+    producer_after = by_name["13-coverage-json"].get("evidence_root_after") or {}
+    recorded = producer_after.get(COVERAGE_JSON_REL)
+    if recorded != coverage_digest:
+        raise CloseoutError(
+            "producer-to-consumer: gate coverage-json digest != 13-coverage-json output"
+        )
+    bindings.append(
+        {
+            "consumer": "16-final-gate",
+            "producer": "13-coverage-json",
+            "path": COVERAGE_JSON_REL,
+            "sha256": coverage_digest,
+        }
+    )
+    for lane, rel in JUNIT_RELS.items():
+        path = evidence_root / rel
+        if not path.is_file():
+            raise CloseoutError(f"missing JUnit: {rel}")
+        digest = sha256_file(path)
+        after = by_name[lane].get("evidence_root_after") or {}
+        if after.get(rel) != digest:
+            raise CloseoutError(f"producer-to-consumer: {lane} JUnit digest mismatch")
+        bindings.append(
+            {
+                "consumer": "16-final-gate" if lane != "12-coverage-run" else "13-coverage-json",
+                "producer": lane,
+                "path": rel,
+                "sha256": digest,
+            }
+        )
+    gate = by_name["16-final-gate"]
+    argv = list(gate.get("argv") or [])
+    expected_coverage = "/all-evidence/" + COVERAGE_JSON_REL
+    if expected_coverage not in argv:
+        raise CloseoutError("16-final-gate missing coverage-json producer path")
+    for rel in JUNIT_RELS.values():
+        token = "/all-evidence/" + rel
+        if token not in argv:
+            raise CloseoutError(f"16-final-gate missing junit producer path {rel}")
+    return bindings
+
+
+def collect_bound_evidence(
+    *,
+    repo_root: Path,
+    evidence_root: Path,
+    records: list[dict[str, Any]],
+    baml_src: dict[str, str],
+    baml_client: dict[str, str],
+    producer_bindings: list[dict[str, str]],
+) -> dict[str, str]:
+    bound: dict[str, str] = {}
+    for rel, digest in baml_src.items():
+        bound[f"repo:dmac_assistant/baml_src/{rel}"] = digest
+    for rel, digest in baml_client.items():
+        bound[
+            f"repo:dmac_assistant/src/dmac_assistant/router/baml_client/{rel}"
+        ] = digest
+    for rel in GENERATED_TARGET_RELS:
+        path = repo_root / rel
+        if path.is_file():
+            bound[f"repo:{rel}"] = sha256_file(path)
+    compose_stdout = evidence_root / "records/10-compose-json/stdout.bin"
+    if compose_stdout.is_file():
+        bound["evidence:records/10-compose-json/stdout.bin"] = sha256_file(compose_stdout)
+    from build_tools.plan005_validate_plugins.validate import hash_plugin_tree
+
+    plugin_dir = (
+        repo_root / "docker/cc-runtime/build_context/plugins/nextseek"
+    )
+    if plugin_dir.is_dir():
+        bound["plugin_tree:nextseek"] = hash_plugin_tree(plugin_dir)
+    for item in producer_bindings:
+        bound[f"evidence:{item['path']}"] = item["sha256"]
+    for record in records:
+        name = record["name"]
+        rec_path = evidence_root / "records" / name / "record.json"
+        if rec_path.is_file():
+            bound[f"evidence:records/{name}/record.json"] = sha256_file(rec_path)
+    return bound
+
+
+def rehash_bound_evidence(
+    bound: dict[str, str],
+    *,
+    repo_root: Path,
+    evidence_root: Path,
+) -> None:
+    from build_tools.plan005_validate_plugins.validate import hash_plugin_tree
+
+    for key, expected in bound.items():
+        if key.startswith("repo:"):
+            actual = sha256_file(repo_root / key[len("repo:") :])
+        elif key.startswith("evidence:"):
+            actual = sha256_file(evidence_root / key[len("evidence:") :])
+        elif key.startswith("plugin_tree:"):
+            name = key.split(":", 1)[1]
+            actual = hash_plugin_tree(
+                repo_root / "docker/cc-runtime/build_context/plugins" / name
+            )
+        else:
+            raise CloseoutError(f"unknown bound evidence key: {key}")
+        if actual != expected:
+            raise CloseoutError(f"preflight-bound evidence hash drifted: {key}")
+
+
 def run_preflight(
     *,
     evidence_root: Path,
@@ -383,12 +612,9 @@ def run_preflight(
         raise CloseoutError("evidence directory basename must equal HEAD")
     if identity["porcelain"].strip():
         raise CloseoutError("dirty tree")
-    plan_hash = sha256_file(plan_path)
-    mirror_hash = sha256_file(plan_mirror)
-    if plan_hash != approved_plan_sha:
-        raise CloseoutError("plan SHA mismatch vs --approved-plan-sha")
-    if plan_hash != mirror_hash:
-        raise CloseoutError("unequal plan copies")
+    plan_hash, mirror_hash = validate_plan_copies(
+        plan_path, plan_mirror, approved_plan_sha
+    )
     backup_hash = sha256_file(backup_path)
     if backup_hash != BACKUP_SHA:
         raise CloseoutError("pre-hardening backup hash mismatch")
@@ -403,36 +629,77 @@ def run_preflight(
     )
     span = validate_span(records)
     commit_time = git_cmd(repo_root, "log", "-1", "--format=%cI").strip()
-    for record in records:
-        pre = record.get("pre") or {}
-        post = record.get("post") or {}
-        for snap in (pre, post):
-            if snap.get("head") != identity["head"]:
-                raise CloseoutError(f"{record['name']}: record-time HEAD mismatch")
-            if snap.get("tree") != identity["tree"]:
-                raise CloseoutError(f"{record['name']}: record-time tree mismatch")
-        if record["start_time"] < commit_time:
-            raise CloseoutError(
-                f"{record['name']}: stale timestamp preceding final commit"
-            )
+    validate_record_commit_times(records, identity=identity, commit_time=commit_time)
+    validate_on_disk_record_hashes(records, evidence_root)
+    producer_bindings = validate_producer_consumer(records, evidence_root)
     neither = load_neither_success(repo_root)
     baml_src = _baml_manifest(repo_root, "dmac_assistant/baml_src")
     baml_client = _baml_manifest(
         repo_root, "dmac_assistant/src/dmac_assistant/router/baml_client"
     )
     baseline_dir = Path(EVIDENCE_PARENT) / "base-a9d69522" / identity["head"]
+    baseline_src_raw: object = {}
+    baseline_client_raw: object = {}
     if (baseline_dir / "baml_src-manifest.json").is_file():
-        baseline_src = json.loads(
+        baseline_src_raw = json.loads(
             (baseline_dir / "baml_src-manifest.json").read_text(encoding="utf-8")
         )
-        if isinstance(baseline_src, list) and set(baseline_src) != set(baml_src):
-            raise CloseoutError("BAML source manifest drifted from baseline")
     if (baseline_dir / "baml_client-manifest.json").is_file():
-        baseline_client = json.loads(
+        baseline_client_raw = json.loads(
             (baseline_dir / "baml_client-manifest.json").read_text(encoding="utf-8")
         )
-        if isinstance(baseline_client, list) and set(baseline_client) != set(baml_client):
-            raise CloseoutError("BAML generated-client manifest drifted from baseline")
+    src_files = baseline_dir / "subject-tree" / "dmac_assistant/baml_src"
+    baseline_src = coerce_hash_manifest(
+        baseline_src_raw, files_root=src_files if src_files.is_dir() else None
+    )
+    baseline_client = coerce_hash_manifest(baseline_client_raw)
+    by_name = {row["name"]: row for row in records}
+    setup_client = dict(
+        by_name["04-baml-setup"].get("declared_generated_target_manifest") or {}
+    )
+    assert_baml_hash_equality(
+        current_src=baml_src,
+        current_client=baml_client,
+        baseline_src=baseline_src,
+        baseline_client=baseline_client,
+        setup_client=setup_client,
+    )
+    bound_evidence = collect_bound_evidence(
+        repo_root=repo_root,
+        evidence_root=evidence_root,
+        records=records,
+        baml_src=baml_src,
+        baml_client=baml_client,
+        producer_bindings=producer_bindings,
+    )
+    generated_target_manifest = {
+        rel: sha256_file(repo_root / rel)
+        for rel in GENERATED_TARGET_RELS
+        if (repo_root / rel).is_file()
+    }
+    junit_hashes = {
+        lane: sha256_file(evidence_root / rel) for lane, rel in JUNIT_RELS.items()
+    }
+    plugin_tree_hashes = {
+        key.split(":", 1)[1]: digest
+        for key, digest in bound_evidence.items()
+        if key.startswith("plugin_tree:")
+    }
+    lane_evidence = {
+        row["name"]: {
+            "start_time": row["start_time"],
+            "end_time": row["end_time"],
+            "stdout_sha256": row.get("stdout_sha256"),
+            "stderr_sha256": row.get("stderr_sha256"),
+            "record_sha256": sha256_file(
+                evidence_root / "records" / row["name"] / "record.json"
+            ),
+        }
+        for row in records
+    }
+    compose_config_sha256 = sha256_file(
+        evidence_root / "records/10-compose-json/stdout.bin"
+    )
     payload = {
         "stage": "preflight",
         "verdict": "GREEN",
@@ -471,6 +738,14 @@ def run_preflight(
         "artifact_namespace_example": artifact_namespace("05-future-op"),
         "repo_root_template": REPO_ROOT_TEMPLATE,
         "approved_plan_sha_default": APPROVED_PLAN_SHA,
+        "compose_config_sha256": compose_config_sha256,
+        "plugin_tree_hashes": plugin_tree_hashes,
+        "generated_target_manifest": generated_target_manifest,
+        "junit_hashes": junit_hashes,
+        "producer_consumer": producer_bindings,
+        "lane_evidence": lane_evidence,
+        "bound_evidence": bound_evidence,
+        "baml_setup_client_manifest": router_client_subset(setup_client) or setup_client,
     }
     output_path.write_text(
         json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8"
@@ -488,11 +763,9 @@ def _require_cold_pass(path: Path) -> None:
         raise CloseoutError("cold review missing subagent_id")
     if "prompt_verbatim: true" not in text:
         raise CloseoutError("cold review missing prompt_verbatim")
-    if re.search(r"verdict:\s*(PARTIAL|FAIL)", text, re.IGNORECASE):
+    if re.search(r"verdict:\s*(PARTIAL|FAIL)\b", text, re.IGNORECASE):
         raise CloseoutError("cold review is not PASS")
-    if re.search(r"verdict:\s*PASS", text, re.IGNORECASE) is None and not re.search(
-        r"\bPASS\b", text
-    ):
+    if re.search(r"^verdict:\s*PASS\s*$", text, re.IGNORECASE | re.MULTILINE) is None:
         raise CloseoutError("cold review is not PASS")
 
 
@@ -512,6 +785,10 @@ def run_finalize(
     if preflight.get("head") != identity["head"]:
         raise CloseoutError("finalize HEAD drifted from preflight")
     _require_cold_pass(cold_path)
+    bound = dict(preflight.get("bound_evidence") or {})
+    if not bound:
+        raise CloseoutError("preflight missing bound_evidence")
+    rehash_bound_evidence(bound, repo_root=repo_root, evidence_root=evidence_root)
     payload = {
         "stage": "finalize",
         "verdict": "GREEN",
@@ -522,6 +799,8 @@ def run_finalize(
         "plan018_neither_success": preflight.get("plan018_neither_success"),
         "records": preflight.get("records"),
         "evidence_root": str(evidence_root),
+        "repo_root": str(repo_root),
+        "bound_evidence": bound,
     }
     output_path.write_text(
         json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8"
@@ -534,6 +813,12 @@ def run_verify(*, finalize_path: Path, output_path: Path) -> dict[str, Any]:
     finalize = json.loads(finalize_path.read_text(encoding="utf-8"))
     if finalize.get("verdict") != "GREEN":
         raise CloseoutError("finalize verdict is not GREEN")
+    bound = dict(finalize.get("bound_evidence") or {})
+    if not bound:
+        raise CloseoutError("finalize missing bound_evidence")
+    evidence_root = Path(finalize["evidence_root"])
+    repo_root = Path(finalize["repo_root"])
+    rehash_bound_evidence(bound, repo_root=repo_root, evidence_root=evidence_root)
     payload = {
         "stage": "verify",
         "verdict": "GREEN",
@@ -543,6 +828,7 @@ def run_verify(*, finalize_path: Path, output_path: Path) -> dict[str, Any]:
         "plan_rel": PLAN_REL,
         "default_mirror": str(DEFAULT_MIRROR),
         "default_signoff_dir": str(DEFAULT_SIGNOFF_DIR),
+        "bound_evidence": bound,
     }
     output_path.write_text(
         json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8"

@@ -351,7 +351,7 @@ def test_signoff_and_plan_copy_and_head_swap_mutations(tmp_path):
             candidate="a" * 40,
         )
     assert rec_b[0]["pre"]["head"] != rec_a[0]["pre"]["head"]
-    assert presented_diff_hash(real, [rel]).startswith("fc59") or True
+    assert presented_diff_hash(real, [rel]).startswith("fc59")
 
 
 def test_finalize_requires_cold_pass(tmp_path):
@@ -366,3 +366,109 @@ def test_finalize_requires_cold_pass(tmp_path):
     )
     with pytest.raises(CloseoutError, match="not PASS"):
         _require_cold_pass(path)
+    path.write_text(
+        "reviewer_kind: cold_subagent\nsubagent_id: x\nprompt_verbatim: true\nA bare PASS token is not enough.\n"
+    )
+    with pytest.raises(CloseoutError, match="not PASS"):
+        _require_cold_pass(path)
+    path.write_text(
+        "reviewer_kind: cold_subagent\nsubagent_id: x\nprompt_verbatim: true\nverdict: PASS\n"
+    )
+    _require_cold_pass(path)
+
+
+def test_named_closeout_mutants_plan_baml_stale_signoff_and_producer(tmp_path):
+    from build_tools.plan005_closeout import APPROVED_PLAN_SHA, PLAN_REL
+    from build_tools.plan005_closeout_control import (
+        CloseoutError,
+        assert_baml_hash_equality,
+        rehash_bound_evidence,
+        validate_plan_copies,
+        validate_producer_consumer,
+        validate_record_commit_times,
+        validate_signoffs,
+    )
+
+    src = {"classifier.baml": "a" * 64}
+    client = {"__init__.py": "b" * 64}
+    assert_baml_hash_equality(
+        current_src=src,
+        current_client=client,
+        baseline_src=dict(src),
+        baseline_client=dict(client),
+        setup_client={"dmac_assistant/src/dmac_assistant/router/baml_client/__init__.py": "b" * 64},
+    )
+    drifted = dict(client)
+    drifted["__init__.py"] = "c" * 64
+    with pytest.raises(CloseoutError, match="STOP"):
+        assert_baml_hash_equality(
+            current_src=src,
+            current_client=drifted,
+            baseline_src=dict(src),
+            baseline_client=dict(client),
+            setup_client={"dmac_assistant/src/dmac_assistant/router/baml_client/__init__.py": "b" * 64},
+        )
+
+    plan = tmp_path / "plan.md"
+    mirror = tmp_path / "mirror.md"
+    plan.write_bytes(b"alpha")
+    mirror.write_bytes(b"alpha")
+    with pytest.raises(CloseoutError, match="approved"):
+        validate_plan_copies(plan, mirror, APPROVED_PLAN_SHA)
+    real_plan = Path("/home/taishajo/work/NExtSEEK-plan005") / PLAN_REL
+    if real_plan.is_file():
+        plan.write_bytes(real_plan.read_bytes())
+        mirror.write_bytes(real_plan.read_bytes() + b"x")
+        with pytest.raises(CloseoutError, match="unequal plan copies"):
+            validate_plan_copies(plan, mirror, APPROVED_PLAN_SHA)
+
+    records = _synthetic_records(tmp_path / "abc123", "/repo", "abc123", "tree1")
+    (tmp_path / "abc123").mkdir(exist_ok=True)
+    with pytest.raises(CloseoutError, match="stale timestamp"):
+        validate_record_commit_times(
+            records,
+            identity={"head": "abc123", "tree": "tree1"},
+            commit_time="2026-08-15T19:00:00+00:00",
+        )
+
+    real = Path("/home/taishajo/work/NExtSEEK-plan005")
+    clone = tmp_path / "signed-repo"
+    for rel in (
+        "dmac_assistant/build_context/route_capabilities.json",
+        "docker/cc-runtime/build_context/plugins/nextseek/.claude-plugin/plugin.json",
+        "docker/cc-runtime/build_context/plugins/nextseek/commands/nextseek.md",
+        "docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek/SKILL.md",
+        "docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek-batch-upload/SKILL.md",
+        "docker/cc-runtime/Dockerfile",
+        "docker-compose.yml",
+        "docker/cc-runtime/container/CLAUDE.md",
+    ):
+        dest = clone / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes((real / rel).read_bytes())
+    signoff_dir = tmp_path / "signoffs-copy"
+    signoff_dir.mkdir()
+    for src_path in (real / "build_tools/plan005_signoffs").glob("*.json"):
+        shutil.copy2(src_path, signoff_dir / src_path.name)
+    validate_signoffs(clone, signoff_dir)
+    (clone / "docker-compose.yml").write_bytes(
+        (clone / "docker-compose.yml").read_bytes() + b"\n"
+    )
+    with pytest.raises(CloseoutError, match="earlier bytes"):
+        validate_signoffs(clone, signoff_dir)
+
+    evidence = tmp_path / "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    evidence.mkdir()
+    recs = _synthetic_records(
+        evidence, "/home/taishajo/work/NExtSEEK-plan005", evidence.name, "tree"
+    )
+    with pytest.raises(CloseoutError, match="missing"):
+        validate_producer_consumer(recs, evidence)
+
+    bound = {"evidence:records/missing.json": "0" * 64}
+    with pytest.raises((CloseoutError, FileNotFoundError)):
+        rehash_bound_evidence(
+            bound,
+            repo_root=real,
+            evidence_root=evidence,
+        )

@@ -450,6 +450,19 @@ def record_command(
         artifact_rel=f"artifacts/{expected_ns}",
     )
 
+    generated_manifest = declared_generated_target_manifest
+    if generated_manifest is None and declared_outputs:
+        generated_manifest = {}
+        for path in declared_outputs:
+            if not path.exists():
+                continue
+            for file_path in sorted(path.rglob("*")):
+                if file_path.is_file():
+                    rel = file_path.relative_to(repo_root).as_posix()
+                    generated_manifest[rel] = sha256_bytes(file_path.read_bytes())
+    if generated_manifest is None:
+        generated_manifest = {}
+
     payload = {
         "name": name,
         "argv": argv,
@@ -468,7 +481,7 @@ def record_command(
         "pre": pre,
         "post": post,
         "declared_source_manifest": declared_source_manifest or {},
-        "declared_generated_target_manifest": declared_generated_target_manifest or {},
+        "declared_generated_target_manifest": generated_manifest,
         "evidence_root_before": before_manifest,
         "evidence_root_after": after_manifest,
         "command_timeout_seconds": command_timeout_seconds,

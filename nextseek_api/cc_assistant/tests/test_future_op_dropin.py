@@ -35,6 +35,7 @@ OPS_JSON_REL = Path("nextseek_api/cc_assistant/op_registry/ops.json")
 BAKED_OPS_REL = PLUGIN_REL / "context" / "ops.json"
 COMMANDS_REL = PLUGIN_REL / "commands" / "nextseek.md"
 SKILL_NEXTSEEK_REL = PLUGIN_REL / "skills" / "nextseek" / "SKILL.md"
+SKILL_BATCH_REL = PLUGIN_REL / "skills" / "nextseek-batch-upload" / "SKILL.md"
 
 COPY_PATHS = (
     PLUGIN_REL,
@@ -381,6 +382,7 @@ GENERATED_RELS = (
     BAKED_OPS_REL,
     COMMANDS_REL,
     SKILL_NEXTSEEK_REL,
+    SKILL_BATCH_REL,
     CLAUDE_MD_REL,
     ROUTE_CAP_REL,
 )
@@ -438,6 +440,12 @@ def test_future_op_dropin_real_clis_change_generated_targets(tmp_path: Path, tra
     assert after[OPS_JSON_REL.as_posix()] != before[OPS_JSON_REL.as_posix()]
     assert after[BAKED_OPS_REL.as_posix()] != before[BAKED_OPS_REL.as_posix()]
     assert after[COMMANDS_REL.as_posix()] != before[COMMANDS_REL.as_posix()]
+    skill_rel = (
+        SKILL_BATCH_REL
+        if transport is Transport.local_subcommand
+        else SKILL_NEXTSEEK_REL
+    )
+    assert after[skill_rel.as_posix()] != before.get(skill_rel.as_posix(), "")
     assert after[CLAUDE_MD_REL.as_posix()] != before[CLAUDE_MD_REL.as_posix()]
     ops_payload = json.loads((root / OPS_JSON_REL).read_text(encoding="utf-8"))
     assert any(row["op_id"] == meta["op_id"] for row in ops_payload)
@@ -445,6 +453,8 @@ def test_future_op_dropin_real_clis_change_generated_targets(tmp_path: Path, tra
     assert any(row["op_id"] == meta["op_id"] for row in baked)
     commands = (root / COMMANDS_REL).read_text(encoding="utf-8")
     assert meta["bin_name"] in commands
+    skill_text = (root / skill_rel).read_text(encoding="utf-8")
+    assert meta["bin_name"] in skill_text or meta["op_id"] in skill_text
     claude = (root / CLAUDE_MD_REL).read_text(encoding="utf-8")
     assert meta["bin_name"] in claude
     if transport is not Transport.viewset:
@@ -562,6 +572,17 @@ def test_future_op_negatives_fail_actual_audit_and_check(tmp_path: Path):
     )
     stale_copy = _run(root, GEN_MOD, ["--check", "--root", str(root)], timeout=240)
     assert stale_copy.returncode != 0
+    dockerfile.write_bytes(docker_bytes)
+    dockerfile.write_text(
+        dockerfile.read_text(encoding="utf-8").replace(
+            'ENV PATH="/app/plugins/nextseek/bin:${PATH}"',
+            'ENV PATH="/app/plugins/stale/bin:${PATH}"',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    stale_path = _run(root, GEN_MOD, ["--check", "--root", str(root)], timeout=240)
+    assert stale_path.returncode != 0
     dockerfile.write_bytes(docker_bytes)
 
     route = root / ROUTE_CAP_REL

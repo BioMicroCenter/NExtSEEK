@@ -139,12 +139,18 @@ def _publish_baseline_junit(*, pytest_writable: Path, output: Path) -> None:
         shutil.copy2(src, dest)
 
 
-def sorted_file_manifest(root: Path) -> list[str]:
+def hashed_file_manifest(root: Path) -> dict[str, str]:
     if not root.exists():
-        return []
-    return sorted(
-        p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()
-    )
+        return {}
+    return {
+        p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    }
+
+
+def sorted_file_manifest(root: Path) -> list[str]:
+    return sorted(hashed_file_manifest(root))
 
 
 def baseline_identities(*, repo_root: Path, base: str, git_runner=None) -> dict[str, str]:
@@ -259,8 +265,8 @@ def run_baseline_lane(
         repo_root=repo_root,
     )
     _publish_baseline_junit(pytest_writable=pytest_writable, output=output)
-    baml_src = sorted_file_manifest(repo_root / BAML_SRC_GLOB)
-    baml_client = sorted_file_manifest(repo_root / BAML_CLIENT_GLOB)
+    baml_src = hashed_file_manifest(repo_root / BAML_SRC_GLOB)
+    baml_client = hashed_file_manifest(repo_root / BAML_CLIENT_GLOB)
     (output / "baml_src-manifest.json").write_text(
         json.dumps(baml_src, indent=2) + "\n", encoding="utf-8"
     )
