@@ -242,6 +242,8 @@ def run_baseline_lane(
     blob_manifest = materialize_base_tree(
         repo_root=repo_root, base=base, dest=extract_dir
     )
+    for relative in ("schema_rag/duckdb", "schema_rag/embedding_models"):
+        (extract_dir / relative).mkdir(parents=True, exist_ok=True)
     identities = baseline_identities(repo_root=repo_root, base=base)
     base_index = materialize_base_index(repo_root=repo_root, base=base, output=output)
     common_git = git_common_dir(repo_root)

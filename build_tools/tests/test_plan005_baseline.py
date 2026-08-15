@@ -137,6 +137,8 @@ def test_run_baseline_lane_distinguishes_tool_and_subject(tmp_path: Path):
     assert summary["subject_base"] == head
     assert summary["tool_head"] != summary["subject_base"]
     assert "later.txt" not in summary["subject_blob_manifest"]
+    assert (output / "subject-tree/schema_rag/duckdb").is_dir()
+    assert (output / "subject-tree/schema_rag/embedding_models").is_dir()
     assert len(records) == 2
     assert records[0]["name"] == "01-baseline-baml"
     assert "--ignore" in records[1]["argv"]
