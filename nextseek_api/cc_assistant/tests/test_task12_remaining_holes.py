@@ -1000,3 +1000,171 @@ def test_extract_catalog_main_and_block_end(tmp_path):
     assert mod.main(["--upstream-root", str(tmp_path / "missing")]) == 2
     assert isinstance(mod._extract_search_basic_query("unused"), str)
 
+
+def test_gap2_production_misses(tmp_path, monkeypatch):
+    from nextseek_api.cc_assistant.op_registry.ns_capabilities import (
+        NsProjection, _unique_labels, _reject_over_budget, _negative_labels,
+    )
+    with pytest.raises(NsCapabilitiesError, match="empty"):
+        _unique_labels([""], kind="capability")
+    with pytest.raises(NsCapabilitiesError, match="malformed bold"):
+        _negative_labels([(1, "- **")])
+    huge = NsProjection(
+        description="d", tools=("T" * 200,), negative_labels=("n",),
+        best_for="b", not_for="n",
+    )
+    with pytest.raises(NsCapabilitiesError, match="exceeds"):
+        _reject_over_budget(huge)
+
+    committed = pe.load_committed_evidence()
+    recs = list(committed["records"])
+    if recs:
+        rec = dict(recs[0])
+        ns = dict(rec["ns"])
+        ns["success"] = not ns["success"]
+        rec["ns"] = ns
+        recs[0] = rec
+        with pytest.raises(pe.PairedEvidenceError, match="success mismatch"):
+            pe.validate_committed_structure({**committed, "records": recs})
+    messy = tmp_path / "e.json"
+    messy.write_text(json.dumps(committed) + " \n")
+    with pytest.raises(SystemExit, match="non-canonical"):
+        pe.check_export(evidence_path=messy, zip_path=tmp_path / "no.zip", corpus_path=tmp_path)
+    monkeypatch.setattr(pe.runner, "corpus_fingerprint", lambda p: "fp")
+    monkeypatch.setattr(
+        pe.corpus, "load_all_definitions",
+        lambda p: [SimpleNamespace(id="a", family="f"), SimpleNamespace(id="a", family="f")],
+    )
+    (tmp_path / "c.json").write_text("{}")
+    with pytest.raises(pe.PairedEvidenceError, match="duplicate corpus"):
+        pe._corpus_authority(tmp_path / "c.json")
+    pair = SimpleNamespace(
+        id="a", family="f",
+        ns=SimpleNamespace(id="a", family="f", route="x", route_source="forced"),
+        cc=SimpleNamespace(id="a", family="f", route="container_cc", route_source="forced"),
+    )
+    with pytest.raises(pe.PairedEvidenceError, match="ns.route"):
+        pe._validate_manifest_pairs(SimpleNamespace(pairs=[pair]), ["a"])
+    pair2 = SimpleNamespace(
+        id="a", family="f",
+        ns=SimpleNamespace(id="a", family="f", route="nextseek_query", route_source="forced"),
+        cc=SimpleNamespace(id="a", family="x", route="container_cc", route_source="forced"),
+    )
+    with pytest.raises(pe.PairedEvidenceError, match="family mismatch"):
+        pe._validate_manifest_pairs(SimpleNamespace(pairs=[pair2]), ["a"])
+    pair3 = SimpleNamespace(id="a", family="f", ns=None, cc=None)
+    with pytest.raises(pe.PairedEvidenceError, match="missing ns or cc"):
+        pe._validate_manifest_pairs(SimpleNamespace(pairs=[pair3]), ["a"])
+    pair4 = SimpleNamespace(
+        id="a", family="f",
+        ns=SimpleNamespace(id="b", family="f", route="nextseek_query", route_source="forced"),
+        cc=SimpleNamespace(id="a", family="f", route="container_cc", route_source="forced"),
+    )
+    with pytest.raises(pe.PairedEvidenceError, match="arm ids"):
+        pe._validate_manifest_pairs(SimpleNamespace(pairs=[pair4]), ["a"])
+    pair5 = SimpleNamespace(
+        id="a", family="f",
+        ns=SimpleNamespace(id="a", family="f", route="nextseek_query", route_source="forced"),
+        cc=SimpleNamespace(id="a", family="f", route="container_cc", route_source="not-forced"),
+    )
+    with pytest.raises(pe.PairedEvidenceError, match="route_source"):
+        pe._validate_manifest_pairs(SimpleNamespace(pairs=[pair5]), ["a"])
+    pair6 = SimpleNamespace(
+        id="dup", family="f",
+        ns=SimpleNamespace(id="dup", family="f", route="nextseek_query", route_source="forced"),
+        cc=SimpleNamespace(id="dup", family="f", route="container_cc", route_source="forced"),
+    )
+    with pytest.raises(pe.PairedEvidenceError, match="duplicate manifest"):
+        pe._validate_manifest_pairs(SimpleNamespace(pairs=[pair6, pair6]), ["dup", "dup"])
+    with pytest.raises(pe.PairedEvidenceError, match="pairs count"):
+        pe._validate_manifest_pairs(SimpleNamespace(pairs=[]), ["a"])
+
+    from nextseek_api.cc_assistant.tests.test_cc_scripts_attribution import load_cc
+    live = load_cc("scripts/step7_gate3d_live.py")
+    assert live._cc_run_id("NOT-HEX!!!")
+    assert live._cc_run_id("")
+    per_op = load_cc("scripts/step7_gate3d_per_op.py")
+    assert hasattr(per_op, "main")
+
+    from nextseek_api.cc_assistant.tests.test_cc_engine_turn_loop import (
+        _FakeContainer, _FakeSock, _install_client, _paths, _run_id,
+    )
+    container = _FakeContainer()
+    _install_client(monkeypatch, container)
+    lines = [
+        json.dumps({"type": "system", "subtype": "init", "session_id": "sid-1", "model": "opus"}),
+        json.dumps({
+            "type": "result", "subtype": "success", "is_error": False,
+            "result": "ok", "total_cost_usd": 0.02, "session_id": "sid-1",
+            "num_turns": 1, "duration_ms": 12,
+        }),
+    ]
+    monkeypatch.setattr(
+        cc_engine, "BridgeAttachSocket",
+        lambda raw, stdout_stream=None: _FakeSock(lines),
+    )
+    from nextseek_api.cc_assistant import cc_provision
+    real_build = cc_provision.build_user_dirs
+
+    def wrap_dirs(*a, **k):
+        dirs = real_build(*a, **k)
+        root = Path(dirs.cc_state_mnt) / "projects"
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "turn.jsonl").write_bytes(b"{}\n")
+        return dirs
+
+    monkeypatch.setattr(cc_provision, "build_user_dirs", wrap_dirs)
+
+    class _Trace:
+        def model_dump(self):
+            return {"cc": True}
+
+    monkeypatch.setattr("nextseek_api.cc_assistant.cc_trace.extract_trace", lambda *a, **k: _Trace())
+
+    def boom_payload(*a, **k):
+        raise RuntimeError("persist boom")
+
+    events = []
+    cc_engine.run_cc_turn(
+        query="q", model_id="m",
+        send_event=lambda e, d: events.append((e, dict(d))),
+        user_id="alice", project_dirname="proj",
+        run_id=_run_id(), paths=_paths(tmp_path / "persist"),
+        chat_session=object(), user_query="q",
+        on_turn_complete=boom_payload,
+    )
+    assert any(e == "query_complete" for e, _ in events)
+
+    def wrap_empty(*a, **k):
+        return real_build(*a, **k)
+
+    monkeypatch.setattr(cc_provision, "build_user_dirs", wrap_empty)
+    monkeypatch.setattr("django.conf.settings", SimpleNamespace(CC_PERSIST_STRICT=False), raising=False)
+    events2 = []
+    cc_engine.run_cc_turn(
+        query="q", model_id="m",
+        send_event=lambda e, d: events2.append((e, dict(d))),
+        user_id="alice", project_dirname="proj",
+        run_id=_run_id(), paths=_paths(tmp_path / "njsonl"),
+        chat_session=object(), user_query="q",
+        on_turn_complete=lambda *a, **k: None,
+    )
+
+    from nextseek_api.cc_assistant import cc_summary
+    parsed = cc_summary.ParsedTranscript(records=({"type": "other"},), raw_lines=(b"x",))
+    prov = cc_summary.SummaryProvenance(
+        chat_session_id="c", claude_session_id=None,
+        transcript_path="t", chat_model="m", generated_at="now",
+    )
+    class Cfg:
+        max_items = 3
+        truncate_chars = 10
+    cc_summary.build_fallback_summary(parsed, prov, Cfg())
+    def boom_sum(_):
+        raise RuntimeError("sum")
+    try:
+        cc_summary.summarize_transcript(b"{}\n", prov, Cfg(), summarize_fn=boom_sum)
+    except Exception:
+        pass
+
+

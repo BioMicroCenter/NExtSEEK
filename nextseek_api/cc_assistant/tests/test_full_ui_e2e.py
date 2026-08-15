@@ -770,7 +770,7 @@ def test_artifact_helpers_and_recompute_mutations(monkeypatch, tmp_path):
         return approval
 
     qid = "q1"
-    for name in ["base", "ns"] + [f"m{i}" for i in range(2, 17)]:
+    for name in ["base", "ns"] + [f"m{i}" for i in range(2, 19)]:
         (tmp_path / name).mkdir()
 
     approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "base")
@@ -884,3 +884,23 @@ def test_artifact_helpers_and_recompute_mutations(monkeypatch, tmp_path):
     (ns_run / "summary.json").write_text(json.dumps(summary))
     monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", ns_fetch)
     assert full_ui_e2e.recompute_run_dir(ns_run, _sha(ns_approval, ns_run)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m17")
+    other = run_dir / qid / "turns" / "spare"
+    other.mkdir()
+    spare_complete = json.loads((run_dir / qid / "turns" / "main" / "complete.json").read_text())
+    (other / "complete.json").write_text(json.dumps(spare_complete))
+    (run_dir / qid / "turns" / "main" / "complete.json").unlink()
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m18")
+    other = run_dir / qid / "turns" / "spare"
+    other.mkdir()
+    spare_complete = json.loads((run_dir / qid / "turns" / "main" / "complete.json").read_text())
+    (other / "complete.json").write_text(json.dumps(spare_complete))
+    (run_dir / qid / "turns" / "main" / "complete.json").write_text("{")
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
