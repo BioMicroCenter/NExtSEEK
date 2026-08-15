@@ -12,6 +12,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from nessie_tests.pathsetup import ensure_e2e_importable
+
+
+def ensure_real_e2e_catalog() -> None:
+    """Reload chat_nextseek.e2e.catalog if a prior importer poisoned the name.
+
+    Full-suite collection under coverage.py can leave ``e2e.catalog`` as a
+    namespace stub without ``load_catalog``. Isolated imports of this module
+    then fail closed unless the stub is dropped after putting chat_nextseek
+    first on ``sys.path``.
+    """
+    ensure_e2e_importable()
+    catalog = sys.modules.get("e2e.catalog")
+    if catalog is not None and not hasattr(catalog, "load_catalog"):
+        for name in [key for key in sys.modules if key == "e2e" or key.startswith("e2e.")]:
+            del sys.modules[name]
+        ensure_e2e_importable()
+
+
+ensure_real_e2e_catalog()
+
 from nessie_tests import bayes_manifest as bm
 from nessie_tests import corpus
 from nessie_tests import export as nexport
