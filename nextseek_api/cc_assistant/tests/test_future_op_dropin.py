@@ -92,6 +92,7 @@ def _env(root: Path) -> dict[str, str]:
     env["PYTHONPATH"] = _pythonpath(root)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["TMPDIR"] = str(root / ".tmp")
+    env.pop("DJANGO_SETTINGS_MODULE", None)
     (root / ".tmp").mkdir(exist_ok=True)
     return env
 
@@ -405,6 +406,8 @@ def _audit(root: Path, *node_ids: str) -> subprocess.CompletedProcess[str]:
         str(AUDIT_REL),
         "-p",
         "no:cacheprovider",
+        "-p",
+        "no:django",
         "-q",
         "--tb=line",
     ]
