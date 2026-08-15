@@ -187,11 +187,11 @@ def protocol_rows() -> list[dict[str, Any]]:
                 "-v",
                 "{repo}:/repo:ro",
                 "-v",
-                "{repo}/dmac_assistant/src/dmac_assistant/router/baml_client:"
-                "/repo/dmac_assistant/src/dmac_assistant/router/baml_client",
+                "{repo}/dmac_assistant/src/dmac_assistant/router:"
+                "/repo/dmac_assistant/src/dmac_assistant/router",
                 "-v",
-                "{repo}/dmac_assistant/tools/e2e/baml_client:"
-                "/repo/dmac_assistant/tools/e2e/baml_client",
+                "{repo}/dmac_assistant/tools/e2e:"
+                "/repo/dmac_assistant/tools/e2e",
                 "-w",
                 "/repo",
                 "{image}",
