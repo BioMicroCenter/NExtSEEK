@@ -1007,8 +1007,8 @@ def test_gap2_production_misses(tmp_path, monkeypatch):
     )
     with pytest.raises(NsCapabilitiesError, match="empty"):
         _unique_labels([""], kind="capability")
-    with pytest.raises(NsCapabilitiesError, match="malformed bold"):
-        _negative_labels([(1, "- **")])
+        with pytest.raises(NsCapabilitiesError, match="unclosed bold"):
+            _negative_labels([(1, "- **")])
     huge = NsProjection(
         description="d", tools=("T" * 200,), negative_labels=("n",),
         best_for="b", not_for="n",
