@@ -173,16 +173,16 @@ def test_step7_host_finalize_writes_preflight_and_syncs_meta(monkeypatch, tmp_pa
 def test_gate3d_live_helpers_with_fake_docker(monkeypatch, tmp_path):
     monkeypatch.setattr("django.setup", lambda: None)
     live = load_cc("scripts/step7_gate3d_live.py")
-        clock = {"t": 0.0}
+    clock = {"t": 0.0}
 
-        def fake_time():
-            return clock["t"]
+    def fake_time():
+        return clock["t"]
 
-        def fake_sleep(_n=0, **_k):
-            clock["t"] += 80.0
+    def fake_sleep(_n=0, **_k):
+        clock["t"] += 80.0
 
-        monkeypatch.setattr(live.time, "time", fake_time)
-        monkeypatch.setattr(live.time, "sleep", fake_sleep)
+    monkeypatch.setattr(live.time, "time", fake_time)
+    monkeypatch.setattr(live.time, "sleep", fake_sleep)
 
     class ImmediateThread:
         def __init__(self, target=None, daemon=False, **kwargs):
@@ -204,11 +204,11 @@ def test_gate3d_live_helpers_with_fake_docker(monkeypatch, tmp_path):
         stdout = ""
         if "compose" in cmd and "config" in cmd:
             stdout = json.dumps({"services": {"nextseek": {}}})
-            elif cmd[:2] == ["docker", "ps"]:
-                stdout = "cid123\n"
-            elif "exec" in cmd and "find" in cmd:
-                stdout = "/data/input/own\n"
-            elif "inspect" in cmd and "Image" in joined:
+        elif cmd[:2] == ["docker", "ps"]:
+            stdout = "cid123\n"
+        elif "exec" in cmd and "find" in cmd:
+            stdout = "/data/input/own\n"
+        elif "inspect" in cmd and "Image" in joined:
             stdout = "img:tag\n"
         elif "network" in cmd:
             stdout = json.dumps([{"Name": "dmac-cc-net"}])
@@ -262,16 +262,16 @@ def test_gate3d_live_helpers_with_fake_docker(monkeypatch, tmp_path):
     live._r26_probes(bundle, run_id="rid")
     probes = json.loads((bundle / "R26-live-probes.json").read_text())["probes"]
     assert len(probes) == 5
-        live._r1_sidecar_proof(bundle, run_id="rid")
-        assert (bundle / "R1-sidecar-live-proof.json").is_file()
-        scan_dir = tmp_path / "scan-clean"
-        scan_dir.mkdir()
-        (scan_dir / "plain.txt").write_text("no secrets")
-        live._secret_scan(scan_dir)
-        assert json.loads((scan_dir / "secret_scan_report.json").read_text())["clean"] is True
-        (scan_dir / "leaky.txt").write_text("MYSQL_PASSWORD=x")
-        live._secret_scan(scan_dir)
-        assert json.loads((scan_dir / "secret_scan_report.json").read_text())["clean"] is False
+    live._r1_sidecar_proof(bundle, run_id="rid")
+    assert (bundle / "R1-sidecar-live-proof.json").is_file()
+    scan_dir = tmp_path / "scan-clean"
+    scan_dir.mkdir()
+    (scan_dir / "plain.txt").write_text("no secrets")
+    live._secret_scan(scan_dir)
+    assert json.loads((scan_dir / "secret_scan_report.json").read_text())["clean"] is True
+    (scan_dir / "leaky.txt").write_text("MYSQL_PASSWORD=x")
+    live._secret_scan(scan_dir)
+    assert json.loads((scan_dir / "secret_scan_report.json").read_text())["clean"] is False
 
     monkeypatch.setattr(
         live.subprocess, "run",
