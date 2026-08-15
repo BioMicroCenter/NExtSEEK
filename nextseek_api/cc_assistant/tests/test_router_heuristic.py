@@ -12,12 +12,7 @@ dmac_assistant IS installed (e.g. the full app container).
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-import router as cc_router  # noqa: E402
+from nextseek_api.cc_assistant import router as cc_router
 
 
 def test_ndma_query_routes_to_ns():

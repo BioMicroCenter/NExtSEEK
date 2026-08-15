@@ -49,8 +49,11 @@ import pytest
 _SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "verify_prod_readiness_manifest.py"
 )
-_spec = importlib.util.spec_from_file_location("verify_prod_readiness_manifest", _SCRIPT_PATH)
+_spec = importlib.util.spec_from_file_location(
+    "nextseek_api.cc_assistant.scripts.verify_prod_readiness_manifest", _SCRIPT_PATH
+)
 vprm = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = vprm
 sys.modules["verify_prod_readiness_manifest"] = vprm
 _spec.loader.exec_module(vprm)
 

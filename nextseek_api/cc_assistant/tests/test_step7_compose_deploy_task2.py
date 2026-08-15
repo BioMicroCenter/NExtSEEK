@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from nextseek_api.cc_assistant.tests.test_step7_compose_deploy import (
+from nextseek_api.cc_assistant.tests.step7_compose_fixtures import (
     FOREIGN_TOKENS,
     LIVE_SENTINEL,
     OWN_MARKER,

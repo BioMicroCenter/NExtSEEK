@@ -2,13 +2,13 @@
 Update a pin ONLY with an enumerated commit-body note explaining why."""
 import hashlib
 import inspect
-import sys
 from pathlib import Path
 
 import pytest
 
+from nextseek_api.cc_assistant import router as cc_router
+
 _REPO = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(_REPO / "nextseek_api" / "cc_assistant"))
 
 # NOTE: test_route_capabilities_unmodified (a sha256 pin on
 # route_capabilities.json) was deleted here. Its premise — "the registry is
@@ -23,7 +23,6 @@ sys.path.insert(0, str(_REPO / "nextseek_api" / "cc_assistant"))
 
 
 def test_heuristic_untouched():                      # F-9
-    import router as cc_router
     src = inspect.getsource(cc_router._heuristic)
     # sha256 of the function source at dev@8f5479a, computed the same way:
     assert hashlib.sha256(src.encode()).hexdigest() == "5c40f85b6c4fb3d7abe4540ba879e0599bd899a537e19dcb420da17a81d11dc9"

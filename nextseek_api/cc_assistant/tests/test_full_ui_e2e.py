@@ -155,8 +155,11 @@ def _install_fake_e2e_modules() -> None:
 _install_fake_e2e_modules()
 
 _SCRIPT_PATH = Path(__file__).resolve().parents[3] / "nextseek_api/cc_assistant/scripts/full_ui_e2e.py"
-_spec = importlib.util.spec_from_file_location("full_ui_e2e", _SCRIPT_PATH)
+_spec = importlib.util.spec_from_file_location(
+    "nextseek_api.cc_assistant.scripts.full_ui_e2e", _SCRIPT_PATH
+)
 full_ui_e2e = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = full_ui_e2e
 _spec.loader.exec_module(full_ui_e2e)
 
 

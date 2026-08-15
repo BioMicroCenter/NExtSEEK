@@ -1,13 +1,10 @@
 """§4.B: NSTurnContext digest render + CLAUDE.md composition (pure functions)."""
 import ast
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-import ns_digest
-import ns_turn_context as ntc
-from test_ns_turn_context import _bundle
+from nextseek_api.cc_assistant import ns_digest
+from nextseek_api.cc_assistant import ns_turn_context as ntc
+from nextseek_api.cc_assistant.tests.test_ns_turn_context import _bundle
 
 
 def _ctx(**kw):

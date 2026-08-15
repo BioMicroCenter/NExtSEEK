@@ -5,13 +5,7 @@ Pure logic; no Django/docker/dmac needed. Run standalone:
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Allow running this file in isolation (no Django settings / app loading).
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from translate import CCStreamTranslator  # noqa: E402
+from nextseek_api.cc_assistant.translate import CCStreamTranslator
 
 
 def _events(translator, payloads):
