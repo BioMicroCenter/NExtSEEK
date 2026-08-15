@@ -1182,9 +1182,9 @@ def test_gap3_fourteen_production_units():
     with pytest.raises(NsCapabilitiesError, match="empty title"):
         nsc._heading_title(_M())
     body = [(1, "Hello."), (2, ""), (3, "# not para")]
-        nsc._first_overview_paragraph(body)
-        with pytest.raises(NsCapabilitiesError, match="missing capability"):
-            nsc._capability_labels([(1, "  - nested without heading")])
+    nsc._first_overview_paragraph(body)
+    with pytest.raises(NsCapabilitiesError, match="missing capability"):
+        nsc._capability_labels([(1, "  - nested without heading")])
     pair_cc = SimpleNamespace(
         id="a", family="f",
         ns=SimpleNamespace(id="a", family="f", route="nextseek_query", route_source="forced"),
