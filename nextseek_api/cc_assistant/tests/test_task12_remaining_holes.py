@@ -1185,6 +1185,8 @@ def test_gap3_fourteen_production_units():
     nsc._first_overview_paragraph(body)
     with pytest.raises(NsCapabilitiesError, match="missing capability"):
         nsc._capability_labels([(1, "  - nested without heading")])
+    with pytest.raises(NsCapabilitiesError, match="malformed bold lead"):
+        nsc._negative_labels([(1, "\u00a0- **lead")])
     pair_cc = SimpleNamespace(
         id="a", family="f",
         ns=SimpleNamespace(id="a", family="f", route="nextseek_query", route_source="forced"),
