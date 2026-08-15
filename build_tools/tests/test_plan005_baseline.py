@@ -144,13 +144,13 @@ def test_run_baseline_lane_distinguishes_tool_and_subject(tmp_path: Path):
     assert subject_mount in records[0]["argv"]
     assert subject_mount in records[1]["argv"]
     assert (
-        f"{output / 'subject-tree/dmac_assistant/src/dmac_assistant/router/baml_client'}:"
-        "/repo/dmac_assistant/src/dmac_assistant/router/baml_client"
+        f"{output / 'subject-tree/dmac_assistant/src/dmac_assistant/router'}:"
+        "/repo/dmac_assistant/src/dmac_assistant/router"
         in records[0]["argv"]
     )
     assert (
-        f"{output / 'subject-tree/dmac_assistant/tools/e2e/baml_client'}:"
-        "/repo/dmac_assistant/tools/e2e/baml_client"
+        f"{output / 'subject-tree/dmac_assistant/tools/e2e'}:"
+        "/repo/dmac_assistant/tools/e2e"
         in records[0]["argv"]
     )
     assert f"{output / 'base.index'}:/baseline-git-index:ro" in records[1]["argv"]
