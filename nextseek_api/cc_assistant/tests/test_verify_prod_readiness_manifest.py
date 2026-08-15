@@ -736,3 +736,111 @@ def test_cli_main_generate_with_from_json(tmp_path):
     assert rc == 0
     written = json.loads(out.read_text())
     assert written["merged_sha"] == MERGED_SHA
+
+
+def test_subprocess_wrappers_and_artifact_helpers(tmp_path, monkeypatch):
+    def git_ok(cmd, **kw):
+        return SimpleNamespace(stdout="abc\n", returncode=0, stderr="")
+
+    monkeypatch.setattr(vprm.subprocess, "run", git_ok)
+    assert vprm._git_rev_parse_head(tmp_path) == "abc"
+
+    monkeypatch.setattr(
+        vprm.subprocess, "run",
+        lambda *a, **k: SimpleNamespace(stdout="sha256:img\n", returncode=0, stderr=""),
+    )
+    assert vprm._docker_image_inspect("tag") == "sha256:img"
+    monkeypatch.setattr(
+        vprm.subprocess, "run",
+        lambda *a, **k: SimpleNamespace(stdout="", returncode=1, stderr="missing"),
+    )
+    assert vprm._docker_image_inspect("tag") is None
+    monkeypatch.setattr(
+        vprm.subprocess, "run",
+        lambda *a, **k: SimpleNamespace(stdout="   ", returncode=0, stderr=""),
+    )
+    assert vprm._docker_image_inspect("tag") is None
+
+    captured = {}
+
+    def capture(cmd, **kw):
+        captured["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(vprm.subprocess, "run", capture)
+    script = tmp_path / "s.py"
+    script.write_text("x")
+    vprm._run_full_ui_e2e_validate(script, tmp_path / "a.json", tmp_path / "run")
+    assert "--validate-only" in captured["cmd"]
+    vprm._run_survivals(script)
+    assert captured["cmd"][-1] == str(script)
+
+    ok, errs = vprm.verify(tmp_path / "missing.json", **_default_runners())
+    assert ok is False
+    assert any("unreadable" in e for e in errs)
+    bad = tmp_path / "bad.json"
+    bad.write_text("{")
+    ok, errs = vprm.verify(bad, **_default_runners())
+    assert any("not valid JSON" in e for e in errs)
+    not_obj = tmp_path / "arr.json"
+    not_obj.write_text("[]")
+    ok, errs = vprm.verify(not_obj, **_default_runners())
+    assert any("not a JSON object" in e for e in errs)
+
+    errs = []
+    assert vprm._check_file_artifact(errs, "ledger", "nope", MERGED_SHA) is None
+    assert vprm._check_file_artifact(errs, "ledger", {}, MERGED_SHA) is None
+    rec = {"path": str(tmp_path / "no-file"), "sha256": "x", "command": [], "exit_code": 1,
+           "candidate_sha": OTHER_SHA}
+    assert vprm._check_file_artifact(errs, "ledger", rec, MERGED_SHA) is None
+    art = tmp_path / "art.bin"
+    art.write_bytes(b"abc")
+    rec = {
+        "path": str(art), "sha256": "dead", "command": "not-a-list", "exit_code": 2,
+        "candidate_sha": OTHER_SHA,
+    }
+    p = vprm._check_file_artifact(errs, "ledger", rec, MERGED_SHA)
+    assert p == art
+    assert any("sha256 mismatch" in e for e in errs)
+
+    e2e_errs = []
+    assert vprm._check_e2e_run_dir(e2e_errs, "nope", MERGED_SHA) is None
+    assert vprm._check_e2e_run_dir(e2e_errs, {}, MERGED_SHA) is None
+    assert vprm._check_e2e_run_dir(e2e_errs, {"path": str(tmp_path / "missing-dir")}, MERGED_SHA) is None
+    rundir = tmp_path / "e2e-run"
+    rundir.mkdir()
+    rec = {
+        "path": str(rundir), "sha256": "x", "command": ["e2e"], "exit_code": 1,
+        "candidate_sha": OTHER_SHA, "approval_path": "a", "approval_sha256": "b",
+    }
+    assert vprm._check_e2e_run_dir(e2e_errs, rec, MERGED_SHA) is None
+    (rundir / "summary.json").write_text("{}")
+    rec["sha256"] = "dead"
+    rec["exit_code"] = 0
+    rec["candidate_sha"] = MERGED_SHA
+    assert vprm._check_e2e_run_dir(e2e_errs, rec, MERGED_SHA) is not None
+
+    assert vprm._known_image_ids("x") == set()
+    assert vprm._known_image_ids({"no": "path"}) == set()
+    assert vprm._known_image_ids({"path": str(tmp_path / "missing.json")}) == set()
+    junk = tmp_path / "prov.json"
+    junk.write_text("{")
+    assert vprm._known_image_ids({"path": str(junk)}) == set()
+    junk.write_text(json.dumps({"images": "nope"}))
+    assert vprm._known_image_ids({"path": str(junk)}) == set()
+    junk.write_text(json.dumps({"images": [{"image_id": "i1"}, "x"]}))
+    assert vprm._known_image_ids({"path": str(junk)}) == {"i1"}
+
+    lane_errs = []
+    vprm._check_lane_entries(lane_errs, "lane", "skips", "nope")
+    vprm._check_lane_entries(lane_errs, "lane", "skips", [{"no": "nodeid"}])
+    vprm._check_lane_entries(lane_errs, "lane", "skips", [{"nodeid": "t", "expected": False}])
+
+    sha_errs = []
+    vprm._verify_merged_sha(sha_errs, {"merged_sha": ""}, tmp_path, lambda r: MERGED_SHA)
+    vprm._verify_merged_sha(sha_errs, {"merged_sha": MERGED_SHA}, tmp_path, lambda r: (_ for _ in ()).throw(RuntimeError("git")))
+    vprm._verify_merge_parents(sha_errs, ["only-one"])
+    vprm._verify_merge_parents(sha_errs, ["not a sha", "also bad!!"])
+    vprm._verify_blocker_fix_shas(sha_errs, [])
+    vprm._verify_blocker_fix_shas(sha_errs, ["zzzzzzz"])
+    assert sha_errs

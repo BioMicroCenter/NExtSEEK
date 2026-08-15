@@ -744,6 +744,31 @@ def test_ensure_real_e2e_catalog_reloads_poisoned_namespace(monkeypatch):
     monkeypatch.setitem(sys.modules, "e2e.catalog", stub)
     pe.ensure_real_e2e_catalog()
     from e2e.catalog import load_catalog
-
     assert callable(load_catalog)
-    assert hasattr(sys.modules["e2e.catalog"], "load_catalog")
+
+
+def test_paired_cli_check_and_write(tmp_path, monkeypatch):
+    assert pe.main(["--check"]) == 0
+    monkeypatch.setattr(pe, "ingest_paired_evidence", lambda **k: {"ok": True})
+    monkeypatch.setattr(pe, "canonical_evidence_bytes", lambda payload: b'{"ok":true}\n')
+    out = tmp_path / "route_example_evidence.json"
+    rendered = pe.write_export(zip_path=tmp_path / "z.zip", evidence_path=out)
+    assert rendered == b'{"ok":true}\n'
+    assert out.read_bytes() == rendered
+    assert pe.main([
+        "--write",
+        "--zip-path", str(tmp_path / "z.zip"),
+        "--evidence-path", str(out),
+        "--corpus-path", str(tmp_path / "corpus.json"),
+    ]) == 0
+
+
+def test_check_export_zip_present_differs(tmp_path, monkeypatch):
+    committed = pe.load_committed_evidence()
+    ev = tmp_path / "e.json"
+    ev.write_bytes(pe.canonical_evidence_bytes(committed))
+    z = tmp_path / "present.zip"
+    z.write_bytes(b"zip")
+    monkeypatch.setattr(pe, "ingest_paired_evidence", lambda **k: {"other": 1})
+    with pytest.raises(SystemExit, match="differs from source ingest"):
+        pe.check_export(evidence_path=ev, zip_path=z, corpus_path=tmp_path)

@@ -660,3 +660,58 @@ def test_validate_only_fails_when_all_passed_hand_edited_true(monkeypatch, tmp_p
 
     exit_code2, _ = _validate(monkeypatch, tmp_path, approval, fake_fetch)
     assert exit_code2 == 1
+
+
+def test_connect_db_missing_creds_and_import_error(monkeypatch, capsys):
+    cfg = full_ui_e2e._OrchestratorConfig("http://localhost:18000")
+    cfg.MYSQL_HOST_DEV = None
+    assert cfg._connect_db("dev") is None
+    out = capsys.readouterr().out
+    assert "credentials not configured" in out
+    cfg.MYSQL_HOST_DEV = "h"
+    cfg.MYSQL_USER = "u"
+    cfg.MYSQL_DEV_PASSWORD = "p"
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "mysql.connector":
+            raise ImportError("no driver")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert cfg._connect_db("dev") is None
+    assert "mysql-connector-python not installed" in capsys.readouterr().out
+    page = full_ui_e2e._ArtifactChatPage("hello")
+    assert page.latest_assistant_reply() == "hello"
+    assert page.bubble_count() is None
+    assert page.has_artifact("x") is None
+    assert page.stepper_status("x") is None
+    ident = cfg.db_identity("prod")
+    assert ident["env"] == "prod"
+
+
+def test_recompute_run_dir_fail_closed_paths(tmp_path):
+    approval = _approval()
+    approval["_sha256"] = "abc"
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
+    (run_dir / "summary.json").write_text("{")
+    (run_dir / "identity.json").write_text("{")
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
+    (run_dir / "summary.json").write_text(json.dumps({"approval_sha256": "nope", "results": []}))
+    (run_dir / "identity.json").write_text(json.dumps({"base_url": "http://localhost:18000"}))
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
+    ident = {"base_url": "http://localhost:8000", "db_identity": {}}
+    (run_dir / "identity.json").write_text(json.dumps(ident))
+    (run_dir / "summary.json").write_text(json.dumps({
+        "approval_sha256": "abc",
+        "identity_sha256": "nope",
+        "results": [],
+        "db_identity": {},
+    }))
+    approval["base_url"] = "http://localhost:8000"
+    approval["require_non_8000"] = True
+    approval["_sha256"] = "abc"
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False

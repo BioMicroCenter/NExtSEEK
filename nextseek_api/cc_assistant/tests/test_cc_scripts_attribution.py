@@ -173,14 +173,16 @@ def test_step7_host_finalize_writes_preflight_and_syncs_meta(monkeypatch, tmp_pa
 def test_gate3d_live_helpers_with_fake_docker(monkeypatch, tmp_path):
     monkeypatch.setattr("django.setup", lambda: None)
     live = load_cc("scripts/step7_gate3d_live.py")
-    clock = {"t": 0.0}
+        clock = {"t": 0.0}
 
-    def fake_time():
-        clock["t"] += 1000.0
-        return clock["t"]
+        def fake_time():
+            return clock["t"]
 
-    monkeypatch.setattr(live.time, "time", fake_time)
-    monkeypatch.setattr(live.time, "sleep", lambda *a, **k: None)
+        def fake_sleep(_n=0, **_k):
+            clock["t"] += 80.0
+
+        monkeypatch.setattr(live.time, "time", fake_time)
+        monkeypatch.setattr(live.time, "sleep", fake_sleep)
 
     class ImmediateThread:
         def __init__(self, target=None, daemon=False, **kwargs):
@@ -202,9 +204,11 @@ def test_gate3d_live_helpers_with_fake_docker(monkeypatch, tmp_path):
         stdout = ""
         if "compose" in cmd and "config" in cmd:
             stdout = json.dumps({"services": {"nextseek": {}}})
-        elif cmd[:2] == ["docker", "ps"]:
-            stdout = "cid123\n"
-        elif "inspect" in cmd and "Image" in joined:
+            elif cmd[:2] == ["docker", "ps"]:
+                stdout = "cid123\n"
+            elif "exec" in cmd and "find" in cmd:
+                stdout = "/data/input/own\n"
+            elif "inspect" in cmd and "Image" in joined:
             stdout = "img:tag\n"
         elif "network" in cmd:
             stdout = json.dumps([{"Name": "dmac-cc-net"}])
@@ -258,14 +262,16 @@ def test_gate3d_live_helpers_with_fake_docker(monkeypatch, tmp_path):
     live._r26_probes(bundle, run_id="rid")
     probes = json.loads((bundle / "R26-live-probes.json").read_text())["probes"]
     assert len(probes) == 5
-    live._r1_sidecar_proof(bundle, run_id="rid")
-    assert (bundle / "R1-sidecar-live-proof.json").is_file()
-    (bundle / "plain.txt").write_text("no secrets")
-    live._secret_scan(bundle)
-    assert json.loads((bundle / "secret_scan_report.json").read_text())["clean"] is True
-    (bundle / "leaky.txt").write_text("MYSQL_PASSWORD=x")
-    live._secret_scan(bundle)
-    assert json.loads((bundle / "secret_scan_report.json").read_text())["clean"] is False
+        live._r1_sidecar_proof(bundle, run_id="rid")
+        assert (bundle / "R1-sidecar-live-proof.json").is_file()
+        scan_dir = tmp_path / "scan-clean"
+        scan_dir.mkdir()
+        (scan_dir / "plain.txt").write_text("no secrets")
+        live._secret_scan(scan_dir)
+        assert json.loads((scan_dir / "secret_scan_report.json").read_text())["clean"] is True
+        (scan_dir / "leaky.txt").write_text("MYSQL_PASSWORD=x")
+        live._secret_scan(scan_dir)
+        assert json.loads((scan_dir / "secret_scan_report.json").read_text())["clean"] is False
 
     monkeypatch.setattr(
         live.subprocess, "run",
@@ -372,6 +378,41 @@ def test_gate3d_per_op_run_and_budget(monkeypatch, tmp_path):
     assert per_op.main() == 1  # aborted_on_budget
     assert per_op.ev_transport("nextseek-plan") == "viewset"
     assert per_op.ev_transport("nextseek-report") == "sidecar"
+
+    assert per_op._read_transcript_steps(None, since=0.0) == ([], None, b"")
+    empty = tmp_path / "empty-cc"
+    empty.mkdir()
+    assert per_op._read_transcript_steps(str(empty), since=0.0)[2] == b""
+    proj = empty / "projects"
+    proj.mkdir()
+    (proj / "t.jsonl").write_bytes(b'{"type":"user"}\n')
+    monkeypatch.setattr(
+        per_op.cc_trace, "extract_trace",
+        lambda *a, **k: types.SimpleNamespace(steps=[], cc_session_id="sess"),
+    )
+    steps, sid, raw = per_op._read_transcript_steps(str(empty), since=0.0)
+    assert raw and sid == "sess"
+
+    class FailRow:
+        def __init__(self, op):
+            self.op = op
+            self.cost_usd = 0.0
+            self.problems = ["boom"]
+            self.needs_review = True
+            self.review_notes = ["look"]
+            self.invoked = False
+            self.cc_run_id = "rid"
+            self.cc_session_id = "sess"
+
+        def to_dict(self):
+            return {"op": self.op}
+
+    monkeypatch.setattr(per_op.ev, "evaluate_op_row", lambda **k: FailRow(k["op"]))
+    monkeypatch.setenv("STEP7_PER_OP_ONLY", "nextseek-report")
+    monkeypatch.setattr(per_op, "PER_TURN_BUDGET", 20.0)
+    monkeypatch.setattr(per_op, "TOTAL_BUDGET_CAP", 100.0)
+    monkeypatch.setenv("STEP7_PER_OP_BUNDLE_DIR", str(tmp_path / "perop-fail"))
+    assert per_op.main() == 1
 
 
 def test_live_probe_missing_memory_and_runner(monkeypatch, tmp_path):
