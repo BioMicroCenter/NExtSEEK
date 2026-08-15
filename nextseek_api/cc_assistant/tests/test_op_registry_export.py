@@ -368,6 +368,58 @@ def test_mutation_change_op_field_fails_until_regeneration(
     )
 
 
+def test_export_check_does_not_write_restore_or_create_repo_temps():
+    before = {
+        path: (path.stat().st_mtime_ns, path.stat().st_size)
+        for path in [
+            REPO_ROOT / "nextseek_api" / "cc_assistant" / "op_registry" / "ops.json",
+            *sorted(
+                (
+                    REPO_ROOT
+                    / "docker"
+                    / "cc-runtime"
+                    / "build_context"
+                    / "plugins"
+                ).rglob("ops.json")
+            ),
+        ]
+        if path.is_file()
+    }
+    from nextseek_api.cc_assistant.op_registry.export import main as export_main
+
+    assert export_main(["--check", "--root", str(REPO_ROOT)]) == 0
+    after = {
+        path: (path.stat().st_mtime_ns, path.stat().st_size) for path in before
+    }
+    assert after == before
+    stray = list(REPO_ROOT.glob("op-registry-export-check-*"))
+    assert stray == []
+    pyc = list(
+        (REPO_ROOT / "nextseek_api" / "cc_assistant" / "op_registry").glob("__pycache__/*")
+    )
+    # check mode must not rewrite targets even if a cache already exists
+    for target, stamp in before.items():
+        assert (target.stat().st_mtime_ns, target.stat().st_size) == stamp
+
+
+def test_export_root_flag_rejects_stale_canonical(tmp_path: Path):
+    from nextseek_api.cc_assistant.op_registry.export import main as export_main
+
+    root = tmp_path / "repo"
+    canonical = root / "nextseek_api" / "cc_assistant" / "op_registry" / "ops.json"
+    plugins = root / "docker" / "cc-runtime" / "build_context" / "plugins"
+    dockerfile = root / "docker" / "cc-runtime" / "Dockerfile"
+    plugin_dir = _write_plugin_tree(plugins, "alpha-plugin")
+    _write_dockerfile(dockerfile, copy_plugins=("alpha-plugin",))
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("{}\n", encoding="utf-8")
+    baked = plugin_dir / BAKED_OPS_RELATIVE
+    baked.parent.mkdir(parents=True, exist_ok=True)
+    baked.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        export_main(["--check", "--root", str(root)])
+
+
 def test_current_tree_export_targets_include_nextseek_baked_copy():
     discovery = discover_install(
         plugins_root=DEFAULT_PLUGINS_ROOT,

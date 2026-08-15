@@ -118,40 +118,67 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write canonical and baked ops.json targets.",
     )
     parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Repository root (exact Task 12 docker argv uses --root /repo).",
+    )
+    parser.add_argument(
         "--canonical-path",
         type=Path,
-        default=CANONICAL_OPS_PATH,
+        default=None,
         help="Override canonical ops.json path (primarily for tests).",
     )
     parser.add_argument(
         "--plugins-root",
         type=Path,
-        default=DEFAULT_PLUGINS_ROOT,
+        default=None,
         help="Plugin source tree scanned by the install oracle.",
     )
     parser.add_argument(
         "--dockerfile-path",
         type=Path,
-        default=DEFAULT_DOCKERFILE,
+        default=None,
         help="Dockerfile parsed for installed plugin COPY/PATH targets.",
     )
     return parser
 
 
+def _resolve_export_paths(args: argparse.Namespace) -> tuple[Path, Path, Path]:
+    root = args.root.resolve() if args.root is not None else _REPO_ROOT
+    canonical = (
+        args.canonical_path
+        if args.canonical_path is not None
+        else root / "nextseek_api" / "cc_assistant" / "op_registry" / "ops.json"
+    )
+    plugins_root = (
+        args.plugins_root
+        if args.plugins_root is not None
+        else root / "docker" / "cc-runtime" / "build_context" / "plugins"
+    )
+    dockerfile = (
+        args.dockerfile_path
+        if args.dockerfile_path is not None
+        else root / "docker" / "cc-runtime" / "Dockerfile"
+    )
+    return canonical, plugins_root, dockerfile
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    canonical_path, plugins_root, dockerfile_path = _resolve_export_paths(args)
     if args.check:
         check_export(
-            canonical_path=args.canonical_path,
-            plugins_root=args.plugins_root,
-            dockerfile_path=args.dockerfile_path,
+            canonical_path=canonical_path,
+            plugins_root=plugins_root,
+            dockerfile_path=dockerfile_path,
         )
         return 0
     write_export(
-        canonical_path=args.canonical_path,
-        plugins_root=args.plugins_root,
-        dockerfile_path=args.dockerfile_path,
+        canonical_path=canonical_path,
+        plugins_root=plugins_root,
+        dockerfile_path=dockerfile_path,
     )
     return 0
 

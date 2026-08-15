@@ -145,6 +145,15 @@ def test_check_surfaces_passes_on_current_tree() -> None:
     check_surfaces(repo_root=REPO_ROOT)
 
 
+def test_check_surfaces_does_not_rewrite_targets_or_create_repo_pyc() -> None:
+    target = REPO_ROOT / "dmac_assistant" / "build_context" / "route_capabilities.json"
+    before = (target.stat().st_mtime_ns, target.stat().st_size)
+    check_surfaces(repo_root=REPO_ROOT)
+    after = (target.stat().st_mtime_ns, target.stat().st_size)
+    assert after == before
+    assert not (REPO_ROOT / "plan005-surfaces-tmp").exists()
+
+
 def test_stale_capabilities_copy_fails_check(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     canonical = repo / CANONICAL_CAPABILITIES_REL

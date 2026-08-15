@@ -127,3 +127,19 @@ def test_write_gate_read_class_ops_pass_without_confirmation():
     gate = build_gate(load_allowlist())
     for runner_key in sorted(derive_write_gate_read_class_ops()):
         gate(runner_key, None, None, False)
+
+
+def test_derive_rejects_missing_assignment_and_non_list_read_safe(tmp_path):
+    from nextseek_api.cc_assistant.op_registry.derive import (
+        parse_frozenset_assignment,
+        derive_read_safe_entries,
+    )
+
+    path = tmp_path / "mod.py"
+    path.write_text("OTHER = frozenset({'a'})\n", encoding="utf-8")
+    with pytest.raises(AssertionError, match="assignment not found"):
+        parse_frozenset_assignment(path, "SIDECAR_OPS")
+    bad_json = tmp_path / "read_safe.json"
+    bad_json.write_text('{"nope": true}\n', encoding="utf-8")
+    with pytest.raises(AssertionError, match="must be a list"):
+        derive_read_safe_entries(bad_json)
