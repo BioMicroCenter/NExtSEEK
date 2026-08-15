@@ -310,7 +310,7 @@ def test_paired_parse_and_check_export_sha(tmp_path, monkeypatch):
 
 
 def test_ns_capabilities_remaining_error_paths():
-    with pytest.raises(NsCapabilitiesError, match="empty title"):
+    with pytest.raises(NsCapabilitiesError, match="malformed H2"):
         project_ns_capabilities(
             "## \n\n## What You Can Ask\n\n### A\n\n## What the System Cannot Do\n\n- **X** no.\n"
         )
@@ -341,10 +341,10 @@ def test_extract_catalog_error_paths():
         mod._extract_paid_projections("nope")
     with pytest.raises(ValueError, match="block end"):
         mod._extract_paid_projections("PAID_PROJECTIONS = [\n")
-    with pytest.raises(ValueError, match="did not evaluate"):
-        mod._extract_paid_projections(
-            "PAID_PROJECTIONS = 1\n    for op, model, projected, args_dict in PAID_PROJECTIONS:\n"
-        )
+        with pytest.raises(ValueError, match="did not evaluate"):
+            mod._extract_paid_projections(
+                "PAID_PROJECTIONS = [1][0]\n    for op, model, projected, args_dict in PAID_PROJECTIONS:\n"
+            )
     with pytest.raises(ValueError, match="REPORT_PROJECT"):
         mod._extract_report_project("x = 1")
     q = mod._extract_search_basic_query("unused")
@@ -666,11 +666,11 @@ def test_ns_capabilities_fences_budget_and_empty_labels():
             "## Overview\n\nHi.\n\n## What You Can Ask\n\n> ## sneak\n\n"
             "### A\n\n## What the System Cannot Do\n\n- **X** no.\n"
         )
-    with pytest.raises(NsCapabilitiesError, match="empty capability"):
-        project_ns_capabilities(
-            "## Overview\n\nHi.\n\n## What You Can Ask\n\n### 1. \n\n"
-            "## What the System Cannot Do\n\n- **X** no.\n"
-        )
+        with pytest.raises(NsCapabilitiesError, match="malformed H3"):
+            project_ns_capabilities(
+                "## Overview\n\nHi.\n\n## What You Can Ask\n\n###\n\n"
+                "## What the System Cannot Do\n\n- **X** no.\n"
+            )
     with pytest.raises(NsCapabilitiesError, match="empty negative"):
         project_ns_capabilities(_md(negatives=("- **  ** x\n",)))
     nested_plain = _md(negatives=("- **Live** no.\n  - nested without bold\n",))
@@ -861,7 +861,7 @@ def test_install_oracle_scan_edges(tmp_path):
         io._ensure_plugin_bins({"p1"}, tmp_path / "plugins")
 
 
-def test_cc_staging_symlink_and_unsafe_leaf(tmp_path):
+def test_cc_staging_symlink_and_unsafe_leaf(tmp_path, monkeypatch):
     src = tmp_path / "src.txt"
     src.write_text("hi")
     scratch = tmp_path / "scratch"
@@ -872,10 +872,16 @@ def test_cc_staging_symlink_and_unsafe_leaf(tmp_path):
     link.symlink_to(tmp_path)
     with pytest.raises(cc_staging._DestUnsafe):
         cc_staging._deliver_file_safely(src, str(scratch), ("evil",), "a.txt")
-    # plant a directory named as the leaf so O_EXCL file open fails as OSError/ENOTDIR
-    (art / "dirleaf").mkdir()
+    real_open = os.open
+
+    def fake_open(path, flags, *a, **k):
+        if path == "badleaf":
+            raise OSError("leaf refused")
+        return real_open(path, flags, *a, **k)
+
+    monkeypatch.setattr(os, "open", fake_open)
     with pytest.raises(cc_staging._DestUnsafe):
-        cc_staging._deliver_file_safely(src, str(scratch), (), "dirleaf")
+        cc_staging._deliver_file_safely(src, str(scratch), (), "badleaf")
 
 
 def test_cc_engine_publish_unsafe_and_persist_strict(tmp_path, monkeypatch):
@@ -969,6 +975,8 @@ def test_router_heuristic_and_context_dir(monkeypatch):
 
     monkeypatch.setattr(rt, "_build_context_dir", lambda: None)
     assert rt._resolve_model_id(None) is None
+    import dmac_assistant.router.models as models
+    monkeypatch.setattr(models, "load_model_class_map", lambda **k: (_ for _ in ()).throw(RuntimeError("map")))
     assert rt._resolve_model_id("opus") is None
     dec = rt._heuristic("please write a python script to edit files")
     assert dec.route in (rt.ROUTE_CC, rt.ROUTE_NS, rt.ROUTE_UNRELATED)
@@ -989,9 +997,6 @@ def test_extract_catalog_main_and_block_end(tmp_path):
     )
     router = tmp_path / "run_router_e2e.py"
     router.write_text("DISCRIMINATORS = []\n")
-    if hasattr(mod, "main"):
-        try:
-            mod.main([str(tmp_path), str(tmp_path / "out.json")])
-        except Exception:
-            pass
+    assert mod.main(["--upstream-root", str(tmp_path / "missing")]) == 2
+    assert isinstance(mod._extract_search_basic_query("unused"), str)
 

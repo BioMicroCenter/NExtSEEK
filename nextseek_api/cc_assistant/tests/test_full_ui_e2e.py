@@ -769,9 +769,11 @@ def test_artifact_helpers_and_recompute_mutations(monkeypatch, tmp_path):
         approval["_sha256"] = json.loads((run_dir / "summary.json").read_text())["approval_sha256"]
         return approval
 
-    qid = "q1"
+        qid = "q1"
+        for name in ["base", "ns"] + [f"m{i}" for i in range(2, 17)]:
+            (tmp_path / name).mkdir()
 
-    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "base")
+        approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "base")
     monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
     summary = json.loads((run_dir / "summary.json").read_text())
     summary["results"] = []
