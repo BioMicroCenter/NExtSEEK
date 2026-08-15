@@ -90,16 +90,16 @@ def test_run_sweep_skips_empty_path_and_swallows_errors(monkeypatch):
         "nextseek_api.cc_assistant.cc_summary.fingerprint",
         lambda raw: "fp",
     )
-        monkeypatch.setattr(
-            "nextseek_api.cc_assistant.router._resolve_cc_model_id",
-            lambda: "opus",
-        )
-        import pathlib
-        monkeypatch.setattr(pathlib, "Path", FakePath)
+    monkeypatch.setattr(
+        "nextseek_api.cc_assistant.router._resolve_cc_model_id",
+        lambda: "opus",
+    )
+    import pathlib
+    monkeypatch.setattr(pathlib, "Path", FakePath)
 
-        count = cc_sweep._run_sweep()
-        assert count == 1
-        assert persisted
+    count = cc_sweep._run_sweep()
+    assert count == 1
+    assert persisted
 
 
 def test_sweep_task_wrapper_calls_run(monkeypatch):
