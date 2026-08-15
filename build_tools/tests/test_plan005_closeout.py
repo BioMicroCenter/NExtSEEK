@@ -415,7 +415,7 @@ def test_named_closeout_mutants_plan_baml_stale_signoff_and_producer(tmp_path):
     mirror.write_bytes(b"alpha")
     with pytest.raises(CloseoutError, match="approved"):
         validate_plan_copies(plan, mirror, APPROVED_PLAN_SHA)
-    real_plan = Path("/home/taishajo/work/NExtSEEK-plan005") / PLAN_REL
+    real_plan = Path(__file__).resolve().parents[2] / PLAN_REL
     if real_plan.is_file():
         plan.write_bytes(real_plan.read_bytes())
         mirror.write_bytes(real_plan.read_bytes() + b"x")
@@ -431,7 +431,7 @@ def test_named_closeout_mutants_plan_baml_stale_signoff_and_producer(tmp_path):
             commit_time="2026-08-15T19:00:00+00:00",
         )
 
-    real = Path("/home/taishajo/work/NExtSEEK-plan005")
+    real = Path(__file__).resolve().parents[2]
     clone = tmp_path / "signed-repo"
     for rel in (
         "dmac_assistant/build_context/route_capabilities.json",
