@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Callable
 
@@ -140,6 +141,26 @@ def _publish_baseline_junit(*, pytest_writable: Path, output: Path) -> None:
         os.link(src, dest)
     except OSError:
         shutil.copy2(src, dest)
+
+
+def baseline_junit_outcome(path: Path) -> dict[str, Any]:
+    """Return the exact failure/error identity carried by a complete JUnit."""
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError) as exc:
+        raise BaselineError(f"baseline JUnit unreadable: {exc}") from exc
+    failures: list[str] = []
+    errors: list[str] = []
+    for case in root.iter("testcase"):
+        node = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}"
+        if case.find("failure") is not None:
+            failures.append(node)
+        if case.find("error") is not None:
+            errors.append(node)
+    return {
+        "failure_node_ids": sorted(failures),
+        "error_node_ids": sorted(errors),
+    }
 
 
 def hashed_file_manifest(root: Path) -> dict[str, str]:
@@ -382,6 +403,7 @@ def run_baseline_lane(
         declared_source_manifest=blob_manifest,
     )
     _publish_baseline_junit(pytest_writable=pytest_writable, output=output)
+    junit_outcome = baseline_junit_outcome(output / BASELINE_JUNIT_NAME)
     baml_src = hashed_file_manifest(extract_dir / BAML_SRC_GLOB)
     baml_client = hashed_file_manifest(extract_dir / BAML_CLIENT_GLOB)
     (output / "baml_src-manifest.json").write_text(
@@ -397,6 +419,10 @@ def run_baseline_lane(
         "baml_client_manifest": baml_client,
         "baml_record_exit": baml_record.get("exit_code"),
         "pytest_record_exit": pytest_record.get("exit_code"),
+        "baseline_status": (
+            "GREEN" if pytest_record.get("exit_code") == 0 else "KNOWN_RED"
+        ),
+        **junit_outcome,
         "image": image,
     }
     (output / "baseline-identities.json").write_text(
@@ -408,9 +434,18 @@ def run_baseline_lane(
             evidence_root=evidence_root,
             binding_output=binding_output,
         )
-    if pytest_record.get("exit_code") != 0:
+    pytest_exit = pytest_record.get("exit_code")
+    if pytest_exit == 0 and (
+        junit_outcome["failure_node_ids"] or junit_outcome["error_node_ids"]
+    ):
+        raise BaselineError("immutable-base pytest exit 0 contradicts red JUnit")
+    if pytest_exit == 1 and (
+        not junit_outcome["failure_node_ids"] or junit_outcome["error_node_ids"]
+    ):
+        raise BaselineError("immutable-base pytest exit 1 lacks failure-only JUnit")
+    if pytest_exit not in {0, 1}:
         raise BaselineError(
-            f"immutable-base pytest command failed: exit {pytest_record.get('exit_code')}"
+            f"immutable-base pytest command failed: exit {pytest_exit}"
         )
     return summary
 

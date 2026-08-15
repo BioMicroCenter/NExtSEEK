@@ -320,8 +320,13 @@ def test_run_baseline_lane_propagates_record_and_junit_mutation(tmp_path: Path):
         )
 
 
-@pytest.mark.parametrize("failed_name", ["01-baseline-baml", "01-baseline-pytest"])
-def test_run_baseline_lane_rejects_nested_nonzero(tmp_path: Path, failed_name: str):
+@pytest.mark.parametrize(
+    ("failed_name", "exit_code"),
+    [("01-baseline-baml", 1), ("01-baseline-pytest", 2)],
+)
+def test_run_baseline_lane_rejects_incomplete_nested_command(
+    tmp_path: Path, failed_name: str, exit_code: int
+):
     repo = tmp_path / "repo"
     output = tmp_path / "output"
     evidence = tmp_path / "evidence"
@@ -336,11 +341,11 @@ def test_run_baseline_lane_rejects_nested_nonzero(tmp_path: Path, failed_name: s
         writable.mkdir(parents=True, exist_ok=True)
         if kwargs["name"] == "01-baseline-pytest":
             (writable / BASELINE_JUNIT_NAME).write_text(
-                '<?xml version="1.0"?><testsuite failures="1"></testsuite>\n',
+                '<?xml version="1.0"?><testsuite></testsuite>\n',
                 encoding="utf-8",
             )
         return {
-            "exit_code": 1 if kwargs["name"] == failed_name else 0,
+            "exit_code": exit_code if kwargs["name"] == failed_name else 0,
             "name": kwargs["name"],
         }
 
@@ -353,6 +358,42 @@ def test_run_baseline_lane_rejects_nested_nonzero(tmp_path: Path, failed_name: s
             evidence_root=evidence,
             record=fake_record,
         )
+
+
+def test_run_baseline_lane_records_complete_known_red_junit(tmp_path: Path):
+    repo = tmp_path / "repo"
+    output = tmp_path / "output"
+    evidence = tmp_path / "evidence"
+    repo.mkdir()
+    evidence.mkdir()
+    (evidence / "artifacts").mkdir()
+    (evidence / "records").mkdir()
+    head = _git_init(repo)
+
+    def fake_record(**kwargs):
+        writable = Path(kwargs["writable_output"])
+        writable.mkdir(parents=True, exist_ok=True)
+        if kwargs["name"] == "01-baseline-pytest":
+            (writable / BASELINE_JUNIT_NAME).write_text(
+                '<?xml version="1.0"?><testsuite><testcase '
+                'classname="tests.test_base" name="test_known_red">'
+                '<failure message="known"/></testcase></testsuite>\n',
+                encoding="utf-8",
+            )
+            return {"exit_code": 1, "name": kwargs["name"]}
+        return {"exit_code": 0, "name": kwargs["name"]}
+
+    summary = run_baseline_lane(
+        repo_root=repo,
+        base=head,
+        output=output,
+        image=IMMUTABLE_NEXTSEEK_IMAGE,
+        evidence_root=evidence,
+        record=fake_record,
+    )
+    assert summary["baseline_status"] == "KNOWN_RED"
+    assert summary["failure_node_ids"] == ["tests.test_base::test_known_red"]
+    assert summary["error_node_ids"] == []
 
 
 def test_baseline_selection_comes_from_base_when_candidate_deleted_test(tmp_path: Path):

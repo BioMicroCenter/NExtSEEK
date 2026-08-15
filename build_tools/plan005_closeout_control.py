@@ -687,16 +687,18 @@ def validate_baseline_evidence(
     _validate_materialized_base(
         baseline_dir=baseline_dir, repo_root=repo_root, identities=identities
     )
-    for key in ("baml_record_exit", "pytest_record_exit"):
-        if identities.get(key) != 0:
-            raise CloseoutError(f"immutable-base nested command nonzero: {key}")
+    if identities.get("baml_record_exit") != 0:
+        raise CloseoutError("immutable-base nested BAML command nonzero")
+    if identities.get("pytest_record_exit") not in {0, 1}:
+        raise CloseoutError("immutable-base nested pytest command is not complete")
 
     nested_records: dict[str, dict[str, Any]] = {}
     for name in ("01-baseline-baml", "01-baseline-pytest"):
         path = baseline_dir / "recorder/records" / name / "record.json"
         record = json.loads(path.read_text(encoding="utf-8"))
         nested_records[name] = record
-        if record.get("exit_code") != 0:
+        allowed_exits = {0, 1} if name == "01-baseline-pytest" else {0}
+        if record.get("exit_code") not in allowed_exits:
             raise CloseoutError(f"immutable-base nested record nonzero: {name}")
         for snapshot in (record.get("pre") or {}, record.get("post") or {}):
             if snapshot.get("head") != identity["head"] or snapshot.get("porcelain"):
@@ -725,13 +727,28 @@ def validate_baseline_evidence(
 
     junit_path = baseline_dir / "base-cc-assistant.junit.xml"
     junit_root = ET.parse(junit_path).getroot()
-    suites = [junit_root] if junit_root.tag == "testsuite" else list(junit_root)
-    failures = sum(int(suite.attrib.get("failures", 0)) for suite in suites)
-    errors = sum(int(suite.attrib.get("errors", 0)) for suite in suites)
-    if failures or errors:
-        raise CloseoutError(
-            f"immutable-base JUnit is not green: failures={failures} errors={errors}"
-        )
+    failure_nodes: list[str] = []
+    error_nodes: list[str] = []
+    for case in junit_root.iter("testcase"):
+        node = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}"
+        if case.find("failure") is not None:
+            failure_nodes.append(node)
+        if case.find("error") is not None:
+            error_nodes.append(node)
+    failure_nodes.sort()
+    error_nodes.sort()
+    if error_nodes:
+        raise CloseoutError("immutable-base JUnit contains test errors")
+    pytest_exit = nested_records["01-baseline-pytest"].get("exit_code")
+    expected_status = "GREEN" if pytest_exit == 0 else "KNOWN_RED"
+    if identities.get("baseline_status") != expected_status:
+        raise CloseoutError("immutable-base status contradicts pytest exit")
+    if identities.get("failure_node_ids") != failure_nodes:
+        raise CloseoutError("immutable-base failure-node manifest mismatch")
+    if identities.get("error_node_ids") != error_nodes:
+        raise CloseoutError("immutable-base error-node manifest mismatch")
+    if (pytest_exit == 0 and failure_nodes) or (pytest_exit == 1 and not failure_nodes):
+        raise CloseoutError("immutable-base pytest exit contradicts JUnit failures")
 
     external: dict[str, str] = {}
     binding_expected: dict[str, str] = {}
