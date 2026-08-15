@@ -80,6 +80,32 @@ def test_component_registry_contains_every_public_envelope():
         assert model.__name__ == name
 
 
+def test_every_attribute_operation_ref_resolves(product_schema):
+    """A spelled `$ref` is not enough: Swagger must be able to resolve it."""
+
+    def refs(node):
+        if isinstance(node, dict):
+            if "$ref" in node:
+                yield node["$ref"]
+            for value in node.values():
+                yield from refs(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from refs(value)
+
+    attribute_paths = {
+        path: item
+        for path, item in product_schema["paths"].items()
+        if path.startswith("/nextseek_api/attributes/")
+    }
+    for ref in set(refs(attribute_paths)):
+        assert ref.startswith("#/"), ref
+        target = product_schema
+        for key in ref.removeprefix("#/").split("/"):
+            assert key in target, ref
+            target = target[key]
+
+
 def test_every_named_example_validates_against_its_component():
     assert openapi.ATTRIBUTE_EXAMPLES
     for example in openapi.ATTRIBUTE_EXAMPLES:
@@ -155,8 +181,33 @@ def test_attribute_openapi_has_exact_eight_method_path_pairs(product_schema):
     }
 
 
+def _resolve_local_schema(product_schema, node):
+    while "$ref" in node:
+        target = product_schema
+        for key in node["$ref"].removeprefix("#/").split("/"):
+            target = target[key]
+        node = target
+    return node
+
+
 def _mutation_schema(product_schema, status):
-    return product_schema["paths"]["/nextseek_api/attributes/batch-create/"]["post"]["responses"][status]["content"]["application/json"]["schema"]
+    node = product_schema["paths"]["/nextseek_api/attributes/batch-create/"]["post"]["responses"][status]["content"]["application/json"]["schema"]
+    return _resolve_local_schema(product_schema, node)
+
+
+def test_200_and_207_register_their_pydantic_union_components(product_schema):
+    components = product_schema["components"]["schemas"]
+    assert {
+        "AttributeMutationResponse",
+        "MutationPreviewResponse",
+        "MutationCompletedResponse",
+    } <= set(components)
+    for status in ("200", "207"):
+        response = _mutation_schema(product_schema, status)
+        assert {item["$ref"] for item in response["oneOf"]} == {
+            "#/components/schemas/MutationPreviewResponse",
+            "#/components/schemas/MutationCompletedResponse",
+        }
 
 
 def test_partial_dry_run_207_uses_preview_union_branch(product_schema):

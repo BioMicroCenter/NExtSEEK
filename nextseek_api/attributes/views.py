@@ -3,7 +3,13 @@ from __future__ import annotations
 
 from django.core.exceptions import ObjectDoesNotExist
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_view,
+)
 from pydantic import ValidationError
 from rest_framework import exceptions, viewsets
 from rest_framework.decorators import action
@@ -42,25 +48,24 @@ ERROR_RESPONSES = {
     409: OpenApiResponse(response=schemas.AttributeErrorResponse),
     422: OpenApiResponse(response=schemas.AttributeErrorResponse),
 }
-MUTATION_UNION = {
-    "oneOf": [
-        {"$ref": "#/components/schemas/MutationPreviewResponse"},
-        {"$ref": "#/components/schemas/MutationCompletedResponse"},
-    ],
-    "discriminator": {
-        "propertyName": "mode",
-        "mapping": {
-            "dry_run": "#/components/schemas/MutationPreviewResponse",
-            "synchronous": "#/components/schemas/MutationCompletedResponse",
-        },
+MUTATION_UNION = PolymorphicProxySerializer(
+    component_name="AttributeMutationResponse",
+    serializers={
+        "dry_run": schemas.MutationPreviewResponse,
+        "synchronous": schemas.MutationCompletedResponse,
     },
-}
-COMPLETED_OR_ERROR = {
-    "oneOf": [
-        {"$ref": "#/components/schemas/MutationCompletedResponse"},
-        {"$ref": "#/components/schemas/AttributeErrorResponse"},
+    resource_type_field_name="mode",
+    many=False,
+)
+COMPLETED_OR_ERROR = PolymorphicProxySerializer(
+    component_name="AttributeMutationCompletedOrErrorResponse",
+    serializers=[
+        schemas.MutationCompletedResponse,
+        schemas.AttributeErrorResponse,
     ],
-}
+    resource_type_field_name=None,
+    many=False,
+)
 MUTATION_RESPONSES = {
     200: OpenApiResponse(response=MUTATION_UNION),
     202: schemas.MutationAcceptedResponse,
