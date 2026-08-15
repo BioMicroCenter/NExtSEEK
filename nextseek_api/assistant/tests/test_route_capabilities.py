@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import errno
 import hashlib
 import json
 import re
@@ -591,18 +592,23 @@ def test_route_policy_and_plugin_json_do_not_move_families() -> None:
     }
     assert mutated_families == baseline_families
     original_plugin = PLUGIN_JSON.read_text(encoding="utf-8")
+    mutated = False
     try:
         plugin = json.loads(original_plugin)
         plugin["description"] = "mutated plugin prose must not become a tool"
         PLUGIN_JSON.write_text(json.dumps(plugin), encoding="utf-8")
-        after = build_route_capabilities_payload(repo_root=REPO_ROOT, evidence=evidence)
-        after_families = {
-            route: [family["name"] for family in body["task_families"]]
-            for route, body in _route_map(after).items()
-        }
-        assert after_families == baseline_families
-        assert "mutated plugin prose" not in json.dumps(after)
-    finally:
+        mutated = True
+    except OSError as exc:
+        if exc.errno != errno.EROFS:
+            raise
+    after = build_route_capabilities_payload(repo_root=REPO_ROOT, evidence=evidence)
+    after_families = {
+        route: [family["name"] for family in body["task_families"]]
+        for route, body in _route_map(after).items()
+    }
+    assert after_families == baseline_families
+    assert "mutated plugin prose" not in json.dumps(after)
+    if mutated:
         PLUGIN_JSON.write_text(original_plugin, encoding="utf-8")
 
     flipped = copy.deepcopy(evidence)

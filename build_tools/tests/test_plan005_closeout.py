@@ -99,6 +99,7 @@ def test_pytest_lanes_mount_evidence_and_django_env():
         assert "{writable}:/evidence" in argv
         assert junit in argv
         assert "PYTHONPATH=/repo:/repo/dmac_assistant/src:/repo/chat_nextseek/src" in argv
+        assert "/home/taishajo/work/NExtSEEK/.git:/home/taishajo/work/NExtSEEK/.git:ro" in argv
     for record_id in ("05-future-op", "06-audit-a", "07-assistant-route"):
         assert "DJANGO_SETTINGS_MODULE=dmac.test_settings" in rows[record_id]
     assert "DJANGO_SETTINGS_MODULE=dmac.test_settings" not in rows["08-build-tools"]
