@@ -105,6 +105,40 @@ def _docker_python(*tail: str) -> list[str]:
     ]
 
 
+def _docker_pytest(*tail: str, django: bool = True) -> list[str]:
+    env: list[str] = [
+        "-e",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "-e",
+        "XDG_CACHE_HOME=/tmp/plan005-cache",
+        "-e",
+        "PYTHONPATH=/repo:/repo/dmac_assistant/src:/repo/chat_nextseek/src",
+    ]
+    if django:
+        env = [
+            "-e",
+            "DJANGO_SETTINGS_MODULE=dmac.test_settings",
+            *env,
+        ]
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        *env,
+        "-v",
+        "{repo}:/repo:ro",
+        "-w",
+        "/repo",
+        "-v",
+        "{writable}:/evidence",
+        "{image}",
+        "/app/.venv/bin/python",
+        *tail,
+    ]
+
+
 def _coverage_followon(*tail: str) -> list[str]:
     return [
         "docker",
@@ -209,7 +243,7 @@ def protocol_rows() -> list[dict[str, Any]]:
         ),
         _row(
             "05-future-op",
-            _docker_python(
+            _docker_pytest(
                 "-m",
                 "pytest",
                 "nextseek_api/cc_assistant/tests/test_future_op_dropin.py",
@@ -221,7 +255,7 @@ def protocol_rows() -> list[dict[str, Any]]:
         ),
         _row(
             "06-audit-a",
-            _docker_python(
+            _docker_pytest(
                 "-m",
                 "pytest",
                 "nextseek_api/cc_assistant/tests/test_op_registry_audit.py",
@@ -233,7 +267,7 @@ def protocol_rows() -> list[dict[str, Any]]:
         ),
         _row(
             "07-assistant-route",
-            _docker_python(
+            _docker_pytest(
                 "-m",
                 "pytest",
                 "nextseek_api/assistant/tests/test_route_capabilities.py",
@@ -245,7 +279,7 @@ def protocol_rows() -> list[dict[str, Any]]:
         ),
         _row(
             "08-build-tools",
-            _docker_python(
+            _docker_pytest(
                 "-m",
                 "pytest",
                 "build_tools/tests",
@@ -253,6 +287,7 @@ def protocol_rows() -> list[dict[str, Any]]:
                 "-p",
                 "no:cacheprovider",
                 "-q",
+                django=False,
             ),
         ),
         _row(
@@ -498,6 +533,25 @@ def _validate_row_contract(row: dict[str, Any]) -> None:
         raise ProtocolError(f"{row.get('id')}: pytest-cov is forbidden")
     if "-n" in argv or "xdist" in joined or "pytest-xdist" in joined:
         raise ProtocolError(f"{row.get('id')}: xdist is forbidden")
+    pytest_junit = {
+        "05-future-op": "/evidence/future-op.junit.xml",
+        "06-audit-a": "/evidence/audit-a.junit.xml",
+        "07-assistant-route": "/evidence/assistant-route.junit.xml",
+        "08-build-tools": "/evidence/build-tools.junit.xml",
+    }
+    if row["id"] in pytest_junit:
+        if "{writable}:/evidence" not in argv:
+            raise ProtocolError(f"{row.get('id')}: pytest lane must mount {{writable}}:/evidence")
+        junit = f"--junitxml={pytest_junit[row['id']]}"
+        if junit not in argv:
+            raise ProtocolError(f"{row.get('id')}: pytest lane must write {junit}")
+        if "PYTHONPATH=/repo:/repo/dmac_assistant/src:/repo/chat_nextseek/src" not in argv:
+            raise ProtocolError(f"{row.get('id')}: pytest lane must set PYTHONPATH")
+        if row["id"] != "08-build-tools":
+            if "DJANGO_SETTINGS_MODULE=dmac.test_settings" not in argv:
+                raise ProtocolError(
+                    f"{row.get('id')}: Django pytest lane must set DJANGO_SETTINGS_MODULE"
+                )
     if row["id"] == "12-coverage-run":
         if "--branch" not in argv:
             raise ProtocolError("12-coverage-run must enable branch coverage")

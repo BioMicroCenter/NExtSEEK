@@ -8,6 +8,7 @@ from unittest import mock
 import pytest
 
 from build_tools.plan005_baseline import (
+    BASELINE_JUNIT_NAME,
     BaselineError,
     baseline_identities,
     git_ls_tree,
@@ -15,6 +16,7 @@ from build_tools.plan005_baseline import (
     run_baseline_lane,
 )
 from build_tools.plan005_closeout import IMMUTABLE_NEXTSEEK_IMAGE, PLAN005_BASE_COMMIT
+from build_tools.plan005_record import parse_docker_volumes, refuse_writable_mounts
 
 
 def _git_init(repo: Path, body: str = "hello\n") -> str:
@@ -111,6 +113,12 @@ def test_run_baseline_lane_distinguishes_tool_and_subject(tmp_path: Path):
 
     def fake_record(**kwargs):
         records.append(kwargs)
+        writable = Path(kwargs["writable_output"])
+        writable.mkdir(parents=True, exist_ok=True)
+        if kwargs["name"] == "01-baseline-pytest":
+            (writable / BASELINE_JUNIT_NAME).write_text(
+                '<?xml version="1.0"?><testsuite></testsuite>\n', encoding="utf-8"
+            )
         return {"exit_code": 0, "name": kwargs["name"]}
 
     summary = run_baseline_lane(
@@ -132,6 +140,54 @@ def test_run_baseline_lane_distinguishes_tool_and_subject(tmp_path: Path):
         "base-cc-assistant.junit.xml" in " ".join(item["argv"]) for item in records
     )
     assert junit_declared
+    assert (output / BASELINE_JUNIT_NAME).is_file()
+
+
+def test_baseline_pytest_evidence_host_equals_writable_output(tmp_path: Path):
+    repo = tmp_path / "repo"
+    output = tmp_path / "output"
+    evidence = tmp_path / "evidence"
+    repo.mkdir()
+    evidence.mkdir()
+    (evidence / "artifacts").mkdir()
+    (evidence / "records").mkdir()
+    head = _git_init(repo)
+    captured = {}
+
+    def recording_record(**kwargs):
+        captured[kwargs["name"]] = kwargs
+        writable = Path(kwargs["writable_output"])
+        writable.mkdir(parents=True, exist_ok=True)
+        if kwargs["name"] == "01-baseline-pytest":
+            refuse_writable_mounts(
+                kwargs["argv"],
+                evidence_root=evidence,
+                writable_output=writable,
+            )
+            (writable / BASELINE_JUNIT_NAME).write_text(
+                '<?xml version="1.0"?><testsuite></testsuite>\n', encoding="utf-8"
+            )
+        return {"exit_code": 0, "name": kwargs["name"]}
+
+    run_baseline_lane(
+        repo_root=repo,
+        base=head,
+        output=output,
+        image=IMMUTABLE_NEXTSEEK_IMAGE,
+        evidence_root=evidence,
+        record=recording_record,
+    )
+    pytest_kw = captured["01-baseline-pytest"]
+    writable = Path(pytest_kw["writable_output"]).resolve()
+    evidence_hosts = [
+        Path(host).resolve()
+        for host, container, _mode in parse_docker_volumes(pytest_kw["argv"])
+        if container == "/evidence"
+    ]
+    assert evidence_hosts == [writable]
+    assert writable == (evidence / "artifacts" / "baseline-pytest").resolve()
+    assert (output / BASELINE_JUNIT_NAME).is_file()
+    assert (writable / BASELINE_JUNIT_NAME).is_file()
 
 
 def test_run_baseline_lane_refuses_mutable_image(tmp_path: Path):

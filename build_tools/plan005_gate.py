@@ -250,6 +250,35 @@ def added_or_changed_tests(*, repo_root: Path, base: str) -> list[str]:
     return changed
 
 
+def collect_pytest_node_ids(source: str, module_dotted: str) -> set[str]:
+    """Collected pytest node IDs (module::test or module.Class::test) from a file."""
+    tree = ast.parse(source)
+    ids: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith(
+            "test_"
+        ):
+            ids.add(f"{module_dotted}::{node.name}")
+        elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name.startswith(
+                    "test_"
+                ):
+                    ids.add(f"{module_dotted}.{node.name}::{item.name}")
+    return ids
+
+
+def module_dotted_from_rel(rel_posix: str) -> str:
+    return rel_posix.replace("/", ".").removesuffix(".py")
+
+
+def junit_statuses_for_collected(node_id: str, results: dict[str, str]) -> list[str]:
+    if node_id in results:
+        return [results[node_id]]
+    prefix = node_id + "["
+    return [status for key, status in results.items() if key.startswith(prefix)]
+
+
 def require_base_nodes_present(
     *,
     baseline_results: dict[str, str],
@@ -258,10 +287,11 @@ def require_base_nodes_present(
     for node_id, status in baseline_results.items():
         if node_id not in final_results:
             raise GateError(f"base node ID deleted or renamed: {node_id}")
-        if final_results[node_id] in {"skipped", "xfail"}:
-            raise GateError(f"base node ID skipped in final lane: {node_id}")
-        if final_results[node_id] == "failed":
+        final = final_results[node_id]
+        if final == "failed":
             raise GateError(f"base node ID failed in final lane: {node_id}")
+        if status == "passed" and final in {"skipped", "xfail"}:
+            raise GateError(f"base node ID skipped in final lane: {node_id}")
 
 
 def require_new_tests_mapped_and_passed(
@@ -294,9 +324,23 @@ def require_new_tests_mapped_and_passed(
                     )
         if lane not in junit_by_lane:
             raise GateError(f"missing JUnit for lane {lane} covering {rel}")
+        dotted = module_dotted_from_rel(rel)
+        current_ids = collect_pytest_node_ids(current_text, dotted)
+        base_ids = collect_pytest_node_ids(base_text, dotted) if base_text else set()
+        new_ids = current_ids - base_ids
+        lane_results = junit_by_lane[lane]
+        for node_id in sorted(new_ids):
+            statuses = junit_statuses_for_collected(node_id, lane_results)
+            if not statuses:
+                raise GateError(
+                    f"new collected node missing from {lane} JUnit: {node_id}"
+                )
+            for status in statuses:
+                if status in {"skipped", "xfail"}:
+                    raise GateError(f"new skip/xfail is not allowed: {node_id}")
+                if status == "failed":
+                    raise GateError(f"failed test node: {node_id}")
     for node_id, status in merged.items():
-        if status in {"skipped", "xfail"}:
-            raise GateError(f"new skip/xfail is not allowed: {node_id}")
         if status == "failed":
             raise GateError(f"failed test node: {node_id}")
 

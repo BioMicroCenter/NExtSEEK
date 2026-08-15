@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -116,6 +118,26 @@ def materialize_base_tree(
     return blob_manifest
 
 
+BASELINE_JUNIT_NAME = "base-cc-assistant.junit.xml"
+
+
+def _publish_baseline_junit(*, pytest_writable: Path, output: Path) -> None:
+    src = pytest_writable / BASELINE_JUNIT_NAME
+    if not src.is_file():
+        raise BaselineError(
+            "baseline pytest junit missing from artifacts/baseline-pytest: "
+            f"{src}"
+        )
+    dest = output / BASELINE_JUNIT_NAME
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists() or dest.is_symlink():
+        dest.unlink()
+    try:
+        os.link(src, dest)
+    except OSError:
+        shutil.copy2(src, dest)
+
+
 def sorted_file_manifest(root: Path) -> list[str]:
     if not root.exists():
         return []
@@ -156,6 +178,7 @@ def run_baseline_lane(
     ignores: list[str] = []
     for path in THREE_PYTEST_IGNORES:
         ignores.extend(["--ignore", path])
+    pytest_writable = evidence_root / "artifacts" / "baseline-pytest"
     baml_argv = [
         "docker",
         "run",
@@ -197,7 +220,7 @@ def run_baseline_lane(
         "-e",
         "PYTHONPATH=/repo:/repo/dmac_assistant/src:/repo/chat_nextseek/src",
         "-v",
-        f"{output}:/evidence",
+        f"{pytest_writable}:/evidence",
         "-v",
         f"{repo_root}:/repo:ro",
         "-w",
@@ -229,9 +252,10 @@ def run_baseline_lane(
         evidence_root=evidence_root,
         name="01-baseline-pytest",
         argv=pytest_argv,
-        writable_output=evidence_root / "artifacts" / "baseline-pytest",
+        writable_output=pytest_writable,
         repo_root=repo_root,
     )
+    _publish_baseline_junit(pytest_writable=pytest_writable, output=output)
     baml_src = sorted_file_manifest(repo_root / BAML_SRC_GLOB)
     baml_client = sorted_file_manifest(repo_root / BAML_CLIENT_GLOB)
     (output / "baml_src-manifest.json").write_text(

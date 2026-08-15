@@ -312,3 +312,96 @@ def test_run_gate_rejects_added_pragma(tmp_path: Path):
             base=base,
             min_total=95,
         )
+
+
+def _cov_and_source(tmp_path: Path):
+    repo = _git_repo(tmp_path)
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    source = repo / "nextseek_api" / "cc_assistant"
+    cov = tmp_path / "cov.json"
+    cov.write_text(
+        json.dumps(
+            _coverage_json(
+                {
+                    str(source / "mod.py"): _file_summary(
+                        covered_lines=10,
+                        num_statements=10,
+                        covered_branches=10,
+                        num_branches=10,
+                    )
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+    return repo, base, source, cov
+
+
+def test_preexisting_skip_is_allowed(tmp_path: Path):
+    repo, base, source, cov = _cov_and_source(tmp_path)
+    baseline = tmp_path / "base.xml"
+    _junit(baseline, "nextseek_api.cc_assistant.tests.test_mod", "test_mod", skipped=True)
+    final = tmp_path / "cc-assistant.junit.xml"
+    _junit(final, "nextseek_api.cc_assistant.tests.test_mod", "test_mod", skipped=True)
+    outcome = run_gate(
+        coverage_json_path=cov,
+        junit_paths=[final],
+        baseline_junit=baseline,
+        source_root=source,
+        repo_root=repo,
+        base=base,
+        min_total=95,
+    )
+    assert outcome["min_total"] == 95
+
+
+def test_new_skip_is_red(tmp_path: Path):
+    repo, base, source, cov = _cov_and_source(tmp_path)
+    (source / "tests" / "test_new.py").write_text(
+        "def test_new():\n    assert True\n", encoding="utf-8"
+    )
+    baseline = tmp_path / "base.xml"
+    _junit(baseline, "nextseek_api.cc_assistant.tests.test_mod", "test_mod")
+    final = tmp_path / "cc-assistant.junit.xml"
+    final.write_text(
+        """<?xml version="1.0"?><testsuite>
+        <testcase classname="nextseek_api.cc_assistant.tests.test_mod" name="test_mod"/>
+        <testcase classname="nextseek_api.cc_assistant.tests.test_new" name="test_new">
+          <skipped message="skip"/>
+        </testcase>
+        </testsuite>""",
+        encoding="utf-8",
+    )
+    with pytest.raises(GateError, match="new skip/xfail"):
+        run_gate(
+            coverage_json_path=cov,
+            junit_paths=[final],
+            baseline_junit=baseline,
+            source_root=source,
+            repo_root=repo,
+            base=base,
+            min_total=95,
+        )
+
+
+def test_missing_new_node_is_red(tmp_path: Path):
+    repo, base, source, cov = _cov_and_source(tmp_path)
+    (source / "tests" / "test_new.py").write_text(
+        "def test_new():\n    assert True\n", encoding="utf-8"
+    )
+    baseline = tmp_path / "base.xml"
+    _junit(baseline, "nextseek_api.cc_assistant.tests.test_mod", "test_mod")
+    final = tmp_path / "cc-assistant.junit.xml"
+    _junit(final, "nextseek_api.cc_assistant.tests.test_mod", "test_mod")
+    with pytest.raises(GateError, match="new collected node missing"):
+        run_gate(
+            coverage_json_path=cov,
+            junit_paths=[final],
+            baseline_junit=baseline,
+            source_root=source,
+            repo_root=repo,
+            base=base,
+            min_total=95,
+        )
