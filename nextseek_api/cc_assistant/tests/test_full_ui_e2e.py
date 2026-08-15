@@ -715,6 +715,16 @@ def test_recompute_run_dir_fail_closed_paths(tmp_path):
     approval["require_non_8000"] = True
     approval["_sha256"] = "abc"
     assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
+    ident_path = run_dir / "identity.json"
+    ident_path.write_text(json.dumps(ident))
+    ident_sha = hashlib.sha256(ident_path.read_bytes()).hexdigest()
+    (run_dir / "summary.json").write_text(json.dumps({
+        "approval_sha256": "abc",
+        "identity_sha256": ident_sha,
+        "results": [],
+        "db_identity": {},
+    }))
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
 
 
 def test_artifact_helpers_and_recompute_mutations(monkeypatch, tmp_path):

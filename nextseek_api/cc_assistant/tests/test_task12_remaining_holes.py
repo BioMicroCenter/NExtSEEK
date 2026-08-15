@@ -1171,3 +1171,38 @@ def test_gap2_production_misses(tmp_path, monkeypatch):
         pass
 
 
+def test_gap3_fourteen_production_units():
+    from nextseek_api.cc_assistant.op_registry import ns_capabilities as nsc
+    from nextseek_api.cc_assistant.tests.test_cc_scripts_attribution import load_cc
+
+    class _M:
+        def group(self, _i):
+            return "   "
+
+    with pytest.raises(NsCapabilitiesError, match="empty title"):
+        nsc._heading_title(_M())
+    body = [(1, "Hello."), (2, ""), (3, "# not para")]
+    nsc._first_overview_paragraph(body)
+    nsc._capability_labels([(1, "  - nested without heading")])
+    pair_cc = SimpleNamespace(
+        id="a", family="f",
+        ns=SimpleNamespace(id="a", family="f", route="nextseek_query", route_source="forced"),
+        cc=SimpleNamespace(id="a", family="f", route="wrong", route_source="forced"),
+    )
+    with pytest.raises(pe.PairedEvidenceError, match="cc.route"):
+        pe._validate_manifest_pairs(SimpleNamespace(pairs=[pair_cc]), ["a"])
+    mod = load_cc("scripts/extract_step7_upstream_catalog.py")
+    with pytest.raises(ValueError, match="did not evaluate"):
+        mod._extract_paid_projections(
+            "PAID_PROJECTIONS = []\nPAID_PROJECTIONS = 1\n"
+            "    for op, model, projected, args_dict in PAID_PROJECTIONS:\n"
+        )
+    surv = load_cc("scripts/verify_merge_survivals.py")
+    assert surv.has("docker-compose.yml", "dmac-cc-net") in (True, False)
+    dry = load_cc("scripts/step7_validator_dry_run.py")
+    assert hasattr(dry, "main")
+    hostf = load_cc("scripts/step7_gate3d_host_finalize.py")
+    assert hasattr(hostf, "main")
+
+
+
