@@ -734,3 +734,16 @@ def test_mutation_manifest_route_fails(tmp_path, matrix_corpus, monkeypatch):
     monkeypatch.setattr(pe, "PINNED_ZIP_SHA256", _sha256(zip_path.read_bytes()))
     with pytest.raises(pe.PairedEvidenceError, match="ns.route must be"):
         pe.ingest_paired_evidence(zip_path=zip_path, corpus_path=matrix_corpus)
+
+
+def test_ensure_real_e2e_catalog_reloads_poisoned_namespace(monkeypatch):
+    import sys
+    import types
+
+    stub = types.ModuleType("e2e.catalog")
+    monkeypatch.setitem(sys.modules, "e2e.catalog", stub)
+    pe.ensure_real_e2e_catalog()
+    from e2e.catalog import load_catalog
+
+    assert callable(load_catalog)
+    assert hasattr(sys.modules["e2e.catalog"], "load_catalog")
