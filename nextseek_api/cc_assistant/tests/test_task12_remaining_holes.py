@@ -1007,8 +1007,8 @@ def test_gap2_production_misses(tmp_path, monkeypatch):
     )
     with pytest.raises(NsCapabilitiesError, match="empty"):
         _unique_labels([""], kind="capability")
-        with pytest.raises(NsCapabilitiesError, match="unclosed bold"):
-            _negative_labels([(1, "- **")])
+    with pytest.raises(NsCapabilitiesError, match="unclosed bold"):
+        _negative_labels([(1, "- **")])
     huge = NsProjection(
         description="d", tools=("T" * 200,), negative_labels=("n",),
         best_for="b", not_for="n",
@@ -1108,9 +1108,10 @@ def test_gap2_production_misses(tmp_path, monkeypatch):
 
     def wrap_dirs(*a, **k):
         dirs = real_build(*a, **k)
-        root = Path(dirs.cc_state_mnt) / "projects"
-        root.mkdir(parents=True, exist_ok=True)
-        (root / "turn.jsonl").write_bytes(b"{}\n")
+        if dirs.cc_state_mnt:
+            root = Path(dirs.cc_state_mnt) / "projects"
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "turn.jsonl").write_bytes(b"{}\n")
         return dirs
 
     monkeypatch.setattr(cc_provision, "build_user_dirs", wrap_dirs)
@@ -1130,6 +1131,7 @@ def test_gap2_production_misses(tmp_path, monkeypatch):
         send_event=lambda e, d: events.append((e, dict(d))),
         user_id="alice", project_dirname="proj",
         run_id=_run_id(), paths=_paths(tmp_path / "persist"),
+        cc_state_key="abc-123",
         chat_session=object(), user_query="q",
         on_turn_complete=boom_payload,
     )
@@ -1146,6 +1148,7 @@ def test_gap2_production_misses(tmp_path, monkeypatch):
         send_event=lambda e, d: events2.append((e, dict(d))),
         user_id="alice", project_dirname="proj",
         run_id=_run_id(), paths=_paths(tmp_path / "njsonl"),
+        cc_state_key="abc-123",
         chat_session=object(), user_query="q",
         on_turn_complete=lambda *a, **k: None,
     )
