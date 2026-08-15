@@ -13,6 +13,7 @@ from build_tools.plan005_baseline import (
     baseline_identities,
     git_ls_tree,
     materialize_base_index,
+    materialize_base_gitdir,
     materialize_base_tree,
     run_baseline_lane,
 )
@@ -177,7 +178,10 @@ def test_run_baseline_lane_distinguishes_tool_and_subject(tmp_path: Path):
         "/repo/dmac_assistant/tools/e2e"
         in records[0]["argv"]
     )
-    assert f"{output / 'base.index'}:/baseline-git-index:ro" in records[1]["argv"]
+    assert f"{output / 'base-git'}:/baseline-git:ro" in records[1]["argv"]
+    assert not any(token.startswith("GIT_DIR=") for token in records[1]["argv"])
+    assert not any(token.startswith("GIT_WORK_TREE=") for token in records[1]["argv"])
+    assert not any(token.startswith("GIT_INDEX_FILE=") for token in records[1]["argv"])
     assert PLAN005_BASE_COMMIT  # imported constant still the plan pin
     junit_declared = any(
         "base-cc-assistant.junit.xml" in " ".join(item["argv"]) for item in records
@@ -411,8 +415,15 @@ def test_preflight_rejects_mutated_materialized_base(
         repo_root=repo, base=base, dest=baseline / "subject-tree"
     )
     materialize_base_index(repo_root=repo, base=base, output=baseline)
-    (baseline / "base.gitfile").write_text("gitdir: /git\n", encoding="utf-8")
-    (baseline / "subject-tree/.git").write_text("gitdir: /git\n", encoding="utf-8")
+    materialize_base_gitdir(
+        output=baseline, base=base, base_index=baseline / "base.index"
+    )
+    (baseline / "base.gitfile").write_text(
+        "gitdir: /baseline-git\n", encoding="utf-8"
+    )
+    (baseline / "subject-tree/.git").write_text(
+        "gitdir: /baseline-git\n", encoding="utf-8"
+    )
     identities = baseline_identities(repo_root=repo, base=base)
     identities["subject_blob_manifest"] = blobs
     monkeypatch.setattr(control, "PLAN005_BASE_COMMIT", base)
@@ -441,8 +452,15 @@ def test_preflight_rejects_non_base_index(
         repo_root=repo, base=base, dest=baseline / "subject-tree"
     )
     materialize_base_index(repo_root=repo, base=base, output=baseline)
-    (baseline / "base.gitfile").write_text("gitdir: /git\n", encoding="utf-8")
-    (baseline / "subject-tree/.git").write_text("gitdir: /git\n", encoding="utf-8")
+    materialize_base_gitdir(
+        output=baseline, base=base, base_index=baseline / "base.index"
+    )
+    (baseline / "base.gitfile").write_text(
+        "gitdir: /baseline-git\n", encoding="utf-8"
+    )
+    (baseline / "subject-tree/.git").write_text(
+        "gitdir: /baseline-git\n", encoding="utf-8"
+    )
     identities = baseline_identities(repo_root=repo, base=base)
     identities["subject_blob_manifest"] = blobs
     monkeypatch.setattr(control, "PLAN005_BASE_COMMIT", base)

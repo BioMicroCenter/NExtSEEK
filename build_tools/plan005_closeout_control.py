@@ -616,7 +616,7 @@ def _validate_materialized_base(
     gitfile = subject / ".git"
     if (
         not gitfile.is_file()
-        or gitfile.read_text(encoding="utf-8") != "gitdir: /git\n"
+        or gitfile.read_text(encoding="utf-8") != "gitdir: /baseline-git\n"
         or gitfile.read_bytes() != (baseline_dir / "base.gitfile").read_bytes()
     ):
         raise CloseoutError("immutable-base subject Git indirection mismatch")
@@ -704,8 +704,23 @@ def validate_baseline_evidence(
     expected_subject_mount = f"{baseline_dir}/subject-tree:/repo:ro"
     if expected_subject_mount not in pytest_argv:
         raise CloseoutError("immutable-base pytest did not run the materialized base tree")
-    if f"{baseline_dir}/base.index:/baseline-git-index:ro" not in pytest_argv:
-        raise CloseoutError("immutable-base pytest missing exact base Git index")
+    if f"{baseline_dir}/base-git:/baseline-git:ro" not in pytest_argv:
+        raise CloseoutError("immutable-base pytest missing detached base Git directory")
+    base_git_dir = baseline_dir / "base-git"
+    if (
+        (base_git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        != PLAN005_BASE_COMMIT
+    ):
+        raise CloseoutError("immutable-base detached Git HEAD mismatch")
+    if sha256_file(base_git_dir / "index") != sha256_file(
+        baseline_dir / "base.index"
+    ):
+        raise CloseoutError("immutable-base detached Git index mismatch")
+    if (
+        (base_git_dir / "objects/info/alternates").read_text(encoding="utf-8")
+        != "/git/objects\n"
+    ):
+        raise CloseoutError("immutable-base detached Git object store mismatch")
 
     junit_path = baseline_dir / "base-cc-assistant.junit.xml"
     junit_root = ET.parse(junit_path).getroot()
@@ -731,12 +746,23 @@ def validate_baseline_evidence(
         external[name] = digest
         binding_expected[name] = digest
     for source_name, target_name in (
+        ("base-git", "base-git"),
         ("records", "nested-records"),
         ("artifacts", "nested-artifacts"),
     ):
-        source_manifest = _tree_hash_manifest(baseline_dir / "recorder" / source_name)
+        source_root = (
+            baseline_dir / source_name
+            if source_name == "base-git"
+            else baseline_dir / "recorder" / source_name
+        )
+        source_manifest = _tree_hash_manifest(source_root)
         for rel, digest in source_manifest.items():
-            external[f"recorder/{source_name}/{rel}"] = digest
+            external_key = (
+                f"{source_name}/{rel}"
+                if source_name == "base-git"
+                else f"recorder/{source_name}/{rel}"
+            )
+            external[external_key] = digest
             binding_expected[f"{target_name}/{rel}"] = digest
     bound_copy = _tree_hash_manifest(binding_dir)
     if binding_expected != bound_copy:

@@ -197,6 +197,27 @@ def git_common_dir(repo_root: Path) -> Path:
     return value
 
 
+def materialize_base_gitdir(
+    *, output: Path, base: str, base_index: Path
+) -> Path:
+    """Build detached read-only Git metadata for the materialized base worktree."""
+    git_dir = output / "base-git"
+    (git_dir / "objects/info").mkdir(parents=True)
+    (git_dir / "HEAD").write_text(f"{base}\n", encoding="utf-8")
+    (git_dir / "config").write_text(
+        "[core]\n"
+        "\trepositoryformatversion = 0\n"
+        "\tfilemode = true\n"
+        "\tbare = false\n",
+        encoding="utf-8",
+    )
+    (git_dir / "objects/info/alternates").write_text(
+        "/git/objects\n", encoding="utf-8"
+    )
+    shutil.copy2(base_index, git_dir / "index")
+    return git_dir
+
+
 def _copy_baseline_binding(
     *, output: Path, evidence_root: Path, binding_output: Path
 ) -> None:
@@ -217,10 +238,15 @@ def _copy_baseline_binding(
             raise BaselineError(f"baseline binding source missing: {src}")
         shutil.copy2(src, binding_output / name)
     for source_name, target_name in (
+        ("base-git", "base-git"),
         ("records", "nested-records"),
         ("artifacts", "nested-artifacts"),
     ):
-        source = evidence_root / source_name
+        source = (
+            output / source_name
+            if source_name == "base-git"
+            else evidence_root / source_name
+        )
         if not source.is_dir():
             raise BaselineError(f"baseline nested evidence missing: {source}")
         shutil.copytree(source, binding_output / target_name)
@@ -249,10 +275,12 @@ def run_baseline_lane(
         (extract_dir / relative).mkdir(parents=True, exist_ok=True)
     identities = baseline_identities(repo_root=repo_root, base=base)
     base_index = materialize_base_index(repo_root=repo_root, base=base, output=output)
+    base_git_dir = materialize_base_gitdir(
+        output=output, base=identities["subject_base"], base_index=base_index
+    )
     common_git = git_common_dir(repo_root)
     base_gitfile = output / "base.gitfile"
-    base_gitfile.write_text("gitdir: /git\n", encoding="utf-8")
-    (extract_dir / ".git").write_text("gitdir: /git\n", encoding="utf-8")
+    base_gitfile.write_text("gitdir: /baseline-git\n", encoding="utf-8")
     recorder = record or record_command
     ignores: list[str] = []
     for path in THREE_PYTEST_IGNORES:
@@ -299,12 +327,6 @@ def run_baseline_lane(
         "-e",
         "PYTHONPATH=/repo:/repo/dmac_assistant/src:/repo/chat_nextseek/src",
         "-e",
-        "GIT_DIR=/git",
-        "-e",
-        "GIT_WORK_TREE=/repo",
-        "-e",
-        "GIT_INDEX_FILE=/baseline-git-index",
-        "-e",
         "GIT_CONFIG_COUNT=1",
         "-e",
         "GIT_CONFIG_KEY_0=safe.directory",
@@ -317,7 +339,7 @@ def run_baseline_lane(
         "-v",
         f"{common_git}:/git:ro",
         "-v",
-        f"{base_index}:/baseline-git-index:ro",
+        f"{base_git_dir}:/baseline-git:ro",
         "-v",
         PINNED_PAIRED_ZIP_VOLUME,
         "-w",
@@ -345,6 +367,9 @@ def run_baseline_lane(
         raise BaselineError(
             f"immutable-base BAML command failed: exit {baml_record.get('exit_code')}"
         )
+    (extract_dir / ".git").write_text(
+        base_gitfile.read_text(encoding="utf-8"), encoding="utf-8"
+    )
     pytest_record = recorder(
         evidence_root=evidence_root,
         name="01-baseline-pytest",
