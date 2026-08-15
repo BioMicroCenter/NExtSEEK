@@ -321,6 +321,33 @@ def _transcript_user_events(paths: list[Path]) -> list[dict[str, Any]]:
                 payload = json.loads(raw)
             except json.JSONDecodeError:
                 continue
+            if payload.get("type") == "response_item":
+                item = payload.get("payload") or {}
+                if item.get("type") != "message" or item.get("role") != "user":
+                    continue
+                content = item.get("content", [])
+                blocks = content if isinstance(content, list) else [content]
+                query = "\n".join(
+                    str(block.get("text", "")) if isinstance(block, dict) else str(block)
+                    for block in blocks
+                ).strip()
+                try:
+                    stamp = datetime.fromisoformat(str(payload["timestamp"]))
+                except (KeyError, ValueError):
+                    continue
+                if stamp.tzinfo is None or not query:
+                    continue
+                events.append(
+                    {
+                        "path": str(path),
+                        "path_sha256": sha256_file(path),
+                        "line": line_number,
+                        "event_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+                        "timestamp": stamp.astimezone(timezone.utc),
+                        "query": query,
+                    }
+                )
+                continue
             if payload.get("role") != "user":
                 continue
             content = (payload.get("message") or {}).get("content", payload.get("content", []))

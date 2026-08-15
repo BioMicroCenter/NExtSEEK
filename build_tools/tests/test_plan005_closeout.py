@@ -1,6 +1,7 @@
 """Focused tests for the Plan 005 16-row closeout protocol."""
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from copy import deepcopy
@@ -196,8 +197,52 @@ def _signoff_transcript(tmp_path: Path) -> Path:
                 }
             )
         )
+    lines.append(
+        json.dumps(
+            {
+                "timestamp": "2026-08-15T22:05:14.274Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "approved"}],
+                },
+            }
+        )
+    )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+def test_codex_user_event_is_available_for_signoff_authentication(tmp_path: Path):
+    from datetime import datetime, timezone
+
+    from build_tools.plan005_closeout_control import _transcript_user_events
+
+    path = tmp_path / "codex-session.jsonl"
+    raw = json.dumps(
+        {
+            "timestamp": "2026-08-15T22:05:14.274Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "approved"}],
+            },
+        }
+    )
+    path.write_text(raw + "\n", encoding="utf-8")
+
+    assert _transcript_user_events([path]) == [
+        {
+            "path": str(path),
+            "path_sha256": hashlib.sha256((raw + "\n").encode()).hexdigest(),
+            "line": 1,
+            "event_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+            "timestamp": datetime(2026, 8, 15, 22, 5, 14, 274000, tzinfo=timezone.utc),
+            "query": "approved",
+        }
+    ]
 
 
 def test_control_mounts_require_worktree_git_mirror_and_ro_aggregate():
