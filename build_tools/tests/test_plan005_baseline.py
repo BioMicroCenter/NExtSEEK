@@ -15,7 +15,11 @@ from build_tools.plan005_baseline import (
     materialize_base_tree,
     run_baseline_lane,
 )
-from build_tools.plan005_closeout import IMMUTABLE_NEXTSEEK_IMAGE, PLAN005_BASE_COMMIT
+from build_tools.plan005_closeout import (
+    IMMUTABLE_NEXTSEEK_IMAGE,
+    PINNED_PAIRED_ZIP_VOLUME,
+    PLAN005_BASE_COMMIT,
+)
 from build_tools.plan005_record import parse_docker_volumes, refuse_writable_mounts
 
 
@@ -140,6 +144,7 @@ def test_run_baseline_lane_distinguishes_tool_and_subject(tmp_path: Path):
         "base-cc-assistant.junit.xml" in " ".join(item["argv"]) for item in records
     )
     assert junit_declared
+    assert PINNED_PAIRED_ZIP_VOLUME in records[1]["argv"]
     assert (output / BASELINE_JUNIT_NAME).is_file()
 
 

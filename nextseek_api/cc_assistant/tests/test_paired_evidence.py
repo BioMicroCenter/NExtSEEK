@@ -667,7 +667,7 @@ def test_source_check_fails_on_zip_byte_mismatch(tmp_path, matrix_corpus, monkey
 @pytest.mark.real_zip
 def test_pinned_real_zip_streams_once_within_sixty_seconds():
     if not PINNED_ZIP.is_file():
-        pytest.skip("pinned paired source zip is not available on this machine")
+        pytest.fail(f"pinned paired source zip is missing: {PINNED_ZIP}")
     payload = pe.ingest_paired_evidence(zip_path=PINNED_ZIP, corpus_path=DEFAULT_CORPUS)
     assert payload["source"]["zip_sha256"] == pe.PINNED_ZIP_SHA256
     assert len(payload["selected_ids"]) == 149

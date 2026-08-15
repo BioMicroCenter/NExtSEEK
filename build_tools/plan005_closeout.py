@@ -29,6 +29,10 @@ THREE_PYTEST_IGNORES: tuple[str, ...] = (
     "nextseek_api/cc_assistant/tests/test_within_chat_db.py",
     "nextseek_api/cc_assistant/tests/test_step7_compose_deploy.py",
 )
+PINNED_PAIRED_ZIP = (
+    "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
+)
+PINNED_PAIRED_ZIP_VOLUME = f"{PINNED_PAIRED_ZIP}:{PINNED_PAIRED_ZIP}:ro"
 
 PROTOCOL_RECORD_IDS: tuple[str, ...] = (
     "01-baseline",
@@ -360,6 +364,8 @@ def protocol_rows() -> list[dict[str, Any]]:
                 "{repo}:/repo:ro",
                 "-v",
                 "/home/taishajo/work/NExtSEEK/.git:/home/taishajo/work/NExtSEEK/.git:ro",
+                "-v",
+                PINNED_PAIRED_ZIP_VOLUME,
                 "-w",
                 "/repo",
                 "-v",
@@ -562,6 +568,8 @@ def _validate_row_contract(row: dict[str, Any]) -> None:
             raise ProtocolError("12-coverage-run extra or missing pytest ignores")
         if any("omit" in tok for tok in argv):
             raise ProtocolError("12-coverage-run must not omit source")
+        if PINNED_PAIRED_ZIP_VOLUME not in argv:
+            raise ProtocolError("12-coverage-run must mount the pinned paired zip read-only")
     if row["id"] == "14-coverage-report":
         if "--fail-under=95" not in argv:
             raise ProtocolError("14-coverage-report must keep fail-under=95")

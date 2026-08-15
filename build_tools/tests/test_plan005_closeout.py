@@ -100,3 +100,11 @@ def test_pytest_lanes_mount_evidence_and_django_env():
     for record_id in ("05-future-op", "06-audit-a", "07-assistant-route"):
         assert "DJANGO_SETTINGS_MODULE=dmac.test_settings" in rows[record_id]
     assert "DJANGO_SETTINGS_MODULE=dmac.test_settings" not in rows["08-build-tools"]
+
+
+def test_coverage_run_mounts_pinned_paired_zip_read_only():
+    from build_tools.plan005_closeout import PINNED_PAIRED_ZIP_VOLUME
+
+    argv = next(row["argv_template"] for row in protocol_rows() if row["id"] == "12-coverage-run")
+    assert PINNED_PAIRED_ZIP_VOLUME in argv
+    assert PINNED_PAIRED_ZIP_VOLUME.endswith(":ro")

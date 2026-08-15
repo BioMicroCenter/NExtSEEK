@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from build_tools.plan005_closeout import (
     IMMUTABLE_NEXTSEEK_IMAGE,
+    PINNED_PAIRED_ZIP_VOLUME,
     PLAN005_BASE_COMMIT,
     THREE_PYTEST_IGNORES,
 )
@@ -223,6 +224,8 @@ def run_baseline_lane(
         f"{pytest_writable}:/evidence",
         "-v",
         f"{repo_root}:/repo:ro",
+        "-v",
+        PINNED_PAIRED_ZIP_VOLUME,
         "-w",
         "/repo",
         image,
