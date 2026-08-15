@@ -5,7 +5,7 @@ from django.utils import timezone
 from nextseek_api.assistant.models_db import FamilyPosterior, PosteriorGeneration
 from nextseek_api.cc_assistant import posterior_selector
 from nextseek_api.cc_assistant.family_labels import corpus_snapshot
-from nextseek_api.eval.generation_store import GenerationSnapshot, get_active_snapshot
+from nextseek_api.eval.generation_store import GenerationSnapshot
 
 pytestmark = pytest.mark.django_db
 
@@ -47,6 +47,20 @@ def test_decisive_posterior_selects_route(settings):
     assert result is not None
     assert result.route == "nextseek_query"
     assert result.generation_id == 1
+
+
+def test_decisive_posterior_in_activated_subset_selects_route(settings):
+    snap = _snapshot(
+        decision_status="activated_subset",
+        posteriors=(
+            _posterior_row("sample_search", "nextseek_query", 0.96, "Reliable"),
+        ),
+    )
+
+    result = posterior_selector.select_route("sample_search", snapshot=snap)
+
+    assert result is not None
+    assert result.route == "nextseek_query"
 
 
 def test_too_uncertain_falls_back(settings):

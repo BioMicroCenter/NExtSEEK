@@ -54,13 +54,15 @@ dual-homed service. Per-turn agent containers are spawned from the
    `dmac-cc-users` with its `_staging` subpath bootstrap), renders all env
    files, seeds the databases, builds every image **including the cc-agent
    image**, and starts the CC services.
-4. **(Redeploys)** `docker compose build` — rebuilds whatever changed;
-   `docker compose build cc-agent` alone refreshes the agent image after a
-   `docker/cc-runtime/**` change (the next chat turn picks it up — no
-   restart needed).
-5. **(Redeploys)** `docker compose up -d` — recreate the affected
-   long-running services (scope to `--no-deps <service>` per DEPLOYMENT.md
-   §3).
+4. **(Redeploys)** use the guarded component verbs from DEPLOYMENT.md §3:
+   `./startup.sh rebuild --component cc-agent`, `bedrock-proxy`, or
+   `nextseek-sidecar`; use `custom-stack` when all first-party images changed.
+   These create verified local rollback tags and private GHCR baselines.
+   The agent target is build-only: the next chat turn uses it, with no
+   persistent container to restart.
+5. **(Redeploys)** let the rebuild CLI recreate affected long-running
+   services with `--no-deps --force-recreate`; do not bypass its safety gates
+   with raw Compose commands.
 6. **Verify** — run the checks below plus DEPLOYMENT.md §6.
 
 ## Verification

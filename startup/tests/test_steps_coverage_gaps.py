@@ -250,10 +250,19 @@ def test_start_seek_side_waits_for_filestore_before_workers(mock_up: MagicMock, 
     mock_wait.assert_called_once()
 
 
+@patch("startup.steps.build.compose_build")
 @patch("startup.steps.build.compose_up")
-def test_build_and_start_nextseek_builds(mock_up: MagicMock) -> None:
+def test_build_and_start_nextseek_builds(mock_up: MagicMock, mock_build: MagicMock) -> None:
     build.build_and_start_nextseek(Path("/r"), {})
-    assert mock_up.call_args.kwargs["build"] is True
+    assert list(mock_build.call_args.kwargs["services"]) == ["nextseek"]
+    assert list(mock_up.call_args.kwargs["services"]) == [
+        "nextseek",
+        "attribute_mutation_worker",
+        "attribute_mutation_dispatcher",
+        "attribute_mutation_recovery_scheduler",
+        "nextseek_nginx",
+    ]
+    assert mock_up.call_args.kwargs["no_deps"] is True
 
 
 @patch("startup.steps.build.compose_up")
@@ -350,13 +359,14 @@ FIX = MissingColumn(
 def test_fixup_table_missing(mock_exec: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(schema_fixups, "KNOWN_FIXUPS", [FIX])
     mock_exec.return_value = "0\n"
-    assert schema_fixups.apply_all(Path("/r"), {}) == [("dmac.t.c", "table missing")]
+    assert schema_fixups.apply_column_fixups(Path("/r"), {}) == [("dmac.t.c", "table missing")]
 
 
 @patch("startup.steps.schema_fixups.compose_exec", side_effect=DockerOpsError("db down"))
-def test_fixup_docker_error_treated_as_table_missing(_mock: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fixup_docker_error_propagates(_mock: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(schema_fixups, "KNOWN_FIXUPS", [FIX])
-    assert schema_fixups.apply_all(Path("/r"), {}) == [("dmac.t.c", "table missing")]
+    with pytest.raises(DockerOpsError, match="db down"):
+        schema_fixups.apply_column_fixups(Path("/r"), {})
 
 
 @patch("startup.steps.schema_fixups.compose_exec")
@@ -365,7 +375,7 @@ def test_fixup_applies_missing_column_with_backfill_and_tighten(
 ) -> None:
     monkeypatch.setattr(schema_fixups, "KNOWN_FIXUPS", [FIX])
     mock_exec.side_effect = ["1\n", "0\n", "", ""]  # table yes, column no, ALTER, MODIFY
-    assert schema_fixups.apply_all(Path("/r"), {}) == [("dmac.t.c", "applied")]
+    assert schema_fixups.apply_column_fixups(Path("/r"), {}) == [("dmac.t.c", "applied")]
     alter_sql = mock_exec.call_args_list[2].kwargs["command"][-1]
     assert "ADD COLUMN c JSON NULL" in alter_sql
     assert "UPDATE t SET c = JSON_OBJECT()" in alter_sql
@@ -379,7 +389,7 @@ def test_fixup_existing_column_gets_constraints_reset(
 ) -> None:
     monkeypatch.setattr(schema_fixups, "KNOWN_FIXUPS", [FIX])
     mock_exec.side_effect = ["1\n", "1\n", ""]  # table yes, column yes, MODIFY
-    assert schema_fixups.apply_all(Path("/r"), {}) == [("dmac.t.c", "constraints reset")]
+    assert schema_fixups.apply_column_fixups(Path("/r"), {}) == [("dmac.t.c", "constraints reset")]
 
 
 @patch("startup.steps.schema_fixups.compose_exec")
@@ -389,7 +399,7 @@ def test_fixup_without_final_definition_reports_already_present(
     loose = MissingColumn(database="dmac", table="t", column="c", column_definition="JSON NULL")
     monkeypatch.setattr(schema_fixups, "KNOWN_FIXUPS", [loose])
     mock_exec.side_effect = ["1\n", "1\n"]  # no MODIFY call — tighten early-returns
-    assert schema_fixups.apply_all(Path("/r"), {}) == [("dmac.t.c", "already present")]
+    assert schema_fixups.apply_column_fixups(Path("/r"), {}) == [("dmac.t.c", "already present")]
     assert mock_exec.call_count == 2
 
 

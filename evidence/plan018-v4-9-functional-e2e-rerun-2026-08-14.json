@@ -1,0 +1,64 @@
+{
+  "schema_version": "plan018-v4-9-functional-e2e-rerun/v1",
+  "executed_at": "2026-08-14T18:36:27-04:00",
+  "source_commit": "db104fe7e411387f83781862a0d32950a1266e09",
+  "base_image_id": "sha256:6e12938446602c273d00895259527f4f31fb211ed2c310527bffd181fa827179",
+  "execution": {
+    "database": "sqlite-memory-disposable",
+    "source_mount": "read_only",
+    "delivery_mount": "read_only",
+    "live_persistent_state_mutated": false,
+    "live_stack_rebuilt": false
+  },
+  "provider": {
+    "client": "GCPReasoner",
+    "model": "gemini-3.1-pro-preview",
+    "paid_calls": 2,
+    "calls": [
+      {
+        "function": "ClassifyQuery",
+        "duration_ms": 3555,
+        "input_tokens": 808,
+        "output_tokens": 74,
+        "result": "sample_search"
+      },
+      {
+        "function": "RouteQuery",
+        "duration_ms": 2893,
+        "input_tokens": 3141,
+        "output_tokens": 71,
+        "result": "nextseek_query"
+      }
+    ]
+  },
+  "posterior_probe": {
+    "task_family": "sample_search",
+    "retained_pairs": 18,
+    "discordant_pairs": 3,
+    "candidate_status": "indecisive",
+    "activated": false,
+    "quality_advantage_mean": -0.14268207959530185,
+    "p_ns_quality_win": 0.00125,
+    "p_cc_quality_win": 0.66625,
+    "p_quality_equivalent": 0.3325,
+    "required_probability": 0.95,
+    "quality_threshold": 0.1,
+    "rope_half_width": 0.1,
+    "diagnostics": {
+      "divergences": 0,
+      "rhat_max": 1.0026724083561065,
+      "ess_bulk_min": 1593.0557597572279,
+      "ess_tail_min": 1914.9790929128558
+    }
+  },
+  "router": {
+    "query": "Find me mice treated with NDMA.",
+    "classification": "sample_search",
+    "posterior_selected": false,
+    "fallback_source": "baml",
+    "fallback_route": "nextseek_query",
+    "generation_hash_reported": ""
+  },
+  "result": "FAIL",
+  "failure": "The pooled posterior marked sample_search indecisive, so the selector returned no route. The router invoked legacy RouteQuery, which selected nextseek_query; the E2E required a posterior-sourced container_cc decision."
+}

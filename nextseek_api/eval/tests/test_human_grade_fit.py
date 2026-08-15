@@ -265,6 +265,22 @@ def test_dev_dry_run_report_is_deterministic_and_explicitly_non_authoritative(pr
     assert report["model"]["authoritative"] is False
     assert report["source"]["judge_calls_used"] == 0
     assert report["source"]["functional_success_source"] == "human_grades"
+    assert report["model"]["quality_fit_mode"] == "descriptive_profile_only"
+    assert report["model"]["publication_authority"] == "provisional"
+    assert prepared.fit.decision.generation_status == "profile_only"
+    assert prepared.fit.decision.activated_families == ()
+    assert all(
+        not hasattr(result, "posterior_samples_advantage")
+        and not hasattr(result, "rhat_max")
+        and not hasattr(result, "ess_bulk_min")
+        for result in prepared.fit.quality.values()
+    )
+    assert all(
+        diagnostics == {"fit_kind": "descriptive_profile_only"}
+        for diagnostics in prepared.publication_evidence.fit_diagnostics[
+            "quality"
+        ].values()
+    )
 
 
 def test_combined_fit_cannot_publish_without_explicit_evidence(prepared):
@@ -292,7 +308,53 @@ def test_initial_human_grade_publication_requires_explicit_override(initial_rele
     )
     assert manifest.fit_diagnostics["authoritative"] is False
     assert manifest.fit_diagnostics["initial_release_override"] is True
+    assert manifest.fit_diagnostics["quality_mcmc"] is True
+    assert manifest.fit_diagnostics["latency_mcmc"] is False
+    assert manifest.fit_diagnostics["diagnostics_ok"] is True
     assert manifest.source_provenance["initial_release_override"] is True
+    assert manifest.source_provenance["publication_authority"] == "provisional"
+    assert (
+        manifest.source_provenance["human_grade_review_status"]
+        == "provisional_pending_case_review"
+    )
+    assert initial_release.fit.quality_mcmc is True
+    assert initial_release.fit.latency_mcmc is False
+    assert initial_release.fit.decision.generation_status != "profile_only"
+    assert initial_release.fit.decision.activated_families
+    assert all(
+        result.authoritative
+        and result.diagnostics_scope == "shared_generation"
+        and result.posterior_samples_advantage.size > 1
+        for result in initial_release.fit.quality.values()
+    )
+    assert all(
+        not hasattr(result, "posterior_log_d")
+        and not hasattr(result, "rhat_max")
+        and not hasattr(result, "ess_bulk_min")
+        for result in initial_release.fit.latency.values()
+    )
+    shared_diagnostics = {
+        (
+            result.divergences,
+            result.rhat_max,
+            result.ess_bulk_min,
+            result.ess_tail_min,
+        )
+        for result in initial_release.fit.quality.values()
+    }
+    assert len(shared_diagnostics) == 1
+
+
+def test_initial_release_routes_proven_equivalence_to_ns(initial_release):
+    by_family = {
+        candidate.family: candidate
+        for candidate in initial_release.fit.decision.candidates
+    }
+
+    graph = by_family["graph_traversal"]
+    assert graph.status.value == "quality_equivalent_ns"
+    assert graph.activated
+    assert "graph_traversal" in initial_release.fit.decision.activated_families
 
 
 @pytest.mark.django_db

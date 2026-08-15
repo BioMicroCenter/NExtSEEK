@@ -9,16 +9,29 @@ description: Use when deploying, redeploying, rolling back, or verifying the NEx
 authoritative runbook and the stand-in for a CI/CD pipeline. This skill only
 routes you and holds the hard gates.
 
-## Standard verbs (use these, not raw docker compose)
+## Standard verbs
 
-- **Redeploy an app change** (the common case): `./startup.sh rebuild` — the
-  fast path. It rebuilds+restarts only the `nextseek` service (volumes, seeds,
-  and config untouched; migrations still run at container boot), runs the
-  DEPLOYMENT.md §5.2 baked-secret gate on the fresh image, and **automatically
-  pushes the off-box rollback baseline to GHCR** (never failing the deploy —
-  a missing/expired token degrades to a loud banner + red doctor check).
-  Raw `docker compose build nextseek` silently skips the gate AND the
-  baseline push — do not use it for the app service.
+- **App code**: `./startup.sh rebuild` — rebuild the shared app image and
+  recreate `nextseek` plus every attribute worker/dispatcher/recovery runtime.
+- **CC image**: `./startup.sh rebuild --component cc-agent` — build only; the
+  next chat turn uses it, with no persistent agent container to restart.
+- **Sidecar / proxy**: use `--component nextseek-sidecar` or
+  `--component bedrock-proxy`.
+- **Every first-party image**: use `--component custom-stack`. This never
+  rebuilds or restarts nginx, databases, SEEK, or Solr.
+- **Dirty shared runtime checkout**: use `--source-tree <clean-origin-dev>`.
+  Images build from that verified clean checkout while recreation continues
+  from the installed instance, preserving its existing bind-mounted paths.
+
+Every rebuild verb first creates and verifies local rollback tags, uses
+`--no-deps --force-recreate` for long-running targets, gates each fresh image
+for baked secrets, and attempts its component-specific private GHCR baseline.
+The app rebuild reattaches the existing `attribute_mutation_broker` SQLite
+named volume; it does not renew or delete it. Only the explicitly destructive
+`reset` path drops volumes.
+Local rollback failure aborts before building; GHCR failure remains non-fatal
+but produces a loud banner and red doctor check. Do not bypass this with raw
+`docker compose build` / `up`.
 - **Diagnose**: `./startup.sh doctor` (read-only) before touching anything.
 - **First-ever install on a box**: `./startup.sh install` (full pipeline:
   prereqs → config render → volumes → seeds → build → users → health).
@@ -39,13 +52,14 @@ routes you and holds the hard gates.
 
 1. Deploy only committed code from `origin/dev` — never `docker cp` fixes
    into a running container (ephemeral; lost on recreate).
-2. Rollback-tag the current image **before** rebuilding, and verify the tag
-   exists (`docker image inspect`). A rollback script must fail loudly if its
-   source tag is missing.
+   `--source-tree` refuses a dirty tree, a SHA other than `origin/dev`, a
+   runtime/source SHA mismatch, or dirty runtime deployment-control files.
+2. Require the rebuild CLI's verified pre-tags. If raw image work is explicitly
+   approved, create and inspect equivalent tags before replacing any image.
 3. mysqldump gate before any deploy whose range includes a Django migration.
    Never `migrate --fake` a wedged migration.
-4. Recreate only the services that changed (`--no-deps`); the OI-3 peers'
-   uptime (`dmac-bedrock-proxy`, `nextseek-sidecar`) is part of verification.
+4. Recreate only the selected component (`--no-deps`). The app component is a
+   cohort: web + all processes that execute the shared app image.
 5. Never weaken the CC agent isolation: zero shared credentials in the agent
    env, Bedrock only via the proxy, `nextseek` never joins `dmac-cc-net`.
 6. Secrets exist only in the gitignored files (DEPLOYMENT.md §8) — never in

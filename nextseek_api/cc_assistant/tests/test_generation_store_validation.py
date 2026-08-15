@@ -192,6 +192,16 @@ def test_validate_refuses_invalid_decision_status():
     assert any("decision_status" in reason for reason in result.reasons)
 
 
+def test_validate_accepts_activated_subset_status():
+    generation = _publish_generation_for_test(
+        _manifest(decision_status="activated_subset")
+    )
+
+    result = validate_generation_for_activation(generation)
+
+    assert result.ok, result.reasons
+
+
 def test_validate_refuses_precision_floor_on_retained_pairs():
     generation = _publish_generation_for_test(_manifest(counts={"retained_pairs": 1}))
     result = validate_generation_for_activation(generation)

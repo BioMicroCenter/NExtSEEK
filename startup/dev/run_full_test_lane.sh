@@ -37,7 +37,7 @@
 # PRE-FLIGHT (all BEFORE any test runs; each failure exits nonzero)
 #   1. App image identity: `docker image inspect nextseek-nextseek:latest`
 #      must report exactly the pinned ID
-#      sha256:f1e0790e6653077569e42ccf3549f014617f03140b038aaf3de070fde227922b.
+#      sha256:397ca26e65051d05693330893898cb6b0b0fd4d430cc89df0b32fdd223f15ee4.
 #   2. Embedding model cache (UD-13): <test-tree>/schema_rag/embedding_models
 #      is manifest-verified via `provision_embedding_model.sh --verify`.
 #      On absence/mismatch the lane FAILS FAST and tells you to run
@@ -103,8 +103,8 @@ set -u
 # ---------------------------------------------------------------------------
 # Pinned identities
 # ---------------------------------------------------------------------------
-APP_IMAGE="nextseek-nextseek:latest"
-APP_IMAGE_ID_PIN="sha256:f1e0790e6653077569e42ccf3549f014617f03140b038aaf3de070fde227922b"
+APP_IMAGE="ghcr.io/biomicrocenter/nextseek:baseline-20260805"
+APP_IMAGE_ID_PIN="sha256:dee946d11cde79b5002b569f80900adc988e09c68aeaa7c3467eac42cfb512c4"
 MYSQL_IMAGE="mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b"
 
 # ---------------------------------------------------------------------------
@@ -187,8 +187,14 @@ fi
 # ---------------------------------------------------------------------------
 NET="testlane-net-$$"
 SIDECAR="testlane-mysql-$$"
+PYTEST_CTR="testlane-pytest-$$"
 
 cleanup() {
+    # Remove the named pytest container first: if the 2200s watchdog fires it
+    # kills the `docker run` client but leaves the container running, which in
+    # turn blocks `docker network rm` (network still attached). Force-remove it
+    # explicitly so teardown always completes (plan-009 residual-debt item 1).
+    docker rm -f "${PYTEST_CTR}" >/dev/null 2>&1
     docker rm -f "${SIDECAR}" >/dev/null 2>&1
     docker network rm "${NET}" >/dev/null 2>&1
 }
@@ -229,7 +235,7 @@ echo "lane: sidecar ready on ${NET} (alias spikemysql)"
 # ---------------------------------------------------------------------------
 # The single pytest invocation (frozen selection; overlay mounted read-only)
 # ---------------------------------------------------------------------------
-timeout 2200 docker run --rm --network "${NET}" --entrypoint sh \
+timeout 2200 docker run --rm --name "${PYTEST_CTR}" --network "${NET}" --entrypoint sh \
     -v "${TEST_TREE}:/work" \
     -v "${OVERLAY}:/work/dmac/local_settings.py:ro" \
     -w /work \

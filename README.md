@@ -60,11 +60,11 @@ Common changes you'll make and how to apply them to a running stack:
 
 | What you changed | Command |
 |---|---|
-| Python views / models / settings (no static asset change) | `docker compose up -d --build nextseek` |
-| Files under `static/` (CSS/JS/images, hand-edited) | `docker compose up -d --build nextseek && docker compose exec nextseek uv run manage.py collectstatic --noinput` |
+| Python views / models / settings (no static asset change) | `./startup.sh rebuild` |
+| Files under `static/` (CSS/JS/images, hand-edited) | `./startup.sh rebuild && docker compose exec nextseek uv run manage.py collectstatic --noinput` |
 | `chat_frontend/` React source | `npm run build:embedded` in `chat_frontend/` (emits to `static/js/chat_assistant/`), then `collectstatic` as above — plain `npm run build` outputs only the standalone app to `dist/`, which never ships |
 | `chat_nextseek/` source pulled in from canonical repo | `startup/scripts/sync_chat_nextseek.sh <source>`, commit, then `./startup.sh rebuild` |
-| New Django model field / migration | `docker compose up -d --build nextseek` (entrypoint runs `migrate` on startup) |
+| New Django model field / migration | mysqldump gate, then `./startup.sh rebuild` (entrypoint runs `migrate` on startup) |
 | Full reset (wipe data, re-seed) | `./startup.sh reset` |
 
 The Python-only-rebuild path is the common one. The key gotcha: rebuilding

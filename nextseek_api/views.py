@@ -48,6 +48,7 @@ from .services.people import PeopleProxyViewSet as PeopleViewSet
 from .services.users import UsersViewSet
 from .services.investigations import InvestigationProxyViewSet as InvestigationViewSet
 from .services.studies import StudyProxyViewSet as StudyViewSet
+from .attributes.views import AttributeViewSet
 from .services.assays import AssayProxyViewSet as AssayViewSet
 from .services.sample_types import SampleTypeProxyViewSet as SampleTypeViewSet
 from .services.sample_types import SampleTypeChildrenViewSet as SampleTypeChildrenViewSet
