@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
-from datetime import datetime
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +136,7 @@ def assert_control_stage_mounts(argv: list[str], *, stage: str) -> None:
         raise CloseoutError("control stage missing narrow safe.directory")
     volumes = parse_docker_volumes(argv)
     saw_repo = saw_git = saw_mirror = saw_evidence = saw_vet = saw_control = False
+    saw_execution_parent = saw_transcript = False
     for host, container, mode in volumes:
         writable = mode != "ro"
         if "NExtSEEK-plan005" in host or "NExtSEEK-plan005" in container:
@@ -150,12 +153,18 @@ def assert_control_stage_mounts(argv: list[str], *, stage: str) -> None:
             saw_mirror = True
             if writable:
                 raise CloseoutError("writable dev-mirror mount refused")
-        if container in {"/all-evidence", "/vet-reports"} and writable:
+        if container in {"/all-evidence", "/vet-reports", EVIDENCE_PARENT} and writable:
             raise CloseoutError(f"writable {container} mount refused")
         if container == "/all-evidence":
             saw_evidence = True
         if container == "/vet-reports":
             saw_vet = True
+        if container == EVIDENCE_PARENT:
+            saw_execution_parent = True
+        if container.startswith("/signoff-transcript"):
+            saw_transcript = True
+            if writable:
+                raise CloseoutError("writable sign-off transcript mount refused")
         if container == "/control-output":
             saw_control = True
             if f"/control/{stage}" not in host:
@@ -170,6 +179,10 @@ def assert_control_stage_mounts(argv: list[str], *, stage: str) -> None:
         raise CloseoutError("missing read-only aggregate evidence mount")
     if not saw_vet:
         raise CloseoutError("missing read-only vet-report mount")
+    if not saw_execution_parent:
+        raise CloseoutError("missing read-only execution-parent mount")
+    if not saw_transcript:
+        raise CloseoutError("missing read-only sign-off transcript mount")
     if not saw_control:
         raise CloseoutError("missing exclusive /control-output mount")
 
@@ -294,7 +307,82 @@ def validate_vet_reports(paths: list[Path], approved_sha: str) -> list[dict[str,
     return reports
 
 
-def validate_signoffs(repo_root: Path, signoff_dir: Path) -> list[dict[str, Any]]:
+def _transcript_user_events(paths: list[Path]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    stamp_re = re.compile(r"<timestamp>(.*?)</timestamp>", re.DOTALL)
+    query_re = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL)
+    for path in paths:
+        if not path.is_file():
+            raise CloseoutError(f"sign-off transcript missing: {path}")
+        for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("role") != "user":
+                continue
+            content = (payload.get("message") or {}).get("content", payload.get("content", []))
+            blocks = content if isinstance(content, list) else [content]
+            text = "\n".join(
+                str(block.get("text", "")) if isinstance(block, dict) else str(block)
+                for block in blocks
+            )
+            stamp_match = stamp_re.search(text)
+            query_match = query_re.search(text)
+            if not stamp_match or not query_match:
+                continue
+            try:
+                local = datetime.strptime(
+                    stamp_match.group(1).strip(),
+                    "%A, %b %d, %Y, %I:%M %p (UTC-4)",
+                ).replace(tzinfo=timezone(timedelta(hours=-4)))
+            except ValueError:
+                continue
+            events.append(
+                {
+                    "path": str(path),
+                    "path_sha256": sha256_file(path),
+                    "line": line_number,
+                    "event_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+                    "timestamp": local.astimezone(timezone.utc),
+                    "query": query_match.group(1).strip(),
+                }
+            )
+    return events
+
+
+def _authenticate_signoff(
+    payload: dict[str, Any], events: list[dict[str, Any]], *, filename: str
+) -> dict[str, Any]:
+    quote = str(payload.get("quote") or "").strip()
+    try:
+        approved = datetime.fromisoformat(str(payload["approval_timestamp"]))
+    except (KeyError, ValueError) as exc:
+        raise CloseoutError(f"sign-off {filename} has invalid approval timestamp") from exc
+    if approved.tzinfo is None:
+        raise CloseoutError(f"sign-off {filename} approval timestamp lacks timezone")
+    approved_utc = approved.astimezone(timezone.utc)
+    matches = [
+        event
+        for event in events
+        if quote in event["query"] and event["timestamp"] == approved_utc
+    ]
+    if len(matches) != 1:
+        raise CloseoutError(
+            f"sign-off {filename} lacks one authenticated user-role transcript event"
+        )
+    event = matches[0]
+    return {
+        "transcript_path": event["path"],
+        "transcript_sha256": event["path_sha256"],
+        "line": event["line"],
+        "event_sha256": event["event_sha256"],
+    }
+
+
+def validate_signoffs(
+    repo_root: Path, signoff_dir: Path, transcript_paths: list[Path]
+) -> list[dict[str, Any]]:
     route = repo_root / "dmac_assistant/build_context/route_capabilities.json"
     actual_route = sha256_file(route)
     if actual_route != ROUTE_CAPABILITIES_SHA:
@@ -304,6 +392,9 @@ def validate_signoffs(repo_root: Path, signoff_dir: Path) -> list[dict[str, Any]
         )
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
+    events = _transcript_user_events(transcript_paths)
+    if not events:
+        raise CloseoutError("no authenticated user-role sign-off transcript events")
     for path in sorted(signoff_dir.glob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
         if payload.get("interpretation_source") != "user_stated":
@@ -323,8 +414,12 @@ def validate_signoffs(repo_root: Path, signoff_dir: Path) -> list[dict[str, Any]
         presented = presented_diff_hash(repo_root, list(artifacts))
         if payload.get("presented_diff_hash") != presented:
             raise CloseoutError(f"sign-off {path.name} presented diff hash mismatch")
+        authenticated = dict(payload)
+        authenticated["provenance"] = _authenticate_signoff(
+            payload, events, filename=path.name
+        )
         seen.add(payload["id"])
-        records.append(payload)
+        records.append(authenticated)
     missing = [item for item in REQUIRED_SIGNOFF_IDS if item not in seen]
     if missing:
         raise CloseoutError(f"missing sign-off records: {missing}")
@@ -474,15 +569,189 @@ def validate_on_disk_record_hashes(
         after = record.get("evidence_root_after") or {}
         for rel, digest in after.items():
             path = evidence_root / rel
-            if path.is_file() and sha256_file(path) != digest:
+            if not path.is_file():
+                raise CloseoutError(f"recorded evidence file is missing: {rel}")
+            if sha256_file(path) != digest:
                 raise CloseoutError(f"on-disk hash drifted from record: {rel}")
 
 
+def _tree_hash_manifest(root: Path) -> dict[str, str]:
+    if not root.is_dir():
+        raise CloseoutError(f"evidence tree missing: {root}")
+    return {
+        path.relative_to(root).as_posix(): sha256_file(path)
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _git_tree_manifest(repo_root: Path, revision: str) -> dict[str, tuple[str, str]]:
+    output = git_cmd(repo_root, "ls-tree", "-r", revision)
+    manifest: dict[str, tuple[str, str]] = {}
+    for line in output.splitlines():
+        metadata, path = line.split("\t", 1)
+        mode, object_type, object_sha = metadata.split()
+        if object_type != "blob":
+            raise CloseoutError(f"immutable-base tree contains non-blob: {path}")
+        manifest[path] = (mode, object_sha)
+    return manifest
+
+
+def _git_blob_sha(path: Path) -> str:
+    data = path.read_bytes()
+    return hashlib.sha1(f"blob {len(data)}\0".encode("utf-8") + data).hexdigest()
+
+
+def _validate_materialized_base(
+    *, baseline_dir: Path, repo_root: Path, identities: dict[str, Any]
+) -> None:
+    expected = _git_tree_manifest(repo_root, PLAN005_BASE_COMMIT)
+    declared = identities.get("subject_blob_manifest")
+    expected_blobs = {path: object_sha for path, (_mode, object_sha) in expected.items()}
+    if declared != expected_blobs:
+        raise CloseoutError("immutable-base declared blob manifest mismatch")
+
+    subject = baseline_dir / "subject-tree"
+    actual_paths = {
+        path.relative_to(subject).as_posix()
+        for path in subject.rglob("*")
+        if path.is_file()
+    }
+    generated_prefixes = (
+        "dmac_assistant/src/dmac_assistant/router/baml_client/",
+        "dmac_assistant/tools/e2e/baml_client/",
+    )
+    expected_fixed = {
+        path for path in expected if not path.startswith(generated_prefixes)
+    }
+    actual_fixed = {
+        path for path in actual_paths if not path.startswith(generated_prefixes)
+    }
+    if actual_fixed != expected_fixed:
+        raise CloseoutError("immutable-base materialized path set mismatch")
+    for relative in sorted(expected_fixed):
+        if _git_blob_sha(subject / relative) != expected[relative][1]:
+            raise CloseoutError(f"immutable-base materialized blob mismatch: {relative}")
+
+    index_path = baseline_dir / "base.index"
+    env = dict(os.environ)
+    env["GIT_INDEX_FILE"] = str(index_path)
+    completed = subprocess.run(
+        ["git", "-C", str(repo_root), "ls-files", "--stage"],
+        env=env,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise CloseoutError(f"immutable-base index unreadable: {completed.stderr}")
+    actual_index: dict[str, tuple[str, str]] = {}
+    for line in completed.stdout.splitlines():
+        metadata, path = line.split("\t", 1)
+        mode, object_sha, stage = metadata.split()
+        if stage != "0":
+            raise CloseoutError(f"immutable-base index has nonzero stage: {path}")
+        actual_index[path] = (mode, object_sha)
+    if actual_index != expected:
+        raise CloseoutError("immutable-base Git index mismatch")
+
+
+def validate_baseline_evidence(
+    *, evidence_root: Path, repo_root: Path, identity: dict[str, str]
+) -> tuple[Path, dict[str, str], dict[str, Any]]:
+    baseline_dir = Path(EVIDENCE_PARENT) / "base-a9d69522" / identity["head"]
+    binding_dir = evidence_root / "artifacts/baseline"
+    identities_path = baseline_dir / "baseline-identities.json"
+    identities = json.loads(identities_path.read_text(encoding="utf-8"))
+    if identities.get("tool_head") != identity["head"]:
+        raise CloseoutError("immutable-base producer tool HEAD mismatch")
+    if identities.get("subject_base") != PLAN005_BASE_COMMIT:
+        raise CloseoutError("immutable-base producer subject commit mismatch")
+    expected_tree = git_cmd(repo_root, "rev-parse", f"{PLAN005_BASE_COMMIT}^{{tree}}").strip()
+    if identities.get("subject_tree") != expected_tree:
+        raise CloseoutError("immutable-base producer subject tree mismatch")
+    _validate_materialized_base(
+        baseline_dir=baseline_dir, repo_root=repo_root, identities=identities
+    )
+    for key in ("baml_record_exit", "pytest_record_exit"):
+        if identities.get(key) != 0:
+            raise CloseoutError(f"immutable-base nested command nonzero: {key}")
+
+    nested_records: dict[str, dict[str, Any]] = {}
+    for name in ("01-baseline-baml", "01-baseline-pytest"):
+        path = baseline_dir / "recorder/records" / name / "record.json"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        nested_records[name] = record
+        if record.get("exit_code") != 0:
+            raise CloseoutError(f"immutable-base nested record nonzero: {name}")
+        for snapshot in (record.get("pre") or {}, record.get("post") or {}):
+            if snapshot.get("head") != identity["head"] or snapshot.get("porcelain"):
+                raise CloseoutError(f"immutable-base nested record identity mismatch: {name}")
+    pytest_argv = list(nested_records["01-baseline-pytest"].get("argv") or [])
+    expected_subject_mount = f"{baseline_dir}/subject-tree:/repo:ro"
+    if expected_subject_mount not in pytest_argv:
+        raise CloseoutError("immutable-base pytest did not run the materialized base tree")
+    if f"{baseline_dir}/base.index:/baseline-git-index:ro" not in pytest_argv:
+        raise CloseoutError("immutable-base pytest missing exact base Git index")
+
+    junit_path = baseline_dir / "base-cc-assistant.junit.xml"
+    junit_root = ET.parse(junit_path).getroot()
+    suites = [junit_root] if junit_root.tag == "testsuite" else list(junit_root)
+    failures = sum(int(suite.attrib.get("failures", 0)) for suite in suites)
+    errors = sum(int(suite.attrib.get("errors", 0)) for suite in suites)
+    if failures or errors:
+        raise CloseoutError(
+            f"immutable-base JUnit is not green: failures={failures} errors={errors}"
+        )
+
+    external: dict[str, str] = {}
+    binding_expected: dict[str, str] = {}
+    for name in (
+        "base-cc-assistant.junit.xml",
+        "baseline-identities.json",
+        "baml_src-manifest.json",
+        "baml_client-manifest.json",
+        "base.index",
+        "base.gitfile",
+    ):
+        digest = sha256_file(baseline_dir / name)
+        external[name] = digest
+        binding_expected[name] = digest
+    for source_name, target_name in (
+        ("records", "nested-records"),
+        ("artifacts", "nested-artifacts"),
+    ):
+        source_manifest = _tree_hash_manifest(baseline_dir / "recorder" / source_name)
+        for rel, digest in source_manifest.items():
+            external[f"recorder/{source_name}/{rel}"] = digest
+            binding_expected[f"{target_name}/{rel}"] = digest
+    bound_copy = _tree_hash_manifest(binding_dir)
+    if binding_expected != bound_copy:
+        raise CloseoutError("immutable-base external evidence differs from lane-01 binding")
+    return baseline_dir, external, identities
+
+
 def validate_producer_consumer(
-    records: list[dict[str, Any]], evidence_root: Path
+    records: list[dict[str, Any]], evidence_root: Path, baseline_dir: Path
 ) -> list[dict[str, str]]:
     by_name = {row["name"]: row for row in records}
     bindings: list[dict[str, str]] = []
+    baseline_junit = baseline_dir / "base-cc-assistant.junit.xml"
+    baseline_digest = sha256_file(baseline_junit)
+    bound_baseline = evidence_root / "artifacts/baseline/base-cc-assistant.junit.xml"
+    if sha256_file(bound_baseline) != baseline_digest:
+        raise CloseoutError("producer-to-consumer: lane 01 baseline JUnit digest mismatch")
+    gate_argv = list(by_name["16-final-gate"].get("argv") or [])
+    if "/baseline/base-cc-assistant.junit.xml" not in gate_argv:
+        raise CloseoutError("16-final-gate missing immutable-base JUnit input")
+    bindings.append(
+        {
+            "consumer": "16-final-gate",
+            "producer": "01-baseline",
+            "path": "baseline:base-cc-assistant.junit.xml",
+            "sha256": baseline_digest,
+        }
+    )
     coverage_json = evidence_root / COVERAGE_JSON_REL
     if not coverage_json.is_file():
         raise CloseoutError("missing 13-coverage-json output")
@@ -537,6 +806,8 @@ def collect_bound_evidence(
     baml_src: dict[str, str],
     baml_client: dict[str, str],
     producer_bindings: list[dict[str, str]],
+    baseline_manifest: dict[str, str],
+    signoffs: list[dict[str, Any]],
 ) -> dict[str, str]:
     bound: dict[str, str] = {}
     for rel, digest in baml_src.items():
@@ -560,12 +831,31 @@ def collect_bound_evidence(
     if plugin_dir.is_dir():
         bound["plugin_tree:nextseek"] = hash_plugin_tree(plugin_dir)
     for item in producer_bindings:
-        bound[f"evidence:{item['path']}"] = item["sha256"]
+        path = item["path"]
+        key = path if path.startswith("baseline:") else f"evidence:{path}"
+        bound[key] = item["sha256"]
     for record in records:
         name = record["name"]
         rec_path = evidence_root / "records" / name / "record.json"
         if rec_path.is_file():
             bound[f"evidence:records/{name}/record.json"] = sha256_file(rec_path)
+    for top in ("artifacts", "records"):
+        root = evidence_root / top
+        if not root.is_dir():
+            raise CloseoutError(f"missing final evidence namespace: {root}")
+        for path in sorted(root.rglob("*")):
+            if path.is_file():
+                rel = path.relative_to(evidence_root).as_posix()
+                bound[f"evidence:{rel}"] = sha256_file(path)
+    for rel, digest in baseline_manifest.items():
+        bound[f"baseline:{rel}"] = digest
+    for signoff in signoffs:
+        provenance = signoff.get("provenance") or {}
+        path = provenance.get("transcript_path")
+        digest = provenance.get("transcript_sha256")
+        if not path or not digest:
+            raise CloseoutError("authenticated sign-off provenance missing")
+        bound[f"provenance:{path}"] = str(digest)
     return bound
 
 
@@ -587,6 +877,13 @@ def rehash_bound_evidence(
             actual = hash_plugin_tree(
                 repo_root / "docker/cc-runtime/build_context/plugins" / name
             )
+        elif key.startswith("baseline:"):
+            baseline_root = (
+                Path(EVIDENCE_PARENT) / "base-a9d69522" / evidence_root.name
+            )
+            actual = sha256_file(baseline_root / key[len("baseline:") :])
+        elif key.startswith("provenance:"):
+            actual = sha256_file(Path(key[len("provenance:") :]))
         else:
             raise CloseoutError(f"unknown bound evidence key: {key}")
         if actual != expected:
@@ -604,6 +901,7 @@ def run_preflight(
     plan_mirror: Path,
     backup_path: Path,
     signoff_dir: Path,
+    signoff_transcripts: list[Path],
     mirror_root: Path,
 ) -> dict[str, Any]:
     refuse_nonempty_control_output(output_path.parent, output_path.name)
@@ -619,7 +917,7 @@ def run_preflight(
     if backup_hash != BACKUP_SHA:
         raise CloseoutError("pre-hardening backup hash mismatch")
     vet = validate_vet_reports(vet_reports, approved_plan_sha)
-    signoffs = validate_signoffs(repo_root, signoff_dir)
+    signoffs = validate_signoffs(repo_root, signoff_dir, signoff_transcripts)
     records = load_records(evidence_root)
     validate_protocol_binding(
         records,
@@ -631,7 +929,14 @@ def run_preflight(
     commit_time = git_cmd(repo_root, "log", "-1", "--format=%cI").strip()
     validate_record_commit_times(records, identity=identity, commit_time=commit_time)
     validate_on_disk_record_hashes(records, evidence_root)
-    producer_bindings = validate_producer_consumer(records, evidence_root)
+    baseline_dir, baseline_manifest, baseline_identities = validate_baseline_evidence(
+        evidence_root=evidence_root,
+        repo_root=repo_root,
+        identity=identity,
+    )
+    producer_bindings = validate_producer_consumer(
+        records, evidence_root, baseline_dir
+    )
     neither = load_neither_success(repo_root)
     baml_src = _baml_manifest(repo_root, "dmac_assistant/baml_src")
     baml_client = _baml_manifest(
@@ -671,6 +976,8 @@ def run_preflight(
         baml_src=baml_src,
         baml_client=baml_client,
         producer_bindings=producer_bindings,
+        baseline_manifest=baseline_manifest,
+        signoffs=signoffs,
     )
     generated_target_manifest = {
         rel: sha256_file(repo_root / rel)
@@ -742,6 +1049,10 @@ def run_preflight(
         "plugin_tree_hashes": plugin_tree_hashes,
         "generated_target_manifest": generated_target_manifest,
         "junit_hashes": junit_hashes,
+        "baseline_junit_sha256": sha256_file(
+            baseline_dir / "base-cc-assistant.junit.xml"
+        ),
+        "baseline_identities": baseline_identities,
         "producer_consumer": producer_bindings,
         "lane_evidence": lane_evidence,
         "bound_evidence": bound_evidence,

@@ -162,6 +162,67 @@ def baseline_identities(*, repo_root: Path, base: str, git_runner=None) -> dict[
     }
 
 
+def materialize_base_index(*, repo_root: Path, base: str, output: Path) -> Path:
+    """Write an external index for *base* without touching shared Git metadata."""
+    index_path = output / "base.index"
+    env = dict(os.environ)
+    env["GIT_INDEX_FILE"] = str(index_path)
+    completed = subprocess.run(
+        ["git", "-C", str(repo_root), "read-tree", base],
+        env=env,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if completed.returncode != 0 or not index_path.is_file():
+        raise BaselineError(f"git read-tree failed for immutable base: {completed.stderr}")
+    return index_path
+
+
+def git_common_dir(repo_root: Path) -> Path:
+    completed = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "--git-common-dir"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise BaselineError(f"git common-dir lookup failed: {completed.stderr}")
+    value = Path(completed.stdout.strip())
+    if not value.is_absolute():
+        value = (repo_root / value).resolve()
+    return value
+
+
+def _copy_baseline_binding(
+    *, output: Path, evidence_root: Path, binding_output: Path
+) -> None:
+    """Publish the small immutable-base proof set into lane 01's namespace."""
+    binding_output.mkdir(parents=True, exist_ok=True)
+    if any(binding_output.iterdir()):
+        raise BaselineError("baseline binding output must be empty")
+    for name in (
+        BASELINE_JUNIT_NAME,
+        "baseline-identities.json",
+        "baml_src-manifest.json",
+        "baml_client-manifest.json",
+        "base.index",
+        "base.gitfile",
+    ):
+        src = output / name
+        if not src.is_file():
+            raise BaselineError(f"baseline binding source missing: {src}")
+        shutil.copy2(src, binding_output / name)
+    for source_name, target_name in (
+        ("records", "nested-records"),
+        ("artifacts", "nested-artifacts"),
+    ):
+        source = evidence_root / source_name
+        if not source.is_dir():
+            raise BaselineError(f"baseline nested evidence missing: {source}")
+        shutil.copytree(source, binding_output / target_name)
+
+
 def run_baseline_lane(
     *,
     repo_root: Path,
@@ -169,6 +230,7 @@ def run_baseline_lane(
     output: Path,
     image: str,
     evidence_root: Path,
+    binding_output: Path | None = None,
     record: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if image != IMMUTABLE_NEXTSEEK_IMAGE:
@@ -181,6 +243,10 @@ def run_baseline_lane(
         repo_root=repo_root, base=base, dest=extract_dir
     )
     identities = baseline_identities(repo_root=repo_root, base=base)
+    base_index = materialize_base_index(repo_root=repo_root, base=base, output=output)
+    common_git = git_common_dir(repo_root)
+    base_gitfile = output / "base.gitfile"
+    base_gitfile.write_text("gitdir: /git\n", encoding="utf-8")
     recorder = record or record_command
     ignores: list[str] = []
     for path in THREE_PYTEST_IGNORES:
@@ -195,13 +261,13 @@ def run_baseline_lane(
         "-e",
         "PYTHONDONTWRITEBYTECODE=1",
         "-v",
-        f"{repo_root}:/repo:ro",
+        f"{extract_dir}:/repo:ro",
         "-v",
-        f"{repo_root}/dmac_assistant/src/dmac_assistant/router:"
-        "/repo/dmac_assistant/src/dmac_assistant/router",
+        f"{extract_dir}/dmac_assistant/src/dmac_assistant/router/baml_client:"
+        "/repo/dmac_assistant/src/dmac_assistant/router/baml_client",
         "-v",
-        f"{repo_root}/dmac_assistant/tools/e2e:"
-        "/repo/dmac_assistant/tools/e2e",
+        f"{extract_dir}/dmac_assistant/tools/e2e/baml_client:"
+        "/repo/dmac_assistant/tools/e2e/baml_client",
         "-w",
         "/repo",
         image,
@@ -226,10 +292,28 @@ def run_baseline_lane(
         "DJANGO_SETTINGS_MODULE=dmac.test_settings",
         "-e",
         "PYTHONPATH=/repo:/repo/dmac_assistant/src:/repo/chat_nextseek/src",
+        "-e",
+        "GIT_DIR=/git",
+        "-e",
+        "GIT_WORK_TREE=/repo",
+        "-e",
+        "GIT_INDEX_FILE=/baseline-git-index",
+        "-e",
+        "GIT_CONFIG_COUNT=1",
+        "-e",
+        "GIT_CONFIG_KEY_0=safe.directory",
+        "-e",
+        "GIT_CONFIG_VALUE_0=/repo",
         "-v",
         f"{pytest_writable}:/evidence",
         "-v",
-        f"{repo_root}:/repo:ro",
+        f"{extract_dir}:/repo:ro",
+        "-v",
+        f"{base_gitfile}:/repo/.git:ro",
+        "-v",
+        f"{common_git}:/git:ro",
+        "-v",
+        f"{base_index}:/baseline-git-index:ro",
         "-v",
         PINNED_PAIRED_ZIP_VOLUME,
         "-w",
@@ -251,22 +335,23 @@ def run_baseline_lane(
         argv=baml_argv,
         writable_output=evidence_root / "artifacts" / "baseline-baml",
         repo_root=repo_root,
-        declared_repo_output=(
-            repo_root / "dmac_assistant/src/dmac_assistant/router/baml_client",
-            repo_root / "dmac_assistant/tools/e2e/baml_client",
-        ),
-        ensure_declared_repo_output=True,
+        declared_source_manifest=blob_manifest,
     )
+    if baml_record.get("exit_code") != 0:
+        raise BaselineError(
+            f"immutable-base BAML command failed: exit {baml_record.get('exit_code')}"
+        )
     pytest_record = recorder(
         evidence_root=evidence_root,
         name="01-baseline-pytest",
         argv=pytest_argv,
         writable_output=pytest_writable,
         repo_root=repo_root,
+        declared_source_manifest=blob_manifest,
     )
     _publish_baseline_junit(pytest_writable=pytest_writable, output=output)
-    baml_src = hashed_file_manifest(repo_root / BAML_SRC_GLOB)
-    baml_client = hashed_file_manifest(repo_root / BAML_CLIENT_GLOB)
+    baml_src = hashed_file_manifest(extract_dir / BAML_SRC_GLOB)
+    baml_client = hashed_file_manifest(extract_dir / BAML_CLIENT_GLOB)
     (output / "baml_src-manifest.json").write_text(
         json.dumps(baml_src, indent=2) + "\n", encoding="utf-8"
     )
@@ -285,6 +370,16 @@ def run_baseline_lane(
     (output / "baseline-identities.json").write_text(
         json.dumps(summary, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )
+    if binding_output is not None:
+        _copy_baseline_binding(
+            output=output,
+            evidence_root=evidence_root,
+            binding_output=binding_output,
+        )
+    if pytest_record.get("exit_code") != 0:
+        raise BaselineError(
+            f"immutable-base pytest command failed: exit {pytest_record.get('exit_code')}"
+        )
     return summary
 
 
@@ -295,6 +390,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", required=True)
     parser.add_argument("--evidence-root", type=Path, default=None)
+    parser.add_argument("--binding-output", type=Path, default=None)
     return parser
 
 
@@ -312,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
             output=args.output,
             image=args.image,
             evidence_root=evidence_root,
+            binding_output=args.binding_output,
         )
     except (BaselineError, RecordError) as exc:
         print(f"plan005_baseline failed: {exc}", file=sys.stderr)

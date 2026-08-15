@@ -221,6 +221,8 @@ def protocol_rows() -> list[dict[str, Any]]:
                 f"{EVIDENCE_PARENT}/base-a9d69522/{{candidate}}",
                 "--image",
                 "{image}",
+                "--binding-output",
+                "{writable}",
             ],
             repository_mount="{repo}",
             evidence_mount=f"{EVIDENCE_PARENT}/base-a9d69522/{{candidate}}",
@@ -651,6 +653,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plan-mirror", type=Path, default=None)
     parser.add_argument("--backup", type=Path, default=None)
     parser.add_argument("--signoff-dir", type=Path, default=DEFAULT_SIGNOFF_DIR)
+    parser.add_argument("--signoff-transcript", type=Path, action="append", default=[])
     parser.add_argument("--preflight", type=Path, default=None)
     parser.add_argument("--cold-review", type=Path, default=None)
     parser.add_argument("--finalize", type=Path, default=None)
@@ -698,6 +701,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan_mirror=plan_mirror.resolve(),
                 backup_path=backup.resolve(),
                 signoff_dir=args.signoff_dir.resolve(),
+                signoff_transcripts=[path.resolve() for path in args.signoff_transcript],
                 mirror_root=args.mirror_root.resolve(),
             )
         elif args.stage == "finalize":
