@@ -16,6 +16,7 @@ from build_tools.plan005_closeout import (
     APPROVED_PLAN_SHA,
     BACKUP_REL,
     BACKUP_SHA,
+    BASELINE_EVIDENCE_PARENT,
     COLD_REVIEW_REL,
     COMMAND_TIMEOUT_SECONDS,
     DEFAULT_MIRROR,
@@ -672,7 +673,7 @@ def _validate_materialized_base(
 def validate_baseline_evidence(
     *, evidence_root: Path, repo_root: Path, identity: dict[str, str]
 ) -> tuple[Path, dict[str, str], dict[str, Any]]:
-    baseline_dir = Path(EVIDENCE_PARENT) / "base-a9d69522" / identity["head"]
+    baseline_dir = Path(BASELINE_EVIDENCE_PARENT) / identity["head"]
     binding_dir = evidence_root / "artifacts/baseline"
     identities_path = baseline_dir / "baseline-identities.json"
     identities = json.loads(identities_path.read_text(encoding="utf-8"))
@@ -918,7 +919,7 @@ def rehash_bound_evidence(
             )
         elif key.startswith("baseline:"):
             baseline_root = (
-                Path(EVIDENCE_PARENT) / "base-a9d69522" / evidence_root.name
+                Path(BASELINE_EVIDENCE_PARENT) / evidence_root.name
             )
             actual = sha256_file(baseline_root / key[len("baseline:") :])
         elif key.startswith("provenance:"):
@@ -981,7 +982,7 @@ def run_preflight(
     baml_client = _baml_manifest(
         repo_root, "dmac_assistant/src/dmac_assistant/router/baml_client"
     )
-    baseline_dir = Path(EVIDENCE_PARENT) / "base-a9d69522" / identity["head"]
+    baseline_dir = Path(BASELINE_EVIDENCE_PARENT) / identity["head"]
     baseline_src_raw: object = {}
     baseline_client_raw: object = {}
     if (baseline_dir / "baml_src-manifest.json").is_file():

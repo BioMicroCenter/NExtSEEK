@@ -203,6 +203,8 @@ def materialize_base_gitdir(
     """Build detached read-only Git metadata for the materialized base worktree."""
     git_dir = output / "base-git"
     (git_dir / "objects/info").mkdir(parents=True)
+    (git_dir / "refs/heads").mkdir(parents=True)
+    (git_dir / "refs/tags").mkdir(parents=True)
     (git_dir / "HEAD").write_text(f"{base}\n", encoding="utf-8")
     (git_dir / "config").write_text(
         "[core]\n"
@@ -325,7 +327,8 @@ def run_baseline_lane(
         "-e",
         "DJANGO_SETTINGS_MODULE=dmac.test_settings",
         "-e",
-        "PYTHONPATH=/repo:/repo/dmac_assistant/src:/repo/chat_nextseek/src",
+        "PYTHONPATH=/repo:/repo/chat_nextseek:/repo/dmac_assistant/src:"
+        "/repo/chat_nextseek/src",
         "-e",
         "GIT_CONFIG_COUNT=1",
         "-e",

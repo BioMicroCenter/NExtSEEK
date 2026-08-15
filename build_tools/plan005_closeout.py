@@ -18,11 +18,14 @@ IMMUTABLE_NEXTSEEK_IMAGE = (
 IMMUTABLE_VALIDATOR_IMAGE = (
     "sha256:6f4f309cfe24f24047590251ba0ad34ff0c0ed7868b58b080f97b44ed800654c"
 )
-PLAN005_BASE_COMMIT = "a9d69522bc5371365331a93aa2f048f28324fa1c"
+PLAN005_BASE_COMMIT = "88dbba6acb3a73b08e87494e917d7003c0b8e888"
 SEQUENCE_BUDGET_SECONDS = 3600
 COMMAND_TIMEOUT_SECONDS = 600
 COVERAGE_MIN_TOTAL = 95
 EVIDENCE_PARENT = "/home/taishajo/work/state/plan005/execution"
+BASELINE_EVIDENCE_PARENT = (
+    f"{EVIDENCE_PARENT}/base-{PLAN005_BASE_COMMIT[:8]}"
+)
 REPO_ROOT_TEMPLATE = "/home/taishajo/work/NExtSEEK-plan005"
 THREE_PYTEST_IGNORES: tuple[str, ...] = (
     "nextseek_api/cc_assistant/tests/test_cc_realstack.py",
@@ -218,14 +221,14 @@ def protocol_rows() -> list[dict[str, Any]]:
                 "--base",
                 PLAN005_BASE_COMMIT,
                 "--output",
-                f"{EVIDENCE_PARENT}/base-a9d69522/{{candidate}}",
+                f"{BASELINE_EVIDENCE_PARENT}/{{candidate}}",
                 "--image",
                 "{image}",
                 "--binding-output",
                 "{writable}",
             ],
             repository_mount="{repo}",
-            evidence_mount=f"{EVIDENCE_PARENT}/base-a9d69522/{{candidate}}",
+            evidence_mount=f"{BASELINE_EVIDENCE_PARENT}/{{candidate}}",
         ),
         _row(
             "02-export-check",
@@ -486,7 +489,7 @@ def protocol_rows() -> list[dict[str, Any]]:
                 "-v",
                 "{writable}:/evidence",
                 "-v",
-                f"{EVIDENCE_PARENT}/base-a9d69522/{{candidate}}:/baseline:ro",
+                f"{BASELINE_EVIDENCE_PARENT}/{{candidate}}:/baseline:ro",
                 "{image}",
                 "/app/.venv/bin/python",
                 "-m",
