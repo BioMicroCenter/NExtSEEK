@@ -18,6 +18,7 @@ authoritative source when you need more than the auto-resolution provides.
 | `neo4j_schema.json`, `min_graph_schema.json` | Neo4j **node labels, relationships, known investigation titles, and which filters the graph supports** — graph filters on structure/lineage + sampletype + study/investigation title ONLY; cell-type and other metadata fields are NOT graph-filterable and must go through the API. | Before any `nextseek-graph` query — to check the query is answerable in the graph vs. needs an API step. |
 | `projects_db.json` | This instance's project(s) and aliases → project ids. | Resolving a project name to an id (e.g. for `nextseek-report --project`). |
 | `read_safe_endpoints.json` | Which endpoints are read-only. | Confirming write-safety classification of an endpoint. |
+| `ops.json` | Canonical exported OpSpec list (Plan 005). Not an operation inventory to enumerate by hand; consult it when checking installed shim/export identity. | Confirming the baked operation export matches NExtSEEK OpSpec. |
 
 ## Decision shortcuts
 

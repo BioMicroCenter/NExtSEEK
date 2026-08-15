@@ -63,7 +63,11 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0013_family_posterior.py",
         "nextseek_api/migrations/0014_generation_activation_and_reservation.py",
         "nextseek_api/migrations/0015_v4_5_generation_audit_and_turn_pin.py",
+        "nextseek_api/migrations/0016_paired_run_registry.py",
+        "nextseek_api/migrations/0017_paid_run_state.py",
+        "nextseek_api/migrations/0018_turn_ledger_attempted_provenance.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_chat_log_normalize.py",
+        "nextseek_api/migrations/_turn_ledger_heal.py",
     ]
