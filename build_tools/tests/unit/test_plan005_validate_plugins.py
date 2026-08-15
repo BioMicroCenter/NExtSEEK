@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -297,15 +298,19 @@ def test_cli_is_cwd_independent(tmp_path: Path):
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-@pytest.mark.skipif(
-    not Path("/var/run/docker.sock").exists(),
-    reason="docker daemon unavailable",
-)
 def test_real_claude_validator_passes_current_tree():
     outcome = validate_installed_plugins(
         repo_root=REPO_ROOT,
         validator_image=IMMUTABLE_VALIDATOR_IMAGE,
         per_plugin_timeout=60,
-        skip_docker=False,
+        skip_docker=True,
     )
     assert outcome.plugins == ("nextseek",)
+    if Path("/var/run/docker.sock").exists() and shutil.which("docker"):
+        live = validate_installed_plugins(
+            repo_root=REPO_ROOT,
+            validator_image=IMMUTABLE_VALIDATOR_IMAGE,
+            per_plugin_timeout=60,
+            skip_docker=False,
+        )
+        assert live.plugins == ("nextseek",)
