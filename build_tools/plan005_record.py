@@ -11,7 +11,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from build_tools.plan005_closeout import (
     COMMAND_TIMEOUT_SECONDS,
@@ -249,18 +249,21 @@ def porcelain_paths(porcelain: str) -> list[str]:
 def refuse_dirty_head(
     snapshot: dict[str, Any],
     *,
-    declared_repo_output: Path | None,
+    declared_repo_outputs: tuple[Path, ...],
     repo_root: Path,
 ) -> None:
     paths = porcelain_paths(snapshot["porcelain"])
     if not paths:
         return
-    if declared_repo_output is None:
+    if not declared_repo_outputs:
         raise RecordError("refuse dirty HEAD unless declared repository output")
-    allowed = declared_repo_output.resolve()
+    allowed = [path.resolve() for path in declared_repo_outputs]
     for rel in paths:
         candidate = (repo_root / rel).resolve()
-        if candidate == allowed or allowed in candidate.parents or candidate in allowed.parents:
+        if any(
+            candidate == item or item in candidate.parents or candidate in item.parents
+            for item in allowed
+        ):
             continue
         raise RecordError(f"dirty path outside declared repository output: {rel}")
 
@@ -331,7 +334,7 @@ def record_command(
     env: Mapping[str, str] | None = None,
     sequence_budget_seconds: int = SEQUENCE_BUDGET_SECONDS,
     command_timeout_seconds: int = COMMAND_TIMEOUT_SECONDS,
-    declared_repo_output: Path | None = None,
+    declared_repo_output: Path | Sequence[Path] | None = None,
     ensure_declared_repo_output: bool = False,
     declared_source_manifest: dict[str, str] | None = None,
     declared_generated_target_manifest: dict[str, str] | None = None,
@@ -388,14 +391,24 @@ def record_command(
         raise RecordError("sequence wall-clock budget exhausted")
     timeout = min(float(command_timeout_seconds), remaining)
 
+    if declared_repo_output is None:
+        declared_outputs: tuple[Path, ...] = ()
+    elif isinstance(declared_repo_output, (list, tuple)):
+        declared_outputs = tuple(Path(p) for p in declared_repo_output)
+    else:
+        declared_outputs = (Path(declared_repo_output),)
+
     pre = git_snapshot(repo_root)
-    refuse_dirty_head(pre, declared_repo_output=declared_repo_output, repo_root=repo_root)
+    refuse_dirty_head(
+        pre, declared_repo_outputs=declared_outputs, repo_root=repo_root
+    )
     before_manifest = walk_manifest(evidence_root)
 
     if ensure_declared_repo_output:
-        if declared_repo_output is None:
+        if not declared_outputs:
             raise RecordError("ensure-declared-repo-output requires --declared-repo-output")
-        declared_repo_output.mkdir(parents=True, exist_ok=True)
+        for path in declared_outputs:
+            path.mkdir(parents=True, exist_ok=True)
 
     record_dir.mkdir(parents=True)
     writable_output.mkdir(parents=True)
@@ -425,9 +438,10 @@ def record_command(
     (record_dir / "stdout.bin").write_bytes(stdout)
     (record_dir / "stderr.bin").write_bytes(stderr)
     post = git_snapshot(repo_root)
-    if declared_repo_output is None:
-        if post["head"] != pre["head"] or post["tree"] != pre["tree"] or post["porcelain"] != pre["porcelain"]:
-            raise RecordError("HEAD/tree/porcelain changed without declared repository output")
+    if post["head"] != pre["head"] or post["tree"] != pre["tree"]:
+        raise RecordError("HEAD/tree changed during recorded command")
+    if not declared_outputs and post["porcelain"] != pre["porcelain"]:
+        raise RecordError("HEAD/tree/porcelain changed without declared repository output")
     after_manifest = walk_manifest(evidence_root)
     refuse_evidence_root_drift(
         before_manifest,
@@ -478,7 +492,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cwd", type=Path, default=None)
     parser.add_argument("--sequence-budget-seconds", type=int, default=SEQUENCE_BUDGET_SECONDS)
     parser.add_argument("--command-timeout-seconds", type=int, default=COMMAND_TIMEOUT_SECONDS)
-    parser.add_argument("--declared-repo-output", type=Path, default=None)
+    parser.add_argument("--declared-repo-output", type=Path, action="append", default=None)
     parser.add_argument("--ensure-declared-repo-output", action="store_true")
     parser.add_argument("argv", nargs=argparse.REMAINDER)
     return parser

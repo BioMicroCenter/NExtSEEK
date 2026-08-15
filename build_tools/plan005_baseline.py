@@ -216,8 +216,10 @@ def run_baseline_lane(
         argv=baml_argv,
         writable_output=evidence_root / "artifacts" / "baseline-baml",
         repo_root=repo_root,
-        declared_repo_output=repo_root
-        / "dmac_assistant/src/dmac_assistant/router/baml_client",
+        declared_repo_output=(
+            repo_root / "dmac_assistant/src/dmac_assistant/router/baml_client",
+            repo_root / "dmac_assistant/tools/e2e/baml_client",
+        ),
         ensure_declared_repo_output=True,
     )
     pytest_record = recorder(

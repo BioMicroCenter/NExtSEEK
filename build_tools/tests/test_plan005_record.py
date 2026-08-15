@@ -165,12 +165,13 @@ def test_record_allows_declared_repo_output_dirty(tmp_path: Path):
         writable_output=evidence / "artifacts" / "baml-setup",
         repo_root=repo,
         env={"PATH": "/usr/bin"},
-        declared_repo_output=out,
+        declared_repo_output=(out, repo / "dmac_assistant" / "tools" / "e2e" / "baml_client"),
         ensure_declared_repo_output=True,
         runner=_ok_runner,
     )
     assert payload["exit_code"] == 0
     assert out.is_dir()
+    assert (repo / "dmac_assistant" / "tools" / "e2e" / "baml_client").is_dir()
 
 
 def test_record_refuses_mutating_prior_artifact(tmp_path: Path):

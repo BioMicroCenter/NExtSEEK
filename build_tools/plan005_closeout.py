@@ -189,6 +189,9 @@ def protocol_rows() -> list[dict[str, Any]]:
                 "-v",
                 "{repo}/dmac_assistant/src/dmac_assistant/router/baml_client:"
                 "/repo/dmac_assistant/src/dmac_assistant/router/baml_client",
+                "-v",
+                "{repo}/dmac_assistant/tools/e2e/baml_client:"
+                "/repo/dmac_assistant/tools/e2e/baml_client",
                 "-w",
                 "/repo",
                 "{image}",
