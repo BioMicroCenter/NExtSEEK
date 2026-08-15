@@ -316,7 +316,65 @@ def _transcript_user_events(paths: list[Path]) -> list[dict[str, Any]]:
     for path in paths:
         if not path.is_file():
             raise CloseoutError(f"sign-off transcript missing: {path}")
-        for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        source_text = path.read_text(encoding="utf-8")
+        try:
+            document = json.loads(source_text)
+        except json.JSONDecodeError:
+            document = None
+        if isinstance(document, dict) and "annotation_file" in document:
+            meta = document.get("report_meta") or {}
+            annotation_file = document.get("annotation_file") or {}
+            if (
+                meta.get("schema_version") != "handoff/v1"
+                or meta.get("tool") != "handoff"
+                or meta.get("indexed_in") != "REPORTS-INDEX.md"
+                or annotation_file.get("schema_version") != "handoff/v1"
+            ):
+                raise CloseoutError(f"invalid handoff sign-off report: {path}")
+            report_path = str(meta.get("report_path") or "")
+            if report_path and Path(report_path).name != path.name:
+                raise CloseoutError(f"handoff report path identity mismatch: {path}")
+            for annotation_number, annotation in enumerate(
+                annotation_file.get("annotations") or [], 1
+            ):
+                created_by = annotation.get("created_by") or {}
+                actor = (
+                    created_by.get("actor_type")
+                    if isinstance(created_by, dict)
+                    else created_by
+                )
+                if (
+                    actor != "user"
+                    or annotation.get("interpretation_source") != "user_stated"
+                ):
+                    continue
+                blocks = annotation.get("blocks") or {}
+                query = "\n".join(
+                    str(blocks.get(key) or "").strip()
+                    for key in ("summary", "details")
+                    if str(blocks.get(key) or "").strip()
+                )
+                try:
+                    stamp = datetime.fromisoformat(str(annotation["created_at"]))
+                except (KeyError, ValueError):
+                    continue
+                if stamp.tzinfo is None or not query:
+                    continue
+                canonical = json.dumps(
+                    annotation, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+                events.append(
+                    {
+                        "path": str(path),
+                        "path_sha256": sha256_file(path),
+                        "line": annotation_number,
+                        "event_sha256": hashlib.sha256(canonical).hexdigest(),
+                        "timestamp": stamp.astimezone(timezone.utc),
+                        "query": query,
+                    }
+                )
+            continue
+        for line_number, raw in enumerate(source_text.splitlines(), 1):
             try:
                 payload = json.loads(raw)
             except json.JSONDecodeError:

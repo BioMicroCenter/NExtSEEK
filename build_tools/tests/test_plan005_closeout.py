@@ -245,6 +245,47 @@ def test_codex_user_event_is_available_for_signoff_authentication(tmp_path: Path
     ]
 
 
+def test_handoff_user_annotation_is_available_for_signoff_authentication(tmp_path: Path):
+    from datetime import datetime, timezone
+
+    from build_tools.plan005_closeout_control import _transcript_user_events
+
+    path = tmp_path / "approval-report.json"
+    payload = {
+        "report_meta": {
+            "schema_version": "handoff/v1",
+            "tool": "handoff",
+            "indexed_in": "REPORTS-INDEX.md",
+        },
+        "annotation_file": {
+            "schema_version": "handoff/v1",
+            "annotations": [
+                {
+                    "annotation_id": "ANN-2",
+                    "annotation_type": "decision",
+                    "interpretation_source": "user_stated",
+                    "created_by": {"actor_type": "user"},
+                    "created_at": "2026-08-15T22:05:14.274Z",
+                    "blocks": {
+                        "summary": "Task 9 approval",
+                        "details": "Exact maintainer quote: 'approved'.",
+                    },
+                }
+            ],
+        },
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    events = _transcript_user_events([path])
+    assert len(events) == 1
+    assert events[0]["query"] == "Task 9 approval\nExact maintainer quote: 'approved'."
+    assert events[0]["timestamp"] == datetime(
+        2026, 8, 15, 22, 5, 14, 274000, tzinfo=timezone.utc
+    )
+    assert events[0]["path"] == str(path)
+    assert events[0]["line"] == 1
+
+
 def test_control_mounts_require_worktree_git_mirror_and_ro_aggregate():
     from build_tools.plan005_closeout_control import CloseoutError, assert_control_stage_mounts
 
