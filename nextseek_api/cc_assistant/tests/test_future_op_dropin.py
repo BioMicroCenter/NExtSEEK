@@ -457,8 +457,14 @@ def test_future_op_dropin_real_clis_change_generated_targets(tmp_path: Path, tra
     assert meta["bin_name"] in skill_text or meta["op_id"] in skill_text
     claude = (root / CLAUDE_MD_REL).read_text(encoding="utf-8")
     assert meta["bin_name"] in claude
-    if transport is not Transport.viewset:
-        assert after[ROUTE_CAP_REL.as_posix()] != before.get(ROUTE_CAP_REL.as_posix(), "")
+    assert after[ROUTE_CAP_REL.as_posix()] != before.get(ROUTE_CAP_REL.as_posix(), "")
+    route_payload = json.loads((root / ROUTE_CAP_REL).read_text(encoding="utf-8"))
+    container_tools = next(
+        route["tools"]
+        for route in route_payload["routes"]
+        if route["route_name"] == "container_cc"
+    )
+    assert meta["bin_name"] in container_tools
     check = _check_surfaces(root)
     assert check.returncode == 0, check.stderr
     mapping = _audit(
@@ -481,6 +487,23 @@ def test_future_op_dropin_real_clis_change_generated_targets(tmp_path: Path, tra
     if transport is Transport.viewset:
         assert GateClass.unrouted.value == "unrouted"
         assert Backend.dispatch.value == "dispatch"
+
+
+def test_viewset_route_tool_omission_fails_real_surface_check(tmp_path: Path):
+    root = _copy_sandbox(tmp_path)
+    meta = _install_op(root, Transport.viewset)
+    _write_surfaces(root)
+    route = root / ROUTE_CAP_REL
+    payload = json.loads(route.read_text(encoding="utf-8"))
+    container = next(
+        item for item in payload["routes"] if item["route_name"] == "container_cc"
+    )
+    assert meta["bin_name"] in container["tools"]
+    container["tools"].remove(meta["bin_name"])
+    route.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    stale_viewset_tools = _check_surfaces(root)
+    assert stale_viewset_tools.returncode != 0
 
 
 def test_future_op_negatives_fail_actual_audit_and_check(tmp_path: Path):

@@ -288,6 +288,8 @@ def require_base_nodes_present(
         if node_id not in final_results:
             raise GateError(f"base node ID deleted or renamed: {node_id}")
         final = final_results[node_id]
+        if status == "failed" and final != "passed":
+            raise GateError(f"known-red base node must pass in final lane: {node_id}")
         if final == "failed":
             raise GateError(f"base node ID failed in final lane: {node_id}")
         if status == "passed" and final in {"skipped", "xfail"}:

@@ -15,6 +15,7 @@ from build_tools.plan005_gate import (
     count_oracle_sites,
     enumerate_production_py,
     parse_junit_node_results,
+    require_base_nodes_present,
     run_gate,
 )
 
@@ -355,6 +356,15 @@ def test_preexisting_skip_is_allowed(tmp_path: Path):
         min_total=95,
     )
     assert outcome["min_total"] == 95
+
+
+@pytest.mark.parametrize("final_status", ["skipped", "xfail"])
+def test_known_red_base_node_must_be_green(final_status: str):
+    with pytest.raises(GateError, match="known-red base node must pass"):
+        require_base_nodes_present(
+            baseline_results={"pkg.tests.test_base::test_known_red": "failed"},
+            final_results={"pkg.tests.test_base::test_known_red": final_status},
+        )
 
 
 def test_new_skip_is_red(tmp_path: Path):
