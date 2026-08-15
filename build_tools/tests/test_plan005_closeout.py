@@ -307,10 +307,10 @@ def test_signoff_and_plan_copy_and_head_swap_mutations(tmp_path):
     with pytest.raises(CloseoutError, match="STOP"):
         validate_signoffs(repo, signoff_dir)
 
+    real = Path(__file__).resolve().parents[2]
     artifact.write_bytes(
-        Path("/home/taishajo/work/NExtSEEK-plan005/dmac_assistant/build_context/route_capabilities.json").read_bytes()
+        (real / "dmac_assistant/build_context/route_capabilities.json").read_bytes()
     )
-    real = Path("/home/taishajo/work/NExtSEEK-plan005")
     copied = tmp_path / "signoffs2"
     copied.mkdir()
     for src in (real / "build_tools/plan005_signoffs").glob("*.json"):

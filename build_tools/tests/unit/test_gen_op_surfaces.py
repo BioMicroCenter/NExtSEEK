@@ -1,9 +1,11 @@
 """Unit tests for build_tools.gen_op_surfaces (Plan 005 Task 6)."""
 from __future__ import annotations
 
+import errno
 import os
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -41,6 +43,15 @@ EXPORT_MODULE = "nextseek_api.cc_assistant.op_registry.export"
 GEN_MODULE = "build_tools.gen_op_surfaces"
 PYTHONPATH = f"{REPO_ROOT}:{REPO_ROOT / 'dmac_assistant' / 'src'}:{REPO_ROOT / 'chat_nextseek' / 'src'}"
 DMAC_PYTHON = Path("/home/taishajo/work/dmac-assistant/.venv/bin/python3")
+IMAGE_PYTHON = Path("/app/.venv/bin/python")
+
+
+def _cli_python() -> str:
+    if IMAGE_PYTHON.is_file():
+        return str(IMAGE_PYTHON)
+    if DMAC_PYTHON.is_file():
+        return str(DMAC_PYTHON)
+    return sys.executable
 
 
 def _env(**extra: str) -> dict[str, str]:
@@ -220,10 +231,7 @@ def _run_module_cli(
     if python:
         cmd = [python, "-m", module, *args]
     else:
-        cmd = ["uv", "run", "--no-project"]
-        if with_pydantic:
-            cmd.extend(["--with", "pydantic"])
-        cmd.extend(["python", "-m", module, *args])
+        cmd = [_cli_python(), "-m", module, *args]
     return subprocess.run(
         cmd,
         cwd=cwd,
@@ -245,7 +253,7 @@ def test_gen_op_surfaces_check_cli_exits_zero() -> None:
         ["--check", "--root", str(REPO_ROOT)],
         cwd=REPO_ROOT,
         env=_env(TMPDIR="/tmp"),
-        python=str(DMAC_PYTHON),
+        python=str(_cli_python()),
     )
     assert result.returncode == 0, result.stderr or result.stdout
 
@@ -273,9 +281,15 @@ def test_readonly_repo_mount_no_write_oracle_for_export_and_gen_surfaces() -> No
     existing = [path for path in target_paths if path.is_file()]
     before = {path: path.read_bytes() for path in existing}
     original_modes = {path: path.stat().st_mode for path in existing}
+    chmod_applied = False
 
-    for path in existing:
-        path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    try:
+        for path in existing:
+            path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        chmod_applied = True
+    except OSError as exc:
+        if exc.errno != errno.EROFS:
+            raise
 
     tmpdir = Path("/tmp") / f"plan005-gen-op-surfaces-{os.getpid()}"
     tmpdir.mkdir(exist_ok=True)
@@ -296,15 +310,16 @@ def test_readonly_repo_mount_no_write_oracle_for_export_and_gen_surfaces() -> No
             ["--check", "--root", str(REPO_ROOT)],
             cwd=REPO_ROOT,
             env=env,
-            python=str(DMAC_PYTHON),
+            python=str(_cli_python()),
         )
         assert surfaces.returncode == 0, surfaces.stderr or surfaces.stdout
 
         after = {path: path.read_bytes() for path in existing}
         assert before == after
     finally:
-        for path, mode in original_modes.items():
-            path.chmod(mode)
+        if chmod_applied:
+            for path, mode in original_modes.items():
+                path.chmod(mode)
 
 
 def test_json_emitter_replaces_whole_document(tmp_path: Path) -> None:
