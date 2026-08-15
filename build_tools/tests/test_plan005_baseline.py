@@ -387,6 +387,8 @@ def test_preflight_rejects_mutated_materialized_base(
         repo_root=repo, base=base, dest=baseline / "subject-tree"
     )
     materialize_base_index(repo_root=repo, base=base, output=baseline)
+    (baseline / "base.gitfile").write_text("gitdir: /git\n", encoding="utf-8")
+    (baseline / "subject-tree/.git").write_text("gitdir: /git\n", encoding="utf-8")
     identities = baseline_identities(repo_root=repo, base=base)
     identities["subject_blob_manifest"] = blobs
     monkeypatch.setattr(control, "PLAN005_BASE_COMMIT", base)
@@ -415,6 +417,8 @@ def test_preflight_rejects_non_base_index(
         repo_root=repo, base=base, dest=baseline / "subject-tree"
     )
     materialize_base_index(repo_root=repo, base=base, output=baseline)
+    (baseline / "base.gitfile").write_text("gitdir: /git\n", encoding="utf-8")
+    (baseline / "subject-tree/.git").write_text("gitdir: /git\n", encoding="utf-8")
     identities = baseline_identities(repo_root=repo, base=base)
     identities["subject_blob_manifest"] = blobs
     monkeypatch.setattr(control, "PLAN005_BASE_COMMIT", base)

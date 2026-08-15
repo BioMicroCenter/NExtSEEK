@@ -612,11 +612,19 @@ def _validate_materialized_base(
         raise CloseoutError("immutable-base declared blob manifest mismatch")
 
     subject = baseline_dir / "subject-tree"
+    gitfile = subject / ".git"
+    if (
+        not gitfile.is_file()
+        or gitfile.read_text(encoding="utf-8") != "gitdir: /git\n"
+        or gitfile.read_bytes() != (baseline_dir / "base.gitfile").read_bytes()
+    ):
+        raise CloseoutError("immutable-base subject Git indirection mismatch")
     actual_paths = {
         path.relative_to(subject).as_posix()
         for path in subject.rglob("*")
         if path.is_file()
     }
+    actual_paths.discard(".git")
     generated_prefixes = (
         "dmac_assistant/src/dmac_assistant/router/baml_client/",
         "dmac_assistant/tools/e2e/baml_client/",

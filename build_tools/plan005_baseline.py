@@ -247,6 +247,7 @@ def run_baseline_lane(
     common_git = git_common_dir(repo_root)
     base_gitfile = output / "base.gitfile"
     base_gitfile.write_text("gitdir: /git\n", encoding="utf-8")
+    (extract_dir / ".git").write_text("gitdir: /git\n", encoding="utf-8")
     recorder = record or record_command
     ignores: list[str] = []
     for path in THREE_PYTEST_IGNORES:
@@ -308,8 +309,6 @@ def run_baseline_lane(
         f"{pytest_writable}:/evidence",
         "-v",
         f"{extract_dir}:/repo:ro",
-        "-v",
-        f"{base_gitfile}:/repo/.git:ro",
         "-v",
         f"{common_git}:/git:ro",
         "-v",
