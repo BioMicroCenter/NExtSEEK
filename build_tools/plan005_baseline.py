@@ -167,8 +167,11 @@ def run_baseline_lane(
         "-v",
         f"{repo_root}:/repo:ro",
         "-v",
-        f"{repo_root}/dmac_assistant/src/dmac_assistant/router/baml_client:"
-        "/repo/dmac_assistant/src/dmac_assistant/router/baml_client",
+        f"{repo_root}/dmac_assistant/src/dmac_assistant/router:"
+        "/repo/dmac_assistant/src/dmac_assistant/router",
+        "-v",
+        f"{repo_root}/dmac_assistant/tools/e2e:"
+        "/repo/dmac_assistant/tools/e2e",
         "-w",
         "/repo",
         image,
