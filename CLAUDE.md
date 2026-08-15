@@ -209,6 +209,14 @@ migration deploys, scoped service recreation, the post-deploy verification
 checklist, and the Container-CC isolation invariants). The Container-CC
 subsystem specifics live in `nextseek_api/cc_assistant/DEPLOY.md`.
 
+## Adding a Container-CC operation
+
+Do not invent a parallel op catalog. Follow
+[`.claude/skills/add-cc-op/SKILL.md`](.claude/skills/add-cc-op/SKILL.md)
+(`/add-cc-op`): shim + `_DISPATCH`/`_CMDS` + `OpSpec` + export +
+`gen_op_surfaces`. Registration SoT is `ops.py` / exported `ops.json`,
+not `plugin.json` or `discover_ops`.
+
 ## Session reports / handoffs
 
 - 2026-08-04 — Superuser-only Users admin ViewSet merged to dev and pushed (6d99f85); mints SEEK logins via Rails runner. HTTP E2E deferred until deploy on shared box. See `.claude/reports/2026-08-04-users-admin-viewset-shipped.json`.

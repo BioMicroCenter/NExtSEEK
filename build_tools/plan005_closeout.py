@@ -55,6 +55,29 @@ PROTOCOL_RECORD_IDS: tuple[str, ...] = (
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "plan005-closeout.schema.json"
 
+APPROVED_PLAN_SHA = (
+    "f9574f25a0aa3f04f837e3bc1b653b50d031fa50eefd8a15228b8dc885b23fb8"
+)
+ROUTE_CAPABILITIES_SHA = (
+    "3972739e5a78a363c0a508eeb0f11b7fb7cfcc3c58cfc0f0d2cf7d3b7806f6c7"
+)
+PLAN_REL = "docs/superpowers/plans/2026-07-08-cc-tool-registration-single-source.md"
+BACKUP_REL = (
+    "docs/superpowers/plans/"
+    "2026-07-08-cc-tool-registration-single-source.pre-hardening-20260814.md"
+)
+BACKUP_SHA = "68979f55a2e0d6731de161fa1202f231a69ab3a2f4a685d3dbd4842ca2ad7497"
+DEFAULT_MIRROR = Path("/home/taishajo/work/NExtSEEK-dev")
+DEFAULT_SIGNOFF_DIR = Path(__file__).resolve().parent / "plan005_signoffs"
+COLD_REVIEW_REL = Path("control/cold-review/plan005-cold-outcome-review.md")
+REQUIRED_SIGNOFF_IDS = (
+    "task-7-plugin-commands",
+    "task-8-skill-md",
+    "task-9-compose-dockerfile",
+    "task-10-container-claude-md",
+    "task-11-route-capabilities",
+)
+
 
 class ProtocolError(ValueError):
     """Raised when the 16-row protocol is extra, missing, renamed, or duplicated."""
@@ -601,32 +624,105 @@ def protocol_to_schema_instance() -> dict[str, Any]:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Plan 005 closeout protocol metadata.")
+    parser = argparse.ArgumentParser(description="Plan 005 closeout protocol and control stages.")
     parser.add_argument(
         "stage",
         choices=("protocol", "preflight", "finalize", "verify"),
-        help="protocol dumps/checks the 16-row manifest. Other stages are Task 13.",
     )
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--evidence-root", type=Path, default=None)
+    parser.add_argument("--approved-plan-sha", default=None)
+    parser.add_argument("--vet-report", type=Path, action="append", default=[])
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--repo-root", type=Path, default=Path(REPO_ROOT_TEMPLATE))
+    parser.add_argument("--plan", type=Path, default=None)
+    parser.add_argument("--plan-mirror", type=Path, default=None)
+    parser.add_argument("--backup", type=Path, default=None)
+    parser.add_argument("--signoff-dir", type=Path, default=DEFAULT_SIGNOFF_DIR)
+    parser.add_argument("--preflight", type=Path, default=None)
+    parser.add_argument("--cold-review", type=Path, default=None)
+    parser.add_argument("--finalize", type=Path, default=None)
+    parser.add_argument("--mirror-root", type=Path, default=DEFAULT_MIRROR)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    from build_tools.plan005_closeout_control import (
+        CloseoutError,
+        run_finalize,
+        run_preflight,
+        run_verify,
+    )
+
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.stage != "protocol":
-        print(
-            f"plan005_closeout: stage {args.stage!r} is reserved for the Task 13 "
-            "16-lane closeout sequence and is not executed in Task 12",
-            file=sys.stderr,
-        )
-        return 2
-    manifest = protocol_manifest()
-    validate_protocol_rows(manifest["rows"])
-    if args.json:
-        sys.stdout.write(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
-    else:
-        print(" ".join(PROTOCOL_RECORD_IDS))
+    if args.stage == "protocol":
+        manifest = protocol_manifest()
+        validate_protocol_rows(manifest["rows"])
+        if args.json:
+            sys.stdout.write(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+        else:
+            print(" ".join(PROTOCOL_RECORD_IDS))
+        return 0
+    try:
+        repo_root = args.repo_root.resolve()
+        if args.stage == "preflight":
+            if args.evidence_root is None or args.output is None:
+                print(
+                    "plan005_closeout: preflight requires --evidence-root and --output",
+                    file=sys.stderr,
+                )
+                return 2
+            plan_path = args.plan or (repo_root / PLAN_REL)
+            plan_mirror = args.plan_mirror or (args.mirror_root / PLAN_REL)
+            backup = args.backup or (repo_root / BACKUP_REL)
+            run_preflight(
+                evidence_root=args.evidence_root.resolve(),
+                repo_root=repo_root,
+                approved_plan_sha=args.approved_plan_sha or APPROVED_PLAN_SHA,
+                vet_reports=list(args.vet_report),
+                output_path=args.output.resolve(),
+                plan_path=plan_path.resolve(),
+                plan_mirror=plan_mirror.resolve(),
+                backup_path=backup.resolve(),
+                signoff_dir=args.signoff_dir.resolve(),
+                mirror_root=args.mirror_root.resolve(),
+            )
+        elif args.stage == "finalize":
+            if args.evidence_root is None or args.output is None:
+                print(
+                    "plan005_closeout: finalize requires --evidence-root and --output",
+                    file=sys.stderr,
+                )
+                return 2
+            preflight = args.preflight or (
+                args.evidence_root / "control/preflight/pre-cold-closeout.json"
+            )
+            cold = args.cold_review or (args.evidence_root / COLD_REVIEW_REL)
+            run_finalize(
+                evidence_root=args.evidence_root.resolve(),
+                repo_root=repo_root,
+                preflight_path=preflight.resolve(),
+                cold_path=cold.resolve(),
+                output_path=args.output.resolve(),
+            )
+        else:
+            if args.output is None:
+                print("plan005_closeout: verify requires --output", file=sys.stderr)
+                return 2
+            finalize = args.finalize
+            if finalize is None and args.evidence_root is not None:
+                finalize = args.evidence_root / "control/finalize/final-closeout.json"
+            if finalize is None:
+                print("plan005_closeout: verify requires --finalize", file=sys.stderr)
+                return 2
+            run_verify(
+                finalize_path=finalize.resolve(),
+                output_path=args.output.resolve(),
+            )
+    except CloseoutError as exc:
+        print(f"plan005_closeout failed: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
