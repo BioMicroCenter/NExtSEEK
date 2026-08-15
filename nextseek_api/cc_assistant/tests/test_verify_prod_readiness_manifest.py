@@ -844,3 +844,99 @@ def test_subprocess_wrappers_and_artifact_helpers(tmp_path, monkeypatch):
     vprm._verify_blocker_fix_shas(sha_errs, [])
     vprm._verify_blocker_fix_shas(sha_errs, ["zzzzzzz"])
     assert sha_errs
+
+
+def _artifact(tmp_path, name, payload, *, merged=MERGED_SHA, as_text=None):
+    p = tmp_path / name
+    raw = as_text if as_text is not None else json.dumps(payload)
+    p.write_text(raw)
+    return {
+        "path": str(p),
+        "sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+        "command": ["x"],
+        "exit_code": 0,
+        "candidate_sha": merged,
+    }
+
+
+def test_verify_helpers_malformed_content(tmp_path):
+    errs = []
+    vprm._verify_image_provenance(errs, {"image_provenance": _artifact(tmp_path, "p1.json", None, as_text="{")}, MERGED_SHA, lambda t: None)
+    vprm._verify_image_provenance(errs, {"image_provenance": _artifact(tmp_path, "p2.json", [])}, MERGED_SHA, lambda t: None)
+    vprm._verify_image_provenance(errs, {"image_provenance": _artifact(tmp_path, "p3.json", {"images": []})}, MERGED_SHA, lambda t: None)
+    vprm._verify_image_provenance(
+        errs,
+        {"image_provenance": _artifact(tmp_path, "p4.json", {"images": ["bad", {"tag": "t"}]})},
+        MERGED_SHA, lambda t: "id",
+    )
+    vprm._verify_lanes(errs, "nope", MERGED_SHA, None)
+    vprm._verify_lanes(errs, [_artifact(tmp_path, "l1.json", None, as_text="{")], MERGED_SHA, None)
+    vprm._verify_lanes(errs, [_artifact(tmp_path, "l2.json", [])], MERGED_SHA, None)
+    vprm._verify_lanes(errs, [_artifact(tmp_path, "l3.json", {"collected": []})], MERGED_SHA, None)
+    lane = {
+        k: [] for k in vprm._LANE_CONTENT_KEYS
+    }
+    lane["collected"] = []
+    lane["source_sha"] = OTHER_SHA
+    lane["failures"] = "nope"
+    lane["image_id"] = "unknown"
+    lane["db_identity"] = "nope"
+    rec = _artifact(tmp_path, "l4.json", lane)
+    vprm._verify_lanes(errs, [rec], MERGED_SHA, _artifact(tmp_path, "prov.json", {"images": [{"image_id": "i1"}]}))
+    lane2 = dict(lane)
+    lane2["collected"] = ["n1"]
+    lane2["source_sha"] = MERGED_SHA
+    lane2["failures"] = [{"nodeid": "x"}]
+    lane2["skips"] = []
+    lane2["xfails"] = []
+    lane2["deselected"] = []
+    vprm._verify_lanes(errs, [_artifact(tmp_path, "l5.json", lane2)], MERGED_SHA, None)
+
+    vprm._verify_secret_scans(errs, None, MERGED_SHA, None)
+    vprm._verify_secret_scans(errs, [_artifact(tmp_path, "s1.json", None, as_text="{")], MERGED_SHA, None)
+    vprm._verify_secret_scans(errs, [_artifact(tmp_path, "s2.json", [])], MERGED_SHA, None)
+    scan = {
+        "image_tag": "t", "image_id": "x", "categories": "nope",
+        "export_member_count": 0, "scanned_bytes": 0, "command": ["c"], "exit_code": 1,
+    }
+    rec_s = _artifact(tmp_path, "s3.json", scan)
+    rec_s["exit_code"] = 0
+    vprm._verify_secret_scans(errs, [rec_s], MERGED_SHA, None)
+    vprm._verify_secret_scans(errs, [_artifact(tmp_path, "s4.json", {"image_tag": "t"})], MERGED_SHA, None)
+
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m1.json", None, as_text="{"), MERGED_SHA)
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m2.json", []), MERGED_SHA)
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m3.json", {"required_tables": []}), MERGED_SHA)
+    mig = {k: [] for k in vprm._MIGRATION_CONTENT_KEYS}
+    mig["required_tables"] = ["t1"]
+    mig["present_tables"] = []
+    mig["migration_0007_present"] = False
+    mig["foreign_keys"] = "x"
+    mig["charset_equality"] = ["bad"]
+    mig["second_migrate_output"] = "still dirty"
+    mig["error_log_excerpt"] = "error 3780"
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m4.json", mig), MERGED_SHA)
+    mig2 = dict(mig)
+    mig2["foreign_keys"] = [{"present": False}]
+    mig2["charset_equality"] = [{"child_charset": "a", "parent_charset": "b", "child_table": "c", "parent_table": "p"}]
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m5.json", mig2), MERGED_SHA)
+
+    rundir = tmp_path / "e2e"
+    rundir.mkdir()
+    (rundir / "summary.json").write_text("{}")
+    approval = tmp_path / "approval.json"
+    approval.write_text("{}")
+    rec_e = {
+        "path": str(rundir),
+        "sha256": hashlib.sha256(b"{}").hexdigest(),
+        "command": ["e2e"],
+        "exit_code": 0,
+        "candidate_sha": MERGED_SHA,
+        "approval_path": str(tmp_path / "missing-approval.json"),
+        "approval_sha256": "dead",
+    }
+    vprm._verify_e2e(errs, {"e2e_run_dir": rec_e, "e2e_approval_sha256": "nope"}, MERGED_SHA, tmp_path / "s.py", lambda *a: SimpleNamespace(returncode=1, stderr="boom"))
+    rec_e["approval_path"] = str(approval)
+    rec_e["approval_sha256"] = "dead"
+    vprm._verify_e2e(errs, {"e2e_run_dir": rec_e, "e2e_approval_sha256": "nope"}, MERGED_SHA, tmp_path / "s.py", lambda *a: SimpleNamespace(returncode=1, stderr="boom"))
+    assert errs

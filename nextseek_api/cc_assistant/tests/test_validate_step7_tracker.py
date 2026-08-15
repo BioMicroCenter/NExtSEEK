@@ -110,3 +110,20 @@ def test_tracker_status_and_resolve_paths(tmp_path):
     )
     path, tracker, detail = _resolve_tracker_source(ctx)
     assert path == snap and tracker == {}
+
+
+def test_validate_run_and_main_on_empty_bundle(tmp_path, capsys):
+    from nextseek_api.cc_assistant.tests.validate_step7_compose_deploy import validate_run
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    ok, checks = validate_run(empty, tmp_path)
+    assert ok is False
+    assert len(checks) > 10
+    (empty / "preflight.json").write_text("{}")
+    (empty / "meta.json").write_text(json.dumps({"host_label": "dev-vm"}))
+    ok, checks = validate_run(empty, tmp_path)
+    assert ok is False
+    assert main(["prog", str(empty), str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL" in out or "STEP 7" in out

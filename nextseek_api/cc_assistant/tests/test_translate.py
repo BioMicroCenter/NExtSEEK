@@ -168,3 +168,21 @@ def test_tool_result_error_marks_not_ok():
     done = t.handle({"type": "user", "message": {"content": [
         {"type": "tool_result", "tool_use_id": "a", "content": "err", "is_error": True}]}})
     assert done == [("search_complete", {"source": "Bash", "ok": False})]
+
+
+def test_handle_ignores_non_dict_and_unknown_type():
+    from nextseek_api.cc_assistant.translate import _format_tool_detail
+    t = CCStreamTranslator()
+    assert t.handle("nope") == []
+    assert t.handle({"type": "other"}) == []
+    assert t.handle({"type": "system", "subtype": "other"}) == []
+    frames = t.handle({"type": "assistant", "message": {"content": ["skip", {"type": "text"}]}})
+    assert frames == []
+    assert _format_tool_detail("bash", "not-a-dict") == ""
+    assert _format_tool_detail("bash", {"command": "ls"}) == "ls"
+    assert _format_tool_detail("mystery", {"foo": "bar"}) == "bar"
+    assert _format_tool_detail("mystery", {"foo": ""}) == ""
+    t.handle({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "narrating"},
+        {"type": "tool_use", "name": "Bash", "id": "z", "input": {"command": "ls"}},
+    ]}})
