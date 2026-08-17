@@ -331,6 +331,11 @@ services:
   # `nextseek`/batch_upload worker containers, so an attribute-mutation
   # backlog or crash can never starve or be starved by batch uploads.
   attribute_mutation_worker:
+    # Opt-in: these three carry the async attribute-mutation pipeline and
+    # are only useful once native attribute mutation is in use. Without a
+    # profile a stock `docker compose up -d` starts 3 more always-on
+    # containers. Start them with `--profile attributes`.
+    profiles: [attributes]
     image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     env_file: [./docker/db.env, ./docker/nextseek.env]
     depends_on:
@@ -360,6 +365,11 @@ services:
   # `attribute_mutations` messages. A request process never publishes
   # directly (Section 6).
   attribute_mutation_dispatcher:
+    # Opt-in: these three carry the async attribute-mutation pipeline and
+    # are only useful once native attribute mutation is in use. Without a
+    # profile a stock `docker compose up -d` starts 3 more always-on
+    # containers. Start them with `--profile attributes`.
+    profiles: [attributes]
     image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     env_file: [./docker/db.env, ./docker/nextseek.env]
     depends_on:
@@ -390,6 +400,11 @@ services:
   # consume either Celery queue, only scan/claim/reconcile via the default
   # database.
   attribute_mutation_recovery_scheduler:
+    # Opt-in: these three carry the async attribute-mutation pipeline and
+    # are only useful once native attribute mutation is in use. Without a
+    # profile a stock `docker compose up -d` starts 3 more always-on
+    # containers. Start them with `--profile attributes`.
+    profiles: [attributes]
     image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     env_file: [./docker/db.env, ./docker/nextseek.env]
     depends_on:
