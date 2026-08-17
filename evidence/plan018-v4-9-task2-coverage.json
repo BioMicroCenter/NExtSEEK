@@ -164,7 +164,7 @@
     }
   },
   "ownership_map_sha256": "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df",
-  "raw_coverage_sha256": "5c799cbb144860728b49415acf3337573547f5ea2fa0849701420fc5694b1555",
+  "raw_coverage_sha256": "4711ec919b47dce47979f01460ee11d4587d283163c8e8279c4b4d2c01af081b",
   "schema": "plan018-v4-9-task2-coverage/v2",
   "threshold_branch_pct": 95.0,
   "threshold_statement_pct": 95.0

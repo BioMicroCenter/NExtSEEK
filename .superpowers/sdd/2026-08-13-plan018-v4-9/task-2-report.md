@@ -10,6 +10,11 @@ deselected**. The corrected fifteen-module gate is now **1797/1809 statements
 both 95% floors; `judge_models.py` is branchless and therefore has an explicit N/A
 branch floor.
 
+This PASS was regenerated after merging current `origin/dev@ce8f8a8e` into the
+Task-2 branch. That upstream changed `nessie_tests/export.py`, so the previous
+source-bound evidence correctly failed validation as stale. The refreshed run kept
+the exact 785-node collection and the same aggregate coverage and test counts.
+
 The current source-bound evidence is `evidence/plan018-v4-9-task2-evidence.json`,
 with the per-module result in `evidence/plan018-v4-9-task2-coverage.json`. The
 authoritative validation command exits 0:

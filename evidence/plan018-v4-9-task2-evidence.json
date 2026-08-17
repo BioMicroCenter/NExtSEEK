@@ -21,7 +21,7 @@
       },
       "index": 0,
       "junit": "evidence/plan018-v4-9-task2-chunk-00.junit.xml",
-      "junit_sha256": "ff83df9e0db13ea072a6ff20c1c91993aafcb172611dcd5dd9fe95d9b366a8d2",
+      "junit_sha256": "b3694b6852c23189de3fba91aa027246ea8759681d13d7425679e4c6d4fd4bbf",
       "node_ids": [
         "nextseek_api/eval/tests/test_v4_7_fit_refuse.py::test_approved_batch_path_requires_registry",
         "nextseek_api/cc_assistant/tests/test_eval_export.py::test_schema_is_versioned_and_not_the_legacy_14_column_shape",
@@ -88,7 +88,7 @@
       },
       "index": 1,
       "junit": "evidence/plan018-v4-9-task2-chunk-01.junit.xml",
-      "junit_sha256": "f76e3c038cc5771232321a98d37431e2ac62726d9501e5f68348cf3a5f179f51",
+      "junit_sha256": "0bf952dbaea9ac02054bae9dd212e99f4d9574f887b09b9a74f30d80a00927d0",
       "node_ids": [
         "nessie_tests/tests/test_bayesian.py::test_a_normal_run_directory_is_not_mistaken_for_a_resumable_paired_run",
         "nessie_tests/tests/test_bayesian.py::test_completed_arms_reports_only_arms_that_actually_ran",
@@ -155,7 +155,7 @@
       },
       "index": 2,
       "junit": "evidence/plan018-v4-9-task2-chunk-02.junit.xml",
-      "junit_sha256": "759b0b3beabb617444ed56ea4a46ce6d4ce58700f1621b152fba01ba64743e38",
+      "junit_sha256": "9b2df70bb4c9d9fc3e1458948469b1cd88bd8b4896a1c36f0292e2462f519370",
       "node_ids": [
         "nessie_tests/tests/test_cli.py::test_the_paired_only_flags_refuse_to_be_silently_ignored[extra1]",
         "nessie_tests/tests/test_cli.py::test_the_paired_only_flags_refuse_to_be_silently_ignored[extra2]",
@@ -222,7 +222,7 @@
       },
       "index": 3,
       "junit": "evidence/plan018-v4-9-task2-chunk-03.junit.xml",
-      "junit_sha256": "ef92292b5d0cd5650ade6f513844a40e5327191ff54823c9889c47b133a14113",
+      "junit_sha256": "43aec366e4411f6e5dad8204147f38f0709883f7b3ede2009e345c75f4ebe4dd",
       "node_ids": [
         "nessie_tests/tests/test_collect.py::test_an_arm_with_no_raw_files_borrows_the_runs_one_prefix",
         "nessie_tests/tests/test_collect.py::test_two_prefixes_in_one_run_are_never_guessed_between",
@@ -289,7 +289,7 @@
       },
       "index": 4,
       "junit": "evidence/plan018-v4-9-task2-chunk-04.junit.xml",
-      "junit_sha256": "f228e4f45534c69a151ce4b07351d88844b00ab3214ac43fd5063e09d419d07e",
+      "junit_sha256": "e1570f2f122cf4dc3f2b3feb09e38eac0dab1eb47369c11ab1f0bec2262dfd63",
       "node_ids": [
         "nessie_tests/tests/test_evaluate.py::test_bundle_richness_criteria",
         "nessie_tests/tests/test_evaluate.py::test_observed_values_are_recorded_for_failing_criteria",
@@ -356,7 +356,7 @@
       },
       "index": 5,
       "junit": "evidence/plan018-v4-9-task2-chunk-05.junit.xml",
-      "junit_sha256": "203b5723c92fc5550b4a0a1b92f3e94b22d79937b8da0dc18c108a515a7f8790",
+      "junit_sha256": "8533da015a768f412f0325688d881fdc530a408342696972756d6d16df55b574",
       "node_ids": [
         "nessie_tests/tests/test_evaluate.py::test_a_content_assertion_on_the_reply_can_still_fail_a_forced_cc_arm",
         "nessie_tests/tests/test_evaluate.py::test_the_vacuously_true_graph_booleans_stop_reporting_a_false_green",
@@ -423,7 +423,7 @@
       },
       "index": 6,
       "junit": "evidence/plan018-v4-9-task2-chunk-06.junit.xml",
-      "junit_sha256": "c7ab00364976c2d12f09969e6b4c885e5e6e816cd92704cadbffa57b35cd8044",
+      "junit_sha256": "a344c93c054a042c7bc549bdf0ded8a1caa72ba913286dbe0277cbe9995e145b",
       "node_ids": [
         "nessie_tests/tests/test_export.py::test_the_error_class_vocabulary[the socket timed out-timeout]",
         "nessie_tests/tests/test_export.py::test_the_error_class_vocabulary[Traceback: ValueError: nope-unclassified]",
@@ -490,7 +490,7 @@
       },
       "index": 7,
       "junit": "evidence/plan018-v4-9-task2-chunk-07.junit.xml",
-      "junit_sha256": "86fcf21c242ca28a9fce527b6ed9a5b55de6975f48b82e4a598f0f629dde96cc",
+      "junit_sha256": "8b37419786fac54e5a49d39665c07d61562d50691a4a777b4b646dbe07b7febf",
       "node_ids": [
         "nessie_tests/tests/test_export.py::test_stage_b_carries_the_corpus_metadata_the_grader_is_given",
         "nessie_tests/tests/test_export.py::test_a_fully_collected_arm_carries_the_answer_stage_c_grades",
@@ -557,7 +557,7 @@
       },
       "index": 8,
       "junit": "evidence/plan018-v4-9-task2-chunk-08.junit.xml",
-      "junit_sha256": "b601e738dbf5b546952f83f1c676eb5c04e2b3c6b75be9ddfbe675ba128898cf",
+      "junit_sha256": "8152c6d57e837ea1a77760c5026b241b4a9376e1ce04042fb3b16840b948abad",
       "node_ids": [
         "nessie_tests/tests/test_run_case.py::test_run_case_forces_new_on_the_first_turn_only",
         "nessie_tests/tests/test_run_case.py::test_run_case_records_a_requires_env_skip_rather_than_failing",
@@ -624,7 +624,7 @@
       },
       "index": 9,
       "junit": "evidence/plan018-v4-9-task2-chunk-09.junit.xml",
-      "junit_sha256": "e862271084959dbaf827f3488f5202b2c228f012fe931ea294b9f0fea3d176bb",
+      "junit_sha256": "1699de7ca800e944660f3bd5f3d5ee1131b9b64e9b8ada74f5929c2fb8fdccf5",
       "node_ids": [
         "nessie_tests/tests/test_runner.py::test_a_cc_case_whose_every_criterion_was_skipped_is_no_assertions",
         "nessie_tests/tests/test_runner.py::test_the_same_case_routed_to_nextseek_is_still_scored_normally",
@@ -691,7 +691,7 @@
       },
       "index": 10,
       "junit": "evidence/plan018-v4-9-task2-chunk-10.junit.xml",
-      "junit_sha256": "c4c02dbf7341a99db9d4e0786e06c6b8ff9acb72c7f9e3ae7da16853b1472422",
+      "junit_sha256": "9450988adce9316c43e5255af5760822b0a0026764e9d68098ef7b8506b7d85f",
       "node_ids": [
         "nessie_tests/tests/test_sources.py::test_a_segment_that_does_not_end_in_a_newline_still_joins_as_jsonl",
         "nessie_tests/tests/test_sources.py::test_one_row_is_returned_untouched",
@@ -758,7 +758,7 @@
       },
       "index": 11,
       "junit": "evidence/plan018-v4-9-task2-chunk-11.junit.xml",
-      "junit_sha256": "b2a168d2a6dddf3cc9009b0b41663db25b3a884d337e495d692e9e8f15ff6162",
+      "junit_sha256": "eb47a1e3335f13fe29bfefc8ff64434485d3a911642caaf786bc06ca2a84b5fb",
       "node_ids": [
         "nessie_tests/tests/test_unified_corpus.py::test_defaults_cover_the_retired_only_families_too",
         "nessie_tests/tests/test_unified_corpus.py::test_hibayes_meta_falls_back_to_the_family_default",
@@ -825,7 +825,7 @@
       },
       "index": 12,
       "junit": "evidence/plan018-v4-9-task2-chunk-12.junit.xml",
-      "junit_sha256": "840d53ca23cf7a0532b2c15ef8a7dcb6d3dd59b3b687fcc8fc05332bd76c6faf",
+      "junit_sha256": "e19ef3f1dfcf70565e2ca6a507e047e878d84267e863dc0a1a4752f80479c916",
       "node_ids": [
         "nextseek_api/eval/tests/test_disposition.py::test_unjudged_excluded_not_scored_zero",
         "nextseek_api/eval/tests/test_disposition.py::test_deterministic_gate_failure_skips_judge",
@@ -892,7 +892,7 @@
       },
       "index": 13,
       "junit": "evidence/plan018-v4-9-task2-chunk-13.junit.xml",
-      "junit_sha256": "3651f94f44121af5048cf47ce13fa42216bde8263f583bd741eed0d5946827a5",
+      "junit_sha256": "459d31ff4b23fb805163959716dc1f8580e7f1a0ddf89dc6101809473c721820",
       "node_ids": [
         "nextseek_api/eval/tests/test_judge_mutations.py::test_three_vote_outcome_permutations_match_oracle",
         "nextseek_api/eval/tests/test_judge_mutations.py::test_three_vote_primary_issue_majority",
@@ -959,7 +959,7 @@
       },
       "index": 14,
       "junit": "evidence/plan018-v4-9-task2-chunk-14.junit.xml",
-      "junit_sha256": "bc748a2a6eb7aec274e2265f8a110c8e6971e09809542c403cfe1a3a6f3fbbde",
+      "junit_sha256": "7a5f0f936ef9b8312f9086ebb0cd7ec6c412916c535c43ddedb05543ce9bb429",
       "node_ids": [
         "nextseek_api/cc_assistant/tests/test_eval_vendoring.py::test_eval_dockerfile_builds_from_this_repo_not_a_bind_mount",
         "nextseek_api/eval/tests/test_exporter_contract.py::test_extract_manifest_from_html_returns_dict",
@@ -1026,7 +1026,7 @@
       },
       "index": 15,
       "junit": "evidence/plan018-v4-9-task2-chunk-15.junit.xml",
-      "junit_sha256": "19e71e75dfe562dcf605014de7b72b51e663404af2b115a0b3b5d3ad8ca6b750",
+      "junit_sha256": "c254b248c63b638d661b7b305f7f92dfb1d43419a2cd5f9c9c68f58f2991651a",
       "node_ids": [
         "nextseek_api/eval/tests/test_functional_inputs_contract.py::test_aggregate_artifact_status_all_not_expected_returns_none",
         "nextseek_api/eval/tests/test_functional_inputs_contract.py::test_aggregate_artifact_status_runtime_failed_dominates",
@@ -1068,10 +1068,10 @@
     }
   ],
   "collection_manifest": "evidence/plan018-v4-9-task2-chunks.json",
-  "collection_manifest_sha256": "562f91e53479090aaec555f6e60da69bfb348a833d593295db1e79249e0022b9",
+  "collection_manifest_sha256": "c732b5c4970e759ac2f91cacad45a9f9f3965a78dc24cea57a4d33ec6f231e4d",
   "coverage_errors": [],
   "coverage_summary": "evidence/plan018-v4-9-task2-coverage.json",
-  "coverage_summary_sha256": "5338779449d3fc79aef75d3d47dddaa963605427ad9d45ef02a639e004b1c39c",
+  "coverage_summary_sha256": "258fc4c1ecab4d4b22eb591a31b47b69fa2d2a36d8d015d1b35562aef9caea39",
   "full_collection": "evidence/plan018-v4-9-task2-full-collection.txt",
   "full_collection_sha256": "7b06ab544601cb27e712891c04fa6d77265cd04c69d2756267af056735ca7507",
   "gate": "PASS",
@@ -1080,12 +1080,12 @@
   "ownership_map_sha256": "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df",
   "producer_or_network_execution": false,
   "raw_coverage": "evidence/plan018-v4-9-task2-coverage.raw.json",
-  "raw_coverage_sha256": "5c799cbb144860728b49415acf3337573547f5ea2fa0849701420fc5694b1555",
+  "raw_coverage_sha256": "4711ec919b47dce47979f01460ee11d4587d283163c8e8279c4b4d2c01af081b",
   "schema": "plan018-v4-9-task2-evidence/v2",
   "source_sha256": {
     "nessie_tests/bayes_manifest.py": "e586c3ee3a283f676985850037a1653ced10648d3c9fbb481b9632054d154328",
     "nessie_tests/bayesian.py": "71eb267e3cb1ecdb28a55d37241d5fb61999a40c19c2de7b9c6166ff477a4786",
-    "nessie_tests/export.py": "05d498c1752068dd45026e03d8ec69695bab7de83ebc1c8c56ba1b712fddc6d9",
+    "nessie_tests/export.py": "0d9bf6ee6b8a2119ad802fbb2f655426c8cb95e97cd2a0ccc6217da6528a4b0e",
     "nextseek_api/eval/artifact_validity_proposal.py": "d663fa865840d94d245acf16750d3cc76b2fb95975e1ddeb9cad5b2c4fe541d9",
     "nextseek_api/eval/attempt_store.py": "e64e55f5efe740f77fad4b7f9930dc843fbcc98c4491675bebc27c0809d386e8",
     "nextseek_api/eval/conservation.py": "4a6b19d1c7c9b0f0f6b221d02504b591936a7bda6a72ef2720450f5505383704",
