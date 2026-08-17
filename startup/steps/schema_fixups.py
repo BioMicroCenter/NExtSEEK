@@ -856,7 +856,38 @@ def reverse_managed_indexes(repo_root: Path, env: dict[str, str], *, indexes: li
     return [_telemetry_fqn_status(record) for record in telemetry_records]
 
 
+MANAGED_INDEX_FLAG = "NEXTSEEK_APPLY_MANAGED_INDEXES"
+
+
+def managed_indexes_enabled() -> bool:
+    """Whether install may issue managed-index DDL. Opt-in, default off.
+
+    MANAGED_INDEXES targets `seek_production`, which Rails owns and no Django
+    migration ledger tracks, and `duplicate_preflight` raises
+    DuplicateIdentityError on the first case-variant (sample_type_id,
+    LOWER(title)) group. Unconditionally, that means a stock `./startup.sh
+    install` can abort *after* seeds are loaded and containers are up, on real
+    data, with no --force and no remediation path.
+
+    So the DDL is opt-in. Native attribute mutation requires these indexes, and
+    the operator who turns that on is the one who should choose when to take a
+    schema change against SEEK's database:
+
+        NEXTSEEK_APPLY_MANAGED_INDEXES=1 ./startup.sh install
+    """
+    return os.environ.get(MANAGED_INDEX_FLAG, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def apply_all(repo_root: Path, env: dict[str, str], *, indexes: list[ManagedIndex] | None = None) -> list[tuple[str, str]]:
     results = apply_column_fixups(repo_root, env)
+    if not managed_indexes_enabled():
+        # Report every skipped index by name: silence here would read as
+        # "applied" to anyone scanning install output.
+        target_indexes = MANAGED_INDEXES if indexes is None else indexes
+        results.extend(
+            (f"{index.database}.{index.table}.{index.name}", f"skipped (set {MANAGED_INDEX_FLAG}=1 to apply)")
+            for index in target_indexes
+        )
+        return results
     results.extend(apply_managed_indexes(repo_root, env, indexes=indexes))
     return results
