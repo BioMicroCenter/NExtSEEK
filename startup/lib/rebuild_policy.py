@@ -1,15 +1,48 @@
 """Single source of truth for first-party image rebuild behavior."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
-APP_RUNTIME_SERVICES = (
-    "nextseek",
+ATTRIBUTES_PROFILE = "attributes"
+
+#: Always-on services that run the app image.
+BASE_APP_RUNTIME_SERVICES = ("nextseek",)
+
+#: The async attribute-mutation pipeline. Gated behind the ``attributes`` compose
+#: profile, because it is only useful once native attribute mutation is in use.
+ATTRIBUTE_RUNTIME_SERVICES = (
     "attribute_mutation_worker",
     "attribute_mutation_dispatcher",
     "attribute_mutation_recovery_scheduler",
 )
+
+
+def attributes_profile_enabled() -> bool:
+    """Whether the operator asked for the attribute-mutation pipeline."""
+    profiles = os.environ.get("COMPOSE_PROFILES", "")
+    return ATTRIBUTES_PROFILE in {p.strip() for p in profiles.split(",") if p.strip()}
+
+
+def app_runtime_services() -> tuple[str, ...]:
+    """Services to start/restart alongside the app image.
+
+    Naming a service explicitly on a ``docker compose`` command line starts it
+    **even when it carries a profile**, so a ``profiles:`` key in the compose
+    file is not enough on its own: startup must also stop naming these unless
+    the profile is on. Otherwise the gate holds for a bare ``docker compose
+    up -d`` and silently does nothing for ``./startup.sh install``, which is the
+    supported entry point.
+    """
+    if attributes_profile_enabled():
+        return BASE_APP_RUNTIME_SERVICES + ATTRIBUTE_RUNTIME_SERVICES
+    return BASE_APP_RUNTIME_SERVICES
+
+
+#: Backwards-compatible alias. Prefer ``app_runtime_services()``: this constant is
+#: evaluated at import time and cannot see a profile set later.
+APP_RUNTIME_SERVICES = app_runtime_services()
 
 
 @dataclass(frozen=True)
@@ -40,7 +73,7 @@ def component_policies(compose_project_name: str) -> dict[str, RebuildPolicy]:
     app = RebuildPolicy(
         name="app",
         build_services=("nextseek",),
-        restart_services=APP_RUNTIME_SERVICES,
+        restart_services=app_runtime_services(),
         images=(
             ImagePolicy(
                 local_image=f"{compose_project_name}-nextseek:latest",

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from startup.lib import ui
 from startup.lib.docker_ops import DockerOpsError, compose_build, compose_exec, compose_up
-from startup.lib.rebuild_policy import APP_RUNTIME_SERVICES
+from startup.lib.rebuild_policy import app_runtime_services
 
 
 def wait_for_nextseek_http(port: int, max_attempts: int = 180, interval: float = 1.0) -> None:
@@ -128,7 +128,7 @@ def build_and_start_nextseek(repo_root: Path, env: dict[str, str]) -> None:
     """Build the shared app image and start every app-code runtime + nginx."""
     compose_build(services=["nextseek"], project_dir=repo_root, env=env)
     compose_up(
-        services=[*APP_RUNTIME_SERVICES, "nextseek_nginx"],
+        services=[*app_runtime_services(), "nextseek_nginx"],
         project_dir=repo_root,
         env=env,
         no_deps=True,
