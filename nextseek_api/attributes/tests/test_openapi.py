@@ -181,6 +181,38 @@ def test_attribute_openapi_has_exact_eight_method_path_pairs(product_schema):
     }
 
 
+ATTRIBUTE_OPERATIONS = {
+    ("/nextseek_api/attributes/", "get"): "List Attributes",
+    ("/nextseek_api/attributes/{id}/", "get"): "Fetch an Attribute",
+    ("/nextseek_api/attributes/search/", "post"): "Search Attributes",
+    ("/nextseek_api/attributes/batch-create/", "post"): "Batch Create Attributes",
+    ("/nextseek_api/attributes/batch-patch/", "patch"): "Batch Patch Attributes",
+    ("/nextseek_api/attributes/batch-delete/", "post"): "Batch Delete Attributes",
+    ("/nextseek_api/attributes/jobs/{job_id}/", "get"): "Get Attribute Mutation Job",
+    ("/nextseek_api/attributes/jobs/{job_id}/cancel/", "post"): "Cancel Attribute Mutation Job",
+}
+
+
+def test_every_attribute_operation_follows_structured_description_convention(product_schema):
+    required_headings = (
+        "**SUMMARY:**",
+        "**USE WHEN:**",
+        "**DO NOT USE WHEN:**",
+        "**ACCEPTS:**",
+        "**RETURNS:**",
+        "**TRIGGER PHRASES:**",
+        "**EXAMPLES:**",
+    )
+    for (path, method), expected_operation_id in ATTRIBUTE_OPERATIONS.items():
+        operation = product_schema["paths"][path][method]
+        description = operation.get("description", "")
+        positions = [description.find(heading) for heading in required_headings]
+        assert all(position >= 0 for position in positions), (path, method, description)
+        assert positions == sorted(positions), (path, method, positions)
+        assert operation["operationId"] == expected_operation_id
+        assert operation["tags"] == ["Attributes"]
+
+
 def _resolve_local_schema(product_schema, node):
     while "$ref" in node:
         target = product_schema
