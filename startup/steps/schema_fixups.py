@@ -766,6 +766,11 @@ def _managed_database_for(indexes: list[ManagedIndex]) -> str:
     so refuse instead of guessing.
     """
     databases = {index.database for index in indexes}
+    if not databases:
+        # An empty batch executes no SQL, but callers still open and close a
+        # connection and the coverage tests pin that lifecycle (including on
+        # failure). Bind the canonical managed database rather than refusing.
+        databases = {index.database for index in MANAGED_INDEXES}
     if len(databases) != 1:
         raise ValueError(
             "managed indexes must target exactly one database per batch, got: "
@@ -821,8 +826,6 @@ def apply_managed_indexes(repo_root: Path, env: dict[str, str], *, indexes: list
     index through the exact same core logic the schema lane exercises
     directly against a disposable database."""
     target_indexes = MANAGED_INDEXES if indexes is None else indexes
-    if not target_indexes:
-        return []
     connection = _connect_to_managed_database(
         repo_root, env, _managed_database_for(target_indexes)
     )
@@ -844,8 +847,6 @@ def reverse_managed_indexes(repo_root: Path, env: dict[str, str], *, indexes: li
     populated `seek_production` database from an automated task; reverse is a
     separate, explicit user gate."""
     target_indexes = MANAGED_INDEXES if indexes is None else indexes
-    if not target_indexes:
-        return []
     connection = _connect_to_managed_database(
         repo_root, env, _managed_database_for(target_indexes)
     )

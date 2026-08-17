@@ -183,7 +183,7 @@ class _StubConnection:
 
 def test_apply_managed_indexes_opens_and_closes_production_connection(monkeypatch):
     stub = _StubConnection()
-    monkeypatch.setattr(sf, "_connect_to_managed_database", lambda repo_root, env: stub)
+    monkeypatch.setattr(sf, "_connect_to_managed_database", lambda *a, **k: stub)
     results = sf.apply_managed_indexes(Path("/repo"), {}, indexes=[])
     assert results == []
     assert stub.closed is True
@@ -191,7 +191,7 @@ def test_apply_managed_indexes_opens_and_closes_production_connection(monkeypatc
 
 def test_reverse_managed_indexes_opens_and_closes_production_connection(monkeypatch):
     stub = _StubConnection()
-    monkeypatch.setattr(sf, "_connect_to_managed_database", lambda repo_root, env: stub)
+    monkeypatch.setattr(sf, "_connect_to_managed_database", lambda *a, **k: stub)
     results = sf.reverse_managed_indexes(Path("/repo"), {}, indexes=[])
     assert results == []
     assert stub.closed is True
@@ -199,7 +199,7 @@ def test_reverse_managed_indexes_opens_and_closes_production_connection(monkeypa
 
 def test_apply_managed_indexes_closes_connection_even_on_failure(monkeypatch):
     stub = _StubConnection()
-    monkeypatch.setattr(sf, "_connect_to_managed_database", lambda repo_root, env: stub)
+    monkeypatch.setattr(sf, "_connect_to_managed_database", lambda *a, **k: stub)
 
     def boom(connection, indexes, faults):
         raise RuntimeError("ddl exploded")
@@ -213,7 +213,7 @@ def test_apply_managed_indexes_closes_connection_even_on_failure(monkeypatch):
 def test_apply_all_chains_column_fixups_and_managed_indexes(monkeypatch):
     monkeypatch.setattr(sf, "apply_column_fixups", lambda repo_root, env: [("dmac.t.c", "applied")])
     stub = _StubConnection()
-    monkeypatch.setattr(sf, "_connect_to_managed_database", lambda repo_root, env: stub)
+    monkeypatch.setattr(sf, "_connect_to_managed_database", lambda *a, **k: stub)
     results = sf.apply_all(Path("/repo"), {}, indexes=[])
     assert results == [("dmac.t.c", "applied")]
 
@@ -233,10 +233,14 @@ def test_connect_to_managed_database_uses_compose_port(monkeypatch):
 
     monkeypatch.setattr(sf, "compose_port", fake_compose_port)
     monkeypatch.setitem(__import__("sys").modules, "MySQLdb", _FakeMySQLdb)
-    connection = sf._connect_to_managed_database(Path("/repo"), {})
+    connection = sf._connect_to_managed_database(Path("/repo"), {}, "seek_production")
     assert isinstance(connection, _StubConnection)
     assert captured["args"] == ("db", 3306, Path("/repo"), {})
     assert captured["connect_kwargs"]["port"] == 33060
+    # The schema MUST be bound: forward_sql/reverse_sql/duplicate_preflight all
+    # emit unqualified table names, so an unbound connection raises MySQL 1046
+    # "No database selected" on the production path.
+    assert captured["connect_kwargs"]["database"] == "seek_production"
 
 
 # ---------------------------------------------------------------------------

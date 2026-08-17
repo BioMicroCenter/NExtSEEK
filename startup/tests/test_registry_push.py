@@ -595,12 +595,10 @@ def test_rebuild_nextseek_triggers_baseline_push(
         result = CliRunner().invoke(app, ["rebuild"])
     assert result.exit_code == 0
     assert mock_build.call_args.kwargs["services"] == ("nextseek",)
-    assert mock_up.call_args.kwargs["services"] == (
-        "nextseek",
-        "attribute_mutation_worker",
-        "attribute_mutation_dispatcher",
-        "attribute_mutation_recovery_scheduler",
-    )
+    # Default rebuild restarts only the always-on app runtime. The attribute
+    # runtimes are gated on the `attributes` compose profile, and naming them
+    # here would start them regardless of that profile.
+    assert mock_up.call_args.kwargs["services"] == ("nextseek",)
     assert mock_up.call_args.kwargs["no_deps"] is True
     assert mock_up.call_args.kwargs["force_recreate"] is True
     mock_push.assert_called_once()
