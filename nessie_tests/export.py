@@ -582,7 +582,8 @@ def stop_reason(artifacts_dir, variant_id: str, arm: str) -> tuple[str, str]:
     """`(stop_reason, status)` for one arm. `status` is from `STOP_REASON_STATUSES`.
 
     THE LAST `assistant` RECORD'S, and read as a floor rather than as the turn's
-    final word. `CCSessionTranscript` stores the session file as of each turn and
+    final word. `CCSessionTranscript` stores one turn's slice per row (the whole
+    session as of each turn, for rows predating #68) and
     the tail of a turn is not necessarily in it -- 11 of the 12 smoke-run CC arms
     end on `tool_use`, which is the transcript stopping short of the closing
     `end_turn`, not the model stopping mid-tool. So this says "the last stop

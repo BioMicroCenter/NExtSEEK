@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nextseek_api.batch_upload.errors import ErrorCollector, ErrorType
+from nextseek_api.batch_upload.errors import ErrorCollector, ErrorType, Severity
 from nextseek_api.batch_upload.identity import hash_identity
 from nextseek_api.batch_upload.models import InputRowModel
 from nextseek_api.batch_upload.uid_gen import (
@@ -337,7 +337,7 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn()
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "NHP-260225MIT-1"
         assert failed_rows == []
@@ -348,7 +348,7 @@ class TestResolveParents:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1"}
         conn = self._mock_conn()
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "NHP-260225MIT-1"
         assert failed_rows == []
@@ -360,7 +360,7 @@ class TestResolveParents:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-2"}
         conn = self._mock_conn()
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert "NHP-260225MIT-1" in meta["Parent"]
         assert "NHP-260225MIT-2" in meta["Parent"]
@@ -375,7 +375,7 @@ class TestResolveParents:
         conn = self._mock_conn(
             db_results=[("NHP-220630FLY-1", 11, hash_identity("DB_Sample"))]
         )
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "NHP-220630FLY-1"
         assert failed_rows == []
@@ -390,7 +390,7 @@ class TestResolveParents:
         conn = self._mock_conn(
             db_results=[("D.WTFIL-240301BMC-2", 11, hash_identity(file_identity))]
         )
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "D.WTFIL-240301BMC-2"
         assert warnings == []
@@ -406,7 +406,7 @@ class TestResolveParents:
             ("NHP-220630FLY-1", 10, hash_identity("Ambiguous")),
             ("NHP-220630FLY-2", 20, hash_identity("Ambiguous")),
         ])
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         assert rows == []
         assert warnings == []
         assert len(failed_rows) == 1
@@ -436,7 +436,7 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])  # nothing found
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         assert any("unresolved" in w.lower() for w in warnings)
         assert failed_rows == []
 
@@ -448,7 +448,7 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Parent") == "FutureParent", (
             "Unresolved identity token should be preserved, not dropped"
@@ -463,7 +463,7 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Parent") == "future_parent_file.fastq"
         assert failed_rows == []
@@ -476,7 +476,7 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Parent") == "NHP-260101MIT-1;FutureParent"
         assert failed_rows == []
@@ -488,7 +488,7 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn()
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         assert len(warnings) == 0
         meta = json.loads(rows[0].json_metadata)
         assert "Parent" not in meta
@@ -501,7 +501,7 @@ class TestResolveParents:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1", "Sample_B": "NHP-260225MIT-2"}
         conn = self._mock_conn()
-        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         assert count == 2
         assert len(warnings) == 0
         assert failed_rows == []
@@ -513,7 +513,7 @@ class TestResolveParents:
         ]
         identity_map = {"UtEC - 2015010902": "NHP-260225MIT-1"}
         conn = self._mock_conn()
-        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "NHP-260225MIT-1"
         assert count == 1
@@ -526,7 +526,7 @@ class TestResolveParents:
         ]
         identity_map = {}
         conn = self._mock_conn(db_results=[])
-        rows, warnings, _count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta["Parent"] == "272 ESC 260C passage 5"
         assert failed_rows == []
@@ -551,7 +551,7 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1"}
         conn = self._mock_conn()
-        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert "NHP-260225MIT-1" in meta.get("Parent", "")
         assert count == 1
@@ -565,7 +565,7 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {"AB_Sample": "ABP-230327BOO-3"}
         conn = self._mock_conn()
-        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert "ABP-230327BOO-3" in meta.get("Parent", "")
         assert count == 1
@@ -579,7 +579,7 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1"}
         conn = self._mock_conn()
-        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Treatment1Parent") == "Sample_A"
         assert failed_rows == []
@@ -592,7 +592,7 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {"Sample_A": "NHP-260225MIT-1", "Sample_B": "NHP-260225MIT-2"}
         conn = self._mock_conn()
-        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         parent_val = meta.get("Parent", "")
         assert "NHP-260225MIT-1" in parent_val
@@ -608,7 +608,7 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {}
         conn = self._mock_conn()
-        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert meta.get("Parent") == "NHP-260225MIT-1"
         assert failed_rows == []
@@ -621,7 +621,7 @@ class TestResolveParentsVariantKeys:
         ]
         identity_map = {}
         conn = self._mock_conn()
-        rows, warnings, count, failed_rows = _resolve_parents(rows, identity_map, conn)
+        rows, warnings, count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         meta = json.loads(rows[0].json_metadata)
         assert "FutureSample" in meta.get("Parent", "")
         assert any("unresolved" in w.lower() for w in warnings)
@@ -752,7 +752,7 @@ class TestRunUidGen:
         ]
         identity_map = _build_identity_to_uid_map(rows)
         conn = MagicMock()
-        result_rows, warnings, resolved, failed = _resolve_parents(rows, identity_map, conn)
+        result_rows, warnings, resolved, failed, _unresolved = _resolve_parents(rows, identity_map, conn)
         child_meta = json.loads(result_rows[0].json_metadata)
         assert child_meta["Parent"] == "AB-230327BOO-3"
         conn.execute.assert_not_called()
@@ -1081,3 +1081,170 @@ class TestCheckNameExistsInDb:
 
         assert ambiguous_rows[0][1].identity == raw_identity
         assert ambiguous_rows[0][1].identity != hashed_identity
+
+
+# ── unresolved-parent accounting ────────────────────────────────────────────
+
+
+class TestUnresolvedParentAccounting:
+    """The unresolved-parent count and the uploader-visible error must be driven
+    by a structured record from the emit site, not by grepping the prose of a
+    human-readable warning.
+
+    Regression: run_uid_gen filtered warnings on the substring "unresolvable"
+    while _resolve_parents emits "unresolved parent reference". The counter was
+    permanently 0 and the error_collector.add() inside that branch never ran, so
+    an unresolved parent never reached the uploader's error list at all.
+    """
+
+    def _mock_conn(self, db_results=None):
+        conn = MagicMock()
+        result = MagicMock()
+        result.__iter__ = lambda self: iter(db_results or [])
+        conn.execute.return_value = result
+        return conn
+
+    def _run_uid_gen_conn(self):
+        """conn for run_uid_gen: locks succeed, index=0, no DB identity matches."""
+        conn = MagicMock()
+
+        def execute_side_effect(stmt, params=None):
+            sql_str = str(stmt) if not hasattr(stmt, "text") else stmt.text
+            if "GET_LOCK" in sql_str:
+                result = MagicMock()
+                result.scalar.return_value = 1
+                return result
+            if "COALESCE" in sql_str and "MAX" in sql_str:
+                result = MagicMock()
+                result.scalar.return_value = 0
+                return result
+            if "SELECT uuid, id, name_identity FROM samples WHERE name_identity IN" in sql_str:
+                result = MagicMock()
+                result.__iter__ = lambda self: iter([])
+                return result
+            return MagicMock()
+
+        conn.execute.side_effect = execute_side_effect
+        return conn
+
+    # ── structured record at the emit site ──────────────────────────────────
+
+    def test_resolve_parents_returns_structured_unresolved_records(self):
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"Parent":"Nonexistent"}'),
+        ]
+        conn = self._mock_conn()
+        _rows, _warnings, _count, _failed, unresolved = _resolve_parents(rows, {}, conn)
+
+        assert len(unresolved) == 1
+        assert unresolved[0]["token"] == "Nonexistent"
+        assert unresolved[0]["row_index"] == 0
+        assert unresolved[0]["uid"] == "NHP-260225MIT-2"
+
+    def test_resolve_parents_records_row_index_of_the_offending_row(self):
+        """row_index must be the real index, not a placeholder."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-1", meta='{"Parent":"NHP-260225MIT-9"}'),
+            _make_row(uid="NHP-260225MIT-2", meta='{"Name":"nope"}'),
+            _make_row(uid="NHP-260225MIT-3", meta='{"Parent":"Nonexistent"}'),
+        ]
+        conn = self._mock_conn()
+        _rows, _warnings, _count, _failed, unresolved = _resolve_parents(rows, {}, conn)
+
+        assert [u["row_index"] for u in unresolved] == [2]
+        assert [u["uid"] for u in unresolved] == ["NHP-260225MIT-3"]
+
+    def test_resolve_parents_records_one_entry_per_unresolved_token(self):
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"Parent":"MissingA;MissingB"}'),
+        ]
+        conn = self._mock_conn()
+        _rows, _warnings, _count, _failed, unresolved = _resolve_parents(rows, {}, conn)
+
+        assert [u["token"] for u in unresolved] == ["MissingA", "MissingB"]
+
+    def test_resolve_parents_records_variant_parent_key_tokens(self):
+        """Variant parent keys are resolved, so they must also be accounted for."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-2",
+                      meta='{"AntibodyParent":"MissingAb","Treatment1Parent":"MissingTx"}'),
+        ]
+        conn = self._mock_conn()
+        _rows, _warnings, _count, _failed, unresolved = _resolve_parents(rows, {}, conn)
+
+        assert sorted(u["token"] for u in unresolved) == ["MissingAb", "MissingTx"]
+
+    def test_resolve_parents_reports_no_unresolved_when_everything_resolves(self):
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"Parent":"Sample_A"}'),
+        ]
+        conn = self._mock_conn()
+        _rows, _warnings, _count, _failed, unresolved = _resolve_parents(
+            rows, {"Sample_A": "NHP-260225MIT-1"}, conn
+        )
+
+        assert unresolved == []
+
+    # ── the counter and the error collector in run_uid_gen ──────────────────
+
+    def test_run_uid_gen_counts_unresolved_parents(self):
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"UID":"NHP-260225MIT-2","Parent":"Nonexistent"}'),
+        ]
+        ec = ErrorCollector()
+        _result_rows, report = run_uid_gen(rows, "MIT", self._run_uid_gen_conn(), ec)
+
+        assert report["parents_unresolved"] == 1
+
+    def test_run_uid_gen_counts_zero_when_parents_resolve(self):
+        rows = [
+            _make_row(uid="NHP-260225MIT-1", meta='{"UID":"NHP-260225MIT-1","Name":"Papa"}'),
+            _make_row(uid="NHP-260225MIT-2", meta='{"UID":"NHP-260225MIT-2","Parent":"Papa"}'),
+        ]
+        ec = ErrorCollector()
+        _result_rows, report = run_uid_gen(rows, "MIT", self._run_uid_gen_conn(), ec)
+
+        assert report["parents_unresolved"] == 0
+
+    def test_run_uid_gen_reports_unresolved_parent_to_the_error_collector(self):
+        """The uploader's error list must see it — report['warnings'] is not enough."""
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"UID":"NHP-260225MIT-2","Parent":"Nonexistent"}'),
+        ]
+        ec = ErrorCollector()
+        _result_rows, _report = run_uid_gen(rows, "MIT", self._run_uid_gen_conn(), ec)
+
+        errs = [e for e in ec.all_errors() if "Nonexistent" in e.message]
+        assert len(errs) == 1
+        assert errs[0].severity is Severity.WARNING
+        assert errs[0].error_type is ErrorType.VALIDATION_JSON
+        assert errs[0].row_index == 0
+        assert errs[0].uid == "NHP-260225MIT-2"
+        assert ec.errors_for_uid("NHP-260225MIT-2") == errs
+
+    def test_run_uid_gen_counts_unresolved_variant_parent_keys(self):
+        rows = [
+            _make_row(uid="NHP-260225MIT-2",
+                      meta='{"UID":"NHP-260225MIT-2","AntibodyParent":"MissingAb"}'),
+        ]
+        ec = ErrorCollector()
+        _result_rows, report = run_uid_gen(rows, "MIT", self._run_uid_gen_conn(), ec)
+
+        assert report["parents_unresolved"] == 1
+        assert any("MissingAb" in e.message for e in ec.all_errors())
+
+    def test_no_warning_string_anywhere_says_unresolvable(self):
+        """Pins the emit-site wording the dead filter was written against.
+
+        If someone reintroduces prose matching, this records that the word it
+        matched on has never been emitted.
+        """
+        rows = [
+            _make_row(uid="NHP-260225MIT-2", meta='{"Parent":"Nonexistent"}'),
+        ]
+        conn = self._mock_conn()
+        _rows, warnings, _count, _failed, _unresolved = _resolve_parents(rows, {}, conn)
+
+        assert warnings, "expected a human-readable warning to still be emitted"
+        assert not any("unresolvable" in w.lower() for w in warnings)
+        assert any("unresolved parent reference" in w for w in warnings)

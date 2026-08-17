@@ -1717,3 +1717,125 @@ class TestSampleTreeProjectScope:
 
         assert resp.status_code == 200
         assert resp.data["total_rels"] == 1
+
+
+# ===========================================================================
+# DBtable_sample.getChildrenUIDs — SQL injection in the graph-expanded query (#78)
+# ===========================================================================
+
+
+_DBTS = "seek.dbtable_sample"
+
+
+class TestGetChildrenUIDsSQLInjection:
+    """``getChildrenUIDs`` built BOTH ``IN`` lists by string interpolation
+    (``', '.join(f"'{uid}'" ...)``) and handed the finished statement to
+    ``__runQuery``, which called ``cursor.execute(query)`` with no parameters.
+    A single quote in either list breaks out of the literal.
+
+    This is the twin of the site fixed by 7698848 and guarded by
+    ``TestAdminSampleRetrieveSQLInjection`` above; the live path into it is
+    ``AdminSampleViewSet.admin_retrieve_samples`` (``[IsAuthenticated]``) with
+    ``include_tree=true``. The uuids interpolated are not the request body but
+    ``r[0]['uuids']`` returned by Neo4j, so the value has to be written into
+    the graph first — second-order, but reachable. ``user_project_ids`` is the
+    other half of the same pair of lines and became load-bearing for every
+    non-superuser in ca1c9d9 (#74).
+    """
+
+    _PAYLOAD = "NHP-1' UNION SELECT id, sample_type_id, uuid, json_metadata FROM testdb.samples WHERE '1'='1"
+
+    @staticmethod
+    def _instance():
+        """Build the instance without __init__, which touches Django models."""
+        from seek.dbtable_sample import DBtable_sample
+
+        return DBtable_sample.__new__(DBtable_sample)
+
+    @staticmethod
+    def _executed(cur):
+        """Return (sql, params) for the SELECT __runQuery issued."""
+        args, kwargs = cur.execute.call_args
+        sql = args[0]
+        params = args[1] if len(args) > 1 else kwargs.get("args")
+        return sql, params
+
+    def _run(self, mock_graph, mock_mysql, graph_uids, project_ids, admin, rows=None):
+        # The graph query is what supplies the uuids that get interpolated.
+        mock_graph.driver.return_value = _driver(
+            graph_result=([{"uuids": list(graph_uids)}], None, None)
+        )
+        conn, cur = _mysql_cursor(
+            fetchall_val=[(1, 12, "NHP-1", "{}")] if rows is None else rows,
+            description=[("id",), ("sample_type_id",), ("uuid",), ("json_metadata",)],
+        )
+        mock_mysql.connect.return_value = conn
+
+        df = self._instance().getChildrenUIDs(["NHP-1"], project_ids, admin)
+        return df, cur
+
+    @patch(f"{_DBTS}.MySQLdb")
+    @patch(f"{_DBTS}.GraphDatabase")
+    @patch(f"{_DBTS}.settings")
+    def test_uids_from_the_graph_are_bound_not_interpolated(self, mock_s, mock_graph, mock_mysql):
+        _setup_settings(mock_s)
+        uids = [self._PAYLOAD, "TIS-2"]
+
+        df, cur = self._run(mock_graph, mock_mysql, uids, [1], True)
+
+        sql, params = self._executed(cur)
+        assert params is not None, "graph uuids were interpolated into the statement, not bound"
+        assert list(params) == uids
+        assert self._PAYLOAD not in sql
+        assert "UNION" not in sql.upper()
+        assert "uuid IN (%s, %s)" in sql
+        assert not df.empty
+
+    @patch(f"{_DBTS}.MySQLdb")
+    @patch(f"{_DBTS}.GraphDatabase")
+    @patch(f"{_DBTS}.settings")
+    def test_quote_in_uid_does_not_change_the_statement(self, mock_s, mock_graph, mock_mysql):
+        """Two runs over same-length uuid lists must produce identical SQL."""
+        _setup_settings(mock_s)
+        seen = []
+        for value in ("NHP-1", "O'Brien'; DROP TABLE samples; --"):
+            _, cur = self._run(mock_graph, mock_mysql, [value, "TIS-2"], [1], True)
+            seen.append(self._executed(cur)[0])
+        assert seen[0] == seen[1]
+
+    @patch(f"{_DBTS}.MySQLdb")
+    @patch(f"{_DBTS}.GraphDatabase")
+    @patch(f"{_DBTS}.settings")
+    def test_project_scoped_branch_binds_uids_and_project_ids(self, mock_s, mock_graph, mock_mysql):
+        """The non-superuser branch interpolated the project ids too."""
+        _setup_settings(mock_s)
+        uids = [self._PAYLOAD, "TIS-2"]
+
+        df, cur = self._run(mock_graph, mock_mysql, uids, ["7", "8"], False)
+
+        sql, params = self._executed(cur)
+        assert params is not None, "uuids/project ids were interpolated, not bound"
+        assert list(params) == [self._PAYLOAD, "TIS-2", "7", "8"]
+        assert self._PAYLOAD not in sql
+        assert "'7'" not in sql and "'8'" not in sql
+        assert "s.uuid IN (%s, %s)" in sql
+        assert "ps.project_id IN (%s, %s)" in sql
+
+    @patch(f"{_DBTS}.MySQLdb")
+    @patch(f"{_DBTS}.GraphDatabase")
+    @patch(f"{_DBTS}.settings")
+    def test_no_project_ids_still_matches_nothing(self, mock_s, mock_graph, mock_mysql):
+        """A caller with no mapped projects produced ``IN ()`` — a MySQL syntax
+        error that __runQuery's bare except swallowed into None. Bind a sentinel
+        instead, exactly as views.py:841 does: valid SQL that matches nothing."""
+        _setup_settings(mock_s)
+
+        df, cur = self._run(mock_graph, mock_mysql, ["NHP-1"], [], False, rows=[])
+
+        sql, params = self._executed(cur)
+        assert params is not None
+        assert list(params) == ["NHP-1", ""]
+        assert "IN ()" not in sql
+        assert "ps.project_id IN (%s)" in sql
+        assert df.empty
+        assert list(df.columns) == ["id", "sample_type_id", "uuid", "json_metadata"]

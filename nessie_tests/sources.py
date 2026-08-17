@@ -56,7 +56,11 @@ FOUR THINGS ABOUT THE PRODUCT, VERIFIED AGAINST THE LIVE CONTAINER
     random UUIDs, which is a shuffle wearing an ordering's clothes. The honest
     key is `created_at` (tie-broken on `id`), and that is what is used.
 
-2.  Each row's blob is the CUMULATIVE session `.jsonl`, not that turn's delta.
+2.  Row shape depends on WHEN the row was written (#68, 2026-08-13). Rows written
+    before that change hold the CUMULATIVE session `.jsonl`; rows written after
+    hold only that turn's slice. `merge_transcripts` folds by containment and so
+    handles both, including a database holding a mix of the two. Everything below
+    describes the pre-#68 shape, which is why the fold is written the way it is.
     `cc_state_mnt` is per CHAT SESSION (cc_provision.py:122), `--resume` keeps
     Claude appending to the one file under it, and `_newest_jsonl_under`
     (cc_engine.py:798) re-reads that whole grown file every turn. Checked on all
@@ -205,9 +209,10 @@ def merge_transcripts(chunks):
     the product does two different things and the difference is invisible in the
     row:
 
-    * WITHIN one `cc_session_id` the rows are cumulative snapshots of the same
-      growing file (fact 2 in the module docstring), so row N already contains
-      rows 1..N-1 and appending it would duplicate them;
+    * WITHIN one `cc_session_id`, PRE-#68 rows are cumulative snapshots of the
+      same growing file (fact 2 in the module docstring), so row N already
+      contains rows 1..N-1 and appending it would duplicate them. POST-#68 rows
+      are disjoint per-turn slices, which the containment fold also handles;
     * ACROSS `cc_session_id`s -- a wiped cc-state store makes the next turn start
       fresh (cc_engine.py:632) -- the rows are disjoint segments of the session
       and dropping any of them would lose a turn.

@@ -89,7 +89,7 @@ session; otherwise a new one is created. Response models: `DownloadRef` /
 (strict bool) **and** by the server-side gate (`is True`). The gate fires
 **before** any agent/LLM call or DB write, so an unconfirmed write cannot reach
 the database. `api-read` is allowlist-gated against
-`nextseek_api/assistant/read_safe_endpoints.json` (the canonical 6-endpoint
+`nextseek_api/assistant/read_safe_endpoints.json` (the canonical 15-entry
 read-safe list copied from dmac). Source: `nextseek_api/assistant/write_gate.py`.
 
 ## Artifact serving (output-type coverage)

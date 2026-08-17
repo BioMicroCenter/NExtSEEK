@@ -1,7 +1,16 @@
 """Tests for orphan_resolution module."""
+import json
+
 import pytest
 from unittest.mock import MagicMock, patch
-from nextseek_api.batch_upload.orphan_resolution import discover_orphans
+
+from django.test import override_settings
+
+from nextseek_api.batch_upload.orphan_resolution import (
+    _extract_protocol,
+    discover_orphans,
+    resolve_orphans,
+)
 from nextseek_api.batch_upload.identity import hash_identity
 
 
@@ -515,3 +524,132 @@ class TestResolveOrphansVariantKeys:
 
         assert stats["resolved"] == 1
         assert stats["edges_created"] >= 1
+
+
+# ── Protocol -> SOP resolution on the orphan path ─────────────────────────
+
+
+def _protocol_conn(title_rows=None, id_row=None):
+    """A sql_conn whose first execute() answers the title lookup and whose
+    next answers the id -> title lookup."""
+    conn = MagicMock()
+    results = []
+    if title_rows is not None:
+        by_title = MagicMock()
+        by_title.fetchall.return_value = title_rows
+        results.append(by_title)
+    by_id = MagicMock()
+    by_id.fetchone.return_value = id_row
+    results.append(by_id)
+    conn.execute.side_effect = results
+    return conn
+
+
+class TestExtractProtocol:
+    """orphan_resolution wrote the same null protocol as neo4j_sync: it only
+    understood the ``/sops/<id>`` URL, which production rarely stores."""
+
+    def test_internal_sops_url_still_resolves(self):
+        conn = _protocol_conn(id_row=("SOP Five",))
+        assert _extract_protocol({"Protocol": "/sops/5"}, conn) == (5, "SOP Five", None)
+
+    def test_bare_title_resolves(self):
+        conn = _protocol_conn(
+            title_rows=[(7, "P.FOR-200623-V1_x.docx")], id_row=("P.FOR-200623-V1_x.docx",),
+        )
+        assert _extract_protocol({"Protocol": "P.FOR-200623-V1_x.docx"}, conn) == (
+            7, "P.FOR-200623-V1_x.docx", None,
+        )
+
+    def test_uid_url_resolves_by_title(self):
+        conn = _protocol_conn(
+            title_rows=[(7, "P.FOR-200623-V1_x.docx")], id_row=("P.FOR-200623-V1_x.docx",),
+        )
+        meta = {"Protocol": "http://127.0.0.1:8000/seek/sop/uid=P.FOR-200623-V1_x.docx/"}
+        assert _extract_protocol(meta, conn)[0] == 7
+
+    def test_lowercase_protocol_key_is_honoured(self):
+        conn = _protocol_conn(title_rows=[(7, "T")], id_row=("T",))
+        assert _extract_protocol({"protocol": "T"}, conn)[0] == 7
+
+    def test_unknown_title_reports_the_raw_value(self):
+        conn = _protocol_conn(title_rows=[])
+        assert _extract_protocol({"Protocol": "No Such SOP"}, conn) == (
+            None, None, "No Such SOP",
+        )
+
+    def test_foreign_url_never_yields_a_local_id(self):
+        with override_settings(
+            SEEK_PUBLIC_URL="http://localhost:3000",
+            SEEK_URL="http://seek:3000",
+            ALLOWED_HOSTS=["127.0.0.1"],
+        ):
+            conn = _protocol_conn(title_rows=[])
+            sop_id, title, unresolved = _extract_protocol(
+                {"Protocol": "https://fairdomhub.org/sops/795"}, conn
+            )
+        assert (sop_id, title) == (None, None)
+
+    def test_absent_protocol_is_not_reported_as_unresolved(self):
+        conn = MagicMock()
+        assert _extract_protocol({}, conn) == (None, None, None)
+        conn.execute.assert_not_called()
+
+
+class TestResolveOrphansProtocolReporting:
+    """An unresolvable Protocol must show up in the task's own stats."""
+
+    @staticmethod
+    def _resolve(protocol, title_rows):
+        conn = MagicMock()
+        fetch = MagicMock()
+        fetch.fetchone.return_value = (
+            json.dumps({"Parent": "Mouse-A", "Protocol": protocol}),
+        )
+        by_title = MagicMock()
+        by_title.fetchall.return_value = title_rows
+        by_id = MagicMock()
+        by_id.fetchone.return_value = ("SOP",)
+        # fetch metadata, [title lookup], [id -> title], update metadata
+        results = [fetch, by_title, by_id, MagicMock()]
+        conn.execute.side_effect = results
+
+        orphans = [{
+            "id": 500,
+            "uuid": "CHD-260101MIT-1",
+            "parent_titles": ["Mouse-A"],
+            "matched_tokens": {"Mouse-A": "MUS-260305MIT-1"},
+        }]
+        return resolve_orphans(
+            orphans=orphans,
+            parent_info={"MUS-260305MIT-1": {"sample_id": 1, "uuid": "MUS-260305MIT-1"}},
+            sql_conn=conn,
+            neo4j_driver=MagicMock(),
+            neo4j_database="nextseekdev",
+        )
+
+    def test_unresolved_protocol_is_counted(self):
+        stats = self._resolve("No Such SOP", title_rows=[])
+        assert stats["protocols_unresolved"] == 1
+        assert stats["edges_created"] == 1
+
+    def test_resolved_protocol_is_not_counted(self):
+        stats = self._resolve("Known SOP", title_rows=[(7, "Known SOP")])
+        assert stats["protocols_unresolved"] == 0
+
+
+class TestExtractProtocolExternalLinks:
+    """The orphan path must classify external links the same way ingest does."""
+
+    def test_external_url_is_not_reported_as_unresolved(self):
+        with override_settings(
+            SEEK_PUBLIC_URL="http://localhost:3000",
+            SEEK_URL="http://seek:3000",
+            ALLOWED_HOSTS=["127.0.0.1"],
+        ):
+            conn = MagicMock()
+            result = _extract_protocol(
+                {"Protocol": "https://fairdomhub.org/sops/795"}, conn
+            )
+        assert result == (None, None, None)
+        conn.execute.assert_not_called()

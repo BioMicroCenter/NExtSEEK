@@ -58,6 +58,10 @@ services:
       - "127.0.0.1:${NEXTSEEK_PORT:-8000}:80"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro,z
+      # Optional drop-ins, included by nginx.conf as /etc/nginx/optional/*.conf.
+      # Ships only *.conf.example, so the directory is inert until an operator
+      # copies one to *.conf. See docker/nginx-optional/neo4j.conf.example.
+      - ./docker/nginx-optional:/etc/nginx/optional:ro,z
       - nextseek-static-files:/static:ro
     depends_on:
       - nextseek
@@ -222,7 +226,20 @@ services:
     volumes:
       - neo4j-data:/data
     environment:
-      NEO4J_AUTH: "neo4j/demopassword"
+      # Seeds the credential on FIRST START ONLY, when the neo4j-data volume is
+      # created. Changing it later does nothing: the password then lives in the
+      # volume, and rotating means
+      #   docker exec neo4j cypher-shell -u neo4j -p <old> \
+      #     "ALTER CURRENT USER SET PASSWORD FROM '<old>' TO '<new>'"
+      # followed by updating NEO4J_PASSWORD + NEXTSEEK_NEO4J_PASSWORD in
+      # docker/nextseek.env and recreating `nextseek`. See
+      # docs/neo4j-programmatic-access.md.
+      #
+      # Interpolated from the repo-root .env (gitignored; copy .env.example).
+      # `:?` rather than a default on purpose: a default here would ship a known
+      # credential to every install, and would silently disagree with
+      # docker/nextseek.env after any rotation.
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env (see .env.example)}"
       # Kill any transaction that runs longer than this. The graph agent generates
       # its Cypher with an LLM, so it is not always sane: on 2026-08-05 it emitted
       # `MATCH (m:Sample) WHERE (m)-[:DERIVED_FROM*0..]->(s) OR (s)-[...]->(m)`,

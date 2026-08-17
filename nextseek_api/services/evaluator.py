@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from rest_framework import status, viewsets
 from rest_framework.authentication import BasicAuthentication, TokenAuthentication
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
@@ -49,6 +49,7 @@ from nextseek_api.assistant.models_evaluator import (
     RetryResponse,
 )
 from nextseek_api.helpers import resolve_seek_auth, StandardResultsSetPagination
+from nextseek_api.permissions import IsSuperUser
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
@@ -417,7 +418,11 @@ class EvaluatorViewSet(viewsets.ViewSet):
         CsrfExemptSessionAuthentication,
         BasicAuthentication,
     ]
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    # IsSuperUser, not DRF's IsAdminUser (#75). IsAdminUser checks is_staff, and
+    # dmac/views.py:80,97 set is_staff = 1 on every SEEK user at login — so it was
+    # equivalent to IsAuthenticated here, and these reads return OTHER users'
+    # assistant prompts and result bundles. See nextseek_api/permissions.py.
+    permission_classes = [IsAuthenticated, IsSuperUser]
 
     # ------------------------------------------------------------------
     # GET /evaluator/tasks/{task_id}/retry-context/

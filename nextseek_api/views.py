@@ -26,7 +26,6 @@ from seek.seekdb import SeekDB
 from seek.dbtable_sample import DBtable_sample
 from seek.timeline.services.timeline_service import run_All, get_event_data
 from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
-from seek.views import get_children_uids, sample_retrieval_data
 from .batch_upload.views import BatchUploadViewSet
 
 logger = logging.getLogger(__name__)
@@ -745,21 +744,23 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
         except Exception:
             logger.exception("Could not resolve SEEK projects for the caller")
             user_project_ids = []
-        # SECURITY, known gap — still open, deliberately. Read before touching this line.
+        # Project membership is the data-scope boundary for this endpoint (#74).
         #
-        # Treating staff as admin makes project membership a no-op for data scope: every
-        # SEEK user synced into NExtSEEK is marked staff (dmac/views.py:80,97), so this
-        # takes the unfiltered branch of getChildrenUIDs for essentially every user.
-        # It is also more permissive than the legacy path it mirrors — seek/views.py:1249
-        # uses verifySuperUser(), i.e. is_superuser alone.
+        # `is_staff` must NOT widen it: dmac/views.py:80,97 set is_staff = 1 on every
+        # SEEK user at login, so `or is_staff` made project scope a no-op for everyone
+        # and handed every authenticated account the unfiltered branch of
+        # getChildrenUIDs. is_superuser is never assigned by any live application path,
+        # so it is the only trustworthy admin signal here — same predicate as the legacy
+        # path this mirrors, seek/views.py:1249 (verifySuperUser).
         #
-        # The prerequisite this comment used to name — resolving the caller's projects
-        # for real — is now done above, so dropping the is_staff clause is a safe
-        # one-line change on its own terms. It is NOT made here because it changes what
-        # every staff account can read (11 of 20 accounts in the local seed) and would
-        # narrow the assistant and container-CC consumers, which currently depend on
-        # unfiltered reads. Assess that impact first, then drop it.
-        is_superuser = bool(getattr(request.user, 'is_superuser', False) or getattr(request.user, 'is_staff', False))
+        # FUTURE (deliberately not built): a scoped miss and a nonexistent UID are
+        # currently indistinguishable — both return the 404 below, because the
+        # project-id sentinel keeps the SQL valid and matching nothing. We COULD
+        # distinguish them by re-querying unscoped on an empty result and returning 403
+        # "exists but not in your projects". Not done on purpose: that response confirms
+        # a UID is real to someone not authorised to see it. Revisit only if the
+        # ambiguous 404 actually causes support load. See #74.
+        is_superuser = bool(getattr(request.user, 'is_superuser', False))
         
         dbs = DBtable_sample()
 
