@@ -1,0 +1,151 @@
+{
+  "aggregate": {
+    "branch_pct": 99.4,
+    "branches": 338,
+    "covered_branches": 336,
+    "covered_statements": 1076,
+    "statement_pct": 100.0,
+    "statements": 1076
+  },
+  "critical_modules": [
+    "nextseek_api/eval/fit/fit_boundary.py",
+    "nextseek_api/eval/fit/v14/combined.py",
+    "nextseek_api/eval/fit/v14/decision.py",
+    "nextseek_api/eval/fit/v14/fit_config.py",
+    "nextseek_api/eval/fit/v14/latency_model.py",
+    "nextseek_api/eval/fit/v14/pair_rows.py",
+    "nextseek_api/eval/fit/v14/quality_model.py",
+    "nextseek_api/eval/fit/v14/recovery_acceptance.py",
+    "nextseek_api/eval/fit/v14/recovery_matrix.py",
+    "nextseek_api/eval/fit/v14/recovery_runner.py",
+    "nextseek_api/eval/generation_store.py",
+    "nextseek_api/eval/generation_validation.py",
+    "nextseek_api/eval/publish.py"
+  ],
+  "errors": [],
+  "gate": "PASS",
+  "modules": {
+    "nextseek_api/eval/fit/fit_boundary.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 95.5,
+      "branches": 44,
+      "covered_branches": 42,
+      "covered_statements": 74,
+      "statement_pct": 100.0,
+      "statements": 74
+    },
+    "nextseek_api/eval/fit/v14/combined.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 12,
+      "covered_branches": 12,
+      "covered_statements": 45,
+      "statement_pct": 100.0,
+      "statements": 45
+    },
+    "nextseek_api/eval/fit/v14/decision.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 24,
+      "covered_branches": 24,
+      "covered_statements": 95,
+      "statement_pct": 100.0,
+      "statements": 95
+    },
+    "nextseek_api/eval/fit/v14/fit_config.py": {
+      "branch_floor_applicable": false,
+      "branch_pct": 100.0,
+      "branches": 0,
+      "covered_branches": 0,
+      "covered_statements": 36,
+      "statement_pct": 100.0,
+      "statements": 36
+    },
+    "nextseek_api/eval/fit/v14/latency_model.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 22,
+      "covered_branches": 22,
+      "covered_statements": 87,
+      "statement_pct": 100.0,
+      "statements": 87
+    },
+    "nextseek_api/eval/fit/v14/pair_rows.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 22,
+      "covered_branches": 22,
+      "covered_statements": 78,
+      "statement_pct": 100.0,
+      "statements": 78
+    },
+    "nextseek_api/eval/fit/v14/quality_model.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 14,
+      "covered_branches": 14,
+      "covered_statements": 98,
+      "statement_pct": 100.0,
+      "statements": 98
+    },
+    "nextseek_api/eval/fit/v14/recovery_acceptance.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 36,
+      "covered_branches": 36,
+      "covered_statements": 71,
+      "statement_pct": 100.0,
+      "statements": 71
+    },
+    "nextseek_api/eval/fit/v14/recovery_matrix.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 46,
+      "covered_branches": 46,
+      "covered_statements": 98,
+      "statement_pct": 100.0,
+      "statements": 98
+    },
+    "nextseek_api/eval/fit/v14/recovery_runner.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 12,
+      "covered_branches": 12,
+      "covered_statements": 54,
+      "statement_pct": 100.0,
+      "statements": 54
+    },
+    "nextseek_api/eval/generation_store.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 28,
+      "covered_branches": 28,
+      "covered_statements": 164,
+      "statement_pct": 100.0,
+      "statements": 164
+    },
+    "nextseek_api/eval/generation_validation.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 40,
+      "covered_branches": 40,
+      "covered_statements": 71,
+      "statement_pct": 100.0,
+      "statements": 71
+    },
+    "nextseek_api/eval/publish.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 38,
+      "covered_branches": 38,
+      "covered_statements": 105,
+      "statement_pct": 100.0,
+      "statements": 105
+    }
+  },
+  "ownership_sha256": "cf985bfb4adfcdfe5dc74541ee321760a57e0fbbd95824cea74b646b48c62002",
+  "raw_coverage_sha256": "3dcc9c46752e9e0b936c7df621b8af0d54dcf758954bcd0bc1b66746437e7e5c",
+  "schema": "plan018-v4-9-task3-coverage/v1",
+  "threshold_branch_pct": 95.0,
+  "threshold_statement_pct": 95.0
+}
