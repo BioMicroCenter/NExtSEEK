@@ -59,13 +59,26 @@ demonstrated to route incorrectly.
 ### Gate
 
 Run the nessie_tests **route tier** against this branch before any deploy. It
-is the cheap, unpaid tier and it asserts `route_policy` against real routing
-decisions, which is exactly the question above. Treat its result as the
-arbiter:
+asserts `route_policy` against real routing decisions, which is exactly the
+question above. Treat its result as the arbiter:
 
 - pinned families still route NExtSEEK -> dev's file is fine, close this out
 - drift toward Container-CC -> a measured defect; decide then whether to fix
   the generator or amend the ruling, with data
+
+**The route tier is cheaper than the full tier, but it is NOT free, and it
+cannot tell you what it spent.** `--tier route` stops the *client* polling at
+`route_decided` (`nessie_tests/http_driver.py:130-131`); it cancels nothing. The
+server already started the turn on a daemon thread and returned 202
+(`nextseek_api/services/cc_assistant.py:759`), and its only early return is the
+`unrelated` route, so every case routing anywhere else runs to completion and
+bills after the harness has walked away -- on a CC-routed case, a full
+Container-CC turn (~$0.24 observed). Cost is read off `query_complete`, which
+route-tier polling never reaches, so the run reports `unmeasured`, not `$0`.
+
+Note the irony before budgeting: the defect under test is cases drifting to
+Container-CC, and that same drift is what makes this run expensive. Budget for
+the worst case, not the expected one.
 
 ### Where this really belongs
 
