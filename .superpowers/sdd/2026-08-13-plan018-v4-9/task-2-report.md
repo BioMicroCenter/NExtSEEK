@@ -2,12 +2,37 @@
 
 ## Outcome
 
-**Status: PARTIAL / measured RED as of 2026-08-13.** The original ten-module PASS
-evidence below is obsolete and non-authoritative after the Task-2 ownership map was
-expanded to fifteen modules. The authenticated bounded rerun selected 675 exact node
-IDs in fourteen disjoint chunks and produced 14 JUnits; it found the expanded gate at
-**898/1809 statements (49.6%)** and **195/556 branches (35.1%)**, below both 95%
-floors. Task 2 is not complete.
+**Status: PASS as of 2026-08-17.** A fresh source-mounted run in the deployed image
+digest, isolated with `--network none`, selected 785 exact node IDs in sixteen
+disjoint chunks: **780 passed, 5 skipped, 0 failed, 0 errors, 0 xfailed, and 0
+deselected**. The corrected fifteen-module gate is now **1797/1809 statements
+(99.3%)** and **546/556 branches (98.2%)**. Every named module independently clears
+both 95% floors; `judge_models.py` is branchless and therefore has an explicit N/A
+branch floor.
+
+The current source-bound evidence is `evidence/plan018-v4-9-task2-evidence.json`,
+with the per-module result in `evidence/plan018-v4-9-task2-coverage.json`. The
+authoritative validation command exits 0:
+
+```bash
+python3 scripts/plan018_v4_9_task2_coverage.py validate \
+  --root /home/taishajo/work/NExtSEEK-plan018-v4-9
+```
+
+The remediation restored the strict manifest schema lost during the later integration
+merge, made the frozen V4-2 replay hash the transferred corpus inside the pinned ZIP
+rather than today's expanded checkout corpus, ported the existing pure exporter and
+functional-input contract tests to their integrated namespace, and added small
+hermetic edge tests for the artifact and router proposal modules. The added focused
+sets execute in under one second; no MCMC, provider, network, live DB, producer, or
+deployed-service execution was added.
+
+## Prior expanded-ownership RED (superseded by the 2026-08-17 remediation)
+
+The 2026-08-13 authenticated bounded rerun selected 675 exact node IDs in fourteen
+chunks and measured **898/1809 statements (49.6%)** and **195/556 branches (35.1%)**.
+That result was accurate for that checkout and is retained as the RED baseline, but it
+is no longer the current coverage verdict.
 
 The current fail-closed summary is `evidence/plan018-v4-9-task2-coverage.json`; the
 raw coverage, full collection, chunk manifest, and per-chunk JUnits are SHA-bound by
@@ -32,13 +57,13 @@ deployment, or registry action occurred: the bounded Docker worktree-mount lane 
 `--network none` and mounted only the exact V4-2 transferred-evidence directory
 read-only, with SHA pins for `testquestions.zip` and `MANIFEST.json`.
 
-## Historical claim (VOID for expanded ownership)
+## Earlier ten-module claim (VOID; not the current PASS evidence)
 
 Task 2 is complete as a hermetic coverage gate: the source-derived paired producer,
 schema/export, attempt-storage, DD-44 judgment, disposition, conservation, and Stage-C
 cluster passes the required per-module and aggregate 95% statement and branch floors.
 
-## Scope derivation
+## Earlier ten-module scope derivation (VOID)
 
 The critical cluster is the intersection of Task 2's nouns with existing coverage-bearing
 V4-2/V4-3 ownership entries in `evidence/plan018-v4-9-owned-surface.json`, checked against
@@ -51,7 +76,7 @@ Fitter/store/activation/router/monitoring/spend modules belong to Tasks 3/4. The
 manifest marks `artifact_sources.py` and `artifact_validity.py` as declared absent, so this task
 does not pretend to cover modules that do not exist.
 
-## RED → GREEN evidence
+## Earlier ten-module RED → GREEN evidence (VOID for the expanded scope)
 
 1. `scripts/test_plan018_v4_9_task2_coverage.py` was written before
    `scripts/plan018_v4_9_task2_coverage.py`; the first network-denied lane run failed because the
@@ -63,7 +88,7 @@ does not pretend to cover modules that do not exist.
    bucket); each asserts the safe outcome, never merely executes a line. No production module was
    changed.
 
-## Verification
+## Earlier ten-module verification (VOID for the expanded scope)
 
 All product/Django tests used the required Docker worktree mount plus `dmac.test_settings`:
 
@@ -103,7 +128,8 @@ The source-bound evaluator writes:
 - `evidence/plan018-v4-9-task2-evidence.json` — source hashes, exact counts, no-network proof,
   and fault-injection rationale.
 
-Final aggregate coverage: **98.8% statements (1082/1095), 96.9% branches (345/356)**. Each
+Historical aggregate coverage was **98.8% statements (1082/1095), 96.9% branches
+(345/356)**. This is not the current verdict. In that earlier, incomplete scope, each
 named module clears both floors; per-module values and SHA-256 source identities are recorded in
 the evidence JSON.
 

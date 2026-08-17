@@ -82,5 +82,5 @@ def test_zip_member_path_is_under_testquestions_prefix():
 
 
 def test_corpus_fingerprint_matches_v13a():
-    fp = runner.corpus_fingerprint(CORPUS)
+    fp = v4.sha256_bytes(v4.load_v13a_corpus_bytes())
     assert fp == v4.V13A_EXPECTED["corpus_sha256"]

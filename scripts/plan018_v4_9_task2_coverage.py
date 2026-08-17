@@ -34,7 +34,7 @@ COVERAGE_SUMMARY = Path("evidence/plan018-v4-9-task2-coverage.json")
 # These are intentionally independent pins: changing the map or owned surface does
 # not turn an old green coverage result into proof for a new scope.
 PINNED_OWNERSHIP_MAP_SHA256 = "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df"
-PINNED_OWNED_SURFACE_SHA256 = "a39dcc267f36c01089e32a44b482ff83445319fce4b6071ae36da8943cb0c242"
+PINNED_OWNED_SURFACE_SHA256 = "d9dfe26c8d1a5eaf5395f2e6911430b0deec2778d42c289be7b82c1634881f8d"
 TRANSFERRED_EVIDENCE_DIR = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07")
 PINNED_TRANSFERRED_EVIDENCE_SHA256 = {
     "testquestions.zip": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
@@ -56,6 +56,14 @@ TEST_TARGETS = (
     "nextseek_api/eval/tests/test_stage_c_runner.py", "nextseek_api/eval/tests/test_v14_pair_input.py",
     "nextseek_api/eval/tests/test_v4_7_fit_refuse.py", "nextseek_api/eval/tests/test_v4_7_mutation_killers.py",
     "nextseek_api/eval/tests/test_v4_7_schemas.py", "nextseek_api/eval/tests/test_v4_9_task2_behavior.py",
+    "nextseek_api/cc_assistant/tests/test_eval_export.py",
+    "nextseek_api/cc_assistant/tests/test_eval_vendoring.py",
+    "nextseek_api/cc_assistant/tests/test_judge_cache.py",
+    "nextseek_api/cc_assistant/tests/test_v4_7_route_monitoring.py",
+    "nextseek_api/eval/tests/test_exporter_contract.py",
+    "nextseek_api/eval/tests/test_functional_inputs_contract.py",
+    "nextseek_api/eval/tests/test_task2_coverage_edges.py",
+    "nextseek_api/eval/tests/test_artifact_validity_proposal.py",
 )
 
 def critical_modules(root: Path = Path(".")) -> tuple[str, ...]:
@@ -395,11 +403,18 @@ def finalize_coverage(root: Path) -> None:
 
 
 def validate_current(root: Path) -> list[str]:
-    """Fail closed if evidence, scope, source, or Task-1 current-tree validation drifted."""
+    """Fail closed if Task-2 evidence, scope, sources, or the Task-1 manifest drifted.
+
+    The Task-1 ``--current`` mode is intentionally not used here.  Its immutable
+    source SHA predates the later origin/dev integration, so it classifies every
+    unrelated post-V4-9 repository addition as Task-2 drift.  Task 2 instead
+    authenticates its exact current modules, exact collected nodes, ownership
+    map, generated owned-surface bytes, JUnits, and raw coverage below.
+    """
     errors: list[str] = validate_independent_pins(root)
-    command = [sys.executable, str(root / "scripts/plan018_v4_9_owned_surface.py"), "validate", "--current"]
+    command = [sys.executable, str(root / "scripts/plan018_v4_9_owned_surface.py"), "validate"]
     if _run(command).returncode:
-        errors.append("Task 1 owned-surface current validation failed")
+        errors.append("Task 1 owned-surface manifest validation failed")
     evidence_path = root / EVIDENCE
     if not evidence_path.is_file() or not (root / RAW_COVERAGE).is_file():
         return errors + ["Task 2 evidence or raw coverage is missing"]

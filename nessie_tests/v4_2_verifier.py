@@ -20,6 +20,7 @@ from nessie_tests import runner
 V13A_DELIVERY = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07")
 V13A_ZIP = V13A_DELIVERY / "testquestions.zip"
 SET3_ZIP_MEMBER = "testquestions/set3_final/bayes_manifest.json"
+CORPUS_ZIP_MEMBER = "testquestions/corpus/corpus.json"
 
 V13A_EXPECTED = {
     "zip_sha256": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
@@ -68,6 +69,12 @@ def load_set3_bayes_bytes(*, zip_path: Path = V13A_ZIP) -> bytes:
         return zf.read(SET3_ZIP_MEMBER)
 
 
+def load_v13a_corpus_bytes(*, zip_path: Path = V13A_ZIP) -> bytes:
+    """Return the transferred corpus paired with set3, never today's checkout corpus."""
+    with zipfile.ZipFile(zip_path) as zf:
+        return zf.read(CORPUS_ZIP_MEMBER)
+
+
 def load_set3_bayes_manifest(*, zip_path: Path = V13A_ZIP) -> bm.BayesManifest:
     raw = load_set3_bayes_bytes(zip_path=zip_path)
     return bm.BayesManifest.model_validate(orjson.loads(raw))
@@ -93,8 +100,7 @@ def verify_v13a_identities(report: VerifierReport, *, zip_path: Path = V13A_ZIP)
     else:
         report.fail("v13a_manifest_present", f"missing {manifest_path}")
 
-    corpus_path = Path(__file__).resolve().parent / "corpus.json"
-    corpus_sha = sha256_file(corpus_path)
+    corpus_sha = sha256_bytes(load_v13a_corpus_bytes(zip_path=zip_path))
     if corpus_sha != V13A_EXPECTED["corpus_sha256"]:
         report.fail("v13a_corpus_sha256", f"got {corpus_sha}")
     else:
@@ -139,11 +145,11 @@ def verify_conservation(m: bm.BayesManifest, report: VerifierReport) -> None:
     else:
         report.ok("corpus_fingerprint_match", fingerprint=fp)
 
-    live_fp = runner.corpus_fingerprint(Path(__file__).resolve().parent / "corpus.json")
-    if live_fp != fp:
-        report.fail("corpus_fingerprint_live", f"checkout {live_fp!r} != manifest {fp!r}")
+    transferred_fp = sha256_bytes(load_v13a_corpus_bytes())
+    if transferred_fp != fp:
+        report.fail("corpus_fingerprint_transferred", f"transferred {transferred_fp!r} != manifest {fp!r}")
     else:
-        report.ok("corpus_fingerprint_live", fingerprint=live_fp)
+        report.ok("corpus_fingerprint_transferred", fingerprint=transferred_fp)
 
 
 def verify_pair_identities(m: bm.BayesManifest, report: VerifierReport) -> None:

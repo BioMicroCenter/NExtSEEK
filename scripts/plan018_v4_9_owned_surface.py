@@ -66,6 +66,10 @@ CONTROL_ENTRIES += (
     {"path": "scripts/plan018_v4_9_task2_coverage.py", "classification": "validator_tooling", "cluster": "v4_9_task2", "oracle": {"id": "validator_self", "target": ORACLE_REGISTRY["validator_self"]["target"]}, "rationale": "Task 2 source-bound coverage validator.", "sources": ["task_2_control"], "change": "task_2_control"},
     {"path": "scripts/test_plan018_v4_9_task2_coverage.py", "classification": "validator_test", "cluster": "v4_9_task2", "oracle": {"id": "validator_self", "target": ORACLE_REGISTRY["validator_self"]["target"]}, "rationale": "Task 2 validator adversarial tests.", "sources": ["task_2_control"], "change": "task_2_control"},
     {"path": "nextseek_api/eval/tests/test_v4_9_task2_behavior.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Task 2 behavioral and defensive-fault tests.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "nextseek_api/eval/tests/test_exporter_contract.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Fast integrated exporter contract coverage.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "nextseek_api/eval/tests/test_functional_inputs_contract.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Fast integrated functional-input contract coverage.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "nextseek_api/eval/tests/test_task2_coverage_edges.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Hermetic branch coverage for Task 2 owned models.", "sources": ["task_2_control"], "change": "task_2_control"},
+    {"path": "nextseek_api/eval/tests/test_artifact_validity_proposal.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Hermetic structural artifact-validator coverage.", "sources": ["task_2_control"], "change": "task_2_control"},
     {"path": "evidence/plan018-v4-9-task2-coverage.raw.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Raw Task 2 coverage evidence.", "sources": ["task_2_control"], "change": "task_2_control"},
     {"path": "evidence/plan018-v4-9-task2-coverage.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Validated Task 2 coverage summary.", "sources": ["task_2_control"], "change": "task_2_control"},
     {"path": "evidence/plan018-v4-9-task2-evidence.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Task 2 command, provenance, and no-external-effects evidence.", "sources": ["task_2_control"], "change": "task_2_control"},
@@ -75,7 +79,7 @@ CONTROL_ENTRIES += (
 )
 CONTROL_ENTRIES += tuple(
     {"path": f"evidence/plan018-v4-9-task2-chunk-{index:02d}.junit.xml", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Bounded Task 2 chunk JUnit evidence.", "sources": ["task_2_control"], "change": "task_2_control"}
-    for index in range(14)
+    for index in range(16)
 )
 
 

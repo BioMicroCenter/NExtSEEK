@@ -10,7 +10,7 @@ import json
 import os
 import pathlib
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from nessie_tests.manifest import NessieManifestEntry
 
@@ -37,6 +37,8 @@ MANIFEST_NAME = "bayes_manifest.json"
 
 
 class BayesPair(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     family: str
     hibayes_subtype: str | None = None
@@ -47,6 +49,9 @@ class BayesPair(BaseModel):
 
 
 class BayesManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(default="bayes_manifest/v1")
     run_meta: dict = Field(default_factory=dict)
     pairs: list[BayesPair] = Field(default_factory=list)
 

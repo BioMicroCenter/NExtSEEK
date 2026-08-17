@@ -136,6 +136,62 @@
     },
     {
       "change": "task_2_control",
+      "classification": "test",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "eval_structural",
+        "target": "test:nextseek_api/eval/tests/test_v4_8_manifest.py"
+      },
+      "path": "nextseek_api/eval/tests/test_exporter_contract.py",
+      "rationale": "Fast integrated exporter contract coverage.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "test",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "eval_structural",
+        "target": "test:nextseek_api/eval/tests/test_v4_8_manifest.py"
+      },
+      "path": "nextseek_api/eval/tests/test_functional_inputs_contract.py",
+      "rationale": "Fast integrated functional-input contract coverage.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "test",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "eval_structural",
+        "target": "test:nextseek_api/eval/tests/test_v4_8_manifest.py"
+      },
+      "path": "nextseek_api/eval/tests/test_task2_coverage_edges.py",
+      "rationale": "Hermetic branch coverage for Task 2 owned models.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "test",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "eval_structural",
+        "target": "test:nextseek_api/eval/tests/test_v4_8_manifest.py"
+      },
+      "path": "nextseek_api/eval/tests/test_artifact_validity_proposal.py",
+      "rationale": "Hermetic structural artifact-validator coverage.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
       "classification": "evidence",
       "cluster": "v4_9_task2",
       "oracle": {
@@ -409,6 +465,34 @@
         "target": "validator:evidence/plan018-preflight.json"
       },
       "path": "evidence/plan018-v4-9-task2-chunk-13.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-14.junit.xml",
+      "rationale": "Bounded Task 2 chunk JUnit evidence.",
+      "sources": [
+        "task_2_control"
+      ]
+    },
+    {
+      "change": "task_2_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task2",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task2-chunk-15.junit.xml",
       "rationale": "Bounded Task 2 chunk JUnit evidence.",
       "sources": [
         "task_2_control"
@@ -8792,7 +8876,7 @@
       "test": 88,
       "verifier": 10
     },
-    "control_entries": 29,
+    "control_entries": 35,
     "source_candidates": 410
   }
 }
