@@ -285,13 +285,28 @@ class DBconn_django(object):
             for row in self.cursor.fetchall()
         ]    
     
-    def retrieve_custom_sql(self, sqlquery, headers=None, db_alias=None):
+    def retrieve_custom_sql(self, sqlquery, headers=None, db_alias=None, params=None):
+        """Run a SELECT and return a list of dicts, one per row.
+
+        ``params`` is optional and back-compatible (#99): omitted or falsy, the
+        statement is executed alone exactly as before, so every pre-existing
+        caller is unaffected. Supplied, the values are handed to
+        ``cursor.execute`` for binding -- which is what a statement built by the
+        #93 WHERE builders needs, since those emit ``%s`` placeholders and would
+        otherwise reach the database with literal ``%s`` in the SQL.
+
+        This is the same back-compatible shape ``feaa816`` used for ``__runQuery``
+        in #78.
+        """
         if db_alias is None:
             cursor = self.cursor
         else:
             cursor = connections[db_alias].cursor()
-        
-        cursor.execute(sqlquery)
+
+        if params:
+            cursor.execute(sqlquery, params)
+        else:
+            cursor.execute(sqlquery)
         objs = cursor.fetchall()
         rowslist = list(objs)
         rowi = 0

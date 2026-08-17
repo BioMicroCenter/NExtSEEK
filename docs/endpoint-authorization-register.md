@@ -175,9 +175,9 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 
 | Path | Viewset / action | permission_classes | Project predicate applied? (file:line) | Proposed bucket |
 |---|---|---|---|---|
-| `GET /nextseek_api/schema/` | `SpectacularAPIView` | AllowAny (default; `dmac/settings.py:376-383` sets no `SERVE_PERMISSIONS`) | n/a, no data | public-to-authenticated |
-| `GET /nextseek_api/swagger/` | `SpectacularSwaggerView` | AllowAny (same) | n/a, no data | public-to-authenticated |
-| `GET /nextseek_api/redoc/` | `SpectacularRedocView` | AllowAny (same) | n/a, no data | public-to-authenticated |
+| `GET /nextseek_api/schema/` | `SpectacularAPIView` | `IsAuthenticated` at the route (`nextseek_api/urls.py:61`, #77). Was AllowAny: drf-spectacular sets `permission_classes` from `SERVE_PERMISSIONS` in its own class body, shadowing the project default | n/a, no data | public-to-authenticated |
+| `GET /nextseek_api/swagger/` | `SpectacularSwaggerView` | `IsAuthenticated` at the route (`nextseek_api/urls.py:62`, #77) | n/a, no data | public-to-authenticated |
+| `GET /nextseek_api/redoc/` | `SpectacularRedocView` | `IsAuthenticated` at the route (`nextseek_api/urls.py:63`, #77) | n/a, no data | public-to-authenticated |
 | `GET /nextseek_api/sample-tree/{uid}/tree/` | `SampleTreeViewSet.get_tree` | `IsAuthenticated` (`views.py:109`) | **Yes, added in this branch** (`665a103`): root gate + lineage pruning against `projects_samples`, admin bypass on `is_superuser` alone. Pre-fix: none | project-scoped (done) |
 | `POST /nextseek_api/samples/advanced_search/` | `SampleAdvancedSearchViewSet.create` | `IsAuthenticated` (`services/samples.py:357`) | **None. Deliberately NOT changed** in this branch, see note A | project-scoped (open, blocked) |
 | `POST /nextseek_api/admin/samples/retrieve/` | `AdminSampleViewSet.admin_retrieve_samples` | `IsAuthenticated` (`views.py:537`) | Yes but bypassed for staff: `views.py:686` -> `seek/dbtable_sample.py:907-913`; bypass at `views.py:642`. See note B | project-scoped |
@@ -210,7 +210,7 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/users/` | `UsersViewSet.list` | `IsAuthenticated, IsDjangoSuperuser` (`services/users.py:361`) | **None**, full-table read at `services/users.py:385`. Correctly gated instead. See note F | admin-only |
 | `GET /nextseek_api/users/{uid}/` | `UsersViewSet.retrieve` | `IsAuthenticated, IsDjangoSuperuser` (same) | **None**, id lookup at `services/users.py:427` | admin-only |
 | `POST /nextseek_api/schema_rag/ingest/` | `SchemaRAGViewSet.ingest` | `IsAuthenticated` (`services/schema_rag.py:50`) | n/a, ingests a caller-supplied OpenAPI URL. No NExtSEEK data. See note G | public-to-authenticated |
-| `POST /nextseek_api/schema_rag/retrieve/` | `SchemaRAGViewSet.retrieve_endpoints` | `IsAuthenticated` (same) | n/a, semantic search over an ingested schema. No NExtSEEK data. See note G | public-to-authenticated |
+| `POST /nextseek_api/schema_rag/retrieve/` | `SchemaRAGViewSet.retrieve_endpoints` | `IsAuthenticated` (same) | n/a, but NOT read-only: it auto-ingests when no live session exists, so it inherits every side effect of `ingest`. Classified WRITE for the CC agent (#86). See note G | public-to-authenticated |
 | `GET /nextseek_api/assistant/me/` | `AssistantViewSet.me` | `IsAuthenticated, UserInParticipatingProject` (`services/assistant.py:411`) | n/a, echoes `request.user`. See note H | public-to-authenticated |
 | `GET /nextseek_api/assistant/sessions/` | `AssistantViewSet.list_sessions` | same (`services/assistant.py:411`) | Owner-scoped, not project: `filter(user=request.user)` at `services/assistant.py:494` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/assistant/sessions/{sid}/` | `AssistantViewSet.get_session` | same | Owner-scoped: `services/assistant.py:554` | public-to-authenticated (owner-scoped) |
@@ -454,7 +454,11 @@ Both actions gate through `_check_auth` (`services/schema_rag.py:52-66`), which 
 SESSION or TOKEN. Neither touches NExtSEEK samples, projects or files: `ingest`
 (`services/schema_rag.py:103`) fetches a caller-supplied OpenAPI URL and stores parsed endpoint
 descriptions in a per-session DuckDB file, and `retrieve` (`services/schema_rag.py:304`) runs
-semantic search over one of those files. There is nothing to apply a project predicate to,
+semantic search over one of those files -- but `retrieve` also AUTO-INGESTS at
+`nextseek_api/schema_rag/service.py:747` when no live session exists, and
+`RetrieveRequest` accepts `schema_url` with no `session_id`, so that is its
+first-call path rather than an edge case. It therefore carries every side effect
+listed for `ingest`, and is classified WRITE for the CC agent (#86). There is nothing to apply a project predicate to,
 hence `public-to-authenticated`.
 
 Two things the user may still want to note, both out of scope for a project-scoping register:

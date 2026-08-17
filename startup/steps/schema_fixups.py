@@ -757,11 +757,59 @@ def reverse_managed_indexes_on_connection(connection, indexes: list[ManagedIndex
     return telemetry_records
 
 
-def _connect_to_managed_database(repo_root: Path, env: dict[str, str]):
-    import MySQLdb
+def _managed_database_for(indexes: list[ManagedIndex]) -> str:
+    """The single physical database every index in this batch targets.
 
+    `forward_sql`/`reverse_sql`/`duplicate_preflight` all emit *unqualified*
+    table names, so the connection has to supply the schema. Spanning two
+    databases in one batch would silently send half the DDL to the wrong one,
+    so refuse instead of guessing.
+    """
+    databases = {index.database for index in indexes}
+    if not databases:
+        # An empty batch executes no SQL, but callers still open and close a
+        # connection and the coverage tests pin that lifecycle (including on
+        # failure). Bind the canonical managed database rather than refusing.
+        databases = {index.database for index in MANAGED_INDEXES}
+    if len(databases) != 1:
+        raise ValueError(
+            "managed indexes must target exactly one database per batch, got: "
+            + ", ".join(sorted(databases) or ["<none>"])
+        )
+    return databases.pop()
+
+
+def _mysql_driver():
+    """Prefer mysqlclient where the host has it, else pure-Python PyMySQL.
+
+    startup/ is deliberately isolated from the main project's dependencies so a
+    host without a C build toolchain can still bootstrap (see the note under
+    [dependency-groups] in the root pyproject.toml). mysqlclient is a C
+    extension, so it must never be a hard requirement of this CLI. Both drivers
+    accept the `password=`/`database=` keyword spellings used below.
+    """
+    try:
+        import MySQLdb  # noqa: PLC0415 - optional, host-provided
+        return MySQLdb
+    except ImportError:
+        import pymysql  # noqa: PLC0415 - declared dependency, always present
+        return pymysql
+
+
+def _connect_to_managed_database(repo_root: Path, env: dict[str, str], database: str):
     port = compose_port("db", 3306, repo_root, env)
-    return MySQLdb.connect(host="127.0.0.1", port=port, user="root", passwd=_root_password(env), charset="utf8mb4")
+    return _mysql_driver().connect(
+        host="127.0.0.1",
+        port=port,
+        user="root",
+        password=_root_password(env),
+        # Without a bound schema every unqualified table reference below
+        # resolves against nothing and MySQL raises 1046 "No database
+        # selected". The schema lane never caught this because it drives a
+        # Django-supplied connection already bound to the disposable database.
+        database=database,
+        charset="utf8mb4",
+    )
 
 
 class _NoopFaultController:
@@ -778,7 +826,9 @@ def apply_managed_indexes(repo_root: Path, env: dict[str, str], *, indexes: list
     index through the exact same core logic the schema lane exercises
     directly against a disposable database."""
     target_indexes = MANAGED_INDEXES if indexes is None else indexes
-    connection = _connect_to_managed_database(repo_root, env)
+    connection = _connect_to_managed_database(
+        repo_root, env, _managed_database_for(target_indexes)
+    )
     try:
         telemetry_records = apply_managed_indexes_on_connection(connection, target_indexes, _NoopFaultController())
     finally:
@@ -797,7 +847,9 @@ def reverse_managed_indexes(repo_root: Path, env: dict[str, str], *, indexes: li
     populated `seek_production` database from an automated task; reverse is a
     separate, explicit user gate."""
     target_indexes = MANAGED_INDEXES if indexes is None else indexes
-    connection = _connect_to_managed_database(repo_root, env)
+    connection = _connect_to_managed_database(
+        repo_root, env, _managed_database_for(target_indexes)
+    )
     try:
         telemetry_records = reverse_managed_indexes_on_connection(connection, target_indexes)
     finally:
@@ -805,7 +857,38 @@ def reverse_managed_indexes(repo_root: Path, env: dict[str, str], *, indexes: li
     return [_telemetry_fqn_status(record) for record in telemetry_records]
 
 
+MANAGED_INDEX_FLAG = "NEXTSEEK_APPLY_MANAGED_INDEXES"
+
+
+def managed_indexes_enabled() -> bool:
+    """Whether install may issue managed-index DDL. Opt-in, default off.
+
+    MANAGED_INDEXES targets `seek_production`, which Rails owns and no Django
+    migration ledger tracks, and `duplicate_preflight` raises
+    DuplicateIdentityError on the first case-variant (sample_type_id,
+    LOWER(title)) group. Unconditionally, that means a stock `./startup.sh
+    install` can abort *after* seeds are loaded and containers are up, on real
+    data, with no --force and no remediation path.
+
+    So the DDL is opt-in. Native attribute mutation requires these indexes, and
+    the operator who turns that on is the one who should choose when to take a
+    schema change against SEEK's database:
+
+        NEXTSEEK_APPLY_MANAGED_INDEXES=1 ./startup.sh install
+    """
+    return os.environ.get(MANAGED_INDEX_FLAG, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def apply_all(repo_root: Path, env: dict[str, str], *, indexes: list[ManagedIndex] | None = None) -> list[tuple[str, str]]:
     results = apply_column_fixups(repo_root, env)
+    if not managed_indexes_enabled():
+        # Report every skipped index by name: silence here would read as
+        # "applied" to anyone scanning install output.
+        target_indexes = MANAGED_INDEXES if indexes is None else indexes
+        results.extend(
+            (f"{index.database}.{index.table}.{index.name}", f"skipped (set {MANAGED_INDEX_FLAG}=1 to apply)")
+            for index in target_indexes
+        )
+        return results
     results.extend(apply_managed_indexes(repo_root, env, indexes=indexes))
     return results

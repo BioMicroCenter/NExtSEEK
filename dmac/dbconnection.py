@@ -219,8 +219,9 @@ class DBconnection(object):
             record = {}
             return record
         
-    def queryToListDics(self, sqlquery, headers=None, db_alias=None):
-        return self.__dbconn.retrieve_custom_sql(sqlquery, headers, db_alias)
+    def queryToListDics(self, sqlquery, headers=None, db_alias=None, params=None):
+        # params is optional and defaults to the pre-#99 unbound behaviour.
+        return self.__dbconn.retrieve_custom_sql(sqlquery, headers, db_alias, params)
             
     def commitSQLQuery(self, sqlquery):
         return 'to be implemented', 0

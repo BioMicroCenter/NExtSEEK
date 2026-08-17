@@ -462,7 +462,12 @@ def bulk_update_samples(
     # ── Build outcomes ───────────────────────────────────────────────────
     for sample in valid_rows:
         _title, _meta, changed_keys, sid = merge_results[sample.uuid]
-        parent_changed = "Parent" in changed_keys or "parent" in changed_keys
+        # Lineage lives in EVERY key containing "parent" (AntibodyParent,
+        # CompensationFCSParent, Treatment1Parent, …), matching
+        # helpers.collect_parent_tokens. Checking only the literal key left
+        # stale DERIVED_FROM edges behind on re-upload, because neo4j_sync
+        # deletes edges and refreshes assays only for parent_changed rows.
+        parent_changed = any("parent" in k.lower() for k in changed_keys)
         outcomes[sample.uuid] = RowOutcome(
             status="success",
             reason="updated",

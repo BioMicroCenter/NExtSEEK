@@ -102,7 +102,7 @@ def test_install_calls_render_start_health_in_order(monkeypatch) -> None:
     monkeypatch.setattr(
         cli.config,
         "render_root_env",
-        lambda root, env: calls.append("root") or root / ".env",
+        lambda root, env, **_kw: calls.append("root") or root / ".env",
     )
 
     # --- [5/9] Volumes: no real `docker volume create`.
@@ -163,7 +163,7 @@ def test_install_applies_site_base_host_before_seek_first_boot(monkeypatch) -> N
     for name in ("render_db_env", "render_nextseek_env", "render_local_settings"):
         monkeypatch.setattr(cli.config, name, lambda root, values: None)
     monkeypatch.setattr(cli.config, "render_proxy_secret_env", lambda root: root / "p.env")
-    monkeypatch.setattr(cli.config, "render_root_env", lambda root, env: root / ".env")
+    monkeypatch.setattr(cli.config, "render_root_env", lambda root, env, **_kw: root / ".env")
     monkeypatch.setattr(cli.volumes, "ensure_volumes", lambda prefix: [])
     monkeypatch.setattr(cli.volumes, "ensure_cc_staging_dir", lambda prefix: None)
     monkeypatch.setattr(cli.build, "start_databases", lambda root, env: None)
@@ -271,7 +271,7 @@ def test_reset_reinstall_requests_seeding(monkeypatch) -> None:
     for name in ("render_db_env", "render_nextseek_env", "render_local_settings"):
         monkeypatch.setattr(cli.config, name, lambda root, values: None)
     monkeypatch.setattr(cli.config, "render_proxy_secret_env", lambda root: root / "p.env")
-    monkeypatch.setattr(cli.config, "render_root_env", lambda root, env: root / ".env")
+    monkeypatch.setattr(cli.config, "render_root_env", lambda root, env, **_kw: root / ".env")
     monkeypatch.setattr(cli.volumes, "ensure_volumes", lambda prefix: [])
     monkeypatch.setattr(cli.volumes, "ensure_cc_staging_dir", lambda prefix: None)
     monkeypatch.setattr(cli.build, "start_databases", lambda root, env: None)

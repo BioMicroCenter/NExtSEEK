@@ -163,12 +163,19 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     from nextseek_api.cc_assistant.cc_provision import build_user_dirs
 
     metas = []
-    # results_history can be multi-MB JSON; including it in ORDER BY filesort
-    # trips MySQL "Out of sort memory" (errno 1038) after large NS turns.
-    # This helper only needs session_id / extra_state / updated_at.
+    # #40/#82: results_history AND last_debug are both multi-MB JSON after a
+    # large NS turn; either one in the ORDER BY filesort trips MySQL "Out of
+    # sort memory" (errno 1038). This helper reads exactly three fields off
+    # each row -- session_id, extra_state, updated_at -- so select only those.
+    # NOT .defer("extra_state"): it is read on every row below, so deferring it
+    # would trade a sort column for one extra query PER ROW.
+    # NOT a LIMIT either: rows come back -updated_at DESC, and one of the two
+    # consumers is cc_sweep.select_sweep_targets, which wants the sessions that
+    # are IDLE (the OLDEST updated_at). A LIMIT N would hand it the N LEAST
+    # idle sessions and silently stop sweeping everything else.
     qs = (
         ChatSession.objects.filter(user=user)
-        .defer("results_history")
+        .only("session_id", "extra_state", "updated_at")
         .order_by("-updated_at")
     )
     for s in qs:

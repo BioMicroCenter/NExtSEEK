@@ -68,3 +68,87 @@ def test_missing_required_is_soft_flag():
                 required_fields=["Parent", "File_PrimaryData"], existing_parent_uids=_PARENTS)
     assert r.disposition == SOFT_FLAG
     assert any("missing_required" in s and "File_PrimaryData" in s for s in r.soft)
+
+
+# ── variant parent keys (AntibodyParent, Treatment1Parent, …) ──────────────
+#
+# The parent gate read the literal key "Parent" only. A row whose sole ancestor
+# lives in a variant key was hard-rejected as "blank Parent", and a broken
+# variant token was never resolvability-checked at all.
+
+
+def _bare_row(**meta):
+    """A row with NO literal 'Parent' key."""
+    return {"json_metadata": {"Scientist": "Marie Floryan", **meta}, "assay_ids": [12]}
+
+
+def _qa(rows):
+    return qa_rows(rows, sample_type="A.SCXP", known_sampletypes=_TYPES,
+                   existing_parent_uids=_PARENTS)
+
+
+VARIANT_KEYS = [
+    "AntibodyParent", "CompensationFCSParent", "Treatment1Parent",
+    "Treatment2Parent", "BacterialParent", "AntibodyPanelParent",
+    "antibodyparent", "ANTIBODYPARENT",
+]
+
+
+def test_variant_parent_key_satisfies_the_parent_requirement():
+    for key in VARIANT_KEYS:
+        r = _qa([_bare_row(**{key: "D.SEQ-220823SHA-1"})])
+        assert r.disposition == CLEAN, f"{key}: {r.hard}"
+        assert not any("blank Parent" in h for h in r.hard), key
+
+
+def test_variant_parent_key_is_resolvability_checked():
+    for key in VARIANT_KEYS:
+        r = _qa([_bare_row(**{key: "D.SEQ-does-not-exist"})])
+        assert r.disposition == HARD_REJECT, key
+        assert any("parent_uid_not_found" in h and "D.SEQ-does-not-exist" in h
+                   for h in r.hard), f"{key}: {r.hard}"
+
+
+def test_no_parent_key_of_any_kind_is_hard_reject():
+    r = _qa([_bare_row(ReferenceGenome="GRCh38")])
+    assert r.disposition == HARD_REJECT
+    assert any("blank Parent" in h for h in r.hard)
+
+
+def test_blank_variant_parent_alone_is_hard_reject():
+    r = _qa([_bare_row(AntibodyParent="   ")])
+    assert r.disposition == HARD_REJECT
+    assert any("blank Parent" in h for h in r.hard)
+
+
+def test_variant_parent_key_semicolon_split():
+    r = _qa([_bare_row(AntibodyParent="D.SEQ-220823SHA-1;D.SEQ-220823SHA-2")])
+    assert r.disposition == CLEAN
+
+    bad = _qa([_bare_row(AntibodyParent="D.SEQ-220823SHA-1;D.SEQ-nope")])
+    assert bad.disposition == HARD_REJECT
+    assert any("D.SEQ-nope" in h for h in bad.hard)
+
+
+def test_variant_parent_placeholder_marker_is_skipped():
+    r = _qa([_bare_row(AntibodyParent="*** PLACEHOLDER: antibody parent ***")])
+    assert not any("parent_uid_not_found" in h for h in r.hard)
+    assert not any("blank Parent" in h for h in r.hard)
+
+
+def test_literal_and_variant_parents_are_both_checked():
+    r = _qa([{"json_metadata": {"Parent": "D.SEQ-220823SHA-1",
+                                "Treatment1Parent": "D.SEQ-bogus"},
+              "assay_ids": [12]}])
+    assert r.disposition == HARD_REJECT
+    assert any("D.SEQ-bogus" in h for h in r.hard)
+
+
+def test_variant_parent_resolves_against_intra_batch_name():
+    rows = [
+        {"json_metadata": {"Parent": "D.SEQ-220823SHA-1", "Name": "in_batch_ab"},
+         "assay_ids": [12]},
+        _bare_row(AntibodyParent="in_batch_ab"),
+    ]
+    r = _qa(rows)
+    assert r.disposition == CLEAN, r.hard

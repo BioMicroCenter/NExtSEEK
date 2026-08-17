@@ -209,7 +209,7 @@ def _install_impl(
     compose_env = state.compose_env()
     proxy_env_path = config.render_proxy_secret_env(REPO_ROOT)
     _warn_if_proxy_token_empty(proxy_env_path)
-    config.render_root_env(REPO_ROOT, compose_env)
+    config.render_root_env(REPO_ROOT, compose_env, neo4j_password=values.neo4j_password)
     ui.ok(
         "docker/db.env, docker/nextseek.env, "
         "docker/bedrock-proxy/proxy-secret.env, dmac/local_settings.py, .env"

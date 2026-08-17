@@ -203,8 +203,30 @@ def render_proxy_secret_env(
     return output
 
 
-def render_root_env(repo_root: Path, compose_env: Mapping[str, str]) -> Path:
-    """Persist non-secret compose targeting vars for manual docker compose use."""
+def render_root_env(
+    repo_root: Path,
+    compose_env: Mapping[str, str],
+    neo4j_password: str | None = None,
+) -> Path:
+    """Persist compose targeting vars for manual docker compose use.
+
+    ``compose_env`` is filtered to ``ordered_keys`` so that a secret carried in
+    the instance's environment can never leak into this file; keep it that way.
+
+    ``neo4j_password`` is the one credential that must land here anyway.
+    ``docker-compose.yml`` interpolates it with the mandatory
+    ``${NEO4J_PASSWORD:?...}`` form, and compose resolves interpolation before
+    it validates anything, so an unset value aborts *every* verb -- ``config``
+    and ``ps`` included, not just ``up``. It is passed explicitly rather than
+    read out of ``compose_env`` so the filter above stays a hard guarantee.
+
+    It is sourced from the same ``ConfigValues`` that renders
+    ``docker/nextseek.env``, so the password the app uses and the one seeding
+    the server's ``NEO4J_AUTH`` come from a single place and cannot drift.
+    (They previously could: ``NEO4J_AUTH`` only seeds on first volume creation,
+    so a mismatch surfaces as an auth failure with nothing logged at compose
+    time.) Callers that omit it keep the old secret-free behaviour.
+    """
     ordered_keys = [
         "COMPOSE_PROJECT_NAME",
         "NEXTSEEK_PORT",
@@ -214,6 +236,13 @@ def render_root_env(repo_root: Path, compose_env: Mapping[str, str]) -> Path:
         "DB_PORT",
         "INSTANCE_PREFIX",
     ]
+    values = {key: compose_env[key] for key in ordered_keys if key in compose_env}
     output = repo_root / ".env"
-    write_env(output, {key: compose_env[key] for key in ordered_keys if key in compose_env})
+    if neo4j_password is None:
+        write_env(output, values)
+        return output
+
+    values["NEO4J_PASSWORD"] = neo4j_password
+    write_env(output, values)
+    output.chmod(0o600)  # now carries a credential
     return output

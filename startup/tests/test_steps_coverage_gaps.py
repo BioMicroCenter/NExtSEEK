@@ -253,8 +253,25 @@ def test_start_seek_side_waits_for_filestore_before_workers(mock_up: MagicMock, 
 @patch("startup.steps.build.compose_build")
 @patch("startup.steps.build.compose_up")
 def test_build_and_start_nextseek_builds(mock_up: MagicMock, mock_build: MagicMock) -> None:
+    """Default start omits the attribute runtimes.
+
+    They carry `profiles: [attributes]`, but naming a service explicitly on a
+    compose command line starts it regardless of its profile, so the gate only
+    holds if startup also stops naming them.
+    """
     build.build_and_start_nextseek(Path("/r"), {})
     assert list(mock_build.call_args.kwargs["services"]) == ["nextseek"]
+    assert list(mock_up.call_args.kwargs["services"]) == ["nextseek", "nextseek_nginx"]
+    assert mock_up.call_args.kwargs["no_deps"] is True
+
+
+@patch("startup.steps.build.compose_build")
+@patch("startup.steps.build.compose_up")
+def test_build_and_start_nextseek_includes_attribute_runtimes_with_the_profile(
+    mock_up: MagicMock, mock_build: MagicMock, monkeypatch
+) -> None:
+    monkeypatch.setenv("COMPOSE_PROFILES", "attributes")
+    build.build_and_start_nextseek(Path("/r"), {})
     assert list(mock_up.call_args.kwargs["services"]) == [
         "nextseek",
         "attribute_mutation_worker",
@@ -262,7 +279,6 @@ def test_build_and_start_nextseek_builds(mock_up: MagicMock, mock_build: MagicMo
         "attribute_mutation_recovery_scheduler",
         "nextseek_nginx",
     ]
-    assert mock_up.call_args.kwargs["no_deps"] is True
 
 
 @patch("startup.steps.build.compose_up")

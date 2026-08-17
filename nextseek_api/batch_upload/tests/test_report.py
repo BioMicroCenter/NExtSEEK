@@ -221,6 +221,46 @@ class TestWriteSummaryCsv:
         assert "NEO4J" in content
         assert "nodes_created=5" in content
 
+    def test_csv_reports_unresolved_protocols(self, tmp_path):
+        """Edges written with no protocol must be countable from the report."""
+        path = str(tmp_path / "summary.csv")
+        metrics = Metrics(elapsed_ms_total=150.0, protocols_unresolved=2)
+        totals = {"processed": 5, "success": 5, "skipped": 0, "failed": 0,
+                  "elapsed_s": 1.0, "throughput_rps": 5.0}
+        write_summary_csv(path, [], totals, neo4j_metrics=metrics)
+
+        with open(path) as f:
+            assert "protocols_unresolved=2" in f.read()
+
+    def test_csv_reports_external_protocol_links_apart_from_failures(self, tmp_path):
+        """An external link is not a failure, so it must be countable without
+        being folded into protocols_unresolved."""
+        path = str(tmp_path / "summary.csv")
+        metrics = Metrics(
+            elapsed_ms_total=150.0, protocols_unresolved=2,
+            protocols_external_links=7,
+        )
+        totals = {"processed": 5, "success": 5, "skipped": 0, "failed": 0,
+                  "elapsed_s": 1.0, "throughput_rps": 5.0}
+        write_summary_csv(path, [], totals, neo4j_metrics=metrics)
+
+        with open(path) as f:
+            content = f.read()
+        assert "external_protocol_links=7" in content
+        assert "protocols_unresolved=2" in content
+
+    def test_csv_reports_zero_unresolved_protocols_explicitly(self, tmp_path):
+        """0 must be printed, not omitted: a reader has to be able to tell
+        "none" from "this run predates the counter"."""
+        path = str(tmp_path / "summary.csv")
+        metrics = Metrics(elapsed_ms_total=150.0)
+        totals = {"processed": 5, "success": 5, "skipped": 0, "failed": 0,
+                  "elapsed_s": 1.0, "throughput_rps": 5.0}
+        write_summary_csv(path, [], totals, neo4j_metrics=metrics)
+
+        with open(path) as f:
+            assert "protocols_unresolved=0" in f.read()
+
     def test_csv_includes_new_columns(self, tmp_path):
         path = str(tmp_path / "summary.csv")
         summaries = [
@@ -451,3 +491,72 @@ class TestInputRowModelOriginalRowIndex:
         m = InputRowModel(SampleType="NHP", json_metadata='{}')
         m.original_row_index = 3
         assert m.original_row_index == 3
+
+
+class TestDerivedFromCoverageInSummaryCsv:
+    """A lost lineage edge has to be countable from the report, not just the log."""
+
+    _TOTALS = {"processed": 5, "success": 5, "skipped": 0, "failed": 0,
+               "elapsed_s": 1.0, "throughput_rps": 5.0}
+
+    def _write(self, tmp_path, **metric_kwargs):
+        path = str(tmp_path / "summary.csv")
+        metrics = Metrics(elapsed_ms_total=150.0, **metric_kwargs)
+        write_summary_csv(path, [], self._TOTALS, neo4j_metrics=metrics)
+        with open(path) as f:
+            return f.read()
+
+    def test_created_is_printed_against_rels_input(self, tmp_path):
+        """'derived_from=8' reads the same whether 8 or 8000 were attempted."""
+        content = self._write(tmp_path, rels_input=10, derived_from_rels_created=8)
+        assert "derived_from=8/10" in content
+
+    def test_dropped_edges_are_printed(self, tmp_path):
+        content = self._write(
+            tmp_path, rels_input=10, derived_from_rels_created=8,
+            derived_from_rels_dropped=2,
+        )
+        assert "derived_from_dropped=2" in content
+
+    def test_children_whose_parents_are_missing_are_printed(self, tmp_path):
+        content = self._write(tmp_path, skipped_children_missing_parents=3)
+        assert "children_missing_parents=3" in content
+
+    def test_both_counters_are_emitted_even_at_zero(self, tmp_path):
+        """A reader must be able to tell 'none' from 'this column did not exist'."""
+        content = self._write(tmp_path)
+        assert "derived_from_dropped=0" in content
+        assert "children_missing_parents=0" in content
+
+    def test_the_two_losses_are_reported_apart(self, tmp_path):
+        """Different causes, different fixes: a missing Sample NODE is not the
+        same problem as a parent absent from `samples` altogether."""
+        content = self._write(
+            tmp_path, rels_input=10, derived_from_rels_created=8,
+            derived_from_rels_dropped=2, skipped_children_missing_parents=3,
+        )
+        assert "derived_from_dropped=2" in content
+        assert "children_missing_parents=3" in content
+
+    def test_children_skipped_as_unreadable_are_printed(self, tmp_path):
+        """The delete declining to run is a loss class too, and needs the same
+        denominator treatment as the two counters above it."""
+        content = self._write(
+            tmp_path, parent_changed_children_skipped_unreadable=4)
+        assert "parent_changed_skipped_unreadable=4" in content
+
+    def test_the_unreadable_counter_is_emitted_even_at_zero(self, tmp_path):
+        content = self._write(tmp_path)
+        assert "parent_changed_skipped_unreadable=0" in content
+
+    def test_all_three_loss_classes_are_reported_apart(self, tmp_path):
+        """Different causes, different fixes: no Sample node vs no parent row
+        vs the delete declining to run at all."""
+        content = self._write(
+            tmp_path, rels_input=10, derived_from_rels_created=8,
+            derived_from_rels_dropped=2, skipped_children_missing_parents=3,
+            parent_changed_children_skipped_unreadable=4,
+        )
+        assert "derived_from_dropped=2" in content
+        assert "children_missing_parents=3" in content
+        assert "parent_changed_skipped_unreadable=4" in content
