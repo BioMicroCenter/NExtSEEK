@@ -60,6 +60,9 @@ class TestScanContract:
     def test_description_schema_allowlist_removed(self):
         assert not hasattr(vc, "DESCRIPTION_SCHEMA_ALLOWLIST")
 
+    def test_attribute_viewset_is_scanned(self):
+        assert "nextseek_api/attributes/views.py" in vc.EXTEND_SCHEMA_SCAN_PATHS
+
 
 class TestGrandfatherLockstep:
     def test_allowlists_derived_from_grandfather_ops(self):

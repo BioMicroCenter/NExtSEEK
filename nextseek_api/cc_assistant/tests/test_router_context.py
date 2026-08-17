@@ -1,10 +1,7 @@
 """F §12.4: deterministic HistoryTurn builder — caps, legacy derivation, four turn kinds."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import pytest
-import router_context as rc
+
+from nextseek_api.cc_assistant import router_context as rc
 
 
 def _ns(tid, **kw):

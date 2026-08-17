@@ -208,6 +208,8 @@ startup/.ghcr-push-state.json
 
 # Generated BAML router client (regenerate via baml-cli generate --from dmac_assistant/baml_src)
 dmac_assistant/src/dmac_assistant/router/baml_client/
+# Second generators.baml target (e2e judge client); Task 12 04-baml-setup bind-mounts it.
+dmac_assistant/tools/e2e/baml_client/
 
 # Local design specs + plans (working docs, not part of the public repo).
 # Excluded level-by-level so a single file can be re-included below; git will not descend

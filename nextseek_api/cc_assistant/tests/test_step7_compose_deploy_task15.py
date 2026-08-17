@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from nextseek_api.cc_assistant.tests.test_step7_compose_deploy import (
+from nextseek_api.cc_assistant.tests.step7_compose_fixtures import (
     GATE_PROJECT,
     GATE_USER_ID,
     RUN_ID,

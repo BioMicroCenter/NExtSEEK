@@ -30,6 +30,7 @@ EXTEND_SCHEMA_SCAN_PATHS: tuple[str, ...] = (
     "nextseek_api/services",
     "nextseek_api/views.py",
     "nextseek_api/batch_upload/views.py",
+    "nextseek_api/attributes/views.py",
 )
 
 # assistant.py is excluded from OpenAPI (dmac/openapi_hooks.py); skip AST scan there.

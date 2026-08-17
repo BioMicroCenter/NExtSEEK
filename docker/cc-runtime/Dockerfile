@@ -47,7 +47,12 @@ RUN useradd -m -u 1001 -s /bin/sh user
 
 # Ship only the `nextseek` plugin in the image (the legacy `nextseek-api`
 # plugin tree is not part of this port; see PORT-EVIDENCE.json).
+# BEGIN PLAN005-GEN:plugin-copy
 COPY build_context/plugins/nextseek/ /app/plugins/nextseek/
+# END PLAN005-GEN:plugin-copy
+# BEGIN PLAN005-GEN:capabilities-copy
+COPY --from=chat_nextseek src/chat_nextseek/context/capabilities.md /app/plugins/nextseek/context/capabilities.md
+# END PLAN005-GEN:capabilities-copy
 
 # Fail the build if catalog files weren't snapshotted before `docker build`.
 # Without this, an image can ship with an empty /app/plugins/nextseek/context/
@@ -120,7 +125,9 @@ ENV PYTHONPATH="/app"
 # Put the plugin's bin/ on PATH so Claude can invoke `nextseek-call` etc.
 # without spelling the full path. Placed AFTER the expensive uv pre-warm so a
 # PATH tweak does not invalidate the pre-warm cache layer.
+# BEGIN PLAN005-GEN:plugin-path
 ENV PATH="/app/plugins/nextseek/bin:${PATH}"
+# END PLAN005-GEN:plugin-path
 
 USER user
 WORKDIR /home/user

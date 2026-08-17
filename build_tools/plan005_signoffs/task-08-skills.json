@@ -1,0 +1,15 @@
+{
+  "id": "task-8-skill-md",
+  "artifact_paths": [
+    "docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek/SKILL.md",
+    "docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek-batch-upload/SKILL.md"
+  ],
+  "final_byte_hashes": {
+    "docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek/SKILL.md": "15b37bc4c871e52185df34766a046b6241df31dee1a28e97f47c2c97115da544",
+    "docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek-batch-upload/SKILL.md": "bbdf8b9791de5e58165f40a9870770cfd1f2f416c6ae94f125bc6e1eee837770"
+  },
+  "presented_diff_hash": "6f7e2f9297603c522dafdc7e24b2a15ee0a94ab73fecbca2d53ac5cd656c81db",
+  "approval_timestamp": "2026-08-14T20:28:00+00:00",
+  "interpretation_source": "user_stated",
+  "quote": "Yes"
+}

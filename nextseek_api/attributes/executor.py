@@ -141,12 +141,20 @@ def execute_type_plan(plan, services):
         services.apply_definitions(plan)
         attribute_fault("async.during_active_type")
         services.apply_dependents(plan)
-        services.rewrite_metadata(plan)
+        metadata_result = services.rewrite_metadata(plan)
         post = services.resolve_and_fingerprint_post_state(plan)
         if post["semantic_fingerprint"] != plan.expected_after_semantic_fingerprint:
             raise ExecutionConflict("post-state fingerprint mismatch")
         # Rendering is pure but may validate; do it before SEEK can commit.
         outcome = services.render_outcome(plan, post)
+        # Planning and asynchronous acceptance must report zero completed
+        # writes, but a terminal outcome must expose how many sample metadata
+        # rows the shared rewrite kernel actually processed.  Keep the
+        # adapter's return optional for database-free test doubles while the
+        # production adapter supplies the concrete ``updated`` count.
+        outcome["counts"]["updated_samples"] = int(
+            (metadata_result or {}).get("updated", 0)
+        )
     # The SEEK transaction has exited successfully before any default-DB audit write.
     services.record_commit(plan, post["created_id_bindings"], post["physical_fingerprint"], outcome)
     return outcome

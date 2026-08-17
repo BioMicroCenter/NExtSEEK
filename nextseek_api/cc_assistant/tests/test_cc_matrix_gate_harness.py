@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -532,3 +533,56 @@ def test_harness_bin_ops_matches_validator_bin_ops():
 def test_harness_exposes_all_public_names():
     for name in gate.__all__:
         assert hasattr(gate, name), name
+
+
+def test_recall_and_optional_query_argv():
+    with pytest.raises(ValueError, match="requires turn"):
+        gate.build_op_argv("nextseek-recall")
+    argv = gate.build_op_argv("nextseek-recall", turn=3)
+    assert argv == ["nextseek-recall", "--turn", "3"]
+    argv = gate.build_op_argv(
+        "nextseek-api-read", parser_plan="{}", query="q",
+    )
+    assert "--query" in argv
+    argv = gate.build_op_argv(
+        "nextseek-api-write", parser_plan="{}", confirmed_write=True, query="q",
+    )
+    assert "--confirmed-write" in argv and "--query" in argv
+
+
+def test_docker_helpers_with_fake_subprocess(monkeypatch):
+    import subprocess
+
+    def fake_run(cmd, **kw):
+        if "exec" in cmd:
+            if kw.get("timeout") == 0.001:
+                raise subprocess.TimeoutExpired(cmd, 0.001, output="out", stderr="err")
+            return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
+        if "inspect" in cmd and "network" not in cmd:
+            return SimpleNamespace(returncode=0, stdout='[{"Id":"c1"}]', stderr="")
+        if "network" in cmd:
+            return SimpleNamespace(returncode=0, stdout='[{"Containers":{}}]', stderr="")
+        if "ps" in cmd:
+            return SimpleNamespace(returncode=0, stdout="nextseek-nginx-1\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    er = gate.docker_exec_op("ctr", ["nextseek-query", "--query", "q"])
+    assert er.exit_code == 0 and er.timed_out is False
+    timed = gate.docker_exec_op("ctr", ["x"], timeout=0.001)
+    assert timed.timed_out is True
+    assert gate.docker_inspect_one("ctr")["Id"] == "c1"
+    assert gate.resolve_container_by_name_substring("nginx") == "nextseek-nginx-1"
+    assert gate.docker_network_inspect("dmac-cc-net")[0]["Containers"] == {}
+
+    def boom(*a, **k):
+        raise subprocess.CalledProcessError(1, a[0] if a else "x")
+
+    monkeypatch.setattr(gate.subprocess, "run", boom)
+    assert gate.docker_inspect_one("ctr") is None
+
+    assert gate.extract_created_id("nope") is None
+    assert gate.extract_created_id({"data": {"id": "9"}}) == "9"
+    body = {"data": {"id": "1", "attributes": {"attribute_map": {"UID": "S1"}}}}
+    assert gate.extract_sample_uid(body) == "S1"
+    assert gate.extract_sample_uid({"data": {"id": "2"}}) == "2"

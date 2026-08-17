@@ -44,6 +44,7 @@ EXPECTED_BAKED_FILES = frozenset({
     "min_graph_schema.json",
     "min_sampletypes_db.json",
     "neo4j_schema.json",
+    "ops.json",
     "projects_db.json",
     "read_safe_endpoints.json",
 })
@@ -53,6 +54,7 @@ EXPECTED_BAKED_FILES = frozenset({
 EXPECTED_BAKED_ONLY = frozenset({
     "MANIFEST.md",           # index telling the agent which file to consult when
     "read_safe_endpoints.json",  # write-safety classification, agent-specific
+    "ops.json",  # Plan 005 canonical OpSpec export; not a chat_nextseek context file
 })
 
 # ---------------------------------------------------------------------------

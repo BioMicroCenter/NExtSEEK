@@ -1130,17 +1130,17 @@ def _compose_services():
 def test_compose_attribute_mutation_worker_exact_shape():
     service = _compose_services()["attribute_mutation_worker"]
     assert service["command"] == [
-        "uv", "run", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker",
+        "uv", "run", "--no-sync", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker",
         "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h",
         "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}",
     ]
     assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
     assert service["healthcheck"] == {
-        "test": ["CMD-SHELL", "uv run celery -A nextseek_api.batch_upload.celery_app inspect ping --timeout=5 -d attribute_mutations@$${HOSTNAME} | grep -q pong"],
-        "interval": "30s", "timeout": "10s", "retries": 3,
+        "test": ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "worker"],
+        "interval": "30s", "timeout": "5s", "retries": 3, "start_period": "60s",
     }
     assert service["deploy"]["resources"]["limits"] == {
-        "cpus": "${ATTRIBUTE_MUTATION_WORKER_CPUS:-1.0}", "memory": "${ATTRIBUTE_MUTATION_WORKER_MEMORY:-768M}",
+        "cpus": "${ATTRIBUTE_MUTATION_WORKER_CPUS:-1.0}", "memory": "${ATTRIBUTE_MUTATION_WORKER_MEMORY:-1G}",
     }
     assert "attribute_mutation_broker:/var/lib/attribute-broker" in service["volumes"]
     assert service["environment"]["CELERY_BROKER_URL"] == "sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3"
@@ -1148,14 +1148,14 @@ def test_compose_attribute_mutation_worker_exact_shape():
 
 def test_compose_attribute_mutation_dispatcher_exact_shape():
     service = _compose_services()["attribute_mutation_dispatcher"]
-    assert service["command"] == ["uv", "run", "python", "manage.py", "dispatch_attribute_outbox"]
+    assert service["command"] == ["uv", "run", "--no-sync", "python", "manage.py", "dispatch_attribute_outbox"]
     assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
     assert service["healthcheck"] == {
-        "test": ["CMD", "uv", "run", "python", "manage.py", "check_attribute_outbox_heartbeat"],
-        "interval": "30s", "timeout": "10s", "retries": 3,
+        "test": ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "dispatcher"],
+        "interval": "30s", "timeout": "5s", "retries": 3, "start_period": "60s",
     }
     assert service["deploy"]["resources"]["limits"] == {
-        "cpus": "${ATTRIBUTE_MUTATION_DISPATCHER_CPUS:-0.25}", "memory": "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-256M}",
+        "cpus": "${ATTRIBUTE_MUTATION_DISPATCHER_CPUS:-0.25}", "memory": "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-1G}",
     }
     assert "attribute_mutation_broker:/var/lib/attribute-broker" in service["volumes"]
     assert service["environment"]["CELERY_BROKER_URL"] == "sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3"
@@ -1164,15 +1164,15 @@ def test_compose_attribute_mutation_dispatcher_exact_shape():
 def test_compose_attribute_mutation_recovery_scheduler_exact_shape_and_no_broker_ability():
     service = _compose_services()["attribute_mutation_recovery_scheduler"]
     assert service["command"] == [
-        "uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30",
+        "uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30",
     ]
     assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
     assert service["healthcheck"] == {
-        "test": ["CMD", "uv", "run", "python", "manage.py", "recover_attribute_sync_jobs", "--check-heartbeat", "--max-age-seconds", "90"],
-        "interval": "30s", "timeout": "10s", "retries": 3,
+        "test": ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "recovery"],
+        "interval": "30s", "timeout": "5s", "retries": 3, "start_period": "60s",
     }
     assert service["deploy"]["resources"]["limits"] == {
-        "cpus": "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}", "memory": "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-256M}",
+        "cpus": "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}", "memory": "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-1G}",
     }
     # Section 3/spec Section 7 Edit 2 (Review Blocker 2, "attack #5"): the
     # recovery scheduler can never consume either Celery queue -- no broker

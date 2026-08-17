@@ -2,12 +2,10 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import orjson
 import pytest
 
-import ns_turn_context as ntc
+from nextseek_api.cc_assistant import ns_turn_context as ntc
 
 
 def _bundle(bid=1, rows=None, total=222):

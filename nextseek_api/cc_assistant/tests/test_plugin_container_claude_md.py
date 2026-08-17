@@ -8,6 +8,7 @@ plugin paths, auto-gen sentinel integrity) are content-only. No chat_nextseek im
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -25,9 +26,11 @@ def test_no_nextseek_api_references_in_container_claude_md():
     """D12 + D25: the image ships only the new `nextseek` plugin. The legacy
     `nextseek-api` name MUST NOT appear anywhere in container/CLAUDE.md."""
     text = CLAUDE_MD.read_text()
-    occurrences = text.count("nextseek-api")
-    assert occurrences == 0, (
-        f"container/CLAUDE.md contains {occurrences} reference(s) to the legacy "
+    # Current bins nextseek-api-read / nextseek-api-write contain the substring
+    # "nextseek-api"; only the legacy plugin token itself is forbidden.
+    occurrences = re.findall(r"(?<![\w-])nextseek-api(?!-\w)", text)
+    assert not occurrences, (
+        f"container/CLAUDE.md contains {len(occurrences)} reference(s) to the legacy "
         f"`nextseek-api` plugin name; expected zero."
     )
 

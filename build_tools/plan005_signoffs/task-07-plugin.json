@@ -1,0 +1,15 @@
+{
+  "id": "task-7-plugin-commands",
+  "artifact_paths": [
+    "docker/cc-runtime/build_context/plugins/nextseek/.claude-plugin/plugin.json",
+    "docker/cc-runtime/build_context/plugins/nextseek/commands/nextseek.md"
+  ],
+  "final_byte_hashes": {
+    "docker/cc-runtime/build_context/plugins/nextseek/.claude-plugin/plugin.json": "dc4cbcda099b8e3ae300030bf3584db3656e8cdf8fffc09fdc460794b6e2a0fe",
+    "docker/cc-runtime/build_context/plugins/nextseek/commands/nextseek.md": "fb904310e019237041f08add3977abce376500cd0ff07f935eae8557488d3fe6"
+  },
+  "presented_diff_hash": "47cb55fca4b16c892a9e472030d5290978d6c76cf472ef29e42e2e8dd68d7bf9",
+  "approval_timestamp": "2026-08-14T19:59:00+00:00",
+  "interpretation_source": "user_stated",
+  "quote": "Signed off."
+}

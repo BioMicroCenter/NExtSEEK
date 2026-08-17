@@ -2,13 +2,11 @@
 import ast
 import os
 import stat
-import sys
 from pathlib import Path
 
-_REPO = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(_REPO / "nextseek_api" / "cc_assistant"))
+from nextseek_api.cc_assistant import bin_inventory
 
-import bin_inventory
+_REPO = Path(__file__).resolve().parents[3]
 
 
 def _mk_shim(d, name, runner, executable=True):
@@ -52,11 +50,9 @@ def test_real_inventory_contains_new_ops_and_partitions():
 
 
 def test_catalogs_bind_to_inventory():
-    import step7_per_op_evidence as ev
-    import step7_gate_catalog as cat
-
-    sys.path.insert(0, str(_REPO / "nextseek_api" / "cc_assistant" / "tests"))
-    import validate_step7_compose_deploy as val
+    from nextseek_api.cc_assistant import step7_gate_catalog as cat
+    from nextseek_api.cc_assistant import step7_per_op_evidence as ev
+    from nextseek_api.cc_assistant.tests import validate_step7_compose_deploy as val
 
     q = bin_inventory.discover_ops("query")
     assert tuple(ev.BIN_OPS) == q
