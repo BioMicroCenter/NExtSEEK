@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import sys
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -558,7 +560,7 @@ def test_named_builder_is_resource_bounded_and_exactly_removed(
         runtime_calls.append(argv)
         return gate.CommandOutcome(0)
 
-    def fake_docker(argv, *, timeout_s, input_bytes=None):
+    def fake_docker(argv, *, timeout_s, input_bytes=None, input_path=None):
         docker_calls.append(argv)
         if argv[:2] == ["ps", "-q"]:
             return gate.CommandOutcome(0, b"builder-container\n")
@@ -582,6 +584,73 @@ def test_named_builder_is_resource_bounded_and_exactly_removed(
     assert ["image", "rm", builder_image] in docker_calls
     assert adapter.facts["builder_created"] is True
     assert adapter.facts["builder_removed"] is True
+
+
+def test_command_input_path_streams_without_loading_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = gate.LocalOperationalAdapter(
+        _operational_config(tmp_path), artifact_dir=tmp_path
+    )
+    payload = tmp_path / "large-enough-to-stream.bin"
+    payload.write_bytes(b"streamed-task8-input" * 1024)
+    monkeypatch.setattr(adapter, "_sample_resources", lambda _pids=None: None)
+
+    outcome = adapter._run(
+        [
+            sys.executable,
+            "-c",
+            "import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())",
+        ],
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        timeout_s=10,
+        input_path=payload,
+    )
+
+    assert outcome.returncode == 0
+    assert outcome.stdout.strip().decode() == hashlib.sha256(payload.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="bytes or a path"):
+        adapter._run(
+            [sys.executable, "-c", "pass"],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            timeout_s=10,
+            input_bytes=b"not-allowed-together",
+            input_path=payload,
+        )
+
+
+def test_restore_probe_streams_backup_with_bounded_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = gate.LocalOperationalAdapter(
+        _operational_config(tmp_path), artifact_dir=tmp_path
+    )
+    backup_path = tmp_path / "dmac.sql"
+    backup_path.write_bytes(b"-- task8 fixture\n")
+    adapter.facts["backup"] = {
+        "path": str(backup_path),
+        "sha256": hashlib.sha256(backup_path.read_bytes()).hexdigest(),
+        "tables": ["django_migrations"],
+        "restore_probe": "PENDING",
+    }
+    calls: list[tuple[list[str], float, bytes | None, Path | None]] = []
+
+    def fake_mysql(
+        args, *, timeout_s, input_bytes=None, input_path=None,
+    ):
+        calls.append((args, timeout_s, input_bytes, input_path))
+        if "SELECT COUNT(*)" in " ".join(args):
+            return gate.CommandOutcome(0, b"1\n")
+        return gate.CommandOutcome(0)
+
+    monkeypatch.setattr(adapter, "_mysql", fake_mysql)
+
+    assert adapter._restore_probe().returncode == 0
+    restore = next(call for call in calls if call[0] == ["mysql", "-uroot", "task8_restore_probe"])
+    assert restore[1:] == (300, None, backup_path)
+    assert adapter.facts["backup"]["restore_probe"] == "PASS"
 
 
 def _bounded_wait_adapter(

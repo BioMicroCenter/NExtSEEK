@@ -793,48 +793,63 @@ class LocalOperationalAdapter:
         env: dict[str, str],
         timeout_s: float,
         input_bytes: bytes | None = None,
+        input_path: Path | None = None,
     ) -> CommandOutcome:
-        with subprocess.Popen(
-            list(argv),
-            cwd=str(cwd),
-            env=env,
-            stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        ) as process:
-            started = time.monotonic()
-            pending_input = input_bytes
-            while True:
-                try:
-                    stdout, stderr = process.communicate(input=pending_input, timeout=1)
-                    return CommandOutcome(process.returncode, stdout, stderr)
-                except subprocess.TimeoutExpired:
-                    # communicate() retains the bytes internally; input must be
-                    # supplied only once on subsequent polls.
-                    pending_input = None
-                elapsed = time.monotonic() - started
-                if elapsed >= timeout_s:
-                    self._terminate_group(process)
-                    stdout, stderr = process.communicate()
-                    return CommandOutcome(124, stdout, stderr + b"\nTask 8 command timeout")
-                self._sample_resources({process.pid})
-                if self.facts["memory_peak_bytes"] > MAX_MEMORY_BYTES:
-                    self._terminate_group(process)
-                    stdout, stderr = process.communicate()
-                    return CommandOutcome(70, stdout, stderr + b"\nTask 8 memory cap exceeded")
-                if available_memory_bytes() < MINIMUM_MEMORY_RESERVE_BYTES:
-                    self._terminate_group(process)
-                    stdout, stderr = process.communicate()
-                    return CommandOutcome(
-                        70,
-                        stdout,
-                        stderr + b"\nTask 8 host memory reserve reached",
-                    )
-                if shutil.disk_usage(self.config.repo_root).free < MINIMUM_DISK_RESERVE_BYTES:
-                    self._terminate_group(process)
-                    stdout, stderr = process.communicate()
-                    return CommandOutcome(70, stdout, stderr + b"\nTask 8 disk reserve reached")
+        if input_bytes is not None and input_path is not None:
+            raise ValueError("Task 8 command input must be bytes or a path, not both")
+        input_handle = input_path.open("rb") if input_path is not None else None
+        try:
+            with subprocess.Popen(
+                list(argv),
+                cwd=str(cwd),
+                env=env,
+                stdin=(
+                    input_handle
+                    if input_handle is not None
+                    else subprocess.PIPE
+                    if input_bytes is not None
+                    else subprocess.DEVNULL
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            ) as process:
+                started = time.monotonic()
+                pending_input = input_bytes
+                while True:
+                    try:
+                        stdout, stderr = process.communicate(input=pending_input, timeout=1)
+                        return CommandOutcome(process.returncode, stdout, stderr)
+                    except subprocess.TimeoutExpired:
+                        # communicate() retains byte input internally; supply it
+                        # only once.  File input is streamed by the child and is
+                        # never copied into this process's memory.
+                        pending_input = None
+                    elapsed = time.monotonic() - started
+                    if elapsed >= timeout_s:
+                        self._terminate_group(process)
+                        stdout, stderr = process.communicate()
+                        return CommandOutcome(124, stdout, stderr + b"\nTask 8 command timeout")
+                    self._sample_resources({process.pid})
+                    if self.facts["memory_peak_bytes"] > MAX_MEMORY_BYTES:
+                        self._terminate_group(process)
+                        stdout, stderr = process.communicate()
+                        return CommandOutcome(70, stdout, stderr + b"\nTask 8 memory cap exceeded")
+                    if available_memory_bytes() < MINIMUM_MEMORY_RESERVE_BYTES:
+                        self._terminate_group(process)
+                        stdout, stderr = process.communicate()
+                        return CommandOutcome(
+                            70,
+                            stdout,
+                            stderr + b"\nTask 8 host memory reserve reached",
+                        )
+                    if shutil.disk_usage(self.config.repo_root).free < MINIMUM_DISK_RESERVE_BYTES:
+                        self._terminate_group(process)
+                        stdout, stderr = process.communicate()
+                        return CommandOutcome(70, stdout, stderr + b"\nTask 8 disk reserve reached")
+        finally:
+            if input_handle is not None:
+                input_handle.close()
 
     def _git(self, *args: str, cwd: Path | None = None) -> str:
         result = subprocess.run(
@@ -1391,6 +1406,7 @@ class LocalOperationalAdapter:
         *,
         timeout_s: float,
         input_bytes: bytes | None = None,
+        input_path: Path | None = None,
     ) -> CommandOutcome:
         return self._run(
             ["docker", *argv],
@@ -1398,6 +1414,7 @@ class LocalOperationalAdapter:
             env=self._task_env(),
             timeout_s=timeout_s,
             input_bytes=input_bytes,
+            input_path=input_path,
         )
 
     def _exec_python_json(
@@ -1481,6 +1498,7 @@ class LocalOperationalAdapter:
         *,
         timeout_s: float,
         input_bytes: bytes | None = None,
+        input_path: Path | None = None,
     ) -> CommandOutcome:
         try:
             password = self._env_file(
@@ -1498,6 +1516,7 @@ class LocalOperationalAdapter:
             ],
             timeout_s=timeout_s,
             input_bytes=input_bytes,
+            input_path=input_path,
         )
 
     def _dump_dmac(self) -> CommandOutcome:
@@ -1573,8 +1592,8 @@ class LocalOperationalAdapter:
         try:
             restore = self._mysql(
                 ["mysql", "-uroot", database],
-                timeout_s=180,
-                input_bytes=path.read_bytes(),
+                timeout_s=300,
+                input_path=path,
             )
             if restore.returncode:
                 return restore
