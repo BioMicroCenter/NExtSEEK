@@ -1,10 +1,13 @@
 {
   "schema": "plan018-v4-9-prereq/v1",
-  "recorded_at": "2026-08-13T01:16:00Z",
+  "recorded_at": "2026-08-18T16:47:00Z",
   "integration_base": {
-    "sha": "14b2734fdc21b9b36bcb3c1e41f37fb15b44e78c",
+    "sha": "5f34fc1f63933c2d7c843f2b6e33d7b153b81aa9",
     "branch": "ultraplan/hibayes-eval-routing-v4-9",
     "origin_dev_merged": true,
+    "origin_dev_sha_at_reconciliation_start": "fa23a1eaf3714f5b5fc9a17c08097413532fe5b9",
+    "current_tree_reconciliation_commit": "5f34fc1f63933c2d7c843f2b6e33d7b153b81aa9",
+    "clean_before_evidence_record_update": true,
     "original_dirty_worktree_touched": false
   },
   "v4_0": {
@@ -59,9 +62,10 @@
   },
   "migration_lineage": {
     "ref": "evidence/plan018-migration-leaf.json",
-    "leaf": "0018_turn_ledger_attempted_provenance.py",
+    "leaf": "0019_merge_attribute_async_turn_ledger.py",
     "v4_7_membership": "0016_paired_run_registry.py",
-    "v4_8_membership": "0017_paid_run_state.py"
+    "v4_8_membership": "0017_paid_run_state.py",
+    "policy": "one current leaf with each prerequisite migration in its ancestry"
   },
   "v4_8_rollup_cold_review": {
     "verdict": "PASS",
@@ -69,6 +73,12 @@
     "subagent_id": "07c68592-3fe7-4b5c-b33b-7a443b84e0a7",
     "evaluation_sha": "3060e3e9ccf4aafacbd16ce79547755d83da23a2"
   },
-  "verification_lane": "docker worktree mount using repository source at /repo; V4-5 used dmac.test_settings; the V13-A zip was mounted read-only",
+  "verification_lane": "docker worktree mount using repository source at /repo; uv run --project /app --no-sync; dmac.test_settings; V13-A zip read-only; --network none; 2 CPUs; 4 GiB",
+  "v4_8_lane_c_runtime": {
+    "tests": 35,
+    "expected_deselected": 4,
+    "pytest_seconds": 2.14,
+    "docker_wall_seconds": 9.32
+  },
   "paid_or_live_resources_used": false
 }

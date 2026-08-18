@@ -259,5 +259,27 @@
     "seed_dmac_sha256": "f643a03ba2fbc5a473a543a0daead52004a032702309cbfb9a2a53ea17369bdd"
   },
   "v4_0_closed_at": "2026-08-11T15:00:02Z",
-  "v4_0_closeout": "evidence/plan018-v4-0-closeout.json"
+  "v4_0_closeout": "evidence/plan018-v4-0-closeout.json",
+  "v4_9_current_reconciliation": {
+    "recorded_at": "2026-08-18T16:47:00Z",
+    "source_commit": "5f34fc1f63933c2d7c843f2b6e33d7b153b81aa9",
+    "branch": "ultraplan/hibayes-eval-routing-v4-9",
+    "origin_dev_sha_at_start": "fa23a1eaf3714f5b5fc9a17c08097413532fe5b9",
+    "migration_leaf": "0019_merge_attribute_async_turn_ledger.py",
+    "migration_policy": "one current leaf; 0016 and 0017 are required ancestors",
+    "verifiers": {
+      "V4-2": "PASS 22/22",
+      "V4-3": "PASS 14/14",
+      "V4-4": "PASS 13/13",
+      "V4-5": "PASS 22/22",
+      "V4-6": "PASS 28/28",
+      "V4-7": "PASS 33/33",
+      "V4-8": "PASS 47/47"
+    },
+    "lane": "pinned image + repo mount + uv --project /app --no-sync + dmac.test_settings + network none",
+    "resource_limits": {"cpus": 2, "memory": "4g"},
+    "paid_or_live_resources_used": false,
+    "cold_review_files_rewritten": false,
+    "next_task": "V4-9 Task 1 current owned-surface reconciliation"
+  }
 }
