@@ -93,8 +93,8 @@ def _valid_bundle(tmp_path: Path) -> tuple[Path, Path, dict]:
             "socket_path": "/tmp/plan018-task8/docker.sock",
             "data_root": "/tmp/plan018-task8/data",
             "daemon_id": "task8-daemon-001",
-            "compose_project": "plan018-v4-9-task8",
-            "network": "plan018-v4-9-task8-net",
+            "compose_project": "nextseek",
+            "network": "dmac-cc-net",
             "host_snapshot_before": {
                 "path": str(host_before.relative_to(root)), "sha256": _sha(host_before)
             },
@@ -258,6 +258,14 @@ def test_command_ledger_rejects_host_mutation_shell_and_missing_phase(tmp_path: 
     assert any("host-read-only ledger entry mutates" in error for error in errors)
     assert any("shell or forbidden command" in error for error in errors)
     assert any("command phases" in error for error in errors)
+
+
+def test_noncanonical_project_is_rejected_because_startup_would_skip_ghcr(tmp_path: Path) -> None:
+    root, evidence_path, payload = _valid_bundle(tmp_path)
+    payload["isolation"]["compose_project"] = "plan018-v4-9-task8"
+    _write_json(evidence_path, payload)
+
+    assert any("wrong isolated identity" in error for error in gate.validation_errors(root, evidence_path))
 
 
 def test_artifact_hash_and_resource_bounds_are_fail_closed(tmp_path: Path) -> None:

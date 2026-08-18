@@ -316,8 +316,11 @@ def validation_errors(root: Path = ROOT, evidence_path: Path | str = EVIDENCE) -
         or socket.startswith("unix:///var/run/docker.sock")
         or not data_root
         or data_root == "/var/lib/docker"
-        or isolation.get("compose_project") != "plan018-v4-9-task8"
-        or isolation.get("network") != "plan018-v4-9-task8-net"
+        # registry_push intentionally skips non-canonical projects.  The
+        # daemon/socket/data-root isolation makes canonical `nextseek` safe
+        # here and is required for the plan-mandated GHCR baseline write.
+        or isolation.get("compose_project") != "nextseek"
+        or isolation.get("network") != "dmac-cc-net"
     ):
         errors.append("Task 8 used the host Docker socket/data root or wrong isolated identity")
     snapshot_hashes: list[str] = []
