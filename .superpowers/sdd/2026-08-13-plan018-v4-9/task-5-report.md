@@ -80,3 +80,19 @@ on an isolated Docker network.
 Task 4 was pushed to `origin/dev` at `1c461f7d` before Task 5 began. Task 5 was
 authorized for local implementation. No Task-5 push, Task-6 scope, deployment,
 provider spend, live DB action, or registry write has been authorized.
+
+## Task-7 recovery integration — 2026-08-18
+
+The mutation inventory now includes the three Task-7 executable guard-removal
+mutants: exact runtime-identity bypass, contract-phase acceptance, and
+destructive-recovery acceptance. The source-bound total is **76/76 KILLED**.
+The fast collection is **68/68 passed in 3.20 seconds** and the unchanged
+disposable-MySQL collection is **22/22 passed in 89.58 seconds**. The complete
+gate passed in **167.693 seconds**, well below its 900-second cap.
+
+Both application lanes now invoke the pinned image environment through
+`uv run --project /app --no-sync`. The fast container is capped at 2 CPUs and
+4 GiB; Lane M caps the application container at 2 CPUs/4 GiB and MySQL at 2
+CPUs/2 GiB. The Lane-M launcher itself is now hash-bound as a Task-5 control.
+No provider, paid, live-database, deployment, registry, MCMC, stored-evidence,
+reverse-migration, or retained-data operation occurred.
