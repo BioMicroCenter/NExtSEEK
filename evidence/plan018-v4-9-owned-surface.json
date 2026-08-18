@@ -5872,6 +5872,21 @@
         "id": "evidence_structural",
         "target": "validator:evidence/plan018-preflight.json"
       },
+      "path": "evidence/plan018-v4-9-global-coverage.json",
+      "rationale": "Evidence artifact with provenance/structural oracle.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "evidence",
+      "cluster": "plan018_evidence",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
       "path": "evidence/plan018-v4-9-judge-human-attempts/index/102e2910-d8b7-457b-825d-b4cda4c3365f.json",
       "rationale": "Evidence artifact with provenance/structural oracle.",
       "sources": [
@@ -15190,6 +15205,21 @@
         "id": "v4_9_task_controls",
         "target": "test:scripts/test_plan018_v4_9_task*.py"
       },
+      "path": "scripts/plan018_v4_9_global_coverage.py",
+      "rationale": "V4-9 source-bound task harness or its focused validator tests.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "verifier",
+      "cluster": "v4_9_task_controls",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "v4_9_task_controls",
+        "target": "test:scripts/test_plan018_v4_9_task*.py"
+      },
       "path": "scripts/plan018_v4_9_owned_surface.py",
       "rationale": "V4-9 source-bound task harness or its focused validator tests.",
       "sources": [
@@ -15357,6 +15387,21 @@
       },
       "path": "scripts/select_attribute_evidence.py",
       "rationale": "Changed between the Plan 018 base and the reconciled origin/dev source, but is outside the immutable accepted Plan 018 ownership rules and excluded from the V4 critical-module denominator.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "verifier",
+      "cluster": "v4_9_task_controls",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "v4_9_task_controls",
+        "target": "test:scripts/test_plan018_v4_9_task*.py"
+      },
+      "path": "scripts/test_plan018_v4_9_global_coverage.py",
+      "rationale": "V4-9 source-bound task harness or its focused validator tests.",
       "sources": [
         "base_to_source_diff"
       ]
@@ -16619,9 +16664,9 @@
     },
     "accepted_ownership_rules_sha256": "faf30fb866ed56520fa367dd5c25a408ffcc2f5a516a90240e9cdb7805db921b",
     "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
-    "base_to_source_records_sha256": "1e3badda23ca618c068763b09a30ee2e7206e6a6774c089d9493b73d704ce2b5",
-    "source_sha": "b0a581af14a64026b4fd500a86972c3739439d38",
-    "source_tree_sha": "7fa914860bed1a027c6b57ad57571084773d2995"
+    "base_to_source_records_sha256": "98e9f1c5a40988a53d1e01c2e2002da9bed4b408b47780a622b623ef87bc9ba1",
+    "source_sha": "69b856955bde98c2af24f3313afced325551144b",
+    "source_tree_sha": "222fa44b7a6a4458fbe80952673f115841aeff99"
   },
   "schema": "plan018-v4-9-owned-surface/v1",
   "source_diff_records": [
@@ -18567,6 +18612,11 @@
     },
     {
       "new_path": "evidence/plan018-v4-9-functional-e2e.json",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "evidence/plan018-v4-9-global-coverage.json",
       "old_path": null,
       "status": "A"
     },
@@ -21556,6 +21606,11 @@
       "status": "A"
     },
     {
+      "new_path": "scripts/plan018_v4_9_global_coverage.py",
+      "old_path": null,
+      "status": "A"
+    },
+    {
       "new_path": "scripts/plan018_v4_9_owned_surface.py",
       "old_path": null,
       "status": "A"
@@ -21612,6 +21667,11 @@
     },
     {
       "new_path": "scripts/select_attribute_evidence.py",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "scripts/test_plan018_v4_9_global_coverage.py",
       "old_path": null,
       "status": "A"
     },
@@ -22042,16 +22102,16 @@
       "dependency": 2,
       "docker": 2,
       "docs": 40,
-      "evidence": 248,
+      "evidence": 249,
       "generated": 8,
       "integrated_non_v4": 432,
       "migration": 13,
       "production": 127,
       "schema": 4,
       "test": 166,
-      "verifier": 26
+      "verifier": 28
     },
     "control_entries": 1,
-    "source_candidates": 1090
+    "source_candidates": 1093
   }
 }
