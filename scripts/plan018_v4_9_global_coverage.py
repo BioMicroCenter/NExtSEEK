@@ -36,11 +36,24 @@ COMPONENTS = {
         "evidence": Path("evidence/plan018-v4-9-task7-evidence.json"),
         "raw": Path("evidence/plan018-v4-9-task7-coverage.raw.json"),
     },
+    "task8": {
+        "summary": Path("evidence/plan018-v4-9-task8-startup-coverage.json"),
+        "evidence": Path("evidence/plan018-v4-9-task8-startup-coverage.json"),
+        "raw": Path("evidence/plan018-v4-9-task8-startup-coverage.raw.json"),
+        "junit": Path("evidence/plan018-v4-9-task8-startup-coverage.junit.xml"),
+    },
 }
 
 TASK7_MODULES = (
     "nextseek_api/eval/deploy_record.py",
     "nextseek_api/eval/mixed_version_recovery.py",
+)
+TASK8_MODULES = (
+    "startup/cli.py",
+    "startup/lib/docker_ops.py",
+    "startup/steps/doctor.py",
+    "startup/steps/registry_push.py",
+    "startup/steps/validate.py",
 )
 
 
@@ -61,6 +74,7 @@ def critical_groups(root: Path) -> dict[str, tuple[str, ...]]:
         "task3": tuple(task3),
         "task4": tuple(task4),
         "task7": TASK7_MODULES,
+        "task8": TASK8_MODULES,
     }
 
 
@@ -74,12 +88,24 @@ def inventory_errors(
     errors.extend(f"critical module appears in multiple task groups: {path}" for path in duplicates)
 
     manifest = _json(root, OWNED_SURFACE)
-    entries = {entry["path"]: entry for entry in manifest["entries"]}
+    entries = {
+        entry["path"]: entry
+        for entry in (*manifest["entries"], *manifest.get("control_entries", []))
+    }
+    control_paths = {
+        entry["path"] for entry in manifest.get("control_entries", [])
+    }
     for path in modules:
         entry = entries.get(path)
         if entry is None:
             errors.append(f"critical module absent from owned-surface manifest: {path}")
-        elif entry.get("classification") != "production" or not entry.get("exists_at_source"):
+        elif (
+            entry.get("classification") != "production"
+            or (
+                not entry.get("exists_at_source")
+                and path not in control_paths
+            )
+        ):
             errors.append(f"critical module is not an existing production surface: {path}")
         if not (root / path).is_file():
             errors.append(f"critical module missing from checkout: {path}")
@@ -87,6 +113,9 @@ def inventory_errors(
     task7 = _json(root, COMPONENTS["task7"]["summary"])
     if tuple(task7.get("coverage", {}).get("files", {})) != TASK7_MODULES:
         errors.append("Task 7 coverage module set differs from the global critical inventory")
+    task8 = _json(root, COMPONENTS["task8"]["summary"])
+    if tuple(task8.get("modules", {})) != TASK8_MODULES:
+        errors.append("Task 8 coverage module set differs from the global critical inventory")
     return errors
 
 

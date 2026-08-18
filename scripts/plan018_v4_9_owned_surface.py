@@ -51,10 +51,36 @@ ORACLE_REGISTRY: dict[str, dict[str, str]] = {
     "v4_9_task_controls": {"kind": "structural", "target": "test:scripts/test_plan018_v4_9_task*.py"},
     "integration_provenance": {"kind": "justified_exclusion", "target": "validator:evidence/plan018-v4-9-prereq.json"},
     "task_report": {"kind": "justified_exclusion", "target": "validator:evidence/plan018-preflight.json"},
+    "startup_coverage": {"kind": "coverage", "target": "test:startup/tests/test_*.py"},
 }
 
 CONTROL_ENTRIES: tuple[dict[str, Any], ...] = (
     {"path": ".superpowers/sdd/2026-08-13-plan018-v4-9/task-1-report.md", "classification": "task_report", "cluster": "v4_9_owned_surface_control", "oracle": {"id": "task_report", "target": ORACLE_REGISTRY["task_report"]["target"]}, "rationale": "Required Task 1 report, not product behavior.", "sources": ["task_1_control"], "change": "task_1_control"},
+    {"path": "docker-compose.task8.yml", "classification": "docker", "cluster": "v4_9_task8_deploy", "oracle": {"id": "v4_9_task_controls", "target": ORACLE_REGISTRY["v4_9_task_controls"]["target"]}, "rationale": "Hardware-bounded Task 8 app-cohort deployment definition.", "sources": ["task_8_control"], "change": "task_8_control"},
+    {"path": "scripts/plan018_v4_9_task8_coverage.py", "classification": "verifier", "cluster": "v4_9_task8_deploy", "oracle": {"id": "v4_9_task_controls", "target": ORACLE_REGISTRY["v4_9_task_controls"]["target"]}, "rationale": "Source-bound Task 8 startup coverage gate.", "sources": ["task_8_control"], "change": "task_8_control"},
+    {"path": "scripts/test_plan018_v4_9_task8_coverage.py", "classification": "test", "cluster": "v4_9_task8_deploy", "oracle": {"id": "v4_9_task_controls", "target": ORACLE_REGISTRY["v4_9_task_controls"]["target"]}, "rationale": "Task 8 startup coverage validator oracle.", "sources": ["task_8_control"], "change": "task_8_control"},
+    {"path": "evidence/plan018-v4-9-task8-startup-coverage.json", "classification": "evidence", "cluster": "v4_9_task8_deploy", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Authenticated Task 8 startup coverage summary.", "sources": ["task_8_control"], "change": "task_8_control"},
+    {"path": "evidence/plan018-v4-9-task8-startup-coverage.raw.json", "classification": "evidence", "cluster": "v4_9_task8_deploy", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Raw branch-aware Task 8 startup coverage counters.", "sources": ["task_8_control"], "change": "task_8_control"},
+    {"path": "evidence/plan018-v4-9-task8-startup-coverage.junit.xml", "classification": "evidence", "cluster": "v4_9_task8_deploy", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Task 8 startup lane JUnit result.", "sources": ["task_8_control"], "change": "task_8_control"},
+    {"path": "startup/steps/doctor.py", "classification": "production", "cluster": "v4_9_task8_deploy", "oracle": {"id": "startup_coverage", "target": ORACLE_REGISTRY["startup_coverage"]["target"]}, "rationale": "App-scoped deployment doctor behavior.", "sources": ["task_8_control"], "change": "task_8_control"},
+    {"path": "startup/steps/validate.py", "classification": "production", "cluster": "v4_9_task8_deploy", "oracle": {"id": "startup_coverage", "target": ORACLE_REGISTRY["startup_coverage"]["target"]}, "rationale": "App-cohort health-check behavior.", "sources": ["task_8_control"], "change": "task_8_control"},
+    {"path": "startup/tests/test_cli_commands.py", "classification": "test", "cluster": "v4_9_task8_deploy", "oracle": {"id": "startup_coverage", "target": ORACLE_REGISTRY["startup_coverage"]["target"]}, "rationale": "Startup CLI behavioral and coverage oracle.", "sources": ["task_8_control"], "change": "task_8_control"},
+)
+
+TASK8_STARTUP_PRODUCTION = frozenset(
+    {
+        "startup/cli.py",
+        "startup/lib/docker_ops.py",
+        "startup/steps/registry_push.py",
+    }
+)
+TASK8_STARTUP_TESTS = frozenset(
+    {
+        "startup/tests/test_docker_ops.py",
+        "startup/tests/test_registry_push.py",
+        "startup/tests/test_steps_coverage_gaps.py",
+        "startup/tests/test_validate.py",
+    }
 )
 
 
@@ -282,6 +308,22 @@ def classify_path(path: str) -> dict[str, Any] | None:
         return _entry(path, "configuration", "v4_test_harness", "lane_c_structural", "Lane C settings seam.")
     if path in _V4_RUNTIME_CONFIG:
         return _entry(path, "configuration", "v4_9_runtime_config", "v4_runtime_config", "Initial-release posterior-routing runtime configuration.")
+    if path in TASK8_STARTUP_PRODUCTION:
+        return _entry(
+            path,
+            "production",
+            "v4_9_task8_deploy",
+            "startup_coverage",
+            "Hardware-bounded Task 8 startup behavior.",
+        )
+    if path in TASK8_STARTUP_TESTS:
+        return _entry(
+            path,
+            "test",
+            "v4_9_task8_deploy",
+            "startup_coverage",
+            "Hardware-bounded Task 8 startup behavior oracle.",
+        )
     if path == "scripts/nessie":
         return _entry(path, "verifier", "v4_2_nessie", "nessie_command", "Nessie command wrapper.")
     if path == "scripts/plan018_lane_m_mysql.sh":

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from startup.steps import validate
 from startup.steps.validate import (
@@ -262,6 +265,81 @@ def test_run_all_health_checks_surfaces_cc_warnings_and_services(monkeypatch, tm
     assert by_name["bedrock proxy token"].warn is True
     assert by_name["cc services"].ok is True
     assert calls == [["bedrock-proxy", "nextseek-sidecar"]]
+
+
+def test_app_health_checks_exclude_seek_and_neo4j(monkeypatch, tmp_path):
+    calls = []
+    (tmp_path / "docker" / "bedrock-proxy").mkdir(parents=True)
+    (tmp_path / "docker" / "bedrock-proxy" / "proxy-secret.env").write_text(
+        'AWS_BEARER_TOKEN_BEDROCK=""\n'
+    )
+    monkeypatch.setattr(
+        validate,
+        "check_http",
+        lambda name, url: calls.append((name, url))
+        or validate.HealthResult(name, True, url),
+    )
+    monkeypatch.setattr(
+        validate,
+        "run_django_check",
+        lambda repo, env: validate.HealthResult("django check", True, "ok"),
+    )
+    monkeypatch.setattr(
+        validate,
+        "check_prod_overlay_guard",
+        lambda repo: validate.HealthResult("prod overlay guard", True, "ok"),
+    )
+    monkeypatch.setattr(
+        validate,
+        "compose_ps_running",
+        lambda services, project_dir, env: list(services),
+    )
+
+    results = validate.run_app_health_checks(
+        {"nextseek": 18000, "seek": 13000, "neo4j_http": 17474},
+        tmp_path,
+        env={},
+    )
+
+    assert calls == [("NExtSEEK", "http://localhost:18000")]
+    assert {result.name for result in results} == {
+        "NExtSEEK", "django check", "prod overlay guard",
+        "bedrock proxy token", "cc services",
+    }
+
+
+@pytest.mark.parametrize(
+    ("in_seek", "configured", "rendered", "ok", "message"),
+    [
+        (None, "https://seek.example", "https://seek.example", False, "not set"),
+        (
+            "https://seek-db.example", "https://seek.example",
+            "https://seek.example", False, "drift",
+        ),
+        (
+            "https://seek.example", "https://seek.example",
+            "https://seek.example", True, "agree",
+        ),
+    ],
+)
+def test_seek_url_consistency_covers_absent_drift_and_agreement(
+    monkeypatch, tmp_path, in_seek, configured, rendered, ok, message,
+):
+    monkeypatch.setattr(validate, "read_rendered_seek_public_url", lambda root: rendered)
+    monkeypatch.setattr(
+        validate.seek_settings,
+        "read_site_base_host",
+        lambda root, env: in_seek,
+    )
+
+    result = validate.check_seek_url_consistency(
+        tmp_path,
+        SimpleNamespace(seek_public_url=configured),
+        {},
+    )
+
+    assert result.ok is ok
+    assert message in result.detail
 
 
 def test_check_cc_services_ok_when_both_running(monkeypatch, tmp_path):

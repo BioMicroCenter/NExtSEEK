@@ -150,6 +150,18 @@ def test_install_prompt_no_aborts(repo: Path, steps) -> None:
     steps.build.build_and_start_nextseek.assert_not_called()
 
 
+def test_install_existing_instance_with_port_offset_warns_then_aborts(
+    repo: Path, steps,
+) -> None:
+    _saved_state(repo)
+
+    result = runner.invoke(cli.app, ["install", "--port-offset", "100"], input="n\n")
+
+    assert result.exit_code != 0
+    assert "Existing install detected" in result.output
+    steps.build.build_and_start_nextseek.assert_not_called()
+
+
 def test_install_loads_seeds_when_databases_empty(repo: Path, steps) -> None:
     steps.seed.mysql_db_is_populated.return_value = False
     steps.seed.neo4j_is_populated.return_value = False
@@ -238,6 +250,21 @@ def test_doctor_exit_0_when_all_green(mock_diag: MagicMock, repo: Path) -> None:
     mock_diag.return_value = [("a", True, "fine"), ("b", True, "also fine")]
     result = runner.invoke(cli.app, ["doctor"])
     assert result.exit_code == 0
+    mock_diag.assert_called_once_with(repo, scope="full")
+
+
+@patch("startup.steps.doctor.diagnose")
+def test_doctor_app_scope_is_explicit(mock_diag: MagicMock, repo: Path) -> None:
+    mock_diag.return_value = [("app", True, "bounded")]
+    result = runner.invoke(cli.app, ["doctor", "--scope", "app"])
+    assert result.exit_code == 0
+    mock_diag.assert_called_once_with(repo, scope="app")
+
+
+def test_doctor_rejects_unknown_scope(repo: Path) -> None:
+    result = runner.invoke(cli.app, ["doctor", "--scope", "tiny"])
+    assert result.exit_code == 2
+    assert "unknown doctor scope" in result.output
 
 
 @patch("startup.steps.doctor.diagnose")
@@ -324,6 +351,50 @@ def test_rebuild_without_instance_exits_1(repo: Path) -> None:
     result = runner.invoke(cli.app, ["rebuild"])
     assert result.exit_code == 1
     assert "no instance found" in result.output
+
+
+def test_rebuild_rejects_unverified_source_tree(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.lib import deploy_source
+
+    _saved_state(repo)
+    monkeypatch.setattr(
+        deploy_source,
+        "resolve_verified_source",
+        lambda runtime, source: (_ for _ in ()).throw(
+            deploy_source.DeploySourceError("not exact origin/dev")
+        ),
+    )
+
+    result = runner.invoke(cli.app, ["rebuild", "--source-tree", str(repo)])
+
+    assert result.exit_code == 1
+    assert "not exact origin/dev" in result.output
+
+
+def test_rebuild_reports_verified_rollback_tag(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.lib import docker_ops
+    from startup.steps import registry_push, rollback_tags
+
+    _saved_state(repo)
+    monkeypatch.setattr(
+        rollback_tags,
+        "create_verified",
+        lambda images, build_root: (
+            SimpleNamespace(tag="nextseek-nextseek:pre-test", image_id="sha256:abc"),
+        ),
+    )
+    monkeypatch.setattr(docker_ops, "compose_build", lambda **kwargs: None)
+    monkeypatch.setattr(docker_ops, "compose_up", lambda **kwargs: None)
+    monkeypatch.setattr(registry_push, "push_baselines", lambda *args, **kwargs: ())
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert "rollback tag verified: nextseek-nextseek:pre-test" in result.output
 
 
 # ---------------------------------------------------------------------------

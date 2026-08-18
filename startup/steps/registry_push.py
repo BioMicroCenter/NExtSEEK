@@ -120,15 +120,27 @@ def compute_baseline_tag(repo_root: Path, today: datetime.date | None = None) ->
         return f"baseline-{date_part}"
 
 
-def _image_sh(image: str, script: str) -> subprocess.CompletedProcess[str]:
+def _image_sh(
+    image: str,
+    script: str,
+    *,
+    run_limits: tuple[str, ...] = (),
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["docker", "run", "--rm", "--network", "none", "--entrypoint", "sh", image, "-c", script],
+        [
+            "docker", "run", "--rm", "--network", "none", *run_limits,
+            "--entrypoint", "sh", image, "-c", script,
+        ],
         capture_output=True,
         text=True,
     )
 
 
-def baked_secret_gate(image: str) -> tuple[bool, str]:
+def baked_secret_gate(
+    image: str,
+    *,
+    run_limits: tuple[str, ...] = (),
+) -> tuple[bool, str]:
     """DEPLOYMENT.md §5.2 pre-push gate: prove the image carries no baked
     config/secret files. Returns (ok, detail); never raises past the caller's
     catch-all because push_baseline wraps everything."""
@@ -136,13 +148,16 @@ def baked_secret_gate(image: str) -> tuple[bool, str]:
         image,
         "ls /app/.env /app/*secret*.env /app/docker/*env* "
         "/app/dmac/local_settings.py /home/user/.env /opt/dmac/.env 2>/dev/null; true",
+        run_limits=run_limits,
     )
     if probe.returncode != 0:
         return False, f"gate probe could not run (exit {probe.returncode}): {probe.stderr.strip()}"
     found = [line.strip() for line in probe.stdout.splitlines() if line.strip()]
     offending = [f for f in found if f not in _GATE_ALLOWED_FILES and f != _BENIGN_ENV_FILE]
     if _BENIGN_ENV_FILE in found:
-        keys_probe = _image_sh(image, f"cut -d= -f1 {_BENIGN_ENV_FILE}")
+        keys_probe = _image_sh(
+            image, f"cut -d= -f1 {_BENIGN_ENV_FILE}", run_limits=run_limits
+        )
         if keys_probe.returncode != 0:
             offending.append(f"{_BENIGN_ENV_FILE} (key names unreadable)")
         else:
@@ -214,6 +229,7 @@ def push_baseline(
     local_image: str | None = None,
     registry_image: str = REGISTRY_IMAGE,
     git_root: Path | None = None,
+    gate_run_limits: tuple[str, ...] = (),
 ) -> PushOutcome:
     """Gate → tag → login → push → logout. Returns an outcome; NEVER raises."""
     if compose_project_name != CANONICAL_PROJECT:
@@ -227,7 +243,9 @@ def push_baseline(
     cred_path = credential_env_path()
     try:
         local_image = local_image or f"{compose_project_name}-nextseek:latest"
-        gate_ok, gate_detail = baked_secret_gate(local_image)
+        gate_ok, gate_detail = baked_secret_gate(
+            local_image, run_limits=gate_run_limits
+        )
         if not gate_ok:
             outcome = PushOutcome(
                 status="gate_failed",
@@ -371,8 +389,18 @@ def render_outcome(outcome: PushOutcome) -> None:
     ui.warn("the deploy itself is unaffected; 'startup doctor' will keep flagging this")
 
 
-def check_registry_baseline(repo_root: Path) -> tuple[str, bool, str]:
-    """Doctor check: red until every attempted first-party image is protected."""
+def check_registry_baseline(
+    repo_root: Path,
+    *,
+    required_registry_images: set[str] | None = None,
+) -> tuple[str, bool, str]:
+    """Doctor check for the requested deployment cohort's protected images.
+
+    A full-stack doctor keeps the historical all-first-party requirement.  An
+    explicitly app-scoped doctor may request only the app package; this is used
+    by the hardware-bounded disposable deploy rehearsal and never weakens the
+    default operator check.
+    """
     state = read_state(repo_root)
     if state is None:
         return (
@@ -383,10 +411,13 @@ def check_registry_baseline(repo_root: Path) -> tuple[str, bool, str]:
         )
     image_states = state.get("images")
     if image_states:
-        required = {image.registry_image for image in registry_images()}
+        required = required_registry_images or {
+            image.registry_image for image in registry_images()
+        }
         missing = sorted(required - set(image_states))
         failed = []
-        for image_name, image_state in image_states.items():
+        for image_name in sorted(required & set(image_states)):
+            image_state = image_states[image_name]
             attempt = image_state.get("last_attempt") or {}
             if attempt.get("status") != "pushed":
                 failed.append(

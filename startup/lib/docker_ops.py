@@ -59,9 +59,12 @@ def compose_build(
     services: Sequence[str],
     project_dir: str | Path,
     env: dict[str, str],
+    builder: str | None = None,
 ) -> None:
     """Run `docker compose build <services...>` in project_dir."""
     cmd = ["docker", "compose", "build"]
+    if builder:
+        cmd.extend(["--builder", builder])
     cmd.extend(services)
     result = subprocess.run(
         cmd,

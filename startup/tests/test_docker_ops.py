@@ -83,6 +83,15 @@ def test_compose_up_passes_env(mock_run: MagicMock) -> None:
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_can_run_attached(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    compose_up(services=["db"], project_dir="/repo", env={}, detached=False)
+
+    assert "-d" not in mock_run.call_args.args[0]
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
 def test_compose_up_raises_on_nonzero_exit(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="boom")
     with pytest.raises(DockerOpsError, match="boom"):
@@ -95,6 +104,22 @@ def test_compose_build_invokes_compose_build(mock_run: MagicMock) -> None:
     compose_build(services=["cc-agent"], project_dir="/repo", env={})
     args = mock_run.call_args.args[0]
     assert args == ["docker", "compose", "build", "cc-agent"]
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_build_targets_explicit_builder(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    compose_build(
+        services=["nextseek"],
+        project_dir="/repo",
+        env={},
+        builder="p18t8-builder",
+    )
+
+    assert mock_run.call_args.args[0] == [
+        "docker", "compose", "build", "--builder", "p18t8-builder", "nextseek"
+    ]
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
@@ -167,6 +192,21 @@ def test_compose_exec_passes_service_and_command(mock_run: MagicMock) -> None:
     assert args[:3] == ["docker", "compose", "exec"]
     assert "db" in args
     assert "SHOW DATABASES;" in args
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_exec_can_allocate_interactive_terminal(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+
+    compose_exec(
+        service="db",
+        command=["mysql"],
+        project_dir="/repo",
+        env={},
+        interactive=True,
+    )
+
+    assert "-T" not in mock_run.call_args.args[0]
 
 
 def test_compose_ps_running_filters_to_requested_services(monkeypatch):

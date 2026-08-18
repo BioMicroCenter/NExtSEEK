@@ -222,3 +222,21 @@ def run_all_health_checks(
         check_cc_services(repo_root, env),
     ]
     return results
+
+
+def run_app_health_checks(
+    ports: dict[str, int], repo_root: Path, env: dict[str, str]
+) -> list[HealthResult]:
+    """Post-deploy checks for an app-only, disposable deployment cohort.
+
+    This deliberately omits SEEK, Neo4j, and SEEK's DB-backed public-URL check:
+    those services are neither rebuilt nor duplicated by an app-only deploy.
+    It retains the candidate HTTP/Django checks and the OI-3 peer checks.
+    """
+    return [
+        check_http("NExtSEEK", f"http://localhost:{ports.get('nextseek', 8000)}"),
+        run_django_check(repo_root, env),
+        check_prod_overlay_guard(repo_root),
+        check_proxy_token(repo_root),
+        check_cc_services(repo_root, env),
+    ]

@@ -36,7 +36,7 @@ def test_critical_union_is_exact_disjoint_and_source_derived():
     groups = module.critical_groups(ROOT)
     modules = tuple(path for paths in groups.values() for path in paths)
 
-    assert len(modules) == 47
+    assert len(modules) == 52
     assert len(modules) == len(set(modules))
     assert "nextseek_api/eval/stage_c_runner.py" in groups["task2"]
     assert "nextseek_api/eval/fit/v14/quality_model.py" in groups["task3"]
@@ -45,6 +45,7 @@ def test_critical_union_is_exact_disjoint_and_source_derived():
         "nextseek_api/eval/deploy_record.py",
         "nextseek_api/eval/mixed_version_recovery.py",
     )
+    assert groups["task8"] == module.TASK8_MODULES
     assert module.inventory_errors(ROOT, groups) == []
 
 

@@ -33,7 +33,7 @@
     "sidecar_sha256": "71f5d39dd5f53735b1cb2d4e5edf5427484299513c89094fce1dc3dcc6dd4088"
   },
   "network": "none for coverage lane; isolated disposable Docker network for Lane M",
-  "owned_surface_sha256": "6ddef4fb252a130848f3a14012bfb8b03b460888e2a3d07ab3c7e765b5b9a287",
+  "owned_surface_sha256": "65787a17c70f8a2fbcbe052016347d97fc25c50906461aade04628bfbbb6747f",
   "ownership": "evidence/plan018-v4-9-task4-ownership.json",
   "ownership_sha256": "55b2ef7bce01b140a8d24843721eceb7ffd1207b562d3d6268ebe4bcb4bf5827",
   "paid_provider_or_live_resources_used": false,

@@ -1,17 +1,17 @@
 {
   "aggregate": {
-    "branch_pct": 98.8,
-    "branches": 1174,
-    "covered_branches": 1160,
-    "covered_statements": 4064,
-    "statement_pct": 99.5,
-    "statements": 4084
+    "branch_pct": 98.7,
+    "branches": 1358,
+    "covered_branches": 1341,
+    "covered_statements": 4682,
+    "statement_pct": 99.6,
+    "statements": 4703
   },
   "components": {
     "task2": {
       "evidence": {
         "path": "evidence/plan018-v4-9-task2-evidence.json",
-        "sha256": "61da80a8755c593de3f3dd58ce315c10cfef8b2ca8cae7136709905d17bc22b6"
+        "sha256": "ae0785fde4ba3d86f8babab30a2fb70182b88f91d76d8328a760c64ff8d005ac"
       },
       "ownership": {
         "path": "evidence/plan018-v4-9-task2-ownership.json",
@@ -25,7 +25,7 @@
     "task3": {
       "evidence": {
         "path": "evidence/plan018-v4-9-task3-evidence.json",
-        "sha256": "4defcb91705cf37c6c694657d920799bb09912273987600c6464130f3dd8a822"
+        "sha256": "b00619fec7351041682d56a01e042db249e921a60ddd9dd088e5bbe89202e611"
       },
       "ownership": {
         "path": "evidence/plan018-v4-9-task3-ownership.json",
@@ -39,7 +39,7 @@
     "task4": {
       "evidence": {
         "path": "evidence/plan018-v4-9-task4-evidence.json",
-        "sha256": "18c4f43f256c74e8312238507829c55c73779ca676779f5838bbd7d100e02258"
+        "sha256": "3ab9d4b2e13ef28bc1ddcd07f9f8a15ebe716f7de5083455afc51ff3295056cc"
       },
       "ownership": {
         "path": "evidence/plan018-v4-9-task4-ownership.json",
@@ -62,6 +62,24 @@
       "summary": {
         "path": "evidence/plan018-v4-9-task7-evidence.json",
         "sha256": "4b44b73b27b65d7ffa9319996a571baea43be3c11519822ae2588ecf1b3df286"
+      }
+    },
+    "task8": {
+      "evidence": {
+        "path": "evidence/plan018-v4-9-task8-startup-coverage.json",
+        "sha256": "0e4203037f1b2eee534d28ee47debbbad8b4c00682cb5ee30fa0727d9b7bb193"
+      },
+      "junit": {
+        "path": "evidence/plan018-v4-9-task8-startup-coverage.junit.xml",
+        "sha256": "405ac3975503231880f214272dfab89f86af5c697ead83b986dd2c345a2633ba"
+      },
+      "raw": {
+        "path": "evidence/plan018-v4-9-task8-startup-coverage.raw.json",
+        "sha256": "1d8fe808e4a418380c4289d3f27d842e3cdffc341361ab38b2048ec47e67290e"
+      },
+      "summary": {
+        "path": "evidence/plan018-v4-9-task8-startup-coverage.json",
+        "sha256": "0e4203037f1b2eee534d28ee47debbbad8b4c00682cb5ee30fa0727d9b7bb193"
       }
     }
   },
@@ -120,6 +138,13 @@
     "task7": [
       "nextseek_api/eval/deploy_record.py",
       "nextseek_api/eval/mixed_version_recovery.py"
+    ],
+    "task8": [
+      "startup/cli.py",
+      "startup/lib/docker_ops.py",
+      "startup/steps/doctor.py",
+      "startup/steps/registry_push.py",
+      "startup/steps/validate.py"
     ]
   },
   "critical_modules": [
@@ -169,7 +194,12 @@
     "nextseek_api/eval/run_manifest.py",
     "nextseek_api/eval/spend_conservation.py",
     "nextseek_api/eval/deploy_record.py",
-    "nextseek_api/eval/mixed_version_recovery.py"
+    "nextseek_api/eval/mixed_version_recovery.py",
+    "startup/cli.py",
+    "startup/lib/docker_ops.py",
+    "startup/steps/doctor.py",
+    "startup/steps/registry_push.py",
+    "startup/steps/validate.py"
   ],
   "errors": [],
   "gate": "PASS",
@@ -596,11 +626,56 @@
       "covered_statements": 65,
       "statement_pct": 100.0,
       "statements": 65
+    },
+    "startup/cli.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 96.6,
+      "branches": 88,
+      "covered_branches": 85,
+      "covered_statements": 302,
+      "statement_pct": 99.7,
+      "statements": 303
+    },
+    "startup/lib/docker_ops.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 20,
+      "covered_branches": 20,
+      "covered_statements": 73,
+      "statement_pct": 100.0,
+      "statements": 73
+    },
+    "startup/steps/doctor.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 8,
+      "covered_branches": 8,
+      "covered_statements": 22,
+      "statement_pct": 100.0,
+      "statements": 22
+    },
+    "startup/steps/registry_push.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 44,
+      "covered_branches": 44,
+      "covered_statements": 131,
+      "statement_pct": 100.0,
+      "statements": 131
+    },
+    "startup/steps/validate.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 24,
+      "covered_branches": 24,
+      "covered_statements": 90,
+      "statement_pct": 100.0,
+      "statements": 90
     }
   },
   "owned_surface": {
     "path": "evidence/plan018-v4-9-owned-surface.json",
-    "sha256": "6ddef4fb252a130848f3a14012bfb8b03b460888e2a3d07ab3c7e765b5b9a287"
+    "sha256": "65787a17c70f8a2fbcbe052016347d97fc25c50906461aade04628bfbbb6747f"
   },
   "schema": "plan018-v4-9-global-coverage/v1",
   "source_sha256": {
@@ -650,7 +725,12 @@
     "nextseek_api/eval/run_authorization.py": "0b83ddf775356e1b0f9ad3c0348290a6dff206abb9886f85c354ba6a87c240f4",
     "nextseek_api/eval/run_manifest.py": "0e938608a22649a57df811c4150963d7f6d99008927dddad4c1240e62278f7b4",
     "nextseek_api/eval/spend_conservation.py": "2c387069d138bfec33ac10a415b128cb2c67fa8f3d96d54a3e79e9d61dddac8b",
-    "nextseek_api/eval/stage_c_runner.py": "35aeb539c7664f424a0141d7d2c1430510722935e10d43043576072bdb670b85"
+    "nextseek_api/eval/stage_c_runner.py": "35aeb539c7664f424a0141d7d2c1430510722935e10d43043576072bdb670b85",
+    "startup/cli.py": "572d8313a641597a773f2d3eab0d5606f65da84e62b23d70710e79d71d4f3bae",
+    "startup/lib/docker_ops.py": "3cc589838bdf2fcc378f3d65c88ef4078f59923914980c703c46eaaac166fc40",
+    "startup/steps/doctor.py": "74dd6ddc2913e7dce8d59b09ddacbde0cf62d2396b21e9cd2879fce5797318e3",
+    "startup/steps/registry_push.py": "c79cd8a746c7e131a29178c73d0c6888cdc13d1169806fc50385d073064b932d",
+    "startup/steps/validate.py": "30e285c70889c1292a37e0e22b4136ce0250f0b93b47fec7d85ace4432a716c4"
   },
   "threshold_branch_pct": 95.0,
   "threshold_statement_pct": 95.0

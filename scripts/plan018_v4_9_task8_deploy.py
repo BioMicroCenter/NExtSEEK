@@ -6,7 +6,7 @@ manifest and emits the argv-only operational sequence that a later ``run``
 command will execute.  This file deliberately does not manufacture a PASS
 artifact.  The actual disposable exercise is authorization-gated; after it
 runs, this validator proves that its source, daemon, image, backup, runbook,
-recovery, resource, and command-ledger evidence is complete and internally
+recovery, resource, namespace-cleanup, and command-ledger evidence is complete and internally
 consistent.
 """
 from __future__ import annotations
@@ -41,20 +41,32 @@ TASK7_FIXTURE = "evidence/plan018-v4-9-deploy-record.fixture.json"
 GHCR_ENV_PATH = "/home/taishajo/work/state/secrets/ghcr-tavjo.env"
 MAX_WALL_S = 1800.0
 MAX_CPUS = 2
-MAX_MEMORY_BYTES = 12 * 1024**3
+try:
+    TASKSET_CPU_LIST = ",".join(
+        str(cpu) for cpu in sorted(os.sched_getaffinity(0))[:MAX_CPUS]
+    )
+except AttributeError:  # pragma: no cover - Linux deployment host contract
+    TASKSET_CPU_LIST = "0,1"
+MAX_MEMORY_BYTES = 6 * 1024**3
 MINIMUM_MEMORY_RESERVE_BYTES = 2 * 1024**3
 REQUIRED_AVAILABLE_MEMORY_BYTES = (
     MAX_MEMORY_BYTES + MINIMUM_MEMORY_RESERVE_BYTES
 )
 MINIMUM_DISK_RESERVE_BYTES = 4 * 1024**3
-# Read-only `docker system df -v` on this box showed an approximately 24.6-GiB
-# unique image footprint for two app releases plus the full Compose/OI-3 peer
-# set.  Allow 7 GiB for build cache and disposable seeded volumes, then retain
-# the non-negotiable 4-GiB host reserve.  The real evidence records measured
-# peak delta; this conservative preflight prevents starting a run that cannot
-# plausibly finish without emergency deletion.
-ESTIMATED_IMAGE_BYTES = 25 * 1024**3
-ESTIMATED_CACHE_AND_VOLUME_BYTES = 7 * 1024**3
+REQUIRED_LOCAL_IMAGES = (
+    "nextseek-nextseek:latest",
+    "mysql:8.0",
+    "nginx:latest",
+    "nextseek-bedrock-proxy:latest",
+    "nextseek-ns-sidecar:latest",
+    "dmac-assistant:poc",
+)
+# Task 8 reuses the independently verified prior app image and all immutable
+# peer images already on this host.  It builds one candidate image only.  The
+# allowance below covers that image plus BuildKit scratch/cache and disposable
+# MySQL data while preserving the mandatory four-GiB host reserve.
+ESTIMATED_IMAGE_BYTES = 10 * 1024**3
+ESTIMATED_CACHE_AND_VOLUME_BYTES = 4 * 1024**3
 REQUIRED_FREE_BYTES = (
     ESTIMATED_IMAGE_BYTES + ESTIMATED_CACHE_AND_VOLUME_BYTES
     + MINIMUM_DISK_RESERVE_BYTES
@@ -62,13 +74,15 @@ REQUIRED_FREE_BYTES = (
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
 AUTHORIZATION_SCOPE = (
-    "non-force push current Plan018 V4-9 commits to origin/dev; isolated "
-    "disposable Docker daemon/stack and disposable MySQL; verified local "
+    "non-force push current Plan018 V4-9 commits to origin/dev; exact-namespaced "
+    "disposable app cohort on the existing Docker daemon and disposable MySQL; "
+    "reuse independently source-verified immutable prior app image; verified local "
     "pre-tags; mode-0600 migration-aware dump; mandatory baked-secret gate "
     "and private GHCR baseline push; forward deploy; non-destructive recovery; "
     "zero-spend DEPLOYMENT.md section 6 and OI-3 verification; excludes "
     "production deployment or enablement, provider calls, reverse migrations, "
-    "retained-data deletion, Docker prune, and existing-host-stack mutation"
+    "retained-data deletion, Docker prune, canonical container/network/volume "
+    "mutation, and full SEEK/Neo4j/Solr duplication"
 )
 AUTHORIZATION_SCOPE_SHA256 = hashlib.sha256(AUTHORIZATION_SCOPE.encode()).hexdigest()
 
@@ -85,11 +99,13 @@ REQUIRED_PHASES = (
 )
 CONTROL_ACTIONS = frozenset(
     {
-        "approval", "source", "resources", "host-before", "prewrite-seed",
+        "approval", "source", "resources", "host-before", "harness-config",
+        "prior-image", "namespace-start", "prewrite-seed",
         "migration-aware-dump", "restore-probe", "candidate-source",
+        "build-prepare", "builder-cleanup", "cohort-resume", "registry-push",
         "postwrite-seed", "forward-runbook", "disable-flags", "stop-schedules",
         "stop-workers", "activate-prior", "restore-image", "forward-only-schema",
-        "recovery-runbook", "host-after", "daemon-stop",
+        "recovery-runbook", "namespace-cleanup", "host-after",
     }
 )
 REQUIRED_FORWARD_CHECKS = (
@@ -162,22 +178,61 @@ class OperationalConfig:
 
     @property
     def runtime_root(self) -> Path:
-        # The basename intentionally stays NExtSEEK: startup derives the
-        # canonical compose project ``nextseek`` from it, while the Docker
-        # daemon/socket/data root provide the actual isolation boundary.
+        # The checkout is disposable; Compose identity is explicit and never
+        # derived from this basename.
         return self.run_root / "NExtSEEK"
 
     @property
-    def data_root(self) -> Path:
-        return self.run_root / "docker-data"
+    def source_root(self) -> Path:
+        return self.run_root / "NExtSEEK-source"
 
     @property
-    def runtime_dir(self) -> Path:
-        return self.run_root / "runtime"
+    def token(self) -> str:
+        return hashlib.sha256(str(self.run_root.resolve()).encode()).hexdigest()[:10]
 
     @property
-    def socket_path(self) -> Path:
-        return self.runtime_dir / "docker.sock"
+    def compose_project(self) -> str:
+        return f"plan018v49task8{self.token}"
+
+    @property
+    def instance_prefix(self) -> str:
+        return f"p18t8-{self.token}-"
+
+    @property
+    def cc_network(self) -> str:
+        return f"{self.instance_prefix}cc"
+
+    @property
+    def egress_network(self) -> str:
+        return f"{self.instance_prefix}egress"
+
+    @property
+    def app_image(self) -> str:
+        return f"{self.compose_project}-nextseek:latest"
+
+    @property
+    def builder_name(self) -> str:
+        return f"{self.instance_prefix}builder"
+
+    @property
+    def app_container(self) -> str:
+        return f"{self.instance_prefix}nextseek"
+
+    @property
+    def db_container(self) -> str:
+        return f"{self.instance_prefix}seek-mysql"
+
+    @property
+    def nginx_container(self) -> str:
+        return f"{self.instance_prefix}nextseek-nginx"
+
+    @property
+    def proxy_container(self) -> str:
+        return f"{self.instance_prefix}bedrock-proxy"
+
+    @property
+    def sidecar_container(self) -> str:
+        return f"{self.instance_prefix}nextseek-sidecar"
 
     @property
     def backup_path(self) -> Path:
@@ -308,25 +363,27 @@ def evaluate_preflight(
     free_bytes: int,
     available_memory: int,
     tools: dict[str, bool],
+    local_images: dict[str, bool],
     credential_mode: int | None,
 ) -> dict[str, Any]:
-    required_tools = {
-        "docker", "dockerd-rootless.sh", "rootlesskit", "pasta", "git", "uv",
-        "taskset",
-    }
+    required_tools = {"docker", "git", "uv", "taskset"}
     errors: list[str] = []
     if set(tools) != required_tools or not all(tools.get(name) for name in required_tools):
-        errors.append("rootless isolated-daemon toolchain is incomplete")
+        errors.append("Task 8 host-daemon toolchain is incomplete")
+    if set(local_images) != set(REQUIRED_LOCAL_IMAGES) or not all(
+        local_images.get(image) for image in REQUIRED_LOCAL_IMAGES
+    ):
+        errors.append("Task 8 immutable local-image cohort is incomplete")
     if credential_mode != 0o600:
         errors.append("canonical GHCR credential is absent or not mode 0600")
     if free_bytes < REQUIRED_FREE_BYTES:
         errors.append(
-            "insufficient disk for full isolated stack peak plus 4-GiB reserve: "
+            "insufficient disk for one candidate build/cohort plus 4-GiB reserve: "
             f"free={free_bytes}, required={REQUIRED_FREE_BYTES}"
         )
     if available_memory < REQUIRED_AVAILABLE_MEMORY_BYTES:
         errors.append(
-            "insufficient available memory for 12-GiB isolated ceiling plus "
+            "insufficient available memory for 6-GiB Task-8 ceiling plus "
             "2-GiB host reserve: "
             f"available={available_memory}, required={REQUIRED_AVAILABLE_MEMORY_BYTES}"
         )
@@ -342,22 +399,33 @@ def evaluate_preflight(
         "required_available_memory_bytes": REQUIRED_AVAILABLE_MEMORY_BYTES,
         "minimum_memory_reserve_bytes": MINIMUM_MEMORY_RESERVE_BYTES,
         "tools": tools,
+        "local_images": local_images,
         "credential_mode": None if credential_mode is None else f"0{credential_mode:o}",
         "errors": errors,
     }
 
 
 def preflight(root: Path = ROOT) -> dict[str, Any]:
-    tool_names = (
-        "docker", "dockerd-rootless.sh", "rootlesskit", "pasta", "git", "uv",
-        "taskset",
-    )
+    tool_names = ("docker", "git", "uv", "taskset")
     credential = Path(GHCR_ENV_PATH)
     mode = stat.S_IMODE(credential.stat().st_mode) if credential.is_file() else None
+    local_images: dict[str, bool] = {}
+    for image in REQUIRED_LOCAL_IMAGES:
+        try:
+            inspected = subprocess.run(
+                ["docker", "image", "inspect", image],
+                capture_output=True,
+                timeout=20,
+                check=False,
+            )
+            local_images[image] = inspected.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            local_images[image] = False
     return evaluate_preflight(
         free_bytes=shutil.disk_usage(root).free,
         available_memory=available_memory_bytes(),
         tools={name: shutil.which(name) is not None for name in tool_names},
+        local_images=local_images,
         credential_mode=mode,
     )
 
@@ -439,6 +507,8 @@ def operational_config_errors(config: OperationalConfig) -> list[str]:
         errors.append("Task 8 run root and git checkout must not contain one another")
     if config.runtime_root.name != "NExtSEEK":
         errors.append("Task 8 runtime checkout basename must preserve canonical NExtSEEK identity")
+    if config.source_root == config.runtime_root:
+        errors.append("Task 8 clean source and generated-config runtime must be distinct")
     if not _is_hex(config.prior_sha, 40) or not _is_hex(config.candidate_sha, 40):
         errors.append("Task 8 prior/candidate source identities must be full Git SHAs")
     elif config.prior_sha == config.candidate_sha:
@@ -482,34 +552,40 @@ def build_operational_plan(config: OperationalConfig) -> tuple[PlannedCommand, .
         raise ValueError("; ".join(errors))
     repo = config.repo_root.resolve()
     runtime = config.runtime_root.resolve()
-    socket = config.socket_path.resolve()
-    data_root = config.data_root.resolve()
-    env = ("DOCKER_HOST", "XDG_RUNTIME_DIR", "NEXTSEEK_GHCR_ENV")
+    env = (
+        "COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "INSTANCE_PREFIX",
+        "TASK8_CC_NETWORK", "TASK8_EGRESS_NETWORK", "NEXTSEEK_GHCR_ENV",
+    )
     plan = (
         _planned(config, "approval", "preflight", "host_read_only", "read_only", ("task8-control", "validate-approval", str(config.approval_path.resolve()))),
         _planned(config, "source", "preflight", "host_read_only", "read_only", ("task8-control", "validate-source", config.prior_sha, config.candidate_sha)),
         _planned(config, "resources", "preflight", "host_read_only", "read_only", ("task8-control", "validate-resources", str(REQUIRED_FREE_BYTES))),
-        _planned(config, "daemon-start", "preflight", "isolated", "isolated_mutation", ("taskset", "--cpu-list", "0,1", "dockerd-rootless.sh", "--data-root", str(data_root), "--host", f"unix://{socket}"), cwd=config.run_root, env_keys=("XDG_RUNTIME_DIR",)),
         _planned(config, "host-before", "snapshot", "host_read_only", "read_only", ("task8-control", "snapshot-host", "before")),
-        _planned(config, "prior-worktree", "seed", "isolated", "isolated_mutation", ("git", "-C", str(repo), "worktree", "add", "--detach", str(runtime), config.prior_sha)),
-        _planned(config, "prior-install", "seed", "isolated", "isolated_mutation", ("./startup.sh", "install", "--yes", "--no-seed", "--port-offset", str(config.port_offset)), cwd=runtime, env_keys=env),
-        _planned(config, "prewrite-seed", "seed", "isolated", "isolated_mutation", ("task8-control", "seed-prewrite-and-prior-generation"), cwd=runtime, env_keys=env),
-        _planned(config, "migration-aware-dump", "backup", "isolated", "isolated_mutation", ("task8-control", "dump-dmac", str(config.backup_path.resolve())), cwd=runtime, env_keys=env + ("MYSQL_PWD",)),
-        _planned(config, "restore-probe", "backup", "isolated", "isolated_mutation", ("task8-control", "restore-probe", str(config.backup_path.resolve())), cwd=runtime, env_keys=env + ("MYSQL_PWD",)),
-        _planned(config, "candidate-checkout", "forward", "isolated", "isolated_mutation", ("git", "-C", str(runtime), "checkout", "--detach", config.candidate_sha)),
+        _planned(config, "candidate-worktree", "seed", "task8_namespace", "namespaced_mutation", ("git", "-C", str(repo), "worktree", "add", "--detach", str(runtime), config.candidate_sha)),
+        _planned(config, "source-worktree", "seed", "task8_namespace", "namespaced_mutation", ("git", "-C", str(repo), "worktree", "add", "--detach", str(config.source_root.resolve()), config.candidate_sha)),
+        _planned(config, "harness-config", "seed", "task8_namespace", "namespaced_mutation", ("task8-control", "configure-harness"), cwd=runtime, env_keys=env),
+        _planned(config, "prior-image", "seed", "task8_namespace", "namespaced_mutation", ("task8-control", "verify-and-tag-prior-image"), cwd=runtime, env_keys=env),
+        _planned(config, "namespace-start", "seed", "task8_namespace", "namespaced_mutation", ("task8-control", "start-namespace"), cwd=runtime, env_keys=env),
+        _planned(config, "prewrite-seed", "seed", "task8_namespace", "namespaced_mutation", ("task8-control", "seed-prewrite-and-prior-generation"), cwd=runtime, env_keys=env),
+        _planned(config, "migration-aware-dump", "backup", "task8_namespace", "namespaced_mutation", ("task8-control", "dump-dmac", str(config.backup_path.resolve())), cwd=runtime, env_keys=env + ("MYSQL_PWD",)),
+        _planned(config, "restore-probe", "backup", "task8_namespace", "namespaced_mutation", ("task8-control", "restore-probe", str(config.backup_path.resolve())), cwd=runtime, env_keys=env + ("MYSQL_PWD",)),
         _planned(config, "candidate-source", "forward", "host_read_only", "read_only", ("task8-control", "validate-candidate-source", config.candidate_sha), cwd=runtime),
-        _planned(config, "forward-rebuild", "forward", "registry", "registry_write", ("./startup.sh", "rebuild", "--source-tree", str(runtime)), cwd=runtime, env_keys=env),
-        _planned(config, "postwrite-seed", "forward", "isolated", "isolated_mutation", ("task8-control", "seed-postwrite-and-candidate-generation"), cwd=runtime, env_keys=env),
-        _planned(config, "forward-runbook", "verify_forward", "isolated", "read_only", ("task8-control", "verify-forward"), cwd=runtime, env_keys=env),
-        _planned(config, "disable-flags", "recovery", "isolated", "isolated_mutation", ("task8-control", "disable-flags"), cwd=runtime, env_keys=env),
-        _planned(config, "stop-schedules", "recovery", "isolated", "isolated_mutation", ("task8-control", "stop-schedules"), cwd=runtime, env_keys=env),
-        _planned(config, "stop-workers", "recovery", "isolated", "isolated_mutation", ("task8-control", "stop-workers"), cwd=runtime, env_keys=env),
-        _planned(config, "activate-prior", "recovery", "isolated", "isolated_mutation", ("task8-control", "activate-prior-generation"), cwd=runtime, env_keys=env),
-        _planned(config, "restore-image", "recovery", "isolated", "isolated_mutation", ("task8-control", "restore-verified-prior-image"), cwd=runtime, env_keys=env),
-        _planned(config, "forward-only-schema", "recovery", "isolated", "read_only", ("task8-control", "verify-forward-only-schema"), cwd=runtime, env_keys=env),
-        _planned(config, "recovery-runbook", "verify_recovery", "isolated", "read_only", ("task8-control", "verify-recovery"), cwd=runtime, env_keys=env),
+        _planned(config, "build-prepare", "forward", "task8_namespace", "namespaced_mutation", ("task8-control", "quiesce-cohort-and-create-builder"), cwd=runtime, env_keys=env),
+        _planned(config, "forward-rebuild", "forward", "task8_namespace", "namespaced_mutation", ("taskset", "--cpu-list", TASKSET_CPU_LIST, "./startup.sh", "rebuild", "--builder", config.builder_name, "--no-restart", "--no-registry-push", "--source-tree", str(config.source_root.resolve())), cwd=runtime, env_keys=env),
+        _planned(config, "builder-cleanup", "forward", "task8_namespace", "cleanup", ("task8-control", "remove-exact-builder"), cwd=runtime, env_keys=env),
+        _planned(config, "cohort-resume", "forward", "task8_namespace", "namespaced_mutation", ("task8-control", "resume-app-cohort"), cwd=runtime, env_keys=env),
+        _planned(config, "registry-push", "forward", "registry", "registry_write", ("task8-control", "push-candidate-baseline"), cwd=runtime, env_keys=env),
+        _planned(config, "postwrite-seed", "forward", "task8_namespace", "namespaced_mutation", ("task8-control", "seed-postwrite-and-candidate-generation"), cwd=runtime, env_keys=env),
+        _planned(config, "forward-runbook", "verify_forward", "task8_namespace", "read_only", ("task8-control", "verify-forward"), cwd=runtime, env_keys=env),
+        _planned(config, "disable-flags", "recovery", "task8_namespace", "namespaced_mutation", ("task8-control", "disable-flags"), cwd=runtime, env_keys=env),
+        _planned(config, "stop-schedules", "recovery", "task8_namespace", "namespaced_mutation", ("task8-control", "stop-schedules"), cwd=runtime, env_keys=env),
+        _planned(config, "stop-workers", "recovery", "task8_namespace", "namespaced_mutation", ("task8-control", "stop-workers"), cwd=runtime, env_keys=env),
+        _planned(config, "activate-prior", "recovery", "task8_namespace", "namespaced_mutation", ("task8-control", "activate-prior-generation"), cwd=runtime, env_keys=env),
+        _planned(config, "restore-image", "recovery", "task8_namespace", "namespaced_mutation", ("task8-control", "restore-verified-prior-image"), cwd=runtime, env_keys=env),
+        _planned(config, "forward-only-schema", "recovery", "task8_namespace", "read_only", ("task8-control", "verify-forward-only-schema"), cwd=runtime, env_keys=env),
+        _planned(config, "recovery-runbook", "verify_recovery", "task8_namespace", "read_only", ("task8-control", "verify-recovery"), cwd=runtime, env_keys=env),
+        _planned(config, "namespace-cleanup", "cleanup", "task8_namespace", "cleanup", ("task8-control", "cleanup-namespace"), cwd=runtime, env_keys=env),
         _planned(config, "host-after", "snapshot", "host_read_only", "read_only", ("task8-control", "snapshot-host", "after")),
-        _planned(config, "daemon-stop", "cleanup", "isolated", "cleanup", ("task8-control", "stop-isolated-daemon"), cwd=config.run_root, env_keys=("DOCKER_HOST", "XDG_RUNTIME_DIR")),
     )
     if {entry.phase for entry in plan} != set(REQUIRED_PHASES):
         raise AssertionError("operational plan phase inventory drifted")
@@ -548,9 +624,17 @@ def plan_payload(config: OperationalConfig, approval: dict[str, Any]) -> dict[st
         "paths": {
             "run_root": str(config.run_root.resolve()),
             "runtime_root": str(config.runtime_root.resolve()),
-            "data_root": str(config.data_root.resolve()),
-            "socket_path": str(config.socket_path.resolve()),
+            "source_root": str(config.source_root.resolve()),
             "backup_path": str(config.backup_path.resolve()),
+        },
+        "namespace": {
+            "kind": "namespaced_host_daemon",
+            "compose_project": config.compose_project,
+            "instance_prefix": config.instance_prefix,
+            "cc_network": config.cc_network,
+            "egress_network": config.egress_network,
+            "app_image": config.app_image,
+            "builder_name": config.builder_name,
         },
         "commands": [command.as_json() for command in commands],
         "command_count": len(commands),
@@ -562,7 +646,7 @@ class OperationalRunError(RuntimeError):
 
 
 class LocalOperationalAdapter:
-    """Real argv-only adapter for the isolated daemon.
+    """Real argv-only adapter for the exact disposable host-daemon namespace.
 
     Expensive or stateful controls are implemented as named methods, never as
     interpolated shell.  Until every control exists, unknown controls fail with
@@ -573,9 +657,6 @@ class LocalOperationalAdapter:
         self.config = config
         self.artifact_dir = artifact_dir
         self.facts: dict[str, Any] = {}
-        self._daemon: subprocess.Popen[bytes] | None = None
-        self._daemon_stdout: Any = None
-        self._daemon_stderr: Any = None
         initial_free = shutil.disk_usage(config.repo_root).free
         self.facts["disk_free_before_bytes"] = initial_free
         self.facts["disk_free_min_bytes"] = initial_free
@@ -586,8 +667,42 @@ class LocalOperationalAdapter:
 
     def _sample_resources(self, extra_pids: set[int] | None = None) -> None:
         roots = set(extra_pids or ())
-        if self._daemon is not None and self._daemon.poll() is None:
-            roots.add(self._daemon.pid)
+        try:
+            containers = subprocess.run(
+                [
+                    "docker", "ps", "-q", "--filter",
+                    f"label=com.docker.compose.project={self.config.compose_project}",
+                ],
+                capture_output=True,
+                text=True,
+                env=self._host_env(),
+                timeout=3,
+                check=False,
+            ).stdout.split()
+            builder_containers = subprocess.run(
+                [
+                    "docker", "ps", "-q", "--filter",
+                    f"name=buildx_buildkit_{self.config.builder_name}",
+                ],
+                capture_output=True,
+                text=True,
+                env=self._host_env(),
+                timeout=3,
+                check=False,
+            ).stdout.split()
+            containers.extend(builder_containers)
+            if containers:
+                pids = subprocess.run(
+                    ["docker", "inspect", "--format", "{{.State.Pid}}", *containers],
+                    capture_output=True,
+                    text=True,
+                    env=self._host_env(),
+                    timeout=3,
+                    check=False,
+                ).stdout.split()
+                roots.update(int(pid) for pid in pids if pid.isdigit() and int(pid) > 0)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
         rss = self._process_tree_rss_bytes(roots)
         self.facts["memory_peak_bytes"] = max(
             int(self.facts.get("memory_peak_bytes", 0)), rss
@@ -602,14 +717,18 @@ class LocalOperationalAdapter:
             available,
         )
 
-    def _isolated_env(self) -> dict[str, str]:
+    def _task_env(self) -> dict[str, str]:
         env = os.environ.copy()
+        env.pop("DOCKER_HOST", None)
         env.update(
             {
-                "DOCKER_HOST": f"unix://{self.config.socket_path.resolve()}",
-                "XDG_RUNTIME_DIR": str(self.config.runtime_dir.resolve()),
                 "NEXTSEEK_GHCR_ENV": GHCR_ENV_PATH,
-                "DOCKERD_ROOTLESS_ROOTLESSKIT_NET": "pasta",
+                "COMPOSE_FILE": "docker-compose.task8.yml",
+                "COMPOSE_PROJECT_NAME": self.config.compose_project,
+                "INSTANCE_PREFIX": self.config.instance_prefix,
+                "TASK8_CC_NETWORK": self.config.cc_network,
+                "TASK8_EGRESS_NETWORK": self.config.egress_network,
+                "NEXTSEEK_PORT": str(8000 + self.config.port_offset),
             }
         )
         return env
@@ -730,7 +849,7 @@ class LocalOperationalAdapter:
         return result.stdout.strip()
 
     def _validate_source(self, *, candidate_checkout: bool = False) -> CommandOutcome:
-        root = self.config.runtime_root if candidate_checkout else self.config.repo_root
+        root = self.config.source_root if candidate_checkout else self.config.repo_root
         try:
             head = self._git("rev-parse", "HEAD", cwd=root)
             remote = self._git("rev-parse", "origin/dev", cwd=root)
@@ -773,57 +892,402 @@ class LocalOperationalAdapter:
         except (OperationalRunError, OSError, ValueError) as exc:
             return CommandOutcome(1, stderr=str(exc).encode())
 
-    def _start_daemon(self, command: PlannedCommand, timeout_s: float) -> CommandOutcome:
-        run_root = self.config.run_root.resolve()
-        if run_root.exists():
-            return CommandOutcome(1, stderr=b"Task 8 run root already exists")
-        run_root.mkdir(parents=True, mode=0o700)
-        self.config.runtime_dir.mkdir(mode=0o700)
-        self.config.data_root.mkdir(mode=0o700)
-        self._daemon_stdout = (run_root / "dockerd.stdout.log").open("wb")
-        self._daemon_stderr = (run_root / "dockerd.stderr.log").open("wb")
-        try:
-            self._daemon = subprocess.Popen(
-                list(command.argv),
-                cwd=str(run_root),
-                env=self._isolated_env(),
-                stdin=subprocess.DEVNULL,
-                stdout=self._daemon_stdout,
-                stderr=self._daemon_stderr,
-                start_new_session=True,
-            )
-        except OSError as exc:
-            return CommandOutcome(1, stderr=str(exc).encode())
-        deadline = time.monotonic() + min(timeout_s, 60.0)
-        while time.monotonic() < deadline:
-            if self._daemon.poll() is not None:
-                return CommandOutcome(
-                    self._daemon.returncode or 1,
-                    stderr=b"isolated rootless daemon exited before readiness",
-                )
-            probe = subprocess.run(
-                ["docker", "info", "--format", "{{.ID}}"],
-                capture_output=True,
-                env=self._isolated_env(),
-                timeout=5,
-                check=False,
-            )
-            if probe.returncode == 0 and probe.stdout.strip():
-                daemon_id = probe.stdout.decode().strip()
-                self.facts["daemon_id"] = daemon_id
-                return CommandOutcome(0, json.dumps({"daemon_id": daemon_id}).encode())
-            time.sleep(1)
-        return CommandOutcome(124, stderr=b"isolated rootless daemon readiness timeout")
+    def _configure_harness(self) -> CommandOutcome:
+        """Render only the files needed by the bounded app cohort."""
 
-    def _stop_daemon(self) -> CommandOutcome:
-        if self._daemon is None:
-            return CommandOutcome(0, b"daemon was not started")
-        self._terminate_group(self._daemon)
-        returncode = self._daemon.poll()
-        for handle in (self._daemon_stdout, self._daemon_stderr):
-            if handle is not None and not handle.closed:
-                handle.close()
-        return CommandOutcome(0, json.dumps({"daemon_returncode": returncode}).encode())
+        try:
+            from startup.lib.instance import InstanceState, save_instance
+            from startup.steps import config as startup_config
+
+            runtime = self.config.runtime_root
+            port = 8000 + self.config.port_offset
+            state = InstanceState(
+                name=self.config.compose_project,
+                prefix=self.config.instance_prefix,
+                ports={"nextseek": port, "seek": 3000 + self.config.port_offset},
+                compose_project_name=self.config.compose_project,
+                created=datetime.now(timezone.utc).isoformat(),
+                seek_public_url=f"http://127.0.0.1:{3000 + self.config.port_offset}",
+            )
+            save_instance(runtime, state)
+            values = startup_config.default_values(
+                nextseek_port=port,
+                seek_port=3000 + self.config.port_offset,
+                seek_public_url=state.seek_public_url,
+            )
+            startup_config.render_db_env(runtime, values)
+            startup_config.render_nextseek_env(runtime, values)
+            startup_config.render_local_settings(runtime, values)
+            startup_config.render_proxy_secret_env(runtime, source_env={})
+            startup_config.render_root_env(
+                runtime, state.compose_env(), neo4j_password=values.neo4j_password
+            )
+            self._set_env_key(
+                runtime / "docker" / "nextseek.env",
+                "NEXTSEEK_POSTERIOR_ROUTING_ENABLED",
+                "1",
+            )
+            for relative in ("outputs", "logs", "docker/nginx-optional"):
+                (runtime / relative).mkdir(parents=True, exist_ok=True)
+            self.facts["namespace_id"] = self.config.compose_project
+            self.facts["settings_sha256"] = _sha(runtime / "docker" / "nextseek.env")
+            return CommandOutcome(
+                0,
+                json.dumps(
+                    {
+                        "compose_project": self.config.compose_project,
+                        "instance_prefix": self.config.instance_prefix,
+                        "port": port,
+                    },
+                    sort_keys=True,
+                ).encode(),
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            return CommandOutcome(1, stderr=str(exc).encode())
+
+    def _verify_and_tag_prior_image(self) -> CommandOutcome:
+        """Prove the reused image contains the expected prior source, then tag it."""
+
+        paths = (
+            "startup/cli.py",
+            "startup/lib/deploy_source.py",
+            "startup/steps/registry_push.py",
+            "nextseek_api/assistant/models_db.py",
+            "nextseek_api/cc_assistant/router.py",
+            "nextseek_api/eval/human_grade_fit.py",
+            "nextseek_api/eval/fit/v14/decision.py",
+            "docker/scripts/entrypoint.sh",
+        )
+        peer_images = (
+            "mysql:8.0",
+            "nginx:latest",
+            "nextseek-bedrock-proxy:latest",
+            "nextseek-ns-sidecar:latest",
+            "dmac-assistant:poc",
+        )
+        try:
+            prior_id = self._inspect_image_id("nextseek-nextseek:latest")
+            peer_image_ids = {
+                image: self._inspect_image_id(image) for image in peer_images
+            }
+            verified: dict[str, str] = {}
+            for relative in paths:
+                blob = subprocess.run(
+                    [
+                        "git", "-C", str(self.config.repo_root), "show",
+                        f"{self.config.prior_sha}:{relative}",
+                    ],
+                    capture_output=True,
+                    timeout=20,
+                    check=False,
+                )
+                if blob.returncode:
+                    raise OperationalRunError(f"prior source path missing: {relative}")
+                expected = hashlib.sha256(blob.stdout).hexdigest()
+                probe = self._docker(
+                    [
+                        "run", "--rm", "--network", "none", "--cpus", "0.10",
+                        "--memory", "128m", "--entrypoint",
+                        "sha256sum", "nextseek-nextseek:latest", f"/app/{relative}",
+                    ],
+                    timeout_s=60,
+                )
+                actual = probe.stdout.decode(errors="replace").split(maxsplit=1)[0]
+                if probe.returncode or actual != expected:
+                    raise OperationalRunError(
+                        f"prior image source mismatch for {relative}: {actual or 'missing'}"
+                    )
+                verified[relative] = expected
+            tagged = self._docker(
+                ["tag", "nextseek-nextseek:latest", self.config.app_image],
+                timeout_s=30,
+            )
+            if tagged.returncode:
+                return tagged
+            if self._inspect_image_id(self.config.app_image) != prior_id:
+                raise OperationalRunError("Task 8 prior image tag identity drifted")
+            self.facts["prior_image_id"] = prior_id
+            self.facts["prior_source_hashes"] = verified
+            self.facts["peer_image_ids"] = peer_image_ids
+            return CommandOutcome(
+                0,
+                json.dumps(
+                    {
+                        "image_id": prior_id,
+                        "peer_image_ids": peer_image_ids,
+                        "source_hashes": verified,
+                    },
+                    sort_keys=True,
+                ).encode(),
+            )
+        except (OSError, subprocess.SubprocessError, OperationalRunError) as exc:
+            return CommandOutcome(1, stderr=str(exc).encode())
+
+    def _start_namespace(self) -> CommandOutcome:
+        required_config = (
+            self.config.runtime_root / "docker" / "db.env",
+            self.config.runtime_root / "docker" / "nextseek.env",
+            self.config.runtime_root / "docker" / "bedrock-proxy" / "proxy-secret.env",
+            self.config.runtime_root / "dmac" / "local_settings.py",
+        )
+        if not all(path.is_file() for path in required_config):
+            return CommandOutcome(1, stderr=b"Task 8 runtime config is incomplete")
+        started = self._runtime_command(
+            ["docker", "compose", "up", "-d", "db"], timeout_s=120
+        )
+        if started.returncode:
+            return started
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            health = self._docker(
+                [
+                    "inspect", self.config.db_container, "--format",
+                    "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
+                ],
+                timeout_s=15,
+            )
+            if health.returncode == 0 and health.stdout.strip() == b"healthy":
+                break
+            self._sample_resources()
+            time.sleep(2)
+        else:
+            return CommandOutcome(1, stderr=b"Task 8 MySQL did not become healthy")
+        cohort = self._runtime_command(
+            [
+                "docker", "compose", "up", "-d", "--no-build",
+                "nextseek", "nextseek_nginx", "bedrock-proxy", "nextseek-sidecar",
+            ],
+            timeout_s=180,
+        )
+        if cohort.returncode:
+            return cohort
+        if not self._wait_site(timeout_s=120):
+            return CommandOutcome(1, stderr=b"Task 8 prior app did not become HTTP-ready")
+        return CommandOutcome(
+            0,
+            json.dumps(
+                {
+                    "compose_project": self.config.compose_project,
+                    "containers": [
+                        self.config.db_container, self.config.app_container,
+                        self.config.nginx_container, self.config.proxy_container,
+                        self.config.sidecar_container,
+                    ],
+                },
+                sort_keys=True,
+            ).encode(),
+        )
+
+    def _push_registry(self) -> CommandOutcome:
+        try:
+            from startup.steps.registry_push import push_baseline
+
+            old_override = os.environ.get("NEXTSEEK_GHCR_ENV")
+            os.environ["NEXTSEEK_GHCR_ENV"] = GHCR_ENV_PATH
+            try:
+                outcome = push_baseline(
+                    self.config.runtime_root,
+                    "nextseek",
+                    local_image=self.config.app_image,
+                    git_root=self.config.source_root,
+                    gate_run_limits=("--cpus", "0.10", "--memory", "128m"),
+                )
+            finally:
+                if old_override is None:
+                    os.environ.pop("NEXTSEEK_GHCR_ENV", None)
+                else:
+                    os.environ["NEXTSEEK_GHCR_ENV"] = old_override
+            if outcome.status != "pushed" or not outcome.tag or not _is_image_id(outcome.digest):
+                return CommandOutcome(
+                    1,
+                    stderr=(
+                        f"mandatory private GHCR push failed: {outcome.status}: "
+                        f"{outcome.detail}"
+                    ).encode(),
+                )
+            self.facts["registry_tag"] = outcome.tag
+            self.facts["registry_digest"] = outcome.digest
+            return CommandOutcome(
+                0,
+                json.dumps(
+                    {"status": outcome.status, "tag": outcome.tag, "digest": outcome.digest},
+                    sort_keys=True,
+                ).encode(),
+            )
+        except Exception as exc:
+            return CommandOutcome(1, stderr=str(exc).encode())
+
+    def _prepare_build(self) -> CommandOutcome:
+        quiesced = self._runtime_command(
+            [
+                "docker", "compose", "stop", "nextseek_nginx",
+                "nextseek-sidecar", "bedrock-proxy", "nextseek",
+            ],
+            timeout_s=120,
+        )
+        if quiesced.returncode:
+            return quiesced
+        created = self._docker(
+            [
+                "buildx", "create", "--name", self.config.builder_name,
+                "--driver", "docker-container",
+                "--driver-opt", f"cpuset-cpus={TASKSET_CPU_LIST}",
+                "--driver-opt", "cpu-quota=150000",
+                "--driver-opt", "memory=4g",
+            ],
+            timeout_s=60,
+        )
+        if created.returncode:
+            return created
+        bootstrapped = self._docker(
+            ["buildx", "inspect", "--bootstrap", self.config.builder_name],
+            timeout_s=180,
+        )
+        if bootstrapped.returncode:
+            return bootstrapped
+        builder_container = self._docker(
+            [
+                "ps", "-q", "--filter",
+                f"name=buildx_buildkit_{self.config.builder_name}",
+            ],
+            timeout_s=30,
+        )
+        container_ids = builder_container.stdout.decode().split()
+        if builder_container.returncode or len(container_ids) != 1:
+            return CommandOutcome(
+                1,
+                stderr=b"Task 8 could not identify its exact BuildKit container",
+            )
+        builder_image = self._docker(
+            ["inspect", container_ids[0], "--format", "{{.Image}}"],
+            timeout_s=30,
+        )
+        builder_image_id = builder_image.stdout.decode().strip()
+        if builder_image.returncode or not _is_image_id(builder_image_id):
+            return CommandOutcome(
+                1,
+                stderr=b"Task 8 could not identify its BuildKit image",
+            )
+        self.facts["builder_created"] = True
+        self.facts["builder_image_id"] = builder_image_id
+        self.facts["builder_image_preexisting"] = builder_image_id in self.facts.get(
+            "preexisting_image_ids", set()
+        )
+        return CommandOutcome(
+            0,
+            json.dumps(
+                {
+                    "builder": self.config.builder_name,
+                    "cpus": 1.5,
+                    "memory_bytes": 4 * 1024**3,
+                    "database_remained_running": True,
+                },
+                sort_keys=True,
+            ).encode(),
+        )
+
+    def _remove_builder(self) -> CommandOutcome:
+        removed = self._docker(
+            ["buildx", "rm", self.config.builder_name], timeout_s=180
+        )
+        if removed.returncode and b"no builder" not in removed.stderr.lower():
+            return removed
+        builder_image_id = str(self.facts.get("builder_image_id") or "")
+        if builder_image_id and not self.facts.get("builder_image_preexisting", False):
+            image_removed = self._docker(
+                ["image", "rm", builder_image_id], timeout_s=60
+            )
+            if (
+                image_removed.returncode
+                and b"no such image" not in image_removed.stderr.lower()
+            ):
+                return image_removed
+        self.facts["builder_removed"] = True
+        return CommandOutcome(0, b"exact Task 8 builder/cache removed")
+
+    def _resume_cohort(self) -> CommandOutcome:
+        resumed = self._runtime_command(
+            [
+                "docker", "compose", "up", "-d", "--no-build",
+                "nextseek", "nextseek_nginx", "bedrock-proxy", "nextseek-sidecar",
+            ],
+            timeout_s=180,
+        )
+        if resumed.returncode:
+            return resumed
+        if not self._wait_site(timeout_s=120):
+            return CommandOutcome(1, stderr=b"candidate app did not become HTTP-ready")
+        return CommandOutcome(0, b"candidate app cohort resumed")
+
+    def _cleanup_namespace(self) -> CommandOutcome:
+        """Remove only exact resources/tags created by this Task-8 run."""
+
+        errors: list[str] = []
+        runtime = self.config.runtime_root
+        builder = self._remove_builder()
+        if builder.returncode:
+            errors.append(builder.stderr.decode(errors="replace"))
+        if runtime.exists():
+            down = self._runtime_command(
+                ["docker", "compose", "down", "-v", "--remove-orphans"],
+                timeout_s=180,
+            )
+            if down.returncode:
+                errors.append(down.stderr.decode(errors="replace"))
+        tags = {
+            self.config.app_image,
+            str(self.facts.get("rollback_tag") or ""),
+            str(self.facts.get("registry_tag") or ""),
+        }
+        for tag in sorted(tag for tag in tags if tag):
+            removed = self._docker(["image", "rm", tag], timeout_s=60)
+            if removed.returncode and b"No such image" not in removed.stderr:
+                errors.append(removed.stderr.decode(errors="replace"))
+        for checkout in (runtime, self.config.source_root):
+            if not checkout.exists():
+                continue
+            worktree = self._run(
+                [
+                    "git", "-C", str(self.config.repo_root), "worktree", "remove",
+                    "--force", str(checkout),
+                ],
+                cwd=self.config.repo_root,
+                env=self._host_env(),
+                timeout_s=60,
+            )
+            if worktree.returncode:
+                errors.append(worktree.stderr.decode(errors="replace"))
+        inventory = self._docker(
+            [
+                "ps", "-a", "--filter", f"label=com.docker.compose.project={self.config.compose_project}",
+                "--format", "{{.Names}}",
+            ],
+            timeout_s=30,
+        )
+        networks = self._docker(
+            ["network", "ls", "--filter", f"label=com.docker.compose.project={self.config.compose_project}", "--format", "{{.Name}}"],
+            timeout_s=30,
+        )
+        volumes = self._docker(
+            ["volume", "ls", "--filter", f"label=com.docker.compose.project={self.config.compose_project}", "--format", "{{.Name}}"],
+            timeout_s=30,
+        )
+        removed = (
+            inventory.returncode == networks.returncode == volumes.returncode == 0
+            and not inventory.stdout.strip()
+            and not networks.stdout.strip()
+            and not volumes.stdout.strip()
+            and not runtime.exists()
+            and not self.config.source_root.exists()
+        )
+        if not removed:
+            errors.append("Task 8 namespace resources remain after exact cleanup")
+        self.facts["task8_resources_removed"] = removed and not errors
+        return CommandOutcome(
+            0 if self.facts["task8_resources_removed"] else 1,
+            json.dumps({"task8_resources_removed": removed}, sort_keys=True).encode(),
+            "\n".join(errors).encode(),
+        )
 
     def _snapshot_host(self, label: str) -> CommandOutcome:
         env = self._host_env()
@@ -858,19 +1322,51 @@ class LocalOperationalAdapter:
                             ),
                         }
                     )
-            images = subprocess.run(
-                ["docker", "images", "--no-trunc", "--format", "{{.ID}}"],
-                capture_output=True, text=True, env=env, timeout=20, check=True,
-            ).stdout.splitlines()
+            inspected = [
+                item for item in inspected
+                if not str(item.get("name") or "").lstrip("/").startswith(
+                    self.config.instance_prefix
+                )
+            ]
+            image_ids = subprocess.run(
+                ["docker", "image", "ls", "-aq", "--no-trunc"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=20,
+                check=True,
+            ).stdout.split()
+            images: list[dict[str, Any]] = []
+            if image_ids:
+                raw_images = subprocess.run(
+                    ["docker", "image", "inspect", *sorted(set(image_ids))],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=60,
+                    check=True,
+                ).stdout
+                for item in json.loads(raw_images):
+                    images.append(
+                        {
+                            "id": item.get("Id"),
+                            "repo_tags": sorted(item.get("RepoTags") or []),
+                            "repo_digests": sorted(item.get("RepoDigests") or []),
+                        }
+                    )
             snapshot = {
                 "containers": sorted(inspected, key=lambda item: str(item["id"])),
-                "image_ids": sorted(set(images)),
+                "images": sorted(images, key=lambda item: str(item["id"])),
             }
             path = self.artifact_dir / f"host-{label}.json"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n")
             digest = _sha(path)
             self.facts[f"host_{label}"] = {"path": path, "sha256": digest}
+            if label == "before":
+                self.facts["preexisting_image_ids"] = {
+                    str(item["id"]) for item in images if item.get("id")
+                }
             if label == "after" and digest != self.facts.get("host_before", {}).get("sha256"):
                 return CommandOutcome(1, stderr=b"existing host Docker state changed")
             return CommandOutcome(0, json.dumps({"sha256": digest}).encode())
@@ -887,7 +1383,7 @@ class LocalOperationalAdapter:
         return self._run(
             ["docker", *argv],
             cwd=self.config.repo_root,
-            env=self._isolated_env(),
+            env=self._task_env(),
             timeout_s=timeout_s,
             input_bytes=input_bytes,
         )
@@ -900,7 +1396,7 @@ class LocalOperationalAdapter:
     ) -> tuple[CommandOutcome, dict[str, Any] | None]:
         outcome = self._docker(
             [
-                "exec", "-w", "/app", "nextseek", "uv", "run", "--no-sync",
+                "exec", "-w", "/app", self.config.app_container, "uv", "run", "--no-sync",
                 "python", "-c", code,
             ],
             timeout_s=timeout_s,
@@ -1171,10 +1667,10 @@ print(json.dumps({"retained_ids": [f"turn:{pk}" for pk in turns], "active_genera
         if payload is None:
             return outcome
         try:
-            prior_image = self._inspect_image_id("nextseek-nextseek:latest")
+            prior_image = self._inspect_image_id(self.config.app_image)
             peer_ids = {
                 name: self._container_id(name)
-                for name in ("nextseek-sidecar", "dmac-bedrock-proxy")
+                for name in (self.config.sidecar_container, self.config.proxy_container)
             }
         except OperationalRunError as exc:
             return CommandOutcome(1, outcome.stdout, str(exc).encode())
@@ -1188,10 +1684,10 @@ print(json.dumps({"retained_ids": [f"turn:{pk}" for pk in turns], "active_genera
         if payload is None:
             return outcome
         try:
-            candidate_image = self._inspect_image_id("nextseek-nextseek:latest")
+            candidate_image = self._inspect_image_id(self.config.app_image)
             image_list = self._docker(
                 [
-                    "image", "ls", "nextseek-nextseek", "--format",
+                    "image", "ls", self.config.app_image.split(":", 1)[0], "--format",
                     "{{.Repository}}:{{.Tag}} {{.ID}}",
                 ],
                 timeout_s=30,
@@ -1251,7 +1747,7 @@ print(json.dumps({"retained_ids": [f"turn:{pk}" for pk in turns], "active_genera
         return self._run(
             argv,
             cwd=self.config.runtime_root,
-            env=self._isolated_env(),
+            env=self._task_env(),
             timeout_s=timeout_s,
         )
 
@@ -1287,7 +1783,7 @@ print(json.dumps({"retained_ids": [f"turn:{pk}" for pk in turns], "active_genera
     def _migration_snapshot(self) -> tuple[bool, list[str]]:
         result = self._docker(
             [
-                "exec", "nextseek", "uv", "run", "--no-sync", "manage.py",
+                "exec", self.config.app_container, "uv", "run", "--no-sync", "manage.py",
                 "showmigrations", "nextseek_api",
             ],
             timeout_s=60,
@@ -1314,21 +1810,22 @@ print(json.dumps({"shared": sorted(set(env) & set(SHARED_CRED_KEYS)), "keys": so
 
         health = self._docker(
             [
-                "run", "--rm", "--network", "dmac-cc-net", "--entrypoint",
+                "run", "--rm", "--network", self.config.cc_network,
+                "--cpus", "0.10", "--memory", "128m", "--entrypoint",
                 "sh", "dmac-assistant:poc", "-c",
                 "curl -fsS http://bedrock-proxy:8080/healthz >/dev/null",
             ],
             timeout_s=60,
         )
         proxy_logs = self._docker(
-            ["logs", "dmac-bedrock-proxy"], timeout_s=30,
+            ["logs", self.config.proxy_container], timeout_s=30,
         )
         proxy_text = (proxy_logs.stdout + proxy_logs.stderr).decode(
             errors="replace"
         )
 
         network = self._docker(
-            ["network", "inspect", "dmac-cc-net"], timeout_s=30,
+            ["network", "inspect", self.config.cc_network], timeout_s=30,
         )
         members: list[str] = []
         if network.returncode == 0:
@@ -1342,8 +1839,8 @@ print(json.dumps({"shared": sorted(set(env) & set(SHARED_CRED_KEYS)), "keys": so
                 members = []
         details["network_members"] = members
         closed = bool(members) and all(
-            name in {"dmac-bedrock-proxy", "nextseek-sidecar"}
-            or "nextseek_nginx" in name
+            name in {self.config.proxy_container, self.config.sidecar_container,
+                     self.config.nginx_container}
             for name in members
         )
 
@@ -1378,7 +1875,7 @@ print(json.dumps({"mounts": [{"target": m["Target"], "read_only": m["ReadOnly"]}
                 and "Authorization" not in proxy_text
             ),
             "network_members_closed": network.returncode == 0 and closed,
-            "nextseek_not_on_agent_network": "nextseek" not in members,
+            "nextseek_not_on_agent_network": self.config.app_container not in members,
             "scratch_only_writes": mount_outcome.returncode == 0 and scratch_only,
             "full_zero_spend_validator": (
                 env_outcome.returncode == 0
@@ -1394,9 +1891,9 @@ print(json.dumps({"mounts": [{"target": m["Target"], "read_only": m["ReadOnly"]}
         checks: dict[str, bool] = {}
         checks["site_http_200"] = self._wait_site()
         server = self._docker(
-            ["exec", "nextseek", "printenv", "NEXTSEEK_SERVER"], timeout_s=30,
+            ["exec", self.config.app_container, "printenv", "NEXTSEEK_SERVER"], timeout_s=30,
         )
-        top = self._docker(["top", "nextseek"], timeout_s=30)
+        top = self._docker(["top", self.config.app_container], timeout_s=30)
         top_text = top.stdout.decode(errors="replace").lower()
         checks["server_gunicorn"] = (
             server.returncode == 0
@@ -1405,13 +1902,13 @@ print(json.dumps({"mounts": [{"target": m["Target"], "read_only": m["ReadOnly"]}
         )
         checks["no_daphne"] = top.returncode == 0 and "daphne" not in top_text
         inspect = self._docker(
-            ["inspect", "nextseek", "--format", "{{.RestartCount}}"],
+            ["inspect", self.config.app_container, "--format", "{{.RestartCount}}"],
             timeout_s=30,
         )
         checks["restart_zero"] = (
             inspect.returncode == 0 and inspect.stdout.strip() == b"0"
         )
-        logs = self._docker(["logs", "nextseek"], timeout_s=30)
+        logs = self._docker(["logs", self.config.app_container], timeout_s=30)
         log_text = (logs.stdout + logs.stderr).decode(errors="replace")
         checks["boot_clean"] = logs.returncode == 0 and not any(
             marker in log_text
@@ -1424,7 +1921,7 @@ print(json.dumps({"mounts": [{"target": m["Target"], "read_only": m["ReadOnly"]}
         self.facts["forward_migrations"] = migrations
         route = self._docker(
             [
-                "exec", "-w", "/app", "nextseek", "uv", "run", "--no-sync",
+                "exec", "-w", "/app", self.config.app_container, "uv", "run", "--no-sync",
                 "python", "-c",
                 "from nextseek_api.cc_assistant import cc_engine; print(cc_engine.cc_runner_available())",
             ],
@@ -1436,7 +1933,7 @@ print(json.dumps({"mounts": [{"target": m["Target"], "read_only": m["ReadOnly"]}
         try:
             peer_ids = {
                 name: self._container_id(name)
-                for name in ("nextseek-sidecar", "dmac-bedrock-proxy")
+                for name in (self.config.sidecar_container, self.config.proxy_container)
             }
         except OperationalRunError:
             peer_ids = {}
@@ -1450,7 +1947,9 @@ print(json.dumps({"mounts": [{"target": m["Target"], "read_only": m["ReadOnly"]}
             )
         except (KeyError, OperationalRunError):
             checks["rollback_tag_present"] = False
-        doctor = self._runtime_command(["./startup.sh", "doctor"], timeout_s=120)
+        doctor = self._runtime_command(
+            ["./startup.sh", "doctor", "--scope", "app"], timeout_s=120
+        )
         checks["doctor_green"] = doctor.returncode == 0
         retention, retained = self._exec_python_json(self._retention_code())
         expected_ids = self.facts.get("prewrite_ids", []) + self.facts.get(
@@ -1494,7 +1993,7 @@ print(json.dumps({"mounts": [{"target": m["Target"], "read_only": m["ReadOnly"]}
             return CommandOutcome(1, stderr=str(exc).encode())
         recreate = self._runtime_command(
             [
-                "docker", "compose", "-p", "nextseek", "up", "-d",
+                "docker", "compose", "-p", self.config.compose_project, "up", "-d",
                 "--no-build", "--no-deps", "--force-recreate", "nextseek",
             ],
             timeout_s=120,
@@ -1503,7 +2002,7 @@ print(json.dumps({"mounts": [{"target": m["Target"], "read_only": m["ReadOnly"]}
             return recreate
         flag = self._docker(
             [
-                "exec", "nextseek", "printenv",
+                "exec", self.config.app_container, "printenv",
                 "NEXTSEEK_POSTERIOR_ROUTING_ENABLED",
             ],
             timeout_s=30,
@@ -1542,35 +2041,25 @@ else:
 
     def _stop_workers(self) -> CommandOutcome:
         listed = self._docker(
-            ["ps", "--format", "{{.Names}}"], timeout_s=30,
+            [
+                "ps", "--filter",
+                f"label=com.docker.compose.project={self.config.compose_project}",
+                "--format", "{{.Label \"com.docker.compose.service\"}}",
+            ], timeout_s=30,
         )
         if listed.returncode:
             return listed
-        names = [line for line in listed.stdout.decode().splitlines() if line]
+        services = [line for line in listed.stdout.decode().splitlines() if line]
         eval_workers = sorted(
-            name
-            for name in names
-            if "paid" in name.lower() or "plan018" in name.lower()
+            service for service in services
+            if service in {"paid_eval", "paid_eval_worker", "eval_worker"}
         )
-        stopped: list[str] = []
-        for name in eval_workers:
-            result = self._docker(["stop", "--time", "20", name], timeout_s=30)
-            if result.returncode:
-                return result
-            stopped.append(name)
-        remaining = self._docker(
-            ["ps", "--format", "{{.Names}}"], timeout_s=30,
-        )
-        remaining_names = remaining.stdout.decode().splitlines()
-        ok = remaining.returncode == 0 and not any(
-            "paid" in name.lower() or "plan018" in name.lower()
-            for name in remaining_names
-        )
+        ok = not eval_workers
         self.facts["workers_drained"] = ok
         return CommandOutcome(
             0 if ok else 1,
-            json.dumps({"stopped": stopped}, sort_keys=True).encode(),
-            remaining.stderr,
+            json.dumps({"dedicated_eval_workers": eval_workers}, sort_keys=True).encode(),
+            listed.stderr,
         )
 
     def _activate_prior(self) -> CommandOutcome:
@@ -1604,13 +2093,13 @@ print(json.dumps({"active_generation": rolled.active.generation_hash, "previous_
         except (KeyError, OperationalRunError) as exc:
             return CommandOutcome(1, stderr=str(exc).encode())
         retag = self._docker(
-            ["tag", tag, "nextseek-nextseek:latest"], timeout_s=30,
+            ["tag", tag, self.config.app_image], timeout_s=30,
         )
         if retag.returncode:
             return retag
         recreate = self._runtime_command(
             [
-                "docker", "compose", "-p", "nextseek", "up", "-d",
+                "docker", "compose", "-p", self.config.compose_project, "up", "-d",
                 "--no-build", "--no-deps", "--force-recreate", "nextseek",
             ],
             timeout_s=120,
@@ -1620,7 +2109,7 @@ print(json.dumps({"active_generation": rolled.active.generation_hash, "previous_
         if not self._wait_site():
             return CommandOutcome(1, stderr=b"prior image did not become HTTP-ready")
         container_image = self._docker(
-            ["inspect", "nextseek", "--format", "{{.Image}}"], timeout_s=30,
+            ["inspect", self.config.app_container, "--format", "{{.Image}}"], timeout_s=30,
         )
         ok = (
             container_image.returncode == 0
@@ -1648,7 +2137,9 @@ print(json.dumps({"active_generation": rolled.active.generation_hash, "previous_
         expected = self.facts.get("prewrite_ids", []) + self.facts.get(
             "postwrite_ids", []
         )
-        doctor = self._runtime_command(["./startup.sh", "doctor"], timeout_s=120)
+        doctor = self._runtime_command(
+            ["./startup.sh", "doctor", "--scope", "app"], timeout_s=120
+        )
         checks = {
             "flags_disabled": self.facts.get("flags_disabled") is True,
             "schedules_stopped": self.facts.get("schedules_stopped") is True,
@@ -1705,12 +2196,19 @@ print(json.dumps({"active_generation": rolled.active.generation_hash, "previous_
             "source": self._validate_source,
             "resources": self._resources_control,
             "host-before": lambda: self._snapshot_host("before"),
+            "harness-config": self._configure_harness,
+            "prior-image": self._verify_and_tag_prior_image,
+            "namespace-start": self._start_namespace,
             "prewrite-seed": self._seed_prewrite,
             "migration-aware-dump": self._dump_dmac,
             "restore-probe": self._restore_probe,
             "candidate-source": lambda: self._validate_source(
                 candidate_checkout=True
             ),
+            "build-prepare": self._prepare_build,
+            "builder-cleanup": self._remove_builder,
+            "cohort-resume": self._resume_cohort,
+            "registry-push": self._push_registry,
             "postwrite-seed": self._seed_postwrite,
             "forward-runbook": self._verify_forward,
             "disable-flags": self._disable_flags,
@@ -1720,8 +2218,8 @@ print(json.dumps({"active_generation": rolled.active.generation_hash, "previous_
             "restore-image": self._restore_prior_image,
             "forward-only-schema": self._verify_forward_schema,
             "recovery-runbook": self._verify_recovery,
+            "namespace-cleanup": self._cleanup_namespace,
             "host-after": lambda: self._snapshot_host("after"),
-            "daemon-stop": self._stop_daemon,
         }
         if set(handlers) != CONTROL_ACTIONS:
             return CommandOutcome(
@@ -1737,15 +2235,11 @@ print(json.dumps({"active_generation": rolled.active.generation_hash, "previous_
 
     def execute(self, command: PlannedCommand, *, timeout_s: float) -> CommandOutcome:
         self._sample_resources()
-        if command.action == "daemon-start":
-            outcome = self._start_daemon(command, timeout_s)
-            self._sample_resources()
-            return outcome
         if command.argv and command.argv[0] == "task8-control":
             outcome = self._control(command)
             self._sample_resources()
             return outcome
-        env = self._host_env() if command.daemon == "host_read_only" else self._isolated_env()
+        env = self._host_env() if command.daemon == "host_read_only" else self._task_env()
         outcome = self._run(
             command.argv,
             cwd=Path(command.cwd),
@@ -1757,7 +2251,7 @@ print(json.dumps({"active_generation": rolled.active.generation_hash, "previous_
 
     def emergency_stop(self, *, timeout_s: float) -> CommandOutcome:
         del timeout_s
-        return self._stop_daemon()
+        return self._cleanup_namespace()
 
 
 def _ledger_entry(
@@ -1796,7 +2290,7 @@ def run_operational_plan(
 
     The adapter owns operational details.  This layer owns the fail-closed
     invariants: exact plan order, no expired approval, bounded wall time, disk
-    reserve, output hashing, and best-effort isolated-daemon shutdown.
+    reserve, output hashing, and best-effort exact namespace cleanup.
     """
 
     errors = operational_config_errors(config)
@@ -1825,8 +2319,8 @@ def run_operational_plan(
     disk_probe = free_bytes or (lambda: shutil.disk_usage(config.repo_root).free)
     started = monotonic()
     entries: list[dict[str, Any]] = []
-    daemon_started = False
-    daemon_stopped = False
+    namespace_started = False
+    namespace_cleaned = False
     failure: BaseException | None = None
     try:
         for seq, command in enumerate(plan, 1):
@@ -1850,10 +2344,10 @@ def run_operational_plan(
             entries.append(
                 _ledger_entry(command, seq=seq, outcome=outcome, duration_s=duration)
             )
-            if command.action == "daemon-start" and outcome.returncode == 0:
-                daemon_started = True
-            if command.action == "daemon-stop" and outcome.returncode == 0:
-                daemon_stopped = True
+            if command.action == "namespace-start" and outcome.returncode == 0:
+                namespace_started = True
+            if command.action == "namespace-cleanup" and outcome.returncode == 0:
+                namespace_cleaned = True
             if outcome.returncode != 0:
                 raise OperationalRunError(
                     f"Task 8 action {command.action!r} failed with {outcome.returncode}"
@@ -1864,7 +2358,7 @@ def run_operational_plan(
         ledger_path.write_text(
             "".join(json.dumps(entry, sort_keys=True) + "\n" for entry in entries)
         )
-        if failure is not None and daemon_started and not daemon_stopped:
+        if failure is not None and namespace_started and not namespace_cleaned:
             remaining = max(1.0, min(30.0, MAX_WALL_S - (monotonic() - started)))
             try:
                 adapter.emergency_stop(timeout_s=remaining)
@@ -1909,7 +2403,7 @@ def write_operational_evidence(
         raise OperationalRunError("Task 8 evidence path must remain inside the checkout")
     facts = adapter.facts
     required_facts = {
-        "source", "daemon_id", "host_before", "host_after", "backup",
+        "source", "namespace_id", "host_before", "host_after", "backup",
         "prior_image_id", "candidate_image_id", "rollback_tag", "registry_tag",
         "registry_digest", "prior_generation", "active_generation", "prewrite_ids",
         "postwrite_ids", "row_counts", "forward_checks", "oi3_checks",
@@ -1917,6 +2411,8 @@ def write_operational_evidence(
         "retained_ids_after_recovery", "recovery_active_generation",
         "recovery_image_id", "forward_migrations", "settings_sha256",
         "memory_available_before_bytes", "memory_available_min_bytes",
+        "prior_source_hashes", "peer_image_ids", "task8_resources_removed", "builder_created",
+        "builder_removed",
     }
     missing = sorted(required_facts - set(facts))
     if missing:
@@ -2037,7 +2533,7 @@ def write_operational_evidence(
                 "tombstone_sha256": _sha(tombstone_path),
                 "row_counts": facts["row_counts"],
             },
-            "network_identity": facts["daemon_id"],
+            "network_identity": facts["namespace_id"],
             "runtime_identities": runtime_identities,
             "smoke_checks": {
                 "schema": facts["forward_checks"]["migrations_all_applied"],
@@ -2077,12 +2573,17 @@ def write_operational_evidence(
         },
         "source": facts["source"],
         "isolation": {
-            "daemon_kind": "rootless_dockerd",
-            "socket_path": str(config.socket_path.resolve()),
-            "data_root": str(config.data_root.resolve()),
-            "daemon_id": facts["daemon_id"],
-            "compose_project": "nextseek",
-            "network": "dmac-cc-net",
+            "kind": "namespaced_host_daemon",
+            "compose_project": config.compose_project,
+            "instance_prefix": config.instance_prefix,
+            "cc_network": config.cc_network,
+            "egress_network": config.egress_network,
+            "builder_name": config.builder_name,
+            "builder_created": facts["builder_created"],
+            "builder_removed": facts["builder_removed"],
+            "prior_source_hashes": facts["prior_source_hashes"],
+            "peer_image_ids": facts["peer_image_ids"],
+            "task8_resources_removed": facts["task8_resources_removed"],
             "host_snapshot_before": {
                 "path": relative(Path(host_before["path"])),
                 "sha256": host_before["sha256"],
@@ -2243,7 +2744,7 @@ def _validate_operational_plan(
         return []
     expected_top = {
         "schema", "authorization", "source", "bounds", "paths", "commands",
-        "command_count",
+        "command_count", "namespace",
     }
     payload = _exact_keys(payload, expected_top, "operational plan", errors)
     if payload.get("schema") != PLAN_SCHEMA:
@@ -2283,18 +2784,34 @@ def _validate_operational_plan(
     )
     _exact_keys(
         payload.get("paths"),
-        {"run_root", "runtime_root", "data_root", "socket_path", "backup_path"},
+        {"run_root", "runtime_root", "source_root", "backup_path"},
         "operational plan paths", errors,
     )
+    namespace = _exact_keys(
+        payload.get("namespace"),
+        {"kind", "compose_project", "instance_prefix", "cc_network", "egress_network", "app_image", "builder_name"},
+        "operational plan namespace", errors,
+    )
+    if (
+        namespace.get("kind") != "namespaced_host_daemon"
+        or not str(namespace.get("compose_project", "")).startswith("plan018v49task8")
+        or not str(namespace.get("instance_prefix", "")).startswith("p18t8-")
+        or namespace.get("cc_network") != f"{namespace.get('instance_prefix', '')}cc"
+        or namespace.get("egress_network") != f"{namespace.get('instance_prefix', '')}egress"
+        or namespace.get("app_image")
+        != f"{namespace.get('compose_project', '')}-nextseek:latest"
+        or namespace.get("builder_name") != f"{namespace.get('instance_prefix', '')}builder"
+    ):
+        errors.append("operational plan namespace identity drifted")
     commands = payload.get("commands")
     if not isinstance(commands, list):
         errors.append("operational plan commands must be a list")
         return []
-    if payload.get("command_count") != len(commands) or len(commands) != 24:
+    if payload.get("command_count") != len(commands) or len(commands) != 29:
         errors.append("operational plan command count is not exact")
     phases: set[str] = set()
     actions: set[str] = set()
-    saw_install = False
+    saw_worktree = False
     saw_rebuild = False
     for index, raw in enumerate(commands, 1):
         entry = _exact_keys(raw, _PLAN_COMMAND_KEYS, f"plan command {index}", errors)
@@ -2308,18 +2825,18 @@ def _validate_operational_plan(
         phase = entry.get("phase")
         if isinstance(phase, str):
             phases.add(phase)
-        if entry.get("daemon") not in {"host_read_only", "isolated", "registry"}:
+        if entry.get("daemon") not in {"host_read_only", "task8_namespace", "registry"}:
             errors.append(f"operational plan daemon is invalid at {index}")
         if entry.get("effect") not in {
-            "read_only", "isolated_mutation", "registry_write", "cleanup",
+            "read_only", "namespaced_mutation", "registry_write", "cleanup",
         }:
             errors.append(f"operational plan effect is invalid at {index}")
         if entry.get("daemon") == "host_read_only" and entry.get("effect") != "read_only":
             errors.append(f"host-read-only plan command mutates at {index}")
         errors.extend(_command_safety_errors(entry.get("argv"), label=f"plan command {index}"))
         argv = entry.get("argv") if isinstance(entry.get("argv"), list) else []
-        saw_install |= argv[:2] == ["./startup.sh", "install"]
-        saw_rebuild |= argv[:2] == ["./startup.sh", "rebuild"] and "--source-tree" in argv
+        saw_worktree |= "worktree" in argv and "add" in argv and "--detach" in argv
+        saw_rebuild |= "./startup.sh" in argv and "rebuild" in argv and "--source-tree" in argv
         if not isinstance(entry.get("cwd"), str) or not Path(entry.get("cwd", "")).is_absolute():
             errors.append(f"operational plan cwd is not absolute at {index}")
         env_keys = entry.get("env_keys")
@@ -2329,8 +2846,8 @@ def _validate_operational_plan(
             errors.append(f"operational plan env key list is malformed at {index}")
     if phases != set(REQUIRED_PHASES):
         errors.append("operational plan phases are not exact")
-    if not saw_install or not saw_rebuild:
-        errors.append("operational plan lacks install or required source-tree rebuild")
+    if not saw_worktree or not saw_rebuild:
+        errors.append("operational plan lacks candidate worktree or required source-tree rebuild")
     return commands
 
 
@@ -2377,9 +2894,9 @@ def _validate_ledger(
             phases.add(phase)
         daemon = entry.get("daemon")
         effect = entry.get("effect")
-        if daemon not in {"host_read_only", "isolated", "registry"}:
+        if daemon not in {"host_read_only", "task8_namespace", "registry"}:
             errors.append(f"command ledger daemon identity is invalid at {index}")
-        if effect not in {"read_only", "isolated_mutation", "registry_write", "cleanup"}:
+        if effect not in {"read_only", "namespaced_mutation", "registry_write", "cleanup"}:
             errors.append(f"command ledger effect is invalid at {index}")
         if daemon == "host_read_only" and effect != "read_only":
             errors.append(f"host-read-only ledger entry mutates at {index}")
@@ -2393,7 +2910,7 @@ def _validate_ledger(
             for key in _PLAN_COMMAND_KEYS - {"cwd", "env_keys"}:
                 if entry.get(key) != expected.get(key):
                     errors.append(f"ledger entry {index} drifted from plan field {key}")
-        if argv[:2] == ["./startup.sh", "rebuild"] and "--source-tree" in argv:
+        if "./startup.sh" in argv and "rebuild" in argv and "--source-tree" in argv:
             saw_rebuild = True
         if entry.get("returncode") != 0:
             errors.append(f"command ledger contains failed entry {index}")
@@ -2462,25 +2979,43 @@ def validation_errors(root: Path = ROOT, evidence_path: Path | str = EVIDENCE) -
 
     isolation = _exact_keys(
         payload.get("isolation"),
-        {"daemon_kind", "socket_path", "data_root", "daemon_id", "compose_project", "network", "host_snapshot_before", "host_snapshot_after", "host_unchanged"},
+        {
+            "kind", "compose_project", "instance_prefix", "cc_network",
+            "egress_network", "builder_name", "builder_created",
+            "builder_removed", "prior_source_hashes",
+            "peer_image_ids",
+            "task8_resources_removed", "host_snapshot_before",
+            "host_snapshot_after", "host_unchanged",
+        },
         "isolation", errors,
     )
-    socket = str(isolation.get("socket_path", ""))
-    data_root = str(isolation.get("data_root", ""))
+    prefix = str(isolation.get("instance_prefix", ""))
+    prior_source_hashes = isolation.get("prior_source_hashes")
+    peer_image_ids = isolation.get("peer_image_ids")
     if (
-        isolation.get("daemon_kind") not in {"rootless_dockerd", "dind"}
-        or not socket
-        or socket == "/var/run/docker.sock"
-        or socket.startswith("unix:///var/run/docker.sock")
-        or not data_root
-        or data_root == "/var/lib/docker"
-        # registry_push intentionally skips non-canonical projects.  The
-        # daemon/socket/data-root isolation makes canonical `nextseek` safe
-        # here and is required for the plan-mandated GHCR baseline write.
-        or isolation.get("compose_project") != "nextseek"
-        or isolation.get("network") != "dmac-cc-net"
+        isolation.get("kind") != "namespaced_host_daemon"
+        or not str(isolation.get("compose_project", "")).startswith("plan018v49task8")
+        or not prefix.startswith("p18t8-")
+        or isolation.get("cc_network") != f"{prefix}cc"
+        or isolation.get("egress_network") != f"{prefix}egress"
+        or isolation.get("builder_name") != f"{prefix}builder"
+        or isolation.get("builder_created") is not True
+        or isolation.get("builder_removed") is not True
+        or isolation.get("task8_resources_removed") is not True
+        or not isinstance(prior_source_hashes, dict)
+        or len(prior_source_hashes) < 5
+        or not all(
+            isinstance(path, str) and path and _is_sha256(digest)
+            for path, digest in (prior_source_hashes or {}).items()
+        )
+        or not isinstance(peer_image_ids, dict)
+        or set(peer_image_ids) != {
+            "mysql:8.0", "nginx:latest", "nextseek-bedrock-proxy:latest",
+            "nextseek-ns-sidecar:latest", "dmac-assistant:poc",
+        }
+        or not all(_is_image_id(image_id) for image_id in (peer_image_ids or {}).values())
     ):
-        errors.append("Task 8 used the host Docker socket/data root or wrong isolated identity")
+        errors.append("Task 8 namespace/source verification/cleanup identity is incomplete")
     snapshot_hashes: list[str] = []
     for name in ("host_snapshot_before", "host_snapshot_after"):
         snapshot = _exact_keys(isolation.get(name), {"path", "sha256"}, name, errors)

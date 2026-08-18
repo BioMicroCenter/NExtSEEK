@@ -4,9 +4,11 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
+import yaml
 
 import plan018_v4_9_task8_deploy as gate
 
@@ -121,12 +123,30 @@ def _valid_bundle(tmp_path: Path) -> tuple[Path, Path, dict]:
             "diff_sha256": gate.EMPTY_SHA256,
         },
         "isolation": {
-            "daemon_kind": "rootless_dockerd",
-            "socket_path": "/tmp/plan018-task8/docker.sock",
-            "data_root": "/tmp/plan018-task8/data",
-            "daemon_id": "task8-daemon-001",
-            "compose_project": "nextseek",
-            "network": "dmac-cc-net",
+            "kind": "namespaced_host_daemon",
+            "compose_project": config.compose_project,
+            "instance_prefix": config.instance_prefix,
+            "cc_network": config.cc_network,
+            "egress_network": config.egress_network,
+            "builder_name": config.builder_name,
+            "builder_created": True,
+            "builder_removed": True,
+            "prior_source_hashes": {
+                f"verified/path-{index}.py": str(index) * 64
+                for index in range(1, 6)
+            },
+            "peer_image_ids": {
+                image: "sha256:" + str(index) * 64
+                for index, image in enumerate(
+                    (
+                        "mysql:8.0", "nginx:latest",
+                        "nextseek-bedrock-proxy:latest",
+                        "nextseek-ns-sidecar:latest", "dmac-assistant:poc",
+                    ),
+                    1,
+                )
+            },
+            "task8_resources_removed": True,
             "host_snapshot_before": {
                 "path": str(host_before.relative_to(root)), "sha256": _sha(host_before)
             },
@@ -250,7 +270,7 @@ def test_missing_real_artifact_is_red_and_no_placeholder_is_committed(tmp_path: 
     ("mutation", "message"),
     [
         (lambda p: p["source"].__setitem__("deployed_sha", "4" * 40), "source is not exact committed origin/dev"),
-        (lambda p: p["isolation"].__setitem__("socket_path", "/var/run/docker.sock"), "host Docker socket"),
+        (lambda p: p["isolation"].__setitem__("task8_resources_removed", False), "namespace/source verification/cleanup"),
         (lambda p: p["images"]["rollback_tag"].__setitem__("image_id", "sha256:" + "d" * 64), "rollback tag"),
         (lambda p: p["forward"].__setitem__("retained_ids_after_forward", ["pre-1"]), "forward retained-write"),
         (lambda p: p["recovery"].__setitem__("actions", list(reversed(gate.SAFE_RECOVERY_ACTIONS))), "safe recovery order"),
@@ -289,9 +309,9 @@ def test_command_ledger_rejects_host_mutation_shell_and_missing_phase(tmp_path: 
     ledger = root / payload["command_ledger"]["path"]
     entries = [json.loads(line) for line in ledger.read_text().splitlines()]
     entries[2]["daemon"] = "host_read_only"
-    entries[2]["effect"] = "isolated_mutation"
+    entries[2]["effect"] = "namespaced_mutation"
     entries[2]["argv"] = ["sh", "-c", "docker system prune"]
-    entries[-1]["phase"] = "snapshot"
+    entries[-2]["phase"] = "snapshot"
     ledger.write_text("".join(json.dumps(entry, sort_keys=True) + "\n" for entry in entries))
     payload["command_ledger"]["sha256"] = _sha(ledger)
     payload["artifacts_sha256"][payload["command_ledger"]["path"]] = _sha(ledger)
@@ -303,12 +323,12 @@ def test_command_ledger_rejects_host_mutation_shell_and_missing_phase(tmp_path: 
     assert any("command phases" in error for error in errors)
 
 
-def test_noncanonical_project_is_rejected_because_startup_would_skip_ghcr(tmp_path: Path) -> None:
+def test_non_namespaced_project_is_rejected(tmp_path: Path) -> None:
     root, evidence_path, payload = _valid_bundle(tmp_path)
     payload["isolation"]["compose_project"] = "plan018-v4-9-task8"
     _write_json(evidence_path, payload)
 
-    assert any("wrong isolated identity" in error for error in gate.validation_errors(root, evidence_path))
+    assert any("namespace/source verification/cleanup" in error for error in gate.validation_errors(root, evidence_path))
 
 
 def test_artifact_hash_and_resource_bounds_are_fail_closed(tmp_path: Path) -> None:
@@ -325,19 +345,22 @@ def test_artifact_hash_and_resource_bounds_are_fail_closed(tmp_path: Path) -> No
     assert any("wall cap" in error for error in errors)
 
 
-def test_preflight_estimate_preserves_full_stack_and_host_reserve() -> None:
-    tools = {name: True for name in ("docker", "dockerd-rootless.sh", "rootlesskit", "pasta", "git", "uv", "taskset")}
+def test_preflight_estimate_preserves_candidate_cohort_and_host_reserve() -> None:
+    tools = {name: True for name in ("docker", "git", "uv", "taskset")}
+    images = {image: True for image in gate.REQUIRED_LOCAL_IMAGES}
 
     passing = gate.evaluate_preflight(
         free_bytes=gate.REQUIRED_FREE_BYTES,
         available_memory=gate.REQUIRED_AVAILABLE_MEMORY_BYTES,
         tools=tools,
+        local_images=images,
         credential_mode=0o600,
     )
     failing = gate.evaluate_preflight(
-        free_bytes=19 * 1024**3,
+        free_bytes=gate.REQUIRED_FREE_BYTES - 1,
         available_memory=gate.REQUIRED_AVAILABLE_MEMORY_BYTES,
         tools=tools,
+        local_images=images,
         credential_mode=0o600,
     )
 
@@ -347,34 +370,68 @@ def test_preflight_estimate_preserves_full_stack_and_host_reserve() -> None:
     assert any("insufficient disk" in error for error in failing["errors"])
 
 
+def test_task8_compose_is_a_bounded_app_cohort_not_a_duplicate_full_stack() -> None:
+    payload = yaml.safe_load((gate.ROOT / "docker-compose.task8.yml").read_text())
+    services = payload["services"]
+
+    assert set(services) == {
+        "db", "nextseek", "nextseek_nginx", "bedrock-proxy", "nextseek-sidecar"
+    }
+    assert not ({"seek", "neo4j", "solr"} & set(services))
+    assert all(service.get("pull_policy") == "never" for service in services.values())
+    cpu_total = sum(
+        Decimal(str(service["deploy"]["resources"]["limits"]["cpus"]))
+        for service in services.values()
+    )
+    assert cpu_total <= Decimal(gate.MAX_CPUS)
+    memory_units = {"M": 1024**2, "G": 1024**3}
+    memory_total = sum(
+        int(str(service["deploy"]["resources"]["limits"]["memory"])[0:-1])
+        * memory_units[str(service["deploy"]["resources"]["limits"]["memory"])[-1]]
+        for service in services.values()
+    )
+    assert memory_total <= gate.MAX_MEMORY_BYTES
+    assert services["nextseek"]["build"] == "."
+    assert all("build" not in services[name] for name in services if name != "nextseek")
+    db_mounts = services["db"]["volumes"]
+    assert any("docker-entrypoint-initdb.d" in mount for mount in db_mounts)
+    assert payload["networks"]["task8-cc"]["internal"] is True
+    serialized = json.dumps(payload, sort_keys=True)
+    assert "${INSTANCE_PREFIX}" in serialized
+    assert "${TASK8_CC_NETWORK}" in serialized
+
+
 def test_preflight_refuses_missing_tool_or_private_credential_mode() -> None:
-    tools = {name: True for name in ("docker", "dockerd-rootless.sh", "rootlesskit", "pasta", "git", "uv", "taskset")}
-    tools["pasta"] = False
+    tools = {name: True for name in ("docker", "git", "uv", "taskset")}
+    tools["taskset"] = False
+    images = {image: True for image in gate.REQUIRED_LOCAL_IMAGES}
+    images["nginx:latest"] = False
 
     result = gate.evaluate_preflight(
         free_bytes=gate.REQUIRED_FREE_BYTES,
         available_memory=gate.REQUIRED_AVAILABLE_MEMORY_BYTES,
         tools=tools,
+        local_images=images,
         credential_mode=0o644,
     )
 
     assert result["gate"] == "FAIL"
     assert any("toolchain" in error for error in result["errors"])
+    assert any("local-image cohort" in error for error in result["errors"])
     assert any("credential" in error for error in result["errors"])
 
 
 def test_preflight_refuses_memory_below_stack_ceiling_plus_host_reserve() -> None:
     tools = {
         name: True
-        for name in (
-            "docker", "dockerd-rootless.sh", "rootlesskit", "pasta", "git",
-            "uv", "taskset",
-        )
+        for name in ("docker", "git", "uv", "taskset")
     }
+    images = {image: True for image in gate.REQUIRED_LOCAL_IMAGES}
     result = gate.evaluate_preflight(
         free_bytes=gate.REQUIRED_FREE_BYTES,
         available_memory=gate.REQUIRED_AVAILABLE_MEMORY_BYTES - 1,
         tools=tools,
+        local_images=images,
         credential_mode=0o600,
     )
 
@@ -446,13 +503,22 @@ def test_operational_plan_is_exact_bounded_and_secret_free(tmp_path: Path) -> No
     commands = gate.build_operational_plan(config)
     payload = gate.plan_payload(config, _approval(config))
 
-    assert len(commands) == 24
-    assert len({entry.action for entry in commands}) == 24
+    assert len(commands) == 29
+    assert len({entry.action for entry in commands}) == 29
     assert {entry.phase for entry in commands} == set(gate.REQUIRED_PHASES)
     assert config.runtime_root.name == "NExtSEEK"
-    assert any(entry.argv[:2] == ("./startup.sh", "install") for entry in commands)
+    assert config.source_root != config.runtime_root
+    assert not any("install" in entry.argv for entry in commands)
+    worktrees = [entry for entry in commands if "worktree" in entry.argv and "add" in entry.argv]
+    assert {entry.action for entry in worktrees} == {"candidate-worktree", "source-worktree"}
+    rebuild = next(entry for entry in commands if entry.action == "forward-rebuild")
+    assert rebuild.cwd == str(config.runtime_root.resolve())
+    assert rebuild.argv[-1] == str(config.source_root.resolve())
+    assert rebuild.argv[rebuild.argv.index("--builder") + 1] == config.builder_name
+    assert "--no-restart" in rebuild.argv
+    assert "--no-registry-push" in rebuild.argv
     assert any(
-        entry.argv[:2] == ("./startup.sh", "rebuild")
+        "./startup.sh" in entry.argv and "rebuild" in entry.argv
         and "--source-tree" in entry.argv
         for entry in commands
     )
@@ -470,9 +536,51 @@ def test_operational_plan_is_exact_bounded_and_secret_free(tmp_path: Path) -> No
     assert "password=" not in serialized
     assert "secret_key=" not in serialized
     assert "docker system prune" not in serialized
+    assert "dockerd-rootless" not in serialized
+    assert "neo4j" not in serialized
+    assert "solr" not in serialized
     assert " down -v" not in serialized
     assert "$(" not in serialized
     assert "`" not in serialized
+
+
+def test_named_builder_is_resource_bounded_and_exactly_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _operational_config(tmp_path)
+    adapter = gate.LocalOperationalAdapter(config, artifact_dir=tmp_path)
+    docker_calls: list[list[str]] = []
+    runtime_calls: list[list[str]] = []
+    builder_image = "sha256:" + "a" * 64
+
+    def fake_runtime(argv, *, timeout_s):
+        runtime_calls.append(argv)
+        return gate.CommandOutcome(0)
+
+    def fake_docker(argv, *, timeout_s, input_bytes=None):
+        docker_calls.append(argv)
+        if argv[:2] == ["ps", "-q"]:
+            return gate.CommandOutcome(0, b"builder-container\n")
+        if argv[:2] == ["inspect", "builder-container"]:
+            return gate.CommandOutcome(0, f"{builder_image}\n".encode())
+        return gate.CommandOutcome(0)
+
+    monkeypatch.setattr(adapter, "_runtime_command", fake_runtime)
+    monkeypatch.setattr(adapter, "_docker", fake_docker)
+    adapter.facts["preexisting_image_ids"] = set()
+
+    assert adapter._prepare_build().returncode == 0
+    assert runtime_calls[0][:3] == ["docker", "compose", "stop"]
+    create = next(call for call in docker_calls if call[:2] == ["buildx", "create"])
+    assert "cpuset-cpus=" + gate.TASKSET_CPU_LIST in create
+    assert "cpu-quota=150000" in create
+    assert "memory=4g" in create
+
+    assert adapter._remove_builder().returncode == 0
+    assert ["buildx", "rm", config.builder_name] in docker_calls
+    assert ["image", "rm", builder_image] in docker_calls
+    assert adapter.facts["builder_created"] is True
+    assert adapter.facts["builder_removed"] is True
 
 
 class _FakeAdapter:
@@ -530,10 +638,10 @@ def test_bounded_runner_executes_exact_plan_and_hashes_outputs(tmp_path: Path) -
     planned = gate.build_operational_plan(config)
     assert adapter.actions == [command.action for command in planned]
     assert adapter.emergency_stops == 0
-    assert artifacts.command_count == 24
+    assert artifacts.command_count == 29
     assert artifacts.plan_path.is_file()
     entries = [json.loads(line) for line in artifacts.ledger_path.read_text().splitlines()]
-    assert len(entries) == 24
+    assert len(entries) == 29
     for entry, command in zip(entries, planned, strict=True):
         assert entry["action"] == command.action
         assert entry["argv"] == list(command.argv)
@@ -544,11 +652,11 @@ def test_bounded_runner_executes_exact_plan_and_hashes_outputs(tmp_path: Path) -
         assert entry["stderr_sha256"] == gate.EMPTY_SHA256
 
 
-def test_bounded_runner_stops_after_failure_and_emergency_stops_daemon(tmp_path: Path) -> None:
+def test_bounded_runner_stops_after_failure_and_emergency_cleans_namespace(tmp_path: Path) -> None:
     config = _operational_config(tmp_path)
-    adapter = _FakeAdapter(fail_action="prior-install")
+    adapter = _FakeAdapter(fail_action="prewrite-seed")
 
-    with pytest.raises(gate.OperationalRunError, match="prior-install.*17"):
+    with pytest.raises(gate.OperationalRunError, match="prewrite-seed.*17"):
         gate.run_operational_plan(
             config,
             _approval(config),
@@ -560,7 +668,7 @@ def test_bounded_runner_stops_after_failure_and_emergency_stops_daemon(tmp_path:
             preflight_result=_passing_preflight(),
         )
 
-    assert adapter.actions[-1] == "prior-install"
+    assert adapter.actions[-1] == "prewrite-seed"
     assert "migration-aware-dump" not in adapter.actions
     assert adapter.emergency_stops == 1
 
@@ -638,7 +746,25 @@ def test_real_evidence_writer_uses_only_completed_run_facts(tmp_path: Path) -> N
             "behind": 0,
             "diff_sha256": gate.EMPTY_SHA256,
         },
-        "daemon_id": "isolated-daemon",
+        "namespace_id": config.compose_project,
+        "prior_source_hashes": {
+            f"verified/path-{index}.py": str(index) * 64
+            for index in range(1, 6)
+        },
+        "peer_image_ids": {
+            image: "sha256:" + str(index) * 64
+            for index, image in enumerate(
+                (
+                    "mysql:8.0", "nginx:latest",
+                    "nextseek-bedrock-proxy:latest",
+                    "nextseek-ns-sidecar:latest", "dmac-assistant:poc",
+                ),
+                1,
+            )
+        },
+        "builder_created": True,
+        "builder_removed": True,
+        "task8_resources_removed": True,
         "host_before": {"path": host_before, "sha256": _sha(host_before)},
         "host_after": {"path": host_after, "sha256": _sha(host_after)},
         "backup": {
@@ -692,7 +818,7 @@ def test_real_evidence_writer_uses_only_completed_run_facts(tmp_path: Path) -> N
         plan_path=plan_path,
         ledger_path=ledger_path,
         elapsed_s=12.0,
-        command_count=24,
+        command_count=len(entries),
     )
 
     written = gate.write_operational_evidence(
@@ -734,11 +860,13 @@ def test_real_adapter_dispatch_covers_every_planned_control(
     green = lambda *args, **kwargs: gate.CommandOutcome(0)
     for name in (
         "_validate_approval_control", "_resources_control", "_validate_source",
+        "_configure_harness", "_verify_and_tag_prior_image", "_start_namespace",
         "_snapshot_host", "_seed_prewrite", "_dump_dmac", "_restore_probe",
+        "_prepare_build", "_remove_builder", "_resume_cohort", "_push_registry",
         "_seed_postwrite", "_verify_forward", "_disable_flags",
         "_stop_schedules", "_stop_workers", "_activate_prior",
         "_restore_prior_image", "_verify_forward_schema", "_verify_recovery",
-        "_stop_daemon",
+        "_cleanup_namespace",
     ):
         monkeypatch.setattr(adapter, name, green)
 

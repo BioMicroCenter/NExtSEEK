@@ -387,12 +387,21 @@ def install(
 @app.command()
 def doctor(
     instance: str | None = typer.Option(None, "--instance"),
+    scope: str = typer.Option(
+        "full",
+        "--scope",
+        help="full (default) or app for a namespaced app-only deploy cohort",
+    ),
 ) -> None:
     """Read-only diagnostic for an existing install."""
     from startup.steps.doctor import diagnose
 
     ui.banner("NExtSEEK Startup Doctor")
-    results = diagnose(REPO_ROOT)
+    try:
+        results = diagnose(REPO_ROOT, scope=scope)
+    except ValueError as exc:
+        ui.fail(str(exc))
+        raise typer.Exit(code=2) from exc
     any_failed = False
     for name, ok, detail in results:
         if ok:
@@ -478,6 +487,21 @@ def rebuild(
             "runtime services retain this instance's existing bind-mount paths."
         ),
     ),
+    builder: str | None = typer.Option(
+        None,
+        "--builder",
+        help="Use an explicitly named Buildx builder (for isolated disposable cache).",
+    ),
+    restart: bool = typer.Option(
+        True,
+        "--restart/--no-restart",
+        help="Restart component runtimes after building (default: enabled).",
+    ),
+    registry_push: bool = typer.Option(
+        True,
+        "--registry-push/--no-registry-push",
+        help="Run the non-fatal off-box baseline push after building (default: enabled).",
+    ),
 ) -> None:
     """Safely rebuild a first-party component without touching volumes."""
     from startup.lib.docker_ops import compose_build, compose_up
@@ -528,8 +552,9 @@ def rebuild(
             services=policy.build_services,
             project_dir=build_root,
             env=state.compose_env(),
+            builder=builder,
         )
-    if policy.restart_services:
+    if policy.restart_services and restart:
         with ui.spinner(f"recreating {policy.name} runtimes"):
             compose_up(
                 services=policy.restart_services,
@@ -539,23 +564,26 @@ def rebuild(
                 no_deps=True,
             )
         ui.ok(f"{policy.name} rebuilt and restarted")
-    else:
+    elif not policy.restart_services:
         ui.ok(f"{policy.name} image rebuilt; no persistent container to restart")
+    else:
+        ui.ok(f"{policy.name} image rebuilt; runtime restart deferred by request")
 
     # Off-box rollback baselines (DEPLOYMENT.md §5.2). Non-fatal by contract,
     # and belt-and-braces guarded: the deploy is never hostage to the registry.
-    try:
-        from startup.steps import registry_push
+    if registry_push:
+        try:
+            from startup.steps import registry_push as registry_push_step
 
-        for outcome in registry_push.push_baselines(
-            REPO_ROOT,
-            compose_project_name=state.compose_project_name,
-            images=policy.images,
-            git_root=build_root,
-        ):
-            registry_push.render_outcome(outcome)
-    except Exception as exc:
-        ui.warn(f"off-box baseline push step crashed ({exc}) — deploy unaffected")
+            for outcome in registry_push_step.push_baselines(
+                REPO_ROOT,
+                compose_project_name=state.compose_project_name,
+                images=policy.images,
+                git_root=build_root,
+            ):
+                registry_push_step.render_outcome(outcome)
+        except Exception as exc:
+            ui.warn(f"off-box baseline push step crashed ({exc}) — deploy unaffected")
 
 
 @app.command(name="seed-filestore")

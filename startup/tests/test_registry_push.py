@@ -125,6 +125,21 @@ def test_gate_passes_with_only_env_example(mock_run: MagicMock) -> None:
 
 
 @patch("startup.steps.registry_push.subprocess.run")
+def test_gate_applies_optional_disposable_resource_limits(mock_run: MagicMock) -> None:
+    mock_run.side_effect = _gate_run_dispatcher("")
+
+    ok, _ = baked_secret_gate(
+        "img:latest",
+        run_limits=("--cpus", "0.10", "--memory", "128m"),
+    )
+
+    assert ok is True
+    command = mock_run.call_args.args[0]
+    assert command[:4] == ["docker", "run", "--rm", "--network"]
+    assert command[4:9] == ["none", "--cpus", "0.10", "--memory", "128m"]
+
+
+@patch("startup.steps.registry_push.subprocess.run")
 def test_gate_fails_on_local_settings(mock_run: MagicMock) -> None:
     mock_run.side_effect = _gate_run_dispatcher(
         "/app/docker/nextseek.env.example\n/app/dmac/local_settings.py\n"
@@ -411,6 +426,61 @@ def test_doctor_fails_when_new_marker_omits_first_party_images(tmp_path: Path) -
     assert "nextseek-cc-agent" in detail
 
 
+def test_app_scoped_doctor_accepts_exact_app_baseline(tmp_path: Path) -> None:
+    (tmp_path / "startup").mkdir()
+    _write_state(
+        tmp_path,
+        {
+            "images": {
+                REGISTRY_IMAGE: {
+                    "last_success": {"at": "2026-08-18T12:00:00", "tag": "app"},
+                    "last_attempt": {
+                        "at": "2026-08-18T12:00:00",
+                        "status": "pushed",
+                        "detail": "",
+                    },
+                }
+            }
+        },
+    )
+
+    _, ok, detail = check_registry_baseline(
+        tmp_path, required_registry_images={REGISTRY_IMAGE}
+    )
+
+    assert ok is True
+    assert "all 1 first-party images protected" in detail
+
+
+def test_app_scoped_doctor_reports_failed_present_app_without_missing_images(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "startup").mkdir()
+    _write_state(
+        tmp_path,
+        {
+            "images": {
+                REGISTRY_IMAGE: {
+                    "last_success": None,
+                    "last_attempt": {
+                        "at": "2026-08-18T12:00:00",
+                        "status": "push_failed",
+                        "detail": "denied",
+                    },
+                }
+            }
+        },
+    )
+
+    _, ok, detail = check_registry_baseline(
+        tmp_path, required_registry_images={REGISTRY_IMAGE}
+    )
+
+    assert ok is False
+    assert "failed:" in detail
+    assert "never pushed:" not in detail
+
+
 @patch("startup.steps.registry_push.subprocess.run")
 def test_first_non_app_push_migrates_legacy_app_state(
     mock_run: MagicMock, repo: Path
@@ -625,13 +695,41 @@ def test_rebuild_can_build_clean_source_and_recreate_from_runtime_root(
     ) as mock_push:
         result = CliRunner().invoke(
             cli.app,
-            ["rebuild", "--source-tree", str(clean_source)],
+            [
+                "rebuild", "--source-tree", str(clean_source),
+                "--builder", "p18t8-builder",
+            ],
         )
 
     assert result.exit_code == 0, result.output
     assert mock_build.call_args.kwargs["project_dir"] == clean_source
+    assert mock_build.call_args.kwargs["builder"] == "p18t8-builder"
     assert mock_up.call_args.kwargs["project_dir"] == cli.REPO_ROOT
     assert mock_push.call_args.kwargs["git_root"] == clean_source
+
+
+@patch("startup.cli.load_instance")
+def test_rebuild_can_defer_restart_and_registry_push(
+    mock_load: MagicMock,
+) -> None:
+    from typer.testing import CliRunner
+
+    from startup.cli import app
+
+    mock_load.return_value = _instance_state()
+    with patch("startup.steps.rollback_tags.create_verified", return_value=()), \
+         patch("startup.lib.docker_ops.compose_build") as mock_build, \
+         patch("startup.lib.docker_ops.compose_up") as mock_up, \
+         patch("startup.steps.registry_push.push_baselines") as mock_push:
+        result = CliRunner().invoke(
+            app, ["rebuild", "--no-restart", "--no-registry-push"]
+        )
+
+    assert result.exit_code == 0, result.output
+    mock_build.assert_called_once()
+    mock_up.assert_not_called()
+    mock_push.assert_not_called()
+    assert "restart deferred" in result.output
 
 
 @patch("startup.cli.load_instance")

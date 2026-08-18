@@ -21,6 +21,132 @@
       "sources": [
         "task_1_control"
       ]
+    },
+    {
+      "change": "task_8_control",
+      "classification": "docker",
+      "cluster": "v4_9_task8_deploy",
+      "oracle": {
+        "id": "v4_9_task_controls",
+        "target": "test:scripts/test_plan018_v4_9_task*.py"
+      },
+      "path": "docker-compose.task8.yml",
+      "rationale": "Hardware-bounded Task 8 app-cohort deployment definition.",
+      "sources": [
+        "task_8_control"
+      ]
+    },
+    {
+      "change": "task_8_control",
+      "classification": "verifier",
+      "cluster": "v4_9_task8_deploy",
+      "oracle": {
+        "id": "v4_9_task_controls",
+        "target": "test:scripts/test_plan018_v4_9_task*.py"
+      },
+      "path": "scripts/plan018_v4_9_task8_coverage.py",
+      "rationale": "Source-bound Task 8 startup coverage gate.",
+      "sources": [
+        "task_8_control"
+      ]
+    },
+    {
+      "change": "task_8_control",
+      "classification": "test",
+      "cluster": "v4_9_task8_deploy",
+      "oracle": {
+        "id": "v4_9_task_controls",
+        "target": "test:scripts/test_plan018_v4_9_task*.py"
+      },
+      "path": "scripts/test_plan018_v4_9_task8_coverage.py",
+      "rationale": "Task 8 startup coverage validator oracle.",
+      "sources": [
+        "task_8_control"
+      ]
+    },
+    {
+      "change": "task_8_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task8_deploy",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task8-startup-coverage.json",
+      "rationale": "Authenticated Task 8 startup coverage summary.",
+      "sources": [
+        "task_8_control"
+      ]
+    },
+    {
+      "change": "task_8_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task8_deploy",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task8-startup-coverage.raw.json",
+      "rationale": "Raw branch-aware Task 8 startup coverage counters.",
+      "sources": [
+        "task_8_control"
+      ]
+    },
+    {
+      "change": "task_8_control",
+      "classification": "evidence",
+      "cluster": "v4_9_task8_deploy",
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task8-startup-coverage.junit.xml",
+      "rationale": "Task 8 startup lane JUnit result.",
+      "sources": [
+        "task_8_control"
+      ]
+    },
+    {
+      "change": "task_8_control",
+      "classification": "production",
+      "cluster": "v4_9_task8_deploy",
+      "oracle": {
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
+      },
+      "path": "startup/steps/doctor.py",
+      "rationale": "App-scoped deployment doctor behavior.",
+      "sources": [
+        "task_8_control"
+      ]
+    },
+    {
+      "change": "task_8_control",
+      "classification": "production",
+      "cluster": "v4_9_task8_deploy",
+      "oracle": {
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
+      },
+      "path": "startup/steps/validate.py",
+      "rationale": "App-cohort health-check behavior.",
+      "sources": [
+        "task_8_control"
+      ]
+    },
+    {
+      "change": "task_8_control",
+      "classification": "test",
+      "cluster": "v4_9_task8_deploy",
+      "oracle": {
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
+      },
+      "path": "startup/tests/test_cli_commands.py",
+      "rationale": "Startup CLI behavioral and coverage oracle.",
+      "sources": [
+        "task_8_control"
+      ]
     }
   ],
   "entries": [
@@ -16038,15 +16164,15 @@
     },
     {
       "change": "M",
-      "classification": "integrated_non_v4",
-      "cluster": "post_base_origin_dev_integration",
+      "classification": "production",
+      "cluster": "v4_9_task8_deploy",
       "exists_at_source": true,
       "oracle": {
-        "id": "integration_provenance",
-        "target": "validator:evidence/plan018-v4-9-prereq.json"
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
       },
       "path": "startup/cli.py",
-      "rationale": "Changed between the Plan 018 base and the reconciled origin/dev source, but is outside the immutable accepted Plan 018 ownership rules and excluded from the V4 critical-module denominator.",
+      "rationale": "Hardware-bounded Task 8 startup behavior.",
       "sources": [
         "base_to_source_diff"
       ]
@@ -16083,15 +16209,15 @@
     },
     {
       "change": "M",
-      "classification": "integrated_non_v4",
-      "cluster": "post_base_origin_dev_integration",
+      "classification": "production",
+      "cluster": "v4_9_task8_deploy",
       "exists_at_source": true,
       "oracle": {
-        "id": "integration_provenance",
-        "target": "validator:evidence/plan018-v4-9-prereq.json"
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
       },
       "path": "startup/lib/docker_ops.py",
-      "rationale": "Changed between the Plan 018 base and the reconciled origin/dev source, but is outside the immutable accepted Plan 018 ownership rules and excluded from the V4 critical-module denominator.",
+      "rationale": "Hardware-bounded Task 8 startup behavior.",
       "sources": [
         "base_to_source_diff"
       ]
@@ -16203,15 +16329,15 @@
     },
     {
       "change": "M",
-      "classification": "integrated_non_v4",
-      "cluster": "post_base_origin_dev_integration",
+      "classification": "production",
+      "cluster": "v4_9_task8_deploy",
       "exists_at_source": true,
       "oracle": {
-        "id": "integration_provenance",
-        "target": "validator:evidence/plan018-v4-9-prereq.json"
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
       },
       "path": "startup/steps/registry_push.py",
-      "rationale": "Changed between the Plan 018 base and the reconciled origin/dev source, but is outside the immutable accepted Plan 018 ownership rules and excluded from the V4 critical-module denominator.",
+      "rationale": "Hardware-bounded Task 8 startup behavior.",
       "sources": [
         "base_to_source_diff"
       ]
@@ -16338,15 +16464,15 @@
     },
     {
       "change": "M",
-      "classification": "integrated_non_v4",
-      "cluster": "post_base_origin_dev_integration",
+      "classification": "test",
+      "cluster": "v4_9_task8_deploy",
       "exists_at_source": true,
       "oracle": {
-        "id": "integration_provenance",
-        "target": "validator:evidence/plan018-v4-9-prereq.json"
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
       },
       "path": "startup/tests/test_docker_ops.py",
-      "rationale": "Changed between the Plan 018 base and the reconciled origin/dev source, but is outside the immutable accepted Plan 018 ownership rules and excluded from the V4 critical-module denominator.",
+      "rationale": "Hardware-bounded Task 8 startup behavior oracle.",
       "sources": [
         "base_to_source_diff"
       ]
@@ -16428,15 +16554,15 @@
     },
     {
       "change": "M",
-      "classification": "integrated_non_v4",
-      "cluster": "post_base_origin_dev_integration",
+      "classification": "test",
+      "cluster": "v4_9_task8_deploy",
       "exists_at_source": true,
       "oracle": {
-        "id": "integration_provenance",
-        "target": "validator:evidence/plan018-v4-9-prereq.json"
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
       },
       "path": "startup/tests/test_registry_push.py",
-      "rationale": "Changed between the Plan 018 base and the reconciled origin/dev source, but is outside the immutable accepted Plan 018 ownership rules and excluded from the V4 critical-module denominator.",
+      "rationale": "Hardware-bounded Task 8 startup behavior oracle.",
       "sources": [
         "base_to_source_diff"
       ]
@@ -16503,15 +16629,15 @@
     },
     {
       "change": "M",
-      "classification": "integrated_non_v4",
-      "cluster": "post_base_origin_dev_integration",
+      "classification": "test",
+      "cluster": "v4_9_task8_deploy",
       "exists_at_source": true,
       "oracle": {
-        "id": "integration_provenance",
-        "target": "validator:evidence/plan018-v4-9-prereq.json"
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
       },
       "path": "startup/tests/test_steps_coverage_gaps.py",
-      "rationale": "Changed between the Plan 018 base and the reconciled origin/dev source, but is outside the immutable accepted Plan 018 ownership rules and excluded from the V4 critical-module denominator.",
+      "rationale": "Hardware-bounded Task 8 startup behavior oracle.",
       "sources": [
         "base_to_source_diff"
       ]
@@ -16533,15 +16659,15 @@
     },
     {
       "change": "M",
-      "classification": "integrated_non_v4",
-      "cluster": "post_base_origin_dev_integration",
+      "classification": "test",
+      "cluster": "v4_9_task8_deploy",
       "exists_at_source": true,
       "oracle": {
-        "id": "integration_provenance",
-        "target": "validator:evidence/plan018-v4-9-prereq.json"
+        "id": "startup_coverage",
+        "target": "test:startup/tests/test_*.py"
       },
       "path": "startup/tests/test_validate.py",
-      "rationale": "Changed between the Plan 018 base and the reconciled origin/dev source, but is outside the immutable accepted Plan 018 ownership rules and excluded from the V4 critical-module denominator.",
+      "rationale": "Hardware-bounded Task 8 startup behavior oracle.",
       "sources": [
         "base_to_source_diff"
       ]
@@ -22184,14 +22310,14 @@
       "docs": 40,
       "evidence": 249,
       "generated": 8,
-      "integrated_non_v4": 432,
+      "integrated_non_v4": 425,
       "migration": 13,
-      "production": 127,
+      "production": 130,
       "schema": 4,
-      "test": 166,
+      "test": 170,
       "verifier": 32
     },
-    "control_entries": 1,
+    "control_entries": 10,
     "source_candidates": 1097
   }
 }

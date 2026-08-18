@@ -554,3 +554,39 @@ def test_doctor_full_path_includes_health_checks(
     results = diagnose(tmp_path)
     names = [name for name, _, _ in results]
     assert names == ["docker", "off-box baseline", "instance state", "http"]
+
+
+@patch("startup.steps.doctor.validate")
+@patch("startup.steps.doctor.load_instance")
+@patch("startup.steps.doctor.prereqs")
+@patch("startup.steps.doctor.registry_push.check_registry_baseline")
+def test_doctor_app_scope_uses_only_app_registry_and_health(
+    mock_registry: MagicMock,
+    mock_prereqs: MagicMock,
+    mock_load: MagicMock,
+    mock_validate: MagicMock,
+    tmp_path: Path,
+) -> None:
+    from startup.steps.doctor import diagnose
+    from startup.steps.registry_push import REGISTRY_IMAGE
+
+    mock_prereqs.run_all.return_value = []
+    mock_registry.return_value = ("off-box baseline", True, "app protected")
+    state = MagicMock()
+    state.name, state.prefix, state.ports = "task8", "task8-", {"nextseek": 18000}
+    state.compose_env.return_value = {"COMPOSE_PROJECT_NAME": "task8"}
+    mock_load.return_value = state
+    mock_validate.run_app_health_checks.return_value = [
+        SimpleNamespace(name="NExtSEEK", ok=True, detail="200")
+    ]
+
+    results = diagnose(tmp_path, scope="app")
+
+    mock_registry.assert_called_once_with(
+        tmp_path, required_registry_images={REGISTRY_IMAGE}
+    )
+    mock_validate.run_app_health_checks.assert_called_once()
+    mock_validate.run_all_health_checks.assert_not_called()
+    assert [name for name, _, _ in results] == [
+        "off-box baseline", "instance state", "NExtSEEK"
+    ]
