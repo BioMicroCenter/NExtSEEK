@@ -34,7 +34,7 @@ COVERAGE_SUMMARY = Path("evidence/plan018-v4-9-task2-coverage.json")
 # These are intentionally independent pins: changing the map or owned surface does
 # not turn an old green coverage result into proof for a new scope.
 PINNED_OWNERSHIP_MAP_SHA256 = "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df"
-PINNED_OWNED_SURFACE_SHA256 = "d9dfe26c8d1a5eaf5395f2e6911430b0deec2778d42c289be7b82c1634881f8d"
+PINNED_OWNED_SURFACE_SHA256 = "aa098360474e2ce9008e6a30d0086b02cf9479674e6bcac0fe9f94d07293c1a8"
 TRANSFERRED_EVIDENCE_DIR = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07")
 PINNED_TRANSFERRED_EVIDENCE_SHA256 = {
     "testquestions.zip": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
