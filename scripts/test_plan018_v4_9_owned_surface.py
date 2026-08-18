@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -46,6 +47,8 @@ def _validate_current(repo: Path) -> subprocess.CompletedProcess[str]:
 def git_checkout(tmp_path: Path) -> Path:
     checkout = tmp_path / "checkout"
     subprocess.run(["git", "clone", "--quiet", "--no-local", str(ROOT), str(checkout)], check=True)
+    shutil.copy2(SCRIPT, checkout / SCRIPT.relative_to(ROOT))
+    shutil.copy2(MANIFEST, checkout / MANIFEST.relative_to(ROOT))
     return checkout
 
 
@@ -56,7 +59,7 @@ def test_checked_in_manifest_validates_against_its_source_diff():
     assert module.validate_manifest(manifest, root=ROOT) == []
     assert manifest["schema"] == "plan018-v4-9-owned-surface/v1"
     assert manifest["identity"]["base_sha"] == "6881b6a870d68a6efaeb483b111cb9244488c5f9"
-    assert manifest["identity"]["source_sha"] == "517dffd18554a409e5d8e4b7fe43c8ffbb03bb09"
+    assert manifest["identity"]["source_sha"] == "93855a575d4e39cb58280dd4a49cded4c4f06431"
 
 
 def test_every_source_candidate_is_listed_once_and_has_a_resolvable_oracle():
@@ -68,6 +71,34 @@ def test_every_source_candidate_is_listed_once_and_has_a_resolvable_oracle():
     assert {candidate.path for candidate in candidates} == {entry["path"] for entry in entries}
     assert len(entries) == len({entry["path"] for entry in entries})
     assert all(module.oracle_errors(entry, root=ROOT) == [] for entry in entries)
+    assert not ({entry["path"] for entry in entries} & {entry["path"] for entry in manifest["control_entries"]})
+
+
+def test_no_accepted_plan018_path_is_excluded_as_an_unrelated_integration():
+    module = _module()
+    manifest = json.loads(MANIFEST.read_text())
+
+    excluded = [
+        entry
+        for entry in manifest["entries"]
+        if entry["classification"] == "integrated_non_v4"
+    ]
+
+    assert excluded
+    assert all(
+        not any(source.startswith("accepted_ownership:") for source in entry["sources"])
+        for entry in excluded
+    )
+
+
+def test_current_v4_runtime_and_task6_surfaces_are_not_excluded():
+    module = _module()
+
+    assert module.classify_path("dmac/settings.py")["cluster"] == "v4_9_runtime_config"
+    assert module.classify_path("docker/nextseek.env.example")["cluster"] == "v4_9_runtime_config"
+    assert module.classify_path("startup/templates/nextseek.env.template")["cluster"] == "v4_9_runtime_config"
+    assert module.classify_path("docker/eval-task6/Dockerfile")["cluster"] == "v4_9_task6_replay"
+    assert module.classify_path("scripts/plan018_v4_9_task6_replay.py")["cluster"] == "v4_9_task_controls"
 
 
 def test_nessie_skill_and_template_are_regeneration_surfaces_with_resolvable_oracles():
@@ -94,6 +125,20 @@ def test_current_git_addition_is_rejected(git_checkout: Path):
 
     assert result.returncode == 1
     assert "unclassified new path" in result.stderr
+
+
+def test_new_file_under_an_excluded_integration_prefix_still_requires_manifest_update(
+    git_checkout: Path,
+):
+    added = git_checkout / "chat_frontend" / "src" / "future-plan018-surface.ts"
+    added.write_text("export const future = true;\n")
+    _git(git_checkout, "add", str(added.relative_to(git_checkout)))
+    _commit(git_checkout, "test: add path beneath classified integration prefix")
+
+    result = _validate_current(git_checkout)
+
+    assert result.returncode == 1
+    assert "new path absent from authoritative manifest" in result.stderr
 
 
 def test_current_git_deletion_of_owned_path_is_rejected(git_checkout: Path):

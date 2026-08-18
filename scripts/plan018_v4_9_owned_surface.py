@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 SCHEMA = "plan018-v4-9-owned-surface/v1"
 BASE_SHA = "6881b6a870d68a6efaeb483b111cb9244488c5f9"
-SOURCE_SHA = "517dffd18554a409e5d8e4b7fe43c8ffbb03bb09"
+SOURCE_SHA = "93855a575d4e39cb58280dd4a49cded4c4f06431"
 OWNERSHIP_RULES = "evidence/plan018-v4-0-accepted-ownership-rules.json"
 OWNERSHIP_RULES_SHA256 = "faf30fb866ed56520fa367dd5c25a408ffcc2f5a516a90240e9cdb7805db921b"
 ORACLE_KINDS = frozenset({"coverage", "structural", "regeneration", "mutation", "justified_exclusion"})
@@ -37,6 +37,7 @@ ORACLE_REGISTRY: dict[str, dict[str, str]] = {
     "cc_coverage": {"kind": "coverage", "target": "test:nextseek_api/cc_assistant/tests/test_*.py"},
     "cc_mutation": {"kind": "mutation", "target": "test:nextseek_api/cc_assistant/tests/test_*mutation*.py"},
     "cc_structural": {"kind": "structural", "target": "test:nextseek_api/cc_assistant/tests/test_*.py"},
+    "v4_runtime_config": {"kind": "structural", "target": "test:nextseek_api/cc_assistant/tests/test_runtime_p0.py"},
     "migration_lineage": {"kind": "structural", "target": "validator:evidence/plan018-migration-leaf.json"},
     "baml_regeneration": {"kind": "regeneration", "target": "test:nextseek_api/cc_assistant/tests/test_router_family.py"},
     "docker_regeneration": {"kind": "regeneration", "target": "test:nextseek_api/cc_assistant/tests/test_eval_vendoring.py"},
@@ -47,39 +48,13 @@ ORACLE_REGISTRY: dict[str, dict[str, str]] = {
     "documentation_review": {"kind": "justified_exclusion", "target": "validator:evidence/plan018-v4-0-ownership-map.md"},
     "validator_self": {"kind": "structural", "target": "test:scripts/test_plan018_v4_9_owned_surface.py"},
     "manifest_regeneration": {"kind": "regeneration", "target": "command:python3 scripts/plan018_v4_9_owned_surface.py generate --check"},
+    "v4_9_task_controls": {"kind": "structural", "target": "test:scripts/test_plan018_v4_9_task*.py"},
+    "integration_provenance": {"kind": "justified_exclusion", "target": "validator:evidence/plan018-v4-9-prereq.json"},
     "task_report": {"kind": "justified_exclusion", "target": "validator:evidence/plan018-preflight.json"},
 }
 
 CONTROL_ENTRIES: tuple[dict[str, Any], ...] = (
-    {"path": "evidence/plan018-v4-0-accepted-ownership-rules.json", "classification": "accepted_ownership_rules", "cluster": "v4_9_owned_surface_control", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Machine-readable immutable transcription of the accepted ownership map.", "sources": ["task_1_control"], "change": "task_1_control"},
-    {"path": "scripts/plan018_v4_9_owned_surface.py", "classification": "validator_tooling", "cluster": "v4_9_owned_surface_control", "oracle": {"id": "validator_self", "target": ORACLE_REGISTRY["validator_self"]["target"]}, "rationale": "Task 1 generator and validator.", "sources": ["task_1_control"], "change": "task_1_control"},
-    {"path": "scripts/test_plan018_v4_9_owned_surface.py", "classification": "validator_test", "cluster": "v4_9_owned_surface_control", "oracle": {"id": "validator_self", "target": ORACLE_REGISTRY["validator_self"]["target"]}, "rationale": "Focused Git-bound validation regression suite.", "sources": ["task_1_control"], "change": "task_1_control"},
-    {"path": "evidence/plan018-v4-9-owned-surface.json", "classification": "generated_manifest", "cluster": "v4_9_owned_surface_control", "oracle": {"id": "manifest_regeneration", "target": ORACLE_REGISTRY["manifest_regeneration"]["target"]}, "rationale": "Generated authoritative inventory.", "sources": ["task_1_control"], "change": "task_1_control"},
     {"path": ".superpowers/sdd/2026-08-13-plan018-v4-9/task-1-report.md", "classification": "task_report", "cluster": "v4_9_owned_surface_control", "oracle": {"id": "task_report", "target": ORACLE_REGISTRY["task_report"]["target"]}, "rationale": "Required Task 1 report, not product behavior.", "sources": ["task_1_control"], "change": "task_1_control"},
-)
-
-# Task 2 artifacts are controls over the immutable source inventory: they do
-# not redefine historical ownership, but make its current coverage gate
-# reproducible and visible to --current validation.
-CONTROL_ENTRIES += (
-    {"path": "evidence/plan018-v4-9-task2-ownership.json", "classification": "task_ownership", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Pinned task-to-path evolution mapping for Task 2.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "scripts/plan018_v4_9_task2_coverage.py", "classification": "validator_tooling", "cluster": "v4_9_task2", "oracle": {"id": "validator_self", "target": ORACLE_REGISTRY["validator_self"]["target"]}, "rationale": "Task 2 source-bound coverage validator.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "scripts/test_plan018_v4_9_task2_coverage.py", "classification": "validator_test", "cluster": "v4_9_task2", "oracle": {"id": "validator_self", "target": ORACLE_REGISTRY["validator_self"]["target"]}, "rationale": "Task 2 validator adversarial tests.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "nextseek_api/eval/tests/test_v4_9_task2_behavior.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Task 2 behavioral and defensive-fault tests.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "nextseek_api/eval/tests/test_exporter_contract.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Fast integrated exporter contract coverage.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "nextseek_api/eval/tests/test_functional_inputs_contract.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Fast integrated functional-input contract coverage.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "nextseek_api/eval/tests/test_task2_coverage_edges.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Hermetic branch coverage for Task 2 owned models.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "nextseek_api/eval/tests/test_artifact_validity_proposal.py", "classification": "test", "cluster": "v4_9_task2", "oracle": {"id": "eval_structural", "target": ORACLE_REGISTRY["eval_structural"]["target"]}, "rationale": "Hermetic structural artifact-validator coverage.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "evidence/plan018-v4-9-task2-coverage.raw.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Raw Task 2 coverage evidence.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "evidence/plan018-v4-9-task2-coverage.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Validated Task 2 coverage summary.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "evidence/plan018-v4-9-task2-evidence.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Task 2 command, provenance, and no-external-effects evidence.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": ".superpowers/sdd/2026-08-13-plan018-v4-9/task-2-report.md", "classification": "task_report", "cluster": "v4_9_task2", "oracle": {"id": "task_report", "target": ORACLE_REGISTRY["task_report"]["target"]}, "rationale": "Required Task 2 report.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "evidence/plan018-v4-9-task2-full-collection.txt", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Exact intended Task 2 collection node IDs.", "sources": ["task_2_control"], "change": "task_2_control"},
-    {"path": "evidence/plan018-v4-9-task2-chunks.json", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Bounded Task 2 chunk predicates, JUnit hashes, and partition proof.", "sources": ["task_2_control"], "change": "task_2_control"},
-)
-CONTROL_ENTRIES += tuple(
-    {"path": f"evidence/plan018-v4-9-task2-chunk-{index:02d}.junit.xml", "classification": "evidence", "cluster": "v4_9_task2", "oracle": {"id": "evidence_structural", "target": ORACLE_REGISTRY["evidence_structural"]["target"]}, "rationale": "Bounded Task 2 chunk JUnit evidence.", "sources": ["task_2_control"], "change": "task_2_control"}
-    for index in range(16)
 )
 
 
@@ -201,6 +176,62 @@ def _entry(path: str, classification: str, cluster: str, oracle_id: str, rationa
     return {"path": path, "classification": classification, "cluster": cluster, "oracle": {"id": oracle_id, "target": oracle["target"]}, "rationale": rationale}
 
 
+_V4_RUNTIME_CONFIG = frozenset(
+    {
+        "dmac/settings.py",
+        "docker/nextseek.env.example",
+        "startup/templates/nextseek.env.template",
+    }
+)
+
+_INTEGRATED_NON_V4_PREFIXES = (
+    ".claude/",
+    "build_tools/",
+    "chat_frontend/",
+    "chat_nextseek/",
+    "dmac/",
+    "dmac_assistant/",
+    "docker/",
+    "nextseek_api/assistant/",
+    "nextseek_api/attributes/",
+    "nextseek_api/batch_upload/",
+    "nextseek_api/cc_assistant/",
+    "nextseek_api/management/",
+    "nextseek_api/schema_rag/",
+    "nextseek_api/services/",
+    "nextseek_api/tests/",
+    "scripts/",
+    "seek/",
+    "startup/",
+    "static/",
+    "testquestions-2026-08-07/",
+    "themes/",
+)
+
+_INTEGRATED_NON_V4_EXACT = frozenset(
+    {
+        ".dockerignore",
+        ".env.example",
+        ".gitignore",
+        "AGENTS.md",
+        "DEPLOYMENT.md",
+        "Dockerfile",
+        "NExtSTEPS.md",
+        "README.md",
+        "UI.md",
+        "docker-compose.yml",
+        "nextseek_api/endpoint_descriptions.py",
+        "nextseek_api/helpers.py",
+        "nextseek_api/models.py",
+        "nextseek_api/permissions.py",
+        "nextseek_api/seek_api.py",
+        "nextseek_api/seek_api_helpers.py",
+        "nextseek_api/urls.py",
+        "nextseek_api/views.py",
+    }
+)
+
+
 def classify_path(path: str) -> dict[str, Any] | None:
     """Explicit surface classifier; no catch-all for executable extensions."""
     if path == "nextseek_api/cc_assistant/tests/conftest.py":
@@ -243,20 +274,36 @@ def classify_path(path: str) -> dict[str, Any] | None:
         return _entry(path, "schema", "diff_only_baml", "baml_regeneration", "Diff-derived BAML surface, not accepted router.baml ownership.")
     if path == "docker/eval/Dockerfile":
         return _entry(path, "docker", "task_6_eval_container", "docker_regeneration", "Evaluation image definition.")
+    if path == "docker/eval-task6/Dockerfile":
+        return _entry(path, "docker", "v4_9_task6_replay", "docker_regeneration", "Task 6 stored-evidence replay image definition.")
     if path in {"pyproject.toml", "uv.lock"}:
         return _entry(path, "dependency", "task_6_lockfile", "docker_regeneration", "Accepted Task 6 dependency/lockfile surface.")
     if path == "dmac/test_settings.py":
         return _entry(path, "configuration", "v4_test_harness", "lane_c_structural", "Lane C settings seam.")
+    if path in _V4_RUNTIME_CONFIG:
+        return _entry(path, "configuration", "v4_9_runtime_config", "v4_runtime_config", "Initial-release posterior-routing runtime configuration.")
+    if path == "scripts/nessie":
+        return _entry(path, "verifier", "v4_2_nessie", "nessie_command", "Nessie command wrapper.")
     if path == "scripts/plan018_lane_m_mysql.sh":
         return _entry(path, "verifier", "v4_lane_m", "lane_m_structural", "Disposable Lane M launcher.")
+    if path.startswith("scripts/plan018_v4_9_") or path.startswith("scripts/test_plan018_v4_9_"):
+        return _entry(path, "verifier", "v4_9_task_controls", "v4_9_task_controls", "V4-9 source-bound task harness or its focused validator tests.")
     if path.startswith("scripts/") and path in {"scripts/plan018_v4_2_verifier.py", "scripts/plan018_v4_3_verifier.py", "scripts/plan018_v4_4_verifier.py", "scripts/plan018_v4_5_verifier.py", "scripts/plan018_v4_6_verifier.py", "scripts/plan018_v4_7_verifier.py", "scripts/plan018_v4_8_verifier.py", "scripts/plan018_verifier_support.py", "scripts/test_plan018_verifier_support.py"}:
         return _entry(path, "verifier", "v4_verification", "plan018_verifier", "Named Plan 018 verifier support surface.")
-    if path.startswith("evidence/") and path.endswith((".json", ".xml", ".log", ".md", ".txt", ".tsv")):
+    if path.startswith("evidence/"):
         return _entry(path, "evidence", "plan018_evidence", "evidence_structural", "Evidence artifact with provenance/structural oracle.")
     if path.startswith(".superpowers/sdd/") and path.endswith((".md", ".diff")):
         return _entry(path, "evidence", "plan018_sdd", "evidence_structural", "SDD evidence artifact.")
     if path == "CLAUDE.md" or path.startswith("docs/"):
         return _entry(path, "docs", "plan018_docs", "documentation_review", "Documentation-only surface.")
+    if path in _INTEGRATED_NON_V4_EXACT or path.startswith(_INTEGRATED_NON_V4_PREFIXES):
+        return _entry(
+            path,
+            "integrated_non_v4",
+            "post_base_origin_dev_integration",
+            "integration_provenance",
+            "Changed between the Plan 018 base and the reconciled origin/dev source, but is outside the immutable accepted Plan 018 ownership rules and excluded from the V4 critical-module denominator.",
+        )
     return None
 
 
@@ -341,6 +388,12 @@ def validate_manifest(manifest: dict[str, Any], *, root: Path, additional_paths:
 
     candidates = source_candidates(manifest, root=root)
     expected_paths = {candidate.path for candidate in candidates}
+    control_paths = {control["path"] for control in CONTROL_ENTRIES}
+    overlap = expected_paths & control_paths
+    if overlap:
+        errors.append(
+            "source/control paths must be disjoint: " + ",".join(sorted(overlap))
+        )
     entries = manifest.get("entries", [])
     by_path = {entry.get("path"): entry for entry in entries}
     if len(entries) != len(by_path):
@@ -358,6 +411,10 @@ def validate_manifest(manifest: dict[str, Any], *, root: Path, additional_paths:
         if entry.get("sources") != list(candidate.sources) or entry.get("change") != candidate.change or entry.get("exists_at_source") is not candidate.exists_at_source:
             errors.append(f"candidate derivation mismatch for {path}")
         errors.extend(oracle_errors(entry, root=root))
+        if entry.get("classification") == "integrated_non_v4" and any(
+            source.startswith("accepted_ownership:") for source in candidate.sources
+        ):
+            errors.append(f"accepted Plan 018 ownership cannot be excluded as non-V4: {path}")
         if entry.get("classification") == "production" and ORACLE_REGISTRY.get(entry.get("oracle", {}).get("id"), {}).get("kind") not in {"coverage", "mutation"}:
             errors.append(f"behavior-bearing production path lacks coverage/mutation oracle: {path}")
     for control in manifest.get("control_entries", []):
