@@ -1,0 +1,321 @@
+{
+  "$defs": {
+    "DataIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Sha256",
+          "type": "string"
+        },
+        "database_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Database Sha256",
+          "type": "string"
+        },
+        "row_counts": {
+          "additionalProperties": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "propertyNames": {
+            "enum": [
+              "judgments",
+              "exclusions",
+              "pending_attempts",
+              "failed_attempts",
+              "reservations",
+              "tombstones"
+            ]
+          },
+          "title": "Row Counts",
+          "type": "object"
+        },
+        "tombstone_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Tombstone Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "database_sha256",
+        "artifact_sha256",
+        "tombstone_sha256",
+        "row_counts"
+      ],
+      "title": "DataIdentity",
+      "type": "object"
+    },
+    "GenerationIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Active",
+          "type": "string"
+        },
+        "prior": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prior",
+          "type": "string"
+        }
+      },
+      "required": [
+        "active",
+        "prior"
+      ],
+      "title": "GenerationIdentity",
+      "type": "object"
+    },
+    "GitIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "diff_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Diff Sha256",
+          "type": "string"
+        },
+        "source_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Source Sha",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_sha",
+        "diff_sha256"
+      ],
+      "title": "GitIdentity",
+      "type": "object"
+    },
+    "RuntimeIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "identity_id": {
+          "minLength": 1,
+          "title": "Identity Id",
+          "type": "string"
+        },
+        "image_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Image Digest",
+          "type": "string"
+        },
+        "max_schema_generation": {
+          "minimum": 1,
+          "title": "Max Schema Generation",
+          "type": "integer"
+        },
+        "min_schema_generation": {
+          "minimum": 1,
+          "title": "Min Schema Generation",
+          "type": "integer"
+        },
+        "owner": {
+          "minLength": 1,
+          "title": "Owner",
+          "type": "string"
+        },
+        "queue_generation": {
+          "minimum": 1,
+          "title": "Queue Generation",
+          "type": "integer"
+        },
+        "release": {
+          "enum": [
+            "old",
+            "new"
+          ],
+          "title": "Release",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "web",
+            "worker"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "source_sha": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Source Sha",
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity_id",
+        "release",
+        "role",
+        "source_sha",
+        "image_digest",
+        "owner",
+        "min_schema_generation",
+        "max_schema_generation",
+        "queue_generation"
+      ],
+      "title": "RuntimeIdentity",
+      "type": "object"
+    },
+    "SchemaIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "migration_leaf": {
+          "minLength": 1,
+          "title": "Migration Leaf",
+          "type": "string"
+        },
+        "migrations": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Migrations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "generation",
+        "migration_leaf",
+        "migrations",
+        "fingerprint"
+      ],
+      "title": "SchemaIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/DataIdentity"
+    },
+    "deploy_id": {
+      "minLength": 1,
+      "title": "Deploy Id",
+      "type": "string"
+    },
+    "flag_state": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "propertyNames": {
+        "minLength": 1
+      },
+      "title": "Flag State",
+      "type": "object"
+    },
+    "generations": {
+      "$ref": "#/$defs/GenerationIdentity"
+    },
+    "git": {
+      "$ref": "#/$defs/GitIdentity"
+    },
+    "images": {
+      "additionalProperties": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "propertyNames": {
+        "enum": [
+          "prior",
+          "candidate"
+        ]
+      },
+      "title": "Images",
+      "type": "object"
+    },
+    "network_identity": {
+      "minLength": 1,
+      "title": "Network Identity",
+      "type": "string"
+    },
+    "owner": {
+      "minLength": 1,
+      "title": "Owner",
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "expand",
+        "migrate"
+      ],
+      "title": "Phase",
+      "type": "string"
+    },
+    "runtime_identities": {
+      "items": {
+        "$ref": "#/$defs/RuntimeIdentity"
+      },
+      "title": "Runtime Identities",
+      "type": "array"
+    },
+    "schedule_state": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "propertyNames": {
+        "minLength": 1
+      },
+      "title": "Schedule State",
+      "type": "object"
+    },
+    "schema": {
+      "$ref": "#/$defs/SchemaIdentity"
+    },
+    "schema_version": {
+      "const": "plan018-deploy-record/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "settings_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Settings Sha256",
+      "type": "string"
+    },
+    "smoke_checks": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "propertyNames": {
+        "minLength": 1
+      },
+      "title": "Smoke Checks",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "deploy_id",
+    "created_at",
+    "owner",
+    "phase",
+    "git",
+    "images",
+    "schema",
+    "settings_sha256",
+    "schedule_state",
+    "flag_state",
+    "generations",
+    "data",
+    "network_identity",
+    "runtime_identities",
+    "smoke_checks"
+  ],
+  "title": "DeployRecord",
+  "type": "object"
+}

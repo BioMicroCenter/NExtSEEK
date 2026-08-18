@@ -1,0 +1,102 @@
+{
+  "created_at": "2026-08-18T17:00:00Z",
+  "data": {
+    "artifact_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+    "database_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+    "row_counts": {
+      "exclusions": 2,
+      "failed_attempts": 1,
+      "judgments": 3,
+      "pending_attempts": 1,
+      "reservations": 1,
+      "tombstones": 1
+    },
+    "tombstone_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "deploy_id": "v4-9-disposable-001",
+  "flag_state": {
+    "paid_eval": false,
+    "posterior_routing": true
+  },
+  "generations": {
+    "active": "6666666666666666666666666666666666666666666666666666666666666666",
+    "prior": "7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "git": {
+    "diff_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "source_sha": "2222222222222222222222222222222222222222"
+  },
+  "images": {
+    "candidate": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "prior": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "network_identity": "isolated-plan018-v4-9",
+  "owner": "plan018-harness",
+  "phase": "expand",
+  "runtime_identities": [
+    {
+      "identity_id": "old-web",
+      "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "max_schema_generation": 3,
+      "min_schema_generation": 1,
+      "owner": "plan018-harness",
+      "queue_generation": 1,
+      "release": "old",
+      "role": "web",
+      "source_sha": "1111111111111111111111111111111111111111"
+    },
+    {
+      "identity_id": "new-web",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "max_schema_generation": 3,
+      "min_schema_generation": 1,
+      "owner": "plan018-harness",
+      "queue_generation": 2,
+      "release": "new",
+      "role": "web",
+      "source_sha": "2222222222222222222222222222222222222222"
+    },
+    {
+      "identity_id": "old-worker",
+      "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "max_schema_generation": 3,
+      "min_schema_generation": 1,
+      "owner": "plan018-harness",
+      "queue_generation": 1,
+      "release": "old",
+      "role": "worker",
+      "source_sha": "1111111111111111111111111111111111111111"
+    },
+    {
+      "identity_id": "new-worker",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "max_schema_generation": 3,
+      "min_schema_generation": 1,
+      "owner": "plan018-harness",
+      "queue_generation": 2,
+      "release": "new",
+      "role": "worker",
+      "source_sha": "2222222222222222222222222222222222222222"
+    }
+  ],
+  "schedule_state": {
+    "paid_eval": false,
+    "reconciliation": true
+  },
+  "schema": {
+    "fingerprint": "4444444444444444444444444444444444444444444444444444444444444444",
+    "generation": 2,
+    "migration_leaf": "0019_merge_attribute_async_turn_ledger",
+    "migrations": [
+      "0017_paid_run_state",
+      "0019_merge_attribute_async_turn_ledger"
+    ]
+  },
+  "schema_version": "plan018-deploy-record/v1",
+  "settings_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "smoke_checks": {
+    "schema": true,
+    "selector": true,
+    "worker": true
+  }
+}

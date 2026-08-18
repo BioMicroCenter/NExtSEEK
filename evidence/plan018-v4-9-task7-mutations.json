@@ -1,0 +1,36 @@
+{
+  "cases": [
+    {
+      "id": "remove_runtime_identity_guard",
+      "killer": "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_runtime_identity_guard_is_killed",
+      "result": "KILLED",
+      "source": "nextseek_api/eval/mixed_version_recovery.py",
+      "source_sha256": "6735da97c304286b4a6875b3a5a37b810f6de52f1f590cd1c633b5d6e51e10bb",
+      "symbol": "MixedVersionHarness._require_identity",
+      "test_sha256": "182aafe7bebc126265a9b5b2d614203f815f20659326f56efdb60a17f3ea06f6"
+    },
+    {
+      "id": "remove_contract_refusal",
+      "killer": "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_contract_refusal_is_killed",
+      "result": "KILLED",
+      "source": "nextseek_api/eval/mixed_version_recovery.py",
+      "source_sha256": "6735da97c304286b4a6875b3a5a37b810f6de52f1f590cd1c633b5d6e51e10bb",
+      "symbol": "MixedVersionHarness.request_contract",
+      "test_sha256": "182aafe7bebc126265a9b5b2d614203f815f20659326f56efdb60a17f3ea06f6"
+    },
+    {
+      "id": "remove_destructive_recovery_guard",
+      "killer": "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_destructive_recovery_guard_is_killed",
+      "result": "KILLED",
+      "source": "nextseek_api/eval/mixed_version_recovery.py",
+      "source_sha256": "6735da97c304286b4a6875b3a5a37b810f6de52f1f590cd1c633b5d6e51e10bb",
+      "symbol": "MixedVersionHarness.recover",
+      "test_sha256": "182aafe7bebc126265a9b5b2d614203f815f20659326f56efdb60a17f3ea06f6"
+    }
+  ],
+  "schema": "plan018-v4-9-task7-mutations/v1",
+  "summary": {
+    "enumerated": 3,
+    "killed": 3
+  }
+}
