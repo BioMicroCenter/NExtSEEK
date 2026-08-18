@@ -5812,6 +5812,36 @@
         "id": "evidence_structural",
         "target": "validator:evidence/plan018-preflight.json"
       },
+      "path": "evidence/plan018-v4-9-deploy-record.fixture.json",
+      "rationale": "Evidence artifact with provenance/structural oracle.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "evidence",
+      "cluster": "plan018_evidence",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-deploy-record.schema.json",
+      "rationale": "Evidence artifact with provenance/structural oracle.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "evidence",
+      "cluster": "plan018_evidence",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
       "path": "evidence/plan018-v4-9-functional-e2e-rerun-2026-08-14.json",
       "rationale": "Evidence artifact with provenance/structural oracle.",
       "sources": [
@@ -7179,6 +7209,66 @@
         "target": "validator:evidence/plan018-preflight.json"
       },
       "path": "evidence/plan018-v4-9-task6.junit.xml",
+      "rationale": "Evidence artifact with provenance/structural oracle.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "evidence",
+      "cluster": "plan018_evidence",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task7-coverage.raw.json",
+      "rationale": "Evidence artifact with provenance/structural oracle.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "evidence",
+      "cluster": "plan018_evidence",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task7-evidence.json",
+      "rationale": "Evidence artifact with provenance/structural oracle.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "evidence",
+      "cluster": "plan018_evidence",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task7-mutations.json",
+      "rationale": "Evidence artifact with provenance/structural oracle.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "evidence",
+      "cluster": "plan018_evidence",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "evidence_structural",
+        "target": "validator:evidence/plan018-preflight.json"
+      },
+      "path": "evidence/plan018-v4-9-task7.junit.xml",
       "rationale": "Evidence artifact with provenance/structural oracle.",
       "sources": [
         "base_to_source_diff"
@@ -12291,6 +12381,22 @@
         "id": "eval_coverage",
         "target": "test:nextseek_api/eval/tests/test_*.py"
       },
+      "path": "nextseek_api/eval/deploy_record.py",
+      "rationale": "Behavior-bearing evaluation module.",
+      "sources": [
+        "accepted_ownership:task6-eval",
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "production",
+      "cluster": "v4_eval",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "eval_coverage",
+        "target": "test:nextseek_api/eval/tests/test_*.py"
+      },
       "path": "nextseek_api/eval/disposition.py",
       "rationale": "Behavior-bearing evaluation module.",
       "sources": [
@@ -13189,6 +13295,22 @@
         "id": "eval_coverage",
         "target": "test:nextseek_api/eval/tests/test_*.py"
       },
+      "path": "nextseek_api/eval/mixed_version_recovery.py",
+      "rationale": "Behavior-bearing evaluation module.",
+      "sources": [
+        "accepted_ownership:task6-eval",
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "production",
+      "cluster": "v4_eval",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "eval_coverage",
+        "target": "test:nextseek_api/eval/tests/test_*.py"
+      },
       "path": "nextseek_api/eval/online_observation.py",
       "rationale": "Behavior-bearing evaluation module.",
       "sources": [
@@ -13749,6 +13871,22 @@
         "target": "test:nextseek_api/eval/tests/test_v4_8_manifest.py"
       },
       "path": "nextseek_api/eval/tests/test_task4_coverage.py",
+      "rationale": "Evaluation test/mutation oracle.",
+      "sources": [
+        "accepted_ownership:task6-eval",
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "test",
+      "cluster": "eval_test_suite",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "eval_structural",
+        "target": "test:nextseek_api/eval/tests/test_v4_8_manifest.py"
+      },
+      "path": "nextseek_api/eval/tests/test_task7_deploy_recovery.py",
       "rationale": "Evaluation test/mutation oracle.",
       "sources": [
         "accepted_ownership:task6-eval",
@@ -15136,6 +15274,21 @@
     {
       "change": "A",
       "classification": "verifier",
+      "cluster": "v4_9_task_controls",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "v4_9_task_controls",
+        "target": "test:scripts/test_plan018_v4_9_task*.py"
+      },
+      "path": "scripts/plan018_v4_9_task7_recovery.py",
+      "rationale": "V4-9 source-bound task harness or its focused validator tests.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "verifier",
       "cluster": "v4_verification",
       "exists_at_source": true,
       "oracle": {
@@ -15293,6 +15446,21 @@
         "target": "test:scripts/test_plan018_v4_9_task*.py"
       },
       "path": "scripts/test_plan018_v4_9_task6_replay.py",
+      "rationale": "V4-9 source-bound task harness or its focused validator tests.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "verifier",
+      "cluster": "v4_9_task_controls",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "v4_9_task_controls",
+        "target": "test:scripts/test_plan018_v4_9_task*.py"
+      },
+      "path": "scripts/test_plan018_v4_9_task7_recovery.py",
       "rationale": "V4-9 source-bound task harness or its focused validator tests.",
       "sources": [
         "base_to_source_diff"
@@ -16451,9 +16619,9 @@
     },
     "accepted_ownership_rules_sha256": "faf30fb866ed56520fa367dd5c25a408ffcc2f5a516a90240e9cdb7805db921b",
     "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
-    "base_to_source_records_sha256": "39343b9bd4c43cfe4e027cbbbafccc107fc3edc7f3053b62f86f671c1a978f1e",
-    "source_sha": "93855a575d4e39cb58280dd4a49cded4c4f06431",
-    "source_tree_sha": "6c08f2190f568418c5d973842d4a3d4a9dc40ad0"
+    "base_to_source_records_sha256": "1e3badda23ca618c068763b09a30ee2e7206e6a6774c089d9493b73d704ce2b5",
+    "source_sha": "b0a581af14a64026b4fd500a86972c3739439d38",
+    "source_tree_sha": "7fa914860bed1a027c6b57ad57571084773d2995"
   },
   "schema": "plan018-v4-9-owned-surface/v1",
   "source_diff_records": [
@@ -18383,6 +18551,16 @@
       "status": "A"
     },
     {
+      "new_path": "evidence/plan018-v4-9-deploy-record.fixture.json",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "evidence/plan018-v4-9-deploy-record.schema.json",
+      "old_path": null,
+      "status": "A"
+    },
+    {
       "new_path": "evidence/plan018-v4-9-functional-e2e-rerun-2026-08-14.json",
       "old_path": null,
       "status": "A"
@@ -18839,6 +19017,26 @@
     },
     {
       "new_path": "evidence/plan018-v4-9-task6.junit.xml",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "evidence/plan018-v4-9-task7-coverage.raw.json",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "evidence/plan018-v4-9-task7-evidence.json",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "evidence/plan018-v4-9-task7-mutations.json",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "evidence/plan018-v4-9-task7.junit.xml",
       "old_path": null,
       "status": "A"
     },
@@ -20478,6 +20676,11 @@
       "status": "A"
     },
     {
+      "new_path": "nextseek_api/eval/deploy_record.py",
+      "old_path": null,
+      "status": "A"
+    },
+    {
       "new_path": "nextseek_api/eval/disposition.py",
       "old_path": null,
       "status": "A"
@@ -20758,6 +20961,11 @@
       "status": "A"
     },
     {
+      "new_path": "nextseek_api/eval/mixed_version_recovery.py",
+      "old_path": null,
+      "status": "A"
+    },
+    {
       "new_path": "nextseek_api/eval/online_observation.py",
       "old_path": null,
       "status": "A"
@@ -20924,6 +21132,11 @@
     },
     {
       "new_path": "nextseek_api/eval/tests/test_task4_coverage.py",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "nextseek_api/eval/tests/test_task7_deploy_recovery.py",
       "old_path": null,
       "status": "A"
     },
@@ -21373,6 +21586,11 @@
       "status": "A"
     },
     {
+      "new_path": "scripts/plan018_v4_9_task7_recovery.py",
+      "old_path": null,
+      "status": "A"
+    },
+    {
       "new_path": "scripts/plan018_verifier_support.py",
       "old_path": null,
       "status": "A"
@@ -21424,6 +21642,11 @@
     },
     {
       "new_path": "scripts/test_plan018_v4_9_task6_replay.py",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "scripts/test_plan018_v4_9_task7_recovery.py",
       "old_path": null,
       "status": "A"
     },
@@ -21819,16 +22042,16 @@
       "dependency": 2,
       "docker": 2,
       "docs": 40,
-      "evidence": 242,
+      "evidence": 248,
       "generated": 8,
       "integrated_non_v4": 432,
       "migration": 13,
-      "production": 125,
+      "production": 127,
       "schema": 4,
-      "test": 165,
-      "verifier": 24
+      "test": 166,
+      "verifier": 26
     },
     "control_entries": 1,
-    "source_candidates": 1079
+    "source_candidates": 1090
   }
 }

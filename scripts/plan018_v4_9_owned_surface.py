@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 SCHEMA = "plan018-v4-9-owned-surface/v1"
 BASE_SHA = "6881b6a870d68a6efaeb483b111cb9244488c5f9"
-SOURCE_SHA = "93855a575d4e39cb58280dd4a49cded4c4f06431"
+SOURCE_SHA = "b0a581af14a64026b4fd500a86972c3739439d38"
 OWNERSHIP_RULES = "evidence/plan018-v4-0-accepted-ownership-rules.json"
 OWNERSHIP_RULES_SHA256 = "faf30fb866ed56520fa367dd5c25a408ffcc2f5a516a90240e9cdb7805db921b"
 ORACLE_KINDS = frozenset({"coverage", "structural", "regeneration", "mutation", "justified_exclusion"})
