@@ -2,13 +2,13 @@
   "authority": "docs/superpowers/plans/2026-08-13-plan018-v4-9.md#task-5--collection-and-critical-mutationfault-gate",
   "control_sha256": {
     "evidence/plan018-v4-3-dd44-mutation-manifest.json": "781f1a87b2a68d8962d639e8289e717d4b7907877636162e391f0a32bed154df",
-    "evidence/plan018-v4-9-owned-surface.json": "65ef3a3079d18adf5ed1b32944b6285f8a36a6ee1308823965eb9d2930f305f3",
+    "evidence/plan018-v4-9-owned-surface.json": "6ddef4fb252a130848f3a14012bfb8b03b460888e2a3d07ab3c7e765b5b9a287",
     "evidence/plan018-v4-9-task2-ownership.json": "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df",
     "evidence/plan018-v4-9-task3-ownership.json": "cf985bfb4adfcdfe5dc74541ee321760a57e0fbbd95824cea74b646b48c62002",
     "evidence/plan018-v4-9-task4-ownership.json": "55b2ef7bce01b140a8d24843721eceb7ffd1207b562d3d6268ebe4bcb4bf5827",
     "scripts/plan018_lane_m_mysql.sh": "55788531b6a3a40dc1ea26d962bb6f618f60be09b104f55f8e58aaa84ab5706b",
-    "scripts/plan018_v4_9_task5_mutation.py": "e2eba1c27cd032fbf6d5308835f55f01faefdf75736212d3ed3be2b3df72223b",
-    "scripts/test_plan018_v4_9_task5_mutation.py": "960e4f1e5e0a83c29ba739e522d41784b41b4ddfab2a46e961d992ddab433ce8"
+    "scripts/plan018_v4_9_task5_mutation.py": "6ed80c147143d2780c71c87661f4a77edd241d5d5162baa1b6bd6080b6c8a080",
+    "scripts/test_plan018_v4_9_task5_mutation.py": "8dcaaf14a03abeb3db88cd9c014c13c9e7aa7d986da9496fff9761d2aa221f2e"
   },
   "counts": {
     "fast_nodes": 68,
@@ -1075,6 +1075,6 @@
     "nextseek_api/eval/tests/test_v4_7_schemas.py": "fdce112d8f55b13c846422f48e5759c6f5faa060d4e85d790fa5bd08c45d4a2f",
     "nextseek_api/eval/tests/test_v4_8_manifest.py": "00b2255aab6f732d3e258a54e6b21dab873220cdbef8326e59aac3c2538beab3",
     "nextseek_api/eval/tests/test_v4_8_mysql.py": "d5a902befd6572a45fe91ffbd2d2d27160c846c8e76bb7298a21312c96dc1825",
-    "scripts/test_plan018_v4_9_task5_mutation.py": "960e4f1e5e0a83c29ba739e522d41784b41b4ddfab2a46e961d992ddab433ce8"
+    "scripts/test_plan018_v4_9_task5_mutation.py": "8dcaaf14a03abeb3db88cd9c014c13c9e7aa7d986da9496fff9761d2aa221f2e"
   }
 }

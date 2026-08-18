@@ -1076,7 +1076,7 @@
   "full_collection_sha256": "7b06ab544601cb27e712891c04fa6d77265cd04c69d2756267af056735ca7507",
   "gate": "PASS",
   "network": "docker --network none",
-  "owned_surface_sha256": "65ef3a3079d18adf5ed1b32944b6285f8a36a6ee1308823965eb9d2930f305f3",
+  "owned_surface_sha256": "6ddef4fb252a130848f3a14012bfb8b03b460888e2a3d07ab3c7e765b5b9a287",
   "ownership_map_sha256": "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df",
   "producer_or_network_execution": false,
   "raw_coverage": "evidence/plan018-v4-9-task2-coverage.raw.json",

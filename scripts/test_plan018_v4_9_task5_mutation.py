@@ -100,3 +100,12 @@ def test_current_migration_lineage_is_unique_and_forward(tmp_path: Path):
 def test_missing_evidence_is_red(tmp_path: Path):
     errors = gate.validation_errors(tmp_path)
     assert any("missing Task 5 artifacts" in error for error in errors)
+
+
+def test_finalize_action_never_dispatches_the_expensive_run(monkeypatch):
+    calls = []
+    monkeypatch.setattr(gate, "finalize_existing", lambda root, image: calls.append((root, image)))
+    monkeypatch.setattr(gate, "run", lambda *args: (_ for _ in ()).throw(AssertionError("run called")))
+
+    assert gate.main(["finalize", "--root", str(gate.ROOT), "--image", gate.IMAGE]) == 0
+    assert calls == [(gate.ROOT.resolve(), gate.IMAGE)]

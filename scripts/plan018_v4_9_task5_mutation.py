@@ -358,6 +358,120 @@ def _artifact_hashes(root: Path) -> dict[str, str]:
     return {path: sha256(root / path) for path in paths}
 
 
+def _write_outputs(
+    root: Path,
+    image: str,
+    cases: tuple[MutationCase, ...],
+    resolution: dict[str, tuple[str, ...]],
+    fast_counts: dict[str, int],
+    mysql_counts: dict[str, int],
+    *,
+    wall_s: float,
+    finalization_mode: str,
+) -> None:
+    manifest = build_manifest(root, cases, resolution, status="KILLED")
+    (root / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    evidence = {
+        "schema": "plan018-v4-9-task5-evidence/v1",
+        "gate": "PASS",
+        "image": image,
+        "network": "none for fast lane; isolated disposable Docker network for MySQL only",
+        "wall_s": round(wall_s, 3),
+        "wall_cap_s": MAX_WALL_S,
+        "execution_counts": {"fast": fast_counts, "mysql": mysql_counts},
+        "manifest_counts": manifest["counts"],
+        "artifacts_sha256": _artifact_hashes(root),
+        "paid_provider_or_live_resources_used": False,
+        "mcmc_or_stored_evidence_replay_used": False,
+        "finalization": {
+            "mode": finalization_mode,
+            "new_test_execution": finalization_mode == "fresh_execution",
+        },
+    }
+    (root / EVIDENCE).write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+
+
+def finalize_existing(root: Path, image: str = IMAGE) -> None:
+    """Rebind unchanged exact green artifacts after control-only hash drift.
+
+    This is deliberately stricter than rewriting hashes: the checked-in mutant
+    definitions, selectors, collections, JUnits, Lane-M attestation, and prior
+    execution boundary must all still agree.  Any behavioral/test drift raises
+    and requires ``run`` instead.
+    """
+    required = (COLLECTION, MYSQL_COLLECTION, MANIFEST, JUNIT, MYSQL_JUNIT, MYSQL_SIDECAR, EVIDENCE)
+    missing = [path for path in required if not (root / path).is_file()]
+    if missing:
+        raise RuntimeError("Task 5 finalize inputs missing: " + ",".join(missing))
+    cases = load_cases(root)
+    errors = validate_case_definitions(cases, root) + migration_errors(root)
+    old_manifest = json.loads((root / MANIFEST).read_text())
+    old_evidence = json.loads((root / EVIDENCE).read_text())
+    old_mutants = old_manifest.get("mutants") or []
+    by_id = {item.get("id"): item for item in old_mutants}
+    if set(by_id) != {case.id for case in cases} or len(by_id) != len(old_mutants):
+        errors.append("existing Task 5 mutant inventory differs from current definitions")
+    resolution: dict[str, tuple[str, ...]] = {}
+    for case in cases:
+        item = by_id.get(case.id) or {}
+        expected_fields = {
+            "category": case.category,
+            "source_path": case.source_path,
+            "protected_behavior": case.protected_behavior,
+            "fault": case.fault,
+            "lane": case.lane,
+            "kill_test_selector": case.selector,
+            "status": "KILLED",
+        }
+        if any(item.get(key) != value for key, value in expected_fields.items()):
+            errors.append(f"existing Task 5 mutant definition drifted: {case.id}")
+        nodes = tuple(item.get("collected_nodes") or ())
+        if not nodes:
+            errors.append(f"existing Task 5 mutant has no kill node: {case.id}")
+        resolution[case.id] = nodes
+    fast_collection = tuple((root / COLLECTION).read_text().splitlines())
+    mysql_collection = tuple((root / MYSQL_COLLECTION).read_text().splitlines())
+    expected_fast = {node for case in cases if case.lane == "fast" for node in resolution[case.id]}
+    expected_mysql = {node for case in cases if case.lane == "mysql" for node in resolution[case.id]}
+    if expected_fast != set(fast_collection) or expected_mysql != set(mysql_collection):
+        errors.append("existing Task 5 collections differ from current mutant resolution")
+    actual_fast, fast_counts = junit_nodes(root / JUNIT)
+    actual_mysql, mysql_counts = junit_nodes(root / MYSQL_JUNIT)
+    fast_counts["deselected"] = 0
+    mysql_counts["deselected"] = 0
+    if set(actual_fast) != set(fast_collection):
+        errors.append("existing Task 5 fast JUnit differs from exact collection")
+    if not set(mysql_collection).issubset(set(actual_mysql)):
+        errors.append("existing Task 5 MySQL JUnit omits critical collection")
+    for lane, counts in (("fast", fast_counts), ("mysql", mysql_counts)):
+        if not counts.get("tests") or any(counts[key] for key in ("failed", "errors", "skipped", "xfail", "deselected")):
+            errors.append(f"existing Task 5 {lane} JUnit contains nonexecution: {counts}")
+    sidecar = json.loads((root / MYSQL_SIDECAR).read_text())
+    expected_oracles = [case.id for case in cases if case.lane == "mysql"]
+    if (
+        sidecar.get("schema") != "plan018-v4-9-task5-lane-m/v1"
+        or sidecar.get("gate") != "PASS"
+        or sidecar.get("paid_or_live_resources_used") is not False
+        or sidecar.get("isolation_level") != "REPEATABLE-READ"
+        or sidecar.get("oracles") != expected_oracles
+    ):
+        errors.append("existing Task 5 Lane M attestation drifted")
+    wall_s = old_evidence.get("wall_s")
+    if not isinstance(wall_s, (int, float)) or isinstance(wall_s, bool) or not 0 <= wall_s <= MAX_WALL_S:
+        errors.append("existing Task 5 execution wall evidence is invalid")
+    if old_evidence.get("paid_provider_or_live_resources_used") is not False or old_evidence.get("mcmc_or_stored_evidence_replay_used") is not False:
+        errors.append("existing Task 5 execution boundary is not zero-effect")
+    if errors:
+        raise RuntimeError("Task 5 existing-artifact finalization refused: " + "; ".join(errors))
+    _write_outputs(
+        root, image, cases, resolution, fast_counts, mysql_counts,
+        wall_s=float(wall_s), finalization_mode="existing_exact_artifacts",
+    )
+    post_errors = validation_errors(root)
+    if post_errors:
+        raise RuntimeError("Task 5 finalized evidence failed validation: " + "; ".join(post_errors))
+
+
 def run(root: Path, image: str) -> None:
     started = time.monotonic()
     cases = load_cases(root)
@@ -420,25 +534,13 @@ def run(root: Path, image: str) -> None:
     ):
         raise RuntimeError(f"Task 5 MySQL execution mismatch: {mysql_counts}")
 
-    manifest = build_manifest(root, cases, resolution, status="KILLED")
-    (root / MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     elapsed = time.monotonic() - started
     if elapsed > MAX_WALL_S:
         raise RuntimeError(f"Task 5 exceeded hardware design cap: {elapsed:.3f}s > {MAX_WALL_S:.0f}s")
-    evidence = {
-        "schema": "plan018-v4-9-task5-evidence/v1",
-        "gate": "PASS",
-        "image": image,
-        "network": "none for fast lane; isolated disposable Docker network for MySQL only",
-        "wall_s": round(elapsed, 3),
-        "wall_cap_s": MAX_WALL_S,
-        "execution_counts": {"fast": fast_counts, "mysql": mysql_counts},
-        "manifest_counts": manifest["counts"],
-        "artifacts_sha256": _artifact_hashes(root),
-        "paid_provider_or_live_resources_used": False,
-        "mcmc_or_stored_evidence_replay_used": False,
-    }
-    (root / EVIDENCE).write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+    _write_outputs(
+        root, image, cases, resolution, fast_counts, mysql_counts,
+        wall_s=elapsed, finalization_mode="fresh_execution",
+    )
     print(f"Task 5 mutation/fault gate PASS in {elapsed:.3f}s", flush=True)
 
 
@@ -461,6 +563,12 @@ def validation_errors(root: Path = ROOT) -> list[str]:
         errors.append("Task 5 evidence does not attest zero paid/live use")
     if evidence.get("mcmc_or_stored_evidence_replay_used") is not False:
         errors.append("Task 5 unexpectedly used MCMC or stored-evidence replay")
+    finalization = evidence.get("finalization") or {}
+    if finalization not in (
+        {"mode": "fresh_execution", "new_test_execution": True},
+        {"mode": "existing_exact_artifacts", "new_test_execution": False},
+    ):
+        errors.append("Task 5 finalization provenance is missing or invalid")
     if float(evidence.get("wall_s", MAX_WALL_S + 1)) > MAX_WALL_S:
         errors.append("Task 5 exceeded the hardware wall cap")
     if manifest.get("required_categories") != list(REQUIRED_CATEGORIES):
@@ -554,15 +662,19 @@ def validation_errors(root: Path = ROOT) -> list[str]:
     return errors
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("run", "validate"))
+    parser.add_argument("action", choices=("run", "finalize", "validate"))
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--image", default=IMAGE)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     root = args.root.resolve()
     if args.action == "run":
         run(root, args.image)
+        return 0
+    if args.action == "finalize":
+        finalize_existing(root, args.image)
+        print("Task 5 existing exact artifacts finalization PASS")
         return 0
     errors = validation_errors(root)
     print("Task 5 evidence " + ("PASS" if not errors else "FAIL"))

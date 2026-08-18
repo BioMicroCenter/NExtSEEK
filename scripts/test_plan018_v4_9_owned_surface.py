@@ -59,7 +59,7 @@ def test_checked_in_manifest_validates_against_its_source_diff():
     assert module.validate_manifest(manifest, root=ROOT) == []
     assert manifest["schema"] == "plan018-v4-9-owned-surface/v1"
     assert manifest["identity"]["base_sha"] == "6881b6a870d68a6efaeb483b111cb9244488c5f9"
-    assert manifest["identity"]["source_sha"] == "28f48d8bba08a0219aa86171878d627c325f88ff"
+    assert manifest["identity"]["source_sha"] == "5010136e81af96ef23e0cfa4922820128c2c3f65"
 
 
 def test_every_source_candidate_is_listed_once_and_has_a_resolvable_oracle():

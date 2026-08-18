@@ -4,7 +4,7 @@
     "evidence/plan018-v4-9-task5-lane-m-collection.txt": "5ca29b9704a8dbc842767e96c102a5309a4f51222f1fd4d5dd71f1300c558ca3",
     "evidence/plan018-v4-9-task5-lane-m.junit.xml": "c3617c3f3ba39cdd8ab725c2bc3419296d0bb07ae85bee51dac73e48672486dc",
     "evidence/plan018-v4-9-task5-lane-m.sidecar.json": "42ddf11970db6a54329f449929d268176e43b48a5a1f6bc325d08fca0d17da8d",
-    "evidence/plan018-v4-9-task5-mutation-manifest.json": "0b5734b8a5eb149b5c6c5c28d319e4181d5d6e4f2f0dc4b9f5eaef689d301164",
+    "evidence/plan018-v4-9-task5-mutation-manifest.json": "cb998698c75583cffe622d37ec7e717ed3ae9204753359f64d77a387ba5cef25",
     "evidence/plan018-v4-9-task5.junit.xml": "a7cfe53c2efa461e2fa9ccbc02163c6e9be000d1eab83fb4a1d2429cfb040a24"
   },
   "execution_counts": {
@@ -26,6 +26,10 @@
       "tests": 22,
       "xfail": 0
     }
+  },
+  "finalization": {
+    "mode": "existing_exact_artifacts",
+    "new_test_execution": false
   },
   "gate": "PASS",
   "image": "sha256:704e0936c966a5e4121957104f236d111c251db0feb413aa2c8e8a5e3f7fa651",

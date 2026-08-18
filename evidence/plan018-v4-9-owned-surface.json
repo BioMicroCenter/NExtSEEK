@@ -15334,6 +15334,21 @@
     {
       "change": "A",
       "classification": "verifier",
+      "cluster": "v4_9_task_controls",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "v4_9_task_controls",
+        "target": "test:scripts/test_plan018_v4_9_task*.py"
+      },
+      "path": "scripts/plan018_v4_9_task9_verifier.py",
+      "rationale": "V4-9 source-bound task harness or its focused validator tests.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "verifier",
       "cluster": "v4_verification",
       "exists_at_source": true,
       "oracle": {
@@ -15536,6 +15551,21 @@
         "target": "test:scripts/test_plan018_v4_9_task*.py"
       },
       "path": "scripts/test_plan018_v4_9_task8_deploy.py",
+      "rationale": "V4-9 source-bound task harness or its focused validator tests.",
+      "sources": [
+        "base_to_source_diff"
+      ]
+    },
+    {
+      "change": "A",
+      "classification": "verifier",
+      "cluster": "v4_9_task_controls",
+      "exists_at_source": true,
+      "oracle": {
+        "id": "v4_9_task_controls",
+        "target": "test:scripts/test_plan018_v4_9_task*.py"
+      },
+      "path": "scripts/test_plan018_v4_9_task9_verifier.py",
       "rationale": "V4-9 source-bound task harness or its focused validator tests.",
       "sources": [
         "base_to_source_diff"
@@ -16694,9 +16724,9 @@
     },
     "accepted_ownership_rules_sha256": "faf30fb866ed56520fa367dd5c25a408ffcc2f5a516a90240e9cdb7805db921b",
     "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
-    "base_to_source_records_sha256": "ee1029ac640fe9c6378111eb50f517d74089cd8771f77c9f1e9d5eab42f3087e",
-    "source_sha": "28f48d8bba08a0219aa86171878d627c325f88ff",
-    "source_tree_sha": "29319b9b957f684470d37f926c17571b91654f59"
+    "base_to_source_records_sha256": "600042f939e339e4eb4fc3bca88623969b494097decfca1b42c63c9595fba4e9",
+    "source_sha": "5010136e81af96ef23e0cfa4922820128c2c3f65",
+    "source_tree_sha": "512f1572259a024c073935e094394ff8b05cd753"
   },
   "schema": "plan018-v4-9-owned-surface/v1",
   "source_diff_records": [
@@ -21681,6 +21711,11 @@
       "status": "A"
     },
     {
+      "new_path": "scripts/plan018_v4_9_task9_verifier.py",
+      "old_path": null,
+      "status": "A"
+    },
+    {
       "new_path": "scripts/plan018_verifier_support.py",
       "old_path": null,
       "status": "A"
@@ -21747,6 +21782,11 @@
     },
     {
       "new_path": "scripts/test_plan018_v4_9_task8_deploy.py",
+      "old_path": null,
+      "status": "A"
+    },
+    {
+      "new_path": "scripts/test_plan018_v4_9_task9_verifier.py",
       "old_path": null,
       "status": "A"
     },
@@ -22149,9 +22189,9 @@
       "production": 127,
       "schema": 4,
       "test": 166,
-      "verifier": 30
+      "verifier": 32
     },
     "control_entries": 1,
-    "source_candidates": 1095
+    "source_candidates": 1097
   }
 }
