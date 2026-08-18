@@ -21,9 +21,9 @@
       "detail": "d4416307e48a2de6"
     },
     {
-      "name": "strong_quality_decision",
+      "name": "analytic_fit_refuses_activation",
       "pass": true,
-      "detail": "activated_all"
+      "detail": "profile_only"
     },
     {
       "name": "cost_excluded_from_fit",
@@ -33,12 +33,12 @@
     {
       "name": "matrix_fingerprint",
       "pass": true,
-      "detail": "43b8228bdd141adc"
+      "detail": "7109d8cd6cdd428d"
     },
     {
-      "name": "fdr_complete_set",
+      "name": "analytic_fit_has_no_authoritative_fdr",
       "pass": true,
-      "detail": "activated_all"
+      "detail": "None"
     },
     {
       "name": "independent_recompute",
@@ -74,5 +74,5 @@
   "route_execution": false,
   "set3_rerun": false,
   "paid_or_live_resources_used": false,
-  "matrix_fingerprint": "43b8228bdd141adc3ea5916c1e476e3d48fbfbf6b3633c003ca56d3f94fcacfd"
+  "matrix_fingerprint": "7109d8cd6cdd428d5a2702dc8d3b54b4eb89d2eb8f5b670087ddd95d52363c2f"
 }

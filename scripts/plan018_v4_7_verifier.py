@@ -15,7 +15,11 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from plan018_verifier_support import derive_migration_graph, summarize_junit
+from plan018_verifier_support import (
+    derive_migration_graph,
+    migration_lineage_status,
+    summarize_junit,
+)
 
 _REQUIRED_MODULES = (
     "nextseek_api/eval/evidence_kinds.py",
@@ -121,12 +125,17 @@ def main() -> int:
             record("lane_c_junit_all_passed", False, f"invalid junit: {exc}")
 
     graph = derive_migration_graph(_REPO / "nextseek_api/migrations")
-    expected_leaf = "0018_turn_ledger_attempted_provenance"
-    record("migration_graph_unique_leaf", graph.leaves == (expected_leaf,), ",".join(graph.leaves))
+    lineage = migration_lineage_status(graph, "0016_paired_run_registry")
+    current_leaf = lineage.leaf or ""
+    record(
+        "migration_graph_unique_leaf",
+        lineage.error is None,
+        current_leaf if lineage.error is None else lineage.error,
+    )
     record(
         "migration_0016_in_on_disk_lineage",
-        "0016_paired_run_registry" in graph.ancestors_of(expected_leaf),
-        ",".join(sorted(graph.ancestors_of(expected_leaf))),
+        lineage.required_is_ancestor,
+        ",".join(sorted(graph.ancestors_of(current_leaf))) if current_leaf else "",
     )
 
     leaf = _REPO / "evidence/plan018-migration-leaf.json"
@@ -136,7 +145,7 @@ def main() -> int:
         files = set(data.get("files") or [])
         record(
             "migration_leaf_evidence_matches_on_disk",
-            data.get("leaf") == f"{expected_leaf}.py"
+            data.get("leaf") == f"{current_leaf}.py"
             and "0016_paired_run_registry.py" in files,
             data.get("leaf", ""),
         )

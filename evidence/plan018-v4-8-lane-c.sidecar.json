@@ -1,11 +1,17 @@
 {
   "schema": "plan018-v4-8-lane-c/v1",
-  "recorded_at": "2026-08-13T01:26:49Z",
+  "recorded_at": "2026-08-18T16:38:39Z",
   "gate": "PASS",
   "lane": "C",
   "recipe": "docker worktree mount + dmac.test_settings",
   "junit": "evidence/plan018-v4-8-lane-c.junit.xml",
-  "junit_sha256": "c73cb8fcf3f377a7e58cae59fc32746ea90a1449ec63e51800c92c1b723a14d1",
+  "junit_sha256": "8c20d8cbd4aa435ae7a3c45ffa8fb6875926a5930b25f34bfed2f03a6d470236",
+  "image": "sha256:704e0936c966a5e4121957104f236d111c251db0feb413aa2c8e8a5e3f7fa651",
+  "network": "none",
+  "source_mount": "read_only",
+  "resource_limits": {"cpus": 2, "memory": "4g"},
+  "pytest_seconds": 2.14,
+  "docker_wall_seconds": 9.32,
   "counts": {
     "tests": 35,
     "passed": 35,
@@ -21,7 +27,7 @@
     "nextseek_api/cc_assistant/tests/test_v4_8_reconciliation.py": "542ecc369604ec8cc24527ef95a12e7338d78e19dde3fec5833e9d64973a56e4",
     "nextseek_api/cc_assistant/tests/test_v4_8_reserve.py": "2c42fc9eeb21da41c9c90c783104c29421eb5b109952294878afca750ffd0e9b",
     "nextseek_api/cc_assistant/tests/test_v4_8_resume.py": "9b7a8632cbbe8b9264fe3e109a29a6ce00c5ab27fb846ead38e6ab636846c12a",
-    "nextseek_api/cc_assistant/tests/test_run_authorization.py": "1a000720f5f4de14cf914e8572043abd27da91879987c9c25b06be80e738af8f"
+    "nextseek_api/cc_assistant/tests/test_run_authorization.py": "6cff532f56461c7c15ccec5fd79ca30f3562072950e442c2d6be840333780e18"
   },
   "expected_deselected": [
     "nextseek_api/cc_assistant/tests/test_v4_8_gate.py::test_crash_injection_flags[CRASH_BEFORE_RESERVE]",

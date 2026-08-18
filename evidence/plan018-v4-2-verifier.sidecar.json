@@ -1,6 +1,6 @@
 {
   "schema": "plan018-v4-2-verifier/v1",
-  "recorded_at": "2026-08-13T01:34:17Z",
+  "recorded_at": "2026-08-18T16:42:08Z",
   "gate": "PASS",
   "zip_path": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip",
   "route_execution": false,
@@ -56,7 +56,7 @@
       "fingerprint": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652"
     },
     {
-      "name": "corpus_fingerprint_live",
+      "name": "corpus_fingerprint_transferred",
       "pass": true,
       "fingerprint": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652"
     },

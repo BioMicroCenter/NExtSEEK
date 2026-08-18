@@ -49,16 +49,22 @@ def main() -> int:
     rows = build_scenario_rows(RecoveryScenario.ns_strong_quality)
     fit = run_v14_generation(rows, cfg, seed=11, use_mcmc=False)
     record(
-        "strong_quality_decision",
-        any(c.status == DecisionStatus.quality_ns for c in fit.decision.candidates),
+        "analytic_fit_refuses_activation",
+        fit.decision.generation_status == "profile_only"
+        and not fit.decision.activated_families
+        and all(
+            candidate.status == DecisionStatus.legacy_fallback
+            and not candidate.activated
+            for candidate in fit.decision.candidates
+        ),
         fit.decision.generation_status,
     )
     record("cost_excluded_from_fit", all(r.cost_usd is None for r in rows), "nullable cost only in fixtures")
     record("matrix_fingerprint", len(matrix_fingerprint()) == 64, matrix_fingerprint()[:16])
     record(
-        "fdr_complete_set",
-        fit.decision.generation_status in {"activated_all", "empty_candidate_set", "multiplicity_indecisive"},
-        fit.decision.generation_status,
+        "analytic_fit_has_no_authoritative_fdr",
+        fit.decision.posterior_expected_fdr is None,
+        str(fit.decision.posterior_expected_fdr),
     )
     record("independent_recompute", fit.decision.config_fingerprint == fp, fp[:16])
 

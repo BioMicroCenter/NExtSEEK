@@ -1,7 +1,7 @@
 {
   "schema": "plan018-migration-leaf/v1",
-  "base_sha": "b2cca5d7",
-  "leaf": "0018_turn_ledger_attempted_provenance.py",
+  "base_sha": "fa23a1eaf3714f5b5fc9a17c08097413532fe5b9",
+  "leaf": "0019_merge_attribute_async_turn_ledger.py",
   "files": [
     "0001_initial.py",
     "0002_querytask.py",
@@ -13,7 +13,9 @@
     "0007_ccsessiontranscript.py",
     "0008_heal_cc_transcript_fk.py",
     "0009_normalize_chat_log_turn_ids.py",
+    "0010_attribute_mutation_job.py",
     "0010_turn_ledger.py",
+    "0011_attribute_async_orchestration.py",
     "0011_turn_judgment.py",
     "0012_posterior_generation.py",
     "0013_family_posterior.py",
@@ -21,7 +23,8 @@
     "0015_v4_5_generation_audit_and_turn_pin.py",
     "0016_paired_run_registry.py",
     "0017_paid_run_state.py",
-    "0018_turn_ledger_attempted_provenance.py"
+    "0018_turn_ledger_attempted_provenance.py",
+    "0019_merge_attribute_async_turn_ledger.py"
   ],
-  "note": "V4-8 adds PaidRunState; V4-6 remediation adds TurnLedger attempted_route/source"
+  "note": "Current source-derived graph has one merge leaf. The V4-7 0016 and V4-8 0017 migrations remain ancestors after the independently integrated attribute migration branch."
 }

@@ -1,6 +1,6 @@
 {
   "schema": "plan018-v4-7-verifier/v1",
-  "recorded_at": "2026-08-13T01:34:26Z",
+  "recorded_at": "2026-08-18T16:42:49Z",
   "gate": "PASS",
   "checks_passed": 33,
   "checks_total": 33,
@@ -154,12 +154,12 @@
     {
       "name": "migration_graph_unique_leaf",
       "pass": true,
-      "detail": "0018_turn_ledger_attempted_provenance"
+      "detail": "0019_merge_attribute_async_turn_ledger"
     },
     {
       "name": "migration_0016_in_on_disk_lineage",
       "pass": true,
-      "detail": "0001_initial,0002_querytask,0003_chatsession_title,0004_chatsession_extra_state_state_only,0005_chatsession_extra_state_column,0005_ensure_chatsession_extra_state_column,0006_merge_extra_state_guards,0007_ccsessiontranscript,0008_heal_cc_transcript_fk,0009_normalize_chat_log_turn_ids,0010_turn_ledger,0011_turn_judgment,0012_posterior_generation,0013_family_posterior,0014_generation_activation_and_reservation,0015_v4_5_generation_audit_and_turn_pin,0016_paired_run_registry,0017_paid_run_state,0018_turn_ledger_attempted_provenance"
+      "detail": "0001_initial,0002_querytask,0003_chatsession_title,0004_chatsession_extra_state_state_only,0005_chatsession_extra_state_column,0005_ensure_chatsession_extra_state_column,0006_merge_extra_state_guards,0007_ccsessiontranscript,0008_heal_cc_transcript_fk,0009_normalize_chat_log_turn_ids,0010_attribute_mutation_job,0010_turn_ledger,0011_attribute_async_orchestration,0011_turn_judgment,0012_posterior_generation,0013_family_posterior,0014_generation_activation_and_reservation,0015_v4_5_generation_audit_and_turn_pin,0016_paired_run_registry,0017_paid_run_state,0018_turn_ledger_attempted_provenance,0019_merge_attribute_async_turn_ledger"
     },
     {
       "name": "migration_leaf_evidence_exists",
@@ -169,12 +169,12 @@
     {
       "name": "migration_leaf_evidence_matches_on_disk",
       "pass": true,
-      "detail": "0018_turn_ledger_attempted_provenance.py"
+      "detail": "0019_merge_attribute_async_turn_ledger.py"
     }
   ],
   "hashes": {
     "evidence_kinds_sha256": "41bd4c3566fdea543f00a95d11d282545742cb71bbca0783c012b64b7d3395e0",
-    "fit_boundary_sha256": "fd3c623d026b12b06ac864199ea1e72562c6ccdc7e9f8944ef1b3bfbbb1f9594",
+    "fit_boundary_sha256": "beb46c76030914fad17addfdfb5c1484d5329412a3d7a3a20edaa710ffb44fff",
     "migration_0016_sha256": "c5ffe4ac21547cc0abf6bc91fb1dc4849afc2b85e36f3545d89b4f68c7fb3c51"
   },
   "paid_or_live_resources_used": false

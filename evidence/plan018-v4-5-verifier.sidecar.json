@@ -113,7 +113,7 @@
     {
       "name": "negative_validation_fails",
       "pass": true,
-      "detail": "('hash: content hash does not match stored generation_hash',)"
+      "detail": "('hash: content hash does not match stored generation_hash', 'compatibility: taxonomy_version does not match current corpus')"
     }
   ],
   "paid_or_live_resources_used": false

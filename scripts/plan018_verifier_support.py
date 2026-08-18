@@ -27,6 +27,15 @@ class MigrationGraph:
 
 
 @dataclass(frozen=True)
+class MigrationLineageStatus:
+    """A required migration's relationship to the one current graph leaf."""
+
+    leaf: str | None
+    required_is_ancestor: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class JUnitSummary:
     tests: int
     failures: int
@@ -75,6 +84,28 @@ def derive_migration_graph(migrations_dir: Path) -> MigrationGraph:
     referenced = set().union(*dependencies.values())
     leaves = tuple(sorted(set(dependencies) - referenced))
     return MigrationGraph(dependencies=dependencies, leaves=leaves)
+
+
+def migration_lineage_status(
+    graph: MigrationGraph, required_migration: str
+) -> MigrationLineageStatus:
+    """Require one current leaf while allowing later migrations above a gate's leaf.
+
+    V4 gate migrations remain valid prerequisites after unrelated forward migrations
+    are integrated. Multiple current leaves still fail closed because deployment
+    order would be ambiguous.
+    """
+    if len(graph.leaves) != 1:
+        return MigrationLineageStatus(
+            leaf=None,
+            required_is_ancestor=False,
+            error=f"expected one migration leaf; found {len(graph.leaves)}",
+        )
+    leaf = graph.leaves[0]
+    return MigrationLineageStatus(
+        leaf=leaf,
+        required_is_ancestor=required_migration in graph.ancestors_of(leaf),
+    )
 
 
 def summarize_junit(path: Path) -> JUnitSummary:

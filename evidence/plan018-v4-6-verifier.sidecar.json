@@ -1,6 +1,6 @@
 {
   "schema": "plan018-v4-6-verifier/v1",
-  "recorded_at": "2026-08-13T01:34:26Z",
+  "recorded_at": "2026-08-18T16:42:39Z",
   "gate": "PASS",
   "checks_passed": 28,
   "checks_total": 28,
@@ -74,7 +74,7 @@
     {
       "name": "router_baml_dual_identity",
       "pass": true,
-      "detail": "0391e9d3aaa583a67cf4c728ef253729ece3c7007f299de77909790dbafa761b"
+      "detail": "bfb400ee58c2e478d8a5fa1b89df831827e8f66aee68076325ad0a37eb1b1718"
     },
     {
       "name": "classifier_baml_exists",
@@ -148,9 +148,9 @@
     }
   ],
   "hashes": {
-    "router_baml_sha256": "0391e9d3aaa583a67cf4c728ef253729ece3c7007f299de77909790dbafa761b",
+    "router_baml_sha256": "bfb400ee58c2e478d8a5fa1b89df831827e8f66aee68076325ad0a37eb1b1718",
     "classifier_baml_sha256": "3ccafc47ce67ab2c153a9b709e1ebd152eac681bb70d166234f110d5fb66273e",
-    "corpus_sha256": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652"
+    "corpus_sha256": "823f89769457f9cd2722cc5460fc5d99550b344b28b9f05fb9311cf0b9ea7131"
   },
   "paid_or_live_resources_used": false
 }
