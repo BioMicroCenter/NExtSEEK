@@ -2,16 +2,17 @@
   "authority": "docs/superpowers/plans/2026-08-13-plan018-v4-9.md#task-5--collection-and-critical-mutationfault-gate",
   "control_sha256": {
     "evidence/plan018-v4-3-dd44-mutation-manifest.json": "781f1a87b2a68d8962d639e8289e717d4b7907877636162e391f0a32bed154df",
-    "evidence/plan018-v4-9-owned-surface.json": "d9dfe26c8d1a5eaf5395f2e6911430b0deec2778d42c289be7b82c1634881f8d",
+    "evidence/plan018-v4-9-owned-surface.json": "2adadcc580eafbac512b3bbeb98a08d322c4d08464deb73afc7d18da1f61a614",
     "evidence/plan018-v4-9-task2-ownership.json": "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df",
     "evidence/plan018-v4-9-task3-ownership.json": "cf985bfb4adfcdfe5dc74541ee321760a57e0fbbd95824cea74b646b48c62002",
     "evidence/plan018-v4-9-task4-ownership.json": "55b2ef7bce01b140a8d24843721eceb7ffd1207b562d3d6268ebe4bcb4bf5827",
-    "scripts/plan018_v4_9_task5_mutation.py": "1ea2bbfd69c087de15e88eb2cf0a71ec35afd9e1f096f7d7ede6bb5a66609480",
-    "scripts/test_plan018_v4_9_task5_mutation.py": "dcc244bd160acd4ce1db35d8e262b9a94304e4ea84afda498fb5c2e90b3c32ad"
+    "scripts/plan018_lane_m_mysql.sh": "55788531b6a3a40dc1ea26d962bb6f618f60be09b104f55f8e58aaa84ab5706b",
+    "scripts/plan018_v4_9_task5_mutation.py": "e2eba1c27cd032fbf6d5308835f55f01faefdf75736212d3ed3be2b3df72223b",
+    "scripts/test_plan018_v4_9_task5_mutation.py": "960e4f1e5e0a83c29ba739e522d41784b41b4ddfab2a46e961d992ddab433ce8"
   },
   "counts": {
-    "fast_nodes": 65,
-    "mutants": 73,
+    "fast_nodes": 68,
+    "mutants": 76,
     "mysql_nodes": 8
   },
   "derivation": "checked-in critical case definitions + source SHA-256 + exact pytest collection",
@@ -733,6 +734,19 @@
       "status": "KILLED"
     },
     {
+      "category": "migration_version_guards",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_runtime_identity_guard_is_killed"
+      ],
+      "fault": "remove the runtime identity guard",
+      "id": "version_runtime_identity",
+      "kill_test_selector": "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_runtime_identity_guard_is_killed",
+      "lane": "fast",
+      "protected_behavior": "mixed-version reads and writes require an exact recorded runtime identity",
+      "source_path": "nextseek_api/eval/mixed_version_recovery.py",
+      "status": "KILLED"
+    },
+    {
       "category": "recovery_ordering",
       "collected_nodes": [
         "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_rollback_restores_previous"
@@ -782,6 +796,32 @@
       "lane": "fast",
       "protected_behavior": "recovery acceptance checks diagnostics, direction, and wall bounds",
       "source_path": "nextseek_api/eval/fit/v14/recovery_acceptance.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "recovery_ordering",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_contract_refusal_is_killed"
+      ],
+      "fault": "accept a contract-phase request",
+      "id": "recovery_contract_refusal",
+      "kill_test_selector": "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_contract_refusal_is_killed",
+      "lane": "fast",
+      "protected_behavior": "the forbidden contract phase remains absent and refused",
+      "source_path": "nextseek_api/eval/mixed_version_recovery.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "recovery_ordering",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_destructive_recovery_guard_is_killed"
+      ],
+      "fault": "accept a destructive recovery action",
+      "id": "recovery_destructive_refusal",
+      "kill_test_selector": "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_destructive_recovery_guard_is_killed",
+      "lane": "fast",
+      "protected_behavior": "recovery refuses reverse migration, retained-data deletion, and persistent reset",
+      "source_path": "nextseek_api/eval/mixed_version_recovery.py",
       "status": "KILLED"
     },
     {
@@ -1002,6 +1042,7 @@
     "nextseek_api/eval/generation_store.py": "e3ee1660da8c7cb3a7c2fffaf7b768df6f80cf9c0ca4b3f9e9540a4eb0c04432",
     "nextseek_api/eval/generation_validation.py": "a4fbada168ee8ad40e3670d90f11a865a0e94d684d2fcac39e5ac76a2aaf77c3",
     "nextseek_api/eval/judge.py": "c38374907f4384a3f2e627c76dff94b6aeb9774dbd602c4b6531b0aa7fb6d650",
+    "nextseek_api/eval/mixed_version_recovery.py": "6735da97c304286b4a6875b3a5a37b810f6de52f1f590cd1c633b5d6e51e10bb",
     "nextseek_api/eval/paid_run_schedule.py": "adcdb6709d91ac931b5d4ab16f83681e1bf91f5ee43ed8b6ca16a439a260dcb8",
     "nextseek_api/eval/paired_run.py": "28355a999c67903a8e2a14e1dd0ffff09e582dd0fb1d0bafcc8c8904a6e7e0c2",
     "nextseek_api/eval/paired_run_registry.py": "34bedca7c83ed906b4b98cb033d6da405d6955a14680c26abafa2c3ed745825f",
@@ -1010,7 +1051,7 @@
     "nextseek_api/eval/run_manifest.py": "0e938608a22649a57df811c4150963d7f6d99008927dddad4c1240e62278f7b4",
     "nextseek_api/eval/spend_conservation.py": "2c387069d138bfec33ac10a415b128cb2c67fa8f3d96d54a3e79e9d61dddac8b",
     "nextseek_api/services/cc_assistant.py": "2321e929b643b6108acc4bffc633513b7597e90715fef7e6015ca448a0cbdea1",
-    "scripts/plan018_verifier_support.py": "1ffba41769d3325c1631764f1023e38bbf794ace2ef960d39abe9b71dd8431c2"
+    "scripts/plan018_verifier_support.py": "092a2660ddcd48955106f1fbda078a8e5fe3cc41f001ac8ed0261592bac6e023"
   },
   "test_source_sha256": {
     "nextseek_api/cc_assistant/tests/test_generation_store_validation.py": "65aebbb27ccef9ed245e0c75d5856fd1d4366fc31cceda5757a5f7d102c11f04",
@@ -1025,6 +1066,7 @@
     "nextseek_api/eval/tests/test_judge_mutations.py": "4895c9dada92bb6792dfb3003912785b8cb90bf817266f760a201ad017f652dc",
     "nextseek_api/eval/tests/test_task3_fit_coverage.py": "895fe6755bed83dedd1bf79dd5bf9b5301ba7e8ff08958db4ad3a5f1f74ee43d",
     "nextseek_api/eval/tests/test_task4_coverage.py": "b2a20c96af0694dbe9c467fdc3183e337455c09ea005812d3790dba29a0d4d86",
+    "nextseek_api/eval/tests/test_task7_deploy_recovery.py": "182aafe7bebc126265a9b5b2d614203f815f20659326f56efdb60a17f3ea06f6",
     "nextseek_api/eval/tests/test_v14_decision.py": "fa0e067bb7e7ddd86ddcd332f471d88f06b1dc4c22dde9730d109ed450db20ba",
     "nextseek_api/eval/tests/test_v14_pair_input.py": "c102b24c9ae5a41a5644f1756d310e15300e04595aaa210cb2a0cbd416e6c848",
     "nextseek_api/eval/tests/test_v4_7_fit_refuse.py": "dab21d54c6726d4ab3bac019e583eebb0bae3924d21df344c9f9eff152af546b",
@@ -1033,6 +1075,6 @@
     "nextseek_api/eval/tests/test_v4_7_schemas.py": "fdce112d8f55b13c846422f48e5759c6f5faa060d4e85d790fa5bd08c45d4a2f",
     "nextseek_api/eval/tests/test_v4_8_manifest.py": "00b2255aab6f732d3e258a54e6b21dab873220cdbef8326e59aac3c2538beab3",
     "nextseek_api/eval/tests/test_v4_8_mysql.py": "d5a902befd6572a45fe91ffbd2d2d27160c846c8e76bb7298a21312c96dc1825",
-    "scripts/test_plan018_v4_9_task5_mutation.py": "dcc244bd160acd4ce1db35d8e262b9a94304e4ea84afda498fb5c2e90b3c32ad"
+    "scripts/test_plan018_v4_9_task5_mutation.py": "960e4f1e5e0a83c29ba739e522d41784b41b4ddfab2a46e961d992ddab433ce8"
   }
 }

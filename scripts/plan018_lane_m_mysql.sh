@@ -28,6 +28,7 @@ trap cleanup EXIT
 
 docker network create "$NET" >/dev/null
 docker run -d --name "$SIDECAR" --network "$NET" --network-alias spikemysql \
+  --cpus 2 --memory 2g \
   -e MYSQL_ROOT_PASSWORD="$PW" \
   "$MYSQL_IMAGE" \
   --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci >/dev/null
@@ -82,26 +83,26 @@ _lane_env=(
   echo "===== migrate --noinput (worktree overlay, leaf through 0017) ====="
 } | tee -a "$LOG"
 
-docker run --rm --network "$NET" --entrypoint sh \
+docker run --rm --network "$NET" --entrypoint sh --cpus 2 --memory 4g \
   -v "$REPO:/work" \
   -v "$OVERLAY:/work/dmac/local_settings.py:ro" \
   -w /work \
   "${_lane_env[@]}" \
   "$APP_IMAGE" \
-  -c 'python manage.py migrate --noinput' 2>&1 | tee -a "$LOG"
+  -c 'uv run --project /app --no-sync python manage.py migrate --noinput' 2>&1 | tee -a "$LOG"
 
 {
   echo "===== pytest real-store barrier oracles ====="
 } | tee -a "$LOG"
 
 set +o pipefail
-docker run --rm --network "$NET" --entrypoint sh \
+docker run --rm --network "$NET" --entrypoint sh --cpus 2 --memory 4g \
   -v "$REPO:/work" \
   -v "$OVERLAY:/work/dmac/local_settings.py:ro" \
   -w /work \
   "${_lane_env[@]}" \
   "$APP_IMAGE" \
-  -c 'python -m pytest '"$PYTEST_TARGET"' -q --tb=line -p no:cacheprovider --reuse-db --junitxml='"$JUNIT_OUT" \
+  -c 'uv run --project /app --no-sync python -m pytest '"$PYTEST_TARGET"' -q --tb=line -p no:cacheprovider --reuse-db --junitxml='"$JUNIT_OUT" \
   2>&1 | tee -a "$LOG"
 PYTEST_EXIT=${PIPESTATUS[0]}
 set -o pipefail

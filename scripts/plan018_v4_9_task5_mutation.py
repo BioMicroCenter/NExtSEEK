@@ -43,6 +43,7 @@ MAX_WALL_S = 900.0
 CONTROL_FILES = (
     "scripts/plan018_v4_9_task5_mutation.py",
     "scripts/test_plan018_v4_9_task5_mutation.py",
+    "scripts/plan018_lane_m_mysql.sh",
     DD44,
     "evidence/plan018-v4-9-owned-surface.json",
     "evidence/plan018-v4-9-task2-ownership.json",
@@ -166,10 +167,13 @@ FIXED_CASES = (
     C("version_paired_schema", "migration_version_guards", "nextseek_api/eval/paired_run.py", "nextseek_api/eval/tests/test_v4_7_schemas.py::test_paired_batch_rejects_wrong_schema_version", "paired batch schema version is exact", "accept an obsolete paired schema"),
     C("version_generation_compatibility", "migration_version_guards", "nextseek_api/eval/generation_validation.py", "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_validate_refuses_compatibility_with_stale_current_corpus", "generation compatibility matches current taxonomy and corpus", "activate stale compatibility keys"),
     C("migration_forward_lineage", "migration_version_guards", "scripts/plan018_verifier_support.py", "scripts/test_plan018_v4_9_task5_mutation.py::test_current_migration_lineage_is_unique_and_forward", "V4 migrations remain in the unique current forward lineage", "remove a migration dependency or create a second leaf"),
+    C("version_runtime_identity", "migration_version_guards", "nextseek_api/eval/mixed_version_recovery.py", "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_runtime_identity_guard_is_killed", "mixed-version reads and writes require an exact recorded runtime identity", "remove the runtime identity guard"),
     C("recovery_previous_generation", "recovery_ordering", "nextseek_api/eval/generation_store.py", "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_rollback_restores_previous", "recovery reactivates the previous immutable generation", "recover to a non-previous generation", lane="mysql"),
     C("recovery_publish_atomic", "recovery_ordering", "nextseek_api/eval/generation_store.py", "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_crash_publish_boundary_leaves_no_incomplete_generation", "publish crash leaves no incomplete generation", "retain partial rows after publish crash", lane="mysql"),
     C("recovery_activation_atomic", "recovery_ordering", "nextseek_api/eval/generation_store.py", "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_crash_activation_boundary_leaves_pointer_unchanged", "activation crash leaves prior pointer unchanged", "mutate pointer before an aborted activation commits", lane="mysql"),
     C("recovery_gate_order", "recovery_ordering", "nextseek_api/eval/fit/v14/recovery_acceptance.py", "nextseek_api/eval/tests/test_task3_fit_coverage.py::test_recovery_acceptance_all_gate_outcomes", "recovery acceptance checks diagnostics, direction, and wall bounds", "declare PASS before all recovery gates"),
+    C("recovery_contract_refusal", "recovery_ordering", "nextseek_api/eval/mixed_version_recovery.py", "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_contract_refusal_is_killed", "the forbidden contract phase remains absent and refused", "accept a contract-phase request"),
+    C("recovery_destructive_refusal", "recovery_ordering", "nextseek_api/eval/mixed_version_recovery.py", "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_destructive_recovery_guard_is_killed", "recovery refuses reverse migration, retained-data deletion, and persistent reset", "accept a destructive recovery action"),
 )
 
 
@@ -242,11 +246,12 @@ def migration_errors(root: Path = ROOT) -> list[str]:
 def docker_command(root: Path, image: str, *args: str) -> list[str]:
     return [
         "docker", "run", "--rm", "--network", "none",
+        "--cpus", "2", "--memory", "4g",
         "-e", "PYTHONPATH=/work:/work/dmac_assistant/src",
         "-e", "DJANGO_SETTINGS_MODULE=dmac.test_settings",
         "-e", "PYTHONDONTWRITEBYTECODE=1",
         "-v", f"{root.resolve()}:/work", "-w", "/work", image,
-        "/app/.venv/bin/python", *args,
+        "uv", "run", "--project", "/app", "--no-sync", "python", *args,
     ]
 
 

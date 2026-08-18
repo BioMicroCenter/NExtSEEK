@@ -1,20 +1,20 @@
 {
   "artifacts_sha256": {
-    "evidence/plan018-v4-9-task5-collection.txt": "89f759452b4f429afcb21397638a6f24fde6f2dbe34d844ff869d04a5a6b3d3d",
+    "evidence/plan018-v4-9-task5-collection.txt": "5c135f5b17ccfa0ba669e0fb7657d5c949cbf2cd00e3a091e80f751272d7269b",
     "evidence/plan018-v4-9-task5-lane-m-collection.txt": "5ca29b9704a8dbc842767e96c102a5309a4f51222f1fd4d5dd71f1300c558ca3",
-    "evidence/plan018-v4-9-task5-lane-m.junit.xml": "afcfaa68e2fb19e1237eef48e3b147f91efdd0e35b57e0324288dd3311cda552",
+    "evidence/plan018-v4-9-task5-lane-m.junit.xml": "4f580499e23b10b5b7193650f6397b6820b4e51c927d21dab09786deb79d7dd3",
     "evidence/plan018-v4-9-task5-lane-m.sidecar.json": "42ddf11970db6a54329f449929d268176e43b48a5a1f6bc325d08fca0d17da8d",
-    "evidence/plan018-v4-9-task5-mutation-manifest.json": "189350ce516d024d2804abf77f4ea82f2789881ec50f1a2ba711efacaa94a993",
-    "evidence/plan018-v4-9-task5.junit.xml": "d216bbe4840db9c719a74b3ec9877a267d44379cc7084a5e31b5ecdb04d9775b"
+    "evidence/plan018-v4-9-task5-mutation-manifest.json": "51389c1a1b3116c22c20c10f017f04bcfc86ed1500030b3d60f293ae3570427d",
+    "evidence/plan018-v4-9-task5.junit.xml": "d2c25e2586889f502ff15305ca836919466651d50162ca29bbd6f36cc78b8492"
   },
   "execution_counts": {
     "fast": {
       "deselected": 0,
       "errors": 0,
       "failed": 0,
-      "passed": 65,
+      "passed": 68,
       "skipped": 0,
-      "tests": 65,
+      "tests": 68,
       "xfail": 0
     },
     "mysql": {
@@ -30,8 +30,8 @@
   "gate": "PASS",
   "image": "sha256:704e0936c966a5e4121957104f236d111c251db0feb413aa2c8e8a5e3f7fa651",
   "manifest_counts": {
-    "fast_nodes": 65,
-    "mutants": 73,
+    "fast_nodes": 68,
+    "mutants": 76,
     "mysql_nodes": 8
   },
   "mcmc_or_stored_evidence_replay_used": false,
@@ -39,5 +39,5 @@
   "paid_provider_or_live_resources_used": false,
   "schema": "plan018-v4-9-task5-evidence/v1",
   "wall_cap_s": 900.0,
-  "wall_s": 151.493
+  "wall_s": 167.693
 }

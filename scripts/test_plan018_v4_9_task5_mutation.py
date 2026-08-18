@@ -15,6 +15,21 @@ def test_case_inventory_is_finite_complete_and_changed():
     assert all(case.protected_behavior.casefold() != case.fault.casefold() for case in cases)
     assert "scripts/plan018_v4_9_task5_mutation.py" in gate.CONTROL_FILES
     assert all((gate.ROOT / path).is_file() for path in gate.CONTROL_FILES)
+    assert {
+        "version_runtime_identity",
+        "recovery_contract_refusal",
+        "recovery_destructive_refusal",
+    } <= {case.id for case in cases}
+
+
+def test_fast_lane_uses_bounded_uv_environment():
+    command = gate.docker_command(gate.ROOT, gate.IMAGE, "-m", "pytest", "x.py")
+
+    assert command[command.index("--cpus") + 1] == "2"
+    assert command[command.index("--memory") + 1] == "4g"
+    assert command[-9:] == [
+        "uv", "run", "--project", "/app", "--no-sync", "python", "-m", "pytest", "x.py"
+    ]
 
 
 def test_unchanged_and_duplicate_mutants_fail_closed():
