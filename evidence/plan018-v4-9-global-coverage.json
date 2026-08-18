@@ -11,7 +11,7 @@
     "task2": {
       "evidence": {
         "path": "evidence/plan018-v4-9-task2-evidence.json",
-        "sha256": "494b9941366755b65048f0d7803cdb69763381071ba45e5d19e89de19a97811f"
+        "sha256": "37693029cb8740025ed9d07dfb2d8a9975fb007d53a3735a225d568e773eadfc"
       },
       "ownership": {
         "path": "evidence/plan018-v4-9-task2-ownership.json",
@@ -25,7 +25,7 @@
     "task3": {
       "evidence": {
         "path": "evidence/plan018-v4-9-task3-evidence.json",
-        "sha256": "94d6359ef91c072bb6b4f4d8b2549badf2dd555d421f5fcdb5ee3cefb4e2c99d"
+        "sha256": "e8053738c9d335813525b16f6282c01a6ae7edbb010317a1caad183fcab85e63"
       },
       "ownership": {
         "path": "evidence/plan018-v4-9-task3-ownership.json",
@@ -39,7 +39,7 @@
     "task4": {
       "evidence": {
         "path": "evidence/plan018-v4-9-task4-evidence.json",
-        "sha256": "db21db80fddf6d6c221b1e060426e45072b4e0db013141d664a08d76c099f3e1"
+        "sha256": "0672b409f364bd5b3bf7fa926801738141e66bd2345858f967694bcf8b2ed012"
       },
       "ownership": {
         "path": "evidence/plan018-v4-9-task4-ownership.json",
@@ -600,7 +600,7 @@
   },
   "owned_surface": {
     "path": "evidence/plan018-v4-9-owned-surface.json",
-    "sha256": "2adadcc580eafbac512b3bbeb98a08d322c4d08464deb73afc7d18da1f61a614"
+    "sha256": "65ef3a3079d18adf5ed1b32944b6285f8a36a6ee1308823965eb9d2930f305f3"
   },
   "schema": "plan018-v4-9-global-coverage/v1",
   "source_sha256": {
