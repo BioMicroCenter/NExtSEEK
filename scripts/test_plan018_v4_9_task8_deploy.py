@@ -280,3 +280,32 @@ def test_artifact_hash_and_resource_bounds_are_fail_closed(tmp_path: Path) -> No
     assert any("artifact hash drift" in error for error in errors)
     assert any("disk reserve" in error for error in errors)
     assert any("wall cap" in error for error in errors)
+
+
+def test_preflight_estimate_preserves_full_stack_and_host_reserve() -> None:
+    tools = {name: True for name in ("docker", "dockerd-rootless.sh", "rootlesskit", "pasta", "git", "uv")}
+
+    passing = gate.evaluate_preflight(
+        free_bytes=gate.REQUIRED_FREE_BYTES, tools=tools, credential_mode=0o600,
+    )
+    failing = gate.evaluate_preflight(
+        free_bytes=19 * 1024**3, tools=tools, credential_mode=0o600,
+    )
+
+    assert passing["gate"] == "PASS"
+    assert passing["minimum_reserve_bytes"] == 4 * 1024**3
+    assert failing["gate"] == "FAIL"
+    assert any("insufficient disk" in error for error in failing["errors"])
+
+
+def test_preflight_refuses_missing_tool_or_private_credential_mode() -> None:
+    tools = {name: True for name in ("docker", "dockerd-rootless.sh", "rootlesskit", "pasta", "git", "uv")}
+    tools["pasta"] = False
+
+    result = gate.evaluate_preflight(
+        free_bytes=gate.REQUIRED_FREE_BYTES, tools=tools, credential_mode=0o644,
+    )
+
+    assert result["gate"] == "FAIL"
+    assert any("toolchain" in error for error in result["errors"])
+    assert any("credential" in error for error in result["errors"])

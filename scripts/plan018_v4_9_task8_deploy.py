@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import stat
 import sys
 from datetime import datetime
@@ -33,6 +34,18 @@ MAX_WALL_S = 1800.0
 MAX_CPUS = 2
 MAX_MEMORY_BYTES = 4 * 1024**3
 MINIMUM_DISK_RESERVE_BYTES = 4 * 1024**3
+# Read-only `docker system df -v` on this box showed an approximately 24.6-GiB
+# unique image footprint for two app releases plus the full Compose/OI-3 peer
+# set.  Allow 7 GiB for build cache and disposable seeded volumes, then retain
+# the non-negotiable 4-GiB host reserve.  The real evidence records measured
+# peak delta; this conservative preflight prevents starting a run that cannot
+# plausibly finish without emergency deletion.
+ESTIMATED_IMAGE_BYTES = 25 * 1024**3
+ESTIMATED_CACHE_AND_VOLUME_BYTES = 7 * 1024**3
+REQUIRED_FREE_BYTES = (
+    ESTIMATED_IMAGE_BYTES + ESTIMATED_CACHE_AND_VOLUME_BYTES
+    + MINIMUM_DISK_RESERVE_BYTES
+)
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
 AUTHORIZATION_SCOPE = (
@@ -174,6 +187,47 @@ def _all_true_checks(value: object, required: tuple[str, ...], label: str, error
     checks = _exact_keys(value, set(required), label, errors)
     if checks and any(checks.get(name) is not True for name in required):
         errors.append(f"{label} are not all PASS")
+
+
+def evaluate_preflight(
+    *, free_bytes: int, tools: dict[str, bool], credential_mode: int | None,
+) -> dict[str, Any]:
+    required_tools = {
+        "docker", "dockerd-rootless.sh", "rootlesskit", "pasta", "git", "uv",
+    }
+    errors: list[str] = []
+    if set(tools) != required_tools or not all(tools.get(name) for name in required_tools):
+        errors.append("rootless isolated-daemon toolchain is incomplete")
+    if credential_mode != 0o600:
+        errors.append("canonical GHCR credential is absent or not mode 0600")
+    if free_bytes < REQUIRED_FREE_BYTES:
+        errors.append(
+            "insufficient disk for full isolated stack peak plus 4-GiB reserve: "
+            f"free={free_bytes}, required={REQUIRED_FREE_BYTES}"
+        )
+    return {
+        "schema": "plan018-v4-9-task8-preflight/v1",
+        "gate": "PASS" if not errors else "FAIL",
+        "free_bytes": free_bytes,
+        "required_free_bytes": REQUIRED_FREE_BYTES,
+        "estimated_image_bytes": ESTIMATED_IMAGE_BYTES,
+        "estimated_cache_and_volume_bytes": ESTIMATED_CACHE_AND_VOLUME_BYTES,
+        "minimum_reserve_bytes": MINIMUM_DISK_RESERVE_BYTES,
+        "tools": tools,
+        "credential_mode": None if credential_mode is None else f"0{credential_mode:o}",
+        "errors": errors,
+    }
+
+
+def preflight(root: Path = ROOT) -> dict[str, Any]:
+    tool_names = ("docker", "dockerd-rootless.sh", "rootlesskit", "pasta", "git", "uv")
+    credential = Path(GHCR_ENV_PATH)
+    mode = stat.S_IMODE(credential.stat().st_mode) if credential.is_file() else None
+    return evaluate_preflight(
+        free_bytes=shutil.disk_usage(root).free,
+        tools={name: shutil.which(name) is not None for name in tool_names},
+        credential_mode=mode,
+    )
 
 
 def _validate_ledger(root: Path, summary: dict[str, Any], errors: list[str]) -> None:
@@ -536,10 +590,14 @@ def validation_errors(root: Path = ROOT, evidence_path: Path | str = EVIDENCE) -
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("validate",))
+    parser.add_argument("command", choices=("preflight", "validate"))
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--evidence", type=Path, default=Path(EVIDENCE))
     args = parser.parse_args(argv)
+    if args.command == "preflight":
+        result = preflight(args.root)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["gate"] == "PASS" else 1
     errors = validation_errors(args.root, args.evidence)
     print("Task 8 evidence " + ("PASS" if not errors else "FAIL"))
     for error in errors:
