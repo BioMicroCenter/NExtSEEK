@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -52,6 +52,18 @@ def manifest_hash(manifest: dict[str, Any]) -> str:
     return manifest_body_hash(validate_manifest_dict(manifest))
 
 
+def _validated_existing_manifest(
+    manifest_hash_value: str,
+    body: dict[str, Any],
+) -> ApprovedRunManifest:
+    existing = ApprovedRunManifest.objects.get(manifest_hash=manifest_hash_value)
+    if existing.manifest != body:
+        raise AuthorizationError("manifest hash collision with different body")
+    if existing.consumed:
+        raise AuthorizationError("manifest already consumed")
+    return existing
+
+
 def approve_run_manifest(manifest: RunManifest | dict[str, Any]) -> ApprovedRunManifest:
     if isinstance(manifest, RunManifest):
         body = manifest.model_dump(mode="json")
@@ -59,26 +71,28 @@ def approve_run_manifest(manifest: RunManifest | dict[str, Any]) -> ApprovedRunM
         body = validate_manifest_dict(manifest)
     fp = manifest_body_hash(body)
     if ApprovedRunManifest.objects.filter(manifest_hash=fp).exists():
-        existing = ApprovedRunManifest.objects.get(manifest_hash=fp)
-        if existing.manifest != body:
-            raise AuthorizationError("manifest hash collision with different body")
-        if existing.consumed:
-            raise AuthorizationError("manifest already consumed")
-        return existing
+        return _validated_existing_manifest(fp, body)
     expires_at = manifest.approval_expires_at if isinstance(manifest, RunManifest) else body["approval_expires_at"]
     if isinstance(expires_at, str):
         from datetime import datetime
 
         expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-    return ApprovedRunManifest.objects.create(
-        manifest_hash=fp,
-        manifest=body,
-        approved_at=timezone.now(),
-        expires_at=expires_at,
-        max_spend_usd=Decimal(str(body["hard_cap_usd"])),
-        max_calls=int(body["max_calls"]),
-        consumed=False,
-    )
+    try:
+        with transaction.atomic():
+            return ApprovedRunManifest.objects.create(
+                manifest_hash=fp,
+                manifest=body,
+                approved_at=timezone.now(),
+                expires_at=expires_at,
+                max_spend_usd=Decimal(str(body["hard_cap_usd"])),
+                max_calls=int(body["max_calls"]),
+                consumed=False,
+            )
+    except IntegrityError:
+        # Another process can win between the exists() check and INSERT.  The
+        # unique hash is the serialization point; replay only an identical,
+        # still-unconsumed manifest after the losing savepoint rolls back.
+        return _validated_existing_manifest(fp, body)
 
 
 def approve_manifest(
@@ -106,22 +120,21 @@ def approve_manifest(
 
     fp = manifest_body_hash(body)
     if ApprovedRunManifest.objects.filter(manifest_hash=fp).exists():
-        existing = ApprovedRunManifest.objects.get(manifest_hash=fp)
-        if existing.manifest != body:
-            raise AuthorizationError("manifest hash collision with different body")
-        if existing.consumed:
-            raise AuthorizationError("manifest already consumed")
-        return existing
+        return _validated_existing_manifest(fp, body)
     now = timezone.now()
-    return ApprovedRunManifest.objects.create(
-        manifest_hash=fp,
-        manifest=body,
-        approved_at=now,
-        expires_at=expires_at,
-        max_spend_usd=body_cap,
-        max_calls=body_calls,
-        consumed=False,
-    )
+    try:
+        with transaction.atomic():
+            return ApprovedRunManifest.objects.create(
+                manifest_hash=fp,
+                manifest=body,
+                approved_at=now,
+                expires_at=expires_at,
+                max_spend_usd=body_cap,
+                max_calls=body_calls,
+                consumed=False,
+            )
+    except IntegrityError:
+        return _validated_existing_manifest(fp, body)
 
 
 def _load_manifest(manifest_hash_value: str) -> ApprovedRunManifest:
