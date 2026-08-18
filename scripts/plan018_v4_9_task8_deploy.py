@@ -1061,8 +1061,14 @@ class LocalOperationalAdapter:
         )
         if cohort.returncode:
             return cohort
-        if not self._wait_site(timeout_s=120):
-            return CommandOutcome(1, stderr=b"Task 8 prior app did not become HTTP-ready")
+        if not self._wait_site(timeout_s=240):
+            detail = json.dumps(
+                self.facts.get("last_site_wait", {}), sort_keys=True
+            ).encode()
+            return CommandOutcome(
+                1,
+                stderr=b"Task 8 prior app did not become HTTP-ready: " + detail,
+            )
         return CommandOutcome(
             0,
             json.dumps(
@@ -1215,8 +1221,14 @@ class LocalOperationalAdapter:
         )
         if resumed.returncode:
             return resumed
-        if not self._wait_site(timeout_s=120):
-            return CommandOutcome(1, stderr=b"candidate app did not become HTTP-ready")
+        if not self._wait_site(timeout_s=180):
+            detail = json.dumps(
+                self.facts.get("last_site_wait", {}), sort_keys=True
+            ).encode()
+            return CommandOutcome(
+                1,
+                stderr=b"candidate app did not become HTTP-ready: " + detail,
+            )
         return CommandOutcome(0, b"candidate app cohort resumed")
 
     def _cleanup_namespace(self) -> CommandOutcome:
@@ -1766,18 +1778,40 @@ print(json.dumps({"retained_ids": [f"turn:{pk}" for pk in turns], "active_genera
 
     def _wait_site(self, timeout_s: float = 90.0) -> bool:
         deadline = time.monotonic() + timeout_s
+        attempts = 0
+        last_snapshot: dict[str, int | float] = {
+            "attempts": attempts,
+            "timeout_s": timeout_s,
+        }
         while time.monotonic() < deadline:
+            attempts += 1
             self._sample_resources()
+            memory_peak = int(self.facts["memory_peak_bytes"])
+            memory_available = available_memory_bytes()
+            disk_free = shutil.disk_usage(self.config.repo_root).free
+            snapshot = {
+                "attempts": attempts,
+                "timeout_s": timeout_s,
+                "memory_peak_bytes": memory_peak,
+                "memory_available_bytes": memory_available,
+                "disk_free_bytes": disk_free,
+            }
+            last_snapshot = snapshot
             if (
-                self.facts["memory_peak_bytes"] > MAX_MEMORY_BYTES
-                or available_memory_bytes() < MINIMUM_MEMORY_RESERVE_BYTES
-                or shutil.disk_usage(self.config.repo_root).free
-                < MINIMUM_DISK_RESERVE_BYTES
+                memory_peak > MAX_MEMORY_BYTES
+                or memory_available < MINIMUM_MEMORY_RESERVE_BYTES
+                or disk_free < MINIMUM_DISK_RESERVE_BYTES
             ):
+                self.facts["last_site_wait"] = {
+                    **snapshot,
+                    "status": "resource_limit",
+                }
                 return False
             if self._site_ok():
+                self.facts["last_site_wait"] = {**snapshot, "status": "ready"}
                 return True
             time.sleep(2)
+        self.facts["last_site_wait"] = {**last_snapshot, "status": "timeout"}
         return False
 
     def _migration_snapshot(self) -> tuple[bool, list[str]]:
@@ -2319,9 +2353,10 @@ def run_operational_plan(
     disk_probe = free_bytes or (lambda: shutil.disk_usage(config.repo_root).free)
     started = monotonic()
     entries: list[dict[str, Any]] = []
-    namespace_started = False
+    namespace_touched = False
     namespace_cleaned = False
     failure: BaseException | None = None
+    cleanup_failure: str | None = None
     try:
         for seq, command in enumerate(plan, 1):
             elapsed = monotonic() - started
@@ -2338,14 +2373,19 @@ def run_operational_plan(
             )
             if approval_errors:
                 raise OperationalRunError("Task 8 approval became invalid: " + "; ".join(approval_errors))
+            if command.daemon == "task8_namespace" and command.effect in {
+                "namespaced_mutation", "cleanup",
+            }:
+                # A command may create only some of its resources before it
+                # returns non-zero.  Mark the namespace before execution so a
+                # partial failure still invokes exact, idempotent cleanup.
+                namespace_touched = True
             command_started = monotonic()
             outcome = adapter.execute(command, timeout_s=remaining)
             duration = monotonic() - command_started
             entries.append(
                 _ledger_entry(command, seq=seq, outcome=outcome, duration_s=duration)
             )
-            if command.action == "namespace-start" and outcome.returncode == 0:
-                namespace_started = True
             if command.action == "namespace-cleanup" and outcome.returncode == 0:
                 namespace_cleaned = True
             if outcome.returncode != 0:
@@ -2358,13 +2398,21 @@ def run_operational_plan(
         ledger_path.write_text(
             "".join(json.dumps(entry, sort_keys=True) + "\n" for entry in entries)
         )
-        if failure is not None and namespace_started and not namespace_cleaned:
+        if failure is not None and namespace_touched and not namespace_cleaned:
             remaining = max(1.0, min(30.0, MAX_WALL_S - (monotonic() - started)))
             try:
-                adapter.emergency_stop(timeout_s=remaining)
-            except Exception:
-                pass
+                cleanup = adapter.emergency_stop(timeout_s=remaining)
+                if cleanup.returncode != 0:
+                    cleanup_failure = (
+                        f"emergency cleanup returned {cleanup.returncode}"
+                    )
+            except Exception as exc:
+                cleanup_failure = (
+                    "emergency cleanup raised " + type(exc).__name__
+                )
     if failure is not None:
+        if cleanup_failure is not None:
+            raise OperationalRunError(f"{failure}; {cleanup_failure}") from failure
         if isinstance(failure, OperationalRunError):
             raise failure
         raise OperationalRunError(f"Task 8 adapter crashed: {failure}") from failure

@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -583,9 +584,111 @@ def test_named_builder_is_resource_bounded_and_exactly_removed(
     assert adapter.facts["builder_removed"] is True
 
 
+def _bounded_wait_adapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> gate.LocalOperationalAdapter:
+    adapter = gate.LocalOperationalAdapter(
+        _operational_config(tmp_path), artifact_dir=tmp_path
+    )
+    adapter.facts["memory_peak_bytes"] = 0
+    monkeypatch.setattr(adapter, "_sample_resources", lambda: None)
+    monkeypatch.setattr(
+        gate, "available_memory_bytes",
+        lambda: gate.MINIMUM_MEMORY_RESERVE_BYTES + 1,
+    )
+    monkeypatch.setattr(
+        gate.shutil, "disk_usage",
+        lambda _path: SimpleNamespace(free=gate.MINIMUM_DISK_RESERVE_BYTES + 1),
+    )
+    return adapter
+
+
+def test_wait_site_records_ready_resource_and_timeout_reasons(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _bounded_wait_adapter(tmp_path, monkeypatch)
+    monkeypatch.setattr(adapter, "_site_ok", lambda: True)
+    assert adapter._wait_site(timeout_s=17) is True
+    assert adapter.facts["last_site_wait"]["status"] == "ready"
+    assert adapter.facts["last_site_wait"]["attempts"] == 1
+
+    adapter.facts["memory_peak_bytes"] = gate.MAX_MEMORY_BYTES + 1
+    assert adapter._wait_site(timeout_s=17) is False
+    assert adapter.facts["last_site_wait"]["status"] == "resource_limit"
+    assert (
+        adapter.facts["last_site_wait"]["memory_peak_bytes"]
+        == gate.MAX_MEMORY_BYTES + 1
+    )
+
+    adapter.facts["memory_peak_bytes"] = 0
+    clock = iter((0.0, 0.0, 2.0))
+    monkeypatch.setattr(gate.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(gate.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(adapter, "_site_ok", lambda: False)
+    assert adapter._wait_site(timeout_s=1) is False
+    assert adapter.facts["last_site_wait"]["status"] == "timeout"
+    assert adapter.facts["last_site_wait"]["attempts"] == 1
+    assert (
+        adapter.facts["last_site_wait"]["memory_available_bytes"]
+        == gate.MINIMUM_MEMORY_RESERVE_BYTES + 1
+    )
+    assert (
+        adapter.facts["last_site_wait"]["disk_free_bytes"]
+        == gate.MINIMUM_DISK_RESERVE_BYTES + 1
+    )
+
+
+def test_start_and_resume_use_bounded_measured_readiness_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = gate.OperationalConfig(
+        repo_root=gate.ROOT,
+        run_root=tmp_path / "run",
+        approval_path=tmp_path / "approval.json",
+        prior_sha="1" * 40,
+        candidate_sha="2" * 40,
+    )
+    adapter = gate.LocalOperationalAdapter(
+        config, artifact_dir=tmp_path
+    )
+    runtime = adapter.config.runtime_root
+    for relative in (
+        "docker/db.env",
+        "docker/nextseek.env",
+        "docker/bedrock-proxy/proxy-secret.env",
+        "dmac/local_settings.py",
+    ):
+        path = runtime / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("fixture\n")
+    monkeypatch.setattr(
+        adapter, "_runtime_command", lambda *args, **kwargs: gate.CommandOutcome(0)
+    )
+    monkeypatch.setattr(
+        adapter, "_docker", lambda *args, **kwargs: gate.CommandOutcome(0, b"healthy\n")
+    )
+    readiness_windows: list[float] = []
+    monkeypatch.setattr(
+        adapter, "_wait_site",
+        lambda timeout_s: readiness_windows.append(timeout_s) or True,
+    )
+
+    assert adapter._start_namespace().returncode == 0
+    assert adapter._resume_cohort().returncode == 0
+    assert readiness_windows == [240, 180]
+
+
 class _FakeAdapter:
-    def __init__(self, *, fail_action: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_action: str | None = None,
+        cleanup_returncode: int = 0,
+        cleanup_raises: bool = False,
+    ) -> None:
         self.fail_action = fail_action
+        self.cleanup_returncode = cleanup_returncode
+        self.cleanup_raises = cleanup_raises
         self.actions: list[str] = []
         self.emergency_stops = 0
 
@@ -600,7 +703,9 @@ class _FakeAdapter:
     def emergency_stop(self, *, timeout_s: float) -> gate.CommandOutcome:
         assert 0 < timeout_s <= 30
         self.emergency_stops += 1
-        return gate.CommandOutcome(returncode=0)
+        if self.cleanup_raises:
+            raise RuntimeError("synthetic cleanup failure")
+        return gate.CommandOutcome(returncode=self.cleanup_returncode)
 
 
 class _Clock:
@@ -670,6 +775,55 @@ def test_bounded_runner_stops_after_failure_and_emergency_cleans_namespace(tmp_p
 
     assert adapter.actions[-1] == "prewrite-seed"
     assert "migration-aware-dump" not in adapter.actions
+    assert adapter.emergency_stops == 1
+
+
+def test_bounded_runner_cleans_partially_started_namespace(tmp_path: Path) -> None:
+    config = _operational_config(tmp_path)
+    adapter = _FakeAdapter(fail_action="namespace-start")
+
+    with pytest.raises(gate.OperationalRunError, match="namespace-start.*17"):
+        gate.run_operational_plan(
+            config,
+            _approval(config),
+            adapter,
+            artifact_dir=tmp_path / "artifacts",
+            now=lambda: datetime(2026, 8, 18, 13, 0, tzinfo=timezone.utc),
+            monotonic=_Clock(),
+            free_bytes=lambda: gate.REQUIRED_FREE_BYTES,
+            preflight_result=_passing_preflight(),
+        )
+
+    assert adapter.actions[-1] == "namespace-start"
+    assert adapter.emergency_stops == 1
+
+
+@pytest.mark.parametrize(
+    ("adapter", "expected"),
+    (
+        (_FakeAdapter(fail_action="namespace-start", cleanup_returncode=23),
+         "emergency cleanup returned 23"),
+        (_FakeAdapter(fail_action="namespace-start", cleanup_raises=True),
+         "emergency cleanup raised RuntimeError"),
+    ),
+)
+def test_bounded_runner_surfaces_emergency_cleanup_failure(
+    tmp_path: Path, adapter: _FakeAdapter, expected: str,
+) -> None:
+    config = _operational_config(tmp_path)
+
+    with pytest.raises(gate.OperationalRunError, match=expected):
+        gate.run_operational_plan(
+            config,
+            _approval(config),
+            adapter,
+            artifact_dir=tmp_path / "artifacts",
+            now=lambda: datetime(2026, 8, 18, 13, 0, tzinfo=timezone.utc),
+            monotonic=_Clock(),
+            free_bytes=lambda: gate.REQUIRED_FREE_BYTES,
+            preflight_result=_passing_preflight(),
+        )
+
     assert adapter.emergency_stops == 1
 
 
