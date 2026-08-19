@@ -1,4 +1,7 @@
-# backend/app/services/nhp_cache_test.py
+# seek/timeline/services/nhp_cache_cli.py
+# Command-line script, not a test module -- the previous name (nhp_cache_test.py)
+# matched pytest's *_test.py collection pattern, so `pytest` imported it and its
+# module-level logging.basicConfig wrote nhp_cache_test.log into the CWD.
 
 import argparse
 import logging
