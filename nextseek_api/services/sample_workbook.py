@@ -23,7 +23,6 @@ CONTEXTDB_URL = (
 )
 
 README_SHEET = "README"
-README_HEADER = ["Sample Type", "Name", "Description"]
 README_LINK_TEXT = "Sample type definitions: sampletypes_db.json (GitHub)"
 
 # Sample UIDs lead with the sample-type code: "MUS-230101ABC-1", "D.SEQ-240910LAU-3".
