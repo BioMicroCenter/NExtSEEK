@@ -11,6 +11,7 @@ import logging
 from typing import Iterable, Mapping
 
 import pandas as pd
+from openpyxl.styles import Font
 
 from seek.models import Sample_fields_context, Sample_types_context
 
@@ -28,23 +29,6 @@ README_LINK_TEXT = "Sample type definitions: sampletypes_db.json (GitHub)"
 # Sample UIDs lead with the sample-type code: "MUS-230101ABC-1", "D.SEQ-240910LAU-3".
 # The dotted alternative must come first or "D.SEQ" truncates to "D".
 SAMPLE_TYPE_RE = r"([A-Z]+\.[A-Z]+|[A-Z]+)"
-
-
-def build_readme_rows(
-    codes: Iterable[str],
-    context_by_code: Mapping[str, Mapping[str, str]],
-) -> list[list[str]]:
-    """Header row plus one row per distinct code, sorted, blanks when undocumented.
-
-    Undocumented codes are listed rather than omitted so the README always
-    indexes every sheet in the workbook, and a gap in the context table is
-    visible instead of silent.
-    """
-    rows = [list(README_HEADER)]
-    for code in sorted({c for c in codes if c}):
-        entry = context_by_code.get(code) or {}
-        rows.append([code, entry.get("name", "") or "", entry.get("description", "") or ""])
-    return rows
 
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
@@ -145,16 +129,28 @@ def load_sample_field_context(
     }
 
 
-def _write_readme(book, rows: list[list[str]]) -> None:
+def _write_readme(book, blocks: list[dict]) -> None:
     ws = book.create_sheet(README_SHEET, 0)
     ws["A1"] = README_LINK_TEXT
     ws["A1"].hyperlink = CONTEXTDB_URL
     ws["A1"].style = "Hyperlink"
-    # Row 2 is left blank to separate the link from the table.
-    for r, row in enumerate(rows, start=3):
-        for c, value in enumerate(row, start=1):
-            ws.cell(row=r, column=c, value=value)
-    ws.column_dimensions["A"].width = 14
+    # Row 2 is left blank to separate the link from the first section.
+    row = 3
+    for block in blocks:
+        heading = f"{block['code']} — {block['name']}" if block["name"] else block["code"]
+        ws.cell(row=row, column=1, value=heading).font = Font(bold=True)
+        row += 1
+        ws.cell(row=row, column=1, value=block["description"])
+        row += 2  # description, then a blank line before the column table
+        for column, label in enumerate(COLUMN_TABLE_HEADER, start=2):
+            ws.cell(row=row, column=column, value=label).font = Font(bold=True)
+        row += 1
+        for name, meaning in block["columns"]:
+            ws.cell(row=row, column=2, value=name)
+            ws.cell(row=row, column=3, value=meaning)
+            row += 1
+        row += 1  # blank line between sections
+    ws.column_dimensions["A"].width = 22
     ws.column_dimensions["B"].width = 34
     ws.column_dimensions["C"].width = 100
 
@@ -163,7 +159,9 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
     """Write README as sheet 1, then one sheet per sample type.
 
     `parsed_df` must carry a `uuid` column; `sample_type` is derived here so the
-    extraction regex lives in exactly one place.
+    extraction regex lives in exactly one place. Sheets are prepared before the
+    README is built, because the README must describe the columns that survive
+    the all-empty drop rather than everything in the frame.
     """
     df = parsed_df.copy()
     df["sample_type"] = df["uuid"].astype(str).str.extract(SAMPLE_TYPE_RE, expand=False)
@@ -172,15 +170,25 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
     if context_by_code is None:
         context_by_code = load_sample_type_context(codes)
 
+    prepared = []
+    for sample_type, sample_type_df in df.groupby("sample_type"):
+        frame = sample_type_df.drop(columns=["uuid", "sample_type"])
+        frame = frame.replace("", pd.NA)
+        frame = frame.dropna(axis=1, how="all")
+        prepared.append((sample_type, frame))
+
+    sheets = [(code, list(frame.columns)) for code, frame in prepared]
+    meaning_by_pair = load_sample_field_context(
+        [(code, column) for code, columns in sheets for column in columns]
+    )
+    blocks = build_readme_blocks(sheets, context_by_code, meaning_by_pair)
+
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         book = writer.book
         # pandas removes openpyxl's default sheet, but guard in case that changes.
         if "Sheet" in book.sheetnames:
             del book["Sheet"]
-        _write_readme(book, build_readme_rows(codes, context_by_code))
+        _write_readme(book, blocks)
 
-        for sample_type, sample_type_df in df.groupby("sample_type"):
-            sample_type_df = sample_type_df.drop(columns=["uuid", "sample_type"])
-            sample_type_df = sample_type_df.replace("", pd.NA)
-            sample_type_df = sample_type_df.dropna(axis=1, how="all")
-            sample_type_df.to_excel(writer, sheet_name=sample_type, index=False)
+        for code, frame in prepared:
+            frame.to_excel(writer, sheet_name=code, index=False)
