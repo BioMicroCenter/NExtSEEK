@@ -5,6 +5,16 @@ This directory ships sanitized snapshots of dev databases for fresh installs.
 ## Files
 
 - `dmac.sql.gz` — NExtSEEK application schema (the `dmac` MySQL database)
+
+  The `dmac` dump does **not** yet include `sample_fields_context`, the
+  per-field definitions behind the download workbook's README sheet. Its DDL
+  lives at `startup/seed/sql/sample_fields_context.sql` and is applied by hand
+  to an instance's `dmac` database — production included — until a maintainer
+  folds the table in on the next `dump-db` cycle. Until then a fresh install
+  renders the README's meanings blank, which is the designed fail-soft
+  behaviour, not a failure; `assay_context` and `projects_context` are absent
+  for the same reason. Neither this table nor `sample_types_context` has a
+  Django migration; both are created in SQL.
 - `seek_production.sql.gz` — SEEK schema (the `seek_production` MySQL database)
 - `neo4j.cypher.gz` — Neo4j graph export (sample/assay nodes + relationships)
 - `filestore.tar.gz` — SEEK filestore snapshot (the content blobs the
