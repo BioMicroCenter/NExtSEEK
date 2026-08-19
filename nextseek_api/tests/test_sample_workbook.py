@@ -8,6 +8,7 @@ from openpyxl import load_workbook
 from nextseek_api.services.sample_workbook import (
     CONTEXTDB_URL,
     build_readme_rows,
+    load_sample_field_context,
     load_sample_type_context,
     write_samples_workbook,
 )
@@ -182,3 +183,59 @@ def test_seek_views_sample_retrieval_data_delegates_to_the_shared_writer():
         views.sample_retrieval_data(df, "/tmp/unused.xlsx")
     mock_write.assert_called_once()
     assert mock_write.call_args[0][1] == "/tmp/unused.xlsx"
+
+
+@patch(f"{_MOD}.Sample_fields_context")
+def test_field_context_uses_the_global_row(mock_model):
+    mock_model.objects.filter.return_value.values.return_value = [
+        {"field_name": "Sex", "sample_type": "", "meaning": "Sex at birth."},
+    ]
+    assert load_sample_field_context([("MUS", "Sex")]) == {("MUS", "Sex"): "Sex at birth."}
+
+
+@patch(f"{_MOD}.Sample_fields_context")
+def test_field_context_prefers_a_sample_type_override(mock_model):
+    mock_model.objects.filter.return_value.values.return_value = [
+        {"field_name": "Name", "sample_type": "", "meaning": "Submitter's identifier."},
+        {"field_name": "Name", "sample_type": "MUS", "meaning": "The animal's ear-tag ID."},
+    ]
+    assert load_sample_field_context([("MUS", "Name")]) == {
+        ("MUS", "Name"): "The animal's ear-tag ID."
+    }
+
+
+@patch(f"{_MOD}.Sample_fields_context")
+def test_field_context_override_does_not_leak_to_other_sample_types(mock_model):
+    mock_model.objects.filter.return_value.values.return_value = [
+        {"field_name": "Name", "sample_type": "", "meaning": "Submitter's identifier."},
+        {"field_name": "Name", "sample_type": "MUS", "meaning": "The animal's ear-tag ID."},
+    ]
+    result = load_sample_field_context([("MUS", "Name"), ("TIS", "Name")])
+    assert result[("TIS", "Name")] == "Submitter's identifier."
+
+
+@patch(f"{_MOD}.Sample_fields_context")
+def test_field_context_returns_blank_for_an_undefined_field(mock_model):
+    mock_model.objects.filter.return_value.values.return_value = []
+    assert load_sample_field_context([("MUS", "Genotype")]) == {("MUS", "Genotype"): ""}
+
+
+@patch(f"{_MOD}.Sample_fields_context")
+def test_field_context_coerces_a_null_meaning_to_a_blank(mock_model):
+    mock_model.objects.filter.return_value.values.return_value = [
+        {"field_name": "Sex", "sample_type": "", "meaning": None},
+    ]
+    assert load_sample_field_context([("MUS", "Sex")]) == {("MUS", "Sex"): ""}
+
+
+@patch(f"{_MOD}.Sample_fields_context")
+def test_field_context_does_not_query_for_an_empty_pair_list(mock_model):
+    assert load_sample_field_context([]) == {}
+    mock_model.objects.filter.assert_not_called()
+
+
+@patch(f"{_MOD}.Sample_fields_context")
+def test_field_context_survives_a_missing_table(mock_model):
+    """A download must not fail because the definitions table is absent."""
+    mock_model.objects.filter.side_effect = RuntimeError("no such table")
+    assert load_sample_field_context([("MUS", "Sex")]) == {}

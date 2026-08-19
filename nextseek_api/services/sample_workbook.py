@@ -12,7 +12,7 @@ from typing import Iterable, Mapping
 
 import pandas as pd
 
-from seek.models import Sample_types_context
+from seek.models import Sample_fields_context, Sample_types_context
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,47 @@ def load_sample_type_context(codes: Iterable[str]) -> dict[str, dict[str, str]]:
         # download; the README then lists codes with blank name/description.
         logger.exception("sample_types_context lookup failed; README will be unpopulated")
         return {}
+
+
+def load_sample_field_context(
+    pairs: Iterable[tuple[str, str]],
+) -> dict[tuple[str, str], str]:
+    """Resolve (sample_type, field_name) -> meaning against sample_fields_context.
+
+    Precedence per pair: a row scoped to that sample type, else the global row
+    (`sample_type == ''`), else blank. Resolving here means no caller has to
+    reimplement the fallback.
+    """
+    wanted = [(st or "", fn) for st, fn in pairs if fn]
+    if not wanted:
+        return {}
+    try:
+        rows = list(
+            Sample_fields_context.objects.filter(
+                field_name__in=sorted({fn for _, fn in wanted})
+            ).values("field_name", "sample_type", "meaning")
+        )
+    except Exception:
+        # A missing or unreachable table must not cost the user their download;
+        # every meaning then renders blank.
+        logger.exception("sample_fields_context lookup failed; meanings will be blank")
+        return {}
+
+    global_by_field: dict[str, str] = {}
+    scoped: dict[tuple[str, str], str] = {}
+    for row in rows:
+        meaning = row.get("meaning") or ""
+        code = row.get("sample_type") or ""
+        name = row.get("field_name")
+        if code:
+            scoped[(code, name)] = meaning
+        else:
+            global_by_field[name] = meaning
+
+    return {
+        (code, name): scoped.get((code, name), global_by_field.get(name, ""))
+        for code, name in wanted
+    }
 
 
 def _write_readme(book, rows: list[list[str]]) -> None:
