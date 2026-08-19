@@ -446,7 +446,7 @@ class DBtable_data_files(DBtable):
                 if istest:
                     print('Skip sample update in a test run.')
                 else:
-                    from seek.dbtable_sample import DBtable_sample
+                    from .dbtable_sample import DBtable_sample  # deferred: circular import, see dbtable_sample.py:32
                     dbsample = DBtable_sample()
                     msg, status = dbsample.updateSampleDFurl(submitter, sample_uid, originalfilename, df_link)
                     if not status:

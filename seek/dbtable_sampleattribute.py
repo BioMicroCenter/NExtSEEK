@@ -7,8 +7,8 @@ import logging
 from typing import Dict, List
 logger = logging.getLogger(__name__)
 
-from seek.models import Sample_attributes
-from seek.dbtable_attributetype import DBtable_attributetype
+from .models import Sample_attributes
+from .dbtable_attributetype import DBtable_attributetype
 from dmac.dbtable import DBtable
 from dmac.csv_excel import load_file, load_excelfile
 from dmac.conversion import toDateClass, is_numeric, toFloat, toBinaryTinyInt, toString, getDefaultDate
@@ -141,7 +141,7 @@ class DBtable_sampleattribute(DBtable):
         attributeInfo['headers_required'] = headers_required
         attributeInfo['attributeTypes'] = attributeTypes
         
-        from seek.dbtable_sampletype import DBtable_sampletype
+        from .dbtable_sampletype import DBtable_sampletype  # deferred: circular import, see dbtable_sampletype.py:12
         sampletype = DBtable_sampletype("DEFAULT")
         attributeInfo['sampletype'] = sampletype.getOneRecord(sampleType_id)
         attributeInfo['sampleType_id'] = sampleType_id

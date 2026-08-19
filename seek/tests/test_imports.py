@@ -18,7 +18,7 @@ import importlib
 
 import pytest
 
-from seek.tests.discovery import module_names
+from .discovery import module_names
 
 MODULES = module_names()
 

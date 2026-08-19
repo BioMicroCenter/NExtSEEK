@@ -236,7 +236,7 @@ class SeekDB(object):
         return bodyhtml
 
     def __getSeekUserID(self, username):
-        from seek.models import Users
+        from .models import Users
         from django.db.models import Q
 
         filter = Q(login__exact=username)
@@ -250,7 +250,7 @@ class SeekDB(object):
         return seek_userid
         
     def __getSeekPersonID(self, username):
-        from seek.models import Users
+        from .models import Users
         from django.db.models import Q
         filter = Q(login__exact=username)
         userobjs = Users.objects.filter(filter).values()

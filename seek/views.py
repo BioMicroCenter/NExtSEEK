@@ -79,8 +79,8 @@ from subprocess import call
 import shlex
 from subprocess import Popen, PIPE
 
-from seek.timeline.services.timeline_service import run_All, get_event_data
-from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
+from .timeline.services.timeline_service import run_All, get_event_data
+from .timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
 import neo4j
 from neo4j import GraphDatabase
 import io

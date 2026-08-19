@@ -6,8 +6,8 @@ import time, json
 import logging
 logger = logging.getLogger(__name__)
 
-from seek.seekapi import SeekAPI
-from seek.models import Projects, Projects_sops, Data_files_projects, Projects_samples
+from .seekapi import SeekAPI
+from .models import Projects, Projects_sops, Data_files_projects, Projects_samples
 from dmac.dbtable import DBtable
 
 class DBtable_projects(DBtable):

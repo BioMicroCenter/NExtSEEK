@@ -12,7 +12,7 @@ updating the URL conf raises ``AttributeError`` here rather than at first reques
 import pytest
 from django.urls import reverse
 
-from seek import urls
+from .. import urls
 
 PATTERNS = list(urls.urlpatterns)
 

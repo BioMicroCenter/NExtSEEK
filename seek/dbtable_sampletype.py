@@ -6,10 +6,10 @@ import time, json
 import logging
 logger = logging.getLogger(__name__)
 
-from seek.seekapi import SeekAPI
-from seek.models import Sample_types
+from .seekapi import SeekAPI
+from .models import Sample_types
 from dmac.dbtable import DBtable
-from seek.dbtable_sampleattribute import DBtable_sampleattribute
+from .dbtable_sampleattribute import DBtable_sampleattribute
 
 SAMPLETYPE_FILTER_MAPPING = {
 }

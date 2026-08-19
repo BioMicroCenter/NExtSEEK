@@ -18,7 +18,7 @@ import inspect
 import pytest
 
 from dmac.dbtable import DBtable
-from seek.tests.discovery import module_names
+from .discovery import module_names
 
 
 class _StubConnection:
