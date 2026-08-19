@@ -119,8 +119,9 @@ control (a…g)
                  ├─ SeekDB(None, *basic_tuple) → real projects   :617
                  ├─ include_tree ? getChildrenUIDs (Neo4j)  :681
                  │                : project-scoped MySQL query
-                 └─ write_samples_workbook(...)   nextseek_api/services/sample_workbook.py:91
-                      ├─ sheet 1: README   (build_readme_rows :33, load_sample_type_context :50)
+                 └─ write_samples_workbook(...)   nextseek_api/services/sample_workbook.py:157
+                      ├─ sheet 1: README   (build_readme_blocks :36, load_sample_type_context :63,
+                      │                     load_sample_field_context :90, _write_readme :131)
                       └─ one sheet per sample type
 ```
 
@@ -200,3 +201,31 @@ Production's `dmac` has `sample_types_context`, `assay_context` and
 `startup/seed/dmac.sql.gz` (101 rows), because only it is needed for the README.
 The other two remain a seed/production divergence and will bite whoever next
 depends on them.
+
+## Per-column definitions on the README sheet
+
+The README sheet carries one section per tab, listing every column in that tab
+with a plain-English meaning where one has been written. Meanings come from
+`dmac.sample_fields_context`, joined on the `field_name` string, with
+`sample_type = ''` as the global definition and a sample type code as a per-tab
+override.
+
+Rows are derived from the columns actually written to the workbook, after the
+all-empty-column drop. A new sample type therefore gets a section the first time
+anyone downloads one, and a new attribute gets a row the first time it carries a
+value — nothing has to be registered.
+
+Rolling this out to an instance:
+
+1. Apply `startup/seed/sql/sample_fields_context.sql` to that instance's `dmac`
+   database.
+2. Load definitions into the table.
+3. Deploy.
+
+Steps can happen in any order. `load_sample_field_context` fails soft: if the
+table is missing or unreachable it logs and every meaning renders blank, so
+there is no window in which downloads break.
+
+Definitions are written only for columns whose meaning is not self-evident. A
+column judged obvious has no row and renders blank — "obvious" and
+"undocumented" are deliberately not distinguished in the workbook.
