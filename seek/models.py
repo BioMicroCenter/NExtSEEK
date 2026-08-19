@@ -231,6 +231,26 @@ class Sample_types_context(models.Model):
     class Meta:
         db_table = "sample_types_context"
 
+class Sample_fields_context(models.Model):
+    """Plain-English meaning per metadata field, for the download README.
+
+    Joined on the `field_name` string, never on an id: ids do not agree across
+    instances. `sample_type` is the scope — '' is the definition used for every
+    tab, a sample type code overrides it for that tab only.
+    """
+    _DATABASE = NEXTSEEK_DATABASE
+
+    field_name = models.CharField(max_length=255)
+    sample_type = models.CharField(max_length=32, default="")
+    meaning = models.TextField(default=None, null=True)
+
+    def __unicode__(self):
+        return self.field_name
+
+    class Meta:
+        db_table = "sample_fields_context"
+        unique_together = ("field_name", "sample_type")
+
 class Sample_attributes(models.Model):
     _DATABASE = SEEK_DATABASE
     
