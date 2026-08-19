@@ -777,9 +777,9 @@ git commit -m "feat(download): README lists every column under the tab it belong
 
 ---
 
-### Task 6: Seed the table and document the rollout
+### Task 6: Document the rollout and the seed gap
 
-The feature renders blank meanings anywhere the table is missing. That is by design, but a fresh install should still get whatever definitions exist — the gap `assay_context` and `projects_context` still have.
+The feature renders blank meanings anywhere the table is missing. That is by design. Folding the table into the seed dump turned out to be impossible from a normal checkout (see Step 2), so this task documents the manual install path instead, and records the gap the way `assay_context` and `projects_context` already are.
 
 **Files:**
 - Modify: `startup/seed/README.md`
@@ -787,7 +787,7 @@ The feature renders blank meanings anywhere the table is missing. That is by des
 
 **Interfaces:**
 - Consumes: `startup/seed/sql/sample_fields_context.sql` (Task 2).
-- Produces: documentation only.
+- Produces: documentation only. `startup/seed/dmac.sql.gz` is deliberately NOT modified.
 
 - [ ] **Step 1: Confirm the table is in the local dmac database**
 
@@ -799,37 +799,44 @@ docker exec seek-mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -e \
 
 Expected: `0` — the table exists and is empty. If it errors, re-run Task 2 Step 6.
 
-- [ ] **Step 2: Regenerate the seed**
+- [ ] **Step 2: Confirm the seed cannot be regenerated here, and record why**
+
+`./startup.sh dump-db` does **not** dump the local stack. It requires
+`startup/seed/regenerate/dump-source.env` — gitignored, maintainer-only
+credentials for a remote host — and regenerates `dmac.sql.gz`,
+`seek_production.sql.gz` and the Neo4j dump together from that source. Running
+it would replace all three seeds with whatever that remote host currently holds,
+which is far beyond adding one table.
+
+Confirm the blocker rather than assuming it:
 
 ```bash
-./startup.sh dump-db
+ls startup/seed/regenerate/dump-source.env
 ```
 
-Expected: `startup/seed/dmac.sql.gz` rewritten. Confirm the table is captured:
+Expected: `No such file or directory`. If the file *does* exist, stop and report
+it — the situation differs from what this plan assumes.
 
-```bash
-gzcat startup/seed/dmac.sql.gz | grep -c "CREATE TABLE \`sample_fields_context\`"
-```
-
-Expected: `1`.
-
-Note: `dump-db` runs against the compose stack in the main repo, so the regenerated `dmac.sql.gz` lands in that checkout. Copy it into the worktree before committing:
-
-```bash
-cp /Users/jps/Documents/MIT/NExtSEEK/startup/seed/dmac.sql.gz \
-   /Users/jps/Documents/MIT/NExtSEEK-readme-columns/startup/seed/dmac.sql.gz
-```
+The table therefore ships as the standalone DDL from Task 2, applied by hand,
+and a maintainer folds it into the seed on the next `dump-db` cycle. Until then
+a fresh install renders blank meanings, which is the designed fail-soft
+behaviour rather than a failure. `assay_context` and `projects_context` are
+absent from the seed for exactly the same reason.
 
 - [ ] **Step 3: Document the table in the seed README**
 
 In `startup/seed/README.md`, under the `## Files` list, add after the `dmac.sql.gz` bullet:
 
 ```markdown
-  The `dmac` dump includes `sample_fields_context`, the per-field definitions
-  behind the download workbook's README sheet. Its DDL is also kept standalone
-  at `startup/seed/sql/sample_fields_context.sql` so it can be applied to an
-  existing database — production included — without a full restore. Neither it
-  nor `sample_types_context` has a Django migration; both are created in SQL.
+  The `dmac` dump does **not** yet include `sample_fields_context`, the
+  per-field definitions behind the download workbook's README sheet. Its DDL
+  lives at `startup/seed/sql/sample_fields_context.sql` and is applied by hand
+  to an instance's `dmac` database — production included — until a maintainer
+  folds the table in on the next `dump-db` cycle. Until then a fresh install
+  renders the README's meanings blank, which is the designed fail-soft
+  behaviour, not a failure; `assay_context` and `projects_context` are absent
+  for the same reason. Neither this table nor `sample_types_context` has a
+  Django migration; both are created in SQL.
 ```
 
 - [ ] **Step 4: Document the rollout in the workflow doc**
@@ -866,19 +873,43 @@ column judged obvious has no row and renders blank — "obvious" and
 "undocumented" are deliberately not distinguished in the workbook.
 ```
 
+- [ ] **Step 5a: Correct the stale call diagram in the same doc**
+
+`docs/sample-download-workflow.md` carries a call diagram naming
+`build_readme_rows`, which Task 5 deleted, with line numbers that have all
+moved. `nextseek_api/services/sample_workbook.py` lines 3-5 point readers at
+this doc, so the staleness is load-bearing.
+
+Replace:
+
+```
+                 └─ write_samples_workbook(...)   nextseek_api/services/sample_workbook.py:91
+                      ├─ sheet 1: README   (build_readme_rows :33, load_sample_type_context :50)
+```
+
+with:
+
+```
+                 └─ write_samples_workbook(...)   nextseek_api/services/sample_workbook.py:157
+                      ├─ sheet 1: README   (build_readme_blocks :36, load_sample_type_context :63,
+                      │                     load_sample_field_context :90, _write_readme :131)
+```
+
+Correct the line numbers and names only. Do not restructure the diagram.
+
 - [ ] **Step 5: Verify the docs render and nothing else changed**
 
 ```bash
 cd /Users/jps/Documents/MIT/NExtSEEK-readme-columns && git status --short
 ```
 
-Expected: exactly `startup/seed/README.md`, `docs/sample-download-workflow.md`, and `startup/seed/dmac.sql.gz` modified.
+Expected: exactly `startup/seed/README.md` and `docs/sample-download-workflow.md` modified. `startup/seed/dmac.sql.gz` must be **unchanged** — this plan does not regenerate it.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add startup/seed/README.md startup/seed/dmac.sql.gz docs/sample-download-workflow.md
-git commit -m "feat(startup): seed sample_fields_context and document the rollout"
+git add startup/seed/README.md docs/sample-download-workflow.md
+git commit -m "docs(startup): document the sample_fields_context rollout and seed gap"
 ```
 
 ---
