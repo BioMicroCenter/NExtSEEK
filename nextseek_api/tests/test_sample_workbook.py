@@ -7,6 +7,7 @@ from openpyxl import load_workbook
 
 from nextseek_api.services.sample_workbook import (
     CONTEXTDB_URL,
+    build_readme_blocks,
     build_readme_rows,
     load_sample_field_context,
     load_sample_type_context,
@@ -239,3 +240,38 @@ def test_field_context_survives_a_missing_table(mock_model):
     """A download must not fail because the definitions table is absent."""
     mock_model.objects.filter.side_effect = RuntimeError("no such table")
     assert load_sample_field_context([("MUS", "Sex")]) == {}
+
+
+def test_blocks_carry_the_sample_type_name_and_description():
+    blocks = build_readme_blocks([("MUS", ["UID"])], CONTEXT, {})
+    assert blocks[0]["code"] == "MUS"
+    assert blocks[0]["name"] == "Mouse"
+    assert blocks[0]["description"] == "A mouse sample."
+
+
+def test_blocks_keep_sheet_order_not_alphabetical_order():
+    """The README is meant to be read beside the tab, left to right."""
+    blocks = build_readme_blocks([("MUS", ["UID", "Sex", "Genotype"])], CONTEXT, {})
+    assert [name for name, _ in blocks[0]["columns"]] == ["UID", "Sex", "Genotype"]
+
+
+def test_blocks_follow_the_order_the_sheets_were_given():
+    blocks = build_readme_blocks([("TIS", ["UID"]), ("MUS", ["UID"])], CONTEXT, {})
+    assert [b["code"] for b in blocks] == ["TIS", "MUS"]
+
+
+def test_blocks_attach_the_resolved_meaning():
+    meanings = {("MUS", "Sex"): "Sex at birth."}
+    blocks = build_readme_blocks([("MUS", ["Sex"])], CONTEXT, meanings)
+    assert blocks[0]["columns"] == [("Sex", "Sex at birth.")]
+
+
+def test_a_column_with_no_definition_is_listed_with_a_blank():
+    """The README always indexes every column, so a gap is visible not silent."""
+    blocks = build_readme_blocks([("MUS", ["Genotype"])], CONTEXT, {})
+    assert blocks[0]["columns"] == [("Genotype", "")]
+
+
+def test_an_undocumented_sample_type_still_gets_a_block():
+    blocks = build_readme_blocks([("ZZZ", ["UID"])], CONTEXT, {})
+    assert blocks[0] == {"code": "ZZZ", "name": "", "description": "", "columns": [("UID", "")]}

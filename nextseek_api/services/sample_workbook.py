@@ -47,6 +47,36 @@ def build_readme_rows(
     return rows
 
 
+COLUMN_TABLE_HEADER = ["Column", "Meaning"]
+
+
+def build_readme_blocks(
+    sheets: Iterable[tuple[str, Iterable[str]]],
+    context_by_code: Mapping[str, Mapping[str, str]],
+    meaning_by_pair: Mapping[tuple[str, str], str],
+) -> list[dict]:
+    """One block per sheet, in the order the sheets will be written.
+
+    `sheets` is (sample_type code, its columns in sheet order). Columns are kept
+    in that order rather than sorted so the README can be read beside the tab.
+    An undocumented sample type still gets a block, and a column with no
+    definition is still listed, so the README always indexes the whole workbook.
+    """
+    blocks = []
+    for code, columns in sheets:
+        entry = context_by_code.get(code) or {}
+        blocks.append({
+            "code": code,
+            "name": entry.get("name", "") or "",
+            "description": entry.get("description", "") or "",
+            "columns": [
+                (column, meaning_by_pair.get((code, column), "") or "")
+                for column in columns
+            ],
+        })
+    return blocks
+
+
 def load_sample_type_context(codes: Iterable[str]) -> dict[str, dict[str, str]]:
     """Look up code -> {name, description} in dmac.sample_types_context.
 
