@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-from .sparql import Sparql
 from .seekapi import SeekAPI
 from django.conf import settings
 import hashlib
@@ -13,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 class SeekDB(object):
     def __init__(self, server, username, password):
-        self.__sparql = None
         if username is not None:
             self.user_seek = {}
             if server is None:
@@ -267,55 +265,20 @@ class SeekDB(object):
     def getCurrentUser(self):
         return self.__seekapi.getCurrentUser()
         
-    def getProjects(self, useSeekAPI=True):
-        if useSeekAPI:
-            projects = self.__seekapi.getProjects()
-            return self.__convertKeyValue(projects)
-        else:
-            return self.__sparql.getProjects()
-        
+    def getProjects(self):
+        projects = self.__seekapi.getProjects()
+        return self.__convertKeyValue(projects)
+
+    # `useSeekAPI` is kept here on purpose: this `if` has no `else`, so a False
+    # call returns None rather than falling through to a dead branch. Dropping
+    # the parameter would change that. See OPTIMIZATION_PLAN.md Step 4.
     def getObjectsToOptions(self, objectName, useSeekAPI=True):
         if useSeekAPI:
             options = self.__seekapi.getObjectsToOptions(objectName)
             return options
         else:
             return None
-        
-        
-    def disgenet(self, disgenet):
-        sparql_query = (
-            "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>" +
-            "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>" +
-            "PREFIX owl: <http://www.w3.org/2002/07/owl#>" +
-            "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>" +
-            "PREFIX dcterms: <http://purl.org/dc/terms/>" +
-            "PREFIX foaf: <http://xmlns.com/foaf/0.1/>" +
-            "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>" +
-            "PREFIX void: <http://rdfs.org/ns/void#>" +
-            "PREFIX sio: <http://semanticscience.org/resource/>" +
-            "PREFIX ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#>" +
-            "PREFIX up: <http://purl.uniprot.org/core/>" +
-            "PREFIX dcat: <http://www.w3.org/ns/dcat#>" +
-            "PREFIX dctypes: <http://purl.org/dc/dcmitype/>" +
-            "PREFIX wi: <http://http://purl.org/ontology/wi/core#>" +
-            "PREFIX eco: <http://http://purl.obolibrary.org/obo/eco.owl#>" +
-            "PREFIX prov: <http://http://http://www.w3.org/ns/prov#>" +
-            "PREFIX pav: <http://http://http://purl.org/pav/>" +
-            "PREFIX obo: <http://purl.obolibrary.org/obo/>" +
-            "SELECT * " +
-            "WHERE { SERVICE <http://rdf.disgenet.org/sparql/> { " +
-            "?uri dcterms:title ?disease . " +
-            "?disease bif:contains \'\"" + disgenet + "\"\' ." +
-            "} " +
-            "} LIMIT 30"
-        )
-        
-        disgenet_uri = {}
-        rows = self.__sparql.query(sparql_query)
-        for row in rows:
-            disgenet_uri[row[0].strip("rdflib.term.URIRef")] = row[1]
-        return disgenet_uri
-        
+
     def getUserid(self, fullname):
         queryurl = "/people"
         jsonpeople = self.__seekapi.runGetQuery(queryurl)
@@ -430,71 +393,46 @@ class SeekDB(object):
             dicOut[id] = k
         return dicOut    
                 
-    def getInvestigations(self, project_title, useSeekAPI=True):
-        if useSeekAPI:
-            investigations = self.__seekapi.getInvestigations(project_title)
-            return self.__convertKeyValue(investigations)
-        else:
-            return self.__sparql.getInvestigations(project_title)
-                
-    def getStudies(self, investigation_title, useSeekAPI=True):
-        if useSeekAPI:
-            if investigation_title is None or investigation_title=="":
-                return {}
-            
-            investigationid = self.__seekapi.getIDfromTitle("/investigations/", investigation_title)
-            studies = self.__seekapi.getStudies(investigationid)
-            return self.__convertKeyValue(studies)
-        
-        else:
-            return self.__sparql.getStudies(investigation_title) 
-        
-    def getStudiesFromID(self, investigation_id, useSeekAPI=True):
-        if useSeekAPI:
-            studies = self.__seekapi.getStudies(investigation_id)
-            return self.__convertKeyValue(studies)
-        else:
-            investigation_title = self.__seekapi.getTitleFromID("/investigations/", investigation_id)
-            return self.__sparql.getStudies(investigation_title)
-    
-    def getAssays(self, study_title, useSeekAPI=True):
-        if useSeekAPI:
-            if study_title is None or study_title=="":
-                return {}
-            
-            studyid = self.__seekapi.getIDfromTitle("/studies/", study_title)
-            assays = self.__seekapi.getAssays(studyid)
-            return self.__convertKeyValue(assays)
-        
-        else:
-            return self.__sparql.getAssays(study_title)
-        
-    
-    def getAssaysFromID(self, study_id, useSeekAPI=True):
-        if useSeekAPI:
-            study_id = str(study_id)
-            assays = self.__seekapi.getAssays(study_id)
-            return self.__convertKeyValue(assays)
-        else:
-            study_title = self.__seekapi.getTitleFromID("/studies/", study_id)
-            return self.__sparql.getStudies(study_title)
-    
+    def getInvestigations(self, project_title):
+        investigations = self.__seekapi.getInvestigations(project_title)
+        return self.__convertKeyValue(investigations)
+
+    def getStudies(self, investigation_title):
+        if investigation_title is None or investigation_title=="":
+            return {}
+
+        investigationid = self.__seekapi.getIDfromTitle("/investigations/", investigation_title)
+        studies = self.__seekapi.getStudies(investigationid)
+        return self.__convertKeyValue(studies)
+
+    def getStudiesFromID(self, investigation_id):
+        studies = self.__seekapi.getStudies(investigation_id)
+        return self.__convertKeyValue(studies)
+
+    def getAssays(self, study_title):
+        if study_title is None or study_title=="":
+            return {}
+
+        studyid = self.__seekapi.getIDfromTitle("/studies/", study_title)
+        assays = self.__seekapi.getAssays(studyid)
+        return self.__convertKeyValue(assays)
+
+    def getAssaysFromID(self, study_id):
+        study_id = str(study_id)
+        assays = self.__seekapi.getAssays(study_id)
+        return self.__convertKeyValue(assays)
+
     def getAPIsamples(self, assayid):
         return self.__seekapi.getSamples(assayid)
-    
+
     def getSamples(self, assay_title):
-        useSeekAPI = True
-        if useSeekAPI:
-            if assay_title is None or assay_title=="":
-                return {}
-            
-            assayid = self.__seekapi.getIDfromTitle("/assays/", assay_title)
-            samples = self.__seekapi.getSamples(assayid)
-            return self.__convertKeyValue(samples)
-        else:
-            return self.__sparql.getSamples(assay_title)
-            
-            
+        if assay_title is None or assay_title=="":
+            return {}
+
+        assayid = self.__seekapi.getIDfromTitle("/assays/", assay_title)
+        samples = self.__seekapi.getSamples(assayid)
+        return self.__convertKeyValue(samples)
+
     def __get_investigation_folders(self):
         investigations = self.getInvestigations("")
         oc_folders = ""
@@ -1212,7 +1150,7 @@ class SeekDB(object):
         for pinfo in projects:
             project_title = pinfo['title']
             project_id = pinfo['id']
-            investigations = self.getInvestigations(project_title, True)
+            investigations = self.getInvestigations(project_title)
             allinvestigations.update(investigations)
             
             investigation_options = convertDicToOptions(investigations)
@@ -1223,7 +1161,7 @@ class SeekDB(object):
         study_options_dic = {}
         allstudies = {}
         for iid, investigation in allinvestigations.items():
-            studies = self.getStudies(investigation, True)
+            studies = self.getStudies(investigation)
             study_options = convertDicToOptions(studies)
             study_options_dic[iid] = study_options
         
@@ -1235,7 +1173,7 @@ class SeekDB(object):
         study_options_dic = json.dumps(study_options_dic)
         assay_options_dic = {}
         for sid, study in allstudies.items():
-            assays = self.getAssays(study, True)
+            assays = self.getAssays(study)
             assay_options = convertDicToOptions(assays)
             assay_options_dic[sid] = assay_options
             
