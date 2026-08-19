@@ -8,7 +8,6 @@ from openpyxl import load_workbook
 from nextseek_api.services.sample_workbook import (
     CONTEXTDB_URL,
     build_readme_blocks,
-    build_readme_rows,
     load_sample_field_context,
     load_sample_type_context,
     write_samples_workbook,
@@ -20,36 +19,6 @@ CONTEXT = {
     "MUS": {"name": "Mouse", "description": "A mouse sample."},
     "TIS": {"name": "Tissue", "description": "A tissue sample."},
 }
-
-
-def test_readme_rows_start_with_the_header():
-    rows = build_readme_rows(["MUS"], CONTEXT)
-    assert rows[0] == ["Sample Type", "Name", "Description"]
-
-
-def test_readme_rows_carry_name_and_description():
-    rows = build_readme_rows(["MUS"], CONTEXT)
-    assert rows[1] == ["MUS", "Mouse", "A mouse sample."]
-
-
-def test_readme_rows_are_sorted_by_code():
-    rows = build_readme_rows(["TIS", "MUS"], CONTEXT)
-    assert [r[0] for r in rows[1:]] == ["MUS", "TIS"]
-
-
-def test_undocumented_code_is_listed_with_blanks():
-    rows = build_readme_rows(["MUS", "ZZZ"], CONTEXT)
-    assert rows[2] == ["ZZZ", "", ""]
-
-
-def test_readme_rows_deduplicate_codes():
-    rows = build_readme_rows(["MUS", "MUS"], CONTEXT)
-    assert len(rows) == 2
-
-
-def test_readme_rows_drop_blank_codes():
-    rows = build_readme_rows(["MUS", None, ""], CONTEXT)
-    assert [r[0] for r in rows[1:]] == ["MUS"]
 
 
 @patch(f"{_MOD}.Sample_types_context")
@@ -113,15 +82,6 @@ def test_a1_links_to_the_contextdb(_ctx, tmp_path):
 
 
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_readme_table_starts_at_row_3(_ctx, tmp_path):
-    out = tmp_path / "w.xlsx"
-    write_samples_workbook(_df(), str(out))
-    ws = load_workbook(out)["README"]
-    assert [ws.cell(3, c).value for c in (1, 2, 3)] == ["Sample Type", "Name", "Description"]
-    assert ws.cell(4, 1).value == "MUS"
-
-
-@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
 def test_helper_columns_are_dropped_from_data_sheets(_ctx, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
@@ -137,13 +97,16 @@ def test_all_empty_columns_are_dropped(_ctx, tmp_path):
     assert "Sex" not in [c.value for c in load_workbook(out)["TIS"][1]]
 
 
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value={})
-def test_workbook_still_written_when_context_table_is_empty(_ctx, tmp_path):
+def test_workbook_still_written_when_context_table_is_empty(_ctx, _fields, tmp_path):
+    """With no sample-type context the heading is the bare code and the
+    description row is empty, but the section is still there."""
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
     ws = load_workbook(out)["README"]
-    assert ws.cell(4, 1).value == "MUS"
-    assert ws.cell(4, 2).value in (None, "")
+    assert ws["A3"].value == "MUS"
+    assert ws["A4"].value in (None, "")
 
 
 @patch(f"{_MOD}.load_sample_type_context")
@@ -275,3 +238,97 @@ def test_a_column_with_no_definition_is_listed_with_a_blank():
 def test_an_undocumented_sample_type_still_gets_a_block():
     blocks = build_readme_blocks([("ZZZ", ["UID"])], CONTEXT, {})
     assert blocks[0] == {"code": "ZZZ", "name": "", "description": "", "columns": [("UID", "")]}
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_readme_section_heading_is_bold_at_a3(_ctx, _fields, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    ws = load_workbook(out)["README"]
+    assert ws["A3"].value == "MUS — Mouse"
+    assert ws["A3"].font.bold is True
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_readme_description_sits_under_the_heading(_ctx, _fields, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    ws = load_workbook(out)["README"]
+    assert ws["A4"].value == "A mouse sample."
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_readme_column_table_is_indented_into_b_and_c(_ctx, _fields, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    ws = load_workbook(out)["README"]
+    assert [ws["B6"].value, ws["C6"].value] == ["Column", "Meaning"]
+    assert ws["B6"].font.bold is True
+    assert ws["B7"].value == "Name"
+
+
+@patch(f"{_MOD}.load_sample_field_context",
+       return_value={("MUS", "Name"): "The animal's ear-tag ID."})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_readme_shows_the_resolved_meaning(_ctx, _fields, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    ws = load_workbook(out)["README"]
+    assert ws["C7"].value == "The animal's ear-tag ID."
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_second_section_starts_after_a_blank_row(_ctx, _fields, tmp_path):
+    """MUS has two columns (Name, Sex) at rows 7-8, so TIS heads row 10."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    ws = load_workbook(out)["README"]
+    assert ws["A9"].value is None
+    assert ws["A10"].value == "TIS — Tissue"
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_readme_only_lists_columns_that_survive_the_empty_drop(_ctx, _fields, tmp_path):
+    """TIS's Sex is empty in the fixture, so the TIS sheet drops it and the
+    README must not claim a column the researcher cannot see.
+
+    TIS heads row 10, description 11, blank 12, table header 13, so its single
+    surviving column sits at B14."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    ws = load_workbook(out)["README"]
+    assert ws["B14"].value == "Name"
+    assert ws["B15"].value is None
+
+
+@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_workbook_is_complete_when_the_definitions_table_is_missing(_ctx, mock_model, tmp_path):
+    """Losing sample_fields_context costs meanings, never the download.
+
+    This is the only Task 5 test that exercises the real loader rather than
+    mocking it out, so it is what actually proves the fail-soft path end to end.
+    """
+    mock_model.objects.filter.side_effect = RuntimeError("no such table")
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    wb = load_workbook(out)
+    assert wb.sheetnames == ["README", "MUS", "TIS"]
+    ws = wb["README"]
+    assert ws["B7"].value == "Name"          # still indexed
+    assert ws["C7"].value in (None, "")      # meaning blank
+
+
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_field_lookup_is_asked_only_for_columns_actually_written(_ctx, tmp_path):
+    out = tmp_path / "w.xlsx"
+    with patch(f"{_MOD}.load_sample_field_context", return_value={}) as lookup:
+        write_samples_workbook(_df(), str(out))
+    asked = set(lookup.call_args[0][0])
+    assert ("TIS", "Sex") not in asked
+    assert ("MUS", "Sex") in asked
