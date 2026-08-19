@@ -133,19 +133,23 @@ though both legacy views still exist.
 ### The README sheet
 
 Sheet 1 of every downloaded workbook. A1 hyperlinks to the contextdb on GitHub,
-row 2 is blank, row 3 is the header `Sample Type | Name | Description`, and rows
-4+ list every sample type present in the workbook, sorted by code.
+row 2 is blank, and the rest is one section per sample type, in the same order
+the sheets are written: a bold `CODE — Name` heading in column A, its
+description on the line beneath, then a `Column` / `Meaning` table indented into
+columns B and C listing every column of that tab.
 
-Content comes from `dmac.sample_types_context` via the `Sample_types_context`
-model (`seek/models.py`). **The join key is the `sample_type` code string, not
-`sampletype_id`** — the id column does not agree with `sample_types.id` across
-instances (production context has `sampletype_id` 10 = `MUS`, while local
-`seek_production.sample_types` has id 10 = `DNA`).
+Sample type names and descriptions come from `dmac.sample_types_context` via the
+`Sample_types_context` model (`seek/models.py`); per-column meanings come from
+`dmac.sample_fields_context` via `Sample_fields_context`. **Both join on a
+string key, never on an id** — the id column does not agree with
+`sample_types.id` across instances (production context has `sampletype_id`
+10 = `MUS`, while local `seek_production.sample_types` has id 10 = `DNA`).
 
-A sample type with no context row is still listed, with blank name and
-description, so the README always indexes every sheet and a gap in the context
-table is visible rather than silent. If the table is missing entirely the lookup
-logs and returns `{}` — the README goes unpopulated but the download still works.
+A sample type with no context row is still listed, with the bare code as its
+heading, and a column with no definition is still listed with a blank meaning.
+The README therefore always indexes every sheet and every column, so a gap is
+visible rather than silent. If either table is missing entirely the lookup logs
+and returns empty — the README goes unpopulated but the download still works.
 
 ### One trap worth knowing
 
@@ -198,9 +202,17 @@ rather than shipping a broken button.
 
 Production's `dmac` has `sample_types_context`, `assay_context` and
 `projects_context`. Only `sample_types_context` was added to
-`startup/seed/dmac.sql.gz` (101 rows), because only it is needed for the README.
-The other two remain a seed/production divergence and will bite whoever next
-depends on them.
+`startup/seed/dmac.sql.gz` (101 rows), because at the time only it was needed
+for the README. `assay_context` and `projects_context` remain a seed/production
+divergence and will bite whoever next depends on them.
+
+`sample_fields_context` is a fourth gap, and a different one: the README's
+per-column meanings *do* need it, but it could not be folded into the seed here
+because `./startup.sh dump-db` requires maintainer credentials for a remote host
+and regenerates all three seed dumps together. Its DDL ships standalone at
+`startup/seed/sql/sample_fields_context.sql` and is applied by hand until a
+maintainer folds it in. Until then a fresh install renders meanings blank, which
+the loader handles by design rather than by failing.
 
 ## Per-column definitions on the README sheet
 
