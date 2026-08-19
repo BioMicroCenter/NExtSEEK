@@ -15,29 +15,6 @@ SEEK_DATABASE = settings.SEEK_DATABASE
 logger = logging.getLogger(__name__)
 cache = {}
 
-def fetch_NHP(term):
-    """
-    Fetch the NHP metadata for a given term.
-
-    Args:
-        term (str): The UUID to search for in the database.
-
-    Returns:
-        list: A list of results from the database query.
-    """
-    db = settings.DATABASES[SEEK_DATABASE]
-    try:
-        query = f"""
-        SELECT uuid, json_metadata
-        FROM {db["NAME"]}.samples
-        WHERE uuid = %s;
-        """
-        nhp_metadata = execute_query(query, (term,))
-        return nhp_metadata
-    except Exception as e:
-        logger.error(f"Error fetching NHP metadata: {e}")
-        return None
-
 def fetchChildren(term: str) -> List[dict]:
     """
     Fetch the children metadata for a given term from the database.

@@ -5,7 +5,6 @@ import json
 import pandas as pd
 import time
 # import argparse  # Add this import at the top
-import os  # Add this import at the top
 from ..services.nhp_service import get_timeline_data, fetch_NHP_PAV, fetch_NHP_TIS, fetch_NHP_IMG
 # from ..utils.helpers import get_NHP_name
 import logging
@@ -508,34 +507,6 @@ def update_all_datafiles(input_list, all_data):
             print(f"Error updating data file {replacement} : {e}")
     return new_dict
 
-def save_to_json(data, filename="input_data.json"):
-    """
-    Save data to a JSON file.
-
-    Args:
-        data (dict): The data to be saved.
-        filename (str): The name of the file to save the data to.
-    """
-    temp_filename = f"{filename}.tmp"
-
-    try:
-        with open(temp_filename, 'w') as json_file:
-            json.dump(data, json_file, indent=4)
-        os.replace(temp_filename, filename)
-        logger.info(f"Data successfully saved to {filename}")
-    except Exception as e:
-        logger.error(f"Error saving data to JSON: {e}")
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
-        raise  # Re-raise the exception after cleanup
-
-def is_json_serializable(data):
-    try:
-        json.dumps(data)
-        return True
-    except (TypeError, OverflowError):
-        return False
-
 def generate_combined_object(events: dict, nhp_id: str):
     logger.info("Starting to generate combined JSON object.")
     
@@ -573,10 +544,7 @@ def generate_combined_object(events: dict, nhp_id: str):
     
     logger.info(f"Total records to be saved: {len(combined_objects)}")
     logger.info(f"Total records skipped: {skipped_records}")
-    
-    # Proceed to save only valid records
-    # save_to_json(combined_objects, filename)
-    
+
     return combined_objects
 
 def get_event_data(nhp_uid, event_type, date):
@@ -637,7 +605,6 @@ def get_event_data(nhp_uid, event_type, date):
         print(f"Error getting event data: {e}")
         return []
 
-    # save_to_json(processed_data, filename)
     end_time = time.time()
     print(f"Total time to get event data: {end_time - start_time:.2f} seconds")
     return processed_data
