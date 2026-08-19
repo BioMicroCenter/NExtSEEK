@@ -53,8 +53,6 @@ from dmac.dbtable_assaysinternalassays import DBtable_assaysinternalassays
 from nextseek_api.services.sample_workbook import write_samples_workbook
 
 from .seekdb import SeekDB
-from .nextcloudapi import NextCloudAPI
-from .galaxyapi import GalaxyAPI
 from .seekapi import SeekAPI
 from .models import Projects
 from .models import Clades
