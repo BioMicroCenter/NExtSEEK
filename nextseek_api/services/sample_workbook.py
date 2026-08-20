@@ -7,12 +7,16 @@ docs/sample-download-workflow.md for how the call paths converge on this module.
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Iterable, Mapping
 
 import pandas as pd
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.comments import Comment
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.styles import Font
 
 from seek.models import Sample_fields_context, Sample_types_context
@@ -40,6 +44,44 @@ SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
 COMMENT_AUTHOR = "NExtSEEK"
 COMMENT_WIDTH = 340
 COMMENT_HEIGHT = 130
+
+CV_SHEET = "Controlled Vocabularies"
+CV_PATH = Path(__file__).with_name("controlled_vocabularies.json")
+
+
+def _load_vocabularies() -> tuple[dict[str, str], dict[str, list[str]]]:
+    """(column -> vocabulary name, vocabulary name -> terms).
+
+    Fail soft, like every other lookup here: a missing or malformed file costs
+    the dropdowns, never the download.
+    """
+    try:
+        doc = json.loads(CV_PATH.read_text())
+        return doc["field_map"], doc["vocabularies"]
+    except Exception:
+        logger.exception("controlled_vocabularies.json unreadable; no dropdowns")
+        return {}, {}
+
+
+def _write_vocabulary_sheet(book, needed: list[str], vocabularies) -> dict[str, str]:
+    """Park each needed vocabulary in its own column and return {name: range}.
+
+    The terms need a real sheet rather than an inline list: Excel caps an inline
+    dropdown formula at 255 characters and instrument_model alone is 82 terms.
+    """
+    if not needed:
+        return {}
+    ws = book.create_sheet(CV_SHEET)
+    ranges = {}
+    for index, name in enumerate(sorted(needed), start=1):
+        letter = get_column_letter(index)
+        terms = vocabularies.get(name, [])
+        ws.cell(row=1, column=index, value=name).font = Font(bold=True)
+        for offset, term in enumerate(terms, start=2):
+            ws.cell(row=offset, column=index, value=_safe_cell_value(term))
+        ranges[name] = f"'{CV_SHEET}'!${letter}$2:${letter}${len(terms) + 1}"
+        ws.column_dimensions[letter].width = 30
+    return ranges
 
 # Excel's hard per-cell limit. openpyxl does not enforce it: a longer value is
 # written happily and Excel then reports the file as needing repair. `meaning`
@@ -224,6 +266,29 @@ def _annotate_header(ws, code: str, columns: list[str], meaning_by_pair) -> None
         ws.cell(row=1, column=index).comment = note
 
 
+def _apply_dropdowns(ws, columns: list[str], field_map, ranges, row_count: int) -> None:
+    """Offer each governed column its repository vocabulary as a dropdown.
+
+    errorStyle is 'warning', not 'stop': downloaded data already contains values
+    that predate these vocabularies (RNA-seq for RNA-Seq, Paired End for
+    paired), and a hard reject would fire on open for rows the researcher did
+    not touch. The dropdown guides; it does not overrule what is already there.
+    """
+    for index, column in enumerate(columns, start=1):
+        vocabulary = field_map.get(column)
+        if not vocabulary or vocabulary not in ranges:
+            continue
+        rule = DataValidation(
+            type="list", formula1=ranges[vocabulary],
+            allow_blank=True, showDropDown=False, errorStyle="warning",
+        )
+        rule.error = f"Not a {vocabulary} term. Pick from the list, or keep this value."
+        rule.errorTitle = "Outside the controlled vocabulary"
+        ws.add_data_validation(rule)
+        letter = get_column_letter(index)
+        rule.add(f"{letter}2:{letter}{max(row_count + 1, 2)}")
+
+
 def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None:
     """Write README as sheet 1, then one sheet per sample type.
 
@@ -259,6 +324,16 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
             del book["Sheet"]
         _write_readme(book, blocks)
 
+        field_map, vocabularies = _load_vocabularies()
+        needed = sorted({
+            field_map[column]
+            for _, columns in sheets for column in columns
+            if column in field_map and field_map[column] in vocabularies
+        })
+        ranges = _write_vocabulary_sheet(book, needed, vocabularies)
+
         for code, frame in prepared:
             frame.to_excel(writer, sheet_name=code, index=False)
-            _annotate_header(writer.sheets[code], code, list(frame.columns), meaning_by_pair)
+            sheet = writer.sheets[code]
+            _annotate_header(sheet, code, list(frame.columns), meaning_by_pair)
+            _apply_dropdowns(sheet, list(frame.columns), field_map, ranges, len(frame))
