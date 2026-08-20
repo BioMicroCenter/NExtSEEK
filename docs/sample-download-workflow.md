@@ -147,8 +147,10 @@ Sample type names and descriptions come from `dmac.sample_types_context` via the
 `Sample_types_context` model (`seek/models.py`); per-column meanings come from
 `dmac.sample_fields_context` via `Sample_fields_context`, where `sample_type =
 ''` is the definition used on every tab and a sample type code overrides it for
-that tab only. **Both join on a string key, never on an id** — the id column
-does not agree with `sample_types.id` across instances (production context has
+that tab only. **Both join on a string key, never on an id** —
+`sample_types_context` on `sample_type` and `sample_fields_context` on
+`field_name` — because the id column does not agree with `sample_types.id`
+across instances (production context has
 `sampletype_id` 10 = `MUS`, while local `seek_production.sample_types` has id
 10 = `DNA`).
 
@@ -247,9 +249,9 @@ failing.
 What the sheet renders is described under "The README sheet" above. What it
 takes to light the meanings up on an instance:
 
-1. **Create the table.** `./startup.sh install` does it — `dmac.
-   sample_fields_context` is registered in `startup/steps/schema_fixups.py`, so
-   install (and `reset`) run `startup/seed/sql/sample_fields_context.sql`
+1. **Create the table.** `./startup.sh install` does it —
+   `dmac.sample_fields_context` is registered in `startup/steps/schema_fixups.py`,
+   so install (and `reset`) run `startup/seed/sql/sample_fields_context.sql`
    whenever the table is absent, whether or not seeds ran. For an instance
    that is already running — production included — apply that same DDL by hand
    instead of reinstalling; it is `CREATE TABLE IF NOT EXISTS`, so it is safe to
