@@ -244,12 +244,19 @@ class Sample_fields_context(models.Model):
     sample_type = models.CharField(max_length=32, default="")
     meaning = models.TextField(default=None, null=True)
 
-    def __unicode__(self):
+    def __str__(self):
         return self.field_name
 
     class Meta:
         db_table = "sample_fields_context"
         unique_together = ("field_name", "sample_type")
+        # The table is created out-of-band in SQL (startup/seed/sql/
+        # sample_fields_context.sql, applied by startup's schema fixups); this
+        # model only maps it. Left managed, the next unrelated `makemigrations`
+        # in this app would propose creating the table, and CustomRouter.
+        # allow_migrate returns None for non-`default` app labels, so applying
+        # that migration would create it on both the default and seek aliases.
+        managed = False
 
 class Sample_attributes(models.Model):
     _DATABASE = SEEK_DATABASE
