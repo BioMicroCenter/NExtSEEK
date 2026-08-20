@@ -26,3 +26,11 @@ def test_scope_column_defaults_to_empty_string_not_null():
     field = Sample_fields_context._meta.get_field("sample_type")
     assert field.null is False
     assert field.default == ""
+
+
+def test_the_table_is_unmanaged():
+    """The table is created in SQL, never by a migration. Left managed, the next
+    unrelated `makemigrations` for the seek app would silently propose creating
+    it — and CustomRouter.allow_migrate returns None for non-`default` app
+    labels, so applying that would create it on both DB aliases."""
+    assert Sample_fields_context._meta.managed is False
