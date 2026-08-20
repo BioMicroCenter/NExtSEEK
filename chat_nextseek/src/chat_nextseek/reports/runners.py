@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ..artifacts import ArtifactStore
+from ..config import live_db_conn
 from ..helpers.dates import (
     _normalize_project_id,
     _normalize_years,
@@ -236,7 +237,7 @@ def run_project_sample_report(
         )
     project_id = scope if kind == "project" else None
 
-    conn = config._db_conn or config._connect_db(env="prod")
+    conn = live_db_conn(config, env="prod")
     if conn is None:
         return {"ok": False, "error": "DB connection failed"}
 
@@ -463,7 +464,7 @@ def run_project_protocols_report(
     else:
         project_id = scope if kind == "project" else None
 
-    conn = config._db_conn or config._connect_db(env="prod")
+    conn = live_db_conn(config, env="prod")
     if conn is None:
         return {"ok": False, "error": "DB connection failed"}
 
@@ -742,7 +743,7 @@ def run_project_published_report(  # noqa: C901
     protocols_result: dict = {}
     try:
         # Step A: prod titles for this project + date range
-        prod_conn = config._db_conn or config._connect_db(env="prod")
+        prod_conn = live_db_conn(config, env="prod")
         if prod_conn is None:
             protocols_result = {"ok": False, "error": "Prod DB connection failed"}
         else:
@@ -1278,4 +1279,9 @@ def run_reporter_summary(
         reporter_summary.update(_sub_summary(reporter_result))
 
     print(f"[DEBUG][REPORTER] result ok={reporter_result.get('ok')}, rows={reporter_result.get('rows_returned')}, files={list(saved_files.keys())}")
+    # The reason only ever reached the user's chat reply (orchestrator.py:899). A
+    # production MySQL outage on 2026-08-20 left zero trace in docker logs,
+    # nextseek.log or django.log while the transcript carried the exception.
+    if reporter_result.get("ok") is False:
+        print(f"[DEBUG][REPORTER] report failed: {reporter_result.get('error')!r}")
     return reporter_result, saved_files, reporter_summary

@@ -454,12 +454,51 @@ class BedrockClient(BaseLLMClient):
         kwargs: dict[str, Any] = {
             "service_name": "bedrock-runtime",
             "region_name": region,
-            "config": Config(read_timeout=read_timeout, connect_timeout=10),
+            # tcp_keepalive lets the kernel eventually notice a peer that has gone
+            # away. It is only half the defence: Linux waits net.ipv4.tcp_keepalive_time
+            # (7200s by default) before the first probe, so reset_connections() below is
+            # what actually rescues a request that drew a dead socket.
+            "config": Config(
+                read_timeout=read_timeout, connect_timeout=10, tcp_keepalive=True
+            ),
         }
         if bearer_token:
             kwargs["aws_session_token"] = bearer_token
+        self._client_kwargs = kwargs
         self.client = boto3.client(**kwargs)
         self.max_output_tokens = max_output_tokens
+
+    def reset_connections(self) -> bool:
+        """
+        Drop every pooled TCP connection so the next call dials out fresh.
+
+        ChatConfig is built once at Django import, so each gunicorn worker keeps one
+        boto3 client — and one urllib3 connection pool — for the whole process
+        lifetime. bedrock-runtime rotates its endpoint IPs, so a pooled socket
+        eventually points at an address AWS no longer serves. Nothing sends a RST, so
+        the socket stays ESTABLISHED and urllib3 hands it out again; the request then
+        sits in the kernel send queue unacknowledged until the caller gives up.
+
+        Measured on prod 2026-08-20: 43,832 bytes pinned in tx_q for a full 60s with
+        rx_q flat at 0, while 5 of the 8 pooled sockets pointed at IPs absent from the
+        endpoint's DNS rotation.
+
+        Returns True if the pool was cleared. Never raises.
+        """
+        import boto3
+
+        try:
+            # botocore >= 1.28: clears the urllib3 pool manager. The client stays
+            # usable and re-resolves DNS when it opens the next connection.
+            self.client.close()
+            return True
+        except Exception:
+            pass
+        try:
+            self.client = boto3.client(**self._client_kwargs)
+            return True
+        except Exception:
+            return False
 
     def _convert_messages(self, messages: List[dict]) -> tuple[list[dict], list[dict]]:
         """Split system messages out; convert the rest to Bedrock Converse format."""

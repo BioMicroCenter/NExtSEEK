@@ -12,6 +12,7 @@ from ..config import ChatConfig
 from ..helpers import (
     build_recent_results_summary,
 )
+from ..llm_clients import LLMTimeoutError
 from ..schemas.schema_helper import call_llm_structured
 from ..schemas import (
     ContextEngineerOutput,
@@ -382,7 +383,8 @@ def _canonical_multi_parse(
             usage_label="MULTI_PARSER",
             thinking_budget=mp_budget,
             client=mp_client,
-            timeout_seconds=60,
+            timeout_seconds=35,
+            timeout_retry_seconds=60,
         )
         normalized_candidates = [_fill_candidate_defaults(c) for c in result.candidates]
         result = result.model_copy(update={"candidates": normalized_candidates})
@@ -597,6 +599,7 @@ def _apply_parser_guardrails(
             notes=(
                 (plan.notes + " | ") if plan.notes else ""
             ) + "Unscoped bulk export/download is unsupported without filters, UIDs, project-reporting scope, or a supported report-generation target.",
+            metadata=plan.metadata,
             previous_api_plan=plan.previous_api_plan,
             previous_user_query=plan.previous_user_query,
             report_mode=None,
@@ -693,11 +696,29 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             usage_label="PARSER",
             thinking_budget=parser_thinking_budget,
             client=parser_client,
-            timeout_seconds=60,
+            timeout_seconds=35,
+            timeout_retry_seconds=60,
+        )
+    except LLMTimeoutError as e:
+        # Never reached the model at all. Keep this distinct from a parse failure:
+        # mode stays "unsupported" so downstream routing is unchanged, but the notes
+        # and metadata record what actually happened so the user is not told their
+        # question is invalid when the real cause was a dead connection.
+        print("[DEBUG][PARSER] Timed out reaching the model:", repr(e))
+        plan_model = ParserPlan(
+            notes=(
+                "The query planner could not reach the language model in time "
+                "(transport timeout). This is a temporary system fault, not a "
+                "limitation of your question. Please try again."
+            ),
+            metadata={"failure": "transport_timeout", "error": repr(e)},
         )
     except Exception as e:
         print("[DEBUG][PARSER] Exception or parse error:", repr(e))
-        plan_model = ParserPlan(notes="Parser could not produce valid structured output.")
+        plan_model = ParserPlan(
+            notes=f"Parser could not produce valid structured output ({type(e).__name__}).",
+            metadata={"failure": "parse_error", "error": repr(e)},
+        )
 
     print("[DEBUG][PARSER] Parsed plan:", json.dumps(plan_model.model_dump(), indent=2))
     plan_model = _apply_parser_guardrails(user_query, plan_model, session=session)
