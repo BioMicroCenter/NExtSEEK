@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 import os
-import sys
-import time
 import datetime
 import simplejson
-import json
 
 import zipfile
 
@@ -127,9 +124,6 @@ class DBtable_data_files(DBtable):
         self.formMapping = BATCHSEARCHFORM_MAPPING
     
     def __getUID(self, lababbv, filename, nassets=0, sample_uid=None):
-        uid_date = str(datetime.datetime.now().strftime("%Y%m%d"))  
-        uid_date_2 = uid_date[2:]    # such as # such as '200323'
-        next_version = nassets + 1
         if sample_uid in filename:
             uid = filename
         else:
@@ -191,7 +185,6 @@ class DBtable_data_files(DBtable):
             return fileInfo
         
         terms = sampleuid.split("-")
-        sampletype = terms[0]   
         dateabbr = terms[1]     
         if len(dateabbr)!=9:
             return fileInfo
@@ -253,7 +246,6 @@ class DBtable_data_files(DBtable):
         return asset_id, asset_type, dfrecord
     
     def __searchDatafile(self, creator, originalfilename, sample_uid):
-        infilename_corrected = correctFileName(originalfilename)
         asset_id, asset_type, dfrecord = self.__defineDatafile(creator, originalfilename, sample_uid)
         if asset_id is not None and asset_type=='DataFile':
             record = self.getOneRecord(asset_id)
@@ -568,7 +560,6 @@ class DBtable_data_files(DBtable):
     def __getDatafileUrl(self, filename):
         link = settings.SEEK_DATAFILE_ROOT_WEBLINK + filename
         url = link
-        url2 = "<a href='" + link + "'  target='_blank'>" + url + "</a>"
         return url
     
     def filesGetUIDs(self, seekdb, allFiles):
@@ -639,9 +630,6 @@ class DBtable_data_files(DBtable):
         return id
     
     def processSampleDatafile(self, user_seek, sampleType, dfurl, diclist_assay):
-        username = user_seek['username']
-        user_id = user_seek['user_id']
-        project_id = user_seek['projectid']
         msg = 'To be implemented!'
         status = 0
     
@@ -844,7 +832,6 @@ class DBtable_data_files(DBtable):
     def publishDFs(self, user_seek, sdb, user, df_ids, assay_id, project_id):
         status = 1
         msg = ''
-        headers = None
         diclist = []
         for df_id in df_ids:
             record_cb = {}

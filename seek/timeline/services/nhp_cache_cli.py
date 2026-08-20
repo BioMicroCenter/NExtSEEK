@@ -5,7 +5,7 @@
 
 import argparse
 import logging
-from ..services.nhp_service import get_nhp_data, fetch_NHP_PAV
+from ..services.nhp_service import get_nhp_data
 from ..services.timeline_service import process_visits
 
 # Configure logging

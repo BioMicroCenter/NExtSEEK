@@ -1,10 +1,5 @@
 #!/usr/bin/env python
-import os
-import sys
-import time
-import datetime
 import simplejson
-import json
 import logging
 logger = logging.getLogger(__name__)
 
@@ -74,12 +69,8 @@ class DBtable_documents(DBtable):
     def getDownloadURL(self, document_id, server, username, password):
         infodata = self.__getInfo(document_id, server, username, password)
         if infodata is None or document_id==0:
-            docurl = ''
-            msg = 'Error: the data for the document is not available at ID=' + str(document_id)
             return None, None
         
-        attributes = infodata["attributes"]
-        content_blobs = attributes["content_blobs"]
         docurl = infodata["attributes"]["content_blobs"][0]["link"]
         docurl = docurl + "/download"
         

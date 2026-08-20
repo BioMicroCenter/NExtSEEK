@@ -1,15 +1,10 @@
 #!/usr/bin/env python
-import os
-import sys
-import time, json
-import simplejson
+import json
 import logging
 logger = logging.getLogger(__name__)
 
 from .models import Sample_attribute_types
 from dmac.dbtable import DBtable
-from dmac.csv_excel import load_file, load_excelfile
-from dmac.conversion import toDateClass, is_numeric, toFloat, toBinaryTinyInt, toString, convertDicToOptions
 
 SAMPLEATTRIBUTE_TYPE_MAPPING = {
 }

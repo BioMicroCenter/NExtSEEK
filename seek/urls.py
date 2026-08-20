@@ -1,14 +1,8 @@
 from django.urls import re_path
-from filebrowser.sites import site
 from django.views.generic import TemplateView
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from . import views
 
 urlpatterns = [
-    # re_path(r'^api/schema/$', SpectacularAPIView.as_view(), name='schema'),
-    # re_path(r'^api/swagger/$', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-    # re_path(r'^api/redoc/$', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
-
     re_path(r'^help/$', views.getting_started, name='getting_started'),
     re_path(r'^assistant/', views.smartSearch, name='assistant'),
     re_path(r'^remote/', views.remote, name='remote'),

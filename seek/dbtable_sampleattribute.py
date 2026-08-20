@@ -1,8 +1,4 @@
 #!/usr/bin/env python
-import os
-import sys
-import time, json
-import simplejson
 import logging
 from typing import Dict, List
 logger = logging.getLogger(__name__)
@@ -10,7 +6,6 @@ logger = logging.getLogger(__name__)
 from .models import Sample_attributes
 from .dbtable_attributetype import DBtable_attributetype
 from dmac.dbtable import DBtable
-from dmac.csv_excel import load_file, load_excelfile
 from dmac.conversion import toDateClass, is_numeric, toFloat, toBinaryTinyInt, toString, getDefaultDate
 
 SAMPLEATTRIBUTE_FILTER_MAPPING = {

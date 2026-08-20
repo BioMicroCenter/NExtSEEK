@@ -1,15 +1,10 @@
 #!/usr/bin/env python
-import os
-import sys
-import time
-import simplejson
 import xlwt
 import logging
 logger = logging.getLogger(__name__)
 
 from dmac.dbtable import DBtable
-from dmac.csv_excel import load_file, load_excelfile
-from dmac.conversion import cleanString, toString, toStringDB
+from dmac.conversion import cleanString, toString
 
 
 ONTOLOGY_FILTER_MAPPING = {
@@ -173,7 +168,6 @@ class DBtable_ontology(DBtable):
         i = 0
         
         style = xlwt.easyxf('pattern: pattern solid, fore_colour red;')
-        style0 = xlwt.Style.easyxf('pattern: pattern solid, fore_colour white;')
         for dici in dicilist_feedback:
             row += 1
             ontology_error = ontology_feedback[i]

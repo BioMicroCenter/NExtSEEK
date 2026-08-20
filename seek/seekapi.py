@@ -118,8 +118,6 @@ class SeekAPI(object):
         from bs4 import BeautifulSoup
         parsed_html = BeautifulSoup(htmlpage)
         bodyhtml = parsed_html.body.find('div', attrs={'id':div_id})
-        bodytext = bodyhtml.text
-        header = parsed_html.head
         return bodyhtml.prettify()
         
     def getPageRequests(self, seekurl):
@@ -152,7 +150,7 @@ class SeekAPI(object):
 
         urllib2.install_opener(opener)
 
-        handler = urllib2.urlopen(req)
+        urllib2.urlopen(req)
 
     def getInfoObject(self, object_url, object_id):
         objectdata = None

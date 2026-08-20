@@ -29,8 +29,8 @@ class User_profile(models.Model):
         return self.user.username
     
     def fullname(self):
-        name = self.user.first_name + ' ' + self.user.last_name
-        return 
+        name = self.user.first_name + ' ' + self.user.last_name  # noqa: F841 (LATENT_BUGS #37)
+        return
     def __unicode__(self):
         return self.fullname()
 

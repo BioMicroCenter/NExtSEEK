@@ -1,12 +1,8 @@
 #!/usr/bin/env python
-import os
-import sys
-import time, json
 
 import logging
 logger = logging.getLogger(__name__)
 
-from .seekapi import SeekAPI
 from .models import Projects, Projects_sops, Data_files_projects, Projects_samples
 from dmac.dbtable import DBtable
 

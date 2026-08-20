@@ -6,7 +6,6 @@ from typing import List
 from ..models.schemas import NHPInfo
 from pydantic import ValidationError
 import logging
-import re
 
 from django.conf import settings
 
@@ -265,7 +264,6 @@ def save_nhp_data(all_data: List[dict]) -> bytes:
     Convert NHP data to Excel file and return as bytes.
     """
     import pandas as pd 
-    import numpy as np
     from io import BytesIO
     
     # Create dictionary of dataframes that will correspond to each sheet in the excel file.

@@ -1,18 +1,10 @@
 #!/usr/bin/env python
-import os
-import sys
-import time
-import datetime
-import simplejson
-import json
 import logging
 logger = logging.getLogger(__name__)
 
-from django.db.models import Q
 from .models import Assay_assets
 from dmac.dbtable import DBtable
-from dmac.csv_excel import load_file, load_excelfile, load_excelfile_asdic
-from dmac.conversion import getDefaultDate, toString, cleanString, getDefaultDate, getDefaultDateTime, convertDateListToString
+from dmac.conversion import getDefaultDateTime
 
 ASSAY_ASSETS_FILTER_MAPPING = {
 }

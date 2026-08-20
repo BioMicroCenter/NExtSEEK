@@ -2,7 +2,6 @@ from django.contrib import admin
 
 from mezzanine.accounts.admin import UserProfileAdmin 
 from django.contrib.auth.models import User 
-from .models import User_profile
 
 class User_profileAdmin(UserProfileAdmin):
     list_display = UserProfileAdmin.list_display + ("project", "laboratory",)

@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 import os
-import sys
-import time
 import datetime
 import simplejson
-import json
 import zipfile
 import logging
 logger = logging.getLogger(__name__)
@@ -453,9 +450,6 @@ class DBtable_sops(DBtable):
         status = 0
         weblink = None
         
-        username = user_seek['username']
-        projectname = user_seek['projectname']
-        institutionname = user_seek['institutionname']
         lababbv = user_seek['lababbv']
         
         labfolder = lababbv
@@ -603,7 +597,6 @@ class DBtable_sops(DBtable):
     def __getDatafileUrl(self, filename):
         link = settings.SEEK_DATAFILE_ROOT_WEBLINK + filename
         url = link
-        url2 = "<a href='" + link + "'  target='_blank'>" + url + "</a>"
         return url
         
     def filesGetUIDs(self, seekdb, allFiles):
@@ -673,9 +666,6 @@ class DBtable_sops(DBtable):
         return id
     
     def processSampleDatafile(self, user_seek, sampleType, dfurl, diclist_assay):
-        username = user_seek['username']
-        user_id = user_seek['user_id']
-        project_id = user_seek['projectid']
         msg = 'To be implemented!'
         status = 0
         dfurl_prefix = settings.SEEK_URL + "/sops/"
@@ -814,7 +804,6 @@ class DBtable_sops(DBtable):
     def publishSOPs(self, user_seek, sdb, user, sop_ids, assay_id, project_id):
         status = 1
         msg = ''
-        headers = None
         diclist = []
         for sop_id in sop_ids:
             record_cb = {}
