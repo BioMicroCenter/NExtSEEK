@@ -6,7 +6,9 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from nextseek_api.services.sample_workbook import (
+    COLUMN_TABLE_HEADER,
     CONTEXTDB_URL,
+    EXCEL_MAX_CELL_CHARS,
     build_readme_blocks,
     load_sample_field_context,
     load_sample_type_context,
@@ -332,3 +334,93 @@ def test_field_lookup_is_asked_only_for_columns_actually_written(_ctx, tmp_path)
     asked = set(lookup.call_args[0][0])
     assert ("TIS", "Sex") not in asked
     assert ("MUS", "Sex") in asked
+
+
+@patch(f"{_MOD}.load_sample_field_context",
+       return_value={("MUS", "Name"): "Line one\x0bline two."})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_a_control_character_in_a_definition_does_not_break_the_download(
+    _ctx, _fields, tmp_path
+):
+    """openpyxl raises IllegalCharacterError on \\x0b — which is exactly what a
+    line break pasted out of Word or a PDF becomes. One bad definition row must
+    not cost every download of every workbook carrying that sample type."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))          # must not raise
+    ws = load_workbook(out)["README"]
+    assert ws["C7"].value == "Line oneline two."
+
+
+@patch(f"{_MOD}.load_sample_type_context",
+       return_value={"MUS": {"name": "Mouse", "description": "Desc\x07ription."},
+                     "TIS": {"name": "Tissue", "description": "A tissue sample."}})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+def test_a_control_character_in_a_description_is_stripped(_fields, _ctx, tmp_path):
+    """Every string the README writes goes through the same sanitizer, not just
+    the meanings."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    assert load_workbook(out)["README"]["A4"].value == "Description."
+
+
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_an_over_length_definition_is_truncated_not_written_whole(_ctx, tmp_path):
+    """Excel's cell limit is 32,767 characters and openpyxl does not enforce it;
+    a longer value writes a file Excel reports as needing repair. `meaning` is a
+    TEXT column, so a reviewer could paste well past the limit."""
+    out = tmp_path / "w.xlsx"
+    with patch(f"{_MOD}.load_sample_field_context",
+               return_value={("MUS", "Name"): "x" * 40000}):
+        write_samples_workbook(_df(), str(out))
+    assert len(load_workbook(out)["README"]["C7"].value) == EXCEL_MAX_CELL_CHARS
+
+
+def _readme_sections(ws) -> dict[str, list[str]]:
+    """Parse the README back into {heading: [column names]}, without assuming
+    any row arithmetic. Used to state layout invariants against the sheet
+    itself rather than against hand-computed coordinates."""
+    sections: dict[str, list[str]] = {}
+    current = None
+    for row in range(1, ws.max_row + 1):
+        a, b = ws.cell(row=row, column=1), ws.cell(row=row, column=2)
+        # Section headings are the bold cells of column A. The description
+        # under each one is column A too, but plain; A1's link is not bold.
+        if a.value and a.font.bold:
+            current = a.value.split(" — ")[0]
+            sections[current] = []
+        # Column names are the plain cells of column B. The Column/Meaning
+        # table header sits in B as well, but bold.
+        elif b.value and not b.font.bold and current:
+            assert b.value != COLUMN_TABLE_HEADER[0]
+            sections[current].append(b.value)
+    return sections
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_readme_columns_match_the_sheet_header_they_describe(_ctx, _fields, tmp_path):
+    """The invariant stated directly: for every tab, what the README lists is
+    exactly that tab's header row after the all-empty-column drop. TIS's Sex is
+    empty in the fixture, so neither the sheet nor the README carries it."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    wb = load_workbook(out)
+    sections = _readme_sections(wb["README"])
+    for code in ("MUS", "TIS"):
+        assert sections[code] == [c.value for c in wb[code][1]]
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_a_section_with_no_surviving_columns_has_no_table_header(_ctx, _fields, tmp_path):
+    """Every TIS column is empty here, so the tab has no columns at all. A bare
+    Column/Meaning header with nothing beneath it reads as a rendering bug."""
+    df = pd.DataFrame([
+        {"uuid": "MUS-230101ABC-1", "Name": "m1", "Sex": "F"},
+        {"uuid": "TIS-230101ABC-2", "Name": "", "Sex": ""},
+    ])
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(df, str(out))
+    ws = load_workbook(out)["README"]
+    assert ws["A10"].value == "TIS — Tissue"
+    assert [ws.cell(row=r, column=2).value for r in (11, 12, 13)] == [None, None, None]
