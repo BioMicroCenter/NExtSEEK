@@ -11,6 +11,7 @@ import logging
 from typing import Iterable, Mapping
 
 import pandas as pd
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Font
 
 from seek.models import Sample_fields_context, Sample_types_context
@@ -31,6 +32,11 @@ SAMPLE_TYPE_RE = r"([A-Z]+\.[A-Z]+|[A-Z]+)"
 
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
+
+# Excel's hard per-cell limit. openpyxl does not enforce it: a longer value is
+# written happily and Excel then reports the file as needing repair. `meaning`
+# is a TEXT column, so 65,535 characters is reachable from the definitions table.
+EXCEL_MAX_CELL_CHARS = 32767
 
 
 def build_readme_blocks(
@@ -128,26 +134,53 @@ def load_sample_field_context(
     }
 
 
+def _safe_cell_value(value: str) -> str:
+    """Make a string safe to hand to openpyxl.
+
+    Two failure modes, both fatal to the whole download and neither caught by
+    the try/except around the *query*:
+    - a control character (e.g. \\x0b, what a pasted Word/PDF line break becomes)
+      makes `ws.cell(...)` raise IllegalCharacterError
+    - a value over Excel's cell limit writes a file Excel calls corrupt
+
+    Definitions are reviewer-authored prose, so both are reachable. Losing a
+    stray character or a tail of an absurdly long definition is always better
+    than losing the workbook.
+    """
+    return ILLEGAL_CHARACTERS_RE.sub("", value or "")[:EXCEL_MAX_CELL_CHARS]
+
+
+def _write_cell(ws, row: int, column: int, value: str, bold: bool = False):
+    """The single place the README writes text, so sanitizing cannot be skipped."""
+    cell = ws.cell(row=row, column=column, value=_safe_cell_value(value))
+    if bold:
+        cell.font = Font(bold=True)
+    return cell
+
+
 def _write_readme(book, blocks: list[dict]) -> None:
     ws = book.create_sheet(README_SHEET, 0)
-    ws["A1"] = README_LINK_TEXT
+    _write_cell(ws, 1, 1, README_LINK_TEXT)
     ws["A1"].hyperlink = CONTEXTDB_URL
     ws["A1"].style = "Hyperlink"
     # Row 2 is left blank to separate the link from the first section.
     row = 3
     for block in blocks:
         heading = f"{block['code']} — {block['name']}" if block["name"] else block["code"]
-        ws.cell(row=row, column=1, value=heading).font = Font(bold=True)
+        _write_cell(ws, row, 1, heading, bold=True)
         row += 1
-        ws.cell(row=row, column=1, value=block["description"])
+        _write_cell(ws, row, 1, block["description"])
         row += 2  # description, then a blank line before the column table
-        for column, label in enumerate(COLUMN_TABLE_HEADER, start=2):
-            ws.cell(row=row, column=column, value=label).font = Font(bold=True)
-        row += 1
-        for name, meaning in block["columns"]:
-            ws.cell(row=row, column=2, value=name)
-            ws.cell(row=row, column=3, value=meaning)
+        # A block whose columns all dropped out gets no table header: a bare
+        # Column/Meaning row with nothing under it reads as a rendering bug.
+        if block["columns"]:
+            for column, label in enumerate(COLUMN_TABLE_HEADER, start=2):
+                _write_cell(ws, row, column, label, bold=True)
             row += 1
+            for name, meaning in block["columns"]:
+                _write_cell(ws, row, 2, name)
+                _write_cell(ws, row, 3, meaning)
+                row += 1
         row += 1  # blank line between sections
     ws.column_dimensions["A"].width = 22
     ws.column_dimensions["B"].width = 34
