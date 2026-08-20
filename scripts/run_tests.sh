@@ -21,6 +21,19 @@ COMPOSE_DIR="${NEXTSEEK_COMPOSE_DIR:-$HOME/Documents/MIT/NExtSEEK}"
 
 if [ $# -eq 0 ]; then set -- nextseek_api/tests; fi
 
+# -q is a default, not a policy: appending it unconditionally made
+# `run_tests.sh <target> -v` quiet anyway, since the later flag wins. Add it
+# only when the caller expressed no verbosity of their own.
+caller_set_verbosity=0
+for arg in "$@"; do
+  case "$arg" in
+    --verbose|--quiet|--verbosity=*) caller_set_verbosity=1 ;;
+    --*) ;;                            # some other long option (--tb=..., --override-ini=...)
+    -*[vq]*) caller_set_verbosity=1 ;;  # -v, -q, -vv, and clusters like -xvs
+  esac
+done
+if [ "$caller_set_verbosity" -eq 0 ]; then set -- "$@" -q; fi
+
 if [ ! -f "$HERE/dmac/local_settings.py" ]; then
   echo "missing $HERE/dmac/local_settings.py (gitignored)" >&2
   echo "copy it: cp $COMPOSE_DIR/dmac/local_settings.py $HERE/dmac/" >&2
@@ -31,4 +44,4 @@ cd "$COMPOSE_DIR"
 exec docker compose run --rm --no-deps \
   -v "$HERE":/app -v /app/.venv \
   -e DJANGO_SETTINGS_MODULE=dmac.test_settings \
-  nextseek /app/.venv/bin/python -m pytest "$@" -q
+  nextseek /app/.venv/bin/python -m pytest "$@"
