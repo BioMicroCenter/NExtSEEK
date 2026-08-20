@@ -1,51 +1,27 @@
 from django.shortcuts import render
-from django.shortcuts import redirect
-from django.http import HttpResponseRedirect, HttpResponse, FileResponse, Http404
+from django.http import HttpResponseRedirect, HttpResponse, FileResponse
 
-import csv
-import hashlib
 import json
 import os
 import re
-import subprocess
-import time
-import uuid
-import tempfile
-import random
 import requests
 
 import logging
 logger = logging.getLogger(__name__)
 
-from subprocess import call
-from subprocess import check_call
-from time import strftime, gmtime
 import pandas as pd
-import numpy as np
 
 from django.conf import settings
-from django.core.files.storage import default_storage
-from django.shortcuts import render, HttpResponseRedirect, redirect, HttpResponse
-from django.urls import reverse
-from django.views.decorators.csrf import csrf_exempt
-from pathlib import Path
 from itertools import groupby
-from datetime import datetime, timedelta
-from pytz import timezone
 
 from django.contrib.auth.models import User
-from django import forms
 
 import simplejson
 import datetime
-import json
 import zipfile
 import MySQLdb
 
-from dmac.conversion import dateconversion, dateToString, dateToStringUK, convertDicToOptions, handle_uploaded_file
-from dmac.datagrid_custom import DataGrid
-from dmac.csv_excel import load_file, load_excelfile
-from dmac.iocsv import saveCsvfile
+from dmac.conversion import convertDicToOptions, handle_uploaded_file
 from dmac.dbtable_clades import DBtable_clades
 from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtable_stc
 from dmac.dbtable_internalassays import DBtable_internalassays
@@ -53,35 +29,25 @@ from dmac.dbtable_assaysinternalassays import DBtable_assaysinternalassays
 from nextseek_api.services.sample_workbook import write_samples_workbook
 
 from .seekdb import SeekDB
-from .seekapi import SeekAPI
 from .models import Projects
-from .models import Clades
 
 from .dbtable_sampletype import DBtable_sampletype
 from .dbtable_sample import DBtable_sample
 from .dbtable_documents import DBtable_documents
-from .dbtable_data_files import DBtable_data_files
-from .dbtable_sops import DBtable_sops
 from .dbtable_sampleattribute import DBtable_sampleattribute
 from .dbtable_attributetype import DBtable_attributetype
 from .dbtable_projects import DBtable_projects
 
-from rest_framework.decorators import authentication_classes
-from rest_framework.authentication import BasicAuthentication, TokenAuthentication,SessionAuthentication
+from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import api_view
-from rest_framework.decorators import permission_classes
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-
-from subprocess import call
 
 import shlex
 from subprocess import Popen, PIPE
 
 from .timeline.services.timeline_service import run_All, get_event_data
 from .timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
-import neo4j
 from neo4j import GraphDatabase
 import io
 SEEK_DATABASE = settings.SEEK_DATABASE
@@ -490,7 +456,6 @@ def __updateLabUser(seekdb, instituion_id, people_id):
 #@authentication_classes((TokenAuthentication,))
 #@permission_classes((IsAuthenticated,))
 def verifyToken(request):
-    from rest_framework.authentication import TokenAuthentication
     user_auth_tuple = TokenAuthentication().authenticate(request)
     tokenValidated = False
     if user_auth_tuple is None:

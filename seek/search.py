@@ -1,20 +1,8 @@
 #!/usr/bin/env python
-import os
-import sys
-import time
-import datetime
-import simplejson
-import json
 import logging
-import xlwt
 logger = logging.getLogger(__name__)
 
-from django.conf import settings
-from django.db.models import Q
-    
-from joblib import Parallel, delayed
-import multiprocessing
-    
+
 class Search():
     ''' Usage: Parse the search text in PubMed style and return a
         typpical SQL "WHERE" clause according to the search text.

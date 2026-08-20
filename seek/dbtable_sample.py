@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 import os
-import sys
-import time
 import datetime
 import simplejson
 import json
@@ -21,8 +19,8 @@ from itertools import chain
 
 from .models import Samples, Projects_samples, People, Assets_creators, Projects
 from dmac.dbtable import DBtable
-from dmac.csv_excel import load_file, load_excelfile, load_excelfile_asdic, saveExcelDiclist, modifyExcelCell, reviseExcelDiclist, removeRedundancy, AddExcelDiclist
-from dmac.conversion import getDefaultDate, toString, cleanString, getDefaultDate, getDefaultDateTime, convertDateListToString, toInt, verifyValueType
+from dmac.csv_excel import load_excelfile_asdic, saveExcelDiclist, modifyExcelCell, reviseExcelDiclist, removeRedundancy, AddExcelDiclist
+from dmac.conversion import toString, cleanString, getDefaultDateTime, convertDateListToString, toInt, verifyValueType
 from dmac.iocsv import saveDiclistIntoExcel, filterDiclist, saveTwoDiclistsIntoExcel, getConstantRows, removeDiclistDuplicates
 
 from .dbtable_sampleattribute import DBtable_sampleattribute
@@ -35,8 +33,6 @@ from .dbtable_policies import DBtable_policies
 
 from .dbtable_ontology import DBtable_ontology
 from nextseek_api.services.sample_workbook import write_samples_workbook
-from concurrent.futures import ThreadPoolExecutor
-from api_app.updateTrees import updateTrees
 from neo4j import GraphDatabase
 
 NEO4J_DATABASE = settings.NEO4J_DATABASE
