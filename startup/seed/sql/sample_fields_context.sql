@@ -14,7 +14,11 @@
 -- same field and uk_field_scope would never fire.
 CREATE TABLE IF NOT EXISTS `sample_fields_context` (
   `id`          int NOT NULL AUTO_INCREMENT,
-  `field_name`  varchar(255) NOT NULL,
+  -- utf8mb4_bin, not the table default: the default collation is case
+  -- INsensitive, which silently collapses genuinely distinct SEEK attributes
+  -- that differ only by case -- Figure/figure, Bead_Coating/Bead_coating.
+  -- Five such pairs exist in production today.
+  `field_name`  varchar(255) COLLATE utf8mb4_bin NOT NULL,
   `sample_type` varchar(32)  NOT NULL DEFAULT '',
   `meaning`     text,
   PRIMARY KEY (`id`),

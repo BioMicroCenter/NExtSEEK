@@ -400,6 +400,20 @@ def test_an_undefined_column_gets_no_empty_hover_note(_ctx, _fields, tmp_path):
     assert load_workbook(out)["MUS"]["A1"].comment is None
 
 
+@patch(f"{_MOD}.Sample_fields_context")
+def test_field_context_keeps_case_variant_names_apart(mock_model):
+    """SEEK has five attribute pairs differing only by case (Figure/figure,
+    Bead_Coating/Bead_coating). The table stores field_name as utf8mb4_bin so
+    they stay distinct; the loader must not merge them either."""
+    mock_model.objects.filter.return_value.values.return_value = [
+        {"field_name": "Figure", "sample_type": "", "meaning": "Upper-case one."},
+        {"field_name": "figure", "sample_type": "", "meaning": "Lower-case one."},
+    ]
+    result = load_sample_field_context([("D.IMG", "Figure"), ("A.IMG", "figure")])
+    assert result[("D.IMG", "Figure")] == "Upper-case one."
+    assert result[("A.IMG", "figure")] == "Lower-case one."
+
+
 def _cv_df():
     """A frame whose columns include two governed by GEO/SRA vocabularies."""
     return pd.DataFrame([
