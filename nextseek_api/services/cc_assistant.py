@@ -365,9 +365,11 @@ def _decide_route(user, req, *, force_cc: bool, session=None, history: list[rout
     """
     forced = getattr(req, "force_route", None)
     if forced in ("ns", "cc"):
-        is_admin = bool(
-            getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
-        )
+        # is_superuser ALONE. dmac/views.py:80,97 sets is_staff = 1 on every SEEK
+    # user at registration and at every login, so `or is_staff` admitted every
+    # authenticated account. Same predicate as seek/views.py verifySuperUser and
+    # AdminSampleViewSet (#74).
+        is_admin = bool(getattr(user, "is_superuser", False))
         if not is_admin:
             forced = None  # non-admins can never force a route
 
@@ -509,10 +511,11 @@ class CCAssistantViewSet(viewsets.ViewSet):
         # Admin-only per-turn wall-clock override (Debug panel max-turn-length),
         # clamped to the env-bounded hard ceiling. Non-admins -> configured
         # default. Mirrors the force_route / use_prod server-side admin gate.
-        _is_admin = bool(
-            getattr(request.user, "is_staff", False)
-            or getattr(request.user, "is_superuser", False)
-        )
+        # is_superuser ALONE. dmac/views.py:80,97 sets is_staff = 1 on every SEEK
+    # user at registration and at every login, so `or is_staff` admitted every
+    # authenticated account. Same predicate as seek/views.py verifySuperUser and
+    # AdminSampleViewSet (#74).
+        _is_admin = bool(getattr(request.user, "is_superuser", False))
         _requested_timeout = getattr(req, "max_turn_length_s", None) if _is_admin else None
         resolved_turn_timeout = cc_engine.clamp_turn_timeout(_requested_timeout)
 

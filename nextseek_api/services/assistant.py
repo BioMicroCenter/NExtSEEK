@@ -241,7 +241,16 @@ def _select_chat_config(request, req) -> ChatConfig:
     if not getattr(req, "use_prod", False):
         return settings.NEXTSEEK_CHAT_CONFIG
     user = getattr(request, "user", None)
-    is_admin = bool(getattr(user, "is_staff", False) or getattr(user, "is_superuser", False))
+    # is_superuser ALONE. dmac/views.py:80,97 sets is_staff = 1 on every SEEK
+    # user at registration and at every login, so `or is_staff` admitted every
+    # authenticated account. Same predicate as seek/views.py verifySuperUser and
+    # AdminSampleViewSet (#74).
+    #
+    # This gate matters more than the others: the PROD ChatConfig authenticates
+    # to the API as a superuser service account, so admitting staff here handed
+    # any authenticated user a superuser-scoped session and bypassed the
+    # project scoping on advanced_search entirely.
+    is_admin = bool(getattr(user, "is_superuser", False))
     if not is_admin:
         return settings.NEXTSEEK_CHAT_CONFIG
     prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
@@ -466,7 +475,9 @@ class AssistantViewSet(viewsets.ViewSet):
         return Response(
             AssistantUserResponse(
                 username=request.user.username,
-                is_admin=bool(request.user.is_staff or request.user.is_superuser),
+                # is_superuser ALONE — see _select_chat_config. This flag drives the
+                # "Admin" badge and the Debug panel in chat_frontend (useAuth.ts).
+                is_admin=bool(request.user.is_superuser),
             ).model_dump(),
             status=status.HTTP_200_OK,
         )

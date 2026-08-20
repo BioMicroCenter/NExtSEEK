@@ -234,8 +234,25 @@ class ViewSetTests(TestCase):
         self.assertEqual(resp.data["username"], "testuser")
         self.assertFalse(resp.data["is_admin"])
 
-    def test_me_admin(self):
-        self.client.force_authenticate(user=self.admin)
+    def test_me_admin_is_superuser_only(self):
+        """is_admin drives the UI Admin badge and the Debug panel, so it must key on
+        is_superuser alone. dmac/views.py sets is_staff on every SEEK user at login,
+        so staff-as-admin showed the badge -- and the PROD/router/max-turn controls --
+        to every authenticated account."""
+        self.client.force_authenticate(user=self.admin)  # is_staff, NOT is_superuser
+        resp = self.client.get("/nextseek_api/assistant/me/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(
+            resp.data["is_admin"],
+            "a staff-but-not-superuser account must not be reported as admin",
+        )
+
+    def test_me_admin_true_for_superuser(self):
+        superuser = User.objects.create_user(
+            username="realsuper", password="super1234",
+            is_staff=True, is_superuser=True,
+        )
+        self.client.force_authenticate(user=superuser)
         resp = self.client.get("/nextseek_api/assistant/me/")
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.data["is_admin"])

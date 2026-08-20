@@ -231,6 +231,33 @@ class Sample_types_context(models.Model):
     class Meta:
         db_table = "sample_types_context"
 
+class Sample_fields_context(models.Model):
+    """Plain-English meaning per metadata field, for the download README.
+
+    Joined on the `field_name` string, never on an id: ids do not agree across
+    instances. `sample_type` is the scope — '' is the definition used for every
+    tab, a sample type code overrides it for that tab only.
+    """
+    _DATABASE = NEXTSEEK_DATABASE
+
+    field_name = models.CharField(max_length=255)
+    sample_type = models.CharField(max_length=32, default="")
+    meaning = models.TextField(default=None, null=True)
+
+    def __str__(self):
+        return self.field_name
+
+    class Meta:
+        db_table = "sample_fields_context"
+        unique_together = ("field_name", "sample_type")
+        # The table is created out-of-band in SQL (startup/seed/sql/
+        # sample_fields_context.sql, applied by startup's schema fixups); this
+        # model only maps it. Left managed, the next unrelated `makemigrations`
+        # in this app would propose creating the table, and CustomRouter.
+        # allow_migrate returns None for non-`default` app labels, so applying
+        # that migration would create it on both the default and seek aliases.
+        managed = False
+
 class Sample_attributes(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -248,6 +275,10 @@ class Sample_attributes(models.Model):
     original_accessor_name = models.CharField(max_length=255, default=None)
     sample_controlled_vocab_id = models.IntegerField(default=None)
     linked_sample_type_id = models.IntegerField(default=None)
+    # The column has always existed in SEEK's schema; it was simply never
+    # mapped, so no query returned it. Empty on every row until definitions
+    # are loaded. No migration: this table family is created out-of-band.
+    description = models.TextField(default=None, null=True)
     
     def __unicode__(self):
         return self.title
