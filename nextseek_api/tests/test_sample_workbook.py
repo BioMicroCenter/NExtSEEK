@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 from openpyxl import load_workbook
 
 from nextseek_api.services.sample_workbook import (
@@ -14,12 +15,22 @@ from nextseek_api.services.sample_workbook import (
     build_provenance_lines,
     build_readme_blocks,
     load_assay_titles,
+    load_derivation_hops,
     load_sample_field_context,
     load_sample_type_context,
     write_samples_workbook,
 )
 
 _MOD = "nextseek_api.services.sample_workbook"
+
+
+@pytest.fixture(autouse=True)
+def _no_graph():
+    """write_samples_workbook consults Neo4j for lineage. Tests must not reach
+    for a real graph: the driver blocks rather than failing fast, which is what
+    NEO4J_TIMEOUT_SECONDS bounds in production."""
+    with patch(f"{_MOD}.load_derivation_hops", return_value=[]):
+        yield
 
 CONTEXT = {
     "MUS": {"name": "Mouse", "description": "A mouse sample."},
@@ -422,6 +433,34 @@ def _prov_df():
         {"uuid": "D.SEQ-1", "sample_type": "D.SEQ", "Parent": "DNA-9"},
         {"uuid": "TIS-2", "sample_type": "TIS", "Parent": "MUS-3; MUS-4"},
     ])
+
+
+def test_provenance_names_the_assay_recorded_on_the_neo4j_edge():
+    """The assay sits on DERIVED_FROM, between two specific UIDs."""
+    hops = [("DNA-9", "Short Read Sequencing", "D.SEQ-1")]
+    lines = build_provenance_lines(_prov_df(), {}, hops)
+    assert "DNA  --[Short Read Sequencing]-->  D.SEQ" in lines
+
+
+def test_neo4j_hops_win_over_the_parent_column():
+    """Both describe the same lineage, but only the graph edge knows which
+    assay produced this particular child."""
+    hops = [("DNA-9", "Short Read Sequencing", "D.SEQ-1")]
+    lines = build_provenance_lines(_prov_df(), {"D.SEQ-1": "Something Else"}, hops)
+    assert lines == ["DNA  --[Short Read Sequencing]-->  D.SEQ"]
+
+
+def test_provenance_falls_back_to_the_parent_column_without_neo4j():
+    """An unreachable graph costs the assay labels, not the lineage."""
+    lines = build_provenance_lines(_prov_df(), {}, [])
+    assert "DNA  ------>  D.SEQ" in lines
+    assert any(l.startswith("MUS") for l in lines)
+
+
+@patch(f"{_MOD}.GraphDatabase")
+def test_lineage_lookup_survives_an_unreachable_graph(mock_graph):
+    mock_graph.driver.side_effect = RuntimeError("connection refused")
+    assert load_derivation_hops(["D.SEQ-1"]) == []
 
 
 def test_provenance_names_the_assay_that_produced_the_child():

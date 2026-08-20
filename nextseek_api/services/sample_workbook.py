@@ -18,6 +18,8 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.comments import Comment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+from django.conf import settings
+from neo4j import GraphDatabase
 from openpyxl.styles import Font
 
 from seek.models import (
@@ -46,6 +48,9 @@ SAMPLE_TYPE_RE = r"([A-Z]+\.[A-Z]+|[A-Z]+)"
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
 SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
 PROVENANCE_TITLE = "How this data flowed"
+# A download must not wait on the graph. Provenance is worth a moment, never a
+# stalled request.
+NEO4J_TIMEOUT_SECONDS = 5
 # SEEK suffixes assay titles by how the data is attached; the distinction is
 # about SEEK bookkeeping, not about what was done to the sample.
 ASSAY_TITLE_SUFFIXES = (" - Metadata", " - Data Linked", " - Data Attached")
@@ -195,13 +200,55 @@ def load_sample_field_context(
     }
 
 
+def load_derivation_hops(uuids: Iterable[str]) -> list[tuple[str, str, str]]:
+    """(parent uuid, assay title, child uuid) for the hops among these samples.
+
+    Neo4j is the authority here, not SEEK. Its DERIVED_FROM relationship holds
+    `internal_assay_title` on the *edge*, so the assay is recorded between two
+    specific UIDs. SEEK's assay_assets only says which assay a sample belongs
+    to, which cannot distinguish the hop that produced it from any other assay
+    the same sample took part in.
+
+    Fail-soft like every other lookup here: an unreachable graph costs the
+    section, never the download -- and it must cost it *quickly*. The driver's
+    default connection timeout is long enough that a graph which is merely slow
+    would stall every download, so it is bounded explicitly.
+    """
+    wanted = sorted({u for u in uuids if u})
+    if not wanted:
+        return []
+    query = (
+        "MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample) "
+        "WHERE c.uuid IN $uuids "
+        "RETURN p.uuid AS parent, r.internal_assay_title AS assay, c.uuid AS child"
+    )
+    try:
+        # Read at call time, not import: touching settings during module import
+        # pulls in the whole runtime config chain before Django is ready.
+        config = settings.NEO4J_DATABASE
+        with GraphDatabase.driver(
+            config["URI"],
+            auth=config["AUTH"],
+            connection_timeout=NEO4J_TIMEOUT_SECONDS,
+            max_transaction_retry_time=NEO4J_TIMEOUT_SECONDS,
+        ) as driver:
+            records = driver.execute_query(query, uuids=wanted).records
+        return [
+            (r["parent"], (r["assay"] or "").strip(), r["child"])
+            for r in records
+            if r["parent"] and r["child"]
+        ]
+    except Exception:
+        logger.exception("neo4j lineage lookup failed; provenance falls back to Parent")
+        return []
+
+
 def load_assay_titles(uuids: Iterable[str]) -> dict[str, str]:
     """uuid -> the assay it belongs to, from SEEK's own sample/assay links.
 
-    Derived rather than inferred: sample_types_context carries assay names per
-    sample *type*, but a TIS sample may belong to Tissue Collection, Flow
-    Cytometry or Titer Assay, so only the per-sample link says what actually
-    happened. Fail-soft like every other lookup here.
+    Only a fallback: used when Neo4j is unreachable, where a per-sample assay
+    is better than no label at all. See load_derivation_hops for why the graph
+    edge is the more accurate source.
     """
     wanted = sorted({u for u in uuids if u})
     if not wanted:
@@ -232,17 +279,36 @@ def load_assay_titles(uuids: Iterable[str]) -> dict[str, str]:
     return out
 
 
-def build_provenance_lines(df, assay_by_uuid: Mapping[str, str]) -> list[str]:
+def build_provenance_lines(df, assay_by_uuid: Mapping[str, str],
+                           hops: list[tuple[str, str, str]] | None = None) -> list[str]:
     """One flow line per parent-type -> child-type hop present in this download.
 
-    Edges come from each row's own Parent UIDs, whose prefix is the parent's
-    sample type, so the lines describe what actually happened rather than what
-    the schema permits. Upstream types are included even when they were not
-    downloaded: that is the part a reader cannot otherwise see.
+    Hops come from Neo4j when it is reachable, where the assay is recorded on
+    the relationship itself. Otherwise they are recovered from each row's own
+    Parent UIDs, whose prefix is the parent's sample type -- the same hops,
+    labelled from the weaker per-sample assay link or not at all.
+
+    Upstream types are included even when they were not downloaded: that is the
+    part a reader cannot otherwise see.
     """
+    edges: dict[tuple[str, str], set[str]] = {}
+
+    for parent_uuid, assay, child_uuid in hops or []:
+        parent_match = re.match(SAMPLE_TYPE_RE, str(parent_uuid))
+        child_match = re.match(SAMPLE_TYPE_RE, str(child_uuid))
+        if not parent_match or not child_match:
+            continue
+        parent_type, child_type = parent_match.group(1), child_match.group(1)
+        if parent_type == child_type:
+            continue
+        edges.setdefault((parent_type, child_type), set())
+        if assay:
+            edges[(parent_type, child_type)].add(assay)
+    if edges:
+        return _format_provenance(edges)
+
     if "Parent" not in df.columns:
         return []
-    edges: dict[tuple[str, str], set[str]] = {}
     for uuid, child_type, parents in zip(df["uuid"], df["sample_type"], df["Parent"]):
         if not child_type or parents is None:
             continue
@@ -258,9 +324,13 @@ def build_provenance_lines(df, assay_by_uuid: Mapping[str, str]) -> list[str]:
             if assay:
                 edges[(match.group(1), child_type)].add(assay)
 
+    return _format_provenance(edges)
+
+
+def _format_provenance(edges: Mapping[tuple[str, str], set[str]]) -> list[str]:
     lines = []
     for (parent, child) in sorted(edges):
-        assays = sorted(edges[(parent, child)])
+        assays = sorted(a for a in edges[(parent, child)] if a)
         label = f"  --[{', '.join(assays)}]-->  " if assays else "  ------>  "
         lines.append(f"{parent}{label}{child}")
     return lines
@@ -408,7 +478,11 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
         [(code, column) for code, columns in sheets for column in columns]
     )
     blocks = build_readme_blocks(sheets, context_by_code, meaning_by_pair)
-    provenance = build_provenance_lines(df, load_assay_titles(df["uuid"].astype(str)))
+    uuids = df["uuid"].astype(str)
+    hops = load_derivation_hops(uuids)
+    provenance = build_provenance_lines(
+        df, {} if hops else load_assay_titles(uuids), hops
+    )
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         book = writer.book
