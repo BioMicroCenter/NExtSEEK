@@ -132,24 +132,47 @@ though both legacy views still exist.
 
 ### The README sheet
 
+This is the canonical description of the sheet; everything below refers back
+here rather than restating it.
+
 Sheet 1 of every downloaded workbook. A1 hyperlinks to the contextdb on GitHub,
 row 2 is blank, and the rest is one section per sample type, in the same order
 the sheets are written: a bold `CODE — Name` heading in column A, its
 description on the line beneath, then a `Column` / `Meaning` table indented into
-columns B and C listing every column of that tab.
+columns B and C listing every column of that tab. A sample type whose columns
+all dropped out gets its heading and description but no table header, since a
+`Column` / `Meaning` row with nothing under it reads as a rendering bug.
 
 Sample type names and descriptions come from `dmac.sample_types_context` via the
 `Sample_types_context` model (`seek/models.py`); per-column meanings come from
-`dmac.sample_fields_context` via `Sample_fields_context`. **Both join on a
-string key, never on an id** — the id column does not agree with
-`sample_types.id` across instances (production context has `sampletype_id`
-10 = `MUS`, while local `seek_production.sample_types` has id 10 = `DNA`).
+`dmac.sample_fields_context` via `Sample_fields_context`, where `sample_type =
+''` is the definition used on every tab and a sample type code overrides it for
+that tab only. **Both join on a string key, never on an id** — the id column
+does not agree with `sample_types.id` across instances (production context has
+`sampletype_id` 10 = `MUS`, while local `seek_production.sample_types` has id
+10 = `DNA`).
 
-A sample type with no context row is still listed, with the bare code as its
-heading, and a column with no definition is still listed with a blank meaning.
-The README therefore always indexes every sheet and every column, so a gap is
-visible rather than silent. If either table is missing entirely the lookup logs
-and returns empty — the README goes unpopulated but the download still works.
+Rows are derived from the columns actually written to the workbook, *after* the
+all-empty-column drop, so the README never claims a column the researcher cannot
+see. Nothing has to be registered: a new sample type gets a section the first
+time anyone downloads one, and a new attribute gets a row the first time it
+carries a value.
+
+Nothing is omitted either. A sample type with no context row is still listed,
+with the bare code as its heading, and a column with no definition is still
+listed with a blank meaning — so a gap is visible rather than silent.
+Definitions are written only for columns whose meaning is not self-evident; a
+column judged obvious has no row and renders blank, and "obvious" and
+"undocumented" are deliberately not distinguished in the workbook.
+
+The sheet fails soft in both directions. If either context table is missing or
+unreachable the lookup logs and returns empty — the README goes unpopulated but
+the download still works. And every string written to a cell is stripped of
+control characters and truncated to Excel's 32,767-character cell limit
+(`_safe_cell_value`), because a `\x0b` — what a line break pasted from Word or a
+PDF becomes — otherwise raises `IllegalCharacterError` out of the writer and one
+bad definition row would cost every download of every workbook carrying that
+sample type.
 
 ### One trap worth knowing
 
@@ -209,35 +232,33 @@ divergence and will bite whoever next depends on them.
 `sample_fields_context` is a fourth gap, and a different one: the README's
 per-column meanings *do* need it, but it could not be folded into the seed here
 because `./startup.sh dump-db` requires maintainer credentials for a remote host
-and regenerates all three seed dumps together. Its DDL ships standalone at
-`startup/seed/sql/sample_fields_context.sql` and is applied by hand until a
-maintainer folds it in. Until then a fresh install renders meanings blank, which
-the loader handles by design rather than by failing.
+and regenerates all three seed dumps together. The dump therefore still does not
+carry the table — but the gap no longer reaches a fresh install, because
+`startup/steps/schema_fixups.py` registers `dmac.sample_fields_context` as a
+`MissingTable` and install runs its DDL
+(`startup/seed/sql/sample_fields_context.sql`) whenever it is absent. The same
+hook heals an existing install on its next run. An instance that is running and
+not about to be reinstalled — production — still takes that DDL by hand. If the
+table is missing anyway, the loader renders meanings blank by design rather than
+failing.
 
-## Per-column definitions on the README sheet
+## Rolling out per-column definitions
 
-The README sheet carries one section per tab, listing every column in that tab
-with a plain-English meaning where one has been written. Meanings come from
-`dmac.sample_fields_context`, joined on the `field_name` string, with
-`sample_type = ''` as the global definition and a sample type code as a per-tab
-override.
+What the sheet renders is described under "The README sheet" above. What it
+takes to light the meanings up on an instance:
 
-Rows are derived from the columns actually written to the workbook, after the
-all-empty-column drop. A new sample type therefore gets a section the first time
-anyone downloads one, and a new attribute gets a row the first time it carries a
-value — nothing has to be registered.
-
-Rolling this out to an instance:
-
-1. Apply `startup/seed/sql/sample_fields_context.sql` to that instance's `dmac`
-   database.
-2. Load definitions into the table.
-3. Deploy.
+1. **Create the table.** `./startup.sh install` does it — `dmac.
+   sample_fields_context` is registered in `startup/steps/schema_fixups.py`, so
+   install (and `reset`) run `startup/seed/sql/sample_fields_context.sql`
+   whenever the table is absent, whether or not seeds ran. For an instance
+   that is already running — production included — apply that same DDL by hand
+   instead of reinstalling; it is `CREATE TABLE IF NOT EXISTS`, so it is safe to
+   run against an instance that already has the table.
+2. **Load definitions into the table.** *No mechanism for this exists yet* —
+   `load_field_definitions`, which reads the reviewer-edited xlsx, is Phase 2.
+   Until it lands, rows go in by hand.
+3. **Deploy.**
 
 Steps can happen in any order. `load_sample_field_context` fails soft: if the
 table is missing or unreachable it logs and every meaning renders blank, so
 there is no window in which downloads break.
-
-Definitions are written only for columns whose meaning is not self-evident. A
-column judged obvious has no row and renders blank — "obvious" and
-"undocumented" are deliberately not distinguished in the workbook.

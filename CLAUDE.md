@@ -109,6 +109,7 @@ docker-compose.yml Dockerfile gunicorn.conf.py
 
 ```
 uv run pytest                 # config in [tool.pytest.ini_options]
+./scripts/run_tests.sh [targets]   # same suite, inside the stack image
 ```
 
 The whole pytest config is two keys under `[tool.pytest.ini_options]` in
@@ -134,6 +135,13 @@ directory per `chat_nextseek/CLAUDE.md`. `nessie_tests/` likewise has its own
 runners rather than being driven by the root pytest invocation: its unit tests
 run from that directory in an isolated env and its `tests_container/` tests run
 inside the `nextseek` container. See `nessie_tests/README.md`.
+
+On macOS the host route is unavailable: the pinned `mysqlclient` does not
+build there. `./scripts/run_tests.sh` covers that case, and the worktree case
+the `docker exec` command above does not — it mounts *this* checkout over
+`/app` in the stack image rather than running the code baked into the image,
+and passes your arguments straight through. It needs the gitignored
+`dmac/local_settings.py` copied into the checkout.
 
 ## Development workflow
 
