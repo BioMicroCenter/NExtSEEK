@@ -1,0 +1,28 @@
+{
+  "schema": "plan018-v4-5-prereq/v1",
+  "recorded_at": "2026-08-12T16:10:00Z",
+  "gate": "PASS",
+  "phase0_ref": "evidence/plan018-v4-5-phase0-publish.json",
+  "phase0_gate": "PASS",
+  "preflight_next_gate": "V4-5",
+  "v4_0_status": "CLOSED",
+  "v4_1_status": "CLOSED",
+  "v4_2_status": "CLOSED",
+  "v4_3_status": "CLOSED",
+  "v4_4_status": "CLOSED",
+  "v4_4_cold_review": "evidence/plan018-v4-4-cold-outcome-review.md",
+  "worktree_sha": "0bd1549c",
+  "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "migration_leaf": "0014_generation_activation_and_reservation",
+  "lane_c_recipe": "docker worktree mount + dmac.test_settings (V4-3 SDD)",
+  "lane_m_recipe": "disposable mysql:8.0@sha256:7dcddc01 + worktree migrations overlay (V4-0 forward-migrate)",
+  "hard_refuses": [
+    "no live NExtSEEK DB activation without at-time ask",
+    "no production routing enablement",
+    "no paid/provider calls",
+    "no deploy",
+    "no push after Phase 0 unless asked",
+    "no SQLite as V5-3 real-store DONE oracle"
+  ],
+  "paid_or_live_resources_used": false
+}

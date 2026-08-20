@@ -132,7 +132,8 @@ SAMPLE_ERRORCODE = {
     '503': 'Error S503: Sample does not have an "UID" field for saving into DB. ',
     '504': 'Error S504: Sample not saved into DB: ',
     '601': 'Warning S601: Sample asset not saved into DB: ',
-    '602': 'Warning S602: Sample and data file association not saved correctly into DB: '
+    '602': 'Warning S602: Sample and data file association not saved correctly into DB: ',
+    '603': 'Warning S603: Sample lineage not saved into the graph database for UID: '
 }
 
 SAMPLE_ERRORCODE = {
@@ -158,7 +159,8 @@ SAMPLE_ERRORCODE = {
     '504': 'Error: Sample not saved into DB - ',
     '601': 'Warning: Sample not saved to the SEEK database - ',
     '602': 'Warning: Data file not associated with a sample in the SEEK database - ',
-    
+    '603': 'Warning: Sample saved, but its lineage (parent relationships) was NOT saved to the graph database for UID - ',
+
     '701': 'Warning: Assay sheet does not contain valid "Update_assay" sheet.',
     
 }
@@ -216,7 +218,7 @@ class DBtable_sample(DBtable):
         self.fieldMapping = SAMPLE_FILTER_MAPPING
         self.excludeFields = []
 
-    def __runQuery(self, query, withColumns=False):
+    def __runQuery(self, query, withColumns=False, params=None):
         db = settings.DATABASES[SEEK_DATABASE]
         conn = MySQLdb.connect(host=db['HOST'],
                                user=db['USER'],
@@ -225,7 +227,13 @@ class DBtable_sample(DBtable):
         cursor = conn.cursor()
         
         try:
-            cursor.execute(query)
+            # `params is None` keeps the three pre-existing callers byte-identical;
+            # anything that builds %s placeholders passes its values here instead
+            # of interpolating them into the statement.
+            if params is None:
+                cursor.execute(query)
+            else:
+                cursor.execute(query, params)
             results = cursor.fetchall()
             if withColumns:
                 columns = [col[0] for col in cursor.description]
@@ -619,27 +627,36 @@ class DBtable_sample(DBtable):
 
             
     def __storeSample(self, user_seek, sampleType, record, attributeInfo, diclist_assay, creator):
+        """Store one sample row, then its lineage.
+
+        Returns ``(msg, status, uid, lineage_failed)``. ``lineage_failed`` is the
+        fourth element added so the caller can COUNT graph-write failures: the
+        row lands in MySQL either way (``status`` stays 1), but a batch that lost
+        lineage must not be reported to the uploader as a clean success.
+        """
         username = user_seek['username']
         contributor_id = user_seek['user_id']
-        
+
         creator_id = creator['user_id']
         project_id = creator['projectid']
-        
+
+        lineage_failed = False
+
         if not self.__notEmptyLine(record):
             msg = SAMPLE_ERRORCODE['501']
-            return msg, 0, None
-        
+            return msg, 0, None, lineage_failed
+
         headers_required = attributeInfo['headers_required']
-        
+
         msg_required, meetRequired = self.__verifyRequiredFields(record, headers_required)
         if not meetRequired:
             msg = SAMPLE_ERRORCODE['502'] + msg_required
-            return msg, 0, None
-                
+            return msg, 0, None, lineage_failed
+
         if 'UID' not in record.keys():
             msg = SAMPLE_ERRORCODE['503']
-            return msg, 0, None
-        
+            return msg, 0, None, lineage_failed
+
         record_new, newSample = self.__getRecord(creator, record, attributeInfo, contributor_id)
         uid = record_new['uuid']
         msg, status, sample_id = self.storeOneRecord(username, record_new)
@@ -656,10 +673,10 @@ class DBtable_sample(DBtable):
                 else:
                     msg = 'Info: Assay info not available for updating array-sample relationship for sample id: ' + str(sample_id)
 
-                try:
-                    self.storeSampleNeo4j(sampleType, record_new)
-                except:
-                    None
+                lineage_ok, msgn = self.__storeSampleNeo4jGuarded(sampleType, record_new, uid)
+                if not lineage_ok:
+                    lineage_failed = True
+                    msg += ';' + msgn
             else:
                 msg = 'Info: No update on array-sample relationship for old sample id: ' + str(sample_id)
                     
@@ -669,9 +686,9 @@ class DBtable_sample(DBtable):
                 msg += ';' + msgdf
         else:
             msg = SAMPLE_ERRORCODE['504'] + msg
-        
-        return msg, status, uid
-    
+
+        return msg, status, uid, lineage_failed
+
     def __storeSample_assay_asset(self, user_seek, sampleType, sample_id, diclist_assay):
         username = user_seek['username']
         assay_assets = DBtable_assay_assets("DEFAULT")
@@ -820,14 +837,88 @@ class DBtable_sample(DBtable):
         return relationships
 
     def extractParents(self, json_metadata):
+        """Collect parent tokens from every metadata key containing "Parent".
+
+        Value handling matches the modern route's
+        ``nextseek_api.batch_upload.helpers.collect_parent_tokens``: a value
+        that is empty or not a ``str`` contributes no tokens, and empty tokens
+        are dropped.
+
+        Dropping empty tokens is the part that fixes a live failure, and the
+        mechanism is not the obvious one. ``__getRecordToJson`` writes EVERY
+        attribute of the sample type into ``json_metadata``, not just the ones
+        the uploader filled in, so any sample type carrying an unused
+        ``*Parent`` attribute ships a blank value on every row -- ``' '`` via
+        ``toString(None)``, or ``''`` when the header is absent. The old code
+        turned that into an ``''`` token; ``getSampleID('')`` matched no record
+        and returned ``None``; ``getConnectingRelationships`` interpolated it
+        into SQL as ``aa.asset_id = None``; MySQL rejected that; ``__runQuery``
+        swallowed the error and returned ``None``; and ``len(None)`` raised
+        ``TypeError``. Because ``storeSampleNeo4j`` merges parents in a loop,
+        the bare ``except`` upstream then abandoned every parent token ORDERED
+        AFTER the blank one, leaving silent, partial lineage.
+
+        The ``isinstance`` guard is defence-in-depth, not a fix for a path
+        reachable from this route: values reaching here via ``__storeSample``
+        have already been through ``toString``, so an integer from an Excel
+        cell arrives as ``"12345"``. It matters because ``storeSampleNeo4j`` is
+        public and ``extractParents`` is reachable with a raw dict.
+
+        Key matching is deliberately NOT aligned with the modern helper. This
+        stays the case-sensitive substring test ``"Parent" in k``, which is
+        narrower than ``"parent" in k.lower()``; and unlike the modern helper
+        this does not deduplicate. Changing either is a behaviour change beyond
+        the swallow-and-guard fix. Pinned by
+        ``seek/tests/test_dbtable_sample_lineage.py`` ::
+        ``TestExtractParentsUnchangedBehaviour``.
+        """
         parents = []
         for k, v in json_metadata.items():
             if "Parent" in k:
+                if not v or not isinstance(v, str):
+                    continue
                 parents.append(v)
         parents = list(map(lambda p: p.split(";"), parents))
         parents = list(chain(*parents))
-        parents = list(map(lambda p: p.strip(), parents))
+        parents = [p.strip() for p in parents if p.strip()]
         return parents
+
+    def __reportLineageFailure(self, sampleType, uid, exc):
+        """Log a graph-write failure and build its user-facing S603 warning.
+
+        Single definition of both, so the two call sites that can report a
+        genuine lineage failure cannot drift apart. Must be called from inside
+        an ``except`` block: ``logger.exception`` reads the exception currently
+        being handled to attach the traceback.
+        """
+        logger.exception(
+            "Neo4j lineage write failed for sample UID %s (sample type %s); "
+            "the sample is in MySQL WITHOUT its parent relationships",
+            uid, sampleType,
+        )
+        return (SAMPLE_ERRORCODE['603'] + str(uid)
+                + ' (' + type(exc).__name__ + ': ' + str(exc) + ')')
+
+    def __storeSampleNeo4jGuarded(self, sampleType, record, uid):
+        """Write one sample's lineage to the graph without losing the failure.
+
+        Returns ``(ok, msg)``. On failure ``ok`` is False and ``msg`` is a
+        ``SAMPLE_ERRORCODE['603']`` warning naming the UID and the cause, for
+        the caller to fold into that sample's feedback message.
+
+        Never re-raises. By the time this runs the sample row is already
+        committed to MySQL, so aborting the batch here would strand the rest of
+        the sheet -- but the caller MUST surface ``msg``, because the failure
+        mode this replaces (``try: ... except: None``) told the uploader
+        "Batch sample uploading successful" while the sample sat in MySQL with
+        no parent edges at all.
+        """
+        try:
+            self.storeSampleNeo4j(sampleType, record)
+        except Exception as exc:
+            return False, self.__reportLineageFailure(sampleType, uid, exc)
+
+        return True, ''
 
     def storeSampleNeo4j(self, sampleType, record):
         logger.debug(f"Storing sample into neo4j with info: {record}")
@@ -895,25 +986,31 @@ class DBtable_sample(DBtable):
         if not uids:
             return pd.DataFrame(columns=["id", "sample_type_id", "uuid", "json_metadata"])
 
-        uids_str = ', '.join(f"'{uid}'" for uid in uids)
-        project_ids_str = ', '.join(f"'{pid}'" for pid in user_project_ids)
+        # Bound, never inlined: a quote in a uuid or project id broke out of
+        # the literal. Only the schema name is interpolated (views.py:829).
+        uid_placeholders = ', '.join(['%s'] * len(uids))
 
         if admin:
             query = f"""
             SELECT id,sample_type_id,uuid,json_metadata
             FROM {db["NAME"]}.samples
-            WHERE uuid IN ({uids_str})
+            WHERE uuid IN ({uid_placeholders})
             """
+            params = list(uids)
         else:
+            # Sentinel: valid SQL matching nothing when no mapped projects.
+            scoped_project_ids = [str(pid) for pid in user_project_ids] or ['']
+            project_placeholders = ', '.join(['%s'] * len(scoped_project_ids))
             query = f"""
             SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
             FROM {db["NAME"]}.samples s
             JOIN {db["NAME"]}.projects_samples ps
             ON s.id = ps.sample_id
-            WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
+            WHERE s.uuid IN ({uid_placeholders}) AND ps.sample_id = s.id AND ps.project_id IN ({project_placeholders})
             """
+            params = list(uids) + scoped_project_ids
 
-        result = self.__runQuery(query, withColumns=True)
+        result = self.__runQuery(query, withColumns=True, params=params)
         if not result:
             # Query failed (e.g. transient DB error). Degrade to an empty frame
             # so the endpoint returns a clean 404 instead of a 500 unpack crash.
@@ -957,7 +1054,15 @@ class DBtable_sample(DBtable):
         diclist_new = []
         ndici = len(diclist)
         uids_predefined = {}
-        
+
+        # Samples that reached MySQL but lost their parent edges. Surfaced to
+        # the uploader below; used to be discarded by a bare ``except: None``.
+        nlineage_failed = 0
+        # The second (structurally dead) graph call -- see the comment at its
+        # call site. Counted and logged once per batch, operator-facing only.
+        nfeedback_graph_failed = 0
+        feedback_graph_error = None
+
         for index in range(ndici):
             dici = diclist[index]
             if len(diclist_feedback)>0:
@@ -1069,8 +1174,22 @@ class DBtable_sample(DBtable):
                         diclist_new.append(dici_feedback)
                         continue
             
-            msgi, statusi, uid = self.__storeSample(user_seek, sampleType, dici, attributeInfo, diclist_assay, creator)
-                
+            msgi, statusi, uid, lineage_failed = self.__storeSample(user_seek, sampleType, dici, attributeInfo, diclist_assay, creator)
+
+            if lineage_failed:
+                # The row is in MySQL but its parent edges are not in the graph.
+                # Deny the batch its "successful" headline: ``statusTest`` is what
+                # seek.views.sampleUploadAjax turns into "Batch sample uploading
+                # successful". ``msgi`` already carries the per-sample S603 warning.
+                #
+                # DELIBERATE divergence from the sibling warnings 601 and 602,
+                # which leave statusTest alone: those degrade an association that
+                # can be repaired by re-uploading, whereas lost lineage cannot be
+                # (see the summary message below) and is invisible in the data.
+                # Do not "normalize" this to match them.
+                nlineage_failed += 1
+                statusTest = False
+
             nrow += 1
             if statusi:
                 msg0 += str(samplename) + ": " + msgi +  '<br/>'
@@ -1092,14 +1211,69 @@ class DBtable_sample(DBtable):
             else:
                 dici_feedback[header] = msgi
                 
+            # NOTE: this call is structurally dead and always has been.
+            # ``dici_feedback`` is keyed by the INSTRUCTIONS-sheet column names
+            # plus "<sampleType>::UID"; it carries no 'uuid' and no
+            # 'json_metadata', so storeSampleNeo4j raises KeyError('uuid') on its
+            # very first statement for EVERY row and has never written anything
+            # to the graph. The effective lineage write is the guarded one in
+            # __storeSample above.
+            #
+            # So: no longer swallowed, but counted and logged once per batch
+            # (below, at WARNING) rather than once per row, and deliberately
+            # kept out of the uploader-facing count -- folding an always-failing
+            # call into it would report lost lineage for every sample of every
+            # upload while the real write succeeded, which is a louder lie than
+            # the silence it replaced. Removing the call outright is a behaviour
+            # change beyond this fix.
+            #
+            # Only the KeyError is treated as the known-dead shape. Suppressing
+            # by LOCATION rather than by cause is exactly what the original bare
+            # except did: if a sheet ever declares a 'uuid' Field, or this dict
+            # changes shape, a genuine graph failure here must be as loud as one
+            # from __storeSample -- so anything else takes the S603 path.
             try:
                 self.storeSampleNeo4j(sampleType, dici_feedback)
-            except:
-                None
+            except KeyError as exc:
+                nfeedback_graph_failed += 1
+                if feedback_graph_error is None:
+                    feedback_graph_error = exc
+            except Exception as exc:
+                msgn = self.__reportLineageFailure(sampleType, uid, exc)
+                nlineage_failed += 1
+                statusTest = False
+                msg0 += str(samplename) + ": " + msgn + '<br/>'
 
             diclist_new.append(dici_feedback)
-                
+
+        if nfeedback_graph_failed>0:
+            # WARNING, not ERROR: this fires on every legacy upload, and ERROR is
+            # the level that now carries genuine lineage loss. Putting a known
+            # no-op there would teach operators to ignore the one signal this
+            # code exists to raise.
+            logger.warning(
+                "storeSampleNeo4j(feedback dict) failed for %d of %d '%s' rows; "
+                "first error %s: %s. This call is handed the feedback dict, which has no "
+                "'uuid'/'json_metadata' key, so it cannot write lineage; the effective "
+                "write is the guarded one in __storeSample",
+                nfeedback_graph_failed, ndici, sampleType,
+                type(feedback_graph_error).__name__, feedback_graph_error,
+                exc_info=feedback_graph_error,
+            )
+
         msg = 'The number of samples uploaded for ' + sampleType + ': ' + str(nright) + ' out of in total ' + str(ndici) + ' samples.'
+        if nlineage_failed>0:
+            # Do NOT tell the uploader to re-upload: it cannot restore lineage.
+            # Re-uploading the original sheet is rejected by __verifySampleUID
+            # with error 401 (the name now exists with a UID); re-uploading the
+            # feedback sheet supplies that UID, so __getRecord sets
+            # newSample=False and the lineage write -- which lives inside
+            # `if newSample:` -- never runs. These rows need a lineage backfill.
+            msg += ('<br/>Warning: lineage (parent relationships) was NOT saved to the graph database for '
+                    + str(nlineage_failed) + ' of them. Those samples are in the database WITHOUT their '
+                    'parent links, and re-uploading will NOT restore them; the lineage has to be '
+                    'backfilled. Please send the feedback file and the sample UIDs listed below to an '
+                    'administrator.')
         if not statusTest:
             msg = msg + '<br/>' + msg0
         else:
@@ -1765,7 +1939,10 @@ class DBtable_sample(DBtable):
         orderby = filtersdic['orderby'] 
         startNo = filtersdic['startNo'] 
         endNo = filtersdic['endNo']
-        sqlquery_where = self.__sqlQuery_select_records_filters_advanced(filtersdic)
+        # #93: the WHERE builder now hands back (fragment, params). The two must
+        # travel together all the way to cursor.execute -- the fragment holds
+        # only %s placeholders and every client-supplied value is in params.
+        sqlquery_where, params = self.__sqlQuery_select_records_filters_advanced(filtersdic)
         sqlqueryMega = sqlquery_select + sqlquery_from + sqlquery_where
         if len(orderby)==0:
             orderby = " ORDER BY A.id desc"
@@ -1773,8 +1950,13 @@ class DBtable_sample(DBtable):
             sqlqueryMega = sqlquery_select + sqlquery_from + sqlquery_where + orderby
         else:
             sqlqueryMega = " SELECT count(A.id) " + sqlquery_from
+            # #93: this branch DISCARDS sqlquery_where, so the statement it
+            # returns carries no placeholders at all. The params must be dropped
+            # with it -- handing the cursor more params than %s raises at
+            # execute time and would turn a count query into a 500.
+            params = []
         logger.debug(sqlqueryMega)
-        return sqlqueryMega
+        return sqlqueryMega, params
 
     def __getParentUIDs(self, sampleDic):
         uids = []
@@ -3838,13 +4020,29 @@ class DBtable_sample(DBtable):
         filtersdic['filter_valueTo'] = filter_valueTo
         return msg, status, filtersdic
     
-    def searchAdvanced(self, user_seek, filters, searchType, project_id=0, skip_tree=False):
+    def searchAdvanced(self, user_seek, filters, searchType, project_id=0, skip_tree=False,
+                       scoped_project_ids=None):
         logger.debug('searchAdvanced')
         msg, status, filtersdic = self.__parseSearchFilters(filters, searchType, project_id)
         if status==0:
             data = {'msg':msg, 'status': status}
             reportData = simplejson.dumps(data, default=str)
             return reportData
+
+        # Data scope for API callers. Distinct from `project_id` above, which is the
+        # legacy single-project path used by seek/views.py:runSampleSearch and is left
+        # untouched. This one is a LIST, because a SEEK person can belong to several
+        # projects, and it is applied as an EXISTS rather than a join (see
+        # __sqlQuery_select_records_filters_advanced for why the join is wrong).
+        #
+        #   None -> unrestricted (superuser)
+        #   []   -> no resolvable projects, matches nothing
+        #
+        # The empty list must NOT mean "no filter": that is the difference between
+        # failing closed and handing an unscoped read to a caller whose projects we
+        # could not resolve.
+        if scoped_project_ids is not None:
+            filtersdic['scoped_project_ids'] = [str(p) for p in scoped_project_ids]
         
         data = self.__retrieveRecords_advanced(user_seek, filtersdic)
         
@@ -3889,10 +4087,15 @@ class DBtable_sample(DBtable):
         return reportData
     
     def __retrieveRecords_advanced(self, user_seek, filtersdic):
-        sqlquery = self.__sqlQuery_select_records(filtersdic)
+        # #93: the filter values are bound now, so the params have to be handed
+        # to an execute that accepts them. Passing the statement alone would
+        # leave literal %s in the SQL. #99 gave the shared executor an optional
+        # params argument, so this goes through queryToListDics like every other
+        # caller instead of the private copy that used to live here.
+        sqlquery, params = self.__sqlQuery_select_records(filtersdic)
         headers = SAMPLE_HEADERS
         db_alias = settings.SEEK_DATABASE
-        jdata = self.db.queryToListDics(sqlquery, headers, db_alias)
+        jdata = self.db.queryToListDics(sqlquery, headers, db_alias, params)
         total = len(jdata)
         #sqlquery = self.__sqlQuery_select_records(filtersdic, False)
         #total = self.db.getQueryValue(sqlquery, db_alias)
@@ -3907,17 +4110,61 @@ class DBtable_sample(DBtable):
         return data
         
     def __sqlQuery_select_records_filters_advanced(self, filtersdic):
+        '''Build the advanced-search WHERE clause.
+
+        Output:
+            (sqlquery_filter, params) since #93. The fragment contains only %s
+            placeholders; every client-supplied value is in params.
+        '''
         from .search import Search
         spi = Search('')
-        sqlquery_filter = spi.designSearchAdvanced(filtersdic, SAMPLE_FILTER_MAPPING)            
+        # #93: designSearchAdvanced returns (fragment, params) on all four of its
+        # return paths instead of splicing request values in as quoted literals.
+        sqlquery_filter, params = spi.designSearchAdvanced(filtersdic, SAMPLE_FILTER_MAPPING)
         if 'project_id' in filtersdic:
             project_id = filtersdic['project_id']
             if int(project_id)>0:
+                # Preserved verbatim: this wraps whatever WHERE the builder
+                # emitted in parentheses so the project scope ANDs against the
+                # whole filter rather than only its last term.
                 sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (')
-                sqlquery_filter = sqlquery_filter + ") AND D.project_id=" + str(project_id)    
-            
+                # #93: bind the project scope too. The int() above only
+                # *validates* it -- the value concatenated here was the
+                # uncast original, so binding closes the shape rather than
+                # relying on that guard staying in place.
+                sqlquery_filter = sqlquery_filter + ") AND D.project_id=%s"
+                params = params + [project_id]
+
+        # API-caller project scope. EXISTS, deliberately, NOT the `D` join used above.
+        #
+        # __sqlQuery_select_records_from adds `left join projects_samples D` only when
+        # scoping, and projects_samples is many-to-many, so a sample belonging to N
+        # projects produces N rows. Nothing de-duplicates them and
+        # __retrieveRecords_advanced reports total = len(rows). That is why scoping by
+        # that join could return MORE rows than not scoping at all -- measured
+        # 2026-08-20 on prod data: project_id=3 gave 5134 against 5122 unscoped.
+        # EXISTS cannot multiply rows, so the count stays honest.
+        scoped_ids = filtersdic.get('scoped_project_ids')
+        if scoped_ids is not None:
+            if scoped_ids:
+                placeholders = ', '.join(['%s'] * len(scoped_ids))
+                clause = ("EXISTS (SELECT 1 FROM projects_samples ps "
+                          "WHERE ps.sample_id = A.id AND ps.project_id IN (%s))" % placeholders)
+                extra = list(scoped_ids)
+            else:
+                # Projects could not be resolved. Match nothing rather than everything.
+                clause, extra = "1=0", []
+            if 'WHERE ' in sqlquery_filter:
+                sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (', 1) + ") AND " + clause
+            else:
+                # The builder emits no WHERE for an unfiltered search; scope is then the
+                # only predicate. Without this branch that case would silently go
+                # unscoped, which is the exact bug being fixed.
+                sqlquery_filter = sqlquery_filter + " WHERE " + clause
+            params = params + extra
+
         logger.debug(sqlquery_filter)
-        return sqlquery_filter
+        return sqlquery_filter, params
             
     
     def __highlightKeyword(self, keyword, value, style=None):
@@ -4031,7 +4278,10 @@ class DBtable_sample(DBtable):
         spi = Search('')
         tableField = 'json_metadata'
         categoryField = 'sample_type_id'
-        query, terms = spi.designSearchPubmed(searchText, tableField, categoryField)
+        # #93: designSearchPubmed returns (query, params, keywords) on every path.
+        # This call site wants only the keywords -- `query` is built and then
+        # discarded here, never executed -- so its params are discarded with it.
+        query, _params, terms = spi.designSearchPubmed(searchText, tableField, categoryField)
         
         sampletype_id = 0
         

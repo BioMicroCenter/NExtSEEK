@@ -1,13 +1,10 @@
 """§4.B: NSTurnContext digest render + CLAUDE.md composition (pure functions)."""
 import ast
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-import ns_digest
-import ns_turn_context as ntc
-from test_ns_turn_context import _bundle
+from nextseek_api.cc_assistant import ns_digest
+from nextseek_api.cc_assistant import ns_turn_context as ntc
+from nextseek_api.cc_assistant.tests.test_ns_turn_context import _bundle
 
 
 def _ctx(**kw):
@@ -109,6 +106,24 @@ def test_render_cc_digest_lists_cc_turns():
 
 def test_render_cc_digest_empty_when_none():
     assert render_cc_digest([]) == ""
+
+
+def test_render_cc_digest_truncates_long_reply():
+    from nextseek_api.cc_assistant import ns_digest as nd
+
+    md = render_cc_digest([_cc(1, "q", "x" * (nd._CC_REPLY_LINE_CAP + 20))])
+    assert "…" in md
+    assert "x" * (nd._CC_REPLY_LINE_CAP + 20) not in md
+
+
+def test_render_cc_digest_caps_turns():
+    from nextseek_api.cc_assistant import ns_digest as nd
+
+    turns = [_cc(i, f"q{i}", f"r{i}") for i in range(nd.DIGEST_MAX_TURNS + 2)]
+    md = render_cc_digest(turns)
+    assert f"showing the {nd.DIGEST_MAX_TURNS} most recent CC turns" in md
+    assert "turn 0 (CC)" not in md
+    assert f"turn {nd.DIGEST_MAX_TURNS + 1} (CC)" in md
 
 
 def test_render_within_chat_digest_has_both_sections():

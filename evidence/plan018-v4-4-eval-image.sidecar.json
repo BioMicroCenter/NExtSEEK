@@ -1,0 +1,10 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "F-docker-eval",
+  "recorded_at": "2026-08-11T21:45:00Z",
+  "gate": "PASS",
+  "image": "nextseek-eval:v4-4",
+  "image_id": "sha256:7e980c514c7b33c95f5b6056f105043cf8469b2da494814da0a47f9f699d781c",
+  "dockerfile": "docker/eval/Dockerfile",
+  "paid_or_live_resources_used": false
+}

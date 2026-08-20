@@ -1,0 +1,54 @@
+{
+  "schema": "plan018-v4-1-v13a-verify/v1",
+  "recorded_at": "2026-08-11T15:00:29Z",
+  "delivery_path": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07",
+  "authority": "V13-A",
+  "checks": {
+    "zip_sha256": {
+      "expected": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
+      "actual": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
+      "pass": true
+    },
+    "zip_bytes": {
+      "expected": 66473692,
+      "actual": 66473692,
+      "pass": true
+    },
+    "manifest_sha256": {
+      "expected": "d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2",
+      "actual": "d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2",
+      "pass": true
+    },
+    "corpus_sha256": {
+      "expected": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652",
+      "actual": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652",
+      "pass": true
+    },
+    "bayes_manifest_sha256": {
+      "expected": "b2afcb1cbfcf908662419db49aa16f82f22afbd9533b7a25053acf6a5641e6c0",
+      "actual": "b2afcb1cbfcf908662419db49aa16f82f22afbd9533b7a25053acf6a5641e6c0",
+      "pass": true
+    },
+    "corpus_fingerprint": {
+      "expected": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652",
+      "actual": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652",
+      "pass": true
+    },
+    "selected_count": {
+      "expected": 149,
+      "actual": 149,
+      "pass": true
+    },
+    "pair_count": {
+      "expected": 149,
+      "actual": 149,
+      "pass": true
+    },
+    "arm_count": {
+      "expected": 298,
+      "actual": 298,
+      "pass": true
+    }
+  },
+  "gate": "PASS"
+}

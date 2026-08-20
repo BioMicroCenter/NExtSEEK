@@ -8,6 +8,121 @@ Import individual constants into ViewSet files and pass to @extend_schema(descri
 """
 
 # =============================================================================
+# AttributeViewSet (8 endpoints)
+# =============================================================================
+
+ATTRIBUTE_LIST_DESC = (
+    "**SUMMARY:** List native NExtSEEK attribute definitions in stable sample-type and logical-position order.\n\n"
+    "**USE WHEN:** The user wants to browse attribute definitions across sample types without first knowing specific attribute identifiers.\n\n"
+    "**DO NOT USE WHEN:** The user wants attributes only for named sample types or selected definitions — use `POST attributes/search/`; "
+    "the user wants sample values rather than attribute definitions — use a sample endpoint.\n\n"
+    "**ACCEPTS:** Optional `page` (default `1`) and `page_size` (default `500`, maximum `5000`) query parameters.\n\n"
+    "**RETURNS:** An `AttributeListResponse` containing definition records and page metadata. Each record identifies its owning sample type, "
+    "value type, logical position, required/title flags, optional unit, controlled vocabulary, linked sample type, and timestamps.\n\n"
+    "**TRIGGER PHRASES:** list attributes, browse attribute definitions, show metadata fields, all sample attributes, attribute catalog\n\n"
+    "**EXAMPLES:**\n"
+    "- 'List the first 100 attribute definitions'\n"
+    "- 'Show me the attribute catalog'\n"
+)
+
+ATTRIBUTE_FETCH_DESC = (
+    "**SUMMARY:** Fetch one native NExtSEEK attribute definition by its positive database ID.\n\n"
+    "**USE WHEN:** The user already has one attribute definition ID and wants its complete resolved metadata.\n\n"
+    "**DO NOT USE WHEN:** The user has an attribute title, needs multiple definitions, or needs to constrain by sample type — use `POST attributes/search/`.\n\n"
+    "**ACCEPTS:** `id` as a positive integer path parameter.\n\n"
+    "**RETURNS:** One `AttributeRecord`, including owning sample type, value type, logical position, relationship identities, and timestamps; "
+    "returns `404` when the ID does not exist.\n\n"
+    "**TRIGGER PHRASES:** get attribute, fetch attribute definition, attribute details, attribute by ID, metadata field details\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Fetch attribute definition 7'\n"
+    "- 'Show me the details for attribute ID 42'\n"
+)
+
+ATTRIBUTE_SEARCH_DESC = (
+    "**SUMMARY:** Search native NExtSEEK attribute definitions using nested sample-type targets while preserving each target-to-attribute association.\n\n"
+    "**USE WHEN:** The user wants all attributes for particular sample types or selected attributes identified by integer ID, numeric-string ID, "
+    "or exact title within each owning sample type.\n\n"
+    "**DO NOT USE WHEN:** The user wants the unfiltered global catalog — use `GET attributes/`; the user wants to change definitions — use a batch mutation endpoint.\n\n"
+    "**ACCEPTS:** A `SearchRequest` with one or more `targets`; each target names a sample type and may include a non-empty attribute selector list. "
+    "Optional `page` and `page_size` query parameters paginate the resolved results.\n\n"
+    "**RETURNS:** An `AttributeListResponse` in submitted-target and stable logical definition order; unresolved or ambiguous identifiers return structured errors.\n\n"
+    "**TRIGGER PHRASES:** search attributes, attributes for sample type, find metadata field, attribute by title, sample type schema fields\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Find Concentration and attribute 7 for the Serum sample type'\n"
+    "- 'List every attribute defined for sample type 12'\n"
+)
+
+ATTRIBUTE_BATCH_CREATE_DESC = (
+    "**SUMMARY:** Preview or execute an administrator-only batch creation of native attribute definitions grouped by owning sample type.\n\n"
+    "**USE WHEN:** An administrator wants to add one or more attribute definitions, optionally across multiple sample types, with deterministic "
+    "positioning and invariant checks.\n\n"
+    "**DO NOT USE WHEN:** The user wants to edit existing definitions — use `PATCH attributes/batch-patch/`; use `dry_run: true` when approval is "
+    "needed before any write.\n\n"
+    "**ACCEPTS:** A `BatchCreateRequest` containing non-empty nested targets. Each new definition requires `title` and `sample_attribute_type`; "
+    "optional fields include `required`, `pos`, `is_title`, `description`, `unit`, `sample_controlled_vocab`, and `linked_sample_type`.\n\n"
+    "**RETURNS:** `200` or `207` with a no-write preview or completed synchronous result, `202` with a durable asynchronous job and status URL, "
+    "or a structured `4xx` error. Execution mode is selected from the planned affected-row count.\n\n"
+    "**TRIGGER PHRASES:** create attributes, add metadata fields, batch create attribute definitions, add sample type fields, preview attribute creation\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Preview adding a Concentration float attribute to Serum'\n"
+    "- 'Create these attribute definitions for sample types 12 and 18'\n"
+)
+
+ATTRIBUTE_BATCH_PATCH_DESC = (
+    "**SUMMARY:** Preview or execute an administrator-only batch patch of native attribute definitions, partitioned atomically by sample type.\n\n"
+    "**USE WHEN:** An administrator wants to rename, reorder, or change the type, required/title flags, description, unit, controlled vocabulary, "
+    "or linked sample type for one or more existing definitions.\n\n"
+    "**DO NOT USE WHEN:** The user wants to create definitions or delete them — use the corresponding batch-create or batch-delete endpoint; "
+    "use `dry_run: true` to inspect automatic and sample-row effects before writing.\n\n"
+    "**ACCEPTS:** A `BatchPatchRequest` containing non-empty targets and non-empty `changes` objects. Attribute selectors accept IDs or exact titles; "
+    "title selectors require their owning `sample_type`. Explicit `null` clears nullable relationships while omission preserves them.\n\n"
+    "**RETURNS:** `200` or `207` with a preview or completed synchronous result, `202` with an asynchronous job, or a structured `4xx` error. "
+    "Results expose per-sample-type outcomes, counts, automatic changes, and errors.\n\n"
+    "**TRIGGER PHRASES:** update attributes, patch metadata fields, rename attribute, reorder sample fields, clear attribute unit, preview attribute changes\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Preview clearing the unit from Serum Concentration'\n"
+    "- 'Make attribute 7 required and move it to position 2'\n"
+)
+
+ATTRIBUTE_BATCH_DELETE_DESC = (
+    "**SUMMARY:** Preview or execute an administrator-only batch deletion of native attribute definitions, including dependent-sample policy checks.\n\n"
+    "**USE WHEN:** An administrator wants to remove one or more existing attribute definitions and inspect or apply the resulting sample metadata changes.\n\n"
+    "**DO NOT USE WHEN:** The user wants to remove only a value from an individual sample or wants to retain the definition — use a sample mutation endpoint; "
+    "use `dry_run: true` before deletion when effects need review.\n\n"
+    "**ACCEPTS:** A `BatchDeleteRequest` containing non-empty targets and attribute selectors. ID selectors may omit `sample_type`; exact-title selectors require it.\n\n"
+    "**RETURNS:** `200` or `207` with a preview or completed synchronous result, `202` with an asynchronous job, or a structured `4xx` error. "
+    "The response reports affected definitions, dependent sample rows, partition outcomes, and policy errors.\n\n"
+    "**TRIGGER PHRASES:** delete attributes, remove metadata fields, batch delete attribute definitions, drop sample type field, preview attribute deletion\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Preview deleting the Legacy Marker attribute from Serum'\n"
+    "- 'Delete attribute IDs 41 and 42'\n"
+)
+
+ATTRIBUTE_JOB_DESC = (
+    "**SUMMARY:** Get progress and the terminal result for one durable asynchronous attribute-mutation job.\n\n"
+    "**USE WHEN:** A batch create, patch, or delete returned `202 Accepted` and an administrator wants to poll its `status_url` or known `job_id`.\n\n"
+    "**DO NOT USE WHEN:** The mutation completed synchronously with `200` or `207`, because that response already contains the final result.\n\n"
+    "**ACCEPTS:** `job_id` as a UUID path parameter; SEEK authentication and administrator permission are required.\n\n"
+    "**RETURNS:** Current state and exact sample-type/sample-row progress. Terminal states include the same uniform completed mutation result shape used by synchronous execution.\n\n"
+    "**TRIGGER PHRASES:** attribute job status, mutation progress, check attribute batch, poll attribute job, attribute mutation result\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Check attribute mutation job 123e4567-e89b-12d3-a456-426614174000'\n"
+    "- 'Is my attribute batch finished?'\n"
+)
+
+ATTRIBUTE_JOB_CANCEL_DESC = (
+    "**SUMMARY:** Request cancellation of one queued or running asynchronous attribute-mutation job.\n\n"
+    "**USE WHEN:** An authorized administrator wants the worker to stop starting new sample-type partitions for a nonterminal attribute job.\n\n"
+    "**DO NOT USE WHEN:** The job is already terminal, cancellation was already requested, or the mutation completed synchronously; those cases are not cancellable.\n\n"
+    "**ACCEPTS:** `job_id` as a UUID path parameter. The caller must be a SEEK administrator authorized to cancel this job.\n\n"
+    "**RETURNS:** `202` with the updated job status when cancellation is accepted; `409` when the job is no longer cancellable; `404` when it does not exist.\n\n"
+    "**TRIGGER PHRASES:** cancel attribute job, stop attribute mutation, abort attribute batch, revoke metadata change job\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Cancel attribute mutation job 123e4567-e89b-12d3-a456-426614174000'\n"
+    "- 'Stop my running attribute batch'\n"
+)
+
+# =============================================================================
 # SampleTreeViewSet (1 endpoint)
 # =============================================================================
 
@@ -290,6 +405,7 @@ PEOPLE_FETCH_DESC = (
 PEOPLE_FETCH_CURRENT_DESC = (
     "**SUMMARY:** Fetch profile details for the currently authenticated user.\n\n"
     "**USE WHEN:** The user wants to view full details for themselves.\n\n"
+    "**ACCEPTS:** No request body. Requires authentication (Basic or Session).\n\n"
     "**RETURNS:** Full person metadata including name, email, institution, and all linked projects, studies, assays, data files, and publications.\n\n"
     "**TRIGGER PHRASES:** get current person, fetch my profile, current person details, current profile, show my account\n\n"
     "**EXAMPLES:**\n"

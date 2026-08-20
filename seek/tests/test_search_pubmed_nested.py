@@ -23,7 +23,8 @@ class TestDesignSearchPubmedNested:
         terms = [f"D.IMG-230913ENG-{1722 + i}-PUB" for i in range(n)]
         expr = _nest_boolean_search_terms(terms, " OR ")
         spi = Search("")
-        query, keywords = spi.designSearchPubmed(expr)
+        # (query, params, keywords) since #93: the values are bound, not spliced.
+        query, params, keywords = spi.designSearchPubmed(expr)
         assert query.startswith("WHERE ")
         assert "term_" not in query
         assert sorted(keywords) == sorted(terms)
@@ -35,6 +36,7 @@ class TestDesignSearchPubmedNested:
         terms = [f"D.IMG-230913ENG-{1722 + i}-PUB" for i in range(n)]
         expr = _nest_boolean_search_terms(terms, " AND ")
         spi = Search("")
-        query, keywords = spi.designSearchPubmed(expr)
+        # (query, params, keywords) since #93: the values are bound, not spliced.
+        query, params, keywords = spi.designSearchPubmed(expr)
         assert query.startswith("WHERE ")
         assert sorted(keywords) == sorted(terms)

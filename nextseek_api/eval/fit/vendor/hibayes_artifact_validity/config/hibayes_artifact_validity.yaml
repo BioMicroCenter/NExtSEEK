@@ -1,0 +1,6 @@
+# DD-40: per-axis prior_sigma_group_scale empirically tuned. v1 default = 2.0 (sgs)
+# matches the runtime axis's tuned value; Phase 1 refinement under DD-40 methodology
+# may adjust after first end-to-end run.
+prior_sigma_group_scale: 2.0
+strong_floor: 0.9
+acceptable_floor: 0.8

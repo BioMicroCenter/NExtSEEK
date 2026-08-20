@@ -3,16 +3,11 @@ executes. Seam at the BAML call (b.RouteQuery), NOT above agent.py."""
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 
-_REPO = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(_REPO / "dmac_assistant" / "src"))
-sys.path.insert(0, str(_REPO / "nextseek_api" / "cc_assistant"))
+from dmac_assistant.router import agent as agent_mod
+from dmac_assistant.router.baml_client.types import Route, RouterDecision
 
-from dmac_assistant.router import agent as agent_mod  # noqa: E402
-from dmac_assistant.router.baml_client.types import Route, RouterDecision  # noqa: E402
-import router_context as rc  # noqa: E402
+from nextseek_api.cc_assistant import router_context as rc
 
 
 def _hist():

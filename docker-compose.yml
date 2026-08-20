@@ -1,6 +1,9 @@
 services:
   nextseek:
     build: .
+    # Every app-code process below runs this same image. COMPOSE_PROJECT_NAME
+    # keeps canonical and port-offset instances isolated from one another.
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     container_name: ${INSTANCE_PREFIX:-}nextseek
     restart: always
     environment:
@@ -55,6 +58,10 @@ services:
       - "127.0.0.1:${NEXTSEEK_PORT:-8000}:80"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro,z
+      # Optional drop-ins, included by nginx.conf as /etc/nginx/optional/*.conf.
+      # Ships only *.conf.example, so the directory is inert until an operator
+      # copies one to *.conf. See docker/nginx-optional/neo4j.conf.example.
+      - ./docker/nginx-optional:/etc/nginx/optional:ro,z
       - nextseek-static-files:/static:ro
     depends_on:
       - nextseek
@@ -113,6 +120,10 @@ services:
   cc-agent:
     build:
       context: ./docker/cc-runtime
+# BEGIN PLAN005-GEN:additional-contexts
+      additional_contexts:
+        chat_nextseek: ./chat_nextseek
+# END PLAN005-GEN:additional-contexts
     image: dmac-assistant:poc
     network_mode: none
     command: ["true"]
@@ -215,7 +226,20 @@ services:
     volumes:
       - neo4j-data:/data
     environment:
-      NEO4J_AUTH: "neo4j/demopassword"
+      # Seeds the credential on FIRST START ONLY, when the neo4j-data volume is
+      # created. Changing it later does nothing: the password then lives in the
+      # volume, and rotating means
+      #   docker exec neo4j cypher-shell -u neo4j -p <old> \
+      #     "ALTER CURRENT USER SET PASSWORD FROM '<old>' TO '<new>'"
+      # followed by updating NEO4J_PASSWORD + NEXTSEEK_NEO4J_PASSWORD in
+      # docker/nextseek.env and recreating `nextseek`. See
+      # docs/neo4j-programmatic-access.md.
+      #
+      # Interpolated from the repo-root .env (gitignored; copy .env.example).
+      # `:?` rather than a default on purpose: a default here would ship a known
+      # credential to every install, and would silently disagree with
+      # docker/nextseek.env after any rotation.
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env (see .env.example)}"
       # Kill any transaction that runs longer than this. The graph agent generates
       # its Cypher with an LLM, so it is not always sane: on 2026-08-05 it emitted
       # `MATCH (m:Sample) WHERE (m)-[:DERIVED_FROM*0..]->(s) OR (s)-[...]->(m)`,
@@ -303,6 +327,107 @@ services:
       - seek
       - /opt/solr/server/solr/configsets/seek_config
 
+  # Task-08 durable async orchestration (DD-29): a dedicated Celery worker
+  # for the `attribute_mutations` queue only. Never a subprocess of the
+  # `nextseek`/batch_upload worker containers, so an attribute-mutation
+  # backlog or crash can never starve or be starved by batch uploads.
+  attribute_mutation_worker:
+    # Opt-in: these three carry the async attribute-mutation pipeline and
+    # are only useful once native attribute mutation is in use. Without a
+    # profile a stock `docker compose up -d` starts 3 more always-on
+    # containers. Start them with `--profile attributes`.
+    profiles: [attributes]
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+      - attribute_mutation_broker:/var/lib/attribute-broker
+    environment:
+      CELERY_BROKER_URL: sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3
+    command: ["uv", "run", "--no-sync", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker", "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h", "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "worker"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "${ATTRIBUTE_MUTATION_WORKER_CPUS:-1.0}"
+          memory: "${ATTRIBUTE_MUTATION_WORKER_MEMORY:-1G}"
+
+  # The transactional-outbox dispatcher: the sole publisher for
+  # `attribute_mutations` messages. A request process never publishes
+  # directly (Section 6).
+  attribute_mutation_dispatcher:
+    # Opt-in: these three carry the async attribute-mutation pipeline and
+    # are only useful once native attribute mutation is in use. Without a
+    # profile a stock `docker compose up -d` starts 3 more always-on
+    # containers. Start them with `--profile attributes`.
+    profiles: [attributes]
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+      - attribute_mutation_broker:/var/lib/attribute-broker
+    environment:
+      CELERY_BROKER_URL: sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "dispatch_attribute_outbox"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "dispatcher"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "${ATTRIBUTE_MUTATION_DISPATCHER_CPUS:-0.25}"
+          memory: "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-1G}"
+
+  # Idempotent synchronous-job recovery scheduler (Section 3). Deliberately
+  # has no broker volume/env and runs no Celery command: it can never
+  # consume either Celery queue, only scan/claim/reconcile via the default
+  # database.
+  attribute_mutation_recovery_scheduler:
+    # Opt-in: these three carry the async attribute-mutation pipeline and
+    # are only useful once native attribute mutation is in use. Without a
+    # profile a stock `docker compose up -d` starts 3 more always-on
+    # containers. Start them with `--profile attributes`.
+    profiles: [attributes]
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "recovery"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}"
+          memory: "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-1G}"
+
 
 networks:
   # Container-CC segmented network (OI-3). Compose-managed but pinned to the
@@ -360,3 +485,11 @@ volumes:
     # --instance install creates `{prefix}dmac-cc-users` while compose looks up
     # the bare name and silently attaches ANOTHER instance's CC user tree.
     name: ${INSTANCE_PREFIX:-}dmac-cc-users
+
+  # Task-08 durable async orchestration: the SQLAlchemy/SQLite Celery
+  # broker transport shared by attribute_mutation_worker and
+  # attribute_mutation_dispatcher. This compose-managed named volume survives
+  # normal `startup.sh rebuild` recreation; only destructive volume operations
+  # such as the explicitly-confirmed `startup.sh reset` remove it. The durable
+  # MySQL job/outbox records remain the application audit source of truth.
+  attribute_mutation_broker:

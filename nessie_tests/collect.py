@@ -137,10 +137,11 @@ class Sources:
         The zstd blob for a chat session, decompressing to that session's whole
         `.jsonl`. `CCSessionTranscript` is keyed
         `(chat_session, cc_session_id, turn_id)`, so a multi-turn CC arm has
-        SEVERAL rows -- and they must be folded, NOT concatenated. Each row holds
-        the CUMULATIVE session file as of that turn (`--resume` appends to one
-        file under the per-session cc-state dir and every turn re-reads all of
-        it), so concatenating duplicates every earlier turn, and the result is
+        SEVERAL rows -- and they must be folded, NOT concatenated. Pre-#68 rows
+        hold the CUMULATIVE session file as of that turn (`--resume` appends to
+        one file under the per-session cc-state dir and every turn re-read all of
+        it); post-#68 rows hold one turn's slice. Concatenating duplicates every
+        earlier turn on the pre-#68 shape, and the result is
         still valid jsonl, so nothing downstream notices. Order by `created_at`:
         `turn_id` is `str(query_task.task_id)`, a random UUID in a `CharField`,
         so ordering by it is a shuffle. `sources.merge_transcripts` folds by

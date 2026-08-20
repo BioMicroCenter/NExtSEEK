@@ -1,0 +1,1080 @@
+{
+  "authority": "docs/superpowers/plans/2026-08-13-plan018-v4-9.md#task-5--collection-and-critical-mutationfault-gate",
+  "control_sha256": {
+    "evidence/plan018-v4-3-dd44-mutation-manifest.json": "781f1a87b2a68d8962d639e8289e717d4b7907877636162e391f0a32bed154df",
+    "evidence/plan018-v4-9-owned-surface.json": "65787a17c70f8a2fbcbe052016347d97fc25c50906461aade04628bfbbb6747f",
+    "evidence/plan018-v4-9-task2-ownership.json": "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df",
+    "evidence/plan018-v4-9-task3-ownership.json": "cf985bfb4adfcdfe5dc74541ee321760a57e0fbbd95824cea74b646b48c62002",
+    "evidence/plan018-v4-9-task4-ownership.json": "55b2ef7bce01b140a8d24843721eceb7ffd1207b562d3d6268ebe4bcb4bf5827",
+    "scripts/plan018_lane_m_mysql.sh": "55788531b6a3a40dc1ea26d962bb6f618f60be09b104f55f8e58aaa84ab5706b",
+    "scripts/plan018_v4_9_task5_mutation.py": "6ed80c147143d2780c71c87661f4a77edd241d5d5162baa1b6bd6080b6c8a080",
+    "scripts/test_plan018_v4_9_task5_mutation.py": "8dcaaf14a03abeb3db88cd9c014c13c9e7aa7d986da9496fff9761d2aa221f2e"
+  },
+  "counts": {
+    "fast_nodes": 68,
+    "mutants": 76,
+    "mysql_nodes": 8
+  },
+  "derivation": "checked-in critical case definitions + source SHA-256 + exact pytest collection",
+  "global_mutation_score_substitution": false,
+  "mutants": [
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_nonadmin_force_route_dropped_not_forced"
+      ],
+      "fault": "accept a non-admin force_route as forced",
+      "id": "routing_nonadmin_override",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_nonadmin_force_route_dropped_not_forced",
+      "lane": "fast",
+      "protected_behavior": "ordinary users cannot force a route",
+      "source_path": "nextseek_api/services/cc_assistant.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_admin_force_route_must_be_forced"
+      ],
+      "fault": "relabel an admin override as BAML",
+      "id": "routing_admin_override_source",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_admin_force_route_must_be_forced",
+      "lane": "fast",
+      "protected_behavior": "admin override records forced source and actual route",
+      "source_path": "nextseek_api/services/cc_assistant.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_sticky_must_record_attempted_route"
+      ],
+      "fault": "drop attempted route provenance",
+      "id": "routing_sticky_attempt_provenance",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_sticky_must_record_attempted_route",
+      "lane": "fast",
+      "protected_behavior": "sticky override retains attempted route and source",
+      "source_path": "nextseek_api/services/cc_assistant.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_force_route_beats_sticky_not_relabled_baml"
+      ],
+      "fault": "let sticky routing overwrite an explicit force",
+      "id": "routing_force_beats_sticky",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_force_route_beats_sticky_not_relabled_baml",
+      "lane": "fast",
+      "protected_behavior": "explicit authorized force_route precedes sticky routing",
+      "source_path": "nextseek_api/services/cc_assistant.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_same_session_task_ids_must_differ_across_arms"
+      ],
+      "fault": "copy task IDs between paired arms",
+      "id": "routing_independent_arm_ids",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_same_session_task_ids_must_differ_across_arms",
+      "lane": "fast",
+      "protected_behavior": "paired arms have independent execution identifiers",
+      "source_path": "nessie_tests/v4_2_verifier.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_swapped_routes_on_forced_arms"
+      ],
+      "fault": "swap NS and CC arm routes",
+      "id": "routing_arm_direction",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py::test_mutation_swapped_routes_on_forced_arms",
+      "lane": "fast",
+      "protected_behavior": "NS and CC arms retain their forced route direction",
+      "source_path": "nessie_tests/v4_2_verifier.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_route_field_on_classifier_baml_fails_schema_oracle"
+      ],
+      "fault": "add a route-bearing classifier field",
+      "id": "routing_classifier_schema",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_route_field_on_classifier_baml_fails_schema_oracle",
+      "lane": "fast",
+      "protected_behavior": "classifier cannot choose destination or model",
+      "source_path": "dmac_assistant/baml_src/classifier.baml",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_legacy_router_prompt_pin_still_holds"
+      ],
+      "fault": "change or duplicate the legacy prompt interpolation",
+      "id": "routing_legacy_prompt",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_legacy_router_prompt_pin_still_holds",
+      "lane": "fast",
+      "protected_behavior": "legacy router prompt has one user-query interpolation",
+      "source_path": "dmac_assistant/baml_src/router.baml",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_swallowed_classification_failure_still_has_no_family"
+      ],
+      "fault": "swallow classification failure and invent a family",
+      "id": "routing_classification_failure",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_swallowed_classification_failure_still_has_no_family",
+      "lane": "fast",
+      "protected_behavior": "classification failure never fabricates a family",
+      "source_path": "nextseek_api/cc_assistant/router.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_extra_route_on_flag_off_still_single_call"
+      ],
+      "fault": "add classifier or extra route transport while flag is off",
+      "id": "routing_flag_off_single_call",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_extra_route_on_flag_off_still_single_call",
+      "lane": "fast",
+      "protected_behavior": "flag-off executes the frozen single legacy route call",
+      "source_path": "nextseek_api/cc_assistant/router.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "routing",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_dual_router_baml_identity"
+      ],
+      "fault": "drift the runtime router BAML copy",
+      "id": "routing_baml_copy_identity",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py::test_mutation_dual_router_baml_identity",
+      "lane": "fast",
+      "protected_behavior": "source and runtime router BAML copies are byte-identical",
+      "source_path": "docker/cc-runtime/baml_src/router.baml",
+      "status": "KILLED"
+    },
+    {
+      "category": "exclusions",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_disposition.py::test_provider_outage_excluded"
+      ],
+      "fault": "score provider outage as a failure",
+      "id": "exclude_provider_outage",
+      "kill_test_selector": "nextseek_api/eval/tests/test_disposition.py::test_provider_outage_excluded",
+      "lane": "fast",
+      "protected_behavior": "provider outage is excluded",
+      "source_path": "nextseek_api/eval/disposition.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "exclusions",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_disposition.py::test_unjudged_excluded_not_scored_zero"
+      ],
+      "fault": "score an unjudged output as zero",
+      "id": "exclude_unjudged",
+      "kill_test_selector": "nextseek_api/eval/tests/test_disposition.py::test_unjudged_excluded_not_scored_zero",
+      "lane": "fast",
+      "protected_behavior": "unjudged eligible output is excluded",
+      "source_path": "nextseek_api/eval/disposition.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "exclusions",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_disposition.py::test_zero_criteria_excluded"
+      ],
+      "fault": "admit a zero-criteria arm",
+      "id": "exclude_zero_criteria",
+      "kill_test_selector": "nextseek_api/eval/tests/test_disposition.py::test_zero_criteria_excluded",
+      "lane": "fast",
+      "protected_behavior": "zero-criteria arms are excluded",
+      "source_path": "nextseek_api/eval/disposition.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "exclusions",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_disposition.py::test_unevaluable_excluded"
+      ],
+      "fault": "score an unevaluable arm",
+      "id": "exclude_unevaluable",
+      "kill_test_selector": "nextseek_api/eval/tests/test_disposition.py::test_unevaluable_excluded",
+      "lane": "fast",
+      "protected_behavior": "unevaluable arms are excluded",
+      "source_path": "nextseek_api/eval/disposition.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "exclusions",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v14_pair_input.py::test_excluded_pairs_never_enter_fit_rows"
+      ],
+      "fault": "retain an excluded pair in fitter input",
+      "id": "exclude_fit_rows",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v14_pair_input.py::test_excluded_pairs_never_enter_fit_rows",
+      "lane": "fast",
+      "protected_behavior": "excluded pairs never enter fit rows",
+      "source_path": "nextseek_api/eval/fit/v14/pair_rows.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "conservation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_conservation.py::test_conservation_identity"
+      ],
+      "fault": "drop a bucket from the conservation sum",
+      "id": "conservation_identity",
+      "kill_test_selector": "nextseek_api/eval/tests/test_conservation.py::test_conservation_identity",
+      "lane": "fast",
+      "protected_behavior": "all input arms land in exactly one bucket",
+      "source_path": "nextseek_api/eval/conservation.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "conservation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_conservation.py::test_fit_and_discordance_fail_closed_for_corrupt_non_scored_bucket_values"
+      ],
+      "fault": "admit an unknown bucket into fit/discordance",
+      "id": "conservation_corrupt_bucket",
+      "kill_test_selector": "nextseek_api/eval/tests/test_conservation.py::test_fit_and_discordance_fail_closed_for_corrupt_non_scored_bucket_values",
+      "lane": "fast",
+      "protected_behavior": "corrupt bucket values fail closed",
+      "source_path": "nextseek_api/eval/conservation.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "conservation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_7_fit_refuse.py::test_conservation_zero_online_ids_in_hash"
+      ],
+      "fault": "include an online observation ID in paired evidence",
+      "id": "conservation_online_ids",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_7_fit_refuse.py::test_conservation_zero_online_ids_in_hash",
+      "lane": "fast",
+      "protected_behavior": "paired hashes contain zero online observation IDs",
+      "source_path": "nextseek_api/eval/fit/fit_boundary.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "conservation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_task4_coverage.py::test_conservation_snapshot_refuses_bucket_and_call_mismatches"
+      ],
+      "fault": "accept mismatched spend or call buckets",
+      "id": "conservation_spend_buckets",
+      "kill_test_selector": "nextseek_api/eval/tests/test_task4_coverage.py::test_conservation_snapshot_refuses_bucket_and_call_mismatches",
+      "lane": "fast",
+      "protected_behavior": "spend and call buckets reconcile exactly",
+      "source_path": "nextseek_api/eval/spend_conservation.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "pair_dependence",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v14_pair_input.py::test_build_pair_rows_preserves_query_id"
+      ],
+      "fault": "collapse query identity during row construction",
+      "id": "pair_preserve_query_id",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v14_pair_input.py::test_build_pair_rows_preserves_query_id",
+      "lane": "fast",
+      "protected_behavior": "pair rows preserve pair and query identity",
+      "source_path": "nextseek_api/eval/fit/v14/pair_rows.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "pair_dependence",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v14_pair_input.py::test_route_family_aggregate_rejected"
+      ],
+      "fault": "fit a route-family aggregate without pair identity",
+      "id": "pair_reject_aggregate",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v14_pair_input.py::test_route_family_aggregate_rejected",
+      "lane": "fast",
+      "protected_behavior": "route-family aggregates cannot replace paired inputs",
+      "source_path": "nextseek_api/eval/fit/v14/pair_rows.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "pair_dependence",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v14_decision.py::test_mutation_pair_reversal_swaps_winner_direction"
+      ],
+      "fault": "ignore pair direction",
+      "id": "pair_reversal_direction",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v14_decision.py::test_mutation_pair_reversal_swaps_winner_direction",
+      "lane": "fast",
+      "protected_behavior": "reversing pair direction reverses the winner",
+      "source_path": "nextseek_api/eval/fit/v14/decision.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "winner_selection",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v14_decision.py::test_latency_only_after_equivalence"
+      ],
+      "fault": "allow latency to bypass quality",
+      "id": "winner_latency_after_equivalence",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v14_decision.py::test_latency_only_after_equivalence",
+      "lane": "fast",
+      "protected_behavior": "latency can decide only after quality equivalence",
+      "source_path": "nextseek_api/eval/fit/v14/decision.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "winner_selection",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v14_decision.py::test_mutation_latency_cannot_overturn_quality"
+      ],
+      "fault": "let latency overturn a quality winner",
+      "id": "winner_latency_cannot_overturn_quality",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v14_decision.py::test_mutation_latency_cannot_overturn_quality",
+      "lane": "fast",
+      "protected_behavior": "decisive quality dominates latency",
+      "source_path": "nextseek_api/eval/fit/v14/decision.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "winner_selection",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v14_decision.py::test_mutation_25pct_slowdown_cannot_win_latency"
+      ],
+      "fault": "promote warning-only slowdown to a winner",
+      "id": "winner_slowdown_threshold",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v14_decision.py::test_mutation_25pct_slowdown_cannot_win_latency",
+      "lane": "fast",
+      "protected_behavior": "the 25 percent warning cannot create a latency winner",
+      "source_path": "nextseek_api/eval/fit/v14/decision.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "winner_selection",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v14_decision.py::test_mutation_discordance_blocks_quality_not_latency"
+      ],
+      "fault": "apply discordance to the wrong decision axis",
+      "id": "winner_discordance_boundary",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v14_decision.py::test_mutation_discordance_blocks_quality_not_latency",
+      "lane": "fast",
+      "protected_behavior": "discordance gate blocks quality but not allowed latency comparison",
+      "source_path": "nextseek_api/eval/fit/v14/decision.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "winner_selection",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v14_decision.py::test_fdr_retains_largest_safe_subset"
+      ],
+      "fault": "activate the unsafe full set or a smaller arbitrary set",
+      "id": "winner_fdr_safe_subset",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v14_decision.py::test_fdr_retains_largest_safe_subset",
+      "lane": "fast",
+      "protected_behavior": "FDR activates the largest safe subset",
+      "source_path": "nextseek_api/eval/fit/v14/decision.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "hashes",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_attempt_store.py::test_hash_without_bytes_rejected"
+      ],
+      "fault": "accept a hash without payload bytes",
+      "id": "hash_attempt_bytes",
+      "kill_test_selector": "nextseek_api/eval/tests/test_attempt_store.py::test_hash_without_bytes_rejected",
+      "lane": "fast",
+      "protected_behavior": "stored judgment hash is verified against bytes",
+      "source_path": "nextseek_api/eval/attempt_store.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "hashes",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_8_manifest.py::test_question_hash_length_must_match_ids"
+      ],
+      "fault": "accept a missing question hash",
+      "id": "hash_question_vector",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_8_manifest.py::test_question_hash_length_must_match_ids",
+      "lane": "fast",
+      "protected_behavior": "question IDs and hashes are a bijection",
+      "source_path": "nextseek_api/eval/run_manifest.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "hashes",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_8_manifest.py::test_changed_rate_table_changes_hash"
+      ],
+      "fault": "reuse approval after rate-table drift",
+      "id": "hash_rate_table",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_8_manifest.py::test_changed_rate_table_changes_hash",
+      "lane": "fast",
+      "protected_behavior": "rate-table bytes are bound into manifest identity",
+      "source_path": "nextseek_api/eval/run_manifest.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "hashes",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_validate_refuses_mutated_posterior_row"
+      ],
+      "fault": "accept a mutated posterior row",
+      "id": "hash_generation_content",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_validate_refuses_mutated_posterior_row",
+      "lane": "fast",
+      "protected_behavior": "generation hash covers posterior rows",
+      "source_path": "nextseek_api/eval/generation_validation.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "activation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_stale_cas_refused"
+      ],
+      "fault": "activate with a stale expected hash",
+      "id": "activation_stale_cas",
+      "kill_test_selector": "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_stale_cas_refused",
+      "lane": "mysql",
+      "protected_behavior": "activation uses compare-and-swap",
+      "source_path": "nextseek_api/eval/generation_store.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "activation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_corruption_refused_on_activate"
+      ],
+      "fault": "activate a generation with a forged hash",
+      "id": "activation_corrupt_hash",
+      "kill_test_selector": "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_corruption_refused_on_activate",
+      "lane": "mysql",
+      "protected_behavior": "corrupt generation identity cannot activate",
+      "source_path": "nextseek_api/eval/generation_validation.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "activation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_partial_publish_refused"
+      ],
+      "fault": "activate a partial generation",
+      "id": "activation_partial_publish",
+      "kill_test_selector": "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_partial_publish_refused",
+      "lane": "mysql",
+      "protected_behavior": "partial publication cannot activate",
+      "source_path": "nextseek_api/eval/generation_validation.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "fallback",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_too_uncertain_falls_back"
+      ],
+      "fault": "route from an indecisive posterior",
+      "id": "fallback_too_uncertain",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_too_uncertain_falls_back",
+      "lane": "fast",
+      "protected_behavior": "TooUncertain uses legacy routing",
+      "source_path": "nextseek_api/cc_assistant/posterior_selector.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "fallback",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_missing_posterior_falls_back"
+      ],
+      "fault": "invent a posterior for a missing family",
+      "id": "fallback_missing_posterior",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_missing_posterior_falls_back",
+      "lane": "fast",
+      "protected_behavior": "missing family posterior uses legacy routing",
+      "source_path": "nextseek_api/cc_assistant/posterior_selector.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "fallback",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_stale_generation_fallback"
+      ],
+      "fault": "route from stale generation state",
+      "id": "fallback_stale_generation",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_stale_generation_fallback",
+      "lane": "fast",
+      "protected_behavior": "stale generation uses legacy routing",
+      "source_path": "nextseek_api/cc_assistant/posterior_selector.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "fallback",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_malformed_generation_fallback_invalid_route"
+      ],
+      "fault": "dispatch an invalid posterior route",
+      "id": "fallback_malformed_route",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_malformed_generation_fallback_invalid_route",
+      "lane": "fast",
+      "protected_behavior": "invalid posterior route uses legacy routing",
+      "source_path": "nextseek_api/cc_assistant/posterior_selector.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "fallback",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_incompatible_generation_fallback_indecisive_tie"
+      ],
+      "fault": "break ties by arbitrary route",
+      "id": "fallback_incompatible_tie",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_posterior_selector.py::test_incompatible_generation_fallback_indecisive_tie",
+      "lane": "fast",
+      "protected_behavior": "incompatible/indecisive posterior uses legacy routing",
+      "source_path": "nextseek_api/cc_assistant/posterior_selector.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "spend_reservation",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_skip_reserve_still_requires_gate"
+      ],
+      "fault": "skip reservation and call provider",
+      "id": "spend_reserve_before_transport",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_skip_reserve_still_requires_gate",
+      "lane": "fast",
+      "protected_behavior": "reservation occurs before provider transport",
+      "source_path": "nextseek_api/eval/provider_gate.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "spend_reservation",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_double_charge_retry_refused"
+      ],
+      "fault": "double-charge a retry",
+      "id": "spend_double_charge",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_double_charge_retry_refused",
+      "lane": "fast",
+      "protected_behavior": "retry charging cannot exceed the cap",
+      "source_path": "nextseek_api/eval/run_authorization.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "spend_reservation",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_changed_manifest_gets_distinct_approval"
+      ],
+      "fault": "reuse approval for changed inputs",
+      "id": "spend_manifest_identity",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_changed_manifest_gets_distinct_approval",
+      "lane": "fast",
+      "protected_behavior": "changed manifest requires distinct approval",
+      "source_path": "nextseek_api/eval/run_authorization.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "spend_reservation",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_forged_collision_refused"
+      ],
+      "fault": "accept a forged manifest collision",
+      "id": "spend_collision",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_forged_collision_refused",
+      "lane": "fast",
+      "protected_behavior": "hash collision with different body is refused",
+      "source_path": "nextseek_api/eval/run_authorization.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "spend_reservation",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_schedule_entry_refused"
+      ],
+      "fault": "allow scheduled paid execution",
+      "id": "spend_schedule_refusal",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py::test_mutation_schedule_entry_refused",
+      "lane": "fast",
+      "protected_behavior": "default schedule cannot enter paid lane",
+      "source_path": "nextseek_api/eval/paid_run_schedule.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "spend_reservation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_8_mysql.py::test_mysql_nway_contention_no_overspend"
+      ],
+      "fault": "reserve beyond cap under contention",
+      "id": "spend_mysql_contention",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_8_mysql.py::test_mysql_nway_contention_no_overspend",
+      "lane": "mysql",
+      "protected_behavior": "concurrent workers cannot overspend",
+      "source_path": "nextseek_api/eval/run_authorization.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "spend_reservation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_8_mysql.py::test_mysql_idempotency_replay_under_contention"
+      ],
+      "fault": "charge concurrent replay more than once",
+      "id": "spend_mysql_replay",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_8_mysql.py::test_mysql_idempotency_replay_under_contention",
+      "lane": "mysql",
+      "protected_behavior": "idempotency replay is single-charge",
+      "source_path": "nextseek_api/eval/run_authorization.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "evidence_provenance",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_7_mutation_killers.py::test_mutation_online_kind_must_be_rejected"
+      ],
+      "fault": "label online evidence as paired input",
+      "id": "provenance_online_fit",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_7_mutation_killers.py::test_mutation_online_kind_must_be_rejected",
+      "lane": "fast",
+      "protected_behavior": "online observations cannot enter paired fit",
+      "source_path": "nextseek_api/eval/fit/fit_boundary.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "evidence_provenance",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_7_mutation_killers.py::test_mutation_publish_without_paired_run_id_fails"
+      ],
+      "fault": "publish without paired_run_id",
+      "id": "provenance_missing_run",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_7_mutation_killers.py::test_mutation_publish_without_paired_run_id_fails",
+      "lane": "fast",
+      "protected_behavior": "publication requires paired-run lineage",
+      "source_path": "nextseek_api/eval/fit/fit_boundary.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "evidence_provenance",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_7_mutation_killers.py::test_mutation_mixed_batch_kind_fails"
+      ],
+      "fault": "construct a paired batch with online kind",
+      "id": "provenance_mixed_batch",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_7_mutation_killers.py::test_mutation_mixed_batch_kind_fails",
+      "lane": "fast",
+      "protected_behavior": "paired batches have paired discriminator",
+      "source_path": "nextseek_api/eval/paired_run.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "evidence_provenance",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_7_mutation_killers.py::test_monitoring_module_ast_has_no_publish_call"
+      ],
+      "fault": "add a publication call to monitoring",
+      "id": "provenance_monitoring_no_publish",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_7_mutation_killers.py::test_monitoring_module_ast_has_no_publish_call",
+      "lane": "fast",
+      "protected_behavior": "observational monitoring cannot publish or activate",
+      "source_path": "nextseek_api/cc_assistant/route_monitoring.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "evidence_provenance",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_7_paired_run_registry.py::test_publish_refuses_registered_run_with_wrong_content_hash"
+      ],
+      "fault": "publish with a forged registered content hash",
+      "id": "provenance_wrong_content_hash",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_7_paired_run_registry.py::test_publish_refuses_registered_run_with_wrong_content_hash",
+      "lane": "fast",
+      "protected_behavior": "registered run content hash is immutable",
+      "source_path": "nextseek_api/eval/paired_run_registry.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "migration_version_guards",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_v4_7_schemas.py::test_paired_batch_rejects_wrong_schema_version"
+      ],
+      "fault": "accept an obsolete paired schema",
+      "id": "version_paired_schema",
+      "kill_test_selector": "nextseek_api/eval/tests/test_v4_7_schemas.py::test_paired_batch_rejects_wrong_schema_version",
+      "lane": "fast",
+      "protected_behavior": "paired batch schema version is exact",
+      "source_path": "nextseek_api/eval/paired_run.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "migration_version_guards",
+      "collected_nodes": [
+        "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_validate_refuses_compatibility_with_stale_current_corpus"
+      ],
+      "fault": "activate stale compatibility keys",
+      "id": "version_generation_compatibility",
+      "kill_test_selector": "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_validate_refuses_compatibility_with_stale_current_corpus",
+      "lane": "fast",
+      "protected_behavior": "generation compatibility matches current taxonomy and corpus",
+      "source_path": "nextseek_api/eval/generation_validation.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "migration_version_guards",
+      "collected_nodes": [
+        "scripts/test_plan018_v4_9_task5_mutation.py::test_current_migration_lineage_is_unique_and_forward"
+      ],
+      "fault": "remove a migration dependency or create a second leaf",
+      "id": "migration_forward_lineage",
+      "kill_test_selector": "scripts/test_plan018_v4_9_task5_mutation.py::test_current_migration_lineage_is_unique_and_forward",
+      "lane": "fast",
+      "protected_behavior": "V4 migrations remain in the unique current forward lineage",
+      "source_path": "scripts/plan018_verifier_support.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "migration_version_guards",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_runtime_identity_guard_is_killed"
+      ],
+      "fault": "remove the runtime identity guard",
+      "id": "version_runtime_identity",
+      "kill_test_selector": "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_runtime_identity_guard_is_killed",
+      "lane": "fast",
+      "protected_behavior": "mixed-version reads and writes require an exact recorded runtime identity",
+      "source_path": "nextseek_api/eval/mixed_version_recovery.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "recovery_ordering",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_rollback_restores_previous"
+      ],
+      "fault": "recover to a non-previous generation",
+      "id": "recovery_previous_generation",
+      "kill_test_selector": "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_rollback_restores_previous",
+      "lane": "mysql",
+      "protected_behavior": "recovery reactivates the previous immutable generation",
+      "source_path": "nextseek_api/eval/generation_store.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "recovery_ordering",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_crash_publish_boundary_leaves_no_incomplete_generation"
+      ],
+      "fault": "retain partial rows after publish crash",
+      "id": "recovery_publish_atomic",
+      "kill_test_selector": "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_crash_publish_boundary_leaves_no_incomplete_generation",
+      "lane": "mysql",
+      "protected_behavior": "publish crash leaves no incomplete generation",
+      "source_path": "nextseek_api/eval/generation_store.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "recovery_ordering",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_crash_activation_boundary_leaves_pointer_unchanged"
+      ],
+      "fault": "mutate pointer before an aborted activation commits",
+      "id": "recovery_activation_atomic",
+      "kill_test_selector": "nextseek_api/eval/tests/test_generation_store_mysql.py::test_mysql_crash_activation_boundary_leaves_pointer_unchanged",
+      "lane": "mysql",
+      "protected_behavior": "activation crash leaves prior pointer unchanged",
+      "source_path": "nextseek_api/eval/generation_store.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "recovery_ordering",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_task3_fit_coverage.py::test_recovery_acceptance_all_gate_outcomes"
+      ],
+      "fault": "declare PASS before all recovery gates",
+      "id": "recovery_gate_order",
+      "kill_test_selector": "nextseek_api/eval/tests/test_task3_fit_coverage.py::test_recovery_acceptance_all_gate_outcomes",
+      "lane": "fast",
+      "protected_behavior": "recovery acceptance checks diagnostics, direction, and wall bounds",
+      "source_path": "nextseek_api/eval/fit/v14/recovery_acceptance.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "recovery_ordering",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_contract_refusal_is_killed"
+      ],
+      "fault": "accept a contract-phase request",
+      "id": "recovery_contract_refusal",
+      "kill_test_selector": "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_contract_refusal_is_killed",
+      "lane": "fast",
+      "protected_behavior": "the forbidden contract phase remains absent and refused",
+      "source_path": "nextseek_api/eval/mixed_version_recovery.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "recovery_ordering",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_destructive_recovery_guard_is_killed"
+      ],
+      "fault": "accept a destructive recovery action",
+      "id": "recovery_destructive_refusal",
+      "kill_test_selector": "nextseek_api/eval/tests/test_task7_deploy_recovery.py::test_mutation_removed_destructive_recovery_guard_is_killed",
+      "lane": "fast",
+      "protected_behavior": "recovery refuses reverse migration, retained-data deletion, and persistent reset",
+      "source_path": "nextseek_api/eval/mixed_version_recovery.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_outcome_first_vote-outcome-<lambda>-outcome_oracle0]"
+      ],
+      "fault": "Return first vote instead of plurality/tie-break",
+      "id": "dd44_aggregate_outcome_first_vote",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_outcome follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_outcome_invert_failure_partition-outcome-<lambda>-outcome_oracle1]"
+      ],
+      "fault": "Prefer success partition instead of failure-partition tie-break",
+      "id": "dd44_aggregate_outcome_invert_failure_partition",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_outcome follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_outcome_plurality_bypass-outcome-<lambda>-outcome_oracle2]"
+      ],
+      "fault": "Return last vote; bypass plurality winner",
+      "id": "dd44_aggregate_outcome_plurality_bypass",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_outcome follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_primary_issue_first_only-primary_issue-<lambda>-None]"
+      ],
+      "fault": "Return first vote instead of majority/severity tie-break",
+      "id": "dd44_aggregate_primary_issue_first_only",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_primary_issue follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_primary_issue_reverse_severity-primary_issue-<lambda>-None]"
+      ],
+      "fault": "Reverse severity order for three-way tie",
+      "id": "dd44_aggregate_primary_issue_reverse_severity",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_primary_issue follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_primary_issue_no_issue_always-primary_issue-<lambda>-None]"
+      ],
+      "fault": "Always return NoIssue",
+      "id": "dd44_aggregate_primary_issue_no_issue_always",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_primary_issue follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_review_priority_min-review_priority-<lambda>-None]"
+      ],
+      "fault": "Return minimum priority instead of maximum",
+      "id": "dd44_aggregate_review_priority_min",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_review_priority follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_review_priority_first-review_priority-<lambda>-None]"
+      ],
+      "fault": "Return first vote instead of max",
+      "id": "dd44_aggregate_review_priority_first",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_review_priority follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_usefulness_mean-usefulness-<lambda>-None]"
+      ],
+      "fault": "Return integer mean instead of median",
+      "id": "dd44_aggregate_usefulness_mean",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_usefulness_score_median follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_usefulness_max-usefulness-<lambda>-None]"
+      ],
+      "fault": "Return max instead of median",
+      "id": "dd44_aggregate_usefulness_max",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_usefulness_score_median follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_needs_review_all-needs_human_review-<lambda>-None]"
+      ],
+      "fault": "Require all flags true instead of OR",
+      "id": "dd44_aggregate_needs_review_all",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_needs_human_review follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_needs_review_none-needs_human_review-<lambda>-None]"
+      ],
+      "fault": "Always return false",
+      "id": "dd44_aggregate_needs_review_none",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_needs_human_review follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_rationale_last_match-rationale-<lambda>-None]"
+      ],
+      "fault": "Return last matching rationale instead of first",
+      "id": "dd44_aggregate_rationale_last_match",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_rationale follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    },
+    {
+      "category": "dd44_aggregation",
+      "collected_nodes": [
+        "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected[aggregate_rationale_always_first-rationale-<lambda>-None]"
+      ],
+      "fault": "Return first evaluation rationale regardless of outcome",
+      "id": "dd44_aggregate_rationale_always_first",
+      "kill_test_selector": "nextseek_api/eval/tests/test_judge_mutations.py::test_aggregation_mutants_are_detected",
+      "lane": "fast",
+      "protected_behavior": "DD-44 aggregate_rationale follows the canonical operator/tie-break",
+      "source_path": "nextseek_api/eval/judge.py",
+      "status": "KILLED"
+    }
+  ],
+  "paid_provider_or_live_resources_used": false,
+  "required_categories": [
+    "routing",
+    "exclusions",
+    "conservation",
+    "dd44_aggregation",
+    "pair_dependence",
+    "winner_selection",
+    "hashes",
+    "activation",
+    "fallback",
+    "spend_reservation",
+    "evidence_provenance",
+    "migration_version_guards",
+    "recovery_ordering"
+  ],
+  "schema": "plan018-v4-9-task5-mutation-manifest/v1",
+  "source_sha256": {
+    "dmac_assistant/baml_src/classifier.baml": "3ccafc47ce67ab2c153a9b709e1ebd152eac681bb70d166234f110d5fb66273e",
+    "dmac_assistant/baml_src/router.baml": "bfb400ee58c2e478d8a5fa1b89df831827e8f66aee68076325ad0a37eb1b1718",
+    "docker/cc-runtime/baml_src/router.baml": "bfb400ee58c2e478d8a5fa1b89df831827e8f66aee68076325ad0a37eb1b1718",
+    "nessie_tests/v4_2_verifier.py": "b9b622f59bd8d95d2ae101a85cc5ed406e105b0f3f73f1bcc62ec7c813a00d2d",
+    "nextseek_api/cc_assistant/posterior_selector.py": "1d5ff71916a2ae7408ae88de4383ab2906e2d9dbcfb5af66d859603928d7b9ac",
+    "nextseek_api/cc_assistant/route_monitoring.py": "2523afe7e3078b6ff3d9801e0cf8facef008c58973dc9053629155be22693874",
+    "nextseek_api/cc_assistant/router.py": "f98f088c78ae83d1f1c1a7bb61c1c6a7d7c1e165ff109fb39214062c0768a3e3",
+    "nextseek_api/eval/attempt_store.py": "e64e55f5efe740f77fad4b7f9930dc843fbcc98c4491675bebc27c0809d386e8",
+    "nextseek_api/eval/conservation.py": "4a6b19d1c7c9b0f0f6b221d02504b591936a7bda6a72ef2720450f5505383704",
+    "nextseek_api/eval/disposition.py": "58bdcdfb2345f408ec701457e7670dd889331e2a2cf1dcafac57c1b9ddcb98ed",
+    "nextseek_api/eval/fit/fit_boundary.py": "beb46c76030914fad17addfdfb5c1484d5329412a3d7a3a20edaa710ffb44fff",
+    "nextseek_api/eval/fit/v14/decision.py": "3dd6b68e3e492653c6b2a195447015e65aa65b73e0dd516fa5c4d5324af2bc4f",
+    "nextseek_api/eval/fit/v14/pair_rows.py": "15a0eb47687e16698b9cd141ccd83a11466e7382519833963f20812117619651",
+    "nextseek_api/eval/fit/v14/recovery_acceptance.py": "851142e10d9c4ec993c6bea70142ad11be7c263cb298d3e6297367e7d78ba48b",
+    "nextseek_api/eval/generation_store.py": "e3ee1660da8c7cb3a7c2fffaf7b768df6f80cf9c0ca4b3f9e9540a4eb0c04432",
+    "nextseek_api/eval/generation_validation.py": "a4fbada168ee8ad40e3670d90f11a865a0e94d684d2fcac39e5ac76a2aaf77c3",
+    "nextseek_api/eval/judge.py": "c38374907f4384a3f2e627c76dff94b6aeb9774dbd602c4b6531b0aa7fb6d650",
+    "nextseek_api/eval/mixed_version_recovery.py": "6735da97c304286b4a6875b3a5a37b810f6de52f1f590cd1c633b5d6e51e10bb",
+    "nextseek_api/eval/paid_run_schedule.py": "adcdb6709d91ac931b5d4ab16f83681e1bf91f5ee43ed8b6ca16a439a260dcb8",
+    "nextseek_api/eval/paired_run.py": "28355a999c67903a8e2a14e1dd0ffff09e582dd0fb1d0bafcc8c8904a6e7e0c2",
+    "nextseek_api/eval/paired_run_registry.py": "34bedca7c83ed906b4b98cb033d6da405d6955a14680c26abafa2c3ed745825f",
+    "nextseek_api/eval/provider_gate.py": "c525b9cb58b3df894c3d4cb3880adfd364920b4582aeb6ae03345b47e4fe6ddb",
+    "nextseek_api/eval/run_authorization.py": "0b83ddf775356e1b0f9ad3c0348290a6dff206abb9886f85c354ba6a87c240f4",
+    "nextseek_api/eval/run_manifest.py": "0e938608a22649a57df811c4150963d7f6d99008927dddad4c1240e62278f7b4",
+    "nextseek_api/eval/spend_conservation.py": "2c387069d138bfec33ac10a415b128cb2c67fa8f3d96d54a3e79e9d61dddac8b",
+    "nextseek_api/services/cc_assistant.py": "2321e929b643b6108acc4bffc633513b7597e90715fef7e6015ca448a0cbdea1",
+    "scripts/plan018_verifier_support.py": "092a2660ddcd48955106f1fbda078a8e5fe3cc41f001ac8ed0261592bac6e023"
+  },
+  "test_source_sha256": {
+    "nextseek_api/cc_assistant/tests/test_generation_store_validation.py": "65aebbb27ccef9ed245e0c75d5856fd1d4366fc31cceda5757a5f7d102c11f04",
+    "nextseek_api/cc_assistant/tests/test_posterior_selector.py": "3c81bbcd3ac8f21d0f26bd7e58936d63e7c195907651ff60bfcf8d17f64648f9",
+    "nextseek_api/cc_assistant/tests/test_router_v46_mutations.py": "147f17c27a7d473025b3c84ac9bbf556213bf63e51e3ff3f31bb78611db3f8ac",
+    "nextseek_api/cc_assistant/tests/test_v4_2_product_mutations.py": "053bfa1d3b196849f5f7c51c855ff3dc09ac4dcb4583eb1ea84b966a23ff5787",
+    "nextseek_api/cc_assistant/tests/test_v4_8_mutations.py": "03741cea305cfd86ce9b28477069860b935b28927049d4e1974a7f36660ede90",
+    "nextseek_api/eval/tests/test_attempt_store.py": "d635f77467d047fedcad84968dd062387a21224d162d365f21a03fd3751fc6f5",
+    "nextseek_api/eval/tests/test_conservation.py": "69510eea6e1887ab5faa5d67df9e8de83794e7b58fee5e0f63fbbf5c85307ac8",
+    "nextseek_api/eval/tests/test_disposition.py": "73b8ba5b81886e5489bad304813e503babf3166104384f3677331d323da68e15",
+    "nextseek_api/eval/tests/test_generation_store_mysql.py": "7db3fd029466275379dea0804b507c687936c00bdc9aa71ffac315251e4b8bb5",
+    "nextseek_api/eval/tests/test_judge_mutations.py": "4895c9dada92bb6792dfb3003912785b8cb90bf817266f760a201ad017f652dc",
+    "nextseek_api/eval/tests/test_task3_fit_coverage.py": "895fe6755bed83dedd1bf79dd5bf9b5301ba7e8ff08958db4ad3a5f1f74ee43d",
+    "nextseek_api/eval/tests/test_task4_coverage.py": "b2a20c96af0694dbe9c467fdc3183e337455c09ea005812d3790dba29a0d4d86",
+    "nextseek_api/eval/tests/test_task7_deploy_recovery.py": "182aafe7bebc126265a9b5b2d614203f815f20659326f56efdb60a17f3ea06f6",
+    "nextseek_api/eval/tests/test_v14_decision.py": "fa0e067bb7e7ddd86ddcd332f471d88f06b1dc4c22dde9730d109ed450db20ba",
+    "nextseek_api/eval/tests/test_v14_pair_input.py": "c102b24c9ae5a41a5644f1756d310e15300e04595aaa210cb2a0cbd416e6c848",
+    "nextseek_api/eval/tests/test_v4_7_fit_refuse.py": "dab21d54c6726d4ab3bac019e583eebb0bae3924d21df344c9f9eff152af546b",
+    "nextseek_api/eval/tests/test_v4_7_mutation_killers.py": "7dcb5041541177346db7c8510842c1095a2e421d42847aeba11d5ce0bba7b802",
+    "nextseek_api/eval/tests/test_v4_7_paired_run_registry.py": "526d8b8d3fd6aea7d1a43ee8e42483bf1ac129f7412d374fe3de95b362db0d77",
+    "nextseek_api/eval/tests/test_v4_7_schemas.py": "fdce112d8f55b13c846422f48e5759c6f5faa060d4e85d790fa5bd08c45d4a2f",
+    "nextseek_api/eval/tests/test_v4_8_manifest.py": "00b2255aab6f732d3e258a54e6b21dab873220cdbef8326e59aac3c2538beab3",
+    "nextseek_api/eval/tests/test_v4_8_mysql.py": "d5a902befd6572a45fe91ffbd2d2d27160c846c8e76bb7298a21312c96dc1825",
+    "scripts/test_plan018_v4_9_task5_mutation.py": "8dcaaf14a03abeb3db88cd9c014c13c9e7aa7d986da9496fff9761d2aa221f2e"
+  }
+}

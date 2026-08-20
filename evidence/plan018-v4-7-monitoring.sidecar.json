@@ -1,0 +1,14 @@
+{
+  "schema": "plan018-v4-7-monitoring/v1",
+  "recorded_at": "2026-08-12T22:30:00Z",
+  "gate": "PASS",
+  "lane": "C",
+  "recipe": "docker worktree mount + dmac.test_settings (V4-3)",
+  "remediation": "V47-T1 monitoring alerts + propensity export",
+  "counts": {
+    "tests": 9,
+    "passed": 9,
+    "failed": 0
+  },
+  "paid_or_live_resources_used": false
+}

@@ -209,7 +209,7 @@ def _install_impl(
     compose_env = state.compose_env()
     proxy_env_path = config.render_proxy_secret_env(REPO_ROOT)
     _warn_if_proxy_token_empty(proxy_env_path)
-    config.render_root_env(REPO_ROOT, compose_env)
+    config.render_root_env(REPO_ROOT, compose_env, neo4j_password=values.neo4j_password)
     ui.ok(
         "docker/db.env, docker/nextseek.env, "
         "docker/bedrock-proxy/proxy-secret.env, dmac/local_settings.py, .env"
@@ -264,7 +264,9 @@ def _install_impl(
     # entries whose target table doesn't exist (e.g., post --no-seed on a
     # fresh volume — there's nothing to fix up yet).
     for fqn, status in schema_fixups.apply_all(REPO_ROOT, compose_env):
-        (ui.ok if status != "applied" else ui.warn)(f"schema fixup {fqn}: {status}")
+        (ui.ok if status not in {"applied", "constraints reset"} else ui.warn)(
+            f"schema fixup {fqn}: {status}"
+        )
 
     # SEEK's public identity (its "SEEK ID", JSON-LD @id, and the sitemap it builds
     # at boot) comes from a DB-backed setting with no env-var lever, and the seed
@@ -385,12 +387,21 @@ def install(
 @app.command()
 def doctor(
     instance: str | None = typer.Option(None, "--instance"),
+    scope: str = typer.Option(
+        "full",
+        "--scope",
+        help="full (default) or app for a namespaced app-only deploy cohort",
+    ),
 ) -> None:
     """Read-only diagnostic for an existing install."""
     from startup.steps.doctor import diagnose
 
     ui.banner("NExtSEEK Startup Doctor")
-    results = diagnose(REPO_ROOT)
+    try:
+        results = diagnose(REPO_ROOT, scope=scope)
+    except ValueError as exc:
+        ui.fail(str(exc))
+        raise typer.Exit(code=2) from exc
     any_failed = False
     for name, ok, detail in results:
         if ok:
@@ -462,37 +473,115 @@ def reset(
 @app.command()
 def rebuild(
     instance: str | None = typer.Option(None, "--instance"),
-    service: str = typer.Option("nextseek", "--service"),
+    component: str = typer.Option(
+        "app",
+        "--component",
+        "--service",
+        help="app, cc-agent, nextseek-sidecar, bedrock-proxy, or custom-stack",
+    ),
+    source_tree: Path | None = typer.Option(
+        None,
+        "--source-tree",
+        help=(
+            "Clean checkout at exact origin/dev used only as the image build context; "
+            "runtime services retain this instance's existing bind-mount paths."
+        ),
+    ),
+    builder: str | None = typer.Option(
+        None,
+        "--builder",
+        help="Use an explicitly named Buildx builder (for isolated disposable cache).",
+    ),
+    restart: bool = typer.Option(
+        True,
+        "--restart/--no-restart",
+        help="Restart component runtimes after building (default: enabled).",
+    ),
+    registry_push: bool = typer.Option(
+        True,
+        "--registry-push/--no-registry-push",
+        help="Run the non-fatal off-box baseline push after building (default: enabled).",
+    ),
 ) -> None:
-    """Rebuild and restart a service without touching volumes."""
-    from startup.lib.docker_ops import compose_up
+    """Safely rebuild a first-party component without touching volumes."""
+    from startup.lib.docker_ops import compose_build, compose_up
+    from startup.lib.deploy_source import DeploySourceError, resolve_verified_source
+    from startup.lib.rebuild_policy import resolve_component
+    from startup.steps import rollback_tags
 
     state = load_instance(REPO_ROOT)
     if state is None:
         ui.fail("no instance found — run 'startup install' first")
         raise typer.Exit(code=1)
 
-    ui.banner(f"Rebuilding {service} for instance {state.name}")
-    with ui.spinner(f"rebuilding {service}"):
-        compose_up(
-            services=[service],
-            project_dir=REPO_ROOT,
-            env=state.compose_env(),
-            build=True,
-        )
-    ui.ok(f"{service} rebuilt and restarted")
+    try:
+        policy = resolve_component(component, state.compose_project_name)
+    except ValueError as exc:
+        ui.fail(str(exc))
+        raise typer.Exit(code=2) from exc
 
-    if service == "nextseek":
-        # Off-box rollback baseline (DEPLOYMENT.md §5.2). Non-fatal by
-        # contract, and belt-and-braces guarded: the deploy is never hostage
-        # to the registry.
+    build_root = REPO_ROOT
+    if source_tree is not None:
         try:
-            from startup.steps import registry_push
-
-            outcome = registry_push.push_baseline(
-                REPO_ROOT, compose_project_name=state.compose_project_name
+            build_root = resolve_verified_source(REPO_ROOT, source_tree)
+        except DeploySourceError as exc:
+            ui.fail(str(exc))
+            ui.remediation(
+                "fetch origin/dev, fast-forward the runtime checkout, and use a clean "
+                "detached worktree at that exact SHA"
             )
-            registry_push.render_outcome(outcome)
+            raise typer.Exit(code=1) from exc
+
+    ui.banner(f"Rebuilding {policy.name} for instance {state.name}")
+    if build_root != REPO_ROOT:
+        ui.info(f"clean deploy source: {build_root}")
+    with ui.spinner("creating verified pre-rebuild rollback tags"):
+        try:
+            prepared = rollback_tags.create_verified(
+                [image.local_image for image in policy.images], build_root
+            )
+        except rollback_tags.RollbackTagError as exc:
+            ui.fail(str(exc))
+            ui.remediation("restore or build the missing source image before retrying")
+            raise typer.Exit(code=1) from exc
+    for tag in prepared:
+        ui.ok(f"rollback tag verified: {tag.tag} ({tag.image_id})")
+
+    with ui.spinner(f"building {policy.name}"):
+        compose_build(
+            services=policy.build_services,
+            project_dir=build_root,
+            env=state.compose_env(),
+            builder=builder,
+        )
+    if policy.restart_services and restart:
+        with ui.spinner(f"recreating {policy.name} runtimes"):
+            compose_up(
+                services=policy.restart_services,
+                project_dir=REPO_ROOT,
+                env=state.compose_env(),
+                force_recreate=True,
+                no_deps=True,
+            )
+        ui.ok(f"{policy.name} rebuilt and restarted")
+    elif not policy.restart_services:
+        ui.ok(f"{policy.name} image rebuilt; no persistent container to restart")
+    else:
+        ui.ok(f"{policy.name} image rebuilt; runtime restart deferred by request")
+
+    # Off-box rollback baselines (DEPLOYMENT.md §5.2). Non-fatal by contract,
+    # and belt-and-braces guarded: the deploy is never hostage to the registry.
+    if registry_push:
+        try:
+            from startup.steps import registry_push as registry_push_step
+
+            for outcome in registry_push_step.push_baselines(
+                REPO_ROOT,
+                compose_project_name=state.compose_project_name,
+                images=policy.images,
+                git_root=build_root,
+            ):
+                registry_push_step.render_outcome(outcome)
         except Exception as exc:
             ui.warn(f"off-box baseline push step crashed ({exc}) — deploy unaffected")
 

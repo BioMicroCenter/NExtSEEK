@@ -2,12 +2,21 @@
 
 Surfaces: docs/ISSUE-CONVENTIONS.md (this task), .github Issue Form (Task 3),
 scripts/seed_issue_labels.sh (Task 4), .claude/skills/nextseek-issues (Task 5).
-Hermetic: file reads only; runs in the repo-mounted container lane.
+Hermetic: file reads only.
+
+Lanes: most of this module reads surfaces the image ships (docs/, .github/,
+scripts/, AGENTS.md, CLAUDE.md), so it runs in every lane including the image
+lane. The two ``TestSkillAndPointers`` methods that read ``.claude/skills/…``
+are the exception and are marked ``host_only`` individually: .dockerignore's
+`.claude/` rule strips that tree from the image, and REPO_ROOT is ``/app``
+there. Per-method, not per-class -- ``test_pointers_present`` reads only
+AGENTS.md and CLAUDE.md and must keep running in the image lane (#89).
 """
 import importlib.util
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -118,11 +127,16 @@ CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
 
 
 class TestSkillAndPointers:
+    # host_only: reads SKILL.md under .claude/, which the `.claude/` rule in
+    # .dockerignore keeps out of the image -- do not remove (#89).
+    @pytest.mark.host_only
     def test_skill_exists_with_frontmatter(self):
         text = SKILL.read_text(encoding="utf-8")
         assert text.startswith("---\n") and "name: nextseek-issues" in text
         assert "description:" in text
 
+    # host_only: same SKILL.md under .claude/, same .dockerignore rule (#89).
+    @pytest.mark.host_only
     def test_skill_hard_rules(self):
         text = SKILL.read_text(encoding="utf-8")
         assert "never" in text.lower() and "approval" in text.lower()

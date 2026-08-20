@@ -1,0 +1,22 @@
+{
+  "attempt_id": "102e2910-d8b7-457b-825d-b4cda4c3365f",
+  "arm_id": "pbct.no_match::ns",
+  "call_index": 0,
+  "input_fingerprint": "9626368bde59900750d587fd297507806bec9208e1f4b94635b54f48215c2eca",
+  "model_id": "gemini-3.1-pro-preview",
+  "prompt_version": "functional_evaluator.baml:DD-22",
+  "evaluator_version": "plan018-v4-9-human-comparison-v1",
+  "provider_request_id": null,
+  "started_at": "2026-08-13T14:53:22Z",
+  "ended_at": "2026-08-13T14:53:22Z",
+  "retry_of": null,
+  "token_input": null,
+  "token_output": null,
+  "cost_usd": null,
+  "status": "succeeded",
+  "error_class": null,
+  "request_sha256": "ee2441f9c5a76b3db2935df216b2632df9855e0e660de54ea5b23e0383d6bcb1",
+  "response_sha256": "876a49873e098e60177105afdbfa5969ec6989b58d0a5e467185f9ddae927179",
+  "request_path": "payloads/ee/ee2441f9c5a76b3db2935df216b2632df9855e0e660de54ea5b23e0383d6bcb1",
+  "response_path": "payloads/87/876a49873e098e60177105afdbfa5969ec6989b58d0a5e467185f9ddae927179"
+}

@@ -11,7 +11,8 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from pydantic import ValidationError
 from django.conf import settings
 
-from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id
+from seek.seekdb import SeekDB
+from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id, resolve_seek_auth
 from nextseek_api.helpers import paginate_rows_in_envelope
 from nextseek_api.batch_upload.helpers import UID_RE
 from nextseek_api.endpoint_descriptions import (
@@ -505,8 +506,45 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
             uid_terms = [t for t in _terms if UID_RE.match(t)]
             other_terms = [t for t in _terms if not UID_RE.match(t)]
 
+            # Data scope. Mirrors AdminSampleViewSet in nextseek_api/views.py (#74).
+            #
+            # IsAuthenticated on this viewset answers "is this a real logged-in user",
+            # which is not the same question as "what may they read". Until now this
+            # endpoint asked only the first: it threaded `user_seek` down three call
+            # layers and the final one never referenced it, so every authenticated
+            # caller read every project.
+            #
+            # is_superuser ALONE is the admin predicate, never is_staff --
+            # dmac/views.py:80,97 sets is_staff on every SEEK user at login, so it
+            # admits everyone and is not an authorization signal.
+            if bool(getattr(request.user, 'is_superuser', False)):
+                scoped_project_ids = None
+            else:
+                basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+                if not (basic_tuple and basic_tuple[0] and basic_tuple[1]):
+                    # Reachable: a Token-authenticated client resolves no Basic pair
+                    # (TOKEN is deliberately not in the order above, since SEEK project
+                    # lookup needs a username/password). Say so rather than letting
+                    # basic_tuple[0] raise into the except below, where a missing
+                    # credential would be indistinguishable from a SEEK outage.
+                    logging.getLogger(__name__).warning(
+                        "No SEEK credentials resolved for caller; scoping to no projects")
+                    return HttpResponse(
+                        b'{"errors":[{"title":"Cannot determine project scope for this caller"}]}',
+                        status=403, content_type='application/json')
+                try:
+                    seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
+                    user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+                    scoped_project_ids = [p['id'] for p in user_projects]
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Could not resolve SEEK projects for the caller; scoping to none")
+                    scoped_project_ids = []
+
             def _run_search(search_type, sub_filters):
-                raw = DBtable_sample().searchAdvanced(user_seek, sub_filters, search_type, skip_tree=True)
+                raw = DBtable_sample().searchAdvanced(
+                    user_seek, sub_filters, search_type, skip_tree=True,
+                    scoped_project_ids=scoped_project_ids)
                 return orjson.loads(raw) if raw else {}
 
             partials = []

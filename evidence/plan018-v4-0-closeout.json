@@ -1,0 +1,76 @@
+{
+  "schema": "plan018-v4-0-closeout/v1",
+  "closed_at": "2026-08-11T14:59:57Z",
+  "status": "CLOSED",
+  "implementation_base": {
+    "sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+    "ref": "origin/dev",
+    "note": "Approved base is 6881b6a8 (not historical dfbccaf prose anchor)",
+    "worktree": "/home/taishajo/work/NExtSEEK-plan018",
+    "integration_branch": "ultraplan/hibayes-eval-routing"
+  },
+  "v4_0_done_claims": {
+    "exact_port_set_and_provenance": {
+      "ref": "plan018-v4-0-port-provenance.json",
+      "gate": "PASS",
+      "sha256": "8d811d2538021b8e680be12f09bd81194cd441892a5b9672be1f800a735ef15a"
+    },
+    "isolated_harness_and_baselines": {
+      "s31": {
+        "ref": "baseline-hermetic-s31.sidecar.json",
+        "gate": "PASS-WITH-DOCUMENTED-RESIDUAL",
+        "sha256": "87600e6a3ce5b4ab71d00478c9776c56592b25111dd33b6b7a6b38a8332cee1c"
+      },
+      "s33": {
+        "ref": "baseline-hostonly-s33.sidecar.json",
+        "gate": "PASS",
+        "sha256": "472fc29eaff27db9b84bdfb503013bd79697476912cb78b4e3ce6b485de6aab3"
+      }
+    },
+    "ownership_map": {
+      "ref": "plan018-v4-0-ownership-map.md",
+      "accepted": true,
+      "sha256": "d743ac7c519466b5d5caa2b93658c10c3996595e351dadb97e56feaa9c9b4b07"
+    },
+    "controlling_contract": {
+      "ref": "plan018-controlling-contract.json",
+      "status": "v4-0-complete-for-plan-tasks",
+      "sha256": "68650ff89f1f2e30e523e2dec8e78f273865a16105796546f93ce4151f82122f"
+    },
+    "migration_leaf_and_forward_migrate": {
+      "leaf_ref": "plan018-migration-leaf.json",
+      "leaf": "0009_normalize_chat_log_turn_ids.py",
+      "forward_migrate_ref": "plan018-v4-0-forward-migrate.sidecar.json",
+      "gate": "PASS",
+      "sha256": "9c3c985852e216ebd85900f7552a918469717aca9c3b16c9a374e155924cb357"
+    }
+  },
+  "not_authorized": [
+    "push",
+    "paid/provider calls",
+    "live NExtSEEK DB activation",
+    "deployment",
+    "production enablement",
+    "destructive persistent rollback",
+    "V4-2 nessie port"
+  ],
+  "artifact_sha256": {
+    "baseline_hermetic_s31": "87600e6a3ce5b4ab71d00478c9776c56592b25111dd33b6b7a6b38a8332cee1c",
+    "baseline_hostonly_s33": "472fc29eaff27db9b84bdfb503013bd79697476912cb78b4e3ce6b485de6aab3",
+    "port_provenance": "8d811d2538021b8e680be12f09bd81194cd441892a5b9672be1f800a735ef15a",
+    "controlling_contract": "68650ff89f1f2e30e523e2dec8e78f273865a16105796546f93ce4151f82122f",
+    "migration_leaf": "45782d2547ed19f48386b7710958c3fafc16ab61e5953e56d67f6ce57bfa4bef",
+    "forward_migrate": "9c3c985852e216ebd85900f7552a918469717aca9c3b16c9a374e155924cb357",
+    "ownership_map": "d743ac7c519466b5d5caa2b93658c10c3996595e351dadb97e56feaa9c9b4b07",
+    "ownership_map_acceptance": "4dffcf24f79519359383ab16e92e2e747dd0e638638335af1876a53c68097db5",
+    "bindings": "54f006d06ecb0f5f530bb976e9f5267a38f4b6cd377e38ccd2c62a2cbb74bd94",
+    "preflight": "4214775404db4ba55f534d1351aa109fbab4147ada71b348144123b11f31c49f"
+  },
+  "living_plan_progress": {
+    "updated_at": "2026-08-11T15:00:09Z",
+    "path": "NExtSEEK-deploydocs/docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md",
+    "sha256_after_v4_0_close": "c45acd9948a99ba180ce4c43a58dba65eecc3d6e2760de93acf47e4e5aabc1d6",
+    "published_sha256_v14": "af99a24b765f04330cf25b09c005a80002d175890f66743d2b2115b9b2f74a6e",
+    "note": "Progress markers only; not republished to origin/dev or registry"
+  }
+}

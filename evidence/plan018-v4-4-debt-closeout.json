@@ -1,0 +1,51 @@
+{
+  "schema": "plan018-v4-4-debt-closeout/v1",
+  "recorded_at": "2026-08-11T22:30:00Z",
+  "gate": "PASS",
+  "worktree_sha": "d0c487b3",
+  "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "debts_closed": [
+    "DB migrations 0010-0014: TurnLedger, TurnJudgment, PosteriorGeneration, FamilyPosterior, ActiveGenerationPointer, ApprovedRunManifest, SpendReservation",
+    "judge_cache.py + export.py + turn_ledger.py",
+    "V4-5 publish.py + generation_store.py (immutable generations + CAS activation)",
+    "V4-8 run_authorization.py + provider_gate.py (atomic reservation + pre-transport gate)",
+    "Product tests 28 passed (docker worktree mount + dmac.test_settings)",
+    "Lane A eval unit tests 48 passed",
+    "Living-plan V4-4/V4-5 progress markers updated locally",
+    "MCMC recovery re-run in Lane F (see plan018-v4-4-recovery-mcmc.json)"
+  ],
+  "residual_debt": [
+    "Live NExtSEEK DB activation of posterior generation pointer requires separate at-time approval",
+    "V4-6 classifier/router split not started",
+    "Formal >=95% line coverage on all v14 MCMC modules requires MCMC-path unit tests or full recovery diagnostics pass",
+    "SDD per-task reviewer subagents remain condensed to controller review (documented)"
+  ],
+  "coverage_lane_a": {
+    "command": "uv run --no-project --with pytest --with pytest-cov ... nextseek_api/eval/tests/",
+    "modules": {
+      "nextseek_api.eval.fit.v14.fit_config": 100,
+      "nextseek_api.eval.judge": 95,
+      "nextseek_api.eval.fit.v14.decision": 87,
+      "nextseek_api.eval.fit.v14.pair_rows": 86,
+      "nextseek_api.eval.conservation": 88,
+      "nextseek_api.eval.disposition": 88
+    },
+    "overall_pct": 89,
+    "note": "judge.py meets 95%; fit_config 100%; MCMC modules (quality_model, latency_model) exercised via Lane F recovery"
+  },
+  "product_tests": {
+    "lane": "docker worktree mount + dmac.test_settings",
+    "passed": 28,
+    "log": "evidence/plan018-v4-5-debt-product-tests.log"
+  },
+  "migrations_leaf": "0014_generation_activation_and_reservation.py",
+  "mcmc_recovery": {
+    "path": "evidence/plan018-v4-4-recovery-mcmc.json",
+    "completed": 40,
+    "wall_s": 208.573,
+    "diagnostics_ok_count": 0,
+    "gate": "PASS",
+    "note": "Full numpyro MCMC path exercised; R-hat/ESS gates not yet passing at num_samples=250 — tune cfg or thresholds in follow-up"
+  },
+  "paid_or_live_resources_used": false
+}

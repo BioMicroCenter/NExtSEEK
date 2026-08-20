@@ -33,7 +33,7 @@ def _run_validator(bundle: Path, repo: Path) -> tuple[int, str]:
 
 
 def main() -> int:
-    from nextseek_api.cc_assistant.tests.test_step7_compose_deploy import (
+    from nextseek_api.cc_assistant.tests.step7_compose_fixtures import (
         TRANSCRIPT_CONTENT,
         _full_bundle,
         _repo_with_transcript,

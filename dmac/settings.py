@@ -11,6 +11,10 @@ from django.utils.translation import gettext_lazy as _
 ########################
 
 DEBUG = (os.getenv("DJANGO_DEBUG") or "").strip().lower() in ("1", "true", "yes")
+NEXTSEEK_POSTERIOR_ROUTING_ENABLED = (
+    (os.getenv("NEXTSEEK_POSTERIOR_ROUTING_ENABLED") or "").strip().lower()
+    in ("1", "true", "yes", "on")
+)
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
@@ -382,6 +386,16 @@ SPECTACULAR_SETTINGS = {
     ],
 }
 
+# Native attribute mutation routing. Small batches complete in-request; larger
+# affected-sample sets use the durable worker/outbox path. Both settings remain
+# environment-overridable for the measured T10 deployment profile.
+ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD = int(
+    os.environ.get("ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD", "5000")
+)
+ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM = int(
+    os.environ.get("ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM", "1")
+)
+
 ####################
 # CORS SETTINGS    #
 ####################
@@ -408,12 +422,15 @@ CORS_EXPOSE_HEADERS = [
 # SCHEMA RAG SETTINGS #
 #######################
 
-SCHEMA_RAG_DUCKDB_DIR = os.path.join(BASE_DIR, 'schema_rag', 'duckdb')
+# Defaults only when local_settings (exec'd above) did not already define them.
+if "SCHEMA_RAG_DUCKDB_DIR" not in globals():
+    SCHEMA_RAG_DUCKDB_DIR = os.path.join(BASE_DIR, "schema_rag", "duckdb")
 SCHEMA_RAG_DEFAULT_TTL_MINUTES = 15
 SCHEMA_RAG_MAX_ENDPOINTS = 250
 SCHEMA_RAG_MAX_TOP_K = 10
 SCHEMA_RAG_EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
-SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, 'schema_rag', 'embedding_models')
+if "SCHEMA_RAG_EMBEDDING_MODEL_PATH" not in globals():
+    SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, "schema_rag", "embedding_models")
 SCHEMA_RAG_EXCLUDED_PATH_PATTERNS = [
     "/schema_rag/",
 ]

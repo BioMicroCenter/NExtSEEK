@@ -136,3 +136,13 @@ populating rows.
 POST .../batch-upload/start/ is forbidden. Never submit a batch, trigger write
 actions, or treat validation as permission to write. This skill builds and
 validates only.
+
+<!-- BEGIN PLAN005-GEN:skill-ops -->
+assay-resolve	nextseek-assay-resolve	Resolve assay titles against the selected project.	local_subcommand	read	true	false
+attrs	nextseek-sampletype-attrs	Fetch structured sample-type schema.	local_subcommand	read	true	false
+build-payload	nextseek-build-payload	Build staged upload payloads from source rows.	local_subcommand	read	true	false
+build-validate	nextseek-validate-upload	Fused build and validate of an upload workbook.	local_subcommand	read	true	false
+extract	nextseek-extract-text	Extract text from a file.	local_subcommand	read	true	false
+project-resolve	nextseek-project-resolve	Resolve a project against the live projects API.	local_subcommand	read	true	false
+sample-search	nextseek-sample-search	Retrieve current sample rows by UID.	local_subcommand	read	true	false
+<!-- END PLAN005-GEN:skill-ops -->

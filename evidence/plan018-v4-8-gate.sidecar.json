@@ -1,0 +1,22 @@
+{
+  "schema": "plan018-v4-8-gate/v1",
+  "recorded_at": "2026-08-12T22:00:00Z",
+  "gate": "PASS",
+  "lane": "C",
+  "recipe": "docker worktree mount + dmac.test_settings (V4-3)",
+  "counts": {"passed": 35, "failed": 0},
+  "cases": [
+    "guarded_call_reconciles",
+    "guarded_call_releases_on_exception",
+    "crash_before_reserve",
+    "crash_after_reserve",
+    "crash_after_provider",
+    "crash_before_reconcile",
+    "transport_after_reserve",
+    "zero_cap_zero_transport",
+    "cache_hit_skips_transport"
+  ],
+  "no_mock_away_gate": true,
+  "log": "evidence/plan018-v4-8-lane-c.log",
+  "paid_or_live_resources_used": false
+}

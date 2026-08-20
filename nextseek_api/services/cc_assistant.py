@@ -49,6 +49,7 @@ from nextseek_api.services.assistant import (
     CsrfExemptSessionAuthentication,
     _auto_title_if_unset,
     _error_response,
+    _most_recent_session,
     _select_chat_config,
 )
 
@@ -162,12 +163,19 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
     from nextseek_api.cc_assistant.cc_provision import build_user_dirs
 
     metas = []
-    # results_history can be multi-MB JSON; including it in ORDER BY filesort
-    # trips MySQL "Out of sort memory" (errno 1038) after large NS turns.
-    # This helper only needs session_id / extra_state / updated_at.
+    # #40/#82: results_history AND last_debug are both multi-MB JSON after a
+    # large NS turn; either one in the ORDER BY filesort trips MySQL "Out of
+    # sort memory" (errno 1038). This helper reads exactly three fields off
+    # each row -- session_id, extra_state, updated_at -- so select only those.
+    # NOT .defer("extra_state"): it is read on every row below, so deferring it
+    # would trade a sort column for one extra query PER ROW.
+    # NOT a LIMIT either: rows come back -updated_at DESC, and one of the two
+    # consumers is cc_sweep.select_sweep_targets, which wants the sessions that
+    # are IDLE (the OLDEST updated_at). A LIMIT N would hand it the N LEAST
+    # idle sessions and silently stop sweeping everything else.
     qs = (
         ChatSession.objects.filter(user=user)
-        .defer("results_history")
+        .only("session_id", "extra_state", "updated_at")
         .order_by("-updated_at")
     )
     for s in qs:
@@ -198,6 +206,53 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
             fingerprint=prev_fp, summary=es.get("summary"),
             transcript_path=transcript_mount_path, changed=changed))
     return metas
+
+
+def _summarize_sync_target(user, tgt, mem_cfg, scrub) -> bool:
+    """cc-1c: summarize one OTHER session's transcript, in-request. #72.
+
+    ``tgt`` comes from ``cc_memory.select_sync_target(metas, current_id=...)``,
+    which deliberately skips the CURRENT session — so this transcript belongs to
+    a chat that is not running, and may predate ``cc_engine.scrub_transcript_store``
+    entirely (that scrub runs only in the ``finally`` of a turn the owning session
+    itself ran, so a chat that never runs another turn is never cleaned).
+
+    ``scrub`` therefore has to be applied HERE, at the read: the bytes go to a
+    third-party summarizer model and the summary lands in ``extra_state`` and
+    then in the merged ``CLAUDE.md`` mounted into later agent containers. It is
+    the same ``bytes -> bytes`` scrubber the staged transcript copies get.
+
+    The persisted FINGERPRINT is deliberately taken over the RAW bytes, not the
+    scrubbed ones. It is a change-detection hash of the file as it lies on disk,
+    and the two other producers of it -- ``_session_metas`` (which has no
+    credentials for a scrub) and ``cc_sweep`` -- hash the file unmodified.
+    Fingerprinting the scrubbed bytes here would mismatch theirs forever, so
+    this session would look "changed" on every turn and be re-summarized (a paid
+    LLM call) each time.
+
+    Returns True when a summary was persisted; the caller then re-derives metas.
+    Never raises: a summarizer failure must not fail the user's turn.
+    """
+    from django.utils import timezone
+
+    try:
+        # G7-10: transcript_path is already the mount path inside the volume —
+        # read directly, no host translation.
+        raw = Path(tgt.transcript_path).read_bytes()
+        prov = cc_summary.SummaryProvenance(
+            chat_session_id=tgt.session_id,
+            claude_session_id=(tgt.summary or {}).get("claude_session_id"),
+            transcript_path=tgt.transcript_path,
+            chat_model=cc_router._resolve_cc_model_id() or "",
+            generated_at=timezone.now().isoformat())
+        summary = cc_summary.summarize_transcript(
+            scrub(raw) if scrub is not None else raw, prov, mem_cfg)
+        _persist_summary_standalone(
+            user, tgt.session_id, summary.model_dump(), cc_summary.fingerprint(raw))
+        return True
+    except Exception:
+        logger.exception("cc-1c: sync summarize failed; continuing")
+        return False
 
 
 def _emit_ns_run_root(send_event, session) -> None:
@@ -258,6 +313,39 @@ def _prev_route_was_cc(history: list[router_context.HistoryTurn] | None) -> bool
         return (turn.router_choice == cc_router.ROUTE_CC
                 and turn.status == "completed")
     return False
+
+
+def _record_ledger_row(chat_session: ChatSession, decision: cc_router.RouteDecision) -> None:
+    """Best-effort ledger write; must not fail the user turn."""
+    from nextseek_api.cc_assistant.turn_ledger import LedgerCollision, record_turn
+
+    chat_log = (chat_session.extra_state or {}).get("chat_log") or []
+    turn_number = len(chat_log) + 1
+    try:
+        record_turn(
+            str(chat_session.session_id),
+            turn_number,
+            decision.route,
+            decision.source,
+            decision.task_family,
+            decision.family_source,
+            pinned_generation_id=decision.generation_id,
+            pinned_generation_hash=decision.generation_hash or "",
+            attempted_route=decision.attempted_route,
+            attempted_source=decision.attempted_source,
+        )
+    except LedgerCollision:
+        logger.warning(
+            "ledger collision for session=%s turn=%s",
+            chat_session.session_id,
+            turn_number,
+        )
+    except Exception:
+        logger.exception(
+            "ledger write failed for session=%s turn=%s",
+            chat_session.session_id,
+            turn_number,
+        )
 
 
 def _decide_route(user, req, *, force_cc: bool, session=None, history: list[router_context.HistoryTurn] | None = None) -> cc_router.RouteDecision:
@@ -343,6 +431,12 @@ def _decide_route(user, req, *, force_cc: bool, session=None, history: list[rout
             model_id=cc_router._resolve_cc_model_id(),
             reasoning=f"sticky_cc; router said ns ({decision.reasoning})",
             source="sticky",
+            task_family=decision.task_family,
+            family_source=decision.family_source,
+            generation_id=decision.generation_id,
+            generation_hash=decision.generation_hash,
+            attempted_route=decision.route,
+            attempted_source=decision.source,
         )
     return decision
 
@@ -370,9 +464,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             return ChatSession.objects.get(session_id=req.session_id, user=request.user)
         if getattr(req, "force_new", False):
             return ChatSession.objects.create(user=request.user)
-        existing = (
-            ChatSession.objects.filter(user=request.user).order_by("-updated_at").first()
-        )
+        existing = _most_recent_session(request.user)
         return existing or ChatSession.objects.create(user=request.user)
 
     def _resolve_credentials(self, request):
@@ -437,6 +529,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     "route": decision.route, "model_class": decision.model_class,
                     "source": decision.source, "reasoning": decision.reasoning,
                 })
+                _record_ledger_row(chat_session, decision)
 
                 if decision.route == cc_router.ROUTE_UNRELATED:
                     from django.utils import timezone
@@ -553,38 +646,39 @@ class CCAssistantViewSet(viewsets.ViewSet):
                     mem_root = Path(dirs.memory_mnt)
                     memory_md = ""
                     if not fresh:
-                        from django.utils import timezone
-
+                        # #72: ONE scrubber for every point in this turn that
+                        # re-reads a transcript belonging to a session other than
+                        # the current one — the sync summarizer just below, and
+                        # the read-only staged copies further down. Both republish
+                        # those bytes (to a third-party model / to a later agent
+                        # container), and the engine's in-place source scrub
+                        # covers neither for a session that never runs again.
+                        transcript_scrub = cc_engine.transcript_scrubber({
+                            "NEXTSEEK_USERNAME": user_api_user or "",
+                            "NEXTSEEK_PASSWORD": user_api_pass or "",
+                            "API_PASS": user_api_pass or "",
+                        })
                         metas = _session_metas(
                             request.user, cc_state_key, paths, mem_cfg, project_dirname)
                         tgt = cc_memory.select_sync_target(metas, current_id=cc_state_key)
                         if tgt is not None and tgt.transcript_path:
-                            try:
-                                # G7-10: transcript_path is already the mount path
-                                # inside the volume — read directly, no host xlate.
-                                raw = Path(tgt.transcript_path).read_bytes()
-                                prov = cc_summary.SummaryProvenance(
-                                    chat_session_id=tgt.session_id,
-                                    claude_session_id=(tgt.summary or {}).get("claude_session_id"),
-                                    transcript_path=tgt.transcript_path,
-                                    chat_model=cc_router._resolve_cc_model_id() or "",
-                                    generated_at=timezone.now().isoformat())
-                                summary = cc_summary.summarize_transcript(raw, prov, mem_cfg)
-                                _persist_summary_standalone(
-                                    request.user, tgt.session_id,
-                                    summary.model_dump(),
-                                    cc_summary.fingerprint(raw))
+                            if _summarize_sync_target(
+                                    request.user, tgt, mem_cfg, transcript_scrub):
                                 metas = _session_metas(
                                     request.user, cc_state_key, paths, mem_cfg, project_dirname)
-                            except Exception:
-                                logger.exception("cc-1c: sync summarize failed; continuing")
 
                         window = cc_memory.select_window(
                             metas, current_id=cc_state_key, window_size=mem_cfg.window_size)
                         memory_md = cc_memory.render_memory(
                             window, fresh_session=False,
                             transcripts_mount=cc_engine._CONTAINER_MEMORY_TRANSCRIPTS)
-                        staged = cc_memory_io.stage_transcripts(window, mem_root / "transcripts")
+                        # #72: this staging dir is mounted READ-ONLY into the next
+                        # agent container, so scrub secrets on the way in. Covers
+                        # transcripts written before the engine's in-place source
+                        # scrub existed, and sessions that never run another turn.
+                        staged = cc_memory_io.stage_transcripts(
+                            window, mem_root / "transcripts", scrub=transcript_scrub,
+                        )
                         if staged:
                             transcripts_subpath = dirs.transcripts_subpath
                     within_chat_md = ns_digest.render_within_chat_digest(
@@ -682,7 +776,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
         request=QueryRequest,
         responses={202: AsyncQueryResponse},
         examples=[OpenApiExample(
-            name="Routed query", value={"query": "Find me mice treated with NDMA"},
+            name="Routed query",
+            value={"query": "Find me mice treated with NDMA", "mode": "standard"},
             request_only=True,
         )],
     )

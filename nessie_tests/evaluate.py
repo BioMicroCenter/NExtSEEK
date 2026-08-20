@@ -358,18 +358,42 @@ def _split_local_criteria(criteria: list) -> tuple[list, list]:
 
 # Field families this harness cannot observe over HTTP. `evaluate_turn` calls
 # `check_pass` with no `session=`, `browser_ctx=` or `mysql_chat_log=`, so every one
-# of these resolves to None and fails unconditionally — `pipeline.reject_non_directive`
-# asserts `eq False` and fails only because `None != False`. 27 such criteria span 12
-# variants, nearly all in the expensive pipeline_nfcore family, so most seeds draw one
-# or two guaranteed red herrings.
+# of these resolves to None and fails unconditionally.
 #
 # Skipping is strictly better than failing: a criterion that cannot be evaluated is not
 # evidence either way, and letting it fail buries real failures in noise.
 #
 # These are recoverable, not impossible. bundle.py already imports ChatSession, so a
-# `session_reader(session_id)` threaded into check_pass(session=...) would make all 27
-# meaningful. Until then they are recorded as skipped rather than silently failing.
-_UNOBSERVABLE_FIELD_PREFIXES = ("pipeline_agent.", "chat_log.", "ui_text.")
+# `session_reader(session_id)` threaded into check_pass(session=...) would make the
+# rest meaningful. Until then they are recorded as skipped rather than silently failing.
+#
+# ── why `pipeline_agent.` narrowed to `pipeline_agent.launch_plan.` (#66) ─────
+#
+# The whole `pipeline_agent.` family was skipped on the assumption that it was
+# session state. Most of it is not: `orchestrator.run_pipeline_launch` (:298-300)
+# builds `debug_payload = {"pipeline_agent": pipeline_agent.snapshot_for_chat_log(...)}`
+# and passes it straight to `_emit_query_complete`, so the snapshot ships on
+# `query_complete.debug` and `build_observed_debug` hands it to `resolve_field`.
+#
+# `criteria.resolve_field` has a `pipeline_agent.` branch guarded by `session is not
+# None`, which nessie never satisfies — so these fields fall through to the generic
+# dot-notation fallback, which walks `debug` and finds the snapshot. They resolve.
+#
+# What the snapshot actually carries (`pipeline/agent.py:52-59`) is exactly four keys:
+# `active`, `pipeline_key`, `cohort_count`, `message_count`. `launch_plan` is NOT one
+# of them, so `pipeline_agent.launch_plan.*` still dot-navigates to None and must stay
+# skipped. That is the only sub-family left in this tuple.
+#
+# Scope, measured against the corpus rather than estimated: 17 `pipeline_agent.*`
+# criteria exist, 11 of them on RETIRED variants. Of the 6 on active variants, 3 are
+# `pipeline_agent.active` (unblocked here) and 3 are `pipeline_agent.launch_plan.params.*`
+# (still skipped). So this makes 3 criteria assertable, on 2 variants.
+#
+# One deliberate consequence: `pipeline_agent.active` now FAILS on a turn that emitted
+# no pipeline snapshot, because it resolves to None. That is the point — it is an
+# assertion again. The only variant asserting `eq False` against it,
+# `pipeline.reject_non_directive`, is retired, so nothing active regresses.
+_UNOBSERVABLE_FIELD_PREFIXES = ("pipeline_agent.launch_plan.", "chat_log.", "ui_text.")
 _UNOBSERVABLE_OPS = ("trio_match",)
 UNOBSERVABLE_REASON = "field family not observable over HTTP"
 

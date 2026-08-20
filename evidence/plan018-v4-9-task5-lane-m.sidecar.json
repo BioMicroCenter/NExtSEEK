@@ -1,0 +1,22 @@
+{
+  "schema": "plan018-v4-9-task5-lane-m/v1",
+  "gate": "PASS",
+  "lane": "M",
+  "recipe": "within-chat-lane.sh shape + V4-0 forward-migrate sidecar",
+  "settings_module": "dmac.test_settings_realstack",
+  "local_settings_overlay": "/home/taishajo/work/NExtSEEK-plan018-v4-9/startup/dev/lane_local_settings.py",
+  "mysql_image": "mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b",
+  "isolation_level": "REPEATABLE-READ",
+  "pytest_target": "nextseek_api/eval/tests/test_generation_store_mysql.py nextseek_api/eval/tests/test_v4_8_mysql.py",
+  "oracles": [
+    "activation_stale_cas",
+    "activation_corrupt_hash",
+    "activation_partial_publish",
+    "spend_mysql_contention",
+    "spend_mysql_replay",
+    "recovery_previous_generation",
+    "recovery_publish_atomic",
+    "recovery_activation_atomic"
+  ],
+  "paid_or_live_resources_used": false
+}

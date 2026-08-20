@@ -1,0 +1,14 @@
+{
+  "schema": "plan018-v4-7-lane-m/v1",
+  "recorded_at": "2026-08-12T20:11:10Z",
+  "gate": "PASS",
+  "lane": "M",
+  "recipe": "scripts/plan018_lane_m_mysql.sh shape + leaf 0016",
+  "counts": {
+    "tests": 15,
+    "passed": 15,
+    "failed": 0
+  },
+  "isolation_level": "REPEATABLE-READ",
+  "paid_or_live_resources_used": false
+}

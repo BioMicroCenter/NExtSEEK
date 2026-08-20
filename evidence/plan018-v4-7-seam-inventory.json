@@ -1,0 +1,58 @@
+{
+  "schema": "plan018-v4-7-seam-inventory/v1",
+  "recorded_at": "2026-08-12T20:11:10Z",
+  "status": "complete",
+  "seams": [
+    {
+      "name": "build_fit_admission",
+      "path": "nextseek_api/eval/conservation.py",
+      "kind": "fit"
+    },
+    {
+      "name": "build_pair_rows",
+      "path": "nextseek_api/eval/fit/v14/pair_rows.py",
+      "kind": "fit"
+    },
+    {
+      "name": "run_v14_generation",
+      "path": "nextseek_api/eval/fit/v14/combined.py",
+      "kind": "fit"
+    },
+    {
+      "name": "publish",
+      "path": "nextseek_api/eval/publish.py",
+      "kind": "publish"
+    },
+    {
+      "name": "publish_generation",
+      "path": "nextseek_api/eval/generation_store.py",
+      "kind": "publish"
+    },
+    {
+      "name": "activate_generation",
+      "path": "nextseek_api/eval/generation_store.py",
+      "kind": "activate"
+    },
+    {
+      "name": "export_observational_rows",
+      "path": "nextseek_api/eval/export.py",
+      "kind": "online_producer"
+    },
+    {
+      "name": "build_route_monitoring_summary",
+      "path": "nextseek_api/cc_assistant/route_monitoring.py",
+      "kind": "monitoring"
+    },
+    {
+      "name": "ledger_row_to_observational",
+      "path": "nextseek_api/eval/export.py",
+      "kind": "online_adapter"
+    },
+    {
+      "name": "PairedRunRegistry",
+      "path": "nextseek_api/assistant/models_db.py",
+      "kind": "registry"
+    }
+  ],
+  "source_sha256": "6792ad2cb8250bd34e8846d741546b2100a4adb37c1dc1de1a995b65ebf2faf2"
+}

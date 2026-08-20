@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from nextseek_api.batch_upload.helpers import collect_parent_tokens
+
 # Placeholder markers are intentional/deferred (OK); surprise sentinels are flagged.
 _PLACEHOLDER_MARKERS = ("*** PLACEHOLDER", "***PLACEHOLDER")
 _SURPRISE_SENTINELS = ("XXX", "TODO", "FIXME", "???", "TBD", "UNCONFIRMED")
@@ -50,12 +52,17 @@ def qa_rows(
     for i, row in enumerate(rows):
         meta = row.get("json_metadata") or {}
 
-        # Parent resolvability (;-split; skip placeholder markers).
-        parent = str(meta.get("Parent") or "").strip()
-        if not parent:
+        # Parent resolvability (;-split by the helper; skip placeholder markers).
+        # Ancestors are declared across EVERY key containing "parent"
+        # (AntibodyParent, CompensationFCSParent, Treatment1Parent, …), so read
+        # them all: reading only the literal "Parent" hard-rejected rows whose
+        # sole ancestor lived in a variant key, and never resolvability-checked
+        # the variant tokens it skipped.
+        parent_tokens = collect_parent_tokens(meta)
+        if not parent_tokens:
             report.hard.append(f"row {i}: blank Parent (reingest outputs must be derived)")
         else:
-            for token in (t.strip() for t in parent.split(";") if t.strip()):
+            for token in parent_tokens:
                 if _is_placeholder(token):
                     continue
                 if token not in existing and not any(token in (r.get("json_metadata") or {}).get("Name", "") for r in rows):

@@ -1,0 +1,17 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "A_host_hermetic",
+  "task": "V4-3-conservation",
+  "recorded_at": "2026-08-11T19:36:20Z",
+  "exit_status": 0,
+  "argv_note": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD uv run --no-project --with pytest --with pydantic --with orjson python -m pytest nextseek_api/eval/tests/test_conservation.py --noconftest -q -p no:cacheprovider",
+  "paths": [
+    "nextseek_api/eval/tests/test_conservation.py"
+  ],
+  "summary_lines": [
+    "4 passed, 1 warning in 0.23s"
+  ],
+  "paid_or_live_resources_used": false,
+  "log_sha256": "5bb3923f21dcf05f2e17ff48f8afff0d6ec77e1f231f94ef8ad678d3e5176655",
+  "gate": "PASS"
+}

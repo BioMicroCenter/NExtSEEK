@@ -1,0 +1,20 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "V4-2-nessie-host",
+  "recorded_at": "2026-08-11T15:49:31Z",
+  "exit_status": 0,
+  "argv_note": "uv run --no-project --with pytest --with pydantic --with orjson --with requests --with beautifulsoup4 python -m pytest nessie_tests/tests -q -p no:cacheprovider",
+  "counts": {
+    "tests": 1246,
+    "passed": 1218,
+    "skipped": 28,
+    "failures": 0,
+    "errors": 0
+  },
+  "summary_lines": [
+    "1218 passed, 28 skipped, 1 warning in 75.00s"
+  ],
+  "paid_or_live_resources_used": false,
+  "log_sha256": "2f44f117d0c862cd31be7a55a3dac8d33858c4cdbeaead28155ee0c8085020e8",
+  "gate": "PASS"
+}

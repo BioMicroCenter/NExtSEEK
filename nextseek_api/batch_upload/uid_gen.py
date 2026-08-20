@@ -227,7 +227,7 @@ def _resolve_parents(
     rows: List[InputRowModel],
     identity_to_uid: Dict[str, str],
     conn: Connection,
-) -> Tuple[List[InputRowModel], List[str], int, List[dict]]:
+) -> Tuple[List[InputRowModel], List[str], int, List[dict], List[dict]]:
     """Resolve Parent field references from Name/File_PrimaryData to UIDs.
 
     Per token in the Parent field:
@@ -235,11 +235,20 @@ def _resolve_parents(
     - If it matches identity_to_uid -> replace with UID
     - Else -> collect for bulk DB lookup
 
-    Returns (modified_rows, warning_messages, parents_resolved_count).
+    Returns (modified_rows, warning_messages, parents_resolved_count,
+             failed_rows, unresolved_parents).
+
+    ``unresolved_parents`` is one record per token that could not be resolved:
+    ``{"row_index": int, "uid": str | None, "token": str, "message": str}``.
+    It is the machine-readable twin of the human warning in
+    ``warning_messages`` — callers must count and report from THIS list, never
+    by pattern-matching the prose of a warning (that coupling is what left the
+    unresolved-parent counter and its error_collector entry dead).
     """
     warnings: List[str] = []
     parents_resolved = 0
     failed_rows: List[dict] = []
+    unresolved_parents: List[dict] = []
 
     def _parent_field_values(meta: dict) -> List[str]:
         seen: set[str] = set()
@@ -327,10 +336,17 @@ def _resolve_parents(
                 else:
                     # Identity-based token not resolvable now — preserve for orphan resolution
                     resolved_tokens.append(token)
-                    warnings.append(
+                    message = (
                         f"Row {idx}: unresolved parent reference '{token}'; "
                         f"preserving for future orphan resolution"
                     )
+                    warnings.append(message)
+                    unresolved_parents.append({
+                        "row_index": idx,
+                        "uid": row.UID,
+                        "token": token,
+                        "message": message,
+                    })
             if row_failed:
                 break
 
@@ -364,7 +380,7 @@ def _resolve_parents(
             continue
         surviving_rows.append(row)
 
-    return surviving_rows, warnings, parents_resolved, failed_rows
+    return surviving_rows, warnings, parents_resolved, failed_rows, unresolved_parents
 
 
 def _bulk_resolve_from_db(
@@ -579,7 +595,9 @@ def run_uid_gen(
 
     # Step 4: Build identity lookup and resolve parents
     identity_to_uid = _build_identity_to_uid_map(rows)
-    rows, parent_warnings, parents_resolved_count, failed_rows = _resolve_parents(rows, identity_to_uid, conn)
+    rows, parent_warnings, parents_resolved_count, failed_rows, unresolved_parents = _resolve_parents(
+        rows, identity_to_uid, conn
+    )
     report["parents_resolved"] = parents_resolved_count
     report["failed_rows"] = [
         {
@@ -599,14 +617,20 @@ def run_uid_gen(
             message=str(item["error"]),
         )
 
-    # Count resolved/unresolved
-    for w in parent_warnings:
-        if "unresolvable" in w.lower():
-            report["parents_unresolved"] += 1
-            error_collector.add(
-                row_index=-1, uid=None, error_type=ErrorType.VALIDATION_JSON,
-                message=w, severity=Severity.WARNING,
-            )
+    # Count unresolved parents from the structured records _resolve_parents
+    # returns. This used to filter parent_warnings on the substring
+    # "unresolvable", which _resolve_parents has never emitted (it says
+    # "unresolved parent reference"), so the counter was permanently 0 and the
+    # error_collector.add() below never ran at all.
+    report["parents_unresolved"] = len(unresolved_parents)
+    for item in unresolved_parents:
+        error_collector.add(
+            row_index=item["row_index"],
+            uid=item["uid"],
+            error_type=ErrorType.VALIDATION_JSON,
+            message=item["message"],
+            severity=Severity.WARNING,
+        )
     log.info(
         "UID_GEN: generated=%d, deduped=%d, parent_warnings=%d, parent_failures=%d",
         report["uids_generated"],

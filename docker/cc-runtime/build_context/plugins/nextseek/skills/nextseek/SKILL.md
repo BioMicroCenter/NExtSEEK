@@ -248,3 +248,19 @@ The runner emits a one-line JSON error to stderr with a code (exit code in paren
 - `TRANSPORT_ERROR` (7): sidecar/viewset unreachable. Surface as a deploy-side issue.
 - `AUTH_FAILED` (8): NExtSEEK rejected the login. Tell the user to check credentials.
 - `STAGING_ERROR` (9): artifact staging failed server-side. Surface the message.
+
+<!-- BEGIN PLAN005-GEN:skill-ops -->
+api-read	nextseek-api-read	Execute a read-safe REST call from a parser plan.	sidecar	read	true	true
+api-write	nextseek-api-write	Execute a write (POST/PUT/DELETE) from a parser plan.	sidecar	write_confirm	true	true
+build-upload-xlsx	nextseek-build-upload-xlsx	**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK.	sidecar	read	true	true
+entity	nextseek-entity-extract	Resolve NL terms to NExtSEEK vocabulary.	sidecar	read	true	true
+generate-submission	nextseek-generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.	sidecar	read	true	true
+graph	nextseek-graph	Run a Neo4j lineage/graph query from NL.	sidecar	read	true	true
+parse	nextseek-parse	Turn an NL question into a parser plan.	sidecar	read	true	true
+pipeline	nextseek-pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.	viewset	unrouted	true	true
+plan	nextseek-plan	Multi-step planner advisor (read-only).	viewset	unrouted	true	true
+query	nextseek-query	Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present.	viewset	unrouted	true	false
+recall	nextseek-recall	Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned.	viewset	unrouted	true	false
+report	nextseek-report	Project summary report.	sidecar	read	true	true
+run-ls	nextseek-run-ls	**Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory.	sidecar	read	true	true
+<!-- END PLAN005-GEN:skill-ops -->

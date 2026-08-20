@@ -23,8 +23,8 @@ Related docs (each has a distinct job — don't cross-purpose them):
 ## 0. Topology at a glance
 
 One `docker-compose.yml` at the repo root defines the whole stack:
-**10 services, 2 networks, 7 external named volumes** (volumes are created by
-`./startup.sh install`, never by compose itself).
+**13 services, 2 networks, and 9 named volumes**. Seven volumes are external;
+two are Compose-managed, including the attribute Celery SQLite broker.
 
 | Service | Image | Host port | Network(s) | Role |
 |---|---|---|---|---|
@@ -37,6 +37,7 @@ One `docker-compose.yml` at the repo root defines the whole stack:
 | `bedrock-proxy` | built from `docker/bedrock-proxy/` | — | dmac-cc-net | holds the Bedrock token; model-allowlist auth proxy (container name `dmac-bedrock-proxy`) |
 | `nextseek-sidecar` | built from `docker/ns-sidecar/` | — | dmac-cc-net | NS sidecar for the CC agent (healthchecked) |
 | `cc-agent` | built from `docker/cc-runtime/` → `dmac-assistant:poc` | — | none | **build-target only** — never runs as a service; per-turn agent containers are spawned from this image by the app via the docker socket |
+| `attribute_mutation_worker` / `attribute_mutation_dispatcher` / `attribute_mutation_recovery_scheduler` | shared `nextseek-nextseek:latest` app image | — | default | durable attribute execution, outbox dispatch, and recovery processes |
 
 Key facts every operator must internalize:
 
@@ -61,6 +62,13 @@ Key facts every operator must internalize:
   `NEXTSEEK_SERVER=gunicorn` explicitly in `docker/nextseek.env` on every
   deployment unless you have decided otherwise; under gunicorn the chat UI
   uses HTTP polling for progress (no WebSocket).
+- Asynchronous attribute mutations use Celery's SQLAlchemy transport over
+  SQLite at `/var/lib/attribute-broker/broker.sqlite3`. The worker and outbox
+  dispatcher share the named `attribute_mutation_broker` volume. Routine
+  `./startup.sh rebuild` recreation preserves and reattaches it; image rollback
+  tags and GHCR do **not** contain or back up broker data. `./startup.sh reset`
+  deletes volumes by design and therefore deletes this broker unless the
+  operator separately preserves it.
 
 ---
 
@@ -71,9 +79,9 @@ Key facts every operator must internalize:
    silently lost on the next recreate, and it makes the running system
    diverge from git. If you are testing an ephemeral patch, say so out loud,
    and rebuild the image before calling anything done.
-2. **Take a rollback tag before every image rebuild** (§5). Verify it exists
-   afterwards (`docker image inspect`). An unverified rollback plan is not a
-   rollback plan.
+2. **Take a rollback tag before every image rebuild** (§5). The rebuild CLI
+   creates and identity-verifies these tags before building and aborts if it
+   cannot. An unverified rollback plan is not a rollback plan.
 3. **mysqldump gate:** before any deploy whose commit range includes a Django
    migration, dump the affected table(s) (or the `dmac` schema) first (§5.3).
 4. **Scope your recreation.** Recreate only the service(s) whose image or
@@ -155,8 +163,9 @@ docker compose up -d --no-deps --force-recreate nextseek
 
 **7. Before exposing to anyone you don't trust:** work through
 [`NExtSTEPS.md`](NExtSTEPS.md) — rotate `demo`/`user` passwords, MySQL and
-Neo4j credentials, ensure `DJANGO_DEBUG` stays **unset** (the code treats
-ANY non-empty value — including the string `False` — as debug-on), configure
+Neo4j credentials, ensure `DJANGO_DEBUG` stays **unset** (the code enables
+debug only for `1`, `true` or `yes`, case-insensitive and whitespace-stripped;
+anything else, including absent/empty/`false`, is debug-off), configure
 `ALLOWED_HOSTS`/CSRF, and put a TLS-terminating reverse proxy in front
 (nginx here serves plain HTTP on `127.0.0.1:${NEXTSEEK_PORT:-8000}`; TLS is
 out of scope of this repo).
@@ -212,71 +221,68 @@ git fetch origin dev
 git log --oneline HEAD..origin/dev     # review what you are about to ship
 git merge --ff-only origin/dev
 
-# 2. Pre-deploy gates:
+# 2. Pre-deploy gate:
 #    a. Migration check — does the range add migrations?
 git diff --name-only HEAD@{1} HEAD -- '*migrations*'
 #       If yes: mysqldump gate first (§5.3).
-#    b. Rollback tag the CURRENT image before it is replaced:
-docker tag nextseek-nextseek:latest nextseek-nextseek:pre-<short-change-name>
-docker image inspect nextseek-nextseek:pre-<short-change-name> --format '{{.Id}}'  # verify
 
-# 3. Rebuild what changed. For the common case (app change) PREFER the CLI —
-#    it also auto-pushes the §5.2 off-box rollback baseline to GHCR:
-./startup.sh rebuild                               # app change (the common case)
-#    Granular builds when other images changed:
-docker compose -p nextseek build cc-agent          # ALSO, if docker/cc-runtime/** changed
-docker compose -p nextseek build bedrock-proxy     # only if docker/bedrock-proxy/** changed
-docker compose -p nextseek build nextseek-sidecar  # only if docker/ns-sidecar/** changed
+# 3. Rebuild exactly what changed. Each verb first creates+verifies local
+#    rollback tags, then builds, recreates long-running targets with
+#    --no-deps --force-recreate, and attempts the §5.2 GHCR baseline:
+./startup.sh rebuild                               # app cohort (common case)
+./startup.sh rebuild --component cc-agent          # docker/cc-runtime/**
+./startup.sh rebuild --component bedrock-proxy     # docker/bedrock-proxy/**
+./startup.sh rebuild --component nextseek-sidecar  # docker/ns-sidecar/**
+./startup.sh rebuild --component custom-stack      # every first-party image
+#    cc-agent is build-only: the next chat turn uses the new image; there is no
+#    persistent agent container. The app cohort is nextseek + all three
+#    attribute worker/dispatcher/recovery runtimes sharing its image.
+#    The worker and dispatcher reattach the existing
+#    attribute_mutation_broker SQLite volume; rebuild does not remove or renew
+#    that volume.
 
-# 4. Recreate ONLY the rebuilt long-running service(s) (`./startup.sh rebuild`
-#    already recreated nextseek; after raw compose builds do it yourself):
-docker compose -p nextseek up -d --no-deps --force-recreate nextseek
-#    (cc-agent is a build-target: the NEXT chat turn picks up the new image
-#     automatically — nothing to restart. Recreate proxy/sidecar only if you
-#     rebuilt them.)
-#    If you rebuilt nextseek WITHOUT `./startup.sh rebuild`, the off-box
-#    baseline was NOT pushed — `./startup.sh doctor` will flag it; run
-#    `./startup.sh rebuild` next time or push per §5.2.
-
-# 5. Watch the boot (entrypoint runs collectstatic → DB probe → migrate):
+# 4. Watch the boot (entrypoint runs collectstatic → DB probe → migrate):
 docker logs -f nextseek        # until gunicorn workers are up; no FAILED markers
 
-# 6. Run the §6 verification checklist. Record results.
+# 5. Run the §6 verification checklist. Record results.
 ```
 
 ### 3.2 What change needs what action
 
 | You changed | Required action |
 |---|---|
-| Python / templates / anything baked (`nextseek_api/`, `chat_nextseek/`, `seek/`, `dmac/` except `local_settings.py`) | rebuild `nextseek` + recreate |
+| Python / templates / anything baked (`nextseek_api/`, `chat_nextseek/`, `seek/`, `dmac/` except `local_settings.py`) | `./startup.sh rebuild` — rebuild shared app image; recreate web + attribute runtimes |
 | `static/` assets | rebuild + recreate, **then** `docker compose exec nextseek uv run manage.py collectstatic --noinput` |
 | `chat_frontend/` React source | `npm run build:embedded` in `chat_frontend/`, commit the emitted assets, then rebuild + recreate + collectstatic |
-| `docker/cc-runtime/**` (agent plugin/skills/CLAUDE.md/deps) | `docker compose build cc-agent` — next turn uses it; no service restart |
+| `docker/cc-runtime/**` (agent plugin/skills/CLAUDE.md/deps) | `./startup.sh rebuild --component cc-agent` — next turn uses it; no service restart |
 | `docker/nextseek.env` / `dmac/local_settings.py` (config only) | no build: `docker compose up -d --no-deps --force-recreate nextseek` |
-| `docker/bedrock-proxy/**` or its secret env | `docker compose up -d --build --force-recreate bedrock-proxy` |
-| `docker/ns-sidecar/**` | `docker compose up -d --build --force-recreate nextseek-sidecar` |
+| `docker/bedrock-proxy/**` or its secret env | `./startup.sh rebuild --component bedrock-proxy` |
+| `docker/ns-sidecar/**` | `./startup.sh rebuild --component nextseek-sidecar` |
+| More than one first-party image family | run each affected component, or `--component custom-stack` |
 | A Django migration (in the range) | mysqldump gate (§5.3) → rebuild + recreate (migrate runs at boot) → verify with `showmigrations` |
 
 ### 3.3 If the deploy clone is owned by a different account
 
-On shared servers the deploy clone (build context) may be owned by a service
-account while operators work from their own accounts without sudo. All reads,
-writes, and compose commands against the deploy clone then go through a
-helper container that acts as the owning uid + the docker group:
+On shared servers the installed runtime checkout may be owned by a service
+account or carry unrelated operator-owned files. Do not stash, discard, or
+bake those files. Fast-forward that checkout to the exact deployed
+`origin/dev`, create a separate clean detached worktree at the same SHA, and
+use it only as the image source:
 
 ```bash
-SA=<absolute path to the deploy clone>
-docker run --rm --user <owner-uid>:<docker-gid> -e HOME=/tmp \
-  -v /var/run/docker.sock:/var/run/docker.sock -v "$SA":"$SA" -w "$SA" \
-  docker:cli docker compose -p nextseek build nextseek
+git fetch origin dev
+git worktree add --detach <clean-path> origin/dev
+./startup.sh rebuild --source-tree <clean-path>
 ```
 
-Sync the deploy clone from a working clone with a fast-forward-only fetch
-(run inside the same helper pattern, using an image that has git):
-`git fetch <working-clone-path> <branch> && git merge --ff-only FETCH_HEAD`
-(needs `git config --global --add safe.directory '*'` and
-`-c protocol.file.allow=always` inside the helper). Never edit the deploy
-clone in place; never commit from it.
+The CLI proves the source is clean and exactly `origin/dev`, proves the
+runtime checkout is at the same commit, and refuses dirty runtime deployment
+controls (`docker-compose.yml` and `startup/`). It builds from the clean tree
+but recreates services from the installed runtime checkout, so `outputs/`,
+`logs/`, local settings, and other existing bind mounts retain their original
+host paths. A helper container acting as the owning uid may still be required
+to fast-forward or invoke the service-account checkout; never edit or commit
+from that checkout.
 
 ---
 
@@ -315,8 +321,9 @@ rollback.
 
 ### 5.2 Tag conventions and their care
 
-- `nextseek-nextseek:pre-<short-change-name>` — per-deploy safety tag
-  (created in §3.1 step 2b).
+- `<local-repository>:pre-<timestamp>-<sha>` — per-deploy safety tag created
+  and identity-verified automatically before the rebuild CLI replaces an app,
+  agent, sidecar, or proxy image.
 - A long-lived known-good baseline tag (historically
   `nextseek-nextseek:dev-rollback`) should always exist on a deploy host.
   **If you find a host with no baseline tag** (it has happened — tags have
@@ -335,10 +342,12 @@ rollback.
   runtime environment (i.e. real secrets) in the image config. Only push
   images produced by `docker build` / `docker compose build`, whose env is
   injected at runtime and never baked.
-- **Automated off-box baseline (startup CLI):** `./startup.sh rebuild` on the
-  canonical instance automatically runs the pre-push gate below on the fresh
-  image, tags it `ghcr.io/biomicrocenter/nextseek:baseline-<YYYYMMDD>-<sha>`,
-  pushes it to the private org package, and logs docker out again. The step
+- **Automated off-box baselines (startup CLI):** every rebuild component on
+  the canonical instance runs the pre-push gate below on each fresh image,
+  tags it `baseline-<YYYYMMDD>-<sha>` in its private org package, pushes it,
+  and logs docker out again. Destinations are `nextseek`,
+  `nextseek-cc-agent`, `nextseek-sidecar`, and `nextseek-bedrock-proxy` under
+  `ghcr.io/biomicrocenter/`. The step
   **never fails the deploy**: missing/expired credentials, a gate failure, or
   a registry error each print an unmissable banner with the fix, are recorded
   in `startup/.ghcr-push-state.json` (gitignored), and stay red in

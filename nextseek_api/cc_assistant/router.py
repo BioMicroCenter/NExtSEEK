@@ -1,33 +1,29 @@
 """Per-turn route selection for the additive assistant.
 
-Wraps dmac_assistant's BAML ``RouterAgent`` (the intelligent toggle between the
-deterministic NExtSEEK pipeline and the sandboxed Container-Claude-Code path)
-and adapts it to NExtSEEK's synchronous daemon-worker context.
-
-Two robustness layers on top of dmac's router:
-
-1. dmac's ``RouterAgent`` already falls back to ``ContainerCC/Sonnet`` on any
-   BAML failure (sentinel reasoning ``<router_unavailable>``). But "everything
-   to CC" is wrong for plain lookups (e.g. "Find me all mice treated with
-   NDMA"), so when we detect that sentinel — or any import/runtime failure — we
-   apply a keyword **heuristic** instead.
-2. All dmac imports are lazy and guarded, so a vendoring / uv-sync hiccup can
-   never stop Django from booting; the route just falls back to the heuristic.
-
-Routes returned: ``"nextseek_query"`` (NS) or ``"container_cc"`` (CC).
+Wraps dmac_assistant's BAML classifier and router with Plan 018 V4-6 split:
+classification (family only) is separate from routing (destination/model).
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 try:
     from .router_context import HistoryTurn
 except ImportError:
     from router_context import HistoryTurn
+
+from nextseek_api.cc_assistant import posterior_selector
+from nextseek_api.cc_assistant import transport_trace
+from nextseek_api.cc_assistant.baml_introspect import declared_family_members, validate_member
+from nextseek_api.cc_assistant.family_labels import (
+    corpus_snapshot,
+    runtime_type_builder,
+    type_builder,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +32,6 @@ ROUTE_CC = "container_cc"
 ROUTE_UNRELATED = "unrelated"
 _FALLBACK_SENTINEL = "<router_unavailable>"
 
-# OI-4 (ports dmac_assistant/ws.py): a query the BAML router classifies as
-# `unrelated` never reaches NS or CC — the caller emits this fixed reply instead.
 UNRELATED_CANNED_TEXT = (
     "I'm the NExtSEEK research assistant for the MIT BioMicro Center. I can "
     "help with the lab's samples, projects, studies, sequencing and other "
@@ -46,7 +40,6 @@ UNRELATED_CANNED_TEXT = (
     "your lab's samples, projects, or data."
 )
 
-# Keyword heuristic used only when BAML routing is unavailable.
 _CC_PATTERNS = re.compile(
     r"\b(write|refactor|script|code|debug|implement|plot|chart|"
     r"summari[sz]e|read|open|file|/data/|walk me through|generate a (python|shell|sql))\b",
@@ -62,19 +55,23 @@ _NS_PATTERNS = re.compile(
 
 @dataclass(frozen=True)
 class RouteDecision:
-    route: str                 # ROUTE_NS | ROUTE_CC | ROUTE_UNRELATED
-    model_class: str | None    # "opus" | "sonnet" | "haiku" | None
-    model_id: str | None       # Bedrock-qualified id for the CC route
+    route: str
+    model_class: str | None
+    model_id: str | None
     reasoning: str
-    # Who decided. "baml"/"heuristic" are set here; "forced"/"pipeline"/"sticky"
-    # are set by _decide_route in nextseek_api/services/cc_assistant.py.
-    source: str                # "baml" | "heuristic" | "forced" | "pipeline" | "sticky"
+    source: str
+    task_family: str | None = None
+    family_source: str | None = None
+    generation_id: int | None = None
+    generation_hash: str = ""
+    attempted_route: str | None = None
+    attempted_source: str | None = None
 
 
 def _build_context_dir() -> Path | None:
-    """Locate the vendored router config dir (BASE_DIR/dmac_assistant/build_context)."""
     try:
         from django.conf import settings
+
         base = Path(settings.BASE_DIR)
     except Exception:
         base = Path(__file__).resolve().parents[2]
@@ -88,6 +85,7 @@ def _resolve_model_id(model_class_key: str | None) -> str | None:
     ctx = _build_context_dir()
     try:
         from dmac_assistant.router.models import load_model_class_map
+
         path = (ctx / "router_model_class_map.json") if ctx else None
         mapping = load_model_class_map(path=path)
         return mapping.get(model_class_key.lower())
@@ -97,12 +95,9 @@ def _resolve_model_id(model_class_key: str | None) -> str | None:
 
 
 def _resolve_cc_model_id() -> str | None:
-    """OI-5 / audit B1: the CC route ALWAYS runs the single auto-mode Opus tier —
-    the ONLY model the Bedrock auth-proxy allowlists. Pin it via resolve_cc_model()
-    so a router model_class of sonnet/haiku (or the heuristic's old sonnet default)
-    can never reach the proxy and get a 403."""
     try:
         from dmac_assistant.router.models import resolve_cc_model
+
         return resolve_cc_model()
     except Exception as exc:  # noqa: BLE001
         logger.warning("CC router: opus model-id resolution failed (%s)", type(exc).__name__)
@@ -138,39 +133,45 @@ def _heuristic(query: str) -> RouteDecision:
 
 
 def _load_router_deps():
-    """Import dmac router deps — seam for hermetic tests."""
     from dmac_assistant.router.agent import RouterAgent
-    from dmac_assistant.router.capabilities import load_capabilities
+    from dmac_assistant.router.baml_client import b
     from dmac_assistant.router.baml_client.types import Route
+    from dmac_assistant.router.capabilities import load_capabilities
 
-    return RouterAgent, load_capabilities, Route
+    transport_trace.install_transport_hooks(b)
+    return RouterAgent, load_capabilities, Route, b
 
 
-def _baml_decision(
-    query: str, history: list[HistoryTurn] | None = None
-) -> RouteDecision | None:
-    """Try dmac's BAML router. Return None to signal 'use the heuristic'."""
-    try:
-        RouterAgent, load_capabilities, Route = _load_router_deps()
-    except Exception as exc:  # noqa: BLE001
-        logger.info("CC router: dmac BAML router unavailable (%s); using heuristic", type(exc).__name__)
-        return None
+def _history_to_baml(history: list[HistoryTurn] | None, Route):
+    from dmac_assistant.router.baml_client.types import HistoryTurn as BamlHistoryTurn
 
-    ctx = _build_context_dir()
-    try:
-        caps = load_capabilities(path=(ctx / "route_capabilities.json") if ctx else None)
-        agent = RouterAgent(capabilities=caps)
-        decision = asyncio.run(agent.route(query, history=history or []))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("CC router: BAML route() failed (%s); using heuristic", type(exc).__name__)
-        return None
+    out = []
+    for turn in history or []:
+        router_choice = None
+        if turn.router_choice == ROUTE_CC:
+            router_choice = Route.ContainerCC
+        elif turn.router_choice == ROUTE_NS:
+            router_choice = Route.NextseekQuery
+        elif turn.router_choice == ROUTE_UNRELATED:
+            router_choice = Route.Unrelated
+        out.append(
+            BamlHistoryTurn(
+                position=turn.position,
+                user_message=turn.user_message,
+                assistant_reply=turn.assistant_reply,
+                router_choice=router_choice,
+                status=turn.status,
+                error=turn.error,
+                result_count=turn.result_count,
+                sample_uids=list(turn.sample_uids or []),
+            )
+        )
+    return out
 
+
+def _route_from_baml(decision, Route) -> RouteDecision | None:
     if decision.reasoning == _FALLBACK_SENTINEL:
-        # dmac's own fallback fired; prefer our heuristic over its CC default.
         return None
-
-    # 3-route world: NextseekQuery -> NS; ContainerCC -> CC; Unrelated -> a canned
-    # out-of-scope reply (OI-4 — never reaches NS or CC; the caller emits the text).
     if decision.route == Route.ContainerCC:
         route = ROUTE_CC
     elif decision.route == Route.Unrelated:
@@ -179,8 +180,6 @@ def _baml_decision(
         route = ROUTE_NS
     return RouteDecision(
         route=route,
-        # CC always Opus (proxy-allowlisted); the BAML model_class is not used to
-        # pick the CC model id (OI-5).
         model_class="opus" if route == ROUTE_CC else None,
         model_id=_resolve_cc_model_id() if route == ROUTE_CC else None,
         reasoning=decision.reasoning or "baml",
@@ -188,11 +187,126 @@ def _baml_decision(
     )
 
 
-def decide(
-    query: str, history: list[HistoryTurn] | None = None
-) -> RouteDecision:
-    """Return the route decision for a user query (BAML-first, heuristic fallback)."""
-    decision = _baml_decision(query, history)
-    if decision is not None:
-        return decision
+def _classify_query(query: str, history: list[HistoryTurn] | None = None) -> tuple[str | None, str | None, str]:
+    """Return (task_family, family_source, reasoning). None family on failure/unrelated."""
+    try:
+        _, _, Route, b = _load_router_deps()
+        from dmac_assistant.router.baml_client.types import ClassificationInput
+
+        snap = corpus_snapshot()
+        allowed = declared_family_members(type_builder(snap))
+        builder = runtime_type_builder(snap)
+        request = ClassificationInput(user_query=query, history=_history_to_baml(history, Route))
+        decision = asyncio.run(b.ClassifyQuery(input=request, baml_options={"tb": builder}))
+        label = getattr(decision.task_family, "value", decision.task_family) if decision.task_family else None
+        if label is None:
+            return None, None, decision.reasoning or "unrelated"
+        if not validate_member(str(label), allowed):
+            return None, None, f"invalid family label {label!r}"
+        return str(label), "baml", decision.reasoning or "baml"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: classification failed (%s)", type(exc).__name__)
+        return None, None, str(exc)
+
+
+def _route_query(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision | None:
+    try:
+        RouterAgent, load_capabilities, Route, b = _load_router_deps()
+        from dmac_assistant.router.baml_client.types import RouterInput
+
+        ctx = _build_context_dir()
+        caps = load_capabilities(path=(ctx / "route_capabilities.json") if ctx else None)
+        agent = RouterAgent(capabilities=caps)
+        # RouterAgent.route uses internal RouteQuery; use traced b directly for observation.
+        request = RouterInput(
+            user_query=query,
+            routes=caps,
+            history=_history_to_baml(history, Route),
+        )
+        decision = asyncio.run(b.RouteQuery(input=request))
+        return _route_from_baml(decision, Route)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: RouteQuery failed (%s)", type(exc).__name__)
+        return None
+
+
+def _legacy_decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
+    routed = _route_query(query, history)
+    if routed is not None:
+        return routed
     return _heuristic(query)
+
+
+def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
+    try:
+        snap = corpus_snapshot()
+        # Validate the source-derived recipe before any provider transport.
+        # The generated runtime builder is constructed in _classify_query and
+        # passed to that exact BAML call.
+        type_builder(snap)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: corpus/typebuilder invalid pre-transport (%s)", type(exc).__name__)
+        routed = _route_query(query, history)
+        decision = routed if routed is not None else _heuristic(query)
+        return replace(
+            decision,
+            task_family=None,
+            family_source=None,
+            reasoning=f"pre-transport invalid: {exc}; {decision.reasoning}",
+        )
+
+    task_family, family_source, classify_reason = _classify_query(query, history)
+    if task_family is None and "unrelated" in (classify_reason or "").lower():
+        return RouteDecision(
+            route=ROUTE_UNRELATED,
+            model_class=None,
+            model_id=None,
+            reasoning=classify_reason,
+            source="baml",
+            task_family=None,
+            family_source=None,
+        )
+
+    if task_family is None:
+        routed = _route_query(query, history)
+        decision = routed if routed is not None else _heuristic(query)
+        return replace(
+            decision,
+            task_family=None,
+            family_source=None,
+            reasoning=f"classification failed: {classify_reason}; {decision.reasoning}",
+        )
+
+    try:
+        selected = posterior_selector.select_route(task_family)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: posterior selection failed (%s)", type(exc).__name__)
+        selected = None
+    if selected is not None:
+        return RouteDecision(
+            route=selected.route,
+            model_class="opus" if selected.route == ROUTE_CC else None,
+            model_id=_resolve_cc_model_id() if selected.route == ROUTE_CC else None,
+            reasoning=selected.reasoning,
+            source="posterior",
+            task_family=task_family,
+            family_source=family_source,
+            generation_id=selected.generation_id,
+            generation_hash=selected.generation_hash,
+        )
+
+    routed = _route_query(query, history)
+    decision = routed if routed is not None else _heuristic(query)
+    return replace(
+        decision,
+        task_family=task_family,
+        family_source=family_source,
+        reasoning=f"posterior fallback: {decision.reasoning}",
+    )
+
+
+def decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
+    """Return the route decision for a user query."""
+    if posterior_selector.posterior_routing_enabled():
+        return _posterior_enabled_decide(query, history)
+    return _legacy_decide(query, history)

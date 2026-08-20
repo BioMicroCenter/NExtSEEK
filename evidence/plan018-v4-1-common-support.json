@@ -1,0 +1,251 @@
+{
+  "schema": "plan018-v4-1-common-support/v1",
+  "recorded_at": "2026-08-11T15:00:29Z",
+  "definitions": {
+    "pair_count": "pairs in set3_final with family == f",
+    "both_route_support_count": "pairs with both cc and ns arm objects present",
+    "common_support": "same as both_route_support_count for V4-1 within-run sense",
+    "status_supported": "both_route_support_count > 0",
+    "status_fallback": "zero pairs or zero both-route support"
+  },
+  "global": {
+    "sum_pair_counts": 149,
+    "expected_pairs": 149,
+    "arm_objects_counted": 298,
+    "expected_arms": 298,
+    "families_with_pairs": 25,
+    "families_with_both_route_support": 25,
+    "families_zero_pairs": [
+      "engine_routing",
+      "route_overrides",
+      "turn_evaluation_and_retry"
+    ]
+  },
+  "per_family": [
+    {
+      "family": "artifact_delivery",
+      "pair_count": 2,
+      "both_route_support_count": 2,
+      "common_support": 2,
+      "either_route_count": 2,
+      "status": "supported"
+    },
+    {
+      "family": "batch_upload_preparation",
+      "pair_count": 5,
+      "both_route_support_count": 5,
+      "common_support": 5,
+      "either_route_count": 5,
+      "status": "supported"
+    },
+    {
+      "family": "catalog_browse",
+      "pair_count": 6,
+      "both_route_support_count": 6,
+      "common_support": 6,
+      "either_route_count": 6,
+      "status": "supported"
+    },
+    {
+      "family": "cc_sandbox_contract",
+      "pair_count": 4,
+      "both_route_support_count": 4,
+      "common_support": 4,
+      "either_route_count": 4,
+      "status": "supported"
+    },
+    {
+      "family": "cross_session_memory",
+      "pair_count": 3,
+      "both_route_support_count": 3,
+      "common_support": 3,
+      "either_route_count": 3,
+      "status": "supported"
+    },
+    {
+      "family": "engine_routing",
+      "pair_count": 0,
+      "both_route_support_count": 0,
+      "common_support": 0,
+      "either_route_count": 0,
+      "status": "evidence_free_or_indecisive_fallback"
+    },
+    {
+      "family": "entity_write",
+      "pair_count": 3,
+      "both_route_support_count": 3,
+      "common_support": 3,
+      "either_route_count": 3,
+      "status": "supported"
+    },
+    {
+      "family": "followup_over_results",
+      "pair_count": 9,
+      "both_route_support_count": 9,
+      "common_support": 9,
+      "either_route_count": 9,
+      "status": "supported"
+    },
+    {
+      "family": "graph_traversal",
+      "pair_count": 13,
+      "both_route_support_count": 13,
+      "common_support": 13,
+      "either_route_count": 13,
+      "status": "supported"
+    },
+    {
+      "family": "harmonization",
+      "pair_count": 8,
+      "both_route_support_count": 8,
+      "common_support": 8,
+      "either_route_count": 8,
+      "status": "supported"
+    },
+    {
+      "family": "lineage_tree",
+      "pair_count": 11,
+      "both_route_support_count": 11,
+      "common_support": 11,
+      "either_route_count": 11,
+      "status": "supported"
+    },
+    {
+      "family": "pipeline_launch",
+      "pair_count": 6,
+      "both_route_support_count": 6,
+      "common_support": 6,
+      "either_route_count": 6,
+      "status": "supported"
+    },
+    {
+      "family": "pipeline_output_reingest",
+      "pair_count": 2,
+      "both_route_support_count": 2,
+      "common_support": 2,
+      "either_route_count": 2,
+      "status": "supported"
+    },
+    {
+      "family": "project_summary_report",
+      "pair_count": 7,
+      "both_route_support_count": 7,
+      "common_support": 7,
+      "either_route_count": 7,
+      "status": "supported"
+    },
+    {
+      "family": "retrieval_path_selection",
+      "pair_count": 4,
+      "both_route_support_count": 4,
+      "common_support": 4,
+      "either_route_count": 4,
+      "status": "supported"
+    },
+    {
+      "family": "route_overrides",
+      "pair_count": 0,
+      "both_route_support_count": 0,
+      "common_support": 0,
+      "either_route_count": 0,
+      "status": "evidence_free_or_indecisive_fallback"
+    },
+    {
+      "family": "sample_retrieve",
+      "pair_count": 7,
+      "both_route_support_count": 7,
+      "common_support": 7,
+      "either_route_count": 7,
+      "status": "supported"
+    },
+    {
+      "family": "sample_search",
+      "pair_count": 18,
+      "both_route_support_count": 18,
+      "common_support": 18,
+      "either_route_count": 18,
+      "status": "supported"
+    },
+    {
+      "family": "search_refinement",
+      "pair_count": 7,
+      "both_route_support_count": 7,
+      "common_support": 7,
+      "either_route_count": 7,
+      "status": "supported"
+    },
+    {
+      "family": "session_lifecycle",
+      "pair_count": 2,
+      "both_route_support_count": 2,
+      "common_support": 2,
+      "either_route_count": 2,
+      "status": "supported"
+    },
+    {
+      "family": "submission_package",
+      "pair_count": 5,
+      "both_route_support_count": 5,
+      "common_support": 5,
+      "either_route_count": 5,
+      "status": "supported"
+    },
+    {
+      "family": "system_capability_question",
+      "pair_count": 6,
+      "both_route_support_count": 6,
+      "common_support": 6,
+      "either_route_count": 6,
+      "status": "supported"
+    },
+    {
+      "family": "turn_delivery_and_trace",
+      "pair_count": 2,
+      "both_route_support_count": 2,
+      "common_support": 2,
+      "either_route_count": 2,
+      "status": "supported"
+    },
+    {
+      "family": "turn_evaluation_and_retry",
+      "pair_count": 0,
+      "both_route_support_count": 0,
+      "common_support": 0,
+      "either_route_count": 0,
+      "status": "evidence_free_or_indecisive_fallback"
+    },
+    {
+      "family": "turn_limits_and_failure",
+      "pair_count": 2,
+      "both_route_support_count": 2,
+      "common_support": 2,
+      "either_route_count": 2,
+      "status": "supported"
+    },
+    {
+      "family": "unsupported",
+      "pair_count": 5,
+      "both_route_support_count": 5,
+      "common_support": 5,
+      "either_route_count": 5,
+      "status": "supported"
+    },
+    {
+      "family": "vocabulary_resolution",
+      "pair_count": 7,
+      "both_route_support_count": 7,
+      "common_support": 7,
+      "either_route_count": 7,
+      "status": "supported"
+    },
+    {
+      "family": "writes_unsupported",
+      "pair_count": 5,
+      "both_route_support_count": 5,
+      "common_support": 5,
+      "either_route_count": 5,
+      "status": "supported"
+    }
+  ],
+  "gate": "PASS"
+}

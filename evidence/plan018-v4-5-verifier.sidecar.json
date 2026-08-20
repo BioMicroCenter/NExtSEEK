@@ -1,0 +1,120 @@
+{
+  "schema": "plan018-v4-5-verifier/v1",
+  "gate": "PASS",
+  "checks_passed": 22,
+  "checks_total": 22,
+  "errors": [],
+  "checks": [
+    {
+      "name": "migration_0015_exists",
+      "pass": true,
+      "detail": "/repo/nextseek_api/migrations/0015_v4_5_generation_audit_and_turn_pin.py"
+    },
+    {
+      "name": "risk_overlay_exists",
+      "pass": true,
+      "detail": "/repo/nextseek_api/cc_assistant/risk_overlay.py"
+    },
+    {
+      "name": "may_reroute_only_false",
+      "pass": true,
+      "detail": "False,False,False,False,False,False"
+    },
+    {
+      "name": "evidence_plan018-v4-5-phase0-publish.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-5-phase0-publish.json"
+    },
+    {
+      "name": "plan018-v4-5-phase0-publish.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-5-prereq.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-5-prereq.json"
+    },
+    {
+      "name": "plan018-v4-5-prereq.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "evidence_plan018-v4-5-remediation-lane-c.sidecar.json",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-5-remediation-lane-c.sidecar.json"
+    },
+    {
+      "name": "plan018-v4-5-remediation-lane-c.sidecar.json_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "realstore_sidecar_exists",
+      "pass": true,
+      "detail": "/repo/evidence/plan018-v4-5-realstore.sidecar.json"
+    },
+    {
+      "name": "realstore_gate_pass",
+      "pass": true,
+      "detail": "PASS"
+    },
+    {
+      "name": "mysql_isolation_documented",
+      "pass": true,
+      "detail": "REPEATABLE-READ"
+    },
+    {
+      "name": "realstore_oracles_complete",
+      "pass": true,
+      "detail": "all"
+    },
+    {
+      "name": "cas_uses_empty_active_hash",
+      "pass": true,
+      "detail": "token"
+    },
+    {
+      "name": "validate_before_activate",
+      "pass": true,
+      "detail": "wired"
+    },
+    {
+      "name": "rollback_helper",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "name": "turn_pin",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "name": "publish_abort_hook",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "name": "activation_abort_hook",
+      "pass": true,
+      "detail": "present"
+    },
+    {
+      "name": "publish_no_band_from_status",
+      "pass": true,
+      "detail": "absent"
+    },
+    {
+      "name": "no_stale_test_settings_lane_m",
+      "pass": true,
+      "detail": "absent"
+    },
+    {
+      "name": "negative_validation_fails",
+      "pass": true,
+      "detail": "('hash: content hash does not match stored generation_hash', 'compatibility: taxonomy_version does not match current corpus')"
+    }
+  ],
+  "paid_or_live_resources_used": false
+}

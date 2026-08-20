@@ -208,6 +208,8 @@ startup/.ghcr-push-state.json
 
 # Generated BAML router client (regenerate via baml-cli generate --from dmac_assistant/baml_src)
 dmac_assistant/src/dmac_assistant/router/baml_client/
+# Second generators.baml target (e2e judge client); Task 12 04-baml-setup bind-mounts it.
+dmac_assistant/tools/e2e/baml_client/
 
 # Local design specs + plans (working docs, not part of the public repo).
 # Excluded level-by-level so a single file can be re-included below; git will not descend
@@ -235,3 +237,9 @@ startup/seed/filestore.tar.gz
 # tree is ~325M per run. They are deliverables, not source, and a `git add -A`
 # that swept one in would be very hard to undo.
 nessie_bayes_*/
+
+# graphify knowledge-graph output: ~62MB per build, of which graph.json alone is
+# ~29MB. Regenerable from the tree at any time (`/graphify . --update`), so it is
+# a local index, not source — and a `git add -A` that swept it in would be hard
+# to undo on a repo this widely forked.
+graphify-out/

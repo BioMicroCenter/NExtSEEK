@@ -1,0 +1,22 @@
+{
+  "attempt_id": "88b26361-e467-4cff-9978-2a5eb71ca281",
+  "arm_id": "path.recount_dseq_from_scratch::cc",
+  "call_index": 1,
+  "input_fingerprint": "5d3f8d41b3797180bfbe50f8ac973c4688d5d30b7d79be39dbf6c1601a881a89",
+  "model_id": "gemini-3.1-pro-preview",
+  "prompt_version": "functional_evaluator.baml:DD-22",
+  "evaluator_version": "plan018-v4-9-human-comparison-v1",
+  "provider_request_id": null,
+  "started_at": "2026-08-13T14:54:04Z",
+  "ended_at": "2026-08-13T14:54:04Z",
+  "retry_of": null,
+  "token_input": null,
+  "token_output": null,
+  "cost_usd": null,
+  "status": "succeeded",
+  "error_class": null,
+  "request_sha256": "e76006d9580117ef1106f6a946cac962e8c7cc0c35b7cc9a6fd3ba3ceabc206e",
+  "response_sha256": "eaa06326f3c355c19ef0cf0c6c7b275a2e680bb8aa74bff112a39ac4aa99b02f",
+  "request_path": "payloads/e7/e76006d9580117ef1106f6a946cac962e8c7cc0c35b7cc9a6fd3ba3ceabc206e",
+  "response_path": "payloads/ea/eaa06326f3c355c19ef0cf0c6c7b275a2e680bb8aa74bff112a39ac4aa99b02f"
+}

@@ -1,0 +1,301 @@
+{# Task-17 — Combined HiBayes evaluator HTML report (3-tab, posterior.json-driven).
+   D1: ONE shared template; no per-axis partials.
+   D8: charts limited to posterior.json data (posterior-mean + risk).
+   D5: forest plot only on artifact + functional tabs; conditional render.
+   CSS design system + content vocabulary copied from
+   `hibayes_runtime_reliability/templates/hibayes_runtime_report.html.j2`
+   (lines 8-110) per spec section 6.2. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiBayes Evaluator — Combined Report</title>
+{# Inline 1x1 transparent favicon (data: URI) so file:// and http:// previews
+   never produce a spurious favicon 404 in console. Required by §8.3 zero-error
+   condition. #}
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=" type="image/png">
+<script src="{{ chartjs_cdn }}"></script>
+<style>
+:root {
+    --bg: #FFFFFF;
+    --surface: #F8F6FC;
+    --surface-alt: #F0EDF5;
+    --text: #1a1a2e;
+    --text-muted: #6b7280;
+    --text-light: #9ca3af;
+    --accent: #A31F34;
+    --accent-light: #c8102e;
+    --success: #22c55e;
+    --success-light: #dcfce7;
+    --warning: #f59e0b;
+    --warning-light: #fef3c7;
+    --error: #ef4444;
+    --error-light: #fee2e2;
+    --border: #e5e7eb;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+    margin: 0; padding: 32px;
+    background: var(--surface); color: var(--text);
+    font-family: var(--font); font-size: 14px; line-height: 1.55;
+}
+h1 { margin: 0 0 4px 0; font-size: 22px; }
+h2 { margin: 0 0 12px 0; font-size: 18px; color: var(--text); font-weight: 600; }
+.container { max-width: 1280px; margin: 0 auto; }
+.header {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; margin-bottom: 20px;
+}
+.header-meta {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 16px; margin-top: 16px;
+}
+.metric {
+    background: var(--surface-alt);
+    padding: 12px 16px; border-radius: 8px;
+    border-left: 3px solid var(--accent);
+}
+.metric-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.metric-value { font-size: 22px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.metric-note { font-size: 11px; color: var(--text-muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.run-meta { font-size: 12px; color: var(--text-muted); margin-top: 12px; font-family: var(--font-mono); }
+.charts {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;
+}
+.chart-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; height: 280px; position: relative;
+}
+.table-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+    margin-bottom: 20px;
+}
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td {
+    padding: 10px 12px; text-align: left; vertical-align: top;
+    border-bottom: 1px solid var(--border);
+}
+th {
+    background: var(--surface);
+    font-weight: 600; color: var(--text-muted);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.diag-img { display: block; max-width: 100%; height: auto; margin-top: 8px; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pill.ok { background: var(--success-light); color: #166534; }
+.pill.fail { background: var(--error-light); color: #991b1b; }
+.pill.warn { background: var(--warning-light); color: #92400e; }
+.pill.muted { background: var(--surface-alt); color: var(--text-muted); }
+.num { font-variant-numeric: tabular-nums; text-align: right; }
+.placeholder {
+    background: var(--warning-light); border: 1px solid var(--warning);
+    color: #78350f; border-radius: 12px; padding: 16px 20px;
+}
+footer { color: var(--text-light); font-size: 11px; margin-top: 24px; text-align: center; }
+
+/* Tab control (NEW — runtime template has none). */
+.tab-control {
+    display: flex;
+    gap: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 6px;
+    margin-bottom: 20px;
+}
+.tab-trigger {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    padding: 10px 16px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 120ms ease, color 120ms ease;
+}
+.tab-trigger:hover { background: var(--surface); color: var(--text); }
+.tab-trigger.is-active {
+    background: var(--accent);
+    color: #fff;
+}
+.tab-panel { display: none; }
+.tab-panel.is-active { display: block; }
+
+@media (max-width: 900px) {
+    .charts, .header-meta { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="header">
+    <h1>HiBayes Evaluator — Combined Report</h1>
+    <div class="run-meta">Three-axis posterior summary: runtime reliability, artifact validity, functional usefulness.</div>
+</header>
+
+{# === Tab control (3 triggers) ============================================ #}
+<div class="tab-control" role="tablist">
+    <button type="button" class="tab-trigger is-active" data-tab="runtime" role="tab">Runtime Reliability</button>
+    <button type="button" class="tab-trigger" data-tab="artifact" role="tab">Artifact Validity</button>
+    <button type="button" class="tab-trigger" data-tab="functional" role="tab">Functional Usefulness</button>
+</div>
+
+{# === Reusable per-axis panel macro ======================================= #}
+{% macro render_axis_panel(axis, axis_key, is_active) %}
+<section class="tab-panel{% if is_active %} is-active{% endif %}" data-tab-panel="{{ axis_key }}" role="tabpanel">
+{% if axis is none %}
+    <div class="placeholder">
+        <h2>NOT AVAILABLE</h2>
+        <p>No <code>posterior.json</code> was found for this axis. Re-run
+        <code>make hibayes-axes</code> after resolving the upstream stage failure.</p>
+    </div>
+{% else %}
+    <header class="header">
+        <h2>{{ axis.axis_heading }}</h2>
+        <div class="run-meta">
+            Model: <code>{{ axis.model }}</code> — σ<sub>group</sub> = {{ axis.prior_sigma_group_scale }}
+            {% if axis.metadata.run_id %} — run: <code>{{ axis.metadata.run_id }}</code>{% endif %}
+            {% if axis.metadata.axis_input_csv %} — input: <code>{{ axis.metadata.axis_input_csv }}</code>{% endif %}
+        </div>
+        <div class="header-meta">
+            <div class="metric">
+                <div class="metric-label">Families</div>
+                <div class="metric-value">{{ axis.metrics.family_count }}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Total n</div>
+                <div class="metric-value">{{ axis.metrics.total_n }}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Reliable / Watch</div>
+                <div class="metric-value">{{ axis.metrics.band_counts.Reliable }} / {{ axis.metrics.band_counts.Watch }}</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Brittle / TooUncertain</div>
+                <div class="metric-value">{{ axis.metrics.band_counts.Brittle }} / {{ axis.metrics.band_counts.TooUncertain }}</div>
+            </div>
+        </div>
+    </header>
+
+    <section class="charts">
+        <div class="chart-card"><canvas id="posteriorMeanChart-{{ axis_key }}"></canvas></div>
+        <div class="chart-card"><canvas id="riskChart-{{ axis_key }}"></canvas></div>
+    </section>
+
+    <div class="table-card">
+    <table>
+    <thead>
+        <tr>
+            <th>task_family</th>
+            <th>band</th>
+            <th class="num">n_total</th>
+            <th class="num">posterior_mean</th>
+            <th class="num">posterior_median</th>
+            <th class="num">hdi_low</th>
+            <th class="num">hdi_high</th>
+            <th class="num">p_success_lt_strong</th>
+            <th class="num">p_success_lt_acceptable</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in axis.strata %}
+        <tr>
+            <td>{{ r.task_family }}</td>
+            <td><span class="{{ r.pill_class }}">{{ r.band }}</span></td>
+            <td class="num">{{ r.n_total|dash_for_none }}</td>
+            <td class="num">{{ r.posterior_mean|pct }}</td>
+            <td class="num">{{ r.posterior_median|pct }}</td>
+            <td class="num">{{ r.hdi_low|pct }}</td>
+            <td class="num">{{ r.hdi_high|pct }}</td>
+            <td class="num">{{ r.p_success_lt_strong|pct }}</td>
+            <td class="num">{{ r.p_success_lt_acceptable|pct }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+    </table>
+    </div>
+
+    {% if axis.plot_inlines %}
+    <section class="charts" style="margin-top:20px;">
+        {# D5: forest plot only on artifact + functional tabs. Enforced by the
+           data layer — _build_axis_context skips forest_plot.png if it is not
+           present on disk under the axis's plots_dir, so plot_inlines never
+           carries a forest_plot entry on the runtime axis. #}
+        {% for plot in axis.plot_inlines %}
+        <div class="chart-card" style="height:auto;">
+            <h3 style="margin-top:0;">{{ plot.label }}</h3>
+            <img class="diag-img" alt="{{ plot.label }}" src="data:image/png;base64,{{ plot.b64 }}">
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+{% endif %}
+</section>
+{% endmacro %}
+
+{{ render_axis_panel(runtime, "runtime", True) }}
+{{ render_axis_panel(artifact, "artifact", False) }}
+{{ render_axis_panel(functional, "functional", False) }}
+
+<script>
+(function () {
+    // ----- Tab switching (vanilla; no external dep) -------------------------
+    var triggers = document.querySelectorAll(".tab-trigger");
+    var panels = document.querySelectorAll(".tab-panel");
+    triggers.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            var key = btn.getAttribute("data-tab");
+            triggers.forEach(function (t) { t.classList.remove("is-active"); });
+            panels.forEach(function (p) { p.classList.remove("is-active"); });
+            btn.classList.add("is-active");
+            var panel = document.querySelector('[data-tab-panel="' + key + '"]');
+            if (panel) { panel.classList.add("is-active"); }
+        });
+    });
+
+    // ----- Chart.js setup per axis -----------------------------------------
+    var axisChartData = {
+        "runtime": {{ runtime_chart_data_json }},
+        "artifact": {{ artifact_chart_data_json }},
+        "functional": {{ functional_chart_data_json }}
+    };
+    Object.keys(axisChartData).forEach(function (axis) {
+        var data = axisChartData[axis];
+        if (data === null) { return; }
+        var pmEl = document.getElementById("posteriorMeanChart-" + axis);
+        if (pmEl) {
+            new Chart(pmEl, {
+                type: "bar",
+                data: {
+                    labels: data.posteriorMean.families,
+                    datasets: [{ label: "posterior mean", data: data.posteriorMean.values }]
+                },
+                options: { plugins: { title: { display: true, text: "Posterior mean by family" } }, scales: { y: { min: 0, max: 1 } } }
+            });
+        }
+        var riskEl = document.getElementById("riskChart-" + axis);
+        if (riskEl) {
+            new Chart(riskEl, {
+                type: "bar",
+                data: {
+                    labels: data.risk.families,
+                    datasets: [{ label: "P(success<acceptable)", data: data.risk.values }]
+                },
+                options: { plugins: { title: { display: true, text: "Risk: P(success<acceptable_floor)" } }, scales: { y: { min: 0, max: 1 } } }
+            });
+        }
+    });
+})();
+</script>
+
+<footer>HiBayes evaluator combined report (DMAC Assistant) — task-17</footer>
+</div>
+</body>
+</html>

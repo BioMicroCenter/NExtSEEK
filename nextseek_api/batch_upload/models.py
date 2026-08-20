@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .helpers import parse_protocol_value
+
 try:
     import orjson
 
@@ -42,7 +44,6 @@ def _minify_json_string(json_value: Union[str, dict]) -> str:
 
 
 _ASSAY_ID_RE = re.compile(r"\d+")
-_SOP_URL_RE = re.compile(r"/sops/(\d+)")
 
 
 # ── 1. SampleTypeDescription ──────────────────────────────────────────────
@@ -244,13 +245,22 @@ class InputRowModel(BaseModel):
                 raise ValueError("UID column does not match json_metadata.UID")
 
             # 2) SOP consistency if sop_id provided and Protocol encodes SOP
+            #
+            # This is VALIDATION, not resolution: it stays purely syntactic (no
+            # DB), so it can only compare two integers. It shares
+            # parse_protocol_value only to agree with the ingest path on what
+            # "the Protocol encodes a SOP id" means. Two consequences, both
+            # intended:
+            #   * a title-shaped Protocol carries no id, so there is nothing to
+            #     disagree with — ingest resolves it by title later;
+            #   * an id in a FOREIGN SOP URL (fairdomhub.org/sops/795, 1,855
+            #     live values) is not in our sops table, so comparing it to a
+            #     local sop_id would reject perfectly good rows.
             if self.sop_id is not None:
                 protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
-                m = _SOP_URL_RE.search(str(protocol_val))
-                if m:
-                    parsed = int(m.group(1))
-                    if int(self.sop_id) != parsed:
-                        raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
+                parsed = parse_protocol_value(protocol_val).sop_id
+                if parsed is not None and int(self.sop_id) != parsed:
+                    raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
 
         # 3) assay_titles length consistency if provided
         if self.assay_titles is not None:
@@ -377,11 +387,42 @@ class Metrics(BaseModel):
     rels_created: int = 0
     rels_matched: int = 0
     eligible_children: int = 0
+    # Children whose metadata names a parent UID that matches no row in
+    # `samples`, so no edge could even be BUILT for it. Complements
+    # derived_from_rels_dropped below, which is the other half of the same
+    # loss: the row was built and the graph had no node to hang it on.
     skipped_children_missing_parents: int = 0
     derived_from_rels_created: int = 0
+    # Same reasoning as in_study_rels_dropped: rows whose Sample node did not
+    # exist are dropped by the MERGE's double MATCH with no error. The
+    # attempted half is already `rels_input` above, so only the shortfall is
+    # new; a caller can now check created + dropped == rels_input without
+    # reading the log.
+    derived_from_rels_dropped: int = 0
+    # Parent-changed children whose stored json_metadata could not be read, so
+    # the stale-edge delete declined to run for them at all. The third loss
+    # class in this family and counted for the same reason as the other two:
+    # the delete quietly not happening is indistinguishable from a clean run,
+    # and it leaves a removed parent's edge in the graph.
+    parent_changed_children_skipped_unreadable: int = 0
     of_type_rels_created: int = 0
     in_study_rels_created: int = 0
+    # #44: IN_STUDY rows whose Sample or Study node did not exist are dropped by the
+    # MERGE's MATCH with no error. `attempted - created` is the only evidence, so it
+    # is recorded rather than inferred, and the drop count also lands in
+    # in_study_warnings so an existing reader of that field sees it.
+    in_study_rels_attempted: int = 0
+    in_study_rels_dropped: int = 0
     in_study_warnings: int = 0
+    # Children whose json_metadata Protocol named no SOP, so their DERIVED_FROM
+    # edge carries no protocol. Same reasoning as in_study_rels_dropped above:
+    # a silent null is indistinguishable from "this sample has no protocol",
+    # so it is counted rather than inferred.
+    protocols_unresolved: int = 0
+    # Protocol values pointing at a SOP hosted elsewhere. Counted apart from
+    # protocols_unresolved because these are fine: the edge correctly has no
+    # LOCAL protocol, and folding them together would bury the real failures.
+    protocols_external_links: int = 0
     sample_type_nodes_created: int = 0
     study_nodes_created: int = 0
     investigation_nodes_created: int = 0
@@ -747,7 +788,10 @@ class BatchUploadError(BaseModel):
     ValidationResult. ``row`` and ``uid`` locate the offending row when the
     error is attributable to one; both are None for whole-file or stage-level
     errors. The internal RowError additionally carries ``severity``, which is
-    not surfaced here.
+    not surfaced here — so an entry in this list does NOT by itself mean the
+    sheet failed. ``ValidationResult.valid`` is computed from the severities
+    before this projection drops them (see ``validation._has_blocking_error``);
+    WARNING/INFO entries are advisory and are reported on valid sheets too.
     """
     type: str = Field(..., description="ErrorType enum value, e.g. 'VALIDATION_ATTRIBUTE_NAME'.")
     message: str = Field(..., description="Human-readable error message.")
@@ -856,8 +900,16 @@ class ValidationResult(BatchUploadResult):
     See ALSO the existing dataclass ``BatchResult`` (this module) — different
     concept; it is INSERT-stage internal state, not a pipeline result.
     """
-    valid: bool = Field(..., description="True iff `errors` is empty AND `totals.error` is None.")
-    summary: str = Field(..., description="One-line human summary, e.g. '2 distinct errors (5 total)' or 'No issues'.")
+    valid: bool = Field(
+        ...,
+        description=(
+            "True iff no collected entry carried a blocking severity "
+            "(ERROR/CRITICAL; WARNING and INFO do not block) AND `totals.error` "
+            "is None AND `totals.failed` is 0. A valid sheet may still list "
+            "advisory entries in `errors` — e.g. a parent UID not yet uploaded."
+        ),
+    )
+    summary: str = Field(..., description="One-line human summary, e.g. '2 distinct errors (5 total)', 'No blocking errors (3 non-blocking issues)' or 'No issues'.")
     checks_run: List[str] = Field(..., description="Validation stages that executed for this request.")
     checks_skipped: List[str] = Field(default_factory=list, description="Stages NOT requested via the `checks` parameter.")
     error_groups: List[BatchUploadErrorGroup] = Field(

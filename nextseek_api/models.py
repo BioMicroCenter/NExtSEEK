@@ -1,6 +1,11 @@
 from django.db import models
 
 from .assistant.models_db import ChatSession, QueryTask  # noqa: F401
+from .attributes.models_async import AttributeOutboxDispatcherHeartbeat  # noqa: F401
+from .attributes.models_db import (  # noqa: F401
+    AttributeMutationJob,
+    AttributeMutationPartition,
+)
 
 # Pydantic models for API request/response validation (JSON:API + SOPs)
 from typing import Any, Dict, List, Optional, Literal, Union, Callable

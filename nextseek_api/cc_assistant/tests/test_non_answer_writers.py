@@ -1,12 +1,8 @@
 """F §12.3: non-answer entries, terminal tracker (AR-1-safe: no closure shadow),
 first-error-wins, exactly-once predicate for all site classes."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "chat_nextseek" / "src"))
-
-import cc_turn_complete as ctc
 from chat_nextseek.chat_memory import validate_chat_log_entry
+
+from nextseek_api.cc_assistant import cc_turn_complete as ctc
 
 
 def test_non_answer_entry_shape_unrelated():

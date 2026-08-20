@@ -1,0 +1,38 @@
+{
+  "schema": "plan018-v4-1-closeout/v1",
+  "recorded_at": "2026-08-11T15:00:29Z",
+  "gate": "PASS",
+  "artifacts": {
+    "v13a": "plan018-v4-1-v13a-verify.json",
+    "inventory": "plan018-v4-1-family-inventory.json",
+    "common_support": "plan018-v4-1-common-support.json",
+    "report": "plan018-v4-1-report.md"
+  },
+  "summary": {
+    "declared_families": 28,
+    "pairs": 149,
+    "arms": 298,
+    "families_supported": 25,
+    "families_evidence_free": [
+      "engine_routing",
+      "route_overrides",
+      "turn_evaluation_and_retry"
+    ]
+  },
+  "next_gate": "V4-2",
+  "artifact_sha256": {
+    "plan018-v4-1-v13a-verify.json": "937eddb09e2f1b331b13885f6a931ca21a4a9415e9caf0320ca60f793c816de2",
+    "plan018-v4-1-family-inventory.json": "20f388ce3bf37eeac7d5395f5512f717dcc6ca6548dc0bae75b412b322254173",
+    "plan018-v4-1-common-support.json": "f830d125d9b4223aa1117ddb3da2116936615d4f444c2ba207b41b8e2ae8ee06",
+    "plan018-v4-1-report.md": "76efdb44aed944dce9b61a70f6c03e409ad5f83bb5982b3b592646b17159082d",
+    "plan018-v4-1-closeout.json": "0e197a803f3e1c89085d4442547ac28ea07519c13b769e4340c15a4ca0031db8",
+    "plan018-preflight.json": "e623df986f7b2fbf795896e4a38bab896f9e17f4de0d24060524aeb96e666cd0"
+  },
+  "living_plan_progress": {
+    "updated_at": "2026-08-11T15:00:47Z",
+    "path": "/home/taishajo/work/NExtSEEK-deploydocs/docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md",
+    "sha256_after_v4_1_close": "88a16d6f20bbeda50e77fbe583594e99d6fa730a802a8d0f5703eea0885aa5fa",
+    "published_sha256_v14": "af99a24b765f04330cf25b09c005a80002d175890f66743d2b2115b9b2f74a6e",
+    "note": "Progress markers only; not republished to origin/dev or registry"
+  }
+}

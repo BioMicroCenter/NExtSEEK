@@ -1,0 +1,171 @@
+{
+  "aggregate": {
+    "branch_pct": 98.2,
+    "branches": 556,
+    "covered_branches": 546,
+    "covered_lines": 1797,
+    "statement_pct": 99.3,
+    "statements": 1809
+  },
+  "critical_modules": [
+    "nessie_tests/bayes_manifest.py",
+    "nessie_tests/bayesian.py",
+    "nessie_tests/export.py",
+    "nextseek_api/eval/export.py",
+    "nextseek_api/eval/exporter.py",
+    "nextseek_api/eval/functional_inputs.py",
+    "nextseek_api/eval/artifact_validity_proposal.py",
+    "nextseek_api/eval/human_annotations.py",
+    "nextseek_api/eval/conservation.py",
+    "nextseek_api/eval/disposition.py",
+    "nextseek_api/eval/judge.py",
+    "nextseek_api/eval/judge_models.py",
+    "nextseek_api/eval/attempt_store.py",
+    "nextseek_api/eval/router_models_proposal.py",
+    "nextseek_api/eval/stage_c_runner.py"
+  ],
+  "errors": [],
+  "gate": "PASS",
+  "modules": {
+    "nessie_tests/bayes_manifest.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 8,
+      "covered_branches": 8,
+      "covered_lines": 40,
+      "statement_pct": 100.0,
+      "statements": 40
+    },
+    "nessie_tests/bayesian.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 95.8,
+      "branches": 24,
+      "covered_branches": 23,
+      "covered_lines": 57,
+      "statement_pct": 98.3,
+      "statements": 58
+    },
+    "nessie_tests/export.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 96.2,
+      "branches": 156,
+      "covered_branches": 150,
+      "covered_lines": 360,
+      "statement_pct": 97.3,
+      "statements": 370
+    },
+    "nextseek_api/eval/artifact_validity_proposal.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 90,
+      "covered_branches": 90,
+      "covered_lines": 202,
+      "statement_pct": 100.0,
+      "statements": 202
+    },
+    "nextseek_api/eval/attempt_store.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 96.2,
+      "branches": 26,
+      "covered_branches": 25,
+      "covered_lines": 110,
+      "statement_pct": 100.0,
+      "statements": 110
+    },
+    "nextseek_api/eval/conservation.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 97.4,
+      "branches": 38,
+      "covered_branches": 37,
+      "covered_lines": 128,
+      "statement_pct": 100.0,
+      "statements": 128
+    },
+    "nextseek_api/eval/disposition.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 96.9,
+      "branches": 32,
+      "covered_branches": 31,
+      "covered_lines": 72,
+      "statement_pct": 98.6,
+      "statements": 73
+    },
+    "nextseek_api/eval/export.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 10,
+      "covered_branches": 10,
+      "covered_lines": 41,
+      "statement_pct": 100.0,
+      "statements": 41
+    },
+    "nextseek_api/eval/exporter.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 50,
+      "covered_branches": 50,
+      "covered_lines": 237,
+      "statement_pct": 100.0,
+      "statements": 237
+    },
+    "nextseek_api/eval/functional_inputs.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 26,
+      "covered_branches": 26,
+      "covered_lines": 101,
+      "statement_pct": 100.0,
+      "statements": 101
+    },
+    "nextseek_api/eval/human_annotations.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 38,
+      "covered_branches": 38,
+      "covered_lines": 110,
+      "statement_pct": 100.0,
+      "statements": 110
+    },
+    "nextseek_api/eval/judge.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 18,
+      "covered_branches": 18,
+      "covered_lines": 57,
+      "statement_pct": 100.0,
+      "statements": 57
+    },
+    "nextseek_api/eval/judge_models.py": {
+      "branch_floor_applicable": false,
+      "branch_pct": null,
+      "branches": 0,
+      "covered_branches": 0,
+      "covered_lines": 84,
+      "statement_pct": 100.0,
+      "statements": 84
+    },
+    "nextseek_api/eval/router_models_proposal.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 24,
+      "covered_branches": 24,
+      "covered_lines": 133,
+      "statement_pct": 100.0,
+      "statements": 133
+    },
+    "nextseek_api/eval/stage_c_runner.py": {
+      "branch_floor_applicable": true,
+      "branch_pct": 100.0,
+      "branches": 16,
+      "covered_branches": 16,
+      "covered_lines": 65,
+      "statement_pct": 100.0,
+      "statements": 65
+    }
+  },
+  "ownership_map_sha256": "8550d6a0497578546536ec8216f2d53bb9d68aecff6f563a102a25cb564159df",
+  "raw_coverage_sha256": "4711ec919b47dce47979f01460ee11d4587d283163c8e8279c4b4d2c01af081b",
+  "schema": "plan018-v4-9-task2-coverage/v2",
+  "threshold_branch_pct": 95.0,
+  "threshold_statement_pct": 95.0
+}

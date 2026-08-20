@@ -109,6 +109,47 @@ def test_render_root_env_writes_compose_targeting_vars_only(tmp_path: Path) -> N
     }
 
 
+def test_render_root_env_writes_neo4j_password_when_given(tmp_path: Path) -> None:
+    """docker-compose.yml uses ${NEO4J_PASSWORD:?...}, which aborts every verb.
+
+    Compose resolves interpolation before it validates, so an unset value fails
+    `config` and `ps`, not just `up`. Nothing else writes this key, so if it is
+    absent here a bare `docker compose` cannot run at all.
+    """
+    repo = tmp_path / "repo"
+
+    render_root_env(
+        repo,
+        {"COMPOSE_PROJECT_NAME": "nextseek-test", "INSTANCE_PREFIX": "test-"},
+        neo4j_password="s3cret",
+    )
+
+    out = repo / ".env"
+    assert read_env(out) == {
+        "COMPOSE_PROJECT_NAME": "nextseek-test",
+        "INSTANCE_PREFIX": "test-",
+        "NEO4J_PASSWORD": "s3cret",
+    }
+    assert (out.stat().st_mode & 0o777) == 0o600
+
+
+def test_render_root_env_never_copies_a_secret_from_compose_env(tmp_path: Path) -> None:
+    """The password arrives as an explicit argument, never through the mapping.
+
+    Pins the filter itself: a credential that happens to be named NEO4J_PASSWORD
+    in the instance environment must still be ignored, so the only way this key
+    reaches .env is a caller that meant it.
+    """
+    repo = tmp_path / "repo"
+
+    render_root_env(
+        repo,
+        {"COMPOSE_PROJECT_NAME": "nextseek-test", "NEO4J_PASSWORD": "must-not-copy"},
+    )
+
+    assert read_env(repo / ".env") == {"COMPOSE_PROJECT_NAME": "nextseek-test"}
+
+
 def test_render_root_env_persists_db_port(tmp_path: Path) -> None:
     """.env is what a bare `docker compose` reads, so DB_PORT must land there.
 

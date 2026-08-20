@@ -1,0 +1,29 @@
+{
+  "schema": "plan018-v4-3-port-receipt/v1",
+  "recorded_at": "2026-08-11T19:36:20Z",
+  "source_ref": "dmac-assistant@dcca50c187890dc93659e5594810179793bb94eb",
+  "source_paths": [
+    "tools/e2e/functional_evaluator_models.py",
+    "tools/e2e/functional_evaluator.py",
+    "tests/test_functional_evaluator.py"
+  ],
+  "destination_files": [
+    {
+      "path": "nextseek_api/eval/judge_models.py",
+      "sha256": "7220a19340e71479a5dbe454c85987dd5db381870722f829577483e491fc536a",
+      "bytes": 3239
+    },
+    {
+      "path": "nextseek_api/eval/judge.py",
+      "sha256": "02f36a9fbed06fdd8249948b53330249a28148203d73390d7756724ee40027ff",
+      "bytes": 4707
+    },
+    {
+      "path": "nextseek_api/eval/tests/test_judge_aggregation.py",
+      "sha256": "e59ce73a704af87112494236922c02ba75c25929081365cca82ee3731891c9af",
+      "bytes": 3333
+    }
+  ],
+  "confidence_field_absent": true,
+  "paid_or_live_resources_used": false
+}

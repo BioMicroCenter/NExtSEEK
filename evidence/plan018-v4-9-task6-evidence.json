@@ -1,0 +1,71 @@
+{
+  "artifacts_sha256": {
+    "evidence/plan018-v4-9-task6-replay.json": "33232d5d410fa636962daa4a740a2f079667508707a055ac1a0e55b862c86324",
+    "evidence/plan018-v4-9-task6.junit.xml": "bf1c021a78f55bc865533be4ffc010d059797810c8a944795297317a26e42218"
+  },
+  "control_sha256": {
+    "docker/eval-task6/Dockerfile": "37fc68ae6ebdec6e56a31f98a6cb3272596d7aa9b58216850e45f80363fcd985",
+    "nextseek_api/assistant/task6_app.py": "89da14840dd1d0d8328f10fcc5ffd39f1975230c3844e0572ed16e139f6ec27b",
+    "nextseek_api/cc_assistant/posterior_selector.py": "1d5ff71916a2ae7408ae88de4383ab2906e2d9dbcfb5af66d859603928d7b9ac",
+    "nextseek_api/eval/attempt_store.py": "e64e55f5efe740f77fad4b7f9930dc843fbcc98c4491675bebc27c0809d386e8",
+    "nextseek_api/eval/fit/v14/combined.py": "d23bfae29860d0f262beea59d007f0bfb925b75a4bca9c05384e30d392731d86",
+    "nextseek_api/eval/generation_store.py": "e3ee1660da8c7cb3a7c2fffaf7b768df6f80cf9c0ca4b3f9e9540a4eb0c04432",
+    "nextseek_api/eval/human_grade_fit.py": "46cd904516951363af8ee6d64b4c75185beefd28ad02d8db92dbcff91d4cc5f5",
+    "nextseek_api/eval/judge.py": "c38374907f4384a3f2e627c76dff94b6aeb9774dbd602c4b6531b0aa7fb6d650",
+    "nextseek_api/eval/stage_c_runner.py": "35aeb539c7664f424a0141d7d2c1430510722935e10d43043576072bdb670b85",
+    "nextseek_api/eval/task6_replay.py": "e6c133da17f20ebc47fc0e954e2f9a0e5527e7814015ec1836db6c883679cee9",
+    "nextseek_api/eval/task6_settings.py": "e97e64025056d394a5ee0a9863fa9ac8276099408e4526bb87df4c0203209c8b",
+    "nextseek_api/eval/tests/test_v4_9_task6_replay.py": "c746f25ba20fa1a62301e1bf44206b5391558f1fbdedb44a1ac0cca809e3ee04",
+    "scripts/plan018_v4_9_task6_replay.py": "d90edc0412181fe303fc8cb5ee5b67ae0a5fccfa7b0d8dad0ffc52541d6dbcb4",
+    "scripts/test_plan018_v4_9_task6_replay.py": "c07311e178b37b6d1dd167238232e71472b59cf6f3521cca97ace9c351ac3c57"
+  },
+  "delivery": {
+    "MANIFEST.json": {
+      "sha256": "d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2",
+      "size": 2375457
+    },
+    "artifact_validity_set3_final.csv": {
+      "sha256": "7d8859bd206d1c932773cc1d2d0791341a3eb54bdbecc32ea250a58f1827f693",
+      "size": 44853
+    },
+    "testquestions.zip": {
+      "sha256": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
+      "size": 66473692
+    }
+  },
+  "execution_counts": {
+    "deselected": 0,
+    "errors": 0,
+    "failed": 0,
+    "passed": 1,
+    "skipped": 0,
+    "tests": 1,
+    "xfail": 0
+  },
+  "gate": "PASS",
+  "images": {
+    "application": {
+      "id": "sha256:704e0936c966a5e4121957104f236d111c251db0feb413aa2c8e8a5e3f7fa651",
+      "tag": "nextseek-nextseek:latest"
+    },
+    "eval": {
+      "id": "sha256:0045e7dbb3d020865cf76e92ab3eebecfc176558ec4a999a7a8b9bfed8d961ab",
+      "tag": "nextseek-eval:v4-4"
+    },
+    "task6_composite": {
+      "id": "sha256:5812f229b9d1dfa7c58345a400a373a94437f5f050ab5c4010077f96f231e04e",
+      "tag": "nextseek-eval:plan018-v4-9-task6"
+    }
+  },
+  "live_database_or_deployment_used": false,
+  "network": "none",
+  "new_paired_route_execution": false,
+  "provider_calls": 0,
+  "resource_cap": {
+    "cpus": 2,
+    "memory": "4g"
+  },
+  "schema": "plan018-v4-9-task6-evidence/v1",
+  "wall_cap_s": 300.0,
+  "wall_s": 48.996
+}

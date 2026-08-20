@@ -1,0 +1,13 @@
+{
+  "schema": "plan018-v4-5-phase0-publish/v1",
+  "recorded_at": "2026-08-12T16:05:00Z",
+  "gate": "PASS",
+  "worktree_branch": "ultraplan/hibayes-eval-routing",
+  "worktree_sha": "f515392bb53a01ca71141fd572c86ed66e88c91b",
+  "deploydocs_branch": "dev",
+  "deploydocs_sha": "2ec98a63",
+  "living_plan_sha256": "c23579cf183914a1b948df8ae637b3ab137290f66cfe51a0c2e62cdddb0416bb",
+  "registry_vault_sha256": "c23579cf183914a1b948df8ae637b3ab137290f66cfe51a0c2e62cdddb0416bb",
+  "summary": "V4-5 hermetic SDD authorized; living-plan Progress republished; deploydocs and vault synced.",
+  "paid_or_live_resources_used": false
+}

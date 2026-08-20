@@ -14,7 +14,7 @@ import logging
 import time
 from typing import List, Optional, Set
 
-from .errors import ErrorCollector, ErrorType
+from .errors import ErrorCollector, ErrorType, Severity
 from .models import (
     BatchUploadError,
     BatchUploadErrorGroup,
@@ -28,6 +28,19 @@ log = logging.getLogger(__name__)
 # The full set of validation stages a caller may request via ``checks``.
 # ``structure`` (CONVERT + attribute-name check) always runs.
 _ALL_CHECKS = ("structure", "name_check", "dag")
+
+# Severities that do NOT make a sheet invalid. Everything else blocks —
+# including any severity added to the enum later, so an unclassified entry
+# fails closed rather than quietly passing validation. This mirrors
+# ``classify_severity``, whose fallback for an unmapped ErrorType is ERROR.
+#
+# WARNING/INFO entries are still returned in ``errors[]``; they are advisory,
+# not defects. The motivating case (issue #105) is a child row naming a parent
+# that has not been uploaded yet: ``uid_gen`` deliberately preserves the token
+# and ``orphan_resolution`` reconciles the edge on a later upload, so a forward
+# reference is normal curation. Failing the sheet on it invites the curator to
+# "fix" it by deleting the reference, destroying the lineage.
+_NON_BLOCKING_SEVERITIES = frozenset({Severity.WARNING, Severity.INFO})
 
 
 def _plural(n: int) -> str:
@@ -62,6 +75,20 @@ def _project_errors(
         )
         for e in error_collector.all_errors()
     ]
+
+
+def _has_blocking_error(error_collector: ErrorCollector) -> bool:
+    """True if any collected entry carries a blocking severity.
+
+    ``severity`` lives on the internal ``RowError`` and is dropped by
+    :func:`_project_errors`, so this must read the collector, not the
+    projection. Called before the projection precisely so the information is
+    still available.
+    """
+    return any(
+        e.severity not in _NON_BLOCKING_SEVERITIES
+        for e in error_collector.all_errors()
+    )
 
 
 def _group_errors(errors: List[BatchUploadError]) -> List[BatchUploadErrorGroup]:
@@ -111,14 +138,38 @@ def _finalize(
     """Assemble a ValidationResult from pipeline output."""
     errors = _project_errors(error_collector, generated_uids)
     error_groups = _group_errors(errors)
-    valid = not errors and totals.error is None
+    # `valid` is decided by severity, read off the collector before the
+    # projection throws it away — NOT by ``errors`` being empty. ``errors``
+    # stays complete and uncapped either way; a warning-only sheet is valid and
+    # still reports every warning.
+    #
+    # ``totals.failed`` counts rows TRANSFORM could not build, and those block
+    # regardless of severity: ``_classify_validation_error`` grades a couple of
+    # genuine transform failures as WARNING/INFO (an unknown SampleType lands on
+    # VALIDATION_SAMPLE_TYPE = WARNING, unparseable metadata on VALIDATION_JSON
+    # = WARNING), and a sheet with rows that cannot be inserted is not valid.
+    valid = (
+        not _has_blocking_error(error_collector)
+        and totals.error is None
+        and totals.failed == 0
+    )
     n_err, n_grp = len(errors), len(error_groups)
-    if valid:
-        summary = "No issues"
-    elif not errors:
+    if not errors:
         # Pipeline aborted before any row-level error was collected
         # (totals.error carries the reason — e.g. "No valid rows after CONVERT").
-        summary = "Validation could not complete"
+        summary = "No issues" if valid else "Validation could not complete"
+    elif valid:
+        # Non-blocking entries only. "No issues" would be a lie — the entries
+        # are in ``errors[]`` and the UI renders them under an "Errors" heading
+        # — but "N errors found" next to a PASSED verdict reads as a failure and
+        # is what pushes a curator to delete a legitimate forward reference.
+        # Name the count, and say plainly that none of it blocks.
+        summary = (
+            f"No blocking errors ({n_grp} distinct non-blocking "
+            f"issue{_plural(n_grp)}, {n_err} total)"
+            if n_grp < n_err
+            else f"No blocking errors ({n_err} non-blocking issue{_plural(n_err)})"
+        )
     elif n_grp < n_err:
         # Many errors collapse into fewer distinct (type, message) groups.
         summary = f"{n_grp} distinct error{_plural(n_grp)} ({n_err} total)"

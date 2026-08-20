@@ -1,0 +1,27 @@
+{
+  "schema": "plan018-v4-9-task-ownership/v1",
+  "task_2": {
+    "critical_modules": [
+      "nessie_tests/bayes_manifest.py", "nessie_tests/bayesian.py", "nessie_tests/export.py",
+      "nextseek_api/eval/export.py", "nextseek_api/eval/exporter.py", "nextseek_api/eval/functional_inputs.py",
+      "nextseek_api/eval/artifact_validity_proposal.py", "nextseek_api/eval/human_annotations.py",
+      "nextseek_api/eval/conservation.py", "nextseek_api/eval/disposition.py", "nextseek_api/eval/judge.py",
+      "nextseek_api/eval/judge_models.py", "nextseek_api/eval/attempt_store.py",
+      "nextseek_api/eval/router_models_proposal.py", "nextseek_api/eval/stage_c_runner.py"
+    ],
+    "absent_owned_paths": {
+      "nextseek_api/eval/artifact_validity.py": "Task-7b future implementation; declared absent, cannot be covered",
+      "nextseek_api/eval/artifact_sources.py": "Task-7b future implementation; declared absent, cannot be covered"
+    }
+  },
+  "assignments": {
+    "nextseek_api/eval/paired_run.py": "Task 4 experimental/observational boundary",
+    "nextseek_api/eval/generation_store.py": "Task 3 store coverage",
+    "nextseek_api/eval/generation_validation.py": "Task 3 store coverage",
+    "nextseek_api/eval/publish.py": "Task 3 publication/activation",
+    "nextseek_api/eval/fit/": "Task 3 fitter/recovery",
+    "nextseek_api/eval/paid_run_state.py": "Task 4 spend/provider controls",
+    "nextseek_api/eval/paid_run_schedule.py": "Task 4 spend/provider controls",
+    "nextseek_api/eval/provider_gate.py": "Task 4 spend/provider controls"
+  }
+}

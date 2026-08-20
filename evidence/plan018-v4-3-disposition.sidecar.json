@@ -1,0 +1,17 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "A_host_hermetic",
+  "task": "V4-3-disposition",
+  "recorded_at": "2026-08-11T19:36:20Z",
+  "exit_status": 0,
+  "argv_note": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD uv run --no-project --with pytest --with pydantic --with orjson python -m pytest nextseek_api/eval/tests/test_disposition.py --noconftest -q -p no:cacheprovider",
+  "paths": [
+    "nextseek_api/eval/tests/test_disposition.py"
+  ],
+  "summary_lines": [
+    "7 passed, 1 warning in 0.24s"
+  ],
+  "paid_or_live_resources_used": false,
+  "log_sha256": "85a78187596e859a154196c3e5474875ccfc8d47830077a962e47fb2cc85a734",
+  "gate": "PASS"
+}

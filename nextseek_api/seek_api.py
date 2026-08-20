@@ -2,6 +2,8 @@ import requests
 
 from django.conf import settings
 
+from nextseek_api.helpers import basic_auth_header
+
 SEEK_API_BASE = settings.SEEK_URL
 SAMPLES_API_BASE = SEEK_API_BASE + "/samples/"
 PEOPLE_API_BASE = SEEK_API_BASE + "/people/"
@@ -11,15 +13,17 @@ HEADERS = {'Accept': 'application/json'}
 
 
 def call(auth, url, query_params=None):
+    # Basic auth is encoded here rather than passed as requests' auth= so a
+    # non-Latin-1 password doesn't raise UnicodeEncodeError. See
+    # nextseek_api.helpers.basic_auth_header.
+    headers = {**HEADERS, **basic_auth_header(auth)}
     if query_params is None:
         response = requests.get(url,
-                                auth=auth,
-                                headers=HEADERS)
+                                headers=headers)
     else:
         response = requests.get(url,
-                                auth=auth,
                                 params=query_params,
-                                headers=HEADERS)
+                                headers=headers)
     try:
         data = response.json()
         print(data)
@@ -31,9 +35,8 @@ def call(auth, url, query_params=None):
 
 def post_call(auth, url, data):
     response = requests.post(url,
-                             auth=auth,
                              json=data,
-                             headers=HEADERS)
+                             headers={**HEADERS, **basic_auth_header(auth)})
     try:
         data = response.json()
         print(data)

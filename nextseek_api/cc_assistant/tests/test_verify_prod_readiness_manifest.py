@@ -49,8 +49,11 @@ import pytest
 _SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "verify_prod_readiness_manifest.py"
 )
-_spec = importlib.util.spec_from_file_location("verify_prod_readiness_manifest", _SCRIPT_PATH)
+_spec = importlib.util.spec_from_file_location(
+    "nextseek_api.cc_assistant.scripts.verify_prod_readiness_manifest", _SCRIPT_PATH
+)
 vprm = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = vprm
 sys.modules["verify_prod_readiness_manifest"] = vprm
 _spec.loader.exec_module(vprm)
 
@@ -733,3 +736,207 @@ def test_cli_main_generate_with_from_json(tmp_path):
     assert rc == 0
     written = json.loads(out.read_text())
     assert written["merged_sha"] == MERGED_SHA
+
+
+def test_subprocess_wrappers_and_artifact_helpers(tmp_path, monkeypatch):
+    def git_ok(cmd, **kw):
+        return SimpleNamespace(stdout="abc\n", returncode=0, stderr="")
+
+    monkeypatch.setattr(vprm.subprocess, "run", git_ok)
+    assert vprm._git_rev_parse_head(tmp_path) == "abc"
+
+    monkeypatch.setattr(
+        vprm.subprocess, "run",
+        lambda *a, **k: SimpleNamespace(stdout="sha256:img\n", returncode=0, stderr=""),
+    )
+    assert vprm._docker_image_inspect("tag") == "sha256:img"
+    monkeypatch.setattr(
+        vprm.subprocess, "run",
+        lambda *a, **k: SimpleNamespace(stdout="", returncode=1, stderr="missing"),
+    )
+    assert vprm._docker_image_inspect("tag") is None
+    monkeypatch.setattr(
+        vprm.subprocess, "run",
+        lambda *a, **k: SimpleNamespace(stdout="   ", returncode=0, stderr=""),
+    )
+    assert vprm._docker_image_inspect("tag") is None
+
+    captured = {}
+
+    def capture(cmd, **kw):
+        captured["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(vprm.subprocess, "run", capture)
+    script = tmp_path / "s.py"
+    script.write_text("x")
+    vprm._run_full_ui_e2e_validate(script, tmp_path / "a.json", tmp_path / "run")
+    assert "--validate-only" in captured["cmd"]
+    vprm._run_survivals(script)
+    assert captured["cmd"][-1] == str(script)
+
+    ok, errs = vprm.verify(tmp_path / "missing.json", **_default_runners())
+    assert ok is False
+    assert any("unreadable" in e for e in errs)
+    bad = tmp_path / "bad.json"
+    bad.write_text("{")
+    ok, errs = vprm.verify(bad, **_default_runners())
+    assert any("not valid JSON" in e for e in errs)
+    not_obj = tmp_path / "arr.json"
+    not_obj.write_text("[]")
+    ok, errs = vprm.verify(not_obj, **_default_runners())
+    assert any("not a JSON object" in e for e in errs)
+
+    errs = []
+    assert vprm._check_file_artifact(errs, "ledger", "nope", MERGED_SHA) is None
+    assert vprm._check_file_artifact(errs, "ledger", {}, MERGED_SHA) is None
+    rec = {"path": str(tmp_path / "no-file"), "sha256": "x", "command": [], "exit_code": 1,
+           "candidate_sha": OTHER_SHA}
+    assert vprm._check_file_artifact(errs, "ledger", rec, MERGED_SHA) is None
+    art = tmp_path / "art.bin"
+    art.write_bytes(b"abc")
+    rec = {
+        "path": str(art), "sha256": "dead", "command": "not-a-list", "exit_code": 2,
+        "candidate_sha": OTHER_SHA,
+    }
+    p = vprm._check_file_artifact(errs, "ledger", rec, MERGED_SHA)
+    assert p == art
+    assert any("sha256 mismatch" in e for e in errs)
+
+    e2e_errs = []
+    assert vprm._check_e2e_run_dir(e2e_errs, "nope", MERGED_SHA) is None
+    assert vprm._check_e2e_run_dir(e2e_errs, {}, MERGED_SHA) is None
+    assert vprm._check_e2e_run_dir(e2e_errs, {"path": str(tmp_path / "missing-dir")}, MERGED_SHA) is None
+    rundir = tmp_path / "e2e-run"
+    rundir.mkdir()
+    rec = {
+        "path": str(rundir), "sha256": "x", "command": ["e2e"], "exit_code": 1,
+        "candidate_sha": OTHER_SHA, "approval_path": "a", "approval_sha256": "b",
+    }
+    assert vprm._check_e2e_run_dir(e2e_errs, rec, MERGED_SHA) is None
+    (rundir / "summary.json").write_text("{}")
+    rec["sha256"] = "dead"
+    rec["exit_code"] = 0
+    rec["candidate_sha"] = MERGED_SHA
+    assert vprm._check_e2e_run_dir(e2e_errs, rec, MERGED_SHA) is not None
+
+    assert vprm._known_image_ids("x") == set()
+    assert vprm._known_image_ids({"no": "path"}) == set()
+    assert vprm._known_image_ids({"path": str(tmp_path / "missing.json")}) == set()
+    junk = tmp_path / "prov.json"
+    junk.write_text("{")
+    assert vprm._known_image_ids({"path": str(junk)}) == set()
+    junk.write_text(json.dumps({"images": "nope"}))
+    assert vprm._known_image_ids({"path": str(junk)}) == set()
+    junk.write_text(json.dumps({"images": [{"image_id": "i1"}, "x"]}))
+    assert vprm._known_image_ids({"path": str(junk)}) == {"i1"}
+
+    lane_errs = []
+    vprm._check_lane_entries(lane_errs, "lane", "skips", "nope")
+    vprm._check_lane_entries(lane_errs, "lane", "skips", [{"no": "nodeid"}])
+    vprm._check_lane_entries(lane_errs, "lane", "skips", [{"nodeid": "t", "expected": False}])
+
+    sha_errs = []
+    vprm._verify_merged_sha(sha_errs, {"merged_sha": ""}, tmp_path, lambda r: MERGED_SHA)
+    vprm._verify_merged_sha(sha_errs, {"merged_sha": MERGED_SHA}, tmp_path, lambda r: (_ for _ in ()).throw(RuntimeError("git")))
+    vprm._verify_merge_parents(sha_errs, ["only-one"])
+    vprm._verify_merge_parents(sha_errs, ["not a sha", "also bad!!"])
+    vprm._verify_blocker_fix_shas(sha_errs, [])
+    vprm._verify_blocker_fix_shas(sha_errs, ["zzzzzzz"])
+    assert sha_errs
+
+
+def _artifact(tmp_path, name, payload, *, merged=MERGED_SHA, as_text=None):
+    p = tmp_path / name
+    raw = as_text if as_text is not None else json.dumps(payload)
+    p.write_text(raw)
+    return {
+        "path": str(p),
+        "sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+        "command": ["x"],
+        "exit_code": 0,
+        "candidate_sha": merged,
+    }
+
+
+def test_verify_helpers_malformed_content(tmp_path):
+    errs = []
+    vprm._verify_image_provenance(errs, {"image_provenance": _artifact(tmp_path, "p1.json", None, as_text="{")}, MERGED_SHA, lambda t: None)
+    vprm._verify_image_provenance(errs, {"image_provenance": _artifact(tmp_path, "p2.json", [])}, MERGED_SHA, lambda t: None)
+    vprm._verify_image_provenance(errs, {"image_provenance": _artifact(tmp_path, "p3.json", {"images": []})}, MERGED_SHA, lambda t: None)
+    vprm._verify_image_provenance(
+        errs,
+        {"image_provenance": _artifact(tmp_path, "p4.json", {"images": ["bad", {"tag": "t"}]})},
+        MERGED_SHA, lambda t: "id",
+    )
+    vprm._verify_lanes(errs, "nope", MERGED_SHA, None)
+    vprm._verify_lanes(errs, [_artifact(tmp_path, "l1.json", None, as_text="{")], MERGED_SHA, None)
+    vprm._verify_lanes(errs, [_artifact(tmp_path, "l2.json", [])], MERGED_SHA, None)
+    vprm._verify_lanes(errs, [_artifact(tmp_path, "l3.json", {"collected": []})], MERGED_SHA, None)
+    lane = {
+        k: [] for k in vprm._LANE_CONTENT_KEYS
+    }
+    lane["collected"] = []
+    lane["source_sha"] = OTHER_SHA
+    lane["failures"] = "nope"
+    lane["image_id"] = "unknown"
+    lane["db_identity"] = "nope"
+    rec = _artifact(tmp_path, "l4.json", lane)
+    vprm._verify_lanes(errs, [rec], MERGED_SHA, _artifact(tmp_path, "prov.json", {"images": [{"image_id": "i1"}]}))
+    lane2 = dict(lane)
+    lane2["collected"] = ["n1"]
+    lane2["source_sha"] = MERGED_SHA
+    lane2["failures"] = [{"nodeid": "x"}]
+    lane2["skips"] = []
+    lane2["xfails"] = []
+    lane2["deselected"] = []
+    vprm._verify_lanes(errs, [_artifact(tmp_path, "l5.json", lane2)], MERGED_SHA, None)
+
+    vprm._verify_secret_scans(errs, None, MERGED_SHA, None)
+    vprm._verify_secret_scans(errs, [_artifact(tmp_path, "s1.json", None, as_text="{")], MERGED_SHA, None)
+    vprm._verify_secret_scans(errs, [_artifact(tmp_path, "s2.json", [])], MERGED_SHA, None)
+    scan = {
+        "image_tag": "t", "image_id": "x", "categories": "nope",
+        "export_member_count": 0, "scanned_bytes": 0, "command": ["c"], "exit_code": 1,
+    }
+    rec_s = _artifact(tmp_path, "s3.json", scan)
+    rec_s["exit_code"] = 0
+    vprm._verify_secret_scans(errs, [rec_s], MERGED_SHA, None)
+    vprm._verify_secret_scans(errs, [_artifact(tmp_path, "s4.json", {"image_tag": "t"})], MERGED_SHA, None)
+
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m1.json", None, as_text="{"), MERGED_SHA)
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m2.json", []), MERGED_SHA)
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m3.json", {"required_tables": []}), MERGED_SHA)
+    mig = {k: [] for k in vprm._MIGRATION_CONTENT_KEYS}
+    mig["required_tables"] = ["t1"]
+    mig["present_tables"] = []
+    mig["migration_0007_present"] = False
+    mig["foreign_keys"] = "x"
+    mig["charset_equality"] = ["bad"]
+    mig["second_migrate_output"] = "still dirty"
+    mig["error_log_excerpt"] = "error 3780"
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m4.json", mig), MERGED_SHA)
+    mig2 = dict(mig)
+    mig2["foreign_keys"] = [{"present": False}]
+    mig2["charset_equality"] = [{"child_charset": "a", "parent_charset": "b", "child_table": "c", "parent_table": "p"}]
+    vprm._verify_migration_evidence(errs, _artifact(tmp_path, "m5.json", mig2), MERGED_SHA)
+
+    rundir = tmp_path / "e2e"
+    rundir.mkdir()
+    (rundir / "summary.json").write_text("{}")
+    approval = tmp_path / "approval.json"
+    approval.write_text("{}")
+    rec_e = {
+        "path": str(rundir),
+        "sha256": hashlib.sha256(b"{}").hexdigest(),
+        "command": ["e2e"],
+        "exit_code": 0,
+        "candidate_sha": MERGED_SHA,
+        "approval_path": str(tmp_path / "missing-approval.json"),
+        "approval_sha256": "dead",
+    }
+    vprm._verify_e2e(errs, {"e2e_run_dir": rec_e, "e2e_approval_sha256": "nope"}, MERGED_SHA, tmp_path / "s.py", lambda *a: SimpleNamespace(returncode=1, stderr="boom"))
+    rec_e["approval_path"] = str(approval)
+    rec_e["approval_sha256"] = "dead"
+    vprm._verify_e2e(errs, {"e2e_run_dir": rec_e, "e2e_approval_sha256": "nope"}, MERGED_SHA, tmp_path / "s.py", lambda *a: SimpleNamespace(returncode=1, stderr="boom"))
+    assert errs

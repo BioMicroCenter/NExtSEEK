@@ -1,0 +1,30 @@
+{
+  "schema": "plan018-v4-4-remediation-closeout/v1",
+  "recorded_at": "2026-08-12T23:30:00Z",
+  "worktree_sha": "3c6a17e246633883b299a497841b5a00c4229e8f",
+  "gate": "PASS",
+  "prior_cold_review": "FAIL (2026-08-12 pre-remediation)",
+  "cold_review_after_remediation": "PASS (evidence/plan018-v4-4-cold-outcome-review.md)",
+  "ruling_b": "evidence/plan018-v4-4-v14b-amendment.json",
+  "summary": {
+    "eval_unit_tests_passed": 30,
+    "product_tests_passed": 28,
+    "verifier_checks_passed": 13,
+    "recovery_mcmc_gate": "PASS",
+    "recovery_slots": 40,
+    "recovery_wrong_direction": 0,
+    "recovery_diagnostics_failures": 0,
+    "recovery_wall_s": 633.1,
+    "mcmc_config": "num_warmup=600 num_samples=2000 num_chains=2 (one bump from 300/500 baseline)"
+  },
+  "artifacts": {
+    "recovery_mcmc": "evidence/plan018-v4-4-recovery-mcmc.json",
+    "recovery_feasibility": "evidence/plan018-v4-4-recovery-feasibility.json",
+    "matrix_refreeze": "evidence/plan018-v4-4-matrix-refreeze.md",
+    "verifier": "evidence/plan018-v4-4-verifier.sidecar.json",
+    "product_tests_log": "evidence/plan018-v4-4-remediation-product-tests.log",
+    "sdd_review": "evidence/plan018-v4-4-sdd-final-review.md"
+  },
+  "next_gate": "V4-5 pending maintainer authorization after cold PASS",
+  "paid_or_live_resources_used": false
+}

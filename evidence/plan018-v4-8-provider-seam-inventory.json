@@ -1,0 +1,43 @@
+{
+  "schema": "plan018-v4-8-provider-seam-inventory/v1",
+  "recorded_at": "2026-08-18T16:37:17Z",
+  "status": "complete",
+  "derivation": "ast_source_scan",
+  "classification_rules": {
+    "paid_run_gated": "Eval/judge paid-run paths that must call guarded_provider_call before transport",
+    "online_chat_out_of_v48_scope": "Live chat BAML router/classifier \u2014 V4-6/V11; not forced through eval run manifests"
+  },
+  "seams": [
+    {
+      "name": "guarded_provider_call:nextseek_api/eval/judging_engine.py:121",
+      "path": "nextseek_api/eval/judging_engine.py",
+      "line": 121,
+      "classification": "paid_run_gated",
+      "wired": true
+    },
+    {
+      "name": "transport_invoke:nextseek_api/eval/judging_engine.py:116",
+      "path": "nextseek_api/eval/judging_engine.py",
+      "line": 116,
+      "classification": "paid_run_gated",
+      "wired": true
+    },
+    {
+      "name": "router__classify_query:nextseek_api/cc_assistant/router.py:190",
+      "path": "nextseek_api/cc_assistant/router.py",
+      "line": 190,
+      "classification": "online_chat_out_of_v48_scope",
+      "wired": false,
+      "cite": "V4-6 call table; V11 at-time approval for live chat provider"
+    },
+    {
+      "name": "router__route_query:nextseek_api/cc_assistant/router.py:212",
+      "path": "nextseek_api/cc_assistant/router.py",
+      "line": 212,
+      "classification": "online_chat_out_of_v48_scope",
+      "wired": false,
+      "cite": "V4-6 call table; V11 at-time approval for live chat provider"
+    }
+  ],
+  "v4_4_debt_claim_void": "plan018-v4-4-debt-closeout.json V4-8 reservation PASS is non-authoritative scaffolding only"
+}

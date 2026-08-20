@@ -1,0 +1,12 @@
+{
+  "schema": "plan018-v4-5-snapshot/v1",
+  "gate": "PASS",
+  "lane": "C",
+  "settings_module": "dmac.test_settings",
+  "tests": [
+    "nextseek_api/cc_assistant/tests/test_generation_store_validation.py::test_pin_generation_for_turn_is_stable_after_activation"
+  ],
+  "counts": {"passed": 24, "failed": 0},
+  "log": "evidence/plan018-v4-5-lane-c.log",
+  "paid_or_live_resources_used": false
+}

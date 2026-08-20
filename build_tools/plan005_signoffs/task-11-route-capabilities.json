@@ -1,0 +1,13 @@
+{
+  "id": "task-11-route-capabilities",
+  "artifact_paths": [
+    "dmac_assistant/build_context/route_capabilities.json"
+  ],
+  "final_byte_hashes": {
+    "dmac_assistant/build_context/route_capabilities.json": "3972739e5a78a363c0a508eeb0f11b7fb7cfcc3c58cfc0f0d2cf7d3b7806f6c7"
+  },
+  "presented_diff_hash": "fc59c86184c480fcc7d60cf8f0082fb5e7a99c339e1053d3f7319579a14b0eaa",
+  "approval_timestamp": "2026-08-14T23:45:00+00:00",
+  "interpretation_source": "user_stated",
+  "quote": "Okay, json accepted."
+}

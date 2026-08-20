@@ -525,3 +525,128 @@ def test_bumped_host_port_loopback_still_rewritten():
         api_user="d", api_pass="p", path_mappings={},
     )
     assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
+
+
+def test_spawn_409_without_name_does_not_remove(monkeypatch):
+    from docker.errors import APIError
+
+    class _FakeResponse:
+        status_code = 409
+
+    class _FakeContainers:
+        def run(self, **kw):
+            raise APIError("conflict", response=_FakeResponse())
+
+        def get(self, name):
+            raise AssertionError("must not look up a missing name")
+
+    class _FakeClient:
+        containers = _FakeContainers()
+
+    with pytest.raises(APIError):
+        cc_engine._spawn_with_stale_name_retry(_FakeClient(), {})
+
+
+def test_spawn_409_stale_already_gone_retries():
+    from docker.errors import APIError, NotFound
+
+    class _FakeResponse:
+        status_code = 409
+
+    class _FakeContainers:
+        def __init__(self):
+            self.run_calls = 0
+
+        def run(self, **kw):
+            self.run_calls += 1
+            if self.run_calls == 1:
+                raise APIError("conflict", response=_FakeResponse())
+            return "ok-after-gone"
+
+        def get(self, name):
+            raise NotFound("gone")
+
+    class _FakeClient:
+        def __init__(self):
+            self.containers = _FakeContainers()
+
+    client = _FakeClient()
+    assert cc_engine._spawn_with_stale_name_retry(
+        client, {"name": "dmac-cc-agent-abc"}
+    ) == "ok-after-gone"
+    assert client.containers.run_calls == 2
+
+
+def _fake_docker_module(*, ping_exc=None, image_exc=None, network_exc=None):
+    import types
+
+    mod = types.ModuleType("docker")
+
+    class _Images:
+        def get(self, name):
+            if image_exc is not None:
+                raise image_exc
+            return object()
+
+    class _Networks:
+        def get(self, name):
+            if network_exc is not None:
+                raise network_exc
+            return object()
+
+    class _Client:
+        def __init__(self):
+            self.images = _Images()
+            self.networks = _Networks()
+
+        def ping(self):
+            if ping_exc is not None:
+                raise ping_exc
+
+    mod.from_env = lambda: _Client()
+    return mod
+
+
+def test_cc_runner_available_ok_when_daemon_image_and_network_all_present(monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "docker", _fake_docker_module())
+    ok, detail = cc_engine.cc_runner_available()
+    assert ok is True
+    assert detail == "ok"
+
+
+def test_cc_runner_available_daemon_unreachable_detail(monkeypatch):
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "docker",
+        _fake_docker_module(ping_exc=ConnectionError("connection refused")),
+    )
+    ok, detail = cc_engine.cc_runner_available()
+    assert ok is False
+    assert "docker daemon unreachable" in detail
+
+
+def test_cc_runner_available_image_missing_cites_compose_not_make(monkeypatch):
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "docker",
+        _fake_docker_module(image_exc=LookupError("no such image")),
+    )
+    ok, detail = cc_engine.cc_runner_available()
+    assert ok is False
+    assert "make image-build" not in detail
+    assert "docker compose build" in detail
+    assert "NEXTSEEK_CC_IMAGE" in detail
+
+
+def test_cc_runner_available_network_missing_cites_compose(monkeypatch):
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "docker",
+        _fake_docker_module(network_exc=LookupError("no such network")),
+    )
+    ok, detail = cc_engine.cc_runner_available()
+    assert ok is False
+    assert "make image-build" not in detail
+    assert "docker compose" in detail
+    assert "NEXTSEEK_CC_NETWORK" in detail
+

@@ -1,0 +1,47 @@
+{
+  "artifacts_sha256": {
+    "evidence/plan018-v4-9-task5-collection.txt": "5c135f5b17ccfa0ba669e0fb7657d5c949cbf2cd00e3a091e80f751272d7269b",
+    "evidence/plan018-v4-9-task5-lane-m-collection.txt": "5ca29b9704a8dbc842767e96c102a5309a4f51222f1fd4d5dd71f1300c558ca3",
+    "evidence/plan018-v4-9-task5-lane-m.junit.xml": "c3617c3f3ba39cdd8ab725c2bc3419296d0bb07ae85bee51dac73e48672486dc",
+    "evidence/plan018-v4-9-task5-lane-m.sidecar.json": "42ddf11970db6a54329f449929d268176e43b48a5a1f6bc325d08fca0d17da8d",
+    "evidence/plan018-v4-9-task5-mutation-manifest.json": "0574cfe9463dc93b245a0d0115d12e7aa8b94f74919189ebd581bd3517a7c4d2",
+    "evidence/plan018-v4-9-task5.junit.xml": "a7cfe53c2efa461e2fa9ccbc02163c6e9be000d1eab83fb4a1d2429cfb040a24"
+  },
+  "execution_counts": {
+    "fast": {
+      "deselected": 0,
+      "errors": 0,
+      "failed": 0,
+      "passed": 68,
+      "skipped": 0,
+      "tests": 68,
+      "xfail": 0
+    },
+    "mysql": {
+      "deselected": 0,
+      "errors": 0,
+      "failed": 0,
+      "passed": 22,
+      "skipped": 0,
+      "tests": 22,
+      "xfail": 0
+    }
+  },
+  "finalization": {
+    "mode": "existing_exact_artifacts",
+    "new_test_execution": false
+  },
+  "gate": "PASS",
+  "image": "sha256:704e0936c966a5e4121957104f236d111c251db0feb413aa2c8e8a5e3f7fa651",
+  "manifest_counts": {
+    "fast_nodes": 68,
+    "mutants": 76,
+    "mysql_nodes": 8
+  },
+  "mcmc_or_stored_evidence_replay_used": false,
+  "network": "none for fast lane; isolated disposable Docker network for MySQL only",
+  "paid_provider_or_live_resources_used": false,
+  "schema": "plan018-v4-9-task5-evidence/v1",
+  "wall_cap_s": 900.0,
+  "wall_s": 168.481
+}

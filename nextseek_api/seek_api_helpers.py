@@ -5,6 +5,8 @@ from django.conf import settings
 from seek.seekdb import SeekDB
 from seek.dbtable_sample import DBtable_sample
 
+from nextseek_api.helpers import basic_auth_header
+
 
 SEEK_API_BASE = settings.SEEK_URL
 PEOPLE_API_BASE = SEEK_API_BASE + "/people/"
@@ -48,15 +50,17 @@ def call(auth, url, query_params=None):
       auth should be in the format:
         Tuple: ('username', 'password')
     """
+    # Basic auth is encoded here rather than passed as requests' auth= so a
+    # non-Latin-1 password doesn't raise UnicodeEncodeError. See
+    # nextseek_api.helpers.basic_auth_header.
+    headers = {**HEADERS, **basic_auth_header(auth)}
     if query_params is None:
         response = requests.get(url,
-                                auth=auth,
-                                headers=HEADERS)
+                                headers=headers)
     else:
         response = requests.get(url,
-                                auth=auth,
                                 params=query_params,
-                                headers=HEADERS)
+                                headers=headers)
     try:
         data = response.json()
         return data
@@ -76,9 +80,8 @@ def post_call(auth, url, data):
         Tuple: ('username', 'password')
     """
     response = requests.post(url,
-                             auth=auth,
                              json=data,
-                             headers=HEADERS)
+                             headers={**HEADERS, **basic_auth_header(auth)})
     try:
         data = response.json()
         return data

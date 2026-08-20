@@ -176,10 +176,48 @@ def write_summary_csv(
             neo4j_row["row_index"] = "NEO4J"
             neo4j_row["uid"] = f"nodes_created={neo4j_metrics.nodes_created}"
             neo4j_row["status"] = f"nodes_matched={neo4j_metrics.nodes_matched}"
-            neo4j_row["reason"] = f"derived_from={neo4j_metrics.derived_from_rels_created}"
+            # A numerator with no denominator cannot be read: "derived_from=8"
+            # looks identical whether 8 or 8,000 edges were attempted. The
+            # attempted count is `rels_input`, which was already recorded and
+            # never printed.
+            neo4j_row["reason"] = (
+                f"derived_from={neo4j_metrics.derived_from_rels_created}"
+                f"/{neo4j_metrics.rels_input}"
+            )
             neo4j_row["sample_type"] = f"of_type={neo4j_metrics.of_type_rels_created}"
             neo4j_row["sample_id"] = f"st_nodes={neo4j_metrics.sample_type_nodes_created}"
             neo4j_row["assays_linked_count"] = f"elapsed={neo4j_metrics.elapsed_ms_total:.0f}ms"
+            # Edges written with no protocol because the sample's Protocol named
+            # no SOP. Always emitted, including as 0: a reader has to be able to
+            # tell "none" from "this column did not exist yet".
+            neo4j_row["access_type"] = (
+                f"protocols_unresolved={neo4j_metrics.protocols_unresolved}"
+            )
+            # Kept apart from the count above: these edges are correct, they
+            # just point at a SOP we do not host.
+            neo4j_row["uid_generated"] = (
+                f"external_protocol_links={neo4j_metrics.protocols_external_links}"
+            )
+            # The two halves of a lost lineage edge, kept apart because they
+            # have different causes and different fixes: dropped = the row was
+            # built and the graph had no Sample node for an endpoint;
+            # children_missing_parents = the parent is not in `samples` at all,
+            # so no row was ever built. Always emitted, including as 0.
+            neo4j_row["topo_level"] = (
+                f"derived_from_dropped={neo4j_metrics.derived_from_rels_dropped}"
+            )
+            neo4j_row["json_metadata"] = (
+                "children_missing_parents="
+                f"{neo4j_metrics.skipped_children_missing_parents}"
+            )
+            # The third loss class: the stale-edge delete declined to run for
+            # these children because their stored metadata would not parse, so
+            # a parent removed from one of them keeps its edge. Also always
+            # emitted — the delete not happening looks exactly like a clean run.
+            neo4j_row["assay_ids"] = (
+                "parent_changed_skipped_unreadable="
+                f"{neo4j_metrics.parent_changed_children_skipped_unreadable}"
+            )
             writer.writerow(neo4j_row)
 
     log.info("Summary CSV written to %s", output_path)

@@ -1,0 +1,20 @@
+{
+  "schema": "plan018-v4-5-publish/v1",
+  "gate": "PASS",
+  "lane": "C",
+  "settings_module": "dmac.test_settings",
+  "tests": [
+    "nextseek_api/eval/tests/test_generation_store_v45.py::test_create_generation_is_idempotent",
+    "nextseek_api/cc_assistant/tests/test_eval_publish.py",
+    "nextseek_api/eval/tests/test_generation_store_v45.py::test_create_generation_refuses_conflicting_overwrite"
+  ],
+  "counts": {"passed": 24, "failed": 0},
+  "log": "evidence/plan018-v4-5-lane-c.log",
+  "junit": "evidence/plan018-v4-5-lane-c.junit.xml",
+  "invariants": {
+    "band_from_status_absent": true,
+    "content_hash_idempotent": true,
+    "overwrite_refused": true
+  },
+  "paid_or_live_resources_used": false
+}

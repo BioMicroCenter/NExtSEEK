@@ -1,13 +1,9 @@
 """Tests for startup.steps.prereqs."""
 from __future__ import annotations
 
-import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from startup.steps.prereqs import (
-    PrereqResult,
     check_command_version,
     check_docker,
     check_compose,

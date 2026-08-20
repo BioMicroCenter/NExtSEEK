@@ -1,0 +1,52 @@
+{
+  "schema": "plan018-v4-7-closeout/v1",
+  "recorded_at": "2026-08-12T20:20:00Z",
+  "gate": "PASS",
+  "worktree_sha": "62911a17",
+  "base_sha": "b2cca5d7cf56330673442024612be27819b69a9c",
+  "next_gate": "V4-8",
+  "implementation_sha": "62911a17",
+  "summary": {
+    "lane_a_schemas_passed": 11,
+    "lane_c_passed": 30,
+    "lane_m_passed": 15,
+    "verifier_checks_passed": 30,
+    "migration_leaf": "0016_paired_run_registry.py",
+    "posterior_flag_default_off": true,
+    "paid_or_live_resources_used": false
+  },
+  "evidence": {
+    "phase0": "evidence/plan018-v4-7-phase0-publish.json",
+    "prereq": "evidence/plan018-v4-7-prereq.json",
+    "schemas": "evidence/plan018-v4-7-schemas.sidecar.json",
+    "fit_refuse": "evidence/plan018-v4-7-fit-refuse.sidecar.json",
+    "registry": "evidence/plan018-v4-7-registry.sidecar.json",
+    "monitoring": "evidence/plan018-v4-7-monitoring.sidecar.json",
+    "lane_m": "evidence/plan018-v4-7-lane-m.sidecar.json",
+    "inventory": "evidence/plan018-v4-7-seam-inventory.json",
+    "lane_c_log": "evidence/plan018-v4-7-lane-c.log",
+    "lane_a_log": "evidence/plan018-v4-7-lane-a-schemas.log",
+    "verifier": "evidence/plan018-v4-7-verifier.sidecar.json",
+    "sdd_review": "evidence/plan018-v4-7-sdd-final-review.md",
+    "cold_review": "evidence/plan018-v4-7-cold-outcome-review.md",
+    "vault_sync": "evidence/plan018-v4-7-vault-sync.json"
+  },
+  "hashes": {
+    "evidence_kinds_sha256": "41bd4c3566fdea543f00a95d11d282545742cb71bbca0783c012b64b7d3395e0",
+    "fit_boundary_sha256": "fd3c623d026b12b06ac864199ea1e72562c6ccdc7e9f8944ef1b3bfbbb1f9594",
+    "migration_0016_sha256": "c5ffe4ac21547cc0abf6bc91fb1dc4849afc2b85e36f3545d89b4f68c7fb3c51",
+    "route_monitoring_sha256": "f1993aded7700eb87953227432465b408dac0ca0657da29fb3d7d13b5653fa1c"
+  },
+  "residual_debt": [
+    "Task 11 full playbook.py/ns_digest out of scope; route_monitoring is thin monitoring only",
+    "Existing tests calling publish_generation without provenance updated (risk_overlay, eval_publish); broader suite not re-run as full §3.1 baseline"
+  ],
+  "vault_sync": {
+    "status": "DONE",
+    "ref": "evidence/plan018-v4-7-vault-sync.json",
+    "deploydocs_sha": "f701ac12",
+    "living_plan_sha256": "9cfd9dd3938ee58466e61e476cb25c188af38e639e8d19d954e34420cce6e0c6",
+    "implementation_sha": "62911a17",
+    "registry_commit": "9cf4e03"
+  }
+}

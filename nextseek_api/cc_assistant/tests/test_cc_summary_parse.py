@@ -56,3 +56,23 @@ def test_actions_view_truncates_tool_result():
     view = cc_summary.build_actions_view(cc_summary.parse_transcript(raw), truncate_chars=50)
     assert "X" * 50 in view
     assert "X" * 51 not in view
+
+
+def test_parse_non_object_json_and_more_tool_lines():
+    raw = b'[1,2,3]\n{"type":"assistant","message":{"role":"assistant","content":[' \
+          b'{"type":"tool_use","name":"Read","input":{"file_path":"/a"}},' \
+          b'{"type":"tool_use","name":"Skill","input":{"skill":"x"}},' \
+          b'{"type":"tool_use","name":"Other","input":{}}]}}\n'
+    p = cc_summary.parse_transcript(raw)
+    assert p.records[0].get("_type") == "unparsed"
+    view = cc_summary.build_actions_view(p, truncate_chars=80)
+    assert "read: /a" in view
+    assert "skill:" in view
+    assert "tool[Other]" in view
+    assert cc_summary._truncate("abc", 0) == "abc"
+    assert cc_summary._content_text([{"type": "text", "text": " hi "}]) == "hi"
+    assert cc_summary._stringify(["a", {"text": "b"}]) == "a b"
+    assert cc_summary._quote_str({"value": "q"}) == "q"
+    assert cc_summary._quote_str(type("Q", (), {"value": "v"})()) == "v"
+    assert cc_summary.verify_quote(p, 0, 1, "x") is False
+    assert cc_summary.verify_quote(p, 1, 1, "") is False

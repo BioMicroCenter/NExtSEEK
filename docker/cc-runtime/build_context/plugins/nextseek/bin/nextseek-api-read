@@ -1,8 +1,10 @@
 #!/bin/sh
 # nextseek-api-read — read-only API dispatch (Layer-1 allowed, Layer-2 enforced).
 # CRITICAL-3 boundary: rejects --confirmed-write at the shim before exec'ing
-# the runner. The runner's L2 allowlist against read_safe_endpoints.json is the
-# load-bearing security check; this rejection is defense in depth.
+# the runner. The load-bearing security check is NExtSEEK's own write gate
+# (nextseek_api/assistant/write_gate.py), which enforces read_safe_endpoints.json
+# server-side; this rejection is defense in depth. The runner itself carries no
+# allowlist -- see _nextseek_runner.py:17.
 # Plan B · T6a.
 set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

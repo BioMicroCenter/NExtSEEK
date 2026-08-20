@@ -155,8 +155,11 @@ def _install_fake_e2e_modules() -> None:
 _install_fake_e2e_modules()
 
 _SCRIPT_PATH = Path(__file__).resolve().parents[3] / "nextseek_api/cc_assistant/scripts/full_ui_e2e.py"
-_spec = importlib.util.spec_from_file_location("full_ui_e2e", _SCRIPT_PATH)
+_spec = importlib.util.spec_from_file_location(
+    "nextseek_api.cc_assistant.scripts.full_ui_e2e", _SCRIPT_PATH
+)
 full_ui_e2e = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = full_ui_e2e
 _spec.loader.exec_module(full_ui_e2e)
 
 
@@ -657,3 +660,257 @@ def test_validate_only_fails_when_all_passed_hand_edited_true(monkeypatch, tmp_p
 
     exit_code2, _ = _validate(monkeypatch, tmp_path, approval, fake_fetch)
     assert exit_code2 == 1
+
+
+def test_connect_db_missing_creds_and_import_error(monkeypatch, capsys):
+    cfg = full_ui_e2e._OrchestratorConfig("http://localhost:18000")
+    cfg.MYSQL_HOST_DEV = None
+    assert cfg._connect_db("dev") is None
+    out = capsys.readouterr().out
+    assert "credentials not configured" in out
+    cfg.MYSQL_HOST_DEV = "h"
+    cfg.MYSQL_USER = "u"
+    cfg.MYSQL_DEV_PASSWORD = "p"
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "mysql.connector":
+            raise ImportError("no driver")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert cfg._connect_db("dev") is None
+    assert "mysql-connector-python not installed" in capsys.readouterr().out
+    page = full_ui_e2e._ArtifactChatPage("hello")
+    assert page.latest_assistant_reply() == "hello"
+    assert page.bubble_count() is None
+    assert page.has_artifact("x") is None
+    assert page.stepper_status("x") is None
+    ident = cfg.db_identity("prod")
+    assert ident["env"] == "prod"
+
+
+def test_recompute_run_dir_fail_closed_paths(tmp_path):
+    approval = _approval()
+    approval["_sha256"] = "abc"
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
+    (run_dir / "summary.json").write_text("{")
+    (run_dir / "identity.json").write_text("{")
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
+    (run_dir / "summary.json").write_text(json.dumps({"approval_sha256": "nope", "results": []}))
+    (run_dir / "identity.json").write_text(json.dumps({"base_url": "http://localhost:18000"}))
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
+    ident = {"base_url": "http://localhost:8000", "db_identity": {}}
+    (run_dir / "identity.json").write_text(json.dumps(ident))
+    (run_dir / "summary.json").write_text(json.dumps({
+        "approval_sha256": "abc",
+        "identity_sha256": "nope",
+        "results": [],
+        "db_identity": {},
+    }))
+    approval["base_url"] = "http://localhost:8000"
+    approval["require_non_8000"] = True
+    approval["_sha256"] = "abc"
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
+    ident_path = run_dir / "identity.json"
+    ident_path.write_text(json.dumps(ident))
+    ident_sha = hashlib.sha256(ident_path.read_bytes()).hexdigest()
+    (run_dir / "summary.json").write_text(json.dumps({
+        "approval_sha256": "abc",
+        "identity_sha256": ident_sha,
+        "results": [],
+        "db_identity": {},
+    }))
+    assert full_ui_e2e.recompute_run_dir(run_dir, approval) is False
+
+
+def test_artifact_helpers_and_recompute_mutations(monkeypatch, tmp_path):
+    q = tmp_path / "q"
+    turn = q / "turns" / "main"
+    turn.mkdir(parents=True)
+    (turn / "ui_text.json").write_text("{")
+    (turn / "complete.json").write_text("{")
+    assert full_ui_e2e._turn_reply_from_artifacts(q, {"label": "main"}) == ""
+    (turn / "ui_text.json").write_text(json.dumps({"latest_assistant_reply": ""}))
+    (turn / "complete.json").write_text(json.dumps({"reply": "from-complete"}))
+    assert full_ui_e2e._turn_reply_from_artifacts(q, {"label": "main"}) == "from-complete"
+    assert full_ui_e2e._detect_route_from_data("x") == "unknown"
+    assert full_ui_e2e._detect_route_from_data({"debug": {}}) == "ns"
+    assert full_ui_e2e._detect_route_from_data({"cc_session_id": "s"}) == "cc"
+    assert full_ui_e2e._detect_route_from_data({}) == "unknown"
+    assert full_ui_e2e._route_from_artifacts(tmp_path / "missing") == "unknown"
+    (turn / "complete.json").write_text("{")
+    assert full_ui_e2e._route_from_artifacts(q) == "unknown"
+    (q / "turns" / "other").mkdir()
+    (q / "turns" / "other" / "complete.json").write_text(json.dumps({"total_cost_usd": 0.2}))
+    assert full_ui_e2e._cc_frame_cost_from_artifacts(q) == 0.2
+    assert full_ui_e2e._cc_frame_cost_from_artifacts(tmp_path / "no-turns") is None
+    (q / "downloaded_keys.json").write_text("{")
+    assert full_ui_e2e._downloaded_keys_from_artifacts(q) == set()
+    (q / "downloaded_keys.json").write_text(json.dumps(["a", 1]))
+    assert "a" in full_ui_e2e._downloaded_keys_from_artifacts(q)
+    assert full_ui_e2e._artifact_manifest(tmp_path / "no-dir") == {}
+
+    class Conn:
+        pass
+
+    class mysql_mod:
+        @staticmethod
+        def connect(**kw):
+            return Conn()
+
+    import sys
+    import types
+    pkg = types.ModuleType("mysql")
+    pkg.connector = mysql_mod
+    monkeypatch.setitem(sys.modules, "mysql", pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", mysql_mod)
+    cfg = full_ui_e2e._OrchestratorConfig("http://x")
+    cfg.MYSQL_HOST_DEV = "h"
+    cfg.MYSQL_USER = "u"
+    cfg.MYSQL_DEV_PASSWORD = "p"
+    assert cfg._connect_db("dev") is not None
+
+    def _sha(approval, run_dir):
+        approval = dict(approval)
+        approval["_sha256"] = json.loads((run_dir / "summary.json").read_text())["approval_sha256"]
+        return approval
+
+    qid = "q1"
+    for name in ["base", "ns"] + [f"m{i}" for i in range(2, 19)]:
+        (tmp_path / name).mkdir()
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "base")
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    summary = json.loads((run_dir / "summary.json").read_text())
+    summary["results"] = []
+    (run_dir / "summary.json").write_text(json.dumps(summary))
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m2")
+    (run_dir / qid / "manifest.json").unlink()
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m3")
+    (run_dir / qid / "manifest.json").write_text("{")
+    summary = json.loads((run_dir / "summary.json").read_text())
+    summary["results"][0]["manifest_sha256"] = hashlib.sha256(b"{").hexdigest()
+    (run_dir / "summary.json").write_text(json.dumps(summary))
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m4")
+    (run_dir / qid / "trace.zip").write_bytes(b"")
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m5")
+    (run_dir / qid / "session_id.txt").unlink()
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m6")
+    (run_dir / qid / "session_id.txt").write_text("other")
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m7")
+    (run_dir / qid / "turns" / "main" / "query.txt").unlink()
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m8")
+    (run_dir / qid / "turns" / "main" / "query.txt").write_text("mutated-query")
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m9")
+    (run_dir / qid / "turns" / "main" / "error.txt").write_text("boom")
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m10")
+    complete = run_dir / qid / "turns" / "main" / "complete.json"
+    complete.unlink()
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m11")
+    (run_dir / qid / "turns" / "main" / "complete.json").write_text("{")
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m12")
+    payload = json.loads((run_dir / qid / "turns" / "main" / "complete.json").read_text())
+    payload.pop("total_cost_usd", None)
+    payload.pop("cc_session_id", None)
+    (run_dir / qid / "turns" / "main" / "complete.json").write_text(json.dumps(payload))
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m13")
+    summary = json.loads((run_dir / "summary.json").read_text())
+    summary["results"][0]["cost_usd"] = 99
+    (run_dir / "summary.json").write_text(json.dumps(summary))
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m14")
+    summary = json.loads((run_dir / "summary.json").read_text())
+    summary["results"][0]["route"] = "ns"
+    (run_dir / "summary.json").write_text(json.dumps(summary))
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m15")
+    approval["questions"][0]["route"] = "ns"
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m16")
+    approval["max_total_usd"] = 0.0001
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    ns_approval = _approval()
+    ns_runner = _fake_run_variant_browser_factory(route="ns", frame_cost=None)
+    ns_fetch = _fake_fetch_chat_session_row_factory()
+    _, ns_run = _run_main(monkeypatch, tmp_path / "ns", ns_approval, fake_runner=ns_runner, fake_fetch=ns_fetch)
+    summary = json.loads((ns_run / "summary.json").read_text())
+    summary["results"][0]["cost_usd"] = 1.0
+    (ns_run / "summary.json").write_text(json.dumps(summary))
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", ns_fetch)
+    assert full_ui_e2e.recompute_run_dir(ns_run, _sha(ns_approval, ns_run)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m17")
+    other = run_dir / qid / "turns" / "spare"
+    other.mkdir()
+    spare_complete = json.loads((run_dir / qid / "turns" / "main" / "complete.json").read_text())
+    (other / "complete.json").write_text(json.dumps(spare_complete))
+    (run_dir / qid / "turns" / "main" / "complete.json").unlink()
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False
+
+    approval, run_dir, fetch = _happy_run(monkeypatch, tmp_path / "m18")
+    other = run_dir / qid / "turns" / "spare"
+    other.mkdir()
+    spare_complete = json.loads((run_dir / qid / "turns" / "main" / "complete.json").read_text())
+    (other / "complete.json").write_text(json.dumps(spare_complete))
+    (run_dir / qid / "turns" / "main" / "complete.json").write_text("{")
+    _resync_manifest_and_summary(run_dir, qid)
+    monkeypatch.setattr(full_ui_e2e, "fetch_chat_session_row", fetch)
+    assert full_ui_e2e.recompute_run_dir(run_dir, _sha(approval, run_dir)) is False

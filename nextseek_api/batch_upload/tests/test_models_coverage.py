@@ -199,6 +199,40 @@ class TestInputRowModelConsistencyValidator:
                 json_metadata='{"UID": "AAA-111111BB-1", "Protocol": "/sops/100"}',
             )
 
+    def test_foreign_sop_url_is_not_compared_against_the_local_sop_id(self):
+        """795 is FAIRDOMHub's SOP id, not one of ours, so there is nothing
+        for a local sop_id to disagree with. Rejecting the row here would be a
+        false failure on 1,855 live Protocol values."""
+        from django.test import override_settings
+
+        with override_settings(
+            SEEK_PUBLIC_URL="http://localhost:3000",
+            SEEK_URL="http://seek:3000",
+            ALLOWED_HOSTS=["127.0.0.1"],
+        ):
+            row = InputRowModel(
+                SampleType="NHP",
+                UID="AAA-111111BB-1",
+                sop_id=99,
+                json_metadata=(
+                    '{"UID": "AAA-111111BB-1", '
+                    '"Protocol": "https://fairdomhub.org/sops/795"}'
+                ),
+            )
+        assert row.sop_id == 99
+
+    def test_bare_title_protocol_does_not_trip_the_sop_id_check(self):
+        """Titles carry no id, so the syntactic check has nothing to compare."""
+        row = InputRowModel(
+            SampleType="NHP",
+            UID="AAA-111111BB-1",
+            sop_id=99,
+            json_metadata=(
+                '{"UID": "AAA-111111BB-1", "Protocol": "P.FOR-200623-V1_x.docx"}'
+            ),
+        )
+        assert row.sop_id == 99
+
     def test_assay_titles_length_mismatch_raises(self):
         with pytest.raises(Exception, match="assay_titles length"):
             InputRowModel(
