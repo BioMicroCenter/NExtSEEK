@@ -11,7 +11,9 @@ from nextseek_api.services.sample_workbook import (
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
     SUMMARY_HEADER,
+    build_provenance_lines,
     build_readme_blocks,
+    load_assay_titles,
     load_sample_field_context,
     load_sample_type_context,
     write_samples_workbook,
@@ -412,6 +414,54 @@ def test_field_context_keeps_case_variant_names_apart(mock_model):
     result = load_sample_field_context([("D.IMG", "Figure"), ("A.IMG", "figure")])
     assert result[("D.IMG", "Figure")] == "Upper-case one."
     assert result[("A.IMG", "figure")] == "Lower-case one."
+
+
+def _prov_df():
+    """Two hops, one of them from a type not itself downloaded."""
+    return pd.DataFrame([
+        {"uuid": "D.SEQ-1", "sample_type": "D.SEQ", "Parent": "DNA-9"},
+        {"uuid": "TIS-2", "sample_type": "TIS", "Parent": "MUS-3; MUS-4"},
+    ])
+
+
+def test_provenance_names_the_assay_that_produced_the_child():
+    lines = build_provenance_lines(_prov_df(), {"D.SEQ-1": "Short Read Sequencing"})
+    assert "DNA  --[Short Read Sequencing]-->  D.SEQ" in lines
+
+
+def test_provenance_falls_back_to_a_plain_arrow_without_an_assay():
+    """A missing assay link costs the label, not the hop."""
+    lines = build_provenance_lines(_prov_df(), {})
+    assert "DNA  ------>  D.SEQ" in lines
+
+
+def test_provenance_collapses_repeated_parents_into_one_hop():
+    """TIS has two MUS parents; that is one relationship, not two."""
+    lines = build_provenance_lines(_prov_df(), {})
+    assert len([l for l in lines if l.startswith("MUS")]) == 1
+
+
+def test_provenance_includes_types_that_were_not_downloaded():
+    """DNA is not a sheet here. Upstream lineage is the part a reader cannot
+    otherwise see, so it belongs in the section."""
+    assert any(l.startswith("DNA") for l in build_provenance_lines(_prov_df(), {}))
+
+
+def test_provenance_ignores_a_parent_of_the_same_type():
+    df = pd.DataFrame([{"uuid": "CEL-1", "sample_type": "CEL", "Parent": "CEL-0"}])
+    assert build_provenance_lines(df, {}) == []
+
+
+def test_provenance_is_empty_without_a_parent_column():
+    df = pd.DataFrame([{"uuid": "MUS-1", "sample_type": "MUS", "Name": "m1"}])
+    assert build_provenance_lines(df, {}) == []
+
+
+@patch(f"{_MOD}.Samples")
+def test_assay_lookup_survives_a_database_failure(mock_samples):
+    """Losing the assay link must cost the labels, never the download."""
+    mock_samples.objects.filter.side_effect = RuntimeError("no such table")
+    assert load_assay_titles(["D.SEQ-1"]) == {}
 
 
 def _cv_df():
