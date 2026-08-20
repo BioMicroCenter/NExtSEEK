@@ -12,6 +12,7 @@ from typing import Iterable, Mapping
 
 import pandas as pd
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.comments import Comment
 from openpyxl.styles import Font
 
 from seek.models import Sample_fields_context, Sample_types_context
@@ -32,6 +33,13 @@ SAMPLE_TYPE_RE = r"([A-Z]+\.[A-Z]+|[A-Z]+)"
 
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
+SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
+
+# Hover-note geometry. openpyxl sizes comment boxes in pixels; these fit roughly
+# 40 words without the reader having to drag the box open.
+COMMENT_AUTHOR = "NExtSEEK"
+COMMENT_WIDTH = 340
+COMMENT_HEIGHT = 130
 
 # Excel's hard per-cell limit. openpyxl does not enforce it: a longer value is
 # written happily and Excel then reports the file as needing repair. `meaning`
@@ -163,14 +171,26 @@ def _write_readme(book, blocks: list[dict]) -> None:
     _write_cell(ws, 1, 1, README_LINK_TEXT)
     ws["A1"].hyperlink = CONTEXTDB_URL
     ws["A1"].style = "Hyperlink"
-    # Row 2 is left blank to separate the link from the first section.
+    # Row 2 is left blank to separate the link from the summary table.
+    #
+    # Sheet order: every sample type is summarised first, so a reader sees what
+    # the workbook contains before meeting any column detail. The per-tab
+    # column tables follow underneath.
     row = 3
+    for column, label in enumerate(SUMMARY_HEADER, start=1):
+        _write_cell(ws, row, column, label, bold=True)
+    row += 1
+    for block in blocks:
+        _write_cell(ws, row, 1, block["code"])
+        _write_cell(ws, row, 2, block["name"])
+        _write_cell(ws, row, 3, block["description"])
+        row += 1
+    row += 1  # blank line between the summary table and the column sections
+
     for block in blocks:
         heading = f"{block['code']} — {block['name']}" if block["name"] else block["code"]
         _write_cell(ws, row, 1, heading, bold=True)
-        row += 1
-        _write_cell(ws, row, 1, block["description"])
-        row += 2  # description, then a blank line before the column table
+        row += 2  # heading, then a blank line before the column table
         # A block whose columns all dropped out gets no table header: a bare
         # Column/Meaning row with nothing under it reads as a rendering bug.
         if block["columns"]:
@@ -185,6 +205,23 @@ def _write_readme(book, blocks: list[dict]) -> None:
     ws.column_dimensions["A"].width = 22
     ws.column_dimensions["B"].width = 34
     ws.column_dimensions["C"].width = 100
+
+
+def _annotate_header(ws, code: str, columns: list[str], meaning_by_pair) -> None:
+    """Attach each column's definition as a hover note on its header cell.
+
+    A researcher filling the sheet in reads the header, not the README, so the
+    definition is put where the question is asked. Columns with no definition
+    get no note rather than an empty one.
+    """
+    for index, column in enumerate(columns, start=1):
+        meaning = meaning_by_pair.get((code, column), "")
+        if not meaning:
+            continue
+        note = Comment(_safe_cell_value(meaning), COMMENT_AUTHOR)
+        note.width = COMMENT_WIDTH
+        note.height = COMMENT_HEIGHT
+        ws.cell(row=1, column=index).comment = note
 
 
 def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None:
@@ -224,3 +261,4 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
 
         for code, frame in prepared:
             frame.to_excel(writer, sheet_name=code, index=False)
+            _annotate_header(writer.sheets[code], code, list(frame.columns), meaning_by_pair)

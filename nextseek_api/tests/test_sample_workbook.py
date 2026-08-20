@@ -9,6 +9,7 @@ from nextseek_api.services.sample_workbook import (
     COLUMN_TABLE_HEADER,
     CONTEXTDB_URL,
     EXCEL_MAX_CELL_CHARS,
+    SUMMARY_HEADER,
     build_readme_blocks,
     load_sample_field_context,
     load_sample_type_context,
@@ -107,8 +108,8 @@ def test_workbook_still_written_when_context_table_is_empty(_ctx, _fields, tmp_p
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
     ws = load_workbook(out)["README"]
-    assert ws["A3"].value == "MUS"
-    assert ws["A4"].value in (None, "")
+    assert ws["A4"].value == "MUS"          # summary table row
+    assert ws["A7"].value == "MUS"          # section heading, bare code
 
 
 @patch(f"{_MOD}.load_sample_type_context")
@@ -244,21 +245,21 @@ def test_an_undocumented_sample_type_still_gets_a_block():
 
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_readme_section_heading_is_bold_at_a3(_ctx, _fields, tmp_path):
+def test_readme_section_heading_is_bold_at_a7(_ctx, _fields, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
     ws = load_workbook(out)["README"]
-    assert ws["A3"].value == "MUS — Mouse"
-    assert ws["A3"].font.bold is True
+    assert ws["A7"].value == "MUS — Mouse"
+    assert ws["A7"].font.bold is True
 
 
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_readme_description_sits_under_the_heading(_ctx, _fields, tmp_path):
+def test_readme_description_sits_in_the_summary_table(_ctx, _fields, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
     ws = load_workbook(out)["README"]
-    assert ws["A4"].value == "A mouse sample."
+    assert ws["C4"].value == "A mouse sample."
 
 
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
@@ -267,9 +268,9 @@ def test_readme_column_table_is_indented_into_b_and_c(_ctx, _fields, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
     ws = load_workbook(out)["README"]
-    assert [ws["B6"].value, ws["C6"].value] == ["Column", "Meaning"]
-    assert ws["B6"].font.bold is True
-    assert ws["B7"].value == "Name"
+    assert [ws["B9"].value, ws["C9"].value] == ["Column", "Meaning"]
+    assert ws["B9"].font.bold is True
+    assert ws["B10"].value == "Name"
 
 
 @patch(f"{_MOD}.load_sample_field_context",
@@ -279,7 +280,7 @@ def test_readme_shows_the_resolved_meaning(_ctx, _fields, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
     ws = load_workbook(out)["README"]
-    assert ws["C7"].value == "The animal's ear-tag ID."
+    assert ws["C10"].value == "The animal's ear-tag ID."
 
 
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
@@ -289,8 +290,8 @@ def test_the_second_section_starts_after_a_blank_row(_ctx, _fields, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
     ws = load_workbook(out)["README"]
-    assert ws["A9"].value is None
-    assert ws["A10"].value == "TIS — Tissue"
+    assert ws["A12"].value is None
+    assert ws["A13"].value == "TIS — Tissue"
 
 
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
@@ -304,8 +305,8 @@ def test_readme_only_lists_columns_that_survive_the_empty_drop(_ctx, _fields, tm
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
     ws = load_workbook(out)["README"]
-    assert ws["B14"].value == "Name"
-    assert ws["B15"].value is None
+    assert ws["B16"].value == "Name"
+    assert ws["B17"].value is None
 
 
 @patch(f"{_MOD}.Sample_fields_context")
@@ -322,8 +323,8 @@ def test_workbook_is_complete_when_the_definitions_table_is_missing(_ctx, mock_m
     wb = load_workbook(out)
     assert wb.sheetnames == ["README", "MUS", "TIS"]
     ws = wb["README"]
-    assert ws["B7"].value == "Name"          # still indexed
-    assert ws["C7"].value in (None, "")      # meaning blank
+    assert ws["B10"].value == "Name"         # still indexed
+    assert ws["C10"].value in (None, "")     # meaning blank
 
 
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
@@ -348,7 +349,7 @@ def test_a_control_character_in_a_definition_does_not_break_the_download(
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))          # must not raise
     ws = load_workbook(out)["README"]
-    assert ws["C7"].value == "Line oneline two."
+    assert ws["C10"].value == "Line oneline two."
 
 
 @patch(f"{_MOD}.load_sample_type_context",
@@ -360,7 +361,7 @@ def test_a_control_character_in_a_description_is_stripped(_fields, _ctx, tmp_pat
     the meanings."""
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
-    assert load_workbook(out)["README"]["A4"].value == "Description."
+    assert load_workbook(out)["README"]["C4"].value == "Description."
 
 
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
@@ -372,7 +373,30 @@ def test_an_over_length_definition_is_truncated_not_written_whole(_ctx, tmp_path
     with patch(f"{_MOD}.load_sample_field_context",
                return_value={("MUS", "Name"): "x" * 40000}):
         write_samples_workbook(_df(), str(out))
-    assert len(load_workbook(out)["README"]["C7"].value) == EXCEL_MAX_CELL_CHARS
+    assert len(load_workbook(out)["README"]["C10"].value) == EXCEL_MAX_CELL_CHARS
+
+
+@patch(f"{_MOD}.load_sample_field_context",
+       return_value={("MUS", "Name"): "The animal's ear-tag ID."})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_header_cell_carries_its_definition_as_a_hover_note(_ctx, _fields, tmp_path):
+    """A researcher filling the sheet in reads the header, not the README."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    header = load_workbook(out)["MUS"]["A1"]
+    assert header.value == "Name"
+    assert header.comment is not None
+    assert "ear-tag ID" in header.comment.text
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_an_undefined_column_gets_no_empty_hover_note(_ctx, _fields, tmp_path):
+    """An empty note is worse than none: it looks like a definition that failed
+    to load rather than one nobody has written yet."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    assert load_workbook(out)["MUS"]["A1"].comment is None
 
 
 def _readme_sections(ws) -> dict[str, list[str]]:
@@ -381,13 +405,22 @@ def _readme_sections(ws) -> dict[str, list[str]]:
     itself rather than against hand-computed coordinates."""
     sections: dict[str, list[str]] = {}
     current = None
+    in_summary = True
     for row in range(1, ws.max_row + 1):
         a, b = ws.cell(row=row, column=1), ws.cell(row=row, column=2)
         # Section headings are the bold cells of column A. The description
         # under each one is column A too, but plain; A1's link is not bold.
         if a.value and a.font.bold:
+            # The summary table's bold header is not a section; skip it and the
+            # sample-type rows beneath it.
+            if a.value == SUMMARY_HEADER[0]:
+                in_summary = True
+                continue
+            in_summary = False
             current = a.value.split(" — ")[0]
             sections[current] = []
+        elif in_summary:
+            continue
         # Column names are the plain cells of column B. The Column/Meaning
         # table header sits in B as well, but bold.
         elif b.value and not b.font.bold and current:
@@ -422,5 +455,5 @@ def test_a_section_with_no_surviving_columns_has_no_table_header(_ctx, _fields, 
     out = tmp_path / "w.xlsx"
     write_samples_workbook(df, str(out))
     ws = load_workbook(out)["README"]
-    assert ws["A10"].value == "TIS — Tissue"
-    assert [ws.cell(row=r, column=2).value for r in (11, 12, 13)] == [None, None, None]
+    assert ws["A13"].value == "TIS — Tissue"
+    assert [ws.cell(row=r, column=2).value for r in (14, 15, 16)] == [None, None, None]
