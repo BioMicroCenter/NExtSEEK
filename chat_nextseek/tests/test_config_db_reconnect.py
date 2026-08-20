@@ -31,7 +31,7 @@ import types
 from mysql.connector.connection import MySQLConnection
 
 from chat_nextseek.config import ChatConfig, live_db_conn
-from chat_nextseek.reports.runners import run_project_sample_report
+from chat_nextseek.reports.runners import run_project_sample_report, run_reporter_summary
 
 
 def _dead_conn() -> MySQLConnection:
@@ -176,3 +176,23 @@ def test_sample_report_reports_a_clean_error_when_the_database_is_down(tmp_path)
     assert result["ok"] is False
     assert result["error"] == "DB connection failed"
     assert "MySQL Connection not available" not in str(result["error"])
+
+
+def test_reporter_logs_the_failure_instead_of_only_replying_with_it(capsys, tmp_path):
+    """A reporter DB failure reached the user's chat reply but appeared in no log.
+
+    Grepping every log on the production box — `docker logs nextseek`,
+    logs/nextseek.log and the 4.75 GB logs/django.log — for
+    "MySQL Connection not available" returned zero hits while the chat transcript
+    showed exactly that. Nobody who was not reading the transcript could see it.
+    """
+    cfg = _cfg(_dead_conn(), None)  # database unreachable
+    plan = types.SimpleNamespace(
+        project=None, years=[], month_range=None, day_range=None,
+        summary_mode="samples", reporter_context=None,
+    )
+
+    result, _saved, _summary = run_reporter_summary(cfg, plan, log_dir=str(tmp_path))
+
+    assert result["ok"] is False
+    assert "DB connection failed" in capsys.readouterr().out

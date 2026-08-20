@@ -1279,4 +1279,9 @@ def run_reporter_summary(
         reporter_summary.update(_sub_summary(reporter_result))
 
     print(f"[DEBUG][REPORTER] result ok={reporter_result.get('ok')}, rows={reporter_result.get('rows_returned')}, files={list(saved_files.keys())}")
+    # The reason only ever reached the user's chat reply (orchestrator.py:899). A
+    # production MySQL outage on 2026-08-20 left zero trace in docker logs,
+    # nextseek.log or django.log while the transcript carried the exception.
+    if reporter_result.get("ok") is False:
+        print(f"[DEBUG][REPORTER] report failed: {reporter_result.get('error')!r}")
     return reporter_result, saved_files, reporter_summary
