@@ -697,10 +697,20 @@ def run_query(
 
         if mode == "unsupported":
             notes = plan.notes or "No additional notes."
-            reply = (
-                "I can't turn that request into a valid NExtSEEK operation yet.\n\n"
-                f"Reason from parser: {notes}"
-            )
+            # "We could not run this" and "this request is not supported" are different
+            # answers and only one of them is worth retrying. Do not report an
+            # infrastructure fault as a limitation of the user's question.
+            if (plan.metadata or {}).get("failure"):
+                reply = (
+                    "Something went wrong on our side while planning that query, "
+                    "so I haven't run it.\n\n"
+                    f"{notes}"
+                )
+            else:
+                reply = (
+                    "I can't turn that request into a valid NExtSEEK operation yet.\n\n"
+                    f"Reason from parser: {notes}"
+                )
             session["last_debug"] = debug_payload
             append_turn(
                 session,

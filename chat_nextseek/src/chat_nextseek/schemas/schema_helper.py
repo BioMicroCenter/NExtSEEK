@@ -219,6 +219,18 @@ def _ledger_entry(
     return entry
 
 
+def _recycle_client_connections(client, label: str = "") -> None:
+    """Ask a client to drop pooled TCP connections before a retry. Never raises."""
+    reset = getattr(client, "reset_connections", None)
+    if not callable(reset):
+        return
+    try:
+        if reset():
+            print(f"[STRUCTURED_PARSE][{label}] recycled pooled connections before retry")
+    except Exception as e:
+        print(f"[STRUCTURED_PARSE][{label}] connection recycle failed: {e!r}")
+
+
 def call_llm_structured(
     config: ChatConfig,
     prompt: str,
@@ -235,6 +247,7 @@ def call_llm_structured(
     usage_label: str | None = None,
     rate_limit_sleep: float = 1.0,
     timeout_seconds: float = LLM_CALL_TIMEOUT_SECONDS,
+    timeout_retry_seconds: float | None = None,
     timeout_retries: int = 1,
     thinking_budget: int | None = None,
     client=None,
@@ -265,6 +278,9 @@ def call_llm_structured(
     raw_output = ""
     attempt_messages = base_messages
     timeout_attempts = 0
+    # The first attempt runs on the tight budget. Once a timeout has told us the
+    # connection was bad, the retry goes out on a fresh socket and gets more room.
+    _timeout = timeout_seconds
 
     for attempt in range(retries + 1):
         _t0 = time.perf_counter()
@@ -275,7 +291,7 @@ def call_llm_structured(
                 temperature=temperature,
                 messages=attempt_messages,
                 response_format=rf,
-                timeout_seconds=timeout_seconds,
+                timeout_seconds=_timeout,
                 thinking_budget=target_thinking_budget,
             )
         except LLMServiceUnavailableError as sue:
@@ -315,16 +331,22 @@ def call_llm_structured(
             timeout_attempts += 1
             print(
                 f"[STRUCTURED_PARSE][{model.__name__}] timeout on attempt {attempt+1}/{retries+1} "
-                f"(timeout retry {timeout_attempts}/{timeout_retries+1}): {te}"
+                f"(timeout retry {timeout_attempts}/{timeout_retries+1}) after {_timeout}s: {te}"
             )
             log_llm_call(config.LOG_DIR, _ledger_entry(
                 _effective_agent_label, target_model_name, target_client, attempt,
-                "timeout", _t0, timeout_seconds=timeout_seconds,
+                "timeout", _t0, timeout_seconds=_timeout,
                 thinking_budget=target_thinking_budget, err=te,
             ))
             if timeout_attempts > timeout_retries:
                 raise
-            # Retry the same attempt after timeout
+            # A timeout here is usually a dead pooled socket rather than a slow model:
+            # the request is never acknowledged at all. Retrying on the same pool can
+            # draw another dead connection, which is exactly the 120.01s double-failure
+            # signature in the logs, so force a fresh dial-out first.
+            _recycle_client_connections(target_client, model.__name__)
+            if timeout_retry_seconds:
+                _timeout = timeout_retry_seconds
             continue
         except LLMRateLimitError as rle:
             print(
