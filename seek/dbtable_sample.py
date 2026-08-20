@@ -4020,13 +4020,29 @@ class DBtable_sample(DBtable):
         filtersdic['filter_valueTo'] = filter_valueTo
         return msg, status, filtersdic
     
-    def searchAdvanced(self, user_seek, filters, searchType, project_id=0, skip_tree=False):
+    def searchAdvanced(self, user_seek, filters, searchType, project_id=0, skip_tree=False,
+                       scoped_project_ids=None):
         logger.debug('searchAdvanced')
         msg, status, filtersdic = self.__parseSearchFilters(filters, searchType, project_id)
         if status==0:
             data = {'msg':msg, 'status': status}
             reportData = simplejson.dumps(data, default=str)
             return reportData
+
+        # Data scope for API callers. Distinct from `project_id` above, which is the
+        # legacy single-project path used by seek/views.py:runSampleSearch and is left
+        # untouched. This one is a LIST, because a SEEK person can belong to several
+        # projects, and it is applied as an EXISTS rather than a join (see
+        # __sqlQuery_select_records_filters_advanced for why the join is wrong).
+        #
+        #   None -> unrestricted (superuser)
+        #   []   -> no resolvable projects, matches nothing
+        #
+        # The empty list must NOT mean "no filter": that is the difference between
+        # failing closed and handing an unscoped read to a caller whose projects we
+        # could not resolve.
+        if scoped_project_ids is not None:
+            filtersdic['scoped_project_ids'] = [str(p) for p in scoped_project_ids]
         
         data = self.__retrieveRecords_advanced(user_seek, filtersdic)
         
@@ -4118,6 +4134,34 @@ class DBtable_sample(DBtable):
                 # relying on that guard staying in place.
                 sqlquery_filter = sqlquery_filter + ") AND D.project_id=%s"
                 params = params + [project_id]
+
+        # API-caller project scope. EXISTS, deliberately, NOT the `D` join used above.
+        #
+        # __sqlQuery_select_records_from adds `left join projects_samples D` only when
+        # scoping, and projects_samples is many-to-many, so a sample belonging to N
+        # projects produces N rows. Nothing de-duplicates them and
+        # __retrieveRecords_advanced reports total = len(rows). That is why scoping by
+        # that join could return MORE rows than not scoping at all -- measured
+        # 2026-08-20 on prod data: project_id=3 gave 5134 against 5122 unscoped.
+        # EXISTS cannot multiply rows, so the count stays honest.
+        scoped_ids = filtersdic.get('scoped_project_ids')
+        if scoped_ids is not None:
+            if scoped_ids:
+                placeholders = ', '.join(['%s'] * len(scoped_ids))
+                clause = ("EXISTS (SELECT 1 FROM projects_samples ps "
+                          "WHERE ps.sample_id = A.id AND ps.project_id IN (%s))" % placeholders)
+                extra = list(scoped_ids)
+            else:
+                # Projects could not be resolved. Match nothing rather than everything.
+                clause, extra = "1=0", []
+            if 'WHERE ' in sqlquery_filter:
+                sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (', 1) + ") AND " + clause
+            else:
+                # The builder emits no WHERE for an unfiltered search; scope is then the
+                # only predicate. Without this branch that case would silently go
+                # unscoped, which is the exact bug being fixed.
+                sqlquery_filter = sqlquery_filter + " WHERE " + clause
+            params = params + extra
 
         logger.debug(sqlquery_filter)
         return sqlquery_filter, params
