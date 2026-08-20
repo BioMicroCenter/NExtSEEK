@@ -134,7 +134,10 @@ class StaffAdminWideningIsConfinedToCapabilities(SimpleTestCase):
     ALLOWED = {
         ("nextseek_api/batch_upload/views.py", "lababbv override"),
         ("nextseek_api/batch_upload/views.py", "person_id override"),
-        ("nextseek_api/services/assistant.py", "is_admin reported to the UI"),
+        # "is_admin reported to the UI" was removed 2026-08-20: that flag drives the
+        # Admin badge AND the Debug panel (PROD toggle, force_route, max-turn-length),
+        # and the PROD toggle selects a ChatConfig that authenticates as a superuser
+        # service account -- so it was a privilege escalation, not a capability toggle.
         ("nextseek_api/services/assistant.py", "static test-case catalog"),
     }
 
