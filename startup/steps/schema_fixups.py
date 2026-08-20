@@ -98,6 +98,28 @@ KNOWN_FIXUPS: list[MissingColumn] = [
 ]
 
 
+@dataclass(frozen=True)
+class MissingTable:
+    """A table nothing else in an install creates, applied from committed DDL."""
+    database: str
+    table: str
+    ddl_path: str  # repo-relative path to the CREATE TABLE IF NOT EXISTS file
+
+
+KNOWN_TABLE_FIXUPS: list[MissingTable] = [
+    # Per-column definitions for the download workbook's README sheet and the
+    # sample attributes page. Created in SQL like sample_types_context -- no
+    # Django migration references either -- and absent from dmac.sql.gz because
+    # regenerating the seed needs maintainer credentials for a remote host.
+    # Without this entry a fresh install renders every definition blank.
+    MissingTable(
+        database="dmac",
+        table="sample_fields_context",
+        ddl_path="startup/seed/sql/sample_fields_context.sql",
+    ),
+]
+
+
 def _root_password(env: dict[str, str]) -> str:
     return env.get("MYSQL_ROOT_PASSWORD", "seek_root")
 
@@ -115,6 +137,68 @@ def _table_exists(fix: MissingColumn, repo_root: Path, env: dict[str, str]) -> b
         env=env,
     )
     return out.strip().splitlines()[-1] == "1"
+
+
+def _database_exists(fix: MissingTable, repo_root: Path, env: dict[str, str]) -> bool:
+    """Gate table creation the way _table_exists gates column fixups.
+
+    Without this, a missing schema falls through to _create_table, whose mysql
+    call raises DockerOpsError and aborts the whole install -- worse than the
+    drift being healed.
+    """
+    try:
+        out = compose_exec(
+            service="db",
+            command=[
+                "mysql", "-uroot", f"-p{_root_password(env)}", "-N",
+                "-e",
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA "
+                f"WHERE SCHEMA_NAME='{fix.database}';",
+            ],
+            project_dir=repo_root,
+            env=env,
+        )
+    except DockerOpsError:
+        return False
+    return out.strip().splitlines()[-1] == "1"
+
+
+def _create_table(fix: MissingTable, repo_root: Path, env: dict[str, str]) -> None:
+    """Run the committed DDL for a table nothing else in an install creates.
+
+    Fed on stdin rather than through `-e` so the file stays the one copy of the
+    schema -- the same file a maintainer applies by hand to a running instance.
+    A missing DDL file is a packaging error and is left to raise.
+    """
+    sql = (repo_root / fix.ddl_path).read_bytes()
+    compose_exec(
+        service="db",
+        command=["mysql", "-uroot", f"-p{_root_password(env)}", fix.database],
+        project_dir=repo_root,
+        env=env,
+        stdin=sql,
+    )
+
+
+def apply_table_fixups(repo_root: Path, env: dict[str, str]) -> list[tuple[str, str]]:
+    """Create any known-missing table. Returns [(database.table, status)].
+
+    Status is one of:
+      - "created"           -- table was absent and the DDL ran
+      - "already present"   -- nothing to do
+      - "database missing"  -- target schema absent; skipped rather than raising
+    """
+    results: list[tuple[str, str]] = []
+    for fix in KNOWN_TABLE_FIXUPS:
+        fqn = f"{fix.database}.{fix.table}"
+        if _table_exists(fix, repo_root, env):
+            results.append((fqn, "already present"))
+        elif not _database_exists(fix, repo_root, env):
+            results.append((fqn, "database missing"))
+        else:
+            _create_table(fix, repo_root, env)
+            results.append((fqn, "created"))
+    return results
 
 
 def _column_exists(fix: MissingColumn, repo_root: Path, env: dict[str, str]) -> bool:
@@ -880,7 +964,11 @@ def managed_indexes_enabled() -> bool:
 
 
 def apply_all(repo_root: Path, env: dict[str, str], *, indexes: list[ManagedIndex] | None = None) -> list[tuple[str, str]]:
-    results = apply_column_fixups(repo_root, env)
+    # Tables first: a column fixup on a table that does not exist yet reports
+    # "table missing" and skips, so creating it afterwards would be a no-op
+    # until the next install.
+    results = apply_table_fixups(repo_root, env)
+    results.extend(apply_column_fixups(repo_root, env))
     if not managed_indexes_enabled():
         # Report every skipped index by name: silence here would read as
         # "applied" to anyone scanning install output.
