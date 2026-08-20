@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -19,7 +20,13 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.styles import Font
 
-from seek.models import Sample_fields_context, Sample_types_context
+from seek.models import (
+    Assay_assets,
+    Assays,
+    Sample_fields_context,
+    Sample_types_context,
+    Samples,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +45,10 @@ SAMPLE_TYPE_RE = r"([A-Z]+\.[A-Z]+|[A-Z]+)"
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
 SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
+PROVENANCE_TITLE = "How this data flowed"
+# SEEK suffixes assay titles by how the data is attached; the distinction is
+# about SEEK bookkeeping, not about what was done to the sample.
+ASSAY_TITLE_SUFFIXES = (" - Metadata", " - Data Linked", " - Data Attached")
 
 # Hover-note geometry. openpyxl sizes comment boxes in pixels; these fit roughly
 # 40 words without the reader having to drag the box open.
@@ -184,6 +195,77 @@ def load_sample_field_context(
     }
 
 
+def load_assay_titles(uuids: Iterable[str]) -> dict[str, str]:
+    """uuid -> the assay it belongs to, from SEEK's own sample/assay links.
+
+    Derived rather than inferred: sample_types_context carries assay names per
+    sample *type*, but a TIS sample may belong to Tissue Collection, Flow
+    Cytometry or Titer Assay, so only the per-sample link says what actually
+    happened. Fail-soft like every other lookup here.
+    """
+    wanted = sorted({u for u in uuids if u})
+    if not wanted:
+        return {}
+    try:
+        ids = dict(Samples.objects.filter(uuid__in=wanted).values_list("id", "uuid"))
+        if not ids:
+            return {}
+        links = Assay_assets.objects.filter(
+            asset_type="Sample", asset_id__in=list(ids)
+        ).values_list("asset_id", "assay_id")
+        titles = dict(
+            Assays.objects.filter(id__in={a for _, a in links}).values_list("id", "title")
+        )
+    except Exception:
+        logger.exception("assay lookup failed; provenance will show no assay names")
+        return {}
+
+    out: dict[str, str] = {}
+    for asset_id, assay_id in links:
+        title = (titles.get(assay_id) or "").strip()
+        for suffix in ASSAY_TITLE_SUFFIXES:
+            if title.endswith(suffix):
+                title = title[: -len(suffix)]
+                break
+        if title and asset_id in ids:
+            out.setdefault(ids[asset_id], title)
+    return out
+
+
+def build_provenance_lines(df, assay_by_uuid: Mapping[str, str]) -> list[str]:
+    """One flow line per parent-type -> child-type hop present in this download.
+
+    Edges come from each row's own Parent UIDs, whose prefix is the parent's
+    sample type, so the lines describe what actually happened rather than what
+    the schema permits. Upstream types are included even when they were not
+    downloaded: that is the part a reader cannot otherwise see.
+    """
+    if "Parent" not in df.columns:
+        return []
+    edges: dict[tuple[str, str], set[str]] = {}
+    for uuid, child_type, parents in zip(df["uuid"], df["sample_type"], df["Parent"]):
+        if not child_type or parents is None:
+            continue
+        text = str(parents).strip()
+        if not text or text.lower() in ("nan", "none"):
+            continue
+        assay = assay_by_uuid.get(str(uuid), "")
+        for token in re.split(r"[;,]", text):
+            match = re.match(SAMPLE_TYPE_RE, token.strip())
+            if not match or match.group(1) == child_type:
+                continue
+            edges.setdefault((match.group(1), child_type), set())
+            if assay:
+                edges[(match.group(1), child_type)].add(assay)
+
+    lines = []
+    for (parent, child) in sorted(edges):
+        assays = sorted(edges[(parent, child)])
+        label = f"  --[{', '.join(assays)}]-->  " if assays else "  ------>  "
+        lines.append(f"{parent}{label}{child}")
+    return lines
+
+
 def _safe_cell_value(value: str) -> str:
     """Make a string safe to hand to openpyxl.
 
@@ -208,7 +290,7 @@ def _write_cell(ws, row: int, column: int, value: str, bold: bool = False):
     return cell
 
 
-def _write_readme(book, blocks: list[dict]) -> None:
+def _write_readme(book, blocks: list[dict], provenance: list[str] | None = None) -> None:
     ws = book.create_sheet(README_SHEET, 0)
     _write_cell(ws, 1, 1, README_LINK_TEXT)
     ws["A1"].hyperlink = CONTEXTDB_URL
@@ -227,7 +309,17 @@ def _write_readme(book, blocks: list[dict]) -> None:
         _write_cell(ws, row, 2, block["name"])
         _write_cell(ws, row, 3, block["description"])
         row += 1
-    row += 1  # blank line between the summary table and the column sections
+    row += 1  # blank line between the summary table and what follows
+
+    # Provenance sits above the column detail: a reader wants to know how the
+    # tabs relate before reading any one of them.
+    if provenance:
+        _write_cell(ws, row, 1, PROVENANCE_TITLE, bold=True)
+        row += 2
+        for line in provenance:
+            _write_cell(ws, row, 1, line)
+            row += 1
+        row += 1
 
     for block in blocks:
         heading = f"{block['code']} — {block['name']}" if block["name"] else block["code"]
@@ -244,7 +336,7 @@ def _write_readme(book, blocks: list[dict]) -> None:
                 _write_cell(ws, row, 3, meaning)
                 row += 1
         row += 1  # blank line between sections
-    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["A"].width = 46
     ws.column_dimensions["B"].width = 34
     ws.column_dimensions["C"].width = 100
 
@@ -316,13 +408,14 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
         [(code, column) for code, columns in sheets for column in columns]
     )
     blocks = build_readme_blocks(sheets, context_by_code, meaning_by_pair)
+    provenance = build_provenance_lines(df, load_assay_titles(df["uuid"].astype(str)))
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         book = writer.book
         # pandas removes openpyxl's default sheet, but guard in case that changes.
         if "Sheet" in book.sheetnames:
             del book["Sheet"]
-        _write_readme(book, blocks)
+        _write_readme(book, blocks, provenance)
 
         field_map, vocabularies = _load_vocabularies()
         needed = sorted({
