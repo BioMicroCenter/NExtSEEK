@@ -1,8 +1,11 @@
 -- Per-field definitions shown on the download workbook's README sheet.
 --
 -- Created out-of-band, like sample_types_context: no Django migration
--- references either table. Apply to the `dmac` database, then regenerate the
--- seed with `./startup.sh dump-db` so fresh installs carry it.
+-- references either table. `./startup.sh install` applies this file to `dmac`
+-- whenever the table is absent — see the MissingTable entry in
+-- startup/steps/schema_fixups.py — so a fresh or an existing install heals
+-- itself. Apply it by hand only to an instance you are not reinstalling
+-- (production), and fold the table into the seed on the next `dump-db` cycle.
 --
 -- sample_type is the scope. '' is the definition used on every tab; a sample
 -- type code overrides it for that tab only. It is NOT NULL DEFAULT '' rather
