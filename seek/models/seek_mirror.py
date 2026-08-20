@@ -1,15 +1,21 @@
-from __future__ import unicode_literals
+"""Mirrors of tables the upstream SEEK Rails app owns.
+
+All 19 models here set ``_DATABASE = SEEK_DATABASE`` and name an existing Rails
+table in ``Meta.db_table``; ``seek/dbrouters.py`` reads ``_DATABASE`` to route
+every query to the ``seek`` alias. NExtSEEK reads these tables, and writes a few,
+but SEEK is what creates and evolves them. A NExtSEEK-owned table belongs in
+``nextseek.py`` instead.
+
+Note that none of them sets ``managed = False``, so Django does consider them
+managed and ``migrations/0001_initial.py`` declares them -- the live tables come
+from SEEK, not from ``migrate``. That mismatch predates this module.
+"""
 
 from django.db import models
-from django.contrib.auth.models import User
-
-from mezzanine.pages.models import Page
-from dmac.conversion import dateconversion, toDate
-from datetime import date
-
 from django.conf import settings
+
 SEEK_DATABASE = settings.SEEK_DATABASE
-NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
+
 
 class Users(models.Model):
     _DATABASE = SEEK_DATABASE
@@ -61,57 +67,6 @@ class People(models.Model):
     class Meta:
         db_table = "people"
 
-
-PROJECT_CHOICES = (
-    ("Undefined", "Undefined"),
-    ("IMPAcTb", "IMPAcTb"),
-    ("MIT_SRP", "MIT_SRP"),
-    ("MetNet", "MetNet"),
-    ("MIT-Koch", "MIT-Koch"),
-    ("Training/Test", "Training/Test")
-)
-
-class User_profile(models.Model):
-    user = models.OneToOneField("auth.User", on_delete=models.CASCADE)
-    project = models.CharField(max_length=255, choices=PROJECT_CHOICES, editable = True)
-    laboratory = models.TextField()
-    
-    def loginname(self):
-        return self.user.username
-    
-    def fullname(self):
-        name = self.user.first_name + ' ' + self.user.last_name
-        return 
-    def __unicode__(self):
-        return self.fullname()
-        
-        
-class Sample_tree(models.Model):
-    sample_id = models.IntegerField()
-    uuid = models.CharField(max_length=255, default=None)
-    parents = models.TextField(default=None)
-    children = models.TextField(default=None)
-    full = models.TextField(default=None)
-    updated = models.DateTimeField(default=None)
-    
-    def getUUID(self):
-        return self.uuid 
-
-    def __unicode__(self):
-        return self.sample_id
-    
-    class Meta:
-        db_table = "seek_sample_tree"
-
-class Session_state(models.Model):
-    session_id = models.CharField(max_length=255, null=False)
-    key = models.CharField(max_length=255, null=False)
-    value = models.TextField()
-    
-    class Meta:
-        db_table = "session_state"
-        unique_together = ("session_id", "key")
-
 class Assays(models.Model):
     _DATABASE = SEEK_DATABASE
 
@@ -138,36 +93,6 @@ class Assays(models.Model):
     class Meta:
         db_table = "assays"
 
-class Internal_assays(models.Model):
-    _DATABASE = NEXTSEEK_DATABASE
-    
-    internal_assay_title = models.TextField(default=None)
-
-    class Meta:
-        db_table = "internal_assays"
-
-class Assays_internal_assays(models.Model):
-    _DATABASE = NEXTSEEK_DATABASE
-
-    internal_assay_id = models.IntegerField(default=None, null=True)
-    assay_id = models.IntegerField(default=None, null=True)
-
-    class Meta:
-        db_table = "assays_internal_assays"
-
-class Clades(models.Model):
-    _DATABASE = NEXTSEEK_DATABASE
-
-    title = models.TextField(default=None)
-    color = models.TextField(default=None)
-    order = models.IntegerField()
-    
-    def __unicode__(self):
-        return self.color
-
-    class Meta:
-        db_table = "clades"
-
 class Sample_types(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -191,46 +116,6 @@ class Sample_types(models.Model):
     class Meta:
         db_table = "sample_types"
 
-class Sample_types_clades(models.Model):
-    _DATABASE = NEXTSEEK_DATABASE
-
-    #clade = models.ForeignKey(Clades, null=True, blank=True, on_delete=models.PROTECT)
-    #sample_type = models.ForeignKey(Sample_types, on_delete=models.PROTECT)
-
-    clade_id = models.IntegerField(default=None, null=True)
-    sample_type_id = models.IntegerField(default=None, null=True)
-
-    def __unicode__(self):
-        return self.clade_id + ' ' + self.sample_type_id
-
-    class Meta:
-        db_table = "sample_types_clades"
-
-
-class Sample_types_context(models.Model):
-    _DATABASE = NEXTSEEK_DATABASE
-
-    sampletype_id = models.IntegerField(default=None, null=True)
-    sample_type = models.CharField(max_length=32, default=None, null=True)
-    name = models.CharField(max_length=255, default=None, null=True)
-    description = models.TextField(default=None, null=True)
-    required_metadata = models.TextField(default=None, null=True)
-    standard_metadata = models.TextField(default=None, null=True)
-    possible_metadata_fields = models.TextField(default=None, null=True)
-    clade = models.CharField(max_length=64, default=None, null=True)
-    sampletype_file_link = models.CharField(max_length=255, default=None, null=True)
-    associated_assay_parents = models.TextField(default=None, null=True)
-    associated_assay_children = models.TextField(default=None, null=True)
-    parent_sampletypes = models.TextField(default=None, null=True)
-    child_sampletypes = models.TextField(default=None, null=True)
-    tags = models.TextField(db_column="Tags", default=None, null=True)
-
-    def __unicode__(self):
-        return self.sample_type
-
-    class Meta:
-        db_table = "sample_types_context"
-
 class Sample_attributes(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -253,8 +138,7 @@ class Sample_attributes(models.Model):
         return self.title
     
     class Meta:
-        db_table = "sample_attributes"        
-
+        db_table = "sample_attributes"
 
 class Sample_attribute_types(models.Model):
     _DATABASE = SEEK_DATABASE
@@ -274,8 +158,8 @@ class Sample_attribute_types(models.Model):
         return self.title
     
     class Meta:
-        db_table = "sample_attribute_types"           
-        
+        db_table = "sample_attribute_types"
+
 class Samples(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -320,7 +204,6 @@ class Projects_samples(models.Model):
         db_table = "projects_samples"
         unique_together = ('project_id', 'sample_id')
 
-
 class Projects_sops(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -342,7 +225,7 @@ class Projects_sops(models.Model):
     class Meta:
         db_table = "projects_sops"
         unique_together = ('project_id', 'sop_id')
-        
+
 class Data_files_projects(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -364,8 +247,7 @@ class Data_files_projects(models.Model):
     class Meta:
         db_table = "data_files_projects"
         unique_together = ('project_id', 'data_file_id')
-        
-        
+
 class Documents(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -387,9 +269,8 @@ class Documents(models.Model):
         return self.uuid
     
     class Meta:
-        db_table = "documents"        
-        
-        
+        db_table = "documents"
+
 class Data_files(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -414,7 +295,7 @@ class Data_files(models.Model):
     
     class Meta:
         db_table = "data_files"
-        
+
 class Content_blobs(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -438,7 +319,7 @@ class Content_blobs(models.Model):
     
     class Meta:
         db_table = "content_blobs"
-        
+
 class Assay_assets(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -456,7 +337,7 @@ class Assay_assets(models.Model):
     
     class Meta:
         db_table = "assay_assets"
-                
+
 class Policies(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -472,7 +353,7 @@ class Policies(models.Model):
         return self.name
     
     class Meta:
-        db_table = "policies"                
+        db_table = "policies"
 
 class Permissions(models.Model):
     _DATABASE = SEEK_DATABASE
@@ -488,7 +369,7 @@ class Permissions(models.Model):
         return self.name
     
     class Meta:
-        db_table = "permissions"                
+        db_table = "permissions"
 
 class Sops(models.Model):
     _DATABASE = SEEK_DATABASE
@@ -512,7 +393,7 @@ class Sops(models.Model):
     
     class Meta:
         db_table = "sops"
-        
+
 class Assets_creators(models.Model):
     _DATABASE = SEEK_DATABASE
     
@@ -527,7 +408,7 @@ class Assets_creators(models.Model):
     
     class Meta:
         db_table = "assets_creators"
-        
+
 class Projects(models.Model):
     _DATABASE = SEEK_DATABASE
     
