@@ -9,6 +9,7 @@ from nextseek_api.services.sample_workbook import (
     COLUMN_TABLE_HEADER,
     CONTEXTDB_URL,
     EXCEL_MAX_CELL_CHARS,
+    CV_SHEET,
     SUMMARY_HEADER,
     build_readme_blocks,
     load_sample_field_context,
@@ -397,6 +398,45 @@ def test_an_undefined_column_gets_no_empty_hover_note(_ctx, _fields, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
     assert load_workbook(out)["MUS"]["A1"].comment is None
+
+
+def _cv_df():
+    """A frame whose columns include two governed by GEO/SRA vocabularies."""
+    return pd.DataFrame([
+        {"uuid": "MUS-230101ABC-1", "Name": "m1", "DataType": "FASTQ", "LibraryDesign": "paired"},
+    ])
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_a_governed_column_offers_its_vocabulary_as_a_dropdown(_ctx, _fields, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_cv_df(), str(out))
+    wb = load_workbook(out)
+    assert CV_SHEET in wb.sheetnames
+    rules = wb["MUS"].data_validations.dataValidation
+    assert {r.formula1.split("!")[0].strip("'") for r in rules} == {CV_SHEET}
+    assert len(rules) == 2  # DataType and LibraryDesign, not Name or uuid
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_dropdowns_warn_rather_than_reject(_ctx, _fields, tmp_path):
+    """Downloaded data predates these vocabularies (RNA-seq for RNA-Seq), so a
+    hard reject would fire on open for rows the researcher never touched."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_cv_df(), str(out))
+    for rule in load_workbook(out)["MUS"].data_validations.dataValidation:
+        assert rule.errorStyle == "warning"
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_no_vocabulary_sheet_when_no_column_is_governed(_ctx, _fields, tmp_path):
+    """The fixture is Name and Sex only; an empty extra sheet would be clutter."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    assert CV_SHEET not in load_workbook(out).sheetnames
 
 
 def _readme_sections(ws) -> dict[str, list[str]]:
