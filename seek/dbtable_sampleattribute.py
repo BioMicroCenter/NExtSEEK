@@ -134,6 +134,7 @@ class DBtable_sampleattribute(DBtable):
             dici_new['required'] = toBinaryTinyInt(dici['required'])
             dici_new['is_title'] = toBinaryTinyInt(dici['is_title'])
             dici_new['sample_controlled_vocab_id'] = dici['sample_controlled_vocab_id']
+            dici_new['description'] = dici.get('description') or ''
             diclist_new.append(dici_new)
             
         attributeInfo['diclist'] = diclist_new
