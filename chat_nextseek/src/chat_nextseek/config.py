@@ -59,6 +59,68 @@ def luria_env_complete(luria_env: dict) -> bool:
     return all(luria_env.get(k) for k in ("user", "key", "working_path"))
 
 
+def db_conn_is_alive(conn) -> bool:
+    """
+    Actively probe a MySQL connection.
+
+    mysql-connector's ``is_connected()`` pings the server, so this catches a
+    connection the server hung up on — which a truthiness test cannot, because a
+    dead connection object is still truthy. Connections without the method (test
+    doubles, other drivers) are taken at face value.
+    """
+    probe = getattr(conn, "is_connected", None)
+    if probe is None:
+        return True
+    try:
+        return bool(probe())
+    except Exception:
+        return False
+
+
+def live_db_conn(config, env: str = "prod"):
+    """
+    Return a usable MySQL connection for ``config``, replacing a dead cached one.
+
+    ``config._db_conn`` is opened once per gunicorn worker in ``ChatConfig.__init__``
+    and outlives every request, so the server drops it long before the process ends.
+    A dead mysql-connector connection is still *truthy*, which is why the former
+
+        conn = config._db_conn or config._connect_db(env="prod")
+
+    idiom could never recover: ``or`` only falls through on ``None``, so the corpse
+    went straight to ``cursor()`` and every caller on that worker got
+
+        OperationalError(-1, 'MySQL Connection not available', None)
+
+    until the process restarted. Evict the corpse before reconnecting so it is never
+    served twice, and cache the replacement so the report runners (which never close
+    what they are handed) stop opening a fresh connection per report.
+
+    Takes ``config`` rather than ``self`` because the report runners are handed
+    lightweight config stand-ins, not always a real ``ChatConfig``. Anything exposing
+    ``_db_conn``/``_connect_db`` works.
+
+    Returns ``None`` when the database is genuinely unreachable; callers already
+    treat that as a clean "DB connection failed".
+    """
+    conn = getattr(config, "_db_conn", None)
+    if conn is not None and not db_conn_is_alive(conn):
+        print("[CONFIG][DB] Cached connection is dead; reconnecting.")
+        try:
+            conn.close()
+        except Exception:
+            pass
+        conn = None
+    if conn is None:
+        connect = getattr(config, "_connect_db", None)
+        conn = connect(env=env) if connect is not None else None
+    try:
+        config._db_conn = conn
+    except Exception:  # frozen/slotted stand-ins: caching is best-effort
+        pass
+    return conn
+
+
 class ChatConfig:
     def __init__(self, config_map={}):
         """Load configuration, provider clients, prompts, and cached context for one process."""
@@ -640,7 +702,11 @@ class ChatConfig:
         except Exception as e:
             print(f"[CONFIG][DB] Connection to {target} failed: {e!r}")
             return None
-    
+
+    def _live_db_conn(self, env: str = "prod"):
+        """Return a usable connection, replacing the cached one once it has died."""
+        return live_db_conn(self, env=env)
+
     def _fetch_context_files_from_db(self, env: str = "prod") -> dict[str, Path]:
         """
         Pull context tables from MySQL and write them to JSON files under context/.
@@ -651,7 +717,7 @@ class ChatConfig:
         Returns a dict of {name: Path} for successfully written files.
         """
         exports: dict[str, Path] = {}
-        conn = self._db_conn or self._connect_db(env=env)
+        conn = self._live_db_conn(env=env)
         if conn is None:
             return exports
 
@@ -1004,7 +1070,7 @@ class ChatConfig:
         to hardcoded ids.
         """
         mapping: dict[str, int] = {}
-        conn = self._db_conn or self._connect_db(env=env)
+        conn = self._live_db_conn(env=env)
         if conn is None:
             return mapping
         try:
