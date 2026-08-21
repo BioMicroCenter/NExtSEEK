@@ -9,8 +9,12 @@
     <div class="user-meta">
       <div class="user-name">{{ request.user|username_or:"email" }}</div>
       <div class="user-role">
-        {# is_superuser, never is_staff -- see nav.embed.html. is_staff is set on
-           every SEEK user at login, so this badge read "Admin" for everyone. #}
+        {% comment %}
+          is_superuser, never is_staff -- see nav.embed.html. is_staff is set on
+          every SEEK user at login, so this badge read "Admin" for everyone.
+          {% comment %}, not {# #}: Django's {# #} is single-line only and a
+          multi-line one renders as visible page text.
+        {% endcomment %}
         {% if request.user.is_superuser %}{% trans "Admin" %}
         {% else %}{% trans "Researcher" %}{% endif %}
       </div>

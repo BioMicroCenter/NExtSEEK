@@ -67,3 +67,68 @@ def test_the_two_known_admin_gates_use_is_superuser():
     assert "{% if request.user.is_superuser %}{% trans \"Admin\" %}" in panel, (
         "user_panel.html no longer gates the Admin badge on is_superuser"
     )
+
+
+# ---------------------------------------------------------------------------
+# Django's {# #} comment is SINGLE-LINE ONLY. A multi-line one is not a comment
+# at all -- it renders as visible page text. That shipped to production on
+# 2026-08-21: the user badge read
+#   "{# is_superuser, never is_staff -- ... #} Researcher"
+# The source guard above could not catch it, because the gate itself was
+# correct. Use {% comment %}/{% endcomment %} for anything multi-line.
+# ---------------------------------------------------------------------------
+
+import re
+
+_OPEN = re.compile(r"\{#")
+_SINGLE_LINE = re.compile(r"\{#.*?#\}")
+
+
+@pytest.mark.parametrize("template", _theme_templates(), ids=lambda p: p.name)
+def test_no_multiline_django_comments(template):
+    bad = []
+    for n, line in enumerate(template.read_text(encoding="utf-8").splitlines(), 1):
+        # Every {# on the line must be closed on that same line.
+        if len(_OPEN.findall(line)) != len(_SINGLE_LINE.findall(line)):
+            bad.append((n, line.strip()))
+    assert not bad, (
+        f"{template.relative_to(THEME_ROOT)} opens a {{# #}} comment that does not close on "
+        f"the same line. Django's {{# #}} is single-line only; a multi-line one RENDERS as "
+        f"visible page text. Use {{% comment %}}/{{% endcomment %}}. Offending lines: {bad}"
+    )
+
+
+@pytest.mark.django_db
+def test_admin_sidebar_renders_nothing_for_a_non_superuser():
+    """Render the real template, not just scan it.
+
+    Asserts two things at once: the admin links are absent for a non-superuser,
+    and no template-comment text leaked into the output.
+    """
+    from django.template.loader import render_to_string
+    from types import SimpleNamespace
+
+    user = SimpleNamespace(
+        is_authenticated=True, is_staff=True, is_superuser=False, username="researcher",
+    )
+    html = render_to_string("nav.embed.html", {"request": SimpleNamespace(user=user)})
+
+    for forbidden in ("Admin Panel", "Clades", "/seek/admin/clades/"):
+        assert forbidden not in html, f"non-superuser sees {forbidden!r} in the sidebar"
+    for leaked in ("is_staff", "is_superuser", "dmac/views.py"):
+        assert leaked not in html, f"template comment text leaked into the page: {leaked!r}"
+
+
+@pytest.mark.django_db
+def test_admin_sidebar_still_renders_for_a_superuser():
+    """The gate must not be so tight that admins lose the section."""
+    from django.template.loader import render_to_string
+    from types import SimpleNamespace
+
+    user = SimpleNamespace(
+        is_authenticated=True, is_staff=True, is_superuser=True, username="admin",
+    )
+    html = render_to_string("nav.embed.html", {"request": SimpleNamespace(user=user)})
+
+    assert "Admin Panel" in html
+    assert "Clades" in html
