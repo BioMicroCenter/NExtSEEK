@@ -306,12 +306,14 @@ rather than shipping a broken button.
 
 ## Deliberately left alone
 
-- **`is_superuser or is_staff`** (`nextseek_api/views.py:638`). Staff still see
-  every sample rather than only their projects. The prerequisite the old comment
-  named — real project resolution — is now satisfied, so dropping `is_staff` is a
-  safe one-line change on its own terms, but it narrows what 11 of 20 local
-  accounts can read and would affect the assistant and container-CC consumers,
-  which currently rely on unfiltered reads. Assess that first.
+- ~~**`is_superuser or is_staff`**~~ — **no longer left alone.** Fixed since, in
+  `ca1c9d9b` (issue #74). `dmac/views.py:80,97` set `is_staff = 1` on every SEEK
+  user at login, so `or is_staff` made project scope a no-op for everyone and
+  handed every authenticated account the unfiltered branch of `getChildrenUIDs`.
+  The predicate is now `is_superuser` alone (`nextseek_api/views.py:747-754`),
+  matching the legacy path it mirrors (`seek/views.py:1249`, `verifySuperUser`).
+  Kept here rather than deleted: this section records what was knowingly
+  deferred, and this entry is the reason it stopped being deferred.
 - **`sampleDownload`, `adminRetrieveSamples`, the zip-of-xls path.** Unreachable
   from the UI, kept for external callers.
 - **The dead advanced-tab include-tree prompt.** Not revived; that is a UX change,
