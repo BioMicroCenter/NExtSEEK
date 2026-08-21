@@ -11,7 +11,9 @@ from nextseek_api.services.sample_workbook import (
     CONTEXTDB_URL,
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
+    FLOW_ARROW_WIDTH,
     FLOW_SHEET,
+    FLOW_TYPE_WIDTH,
     SUMMARY_HEADER,
     build_readme_blocks,
     load_assay_titles,
@@ -600,3 +602,88 @@ def test_the_readme_points_at_the_flow_sheet(_ctx, _fields, _assays, tmp_path):
     text = " ".join(str(c.value) for row in load_workbook(out)["README"].iter_rows()
                     for c in row if c.value)
     assert FLOW_SHEET in text
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_the_flow_sheet_uses_its_own_alternating_widths(_ctx, _fields, _assays, tmp_path):
+    """The whole justification for a separate sheet is that it can have its own
+    column widths. Nothing else asserts FLOW_TYPE_WIDTH/FLOW_ARROW_WIDTH are
+    actually applied, so they -- or their order -- could be swapped or dropped
+    silently."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    ws = load_workbook(out)[FLOW_SHEET]
+    assert ws.column_dimensions["A"].width == FLOW_TYPE_WIDTH
+    assert ws.column_dimensions["C"].width == FLOW_TYPE_WIDTH
+    assert ws.column_dimensions["B"].width == FLOW_ARROW_WIDTH
+    assert ws.column_dimensions["D"].width == FLOW_ARROW_WIDTH
+
+
+def _order_df():
+    """Alphabetical order is DNA, PAT, PAV, TIS. Generation order is the
+    reverse of that for PAT/PAV and puts DNA last."""
+    return pd.DataFrame([
+        {"uuid": "TIS-1", "sample_type": "TIS", "Parent": "PAV-1"},
+        {"uuid": "DNA-1", "sample_type": "DNA", "Parent": "TIS-1"},
+        {"uuid": "PAT-1", "sample_type": "PAT", "Parent": ""},
+        {"uuid": "PAV-1", "sample_type": "PAV", "Parent": "PAT-1"},
+    ])
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_sample_tabs_follow_generation_order(_ctx, _fields, _assays, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_order_df(), str(out))
+    tabs = [n for n in load_workbook(out).sheetnames
+            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+    assert tabs == ["PAT", "PAV", "TIS", "DNA"]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_the_readme_summary_follows_the_same_order(_ctx, _fields, _assays, tmp_path):
+    """A workbook whose tabs and README disagree reads as a bug."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_order_df(), str(out))
+    ws = load_workbook(out)["README"]
+    codes = [ws.cell(row=r, column=1).value for r in range(4, 8)]
+    assert codes == ["PAT", "PAV", "TIS", "DNA"]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_a_type_with_no_lineage_sorts_last(_ctx, _fields, _assays, tmp_path):
+    """ABC has no hop at all. It cannot be placed in the pipeline, so it goes
+    after everything that can be."""
+    df = pd.DataFrame([
+        {"uuid": "TIS-1", "sample_type": "TIS", "Parent": "PAV-1"},
+        {"uuid": "PAV-1", "sample_type": "PAV", "Parent": ""},
+        {"uuid": "ABC-1", "sample_type": "ABC", "Parent": ""},
+    ])
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(df, str(out))
+    tabs = [n for n in load_workbook(out).sheetnames
+            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+    assert tabs == ["PAV", "TIS", "ABC"]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_order_stays_alphabetical_without_any_lineage(_ctx, _fields, _assays, tmp_path):
+    """No graph and no usable Parent column: fall back to what it did before."""
+    df = pd.DataFrame([
+        {"uuid": "TIS-1", "sample_type": "TIS", "Name": "t"},
+        {"uuid": "DNA-1", "sample_type": "DNA", "Name": "d"},
+    ])
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(df, str(out))
+    tabs = [n for n in load_workbook(out).sheetnames
+            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+    assert tabs == ["DNA", "TIS"]

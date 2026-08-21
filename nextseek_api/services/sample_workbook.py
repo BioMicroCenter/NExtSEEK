@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -432,6 +433,14 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
     if context_by_code is None:
         context_by_code = load_sample_type_context(codes)
 
+    # Lineage is loaded before the sheets are prepared, because the sheet order
+    # is derived from it. Same single bounded query, just earlier.
+    uuids = df["uuid"].astype(str)
+    hops = load_derivation_hops(uuids)
+    edges = derivation_edges(df, {} if hops else load_assay_titles(uuids), hops)
+    depths = sample_type_depths(edges)
+    flow_rows = build_provenance_rows(edges, depths)
+
     prepared = []
     for sample_type, sample_type_df in df.groupby("sample_type"):
         frame = sample_type_df.drop(columns=["uuid", "sample_type"])
@@ -439,15 +448,17 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
         frame = frame.dropna(axis=1, how="all")
         prepared.append((sample_type, frame))
 
+    # Generation order, not alphabetical: a reader meets the sample types in
+    # the order they were made. A type with no hop at all cannot be placed in
+    # the pipeline, so it sorts after everything that can be. No lineage at all
+    # leaves every depth infinite, which is a stable alphabetical sort.
+    prepared.sort(key=lambda item: (depths.get(item[0], math.inf), item[0]))
+
     sheets = [(code, list(frame.columns)) for code, frame in prepared]
     meaning_by_pair = load_sample_field_context(
         [(code, column) for code, columns in sheets for column in columns]
     )
     blocks = build_readme_blocks(sheets, context_by_code, meaning_by_pair)
-    uuids = df["uuid"].astype(str)
-    hops = load_derivation_hops(uuids)
-    edges = derivation_edges(df, {} if hops else load_assay_titles(uuids), hops)
-    flow_rows = build_provenance_rows(edges, sample_type_depths(edges))
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         book = writer.book
