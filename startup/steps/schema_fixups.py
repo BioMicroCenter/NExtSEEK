@@ -114,8 +114,8 @@ KNOWN_TABLE_FIXUPS: list[MissingTable] = [
     # Without this entry a fresh install renders every definition blank.
     MissingTable(
         database="dmac",
-        table="sample_fields_context",
-        ddl_path="startup/seed/sql/sample_fields_context.sql",
+        table="sample_attributes_unique",
+        ddl_path="startup/seed/sql/sample_attributes_unique.sql",
     ),
 ]
 

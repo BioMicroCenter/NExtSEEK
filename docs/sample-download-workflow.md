@@ -145,10 +145,10 @@ all dropped out gets its heading and description but no table header, since a
 
 Sample type names and descriptions come from `dmac.sample_types_context` via the
 `Sample_types_context` model (`seek/models.py`); per-column meanings come from
-`dmac.sample_fields_context` via `Sample_fields_context`, where `sample_type =
+`dmac.sample_attributes_unique` via `Sample_attributes_unique`, where `sample_type =
 ''` is the definition used on every tab and a sample type code overrides it for
 that tab only. **Both join on a string key, never on an id** —
-`sample_types_context` on `sample_type` and `sample_fields_context` on
+`sample_types_context` on `sample_type` and `sample_attributes_unique` on
 `field_name` — because the id column does not agree with `sample_types.id`
 across instances (production context has
 `sampletype_id` 10 = `MUS`, while local `seek_production.sample_types` has id
@@ -231,14 +231,14 @@ Production's `dmac` has `sample_types_context`, `assay_context` and
 for the README. `assay_context` and `projects_context` remain a seed/production
 divergence and will bite whoever next depends on them.
 
-`sample_fields_context` is a fourth gap, and a different one: the README's
+`sample_attributes_unique` is a fourth gap, and a different one: the README's
 per-column meanings *do* need it, but it could not be folded into the seed here
 because `./startup.sh dump-db` requires maintainer credentials for a remote host
 and regenerates all three seed dumps together. The dump therefore still does not
 carry the table — but the gap no longer reaches a fresh install, because
-`startup/steps/schema_fixups.py` registers `dmac.sample_fields_context` as a
+`startup/steps/schema_fixups.py` registers `dmac.sample_attributes_unique` as a
 `MissingTable` and install runs its DDL
-(`startup/seed/sql/sample_fields_context.sql`) whenever it is absent. The same
+(`startup/seed/sql/sample_attributes_unique.sql`) whenever it is absent. The same
 hook heals an existing install on its next run. An instance that is running and
 not about to be reinstalled — production — still takes that DDL by hand. If the
 table is missing anyway, the loader renders meanings blank by design rather than
@@ -250,8 +250,8 @@ What the sheet renders is described under "The README sheet" above. What it
 takes to light the meanings up on an instance:
 
 1. **Create the table.** `./startup.sh install` does it —
-   `dmac.sample_fields_context` is registered in `startup/steps/schema_fixups.py`,
-   so install (and `reset`) run `startup/seed/sql/sample_fields_context.sql`
+   `dmac.sample_attributes_unique` is registered in `startup/steps/schema_fixups.py`,
+   so install (and `reset`) run `startup/seed/sql/sample_attributes_unique.sql`
    whenever the table is absent, whether or not seeds ran. For an instance
    that is already running — production included — apply that same DDL by hand
    instead of reinstalling; it is `CREATE TABLE IF NOT EXISTS`, so it is safe to

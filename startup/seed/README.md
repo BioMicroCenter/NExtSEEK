@@ -6,12 +6,12 @@ This directory ships sanitized snapshots of dev databases for fresh installs.
 
 - `dmac.sql.gz` — NExtSEEK application schema (the `dmac` MySQL database)
 
-  The `dmac` dump does **not** yet include `sample_fields_context`, the
+  The `dmac` dump does **not** yet include `sample_attributes_unique`, the
   per-field definitions behind the download workbook's README sheet, and will
   not until a maintainer folds the table in on the next `dump-db` cycle. A fresh
-  install gets it anyway: `dmac.sample_fields_context` is registered in
+  install gets it anyway: `dmac.sample_attributes_unique` is registered in
   `startup/steps/schema_fixups.py`, so install runs its DDL
-  (`startup/seed/sql/sample_fields_context.sql`) whenever the table is absent.
+  (`startup/seed/sql/sample_attributes_unique.sql`) whenever the table is absent.
   That step runs whether or not seeds ran, so it heals an existing install on
   its next `install` too. Apply the DDL by hand only to an instance you are not
   reinstalling — production. If the table is missing regardless, the README's

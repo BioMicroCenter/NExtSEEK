@@ -231,7 +231,7 @@ class Sample_types_context(models.Model):
     class Meta:
         db_table = "sample_types_context"
 
-class Sample_fields_context(models.Model):
+class Sample_attributes_unique(models.Model):
     """Plain-English meaning per metadata field, for the download README.
 
     Joined on the `field_name` string, never on an id: ids do not agree across
@@ -248,10 +248,10 @@ class Sample_fields_context(models.Model):
         return self.field_name
 
     class Meta:
-        db_table = "sample_fields_context"
+        db_table = "sample_attributes_unique"
         unique_together = ("field_name", "sample_type")
         # The table is created out-of-band in SQL (startup/seed/sql/
-        # sample_fields_context.sql, applied by startup's schema fixups); this
+        # sample_attributes_unique.sql, applied by startup's schema fixups); this
         # model only maps it. Left managed, the next unrelated `makemigrations`
         # in this app would propose creating the table, and CustomRouter.
         # allow_migrate returns None for non-`default` app labels, so applying

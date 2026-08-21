@@ -25,7 +25,7 @@ from openpyxl.styles import Font
 from seek.models import (
     Assay_assets,
     Assays,
-    Sample_fields_context,
+    Sample_attributes_unique,
     Sample_types_context,
     Samples,
 )
@@ -162,7 +162,7 @@ def load_sample_type_context(codes: Iterable[str]) -> dict[str, dict[str, str]]:
 def load_sample_field_context(
     pairs: Iterable[tuple[str, str]],
 ) -> dict[tuple[str, str], str]:
-    """Resolve (sample_type, field_name) -> meaning against sample_fields_context.
+    """Resolve (sample_type, field_name) -> meaning against sample_attributes_unique.
 
     Precedence per pair: a row scoped to that sample type, else the global row
     (`sample_type == ''`), else blank. Resolving here means no caller has to
@@ -173,14 +173,14 @@ def load_sample_field_context(
         return {}
     try:
         rows = list(
-            Sample_fields_context.objects.filter(
+            Sample_attributes_unique.objects.filter(
                 field_name__in=sorted({fn for _, fn in wanted})
             ).values("field_name", "sample_type", "meaning")
         )
     except Exception:
         # A missing or unreachable table must not cost the user their download;
         # every meaning then renders blank.
-        logger.exception("sample_fields_context lookup failed; meanings will be blank")
+        logger.exception("sample_attributes_unique lookup failed; meanings will be blank")
         return {}
 
     global_by_field: dict[str, str] = {}
