@@ -126,7 +126,7 @@ class SeekDB(object):
             userInfo['institutionname'] = 'NA'
             userInfo['lababbv'] = 'NA'
             status = False
-            mag = "No institution/lab is assigned, ask Admin for help."    
+            mag = "No institution/lab is assigned, ask Admin for help."  # noqa: F841 (LATENT_BUGS #15)
         
         return userInfo, status, msg
         
@@ -760,7 +760,7 @@ class SeekDB(object):
         df_dic = self.__seekapi.runGetQuery(apiurl)
         df_info = df_dic["data"]
         content_blob = df_info["attributes"]["content_blobs"][0]
-        content_blob_url = content_blob["link"]
+        content_blob_url = content_blob["link"]  # noqa: F841 (kept: asserts the upload produced a content blob)
         
         msg = 'okay'
         status = 1

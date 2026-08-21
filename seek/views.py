@@ -64,7 +64,6 @@ SAMPLE_TEMPLATES_FOLDER_PROJECT = settings.SAMPLE_TEMPLATES_FOLDER_PROJECT
 
 PUBLISH_STATS_FILE = settings.PUBLISH_STATS_FILE
 
-PUBLISH_SERVER = settings.PUBLISH_URL
 SEEK_HOSTNAME = settings.SEEK_HOSTNAME
 
 report = {}
@@ -84,7 +83,6 @@ def getSeekPage(request, seek_url):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        err = user_seek['err']
         url_redirect = '/login/'
         return HttpResponseRedirect(url_redirect)
         
@@ -98,7 +96,6 @@ def sample(request, id):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        err = user_seek['err']
         if sample_id==0:
             url_redirect = '/login/?next=/seek/samples/query/'
         else:
@@ -169,7 +166,6 @@ def sampleUpload(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        err = user_seek['err']
         return HttpResponseRedirect("/login/?next=/seek/samples/upload/")
         
     report = {}
@@ -190,7 +186,6 @@ def batchUpload(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, True)
     if not user_seek['status']:
-        err = user_seek['err']
         return HttpResponseRedirect("/login/?next=/seek/samples/batchupload/")
 
     isSupervisor = verifySuperUser(request)
@@ -219,9 +214,9 @@ def batchUpload(request):
     
 def sampleUploadAjax(request):
     logger.debug('sampleUploadAjax')
-    username = str(request.user)
+    username = str(request.user)  # noqa: F841 (kept: resolves the lazy request.user)
     seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
+    seekdb.getSeekLogin(request)
     msg = "Error: File not valid"
     message = ''
     status = 0
@@ -315,7 +310,6 @@ def sample_type(request, id):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        err = user_seek['err']
         if sampletype_id==0:
             url_redirect = '/login/?next=/seek/samples/query/'
         else:
@@ -365,13 +359,11 @@ def sampleSearch(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        err = user_seek['err']
         url_redirect = '/login/?next=/seek/samples/search/'
         return HttpResponseRedirect(url_redirect)
     
     report = {}
     stype = DBtable_sampletype()
-    sampletype_id = 0
     report['type_options'] = stype.getSampleTypes()
     report['showSamplePage'] = True
     report['showSearch'] = True
@@ -421,7 +413,6 @@ def datafileUpload(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, True)
     if not user_seek['status']:
-        err = user_seek['err']
         return HttpResponseRedirect("/login/?next=/seek/data/upload/")
 
     isSupervisor = verifySuperUser(request)
@@ -493,7 +484,7 @@ def sampleDownload(request):
         attributeFilter = None
     
     allids = ret['allids']
-    sampletype_id = ret['sampletype_id']
+    sampletype_id = ret['sampletype_id']  # noqa: F841 (kept: deleting it would relax a required request field)
     sample_ids = json.loads(allids)
     
     seekdb = SeekDB(None, None, None)
@@ -552,7 +543,7 @@ def sampleExport(request):
     return HttpResponse(sdata)   
 
 def sampleFindAjax(request):
-    username = str(request.user)
+    username = str(request.user)  # noqa: F841 (kept: resolves the lazy request.user)
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     msg = "Error: File not valid"
@@ -563,10 +554,6 @@ def sampleFindAjax(request):
         if request.FILES and request.FILES.get('excelfile_find'):
             excelfile = request.FILES['excelfile_find']
             if excelfile:
-                inputfile = excelfile.name
-                names = inputfile.split(".")
-                n = len(names)
-                
                 datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
                 filename = 'samples-export' + datenow + '.zip'
                 downloadfile = DOWNLOAD_DIRECTORY + filename
@@ -629,39 +616,9 @@ def publishSamples(user_seek, sample_ids, assay_id=None, project_id=None):
     sdata = dbsample.publishSamples(user_seek, downloadfile, link, sample_ids, assay_id, project_id)
     return HttpResponse(sdata)
     
-def __definePublishServer(seekdb, user_seek):
-    username = user_seek['username']
-    password = user_seek['password']
-    person_id = user_seek['person_id']
-    fullname = seekdb.getUserFullname(person_id)
-    server = PUBLISH_SERVER
-    sdb = SeekDB(server, username, password)
-    user = sdb.updateUserProfile(fullname)
-    return sdb, user
-    
-    
-def __getISA(seekdb, user_seek, whichServer):
-    if whichServer=="SOURCE":
-        sdb = seekdb
-        user = user_seek
-        project_title = user['projectname']
-        server = 'local'
-    elif whichServer=="DESTINATION":
-        sdb, user = __definePublishServer(seekdb, user_seek)
-        server = PUBLISH_SERVER
-        if 'projectname' in user:
-            project_title = user['projectname']
-        else:
-            project_title = None
-    else:
-        return None, None, None, None, None
-    
-    project_options, investigation_options_dic, study_options_dic, assay_options_dic = sdb.getISAOptions()
-    return project_options, investigation_options_dic, study_options_dic, assay_options_dic, server
-    
 def getStudiesOptions(request, id):
     seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
+    seekdb.getSeekLogin(request, False)
     
     investigation_id = id
     studies = seekdb.getStudiesFromID(investigation_id)
@@ -671,7 +628,7 @@ def getStudiesOptions(request, id):
     
 def getAssaysOptions(request, id):
     seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
+    seekdb.getSeekLogin(request, False)
     
     study_id = id
     assays = seekdb.getAssaysFromID(study_id)
@@ -683,13 +640,11 @@ def sampleAttributes(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        err = user_seek['err']
         url_redirect = '/login/?next=/seek/samples/attributes/'
         return HttpResponseRedirect(url_redirect)
     
     report = {}
     stype = DBtable_sampletype()
-    sampletype_id = 0
     report['type_options'] = stype.getSampleTypes()
     report['showSamplePage'] = True
     report['showSearch'] = True
@@ -785,13 +740,9 @@ def sampleAttributeDelete(request):
     
 def getInstituionUsers(request, id):
     seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
+    seekdb.getSeekLogin(request, False)
     
     instituion_id = int(id)
-    valueSelected = ''
-    ret = request.GET
-    if 'valueSelected' in ret:
-        valueSelected = ret['valueSelected']
         
     options = []
     status = 0
@@ -821,13 +772,11 @@ def searchAdvanced(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        err = user_seek['err']
         url_redirect = '/login/?next=/seek/search/'
         return HttpResponseRedirect(url_redirect)
     
     report = {}
     stype = DBtable_sampletype()
-    sampletype_id = 0
     report['type_options'] = stype.getSampleTypes()
     report['showSamplePage'] = True
     report['showSearch'] = True        
@@ -843,9 +792,9 @@ def searchingUIDs(request):
     
 def samplesValidate(request):
     logger.debug('samplesValidate')
-    username = str(request.user)
+    username = str(request.user)  # noqa: F841 (kept: resolves the lazy request.user)
     seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
+    seekdb.getSeekLogin(request)
 
     msg = "Error: File not valid"
     message = ''
@@ -885,7 +834,7 @@ def samplesValidate(request):
 
                 if set(expected_sheets) != set(actual_sheets):
                     missing_sheets = set(expected_sheets) - set(actual_sheets)
-                    extra_sheets = set(actual_sheets) - set(expected_sheets)
+                    extra_sheets = set(actual_sheets) - set(expected_sheets)  # noqa: F841 (LATENT_BUGS #40)
                     if set(['Instructions', 'Samples', 'Assay']) & missing_sheets:
                         message += f"Missing sheets: {missing_sheets}. Please fix this and reupload sheet."
                         status += 1
@@ -1226,7 +1175,6 @@ def adminRetrieveSamples(request):
             datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
             filename = 'download-samples-' + datenow + '.xlsx'
             downloadfile = DOWNLOAD_DIRECTORY + filename
-            link = DOWNLOAD_DIRECTORY_LINK + filename
 
             sample_retrieval_data(children_uids, downloadfile)
 
@@ -1264,7 +1212,7 @@ def projects(request):
             try:
                 stats = projectsdb.sample_count(project['id'])
                 stats.update(projectsdb.files_count(project['id']))
-            except Exception as exc:
+            except Exception:
                 logger.exception("Failed to build project stats for project_id=%s", project.get('id'))
                 stats = {'sample_count': 0, 'sop_count': 0, 'df_count': 0}
             project['stats'] = stats
@@ -1353,7 +1301,6 @@ def adminClades(request):
     user_seek = seekdb.getSeekLogin(request, False)
 
     if not user_seek['status']:
-        err = user_seek['err']
         url_redirect = '/login/?next=/seek/samples/attributes/'
         return HttpResponseRedirect(url_redirect)
 
@@ -1521,7 +1468,6 @@ def internalAssays(request):
     user_seek = seekdb.getSeekLogin(request, False)
 
     if not user_seek['status']:
-        err = user_seek['err']
         url_redirect = '/login/?next=/seek/samples/attributes/'
         return HttpResponseRedirect(url_redirect)
 

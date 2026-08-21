@@ -73,7 +73,6 @@ class Search():
         kws = []
         for i, j in pts.items():
             term = keyword[(i+1):j] 
-            termi = keyword[i:(j+1)]   
             sids.append(term)
             kw = keyword[0:i]       
             kws.append(kw)
@@ -296,7 +295,6 @@ class Search():
             return query
         
         searching = True
-        ni = 0
         sss = searchText
         iterations = []
         termsdic = {}

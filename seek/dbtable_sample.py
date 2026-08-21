@@ -152,7 +152,6 @@ RESERVED_DEFAULT_VALUE_FOR_UPDATE = "-none"
 
     
 from joblib import Parallel, delayed
-import multiprocessing
 
 def unwrap_self_createMultiParentTreeParallel_i(arg, **kwarg):    
     return DBtable_sample.createMultiParentTreeParallel_i(*arg, **kwarg)
@@ -215,9 +214,7 @@ class DBtable_sample(DBtable):
             
         allNone = True
         for key, value in csvdic.items():
-            if value is None:
-                okay = 1
-            else:
+            if value is not None:
                 allNone = False
             
         if allNone:    
@@ -228,7 +225,6 @@ class DBtable_sample(DBtable):
     def getSampleUIDIndex(self, sampleUIDPrefix):
         records = self.db.retrieveRecords(self.tablemodel, 'uuid', sampleUIDPrefix)
         prefix = sampleUIDPrefix + '-'          
-        indexes = []
         maxindex = 0
         for record in records:
             uid = record['uuid']               
@@ -320,7 +316,6 @@ class DBtable_sample(DBtable):
         
     def __getRecord(self, user_seek, record, attributeInfo, contributor_id):
         username = user_seek['username']
-        user_id = user_seek['user_id']
         project_id = user_seek['projectid']
         
         record_new = {}
@@ -381,8 +376,6 @@ class DBtable_sample(DBtable):
         return record_new, newSample
         
     def __updateSampleProject(self, user_seek, sample_id):
-        username = user_seek['username']
-        user_id = user_seek['user_id']
         project_id = user_seek['projectid']
 
         db = settings.DATABASES[SEEK_DATABASE]
@@ -424,10 +417,7 @@ class DBtable_sample(DBtable):
             return msg, meetRequired
         
         uid = record['UID']
-        if uid is None or len(uid.strip())==0:
-            newSample = True
-        else:
-            newSample = False
+        if uid is not None and len(uid.strip())>0:
             meetRequired = True
             msg = 'Other required fields are not necessary when the UID is available for updating the sample Info.'
             return msg, meetRequired
@@ -462,7 +452,6 @@ class DBtable_sample(DBtable):
         sampleTypes_order = []
         for dici in diclist_instruction:
             if "Field" not in dici or "Database Field" not in dici:
-                msg = "Error: Instruction sheet should contain 'Field' or 'Database Field' columns."
                 return {}, []
                 
             tbheader = dici["Field"]
@@ -475,7 +464,6 @@ class DBtable_sample(DBtable):
             
             dbfield = dici["Database Field"]
             if DELIMITER_DBFIELD not in dbfield:
-                msg = "Error: 'Database Field' column should follow the format 'tableName::attributeName."
                 return {}, []
                 
             terms = dbfield.split(DELIMITER_DBFIELD)     
@@ -521,7 +509,7 @@ class DBtable_sample(DBtable):
                             samplename = value
                             
                 if samplename is None:
-                    msg = 'Error: one sample does not have an unique identifier, which will be captured later on in __getRecord()'
+                    pass    # no unique identifier; __getRecord() reports it later
                 elif samplename in unique_samples:
                     dici_sample = unique_samples[samplename]
                 else:
@@ -533,9 +521,6 @@ class DBtable_sample(DBtable):
     
     
     def __setSampleDatafileAssociation(self, user_seek, sampleType, record, attributeInfo, diclist_assay):   
-        username = user_seek['username']
-        user_id = user_seek['user_id']
-        project_id = user_seek['projectid']
         msg = ''
         status = 1
         
@@ -591,7 +576,6 @@ class DBtable_sample(DBtable):
         contributor_id = user_seek['user_id']
         
         creator_id = creator['user_id']
-        project_id = creator['projectid']
         
         if not self.__notEmptyLine(record):
             msg = SAMPLE_ERRORCODE['501']
@@ -641,7 +625,6 @@ class DBtable_sample(DBtable):
         return msg, status, uid
     
     def __storeSample_assay_asset(self, user_seek, sampleType, sample_id, diclist_assay):
-        username = user_seek['username']
         assay_assets = DBtable_assay_assets("DEFAULT")
         return assay_assets.storeSample_assay_asset(user_seek, sampleType, sample_id, diclist_assay)
         
@@ -905,7 +888,6 @@ class DBtable_sample(DBtable):
 
     def __batchUploadTest(self, seekdb, sampleType, diclist, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced=False):
         user_seek = seekdb.user_seek
-        username = user_seek['username']
         user_id = user_seek['user_id']
         contributor_id = user_id
         creator = seekdb.creator
@@ -1068,8 +1050,6 @@ class DBtable_sample(DBtable):
         return msg, statusTest, diclist_new
     
     def __batchUploadSampleTest(self, seekdb, sampleType, diclist_sample, diclist_feedback, attributeMapping, diclist_assay, uploadEnforced=False):
-        user_seek = seekdb.user_seek
-        username = user_seek['username']
         stype = DBtable_sampletype()
         sampletype_id = stype.getSampleTypeID(sampleType)
         if sampletype_id<=0:
@@ -1099,7 +1079,6 @@ class DBtable_sample(DBtable):
             sheet1.write(row, index, newitem)
         
         style = xlwt.easyxf('pattern: pattern solid, fore_colour red;')
-        style0 = xlwt.Style.easyxf('pattern: pattern solid, fore_colour white;')
         i = 0
         for dici in diclist:
             dici_feedback = diclist_feedback[i]
@@ -1233,7 +1212,6 @@ class DBtable_sample(DBtable):
         
         headers.append('feedback')
         username = user_seek['username']
-        user_id = user_seek['user_id']
 
         msg0 = '<br/>'
         nright = 0
@@ -1277,7 +1255,6 @@ class DBtable_sample(DBtable):
     
     
     def __batchUpdateSampleAssociation(self, sheetData, feedbackfile, user_seek):
-        username = user_seek['username']
         msg = "batchUpdate sample-assay association"
         status = 0
         
@@ -1301,8 +1278,6 @@ class DBtable_sample(DBtable):
             return msg, status
         
         headers.append('Feedback')
-        username = user_seek['username']
-        user_id = user_seek['user_id']
         assay_assets = DBtable_assay_assets("DEFAULT")
 
         msg0 = '<br/>'
@@ -1400,7 +1375,6 @@ class DBtable_sample(DBtable):
         
     def batchUpload(self, infile, feedbackfile, seekdb):
         user_seek = seekdb.user_seek
-        username = user_seek['username']
         msg = "batchUpload"
         #logger.debug(msg)
         status = 0
@@ -1520,7 +1494,7 @@ class DBtable_sample(DBtable):
     def __retrieveSampleByUID(self, uid):
         record = None
         if uid is None or len(uid.strip())==0:
-            msg = 'No record is found based on the input UID: ' + uid
+            msg = 'No record is found based on the input UID: ' + uid  # noqa: F841 (LATENT_BUGS #38)
             return None
         
         constraint = {'uuid':uid}
@@ -1544,11 +1518,11 @@ class DBtable_sample(DBtable):
         try:
             id = int(idIn)
         except:
-            msg = 'No record is found based on the input ID: ' + idIn
+            msg = 'No record is found based on the input ID: ' + idIn  # noqa: F841 (LATENT_BUGS #38)
             return None
         
         if id<=0:
-            msg = 'No record is found based on the input ID: ' + idIn
+            msg = 'No record is found based on the input ID: ' + idIn  # noqa: F841 (LATENT_BUGS #38)
             return None
         
         constraint = {'id':id}
@@ -1632,8 +1606,6 @@ class DBtable_sample(DBtable):
         project_id = filtersdic['project_id']
         sqlquery_from = self.__sqlQuery_select_records_from(project_id)
         orderby = filtersdic['orderby'] 
-        startNo = filtersdic['startNo'] 
-        endNo = filtersdic['endNo']
         sqlquery_where = self.__sqlQuery_select_records_filters_advanced(filtersdic)
         sqlqueryMega = sqlquery_select + sqlquery_from + sqlquery_where
         if len(orderby)==0:
@@ -1684,7 +1656,6 @@ class DBtable_sample(DBtable):
         accessor_name = attribute.strip()
         
         values = []     
-        parentUIDs = []    
         n = 0
         for data in jdata:
             json_metadata = data['json_metadata']
@@ -1705,7 +1676,6 @@ class DBtable_sample(DBtable):
         passvalues = sattr.filterValues(values, sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo)
         
         jdata_new = []
-        parentUIDs_new = [] 
         index = 0
         ni = 0
         nf = 0
@@ -1819,7 +1789,6 @@ class DBtable_sample(DBtable):
         treeData["id"] = str(currentuid)
         
         children = []
-        num_cores = multiprocessing.cpu_count()
         n = len(children_uids)
         childs = Parallel(n_jobs=-2, backend="threading")\
             (delayed(unwrap_self_createSampleChildrenTreeParallel_i)(i) for i in zip([self]*n, children_uids))
@@ -1880,7 +1849,6 @@ class DBtable_sample(DBtable):
         if len(parent_uids)==0:
             upTreeList.append(child)
         else:
-            num_cores = multiprocessing.cpu_count()
             n = len(parent_uids)
             parentTreeLists = Parallel(n_jobs=-2, backend="threading")\
                 (delayed(unwrap_self_createMultiParentTreeParallel_i)(i) for i in zip([self]*n, parent_uids, [child]*n))
@@ -2336,8 +2304,6 @@ class DBtable_sample(DBtable):
     
     def searchFileInSample(self, creator, originalfilename, filetype):
         #print("searchFileInSample now...", creator)
-        creator_id = creator['user_id']
-        #print("creator_id: ", creator_id)
         if filetype!="SOP" and filetype!="DATAFILE":
             msg = 'Error: file type not supported for uploading file.'
             return None, msg
@@ -2358,13 +2324,12 @@ class DBtable_sample(DBtable):
         creator_lab = creator['lababbv']
         records_now = []
         for record in records:
-            contributor_id = record['contributor_id']
             sample_uid = record['uuid']
             msg += "Lab: " + creator_lab + "; sample UID: " + sample_uid
             if sample_uid is not None and creator_lab in sample_uid:
                 fileInRecord, sampledic = self.__verifyFileInRecord(record, originalfilename, filetype)
                 if fileInRecord>0:
-                    record_now = record.update(sampledic)
+                    record.update(sampledic)
                     records_now.append(record)
         
         nnow = len(records_now)
@@ -2641,7 +2606,6 @@ class DBtable_sample(DBtable):
         sattr = DBtable_sampleattribute()
         attributeInfo = sattr.getAttributeInfo(sampletype_id)
         headers = attributeInfo['headers']
-        childuid = record['uuid']
         json_metadata = record['json_metadata']
         dici = self.__getRecordFromJson(json_metadata)
         
@@ -2725,7 +2689,6 @@ class DBtable_sample(DBtable):
         sampletypes = {}
         for dici in diclist:
             uid = dici['UID']               # such as TIS-200901ENG-8
-            terms = uid.split('-')
             sampletype = uid[0]             # such as TIS
             
             if sampletype in sampletypes:
@@ -2754,7 +2717,6 @@ class DBtable_sample(DBtable):
         
     
     def findSamplesForExport(self, user_seek, downloadfile, link, excelfile):
-        username = user_seek['username']
         
         msg, status, sampletype, uids = self.__loadPublishedSampleSheet(excelfile)
         if status==0:
@@ -2972,7 +2934,6 @@ class DBtable_sample(DBtable):
         status = 0
         username = user_seek['username']
         user_id = user_seek['user_id']
-        project_id = user_seek['projectid']
         
         if not self.__notEmptyLine(dici):
             msg = SAMPLE_ERRORCODE['501']
@@ -3429,14 +3390,8 @@ class DBtable_sample(DBtable):
         return attributeValue
     
     def __filterSamples_advanced(self, jdata, filtersdic):
-        filterRules = filtersdic['filterRules']
         sampletype_id = filtersdic['sampletype_id']
-        attribute = filtersdic['attribute']
         matchType = filtersdic['matchType']
-        
-        filter_rule = None
-        filter_valueFrom = None
-        filter_valueTo = None
         
         searchText = filtersdic['searchText']
         from .search import Search
@@ -3448,7 +3403,6 @@ class DBtable_sample(DBtable):
         sampletype_id = 0
         
         n = 0
-        separator = ',   '
         jdata_new = []
         for data in jdata:
             json_metadata = data['json_metadata']
