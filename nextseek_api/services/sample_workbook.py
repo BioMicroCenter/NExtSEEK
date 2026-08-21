@@ -72,6 +72,12 @@ COMMENT_HEIGHT = 130
 CV_SHEET = "Controlled Vocabularies"
 CV_PATH = Path(__file__).with_name("controlled_vocabularies.json")
 
+# How far a dropdown reaches below the last filled row. A download is a
+# starting point, not a finished sheet: a researcher adding samples must keep
+# the dropdown. Full-column validation would do it too, but some tools slow
+# noticeably with it applied across many columns.
+DROPDOWN_SPARE_ROWS = 500
+
 
 def _load_vocabularies() -> tuple[dict[str, str], dict[str, list[str]]]:
     """(column -> vocabulary name, vocabulary name -> terms).
@@ -402,6 +408,9 @@ def _apply_dropdowns(ws, columns: list[str], field_map, ranges, row_count: int) 
     that predate these vocabularies (RNA-seq for RNA-Seq, Paired End for
     paired), and a hard reject would fire on open for rows the researcher did
     not touch. The dropdown guides; it does not overrule what is already there.
+
+    The range runs DROPDOWN_SPARE_ROWS past the last filled row, so the
+    dropdown survives a researcher adding samples underneath.
     """
     for index, column in enumerate(columns, start=1):
         vocabulary = field_map.get(column)
@@ -415,7 +424,7 @@ def _apply_dropdowns(ws, columns: list[str], field_map, ranges, row_count: int) 
         rule.errorTitle = "Outside the controlled vocabulary"
         ws.add_data_validation(rule)
         letter = get_column_letter(index)
-        rule.add(f"{letter}2:{letter}{max(row_count + 1, 2)}")
+        rule.add(f"{letter}2:{letter}{max(row_count + 1, 2) + DROPDOWN_SPARE_ROWS}")
 
 
 def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None:

@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 from nextseek_api.services.sample_workbook import (
     COLUMN_TABLE_HEADER,
     CONTEXTDB_URL,
+    DROPDOWN_SPARE_ROWS,
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
     FLOW_ARROW_WIDTH,
@@ -687,3 +688,33 @@ def test_order_stays_alphabetical_without_any_lineage(_ctx, _fields, _assays, tm
     tabs = [n for n in load_workbook(out).sheetnames
             if n not in ("README", FLOW_SHEET, CV_SHEET)]
     assert tabs == ["DNA", "TIS"]
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_dropdowns_reach_past_the_filled_rows(_ctx, _fields, tmp_path):
+    """A researcher adding samples must keep the dropdown, not lose it at the
+    first empty row."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_cv_df(), str(out))
+    for rule in load_workbook(out)["MUS"].data_validations.dataValidation:
+        last = int(str(rule.sqref).split(":")[1].lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+        assert last == 2 + DROPDOWN_SPARE_ROWS  # one data row, plus the spare
+
+
+def test_a_dropdown_range_never_starts_below_its_end():
+    """A frame with no data rows must not produce A2:A1, which Excel rejects.
+    Called directly: write_samples_workbook always writes at least one row, so
+    the guard is unreachable through the public API."""
+    from openpyxl import Workbook
+
+    from nextseek_api.services.sample_workbook import _apply_dropdowns
+
+    ws = Workbook().active
+    _apply_dropdowns(ws, ["DataType"], {"DataType": "filetype"},
+                     {"filetype": "'Controlled Vocabularies'!$A$2:$A$9"}, 0)
+    rule, = ws.data_validations.dataValidation
+    start, end = (int(part.lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+                  for part in str(rule.sqref).split(":"))
+    assert start == 2
+    assert end == 2 + DROPDOWN_SPARE_ROWS
