@@ -44,7 +44,13 @@ def derivation_edges(df, assay_by_uuid: Mapping[str, str],
     if "Parent" not in df.columns:
         return {}
     for uuid, child_type, parents in zip(df["uuid"], df["sample_type"], df["Parent"]):
-        if not child_type or parents is None:
+        # isinstance, not just falsiness: `sample_type` is a str.extract result,
+        # so a UID carrying no [A-Z] run yields NaN -- a float, and `not NaN` is
+        # False. Such a type used to seed an edge keyed on a float, which
+        # sample_type_depths then tried to sort against strings, taking the
+        # whole download down with a TypeError. The parent side needs no such
+        # guard: it is always re.match(...).group(1), i.e. always a str.
+        if not isinstance(child_type, str) or not child_type or parents is None:
             continue
         text = str(parents).strip()
         if not text or text.lower() in ("nan", "none"):

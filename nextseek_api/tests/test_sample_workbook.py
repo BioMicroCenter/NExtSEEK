@@ -676,6 +676,25 @@ def test_a_type_with_no_lineage_sorts_last(_ctx, _fields, _assays, tmp_path):
 
 @patch(f"{_MOD}.load_assay_titles", return_value={})
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_a_malformed_uid_does_not_cost_the_whole_download(_ctx, _fields, _assays, tmp_path):
+    """A UID carrying no [A-Z] run makes str.extract yield NaN, a float. It used
+    to reach derivation_edges' falsy guard -- which NaN passes -- seed an edge
+    keyed on a float, and blow up in sorted() as a 500 on the download. One
+    unparseable row must cost that row's tab, never the workbook."""
+    df = pd.DataFrame([
+        {"uuid": "123-456-7", "Name": "junk", "Parent": "MUS-3"},
+        {"uuid": "TIS-230101ABC-2", "Name": "t1", "Parent": "MUS-3"},
+    ])
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(df, str(out))          # must not raise
+    wb = load_workbook(out)
+    assert "README" in wb.sheetnames
+    assert "TIS" in wb.sheetnames
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value={})
 def test_order_stays_alphabetical_without_any_lineage(_ctx, _fields, _assays, tmp_path):
     """No graph and no usable Parent column: fall back to what it did before."""

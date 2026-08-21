@@ -5,6 +5,7 @@ import math
 import pandas as pd
 
 from nextseek_api.services.sample_provenance import (
+    SAMPLE_TYPE_RE,
     derivation_edges,
     sample_type_depths,
 )
@@ -60,6 +61,28 @@ def test_edges_ignore_a_parent_of_the_same_type():
 def test_edges_are_empty_without_a_parent_column():
     df = pd.DataFrame([{"uuid": "MUS-1", "sample_type": "MUS", "Name": "m1"}])
     assert derivation_edges(df, {}) == {}
+
+
+def _nan_type_df():
+    """A UID with no [A-Z] run alongside a good one.
+
+    `sample_type` is derived exactly as write_samples_workbook derives it, so
+    the bad row's type is a real NaN float rather than a hand-written None.
+    """
+    df = pd.DataFrame([
+        {"uuid": "123-456-7", "Parent": "MUS-3"},
+        {"uuid": "TIS-2", "Parent": "MUS-3"},
+    ])
+    df["sample_type"] = df["uuid"].astype(str).str.extract(SAMPLE_TYPE_RE, expand=False)
+    return df
+
+
+def test_a_uid_with_no_type_code_is_skipped_not_edged():
+    """`not float('nan')` is False, so a NaN type used to sail past the guard
+    and seed an edge keyed on a float. sample_type_depths then sorted a set
+    mixing str and float and raised TypeError, taking the whole download with
+    it -- on the degraded path, where provenance is supposed to cost nothing."""
+    assert derivation_edges(_nan_type_df(), {}) == {("MUS", "TIS"): set()}
 
 
 def test_dotted_type_codes_survive_extraction():
