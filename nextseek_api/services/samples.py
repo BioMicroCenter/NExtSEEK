@@ -385,7 +385,29 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
         tags=['Samples'],
         examples=[
             OpenApiExample(
-                name="Numeric sampletype",
+                name="Sample type by title",
+                description=(
+                    "Titles are resolved against the sample types of whichever instance "
+                    "you are calling, so this form is portable. Prefer it."
+                ),
+                value={
+                    "sampletype": "TIS",
+                    "filter_searchText": "lung",
+                    "attribute": "Organ",
+                    "filter_matchType": "PARTIAL"
+                }
+            ),
+            OpenApiExample(
+                name="Numeric sampletype (id is deployment-specific)",
+                description=(
+                    "A numeric sampletype is taken as a raw sample_type id. Those ids are "
+                    "NOT portable between deployments: TIS is id 2 on a seeded local stack "
+                    "but id 26 on production, whose ids start at 10 and so have no id 2 at "
+                    "all. An id that exists nowhere matches nothing and the endpoint "
+                    "correctly returns total=0 -- which is easily mistaken for a broken "
+                    "search. Look the id up for your instance first, or use the title form "
+                    "above."
+                ),
                 value={
                     "sampletype": "2",
                     "filter_searchText": "lung",
