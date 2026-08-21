@@ -4,21 +4,28 @@
 
 **Goal:** Show which published paper a sample appears in — in sample search, on the sample detail page, and through Nessie — and support the reverse lookup "what samples were used in \<study\>?".
 
-**Architecture:** Publication records and their Study links use SEEK's existing (currently empty) `publications` and `relationships` tables. A sample inherits its studies' publications; one new NExtSEEK table records per-sample include/exclude corrections. The effective set is *derived* in MySQL by a single SQL expression, and *materialized* in Neo4j as `(:Sample)-[:REPORTED_IN]->(:Publication)` edges so Nessie's graph agent only ever writes a one-hop pattern.
+**Architecture:** The DOI and PMID are attributes of the study, held in both `seek_production.studies` (which the search UI reads) and on Neo4j `Study` nodes (which Nessie reads). A sample's paper is inherited from study membership — one hop along `IN_STUDY`, or one join through `assay_assets` in SQL. One command extracts DOIs from study-description prose, has a curator approve them, and writes both stores.
 
-**Tech Stack:** Django 4 + Mezzanine, MySQL 8 (two schemas on one server), Neo4j, DRF, pytest, `uv`.
+**Tech Stack:** Django 4 + Mezzanine, MySQL 8 (two schemas on one server), Neo4j, pytest, `uv`.
 
-**Design document:** `docs/2026-08-21-publication-links-design.md` — read it first. Every finding cited below was verified against the running stack on 2026-08-21.
+**Design document:** `docs/2026-08-21-publication-links-design.md` — read it first, including its Revision history. Every finding cited below was verified against the running stack on 2026-08-21.
+
+## Revision note
+
+This plan replaces an earlier one built around SEEK's `publications` table,
+`relationships` links, `:Publication` nodes and `REPORTED_IN` edges. All of that
+is gone, along with the per-sample override table and the write API that curated
+it. Task 1 below is unchanged from that plan; everything after it is new.
 
 ## Global Constraints
 
 - **`uv`, never `pip`.** Run everything as `uv run …`. Do not hand-edit dependency pins.
-- **No new dependencies.** `requests` (pyproject.toml:92) and stdlib `difflib` cover the backfill. Adding anything else is out of scope.
-- **Never hardcode the schema name `dmac`.** It is the default value of the `NEXTSEEK_MYSQL_DATABASE` environment variable. Always read `settings.DATABASES["default"]["NAME"]`.
+- **No new dependencies.** `requests` (pyproject.toml:92) and stdlib `difflib` cover the fill command.
 - **Never interpolate user text into SQL.** The existing search builder concatenates strings; every value this plan adds to it must be an `int()` first, or go through a parameterized query.
-- **The SEEK link convention is fixed:** `relationships` rows with `subject_type='Study'`, `predicate='related_to_publication'`, `other_object_type='Publication'`. Do not invent a different predicate.
 - **DOIs are stored lowercased** for comparison; DOIs are case-insensitive by specification.
-- **Tests must not require a database.** Existing suite style (`seek/tests/test_search_pubmed_nested.py`) is pure-unit. Use stubs for anything that would touch MySQL or Neo4j. Run with `uv run pytest`.
+- **No Django migration may create the MySQL columns.** The entrypoint runs a plain `migrate`, which touches only the default database (design finding 11). Column creation is done explicitly by the fill command, guarded by an `information_schema` lookup — MySQL 8 has no `ADD COLUMN IF NOT EXISTS`.
+- **Every graph write must be idempotent** and must work whether or not `doi`/`pmid` already exist on `Study`. They do on dev and prod; they do not on the local docker stack (design finding 10).
+- **Tests must not require a database.** Existing suite style (`seek/tests/test_search_pubmed_nested.py`) is pure-unit. Use stubs for anything touching MySQL or Neo4j. Run with `uv run pytest`.
 - **`seek/publications.py` must not import `seek/dbtable_sample.py`.** That module pulls in MySQLdb, pandas and the neo4j driver at import time; keeping the dependency one-way is what keeps these tests fast.
 - **Commit after every task**, using conventional commits with a module scope.
 
@@ -366,149 +373,27 @@ Expected: 33 studies produce a `doi` or `pmc` candidate, 1 produces `unresolvabl
 git add seek/doi_extract.py seek/tests/test_doi_extract.py
 git commit -m "feat(publications): extract DOI/PMC references from study descriptions"
 ```
-
 ---
 
-### Task 2: Override table
+### Task 2: Study publication columns and the read layer
 
-**Files:**
-- Modify: `seek/models.py` (append at end of file)
-- Create: `seek/migrations/0003_sample_publication_override.py` (generated)
-- Test: `seek/tests/test_publication_override_model.py`
-
-**Interfaces:**
-- Consumes: nothing.
-- Produces: `seek.models.Sample_publication_override` with class attributes `INCLUDE = "include"`, `EXCLUDE = "exclude"`, DB table `sample_publication_override` in the **default** (NExtSEEK) schema.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `seek/tests/test_publication_override_model.py`:
-
-```python
-"""The override table is a NExtSEEK concept and must live in the NExtSEEK schema.
-
-If it were routed to the SEEK database it would not be created by the plain
-`migrate` that the container entrypoint runs, and would silently not exist.
-"""
-
-from seek.models import Sample_publication_override
-
-
-def test_table_name():
-    assert Sample_publication_override._meta.db_table == "sample_publication_override"
-
-
-def test_routes_to_default_database():
-    # seek/dbrouters.py sends a model to getattr(model, "_DATABASE", "default").
-    assert getattr(Sample_publication_override, "_DATABASE", "default") == "default"
-
-
-def test_mode_choices():
-    values = [v for v, _ in Sample_publication_override._meta.get_field("mode").choices]
-    assert values == ["include", "exclude"]
-
-
-def test_one_override_per_sample_publication_pair():
-    assert ("sample_id", "publication_id") in Sample_publication_override._meta.unique_together
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-```bash
-uv run pytest seek/tests/test_publication_override_model.py -v
-```
-
-Expected: FAIL with `ImportError: cannot import name 'Sample_publication_override'`.
-
-- [ ] **Step 3: Add the model**
-
-Append to `seek/models.py`:
-
-```python
-class Sample_publication_override(models.Model):
-    """A per-sample correction to the publications inherited from its studies.
-
-    A sample normally inherits every publication linked to the studies it belongs
-    to. A study can contain samples that never appeared in its paper, and a paper
-    can use a sample from elsewhere, so curators record the exceptions here.
-
-    Deliberately has no ``_DATABASE`` attribute: this is NExtSEEK's own table, so
-    it belongs in the default schema where the entrypoint's plain ``migrate``
-    creates it. See docs/2026-08-21-publication-links-design.md.
-    """
-
-    INCLUDE = "include"
-    EXCLUDE = "exclude"
-    MODE_CHOICES = [(INCLUDE, "include"), (EXCLUDE, "exclude")]
-
-    sample_id = models.IntegerField()
-    publication_id = models.IntegerField()
-    mode = models.CharField(max_length=7, choices=MODE_CHOICES)
-    note = models.TextField(null=True, blank=True)
-    created_by_id = models.IntegerField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "sample_publication_override"
-        unique_together = ("sample_id", "publication_id")
-        indexes = [models.Index(fields=["publication_id"])]
-```
-
-- [ ] **Step 4: Generate the migration**
-
-```bash
-uv run manage.py makemigrations seek --name sample_publication_override
-```
-
-Expected: creates `seek/migrations/0003_sample_publication_override.py`. Open it and confirm it contains `CreateModel` for `Sample_publication_override` and nothing else — if it has picked up unrelated model drift, delete the file, resolve the drift separately, and regenerate.
-
-- [ ] **Step 5: Run the tests to verify they pass**
-
-```bash
-uv run pytest seek/tests/test_publication_override_model.py -v
-```
-
-Expected: all PASS.
-
-- [ ] **Step 6: Apply the migration and confirm the table exists**
-
-```bash
-./startup.sh rebuild
-```
-
-```bash
-docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DESCRIBE dmac.sample_publication_override;"'
-```
-
-Expected: the seven columns above.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add seek/models.py seek/migrations/0003_sample_publication_override.py seek/tests/test_publication_override_model.py
-git commit -m "feat(publications): add sample_publication_override table"
-```
-
----
-
-### Task 3: Effective-set query layer
-
-The heart of the feature. One SQL expression encodes the whole inheritance-plus-override rule; everything downstream reads through it.
+The heart of the feature. Two columns, and one module every downstream surface reads through.
 
 **Files:**
 - Create: `seek/publications.py`
 - Test: `seek/tests/test_publications.py`
 
 **Interfaces:**
-- Consumes: `seek.models.Sample_publication_override` (table name only, via SQL).
+- Consumes: `seek.doi_extract.extract_publication_candidates` (Task 1).
 - Produces:
-  - `PublicationRef` — frozen dataclass, fields `seek_id: int`, `doi: str | None`, `pmid: int | None`, `title: str | None`, `journal: str | None`, `year: int | None`; methods `as_dict() -> dict`, property `doi_url: str | None`, property `pmid_url: str | None`
-  - `AmbiguousPublication(Exception)`
-  - `nextseek_schema() -> str`
-  - `effective_samples_sql(schema: str) -> str`
-  - `publications_for_samples(sample_ids: list[int]) -> dict[int, list[PublicationRef]]`
-  - `sample_ids_subquery(publication_id: int | None) -> str`
-  - `resolve_publication(query: str) -> PublicationRef | None`
+  - `PublicationRef` — frozen dataclass, fields `study_id: int`, `study_title: str | None`, `doi: str | None`, `pmid: int | None`; properties `doi_url`, `pmid_url`; methods `citation() -> str`, `as_dict() -> dict`
+  - `ensure_study_publication_columns() -> list[str]`
+  - `publications_for_samples(sample_ids) -> dict[int, list[PublicationRef]]`
+  - `publications_for_sample(sample_id) -> list[dict]`
+  - `resolve_study_ids(query: str) -> list[int]`
+  - `sample_ids_subquery(study_ids) -> str`
+  - `published_sample_ids_subquery() -> str`
+  - `publication_where_clause(query, published_only: bool) -> str`
   - `attach_publications(rows: list[dict]) -> list[dict]`
 
 - [ ] **Step 1: Write the failing test**
@@ -516,7 +401,7 @@ The heart of the feature. One SQL expression encodes the whole inheritance-plus-
 Create `seek/tests/test_publications.py`:
 
 ```python
-"""Query layer for publication links.
+"""Read layer for study-level publication attributes.
 
 No database: `_rows` is monkeypatched. What is tested here is the SQL text and
 the Python-side shaping, which is where the mistakes actually live.
@@ -527,30 +412,27 @@ import pytest
 from seek import publications as pub
 
 
-class TestEffectiveSamplesSql:
-    def test_uses_the_supplied_schema_not_a_hardcoded_one(self):
-        sql = pub.effective_samples_sql("some_other_schema")
-        assert "some_other_schema.sample_publication_override" in sql
-        assert "dmac." not in sql
+class TestPublicationRef:
+    def test_doi_url(self):
+        ref = pub.PublicationRef(1, "S", "10.1/a", None)
+        assert ref.doi_url == "https://doi.org/10.1/a"
 
-    def test_uses_seeks_relationship_convention(self):
-        sql = pub.effective_samples_sql("s")
-        assert "'related_to_publication'" in sql
-        assert "'Study'" in sql
-        assert "'Publication'" in sql
+    def test_doi_url_is_none_without_doi(self):
+        assert pub.PublicationRef(1, "S", None, 5).doi_url is None
 
-    def test_excludes_are_subtracted(self):
-        sql = pub.effective_samples_sql("s")
-        assert "NOT EXISTS" in sql
-        assert "'exclude'" in sql
+    def test_pmid_url(self):
+        assert pub.PublicationRef(1, "S", None, 12345).pmid_url == \
+            "https://pubmed.ncbi.nlm.nih.gov/12345/"
 
-    def test_includes_are_added(self):
-        sql = pub.effective_samples_sql("s")
-        assert "UNION" in sql
-        assert "'include'" in sql
+    def test_citation_prefers_the_study_title(self):
+        assert pub.PublicationRef(1, "A paper", "10.1/a", None).citation() == "A paper"
 
-    def test_only_sample_assets(self):
-        assert "'Sample'" in pub.effective_samples_sql("s")
+    def test_citation_falls_back_to_the_doi(self):
+        assert pub.PublicationRef(1, None, "10.1/a", None).citation() == "10.1/a"
+
+    def test_as_dict_is_json_safe(self):
+        import json
+        json.dumps(pub.PublicationRef(1, "S", "10.1/a", 2).as_dict())
 
 
 class TestPublicationsForSamples:
@@ -563,117 +445,163 @@ class TestPublicationsForSamples:
 
     def test_groups_by_sample(self, monkeypatch):
         monkeypatch.setattr(pub, "_rows", lambda sql, params=None: [
-            {"sample_id": 1, "seek_id": 10, "doi": "10.1/a", "pubmed_id": 111,
-             "title": "Paper A", "journal": "Nature", "year": 2024},
-            {"sample_id": 1, "seek_id": 11, "doi": "10.1/b", "pubmed_id": None,
-             "title": "Paper B", "journal": "Cell", "year": 2025},
-            {"sample_id": 2, "seek_id": 10, "doi": "10.1/a", "pubmed_id": 111,
-             "title": "Paper A", "journal": "Nature", "year": 2024},
+            {"sample_id": 1, "study_id": 10, "study_title": "A", "doi": "10.1/a", "pmid": 111},
+            {"sample_id": 2, "study_id": 10, "study_title": "A", "doi": "10.1/a", "pmid": 111},
         ])
         got = pub.publications_for_samples([1, 2, 3])
         assert sorted(got) == [1, 2]
-        assert [r.doi for r in got[1]] == ["10.1/a", "10.1/b"]
-        assert got[2][0].title == "Paper A"
+        assert got[1][0].doi == "10.1/a"
 
-    def test_sample_in_two_published_studies_is_not_deduplicated_away(self, monkeypatch):
-        # 18 samples really do belong to two studies. Both papers must survive.
+    def test_sample_in_two_published_studies_shows_both(self, monkeypatch):
+        # 18 samples really do belong to two studies.
         monkeypatch.setattr(pub, "_rows", lambda sql, params=None: [
-            {"sample_id": 7, "seek_id": 10, "doi": "10.1/a", "pubmed_id": None,
-             "title": "A", "journal": None, "year": None},
-            {"sample_id": 7, "seek_id": 20, "doi": "10.1/b", "pubmed_id": None,
-             "title": "B", "journal": None, "year": None},
+            {"sample_id": 7, "study_id": 10, "study_title": "A", "doi": "10.1/a", "pmid": None},
+            {"sample_id": 7, "study_id": 20, "study_title": "B", "doi": "10.1/b", "pmid": None},
         ])
         assert len(pub.publications_for_samples([7])[7]) == 2
 
+    def test_query_only_returns_published_studies(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(pub, "_rows",
+                            lambda sql, params=None: captured.update(sql=sql) or [])
+        pub.publications_for_samples([1])
+        assert "s.doi IS NOT NULL OR s.pmid IS NOT NULL" in captured["sql"]
+        assert "'Sample'" in captured["sql"]
 
-class TestPublicationRef:
-    def test_doi_url(self):
-        ref = pub.PublicationRef(1, "10.1/a", None, "T", None, None)
-        assert ref.doi_url == "https://doi.org/10.1/a"
-
-    def test_doi_url_is_none_without_doi(self):
-        assert pub.PublicationRef(1, None, 5, "T", None, None).doi_url is None
-
-    def test_pmid_url(self):
-        ref = pub.PublicationRef(1, None, 12345, "T", None, None)
-        assert ref.pmid_url == "https://pubmed.ncbi.nlm.nih.gov/12345/"
-
-    def test_as_dict_is_json_safe(self):
-        import json
-        json.dumps(pub.PublicationRef(1, "10.1/a", 2, "T", "J", 2024).as_dict())
+    def test_query_is_parameterized_on_sample_ids(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(pub, "_rows",
+                            lambda sql, params=None: captured.update(params=params) or [])
+        pub.publications_for_samples([4, 5])
+        assert captured["params"] == [4, 5]
 
 
-class TestResolvePublication:
-    def test_doi_lookup_is_parameterized(self, monkeypatch):
+class TestResolveStudyIds:
+    def test_doi_lookup_is_parameterized_and_lowercased(self, monkeypatch):
         captured = {}
 
         def fake_rows(sql, params=None):
             captured["sql"] = sql
             captured["params"] = params
-            return [{"seek_id": 3, "doi": "10.1/a", "pubmed_id": None,
-                     "title": "T", "journal": None, "year": None}]
+            return [{"id": 3}]
 
         monkeypatch.setattr(pub, "_rows", fake_rows)
-        got = pub.resolve_publication("https://doi.org/10.1/A")
-        assert got.seek_id == 3
+        # A real DOI shape: the extractor requires 10.<4-9 digits>/, so a
+        # made-up "10.1/a" would fall through to the title branch instead.
+        assert pub.resolve_study_ids("https://doi.org/10.1038/S41590-021-01066-1") == [3]
         assert "%s" in captured["sql"]
-        assert captured["params"] == ["10.1/a"]
+        assert captured["params"] == ["10.1038/s41590-021-01066-1"]
 
     def test_pmid_lookup(self, monkeypatch):
         captured = {}
-
-        def fake_rows(sql, params=None):
-            captured["params"] = params
-            return [{"seek_id": 4, "doi": None, "pubmed_id": 99,
-                     "title": "T", "journal": None, "year": None}]
-
-        monkeypatch.setattr(pub, "_rows", fake_rows)
-        assert pub.resolve_publication("99").seek_id == 4
+        monkeypatch.setattr(pub, "_rows",
+                            lambda sql, params=None: captured.update(params=params) or [{"id": 4}])
+        assert pub.resolve_study_ids("99") == [4]
         assert captured["params"] == ["99"]
 
-    def test_unknown_returns_none(self, monkeypatch):
+    def test_title_lookup(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(pub, "_rows",
+                            lambda sql, params=None: captured.update(params=params) or [{"id": 5}])
+        assert pub.resolve_study_ids("Some paper title") == [5]
+        assert captured["params"] == ["Some paper title"]
+
+    def test_several_matches_return_all(self, monkeypatch):
+        # A paper spanning two studies is legitimate; return both rather than erroring.
+        monkeypatch.setattr(pub, "_rows", lambda sql, params=None: [{"id": 1}, {"id": 2}])
+        assert pub.resolve_study_ids("10.1038/s41590-021-01066-1") == [1, 2]
+
+    def test_unknown_returns_empty(self, monkeypatch):
         monkeypatch.setattr(pub, "_rows", lambda sql, params=None: [])
-        assert pub.resolve_publication("nothing matches") is None
-
-    def test_ambiguous_title_raises_rather_than_guessing(self, monkeypatch):
-        monkeypatch.setattr(pub, "_rows", lambda sql, params=None: [
-            {"seek_id": 1, "doi": None, "pubmed_id": None, "title": "Same",
-             "journal": None, "year": None},
-            {"seek_id": 2, "doi": None, "pubmed_id": None, "title": "Same",
-             "journal": None, "year": None},
-        ])
-        with pytest.raises(pub.AmbiguousPublication) as excinfo:
-            pub.resolve_publication("Same")
-        assert "1" in str(excinfo.value) and "2" in str(excinfo.value)
+        assert pub.resolve_study_ids("nothing") == []
 
 
-class TestSampleIdsSubquery:
-    def test_rejects_non_integer_publication_id(self):
+class TestSubqueries:
+    def test_sample_ids_subquery_rejects_non_integers(self):
         with pytest.raises(ValueError):
-            pub.sample_ids_subquery("1 OR 1=1")
+            pub.sample_ids_subquery(["1 OR 1=1"])
 
-    def test_accepts_integer_like_string(self):
-        assert "= 7" in pub.sample_ids_subquery("7")
+    def test_sample_ids_subquery_splices_integers(self):
+        sql = pub.sample_ids_subquery([7, 8])
+        assert "IN (7,8)" in sql.replace(" ", "").replace("IN(", "IN (")
 
-    def test_none_means_any_publication(self):
-        sql = pub.sample_ids_subquery(None)
-        assert "publication_id =" not in sql
+    def test_published_subquery_filters_on_doi_or_pmid(self):
+        assert "s.doi IS NOT NULL OR s.pmid IS NOT NULL" in pub.published_sample_ids_subquery()
+
+
+class TestPublicationWhereClause:
+    def test_no_filter_yields_no_clause(self):
+        assert pub.publication_where_clause(None, False) == ""
+        assert pub.publication_where_clause("", False) == ""
+
+    def test_published_only(self):
+        clause = pub.publication_where_clause(None, True)
+        assert clause.startswith(" AND ")
+        assert "A.id IN (" in clause
+
+    def test_resolved_query_constrains_to_its_studies(self, monkeypatch):
+        monkeypatch.setattr(pub, "resolve_study_ids", lambda q: [7])
+        clause = pub.publication_where_clause("10.1/a", False)
+        assert "A.id IN (" in clause
+        assert "7" in clause
+
+    def test_unknown_publication_matches_nothing(self, monkeypatch):
+        monkeypatch.setattr(pub, "resolve_study_ids", lambda q: [])
+        assert pub.publication_where_clause("no such paper", False) == " AND 1=0"
+
+    def test_injection_attempt_cannot_reach_sql(self, monkeypatch):
+        monkeypatch.setattr(pub, "resolve_study_ids", lambda q: [])
+        clause = pub.publication_where_clause("'; DROP TABLE samples; --", False)
+        assert "DROP" not in clause
 
 
 class TestAttachPublications:
     def test_adds_key_to_every_row(self, monkeypatch):
         monkeypatch.setattr(
             pub, "publications_for_samples",
-            lambda ids: {1: [pub.PublicationRef(9, "10.1/a", None, "T", "J", 2024)]},
+            lambda ids: {1: [pub.PublicationRef(9, "A", "10.1/a", None)]},
         )
         rows = [{"id": 1}, {"id": 2}]
         pub.attach_publications(rows)
         assert rows[0]["publications"][0]["doi"] == "10.1/a"
         assert rows[1]["publications"] == []
 
+    def test_one_query_per_page_not_per_row(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(pub, "publications_for_samples",
+                            lambda ids: calls.append(list(ids)) or {})
+        pub.attach_publications([{"id": 1}, {"id": 2}, {"id": 3}])
+        assert calls == [[1, 2, 3]]
+
     def test_empty_rows(self, monkeypatch):
         monkeypatch.setattr(pub, "publications_for_samples", lambda ids: {})
         assert pub.attach_publications([]) == []
+
+
+class TestEnsureColumns:
+    def test_no_ddl_when_both_columns_exist(self, monkeypatch):
+        executed = []
+        monkeypatch.setattr(pub, "_rows",
+                            lambda sql, params=None: [{"COLUMN_NAME": "doi"},
+                                                      {"COLUMN_NAME": "pmid"}])
+        monkeypatch.setattr(pub, "_execute", lambda sql: executed.append(sql))
+        assert pub.ensure_study_publication_columns() == []
+        assert executed == []
+
+    def test_adds_only_the_missing_column(self, monkeypatch):
+        executed = []
+        monkeypatch.setattr(pub, "_rows", lambda sql, params=None: [{"COLUMN_NAME": "doi"}])
+        monkeypatch.setattr(pub, "_execute", lambda sql: executed.append(sql))
+        assert pub.ensure_study_publication_columns() == ["pmid"]
+        assert len(executed) == 1
+        assert "ADD COLUMN pmid" in executed[0]
+
+    def test_adds_both_when_absent(self, monkeypatch):
+        executed = []
+        monkeypatch.setattr(pub, "_rows", lambda sql, params=None: [])
+        monkeypatch.setattr(pub, "_execute", lambda sql: executed.append(sql))
+        assert pub.ensure_study_publication_columns() == ["doi", "pmid"]
+        assert len(executed) == 2
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -691,18 +619,12 @@ Create `seek/publications.py`:
 ```python
 """Publication (DOI/PMID) links for samples.
 
-A sample inherits the publications of every study it belongs to; the
-``sample_publication_override`` table adds or removes individual samples. That
-rule is expressed once, in :func:`effective_samples_sql`, and everything else
-reads through it.
+The DOI and PMID are attributes of the study. A sample is published in a paper if
+it belongs to a study whose doi or pmid is set — reached in SQL through
+assay_assets, and in the graph through IN_STUDY.
 
-All SQL runs on the SEEK connection because that is where samples, assays and
-publications live. The override table lives in the NExtSEEK schema on the same
-MySQL server (both connections read MYSQL_HOST — dmac/settings.py:29,38), so it
-is referenced schema-qualified using the name from settings, never the literal
-"dmac", which is only an environment default.
-
-See docs/2026-08-21-publication-links-design.md.
+All SQL here runs on the SEEK connection, which is where samples, assays and
+studies live. See docs/2026-08-21-publication-links-design.md.
 """
 
 from __future__ import annotations
@@ -712,23 +634,20 @@ from dataclasses import dataclass
 from django.conf import settings
 from django.db import connections
 
-
-class AmbiguousPublication(Exception):
-    """A lookup matched more than one publication.
-
-    Raised rather than picking one, because a silent wrong pick misattributes
-    samples to the wrong paper.
-    """
+#: Column definitions for the two attributes added to seek_production.studies.
+#: MySQL 8 has no ADD COLUMN IF NOT EXISTS, so presence is checked first.
+STUDY_PUBLICATION_COLUMNS = {
+    "doi": "VARCHAR(255) NULL",
+    "pmid": "INT NULL",
+}
 
 
 @dataclass(frozen=True)
 class PublicationRef:
-    seek_id: int
+    study_id: int
+    study_title: str | None
     doi: str | None
     pmid: int | None
-    title: str | None
-    journal: str | None
-    year: int | None
 
     @property
     def doi_url(self) -> str | None:
@@ -738,34 +657,20 @@ class PublicationRef:
     def pmid_url(self) -> str | None:
         return f"https://pubmed.ncbi.nlm.nih.gov/{self.pmid}/" if self.pmid else None
 
-    def short_citation(self) -> str:
-        bits = [b for b in (self.journal, str(self.year) if self.year else None) if b]
-        suffix = f" ({', '.join(bits)})" if bits else ""
-        return f"{self.title or self.doi or self.pmid}{suffix}"
+    def citation(self) -> str:
+        """What to show in one cell. The study title is the paper title here."""
+        return self.study_title or self.doi or (str(self.pmid) if self.pmid else "")
 
     def as_dict(self) -> dict:
         return {
-            "id": self.seek_id,
+            "study_id": self.study_id,
+            "study_title": self.study_title,
             "doi": self.doi,
             "pmid": self.pmid,
-            "title": self.title,
-            "journal": self.journal,
-            "year": self.year,
             "doi_url": self.doi_url,
             "pmid_url": self.pmid_url,
-            "citation": self.short_citation(),
+            "citation": self.citation(),
         }
-
-
-_SELECT_FIELDS = (
-    "p.id AS seek_id, p.doi AS doi, p.pubmed_id AS pubmed_id, "
-    "p.title AS title, p.journal AS journal, YEAR(p.published_date) AS year"
-)
-
-
-def nextseek_schema() -> str:
-    """The NExtSEEK schema name, from settings — never hardcoded."""
-    return settings.DATABASES["default"]["NAME"]
 
 
 def _rows(sql: str, params: list | None = None) -> list[dict]:
@@ -776,105 +681,75 @@ def _rows(sql: str, params: list | None = None) -> list[dict]:
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def effective_samples_sql(schema: str) -> str:
-    """(sample_id, publication_id) pairs: study inheritance, minus excludes, plus includes."""
-    return f"""
-        SELECT DISTINCT aa.asset_id AS sample_id, r.other_object_id AS publication_id
-        FROM assay_assets aa
-        JOIN assays a ON a.id = aa.assay_id
-        JOIN relationships r
-          ON r.subject_type = 'Study'
-         AND r.subject_id = a.study_id
-         AND r.predicate = 'related_to_publication'
-         AND r.other_object_type = 'Publication'
-        WHERE aa.asset_type = 'Sample'
-          AND NOT EXISTS (
-              SELECT 1 FROM {schema}.sample_publication_override o
-              WHERE o.sample_id = aa.asset_id
-                AND o.publication_id = r.other_object_id
-                AND o.mode = 'exclude'
-          )
-        UNION
-        SELECT o.sample_id AS sample_id, o.publication_id AS publication_id
-        FROM {schema}.sample_publication_override o
-        WHERE o.mode = 'include'
+def _execute(sql: str) -> None:
+    """Run a statement that returns no rows, on the SEEK connection."""
+    with connections[settings.SEEK_DATABASE].cursor() as cursor:
+        cursor.execute(sql)
+
+
+def ensure_study_publication_columns() -> list[str]:
+    """Add doi/pmid to studies if absent. Returns the names actually added.
+
+    A Django migration cannot do this: the entrypoint runs a plain `migrate`,
+    which touches only the default database, so a migration against the SEEK
+    schema would silently never run. See design finding 11.
     """
+    schema = settings.DATABASES[settings.SEEK_DATABASE]["NAME"]
+    present = {
+        r["COLUMN_NAME"]
+        for r in _rows(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'studies' "
+            "AND COLUMN_NAME IN ('doi', 'pmid')",
+            [schema],
+        )
+    }
+    added = []
+    for name, definition in STUDY_PUBLICATION_COLUMNS.items():
+        if name in present:
+            continue
+        _execute(f"ALTER TABLE studies ADD COLUMN {name} {definition}")
+        added.append(name)
+    return added
 
 
-def _ref(row: dict) -> PublicationRef:
-    return PublicationRef(
-        seek_id=row["seek_id"],
-        doi=row.get("doi"),
-        pmid=row.get("pubmed_id"),
-        title=row.get("title"),
-        journal=row.get("journal"),
-        year=row.get("year"),
-    )
+_SAMPLE_TO_STUDY_JOIN = """
+    FROM assay_assets aa
+    JOIN assays a ON a.id = aa.assay_id
+    JOIN studies s ON s.id = a.study_id
+    WHERE aa.asset_type = 'Sample'
+      AND (s.doi IS NOT NULL OR s.pmid IS NOT NULL)
+"""
 
 
 def publications_for_samples(sample_ids) -> dict[int, list[PublicationRef]]:
-    """Map each sample id to the publications it appears in. One query."""
+    """Map each sample id to the published studies it belongs to. One query."""
     ids = list(sample_ids)
     if not ids:
         return {}
     placeholders = ",".join(["%s"] * len(ids))
     sql = f"""
-        SELECT e.sample_id AS sample_id, {_SELECT_FIELDS}
-        FROM ({effective_samples_sql(nextseek_schema())}) e
-        JOIN publications p ON p.id = e.publication_id
-        WHERE e.sample_id IN ({placeholders})
-        ORDER BY e.sample_id, p.published_date, p.id
+        SELECT DISTINCT aa.asset_id AS sample_id, s.id AS study_id,
+               s.title AS study_title, s.doi AS doi, s.pmid AS pmid
+        {_SAMPLE_TO_STUDY_JOIN}
+          AND aa.asset_id IN ({placeholders})
+        ORDER BY aa.asset_id, s.id
     """
     grouped: dict[int, list[PublicationRef]] = {}
     for row in _rows(sql, ids):
-        grouped.setdefault(row["sample_id"], []).append(_ref(row))
+        grouped.setdefault(row["sample_id"], []).append(
+            PublicationRef(row["study_id"], row["study_title"], row["doi"], row["pmid"])
+        )
     return grouped
 
 
-def sample_ids_subquery(publication_id) -> str:
-    """A subquery yielding sample ids, for splicing into the search WHERE clause.
-
-    The search builder concatenates SQL strings, so the publication id is forced
-    through ``int()`` first — it is never allowed to reach SQL as text. Pass None
-    to mean "appears in any publication" (the published-only filter).
-    """
-    inner = effective_samples_sql(nextseek_schema())
-    if publication_id is None:
-        return f"SELECT e.sample_id FROM ({inner}) e"
-    pub_id = int(publication_id)
-    return f"SELECT e.sample_id FROM ({inner}) e WHERE e.publication_id = {pub_id}"
+def publications_for_sample(sample_id) -> list[dict]:
+    """The published studies one sample belongs to, as template-ready dicts."""
+    key = int(sample_id)
+    return [ref.as_dict() for ref in publications_for_samples([key]).get(key, [])]
 
 
-def resolve_publication(query: str) -> PublicationRef | None:
-    """Resolve a DOI, PMID, or exact title to one publication.
-
-    Order is deterministic: DOI, then PMID, then case-insensitive exact title.
-    Raises AmbiguousPublication if a title matches more than one row.
-    """
-    text = (query or "").strip()
-    if not text:
-        return None
-
-    doi = extract_doi_from_query(text)
-    if doi:
-        rows = _rows(f"SELECT {_SELECT_FIELDS} FROM publications p WHERE LOWER(p.doi) = %s",
-                     [doi])
-    elif text.isdigit():
-        rows = _rows(f"SELECT {_SELECT_FIELDS} FROM publications p WHERE p.pubmed_id = %s",
-                     [text])
-    else:
-        rows = _rows(f"SELECT {_SELECT_FIELDS} FROM publications p WHERE LOWER(p.title) = LOWER(%s)",
-                     [text])
-
-    if not rows:
-        return None
-    if len(rows) > 1:
-        ids = ", ".join(str(r["seek_id"]) for r in rows)
-        raise AmbiguousPublication(f"{len(rows)} publications match {text!r}: ids {ids}")
-    return _ref(rows[0])
-
-
-def extract_doi_from_query(text: str) -> str | None:
+def _doi_in(text: str) -> str | None:
     """The DOI in a user-typed string, or None. Accepts a bare DOI or a doi.org URL."""
     from .doi_extract import extract_publication_candidates
 
@@ -882,6 +757,61 @@ def extract_doi_from_query(text: str) -> str | None:
         if candidate.kind == "doi":
             return candidate.value
     return None
+
+
+def resolve_study_ids(query: str) -> list[int]:
+    """Study ids matching a DOI, a PMID, or an exact title.
+
+    Returns every match rather than erroring on several: a paper spanning two
+    studies is legitimate, and the caller wants the union of their samples.
+    """
+    text = (query or "").strip()
+    if not text:
+        return []
+
+    doi = _doi_in(text)
+    if doi:
+        rows = _rows("SELECT id FROM studies WHERE LOWER(doi) = %s", [doi])
+    elif text.isdigit():
+        rows = _rows("SELECT id FROM studies WHERE pmid = %s", [text])
+    else:
+        rows = _rows("SELECT id FROM studies WHERE LOWER(title) = LOWER(%s)", [text])
+    return [r["id"] for r in rows]
+
+
+def sample_ids_subquery(study_ids) -> str:
+    """Samples belonging to the given studies, as a spliceable subquery.
+
+    The search builder concatenates SQL strings, so ids are forced through int().
+    """
+    ids = ",".join(str(int(i)) for i in study_ids)
+    return (
+        "SELECT aa.asset_id FROM assay_assets aa "
+        "JOIN assays a ON a.id = aa.assay_id "
+        f"WHERE aa.asset_type = 'Sample' AND a.study_id IN ({ids})"
+    )
+
+
+def published_sample_ids_subquery() -> str:
+    """Samples belonging to any study that has a DOI or a PMID."""
+    return f"SELECT DISTINCT aa.asset_id {_SAMPLE_TO_STUDY_JOIN}"
+
+
+def publication_where_clause(query, published_only: bool) -> str:
+    """A WHERE fragment constraining samples by publication, or "".
+
+    Returns " AND 1=0" when the query names a paper that does not exist — an
+    empty result is the honest answer and is easier to reason about than silently
+    dropping the filter.
+    """
+    if query:
+        study_ids = resolve_study_ids(query)
+        if not study_ids:
+            return " AND 1=0"
+        return f" AND A.id IN ({sample_ids_subquery(study_ids)})"
+    if published_only:
+        return f" AND A.id IN ({published_sample_ids_subquery()})"
+    return ""
 
 
 def attach_publications(rows: list[dict]) -> list[dict]:
@@ -903,9 +833,9 @@ def attach_publications(rows: list[dict]) -> list[dict]:
 uv run pytest seek/tests/test_publications.py -v
 ```
 
-Expected: all PASS. If `TestResolvePublication::test_doi_lookup_is_parameterized` fails, check that `extract_doi_from_query` lowercases — the test passes `10.1/A` and expects `10.1/a`.
+Expected: all PASS.
 
-- [ ] **Step 5: Verify the SQL actually runs against the real database**
+- [ ] **Step 5: Create the columns and verify the SQL runs**
 
 The unit tests check SQL text, not SQL validity. This checks validity.
 
@@ -913,87 +843,57 @@ The unit tests check SQL text, not SQL validity. This checks validity.
 docker compose exec -T nextseek uv run python -c "
 import django, os
 os.environ.setdefault('DJANGO_SETTINGS_MODULE','dmac.settings'); django.setup()
-from seek.publications import publications_for_samples, sample_ids_subquery, _rows
-print('empty set ok:', publications_for_samples([1,2,3]))
-print('subquery rowcount:', len(_rows(sample_ids_subquery(None))))
+from seek.publications import (ensure_study_publication_columns,
+                               publications_for_samples,
+                               published_sample_ids_subquery, _rows)
+print('added:', ensure_study_publication_columns())
+print('idempotent rerun:', ensure_study_publication_columns())
+print('lookup:', publications_for_samples([1,2,3]))
+print('published count:', _rows('SELECT COUNT(*) AS n FROM (' + published_sample_ids_subquery() + ') x'))
 "
 ```
 
-Expected: `{}` (no publications exist yet) and `0`. A MySQL syntax error here means the SQL is malformed — fix it before continuing, because five later tasks depend on this query.
+Expected: `added: ['doi', 'pmid']`, then `idempotent rerun: []`, then `{}` and a
+count of `0` — the columns now exist but nothing is filled in yet. A MySQL syntax
+error here means the SQL is malformed; fix it before continuing, because four
+later tasks depend on this module.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Confirm the columns landed**
+
+```bash
+docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -e "SHOW COLUMNS FROM studies WHERE Field IN (\"doi\",\"pmid\");"'
+```
+
+Expected: two rows, `doi varchar(255) YES` and `pmid int YES`.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add seek/publications.py seek/tests/test_publications.py
-git commit -m "feat(publications): effective-set query layer for sample publication links"
+git commit -m "feat(publications): study doi/pmid columns and the sample read layer"
 ```
 
 ---
 
-### Task 4: Publication column in sample search results
+### Task 3: Publication column in sample search results
 
 **Files:**
 - Modify: `seek/dbtable_sample.py` — `__retrieveRecords_advanced` (line 3858)
-- Test: `seek/tests/test_publications_search_column.py`
+- Test: covered by `TestAttachPublications` in `seek/tests/test_publications.py` (Task 2)
 
 **Interfaces:**
-- Consumes: `seek.publications.attach_publications(rows) -> list[dict]` from Task 3.
-- Produces: every search result row carries a `publications` key holding a list of the dicts returned by `PublicationRef.as_dict()`.
+- Consumes: `seek.publications.attach_publications(rows) -> list[dict]` from Task 2.
+- Produces: every search result row carries a `publications` key holding a list of `PublicationRef.as_dict()` dicts.
 
-- [ ] **Step 1: Write the failing test**
-
-Create `seek/tests/test_publications_search_column.py`:
-
-```python
-"""The search result enrichment must be one query for the whole page.
-
-Importing seek.dbtable_sample pulls in MySQLdb, pandas and the neo4j driver, so
-this test exercises the seam (attach_publications) rather than the caller.
-"""
-
-from seek import publications as pub
-
-
-def test_one_query_per_page_not_per_row(monkeypatch):
-    calls = []
-
-    def fake_lookup(ids):
-        calls.append(list(ids))
-        return {}
-
-    monkeypatch.setattr(pub, "publications_for_samples", fake_lookup)
-    pub.attach_publications([{"id": 1}, {"id": 2}, {"id": 3}])
-    assert calls == [[1, 2, 3]]
-
-
-def test_unpublished_sample_gets_empty_list_not_missing_key(monkeypatch):
-    monkeypatch.setattr(pub, "publications_for_samples", lambda ids: {})
-    rows = [{"id": 42}]
-    pub.attach_publications(rows)
-    assert rows[0]["publications"] == []
-
-
-def test_row_shape_is_serializable(monkeypatch):
-    import simplejson
-
-    monkeypatch.setattr(
-        pub, "publications_for_samples",
-        lambda ids: {1: [pub.PublicationRef(9, "10.1/a", 77, "T", "Nature", 2024)]},
-    )
-    rows = [{"id": 1}]
-    pub.attach_publications(rows)
-    simplejson.dumps(rows, default=str)
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 1: Confirm the guard-rail tests pass before changing anything**
 
 ```bash
-uv run pytest seek/tests/test_publications_search_column.py -v
+uv run pytest seek/tests/test_publications.py -k AttachPublications -v
 ```
 
-Expected: `test_one_query_per_page_not_per_row` FAILS only if Task 3 is missing; if Task 3 is done these pass immediately. That is fine — they are the guard rail for the change in Step 3, which is what could break them.
+Expected: 3 PASS. These are what protect the change below.
 
-- [ ] **Step 3: Wire the enrichment into the search path**
+- [ ] **Step 2: Wire the enrichment into the search path**
 
 In `seek/dbtable_sample.py`, find `__retrieveRecords_advanced` (line 3858). Replace:
 
@@ -1009,9 +909,9 @@ with:
 ```python
         jdata_new = self.reformatDataForClient(jdata)
 
-        # One query for the whole page: publication links are derived from study
-        # membership, so they are not part of the sample select. Imported here
-        # rather than at module scope to keep the dependency one-way — see
+        # One query for the whole page: a sample's paper comes from its study, so
+        # it is not part of the sample select. Imported here rather than at module
+        # scope to keep the dependency one-way — see
         # docs/2026-08-21-publication-links-design.md.
         from .publications import attach_publications
         attach_publications(jdata_new)
@@ -1021,15 +921,15 @@ with:
         return data
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 3: Run the tests to verify nothing regressed**
 
 ```bash
-uv run pytest seek/tests/test_publications_search_column.py seek/tests/test_publications.py -v
+uv run pytest seek/tests -v
 ```
 
 Expected: all PASS.
 
-- [ ] **Step 5: Verify against the running stack**
+- [ ] **Step 4: Verify against the running stack**
 
 ```bash
 ./startup.sh rebuild
@@ -1039,35 +939,36 @@ Expected: all PASS.
 docker compose exec -T nextseek uv run python -c "
 import django, os
 os.environ.setdefault('DJANGO_SETTINGS_MODULE','dmac.settings'); django.setup()
+import simplejson
 from seek.dbtable_sample import DBtable_sample
 d = DBtable_sample()
 data = d.searchAdvanced({'server':'','username':'','password':''}, {'sampletype_id':'0','attribute':'none','filter_rule':'','filter_valueFrom':'','filter_valueTo':''}, 'FILTERING', 0)
-import simplejson
 rows = simplejson.loads(data)['rows'][:3]
 print([r.get('publications', 'MISSING') for r in rows])
 "
 ```
 
-Expected: `[[], [], []]` — the key is present and empty, since no publications are registered yet. `MISSING` means the wiring did not take effect.
+Expected: `[[], [], []]` — the key is present and empty, since no study has a DOI
+yet. `MISSING` means the wiring did not take effect.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add seek/dbtable_sample.py seek/tests/test_publications_search_column.py
+git add seek/dbtable_sample.py
 git commit -m "feat(publications): add publication links to sample search results"
 ```
 
 ---
 
-### Task 5: Publication block on the sample detail page
+### Task 4: Publication block on the sample detail page
 
 **Files:**
 - Modify: `seek/views.py` — `sample()` (line ~129-167)
-- Modify: `seek/templates/pages/samples.embed.html` (line ~50, inside the "Sample info" region)
+- Modify: `seek/templates/pages/samples.embed.html` (inside the "Sample info" region)
 - Test: `seek/tests/test_publications_detail_context.py`
 
 **Interfaces:**
-- Consumes: `seek.publications.publications_for_samples` from Task 3.
+- Consumes: `seek.publications.publications_for_sample` from Task 2.
 - Produces: `report['publications']` — a list of `as_dict()` dicts — available to `samples.embed.html`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1084,12 +985,12 @@ from seek import publications as pub
 def test_detail_context_shape(monkeypatch):
     monkeypatch.setattr(
         pub, "publications_for_samples",
-        lambda ids: {5: [pub.PublicationRef(9, "10.1/a", 77, "Paper", "Nature", 2024)]},
+        lambda ids: {5: [pub.PublicationRef(9, "A paper", "10.1/a", 77)]},
     )
     got = pub.publications_for_sample(5)
     assert got[0]["doi_url"] == "https://doi.org/10.1/a"
     assert got[0]["pmid_url"] == "https://pubmed.ncbi.nlm.nih.gov/77/"
-    assert got[0]["citation"] == "Paper (Nature, 2024)"
+    assert got[0]["citation"] == "A paper"
 
 
 def test_detail_context_empty_for_unpublished(monkeypatch):
@@ -1099,46 +1000,24 @@ def test_detail_context_empty_for_unpublished(monkeypatch):
 
 def test_accepts_string_id(monkeypatch):
     captured = {}
-
-    def fake(ids):
-        captured["ids"] = list(ids)
-        return {}
-
-    monkeypatch.setattr(pub, "publications_for_samples", fake)
+    monkeypatch.setattr(pub, "publications_for_samples",
+                        lambda ids: captured.update(ids=list(ids)) or {})
     pub.publications_for_sample("5")
     assert captured["ids"] == [5]
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Run the test to verify it fails or passes**
 
 ```bash
 uv run pytest seek/tests/test_publications_detail_context.py -v
 ```
 
-Expected: FAIL with `AttributeError: module 'seek.publications' has no attribute 'publications_for_sample'`.
+Expected: PASS, since `publications_for_sample` was built in Task 2. These are the
+guard rail for the view and template change below.
 
-- [ ] **Step 3: Add the single-sample helper**
+- [ ] **Step 3: Populate the view context**
 
-Append to `seek/publications.py`:
-
-```python
-def publications_for_sample(sample_id) -> list[dict]:
-    """The publications one sample appears in, as template-ready dicts."""
-    key = int(sample_id)
-    return [ref.as_dict() for ref in publications_for_samples([key]).get(key, [])]
-```
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-```bash
-uv run pytest seek/tests/test_publications_detail_context.py -v
-```
-
-Expected: all PASS.
-
-- [ ] **Step 5: Populate the view context**
-
-In `seek/views.py`, in `sample()`, after these two lines:
+In `seek/views.py`, in `sample()`, after these lines:
 
 ```python
     sampledic, samplelist = dbsample.getSampleInfo(sample_id)
@@ -1153,9 +1032,10 @@ add:
     report['publications'] = publications_for_sample(sample_id)
 ```
 
-- [ ] **Step 6: Render the block**
+- [ ] **Step 4: Render the block**
 
-In `seek/templates/pages/samples.embed.html`, immediately before the line `<div class="widget-body">`, insert:
+In `seek/templates/pages/samples.embed.html`, immediately before the line
+`<div class="widget-body">`, insert:
 
 ```html
 					{% if report.publications %}
@@ -1176,153 +1056,60 @@ In `seek/templates/pages/samples.embed.html`, immediately before the line `<div 
 					{% endif %}
 ```
 
-There is deliberately no "not published" message: most samples are unpublished, and a banner on every one of 51,000 sample pages is noise.
+There is deliberately no "not published" message: most samples are unpublished,
+and a banner on every one of 51,000 sample pages is noise.
 
-- [ ] **Step 7: Verify the page renders**
+- [ ] **Step 5: Verify the page renders**
 
-`themes/NextSeek/` is bind-mounted but `seek/templates/` is baked into the image, so this needs a rebuild:
+`seek/templates/` is baked into the image, so this needs a rebuild:
 
 ```bash
 ./startup.sh rebuild
 ```
 
-Then open a sample detail page in the browser and confirm the page still renders (the block will be absent until publications exist — Task 9 populates them).
+Open a sample detail page and confirm it still renders. The block stays absent
+until Task 7 fills in DOIs.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add seek/publications.py seek/views.py seek/templates/pages/samples.embed.html seek/tests/test_publications_detail_context.py
-git commit -m "feat(publications): show linked papers on the sample detail page"
+git add seek/views.py seek/templates/pages/samples.embed.html seek/tests/test_publications_detail_context.py
+git commit -m "feat(publications): show the linked paper on the sample detail page"
 ```
 
 ---
 
-### Task 6: Search by publication
+### Task 5: Search by publication
 
 **Files:**
 - Modify: `seek/dbtable_sample.py` — `__initSearchFilters` (line 1907), `__parseSearchFilters` (line 3729), `__sqlQuery_select_records_filters_advanced` (line 3876)
-- Test: `seek/tests/test_publications_search_filter.py`
+- Test: covered by `TestPublicationWhereClause` in `seek/tests/test_publications.py` (Task 2)
 
 **Interfaces:**
-- Consumes: `seek.publications.sample_ids_subquery`, `resolve_publication`, `AmbiguousPublication` from Task 3.
-- Produces: `filtersdic` keys `publication_query: str | None` and `published_only: bool`; a new module-level function `seek.publications.publication_where_clause(publication_query, published_only) -> str` returning `""` or a clause beginning with `" AND "`.
+- Consumes: `seek.publications.publication_where_clause(query, published_only) -> str` from Task 2.
+- Produces: `filtersdic` keys `publication_query: str | None` and `published_only: bool`.
 
-- [ ] **Step 1: Write the failing test**
-
-Create `seek/tests/test_publications_search_filter.py`:
-
-```python
-"""The search builder concatenates SQL strings, so nothing user-typed may reach
-it as text. The publication filter resolves through a parameterized query first
-and splices only an integer."""
-
-import pytest
-
-from seek import publications as pub
-
-
-def test_no_filter_yields_no_clause():
-    assert pub.publication_where_clause(None, False) == ""
-    assert pub.publication_where_clause("", False) == ""
-
-
-def test_published_only_constrains_to_any_publication(monkeypatch):
-    monkeypatch.setattr(pub, "nextseek_schema", lambda: "s")
-    clause = pub.publication_where_clause(None, True)
-    assert clause.startswith(" AND ")
-    assert "A.id IN (" in clause
-    assert "publication_id =" not in clause
-
-
-def test_resolved_publication_splices_only_an_integer(monkeypatch):
-    monkeypatch.setattr(pub, "nextseek_schema", lambda: "s")
-    monkeypatch.setattr(
-        pub, "resolve_publication",
-        lambda q: pub.PublicationRef(7, "10.1/a", None, "T", None, None),
-    )
-    clause = pub.publication_where_clause("10.1/a", False)
-    assert "publication_id = 7" in clause
-
-
-def test_injection_attempt_cannot_reach_sql(monkeypatch):
-    monkeypatch.setattr(pub, "nextseek_schema", lambda: "s")
-    monkeypatch.setattr(pub, "resolve_publication", lambda q: None)
-    clause = pub.publication_where_clause("'; DROP TABLE samples; --", False)
-    assert "DROP" not in clause
-
-
-def test_unknown_publication_matches_nothing(monkeypatch):
-    monkeypatch.setattr(pub, "nextseek_schema", lambda: "s")
-    monkeypatch.setattr(pub, "resolve_publication", lambda q: None)
-    clause = pub.publication_where_clause("no such paper", False)
-    assert clause == " AND 1=0"
-
-
-def test_ambiguous_title_propagates(monkeypatch):
-    def boom(q):
-        raise pub.AmbiguousPublication("2 publications match: ids 1, 2")
-
-    monkeypatch.setattr(pub, "resolve_publication", boom)
-    with pytest.raises(pub.AmbiguousPublication):
-        pub.publication_where_clause("Same", False)
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 1: Confirm the guard-rail tests pass**
 
 ```bash
-uv run pytest seek/tests/test_publications_search_filter.py -v
+uv run pytest seek/tests/test_publications.py -k PublicationWhereClause -v
 ```
 
-Expected: FAIL — `module 'seek.publications' has no attribute 'publication_where_clause'`.
+Expected: 5 PASS, including `test_injection_attempt_cannot_reach_sql`.
 
-- [ ] **Step 3: Add the clause builder**
-
-Append to `seek/publications.py`:
-
-```python
-def publication_where_clause(publication_query, published_only: bool) -> str:
-    """A WHERE fragment constraining samples by publication, or "".
-
-    Returns " AND 1=0" when the query names a publication that does not exist —
-    an empty result is the honest answer, and is much easier to reason about than
-    silently dropping the filter.
-
-    Raises AmbiguousPublication when a title matches several papers; the caller
-    turns that into a message for the user.
-    """
-    clauses = []
-
-    if publication_query:
-        found = resolve_publication(publication_query)
-        if found is None:
-            return " AND 1=0"
-        clauses.append(f" AND A.id IN ({sample_ids_subquery(found.seek_id)})")
-    elif published_only:
-        clauses.append(f" AND A.id IN ({sample_ids_subquery(None)})")
-
-    return "".join(clauses)
-```
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-```bash
-uv run pytest seek/tests/test_publications_search_filter.py -v
-```
-
-Expected: all PASS.
-
-- [ ] **Step 5: Thread the filter through the search builder**
+- [ ] **Step 2: Thread the filter through the search builder**
 
 In `seek/dbtable_sample.py`:
 
-**5a.** In `__initSearchFilters`, before `return filtersdic`, add:
+**2a.** In `__initSearchFilters`, before `return filtersdic`, add:
 
 ```python
         filtersdic['publication_query'] = None
         filtersdic['published_only'] = False
 ```
 
-**5b.** In `__parseSearchFilters`, immediately after `filtersdic = self.__initSearchFilters(searchType, sampletype_id, project_id)`, add:
+**2b.** In `__parseSearchFilters`, immediately after
+`filtersdic = self.__initSearchFilters(searchType, sampletype_id, project_id)`, add:
 
 ```python
         # Publication filter applies to every search type. `filters` is a QueryDict.
@@ -1330,7 +1117,7 @@ In `seek/dbtable_sample.py`:
         filtersdic['published_only'] = filters.get('filter_published_only') in ('1', 'true', 'True', 'on')
 ```
 
-**5c.** In `__sqlQuery_select_records_filters_advanced`, replace:
+**2c.** In `__sqlQuery_select_records_filters_advanced`, replace:
 
 ```python
         logger.debug(sqlquery_filter)
@@ -1350,7 +1137,7 @@ with:
         return sqlquery_filter
 ```
 
-- [ ] **Step 6: Verify the generated SQL is valid**
+- [ ] **Step 3: Verify the generated SQL is valid**
 
 ```bash
 ./startup.sh rebuild
@@ -1361,106 +1148,90 @@ docker compose exec -T nextseek uv run python -c "
 import django, os
 os.environ.setdefault('DJANGO_SETTINGS_MODULE','dmac.settings'); django.setup()
 from seek.publications import publication_where_clause, _rows
-clause = publication_where_clause(None, True)
-print(_rows('SELECT COUNT(*) AS n FROM samples A WHERE 1=1' + clause))
+for q, only in [(None, True), ('no such paper', False)]:
+    clause = publication_where_clause(q, only)
+    print(repr(q), only, '->', _rows('SELECT COUNT(*) AS n FROM samples A WHERE 1=1' + clause))
 "
 ```
 
-Expected: `[{'n': 0}]` — no publications exist yet, so nothing is published. A MySQL error means the spliced subquery is malformed.
+Expected: `[{'n': 0}]` in both cases — no study has a DOI yet, and the unknown
+paper returns the `1=0` clause. A MySQL error means the spliced subquery is
+malformed.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add seek/publications.py seek/dbtable_sample.py seek/tests/test_publications_search_filter.py
-git commit -m "feat(publications): filter sample search by DOI, PMID, or paper title"
+git add seek/dbtable_sample.py
+git commit -m "feat(publications): filter sample search by DOI, PMID, or study title"
 ```
 
 ---
 
-### Task 7: Neo4j publication subgraph
+### Task 6: Push study attributes into Neo4j
 
 **Files:**
 - Create: `seek/publications_graph.py`
-- Create: `nextseek_api/management/commands/sync_publications_graph.py`
-- Modify: `nextseek_api/batch_upload/neo4j_sync.py` — `ensure_constraints` (line 77)
-- Modify: `dmac/settings.py` — add `CRONJOBS`
+- Create: `nextseek_api/management/commands/sync_study_publications.py`
 - Test: `seek/tests/test_publications_graph.py`
 
 **Interfaces:**
-- Consumes: `seek.publications.effective_samples_sql`, `nextseek_schema`, `_rows` from Task 3.
+- Consumes: `seek.publications._rows` from Task 2.
 - Produces:
-  - `build_publication_nodes(rows) -> list[dict]`
-  - `build_sample_edges(rows) -> list[dict]`
-  - `PUBLICATION_NODE_CYPHER: str`, `SAMPLE_EDGE_CYPHER: str`, `STUDY_EDGE_CYPHER: str`, `PRUNE_SAMPLE_EDGE_CYPHER: str`
-  - `sync_publication_to_graph(publication_id: int) -> bool` (False when Neo4j is unreachable — never raises)
-  - `reconcile_publication_graph() -> dict` with keys `publications`, `sample_edges`, `study_edges`, `pruned`
+  - `STUDY_PROPERTY_CYPHER: str`
+  - `build_study_rows(rows) -> list[dict]`
+  - `sync_study_publications() -> dict` with keys `studies`, `with_doi`, `with_pmid`
+  - `try_sync_study_publications() -> bool` (False when Neo4j is unreachable — never raises)
 
 - [ ] **Step 1: Write the failing test**
 
 Create `seek/tests/test_publications_graph.py`:
 
 ```python
-"""Graph payload construction and the drift-repair Cypher.
+"""Graph payload construction and failure tolerance.
 
-No Neo4j: the driver is stubbed. What matters here is that reconcile removes
-edges that are no longer implied — an append-only sync silently accumulates
-wrong claims about which samples are in which paper.
+No Neo4j: the driver is stubbed. The property write must cover every study, not
+only the published ones, so that clearing a DOI in MySQL clears it in the graph.
 """
 
 from seek import publications_graph as pg
 
 
-class TestBuildPayloads:
-    def test_publication_node_rows(self):
-        rows = [{"seek_id": 3, "doi": "10.1/a", "pubmed_id": 7, "title": "T",
-                 "journal": "Nature", "year": 2024}]
-        assert pg.build_publication_nodes(rows) == [
-            {"seek_id": 3, "doi": "10.1/a", "pmid": 7, "title": "T",
-             "journal": "Nature", "year": 2024,
-             "url": "https://doi.org/10.1/a"}
-        ]
+class TestBuildStudyRows:
+    def test_maps_columns_to_properties(self):
+        rows = [{"id": 3, "doi": "10.1/a", "pmid": 7}]
+        assert pg.build_study_rows(rows) == [{"study_id": 3, "doi": "10.1/a", "pmid": 7}]
 
-    def test_publication_without_doi_has_no_url(self):
-        rows = [{"seek_id": 3, "doi": None, "pubmed_id": 7, "title": "T",
-                 "journal": None, "year": None}]
-        assert pg.build_publication_nodes(rows)[0]["url"] is None
+    def test_unpublished_study_is_included_with_nulls(self):
+        # Included on purpose: this is what clears a DOI removed in MySQL.
+        rows = [{"id": 4, "doi": None, "pmid": None}]
+        assert pg.build_study_rows(rows) == [{"study_id": 4, "doi": None, "pmid": None}]
 
-    def test_sample_edge_rows(self):
-        rows = [{"sample_uuid": "u1", "publication_id": 3}]
-        assert pg.build_sample_edges(rows) == [{"sample_uuid": "u1", "publication_id": 3}]
-
-    def test_empty_input(self):
-        assert pg.build_publication_nodes([]) == []
-        assert pg.build_sample_edges([]) == []
+    def test_empty(self):
+        assert pg.build_study_rows([]) == []
 
 
 class TestCypher:
-    def test_node_merge_is_keyed_on_seek_id(self):
-        assert "MERGE (p:Publication {seek_id: row.seek_id})" in pg.PUBLICATION_NODE_CYPHER
+    def test_matches_study_by_id(self):
+        assert "MATCH (st:Study {id: row.study_id})" in pg.STUDY_PROPERTY_CYPHER
 
-    def test_sample_edge_uses_reported_in(self):
-        assert "[:REPORTED_IN]" in pg.SAMPLE_EDGE_CYPHER
-        assert "(s:Sample" in pg.SAMPLE_EDGE_CYPHER
+    def test_sets_both_properties(self):
+        assert "st.doi = row.doi" in pg.STUDY_PROPERTY_CYPHER
+        assert "st.pmid = row.pmid" in pg.STUDY_PROPERTY_CYPHER
 
-    def test_study_edge_uses_reported_in(self):
-        assert "[:REPORTED_IN]" in pg.STUDY_EDGE_CYPHER
-        assert "(st:Study" in pg.STUDY_EDGE_CYPHER
-
-    def test_prune_deletes_edges_not_in_the_current_set(self):
-        # Without a DELETE, drift accumulates and never heals.
-        assert "DELETE" in pg.PRUNE_SAMPLE_EDGE_CYPHER
-        assert "NOT" in pg.PRUNE_SAMPLE_EDGE_CYPHER
+    def test_does_not_create_studies(self):
+        # MERGE here would invent Study nodes that MySQL has but the graph does not.
+        assert "MERGE" not in pg.STUDY_PROPERTY_CYPHER
 
 
-class TestWriteThroughNeverBreaksCuration:
-    def test_returns_false_when_neo4j_is_down(self, monkeypatch):
+class TestFailureTolerance:
+    def test_try_sync_returns_false_when_neo4j_is_down(self, monkeypatch):
         def explode(*args, **kwargs):
             raise OSError("connection refused")
 
         monkeypatch.setattr(pg, "_driver", explode)
-        assert pg.sync_publication_to_graph(1) is False
+        assert pg.try_sync_study_publications() is False
 
-    def test_returns_true_on_success(self, monkeypatch):
+    def test_try_sync_returns_true_on_success(self, monkeypatch):
         class FakeDriver:
             def __enter__(self):
                 return self
@@ -1472,10 +1243,28 @@ class TestWriteThroughNeverBreaksCuration:
                 return None
 
         monkeypatch.setattr(pg, "_driver", lambda: FakeDriver())
-        monkeypatch.setattr(pg, "_publication_rows", lambda pid=None: [])
-        monkeypatch.setattr(pg, "_sample_edge_rows", lambda pid=None: [])
-        monkeypatch.setattr(pg, "_study_edge_rows", lambda pid=None: [])
-        assert pg.sync_publication_to_graph(1) is True
+        monkeypatch.setattr(pg, "_study_rows", lambda: [])
+        assert pg.try_sync_study_publications() is True
+
+    def test_counts_are_reported(self, monkeypatch):
+        class FakeDriver:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute_query(self, *a, **k):
+                return None
+
+        monkeypatch.setattr(pg, "_driver", lambda: FakeDriver())
+        monkeypatch.setattr(pg, "_study_rows", lambda: [
+            {"id": 1, "doi": "10.1/a", "pmid": 5},
+            {"id": 2, "doi": None, "pmid": None},
+            {"id": 3, "doi": "10.1/c", "pmid": None},
+        ])
+        stats = pg.sync_study_publications()
+        assert stats == {"studies": 3, "with_doi": 2, "with_pmid": 1}
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -1491,20 +1280,17 @@ Expected: collection error — `No module named 'seek.publications_graph'`.
 Create `seek/publications_graph.py`:
 
 ```python
-"""Materialize the publication subgraph into Neo4j.
+"""Copy study publication attributes from MySQL into Neo4j.
 
-MySQL is the source of truth; the graph holds a materialized view so that
-Nessie's graph agent only ever writes a one-hop pattern:
+MySQL is the source of truth. Every study is written, including those with no
+DOI — that is what clears a value removed in MySQL rather than leaving a stale
+one in the graph.
 
-    (:Sample)-[:REPORTED_IN]->(:Publication)
-    (:Study) -[:REPORTED_IN]->(:Publication)
+The properties already exist on dev and prod and do not exist on the local docker
+stack; SET covers both cases. MATCH, never MERGE: a study missing from the graph
+is a graph-sync problem to investigate, not a node to invent here.
 
-One relationship type serves both because Cypher patterns carry labels. A query
-that matches REPORTED_IN without a label on the source will see both kinds.
-
-Write-through keeps Nessie current; reconcile repairs drift, including drift
-caused by papers registered directly in SEEK's own UI. See
-docs/2026-08-21-publication-links-design.md.
+See docs/2026-08-21-publication-links-design.md.
 """
 
 from __future__ import annotations
@@ -1514,38 +1300,14 @@ import logging
 from django.conf import settings
 from neo4j import GraphDatabase
 
-from .publications import _rows, effective_samples_sql, nextseek_schema
+from .publications import _rows
 
 log = logging.getLogger(__name__)
 
-
-PUBLICATION_NODE_CYPHER = """
-UNWIND $rows AS row
-MERGE (p:Publication {seek_id: row.seek_id})
-SET p.doi = row.doi, p.pmid = row.pmid, p.title = row.title,
-    p.journal = row.journal, p.year = row.year, p.url = row.url
-"""
-
-SAMPLE_EDGE_CYPHER = """
-UNWIND $rows AS row
-MATCH (s:Sample {uuid: row.sample_uuid})
-MATCH (p:Publication {seek_id: row.publication_id})
-MERGE (s)-[:REPORTED_IN]->(p)
-"""
-
-STUDY_EDGE_CYPHER = """
+STUDY_PROPERTY_CYPHER = """
 UNWIND $rows AS row
 MATCH (st:Study {id: row.study_id})
-MATCH (p:Publication {seek_id: row.publication_id})
-MERGE (st)-[:REPORTED_IN]->(p)
-"""
-
-#: Remove Sample->Publication edges that MySQL no longer implies. Without this,
-#: an un-excluded sample keeps claiming it appeared in a paper forever.
-PRUNE_SAMPLE_EDGE_CYPHER = """
-MATCH (s:Sample)-[r:REPORTED_IN]->(p:Publication)
-WHERE NOT [s.uuid, p.seek_id] IN $keep
-DELETE r
+SET st.doi = row.doi, st.pmid = row.pmid
 """
 
 
@@ -1558,114 +1320,48 @@ def _db_name() -> str:
     return settings.NEO4J_DATABASE["NAME"]
 
 
-def build_publication_nodes(rows: list[dict]) -> list[dict]:
+def _study_rows() -> list[dict]:
+    return _rows("SELECT id, doi, pmid FROM studies ORDER BY id")
+
+
+def build_study_rows(rows: list[dict]) -> list[dict]:
     return [
-        {
-            "seek_id": r["seek_id"],
-            "doi": r.get("doi"),
-            "pmid": r.get("pubmed_id"),
-            "title": r.get("title"),
-            "journal": r.get("journal"),
-            "year": r.get("year"),
-            "url": f"https://doi.org/{r['doi']}" if r.get("doi") else None,
-        }
+        {"study_id": r["id"], "doi": r.get("doi"), "pmid": r.get("pmid")}
         for r in rows
     ]
 
 
-def build_sample_edges(rows: list[dict]) -> list[dict]:
-    return [
-        {"sample_uuid": r["sample_uuid"], "publication_id": r["publication_id"]}
-        for r in rows
-    ]
+def sync_study_publications() -> dict:
+    """Write doi/pmid onto every Study node. Idempotent."""
+    rows = _study_rows()
+    payload = build_study_rows(rows)
+    if payload:
+        with _driver() as driver:
+            driver.execute_query(
+                STUDY_PROPERTY_CYPHER, {"rows": payload}, database_=_db_name()
+            )
+    return {
+        "studies": len(payload),
+        "with_doi": sum(1 for r in payload if r["doi"]),
+        "with_pmid": sum(1 for r in payload if r["pmid"]),
+    }
 
 
-def _publication_rows(publication_id: int | None = None) -> list[dict]:
-    sql = ("SELECT p.id AS seek_id, p.doi, p.pubmed_id, p.title, p.journal, "
-           "YEAR(p.published_date) AS year FROM publications p")
-    if publication_id is None:
-        return _rows(sql)
-    return _rows(sql + " WHERE p.id = %s", [int(publication_id)])
+def try_sync_study_publications() -> bool:
+    """Sync, swallowing any failure. Returns False if the graph was not written.
 
-
-def _sample_edge_rows(publication_id: int | None = None) -> list[dict]:
-    inner = effective_samples_sql(nextseek_schema())
-    sql = f"""
-        SELECT s.uuid AS sample_uuid, e.publication_id AS publication_id
-        FROM ({inner}) e
-        JOIN samples s ON s.id = e.sample_id
-    """
-    if publication_id is None:
-        return _rows(sql)
-    return _rows(sql + " WHERE e.publication_id = %s", [int(publication_id)])
-
-
-def _study_edge_rows(publication_id: int | None = None) -> list[dict]:
-    sql = """
-        SELECT r.subject_id AS study_id, r.other_object_id AS publication_id
-        FROM relationships r
-        WHERE r.subject_type = 'Study'
-          AND r.predicate = 'related_to_publication'
-          AND r.other_object_type = 'Publication'
-    """
-    if publication_id is None:
-        return _rows(sql)
-    return _rows(sql + " AND r.other_object_id = %s", [int(publication_id)])
-
-
-def sync_publication_to_graph(publication_id: int) -> bool:
-    """Push one publication and its edges to Neo4j. Never raises.
-
-    Returns False if the graph could not be written. Curation must not fail
-    because Neo4j is unavailable — the reconcile command repairs it later.
+    Curation must not fail because Neo4j is unavailable — the standalone
+    management command repairs it later.
     """
     try:
-        nodes = build_publication_nodes(_publication_rows(publication_id))
-        sample_edges = build_sample_edges(_sample_edge_rows(publication_id))
-        study_edges = _study_edge_rows(publication_id)
-        with _driver() as driver:
-            db = _db_name()
-            if nodes:
-                driver.execute_query(PUBLICATION_NODE_CYPHER, {"rows": nodes}, database_=db)
-            if sample_edges:
-                driver.execute_query(SAMPLE_EDGE_CYPHER, {"rows": sample_edges}, database_=db)
-            if study_edges:
-                driver.execute_query(STUDY_EDGE_CYPHER, {"rows": study_edges}, database_=db)
+        sync_study_publications()
         return True
     except Exception:
-        log.warning("Publication %s: graph write deferred", publication_id, exc_info=True)
+        log.warning("Study publication graph sync deferred", exc_info=True)
         return False
-
-
-def reconcile_publication_graph() -> dict:
-    """Re-derive the whole publication subgraph from MySQL, including deletions."""
-    nodes = build_publication_nodes(_publication_rows())
-    sample_edges = build_sample_edges(_sample_edge_rows())
-    study_edges = _study_edge_rows()
-    keep = [[e["sample_uuid"], e["publication_id"]] for e in sample_edges]
-
-    with _driver() as driver:
-        db = _db_name()
-        if nodes:
-            driver.execute_query(PUBLICATION_NODE_CYPHER, {"rows": nodes}, database_=db)
-        if sample_edges:
-            driver.execute_query(SAMPLE_EDGE_CYPHER, {"rows": sample_edges}, database_=db)
-        if study_edges:
-            driver.execute_query(STUDY_EDGE_CYPHER, {"rows": study_edges}, database_=db)
-        pruned = driver.execute_query(
-            PRUNE_SAMPLE_EDGE_CYPHER, {"keep": keep}, database_=db
-        )
-
-    return {
-        "publications": len(nodes),
-        "sample_edges": len(sample_edges),
-        "study_edges": len(study_edges),
-        "pruned": getattr(getattr(pruned, "summary", None), "counters", None)
-        and pruned.summary.counters.relationships_deleted or 0,
-    }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
 uv run pytest seek/tests/test_publications_graph.py -v
@@ -1673,576 +1369,93 @@ uv run pytest seek/tests/test_publications_graph.py -v
 
 Expected: all PASS.
 
-- [ ] **Step 5: Add the Neo4j constraints**
+- [ ] **Step 5: Add the management command**
 
-In `nextseek_api/batch_upload/neo4j_sync.py`, in `ensure_constraints`, add two entries to the `constraints` list:
-
-```python
-        "CREATE CONSTRAINT publication_seek_id_unique IF NOT EXISTS FOR (p:Publication) REQUIRE p.seek_id IS UNIQUE",
-        "CREATE CONSTRAINT publication_doi_unique IF NOT EXISTS FOR (p:Publication) REQUIRE p.doi IS UNIQUE",
-```
-
-- [ ] **Step 6: Add the management command**
-
-Create `nextseek_api/management/commands/sync_publications_graph.py`:
+Create `nextseek_api/management/commands/sync_study_publications.py`:
 
 ```python
-"""Re-derive the Neo4j publication subgraph from MySQL.
+"""Copy studies.doi / studies.pmid from MySQL onto Neo4j Study nodes.
 
-Run after registering papers in SEEK's own UI (which cannot write to the graph),
-or to repair drift left by a deferred write-through.
+Run after editing DOIs by any route other than `fill_study_publications --apply`,
+or to repair a deferred sync.
 """
 
 from django.core.management.base import BaseCommand
 
-from seek.publications_graph import reconcile_publication_graph
+from seek.publications_graph import sync_study_publications
 
 
 class Command(BaseCommand):
-    help = "Sync Publication nodes and REPORTED_IN edges from MySQL into Neo4j."
+    help = "Sync study doi/pmid attributes from MySQL into Neo4j."
 
     def handle(self, *args, **options):
-        stats = reconcile_publication_graph()
+        stats = sync_study_publications()
         self.stdout.write(
-            f"publications={stats['publications']} "
-            f"sample_edges={stats['sample_edges']} "
-            f"study_edges={stats['study_edges']} "
-            f"pruned={stats['pruned']}"
+            f"studies={stats['studies']} "
+            f"with_doi={stats['with_doi']} with_pmid={stats['with_pmid']}"
         )
 ```
 
-- [ ] **Step 7: Register the cron job**
-
-There is no `CRONJOBS` setting today — `django_crontab` is installed (`dmac/settings.py:160`) but no jobs are registered. Add near the end of `dmac/settings.py`:
-
-```python
-# Scheduled jobs (django_crontab). Re-derives the Neo4j publication subgraph so
-# that papers registered directly in SEEK's UI reach the graph, and so that any
-# deferred write-through is repaired. This is the first entry — the list did not
-# exist before.
-CRONJOBS = [
-    ("17 3 * * *", "django.core.management.call_command", ["sync_publications_graph"]),
-]
-```
-
-- [ ] **Step 8: Verify against the running stack**
+- [ ] **Step 6: Verify against the running stack, including clearing**
 
 ```bash
 ./startup.sh rebuild
 ```
 
 ```bash
-docker compose exec -T nextseek uv run manage.py sync_publications_graph
+docker compose exec -T nextseek uv run manage.py sync_study_publications
 ```
 
-Expected: `publications=0 sample_edges=0 study_edges=0 pruned=0` — nothing to sync yet. Then confirm the constraints exist:
+Expected: `studies=51 with_doi=0 with_pmid=0`.
+
+Now prove a value round-trips and, crucially, that removing it in MySQL removes
+it from the graph:
 
 ```bash
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "SHOW CONSTRAINTS YIELD name WHERE name STARTS WITH \"publication\" RETURN name;"'
+docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -e "UPDATE studies SET doi=\"10.9999/test\", pmid=1234567 WHERE id=1;"'
+docker compose exec -T nextseek uv run manage.py sync_study_publications
+docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study {id:1}) RETURN s.doi, s.pmid;"'
+docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -e "UPDATE studies SET doi=NULL, pmid=NULL WHERE id=1;"'
+docker compose exec -T nextseek uv run manage.py sync_study_publications
+docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study {id:1}) RETURN s.doi, s.pmid;"'
 ```
 
-Expected: `publication_seek_id_unique` and `publication_doi_unique`.
-
-- [ ] **Step 9: Verify idempotency and drift repair against real Neo4j**
-
-The unit tests assert the prune Cypher *contains* a DELETE. This asserts it
-actually deletes. Run it now, while the subgraph is empty and a planted edge is
-unambiguous.
-
-```bash
-docker compose exec -T nextseek uv run python -c "
-import django, os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE','dmac.settings'); django.setup()
-from seek.publications_graph import reconcile_publication_graph, _driver, _db_name
-
-print('run 1:', reconcile_publication_graph())
-print('run 2:', reconcile_publication_graph())
-
-# Plant an edge MySQL does not imply, then confirm reconcile removes it.
-with _driver() as d:
-    db = _db_name()
-    d.execute_query('MERGE (p:Publication {seek_id: -1}) SET p.title = \'planted\'', database_=db)
-    d.execute_query('MATCH (s:Sample) WITH s LIMIT 1 MATCH (p:Publication {seek_id:-1}) MERGE (s)-[:REPORTED_IN]->(p)', database_=db)
-    r,_,_ = d.execute_query('MATCH (:Sample)-[r:REPORTED_IN]->(:Publication {seek_id:-1}) RETURN count(r) AS n', database_=db)
-    print('planted edges:', r[0]['n'])
-
-print('run 3:', reconcile_publication_graph())
-
-with _driver() as d:
-    db = _db_name()
-    r,_,_ = d.execute_query('MATCH (:Sample)-[r:REPORTED_IN]->(:Publication {seek_id:-1}) RETURN count(r) AS n', database_=db)
-    print('edges after reconcile:', r[0]['n'])
-    d.execute_query('MATCH (p:Publication {seek_id:-1}) DETACH DELETE p', database_=db)
-"
-```
-
-Expected: runs 1 and 2 return identical counts (idempotent); `planted edges: 1`;
-`edges after reconcile: 0`. If the planted edge survives, the prune is not
-working and drift will accumulate silently — fix it before continuing.
-
-- [ ] **Step 10: Commit**
-
-```bash
-git add seek/publications_graph.py nextseek_api/management/commands/sync_publications_graph.py nextseek_api/batch_upload/neo4j_sync.py dmac/settings.py seek/tests/test_publications_graph.py
-git commit -m "feat(publications): materialize publication subgraph in Neo4j with reconcile"
-```
-
----
-
-### Task 8: Publication API endpoints
-
-**Files:**
-- Create: `nextseek_api/services/publications.py`
-- Modify: `nextseek_api/views.py` (add import/export of the ViewSet, following the existing pattern)
-- Modify: `nextseek_api/urls.py` (register the route)
-- Test: `nextseek_api/tests/test_publications_api.py`
-
-**Interfaces:**
-- Consumes: `seek.publications.publications_for_samples`, `resolve_publication`, `AmbiguousPublication`, `nextseek_schema`, `_rows`; `seek.publications_graph.sync_publication_to_graph`; `seek.models.Sample_publication_override`.
-- Produces: `PublicationViewSet` registered at `publications`; `SamplePublicationsView` (the reverse lookup); helper `apply_overrides(publication_id, uids, mode, user_id) -> dict` with keys `created`, `no_effect`, `graph_sync`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `nextseek_api/tests/test_publications_api.py`:
-
-```python
-"""Override application: atomicity, no-op reporting, and graph-failure tolerance."""
-
-import pytest
-
-from nextseek_api.services import publications as svc
-
-
-class TestUidResolution:
-    def test_unknown_uid_is_atomic(self, monkeypatch):
-        written = []
-        monkeypatch.setattr(svc, "_resolve_uids", lambda uids: ({"U1": 1}, ["U2"]))
-        monkeypatch.setattr(svc, "_write_overrides", lambda *a, **k: written.append(a))
-
-        with pytest.raises(svc.UnknownSamples) as excinfo:
-            svc.apply_overrides(3, ["U1", "U2"], "include", user_id=None)
-
-        assert "U2" in str(excinfo.value)
-        assert written == [], "nothing may be written when any UID is unknown"
-
-    def test_all_known_uids_are_written(self, monkeypatch):
-        written = []
-        monkeypatch.setattr(svc, "_resolve_uids", lambda uids: ({"U1": 1, "U2": 2}, []))
-        monkeypatch.setattr(svc, "_write_overrides",
-                            lambda pid, ids, mode, uid: written.append((pid, sorted(ids), mode)) or 2)
-        monkeypatch.setattr(svc, "_inherited_sample_ids", lambda pid: set())
-        monkeypatch.setattr(svc, "sync_publication_to_graph", lambda pid: True)
-
-        result = svc.apply_overrides(3, ["U1", "U2"], "include", user_id=None)
-        assert written == [(3, [1, 2], "include")]
-        assert result["created"] == 2
-
-
-class TestNoEffectReporting:
-    def test_include_of_already_inherited_sample_is_reported(self, monkeypatch):
-        monkeypatch.setattr(svc, "_resolve_uids", lambda uids: ({"U1": 1}, []))
-        monkeypatch.setattr(svc, "_write_overrides", lambda *a, **k: 1)
-        monkeypatch.setattr(svc, "_inherited_sample_ids", lambda pid: {1})
-        monkeypatch.setattr(svc, "sync_publication_to_graph", lambda pid: True)
-
-        result = svc.apply_overrides(3, ["U1"], "include", user_id=None)
-        assert result["no_effect"] == ["U1"]
-
-    def test_exclude_of_sample_not_in_study_is_accepted(self, monkeypatch):
-        # Accepted, not rejected: the override protects the sample if it joins
-        # that study later.
-        monkeypatch.setattr(svc, "_resolve_uids", lambda uids: ({"U9": 9}, []))
-        monkeypatch.setattr(svc, "_write_overrides", lambda *a, **k: 1)
-        monkeypatch.setattr(svc, "_inherited_sample_ids", lambda pid: set())
-        monkeypatch.setattr(svc, "sync_publication_to_graph", lambda pid: True)
-
-        result = svc.apply_overrides(3, ["U9"], "exclude", user_id=None)
-        assert result["created"] == 1
-        assert result["no_effect"] == ["U9"]
-
-
-class TestGraphFailureIsNonFatal:
-    def test_deferred_when_neo4j_is_down(self, monkeypatch):
-        monkeypatch.setattr(svc, "_resolve_uids", lambda uids: ({"U1": 1}, []))
-        monkeypatch.setattr(svc, "_write_overrides", lambda *a, **k: 1)
-        monkeypatch.setattr(svc, "_inherited_sample_ids", lambda pid: set())
-        monkeypatch.setattr(svc, "sync_publication_to_graph", lambda pid: False)
-
-        result = svc.apply_overrides(3, ["U1"], "include", user_id=None)
-        assert result["graph_sync"] == "deferred"
-        assert result["created"] == 1, "the MySQL write must still have happened"
-
-    def test_ok_when_neo4j_is_up(self, monkeypatch):
-        monkeypatch.setattr(svc, "_resolve_uids", lambda uids: ({"U1": 1}, []))
-        monkeypatch.setattr(svc, "_write_overrides", lambda *a, **k: 1)
-        monkeypatch.setattr(svc, "_inherited_sample_ids", lambda pid: set())
-        monkeypatch.setattr(svc, "sync_publication_to_graph", lambda pid: True)
-
-        assert svc.apply_overrides(3, ["U1"], "include", user_id=None)["graph_sync"] == "ok"
-
-
-class TestModeValidation:
-    def test_rejects_unknown_mode(self):
-        with pytest.raises(ValueError):
-            svc.apply_overrides(3, ["U1"], "maybe", user_id=None)
-
-
-class TestReverseLookup:
-    def test_unknown_uid_is_404(self, monkeypatch, rf):
-        monkeypatch.setattr(svc, "_resolve_uids", lambda uids: ({}, list(uids)))
-        response = svc.SamplePublicationsView().get(rf.get("/"), uid="NOPE")
-        assert response.status_code == 404
-
-    def test_known_uid_returns_its_papers(self, monkeypatch, rf):
-        from seek.publications import PublicationRef
-
-        monkeypatch.setattr(svc, "_resolve_uids", lambda uids: ({"U1": 1}, []))
-        monkeypatch.setattr(
-            svc, "publications_for_samples",
-            lambda ids: {1: [PublicationRef(9, "10.1/a", None, "T", "Nature", 2024)]},
-        )
-        response = svc.SamplePublicationsView().get(rf.get("/"), uid="U1")
-        assert response.data[0]["doi"] == "10.1/a"
-
-    def test_unpublished_sample_returns_empty_list(self, monkeypatch, rf):
-        monkeypatch.setattr(svc, "_resolve_uids", lambda uids: ({"U1": 1}, []))
-        monkeypatch.setattr(svc, "publications_for_samples", lambda ids: {})
-        response = svc.SamplePublicationsView().get(rf.get("/"), uid="U1")
-        assert response.data == []
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-```bash
-uv run pytest nextseek_api/tests/test_publications_api.py -v
-```
-
-Expected: collection error — `No module named 'nextseek_api.services.publications'`.
-
-- [ ] **Step 3: Write the service**
-
-Create `nextseek_api/services/publications.py`:
-
-```python
-"""Publication endpoints: read the effective sample set, curate the overrides.
-
-Overrides are API-only in this version — there is no curation UI. See
-docs/2026-08-21-publication-links-design.md.
-"""
-
-from __future__ import annotations
-
-from django.db import transaction
-from rest_framework import viewsets
-from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from seek.models import Sample_publication_override
-from seek.publications import (
-    AmbiguousPublication,
-    PublicationRef,
-    _rows,
-    effective_samples_sql,
-    nextseek_schema,
-    publications_for_samples,
-    resolve_publication,
-)
-from seek.publications_graph import sync_publication_to_graph
-
-VALID_MODES = (Sample_publication_override.INCLUDE, Sample_publication_override.EXCLUDE)
-
-
-class UnknownSamples(Exception):
-    """One or more UIDs did not resolve. Nothing was written."""
-
-
-def _resolve_uids(uids: list[str]) -> tuple[dict[str, int], list[str]]:
-    """Map UIDs to sample ids. Returns (resolved, unknown)."""
-    if not uids:
-        return {}, []
-    placeholders = ",".join(["%s"] * len(uids))
-    rows = _rows(
-        f"SELECT uuid, id FROM samples WHERE uuid IN ({placeholders})", list(uids)
-    )
-    resolved = {r["uuid"]: r["id"] for r in rows}
-    unknown = [u for u in uids if u not in resolved]
-    return resolved, unknown
-
-
-def _inherited_sample_ids(publication_id: int) -> set[int]:
-    """Sample ids that already reach this publication through study membership."""
-    inner = effective_samples_sql(nextseek_schema())
-    rows = _rows(
-        f"SELECT e.sample_id AS sample_id FROM ({inner}) e WHERE e.publication_id = %s",
-        [int(publication_id)],
-    )
-    return {r["sample_id"] for r in rows}
-
-
-def _write_overrides(publication_id: int, sample_ids, mode: str, user_id) -> int:
-    """Upsert override rows. Returns the number written."""
-    written = 0
-    with transaction.atomic():
-        for sample_id in sample_ids:
-            Sample_publication_override.objects.update_or_create(
-                sample_id=sample_id,
-                publication_id=publication_id,
-                defaults={"mode": mode, "created_by_id": user_id},
-            )
-            written += 1
-    return written
-
-
-def apply_overrides(publication_id: int, uids: list[str], mode: str, user_id) -> dict:
-    """Attach or detach samples for a publication.
-
-    Atomic on unknown UIDs: if any UID does not resolve, nothing is written.
-    A write whose graph sync fails still succeeds — reconcile repairs the graph.
-    """
-    if mode not in VALID_MODES:
-        raise ValueError(f"mode must be one of {VALID_MODES}, got {mode!r}")
-
-    resolved, unknown = _resolve_uids(uids)
-    if unknown:
-        raise UnknownSamples(f"unknown sample UIDs: {', '.join(sorted(unknown))}")
-
-    created = _write_overrides(publication_id, resolved.values(), mode, user_id)
-
-    inherited = _inherited_sample_ids(publication_id)
-    if mode == Sample_publication_override.INCLUDE:
-        no_effect = [uid for uid, sid in resolved.items() if sid in inherited]
-    else:
-        no_effect = [uid for uid, sid in resolved.items() if sid not in inherited]
-
-    synced = sync_publication_to_graph(publication_id)
-    return {
-        "created": created,
-        "no_effect": sorted(no_effect),
-        "graph_sync": "ok" if synced else "deferred",
-    }
-
-
-def remove_overrides(publication_id: int, uids: list[str]) -> dict:
-    """Delete override rows, reverting those samples to plain inheritance."""
-    resolved, unknown = _resolve_uids(uids)
-    if unknown:
-        raise UnknownSamples(f"unknown sample UIDs: {', '.join(sorted(unknown))}")
-    deleted, _ = Sample_publication_override.objects.filter(
-        publication_id=publication_id, sample_id__in=list(resolved.values())
-    ).delete()
-    synced = sync_publication_to_graph(publication_id)
-    return {"deleted": deleted, "graph_sync": "ok" if synced else "deferred"}
-
-
-def _project_filter_sql(project_id) -> tuple[str, list]:
-    """Restrict to a project unless the caller is a supervisor (project_id 0)."""
-    if not project_id:
-        return "", []
-    return (
-        " AND EXISTS (SELECT 1 FROM projects_samples ps "
-        "WHERE ps.sample_id = e.sample_id AND ps.project_id = %s)",
-        [int(project_id)],
-    )
-
-
-def samples_for_publication(publication_id: int, project_id=None) -> list[dict]:
-    """The effective sample set, filtered to what the caller may see."""
-    inner = effective_samples_sql(nextseek_schema())
-    clause, params = _project_filter_sql(project_id)
-    rows = _rows(
-        f"""
-        SELECT s.id AS id, s.uuid AS uid, s.title AS title
-        FROM ({inner}) e
-        JOIN samples s ON s.id = e.sample_id
-        WHERE e.publication_id = %s{clause}
-        ORDER BY s.id
-        """,
-        [int(publication_id)] + params,
-    )
-    return rows
-
-
-def list_publications() -> list[dict]:
-    rows = _rows(
-        "SELECT p.id AS seek_id, p.doi, p.pubmed_id, p.title, p.journal, "
-        "YEAR(p.published_date) AS year FROM publications p ORDER BY p.published_date DESC, p.id"
-    )
-    return [
-        PublicationRef(r["seek_id"], r["doi"], r["pubmed_id"], r["title"],
-                       r["journal"], r["year"]).as_dict()
-        for r in rows
-    ]
-
-
-class PublicationViewSet(viewsets.ViewSet):
-    """Publications and their sample associations."""
-
-    permission_classes = [IsAuthenticated]
-
-    def _project_id(self, request):
-        """0 for supervisors, otherwise the caller's project.
-
-        Mirrors seek/views.py:435-438. Which samples a paper used is not public
-        even though the DOI is, so this filter is required, not optional.
-        """
-        from seek.views import verifySuperUser
-        from seek.seekdb import SeekDB
-
-        if verifySuperUser(request):
-            return 0
-        user_seek = SeekDB(None, None, None).getSeekLogin(request, True)
-        return user_seek.get("projectid")
-
-    def list(self, request):
-        return Response(list_publications())
-
-    def retrieve(self, request, pk=None):
-        try:
-            found = resolve_publication(str(pk)) if not str(pk).isdigit() else None
-        except AmbiguousPublication as exc:
-            return Response({"detail": str(exc)}, status=409)
-        pub_id = found.seek_id if found else int(pk)
-        samples = samples_for_publication(pub_id, self._project_id(request))
-        matches = [p for p in list_publications() if p["id"] == pub_id]
-        if not matches:
-            return Response({"detail": "not found"}, status=404)
-        payload = dict(matches[0])
-        payload["sample_count"] = len(samples)
-        return Response(payload)
-
-    @action(detail=True, methods=["get", "post", "delete"])
-    def samples(self, request, pk=None):
-        pub_id = int(pk)
-        if request.method == "GET":
-            return Response(samples_for_publication(pub_id, self._project_id(request)))
-
-        uids = request.data.get("uids") or []
-        if not isinstance(uids, list) or not uids:
-            return Response({"detail": "uids must be a non-empty list"}, status=400)
-
-        try:
-            if request.method == "POST":
-                mode = request.data.get("mode", "include")
-                result = apply_overrides(pub_id, uids, mode, getattr(request.user, "id", None))
-            else:
-                result = remove_overrides(pub_id, uids)
-        except UnknownSamples as exc:
-            return Response({"detail": str(exc)}, status=400)
-        except ValueError as exc:
-            return Response({"detail": str(exc)}, status=400)
-        return Response(result)
-
-
-class SamplePublicationsView(APIView):
-    """GET /nextseek_api/samples/<uid>/publications/ — the reverse lookup.
-
-    A plain APIView rather than an action on SampleViewSet: the route is the only
-    thing the two share, and threading it through that viewset would couple this
-    feature to a class it has no other reason to touch.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, uid=None):
-        resolved, unknown = _resolve_uids([uid])
-        if unknown:
-            return Response({"detail": f"unknown sample UID: {uid}"}, status=404)
-        sample_id = resolved[uid]
-        refs = publications_for_samples([sample_id]).get(sample_id, [])
-        return Response([ref.as_dict() for ref in refs])
-```
-
-- [ ] **Step 4: Register the route**
-
-In `nextseek_api/views.py`, add near the other service imports:
-
-```python
-from nextseek_api.services.publications import PublicationViewSet  # noqa: F401
-```
-
-In `nextseek_api/urls.py`, after the `studies` registration (line 22):
-
-```python
-router.register(r"publications", views.PublicationViewSet, basename="publications")
-```
-
-The reverse lookup is not a router route — add it to `urlpatterns`, before the
-`re_path(r'^', include(router.urls))` catch-all:
-
-```python
-    re_path(
-        r'^samples/(?P<uid>[^/]+)/publications/$',
-        views.SamplePublicationsView.as_view(),
-        name='sample-publications',
-    ),
-```
-
-And in `nextseek_api/views.py`, alongside the ViewSet import:
-
-```python
-from nextseek_api.services.publications import SamplePublicationsView  # noqa: F401
-```
-
-- [ ] **Step 5: Run the tests to verify they pass**
-
-```bash
-uv run pytest nextseek_api/tests/test_publications_api.py -v
-```
-
-Expected: all PASS.
-
-- [ ] **Step 6: Verify the route is live**
-
-```bash
-./startup.sh rebuild
-```
-
-```bash
-docker compose exec -T nextseek uv run python -c "
-import django, os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE','dmac.settings'); django.setup()
-from django.urls import reverse
-print(reverse('nextseek_api:publications-list'))
-print(reverse('nextseek_api:sample-publications', kwargs={'uid': 'ABC-1'}))
-"
-```
-
-Expected: `/nextseek_api/publications/` and `/nextseek_api/samples/ABC-1/publications/`.
+Expected: `with_doi=1` on the first sync, then `"10.9999/test", 1234567`, then
+`with_doi=0`, then `NULL, NULL`. If the second read still shows the test DOI, the
+sync is not clearing and stale values will persist forever.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add nextseek_api/services/publications.py nextseek_api/views.py nextseek_api/urls.py nextseek_api/tests/test_publications_api.py
-git commit -m "feat(publications): API for publication lookup and sample overrides"
+git add seek/publications_graph.py nextseek_api/management/commands/sync_study_publications.py seek/tests/test_publications_graph.py
+git commit -m "feat(publications): sync study doi/pmid attributes into Neo4j"
 ```
 
 ---
 
-### Task 9: Backfill command
+### Task 7: Fill command
 
 **Files:**
-- Create: `nextseek_api/management/commands/backfill_study_publications.py`
-- Test: `nextseek_api/tests/test_backfill_study_publications.py`
+- Create: `nextseek_api/management/commands/fill_study_publications.py`
+- Test: `nextseek_api/tests/test_fill_study_publications.py`
 
 **Interfaces:**
-- Consumes: `seek.doi_extract.extract_publication_candidates`, `Candidate` (Task 1); `seek.publications._rows` (Task 3); `seek.publications_graph.sync_publication_to_graph` (Task 7).
-- Produces: module-level functions `title_similarity(a, b) -> float`, `build_review_rows(studies, resolver) -> list[dict]`, `REVIEW_COLUMNS: list[str]`, `parse_review_file(path) -> list[dict]`.
+- Consumes: `seek.doi_extract.extract_publication_candidates` (Task 1); `seek.publications._rows`, `ensure_study_publication_columns` (Task 2); `seek.publications_graph.try_sync_study_publications` (Task 6).
+- Produces: `title_similarity(a, b) -> float`, `build_review_rows(studies, resolver) -> list[dict]`, `REVIEW_COLUMNS: list[str]`, `parse_review_file(path) -> list[dict]`.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `nextseek_api/tests/test_backfill_study_publications.py`:
+Create `nextseek_api/tests/test_fill_study_publications.py`:
 
 ```python
-"""Backfill review-file construction and the approval gate.
+"""Review-file construction and the approval gate.
 
 Network resolution is injected, so these tests never call Crossref or NCBI.
 """
 
 import pytest
 
-from nextseek_api.management.commands import backfill_study_publications as cmd
+from nextseek_api.management.commands import fill_study_publications as cmd
 
 
 class TestTitleSimilarity:
@@ -2286,7 +1499,7 @@ class TestBuildReviewRows:
         assert rows[0]["title_similarity"] < 0.5
         assert rows[0]["approve"] == ""
 
-    def test_truncated_doi_is_reported_as_unresolvable(self):
+    def test_truncated_doi_is_reported_as_manual(self):
         studies = [{"id": 31, "title": "T", "description": "https://doi.org/10.3390/"}]
         rows = cmd.build_review_rows(studies, lambda kind, value: None)
         assert rows[0]["proposed_action"] == "manual"
@@ -2301,7 +1514,7 @@ class TestBuildReviewRows:
         studies = [{"id": 40, "title": "T", "description": None}]
         assert cmd.build_review_rows(studies, lambda kind, value: None) == []
 
-    def test_offline_resolution_marks_unresolved(self):
+    def test_offline_resolution_still_records_the_doi(self):
         studies = [{"id": 2, "title": "T", "description": "https://doi.org/10.1/a"}]
         rows = cmd.build_review_rows(studies, lambda kind, value: None)
         assert rows[0]["proposed_action"] == "unresolved"
@@ -2309,55 +1522,52 @@ class TestBuildReviewRows:
 
 
 class TestApprovalGate:
-    def test_only_yes_is_applied(self, tmp_path):
-        path = tmp_path / "review.tsv"
+    def _write(self, path, rows):
         header = "\t".join(cmd.REVIEW_COLUMNS)
-        def line(study_id, approve):
+        lines = [header]
+        for study_id, approve in rows:
             values = {c: "" for c in cmd.REVIEW_COLUMNS}
             values["study_id"] = str(study_id)
             values["normalized_doi"] = f"10.1/{study_id}"
             values["approve"] = approve
-            return "\t".join(values[c] for c in cmd.REVIEW_COLUMNS)
+            lines.append("\t".join(values[c] for c in cmd.REVIEW_COLUMNS))
+        path.write_text("\n".join(lines) + "\n")
 
-        path.write_text("\n".join([header, line(1, "yes"), line(2, "no"),
-                                   line(3, ""), line(4, "YES")]) + "\n")
-
-        approved = cmd.parse_review_file(str(path))
-        assert [r["study_id"] for r in approved] == ["1", "4"]
+    def test_only_yes_is_applied(self, tmp_path):
+        path = tmp_path / "review.tsv"
+        self._write(path, [(1, "yes"), (2, "no"), (3, ""), (4, "YES")])
+        assert [r["study_id"] for r in cmd.parse_review_file(str(path))] == ["1", "4"]
 
     def test_unreviewed_file_applies_nothing(self, tmp_path):
         path = tmp_path / "review.tsv"
-        header = "\t".join(cmd.REVIEW_COLUMNS)
-        values = {c: "" for c in cmd.REVIEW_COLUMNS}
-        values["study_id"] = "1"
-        path.write_text(header + "\n" + "\t".join(values[c] for c in cmd.REVIEW_COLUMNS) + "\n")
+        self._write(path, [(1, ""), (2, "")])
         assert cmd.parse_review_file(str(path)) == []
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-uv run pytest nextseek_api/tests/test_backfill_study_publications.py -v
+uv run pytest nextseek_api/tests/test_fill_study_publications.py -v
 ```
 
-Expected: collection error — no module `backfill_study_publications`.
+Expected: collection error — no module `fill_study_publications`.
 
 - [ ] **Step 3: Write the command**
 
-Create `nextseek_api/management/commands/backfill_study_publications.py`:
+Create `nextseek_api/management/commands/fill_study_publications.py`:
 
 ```python
-"""Turn the DOIs sitting in study-description prose into publication records.
+"""Turn the DOIs sitting in study-description prose into study attributes.
 
 Two phases, deliberately separated by a human:
 
-    uv run manage.py backfill_study_publications --extract --out review.tsv
+    uv run manage.py fill_study_publications --extract --out review.tsv
     # curator edits the `approve` column
-    uv run manage.py backfill_study_publications --apply review.tsv
+    uv run manage.py fill_study_publications --apply review.tsv
 
 Nothing is written to any database by --extract. --apply writes only rows whose
 `approve` column is exactly "yes" (case-insensitive), so an unreviewed file
-inserts nothing.
+writes nothing.
 
 See docs/2026-08-21-publication-links-design.md, "Backfill".
 """
@@ -2371,10 +1581,12 @@ from difflib import SequenceMatcher
 
 import requests
 from django.core.management.base import BaseCommand, CommandError
+from django.conf import settings
+from django.db import connections
 
 from seek.doi_extract import extract_publication_candidates
-from seek.publications import _rows
-from seek.publications_graph import sync_publication_to_graph
+from seek.publications import _rows, ensure_study_publication_columns
+from seek.publications_graph import try_sync_study_publications
 
 REVIEW_COLUMNS = [
     "approve",
@@ -2419,8 +1631,8 @@ def _cache_save(path: str, cache: dict) -> None:
 def make_resolver(cache: dict, offline: bool):
     """Return resolver(kind, value) -> metadata dict or None.
 
-    Cached on disk so --apply never re-hits the network, and so a rerun after a
-    transient failure does not re-fetch what already worked.
+    Cached on disk so a rerun after a transient failure does not re-fetch what
+    already worked.
     """
 
     def resolve(kind: str, value: str):
@@ -2438,9 +1650,8 @@ def make_resolver(cache: dict, offline: bool):
                 )
                 response.raise_for_status()
                 records = response.json().get("records") or []
-                if records:
-                    doi = records[0].get("doi")
-                    meta = resolve("doi", doi) if doi else None
+                doi = records[0].get("doi") if records else None
+                meta = resolve("doi", doi) if doi else None
             else:
                 response = requests.get(CROSSREF_URL.format(doi=value), timeout=_TIMEOUT)
                 response.raise_for_status()
@@ -2503,7 +1714,7 @@ def build_review_rows(studies: list[dict], resolver) -> list[dict]:
             row["title_similarity"] = round(
                 title_similarity(study.get("title"), meta.get("title")), 3
             )
-            row["proposed_action"] = "create"
+            row["proposed_action"] = "fill"
             rows.append(row)
     return rows
 
@@ -2515,92 +1726,32 @@ def parse_review_file(path: str) -> list[dict]:
         return [r for r in reader if (r.get("approve") or "").strip().lower() == "yes"]
 
 
-def _insert_publication(row: dict) -> int:
-    """Insert or reuse a publication, returning its id. Idempotent on DOI."""
-    doi = (row.get("normalized_doi") or "").strip().lower()
-    if not doi:
-        raise CommandError(f"study {row['study_id']}: approved row has no DOI")
-
-    existing = _rows("SELECT id FROM publications WHERE LOWER(doi) = %s", [doi])
-    if existing:
-        return existing[0]["id"]
-
-    import uuid as uuid_module
-    from django.db import connections
-    from django.conf import settings
-
-    pmid = row.get("pmid") or None
-    year = row.get("year") or None
-    published = f"{year}-01-01" if year else None
+def _write_study(study_id: int, doi: str, pmid) -> None:
     with connections[settings.SEEK_DATABASE].cursor() as cursor:
         cursor.execute(
-            """
-            INSERT INTO publications
-                (doi, pubmed_id, title, journal, published_date, uuid,
-                 first_letter, version, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 1, NOW(), NOW())
-            """,
-            [
-                doi,
-                int(pmid) if pmid else None,
-                row.get("resolved_title") or None,
-                row.get("journal") or None,
-                published,
-                str(uuid_module.uuid4()),
-                (row.get("resolved_title") or "?")[:1].upper(),
-            ],
-        )
-        cursor.execute("SELECT LAST_INSERT_ID()")
-        return cursor.fetchone()[0]
-
-
-def _link_study(study_id: int, publication_id: int) -> None:
-    """Create the SEEK relationships row, if it is not already there."""
-    from django.db import connections
-    from django.conf import settings
-
-    existing = _rows(
-        """
-        SELECT id FROM relationships
-        WHERE subject_type='Study' AND subject_id=%s
-          AND predicate='related_to_publication'
-          AND other_object_type='Publication' AND other_object_id=%s
-        """,
-        [int(study_id), int(publication_id)],
-    )
-    if existing:
-        return
-    with connections[settings.SEEK_DATABASE].cursor() as cursor:
-        cursor.execute(
-            """
-            INSERT INTO relationships
-                (subject_type, subject_id, predicate, other_object_type,
-                 other_object_id, created_at, updated_at)
-            VALUES ('Study', %s, 'related_to_publication', 'Publication', %s, NOW(), NOW())
-            """,
-            [int(study_id), int(publication_id)],
+            "UPDATE studies SET doi = %s, pmid = %s WHERE id = %s",
+            [doi or None, int(pmid) if pmid else None, int(study_id)],
         )
 
 
 class Command(BaseCommand):
-    help = "Extract DOIs from study descriptions for curator review, then apply them."
+    help = "Extract DOIs from study descriptions for review, then fill studies.doi/pmid."
 
     def add_arguments(self, parser):
         parser.add_argument("--extract", action="store_true",
                             help="Write a review file. Touches no database.")
         parser.add_argument("--apply", metavar="FILE",
-                            help="Insert the approved rows from a reviewed file.")
-        parser.add_argument("--out", default="publication_review.tsv",
+                            help="Fill studies.doi/pmid from a reviewed file.")
+        parser.add_argument("--out", default="study_publication_review.tsv",
                             help="Where --extract writes its review file.")
         parser.add_argument("--offline", action="store_true",
                             help="Skip Crossref/NCBI; extract identifiers only.")
-        parser.add_argument("--cache", default="publication_resolve_cache.json",
+        parser.add_argument("--cache", default="study_publication_cache.json",
                             help="Resolution cache path.")
 
     def handle(self, *args, **options):
         if bool(options["extract"]) == bool(options["apply"]):
             raise CommandError("pass exactly one of --extract or --apply")
-
         if options["extract"]:
             self._extract(options)
         else:
@@ -2636,78 +1787,80 @@ class Command(BaseCommand):
             self.stdout.write("No rows approved — nothing to do.")
             return
 
-        touched = set()
+        added = ensure_study_publication_columns()
+        if added:
+            self.stdout.write(f"added columns to studies: {added}")
+
         for row in approved:
-            publication_id = _insert_publication(row)
-            _link_study(int(row["study_id"]), publication_id)
-            touched.add(publication_id)
+            doi = (row.get("normalized_doi") or "").strip().lower()
+            if not doi:
+                raise CommandError(f"study {row['study_id']}: approved row has no DOI")
+            _write_study(int(row["study_id"]), doi, row.get("pmid"))
 
-        deferred = 0
-        for publication_id in touched:
-            if not sync_publication_to_graph(publication_id):
-                deferred += 1
-
+        synced = try_sync_study_publications()
         self.stdout.write(
-            f"applied {len(approved)} rows, {len(touched)} publications, "
-            f"{deferred} graph syncs deferred"
+            f"filled {len(approved)} studies; graph sync "
+            f"{'ok' if synced else 'deferred'}"
         )
-        if deferred:
-            self.stdout.write("Run `manage.py sync_publications_graph` to repair the graph.")
+        if not synced:
+            self.stdout.write("Run `manage.py sync_study_publications` to repair the graph.")
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-uv run pytest nextseek_api/tests/test_backfill_study_publications.py -v
+uv run pytest nextseek_api/tests/test_fill_study_publications.py -v
 ```
 
 Expected: all PASS.
 
-- [ ] **Step 5: Run the extraction against the real data, offline first**
+- [ ] **Step 5: Extract offline first**
 
 ```bash
-docker compose exec -T nextseek uv run manage.py backfill_study_publications --extract --offline --out /tmp/review_offline.tsv
+docker compose exec -T nextseek uv run manage.py fill_study_publications --extract --offline --out /tmp/review_offline.tsv
 ```
 
-Expected: `51 studies scanned` with roughly 34 candidates — about 33 `unresolved` (offline, so no metadata) and 1 `manual` for the truncated `10.3390/`. This proves extraction works with no network.
+Expected: `51 studies scanned` with roughly 34 candidates — about 33 `unresolved`
+and 1 `manual` for the truncated `10.3390/`. This proves extraction works with no
+network.
 
-- [ ] **Step 6: Run it with resolution**
+- [ ] **Step 6: Extract with resolution**
 
 ```bash
-docker compose exec -T nextseek uv run manage.py backfill_study_publications --extract --out /tmp/review.tsv
+docker compose exec -T nextseek uv run manage.py fill_study_publications --extract --out /tmp/review.tsv
 ```
 
 ```bash
 docker compose exec -T nextseek sh -c 'column -t -s "$(printf "\t")" /tmp/review.tsv | head -40'
 ```
 
-Expected: most rows have `proposed_action=create` with a populated `resolved_title`, `journal`, `year`, and often a `pmid`. **Read the `title_similarity` column.** Any row below roughly 0.6 is citing a paper whose title does not match its study — check it by hand before approving.
+Expected: most rows `proposed_action=fill` with `resolved_title`, `journal`,
+`year` and often a `pmid`. **Read the `title_similarity` column** — anything below
+roughly 0.6 is citing a paper whose title does not match its study.
 
-- [ ] **Step 7: Do not apply blind — hand the file to a curator**
-
-Copy the file out and have it reviewed:
+- [ ] **Step 7: Hand the file to a curator — do not approve it yourself**
 
 ```bash
-docker compose cp nextseek:/tmp/review.tsv ./publication_review.tsv
+docker compose cp nextseek:/tmp/review.tsv ./study_publication_review.tsv
 ```
 
-Applying is a curator's decision, not the implementer's. When approved rows come back:
+When approved rows come back:
 
 ```bash
-docker compose cp ./publication_review.tsv nextseek:/tmp/review_approved.tsv
-docker compose exec -T nextseek uv run manage.py backfill_study_publications --apply /tmp/review_approved.tsv
+docker compose cp ./study_publication_review.tsv nextseek:/tmp/review_approved.tsv
+docker compose exec -T nextseek uv run manage.py fill_study_publications --apply /tmp/review_approved.tsv
 ```
 
 - [ ] **Step 8: Commit** (the command, not the review file)
 
 ```bash
-git add nextseek_api/management/commands/backfill_study_publications.py nextseek_api/tests/test_backfill_study_publications.py
-git commit -m "feat(publications): backfill command with curator review gate"
+git add nextseek_api/management/commands/fill_study_publications.py nextseek_api/tests/test_fill_study_publications.py
+git commit -m "feat(publications): fill study doi/pmid from descriptions with a review gate"
 ```
 
 ---
 
-### Task 10: Teach Nessie the publication subgraph
+### Task 8: Teach Nessie the study attributes
 
 **Files:**
 - Modify: `chat_nextseek/src/chat_nextseek/context/min_graph_schema.json`
@@ -2717,24 +1870,25 @@ git commit -m "feat(publications): backfill command with curator review gate"
 - Test: `chat_nextseek/tests/test_publication_schema_context.py`
 
 **Interfaces:**
-- Consumes: the graph shape produced by Task 7.
-- Produces: no Python API. `min_graph_schema.json` gains a `Publication` entry in `node_types`, a `REPORTED_IN` entry in `relationships`, and two new `graph_query_triggers`.
+- Consumes: the `Study.doi` / `Study.pmid` properties written in Task 6.
+- Produces: no Python API. `min_graph_schema.json`'s `Study` entry names the new properties, and two `graph_query_triggers` are added.
 
 - [ ] **Step 1: Note what must NOT be edited**
 
-`neo4j_schema.json`, `neo4j_schema_dev.json` and `neo4j_schema_prod.json` are **generated** by `config.py:1574` and overwritten on each fetch — that is what the `fetched_at` key means. Editing them by hand would be undone. They pick up `Publication` automatically once nodes exist.
-
-`min_graph_schema.json` is hand-written and is the file to change.
+`neo4j_schema.json`, `neo4j_schema_dev.json` and `neo4j_schema_prod.json` are
+**generated** by `config.py:1574` and overwritten on each fetch — that is what
+`fetched_at` means. `min_graph_schema.json` is hand-written and is the file to
+change. No new node label or relationship type is involved in this revision.
 
 - [ ] **Step 2: Write the failing test**
 
 Create `chat_nextseek/tests/test_publication_schema_context.py`:
 
 ```python
-"""The routing schema must describe the publication subgraph.
+"""The routing schema must describe the study publication attributes.
 
-The graph agent writes Cypher from this file. A node label that exists in Neo4j
-but not here is a label the agent will never query.
+The graph agent writes Cypher from this file. A property that exists in Neo4j
+but not here is a property the agent will never query.
 """
 
 import json
@@ -2747,27 +1901,21 @@ def _min_schema():
     return json.loads((CONTEXT / "min_graph_schema.json").read_text())
 
 
-def test_publication_node_is_described():
+def test_study_description_names_doi_and_pmid():
+    study = next(n for n in _min_schema()["node_types"] if n["label"] == "Study")
+    assert "doi" in study["description"]
+    assert "pmid" in study["description"]
+
+
+def test_study_description_says_most_studies_are_unpublished():
+    study = next(n for n in _min_schema()["node_types"] if n["label"] == "Study")
+    assert "unpublished" in study["description"].lower()
+
+
+def test_no_publication_node_was_introduced():
+    # This revision deliberately has no Publication label.
     labels = [n["label"] for n in _min_schema()["node_types"]]
-    assert "Publication" in labels
-
-
-def test_publication_description_names_its_properties():
-    node = next(n for n in _min_schema()["node_types"] if n["label"] == "Publication")
-    for prop in ("doi", "pmid", "title"):
-        assert prop in node["description"]
-
-
-def test_reported_in_relationship_is_described():
-    types = [r["type"] for r in _min_schema()["relationships"]]
-    assert "REPORTED_IN" in types
-
-
-def test_reported_in_covers_both_sources():
-    rel = next(r for r in _min_schema()["relationships"] if r["type"] == "REPORTED_IN")
-    text = rel["direction"] + " " + rel["note"]
-    assert "sample" in text.lower()
-    assert "study" in text.lower()
+    assert "Publication" not in labels
 
 
 def test_triggers_cover_both_directions():
@@ -2778,7 +1926,6 @@ def test_triggers_cover_both_directions():
 
 
 def test_generated_schema_files_are_not_hand_edited():
-    # Guard rail: these carry fetched_at because config.py regenerates them.
     for name in ("neo4j_schema.json", "neo4j_schema_dev.json", "neo4j_schema_prod.json"):
         assert "fetched_at" in json.loads((CONTEXT / name).read_text())
 ```
@@ -2789,40 +1936,30 @@ def test_generated_schema_files_are_not_hand_edited():
 cd chat_nextseek && uv run pytest tests/test_publication_schema_context.py -v
 ```
 
-Expected: FAIL — `"Publication" in labels` is False.
+Expected: FAIL — the `Study` description does not mention `doi`.
 
 - [ ] **Step 4: Update `min_graph_schema.json`**
 
-Add to `node_types`, after the `Investigation` entry:
+Replace the `Study` entry in `node_types` with:
 
 ```json
     {
-      "label": "Publication",
-      "description": "A published paper. Properties: 'doi', 'pmid', 'title', 'journal', 'year', 'url'. Samples that appeared in a paper link to it via REPORTED_IN, as do the studies the paper reports on. Most samples are unpublished and have no Publication at all."
-    }
-```
-
-Add to `relationships`:
-
-```json
-    {
-      "type": "REPORTED_IN",
-      "direction": "(sample)-[:REPORTED_IN]->(publication) and (study)-[:REPORTED_IN]->(publication)",
-      "note": "Both samples and studies use this same relationship type; the label on the left of the pattern is what distinguishes them. Always write (s:Sample)-[:REPORTED_IN]->(p:Publication) or (st:Study)-[:REPORTED_IN]->(p:Publication), never an unlabelled source, or samples and studies will be mixed in one result."
+      "label": "Study",
+      "description": "A research study grouping samples. In this instance a study IS a published paper: 'title' is the paper title. Properties: 'title', 'doi', 'pmid'. A study with a non-null 'doi' or 'pmid' is published; most studies are unpublished and have neither, which is expected rather than missing data. Linked to an Investigation via IN_INVESTIGATION."
     }
 ```
 
 Add to `graph_query_triggers`:
 
 ```json
-    "Query asks which paper or publication a sample appears in ('what paper is this sample from', 'is UID X published', 'which publication used these samples')",
+    "Query asks which paper or publication a sample appears in ('what paper is this sample from', 'is UID X published', 'which publication used these samples') — traverse (s:Sample)-[:IN_STUDY]->(st:Study) and read st.doi / st.pmid",
     "Query names a paper by title, DOI, or PMID and asks for its samples ('what samples were used in the SureQuant paper', 'samples for 10.1101/2021.09.30.462577', 'samples in PMID 34981053')"
 ```
 
 Add to `disambiguation_rules`:
 
 ```json
-    "If the query mentions a DOI, a PMID, a paper, or a publication → graph_query (publication links exist only in the graph and have no REST endpoint for sample traversal)"
+    "If the query mentions a DOI, a PMID, a paper, or a publication → graph_query (doi/pmid live on Study nodes and no REST endpoint filters samples by them)"
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
@@ -2835,59 +1972,65 @@ Expected: all PASS.
 
 - [ ] **Step 6: Update the graph agent prompt**
 
-In `chat_nextseek/src/chat_nextseek/prompts/graph_agent.txt`, add to the section describing the graph shape:
+In `chat_nextseek/src/chat_nextseek/prompts/graph_agent.txt`, add to the section
+describing the graph shape:
 
 ```
 Publications
-  (:Publication {doi, pmid, title, journal, year, url})
-  (s:Sample)-[:REPORTED_IN]->(p:Publication)   -- this sample appeared in that paper
-  (st:Study)-[:REPORTED_IN]->(p:Publication)   -- that paper reports on this study
+  A study IS a paper here. The identifiers are properties on the Study node:
+    (:Study {id, title, doi, pmid})
 
-  Samples and studies share the REPORTED_IN type, so ALWAYS put a label on the
-  left of the pattern. An unlabelled source mixes samples and studies together.
+  Which paper a sample is from:
+    MATCH (s:Sample {uuid: $uid})-[:IN_STUDY]->(st:Study)
+    WHERE st.doi IS NOT NULL OR st.pmid IS NOT NULL
+    RETURN st.title, st.doi, st.pmid
 
-  Match a paper by DOI with toLower(p.doi) = toLower($doi); DOIs are stored
-  lowercased. Match by PMID with p.pmid. Match by name with a title CONTAINS.
+  Which samples a paper used — match on toLower(st.doi) = toLower($doi), on
+  st.pmid, or on a title CONTAINS. DOIs are stored lowercased.
 
-  Most samples are unpublished. "No publication" is a correct answer, not a
-  failed lookup — do not fall back to a broader query to find something.
+  Most studies are unpublished and have neither property. "Not published" is a
+  correct answer, not a failed lookup — do not widen the query to find something.
 ```
 
 - [ ] **Step 7: Update `capabilities.md`**
 
-In `chat_nextseek/src/chat_nextseek/context/capabilities.md`, add to the capability list:
+In `chat_nextseek/src/chat_nextseek/context/capabilities.md`, add to the
+capability list:
 
 ```markdown
 - **Publication links.** Which published paper a sample appears in, and the
-  reverse — the samples used in a paper, looked up by title, DOI, or PMID.
-  Samples inherit their studies' publications, with curator-recorded exceptions.
-  Most samples are unpublished; that is expected, not a gap.
+  reverse — the samples used in a paper, looked up by title, DOI, or PMID. The
+  DOI and PMID are attributes of the Study, and a sample inherits its studies'.
+  Most studies are unpublished; that is expected, not a gap.
 ```
 
-- [ ] **Step 8: Add publications to the generated vocabulary**
+- [ ] **Step 8: Add study DOIs to the generated vocabulary**
 
-In `chat_nextseek/src/chat_nextseek/config.py`, in the schema fetch that builds the `vocabulary` block (near line 1590), add a query alongside the existing vocabulary lookups:
+In `chat_nextseek/src/chat_nextseek/config.py`, in the schema fetch that builds the
+`vocabulary` block (near line 1590), add alongside the existing vocabulary lookups:
 
 ```python
-        # Publication titles and DOIs, so the graph agent can map a phrase like
-        # "the SureQuant paper" onto a real node.
+        # Published study titles and DOIs, so the graph agent can map a phrase
+        # like "the SureQuant paper" onto a real node.
         try:
             records, _, _ = driver.execute_query(
-                "MATCH (p:Publication) RETURN p.title AS title, p.doi AS doi, p.pmid AS pmid LIMIT 500",
+                "MATCH (st:Study) WHERE st.doi IS NOT NULL OR st.pmid IS NOT NULL "
+                "RETURN st.title AS title, st.doi AS doi, st.pmid AS pmid LIMIT 500",
                 database_=self.NEO4J_DATABASE_NAME,
             )
-            schema["vocabulary"]["publications"] = [
+            schema["vocabulary"]["published_studies"] = [
                 {"title": r["title"], "doi": r["doi"], "pmid": r["pmid"]} for r in records
             ]
         except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Publication vocabulary fetch failed: {e!r}")
+            print(f"[CONFIG][GRAPHDB] Published-study vocabulary fetch failed: {e!r}")
 ```
 
-Match the surrounding code's exact attribute name for the database (read the neighbouring calls in that function — earlier code uses `NEO4J_DATABASE['NAME']` via a local, so use whatever that function already uses rather than inventing a name).
+Use whatever database-name expression the neighbouring calls in that function
+already use rather than inventing one — read the surrounding code first.
 
-- [ ] **Step 9: Verify Nessie can answer both directions**
+- [ ] **Step 9: Verify Nessie answers both directions**
 
-Only meaningful once Task 9 has applied real publications. With them in place:
+Only meaningful once Task 7 has filled real DOIs.
 
 ```bash
 docker compose exec -T nextseek uv run manage.py nessie --question "what samples were used in the SureQuant paper?"
@@ -2897,13 +2040,16 @@ docker compose exec -T nextseek uv run manage.py nessie --question "what samples
 docker compose exec -T nextseek uv run manage.py nessie --question "what paper is sample <a real published UID> from?"
 ```
 
-Expected: the first returns a sample list scoped to that study; the second returns the paper with its DOI. If the agent returns nothing, check that `Publication` nodes exist (`MATCH (p:Publication) RETURN count(p)`) before suspecting the prompt.
+Expected: the first returns a sample list scoped to that study; the second returns
+the study title with its DOI. If the agent returns nothing, first check that DOIs
+exist in the graph (`MATCH (s:Study) WHERE s.doi IS NOT NULL RETURN count(s)`)
+before suspecting the prompt.
 
 - [ ] **Step 10: Commit**
 
 ```bash
 git add chat_nextseek/src/chat_nextseek/context/min_graph_schema.json chat_nextseek/src/chat_nextseek/prompts/graph_agent.txt chat_nextseek/src/chat_nextseek/context/capabilities.md chat_nextseek/src/chat_nextseek/config.py chat_nextseek/tests/test_publication_schema_context.py
-git commit -m "feat(nessie): teach the graph agent the publication subgraph"
+git commit -m "feat(nessie): teach the graph agent study doi/pmid attributes"
 ```
 
 ---
@@ -2916,35 +2062,37 @@ git commit -m "feat(nessie): teach the graph agent the publication subgraph"
 uv run pytest seek nextseek_api -v
 ```
 
-Expected: all new tests pass and nothing pre-existing regressed. Note pytest uses `DJANGO_SETTINGS_MODULE = "dmac.settings"` (pyproject.toml:147) — the `dmac.test_settings` mentioned in CLAUDE.md is not what pyproject configures.
+Expected: all new tests pass and nothing pre-existing regressed. Note pytest uses
+`DJANGO_SETTINGS_MODULE = "dmac.settings"` (pyproject.toml:147) — the
+`dmac.test_settings` mentioned in CLAUDE.md is not what pyproject configures.
 
-- [ ] **End-to-end check on the running stack**
+- [ ] **MySQL and Neo4j agree**
 
 ```bash
-./startup.sh rebuild && docker compose exec -T nextseek uv run manage.py sync_publications_graph
+docker compose exec -T nextseek uv run manage.py sync_study_publications
 ```
 
 ```bash
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Sample)-[:REPORTED_IN]->(p:Publication) RETURN p.title, count(s) ORDER BY count(s) DESC LIMIT 10;"'
+docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -N -B -e "SELECT COUNT(*) FROM studies WHERE doi IS NOT NULL;"'
+docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study) WHERE s.doi IS NOT NULL RETURN count(s);"'
 ```
 
-Expected: one row per backfilled paper with its sample count. Cross-check one against MySQL:
+The two counts must match. If they do not, the graph is stale — rerun the sync
+and investigate before shipping.
+
+- [ ] **Published sample counts are plausible**
 
 ```bash
-docker compose exec -T nextseek uv run python -c "
-import django, os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE','dmac.settings'); django.setup()
-from nextseek_api.services.publications import samples_for_publication
-print(len(samples_for_publication(1)))
-"
+docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.doi IS NOT NULL RETURN st.title, count(s) ORDER BY count(s) DESC LIMIT 10;"'
 ```
 
-The two counts must agree. If they do not, the graph is stale — rerun the reconcile command and investigate before shipping.
+Expected: one row per filled study with its sample count.
 
-- [ ] **Confirm unpublished samples stayed silent**
+- [ ] **Unpublished samples stayed silent**
 
 ```bash
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Sample) WHERE NOT (s)-[:REPORTED_IN]->() RETURN count(s);"'
+docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Sample) WHERE NOT (s)-[:IN_STUDY]->(:Study) OR NOT EXISTS { MATCH (s)-[:IN_STUDY]->(st:Study) WHERE st.doi IS NOT NULL } RETURN count(s);"'
 ```
 
-Expected: the large majority of the 51,361 samples. If this number is near zero, inheritance is over-applying and the effective-set SQL is wrong.
+Expected: a large share of the 51,361 samples. If this is near zero, inheritance
+is over-applying and the read layer is wrong.
