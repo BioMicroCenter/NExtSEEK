@@ -718,3 +718,71 @@ def test_a_dropdown_range_never_starts_below_its_end():
                   for part in str(rule.sqref).split(":"))
     assert start == 2
     assert end == 2 + DROPDOWN_SPARE_ROWS
+
+
+def _vocabularies():
+    from nextseek_api.services.sample_workbook import _load_vocabularies
+    return _load_vocabularies()
+
+
+def test_every_governed_column_resolves_to_a_real_vocabulary():
+    field_map, vocabularies = _vocabularies()
+    assert field_map, "the file must load; a parse error costs every dropdown"
+    assert all(name in vocabularies for name in field_map.values())
+
+
+def test_the_house_layout_terms_are_the_ones_production_uses():
+    """Production holds Paired End 3511 times and bare 'paired' 52 times. The
+    dropdown used to offer only 'paired'."""
+    _, vocabularies = _vocabularies()
+    assert vocabularies["library_layout"] == ["Paired End", "Single End"]
+
+
+def test_imaging_formats_are_offered():
+    """GEO's filetype list has no term for any of these; production has
+    thousands of rows of them."""
+    _, vocabularies = _vocabularies()
+    for term in ("TIF", "OIB", "CZI", "DICOM", "LIF", "ND2"):
+        assert term in vocabularies["filetype"]
+
+
+def test_illumina_instruments_are_always_prefixed():
+    """GEO is inconsistent -- 'Illumina MiSeq' but bare 'NextSeq 500' -- and
+    production split on exactly that seam. Offering both forms is what caused
+    the split, so the bare ones are gone."""
+    _, vocabularies = _vocabularies()
+    models = vocabularies["instrument_model"]
+    for bare in ("NextSeq 500", "NextSeq 550", "NextSeq 1000", "NextSeq 2000"):
+        assert bare not in models
+        assert f"Illumina {bare}" in models
+
+
+def test_nextseek_only_instruments_are_present():
+    _, vocabularies = _vocabularies()
+    assert "Singular G4" in vocabularies["instrument_model"]
+    assert "PromethION P2 Solo" in vocabularies["instrument_model"]
+
+
+def test_no_vocabulary_offers_the_same_term_twice():
+    """A duplicate renders as two identical dropdown entries."""
+    _, vocabularies = _vocabularies()
+    for name, terms in vocabularies.items():
+        assert len(terms) == len(set(terms)), name
+
+
+def test_no_term_would_be_mangled_on_its_way_into_a_cell():
+    from nextseek_api.services.sample_workbook import _safe_cell_value
+    _, vocabularies = _vocabularies()
+    for terms in vocabularies.values():
+        for term in terms:
+            assert _safe_cell_value(term) == term
+
+
+def test_the_variants_block_documents_only_real_vocabularies():
+    """It is documentation, but documentation that drifts is worse than none."""
+    import json
+    from nextseek_api.services.sample_workbook import CV_PATH
+    doc = json.loads(CV_PATH.read_text())
+    documented = set(doc["variants"]) - {"_excluded"}
+    assert documented <= set(doc["vocabularies"])
+    assert set(doc["variants"]["_excluded"]) <= set(doc["vocabularies"])
