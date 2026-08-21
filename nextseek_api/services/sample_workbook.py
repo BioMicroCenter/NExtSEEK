@@ -30,6 +30,8 @@ from seek.models import (
     Samples,
 )
 
+from nextseek_api.services.sample_provenance import SAMPLE_TYPE_RE, derivation_edges
+
 logger = logging.getLogger(__name__)
 
 CONTEXTDB_URL = (
@@ -39,10 +41,6 @@ CONTEXTDB_URL = (
 
 README_SHEET = "README"
 README_LINK_TEXT = "Sample type definitions: sampletypes_db.json (GitHub)"
-
-# Sample UIDs lead with the sample-type code: "MUS-230101ABC-1", "D.SEQ-240910LAU-3".
-# The dotted alternative must come first or "D.SEQ" truncates to "D".
-SAMPLE_TYPE_RE = r"([A-Z]+\.[A-Z]+|[A-Z]+)"
 
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
@@ -291,40 +289,7 @@ def build_provenance_lines(df, assay_by_uuid: Mapping[str, str],
     Upstream types are included even when they were not downloaded: that is the
     part a reader cannot otherwise see.
     """
-    edges: dict[tuple[str, str], set[str]] = {}
-
-    for parent_uuid, assay, child_uuid in hops or []:
-        parent_match = re.match(SAMPLE_TYPE_RE, str(parent_uuid))
-        child_match = re.match(SAMPLE_TYPE_RE, str(child_uuid))
-        if not parent_match or not child_match:
-            continue
-        parent_type, child_type = parent_match.group(1), child_match.group(1)
-        if parent_type == child_type:
-            continue
-        edges.setdefault((parent_type, child_type), set())
-        if assay:
-            edges[(parent_type, child_type)].add(assay)
-    if edges:
-        return _format_provenance(edges)
-
-    if "Parent" not in df.columns:
-        return []
-    for uuid, child_type, parents in zip(df["uuid"], df["sample_type"], df["Parent"]):
-        if not child_type or parents is None:
-            continue
-        text = str(parents).strip()
-        if not text or text.lower() in ("nan", "none"):
-            continue
-        assay = assay_by_uuid.get(str(uuid), "")
-        for token in re.split(r"[;,]", text):
-            match = re.match(SAMPLE_TYPE_RE, token.strip())
-            if not match or match.group(1) == child_type:
-                continue
-            edges.setdefault((match.group(1), child_type), set())
-            if assay:
-                edges[(match.group(1), child_type)].add(assay)
-
-    return _format_provenance(edges)
+    return _format_provenance(derivation_edges(df, assay_by_uuid, hops))
 
 
 def _format_provenance(edges: Mapping[tuple[str, str], set[str]]) -> list[str]:
