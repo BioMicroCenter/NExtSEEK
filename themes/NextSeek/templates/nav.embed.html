@@ -76,8 +76,11 @@
     </div>
   </div>
 
-  <!-- Admin (staff only) ----------------------- -->
-  {% if request.user.is_staff %}
+  <!-- Admin (superusers only) ------------------- -->
+  {# is_superuser, never is_staff: dmac/views.py:80,97 sets is_staff = 1 on every
+     SEEK user at registration and again at every login, so is_staff admits
+     everyone and showed this whole section to ordinary researchers. #}
+  {% if request.user.is_superuser %}
   <div class="sidebar-section">
     <span class="sidebar-section-label">{% trans "Admin" %}</span>
 
