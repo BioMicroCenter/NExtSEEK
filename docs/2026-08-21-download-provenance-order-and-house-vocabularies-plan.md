@@ -40,6 +40,9 @@ Extract the edge-building half of `build_provenance_lines` into its own module, 
 **Files:**
 - Create: `nextseek_api/services/sample_provenance.py`
 - Create: `nextseek_api/tests/test_sample_provenance.py`
+- Modify: `nextseek_api/services/sample_workbook.py` — `build_provenance_lines` loses its duplicated body and delegates to `derivation_edges`
+
+**This task must not leave the same logic in two places.** The extraction is only half-done if `build_provenance_lines` keeps its own copy of the edge-building loop. Step 3b below rewrites it to delegate. Task 3 then deletes the thin wrapper that remains.
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -260,18 +263,38 @@ def sample_type_depths(edges: Mapping[tuple[str, str], set[str]]) -> dict[str, i
     return depths
 ```
 
+- [ ] **Step 3b: Delete the duplicate from `sample_workbook.py`**
+
+The new module now owns the edge-building loop, so `build_provenance_lines` must stop carrying its own copy. In `nextseek_api/services/sample_workbook.py`:
+
+Add the import beside the other imports:
+
+```python
+from nextseek_api.services.sample_provenance import SAMPLE_TYPE_RE, derivation_edges
+```
+
+Delete the local `SAMPLE_TYPE_RE` assignment and its two comment lines — it now comes from the import, and it must live in exactly one place.
+
+Replace the whole body of `build_provenance_lines` (everything after its docstring) with a delegation, leaving `_format_provenance` untouched:
+
+```python
+    return _format_provenance(derivation_edges(df, assay_by_uuid, hops))
+```
+
+The function keeps its signature and its nine existing tests in `test_sample_workbook.py`, which must all still pass — that is the evidence the extraction preserved behaviour. Task 3 deletes the wrapper once nothing needs it.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-./scripts/run_tests.sh nextseek_api/tests/test_sample_provenance.py -v
+./scripts/run_tests.sh nextseek_api/tests/test_sample_provenance.py nextseek_api/tests/test_sample_workbook.py -v
 ```
 
-Expected: 12 passed.
+Expected: 12 passed in `test_sample_provenance.py`, and **every pre-existing test in `test_sample_workbook.py` still passing** — including all nine `build_provenance_lines` tests. A failure there means the extraction changed behaviour; fix the extraction, do not edit those tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add nextseek_api/services/sample_provenance.py nextseek_api/tests/test_sample_provenance.py
+git add nextseek_api/services/sample_provenance.py nextseek_api/tests/test_sample_provenance.py nextseek_api/services/sample_workbook.py
 git commit -m "refactor(download): provenance edges and depth in their own module"
 ```
 
@@ -584,7 +607,7 @@ Expected: collection error — `ImportError: cannot import name 'FLOW_SHEET'`.
 
 In `nextseek_api/services/sample_workbook.py`:
 
-**3a.** Replace the local `SAMPLE_TYPE_RE` definition (and its two comment lines) with an import. At the top, alongside the other imports:
+**3a.** Task 1 already replaced the local `SAMPLE_TYPE_RE` with an import of `SAMPLE_TYPE_RE` and `derivation_edges`. Widen that existing import to cover the two functions this task needs:
 
 ```python
 from nextseek_api.services.sample_provenance import (
@@ -606,7 +629,7 @@ FLOW_TYPE_WIDTH = 14
 FLOW_ARROW_WIDTH = 34
 ```
 
-**3c.** Delete `build_provenance_lines` and `_format_provenance` entirely. Their edge-building half now lives in `sample_provenance.derivation_edges`.
+**3c.** Delete `build_provenance_lines` — after Task 1 it is a one-line wrapper — and `_format_provenance` with it. The edge building already lives in `sample_provenance.derivation_edges`; the one-line-per-hop formatting these two produced is replaced by the chains from `build_provenance_rows`.
 
 **3d.** Add the sheet writer, directly after `_write_readme`:
 
