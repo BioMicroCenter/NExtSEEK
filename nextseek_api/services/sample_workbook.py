@@ -97,7 +97,7 @@ def _write_vocabulary_sheet(book, needed: list[str], vocabularies) -> dict[str, 
     """Park each needed vocabulary in its own column and return {name: range}.
 
     The terms need a real sheet rather than an inline list: Excel caps an inline
-    dropdown formula at 255 characters and instrument_model alone is 82 terms.
+    dropdown formula at 255 characters and instrument_model alone is 84 terms.
     """
     if not needed:
         return {}
@@ -317,7 +317,7 @@ def _write_cell(ws, row: int, column: int, value: str, bold: bool = False):
     return cell
 
 
-def _write_readme(book, blocks: list[dict], has_flow_sheet: bool = False) -> None:
+def _write_readme(book, blocks: list[dict], *, has_flow_sheet: bool) -> None:
     ws = book.create_sheet(README_SHEET, 0)
     _write_cell(ws, 1, 1, README_LINK_TEXT)
     ws["A1"].hyperlink = CONTEXTDB_URL
@@ -474,7 +474,7 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
         # pandas removes openpyxl's default sheet, but guard in case that changes.
         if "Sheet" in book.sheetnames:
             del book["Sheet"]
-        _write_readme(book, blocks, bool(flow_rows))
+        _write_readme(book, blocks, has_flow_sheet=bool(flow_rows))
         _write_flow_sheet(book, flow_rows)
 
         field_map, vocabularies = _load_vocabularies()

@@ -393,6 +393,9 @@
       "Illumina NextSeq 550": [
         "Illumina NextSeq 550 (92)"
       ],
+      "Illumina NextSeq 1000": [
+        "not present in production; renamed for consistency with the other NextSeq models"
+      ],
       "Illumina NextSeq 2000": [
         "NextSeq 2000 (110)",
         "Illumina NextSeq 2000 (32)"
