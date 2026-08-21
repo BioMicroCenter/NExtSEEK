@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-import re
+import math
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -30,6 +30,13 @@ from seek.models import (
     Samples,
 )
 
+from nextseek_api.services.sample_provenance import (
+    SAMPLE_TYPE_RE,
+    build_provenance_rows,
+    derivation_edges,
+    sample_type_depths,
+)
+
 logger = logging.getLogger(__name__)
 
 CONTEXTDB_URL = (
@@ -40,14 +47,15 @@ CONTEXTDB_URL = (
 README_SHEET = "README"
 README_LINK_TEXT = "Sample type definitions: sampletypes_db.json (GitHub)"
 
-# Sample UIDs lead with the sample-type code: "MUS-230101ABC-1", "D.SEQ-240910LAU-3".
-# The dotted alternative must come first or "D.SEQ" truncates to "D".
-SAMPLE_TYPE_RE = r"([A-Z]+\.[A-Z]+|[A-Z]+)"
-
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
 SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
-PROVENANCE_TITLE = "How this data flowed"
+FLOW_SHEET = "How this data flowed"
+FLOW_README_POINTER = f"How this data flowed: see the '{FLOW_SHEET}' sheet."
+# Sample-type codes are short; assay titles are not. Alternating widths keep a
+# chain readable without a 100-wide gap at every second type.
+FLOW_TYPE_WIDTH = 14
+FLOW_ARROW_WIDTH = 34
 # A download must not wait on the graph. Provenance is worth a moment, never a
 # stalled request.
 NEO4J_TIMEOUT_SECONDS = 5
@@ -63,6 +71,12 @@ COMMENT_HEIGHT = 130
 
 CV_SHEET = "Controlled Vocabularies"
 CV_PATH = Path(__file__).with_name("controlled_vocabularies.json")
+
+# How far a dropdown reaches below the last filled row. A download is a
+# starting point, not a finished sheet: a researcher adding samples must keep
+# the dropdown. Full-column validation would do it too, but some tools slow
+# noticeably with it applied across many columns.
+DROPDOWN_SPARE_ROWS = 500
 
 
 def _load_vocabularies() -> tuple[dict[str, str], dict[str, list[str]]]:
@@ -83,7 +97,7 @@ def _write_vocabulary_sheet(book, needed: list[str], vocabularies) -> dict[str, 
     """Park each needed vocabulary in its own column and return {name: range}.
 
     The terms need a real sheet rather than an inline list: Excel caps an inline
-    dropdown formula at 255 characters and instrument_model alone is 82 terms.
+    dropdown formula at 255 characters and instrument_model alone is 84 terms.
     """
     if not needed:
         return {}
@@ -279,63 +293,6 @@ def load_assay_titles(uuids: Iterable[str]) -> dict[str, str]:
     return out
 
 
-def build_provenance_lines(df, assay_by_uuid: Mapping[str, str],
-                           hops: list[tuple[str, str, str]] | None = None) -> list[str]:
-    """One flow line per parent-type -> child-type hop present in this download.
-
-    Hops come from Neo4j when it is reachable, where the assay is recorded on
-    the relationship itself. Otherwise they are recovered from each row's own
-    Parent UIDs, whose prefix is the parent's sample type -- the same hops,
-    labelled from the weaker per-sample assay link or not at all.
-
-    Upstream types are included even when they were not downloaded: that is the
-    part a reader cannot otherwise see.
-    """
-    edges: dict[tuple[str, str], set[str]] = {}
-
-    for parent_uuid, assay, child_uuid in hops or []:
-        parent_match = re.match(SAMPLE_TYPE_RE, str(parent_uuid))
-        child_match = re.match(SAMPLE_TYPE_RE, str(child_uuid))
-        if not parent_match or not child_match:
-            continue
-        parent_type, child_type = parent_match.group(1), child_match.group(1)
-        if parent_type == child_type:
-            continue
-        edges.setdefault((parent_type, child_type), set())
-        if assay:
-            edges[(parent_type, child_type)].add(assay)
-    if edges:
-        return _format_provenance(edges)
-
-    if "Parent" not in df.columns:
-        return []
-    for uuid, child_type, parents in zip(df["uuid"], df["sample_type"], df["Parent"]):
-        if not child_type or parents is None:
-            continue
-        text = str(parents).strip()
-        if not text or text.lower() in ("nan", "none"):
-            continue
-        assay = assay_by_uuid.get(str(uuid), "")
-        for token in re.split(r"[;,]", text):
-            match = re.match(SAMPLE_TYPE_RE, token.strip())
-            if not match or match.group(1) == child_type:
-                continue
-            edges.setdefault((match.group(1), child_type), set())
-            if assay:
-                edges[(match.group(1), child_type)].add(assay)
-
-    return _format_provenance(edges)
-
-
-def _format_provenance(edges: Mapping[tuple[str, str], set[str]]) -> list[str]:
-    lines = []
-    for (parent, child) in sorted(edges):
-        assays = sorted(a for a in edges[(parent, child)] if a)
-        label = f"  --[{', '.join(assays)}]-->  " if assays else "  ------>  "
-        lines.append(f"{parent}{label}{child}")
-    return lines
-
-
 def _safe_cell_value(value: str) -> str:
     """Make a string safe to hand to openpyxl.
 
@@ -360,7 +317,7 @@ def _write_cell(ws, row: int, column: int, value: str, bold: bool = False):
     return cell
 
 
-def _write_readme(book, blocks: list[dict], provenance: list[str] | None = None) -> None:
+def _write_readme(book, blocks: list[dict], *, has_flow_sheet: bool) -> None:
     ws = book.create_sheet(README_SHEET, 0)
     _write_cell(ws, 1, 1, README_LINK_TEXT)
     ws["A1"].hyperlink = CONTEXTDB_URL
@@ -381,15 +338,11 @@ def _write_readme(book, blocks: list[dict], provenance: list[str] | None = None)
         row += 1
     row += 1  # blank line between the summary table and what follows
 
-    # Provenance sits above the column detail: a reader wants to know how the
-    # tabs relate before reading any one of them.
-    if provenance:
-        _write_cell(ws, row, 1, PROVENANCE_TITLE, bold=True)
+    # The flow lives on its own sheet; the README says so, because a reader who
+    # never opens the tab must still learn it is there.
+    if has_flow_sheet:
+        _write_cell(ws, row, 1, FLOW_README_POINTER, bold=True)
         row += 2
-        for line in provenance:
-            _write_cell(ws, row, 1, line)
-            row += 1
-        row += 1
 
     for block in blocks:
         heading = f"{block['code']} — {block['name']}" if block["name"] else block["code"]
@@ -409,6 +362,26 @@ def _write_readme(book, blocks: list[dict], provenance: list[str] | None = None)
     ws.column_dimensions["A"].width = 46
     ws.column_dimensions["B"].width = 34
     ws.column_dimensions["C"].width = 100
+
+
+def _write_flow_sheet(book, rows: list[list[str]]) -> None:
+    """One chain per row, alternating type and arrow cells.
+
+    Its own sheet rather than a README section: README's columns are sized 46 /
+    34 / 100 for the summary and column tables, which puts a 100-wide gap at
+    every second type of a chain.
+    """
+    if not rows:
+        return
+    ws = book.create_sheet(FLOW_SHEET, 1)
+    for index, row in enumerate(rows, start=1):
+        for column, value in enumerate(row, start=1):
+            _write_cell(ws, index, column, value, bold=(column % 2 == 1))
+    widest = max(len(row) for row in rows)
+    for column in range(1, widest + 1):
+        ws.column_dimensions[get_column_letter(column)].width = (
+            FLOW_TYPE_WIDTH if column % 2 else FLOW_ARROW_WIDTH
+        )
 
 
 def _annotate_header(ws, code: str, columns: list[str], meaning_by_pair) -> None:
@@ -435,6 +408,9 @@ def _apply_dropdowns(ws, columns: list[str], field_map, ranges, row_count: int) 
     that predate these vocabularies (RNA-seq for RNA-Seq, Paired End for
     paired), and a hard reject would fire on open for rows the researcher did
     not touch. The dropdown guides; it does not overrule what is already there.
+
+    The range runs DROPDOWN_SPARE_ROWS past the last filled row, so the
+    dropdown survives a researcher adding samples underneath.
     """
     for index, column in enumerate(columns, start=1):
         vocabulary = field_map.get(column)
@@ -448,7 +424,7 @@ def _apply_dropdowns(ws, columns: list[str], field_map, ranges, row_count: int) 
         rule.errorTitle = "Outside the controlled vocabulary"
         ws.add_data_validation(rule)
         letter = get_column_letter(index)
-        rule.add(f"{letter}2:{letter}{max(row_count + 1, 2)}")
+        rule.add(f"{letter}2:{letter}{max(row_count + 1, 2) + DROPDOWN_SPARE_ROWS}")
 
 
 def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None:
@@ -466,6 +442,14 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
     if context_by_code is None:
         context_by_code = load_sample_type_context(codes)
 
+    # Lineage is loaded before the sheets are prepared, because the sheet order
+    # is derived from it. Same single bounded query, just earlier.
+    uuids = df["uuid"].astype(str)
+    hops = load_derivation_hops(uuids)
+    edges = derivation_edges(df, {} if hops else load_assay_titles(uuids), hops)
+    depths = sample_type_depths(edges)
+    flow_rows = build_provenance_rows(edges, depths)
+
     prepared = []
     for sample_type, sample_type_df in df.groupby("sample_type"):
         frame = sample_type_df.drop(columns=["uuid", "sample_type"])
@@ -473,23 +457,25 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
         frame = frame.dropna(axis=1, how="all")
         prepared.append((sample_type, frame))
 
+    # Generation order, not alphabetical: a reader meets the sample types in
+    # the order they were made. A type with no hop at all cannot be placed in
+    # the pipeline, so it sorts after everything that can be. No lineage at all
+    # leaves every depth infinite, which is a stable alphabetical sort.
+    prepared.sort(key=lambda item: (depths.get(item[0], math.inf), item[0]))
+
     sheets = [(code, list(frame.columns)) for code, frame in prepared]
     meaning_by_pair = load_sample_field_context(
         [(code, column) for code, columns in sheets for column in columns]
     )
     blocks = build_readme_blocks(sheets, context_by_code, meaning_by_pair)
-    uuids = df["uuid"].astype(str)
-    hops = load_derivation_hops(uuids)
-    provenance = build_provenance_lines(
-        df, {} if hops else load_assay_titles(uuids), hops
-    )
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         book = writer.book
         # pandas removes openpyxl's default sheet, but guard in case that changes.
         if "Sheet" in book.sheetnames:
             del book["Sheet"]
-        _write_readme(book, blocks, provenance)
+        _write_readme(book, blocks, has_flow_sheet=bool(flow_rows))
+        _write_flow_sheet(book, flow_rows)
 
         field_map, vocabularies = _load_vocabularies()
         needed = sorted({
