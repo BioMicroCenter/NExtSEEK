@@ -119,6 +119,10 @@ TEMPLATES = [
                 "django.template.context_processors.tz",
                 "mezzanine.conf.context_processors.settings",
                 "mezzanine.pages.context_processors.page",
+                # Browser-facing SEEK URLs. mezzanine.conf's processor above only
+                # exposes settings registered with Mezzanine, so project settings
+                # like SEEK_PUBLIC_URL need their own.
+                "dmac.context_processors.seek_urls",
             ],
             "loaders": [
                 "mezzanine.template.loaders.host_themes.Loader",

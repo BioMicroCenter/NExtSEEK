@@ -329,7 +329,20 @@ body.nextseek-auth {
             {% url "mezzanine_password_reset" as password_reset_url %}
             <div class="auth-links">
                 <div>{% blocktrans with request.GET.next as next %}Need an account? <a href="{{ signup_url }}?next={{ next }}">Sign up</a>{% endblocktrans %}</div>
+                {% comment %}
+                  Password reset lives in SEEK, not Mezzanine: these are SEEK accounts,
+                  so mezzanine_password_reset mailed a token for a Django user that is
+                  not the credential people actually sign in with.
+                  seek_forgot_password_url comes from SEEK_PUBLIC_URL (the
+                  browser-facing host) via dmac.context_processors.seek_urls, so it
+                  resolves per instance instead of being pinned to production. Falls
+                  back to the Mezzanine URL when SEEK_PUBLIC_URL is unset.
+                {% endcomment %}
+                {% if seek_forgot_password_url %}
+                <div>{% trans "Forgot your password?" %} <a href="{{ seek_forgot_password_url }}">{% trans "Reset it" %}</a></div>
+                {% else %}
                 <div>{% trans "Forgot your password?" %} <a href="{{ password_reset_url }}">{% trans "Reset it" %}</a></div>
+                {% endif %}
             </div>
 
         </div>
