@@ -11,8 +11,8 @@ from nextseek_api.services.sample_workbook import (
     CONTEXTDB_URL,
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
+    FLOW_SHEET,
     SUMMARY_HEADER,
-    build_provenance_lines,
     build_readme_blocks,
     load_assay_titles,
     load_derivation_hops,
@@ -435,65 +435,10 @@ def _prov_df():
     ])
 
 
-def test_provenance_names_the_assay_recorded_on_the_neo4j_edge():
-    """The assay sits on DERIVED_FROM, between two specific UIDs."""
-    hops = [("DNA-9", "Short Read Sequencing", "D.SEQ-1")]
-    lines = build_provenance_lines(_prov_df(), {}, hops)
-    assert "DNA  --[Short Read Sequencing]-->  D.SEQ" in lines
-
-
-def test_neo4j_hops_win_over_the_parent_column():
-    """Both describe the same lineage, but only the graph edge knows which
-    assay produced this particular child."""
-    hops = [("DNA-9", "Short Read Sequencing", "D.SEQ-1")]
-    lines = build_provenance_lines(_prov_df(), {"D.SEQ-1": "Something Else"}, hops)
-    assert lines == ["DNA  --[Short Read Sequencing]-->  D.SEQ"]
-
-
-def test_provenance_falls_back_to_the_parent_column_without_neo4j():
-    """An unreachable graph costs the assay labels, not the lineage."""
-    lines = build_provenance_lines(_prov_df(), {}, [])
-    assert "DNA  ------>  D.SEQ" in lines
-    assert any(l.startswith("MUS") for l in lines)
-
-
 @patch(f"{_MOD}.GraphDatabase")
 def test_lineage_lookup_survives_an_unreachable_graph(mock_graph):
     mock_graph.driver.side_effect = RuntimeError("connection refused")
     assert load_derivation_hops(["D.SEQ-1"]) == []
-
-
-def test_provenance_names_the_assay_that_produced_the_child():
-    lines = build_provenance_lines(_prov_df(), {"D.SEQ-1": "Short Read Sequencing"})
-    assert "DNA  --[Short Read Sequencing]-->  D.SEQ" in lines
-
-
-def test_provenance_falls_back_to_a_plain_arrow_without_an_assay():
-    """A missing assay link costs the label, not the hop."""
-    lines = build_provenance_lines(_prov_df(), {})
-    assert "DNA  ------>  D.SEQ" in lines
-
-
-def test_provenance_collapses_repeated_parents_into_one_hop():
-    """TIS has two MUS parents; that is one relationship, not two."""
-    lines = build_provenance_lines(_prov_df(), {})
-    assert len([l for l in lines if l.startswith("MUS")]) == 1
-
-
-def test_provenance_includes_types_that_were_not_downloaded():
-    """DNA is not a sheet here. Upstream lineage is the part a reader cannot
-    otherwise see, so it belongs in the section."""
-    assert any(l.startswith("DNA") for l in build_provenance_lines(_prov_df(), {}))
-
-
-def test_provenance_ignores_a_parent_of_the_same_type():
-    df = pd.DataFrame([{"uuid": "CEL-1", "sample_type": "CEL", "Parent": "CEL-0"}])
-    assert build_provenance_lines(df, {}) == []
-
-
-def test_provenance_is_empty_without_a_parent_column():
-    df = pd.DataFrame([{"uuid": "MUS-1", "sample_type": "MUS", "Name": "m1"}])
-    assert build_provenance_lines(df, {}) == []
 
 
 @patch(f"{_MOD}.Samples")
@@ -600,3 +545,58 @@ def test_a_section_with_no_surviving_columns_has_no_table_header(_ctx, _fields, 
     ws = load_workbook(out)["README"]
     assert ws["A13"].value == "TIS — Tissue"
     assert [ws.cell(row=r, column=2).value for r in (14, 15, 16)] == [None, None, None]
+
+
+def _flow_df():
+    """PAT -> PAV -> TIS, with TIS also downloaded."""
+    return pd.DataFrame([
+        {"uuid": "PAV-1", "sample_type": "PAV", "Parent": "PAT-9"},
+        {"uuid": "TIS-2", "sample_type": "TIS", "Parent": "PAV-1"},
+    ])
+
+
+def _flow_rows(ws):
+    return [[c.value for c in row if c.value is not None] for row in ws.iter_rows()
+            if any(c.value is not None for c in row)]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_flow_sheet_sits_directly_after_the_readme(_ctx, _fields, _assays, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    assert load_workbook(out).sheetnames[:2] == ["README", FLOW_SHEET]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_a_chain_occupies_one_row_across_columns(_ctx, _fields, _assays, tmp_path):
+    """The whole reason for a separate sheet: one flow reads left to right."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    rows = _flow_rows(load_workbook(out)[FLOW_SHEET])
+    assert ["PAT", "------>", "PAV", "------>", "TIS"] in rows
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_no_flow_sheet_when_there_is_no_lineage(_ctx, _fields, _assays, tmp_path):
+    """An empty sheet reads as a rendering bug."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    assert FLOW_SHEET not in load_workbook(out).sheetnames
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_readme_points_at_the_flow_sheet(_ctx, _fields, _assays, tmp_path):
+    """A reader who never opens the tab must still learn it is there."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    text = " ".join(str(c.value) for row in load_workbook(out)["README"].iter_rows()
+                    for c in row if c.value)
+    assert FLOW_SHEET in text

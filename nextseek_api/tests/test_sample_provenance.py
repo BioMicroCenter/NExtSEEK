@@ -39,6 +39,13 @@ def test_edges_fall_back_to_the_parent_column_without_hops():
     assert ("MUS", "TIS") in edges
 
 
+def test_a_parent_column_hop_is_labelled_from_the_per_sample_assay():
+    """Without the graph, the child's own assay link is the only label there
+    is. Weaker than the edge, but better than a bare arrow."""
+    edges = derivation_edges(_prov_df(), {"D.SEQ-1": "Short Read Sequencing"})
+    assert edges[("DNA", "D.SEQ")] == {"Short Read Sequencing"}
+
+
 def test_edges_collapse_repeated_parents_into_one_hop():
     """TIS has two MUS parents; that is one relationship, not two."""
     edges = derivation_edges(_prov_df(), {})

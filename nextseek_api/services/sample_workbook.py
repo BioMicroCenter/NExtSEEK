@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -30,7 +29,12 @@ from seek.models import (
     Samples,
 )
 
-from nextseek_api.services.sample_provenance import SAMPLE_TYPE_RE, derivation_edges
+from nextseek_api.services.sample_provenance import (
+    SAMPLE_TYPE_RE,
+    build_provenance_rows,
+    derivation_edges,
+    sample_type_depths,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +49,12 @@ README_LINK_TEXT = "Sample type definitions: sampletypes_db.json (GitHub)"
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
 SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
-PROVENANCE_TITLE = "How this data flowed"
+FLOW_SHEET = "How this data flowed"
+FLOW_README_POINTER = f"How this data flowed: see the '{FLOW_SHEET}' sheet."
+# Sample-type codes are short; assay titles are not. Alternating widths keep a
+# chain readable without a 100-wide gap at every second type.
+FLOW_TYPE_WIDTH = 14
+FLOW_ARROW_WIDTH = 34
 # A download must not wait on the graph. Provenance is worth a moment, never a
 # stalled request.
 NEO4J_TIMEOUT_SECONDS = 5
@@ -277,30 +286,6 @@ def load_assay_titles(uuids: Iterable[str]) -> dict[str, str]:
     return out
 
 
-def build_provenance_lines(df, assay_by_uuid: Mapping[str, str],
-                           hops: list[tuple[str, str, str]] | None = None) -> list[str]:
-    """One flow line per parent-type -> child-type hop present in this download.
-
-    Hops come from Neo4j when it is reachable, where the assay is recorded on
-    the relationship itself. Otherwise they are recovered from each row's own
-    Parent UIDs, whose prefix is the parent's sample type -- the same hops,
-    labelled from the weaker per-sample assay link or not at all.
-
-    Upstream types are included even when they were not downloaded: that is the
-    part a reader cannot otherwise see.
-    """
-    return _format_provenance(derivation_edges(df, assay_by_uuid, hops))
-
-
-def _format_provenance(edges: Mapping[tuple[str, str], set[str]]) -> list[str]:
-    lines = []
-    for (parent, child) in sorted(edges):
-        assays = sorted(a for a in edges[(parent, child)] if a)
-        label = f"  --[{', '.join(assays)}]-->  " if assays else "  ------>  "
-        lines.append(f"{parent}{label}{child}")
-    return lines
-
-
 def _safe_cell_value(value: str) -> str:
     """Make a string safe to hand to openpyxl.
 
@@ -325,7 +310,7 @@ def _write_cell(ws, row: int, column: int, value: str, bold: bool = False):
     return cell
 
 
-def _write_readme(book, blocks: list[dict], provenance: list[str] | None = None) -> None:
+def _write_readme(book, blocks: list[dict], has_flow_sheet: bool = False) -> None:
     ws = book.create_sheet(README_SHEET, 0)
     _write_cell(ws, 1, 1, README_LINK_TEXT)
     ws["A1"].hyperlink = CONTEXTDB_URL
@@ -346,15 +331,11 @@ def _write_readme(book, blocks: list[dict], provenance: list[str] | None = None)
         row += 1
     row += 1  # blank line between the summary table and what follows
 
-    # Provenance sits above the column detail: a reader wants to know how the
-    # tabs relate before reading any one of them.
-    if provenance:
-        _write_cell(ws, row, 1, PROVENANCE_TITLE, bold=True)
+    # The flow lives on its own sheet; the README says so, because a reader who
+    # never opens the tab must still learn it is there.
+    if has_flow_sheet:
+        _write_cell(ws, row, 1, FLOW_README_POINTER, bold=True)
         row += 2
-        for line in provenance:
-            _write_cell(ws, row, 1, line)
-            row += 1
-        row += 1
 
     for block in blocks:
         heading = f"{block['code']} — {block['name']}" if block["name"] else block["code"]
@@ -374,6 +355,26 @@ def _write_readme(book, blocks: list[dict], provenance: list[str] | None = None)
     ws.column_dimensions["A"].width = 46
     ws.column_dimensions["B"].width = 34
     ws.column_dimensions["C"].width = 100
+
+
+def _write_flow_sheet(book, rows: list[list[str]]) -> None:
+    """One chain per row, alternating type and arrow cells.
+
+    Its own sheet rather than a README section: README's columns are sized 46 /
+    34 / 100 for the summary and column tables, which puts a 100-wide gap at
+    every second type of a chain.
+    """
+    if not rows:
+        return
+    ws = book.create_sheet(FLOW_SHEET, 1)
+    for index, row in enumerate(rows, start=1):
+        for column, value in enumerate(row, start=1):
+            _write_cell(ws, index, column, value, bold=(column % 2 == 1))
+    widest = max(len(row) for row in rows)
+    for column in range(1, widest + 1):
+        ws.column_dimensions[get_column_letter(column)].width = (
+            FLOW_TYPE_WIDTH if column % 2 else FLOW_ARROW_WIDTH
+        )
 
 
 def _annotate_header(ws, code: str, columns: list[str], meaning_by_pair) -> None:
@@ -445,16 +446,16 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
     blocks = build_readme_blocks(sheets, context_by_code, meaning_by_pair)
     uuids = df["uuid"].astype(str)
     hops = load_derivation_hops(uuids)
-    provenance = build_provenance_lines(
-        df, {} if hops else load_assay_titles(uuids), hops
-    )
+    edges = derivation_edges(df, {} if hops else load_assay_titles(uuids), hops)
+    flow_rows = build_provenance_rows(edges, sample_type_depths(edges))
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         book = writer.book
         # pandas removes openpyxl's default sheet, but guard in case that changes.
         if "Sheet" in book.sheetnames:
             del book["Sheet"]
-        _write_readme(book, blocks, provenance)
+        _write_readme(book, blocks, bool(flow_rows))
+        _write_flow_sheet(book, flow_rows)
 
         field_map, vocabularies = _load_vocabularies()
         needed = sorted({
