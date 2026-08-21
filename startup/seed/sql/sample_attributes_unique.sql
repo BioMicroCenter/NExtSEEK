@@ -12,7 +12,7 @@
 -- than nullable on purpose: MySQL treats NULLs as distinct inside a unique
 -- index, so a nullable column would accept two conflicting global rows for the
 -- same field and uk_field_scope would never fire.
-CREATE TABLE IF NOT EXISTS `sample_fields_context` (
+CREATE TABLE IF NOT EXISTS `sample_attributes_unique` (
   `id`          int NOT NULL AUTO_INCREMENT,
   -- utf8mb4_bin, not the table default: the default collation is case
   -- INsensitive, which silently collapses genuinely distinct SEEK attributes

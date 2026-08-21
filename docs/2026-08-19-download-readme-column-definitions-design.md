@@ -1,5 +1,11 @@
 # Download README — per-column definitions
 
+> **Renamed since this document was written (2026-08-21):** the table
+> `dmac.sample_fields_context` is now `dmac.sample_attributes_unique`, the model
+> `Sample_fields_context` is now `Sample_attributes_unique`, and the DDL/data files
+> are `startup/seed/sql/sample_attributes_unique{,_data}.sql`. Names below are kept
+> as originally written; read them against the new ones.
+
 **Date:** 2026-08-19
 **Branch:** `feat/download-readme-columns` (worktree, based on `origin/main` @ `ffc3cb60`)
 **Status:** design approved, ready for implementation plan

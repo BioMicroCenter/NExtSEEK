@@ -166,7 +166,7 @@ def test_seek_views_sample_retrieval_data_delegates_to_the_shared_writer():
     assert mock_write.call_args[0][1] == "/tmp/unused.xlsx"
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_uses_the_global_row(mock_model):
     mock_model.objects.filter.return_value.values.return_value = [
         {"field_name": "Sex", "sample_type": "", "meaning": "Sex at birth."},
@@ -174,7 +174,7 @@ def test_field_context_uses_the_global_row(mock_model):
     assert load_sample_field_context([("MUS", "Sex")]) == {("MUS", "Sex"): "Sex at birth."}
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_prefers_a_sample_type_override(mock_model):
     mock_model.objects.filter.return_value.values.return_value = [
         {"field_name": "Name", "sample_type": "", "meaning": "Submitter's identifier."},
@@ -185,7 +185,7 @@ def test_field_context_prefers_a_sample_type_override(mock_model):
     }
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_override_does_not_leak_to_other_sample_types(mock_model):
     mock_model.objects.filter.return_value.values.return_value = [
         {"field_name": "Name", "sample_type": "", "meaning": "Submitter's identifier."},
@@ -195,13 +195,13 @@ def test_field_context_override_does_not_leak_to_other_sample_types(mock_model):
     assert result[("TIS", "Name")] == "Submitter's identifier."
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_returns_blank_for_an_undefined_field(mock_model):
     mock_model.objects.filter.return_value.values.return_value = []
     assert load_sample_field_context([("MUS", "Genotype")]) == {("MUS", "Genotype"): ""}
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_coerces_a_null_meaning_to_a_blank(mock_model):
     mock_model.objects.filter.return_value.values.return_value = [
         {"field_name": "Sex", "sample_type": "", "meaning": None},
@@ -209,13 +209,13 @@ def test_field_context_coerces_a_null_meaning_to_a_blank(mock_model):
     assert load_sample_field_context([("MUS", "Sex")]) == {("MUS", "Sex"): ""}
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_does_not_query_for_an_empty_pair_list(mock_model):
     assert load_sample_field_context([]) == {}
     mock_model.objects.filter.assert_not_called()
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_survives_a_missing_table(mock_model):
     """A download must not fail because the definitions table is absent."""
     mock_model.objects.filter.side_effect = RuntimeError("no such table")
@@ -323,10 +323,10 @@ def test_readme_only_lists_columns_that_survive_the_empty_drop(_ctx, _fields, tm
     assert ws["B17"].value is None
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
 def test_workbook_is_complete_when_the_definitions_table_is_missing(_ctx, mock_model, tmp_path):
-    """Losing sample_fields_context costs meanings, never the download.
+    """Losing sample_attributes_unique costs meanings, never the download.
 
     This is the only Task 5 test that exercises the real loader rather than
     mocking it out, so it is what actually proves the fail-soft path end to end.
@@ -413,7 +413,7 @@ def test_an_undefined_column_gets_no_empty_hover_note(_ctx, _fields, tmp_path):
     assert load_workbook(out)["MUS"]["A1"].comment is None
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_keeps_case_variant_names_apart(mock_model):
     """SEEK has five attribute pairs differing only by case (Figure/figure,
     Bead_Coating/Bead_coating). The table stores field_name as utf8mb4_bin so

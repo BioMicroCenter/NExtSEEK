@@ -18,8 +18,8 @@ from startup.steps import schema_fixups as sf
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TABLE_FIX = sf.MissingTable(
     database="dmac",
-    table="sample_fields_context",
-    ddl_path="startup/seed/sql/sample_fields_context.sql",
+    table="sample_attributes_unique",
+    ddl_path="startup/seed/sql/sample_attributes_unique.sql",
 )
 
 
@@ -36,7 +36,7 @@ def _replies(*counts: str):
 
 def test_the_definitions_table_is_registered():
     """A fresh install must create it: it is in no migration and no seed dump."""
-    assert any(f.table == "sample_fields_context" for f in sf.KNOWN_TABLE_FIXUPS)
+    assert any(f.table == "sample_attributes_unique" for f in sf.KNOWN_TABLE_FIXUPS)
 
 
 def test_the_registered_ddl_exists_and_is_rerunnable():
@@ -49,7 +49,7 @@ def test_the_registered_ddl_exists_and_is_rerunnable():
 def test_a_missing_table_is_created_from_its_ddl(mock_exec: MagicMock) -> None:
     mock_exec.side_effect = _replies("0", "1")  # table absent, database present
     result = sf.apply_table_fixups(REPO_ROOT, {})
-    assert ("dmac.sample_fields_context", "created") in result
+    assert ("dmac.sample_attributes_unique", "created") in result
     piped = [c for c in mock_exec.call_args_list if c.kwargs.get("stdin")]
     assert len(piped) == 1
     assert b"CREATE TABLE IF NOT EXISTS" in piped[0].kwargs["stdin"]
@@ -59,7 +59,7 @@ def test_a_missing_table_is_created_from_its_ddl(mock_exec: MagicMock) -> None:
 def test_an_existing_table_is_left_alone(mock_exec: MagicMock) -> None:
     mock_exec.side_effect = _replies("1")  # table already there
     result = sf.apply_table_fixups(REPO_ROOT, {})
-    assert ("dmac.sample_fields_context", "already present") in result
+    assert ("dmac.sample_attributes_unique", "already present") in result
     assert not [c for c in mock_exec.call_args_list if c.kwargs.get("stdin")]
 
 
@@ -70,7 +70,7 @@ def test_a_missing_database_is_skipped_not_raised(mock_exec: MagicMock) -> None:
     whose mysql call raises and aborts the whole install."""
     mock_exec.side_effect = _replies("0", "0")  # table absent, database absent
     result = sf.apply_table_fixups(REPO_ROOT, {})
-    assert ("dmac.sample_fields_context", "database missing") in result
+    assert ("dmac.sample_attributes_unique", "database missing") in result
     assert not [c for c in mock_exec.call_args_list if c.kwargs.get("stdin")]
 
 
@@ -94,4 +94,4 @@ def test_tables_are_created_before_columns_are_fixed(mock_exec: MagicMock) -> No
         with patch.object(sf, "managed_indexes_enabled", return_value=False):
             result = sf.apply_all(REPO_ROOT, {})
     assert cols.called
-    assert result[0][0] == "dmac.sample_fields_context"
+    assert result[0][0] == "dmac.sample_attributes_unique"

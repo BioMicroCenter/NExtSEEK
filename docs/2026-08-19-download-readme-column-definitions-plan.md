@@ -1,5 +1,11 @@
 # Download README Column Definitions — Implementation Plan (Phase 1)
 
+> **Renamed since this document was written (2026-08-21):** the table
+> `dmac.sample_fields_context` is now `dmac.sample_attributes_unique`, the model
+> `Sample_fields_context` is now `Sample_attributes_unique`, and the DDL/data files
+> are `startup/seed/sql/sample_attributes_unique{,_data}.sql`. Names below are kept
+> as originally written; read them against the new ones.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Every column in a downloaded sample workbook is indexed on the README sheet under the tab it belongs to, showing a plain-English meaning where a reviewed one exists.

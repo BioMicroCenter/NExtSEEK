@@ -1,9 +1,9 @@
--- 979 attribute definitions for dmac.sample_fields_context.
+-- 979 attribute definitions for dmac.sample_attributes_unique.
 -- Every one judged from up to three real values observed in production
 -- (166,235 samples). Attributes with no data anywhere are deliberately absent.
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
-INSERT INTO sample_fields_context (field_name, sample_type, meaning) VALUES
+INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('5_3UTR','','Ratio of reads mapping to the 5'' versus 3'' untranslated region, a measure of coverage evenness.'),
  ('ADVPowerLevel','','Power setting of the acoustic Doppler velocimeter, e.g. HIGH, LOW.'),
  ('ADVVelocityRange','','Velocity range the acoustic Doppler velocimeter was configured for, in the units named in ADVVelocityUnits.'),
