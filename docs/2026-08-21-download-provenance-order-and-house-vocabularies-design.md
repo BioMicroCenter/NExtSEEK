@@ -19,9 +19,9 @@ designing:
 2. Dropdowns stop at the last filled row. A researcher adding rows loses them.
 3. Dropdown options are GEO/SRA's terms, which frequently are **not** the values
    NExtSEEK actually holds — so the dropdown does not drive curators toward the
-   house convention. Measured on the local stack: `LibraryDesign` is
-   `Paired End` 946 / `Paired` 595 / `PAIRED` 226 / `Paired end` 162 /
-   `paired` 126, and the dropdown offers only `paired`, the rarest form.
+   house convention. Measured on production: `LibraryDesign` is `Paired End`
+   3511 / `Paired` 789 / `PAIRED` 705 / `Paired-end` 218 / `Paired end` 118 /
+   `paired` 52, and the dropdown offers only `paired`, the rarest form.
 4. Sample **tabs** are alphabetical too, for the same underlying reason
    (`df.groupby("sample_type")` sorts). They should follow provenance order.
 
@@ -36,6 +36,10 @@ designing:
   local stack: 77 sample types, 129 distinct type→type hops, longest chain 12,
   and 5 genuine 2-cycles: `CEL ↔ D.FLOW`, `TIS ↔ BAC`, `TIS ↔ D.BSRA`,
   `CEL ↔ OOC`, `A.IMG ↔ MDL`. Any ordering or traversal must be cycle-safe.
+  These graph figures are the one thing here still measured locally — the
+  production graph is larger, so treat 129 hops / 71 chains as a floor on the
+  worst case, not a ceiling. The algorithm is correct at any size; only the
+  row count in the worst case moves.
 
 ## Change 1 — provenance depth, and chains that read left to right
 
@@ -146,49 +150,143 @@ on full-column validation applied across many columns.
 
 ## Change 4 — canonical NExtSEEK house vocabularies
 
+Derived from **production** (166,235 samples), not the local seed. The seed
+would have been materially wrong: it showed 21 distinct `Sequencer` values
+where production has 100, and 71 `DataType` values where production has 102.
+
 `controlled_vocabularies.json` is rewritten. `_source` changes from "the
 repositories' own" to a statement that these are NExtSEEK's house terms, chosen
-from the values NExtSEEK actually holds.
+from the values NExtSEEK actually holds. `field_map` is unchanged.
 
-`field_map` is unchanged. `vocabularies` becomes:
+### The house rules
 
-| Column | Vocabulary | Terms |
-|---|---|---|
-| `LibraryDesign` | `library_layout` | `Paired End`, `Single End` |
-| `LibrarySource` | `library_source` | `Genomic`, `Transcriptomic` |
-| `LibraryStrategy` | `library_strategy` | `Amplicon`, `RNA-Seq`, `scRNA-Seq`, `WGS`, `Targeted Capture`, `Hi-C` |
-| `LibrarySelection` | `library_selection` | `PCR`, `RT-PCR`, `cDNA`, `PolyA`, `Hybrid Selection`, `RANDOM`, `Other` |
-| `DataType` | `filetype` | `FASTQ`, `BAM`, `TIF`, `OIB`, `CZI`, `DICOM`, `JPG`, `JPEG`, `PNG`, `ND2`, `OIF`, `H5AD`, `H5`, `HIC`, `MCOOL`, `MTX`, `RDS`, `CSV`, `TXT`, `XLSX`, `AVI`, `MOV` |
-| `Sequencer` | `instrument_model` | GEO's 82-instrument catalog **+** `Illumina NextSeq 500`, `Illumina NextSeq 550` **+** `Singular G4` |
+1. One term per concept — the spelling production uses most, unless rule 2 or 3
+   overrides.
+2. Where GEO already has the concept and NExtSEEK agrees on spelling, GEO's
+   spelling wins (it is the manufacturer's or the repository's own name).
+3. **Illumina instruments are always prefixed `Illumina `.** GEO is internally
+   inconsistent here — it has `Illumina MiSeq`, `Illumina HiSeq 2500` and
+   `Illumina NovaSeq 6000` but bare `NextSeq 500`, `NextSeq 550`, `NextSeq 1000`,
+   `NextSeq 2000`. Production splits on exactly that seam (`Illumina NextSeq 500`
+   526 vs bare `NextSeq 500` 390). Prefixing all of them is what stops the split
+   recurring.
+4. Values that are not of the column's kind are excluded, however many rows use
+   them. A kit name is not a library layout; a strategy is not a selection.
 
-`Sequencer` is deliberately the one union rather than a house list: GEO's list
-is a manufacturer catalog, not a style choice, and NExtSEEK holds only six real
-instruments from it. Researchers will legitimately use instruments NExtSEEK has
-never seen.
+### `LibraryDesign` → `library_layout`
 
-### Exclusions, and why
+`Paired End`, `Single End`
 
-- **Prose in `DataType`.** 38 of its 71 distinct values are Ki-67 measurement
-  results (`Ki-67 proliferation index = 70.16% positive nuclei (GBM12, Control
-  diet)`), one row each, plus
-  `Targeted LC-MS metabolomics + stable-isotope tracing` (90) and
-  `IHC / histology (Ki-67, H&E)` (35). These are results and descriptions
-  written into a filetype column. Not offered as terms. Same shape as ANN-9's
-  finding; cleaning them is separate work.
-- **`NovaSeq 6001`–`NovaSeq 6011`**, 11 values at 1 row each, and
-  `NovaSeq 6000, Illumina` (24). Treated as typos for
-  `Illumina NovaSeq 6000` (427).
+Absorbs `Paired End` 3511, `Paired` 789, `PAIRED` 705, `Paired-end` 218,
+`Paired end` 118, `paired` 52.
+
+Excluded, per rule 4: `3DGE` (384, a prep method), `Duplex Sequencing Mouse
+Mutagenesis Panel v2.0` (32, a kit), `Paired-End 2x75nt` (4, a read config).
+
+**Production holds no single-end value at all.** `Single End` is offered
+prospectively so the concept has a term when it is first needed.
+
+### `LibrarySource` → `library_source`
+
+`Genomic`, `Transcriptomic`
+
+Casing only, no exclusions: `Genomic` 1504 / `GENOMIC` 1284, and
+`transcriptomic` 1034 / `TRANSCRIPTOMIC` 907 / `Transcriptomic` 688.
+
+### `LibraryStrategy` → `library_strategy`
+
+`RNA-Seq`, `Bulk RNA-Seq`, `scRNA-Seq`, `WGS`, `Amplicon`, `Targeted Capture`,
+`Hi-C`, `Other`
+
+`RNA-Seq` absorbs 2001 + `RNA-seq` 196 + `RNAseq` 102 + `RNA-SEQ` 2.
+`Amplicon` absorbs 755 + `AMPLICON` 563. `Other` absorbs `OTHER` 32.
+
+`Bulk RNA-Seq` (186) is kept as a distinct term rather than folded into
+`RNA-Seq`: the distinction from `scRNA-Seq` (142) is one the labs are actively
+making.
+
+### `LibrarySelection` → `library_selection`
+
+`Other`, `cDNA`, `PCR`, `RT-PCR`, `PolyA`, `Hybrid Selection`, `Inverse rRNA`,
+`RANDOM`
+
+`Other` absorbs `other` 1489 + `Other` 25 — the single most common value in the
+column. `RANDOM` absorbs 22 + `Random` 4 (GEO's spelling, and the production
+majority). `Inverse rRNA` is GEO's term for `Inverse rRNA selection` (27).
+
+Excluded, per rule 4: `Whole Genome Sequencing` (292) — a strategy written into
+the selection column.
+
+### `DataType` → `filetype`
+
+Bare uppercase extensions, 34 terms:
+
+`FASTQ`, `BAM`, `FAST5`, `POD5`, `H5AD`, `H5`, `MTX`, `MCOOL`, `HIC`, `RDS`,
+`MZML`, `TIF`, `OIB`, `OIF`, `LIF`, `CZI`, `ND2`, `DICOM`, `NII`, `JPG`, `PNG`,
+`AVI`, `MOV`, `CSV`, `TSV`, `TXT`, `XLSX`, `XML`, `PDF`, `DOCX`, `PPTX`, `PZFX`,
+`SLX`, `SBD`
+
+Notable absorptions: `TIF` takes `tif` 5877 + `TIF` 2447 + `tiff` 666 + `.tif`
+24 + `TIFF` 4 + `ome.tif` 3 = 9,021 rows across six spellings. `FASTQ` takes
+4202 + `fastq` 1655 + `Fastq` 332 + `fastq.gz` 226 + `FastQ` 202. `DICOM` takes
+`.dcm` 345 + `DICOM` 239 + `Dicom` 97. `CZI` takes `.czi` 360 + `CZI` 276 +
+`czi` 109. `XML` takes `tiff_metadata.xml` 636 (a filename in a format column).
+`JPG` takes 1172 + `JPG` 17 + `JPEG` 7 + `jpeg` 4.
+
+The leading dot is dropped (`.lif` 1038 → `LIF`) and compression suffixes are
+dropped (`fastq.gz` → `FASTQ`, `nii.gz` → `NII`): the column names a format,
+not a filename.
+
+Excluded, per rule 4 — results and descriptions written into a format column:
+the 22 distinct `Ki-67 proliferation index = …` values (1 row each),
+`Targeted LC-MS metabolomics + stable-isotope tracing` (126),
+`Super-resolution localization microscopy (STORM)` (76),
+`MALDI-MSI spatial molecular images / annotated features` (42),
+`IHC / histology (Ki-67, H&E)` (35), `PRISM` (18),
+`mzML (converted; original .raw not deposited to PXD055726)` (4),
+`Mutational spectra catalogue (absolute)` and `(differential)` (1 each).
+
+### `Sequencer` → `instrument_model`
+
+GEO's 82-instrument catalog, with rule 3 applied and NExtSEEK's own instruments
+appended.
+
+Renamed under rule 3: `NextSeq 500` → `Illumina NextSeq 500`, `NextSeq 550` →
+`Illumina NextSeq 550`, `NextSeq 1000` → `Illumina NextSeq 1000`, `NextSeq 2000`
+→ `Illumina NextSeq 2000`. The bare forms are **not** also offered — offering
+both is what produced the split.
+
+Appended (in production, absent from GEO): `Singular G4` (130 + `SingularG4` 8),
+`PromethION P2 Solo` (`P2 Solo` 9).
+
+Mapped to existing GEO terms: `Element Aviti` 190 + `Aviti` 76 + `Element AVITI`
+4 → GEO's `Element AVITI`. `Prometheon 24` 19 → GEO's `PromethION`.
+`Illumina NovaSeqX` 80 + `Illumina NovaSeq X 25B` 27 → `Illumina NovaSeq X`
+(25B is a flow cell, not a model).
+
+Excluded:
+
+- **The `NovaSeq 60NN` counter artifact — 61 of the 100 distinct values.**
+  `Illumina NovaSeq 6001`…`6038`, `Illumina NovaSeq6001`…`6023`, and
+  `NovaSeq 6001`…`6011`, every one at exactly 1 row. Someone numbered
+  instruments sequentially. The seed showed only 11 of these; production has 61.
+- `{"vendor": "10x, Illumina", "platform": "Chromium,NovaSeq6000"}` (47) — a
+  JSON blob in a text column.
+- `P.BMC-240301-V1_Illumina_NextSeq_Standard_Workflow.doc` (2) — a protocol
+  filename.
+- `NextSeq500:George` (7) — an instrument nickname.
+- `Illumina HiSeq` (95) — no model; ambiguous between six GEO HiSeq entries.
 
 ### The `_variants` block
 
 A new documentation-only key records which observed spellings each canonical
-term absorbs, with the row counts they were judged from:
+term absorbs, with the production row counts they were judged from:
 
 ```json
 "_variants": {
   "library_layout": {
-    "Paired End": ["Paired End (946)", "Paired (595)", "PAIRED (226)",
-                   "Paired end (162)", "paired (126)"]
+    "Paired End": ["Paired End (3511)", "Paired (789)", "PAIRED (705)",
+                   "Paired-end (218)", "Paired end (118)", "paired (52)"]
   }
 }
 ```
@@ -235,13 +333,21 @@ Vocabularies:
 
 ## Risks
 
-- **The house lists are derived from the local seed (51k samples), not
-  production (166k).** ANN-16's standing warning is to measure against
-  production for anything driving a decision, and this decides which spelling
-  becomes canonical. Production may hold instruments or filetypes the seed does
-  not; those would surface as warnings on open, not as errors. Re-deriving
-  against production before the lists are written is the mitigation, and needs
-  `ssh fairdata` unblocked.
+- **The house lists deliberately exclude values thousands of production rows
+  use.** By design — that is what makes them converge — but a researcher who
+  downloads existing data will see warnings on rows they never touched.
+  Measured worst cases: `Whole Genome Sequencing` 292 rows, `3DGE` 384 rows,
+  `Illumina HiSeq` 95 rows, and every `tif`/`fastq` casing variant.
+  `errorStyle` stays `warning` precisely for this; do not change it (ANN-9).
+- **Row counts are a snapshot of 2026-08-21 production** (166,235 samples).
+  The judgements that turned on a majority — `Illumina NextSeq 500` 526 vs bare
+  `NextSeq 500` 390 being the closest — could invert as data grows. The
+  `_variants` block records the counts each call rested on, so the call can be
+  re-examined rather than re-guessed.
+- **Five exclusions are judgement, not arithmetic**, and are the likeliest
+  place this is wrong: `3DGE` (384), `Whole Genome Sequencing` (292),
+  `Illumina HiSeq` (95), keeping `Bulk RNA-Seq` separate from `RNA-Seq`, and
+  dropping compression suffixes so `fastq.gz` becomes `FASTQ`.
 - **Moving `load_derivation_hops` earlier** puts a Neo4j call ahead of sheet
   preparation. It is already bounded at 5s and already fails soft; the failure
   mode on timeout is now "alphabetical order plus no provenance sheet" rather
