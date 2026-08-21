@@ -10,7 +10,7 @@
 
 **Goal:** Every column in a downloaded sample workbook is indexed on the README sheet under the tab it belongs to, showing a plain-English meaning where a reviewed one exists.
 
-**Architecture:** All rendering stays in the one shared writer, `nextseek_api/services/sample_workbook.py`, which both download paths already call. Definitions come from a new `dmac.sample_fields_context` table read through a Django model, keyed on the `field_name` string with an optional per-sample-type override row. The flat README table becomes one section per tab, built by a pure function and rendered with openpyxl.
+**Architecture:** All rendering stays in the one shared writer, `nextseek_api/services/sample_workbook.py`, which both download paths already call. Definitions come from a new `dmac.sample_attributes_unique` table read through a Django model, keyed on the `field_name` string with an optional per-sample-type override row. The flat README table becomes one section per tab, built by a pure function and rendered with openpyxl.
 
 **Tech Stack:** Python 3.14, Django (models only, no migration), pandas 3.0.2, openpyxl 3.1.5, pytest, MySQL 8.0, Docker Compose.
 
@@ -115,37 +115,37 @@ git commit -m "chore(test): run the suite against a worktree inside the stack im
 ### Task 2: The table and its model
 
 **Files:**
-- Create: `startup/seed/sql/sample_fields_context.sql`
+- Create: `startup/seed/sql/sample_attributes_unique.sql`
 - Modify: `seek/models.py` (add after the `Sample_types_context` class, which ends with `db_table = "sample_types_context"`)
-- Test: `nextseek_api/tests/test_sample_fields_model.py`
+- Test: `nextseek_api/tests/test_sample_attributes_unique_model.py`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `seek.models.Sample_fields_context`, with fields `field_name` (str), `sample_type` (str), `meaning` (str), mapped to table `sample_fields_context` on the `default` (dmac) database. Task 3 imports it.
+- Produces: `seek.models.Sample_attributes_unique`, with fields `field_name` (str), `sample_type` (str), `meaning` (str), mapped to table `sample_attributes_unique` on the `default` (dmac) database. Task 3 imports it.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `nextseek_api/tests/test_sample_fields_model.py`:
+Create `nextseek_api/tests/test_sample_attributes_unique_model.py`:
 
 ```python
 """The definitions model maps a table this repo creates in SQL, not in a migration."""
 
 from django.conf import settings
 
-from seek.models import Sample_fields_context
+from seek.models import Sample_attributes_unique
 
 
 def test_model_maps_the_definitions_table():
-    assert Sample_fields_context._meta.db_table == "sample_fields_context"
+    assert Sample_attributes_unique._meta.db_table == "sample_attributes_unique"
 
 
 def test_model_reads_the_nextseek_database():
     """The router at seek/dbrouters.py routes on this attribute."""
-    assert Sample_fields_context._DATABASE == settings.NEXTSEEK_DATABASE
+    assert Sample_attributes_unique._DATABASE == settings.NEXTSEEK_DATABASE
 
 
 def test_model_carries_the_three_content_fields():
-    names = {f.name for f in Sample_fields_context._meta.get_fields()}
+    names = {f.name for f in Sample_attributes_unique._meta.get_fields()}
     assert {"field_name", "sample_type", "meaning"} <= names
 
 
@@ -153,7 +153,7 @@ def test_scope_column_defaults_to_empty_string_not_null():
     """'' is the global scope. A nullable column would let MySQL accept two
     conflicting global rows for one field, because NULLs compare distinct
     inside a unique index."""
-    field = Sample_fields_context._meta.get_field("sample_type")
+    field = Sample_attributes_unique._meta.get_field("sample_type")
     assert field.null is False
     assert field.default == ""
 ```
@@ -161,17 +161,17 @@ def test_scope_column_defaults_to_empty_string_not_null():
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-./scripts/run_tests.sh nextseek_api/tests/test_sample_fields_model.py
+./scripts/run_tests.sh nextseek_api/tests/test_sample_attributes_unique_model.py
 ```
 
-Expected: FAIL, `ImportError: cannot import name 'Sample_fields_context' from 'seek.models'`.
+Expected: FAIL, `ImportError: cannot import name 'Sample_attributes_unique' from 'seek.models'`.
 
 - [ ] **Step 3: Add the model**
 
 In `seek/models.py`, immediately after the `Sample_types_context` class (the one whose `Meta` sets `db_table = "sample_types_context"`), add:
 
 ```python
-class Sample_fields_context(models.Model):
+class Sample_attributes_unique(models.Model):
     """Plain-English meaning per metadata field, for the download README.
 
     Joined on the `field_name` string, never on an id: ids do not agree across
@@ -188,21 +188,21 @@ class Sample_fields_context(models.Model):
         return self.field_name
 
     class Meta:
-        db_table = "sample_fields_context"
+        db_table = "sample_attributes_unique"
         unique_together = ("field_name", "sample_type")
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 ```bash
-./scripts/run_tests.sh nextseek_api/tests/test_sample_fields_model.py
+./scripts/run_tests.sh nextseek_api/tests/test_sample_attributes_unique_model.py
 ```
 
 Expected: `4 passed`.
 
 - [ ] **Step 5: Write the DDL**
 
-Create `startup/seed/sql/sample_fields_context.sql`:
+Create `startup/seed/sql/sample_attributes_unique.sql`:
 
 ```sql
 -- Per-field definitions shown on the download workbook's README sheet.
@@ -216,7 +216,7 @@ Create `startup/seed/sql/sample_fields_context.sql`:
 -- than nullable on purpose: MySQL treats NULLs as distinct inside a unique
 -- index, so a nullable column would accept two conflicting global rows for the
 -- same field and uk_field_scope would never fire.
-CREATE TABLE IF NOT EXISTS `sample_fields_context` (
+CREATE TABLE IF NOT EXISTS `sample_attributes_unique` (
   `id`          int NOT NULL AUTO_INCREMENT,
   `field_name`  varchar(255) NOT NULL,
   `sample_type` varchar(32)  NOT NULL DEFAULT '',
@@ -231,9 +231,9 @@ CREATE TABLE IF NOT EXISTS `sample_fields_context` (
 ```bash
 set -a && . /Users/jps/Documents/MIT/NExtSEEK/docker/db.env && set +a
 docker exec -i seek-mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" dmac \
-  < startup/seed/sql/sample_fields_context.sql
+  < startup/seed/sql/sample_attributes_unique.sql
 docker exec seek-mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e \
-  "DESCRIBE dmac.sample_fields_context;"
+  "DESCRIBE dmac.sample_attributes_unique;"
 ```
 
 Expected: four rows — `id`, `field_name`, `sample_type`, `meaning` — with `sample_type` showing `NO` under Null and an empty-string Default.
@@ -241,7 +241,7 @@ Expected: four rows — `id`, `field_name`, `sample_type`, `meaning` — with `s
 - [ ] **Step 7: Commit**
 
 ```bash
-git add startup/seed/sql/sample_fields_context.sql seek/models.py nextseek_api/tests/test_sample_fields_model.py
+git add startup/seed/sql/sample_attributes_unique.sql seek/models.py nextseek_api/tests/test_sample_attributes_unique_model.py
 git commit -m "feat(download): sample_fields_context table and model"
 ```
 
@@ -254,7 +254,7 @@ git commit -m "feat(download): sample_fields_context table and model"
 - Test: `nextseek_api/tests/test_sample_workbook.py`
 
 **Interfaces:**
-- Consumes: `seek.models.Sample_fields_context` from Task 2.
+- Consumes: `seek.models.Sample_attributes_unique` from Task 2.
 - Produces: `load_sample_field_context(pairs)` — takes an iterable of `(sample_type, field_name)` tuples and returns `dict[tuple[str, str], str]` keyed by those same pairs, with precedence already resolved so callers never reimplement the fallback. Task 5 calls it.
 
 - [ ] **Step 1: Write the failing tests**
@@ -262,7 +262,7 @@ git commit -m "feat(download): sample_fields_context table and model"
 Append to `nextseek_api/tests/test_sample_workbook.py`:
 
 ```python
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_uses_the_global_row(mock_model):
     mock_model.objects.filter.return_value.values.return_value = [
         {"field_name": "Sex", "sample_type": "", "meaning": "Sex at birth."},
@@ -270,7 +270,7 @@ def test_field_context_uses_the_global_row(mock_model):
     assert load_sample_field_context([("MUS", "Sex")]) == {("MUS", "Sex"): "Sex at birth."}
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_prefers_a_sample_type_override(mock_model):
     mock_model.objects.filter.return_value.values.return_value = [
         {"field_name": "Name", "sample_type": "", "meaning": "Submitter's identifier."},
@@ -281,7 +281,7 @@ def test_field_context_prefers_a_sample_type_override(mock_model):
     }
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_override_does_not_leak_to_other_sample_types(mock_model):
     mock_model.objects.filter.return_value.values.return_value = [
         {"field_name": "Name", "sample_type": "", "meaning": "Submitter's identifier."},
@@ -291,13 +291,13 @@ def test_field_context_override_does_not_leak_to_other_sample_types(mock_model):
     assert result[("TIS", "Name")] == "Submitter's identifier."
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_returns_blank_for_an_undefined_field(mock_model):
     mock_model.objects.filter.return_value.values.return_value = []
     assert load_sample_field_context([("MUS", "Genotype")]) == {("MUS", "Genotype"): ""}
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_coerces_a_null_meaning_to_a_blank(mock_model):
     mock_model.objects.filter.return_value.values.return_value = [
         {"field_name": "Sex", "sample_type": "", "meaning": None},
@@ -305,20 +305,20 @@ def test_field_context_coerces_a_null_meaning_to_a_blank(mock_model):
     assert load_sample_field_context([("MUS", "Sex")]) == {("MUS", "Sex"): ""}
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_does_not_query_for_an_empty_pair_list(mock_model):
     assert load_sample_field_context([]) == {}
     mock_model.objects.filter.assert_not_called()
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 def test_field_context_survives_a_missing_table(mock_model):
     """A download must not fail because the definitions table is absent."""
     mock_model.objects.filter.side_effect = RuntimeError("no such table")
     assert load_sample_field_context([("MUS", "Sex")]) == {}
 ```
 
-Add `load_sample_field_context` and `Sample_fields_context` to the import block at the top of the file, which currently reads:
+Add `load_sample_field_context` and `Sample_attributes_unique` to the import block at the top of the file, which currently reads:
 
 ```python
 from nextseek_api.services.sample_workbook import (
@@ -349,7 +349,7 @@ from seek.models import Sample_types_context
 to:
 
 ```python
-from seek.models import Sample_fields_context, Sample_types_context
+from seek.models import Sample_attributes_unique, Sample_types_context
 ```
 
 Then add, directly below `load_sample_type_context`:
@@ -358,7 +358,7 @@ Then add, directly below `load_sample_type_context`:
 def load_sample_field_context(
     pairs: Iterable[tuple[str, str]],
 ) -> dict[tuple[str, str], str]:
-    """Resolve (sample_type, field_name) -> meaning against sample_fields_context.
+    """Resolve (sample_type, field_name) -> meaning against sample_attributes_unique.
 
     Precedence per pair: a row scoped to that sample type, else the global row
     (`sample_type == ''`), else blank. Resolving here means no caller has to
@@ -369,14 +369,14 @@ def load_sample_field_context(
         return {}
     try:
         rows = list(
-            Sample_fields_context.objects.filter(
+            Sample_attributes_unique.objects.filter(
                 field_name__in=sorted({fn for _, fn in wanted})
             ).values("field_name", "sample_type", "meaning")
         )
     except Exception:
         # A missing or unreachable table must not cost the user their download;
         # every meaning then renders blank.
-        logger.exception("sample_fields_context lookup failed; meanings will be blank")
+        logger.exception("sample_attributes_unique lookup failed; meanings will be blank")
         return {}
 
     global_by_field: dict[str, str] = {}
@@ -639,10 +639,10 @@ def test_readme_only_lists_columns_that_survive_the_empty_drop(_ctx, _fields, tm
     assert ws["B15"].value is None
 
 
-@patch(f"{_MOD}.Sample_fields_context")
+@patch(f"{_MOD}.Sample_attributes_unique")
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
 def test_workbook_is_complete_when_the_definitions_table_is_missing(_ctx, mock_model, tmp_path):
-    """Losing sample_fields_context costs meanings, never the download.
+    """Losing sample_attributes_unique costs meanings, never the download.
 
     This is the only Task 5 test that exercises the real loader rather than
     mocking it out, so it is what actually proves the fail-soft path end to end.
@@ -792,7 +792,7 @@ The feature renders blank meanings anywhere the table is missing. That is by des
 - Modify: `docs/sample-download-workflow.md`
 
 **Interfaces:**
-- Consumes: `startup/seed/sql/sample_fields_context.sql` (Task 2).
+- Consumes: `startup/seed/sql/sample_attributes_unique.sql` (Task 2).
 - Produces: documentation only. `startup/seed/dmac.sql.gz` is deliberately NOT modified.
 
 - [ ] **Step 1: Confirm the table is in the local dmac database**
@@ -800,7 +800,7 @@ The feature renders blank meanings anywhere the table is missing. That is by des
 ```bash
 set -a && . /Users/jps/Documents/MIT/NExtSEEK/docker/db.env && set +a
 docker exec seek-mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -e \
-  "SELECT COUNT(*) FROM dmac.sample_fields_context;"
+  "SELECT COUNT(*) FROM dmac.sample_attributes_unique;"
 ```
 
 Expected: `0` — the table exists and is empty. If it errors, re-run Task 2 Step 6.
@@ -834,9 +834,9 @@ absent from the seed for exactly the same reason.
 In `startup/seed/README.md`, under the `## Files` list, add after the `dmac.sql.gz` bullet:
 
 ```markdown
-  The `dmac` dump does **not** yet include `sample_fields_context`, the
+  The `dmac` dump does **not** yet include `sample_attributes_unique`, the
   per-field definitions behind the download workbook's README sheet. Its DDL
-  lives at `startup/seed/sql/sample_fields_context.sql` and is applied by hand
+  lives at `startup/seed/sql/sample_attributes_unique.sql` and is applied by hand
   to an instance's `dmac` database — production included — until a maintainer
   folds the table in on the next `dump-db` cycle. Until then a fresh install
   renders the README's meanings blank, which is the designed fail-soft
@@ -854,7 +854,7 @@ Append to `docs/sample-download-workflow.md`:
 
 The README sheet carries one section per tab, listing every column in that tab
 with a plain-English meaning where one has been written. Meanings come from
-`dmac.sample_fields_context`, joined on the `field_name` string, with
+`dmac.sample_attributes_unique`, joined on the `field_name` string, with
 `sample_type = ''` as the global definition and a sample type code as a per-tab
 override.
 
@@ -865,7 +865,7 @@ value — nothing has to be registered.
 
 Rolling this out to an instance:
 
-1. Apply `startup/seed/sql/sample_fields_context.sql` to that instance's `dmac`
+1. Apply `startup/seed/sql/sample_attributes_unique.sql` to that instance's `dmac`
    database.
 2. Load definitions into the table.
 3. Deploy.
@@ -924,5 +924,5 @@ git commit -m "docs(startup): document the sample_fields_context rollout and see
 
 - `./scripts/run_tests.sh nextseek_api seek` shows no new failures.
 - A download workbook opens with README as sheet 1, one bold section per tab, and every column of every tab listed beneath its section.
-- Dropping the `sample_fields_context` table still produces a complete workbook, with blank meanings.
+- Dropping the `sample_attributes_unique` table still produces a complete workbook, with blank meanings.
 - Phase 2 is planned separately.

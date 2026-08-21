@@ -19,7 +19,7 @@
 - All text written into a cell goes through `_safe_cell_value`, via `_write_cell` where one exists.
 - Sample-type codes are matched with `SAMPLE_TYPE_RE = r"([A-Z]+\.[A-Z]+|[A-Z]+)"`. The dotted alternative must stay first or `D.SEQ` truncates to `D`. This regex lives in exactly one place.
 - Conventional commits with module scopes, e.g. `feat(download): …`, `refactor(download): …`.
-- Do not modify `sample_fields_context`, the three production SQL scripts in `startup/seed/sql/`, or anything to do with attribute definitions.
+- Do not modify `sample_attributes_unique`, the three production SQL scripts in `startup/seed/sql/`, or anything to do with attribute definitions.
 
 ## File Structure
 

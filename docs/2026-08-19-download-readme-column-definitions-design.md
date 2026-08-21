@@ -110,13 +110,13 @@ researcher cannot see in the workbook.
 
 ### 2. Storage — mimic `sample_types_context`
 
-Definitions live in a new `dmac.sample_fields_context`, a sibling of
+Definitions live in a new `dmac.sample_attributes_unique`, a sibling of
 `sample_types_context`, with the repo-side JSON generated from it exactly as
 `sampletypes_db.json` is generated from `sample_types_context` today
 (`chat_nextseek/src/chat_nextseek/config.py:822`).
 
 ```sql
-CREATE TABLE `sample_fields_context` (
+CREATE TABLE `sample_attributes_unique` (
   `id`          int NOT NULL AUTO_INCREMENT,
   `field_name`  varchar(255) NOT NULL,
   `sample_type` varchar(32)  NOT NULL DEFAULT '',
@@ -149,8 +149,8 @@ Lookup precedence per column, per tab:
 
 ### 3. Model and loader
 
-`seek/models.py` gains `Sample_fields_context`, mirroring `Sample_types_context`
-(`_DATABASE = NEXTSEEK_DATABASE`, `db_table = "sample_fields_context"`).
+`seek/models.py` gains `Sample_attributes_unique`, mirroring `Sample_types_context`
+(`_DATABASE = NEXTSEEK_DATABASE`, `db_table = "sample_attributes_unique"`).
 
 `sample_workbook.py` gains `load_sample_field_context(pairs)` beside
 `load_sample_type_context`. It takes the `(sample_type, field_name)` pairs
@@ -182,7 +182,7 @@ seed and in a documented production step, model without a migration.
 
 ### 6. Export for the assistant
 
-Register `dmac.sample_fields_context` in `_fetch_context_files_from_db`
+Register `dmac.sample_attributes_unique` in `_fetch_context_files_from_db`
 (`chat_nextseek/src/chat_nextseek/config.py:822`) so `samplefields_db.json` is
 generated alongside `sampletypes_db.json`. The assistant then answers column
 questions from the same definitions the workbook shows.
@@ -266,7 +266,7 @@ Two rules bind the review:
   identifier may survive into committed definition text.
 
 `manage.py load_field_definitions <xlsx>` upserts the reviewed sheet into
-`sample_fields_context`.
+`sample_attributes_unique`.
 
 ### 10. Maintenance loop
 
@@ -302,7 +302,7 @@ The 21 existing tests assert the flat-table shape and are rewritten alongside
 
 - lookup precedence: per-sample-type row beats global row beats blank
 - an unknown field name renders blank and never raises
-- a missing or malformed `sample_fields_context` yields blanks everywhere and
+- a missing or malformed `sample_attributes_unique` yields blanks everywhere and
   still writes a complete workbook
 - listed columns match the columns actually written, after the all-empty-column
   drop

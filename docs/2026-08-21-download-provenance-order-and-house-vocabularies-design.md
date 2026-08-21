@@ -360,4 +360,4 @@ Vocabularies:
 
 - Normalising the existing data to the house terms.
 - The missing `platform` column for SRA (ANN-8).
-- Anything touching `sample_fields_context` or the three production SQL scripts.
+- Anything touching `sample_attributes_unique` or the three production SQL scripts.
