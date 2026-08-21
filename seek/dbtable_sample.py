@@ -14,13 +14,12 @@ import zipfile
 import pandas as pd
 from django.conf import settings
 from django.db.models import Q
-from functools import cache
 from itertools import chain
 
 from .models import Samples, Projects_samples, People, Assets_creators, Projects
 from dmac.dbtable import DBtable
 from dmac.csv_excel import load_excelfile_asdic, saveExcelDiclist, modifyExcelCell, reviseExcelDiclist, removeRedundancy, AddExcelDiclist
-from dmac.conversion import toString, cleanString, getDefaultDateTime, convertDateListToString, toInt, verifyValueType
+from dmac.conversion import toString, cleanString, getDefaultDateTime, toInt, verifyValueType
 from dmac.iocsv import saveDiclistIntoExcel, filterDiclist, saveTwoDiclistsIntoExcel, getConstantRows, removeDiclistDuplicates
 
 from .dbtable_sampleattribute import DBtable_sampleattribute
@@ -107,29 +106,6 @@ SAMPLE_FILE_ACCESSOR_NAME = "File_"
 SAMPLE_LINK_ACCESSOR_NAME = "Link_"        
 SAMPLE_CONTRIBUTOR_ACCESSOR_NAME = "Scientist"
 SAMPLE_PUBLISH_ACCESSOR_NAME = "Publish"
-
-SAMPLE_ERRORCODE = {
-    '101': 'Error S101: Sample excel file not in the right xlsx format.',
-    '102': 'Error S102: Sample excel file does not contain required sheet:',
-    '103': 'Error S103: Sample excel file contains invalid "Instruction" sheet.',
-    '104': 'Error S104: Sample excel file contains invalid "Samples" sheet.',
-    '105': 'Error S105: Sample excel file contains invalid "Samples" sheet with no data on the sample type: ',
-    '106': 'Error S106: Sample excel file not loaded correctly: ',
-    '201': 'Error S201: Sample type not uniquely defined in database: ',
-    '202': 'Error S202: Sample type has no attribute defined: ',
-    '301': 'Error S301: Sample has a Parent UID with error. ',
-    '302': 'Error S302: Sample has neither "Name" nor "File_PrimaryData" attribute: ',
-    '303': 'Error S303: Sample has invalid "Name" or "File_PrimaryData" attribute. ',
-    '401': 'Error S401: Revise sample name or use the UID to update this sample, whose name already in DB with the UID: ',
-    '402': 'Error S402: Sample UID not consistent with the UID in DB for same sample name: ',
-    '403': 'Error S403: Ask Admin for help because the sample name corresponds to more than one record in DB.',
-    '501': 'Error S501: Sample information empty for uploading.',
-    '502': 'Error S502: Sample required values not provided: ',
-    '503': 'Error S503: Sample does not have an "UID" field for saving into DB. ',
-    '504': 'Error S504: Sample not saved into DB: ',
-    '601': 'Warning S601: Sample asset not saved into DB: ',
-    '602': 'Warning S602: Sample and data file association not saved correctly into DB: '
-}
 
 SAMPLE_ERRORCODE = {
     '101': 'Error: Excel file in incorrect format.',
@@ -441,10 +417,6 @@ class DBtable_sample(DBtable):
         record.save()
         return
         
-    def __verifyOntology(self, record):
-        msg = "Warning: verifying ontology of a sample info is to be implemented"
-        logger.debug(msg)
-        
     def __verifyRequiredFields(self, record, fields_required):
         if 'UID' not in record.keys():
             msg = SAMPLE_ERRORCODE['503']
@@ -736,14 +708,6 @@ class DBtable_sample(DBtable):
             
         return sampledic_feeback
         
-    def __queryContributorID(self, user_seek, contributor_fullname):
-        seekdb = SeekDB(user_seek['server'], user_seek['username'], user_seek['password'])
-        contributor_id = seekdb.getUserid(contributor_fullname)
-        if contributor_id is None:
-            return -1
-        
-        return contributor_id
-
     def getConnectingRelationships(self, child_id, parent_id):
         db = settings.DATABASES[SEEK_DATABASE]
         nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
@@ -1123,33 +1087,6 @@ class DBtable_sample(DBtable):
         return msg, status, diclist_feedback
 
 
-    def __outputUploadFeedback(self, diclist_feedback, headers, feedbackfile):
-        book = xlwt.Workbook(encoding="utf-8")
-        sheet1 = book.add_sheet("Samples")
-        row = 0
-        for index, header in enumerate(headers):
-            try:
-                newitem = toString(header)
-            except:
-                newitem = cleanString(header)
-            sheet1.write(row, index, newitem)
-        
-        for dici in diclist_feedback:
-            row += 1
-            for index, header in enumerate(headers):
-                if header in dici:
-                    newitem = dici[header]
-                else:
-                    newitem = "N/A"
-                
-                try:
-                    newitem = str(newitem)
-                except:
-                    newitem = cleanString(newitem)
-                sheet1.write(row, index, newitem)
-                
-        book.save(feedbackfile)
-        
     def __outputUploadFeedback_V2(self, diclist, diclist_feedback, headers, feedbackfile):
         book = xlwt.Workbook(encoding="utf-8")
         sheet1 = book.add_sheet("Samples")
@@ -1580,70 +1517,6 @@ class DBtable_sample(DBtable):
         self.__outputUploadFeedback_V2(diclist, diclist_feedback, headers, feedbackfile)
         return msg, status
     
-    def __getSampleUrl(self, id):
-        url = "<a href='/seek/sample/id=" + str(id) + "/'  target='_blank'>" + str(id) + "</a>"
-        return url
-    
-    def search(self, uids, orderby, limit):
-        total = len(uids)
-        rdata = []
-        if total==0:
-            data = {'total':total,'rows':rdata}
-            sdata = simplejson.dumps(data, default=str)
-            return sdata
-        
-        qset = Q(uuid__in=uids)
-        rdata = self.db.retrieveJoint(self.tablemodel, '', qset, orderby, limit)
-        rdata = convertDateListToString('created_at', rdata)
-        rdata = convertDateListToString('updated_at', rdata)
-        
-        for datai in rdata:
-            id = datai['id']
-            datai['id'] = self.__getSampleUrl(id)
-        
-        total = len(rdata)
-        data = {'total':total,'rows':rdata}
-        sdata = simplejson.dumps(data, default=str)
-        return sdata
-    
-    def childTube(relation):
-        child = {}
-        child["name"] = "bcdf"
-
-        name = str(relation['child_tube2dtype']) + ': ' + str(relation['child_tube2dcode'])
-        child["name"] = name
-        next_children = []
-    
-        next_child_2dtube_id = relation['child_2dtube_id']
-    
-        if next_child_2dtube_id is None:
-            msg = "No next child is found"
-        else:
-            next_relations = derive2DTubes(next_child_2dtube_id)
-            for next_relation in next_relations:
-                next_child_2dtube_id = next_relation['child_2dtube_id']
-                if next_child_2dtube_id is None:
-                    msg = 'No child is found'
-                else:
-                    next_child = childTube(next_relation)
-                    next_children.append(next_child)
-        
-        child["children"] = next_children   
-        return child
-    
-    def createSampleTree(self, sample_id):
-        record = self.__retrieveSampleByID(sample_id)
-        print(f"record: {record}")
-        if record is None:
-            return None
-        
-        childuid = record['uuid']
-        json_metadata = record['json_metadata']
-        dici = self.__getRecordFromJson(json_metadata)
-        uids =  self.__getParentUIDs(dici)
-        parentinfo, treeData = self.__trackParent(childuid, uids)
-        return treeData 
-
     def __retrieveSampleByUID(self, uid):
         record = None
         if uid is None or len(uid.strip())==0:
@@ -1802,40 +1675,6 @@ class DBtable_sample(DBtable):
         uids = self.__getParentUIDs(sampleDic)
         return uids
 
-    def __getParentLoop(self, childuid):
-        parent = {}
-        parent["name"] = str(childuid)
-        parent["id"] = str(childuid)
-        parent_uids = self.__getParents(childuid)
-        next_parents = []
-        for uid in parent_uids:
-            next_parent = self.__getParentLoop(uid)
-            next_parents.append(next_parent)
-        
-        if len(next_parents)>0:
-            parent["children"] = next_parents
-        return parent
-
-    def __trackParent(self, childuid, parent_uids):
-        treeData = {}
-        treeData["name"] = str(childuid)
-        treeData["id"] = str(childuid)
-        
-        parents = []
-        parentinfo = ''
-        for uid in parent_uids:
-            parent = self.__getParentLoop(uid)
-            parents.append(parent)
-            
-            parentinfo += uid + ';'
-            
-        parentinfo = parentinfo[:-1]
-
-        if len(parents)>0:
-            treeData["children"] = parents
-        return parentinfo, treeData
-        
-
     def __filterSamples(self, jdata, sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo):
         logger.debug('filterSamples')
         
@@ -1963,26 +1802,6 @@ class DBtable_sample(DBtable):
     def createSampleChildrenTree(self, sample_id):
         return self.createSampleChildrenTreeParallel(sample_id)
         
-        record = self.__retrieveSampleByID(sample_id)
-        if record is None:
-            return None
-        
-        currentuid = record['uuid']
-        children_uids =  self.__getChildrenUIDs(currentuid)
-        
-        treeData = {}
-        treeData["name"] = str(currentuid)
-        treeData["id"] = str(currentuid)
-
-        children = []
-        for uid in children_uids:
-            child = self.__getChildLoop(uid)
-            children.append(child)
-
-        if len(children)>0:
-            treeData["children"] = children
-        return treeData
-    
     def createSampleChildrenTreeParallel_i(self, uid):
         child = self.__getChildLoop(uid)
         return child
@@ -2029,52 +1848,9 @@ class DBtable_sample(DBtable):
             
         return upTreeList
     
-    def __trackParentTreeList(self, childuid, parent_uids):
-        upTreeList = []
-        childuid = str(childuid)
-        child = {'id':childuid, 'name':childuid}
-        if len(parent_uids)==0:
-            upTreeList.append(child)
-            return upTreeList
-        
-        for uid in parent_uids:
-            uid = str(uid)
-            childNode = {'id':uid, 'name':uid, 'children':[child]}
-            parentTreeList = self.__getParentTreeListLoop(childNode)
-            upTreeList += parentTreeList
-            
-        return upTreeList
-    
     def __createMultiParentTree(self, sample_id, includeChilren, childrenTreeIn=None):
         return self.__createMultiParentTreeParallel(sample_id, includeChilren, childrenTreeIn)
         
-        record = self.__retrieveSampleByID(sample_id)
-        if record is None:
-            return None, None
-        
-        childuid = record['uuid']
-        json_metadata = record['json_metadata']
-        dici = self.__getRecordFromJson(json_metadata)
-        parent_uids =  self.__getParentUIDs(dici)
-        
-        childuid = str(childuid)
-        child = {'id':childuid, 'name':childuid}
-        
-        if includeChilren:
-            child = self.createSampleChildrenTree(sample_id)
-        
-        upTreeList = []
-        if len(parent_uids)==0:
-            upTreeList.append(child)
-        else:
-            for uid in parent_uids:
-                uid = str(uid)
-                childNode = {'id':uid, 'name':uid, 'children':[child]}
-                parentTreeList = self.__getParentTreeListLoop(childNode)
-                upTreeList += parentTreeList
-        
-        return upTreeList, parent_uids
-    
     def createMultiParentTreeParallel_i(self, uid, child):
         uid = str(uid)
         childNode = {'id':uid, 'name':uid, 'children':[child]}
@@ -2129,59 +1905,6 @@ class DBtable_sample(DBtable):
                 listlists.append(newlist)
         
         return listlists
-    
-    @cache
-    def createSampleMultiParentTree(self, sample_id):
-        includeChilren = True
-        fullTreeList, parent_uids = self.__createMultiParentTree(sample_id, includeChilren)
-        # Full tree list does not contain all the info
-        
-        if fullTreeList is None:
-            multi_parents_treeData = {
-                'name': "Sample Tree",
-                'id': "cert-root"
-            }
-        else:
-            multi_parents_treeData = {
-                'name': "Sample Tree",
-                'id': "cert-root",
-                'children': fullTreeList
-            }
-        
-        return multi_parents_treeData
-    
-    def __convertListlistsIntoDiclist_toberemoved(self, parentList):
-        n0 = 0
-        list0 = None
-        for listi in parentList:
-            ni = len(listi)
-            if ni>n0:
-                n0 = ni
-                list0 = listi
-                
-        sampleTypes = []
-        for uid in list0:
-            if "-" in uid:
-                terms = uid.split('-')
-                sampleType = terms[0]
-            else:
-                sampleType = uid
-            sampleTypes.append(sampleType)
-            
-        diclist = []
-        for listi in parentList:
-            dici = {}
-            for uid in listi:
-                if "-" in uid:
-                    terms = uid.split('-')
-                    sampleType = terms[0]
-                else:
-                    sampleType = uid
-                dici[sampleType] = uid
-                
-            diclist.append(dici)
-            
-        return sampleTypes, diclist
     
     def __getSampleTypeAttributes(self, parentList):
         sampleTypes = []       
@@ -2242,40 +1965,6 @@ class DBtable_sample(DBtable):
         metadata = record_db['json_metadata']
         sampleDic = self.__getRecordFromJson(metadata)
         return sampleDic
-        
-    def __saveSampleList_toberemoved(self, sampleTypes, diclist, excelfile):
-        stype = DBtable_sampletype("DEFAULT")
-        attributes = stype.retrieveAttributes(sampleTypes)
-        uids = {}
-        for dici in diclist:
-            for sampletype, uid in dici.items():
-                if uid not in uids:
-                    sampleDic = self.__retrieveSampleJsonData(uid)
-                    uids[uid] = sampleDic
-                    
-        for dici in diclist:
-            dici_new = {}
-            for sampletype, uid in dici.items():
-                if uid in uids:
-                    sampleDic = uids[uid]
-                    if sampleDic is not None and sampleDic is not []:
-                        for key, value in sampleDic.items():
-                            newkey = sampletype + ':' + key
-                            dici_new[newkey] = value
-            diclist_new.append(dici_new)
-            
-        headers = []
-        for attr in attributes:
-            for sampletype, attrInfo in attr.items():
-                if attrInfo is not None and 'headers' in attrInfo:
-                    headers_i = attrInfo['headers']
-                    for header in headers_i:
-                        newheader = sampletype + ":" + header
-                        headers.append(newheader)
-                        
-        saveDiclistIntoExcel(diclist_new, excelfile, headers, 'samples')
-        nsamples = len(diclist_new)
-        return nsamples
         
     def __convertSampleTreeToList(self, parentList, sampleTypes, sampleTypeCount, headers):
         uids = {}
@@ -2350,17 +2039,6 @@ class DBtable_sample(DBtable):
         return nsamples
 
 
-    def __createSampleTreeToList(self, sample_id, xlsfile='test.xls'):
-        includeChilren = False
-        upTreeList, parent_uids = self.__createMultiParentTree(sample_id, includeChilren)
-        parentList = self.__getChildrenListLoop(upTreeList)
-        sampleTypes, sampleTypeCount, headers, headersMapping = self.__getSampleTypeAttributes(parentList)
-          
-        headers_new, diclist_new = self.__convertSampleTreeToList(parentList, sampleTypes, sampleTypeCount, headers)        
-        nsamplesOutput = self.__saveSampleList(headers_new, diclist_new, xlsfile)
-        return parentList
-
-
     def __createSampleTree(self, sample_ids):
         includeChilren = False
         parentList = []
@@ -2379,187 +2057,6 @@ class DBtable_sample(DBtable):
         return nsamplesOutput
 
 
-    def __exportParentList(self, parentList, xlsfile):
-        sampleTypes = []       
-        sampleTypeCount = {}   
-        for listi in parentList:
-            sampleTypeCount_i = {}
-            for uid in listi:
-                if "-" in uid:
-                    terms = uid.split('-')
-                    sampleType = terms[0]
-                else:
-                    sampleType = uid
-                    
-                if sampleType not in sampleTypes:
-                    sampleTypes.append(sampleType)
-                    
-                if sampleType not in sampleTypeCount_i:    
-                    sampleTypeCount_i[sampleType] = 1
-                else:
-                    sampleTypeCount_i[sampleType] = sampleTypeCount_i[sampleType] + 1
-                    
-            for sampleType_i, count_i in sampleTypeCount_i.items():
-                if sampleType_i not in sampleTypeCount:
-                    sampleTypeCount[sampleType_i] = count_i
-                else:
-                    if count_i>sampleTypeCount[sampleType_i]:
-                        sampleTypeCount[sampleType_i] = count_i
-                
-        headers = []
-        for sampleType in sampleTypes:
-            count = sampleTypeCount[sampleType]
-            for i in range(count):
-                if count>1:
-                    suffix = "_" + str(i+1)
-                    prefix = sampleType + suffix 
-                else:
-                    prefix = sampleType
-                
-                headers.append(prefix)
-        
-        diclist = []
-        for listi in parentList:
-            dici = {}
-            sampleTypeCount_now = {}        
-            for uid in listi:
-                if "-" in uid:
-                    terms = uid.split('-')
-                    sampleType = terms[0]
-                else:
-                    sampleType = uid
-                
-                if sampleType not in sampleTypeCount_now:
-                    sampleTypeCount_now[sampleType] = 1
-                else:
-                    sampleTypeCount_now[sampleType] = sampleTypeCount_now[sampleType] + 1
-
-                count = sampleTypeCount[sampleType]
-                if count==1:
-                    prefix = sampleType
-                else:
-                    suffix = "_" + str(sampleTypeCount_now[sampleType])
-                    prefix = sampleType + suffix
-                
-                dici[prefix] = uid
-                    
-            diclist.append(dici)
-        saveDiclistIntoExcel(diclist, xlsfile, headers, 'uids')  
-
-    def __formatHttpLink(self, stritem):
-        if stritem is None:
-            return stritem
-        
-        newstr = 'HYPERLINK(' + stritem + ')'
-        newitem = xlwt.Formula(newstr)
-        return newitem
-    
-    
-    def __saveSamples(self, xlsfile, diclist, headers, sheetname_2=None, diclist_2=None, headers_2=None):
-        book = xlwt.Workbook(encoding="utf-8")
-        sheet1 = book.add_sheet("Samples")
-        row = 0
-        for index, header in enumerate(headers):
-            try:
-                newitem = toString(header)
-            except:
-                newitem = cleanString(newitem)
-            sheet1.write(row, index, newitem)
-        
-        for dici in diclist:
-            row += 1
-            for index, header in enumerate(headers):
-                if header in dici:
-                    newitem = dici[header]
-                else:
-                    newitem = "N/A"
-                
-                try:
-                    newitem = str(newitem)
-                    if 'http' in newitem:
-                        newitem = self.__formatHttpLink(newitem)
-                except:
-                    newitem = cleanString(newitem)
-                sheet1.write(row, index, newitem)
-        
-        if sheetname_2 is None:
-            book.save(xlsfile)
-            return
-        
-        sheet2 = book.add_sheet(sheetname_2)        
-        row = 0
-        for index, header in enumerate(headers_2):
-            try:
-                newitem = toString(header)
-            except:
-                newitem = cleanString(newitem)
-            sheet2.write(row, index, newitem)
-        
-        for dici in diclist_2:
-            row += 1
-            for index, header in enumerate(headers_2):
-                if header in dici:
-                    newitem = dici[header]
-                else:
-                    newitem = "N/A"
-                
-                try:
-                    newitem = str(newitem)
-                    if 'http' in newitem:
-                        newitem = self.__formatHttpLink(newitem)
-                except:
-                    newitem = cleanString(newitem)
-                sheet2.write(row, index, newitem)
-                
-        book.save(xlsfile)
-        
-    def __formatSampleDownload(self, sampletype_id, diclist):
-        sattr = DBtable_sampleattribute()
-        attributeInfo = sattr.getAttributeInfo(sampletype_id)
-        headers = attributeInfo['headers']
-        metadata = []
-        for dici in diclist:
-            json_metadata = dici['json_metadata']
-            record = self.__getRecordFromJson(json_metadata)
-            metadata.append(record)
-        
-        newheaders = []
-        for header in headers:
-            newheaders.append(header)
-        return newheaders, metadata
-        
-    def downloadSamples(self, user_seek, xlsfile, link, sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo, project_id=0):
-        if attribute=='none':
-            msg = 'ignore validation'
-        else:
-            sattr = DBtable_sampleattribute()
-            msg, status = sattr.validateFilters(sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo)
-            if status==0:
-                data = {'msg':msg, 'status': status, 'link':''}
-                reportData = simplejson.dumps(data, default=str)
-                return reportData
-                
-        data = self.__retrieveSamplesInType(user_seek, sampletype_id, project_id)
-        if attribute=='none':
-            msg = 'ignore filtering'
-            rows = data['rows']
-        else:
-            rows = self.__filterSamples(data['rows'], sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo)
-        
-        sample_ids = []
-        for row in rows:
-            uid = row['uid']
-            sample_id = str(row['pid'])
-            sample_ids.append(sample_id)
-        self.__createSampleTreeToList_new(sample_ids, xlsfile) 
-        data['msg'] = 'okay'
-        data['status'] = 1
-        data['link'] = link
-        
-        reportData = simplejson.dumps(data, default=str)
-        return reportData
-    
-    
     def downloadSamples_new(self, user_seek, xlsfile, link, sample_ids, includeSampleTree=1, attributeFilter=None):
         if includeSampleTree==1:
             nsamplesOutput = self.__createSampleTreeToList_new(sample_ids, xlsfile, attributeFilter)
@@ -3167,50 +2664,6 @@ class DBtable_sample(DBtable):
             
         return dici, diclist
     
-    def __exportSampleSheet(self, parentList, sampleTypes, sampleTypeCount, headers, excelfile):
-        uids = {}
-        for listi in parentList:
-            for uid in listi:
-                if uid not in uids:
-                    sampleDic = self.__retrieveSampleJsonData(uid)
-                    uids[uid] = sampleDic
-                    
-        diclist_new = []
-        for listi in parentList:
-            dici_new = {}
-            sampleTypeCount_now = {}        
-            for uid in listi:
-                if "-" in uid:
-                    terms = uid.split('-')
-                    sampleType = terms[0]
-                else:
-                    sampleType = uid
-                
-                if sampleType not in sampleTypeCount_now:
-                    sampleTypeCount_now[sampleType] = 1
-                else:
-                    sampleTypeCount_now[sampleType] = sampleTypeCount_now[sampleType] + 1
-
-                count = sampleTypeCount[sampleType]
-                if count==1:
-                    prefix = sampleType + ':'       # such as "TIS:"
-                else:
-                    suffix = "_" + str(sampleTypeCount_now[sampleType])
-                    prefix = sampleType + suffix + ':'       # such as "DNA_2:"
-                
-                sampleDic = uids[uid]
-                if sampleDic is not None and sampleDic is not []:
-                    for key, value in sampleDic.items():
-                        newkey = prefix + key
-                        dici_new[newkey] = value        
-            diclist_new.append(dici_new)
-        
-        headers_new = filterDiclist(headers, diclist_new)
-        headers_noneConstant, diclist_constant, headers_constant = getConstantRows(headers_new, diclist_new)
-        saveTwoDiclistsIntoExcel(excelfile, diclist_new, headers_noneConstant, 'samples', diclist_constant, headers_constant, 'constants')
-        nsamples = len(diclist_new)
-        return nsamples
-        
     def __publishSampleList(self, user_seek, sample_ids, xlsfile, assay_id=None, project_id=None):
         isNewSheet = False
         excelfile = xlsfile
@@ -4153,45 +3606,6 @@ class DBtable_sample(DBtable):
         else:
             return None
 
-    def getSampleTrees(self, sample_id, childrenTreeIn=None):
-        sampleTree = {}
-        
-        if childrenTreeIn is None:
-            childrenTree = self.createSampleChildrenTree(sample_id)
-        else:
-            childrenTree = childrenTreeIn
-        sampleTree['children'] = childrenTree
-        
-        includeChilren = True
-        fullTreeList, parent_uids = self.__createMultiParentTree(sample_id, includeChilren, childrenTree)
-        sampleTree['full'] = fullTreeList
-        
-        if parent_uids is None:
-            sampleTree['parents'] = ''
-        elif len(parent_uids)==0:
-            sampleTree['parents'] = ''
-        else:
-            sampleTree['parents'] = ';'.join(parent_uids)
-        return sampleTree
-       
-    def updateChildrenTreeDic(self, childrenTrees, uid, childrenTree):
-        if uid in childrenTrees:
-            return childrenTrees
-    
-        childrenTrees[uid] = childrenTree
-        if 'children' not in childrenTree:
-            return childrenTrees
-    
-        children = childrenTree['children']
-        for child in children:
-            child_uid = child['id']
-            if child_uid in childrenTrees:
-                continue
-            else:
-                childrenTrees = self.updateChildrenTreeDic(childrenTrees, child_uid, child)
-    
-        return childrenTrees
-        
     def parseSampleIDs(self, sample_ids):
         sampleDiclist = self.retrieveRecordsByIDs(sample_ids)
         sampleTypes = {}
@@ -4208,29 +3622,6 @@ class DBtable_sample(DBtable):
             sampleTypes[sampleType] = slist
             
         return sampleTypes
-        
-    def __getChildrenListLoop_noTree(self, parentTreeData):
-        sampleTypes = {}
-        for node in parentTreeData:
-            if 'children' in node:
-                children = node['children']
-                sampleTypes = self.__getChildrenListLoop(children)
-            else:
-                sampleTypes = {}
-            
-            uid = node['id']
-            terms = uid.split('-')
-            sampleType = terms[0]
-            if sampleType in sampleTypes:
-                uids = sampleTypes[sampleType]
-            else:
-                uids = []
-            if uid not in uids:
-                uids.append(uid)
-            sampleTypes[sampleType] = uids
-        
-        return sampleTypes
-        
         
     def __createSampleTreeFromDB_noTree(self, sample_ids):
         logger.debug("createSampleTreeFromDB_noTree")
@@ -4306,41 +3697,6 @@ class DBtable_sample(DBtable):
     def __retrieveSamples(self, headers, sample_uids):
         return self.__retrieveSamples_v2(headers, sample_uids)
             
-        logger.debug("retrieveSamples")
-        status = 1
-        msg = ''
-        diclist = []
-        nsamplesOutput = 0
-        for uid in sample_uids:
-            record = self.__retrieveSampleByUID(uid)
-            if record is None:
-                msgi = 'Error: Sample uid ' + str(uid) +  ' not found in DB '
-                status = 0
-                msg += msgi + '<br/>'
-                logger.debug(msgi)
-                continue
-            
-            json_metadata = record['json_metadata']
-            dici = self.__getRecordFromJson(json_metadata)
-            dici_rev = {}
-            for header in headers:
-                hi = header.strip()
-                if hi in dici:
-                    dici_rev[header] = dici[hi]
-                else:
-                    dici_rev[header] = ''
-            
-            diclist.append(dici_rev)
-            nsamplesOutput += 1
-        
-        #n1 = len(diclist)
-        #diclist = removeRedundancy(headers, diclist)
-        #n2 = len(diclist)
-        #msg = "Number of rows before and after filtering: " + str(n1) + ' ' + str(n2)
-        #logger.debug(msg)
-        return diclist, msg, status, nsamplesOutput
-    
-    
     def __retrieveSamples_v2(self, headers, sample_uids):
         logger.debug("retrieveSamples_v2")
         status = 1

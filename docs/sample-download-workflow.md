@@ -124,7 +124,7 @@ control (a…g)
                       └─ one sheet per sample type
 ```
 
-`DBtable_sample.sampleRetrievalData` (`seek/dbtable_sample.py:941`) and
+`DBtable_sample.sampleRetrievalData` (`seek/dbtable_sample.py:901`) and
 `seek.views.sample_retrieval_data` (`seek/views.py:1233`) both delegate to
 `write_samples_workbook`, so the README cannot drift between call paths even
 though both legacy views still exist.

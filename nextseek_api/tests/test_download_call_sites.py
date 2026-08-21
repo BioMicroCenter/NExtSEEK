@@ -101,7 +101,7 @@ STATIC = Path(__file__).resolve().parents[2] / "static"
 
 def test_collector_reads_both_uid_column_names():
     """The two grids bind different columns. reformatDataForClient
-    (seek/dbtable_sample.py:1712-1713) emits `uuid` raw and `uid` as anchor
+    (seek/dbtable_sample.py:1582-1583) emits `uuid` raw and `uid` as anchor
     markup; the simple grid binds `uid`, the advanced grid binds `uuid`.
     Reading only one of them silently yields zero selected samples."""
     js = (STATIC / "js" / "ns_sample_download.js").read_text(encoding="utf-8")
