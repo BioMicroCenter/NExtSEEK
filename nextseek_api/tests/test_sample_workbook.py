@@ -13,6 +13,7 @@ from nextseek_api.services.sample_workbook import (
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
     FLOW_ARROW_WIDTH,
+    FLOW_README_POINTER,
     FLOW_SHEET,
     FLOW_TYPE_WIDTH,
     SUMMARY_HEADER,
@@ -587,10 +588,17 @@ def test_a_chain_occupies_one_row_across_columns(_ctx, _fields, _assays, tmp_pat
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
 def test_no_flow_sheet_when_there_is_no_lineage(_ctx, _fields, _assays, tmp_path):
-    """An empty sheet reads as a rendering bug."""
+    """An empty sheet reads as a rendering bug -- and so does a README that
+    points at a sheet the workbook does not contain. The pointer's absence was
+    caught only incidentally, by an unrelated cell-position assertion; state it
+    here, where the sheet's absence is the subject."""
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_df(), str(out))
-    assert FLOW_SHEET not in load_workbook(out).sheetnames
+    wb = load_workbook(out)
+    assert FLOW_SHEET not in wb.sheetnames
+    text = " ".join(str(c.value) for row in wb["README"].iter_rows()
+                    for c in row if c.value)
+    assert FLOW_README_POINTER not in text
 
 
 @patch(f"{_MOD}.load_assay_titles", return_value={})

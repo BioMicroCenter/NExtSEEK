@@ -1,5 +1,6 @@
 """Provenance: which types feed which, and how far down the pipeline each sits."""
 
+import itertools
 import math
 
 import pandas as pd
@@ -113,11 +114,20 @@ def test_depth_terminates_on_a_two_cycle():
 
 
 def test_depth_resolves_a_cycle_the_same_way_every_run():
-    """Without a fixed visit order, which member of a cycle gets depth 0
-    would depend on dict iteration."""
-    edges = {("CEL", "D.FLOW"): set(), ("D.FLOW", "CEL"): set()}
-    results = [sample_type_depths(edges) for _ in range(5)]
-    assert all(r == results[0] for r in results)
+    """Which member of a cycle gets depth 0 depends on the order nodes are
+    visited, and that order comes from a dict built by iterating `edges`.
+
+    So the input has to vary, not the number of calls: CPython iterates a dict
+    built the same way twice in one process the same way twice, which is why
+    calling the function five times on one dict passed even with the sorted()
+    traversal this test exists to pin removed. Feeding the same edges in every
+    insertion order is what actually holds it down."""
+    hops = [("TIS", "CEL"), ("CEL", "D.FLOW"), ("D.FLOW", "CEL"), ("CEL", "OOC")]
+    results = [
+        sample_type_depths({hop: set() for hop in order})
+        for order in itertools.permutations(hops)
+    ]
+    assert all(r == results[0] for r in results), results
 
 
 def test_depth_omits_types_that_appear_in_no_edge():
