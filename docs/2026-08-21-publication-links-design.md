@@ -96,13 +96,30 @@ All verified against the running stack on 2026-08-21.
    introspects the live graph and overwrites them (hence `fetched_at`).
    `min_graph_schema.json` is hand-written.
 
-10. **The graph attributes exist on dev/prod but not locally.** The local docker
-    Neo4j's `Study` nodes carry exactly `title`, `description`, `id` across all 51
-    studies. The `neo4j_schema_dev.json` and `_prod.json` snapshots agree but are
-    dated 2026-03-26 and cannot speak to a recent change; per the maintainer, dev
-    and prod already carry `doi` and `pmid` on `Study`. Every graph write in this
-    design is therefore idempotent and must work whether or not the properties
-    already exist.
+10. **The graph properties are `DOI` and `PMID` — uppercase — and empty, not
+    null.** Queried directly against both instances over the HTTP transaction
+    endpoint on 2026-08-24:
+
+    - **dev** (`nextseek-dev.mit.edu`): 51 studies, all 51 carry `DOI` and `PMID`.
+    - **prod** (`nextseek.mit.edu`): 56 studies, 49 carry them; 7 do not.
+    - **Every value on both instances is an empty string.** None are populated.
+    - The local docker stack has neither property on any of its 51 studies.
+
+    Two traps follow, both of which fail silently rather than raising:
+
+    - **Casing.** The MySQL columns are lowercase `doi`/`pmid`; the graph
+      properties are uppercase. Cypher returns `null` for a wrong-cased property
+      instead of erroring, so a slip reads as "nothing is published". Neither side
+      should be renamed to match the other — the graph names are already in use on
+      production.
+    - **Sentinel.** Because the unset value is `''` and not `null`,
+      `WHERE st.DOI IS NOT NULL` is true for *every* study and would report all
+      ~51k samples as published. Emptiness must be tested with
+      `coalesce(st.DOI, '') <> ''`. MySQL genuinely uses `NULL`, where
+      `IS NOT NULL` is correct — the two stores differ, deliberately.
+
+    Every graph write is therefore idempotent, writes `''` rather than `null`, and
+    must work whether or not the property already exists.
 
 11. **`-PUB` is the sample population, not a parallel copy.** Samples published
     through `ns-published-fdh` carry a `-PUB` UID suffix, and their `Parent*`
@@ -148,17 +165,21 @@ lookup rather than a clause.
 ### Neo4j: two properties on `Study`
 
 ```
-(:Study {id, title, description, doi, pmid})
+(:Study {id, title, description, DOI, PMID})
 (:Sample)-[:IN_STUDY]->(:Study)
 ```
+
+**Uppercase, and `''` when unset** — see finding 10. PMID is stored as a string so
+the property does not alternate between integer and empty string.
 
 No new label and no new relationship type. A sample's paper is one hop away
 along an edge that already exists.
 
 ### Effective set
 
-A sample is published in a paper if it belongs to a study whose `doi` or `pmid`
-is set. Nothing else. A sample in two published studies shows both papers.
+A sample is published in a paper if it belongs to a study whose DOI or PMID is
+set — in MySQL, `doi IS NOT NULL`; in Neo4j, `coalesce(st.DOI, '') <> ''`.
+Nothing else. A sample in two published studies shows both papers.
 
 ## Backfill
 
@@ -262,9 +283,9 @@ SQL.
 ### Sync
 
 `uv run manage.py sync_study_publications` reads `studies.doi` / `studies.pmid`
-from MySQL and sets the matching properties on `Study` nodes, including setting
-them to null where MySQL has none — so clearing a wrong DOI in MySQL clears it in
-the graph too.
+from MySQL and sets `Study.DOI` / `Study.PMID`, writing `''` where MySQL has none —
+so clearing a wrong DOI in MySQL clears it in the graph too. It writes `''` rather
+than `null` to match the sentinel already in use on dev and production.
 
 Idempotent, and safe whether or not the properties already exist on the target
 instance (finding 10). `--apply` on the fill command calls the same code, so a
@@ -298,7 +319,9 @@ work. There is no new endpoint in this version to get it wrong.
 | Sample with no study (~958 of them) | Empty publication cell. Correct, not an error. |
 | Study with no DOI (17 of them) | Empty publication cell. Correct, not an error. |
 | Columns already present | The `information_schema` guard makes the DDL a no-op. |
-| Graph properties already present | `SET` is idempotent; dev and prod are expected to be in this state. |
+| Graph properties already present | `SET` is idempotent. Dev has them on all 51 studies and prod on 49 of 56, all empty. |
+| Graph property absent (prod's 7 studies) | `SET` creates it. No pre-flight needed. |
+| Someone "fixes" the casing or writes `null` | Both fail silently — a wrong-cased property and a null sentinel each read as "not published". Covered by tests asserting the exact strings. |
 
 ## Testing
 

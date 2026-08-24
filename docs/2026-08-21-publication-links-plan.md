@@ -24,7 +24,9 @@ it. Task 1 below is unchanged from that plan; everything after it is new.
 - **Never interpolate user text into SQL.** The existing search builder concatenates strings; every value this plan adds to it must be an `int()` first, or go through a parameterized query.
 - **DOIs are stored lowercased** for comparison; DOIs are case-insensitive by specification.
 - **No Django migration may create the MySQL columns.** The entrypoint runs a plain `migrate`, which touches only the default database (design finding 13). Column creation is done explicitly by the fill command, guarded by an `information_schema` lookup — MySQL 8 has no `ADD COLUMN IF NOT EXISTS`.
-- **Every graph write must be idempotent** and must work whether or not `doi`/`pmid` already exist on `Study`. They do on dev and prod; they do not on the local docker stack (design finding 10).
+- **The Neo4j properties are `DOI` and `PMID` — uppercase — while the MySQL columns are `doi` and `pmid`, lowercase.** Verified against both instances on 2026-08-24. Do not "tidy" either side to match the other: Cypher returns `null` for a wrong-cased property instead of erroring, so a rename fails silently and every sample looks unpublished.
+- **Neo4j uses `''` as the unset sentinel, not `null`.** Every existing value on dev and prod is an empty string, so `WHERE st.DOI IS NOT NULL` matches *every* study and would mark all ~51k samples published. Always test `coalesce(st.DOI, '') <> ''`. MySQL uses real `NULL`s, where `IS NOT NULL` is correct — the two stores genuinely differ here.
+- **Every graph write must be idempotent** and must work whether or not the properties already exist: dev carries them on all 51 studies, prod on 49 of 56, and the local docker stack on none (design finding 10).
 - **Tests must not require a database.** Existing suite style (`seek/tests/test_search_pubmed_nested.py`) is pure-unit. Use stubs for anything touching MySQL or Neo4j. Run with `uv run pytest`.
 - **`seek/publications.py` must not import `seek/dbtable_sample.py`.** That module pulls in MySQLdb, pandas and the neo4j driver at import time; keeping the dependency one-way is what keeps these tests fast.
 - **Commit after every task**, using conventional commits with a module scope.
@@ -1199,12 +1201,19 @@ from seek import publications_graph as pg
 class TestBuildStudyRows:
     def test_maps_columns_to_properties(self):
         rows = [{"id": 3, "doi": "10.1/a", "pmid": 7}]
-        assert pg.build_study_rows(rows) == [{"study_id": 3, "doi": "10.1/a", "pmid": 7}]
+        assert pg.build_study_rows(rows) == [{"study_id": 3, "doi": "10.1/a", "pmid": "7"}]
 
-    def test_unpublished_study_is_included_with_nulls(self):
-        # Included on purpose: this is what clears a DOI removed in MySQL.
+    def test_unpublished_study_becomes_empty_strings_not_nulls(self):
+        # Included on purpose: this is what clears a DOI removed in MySQL. The
+        # sentinel is '' because that is what dev and prod already hold; writing
+        # null would leave two different sentinels in one property.
         rows = [{"id": 4, "doi": None, "pmid": None}]
-        assert pg.build_study_rows(rows) == [{"study_id": 4, "doi": None, "pmid": None}]
+        assert pg.build_study_rows(rows) == [{"study_id": 4, "doi": "", "pmid": ""}]
+
+    def test_pmid_is_written_as_a_string(self):
+        # Keeps the property type stable against the existing '' values rather
+        # than making PMID sometimes an int and sometimes a string.
+        assert pg.build_study_rows([{"id": 5, "doi": "10.1/a", "pmid": 42}])[0]["pmid"] == "42"
 
     def test_empty(self):
         assert pg.build_study_rows([]) == []
@@ -1214,9 +1223,11 @@ class TestCypher:
     def test_matches_study_by_id(self):
         assert "MATCH (st:Study {id: row.study_id})" in pg.STUDY_PROPERTY_CYPHER
 
-    def test_sets_both_properties(self):
-        assert "st.doi = row.doi" in pg.STUDY_PROPERTY_CYPHER
-        assert "st.pmid = row.pmid" in pg.STUDY_PROPERTY_CYPHER
+    def test_sets_both_properties_using_the_instances_casing(self):
+        # Uppercase on purpose: that is how the properties exist on dev and prod.
+        # A wrong-cased property returns null in Cypher rather than erroring.
+        assert "st.DOI = row.doi" in pg.STUDY_PROPERTY_CYPHER
+        assert "st.PMID = row.pmid" in pg.STUDY_PROPERTY_CYPHER
 
     def test_does_not_create_studies(self):
         # MERGE here would invent Study nodes that MySQL has but the graph does not.
@@ -1286,9 +1297,20 @@ MySQL is the source of truth. Every study is written, including those with no
 DOI — that is what clears a value removed in MySQL rather than leaving a stale
 one in the graph.
 
-The properties already exist on dev and prod and do not exist on the local docker
-stack; SET covers both cases. MATCH, never MERGE: a study missing from the graph
-is a graph-sync problem to investigate, not a node to invent here.
+Two naming facts, both verified against the live instances on 2026-08-24 and both
+easy to get wrong silently:
+
+- The graph properties are **`DOI` and `PMID`, uppercase**, while the MySQL
+  columns are lowercase. Cypher returns null for a wrong-cased property instead
+  of raising, so a casing slip looks like "nothing is published".
+- The unset value is **`''`, not null**. Every study on dev and prod currently
+  holds empty strings, so `IS NOT NULL` is true for all of them. Test emptiness
+  with `coalesce(st.DOI, '') <> ''`, and write `''` rather than null so the two
+  sentinels never mix.
+
+The properties exist on all 51 dev studies, 49 of 56 prod studies, and none
+locally; SET covers every case. MATCH, never MERGE: a study missing from the
+graph is a graph-sync problem to investigate, not a node to invent here.
 
 See docs/2026-08-21-publication-links-design.md.
 """
@@ -1307,7 +1329,7 @@ log = logging.getLogger(__name__)
 STUDY_PROPERTY_CYPHER = """
 UNWIND $rows AS row
 MATCH (st:Study {id: row.study_id})
-SET st.doi = row.doi, st.pmid = row.pmid
+SET st.DOI = row.doi, st.PMID = row.pmid
 """
 
 
@@ -1326,7 +1348,11 @@ def _study_rows() -> list[dict]:
 
 def build_study_rows(rows: list[dict]) -> list[dict]:
     return [
-        {"study_id": r["id"], "doi": r.get("doi"), "pmid": r.get("pmid")}
+        {
+            "study_id": r["id"],
+            "doi": r.get("doi") or "",
+            "pmid": str(r["pmid"]) if r.get("pmid") else "",
+        }
         for r in rows
     ]
 
@@ -1414,15 +1440,16 @@ it from the graph:
 ```bash
 docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -e "UPDATE studies SET doi=\"10.9999/test\", pmid=1234567 WHERE id=1;"'
 docker compose exec -T nextseek uv run manage.py sync_study_publications
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study {id:1}) RETURN s.doi, s.pmid;"'
+docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study {id:1}) RETURN s.DOI, s.PMID;"'
 docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -e "UPDATE studies SET doi=NULL, pmid=NULL WHERE id=1;"'
 docker compose exec -T nextseek uv run manage.py sync_study_publications
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study {id:1}) RETURN s.doi, s.pmid;"'
+docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study {id:1}) RETURN s.DOI, s.PMID;"'
 ```
 
-Expected: `with_doi=1` on the first sync, then `"10.9999/test", 1234567`, then
-`with_doi=0`, then `NULL, NULL`. If the second read still shows the test DOI, the
-sync is not clearing and stale values will persist forever.
+Expected: `with_doi=1` on the first sync, then `"10.9999/test", "1234567"`, then
+`with_doi=0`, then `"", ""` — empty strings, **not** `NULL`, matching the sentinel
+dev and prod already use. If the second read still shows the test DOI, the sync is
+not clearing and stale values will persist forever.
 
 - [ ] **Step 7: Commit**
 
@@ -1901,7 +1928,7 @@ git commit -m "feat(publications): fill study doi/pmid from descriptions with a 
 - Test: `chat_nextseek/tests/test_publication_schema_context.py`
 
 **Interfaces:**
-- Consumes: the `Study.doi` / `Study.pmid` properties written in Task 6.
+- Consumes: the `Study.DOI` / `Study.PMID` properties written in Task 6 (uppercase; `''` when unset).
 - Produces: no Python API. `min_graph_schema.json`'s `Study` entry names the new properties, and two `graph_query_triggers` are added.
 
 - [ ] **Step 1: Note what must NOT be edited**
@@ -1932,10 +1959,17 @@ def _min_schema():
     return json.loads((CONTEXT / "min_graph_schema.json").read_text())
 
 
-def test_study_description_names_doi_and_pmid():
+def test_study_description_names_doi_and_pmid_with_real_casing():
+    # The live properties are uppercase; the agent writes Cypher from this text,
+    # and a lowercase name silently returns null for every study.
     study = next(n for n in _min_schema()["node_types"] if n["label"] == "Study")
-    assert "doi" in study["description"]
-    assert "pmid" in study["description"]
+    assert "DOI" in study["description"]
+    assert "PMID" in study["description"]
+
+
+def test_study_description_warns_the_sentinel_is_empty_string():
+    study = next(n for n in _min_schema()["node_types"] if n["label"] == "Study")
+    assert "empty string" in study["description"] or "''" in study["description"]
 
 
 def test_study_description_says_most_studies_are_unpublished():
@@ -1967,7 +2001,7 @@ def test_generated_schema_files_are_not_hand_edited():
 cd chat_nextseek && uv run pytest tests/test_publication_schema_context.py -v
 ```
 
-Expected: FAIL — the `Study` description does not mention `doi`.
+Expected: FAIL — the `Study` description does not mention `DOI`.
 
 - [ ] **Step 4: Update `min_graph_schema.json`**
 
@@ -1976,21 +2010,21 @@ Replace the `Study` entry in `node_types` with:
 ```json
     {
       "label": "Study",
-      "description": "A research study grouping samples. In this instance a study IS a published paper: 'title' is the paper title. Properties: 'title', 'doi', 'pmid'. A study with a non-null 'doi' or 'pmid' is published; most studies are unpublished and have neither, which is expected rather than missing data. Linked to an Investigation via IN_INVESTIGATION."
+      "description": "A research study grouping samples. In this instance a study IS a published paper: 'title' is the paper title. The publication properties are 'DOI' and 'PMID' — UPPERCASE, unlike every other property on this node. A study is published when its DOI or PMID is a non-empty string. The unset value is an empty string, NOT null, so never test IS NOT NULL: it is true for every study. Use coalesce(st.DOI,'') <> '' instead. Most studies are unpublished, which is expected rather than missing data. Linked to an Investigation via IN_INVESTIGATION."
     }
 ```
 
 Add to `graph_query_triggers`:
 
 ```json
-    "Query asks which paper or publication a sample appears in ('what paper is this sample from', 'is UID X published', 'which publication used these samples') — traverse (s:Sample)-[:IN_STUDY]->(st:Study) and read st.doi / st.pmid",
+    "Query asks which paper or publication a sample appears in ('what paper is this sample from', 'is UID X published', 'which publication used these samples') — traverse (s:Sample)-[:IN_STUDY]->(st:Study) and read st.DOI / st.PMID",
     "Query names a paper by title, DOI, or PMID and asks for its samples ('what samples were used in the SureQuant paper', 'samples for 10.1101/2021.09.30.462577', 'samples in PMID 34981053')"
 ```
 
 Add to `disambiguation_rules`:
 
 ```json
-    "If the query mentions a DOI, a PMID, a paper, or a publication → graph_query (doi/pmid live on Study nodes and no REST endpoint filters samples by them)"
+    "If the query mentions a DOI, a PMID, a paper, or a publication → graph_query (DOI/PMID live on Study nodes and no REST endpoint filters samples by them)"
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
@@ -2009,18 +2043,24 @@ describing the graph shape:
 ```
 Publications
   A study IS a paper here. The identifiers are properties on the Study node:
-    (:Study {id, title, doi, pmid})
+    (:Study {id, title, DOI, PMID})
+
+  DOI and PMID are UPPERCASE while every other property is lowercase, and the
+  unset value is an empty string, NOT null. Never write "WHERE st.DOI IS NOT
+  NULL": it is true for every study and would report all ~51k samples as
+  published. Test emptiness instead.
 
   Which paper a sample is from:
     MATCH (s:Sample {uuid: $uid})-[:IN_STUDY]->(st:Study)
-    WHERE st.doi IS NOT NULL OR st.pmid IS NOT NULL
-    RETURN st.title, st.doi, st.pmid
+    WHERE coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> ''
+    RETURN st.title, st.DOI, st.PMID
 
-  Which samples a paper used — match on toLower(st.doi) = toLower($doi), on
-  st.pmid, or on a title CONTAINS. DOIs are stored lowercased.
+  Which samples a paper used — match on toLower(st.DOI) = toLower($doi), on
+  st.PMID, or on a title CONTAINS. DOIs are stored lowercased; PMID is stored as
+  a string, so compare it as one.
 
-  Most studies are unpublished and have neither property. "Not published" is a
-  correct answer, not a failed lookup — do not widen the query to find something.
+  Most studies are unpublished. "Not published" is a correct answer, not a failed
+  lookup — do not widen the query to find something.
 ```
 
 - [ ] **Step 7: Update `capabilities.md`**
@@ -2045,8 +2085,9 @@ In `chat_nextseek/src/chat_nextseek/config.py`, in the schema fetch that builds 
         # like "the SureQuant paper" onto a real node.
         try:
             records, _, _ = driver.execute_query(
-                "MATCH (st:Study) WHERE st.doi IS NOT NULL OR st.pmid IS NOT NULL "
-                "RETURN st.title AS title, st.doi AS doi, st.pmid AS pmid LIMIT 500",
+                "MATCH (st:Study) "
+                "WHERE coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> '' "
+                "RETURN st.title AS title, st.DOI AS doi, st.PMID AS pmid LIMIT 500",
                 database_=self.NEO4J_DATABASE_NAME,
             )
             schema["vocabulary"]["published_studies"] = [
@@ -2073,7 +2114,7 @@ docker compose exec -T nextseek uv run manage.py nessie --question "what paper i
 
 Expected: the first returns a sample list scoped to that study; the second returns
 the study title with its DOI. If the agent returns nothing, first check that DOIs
-exist in the graph (`MATCH (s:Study) WHERE s.doi IS NOT NULL RETURN count(s)`)
+exist in the graph (`MATCH (s:Study) WHERE coalesce(s.DOI,'') <> '' RETURN count(s)`)
 before suspecting the prompt.
 
 - [ ] **Step 10: Commit**
@@ -2105,7 +2146,9 @@ docker compose exec -T nextseek uv run manage.py sync_study_publications
 
 ```bash
 docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -N -B -e "SELECT COUNT(*) FROM studies WHERE doi IS NOT NULL;"'
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study) WHERE s.doi IS NOT NULL RETURN count(s);"'
+docker exec -i neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD"' <<'CYPHER'
+MATCH (s:Study) WHERE coalesce(s.DOI,'') <> '' RETURN count(s);
+CYPHER
 ```
 
 The two counts must match. If they do not, the graph is stale — rerun the sync
@@ -2114,7 +2157,11 @@ and investigate before shipping.
 - [ ] **Published sample counts are plausible**
 
 ```bash
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.doi IS NOT NULL RETURN st.title, count(s) ORDER BY count(s) DESC LIMIT 10;"'
+docker exec -i neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD"' <<'CYPHER'
+MATCH (s:Sample)-[:IN_STUDY]->(st:Study)
+WHERE coalesce(st.DOI,'') <> ''
+RETURN st.title, count(s) ORDER BY count(s) DESC LIMIT 10;
+CYPHER
 ```
 
 Expected: one row per filled study with its sample count.
@@ -2122,7 +2169,11 @@ Expected: one row per filled study with its sample count.
 - [ ] **Unpublished samples stayed silent**
 
 ```bash
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Sample) WHERE NOT (s)-[:IN_STUDY]->(:Study) OR NOT EXISTS { MATCH (s)-[:IN_STUDY]->(st:Study) WHERE st.doi IS NOT NULL } RETURN count(s);"'
+docker exec -i neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD"' <<'CYPHER'
+MATCH (s:Sample)
+WHERE NOT EXISTS { MATCH (s)-[:IN_STUDY]->(st:Study) WHERE coalesce(st.DOI,'') <> '' }
+RETURN count(s);
+CYPHER
 ```
 
 Expected: a large share of the 51,361 samples. If this is near zero, inheritance
