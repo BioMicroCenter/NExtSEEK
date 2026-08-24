@@ -183,20 +183,24 @@ def published_sample_ids_subquery() -> str:
     return f"SELECT DISTINCT aa.asset_id {_SAMPLE_TO_STUDY_JOIN}"
 
 
-def publication_where_clause(query, published_only: bool) -> str:
-    """A WHERE fragment constraining samples by publication, or "".
+def publication_predicate(query, published_only: bool) -> str:
+    """A bare SQL predicate constraining samples by publication, or "".
 
-    Returns " AND 1=0" when the query names a paper that does not exist — an
-    empty result is the honest answer and is easier to reason about than silently
+    Returned without a leading ``AND`` or ``WHERE``: an unfiltered search emits
+    no WHERE clause at all, so the caller decides which keyword to splice — the
+    same shape ``scoped_project_ids`` uses in ``dbtable_sample.py``.
+
+    Returns ``"1=0"`` when the query names a paper that does not exist. An empty
+    result is the honest answer and is easier to reason about than silently
     dropping the filter.
     """
     if query:
         study_ids = resolve_study_ids(query)
         if not study_ids:
-            return " AND 1=0"
-        return f" AND A.id IN ({sample_ids_subquery(study_ids)})"
+            return "1=0"
+        return f"A.id IN ({sample_ids_subquery(study_ids)})"
     if published_only:
-        return f" AND A.id IN ({published_sample_ids_subquery()})"
+        return f"A.id IN ({published_sample_ids_subquery()})"
     return ""
 
 

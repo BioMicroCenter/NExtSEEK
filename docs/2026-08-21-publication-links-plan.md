@@ -395,7 +395,7 @@ The heart of the feature. Two columns, and one module every downstream surface r
   - `resolve_study_ids(query: str) -> list[int]`
   - `sample_ids_subquery(study_ids) -> str`
   - `published_sample_ids_subquery() -> str`
-  - `publication_where_clause(query, published_only: bool) -> str`
+  - `publication_predicate(query, published_only: bool) -> str`
   - `attach_publications(rows: list[dict]) -> list[dict]`
 
 - [ ] **Step 1: Write the failing test**
@@ -1083,12 +1083,23 @@ git commit -m "feat(publications): show the linked paper on the sample detail pa
 
 ### Task 5: Search by publication
 
+> **Implementation note (2026-08-24).** This plan was written against a
+> `dbtable_sample.py` that concatenated SQL strings. The `dev` branch has since
+> parameterized the search builder: `__sqlQuery_select_records_filters_advanced`
+> returns `(fragment, params)`, and an unfiltered search emits **no WHERE clause
+> at all**. So the helper returns a bare predicate — no leading `AND` — and the
+> caller splices `" WHERE "` or `") AND "`, mirroring how `scoped_project_ids`
+> already handles it. A leading `AND`, as originally planned, produces invalid
+> SQL on an unfiltered search. The name changed from `publication_where_clause`
+> to `publication_predicate` to reflect that.
+
+
 **Files:**
 - Modify: `seek/dbtable_sample.py` — `__initSearchFilters` (line 1907), `__parseSearchFilters` (line 3729), `__sqlQuery_select_records_filters_advanced` (line 3876)
 - Test: covered by `TestPublicationWhereClause` in `seek/tests/test_publications.py` (Task 2)
 
 **Interfaces:**
-- Consumes: `seek.publications.publication_where_clause(query, published_only) -> str` from Task 2.
+- Consumes: `seek.publications.publication_predicate(query, published_only) -> str` from Task 2.
 - Produces: `filtersdic` keys `publication_query: str | None` and `published_only: bool`.
 
 - [ ] **Step 1: Confirm the guard-rail tests pass**

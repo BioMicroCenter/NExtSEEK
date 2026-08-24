@@ -126,29 +126,31 @@ class TestSubqueries:
         assert "s.doi IS NOT NULL OR s.pmid IS NOT NULL" in pub.published_sample_ids_subquery()
 
 
-class TestPublicationWhereClause:
-    def test_no_filter_yields_no_clause(self):
-        assert pub.publication_where_clause(None, False) == ""
-        assert pub.publication_where_clause("", False) == ""
+class TestPublicationPredicate:
+    def test_no_filter_yields_no_predicate(self):
+        assert pub.publication_predicate(None, False) == ""
+        assert pub.publication_predicate("", False) == ""
 
-    def test_published_only(self):
-        clause = pub.publication_where_clause(None, True)
-        assert clause.startswith(" AND ")
-        assert "A.id IN (" in clause
+    def test_predicate_carries_no_leading_keyword(self):
+        # An unfiltered search emits no WHERE, so the caller decides between
+        # " WHERE " and ") AND ". A leading AND here would produce invalid SQL.
+        clause = pub.publication_predicate(None, True)
+        assert not clause.lstrip().upper().startswith(("AND", "WHERE"))
+        assert clause.startswith("A.id IN (")
 
     def test_resolved_query_constrains_to_its_studies(self, monkeypatch):
         monkeypatch.setattr(pub, "resolve_study_ids", lambda q: [7])
-        clause = pub.publication_where_clause("10.1/a", False)
+        clause = pub.publication_predicate("10.1/a", False)
         assert "A.id IN (" in clause
         assert "7" in clause
 
     def test_unknown_publication_matches_nothing(self, monkeypatch):
         monkeypatch.setattr(pub, "resolve_study_ids", lambda q: [])
-        assert pub.publication_where_clause("no such paper", False) == " AND 1=0"
+        assert pub.publication_predicate("no such paper", False) == "1=0"
 
     def test_injection_attempt_cannot_reach_sql(self, monkeypatch):
         monkeypatch.setattr(pub, "resolve_study_ids", lambda q: [])
-        clause = pub.publication_where_clause("'; DROP TABLE samples; --", False)
+        clause = pub.publication_predicate("'; DROP TABLE samples; --", False)
         assert "DROP" not in clause
 
 
