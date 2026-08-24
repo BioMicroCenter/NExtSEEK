@@ -40,6 +40,12 @@ _VERSION_SUFFIX_RE = re.compile(r"v\d+(\.full(-text)?)?$", re.IGNORECASE)
 
 _TRAILING_JUNK = ".,;:)]}>\"'"
 
+#: Path segments that mark a DOI as pointing at supplementary material rather
+#: than the paper. Publishers mint these as sub-DOIs of the article DOI, e.g.
+#: 10.1126/sciadv.adq6652/suppl_file/sciadv.adq6652_sm.pdf — Crossref 404s on
+#: them, and the article's own DOI is normally present in the same description.
+_SUPPLEMENT_MARKERS = ("/suppl_file/", "/suppl/", "/supplementary/", "/media/")
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -73,7 +79,10 @@ def normalize_doi(raw: str) -> str | None:
     _, _, suffix = doi.partition("/")
     if not suffix:
         return None
-    return doi.lower()
+    lowered = doi.lower()
+    if any(marker in lowered for marker in _SUPPLEMENT_MARKERS):
+        return None
+    return lowered
 
 
 def _trim_url(url: str) -> str:
