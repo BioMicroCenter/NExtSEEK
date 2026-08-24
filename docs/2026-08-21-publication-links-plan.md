@@ -1451,10 +1451,10 @@ it from the graph:
 ```bash
 docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -e "UPDATE studies SET doi=\"10.9999/test\", pmid=1234567 WHERE id=1;"'
 docker compose exec -T nextseek uv run manage.py sync_study_publications
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study {id:1}) RETURN s.DOI, s.PMID;"'
+docker exec neo4j cypher-shell -u neo4j -p "$(docker exec nextseek printenv NEO4J_PASSWORD)" "MATCH (s:Study {id:1}) RETURN s.DOI, s.PMID;"
 docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -e "UPDATE studies SET doi=NULL, pmid=NULL WHERE id=1;"'
 docker compose exec -T nextseek uv run manage.py sync_study_publications
-docker exec neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "MATCH (s:Study {id:1}) RETURN s.DOI, s.PMID;"'
+docker exec neo4j cypher-shell -u neo4j -p "$(docker exec nextseek printenv NEO4J_PASSWORD)" "MATCH (s:Study {id:1}) RETURN s.DOI, s.PMID;"
 ```
 
 Expected: `with_doi=1` on the first sync, then `"10.9999/test", "1234567"`, then
@@ -2139,6 +2139,13 @@ git commit -m "feat(nessie): teach the graph agent study doi/pmid attributes"
 
 ## Final verification
 
+> **Credential note (verified 2026-08-24).** `cypher-shell` must be given the
+> password from the **nextseek** container, not the neo4j one: `$NEO4J_PASSWORD`
+> inside the neo4j container is not the working credential and every query
+> returns `42NFF ... Access denied`. Use
+> `$(docker exec nextseek printenv NEO4J_PASSWORD)`.
+
+
 - [ ] **Full test suite**
 
 ```bash
@@ -2157,7 +2164,8 @@ docker compose exec -T nextseek uv run manage.py sync_study_publications
 
 ```bash
 docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -N -B -e "SELECT COUNT(*) FROM studies WHERE doi IS NOT NULL;"'
-docker exec -i neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD"' <<'CYPHER'
+PW=$(docker exec nextseek printenv NEO4J_PASSWORD)
+docker exec -i neo4j cypher-shell -u neo4j -p "$PW" <<'CYPHER'
 MATCH (s:Study) WHERE coalesce(s.DOI,'') <> '' RETURN count(s);
 CYPHER
 ```
@@ -2168,7 +2176,8 @@ and investigate before shipping.
 - [ ] **Published sample counts are plausible**
 
 ```bash
-docker exec -i neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD"' <<'CYPHER'
+PW=$(docker exec nextseek printenv NEO4J_PASSWORD)
+docker exec -i neo4j cypher-shell -u neo4j -p "$PW" <<'CYPHER'
 MATCH (s:Sample)-[:IN_STUDY]->(st:Study)
 WHERE coalesce(st.DOI,'') <> ''
 RETURN st.title, count(s) ORDER BY count(s) DESC LIMIT 10;
@@ -2180,7 +2189,8 @@ Expected: one row per filled study with its sample count.
 - [ ] **Unpublished samples stayed silent**
 
 ```bash
-docker exec -i neo4j sh -c 'cypher-shell -u neo4j -p "$NEO4J_PASSWORD"' <<'CYPHER'
+PW=$(docker exec nextseek printenv NEO4J_PASSWORD)
+docker exec -i neo4j cypher-shell -u neo4j -p "$PW" <<'CYPHER'
 MATCH (s:Sample)
 WHERE NOT EXISTS { MATCH (s)-[:IN_STUDY]->(st:Study) WHERE coalesce(st.DOI,'') <> '' }
 RETURN count(s);
