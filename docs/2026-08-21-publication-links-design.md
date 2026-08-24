@@ -197,8 +197,14 @@ Buckets are mutually exclusive and sum to 51.
 | No URL at all | 4 | placeholders such as "Mike Chao Barcoding Placeholder" |
 | `description IS NULL` | 3 | the extractor must handle NULL, not just empty |
 
-So 33 studies yield a paper (29 + 4), 1 is flagged for manual entry, and 17
-correctly yield nothing.
+So 33 studies are papers (29 + 4). Of those, **31 can be identified
+automatically** — 30 DOIs (the 29 extracted, plus the nature.com article id which
+maps to a DOI) and 1 PMC id. The other 2, whose only reference is a Cell or
+ScienceDirect PII URL carrying no DOI, join the truncated `10.3390/` as the 3
+needing manual entry. 17 studies correctly yield nothing.
+
+Verified end to end against the real descriptions on 2026-08-24:
+`{('doi',): 30, ('pmc',): 1, ('unresolvable',): 3, ('none',): 17}`.
 
 Only 3 descriptions mention PubMed at all, so PMIDs come almost entirely from
 resolution, not extraction.
