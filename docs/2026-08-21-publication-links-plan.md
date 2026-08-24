@@ -1814,7 +1814,38 @@ uv run pytest nextseek_api/tests/test_fill_study_publications.py -v
 
 Expected: all PASS.
 
-- [ ] **Step 5: Extract offline first**
+- [ ] **Step 5: Measure study reachability before filling anything**
+
+The DOI hangs off the study, so a sample with no study can never show a paper no
+matter how good the fill is. Establish that number now rather than discovering it
+as a disappointing result later. Design finding 12 records that the 2026-08-21
+`ns-published-fdh` run left 26% of published rows unmapped; study associations
+have since been updated on dev and production, so the current figure is unknown
+and this step is what establishes it.
+
+```bash
+docker exec seek-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" seek_production -t -e "
+SELECT
+  (SELECT COUNT(*) FROM samples) AS total_samples,
+  (SELECT COUNT(DISTINCT aa.asset_id) FROM assay_assets aa
+     JOIN assays a ON a.id = aa.assay_id
+     JOIN studies s ON s.id = a.study_id
+    WHERE aa.asset_type = \"Sample\") AS samples_reaching_a_study,
+  (SELECT COUNT(*) FROM studies) AS studies,
+  (SELECT COUNT(*) FROM studies WHERE doi IS NOT NULL) AS studies_with_doi;
+"'
+```
+
+Record the four numbers in this task's commit message. `samples_reaching_a_study`
+divided by `total_samples` is the ceiling on what this feature can ever surface —
+on the local stack it was 50,401 of 51,359 (98.1%) when the design was written. If
+the ratio on the target instance is far below that, the gap is an upstream
+study-association problem and should be raised before the fill runs, not after.
+
+Re-run the same query after Step 8 to watch `studies_with_doi` move, and to
+compute how many samples actually gained a paper.
+
+- [ ] **Step 6: Extract offline first**
 
 ```bash
 docker compose exec -T nextseek uv run manage.py fill_study_publications --extract --offline --out /tmp/review_offline.tsv
@@ -1824,7 +1855,7 @@ Expected: `51 studies scanned` with roughly 34 candidates — about 33 `unresolv
 and 1 `manual` for the truncated `10.3390/`. This proves extraction works with no
 network.
 
-- [ ] **Step 6: Extract with resolution**
+- [ ] **Step 7: Extract with resolution**
 
 ```bash
 docker compose exec -T nextseek uv run manage.py fill_study_publications --extract --out /tmp/review.tsv
@@ -1838,7 +1869,7 @@ Expected: most rows `proposed_action=fill` with `resolved_title`, `journal`,
 `year` and often a `pmid`. **Read the `title_similarity` column** — anything below
 roughly 0.6 is citing a paper whose title does not match its study.
 
-- [ ] **Step 7: Hand the file to a curator — do not approve it yourself**
+- [ ] **Step 8: Hand the file to a curator — do not approve it yourself**
 
 ```bash
 docker compose cp nextseek:/tmp/review.tsv ./study_publication_review.tsv
@@ -1851,7 +1882,7 @@ docker compose cp ./study_publication_review.tsv nextseek:/tmp/review_approved.t
 docker compose exec -T nextseek uv run manage.py fill_study_publications --apply /tmp/review_approved.tsv
 ```
 
-- [ ] **Step 8: Commit** (the command, not the review file)
+- [ ] **Step 9: Commit** (the command, not the review file)
 
 ```bash
 git add nextseek_api/management/commands/fill_study_publications.py nextseek_api/tests/test_fill_study_publications.py

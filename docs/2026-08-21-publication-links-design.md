@@ -118,7 +118,10 @@ All verified against the running stack on 2026-08-21.
     dev studies, but 17,571 rows (26%) carried no `mapped_study_id`, and 8 of 51
     study titles did not map. Because the DOI hangs off the study, a sample with no
     study inherits no paper. This bounds what the feature can show and is a data
-    problem upstream of it, not a defect in it.
+    problem upstream of it, not a defect in it. Study associations were updated on
+    dev and production on 2026-08-24, after that run, so the current figure is
+    unknown; the plan measures it as an explicit step before the fill (Task 7,
+    Step 5) rather than assuming either the old number or an improvement.
 
 13. **A Django migration cannot create the MySQL columns.** The container
     entrypoint runs a plain `migrate`, which touches only the default database, and
