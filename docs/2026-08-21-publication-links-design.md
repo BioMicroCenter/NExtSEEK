@@ -104,7 +104,23 @@ All verified against the running stack on 2026-08-21.
     design is therefore idempotent and must work whether or not the properties
     already exist.
 
-11. **A Django migration cannot create the MySQL columns.** The container
+11. **`-PUB` is the sample population, not a parallel copy.** Samples published
+    through `ns-published-fdh` carry a `-PUB` UID suffix, and their `Parent*`
+    references point at other `-PUB` UIDs (29,783 of 29,787 in the 260821 batch
+    sheet), so the published tree is self-contained. That is not a problem: in a
+    real NExtSEEK instance the `-PUB` records *are* the samples — 49,467 of 51,359
+    in the seeded stack are `-PUB`-suffixed, and no non-`-PUB` sample has a `-PUB`
+    twin. The originals live on FAIRDOMHub. A concern that this feature would
+    attach papers to duplicate records was raised during design and does not hold.
+
+12. **Study mapping is incomplete at the source.** The 2026-08-21
+    `ns-published-fdh` run produced 68,242 published sample rows against 43 mapped
+    dev studies, but 17,571 rows (26%) carried no `mapped_study_id`, and 8 of 51
+    study titles did not map. Because the DOI hangs off the study, a sample with no
+    study inherits no paper. This bounds what the feature can show and is a data
+    problem upstream of it, not a defect in it.
+
+13. **A Django migration cannot create the MySQL columns.** The container
     entrypoint runs a plain `migrate`, which touches only the default database, and
     `seek/dbrouters.py:allow_migrate` expresses no opinion for other schemas. DDL
     against `seek_production` must therefore be performed explicitly by the fill
@@ -121,7 +137,7 @@ ALTER TABLE studies
 ```
 
 Created by the fill command, guarded by an `information_schema` check, because
-of finding 11. MySQL 8 has no `ADD COLUMN IF NOT EXISTS`, so the guard is a
+of finding 13. MySQL 8 has no `ADD COLUMN IF NOT EXISTS`, so the guard is a
 lookup rather than a clause.
 
 `doi` is stored lowercased; DOIs are case-insensitive by specification.

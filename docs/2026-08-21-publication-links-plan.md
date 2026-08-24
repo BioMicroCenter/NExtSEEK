@@ -23,7 +23,7 @@ it. Task 1 below is unchanged from that plan; everything after it is new.
 - **No new dependencies.** `requests` (pyproject.toml:92) and stdlib `difflib` cover the fill command.
 - **Never interpolate user text into SQL.** The existing search builder concatenates strings; every value this plan adds to it must be an `int()` first, or go through a parameterized query.
 - **DOIs are stored lowercased** for comparison; DOIs are case-insensitive by specification.
-- **No Django migration may create the MySQL columns.** The entrypoint runs a plain `migrate`, which touches only the default database (design finding 11). Column creation is done explicitly by the fill command, guarded by an `information_schema` lookup — MySQL 8 has no `ADD COLUMN IF NOT EXISTS`.
+- **No Django migration may create the MySQL columns.** The entrypoint runs a plain `migrate`, which touches only the default database (design finding 13). Column creation is done explicitly by the fill command, guarded by an `information_schema` lookup — MySQL 8 has no `ADD COLUMN IF NOT EXISTS`.
 - **Every graph write must be idempotent** and must work whether or not `doi`/`pmid` already exist on `Study`. They do on dev and prod; they do not on the local docker stack (design finding 10).
 - **Tests must not require a database.** Existing suite style (`seek/tests/test_search_pubmed_nested.py`) is pure-unit. Use stubs for anything touching MySQL or Neo4j. Run with `uv run pytest`.
 - **`seek/publications.py` must not import `seek/dbtable_sample.py`.** That module pulls in MySQLdb, pandas and the neo4j driver at import time; keeping the dependency one-way is what keeps these tests fast.
@@ -692,7 +692,7 @@ def ensure_study_publication_columns() -> list[str]:
 
     A Django migration cannot do this: the entrypoint runs a plain `migrate`,
     which touches only the default database, so a migration against the SEEK
-    schema would silently never run. See design finding 11.
+    schema would silently never run. See design finding 13.
     """
     schema = settings.DATABASES[settings.SEEK_DATABASE]["NAME"]
     present = {
