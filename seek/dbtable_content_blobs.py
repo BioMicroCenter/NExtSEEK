@@ -4,7 +4,6 @@ logger = logging.getLogger(__name__)
 
 from .models import Content_blobs
 from dmac.dbtable import DBtable
-from dmac.conversion import verifyFileChecksum
 
 CONTENT_BLOBS_FILTER_MAPPING = {
 }
@@ -58,36 +57,6 @@ class DBtable_content_blobs(DBtable):
         self.fieldMapping = CONTENT_BLOBS_FILTER_MAPPING
         self.excludeFields = []
         
-    def storeDataFile(self, username, sampleType, record, attributeInfo, uploadEnforced=False):
-        if not self.__notEmptyLine(record):
-            msg = 'Error: record for uploading empty in ' + sampleType
-            logger.debug(msg)
-            return msg, 0, None
-        
-        headers_required = attributeInfo['headers_required']
-        msg_required, meetRequired = self.__verifyRequiredFields(record, headers_required)
-        if not meetRequired:
-            msg = 'Error: ' + msg_required
-            logger.debug(msg)
-            return msg, 0, None
-                
-        if 'UID' not in record.keys():
-            msg = 'Error: Sample record does not have a UID field.'
-            logger.debug(msg)
-            return msg, 0, None
-        
-        record_new = self.__getRecord(username, record, attributeInfo)
-        uid = record_new['title'] 
-        if not uploadEnforced:
-            msg = 'Warning: Upload not enforced, test okay.'
-            return 'Upload not enforced', 1, uid
-
-        msg, status, sample_id = self.storeOneRecord(username, record_new)
-        if status:
-            self.__updateProject(username, sample_id)
-        
-        return msg, status, uid
-    
     def searchFile(self, infilename, asset_typeIn=None):
         constraint = {}
         constraint['original_filename'] = infilename
@@ -152,22 +121,4 @@ class DBtable_content_blobs(DBtable):
         constraint['asset_type'] = asset_typeIn
         diclist_cb = self.queryRecordsByConstraint(constraint)
         return diclist_cb
-    
-    def updateFileChecksum(self, asset_id, asset_typeIn, fullfilename):
-        diclist_cb = self.getRecord(asset_id, asset_typeIn)
-        if len(diclist_cb)!=1:
-            msg = "Warning: no unique record found in Content_blobs table for asset_id=%s, asset_type=%s"%(asset_id, asset_typeIn)
-            status = 0
-            pid = 0
-            return msg, status, pid
-        
-        record_cb = ddiclist_cb[0]
-        
-        md5, sha1, filesize = verifyFileChecksum(fullfilename)
-        record_cb['md5sum'] = md5
-        record_cb['sha1sum'] = sha1
-        record_cb['size'] = filesize
-        
-        msg, status, cb_id = self.storeOneRecord(None, record_cb)
-        return msg, status, cb_id
     
