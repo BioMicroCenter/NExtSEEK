@@ -2108,6 +2108,8 @@ class DBtable_sample(DBtable):
         filtersdic['categoryField'] = 'sample_type_id'
         filtersdic['filterRules'] = filterRules
         filtersdic['searchType'] = searchType
+        filtersdic['publication_query'] = None
+        filtersdic['published_only'] = False
         return filtersdic
     
     def __retrieveSamplesInType(self, user_seek, sampletype_id, project_id=0):
@@ -3950,6 +3952,14 @@ class DBtable_sample(DBtable):
         filter_valueFrom = None
         filter_valueTo = None
         filtersdic = self.__initSearchFilters(searchType, sampletype_id, project_id)
+
+        # Publication filter applies to every search type. Deliberately NOT the
+        # PubMed-style [CATEGORY] syntax: that bracket term resolves to a sample
+        # type (search.py:103), so "10.1101/...[DOI]" would look up a sample type
+        # named DOI and silently return nothing.
+        filtersdic['publication_query'] = filters.get('filter_publication') or None
+        filtersdic['published_only'] = filters.get('filter_published_only') in ('1', 'true', 'True', 'on')
+
         if searchType == "UIDs":
             filtersdic['searchText'] = filters['filter_searchUIDs']
             field = 'uid'
@@ -4105,10 +4115,18 @@ class DBtable_sample(DBtable):
         #    total = int(total)
     
         jdata_new = self.reformatDataForClient(jdata)
+
+        # One query for the whole page: a sample's paper comes from its study, so
+        # it is not part of the sample select. Imported here rather than at module
+        # scope to keep the dependency one-way — see
+        # docs/2026-08-21-publication-links-design.md.
+        from .publications import attach_publications
+        attach_publications(jdata_new)
+
         footer = []
         data = {'total':total,'rows':jdata_new,'footer':footer}
         return data
-        
+
     def __sqlQuery_select_records_filters_advanced(self, filtersdic):
         '''Build the advanced-search WHERE clause.
 
@@ -4162,6 +4180,21 @@ class DBtable_sample(DBtable):
                 # unscoped, which is the exact bug being fixed.
                 sqlquery_filter = sqlquery_filter + " WHERE " + clause
             params = params + extra
+
+        # Publication filter. The predicate carries no bound values — it splices
+        # only integer study ids, resolved through a parameterized lookup first —
+        # so params is untouched. Same WHERE-or-AND handling as the scope above,
+        # because an unfiltered search emits no WHERE at all.
+        from .publications import publication_predicate
+        pub_clause = publication_predicate(
+            filtersdic.get('publication_query'),
+            filtersdic.get('published_only', False),
+        )
+        if pub_clause:
+            if 'WHERE ' in sqlquery_filter:
+                sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (', 1) + ") AND " + pub_clause
+            else:
+                sqlquery_filter = sqlquery_filter + " WHERE " + pub_clause
 
         logger.debug(sqlquery_filter)
         return sqlquery_filter, params

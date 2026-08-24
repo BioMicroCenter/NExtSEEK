@@ -1780,6 +1780,26 @@ class ChatConfig:
                 except Exception as e:
                     print(f"[CONFIG][GRAPHDB] Study title fetch failed: {e!r}")
 
+                # Vocabulary: published studies, so the graph agent can map a
+                # phrase like "the SureQuant paper" onto a real node. Emptiness is
+                # tested with coalesce(...) <> '' because the unset value on these
+                # instances is an empty string, not null — IS NOT NULL would match
+                # every study.
+                try:
+                    result = db_session.run(
+                        "MATCH (s:Study) "
+                        "WHERE coalesce(s.DOI, '') <> '' OR coalesce(s.PMID, '') <> '' "
+                        "RETURN s.title AS title, s.DOI AS doi, s.PMID AS pmid "
+                        "ORDER BY s.title"
+                    )
+                    schema["vocabulary"]["published_studies"] = [
+                        {"title": r["title"], "doi": r["doi"], "pmid": r["pmid"]}
+                        for r in result
+                    ]
+                    print(f"[CONFIG][GRAPHDB] Fetched {len(schema['vocabulary']['published_studies'])} published studies")
+                except Exception as e:
+                    print(f"[CONFIG][GRAPHDB] Published-study vocabulary fetch failed: {e!r}")
+
                 # Vocabulary: Investigation titles
                 try:
                     result = db_session.run(

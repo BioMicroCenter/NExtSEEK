@@ -208,3 +208,29 @@ Return ONLY valid JSON — no markdown fences, no prose outside the JSON:
 }
 
 If you cannot construct a valid query, set "cypher" to "" and explain why in "explanation".
+
+## Publications (DOI / PMID)
+
+A study IS a paper here. The identifiers are properties on the Study node, and
+they are UPPERCASE while every other property on that node is lowercase:
+
+  (:Study {id, title, DOI, PMID})
+
+The unset value is an EMPTY STRING, not null. Never write
+`WHERE st.DOI IS NOT NULL` — it is true for every study and would report all
+~51k samples as published. Test emptiness instead:
+
+  WHERE coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> ''
+
+Which paper a sample is from:
+
+  MATCH (s:Sample {uuid: $uid})-[:IN_STUDY]->(st:Study)
+  WHERE coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> ''
+  RETURN st.title, st.DOI, st.PMID
+
+Which samples a paper used — match on `toLower(st.DOI) = toLower($doi)`, on
+`st.PMID`, or on a title CONTAINS. DOIs are stored lowercased. PMID is stored as
+a string, so compare it as one.
+
+Most studies are unpublished. "Not published" is a correct answer, not a failed
+lookup — do not widen the query to find something.
