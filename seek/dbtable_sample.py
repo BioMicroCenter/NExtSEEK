@@ -4105,10 +4105,18 @@ class DBtable_sample(DBtable):
         #    total = int(total)
     
         jdata_new = self.reformatDataForClient(jdata)
+
+        # One query for the whole page: a sample's paper comes from its study, so
+        # it is not part of the sample select. Imported here rather than at module
+        # scope to keep the dependency one-way — see
+        # docs/2026-08-21-publication-links-design.md.
+        from .publications import attach_publications
+        attach_publications(jdata_new)
+
         footer = []
         data = {'total':total,'rows':jdata_new,'footer':footer}
         return data
-        
+
     def __sqlQuery_select_records_filters_advanced(self, filtersdic):
         '''Build the advanced-search WHERE clause.
 
