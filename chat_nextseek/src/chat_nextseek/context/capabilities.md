@@ -32,6 +32,11 @@ The knowledge graph captures organizational structure and biological relationshi
 
 - **Sample** — an individual registered sample record (identified by its type code, e.g. `NHP`, `TIS`, `D.SEQ`).
 - **Study** — a named experimental study grouping related samples (e.g., "GBM Cohort 2023"). Samples belong to studies via the `IN_STUDY` relationship.
+- **Publication** — the paper a study was published as. Held as the `DOI` and
+  `PMID` properties on the Study node (uppercase; empty string when unset), so a
+  sample inherits the paper of every study it belongs to. You can ask which paper
+  a sample appears in, or which samples a paper used, by title, DOI or PMID. Most
+  studies are unpublished; that is expected, not a gap.
 - **Investigation** — a project-level grouping of studies (e.g., "Griffith", "Impact", "GBM"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
 
 Derivation (lineage) between samples is encoded on the `DERIVED_FROM` relationship, which also carries assay and protocol metadata.
