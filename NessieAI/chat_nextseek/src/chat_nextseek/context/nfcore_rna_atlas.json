@@ -1,0 +1,303 @@
+{
+  "guidance": {
+    "ties_are_acceptable": true,
+    "refuse_on_data_mismatch_not_on_scope": true,
+    "notes": [
+      "Judge a pipeline on whether it fits THIS COHORT'S DATA and gets the scientist to the measurements their question needs \u2014 not on whether it finishes the science. Almost every real question needs work after the pipeline ends: cell-type annotation, correlating a result against a clinical variable, deciding what the numbers mean. That is normal and is never a reason to return an empty list.",
+      "Return an empty list when no pipeline can CONSUME this cohort \u2014 the wrong library type, no raw reads anywhere in the lineage, an assay none of these pipelines are built for. Do not return an empty list because the pipeline's output would still need downstream analysis; that is true of nearly every correct answer here.",
+      "`species_constraint`, where present, is a HARD limit: a cohort of the wrong species cannot run that pipeline no matter how well its library matches. Check it before naming a pipeline -- the sample metadata carries the organism (MUS/NHP/CEL Species, Strain, Genotype). Its absence on an entry means no species restriction beyond needing a reference for that organism.",
+      "Naming two or three candidate pipelines is a legitimate answer. A confident wrong answer is worse than an honest fork.",
+      "When two pipelines tie, present both with the `ask_user` question from the versus entry rather than guessing which the scientist meant.",
+      "`data_signals` are descriptive hints, not rules. Nothing filters on them. Weigh them against the sample metadata and protocol text you were given.",
+      "Several of these pipelines consume identical FASTQ files and differ only in the question being asked. The protocol text and the library prep kit name are usually more discriminating than the assay label."
+    ]
+  },
+  "pipelines": {
+    "rnaseq": {
+      "revision": "3.18.0",
+      "answers": "How much of each gene is expressed, per sample?",
+      "assumes_prep": "Bulk poly-A selected or ribo-depleted RNA library. One library per biological sample.",
+      "input_you_must_have": "FASTQ, single- or paired-end.",
+      "data_signals": {
+        "library_strategy": [
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "TruSeq Stranded mRNA",
+          "NEBNext Ultra II Directional RNA",
+          "SMARTer Stranded Total RNA",
+          "poly-A selection",
+          "rRNA depletion",
+          "Ribo-Zero"
+        ]
+      },
+      "versus": {
+        "scrnaseq": {
+          "differs_by": "scrnaseq if the library is per-cell rather than per-sample \u2014 10x, Seq-Well, Drop-seq, or a cell-barcode/UMI read described in the protocol. rnaseq treats a whole tissue as one measurement.",
+          "ask_user": "Do you want one measurement per sample, or one per individual cell?"
+        },
+        "smrnaseq": {
+          "differs_by": "smrnaseq if the prep size-selected for roughly 18-30nt RNA. rnaseq's poly-A selection actively discards exactly those molecules, so running rnaseq on a small-RNA library returns almost nothing."
+        },
+        "rnasplice": {
+          "differs_by": "Same reads, different question. rnaseq reports gene-level counts; rnasplice reports which isoform shifted between two named groups, and requires that comparison to be stated up front.",
+          "ask_user": "Are you comparing two defined groups of samples, or measuring overall expression across all of them?"
+        },
+        "rnafusion": {
+          "differs_by": "Same reads, different question. rnafusion hunts chimeric transcripts joining two genes \u2014 a translocation or gene-fusion question, usually in cancer. rnaseq will not surface them.",
+          "ask_user": "Are you looking for two genes fused together, or for how much each gene is expressed?"
+        },
+        "rnavar": {
+          "differs_by": "Same reads, different question. rnavar calls SNVs and indels inside transcripts and does not produce a normal expression table.",
+          "ask_user": "Do you want expression levels, or the sequence variants present in the transcripts?"
+        },
+        "riboseq": {
+          "differs_by": "riboseq if the protocol describes ribosome footprinting or nuclease digestion of polysomes. Those reads are around 28nt and are not ordinary RNA-seq."
+        },
+        "denovotranscript": {
+          "differs_by": "denovotranscript only when there is no usable reference genome or annotation for the organism. Where a reference exists, rnaseq is strictly better."
+        },
+        "differentialabundance": {
+          "differs_by": "differentialabundance starts from a count matrix that already exists. rnaseq starts from FASTQ and produces that matrix. If no pipeline has been run yet, it is rnaseq first.",
+          "ask_user": "Do you already have a table of gene counts from an earlier run, or should we produce one from the sequencing files first? If you have no counts yet, both are needed in sequence \u2014 rnaseq to make the table, then differentialabundance to compare the groups."
+        },
+        "hlatyping": {
+          "differs_by": "hlatyping answers a genotyping question \u2014 which HLA alleles the donor carries \u2014 and ignores expression entirely. It accepts RNA reads, so an RNA cohort alone does not rule it in or out; the question does."
+        }
+      }
+    },
+    "scrnaseq": {
+      "revision": "2.7.1",
+      "answers": "How much of each gene is expressed, cell by cell?",
+      "assumes_prep": "Droplet or plate-based single-cell library with cell barcodes and usually UMIs.",
+      "input_you_must_have": "FASTQ pairs where one read carries the cell barcode.",
+      "data_signals": {
+        "library_strategy": [
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC SINGLE CELL",
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "10x Genomics",
+          "Chromium",
+          "Seq-Well",
+          "Drop-seq",
+          "Smart-seq2",
+          "cell barcode",
+          "UMI"
+        ]
+      },
+      "versus": {
+        "rnaseq": {
+          "differs_by": "rnaseq if each library is one whole sample rather than a pool of barcoded cells. Running scrnaseq on bulk reads produces no usable cell matrix.",
+          "ask_user": "Do you want one measurement per sample, or one per individual cell?"
+        },
+        "smrnaseq": {
+          "differs_by": "smrnaseq is a size-selected small-RNA prep with no cell barcodes at all. The two are never confusable once the protocol has been read."
+        }
+      }
+    },
+    "smrnaseq": {
+      "revision": "2.4.1",
+      "answers": "Which small RNAs \u2014 miRNAs in particular \u2014 are present, and at what level?",
+      "assumes_prep": "Size-selected library of roughly 18-30nt RNA. Usually single-end and very short reads.",
+      "input_you_must_have": "FASTQ, typically single-end.",
+      "data_signals": {
+        "library_strategy": [
+          "miRNA-Seq",
+          "ncRNA-Seq",
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "NEBNext Small RNA",
+          "TruSeq Small RNA",
+          "QIAseq miRNA",
+          "size selection",
+          "miRNA",
+          "microRNA"
+        ]
+      },
+      "versus": {
+        "rnaseq": {
+          "differs_by": "rnaseq for standard mRNA libraries. If the prep size-selected below ~30nt, rnaseq's poly-A step has already thrown away the molecules of interest."
+        },
+        "scrnaseq": {
+          "differs_by": "scrnaseq requires cell barcodes, which a small-RNA prep does not produce."
+        },
+        "riboseq": {
+          "differs_by": "Both yield very short reads, which is the only thing they share. riboseq reads are ribosome footprints from a nuclease-digestion protocol; smrnaseq reads are size-selected endogenous small RNAs.",
+          "ask_user": "Was the library made by digesting polysomes to capture ribosome footprints, or by size-selecting small RNAs such as miRNAs?"
+        }
+      },
+      "species_constraint": "Restricted to species with miRBase/MirGeneDB annotation, and the species must be named: the run needs mirtrace_species plus mature and hairpin FASTAs. Not a free choice of organism."
+    },
+    "hlatyping": {
+      "revision": "2.2.0",
+      "answers": "Which HLA alleles does this donor carry?",
+      "assumes_prep": "Any library covering the HLA locus \u2014 WGS, WES, targeted capture, or RNA-seq.",
+      "input_you_must_have": "FASTQ or BAM. The samplesheet must state seq_type as dna or rna per sample.",
+      "data_signals": {
+        "library_strategy": [
+          "WGS",
+          "WXS",
+          "Targeted-Capture",
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "GENOMIC",
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "HLA",
+          "immunogenetics",
+          "MHC"
+        ]
+      },
+      "versus": {
+        "rnaseq": {
+          "differs_by": "A genotyping question, not an expression question. hlatyping accepts RNA reads, so the cohort alone never decides this \u2014 only the question does."
+        },
+        "rnavar": {
+          "differs_by": "rnavar calls variants genome-wide across transcripts. hlatyping resolves HLA alleles specifically, against a specialist reference, and reports allele calls rather than a VCF of general variants.",
+          "ask_user": "Do you want HLA allele calls specifically, or variants across all transcripts?"
+        }
+      },
+      "species_constraint": "HUMAN ONLY. HLA is the human MHC; OptiType maps reads against a reference of known human MHC class I alleles. Macaque (Mamu), mouse (H-2) and other species have no HLA to type. Class I only by default -- class II needs HLA-HD, which requires a separate local install."
+    },
+    "rnafusion": {
+      "revision": "4.1.3",
+      "answers": "Are any two genes fused into a single chimeric transcript?",
+      "assumes_prep": "Bulk RNA library, usually from tumour tissue. Paired-end is strongly preferred \u2014 fusion callers rely on split and discordant reads.",
+      "input_you_must_have": "FASTQ, ideally paired-end. Also needs a prebuilt reference bundle and an explicit list of fusion callers.",
+      "data_signals": {
+        "library_strategy": [
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "tumour",
+          "tumor",
+          "translocation",
+          "fusion panel",
+          "cancer"
+        ]
+      },
+      "versus": {
+        "rnaseq": {
+          "differs_by": "rnaseq measures how much of each gene is expressed and will never report a fusion. rnafusion answers only the fusion question and is not a substitute for an expression run.",
+          "ask_user": "Are you looking for two genes fused together, or for how much each gene is expressed?"
+        },
+        "rnasplice": {
+          "differs_by": "Both concern transcript structure. rnasplice looks at alternative isoforms of one gene shifting between groups; rnafusion looks for a transcript spanning two different genes.",
+          "ask_user": "Are you looking for a transcript that joins two different genes, or for a change in which version of a single gene is produced?"
+        },
+        "rnavar": {
+          "differs_by": "rnavar finds small sequence changes within a transcript. rnafusion finds structural joins between transcripts. Different scales of event entirely.",
+          "ask_user": "Are you looking for two genes joined together, or for small sequence changes inside a single gene?"
+        }
+      },
+      "species_constraint": "HUMAN ONLY. nextflow.config pins genome = 'GRCh38' and the README states plainly \"GRCh38 is the only supported reference\". The fusion callers depend on human-specific databases (CTAT, FusionCatcher). A mouse, macaque or any other non-human cohort cannot be run, however good its RNA is."
+    },
+    "rnasplice": {
+      "revision": "1.0.4",
+      "answers": "Which isoforms or splicing events changed between two named groups of samples?",
+      "assumes_prep": "Bulk RNA library, paired-end preferred, with at least two distinguishable sample groups and replicates within each.",
+      "input_you_must_have": "FASTQ, plus a condition assigned to every sample and an explicit contrast naming which two conditions to compare.",
+      "data_signals": {
+        "library_strategy": [
+          "RNA-Seq"
+        ],
+        "library_source": [
+          "TRANSCRIPTOMIC"
+        ],
+        "prep_kit_hints": [
+          "isoform",
+          "splicing",
+          "exon",
+          "alternative splicing"
+        ]
+      },
+      "versus": {
+        "rnaseq": {
+          "differs_by": "rnaseq totals each gene; rnasplice asks which version of the gene was made. rnasplice cannot run without a stated comparison \u2014 if the cohort has no variable that splits it into groups, rnaseq is the answer.",
+          "ask_user": "Are you comparing two defined groups of samples, or measuring overall expression across all of them?"
+        },
+        "rnafusion": {
+          "differs_by": "rnasplice examines alternative isoforms within a gene. rnafusion looks for a transcript joining two separate genes.",
+          "ask_user": "Are you looking for a transcript that joins two different genes, or for a change in which version of a single gene is produced?"
+        },
+        "differentialabundance": {
+          "differs_by": "Both compare groups. differentialabundance compares gene-level counts from an existing matrix; rnasplice compares isoform usage starting from raw reads.",
+          "ask_user": "When you compare the groups, do you want to know which genes changed in total, or which version of each gene was made?"
+        }
+      }
+    },
+    "rnavar": {
+      "revision": "1.3.0",
+      "answers": "Which sequence variants \u2014 SNVs, indels \u2014 appear in the transcripts?",
+      "assumes_prep": "The same bulk RNA library as rnaseq.",
+      "versus": {
+        "rnaseq": {
+          "differs_by": "Choose rnaseq unless the question names variants, mutations, SNPs, or allele-specific expression. rnavar does not produce a normal expression table.",
+          "ask_user": "Do you want expression levels, or the sequence variants present in the transcripts?"
+        },
+        "rnafusion": {
+          "differs_by": "rnavar finds small changes inside a transcript. rnafusion finds structural joins between two transcripts.",
+          "ask_user": "Are you looking for two genes joined together, or for small sequence changes inside a single gene?"
+        },
+        "hlatyping": {
+          "differs_by": "hlatyping resolves HLA alleles against a specialist reference. rnavar reports general variants and is not reliable for HLA calling."
+        }
+      }
+    },
+    "riboseq": {
+      "revision": "1.2.0",
+      "answers": "Which transcripts are actively being translated, and where do the ribosomes sit?",
+      "assumes_prep": "Ribosome profiling \u2014 polysomes nuclease-digested to leave protected footprints of roughly 28nt.",
+      "versus": {
+        "rnaseq": {
+          "differs_by": "Choose rnaseq unless the protocol explicitly describes ribosome profiling, ribosome footprinting, or polysome digestion. riboseq measures translation, not transcript abundance."
+        },
+        "smrnaseq": {
+          "differs_by": "Both produce very short reads and nothing else in common. riboseq reads are ribosome footprints; smrnaseq reads are size-selected endogenous small RNAs.",
+          "ask_user": "Was the library made by digesting polysomes to capture ribosome footprints, or by size-selecting small RNAs such as miRNAs?"
+        }
+      }
+    },
+    "denovotranscript": {
+      "revision": "1.2.1",
+      "answers": "What transcripts exist in an organism with no reference genome, and at what level?",
+      "assumes_prep": "Paired-end bulk RNA library from a non-model organism.",
+      "versus": {
+        "rnaseq": {
+          "differs_by": "Choose rnaseq whenever a usable reference genome and annotation exist for the organism. denovotranscript is for when they do not \u2014 it assembles the transcriptome from scratch, which is slower and noisier."
+        }
+      }
+    },
+    "differentialabundance": {
+      "revision": "2.0.0",
+      "answers": "Which features differ significantly between two groups, starting from a count matrix that already exists?",
+      "assumes_prep": "No sequencing prep. The input is a matrix produced by an earlier run.",
+      "versus": {
+        "rnaseq": {
+          "differs_by": "rnaseq starts from FASTQ and produces the count matrix. differentialabundance starts from that matrix. If no quantification has been run yet, rnaseq comes first.",
+          "ask_user": "Do you already have a table of gene counts from an earlier run, or should we produce one from the sequencing files first? If you have no counts yet, both are needed in sequence \u2014 rnaseq to make the table, then differentialabundance to compare the groups."
+        },
+        "rnasplice": {
+          "differs_by": "Both compare groups. differentialabundance compares gene-level counts; rnasplice compares isoform usage from raw reads.",
+          "ask_user": "When you compare the groups, do you want to know which genes changed in total, or which version of each gene was made?"
+        }
+      }
+    }
+  }
+}

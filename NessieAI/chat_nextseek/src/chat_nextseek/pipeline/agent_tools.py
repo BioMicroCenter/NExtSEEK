@@ -41,8 +41,22 @@ from ..seqera.pipeline_params import (
     resolve_bundle_for_species,
 )
 from ..seqera.submitter import submit_launch
+from ..seqera.user_params import (
+    missing_user_params,
+    render_elicitation,
+    validate_user_params,
+)
+from ..seqera.param_atlas import (
+    check_row_column_params,
+    check_run_params,
+    data_driven_params,
+    evaluate_leaf,
+    render_param_elicitation,
+    required_signals,
+)
 from ..luria.submitter import submit_luria
 from ..luria.run_script import local_luria_ref_files
+from ..reports.protocols import gather_protocol_text
 
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -258,6 +272,15 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     kind = tool_input.get("kind")
 
     if kind == "accessions":
+        # NOTE: this path returns early without populating state["data_driven_evidence"],
+        # so a row_column or run_param data-driven param (e.g. atlas-declared seq_type,
+        # scrnaseq protocol, smrnaseq three_prime_adapter) would be silently skipped for
+        # accession-only rows -- there is no leaf metadata here to derive it from. Tracked
+        # gap, not unreachable: hlatyping, scrnaseq, and smrnaseq are all atlas pipelines
+        # and are normally uid-based, but a build resolved purely via accessions would
+        # bypass inference for any of them. Must be closed before relying on this path for
+        # an atlas pipeline (or attaching a data-driven column to an accession-based one
+        # like fetchngs).
         accs = [a.strip() for a in (tool_input.get("accessions") or []) if a and a.strip()]
         if not accs:
             return json.dumps({"ok": False, "error": "kind='accessions' requires a non-empty accessions list."})
@@ -323,6 +346,14 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     all_accs: set[str] = set()
     species_votes: Counter = Counter()
     file_paths_by_acc: dict[str, dict] = {}
+    wanted_signals = required_signals(pipeline_key)
+    protocol_text = ""
+    protocol_text_status = None
+    if "__protocol_text__" in wanted_signals:
+        _pt = gather_protocol_text(config, annotated, base_dir=None)
+        protocol_text = _pt.get("text") or ""
+        protocol_text_status = _pt.get("status")
+        state["protocol_text_status"] = protocol_text_status
     for leaf in leaves:
         accs = extract_accessions_from_metadata(leaf.get("metadata") or {})
         all_uids.add(leaf["uid"])
@@ -345,17 +376,37 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
             if isinstance(val, str) and resolve_bundle_for_species(val):
                 species_votes[val.strip()] += 1
         leaf_fields = {f: flat[f] for f in candidate_fields if f in flat}
-        table.append({
+        leaf_signals = {f: flat[f] for f in wanted_signals if f in flat}
+        if protocol_text:
+            leaf_signals["__protocol_text__"] = protocol_text
+        leaf_verdicts = evaluate_leaf(pipeline_key, leaf_signals) if wanted_signals else {}
+        row = {
             "uid": leaf["uid"],
             "sample_type": leaf.get("sample_type", ""),
             "assay": leaf.get("assay", ""),
             "source_uid": leaf.get("source_uid", ""),
             "accessions": accs,
             "fields": leaf_fields,
-        })
+        }
+        if wanted_signals:
+            row["signals"] = leaf_signals
+            row["data_driven_params"] = leaf_verdicts
+            state.setdefault("data_driven_evidence", {})[str(leaf["uid"])] = leaf_verdicts
+        table.append(row)
 
     seen_sources = {leaf.get("source_uid") for leaf in leaves}
     orphans = [u for u in source_uids if u not in seen_sources]
+    accepted_types = _accepted_types_for(pipeline_key)
+    # A zero-leaf resolution is almost always a type mismatch, and the agent cannot
+    # see which types this pipeline filters on. Say so, or it retries the same UIDs.
+    no_leaf_hint = ""
+    if not table:
+        no_leaf_hint = (
+            f"No {'/'.join(accepted_types) or 'matching'} samples were found under those UIDs. "
+            f"{pipeline_key} builds its rows from {'/'.join(accepted_types) or 'archive accessions'}. "
+            "If the user named samples of a different type, the ones you need may be their "
+            "children (or parents) in the lineage — resolve those instead of retrying these."
+        )
 
     prev = state.get("resolved") or {"uids": [], "accessions": []}
     state["resolved"] = {
@@ -372,17 +423,22 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     state["detected_species"] = detected_species
     state["bundle_key"] = bundle_key
     ctx = load_pipeline_context(pipeline_key)
+    ddp = data_driven_params(pipeline_key)
     return json.dumps({
         "ok": True,
         "kind": kind,
         "leaf_count": len(table),
         "leaves": table,
+        "accepted_leaf_sample_types": accepted_types,
         "grouping_fields": grouping_fields,
         "source_uids_with_no_leaves": orphans,
+        **({"no_leaf_hint": no_leaf_hint} if no_leaf_hint else {}),
         "detected_species": detected_species,
         "bundle_key": bundle_key,
         "param_menu": ctx.get("params", {}),
         "reference_resources": ctx.get("reference_resources", []),
+        **({"data_driven_params": ddp} if ddp else {}),
+        **({"protocol_text_status": protocol_text_status} if protocol_text_status is not None else {}),
     })
 
 
@@ -457,6 +513,37 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
             merged_rows.append(r)
         cohort_summaries.append({"label": label, "row_count": len(rows)})
 
+    # Fail-closed data-driven param check (e.g. hlatyping seq_type). A conflict or
+    # absent verdict must stop the build and ask; a decisive verdict the row
+    # disagrees with is returned as a fixable error. No-op when the pipeline has
+    # no atlas entry (check returns empty).
+    ddp = check_row_column_params(pipeline_key, merged_rows, state.get("data_driven_evidence") or {})
+    if ddp["ask_uids"]:
+        return json.dumps({
+            "ok": False,
+            "needs_user_input": list(ddp["ask_specs"]),
+            "ask_the_user": render_param_elicitation(
+                ddp["ask_specs"], ddp["ask_uids"], state.get("data_driven_evidence") or {}),
+            "message": "Relay `ask_the_user` to the user in plain text and STOP. Do not conclude.",
+        })
+    if ddp["corrections"]:
+        errors = [f"row {uid}: {param} should be {val!r} from the sample's metadata — fix the row"
+                  for uid, param, val in ddp["corrections"]]
+        return json.dumps({"ok": False, "errors": errors})
+
+    # rnasplice needs a non-blank 'condition' per row (it defines the comparison).
+    # Nothing derives it yet, so fail closed early rather than emit a samplesheet
+    # nf-schema rejects late. (Deriving condition from the cohort grouping is a follow-up.)
+    if pipeline_key == "rnasplice":
+        missing_cond = [r.get("sample") or r.get("Sample") or "?"
+                        for r in merged_rows
+                        if not str(r.get("condition") or "").strip()]
+        if missing_cond:
+            return json.dumps({"ok": False, "errors": [
+                "rnasplice needs a non-blank 'condition' on every row (it defines the two "
+                f"groups to compare); missing on: {', '.join(map(str, missing_cond))}. "
+                "Set a condition per sample, or group the cohort so each sample gets one."]})
+
     # ENA route retired: Luria resolves fastqs from a local /net/bmc-* path (filled here)
     # or fetches SRR accessions on-cluster (run.sh fetchngs pre-stage). No ENA URL synthesis.
     # resolve_accessions is left imported but unused for a future ENA re-enable.
@@ -513,6 +600,54 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
 
     # A genome override in params can re-select the bundle; else use the detected-species bundle.
     agent_params = dict(tool_input.get("params") or {})
+
+    # Params only the user can supply (a CRISPR guide, a Hi-C digestion protocol, a
+    # miRTrace species). Enforced here rather than in the prompt: an instruction can
+    # be forgotten mid-conversation, this cannot. Fail-closed because a wrong value
+    # of this kind does not error — it silently produces a wrong result.
+    bad = validate_user_params(pipeline_key, agent_params)
+    if bad:
+        return json.dumps({"ok": False, "invalid_user_params": bad,
+                           "message": "Ask the user to correct these; do not guess."})
+    missing = missing_user_params(pipeline_key, agent_params)
+    if missing:
+        return json.dumps({"ok": False,
+                           "needs_user_input": [s["name"] for s in missing],
+                           "ask_the_user": render_elicitation(missing),
+                           "message": ("Relay `ask_the_user` to the user in plain text and STOP. "
+                                       "Do not call conclude, and do not invent values.")})
+
+    # Data-driven run_param inference: fill each param whose leaves UNANIMOUSLY derived a
+    # decisive value the agent didn't set, so the inferred value (e.g. scrnaseq protocol,
+    # smrnaseq three_prime_adapter) is actually written to params.yml rather than lost to
+    # the curated menu default. conflict/absent are NOT decisive and are left to
+    # check_run_params to ask about; an agent-supplied value that disagrees is left for
+    # check_run_params to correct (setdefault does not overwrite it).
+    _evidence = state.get("data_driven_evidence") or {}
+    for _name, _spec in data_driven_params(pipeline_key).items():
+        if _spec.get("target") != "run_param":
+            continue
+        _vals = {(pv.get(_name) or {}).get("value")
+                 for pv in _evidence.values()
+                 if (pv.get(_name) or {}).get("verdict") in ("corroborated", "derived_uncorroborated", "defaulted")}
+        _vals.discard(None)
+        if len(_vals) == 1:
+            agent_params.setdefault(_name, next(iter(_vals)))
+
+    # Run-scope data-driven params (general case; no hlatyping instance in v1).
+    ddp = check_run_params(pipeline_key, agent_params, state.get("data_driven_evidence") or {})
+    if ddp["ask_uids"]:
+        return json.dumps({
+            "ok": False,
+            "needs_user_input": list(ddp["ask_specs"]),
+            "ask_the_user": render_param_elicitation(
+                ddp["ask_specs"], ddp["ask_uids"], state.get("data_driven_evidence") or {}),
+            "message": "Relay `ask_the_user` to the user in plain text and STOP.",
+        })
+    if ddp["corrections"]:
+        return json.dumps({"ok": False, "errors": [
+            f"{param} should be {val!r} from the cohort's metadata" for _, param, val in ddp["corrections"]]})
+
     override = agent_params.get("genome")
     bundle_key = state.get("bundle_key")
     if override:
@@ -583,6 +718,69 @@ def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
 
 
 
+def format_luria_followup(runs: list[dict] | None, ssh_target: str | None = None) -> str:
+    """Render the 'how to watch this run' block appended to a successful submit reply.
+
+    Built here in Python rather than left to the model on purpose: a monitoring
+    command carrying a paraphrased job id or a half-remembered path is worse than
+    no command at all. Nothing polls SLURM, so this block is the only thing that
+    tells the user where their run went.
+    """
+    runs = [r for r in (runs or []) if isinstance(r, dict)]
+    if not runs:
+        return ""
+    target = ssh_target or "<user>@luria.mit.edu"
+    user = target.split("@", 1)[0]
+    multi = len(runs) > 1
+
+    out: list[str] = ["", "**Watching this run**" if not multi else "**Watching these runs**", ""]
+    out.append("Copy these into a terminal on your own computer — Terminal on a Mac, or any "
+               "shell that has `ssh`. They will not do anything typed into this chat. Each one "
+               "opens a connection to Luria, prints what it finds, and changes nothing about "
+               "the run.")
+    for run in runs:
+        job_id = run.get("job_id")
+        log = run.get("log")
+        remote_dir = run.get("remote_dir")
+        out.append("")
+        if multi:
+            label = run.get("run_name") or "run"
+            out.append(f"*{label}*" + (f" — job `{job_id}`" if job_id else ""))
+            out.append("")
+        if job_id:
+            out.append("- **Has it finished yet?**")
+            out.append(f'  `ssh {target} "sacct -j {job_id} '
+                       '--format=JobID,JobName%30,State,Elapsed,ExitCode"`')
+            out.append("  Prints the job's state — PENDING (queued), RUNNING, COMPLETED, or "
+                       "FAILED/CANCELLED — with how long it has been going and an exit code "
+                       "(`0:0` means it ended cleanly).")
+        else:
+            # sbatch printed something we couldn't parse a job id out of — fall back
+            # to the queue view rather than emitting a command with a blank id in it.
+            out.append("- **Is it still running?** (the job id didn't come back from sbatch, "
+                       "so this lists everything you have queued)")
+            out.append(f'  `ssh {target} "squeue -u {user}"`')
+            out.append("  Prints one row per job of yours that is still pending or running. "
+                       "An empty list means nothing of yours is left in the queue.")
+        if log:
+            out.append("- **What is it doing right now?**")
+            out.append(f'  `ssh {target} "tail -f {log}"`')
+            out.append("  Streams the pipeline's progress log live, one line per step as it "
+                       "completes. Press Ctrl-C to stop watching — that stops the watching, "
+                       "not the run.")
+        if remote_dir:
+            out.append("- **Where are my results?**")
+            out.append(f"  `{remote_dir}/` on Luria")
+            out.append("  The pipeline writes its output into this directory as it goes, so you "
+                       "can look before it finishes." + (
+                           f" If something goes wrong, `{Path(log).name[:-4]}.err` in that same "
+                           "directory holds the error." if log and log.endswith(".out") else ""))
+    out.append("")
+    out.append("Nothing reports back to this chat — the run keeps going after the "
+               "conversation ends, so the commands above are the way to check on it.")
+    return "\n".join(out)
+
+
 def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | None = None) -> str:
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
@@ -622,6 +820,10 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     if not runs:
         return json.dumps({"ok": False, "message": "No runs submitted — check Luria logs."})
     state.setdefault("artifacts", {})["luria_runs"] = runs
+    # Stash the ssh target now, while we still have config in hand — _conclude builds the
+    # follow-up block from state alone and has no ChatConfig to ask.
+    if luria_env.get("user") and luria_env.get("host"):
+        state["artifacts"]["luria_ssh_target"] = f'{luria_env["user"]}@{luria_env["host"]}'
     return json.dumps({"ok": True, "luria_runs": runs})
 
 
