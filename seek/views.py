@@ -28,6 +28,7 @@ from nextseek_api.services.sample_workbook import write_samples_workbook
 
 from .decorators import (requires_seek_login, requires_seek_login_redirect,
                          requires_supervisor, verifySuperUser)
+from .responses import json_response, plain_text
 from .seekdb import SeekDB
 from .models import Projects
 
@@ -149,8 +150,7 @@ def document(request, id):
     else:
         msg = 'Sample template is downloaded in ' + filename
         status = 1
-    data = {'msg':msg, 'status': status, 'link':docurl}
-    return HttpResponse(simplejson.dumps(data, default=str))   
+    return json_response(msg, status, docurl)
 
 @requires_seek_login_redirect('/seek/samples/upload/')
 def sampleUpload(request):
@@ -224,22 +224,19 @@ def sampleUploadAjax(request):
                         msg = 'Error: You login as admin and must choose the creator.'
                         status = 0
                         logger.error(msg)
-                        data = {'msg':msg, 'status': status, 'link':'', 'message':''}
-                        return HttpResponse(simplejson.dumps(data, default=str))
+                        return json_response(msg, status, message='')
                         
                     if int(creator_id)>0:
                         status, msg = seekdb.updateCreator(instituion_id, creator_id)
                         logger.debug(msg)
                         if not status:
                             logger.error(msg)
-                            data = {'msg':msg, 'status': status, 'link':'', 'message':''}
-                            return HttpResponse(simplejson.dumps(data, default=str))
+                            return json_response(msg, status, message='')
                     else:
                         msg = 'Error: You login as admin and must choose the creator.'
                         status = 0
                         logger.error(msg)
-                        data = {'msg':msg, 'status': status, 'link':'', 'message':''}
-                        return HttpResponse(simplejson.dumps(data, default=str))
+                        return json_response(msg, status, message='')
                 
                 names = inputfile.split(".")
                 n = len(names)
@@ -280,10 +277,7 @@ def sampleUploadAjax(request):
         data = {'msg':message, 'status': 0, 'link':''}
         logger.error(message)
                 
-    if message is not None and '<br/>' in message:
-        data['message'] = message.replace('<br/>', '\n')
-    else:
-        data['message'] = message
+    data['message'] = plain_text(message)
                 
     return HttpResponse(simplejson.dumps(data, default=str))       
 
@@ -553,10 +547,7 @@ def sampleFindAjax(request):
         message = 'Error: Not a valid http POST request'
         data = {'msg':message, 'status': 0, 'link':''}
                 
-    if message is not None and '<br/>' in message:
-        data['message'] = message.replace('<br/>', '\n')
-    else:
-        data['message'] = message
+    data['message'] = plain_text(message)
                 
     return HttpResponse(simplejson.dumps(data, default=str))   
 
@@ -766,10 +757,7 @@ def samplesValidate(request):
                         message += f"Missing sheets: {missing_sheets}. Please fix this and reupload sheet."
                         status += 1
                         data = {'msg': message, 'status': status, 'link': ''}
-                        if message is not None and '<br/>' in message:
-                            data['message'] = message.replace('<br/>', '\n')
-                        else:
-                            data['message'] = message
+                        data['message'] = plain_text(message)
                         return HttpResponse(simplejson.dumps(data, default=str))       
 
                     message += "Extra sheets: {extra_sheets}"
@@ -879,10 +867,7 @@ def samplesValidate(request):
         data = {'msg':message, 'status': 0, 'link':''}
         logger.error(message)
                 
-    if message is not None and '<br/>' in message:
-        data['message'] = message.replace('<br/>', '\n')
-    else:
-        data['message'] = message
+    data['message'] = plain_text(message)
                 
     return HttpResponse(simplejson.dumps(data, default=str))       
 
@@ -909,8 +894,7 @@ def templatesList(request):
     if not SAMPLE_TEMPLATES_FOLDER_PROJECT in projects:
         msg = 'You are not in the correct project to access this page'
         status = 0
-        data = {'msg':msg, 'status': status, 'link': ""}
-        return HttpResponse(simplejson.dumps(data, default=str)) 
+        return json_response(msg, status)
 
     folders = getTemplateFolders(SAMPLE_TEMPLATES_FOLDER)
 
@@ -1088,8 +1072,7 @@ def adminRetrieveSamples(request):
         msg = err
         status = 0
         docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str)) 
+        return json_response(msg, status, docurl)
     else:
         if request.method == "POST":
             logger.debug(f"REQUEST: {request.POST.keys()}")
@@ -1223,8 +1206,7 @@ def adminClades(request):
         msg = 'Error: You login as admin to view this page.'
         status = 0
         logger.error(msg)
-        data = {'msg':msg, 'status': status, 'link':'', 'message':''}
-        return HttpResponse(simplejson.dumps(data, default=str))
+        return json_response(msg, status, message='')
 
     cladedb = DBtable_clades()
     stcdb = DBtable_stc()
@@ -1311,8 +1293,7 @@ def internalAssays(request):
         msg = 'Error: You login as admin to view this page.'
         status = 0
         logger.error(msg)
-        data = {'msg':msg, 'status': status, 'link':'', 'message':''}
-        return HttpResponse(simplejson.dumps(data, default=str))
+        return json_response(msg, status, message='')
 
     db_ia = DBtable_internalassays()
     db_aia = DBtable_assaysinternalassays()

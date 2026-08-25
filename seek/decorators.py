@@ -17,10 +17,10 @@ error-presentation step, not here.
 import functools
 import logging
 
-import simplejson
 from django.contrib.auth.models import User
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 
+from .responses import json_response
 from .seekdb import SeekDB
 
 logger = logging.getLogger(__name__)
@@ -62,10 +62,7 @@ def _error_response(msg, with_message_key=False):
     ``with_message_key`` reproduces the two page views that also send an empty
     ``message`` field; every other caller omits it.
     """
-    data = {'msg': msg, 'status': 0, 'link': ''}
-    if with_message_key:
-        data['message'] = ''
-    return HttpResponse(simplejson.dumps(data, default=str))
+    return json_response(msg, 0, message='' if with_message_key else None)
 
 
 def requires_seek_login(view=None, *, log_failure=False):
