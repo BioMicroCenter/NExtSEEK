@@ -14,6 +14,76 @@ SAMPLEATTRIBUTE_FILTER_MAPPING = {
 SAMPLEATTRIBUTE_DEFAULT = {
 }
 
+# The operator set offered for each attribute-type id. Every set lists its
+# default operator first, which is why getOperators marks options[0] selected.
+#
+# LATENT_BUGS #24 lives here. The if/elif ladder this replaced tested
+# `attributeType_id==3 or attributeType_id==3` -- a tautology where a second id
+# was probably meant. {3} reproduces the behaviour exactly; the intended second
+# id is unknown, so do not guess it.
+OPERATOR_SETS = (
+    ({3}, ['No Filter', 'Equal', 'Not Equal', 'Less', 'Greater', 'Between'],
+     'numeric value', 'numeric value', 'numeric'),
+    ({5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19, 20, 21},
+     ['Contain', 'Not Contain', 'No Filter'],
+     'string value', 'not in use', 'string'),
+    ({1, 2}, ['No Filter', 'Equal', 'Not Equal', 'Before', 'After', 'Between'],
+     'mm/dd/year', 'mm/dd/year', 'date'),
+    ({15}, ['No Filter', 'True', 'False'], 'not in use', 'not in use', 'bool'),
+)
+
+# Attribute type 18 had a branch of its own whose options, placeholders and
+# filter_type were identical to the fallback, so it now falls through to it.
+OPERATORS_DEFAULT = (['No Filter', 'Contain', 'Not Contain'],
+                     'string value', 'not in use', 'string')
+
+# Each filter rule as a predicate over the converted value, the converted
+# filter_valueFrom and the converted filter_valueTo. A rule that is not listed
+# -- including 'No Filter' -- passes every value, as the ladders' else branches
+# did.
+STRING_RULES = {
+    'Contain':     lambda vi, frm, to: frm in vi,
+    'Not Contain': lambda vi, frm, to: frm not in vi,
+}
+
+BOOL_RULES = {
+    'True':  lambda vi, frm, to: vi == 1,
+    'False': lambda vi, frm, to: vi != 1,
+}
+
+NUMERIC_RULES = {
+    'Equal':     lambda vi, frm, to: vi == frm,
+    'Not Equal': lambda vi, frm, to: vi != frm,
+    # 'Less' and 'Greater' are inclusive. That is what the ladder did.
+    'Less':      lambda vi, frm, to: vi <= frm,
+    'Greater':   lambda vi, frm, to: vi >= frm,
+    'Between':   lambda vi, frm, to: vi >= frm and vi <= to,
+}
+
+# Only 'Not Equal' passes a value that will not parse as a date; every other
+# rule rejects it. That asymmetry is deliberate here because it was there before.
+DATE_RULES = {
+    'Equal':     lambda vi, frm, to: vi is not None and vi == frm,
+    'Not Equal': lambda vi, frm, to: vi is None or vi != frm,
+    'Before':    lambda vi, frm, to: vi is not None and vi <= frm,
+    'After':     lambda vi, frm, to: vi is not None and vi >= frm,
+    'Between':   lambda vi, frm, to: vi is not None and vi >= frm and vi <= to,
+}
+
+
+def operatorData(msg, status, filter_rule, placeholder_start='',
+                 placeholder_end='', filter_type=''):
+    """The dict getOperators returns, on both its error and its success paths."""
+    return {
+        'msg': msg,
+        'status': status,
+        'filter_rule': filter_rule,
+        'placeholder_start': placeholder_start,
+        'placeholder_end': placeholder_end,
+        'filter_type': filter_type,
+    }
+
+
 class DBtable_sampleattribute(DBtable):
     def __init__(self, whichServer='default'):
         DBtable.__init__(self, 'SEEK', 'seek_development')
@@ -188,263 +258,52 @@ class DBtable_sampleattribute(DBtable):
         attributeInfo = self.getAttributeInfo(sampletype_id)
         headers = attributeInfo['headers']
         if len(headers)==0:
-            msg = "Error: the sample type has no attribute defined. "
-            status = 0
-            options = []
-            data = {
-                'msg':msg,
-                'status': status,
-                'filter_rule':options,
-                'placeholder_start':'',
-                'placeholder_end':'',
-                'filter_type':''
-            }
-            return data
-            
+            return operatorData("Error: the sample type has no attribute defined. ", 0, [])
+
         attributeTypes = attributeInfo['attributeTypes']
         if attribute not in attributeTypes:
-            msg = "Error: the sample attribute not available. "
-            status = 0
-            options = []
-            data = {
-                'msg':msg,
-                'status': status,
-                'filter_rule':options,
-                'placeholder_start':'',
-                'placeholder_end':'',
-                'filter_type':''
-            }
-            return data    
-        
-        msg = "Attributes retrieved "
-        status = 1    
-        attributeType_id = attributeTypes[attribute]
-        attributeType_id = int(attributeType_id)
-        if attributeType_id==3 or attributeType_id==3:
-            options = [
-                {'name':'No Filter','operator':'No Filter', 'selected':True},
-                {'name':'Equal','operator':'Equal'},
-                {'name':'Not Equal','operator':'Not Equal'},
-                {'name':'Less','operator':'Less'},
-                {'name':'Greater','operator':'Greater'},
-                {'name':'Between','operator':'Between'}
-            ]
-            placeholder_start = 'numeric value'
-            placeholder_end = 'numeric value'
-            filter_type = 'numeric'
-        elif attributeType_id in [5,6,7,8,9,10,11,12,13,14,19,20,21]:
-            options = [
-                {'name':'Contain','operator':'Contain', 'selected': True},
-                {'name':'Not Contain','operator':'Not Contain'},
-                {'name':'No Filter','operator':'No Filter'},
-            ]
-            placeholder_start = 'string value'
-            placeholder_end = 'not in use'
-            filter_type = 'string'
-        elif attributeType_id in [1,2]:
-            options = [
-                {'name':'No Filter','operator':'No Filter', 'selected':True},
-                {'name':'Equal','operator':'Equal'},
-                {'name':'Not Equal','operator':'Not Equal'},
-                {'name':'Before','operator':'Before'},
-                {'name':'After','operator':'After'},
-                {'name':'Between','operator':'Between'}
-            ]
-            placeholder_start = 'mm/dd/year'
-            placeholder_end = 'mm/dd/year'
-            filter_type = 'date'
-        elif attributeType_id==18:
-            options = [
-                {'name':'No Filter','operator':'No Filter', 'selected':True},
-                {'name':'Contain','operator':'Contain'},
-                {'name':'Not Contain','operator':'Not Contain'}
-            ]
-            placeholder_start = 'string value'
-            placeholder_end = 'not in use'
-            filter_type = 'string'
-        elif attributeType_id==15:
-            options = [
-                {'name':'No Filter','operator':'No Filter', 'selected':True},
-                {'name':'True','operator':'True'},
-                {'name':'False','operator':'False'}
-            ]
-            placeholder_start = 'not in use'
-            placeholder_end = 'not in use'
-            filter_type = 'bool'
-        else:
-            options = [
-                {'name':'No Filter','operator':'No Filter', 'selected':True},
-                {'name':'Contain','operator':'Contain'},
-                {'name':'Not Contain','operator':'Not Contain'}
-            ]
-            placeholder_start = 'string value'
-            placeholder_end = 'not in use'
-            filter_type = 'string'
-            
-        filter_rule = options
-        data = {
-            'msg':msg,
-            'status': status,
-            'filter_rule':filter_rule,
-            'placeholder_start':placeholder_start,
-            'placeholder_end':placeholder_end,
-            'filter_type':filter_type
-        }
-        return data
+            return operatorData("Error: the sample attribute not available. ", 0, [])
+
+        attributeType_id = int(attributeTypes[attribute])
+        names, placeholder_start, placeholder_end, filter_type = OPERATORS_DEFAULT
+        for ids, operators, start, end, ftype in OPERATOR_SETS:
+            if attributeType_id in ids:
+                names = operators
+                placeholder_start, placeholder_end, filter_type = start, end, ftype
+                break
+
+        options = [{'name': name, 'operator': name} for name in names]
+        options[0]['selected'] = True
+        return operatorData("Attributes retrieved ", 1, options,
+                            placeholder_start, placeholder_end, filter_type)
     
     def filterString(self, values, filter_rule, filter_valueFrom, filter_valueTo):
-        passvalues = []
-        if filter_rule=='Contain':
-            for value in values:
-                vi = toString(value)
-                if filter_valueFrom in vi:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        elif filter_rule=='Not Contain':
-            for value in values:
-                vi = toString(value)
-                if filter_valueFrom in vi:
-                    passvalues.append(False)
-                else:
-                    passvalues.append(True)
-        else:
-            for value in values:
-                passvalues.append(True)
-        return passvalues  
+        pred = STRING_RULES.get(filter_rule)
+        if pred is None:
+            return [True for _ in values]
+        return [pred(toString(value), filter_valueFrom, None) for value in values]
 
     def filterBool(self, values, filter_rule, filter_valueFrom, filter_valueTo):
-        passvalues = []
-        if filter_rule=='True':
-            for value in values:
-                vi = toBinaryTinyInt(value)
-                if vi==1:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        elif filter_rule=='False':
-            for value in values:
-                vi = toBinaryTinyInt(value)
-                if vi==1:
-                    passvalues.append(False)
-                else:
-                    passvalues.append(True)
-        else:
-            for value in values:
-                passvalues.append(True)
-        return passvalues  
+        pred = BOOL_RULES.get(filter_rule)
+        if pred is None:
+            return [True for _ in values]
+        return [pred(toBinaryTinyInt(value), filter_valueFrom, None) for value in values]
 
     def filterNumeric(self, values, filter_rule, filter_valueFrom, filter_valueTo):
         valueFrom = toFloat(filter_valueFrom)
-        passvalues = []
-        if filter_rule=='Equal':
-            for value in values:
-                vi = toFloat(value)
-                if vi==valueFrom:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        elif filter_rule=='Not Equal':
-            for value in values:
-                vi = toFloat(value)
-                if vi==valueFrom:
-                    passvalues.append(False)
-                else:
-                    passvalues.append(True)
-                
-        elif filter_rule=='Less':
-            for value in values:
-                vi = toFloat(value)
-                if vi<=valueFrom:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        elif filter_rule=='Greater':
-            for value in values:
-                vi = toFloat(value)
-                if vi>=valueFrom:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        elif filter_rule=='Between':
-            valueTo = toFloat(filter_valueTo)
-            for value in values:
-                vi = toFloat(value)
-                if vi>=valueFrom and vi<=valueTo:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        else:
-            for value in values:
-                passvalues.append(True)
-                
-        return passvalues          
+        pred = NUMERIC_RULES.get(filter_rule)
+        if pred is None:
+            return [True for _ in values]
+        valueTo = toFloat(filter_valueTo) if filter_rule=='Between' else None
+        return [pred(toFloat(value), valueFrom, valueTo) for value in values]
 
     def filterDate(self, values, filter_rule, filter_valueFrom, filter_valueTo):
         valueFrom = toDateClass(filter_valueFrom)
-        passvalues = []
-        if filter_rule=='Equal':
-            for value in values:
-                vi = toDateClass(value)
-                if vi is None:
-                    passvalues.append(False)
-                elif vi==valueFrom:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        elif filter_rule=='Not Equal':
-            for value in values:
-                vi = toDateClass(value)
-                if vi is None:
-                    passvalues.append(True)
-                elif vi==valueFrom:
-                    passvalues.append(False)
-                else:
-                    passvalues.append(True)
-                
-        elif filter_rule=='Before':
-            for value in values:
-                vi = toDateClass(value)
-                if vi is None:
-                    passvalues.append(False)
-                elif vi<=valueFrom:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        elif filter_rule=='After':
-            for value in values:
-                vi = toDateClass(value)
-                if vi is None:
-                    passvalues.append(False)
-                elif vi>=valueFrom:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        elif filter_rule=='Between':
-            valueTo = toDateClass(filter_valueTo)
-            for value in values:
-                vi = toDateClass(value)
-                if vi is None:
-                    passvalues.append(False)
-                elif vi>=valueFrom and vi<=valueTo:
-                    passvalues.append(True)
-                else:
-                    passvalues.append(False)
-                    
-        else:
-            for value in values:
-                passvalues.append(True)
-                
-        return passvalues    
+        pred = DATE_RULES.get(filter_rule)
+        if pred is None:
+            return [True for _ in values]
+        valueTo = toDateClass(filter_valueTo) if filter_rule=='Between' else None
+        return [pred(toDateClass(value), valueFrom, valueTo) for value in values]
 
     def filterValues(self, values, sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo):
         attrdata = self.getOperators(sampletype_id, attribute)
