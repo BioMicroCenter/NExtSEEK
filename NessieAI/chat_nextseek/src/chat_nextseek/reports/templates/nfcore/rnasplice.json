@@ -1,0 +1,37 @@
+{
+  "report_type": "NFCORE_RNASPLICE_SAMPLESHEET",
+  "description": "nf-core/rnasplice context, aligned to the pinned 1.0.4 schema. Differential splicing between two named groups.",
+  "params": {
+    "aligner":        {"type": "enum",   "allowed": ["star", "star_salmon"], "default": "star",   "steerable": true, "help": "Alignment route."},
+    "pseudo_aligner": {"type": "enum",   "allowed": ["salmon"],              "default": "salmon", "steerable": true, "help": "Transcript quantifier (only salmon in 1.0.4)."},
+    "suppa":          {"type": "bool",   "default": true,  "steerable": true, "help": "Run the SUPPA splicing workflow (schema default on)."},
+    "rmats":          {"type": "bool",   "default": false, "steerable": true, "help": "Run the rMATS workflow."},
+    "dexseq_exon":    {"type": "bool",   "default": false, "steerable": true, "help": "DEXSeq differential exon usage."},
+    "edger_exon":     {"type": "bool",   "default": false, "steerable": true, "help": "edgeR differential exon usage."},
+    "dexseq_dtu":     {"type": "bool",   "default": false, "steerable": true, "help": "DEXSeq differential transcript usage."},
+    "sashimi_plot":   {"type": "bool",   "default": false, "steerable": true, "help": "MISO sashimi plots."},
+    "contrasts":      {"type": "string", "default": null,  "steerable": true, "help": "Path to the contrasts CSV naming the two groups to compare. Currently supplied by the user (see required_user_params); a future step will derive it from the cohort grouping."},
+    "multiqc_title":  {"type": "string", "default": null,  "steerable": true, "help": "MultiQC report title."}
+  },
+  "reference_resources": ["fasta", "gtf"],
+  "required_user_params": [
+    {"name": "contrasts",
+     "definition": "Path to a CSV naming the two groups of samples to compare (matches the 'condition' column values in the samplesheet). rnasplice cannot run without it, and it cannot be derived from a single sample's metadata.",
+     "example": "/net/bmc-lab/contrasts.csv",
+     "scope": "run"}
+  ],
+  "pipeline": {
+    "name": "nf-core/rnasplice",
+    "repository": "https://github.com/nf-core/rnasplice",
+    "documentation_url": "https://nf-co.re/rnasplice/1.0.4/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns: sample, fastq_1, fastq_2, strandedness, condition. 'condition' groups samples; a contrasts CSV names the comparison.",
+    "required_columns": ["sample", "fastq_1", "fastq_2", "strandedness", "condition"],
+    "optional_columns": []
+  },
+  "notes": "The comparison is defined by the 'condition' column plus a contrasts file. For now contrasts is a required user-supplied path; deriving it from the cohort grouping is a scoped follow-up (Part B non-goal).",
+  "sources": [
+    {"label": "nf-core/rnasplice nextflow_schema.json @ 1.0.4", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/1.0.4/nextflow_schema.json", "notes": "param names, types, defaults; suppa default true."},
+    {"label": "nf-core/rnasplice assets/schema_input.json @ 1.0.4", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/1.0.4/assets/schema_input.json", "notes": "required columns: sample, fastq_1, strandedness, condition (fastq_2 optional)."}
+  ]
+}

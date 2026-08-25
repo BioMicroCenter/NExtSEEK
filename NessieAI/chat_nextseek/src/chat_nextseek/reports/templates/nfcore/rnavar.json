@@ -1,0 +1,174 @@
+{
+  "report_type": "NFCORE_RNAVAR_SAMPLESHEET",
+  "description": "nf-core/rnavar samplesheet context, aligned to the pinned 1.3.0 schema. GATK4 RNA-seq short-variant calling.",
+  "params": {
+    "aligner": {
+      "type": "enum",
+      "allowed": [
+        "star"
+      ],
+      "default": "star",
+      "steerable": false
+    },
+    "seq_platform": {
+      "type": "string",
+      "default": "illumina",
+      "steerable": true,
+      "help": "read-group PL tag"
+    },
+    "skip_baserecalibration": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "TRUE by curated default: BQSR needs dbsnp + known_indels, and neither is provisioned in the Luria refs tree. Set false only when those are supplied."
+    },
+    "save_reference": {
+      "type": "bool",
+      "default": true,
+      "steerable": true
+    },
+    "seq_center": {
+      "type": "string",
+      "default": null,
+      "steerable": true
+    },
+    "skip_multiqc": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    }
+  },
+  "reference_resources": [
+    "fasta",
+    "gtf",
+    "star_index",
+    "fasta_fai",
+    "dict"
+  ],
+  "pipeline": {
+    "name": "nf-core/rnavar",
+    "repository": "https://github.com/nf-core/rnavar",
+    "documentation_url": "https://nf-co.re/rnavar/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. The schema also accepts bam/cram/vcf inputs, but the supported path here is FASTQ.",
+    "required_columns": [
+      "sample",
+      "fastq_1"
+    ],
+    "optional_columns": [
+      "fastq_2",
+      "seq_platform",
+      "seq_center"
+    ]
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null,
+      "seq_platform": null,
+      "seq_center": null
+    }
+  ],
+  "examples": {
+    "paired_example": {
+      "sample": "D.SEQ-260711ENG-12-PUB",
+      "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz",
+      "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz",
+      "seq_platform": "illumina",
+      "seq_center": ""
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "sample and fastq_1 must be populated; fastq_2 blank means single-end.",
+    "Leave skip_baserecalibration TRUE unless dbsnp and known_indels have been supplied \u2014 BQSR silently needs both.",
+    "Variant annotation (snpEff/VEP) needs cached databases that are not provisioned; do not promise annotated output by default."
+  ],
+  "notes": "RNA-seq variant calling. star_index, fasta_fai and dict are derived from FASTA+GTF when absent; the Luria refs tree has none of them, so the first run per genome pays a build.",
+  "sources": [
+    {
+      "label": "nf-core/rnavar usage docs",
+      "url": "https://nf-co.re/rnavar/latest/docs/usage/",
+      "notes": "Workflow overview and samplesheet description."
+    },
+    {
+      "label": "nf-core/rnavar nextflow_schema.json @ 1.3.0",
+      "url": "https://raw.githubusercontent.com/nf-core/rnavar/1.3.0/nextflow_schema.json",
+      "notes": "Authoritative param names, types and defaults for the pinned revision."
+    },
+    {
+      "label": "nf-core/rnavar assets/schema_input.json @ 1.3.0",
+      "url": "https://raw.githubusercontent.com/nf-core/rnavar/1.3.0/assets/schema_input.json",
+      "notes": "Authoritative required/optional samplesheet columns and allowed values."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/rnavar input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name; repeat across lanes of one library.",
+            "validation_hints": "Prefer the NExtSEEK D.SEQ UID so results map back to the sample record.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Column 2",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Full path to read 1 FASTQ.",
+            "validation_hints": "Absolute Luria path, taken from the sample's Link_PrimaryData / File_PrimaryData.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R1.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "optional",
+            "position_rule": "Column 3",
+            "expected_value": "path string or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank",
+            "description": "Read 2 FASTQ for paired-end.",
+            "validation_hints": "Blank for single-end; keep the header.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/s_R2.fastq.gz"
+          },
+          "seq_platform": {
+            "required": "optional",
+            "position_rule": "After the read columns",
+            "expected_value": "string",
+            "allowed_values": "e.g. illumina",
+            "description": "Per-sample sequencing platform for the BAM read-group PL tag.",
+            "validation_hints": "Only set per-row when platforms differ; otherwise use the global param.",
+            "example": "illumina"
+          },
+          "seq_center": {
+            "required": "optional",
+            "position_rule": "After the read columns",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Per-sample sequencing center for the read-group CN tag.",
+            "validation_hints": "Only set per-row when centers differ.",
+            "example": "MIT_BMC"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/rnavar samplesheet from a resolved NExtSEEK D.SEQ cohort of RNA-seq libraries.",
+    "workflow_role": "Selected when the user asks for variants FROM RNA-seq. For DNA variant calling use sarek instead.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "One row per D.SEQ leaf; sample = the UID.",
+      "Map R1/R2 from the sample's primary-data metadata.",
+      "State plainly that base recalibration and variant annotation are off by default and why."
+    ],
+    "final_checks": [
+      "Header is exactly: sample,fastq_1,fastq_2.",
+      "The BQSR / annotation limitation has been surfaced to the user."
+    ]
+  }
+}

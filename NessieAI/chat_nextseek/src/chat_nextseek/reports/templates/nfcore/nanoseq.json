@@ -1,0 +1,162 @@
+{
+  "report_type": "NFCORE_NANOSEQ_SAMPLESHEET",
+  "description": "nf-core/nanoseq samplesheet context, aligned to the pinned 3.1.0 schema. Oxford Nanopore QC, demultiplexing and alignment.",
+  "params": {
+    "protocol": {
+      "type": "enum",
+      "allowed": [
+        "DNA",
+        "cDNA",
+        "directRNA"
+      ],
+      "default": null,
+      "steerable": true,
+      "help": "REQUIRED. The kind of Nanopore library. No default \u2014 it must come from the user."
+    },
+    "skip_alignment": {
+      "type": "bool",
+      "default": true,
+      "steerable": true,
+      "help": "TRUE by curated default. The 3.1.0 schema exposes no fasta/genome/gtf parameter, so there is no verified way to hand this pipeline a reference from the Luria refs tree. QC + demultiplexing are well defined without one. Do not flip this to false until someone has established how 3.1.0 takes a reference."
+    },
+    "skip_demultiplexing": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    },
+    "aligner": {
+      "type": "enum",
+      "allowed": [
+        "minimap2",
+        "graphmap2"
+      ],
+      "default": "minimap2",
+      "steerable": true,
+      "help": "Only consulted when skip_alignment is false."
+    },
+    "skip_multiqc": {
+      "type": "bool",
+      "default": false,
+      "steerable": true
+    }
+  },
+  "required_user_params": [
+    {
+      "name": "protocol",
+      "scope": "run",
+      "definition": "The kind of Nanopore library this cohort is. DNA = genomic DNA sequencing; cDNA = reverse-transcribed RNA; directRNA = RNA sequenced directly without reverse transcription. It changes how the reads are processed and cannot be inferred from the FASTQ.",
+      "example": "cDNA",
+      "allowed": [
+        "DNA",
+        "cDNA",
+        "directRNA"
+      ]
+    }
+  ],
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/nanoseq",
+    "repository": "https://github.com/nf-core/nanoseq",
+    "documentation_url": "https://nf-co.re/nanoseq/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. Only sample and fastq_1 are required.",
+    "required_columns": [
+      "sample",
+      "fastq_1"
+    ],
+    "optional_columns": [
+      "fastq_2"
+    ],
+    "reference_requirement": "NONE as shipped. The 3.1.0 schema declares no fasta/genome/gtf parameter, which is why skip_alignment defaults to true here."
+  },
+  "samplesheet_template": [
+    {
+      "sample": null,
+      "fastq_1": null,
+      "fastq_2": null
+    }
+  ],
+  "examples": {
+    "nanopore_example": {
+      "sample": "D.SEQ-260711ENG-12-PUB",
+      "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/ont_pass.fastq.gz",
+      "fastq_2": ""
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "sample and fastq_1 must be populated; Nanopore reads are single-file, so fastq_2 is normally blank.",
+    "protocol must be answered by the user \u2014 DNA, cDNA or directRNA. Never default it.",
+    "Do NOT pass --genome, --fasta or --gtf: the 3.1.0 schema declares none of them.",
+    "Only route ACTUAL Nanopore libraries here. An Illumina cohort sent to nanoseq will produce nonsense, not an error."
+  ],
+  "notes": "Long-read QC and demultiplexing. Verify the cohort really is Oxford Nanopore before launching \u2014 check the sample's platform/instrument metadata, do not assume from the assay name.",
+  "sources": [
+    {
+      "label": "nf-core/nanoseq usage docs",
+      "url": "https://nf-co.re/nanoseq/latest/docs/usage/",
+      "notes": "Workflow overview."
+    },
+    {
+      "label": "nf-core/nanoseq nextflow_schema.json @ 3.1.0",
+      "url": "https://raw.githubusercontent.com/nf-core/nanoseq/3.1.0/nextflow_schema.json",
+      "notes": "protocol is required; no fasta/genome/gtf param exists at this revision."
+    },
+    {
+      "label": "nf-core/nanoseq assets/schema_input.json @ 3.1.0",
+      "url": "https://raw.githubusercontent.com/nf-core/nanoseq/3.1.0/assets/schema_input.json",
+      "notes": "Authoritative: only sample and fastq_1 are required. The older group/replicate/barcode/genome sheet no longer applies."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/nanoseq input samplesheet.",
+        "fields": {
+          "sample": {
+            "required": "required",
+            "position_rule": "Column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name.",
+            "validation_hints": "Prefer the NExtSEEK D.SEQ UID.",
+            "example": "D.SEQ-260711ENG-12-PUB"
+          },
+          "fastq_1": {
+            "required": "required",
+            "position_rule": "Column 2",
+            "expected_value": "path string",
+            "allowed_values": ".fastq.gz or .fq.gz",
+            "description": "Nanopore reads.",
+            "validation_hints": "Absolute Luria path from the sample's primary-data metadata.",
+            "example": "/net/bmc-pub10/data1/bmc/fastq/ont_pass.fastq.gz"
+          },
+          "fastq_2": {
+            "required": "optional",
+            "position_rule": "Column 3",
+            "expected_value": "path or blank",
+            "allowed_values": ".fastq.gz or .fq.gz, or blank",
+            "description": "Second read file. Nanopore output is single-file, so this is normally blank.",
+            "validation_hints": "Leave blank unless the cohort genuinely has paired files.",
+            "example": ""
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/nanoseq samplesheet from a resolved NExtSEEK D.SEQ cohort of Nanopore libraries.",
+    "workflow_role": "Selected for Oxford Nanopore long-read cohorts.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "Confirm from platform/instrument metadata that these really are Nanopore reads before proceeding.",
+      "One row per D.SEQ leaf; sample = the UID; fastq_2 blank.",
+      "Ask the user for protocol; do not infer it from the assay title."
+    ],
+    "final_checks": [
+      "protocol was answered by the user.",
+      "The cohort was verified as Nanopore, not assumed.",
+      "No reference flags were requested."
+    ]
+  }
+}

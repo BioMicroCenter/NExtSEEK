@@ -1,0 +1,71 @@
+{
+  "report_type": "NFCORE_PATHOGENSURVEILLANCE_SAMPLESHEET",
+  "description": "nf-core/pathogensurveillance samplesheet context, aligned to the pinned 1.1.0 nextflow_schema.json and assets/schema_input.json. Population-genomics surveillance across a set of pathogen isolates.",
+  "params": {
+    "download_bakta_db": {"type": "bool", "default": false, "steerable": true, "help": "Downloads the Bakta annotation database on demand. Large; leave off unless annotation is wanted."},
+    "bakta_db":          {"type": "string", "default": null, "steerable": true, "help": "Path to an already-downloaded Bakta database."},
+    "max_samples":       {"type": "number", "default": null, "steerable": true},
+    "n_ref_strains":     {"type": "number", "default": 10, "steerable": true, "help": "How many reference strains to pull in per group for context."},
+    "multiqc_title":     {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/pathogensurveillance",
+    "repository": "https://github.com/nf-core/pathogensurveillance",
+    "documentation_url": "https://nf-co.re/pathogensurveillance/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample_id, name, description, path, path_2, ncbi_accession, ncbi_query, ncbi_query_max, sequence_type, report_group_ids, color_by, ploidy, enabled, ref_group_ids. The schema marks NONE strictly required, which is unusual — the pipeline accepts either local paths or NCBI accessions. NOTE sample_id/path/path_2, not sample/fastq_1/fastq_2.",
+    "required_columns": ["sample_id", "path", "path_2"],
+    "optional_columns": ["name", "description", "ncbi_accession", "sequence_type", "report_group_ids", "color_by", "ploidy", "enabled", "ref_group_ids"],
+    "reference_requirement": "NONE from us. The 1.1.0 schema declares no genome/fasta/gtf; the pipeline selects reference strains automatically from NCBI, which is what n_ref_strains controls."
+  },
+  "samplesheet_template": [{"sample_id": null, "path": null, "path_2": null, "sequence_type": null, "report_group_ids": null}],
+  "examples": {
+    "illumina_isolate": {"sample_id": "D.SEQ-260711ENG-12-PUB", "path": "/net/bmc-pub10/data1/bmc/fastq/iso_R1.fastq.gz", "path_2": "/net/bmc-pub10/data1/bmc/fastq/iso_R2.fastq.gz", "sequence_type": "illumina", "report_group_ids": "outbreak_ward_A"}
+  },
+  "validation_rules": [
+    "The columns are sample_id, path and path_2 — not sample, fastq_1 and fastq_2.",
+    "sequence_type must be one of illumina, nanopore, pacbio or bgiseq. Nessie stamps it per row from the platform in the sample's metadata rather than asking; check it landed rather than assuming.",
+    "Do NOT pass --genome, --fasta or --gtf: the 1.1.0 schema declares none of them, and reference strains are chosen automatically.",
+    "report_group_ids is what makes the output useful — it defines which isolates are compared against which. It is semicolon-separated and should come from the cohort field the user actually asked about (treatment, ward, timepoint, site). A run with everything in one group produces one undifferentiated report.",
+    "This pipeline compares a SET of isolates. Running it on a single sample is valid but produces little of value.",
+    "ploidy defaults to haploid handling; set it only from real knowledge of the organism."
+  ],
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05: no bacterial isolate sequencing exists (BAC has no D.SEQ children). Catalogued for future data. Worth noting for whoever picks this up: this is the one pipeline in the batch whose value depends on a GROUPING decision rather than on the files, which puts it in the same family as differentialabundance's contrasts — Nessie knows the lineage, so it can propose the groups, and that is the interesting part.",
+  "sources": [
+    {"label": "nf-core/pathogensurveillance usage docs", "url": "https://nf-co.re/pathogensurveillance/latest/docs/usage/", "notes": "Samplesheet columns, grouping model and reference selection."},
+    {"label": "nf-core/pathogensurveillance nextflow_schema.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/pathogensurveillance/1.1.0/nextflow_schema.json", "notes": "Authoritative: no required params beyond input/outdir; no genome/fasta/gtf."},
+    {"label": "nf-core/pathogensurveillance assets/schema_input.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/pathogensurveillance/1.1.0/assets/schema_input.json", "notes": "Authoritative: no required columns; sequence_type is enum illumina|nanopore|pacbio|bgiseq; report_group_ids is semicolon-separated."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/pathogensurveillance input sheet.",
+        "fields": {
+          "sample_id": {"required": "required in practice", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+          "path": {"required": "required unless an NCBI accession is given", "position_rule": "Column 2", "expected_value": "path", "allowed_values": ".fastq.gz", "description": "Read 1.", "validation_hints": "Absolute Luria path.", "example": "/net/bmc-pub10/data1/bmc/fastq/iso_R1.fastq.gz"},
+          "path_2": {"required": "header required", "position_rule": "Column 3", "expected_value": "path or blank", "allowed_values": ".fastq.gz or blank", "description": "Read 2.", "validation_hints": "Blank for single-end.", "example": "/net/bmc-pub10/data1/bmc/fastq/iso_R2.fastq.gz"},
+          "sequence_type": {"required": "optional but important", "position_rule": "later", "expected_value": "enum", "allowed_values": "illumina, nanopore, pacbio, bgiseq", "description": "Sequencing platform, used to pick per-sample tooling.", "validation_hints": "Derived from the sample's own platform metadata, never asked for.", "example": "illumina"},
+          "report_group_ids": {"required": "optional but the point of the pipeline", "position_rule": "later", "expected_value": "semicolon-separated string", "allowed_values": "", "description": "Which comparison group(s) this isolate belongs to.", "validation_hints": "Populate from the cohort-defining metadata the user asked about. This is the column Nessie is uniquely able to fill, because it knows the lineage.", "example": "outbreak_ward_A;site_north"}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/pathogensurveillance sheet from a resolved D.SEQ cohort of pathogen isolates.",
+    "workflow_role": "Selected for outbreak investigation or population-genomic comparison across isolates.",
+    "output_expectation": "CSV with header sample_id,path,path_2,sequence_type,report_group_ids.",
+    "population_priority": [
+      "Establish the GROUPING first — it decides what the report compares. Read the user's phrasing against the grouping_fields resolve_samples returned.",
+      "One row per D.SEQ leaf; sample_id = the UID.",
+      "Let the emitter stamp sequence_type from platform metadata.",
+      "Leave the NCBI query columns blank unless the user wants public isolates pulled in for context."
+    ],
+    "final_checks": [
+      "Columns are sample_id/path/path_2.",
+      "report_group_ids is populated and reflects a real distinction, not one blanket group.",
+      "sequence_type landed on every row.",
+      "No reference flags were emitted."
+    ]
+  }
+}
