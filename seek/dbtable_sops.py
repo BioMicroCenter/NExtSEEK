@@ -12,29 +12,9 @@ from dmac.dbtable import DBtable
 from django.conf import settings
 from django import forms
 
-DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
-DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + '/download/'
-
 SOPS_FILTER_MAPPING = {
     'id':'id',
     'title':'uid'
-}
-
-SOPS_DEFAULT = {
-    #'id':'',
-    'contributor_id':0,
-    'title':'',
-    'description':'',
-    'created_at':'',
-    'updated_at':'',
-    'version':1,
-    'first_letter':'',
-    'other_creators':'',
-    'uuid':'',
-    'policy_id':'',
-    'doi':None,
-    'license':'CC-BY-4.0',
-    'deleted_contributor':None         
 }
 
 BATCHSEARCHFORM_MAPPING = {
@@ -54,15 +34,6 @@ CATEGORY_CHOICES = (
     ("SAMPLES", "Samples"),
     ("SAMPLETYPES", "Sample types")
 )
-
-FILETYPES_SOP_SUPPORTED = [
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "text/plain",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/msword",
-    "application/zip",
-]
 
 SOP_ERRORCODE = {
     '001': 'Error P001: User not logged in.',

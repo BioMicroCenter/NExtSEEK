@@ -16,28 +16,7 @@ from django.db.models import Q
 from .dbtable_assay_assets import DBtable_assay_assets
 from .dbtable_content_blobs import DBtable_content_blobs
 
-DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "/download/"
-DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + '/download/'
 DATA_FILES_FILTER_MAPPING = {
-}
-
-DATA_FILES_DEFAULT = {
-    #'id':'',
-    'contributor_id':0,
-    'title':'',
-    'description':'',
-    'template_id':None,
-    'created_at':'',
-    'updated_at':'',
-    'version':1,
-    'first_letter':'',
-    'other_creators':'',
-    'uuid':'',
-    'policy_id':'',
-    'doi':None,
-    'license':'CC-BY-4.0',
-    'simulation_data':0,
-    'deleted_contributor':None        
 }
 
 DATA_FILE_UID_DELIMITER = "_"
