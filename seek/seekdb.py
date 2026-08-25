@@ -2,6 +2,7 @@
 from .seekapi import SeekAPI
 from django.conf import settings
 import json
+import shlex
 from dmac.conversion import convertDicToOptions
 
 import logging
@@ -375,114 +376,62 @@ class SeekDB(object):
         return investigations,folders
     
     
+    def __dataFilePayload(self, title, description, originalfilename,
+                          content_type, userid, projectid, assayid):
+        """The SEEK JSON:API body for a data-file upload.
+
+        This replaced a pair of 51-line escaped-JSON-inside-a-shell-string
+        literals that differed only by whether the ``assays`` relationship was
+        present. Building a dict and letting ``json.dumps`` escape it also
+        closes ``LATENT_BUGS.md`` #45: the hand-built version interpolated
+        ``title`` and ``description`` raw, so a quote silently dropped out of
+        the stored title, a backslash was re-interpreted as an escape, and a
+        crafted title could add arguments to the curl command line.
+        """
+        relationships = {
+            'creators': {'data': [{'id': str(userid), 'type': 'people'}]},
+            'projects': {'data': [{'id': str(projectid), 'type': 'projects'}]},
+        }
+        if not (assayid is None or assayid <= 0):
+            relationships['assays'] = {'data': [{'id': str(assayid),
+                                                 'type': 'assays'}]}
+        return {'data': {
+            'type': 'data_files',
+            'attributes': {
+                'title': title,
+                'description': description,
+                'license': 'CC-BY-4.0',
+                'content_blobs': [{'original_filename': originalfilename,
+                                   'content_type': content_type}],
+                'policy': {
+                    'access': 'no_access',
+                    'permissions': [{
+                        'resource': {'id': str(projectid), 'type': 'projects'},
+                        'access': 'manage',
+                    }],
+                },
+            },
+            'relationships': relationships,
+        }}
+
+    def __postCommand(self, endpoint, payload):
+        """A curl POST command line carrying ``payload`` as its JSON body.
+
+        ``SeekAPI.callCmdline`` runs the string through ``shlex.split`` and
+        ``Popen`` -- there is no shell -- so ``shlex.quote`` is the exact
+        inverse of how this argument will be read back.
+        """
+        apiPostCmd = self.__seekapi.apiPost()[:-1]
+        return (apiPostCmd + endpoint + "\" "
+                "-H \"accept: application/json\" "
+                "-H \"Content-Type: application/json\" "
+                "-d " + shlex.quote(json.dumps(payload)))
+
     def seekupload_dfurl(self, title, fullfilename, originalfilename,
                content_type, userid, projectid, assayid, description, tags, weburl):
-        apiPostCmd = self.__seekapi.apiPost()       
-        apiPostCmd = apiPostCmd[:-1]   
-        if assayid is None or assayid<=0:
-            data_instance_query = (
-                apiPostCmd +
-                "/data_files\" "
-                "-H \"accept: application/json\" "
-                "-H \"Content-Type: application/json\" "
-                "-d \"{ \\\"data\\\": { \\\"type\\\": \\\"data_files\\\", "
-                "\\\"attributes\\\": "
-                "{ \\\"title\\\": \\\"" + title + "\\\", "
-                "\\\"description\\\": \\\"" + description + "\\\", "
-                #"\\\"tags\\\": ["
-                #"\\\"" + tags[0] + "\\\", "
-                #"\\\"" + tags[1] + "\\\""
-                #"], "
-                "\\\"license\\\": \\\"CC-BY-4.0\\\", "
-                "\\\"content_blobs\\\": [ { "
-                "\\\"original_filename\\\": \\\"" + originalfilename + "\\\", "
-            
-                # If you add the following line into the call,
-                # an error message will show:  {"error":"bad upload"}
-                # refer to: http://www.visualseq.net/dokuwiki/doku.php?id=computer:websites:dmac:datafile#step_1_select_an_example
-                #"\\\"url\\\": \\\"" + weburl + "\\\", "
-                #"\\\"md5sum\\\": \\\"" + md5sum + "\\\", "
-                #"\\\"sha1sum\\\": \\\"" + sha1sum + "\\\", "
-                #"\\\"link\\\": \\\"" + link + "\\\", "
-                #"\\\"size\\\": \\\"" + size + "\\\", "
-            
-                "\\\"content_type\\\": \\\"" + content_type + "\\\" } ], "
-                "\\\"policy\\\": "
-                "{ \\\"access\\\": \\\"no_access\\\", "
-                "\\\"permissions\\\": [ "
-                "{ \\\"resource\\\": "
-                "{ \\\"id\\\": \\\"" + str(projectid) + "\\\", "
-                "\\\"type\\\": \\\"projects\\\" }, "
-                #"\\\"access\\\": \\\"download\\\" } ] } }, "
-                "\\\"access\\\": \\\"manage\\\" } ] } }, "
-                "\\\"relationships\\\": "
-                "{ \\\"creators\\\": "
-                "{ \\\"data\\\": [ "
-                "{ \\\"id\\\": \\\"" + str(userid) + "\\\", "
-                "\\\"type\\\": \\\"people\\\" } ] }, "
-                "\\\"projects\\\": "
-                "{ \\\"data\\\": [ "
-                "{ \\\"id\\\": \\\"" + str(projectid) + "\\\", "
-                "\\\"type\\\": \\\"projects\\\" } ] } "
-                #"\\\"type\\\": \\\"projects\\\" } ] }, "
-                #",\\\"assays\\\": "
-                #"{ \\\"data\\\": [ "
-                #"{ \\\"id\\\": \\\"" + str(assayid) + "\\\", "
-                #"\\\"type\\\": \\\"assays\\\" } ] } } }} \""
-                "} }} \""
-            )
-        else:
-            data_instance_query = (
-                apiPostCmd +
-                "/data_files\" "
-                "-H \"accept: application/json\" "
-                "-H \"Content-Type: application/json\" "
-                "-d \"{ \\\"data\\\": { \\\"type\\\": \\\"data_files\\\", "
-                "\\\"attributes\\\": "
-                "{ \\\"title\\\": \\\"" + title + "\\\", "
-                "\\\"description\\\": \\\"" + description + "\\\", "
-                #"\\\"tags\\\": ["
-                #"\\\"" + tags[0] + "\\\", "
-                #"\\\"" + tags[1] + "\\\""
-                #"], "
-                "\\\"license\\\": \\\"CC-BY-4.0\\\", "
-                "\\\"content_blobs\\\": [ { "
-                "\\\"original_filename\\\": \\\"" + originalfilename + "\\\", "
-            
-                # If you add the following line into the call,
-                # an error message will show:  {"error":"bad upload"}
-                # refer to: http://www.visualseq.net/dokuwiki/doku.php?id=computer:websites:dmac:datafile#step_1_select_an_example
-                #"\\\"url\\\": \\\"" + weburl + "\\\", "
-                #"\\\"md5sum\\\": \\\"" + md5sum + "\\\", "
-                #"\\\"sha1sum\\\": \\\"" + sha1sum + "\\\", "
-                #"\\\"link\\\": \\\"" + link + "\\\", "
-                #"\\\"size\\\": \\\"" + size + "\\\", "
-            
-                "\\\"content_type\\\": \\\"" + content_type + "\\\" } ], "
-                "\\\"policy\\\": "
-                "{ \\\"access\\\": \\\"no_access\\\", "
-                "\\\"permissions\\\": [ "
-                "{ \\\"resource\\\": "
-                "{ \\\"id\\\": \\\"" + str(projectid) + "\\\", "
-                "\\\"type\\\": \\\"projects\\\" }, "
-                #"\\\"access\\\": \\\"download\\\" } ] } }, "
-                "\\\"access\\\": \\\"manage\\\" } ] } }, "
-                "\\\"relationships\\\": "
-                "{ \\\"creators\\\": "
-                "{ \\\"data\\\": [ "
-                "{ \\\"id\\\": \\\"" + str(userid) + "\\\", "
-                "\\\"type\\\": \\\"people\\\" } ] }, "
-                "\\\"projects\\\": "
-                "{ \\\"data\\\": [ "
-                "{ \\\"id\\\": \\\"" + str(projectid) + "\\\", "
-                "\\\"type\\\": \\\"projects\\\" } ] } "
-                #"\\\"type\\\": \\\"projects\\\" } ] }, "
-                ",\\\"assays\\\": "
-                "{ \\\"data\\\": [ "
-                "{ \\\"id\\\": \\\"" + str(assayid) + "\\\", "
-                "\\\"type\\\": \\\"assays\\\" } ] } "
-                "} }} \""
-            )
+        payload = self.__dataFilePayload(title, description, originalfilename,
+                                         content_type, userid, projectid, assayid)
+        data_instance_query = self.__postCommand("/data_files", payload)
         exitcode, out, err = self.__seekapi.callCmdline(data_instance_query)
         
         df_info = out
