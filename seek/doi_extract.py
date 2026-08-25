@@ -46,6 +46,11 @@ _TRAILING_JUNK = ".,;:)]}>\"'"
 #: them, and the article's own DOI is normally present in the same description.
 _SUPPLEMENT_MARKERS = ("/suppl_file/", "/suppl/", "/supplementary/", "/media/")
 
+#: ACS and others append `.sNNN` to the article DOI for each supplementary file,
+#: e.g. 10.1021/acssensors.4c00927.s002. Same problem, different shape from the
+#: path-segment markers above.
+_SUPPLEMENT_SUFFIX_RE = re.compile(r"\.s\d{3}$")
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -81,6 +86,8 @@ def normalize_doi(raw: str) -> str | None:
         return None
     lowered = doi.lower()
     if any(marker in lowered for marker in _SUPPLEMENT_MARKERS):
+        return None
+    if _SUPPLEMENT_SUFFIX_RE.search(lowered):
         return None
     return lowered
 

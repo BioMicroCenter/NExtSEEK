@@ -155,3 +155,12 @@ class TestExtractFromRealDescriptions:
             "https://doi.org/10.1126/sciadv.adq6652/suppl_file/sciadv.adq6652_sm.pdf"
         )
         assert [c.value for c in cands] == ["10.1126/sciadv.adq6652"]
+
+    def test_acs_supplementary_suffix_doi_is_rejected(self):
+        # ACS mints one DOI per supplementary file by appending .sNNN to the
+        # article DOI. Crossref resolves it, so it looks valid — but it is the
+        # supplement, not the paper.
+        assert normalize_doi("10.1021/acssensors.4c00927.s002") is None
+
+    def test_article_doi_without_the_suffix_is_kept(self):
+        assert normalize_doi("10.1021/acssensors.4c00927") == "10.1021/acssensors.4c00927"
