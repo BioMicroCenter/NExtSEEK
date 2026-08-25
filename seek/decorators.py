@@ -19,11 +19,29 @@ import logging
 
 import simplejson
 from django.contrib.auth.models import User
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 
 from .seekdb import SeekDB
 
 logger = logging.getLogger(__name__)
+
+
+def _login(request, whetherFullInfo):
+    """Log a request in to SEEK and hand the view what the login produced.
+
+    ``getSeekLogin`` rebinds ``self.user_seek``, ``self.creator`` and -- the one
+    that matters -- ``self.__seekapi``, which it rebuilds with the caller's
+    credentials. Every later SEEK call therefore has to go through *this*
+    instance: a view that constructed its own ``SeekDB`` would get an
+    unauthenticated API client and quietly read nothing. That is why the
+    instance is attached as ``request.seekdb`` rather than left for the view to
+    recreate.
+    """
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, whetherFullInfo)
+    request.seekdb = seekdb
+    request.user_seek = user_seek
+    return user_seek
 
 
 def verifySuperUser(request):
@@ -63,17 +81,40 @@ def requires_seek_login(view=None, *, log_failure=False):
 
     @functools.wraps(view)
     def wrapper(request, *args, **kwargs):
-        seekdb = SeekDB(None, None, None)
-        user_seek = seekdb.getSeekLogin(request, False)
+        user_seek = _login(request, False)
         if not user_seek['status']:
             err = user_seek['err']
             if log_failure:
                 logger.error(err)
             return _error_response(err)
-        request.user_seek = user_seek
         return view(request, *args, **kwargs)
 
     return wrapper
+
+
+def requires_seek_login_redirect(next_url=None, *, whetherFullInfo=False):
+    """Send the browser to the login page unless the SEEK login succeeds.
+
+    The page views use this where the AJAX views use :func:`requires_seek_login`:
+    a redirect rather than a JSON envelope. ``next_url`` is the path to return to
+    afterwards; ``None`` reproduces the four views that redirect to a bare
+    ``/login/`` with no ``next`` parameter at all. The target is assembled once,
+    at decoration time, by the same concatenation the inlined copies used.
+
+    ``whetherFullInfo`` is ``getSeekLogin``'s own second argument. Two views pass
+    ``True`` and the rest ``False``; it is a parameter rather than a constant
+    because that difference is real and undocumented.
+    """
+    target = '/login/' if next_url is None else '/login/?next=' + next_url
+
+    def decorate(view):
+        @functools.wraps(view)
+        def wrapper(request, *args, **kwargs):
+            if not _login(request, whetherFullInfo)['status']:
+                return HttpResponseRedirect(target)
+            return view(request, *args, **kwargs)
+        return wrapper
+    return decorate
 
 
 def requires_supervisor(message, with_message_key=False):

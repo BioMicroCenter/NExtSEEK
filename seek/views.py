@@ -26,8 +26,8 @@ from dmac.dbtable_internalassays import DBtable_internalassays
 from dmac.dbtable_assaysinternalassays import DBtable_assaysinternalassays
 from nextseek_api.services.sample_workbook import write_samples_workbook
 
-from .decorators import (requires_seek_login, requires_supervisor,
-                         verifySuperUser)
+from .decorators import (requires_seek_login, requires_seek_login_redirect,
+                         requires_supervisor, verifySuperUser)
 from .seekdb import SeekDB
 from .models import Projects
 
@@ -79,13 +79,10 @@ def seek(request, url):
         report['bodyhtml'] = bodyhtml
         return render(request,"samples.html", {'bodyhtml' : bodyhtml})
     
+@requires_seek_login_redirect()
 def getSeekPage(request, seek_url):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        url_redirect = '/login/'
-        return HttpResponseRedirect(url_redirect)
-        
+    seekdb = request.seekdb
+
     bodyhtml = seekdb.getPageRequests(seek_url)
     report = {}
     report['bodyhtml'] = bodyhtml
@@ -155,12 +152,10 @@ def document(request, id):
     data = {'msg':msg, 'status': status, 'link':docurl}
     return HttpResponse(simplejson.dumps(data, default=str))   
 
+@requires_seek_login_redirect('/seek/samples/upload/')
 def sampleUpload(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        return HttpResponseRedirect("/login/?next=/seek/samples/upload/")
-        
+    seekdb = request.seekdb
+
     report = {}
     docs = DBtable_documents()
     report['template_options'] = docs.getOptionsDocuments(0, "Sample Sheet Template")
@@ -175,11 +170,10 @@ def sampleUpload(request):
     
     return render(request,"sampleUpload.html", {'report':report})
 
+@requires_seek_login_redirect('/seek/samples/batchupload/', whetherFullInfo=True)
 def batchUpload(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, True)
-    if not user_seek['status']:
-        return HttpResponseRedirect("/login/?next=/seek/samples/batchupload/")
+    seekdb = request.seekdb
+    user_seek = request.user_seek
 
     isSupervisor = verifySuperUser(request)
 
@@ -348,13 +342,8 @@ def getOperators(request):
     return HttpResponse(simplejson.dumps(data, default=str))
 
 
+@requires_seek_login_redirect('/seek/samples/search/')
 def sampleSearch(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        url_redirect = '/login/?next=/seek/samples/search/'
-        return HttpResponseRedirect(url_redirect)
-    
     report = {}
     stype = DBtable_sampletype()
     report['type_options'] = stype.getSampleTypes()
@@ -402,11 +391,10 @@ def sampleSearching(request):
 def remote(request):
     return samples(request)
 
+@requires_seek_login_redirect('/seek/data/upload/', whetherFullInfo=True)
 def datafileUpload(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, True)
-    if not user_seek['status']:
-        return HttpResponseRedirect("/login/?next=/seek/data/upload/")
+    seekdb = request.seekdb
+    user_seek = request.user_seek
 
     isSupervisor = verifySuperUser(request)
 
@@ -629,13 +617,8 @@ def getAssaysOptions(request, id):
     data = {'msg':'okay', 'status': 1, 'assay_options':assay_options}
     return HttpResponse(simplejson.dumps(data, default=str))
     
+@requires_seek_login_redirect('/seek/samples/attributes/')
 def sampleAttributes(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        url_redirect = '/login/?next=/seek/samples/attributes/'
-        return HttpResponseRedirect(url_redirect)
-    
     report = {}
     stype = DBtable_sampletype()
     report['type_options'] = stype.getSampleTypes()
@@ -717,13 +700,8 @@ def getInstituionUsers(request, id):
     data = {'msg':msg, 'status': status, 'userOptions':options}
     return HttpResponse(simplejson.dumps(data, default=str))   
         
+@requires_seek_login_redirect('/seek/search/')
 def searchAdvanced(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        url_redirect = '/login/?next=/seek/search/'
-        return HttpResponseRedirect(url_redirect)
-    
     report = {}
     stype = DBtable_sampletype()
     report['type_options'] = stype.getSampleTypes()
@@ -921,21 +899,18 @@ def getTemplateFolders(directory_path):
         return {}
     return folders
 
+@requires_seek_login_redirect('/seek/templates')
 def templatesList(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        url_redirect = '/login/?next=/seek/templates'
-        return HttpResponseRedirect(url_redirect)
-    else:
-        headers = {'Accept': 'application/json'}
-        r = requests.get(user_seek['server'] + '/projects', auth=(user_seek['username'], user_seek['password']), headers=headers)
-        projects = [p['id'] for p in r.json()['data']]
-        if not SAMPLE_TEMPLATES_FOLDER_PROJECT in projects:
-            msg = 'You are not in the correct project to access this page'
-            status = 0
-            data = {'msg':msg, 'status': status, 'link': ""}
-            return HttpResponse(simplejson.dumps(data, default=str)) 
+    user_seek = request.user_seek
+
+    headers = {'Accept': 'application/json'}
+    r = requests.get(user_seek['server'] + '/projects', auth=(user_seek['username'], user_seek['password']), headers=headers)
+    projects = [p['id'] for p in r.json()['data']]
+    if not SAMPLE_TEMPLATES_FOLDER_PROJECT in projects:
+        msg = 'You are not in the correct project to access this page'
+        status = 0
+        data = {'msg':msg, 'status': status, 'link': ""}
+        return HttpResponse(simplejson.dumps(data, default=str)) 
 
     folders = getTemplateFolders(SAMPLE_TEMPLATES_FOLDER)
 
@@ -1134,55 +1109,51 @@ def adminRetrieveSamples(request):
         else:
             return render(request, "admin_retrieval.html")
 
+@requires_seek_login_redirect('/seek/projects/')
 def projects(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
+    seekdb = request.seekdb
 
-    if not user_seek['status']:
-        url_redirect = "/login/?next=/seek/projects/"
-        return HttpResponseRedirect(url_redirect) 
+    projectsdb = DBtable_projects()
+    current_user = seekdb.getCurrentUser() or {}
+    user_projects = (
+        current_user.get('data', {})
+        .get('relationships', {})
+        .get('projects', {})
+        .get('data', [])
+    )
+    user_project_ids = [project.get('id') for project in user_projects if project.get('id') is not None]
+
+    if verifySuperUser(request) == 1:
+        projects = list(Projects.objects.all().values('id', 'title', 'avatar_id'))
     else:
-        projectsdb = DBtable_projects()
-        current_user = seekdb.getCurrentUser() or {}
-        user_projects = (
-            current_user.get('data', {})
-            .get('relationships', {})
-            .get('projects', {})
-            .get('data', [])
-        )
-        user_project_ids = [project.get('id') for project in user_projects if project.get('id') is not None]
+        projects = list(Projects.objects.filter(id__in=user_project_ids).values('id', 'title', 'avatar_id'))
 
-        if verifySuperUser(request) == 1:
-            projects = list(Projects.objects.all().values('id', 'title', 'avatar_id'))
-        else:
-            projects = list(Projects.objects.filter(id__in=user_project_ids).values('id', 'title', 'avatar_id'))
-
-        for project in projects:
-            try:
-                stats = projectsdb.sample_count(project['id'])
-                stats.update(projectsdb.files_count(project['id']))
-            except Exception:
-                logger.exception("Failed to build project stats for project_id=%s", project.get('id'))
-                stats = {'sample_count': 0, 'sop_count': 0, 'df_count': 0}
-            project['stats'] = stats
-
+    for project in projects:
         try:
-            stcdb = DBtable_stc()
-            clade_rows = stcdb.getAllCounts() or []
-            clade_rows = sorted(clade_rows, key=lambda row: (row.get('title') or '', row.get('st_group') or ''))
-            clade_data = {k: list(v) for k, v in groupby(clade_rows, lambda x: x.get('title') or 'Uncategorized')}
+            stats = projectsdb.sample_count(project['id'])
+            stats.update(projectsdb.files_count(project['id']))
         except Exception:
-            logger.exception("Failed to build clade data for projects page")
-            clade_data = {}
+            logger.exception("Failed to build project stats for project_id=%s", project.get('id'))
+            stats = {'sample_count': 0, 'sop_count': 0, 'df_count': 0}
+        project['stats'] = stats
 
-        for k, group in clade_data.items():
-            total = sum((item.get('count') or 0) for item in group)
-            for item in group:
-                item['total'] = total
-               
-        return render(request, 'projectsList.html', {'projects': projects,
-                                                     'clade_data': clade_data,
-                                                     'seek_hostname': SEEK_HOSTNAME})
+    try:
+        stcdb = DBtable_stc()
+        clade_rows = stcdb.getAllCounts() or []
+        clade_rows = sorted(clade_rows, key=lambda row: (row.get('title') or '', row.get('st_group') or ''))
+        clade_data = {k: list(v) for k, v in groupby(clade_rows, lambda x: x.get('title') or 'Uncategorized')}
+    except Exception:
+        logger.exception("Failed to build clade data for projects page")
+        clade_data = {}
+
+    for k, group in clade_data.items():
+        total = sum((item.get('count') or 0) for item in group)
+        for item in group:
+            item['total'] = total
+           
+    return render(request, 'projectsList.html', {'projects': projects,
+                                                 'clade_data': clade_data,
+                                                 'seek_hostname': SEEK_HOSTNAME})
 
 def project_page(request, project_id):
     seekdb = SeekDB(None, None, None)
@@ -1245,14 +1216,9 @@ def project_page(request, project_id):
                                                     'avatar_id': project.avatar_id,
                                                     'clade_data': clade_data,})
 
+@requires_seek_login_redirect('/seek/samples/attributes/')
+@requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def adminClades(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-
-    if not user_seek['status']:
-        url_redirect = '/login/?next=/seek/samples/attributes/'
-        return HttpResponseRedirect(url_redirect)
-
     if verifySuperUser(request) != 1:
         msg = 'Error: You login as admin to view this page.'
         status = 0
@@ -1338,14 +1304,9 @@ def smartSearch(request):
         return render(request, 'error.html', {'data': data})
     return render(request, "smartSearch.html")
 
+@requires_seek_login_redirect('/seek/samples/attributes/')
+@requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def internalAssays(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-
-    if not user_seek['status']:
-        url_redirect = '/login/?next=/seek/samples/attributes/'
-        return HttpResponseRedirect(url_redirect)
-
     if verifySuperUser(request) != 1:
         msg = 'Error: You login as admin to view this page.'
         status = 0
@@ -1416,35 +1377,20 @@ def syncInternalAssays(request):
     
     return HttpResponse({})
 
+@requires_seek_login_redirect()
 def sopQuery(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        url_redirect = '/login/'
-        return HttpResponseRedirect(url_redirect)
-    
     report["seek_url"] = settings.SEEK_PUBLIC_URL
 
     return render(request, "sopsPage.html", {"report" : report})
 
+@requires_seek_login_redirect()
 def datafileQuery(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        url_redirect = '/login/'
-        return HttpResponseRedirect(url_redirect)
-    
     report["seek_url"] = settings.SEEK_PUBLIC_URL
 
     return render(request, "dataFilesPage.html", {"report" : report})
 
+@requires_seek_login_redirect()
 def newSearch(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        url_redirect = '/login/'
-        return HttpResponseRedirect(url_redirect)
-
     return render(request, "newSearch.html")
 
 
