@@ -1,8 +1,13 @@
 """Copy study publication attributes from MySQL into Neo4j.
 
-MySQL is the source of truth. Every study is written, including those with no
-DOI — that is what clears a value removed in MySQL rather than leaving a stale
-one in the graph.
+MySQL is the source of truth for a study's title, DOI and PMID. Every study is
+written, including those with no DOI — that is what clears a value removed in
+MySQL rather than leaving a stale one in the graph.
+
+The title is included because the graph holds its own copy, maintained only by
+batch upload. Renaming a study through the API updates MySQL and SEEK's index
+but not the graph, so search would show the new title while Nessie still
+answered with the old one.
 
 Two naming facts, both verified against the live instances on 2026-08-24 and
 both easy to get wrong silently:
@@ -36,7 +41,7 @@ log = logging.getLogger(__name__)
 STUDY_PROPERTY_CYPHER = """
 UNWIND $rows AS row
 MATCH (st:Study {id: row.study_id})
-SET st.DOI = row.doi, st.PMID = row.pmid
+SET st.DOI = row.doi, st.PMID = row.pmid, st.title = row.title
 """
 
 
@@ -50,7 +55,7 @@ def _db_name() -> str:
 
 
 def _study_rows() -> list[dict]:
-    return _rows("SELECT id, doi, pmid FROM studies ORDER BY id")
+    return _rows("SELECT id, title, doi, pmid FROM studies ORDER BY id")
 
 
 def build_study_rows(rows: list[dict]) -> list[dict]:
@@ -58,6 +63,7 @@ def build_study_rows(rows: list[dict]) -> list[dict]:
     return [
         {
             "study_id": r["id"],
+            "title": r.get("title") or "",
             "doi": r.get("doi") or "",
             "pmid": str(r["pmid"]) if r.get("pmid") else "",
         }
