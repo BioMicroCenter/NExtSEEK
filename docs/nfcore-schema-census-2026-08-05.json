@@ -1,0 +1,2780 @@
+[
+ {
+  "name": "airrflow",
+  "tag": "5.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample_id",
+   "subject_id",
+   "species",
+   "pcr_target_locus",
+   "tissue",
+   "sex",
+   "age",
+   "biomaterial_provider",
+   "single_cell"
+  ],
+  "all_cols": [
+   "sample_id",
+   "subject_id",
+   "species",
+   "pcr_target_locus",
+   "tissue",
+   "sex",
+   "age",
+   "biomaterial_provider",
+   "single_cell",
+   "filename_R1",
+   "filename_R2",
+   "filename_I1",
+   "filename"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: age, biomaterial_provider, pcr_target_locus, sex, single_cell, species, tissue"
+ },
+ {
+  "name": "ampliseq",
+  "tag": "2.18.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [
+   "sampleID",
+   "forwardReads",
+   "reverseReads",
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "run",
+   "control",
+   "quant_reading"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "atacseq",
+  "tag": "2.1.2",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1",
+   "replicate"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "replicate",
+   "control",
+   "control_replicate"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: replicate"
+ },
+ {
+  "name": "bacass",
+  "tag": "2.6.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "ID"
+  ],
+  "all_cols": [
+   "ID",
+   "R1",
+   "R2",
+   "LongFastQ",
+   "Fast5",
+   "GenomeSize"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "bactmap",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "input",
+   "reference"
+  ],
+  "required_no_default": [
+   "reference"
+  ],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "bamtofastq",
+  "tag": "2.2.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample_id",
+   "mapped",
+   "file_type"
+  ],
+  "all_cols": [
+   "sample_id",
+   "mapped",
+   "index",
+   "file_type"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: file_type"
+ },
+ {
+  "name": "cageseq",
+  "tag": "1.0.2",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "input"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "callingcards",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "datatype",
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [
+   "datatype"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1",
+   "barcode_details"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "barcode_details"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: datatype; non-derivable required columns: barcode_details"
+ },
+ {
+  "name": "chipseq",
+  "tag": "2.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "fasta"
+  ],
+  "required_no_default": [
+   "fasta"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "replicate",
+   "antibody",
+   "control",
+   "control_replicate"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: fasta"
+ },
+ {
+  "name": "circdna",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "input_format",
+   "circle_identifier"
+  ],
+  "required_no_default": [
+   "input_format",
+   "circle_identifier"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: input_format, circle_identifier"
+ },
+ {
+  "name": "clipseq",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "input"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "coproid",
+  "tag": "2.0.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "genome_sheet",
+   "outdir",
+   "kraken2_db",
+   "sp_sources",
+   "sp_labels"
+  ],
+  "required_no_default": [
+   "genome_sheet",
+   "kraken2_db",
+   "sp_sources",
+   "sp_labels"
+  ],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: genome_sheet, kraken2_db, sp_sources, sp_labels"
+ },
+ {
+  "name": "createpanelrefs",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "tools"
+  ],
+  "required_no_default": [
+   "tools"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample"
+  ],
+  "all_cols": [
+   "sample",
+   "bam",
+   "bai",
+   "cram",
+   "crai"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: tools"
+ },
+ {
+  "name": "createtaxdb",
+  "tag": "3.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "dbname",
+   "unzip_batch_size"
+  ],
+  "required_no_default": [
+   "dbname"
+  ],
+  "ref_params": [],
+  "required_cols": [
+   "id",
+   "taxid"
+  ],
+  "all_cols": [
+   "id",
+   "taxid",
+   "fasta_dna",
+   "fasta_aa"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: dbname; non-derivable required columns: taxid"
+ },
+ {
+  "name": "crisprseq",
+  "tag": "2.3.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir",
+   "analysis"
+  ],
+  "required_no_default": [
+   "analysis"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "condition",
+   "reference",
+   "protospacer",
+   "template"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: analysis"
+ },
+ {
+  "name": "cutandrun",
+  "tag": "3.2.2",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "group",
+   "replicate",
+   "fastq_1",
+   "fastq_2",
+   "control"
+  ],
+  "all_cols": [
+   "group",
+   "replicate",
+   "fastq_1",
+   "fastq_2",
+   "control"
+  ],
+  "notes": [],
+  "verdict": "blocked:pairing",
+  "why": "required column(s) name another sample: control"
+ },
+ {
+  "name": "demo",
+  "tag": "1.2.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "demultiplex",
+  "tag": "1.7.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir",
+   "demultiplexer"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "id",
+   "samplesheet",
+   "flowcell"
+  ],
+  "all_cols": [
+   "id",
+   "samplesheet",
+   "lane",
+   "flowcell",
+   "per_flowcell_manifest"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: flowcell, samplesheet"
+ },
+ {
+  "name": "denovotranscript",
+  "tag": "1.2.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "detaxizer",
+  "tag": "1.3.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome"
+  ],
+  "required_cols": [],
+  "all_cols": [
+   "sample",
+   "short_reads_fastq_1",
+   "short_reads_fastq_2",
+   "long_reads_fastq_1"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "diaproteomics",
+  "tag": "1.2.4",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "input"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "differentialabundance",
+  "tag": "2.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "study_name",
+   "study_type",
+   "input",
+   "outdir",
+   "observations_id_col",
+   "observations_type",
+   "features_id_col",
+   "features_name_col",
+   "features_type",
+   "filtering_min_abundance",
+   "exploratory_clustering_method",
+   "exploratory_cor_method",
+   "exploratory_n_features",
+   "exploratory_main_variable",
+   "exploratory_palette_name",
+   "differential_feature_id_column",
+   "differential_min_fold_change",
+   "differential_max_pval",
+   "differential_max_qval",
+   "differential_palette_name",
+   "report_file",
+   "logo_file",
+   "css_file"
+  ],
+  "required_no_default": [
+   "filtering_min_abundance"
+  ],
+  "ref_params": [
+   "genome",
+   "gtf"
+  ],
+  "required_cols": [],
+  "all_cols": [
+   "sample"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: filtering_min_abundance"
+ },
+ {
+  "name": "drop",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "genome"
+  ],
+  "required_no_default": [
+   "genome"
+  ],
+  "ref_params": [
+   "genome"
+  ],
+  "required_cols": [
+   "RNA_ID",
+   "DROP_GROUP",
+   "STRAND"
+  ],
+  "all_cols": [
+   "RNA_ID",
+   "RNA_BAM_FILE",
+   "RNA_BAI_FILE",
+   "DNA_ID",
+   "DNA_VCF_FILE",
+   "DNA_TBI_FILE",
+   "DROP_GROUP",
+   "PAIRED_END",
+   "COUNT_MODE",
+   "COUNT_OVERLAPS",
+   "STRAND",
+   "HPO_TERMS",
+   "GENE_COUNTS_FILE",
+   "GENE_ANNOTATION",
+   "GENOME",
+   "SPLICE_COUNTS_DIR",
+   "SEX",
+   "TISSUE",
+   "DISEASE"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: genome; non-derivable required columns: drop_group, rna_id, strand"
+ },
+ {
+  "name": "drugresponseeval",
+  "tag": "1.2.2",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "models",
+   "baselines",
+   "run_id",
+   "dataset_name",
+   "outdir",
+   "test_mode"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "dualrnaseq",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "input"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "eager",
+  "tag": "2.5.3",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "input"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "epitopeprediction",
+  "tag": "3.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "alleles",
+   "mhc_class",
+   "filename"
+  ],
+  "all_cols": [
+   "sample",
+   "alleles",
+   "mhc_class",
+   "filename"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: alleles, mhc_class"
+ },
+ {
+  "name": "fastqrepair",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "fastquorum",
+  "tag": "2.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1",
+   "read_structure"
+  ],
+  "all_cols": [
+   "sample",
+   "library_id",
+   "lane",
+   "flowcell",
+   "fastq_1",
+   "fastq_2",
+   "fastq_3",
+   "fastq_4",
+   "read_structure",
+   "umi_file"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: read_structure"
+ },
+ {
+  "name": "fetchngs",
+  "tag": "1.12.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [
+   ""
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "funcscan",
+  "tag": "4.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fasta"
+  ],
+  "all_cols": [
+   "sample",
+   "fasta",
+   "protein",
+   "gbk",
+   "gff",
+   "gff_type"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: fasta"
+ },
+ {
+  "name": "genomeassembler",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample"
+  ],
+  "all_cols": [
+   "sample",
+   "ontreads",
+   "hifireads",
+   "ref_fasta",
+   "ref_gff",
+   "shortread_F",
+   "shortread_R",
+   "paired"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "hadge",
+  "tag": "0.2.0",
+  "has_nf": false,
+  "has_input": false,
+  "required_params": [],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no nextflow_schema.json at the pinned tag"
+ },
+ {
+  "name": "hgtseq",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "taxonomy_id",
+   "krakendb",
+   "kronadb"
+  ],
+  "required_no_default": [
+   "taxonomy_id"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: taxonomy_id"
+ },
+ {
+  "name": "hic",
+  "tag": "2.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "hicar",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "group",
+   "replicate",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "all_cols": [
+   "group",
+   "replicate",
+   "fastq_1",
+   "fastq_2",
+   "md5_1",
+   "md5_2"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: group, replicate"
+ },
+ {
+  "name": "hlatyping",
+  "tag": "2.2.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome"
+  ],
+  "required_cols": [
+   "sample",
+   "seq_type"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "bam",
+   "seq_type"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: seq_type"
+ },
+ {
+  "name": "imcyto",
+  "tag": "1.0.0",
+  "has_nf": false,
+  "has_input": false,
+  "required_params": [],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no nextflow_schema.json at the pinned tag"
+ },
+ {
+  "name": "isoseq",
+  "tag": "2.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "primers",
+   "aligner"
+  ],
+  "required_no_default": [
+   "primers",
+   "aligner"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample"
+  ],
+  "all_cols": [
+   "sample",
+   "bam",
+   "pbi",
+   "reads"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: primers, aligner"
+ },
+ {
+  "name": "longraredisease",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "fasta_file"
+  ],
+  "required_no_default": [
+   "fasta_file"
+  ],
+  "ref_params": [
+   "genome"
+  ],
+  "required_cols": [
+   "sample",
+   "file_path"
+  ],
+  "all_cols": [
+   "sample",
+   "file_path",
+   "hpo_terms",
+   "sex",
+   "phenotype",
+   "family_id",
+   "maternal_id",
+   "paternal_id"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: fasta_file; non-derivable required columns: file_path"
+ },
+ {
+  "name": "lsmquant",
+  "tag": "1.0.2",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample_id",
+   "img_directory",
+   "parameter_file"
+  ],
+  "all_cols": [
+   "sample_id",
+   "img_directory",
+   "parameter_file"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: img_directory, parameter_file"
+ },
+ {
+  "name": "mag",
+  "tag": "5.5.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "group"
+  ],
+  "all_cols": [
+   "sample",
+   "run",
+   "group",
+   "short_reads_1",
+   "short_reads_2",
+   "short_reads_platform",
+   "long_reads",
+   "long_reads_platform"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: group"
+ },
+ {
+  "name": "magmap",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "marsseq",
+  "tag": "1.0.3",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "batch",
+   "fastq_1",
+   "fastq_2",
+   "amp_batches",
+   "seq_batches",
+   "well_cells"
+  ],
+  "all_cols": [
+   "batch",
+   "fastq_1",
+   "fastq_2",
+   "amp_batches",
+   "seq_batches",
+   "well_cells"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: amp_batches, batch, seq_batches, well_cells"
+ },
+ {
+  "name": "mcmicro",
+  "tag": "2.0.0",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "outdir",
+   "marker_sheet"
+  ],
+  "required_no_default": [
+   "marker_sheet"
+  ],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "metaboigniter",
+  "tag": "2.0.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "type",
+   "level",
+   "msfile"
+  ],
+  "all_cols": [
+   "sample",
+   "type",
+   "level",
+   "msfile"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: level, msfile, type"
+ },
+ {
+  "name": "metapep",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "condition",
+   "type",
+   "microbiome_path",
+   "alleles"
+  ],
+  "all_cols": [
+   "condition",
+   "type",
+   "microbiome_path",
+   "alleles",
+   "weights_path"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: alleles, condition, microbiome_path, type"
+ },
+ {
+  "name": "metatdenovo",
+  "tag": "1.4.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "methylong",
+  "tag": "2.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "group",
+   "sample",
+   "path",
+   "ref",
+   "method"
+  ],
+  "all_cols": [
+   "group",
+   "sample",
+   "path",
+   "ref",
+   "method"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: group, method, ref"
+ },
+ {
+  "name": "methylseq",
+  "tag": "4.2.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "aligner"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "genome"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "mhcquant",
+  "tag": "3.2.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "fasta"
+  ],
+  "required_cols": [
+   "ID",
+   "Sample",
+   "Condition",
+   "ReplicateFileName"
+  ],
+  "all_cols": [
+   "ID",
+   "Sample",
+   "Condition",
+   "ReplicateFileName",
+   "Fasta",
+   "SearchPreset"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: condition, replicatefilename"
+ },
+ {
+  "name": "mnaseseq",
+  "tag": "1.0.0",
+  "has_nf": false,
+  "has_input": false,
+  "required_params": [],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no nextflow_schema.json at the pinned tag"
+ },
+ {
+  "name": "molkart",
+  "tag": "1.2.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "segmentation_method",
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "nuclear_image",
+   "spot_table"
+  ],
+  "all_cols": [
+   "sample",
+   "nuclear_image",
+   "spot_table",
+   "membrane_image"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: nuclear_image, spot_table"
+ },
+ {
+  "name": "multiplesequencealign",
+  "tag": "1.1.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "id"
+  ],
+  "all_cols": [
+   "id",
+   "fasta",
+   "reference",
+   "optional_data",
+   "template"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "nanoseq",
+  "tag": "3.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "protocol"
+  ],
+  "required_no_default": [
+   "protocol"
+  ],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: protocol"
+ },
+ {
+  "name": "nanostring",
+  "tag": "1.3.3",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome"
+  ],
+  "required_cols": [
+   "SAMPLE_ID",
+   "RCC_FILE",
+   "RCC_FILE_NAME"
+  ],
+  "all_cols": [
+   "SAMPLE_ID",
+   "RCC_FILE",
+   "RCC_FILE_NAME",
+   "TIME",
+   "TREATMENT",
+   "INCLUDE",
+   "OTHER_METADATA"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: rcc_file, rcc_file_name"
+ },
+ {
+  "name": "nascent",
+  "tag": "2.3.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "assay_type"
+  ],
+  "required_no_default": [
+   "assay_type"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: assay_type"
+ },
+ {
+  "name": "oncoanalyser",
+  "tag": "2.3.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome"
+  ],
+  "required_cols": [
+   "group_id",
+   "subject_id",
+   "sample_id",
+   "sample_type",
+   "sequence_type",
+   "filetype",
+   "filepath"
+  ],
+  "all_cols": [
+   "group_id",
+   "subject_id",
+   "sample_id",
+   "sample_type",
+   "sequence_type",
+   "info",
+   "filetype",
+   "filepath"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: filetype, group_id, sample_type, sequence_type"
+ },
+ {
+  "name": "pacvar",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "bam"
+  ],
+  "all_cols": [
+   "sample",
+   "bam",
+   "pbi",
+   "fail",
+   "repeat_id",
+   "karyotype"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "pairgenomealign",
+  "tag": "3.0.3",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "target",
+   "outdir"
+  ],
+  "required_no_default": [
+   "target"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fasta"
+  ],
+  "all_cols": [
+   "sample",
+   "fasta"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: target; non-derivable required columns: fasta"
+ },
+ {
+  "name": "pangenome",
+  "tag": "1.1.3",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "input",
+   "n_haplotypes",
+   "outdir"
+  ],
+  "required_no_default": [
+   "n_haplotypes"
+  ],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "pathogensurveillance",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [
+   "sample_id",
+   "name",
+   "description",
+   "path",
+   "path_2",
+   "ncbi_accession",
+   "ncbi_query",
+   "ncbi_query_max",
+   "sequence_type",
+   "report_group_ids",
+   "color_by",
+   "ploidy",
+   "enabled",
+   "ref_group_ids"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "phaseimpute",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "file",
+   "index"
+  ],
+  "all_cols": [
+   "sample",
+   "tools",
+   "file",
+   "index"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: index"
+ },
+ {
+  "name": "phyloplace",
+  "tag": "2.1.0",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "pixelator",
+  "tag": "5.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "technology"
+  ],
+  "required_no_default": [
+   "technology"
+  ],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "sample_alias",
+   "condition",
+   "design",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "pool",
+   "hash_index",
+   "sample",
+   "sample_alias",
+   "condition",
+   "design",
+   "panel",
+   "panel_file",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: technology; non-derivable required columns: condition, design, sample_alias"
+ },
+ {
+  "name": "proteinannotator",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "id",
+   "fasta"
+  ],
+  "all_cols": [
+   "id",
+   "fasta"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: fasta"
+ },
+ {
+  "name": "proteinfamilies",
+  "tag": "2.4.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fasta"
+  ],
+  "all_cols": [
+   "sample",
+   "fasta",
+   "existing_hmms_to_update",
+   "existing_msas_to_update"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: fasta"
+ },
+ {
+  "name": "proteinfold",
+  "tag": "2.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "fasta"
+  ],
+  "all_cols": [
+   "sequence",
+   "id",
+   "fasta"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: fasta"
+ },
+ {
+  "name": "proteogenomicsdb",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "rangeland",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "dem",
+   "wvdb",
+   "data_cube",
+   "aoi",
+   "endmember",
+   "outdir"
+  ],
+  "required_no_default": [
+   "dem",
+   "wvdb",
+   "data_cube",
+   "aoi",
+   "endmember"
+  ],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: dem, wvdb, data_cube, aoi, endmember"
+ },
+ {
+  "name": "raredisease",
+  "tag": "3.1.2",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir",
+   "fasta",
+   "intervals_wgs",
+   "intervals_y"
+  ],
+  "required_no_default": [
+   "fasta",
+   "intervals_wgs",
+   "intervals_y"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "sex",
+   "phenotype",
+   "case_id"
+  ],
+  "all_cols": [
+   "sample",
+   "lane",
+   "fastq_1",
+   "fastq_2",
+   "spring_1",
+   "spring_2",
+   "bam",
+   "bai",
+   "sex",
+   "phenotype",
+   "paternal_id",
+   "maternal_id",
+   "case_id"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: fasta, intervals_wgs, intervals_y; non-derivable required columns: case_id, phenotype, sex"
+ },
+ {
+  "name": "readsimulator",
+  "tag": "1.0.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "seed"
+  ],
+  "all_cols": [
+   "sample",
+   "seed"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: seed"
+ },
+ {
+  "name": "references",
+  "tag": "0.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "genome",
+   "source",
+   "species"
+  ],
+  "all_cols": [
+   "genome",
+   "site",
+   "source",
+   "source_vcf",
+   "source_version",
+   "species",
+   "bed12",
+   "bowtie1_index",
+   "bowtie2_index",
+   "bwamem1_index",
+   "bwamem2_index",
+   "dragmap_hashtable",
+   "fasta",
+   "fasta_dict",
+   "fasta_fai",
+   "fasta_sizes",
+   "gff",
+   "gtf",
+   "hisat2_index",
+   "intervals_bed",
+   "kallisto_index",
+   "macs_gsize",
+   "mito_name",
+   "msisensorpro_list",
+   "readme",
+   "rsem_index",
+   "salmon_index",
+   "splice_sites",
+   "star_index",
+   "transcript_fasta",
+   "vcf",
+   "vcf_tbi"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: genome, source, species"
+ },
+ {
+  "name": "reportho",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [
+   "id",
+   "query",
+   "fasta"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "ribomsqc",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "analytes_tsv",
+   "analyte",
+   "rt_tolerance",
+   "mz_tolerance",
+   "ms_level"
+  ],
+  "required_no_default": [
+   "analytes_tsv",
+   "analyte"
+  ],
+  "ref_params": [],
+  "required_cols": [
+   "id",
+   "raw_file"
+  ],
+  "all_cols": [
+   "id",
+   "raw_file"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: analytes_tsv, analyte; non-derivable required columns: raw_file"
+ },
+ {
+  "name": "riboseq",
+  "tag": "1.2.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1",
+   "strandedness",
+   "type"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "strandedness",
+   "type"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: strandedness, type"
+ },
+ {
+  "name": "rnadnavar",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "patient",
+   "sample"
+  ],
+  "all_cols": [
+   "patient",
+   "sample",
+   "status",
+   "lane",
+   "fastq_1",
+   "fastq_2",
+   "table",
+   "cram",
+   "crai",
+   "bam",
+   "bai",
+   "vcf",
+   "variantcaller",
+   "maf",
+   "normal_id"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "rnafusion",
+  "tag": "4.1.3",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir",
+   "genomes_base",
+   "tools"
+  ],
+  "required_no_default": [
+   "genomes_base",
+   "tools"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "strandedness"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "bam",
+   "bai",
+   "cram",
+   "crai",
+   "junctions",
+   "splice_junctions",
+   "strandedness",
+   "seq_platform",
+   "seq_center"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: genomes_base, tools; non-derivable required columns: strandedness"
+ },
+ {
+  "name": "rnaseq",
+  "tag": "3.26.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1",
+   "strandedness"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "strandedness",
+   "seq_platform",
+   "seq_center",
+   "genome_bam",
+   "transcriptome_bam",
+   "percent_mapped"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: strandedness"
+ },
+ {
+  "name": "rnasplice",
+  "tag": "1.0.4",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "source",
+   "outdir",
+   "contrasts"
+  ],
+  "required_no_default": [
+   "contrasts"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1",
+   "strandedness",
+   "condition"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "strandedness",
+   "condition"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: contrasts; non-derivable required columns: condition, strandedness"
+ },
+ {
+  "name": "rnavar",
+  "tag": "1.3.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "aligner",
+   "seq_platform"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "bam",
+   "bai",
+   "cram",
+   "crai",
+   "vcf",
+   "tbi",
+   "seq_platform",
+   "seq_center"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "sarek",
+  "tag": "3.9.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "step",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "patient",
+   "sample"
+  ],
+  "all_cols": [
+   "patient",
+   "sample",
+   "sex",
+   "status",
+   "lane",
+   "fastq_1",
+   "fastq_2",
+   "spring_1",
+   "spring_2",
+   "table",
+   "cram",
+   "crai",
+   "bam",
+   "bai",
+   "contamination",
+   "vcf",
+   "variantcaller"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "scnanoseq",
+  "tag": "1.3.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "gtf",
+   "barcode_format",
+   "dedup_tool",
+   "quantifier"
+  ],
+  "required_no_default": [
+   "gtf",
+   "barcode_format",
+   "quantifier"
+  ],
+  "ref_params": [
+   "genome",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq",
+   "cell_count"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq",
+   "cell_count"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: gtf, barcode_format, quantifier; non-derivable required columns: cell_count"
+ },
+ {
+  "name": "scrnaseq",
+  "tag": "4.2.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "fastq_barcode",
+   "expected_cells",
+   "seq_center",
+   "sample_type",
+   "feature_type"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "seqinspector",
+  "tag": "1.1.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "rundir",
+   "tags"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "seqsubmit",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": false,
+  "required_params": [
+   "outdir",
+   "input",
+   "centre_name",
+   "mode"
+  ],
+  "required_no_default": [
+   "centre_name",
+   "mode"
+  ],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no assets/schema_input.json \u2014 input shape not machine-readable"
+ },
+ {
+  "name": "smrnaseq",
+  "tag": "2.4.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "sopa",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "technology"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [
+   "sample",
+   "id",
+   "data_path",
+   "fastq_dir",
+   "cytaimage",
+   "colorizedimage",
+   "darkimage",
+   "image",
+   "slide",
+   "area",
+   "manual_alignment",
+   "slidefile"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "spatialaxe",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "mode"
+  ],
+  "required_no_default": [
+   "mode"
+  ],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "bundle"
+  ],
+  "all_cols": [
+   "sample",
+   "bundle",
+   "image"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: mode; non-derivable required columns: bundle"
+ },
+ {
+  "name": "taxprofiler",
+  "tag": "2.0.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "databases",
+   "outdir"
+  ],
+  "required_no_default": [
+   "databases"
+  ],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "run_accession",
+   "instrument_platform"
+  ],
+  "all_cols": [
+   "sample",
+   "run_accession",
+   "instrument_platform",
+   "fastq_1",
+   "fastq_2",
+   "fasta"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: databases; non-derivable required columns: instrument_platform, run_accession"
+ },
+ {
+  "name": "tools",
+  "tag": "4.1.0",
+  "has_nf": false,
+  "has_input": false,
+  "required_params": [],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [],
+  "all_cols": [],
+  "notes": [],
+  "verdict": "unknown",
+  "why": "no nextflow_schema.json at the pinned tag"
+ },
+ {
+  "name": "variantbenchmarking",
+  "tag": "1.5.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir",
+   "analysis",
+   "variant_type",
+   "method",
+   "fasta",
+   "fai"
+  ],
+  "required_no_default": [
+   "analysis",
+   "variant_type",
+   "method",
+   "fasta",
+   "fai"
+  ],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "caller",
+   "id"
+  ],
+  "all_cols": [
+   "test_vcf",
+   "test_regions",
+   "id",
+   "caller",
+   "subsample",
+   "normshift",
+   "normdist",
+   "normsizediff",
+   "maxdist",
+   "pctsize",
+   "pctseq",
+   "pctovl",
+   "refdist",
+   "chunksize",
+   "dup_to_ins",
+   "typeignore",
+   "bpDistance",
+   "percentThreshold",
+   "absoluteThreshold",
+   "maxMatches",
+   "evaluationmode",
+   "liftover",
+   "fix_prefix"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "required params with no default: analysis, variant_type, method, fasta, fai; non-derivable required columns: caller"
+ },
+ {
+  "name": "variantprioritization",
+  "tag": "1.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome"
+  ],
+  "required_cols": [
+   "patient",
+   "status",
+   "sample",
+   "vcf"
+  ],
+  "all_cols": [
+   "patient",
+   "status",
+   "sample",
+   "vcf",
+   "cna"
+  ],
+  "notes": [],
+  "verdict": "needs_review",
+  "why": "non-derivable required columns: status, vcf"
+ },
+ {
+  "name": "viralintegration",
+  "tag": "0.1.1",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "viral_fasta",
+   "outdir",
+   "remove_duplicates",
+   "min_reads",
+   "max_hits"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta",
+   "gtf"
+  ],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "viralmetagenome",
+  "tag": "1.1.3",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "input",
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [],
+  "required_cols": [
+   "sample",
+   "fastq_1"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ },
+ {
+  "name": "viralrecon",
+  "tag": "3.0.0",
+  "has_nf": true,
+  "has_input": true,
+  "required_params": [
+   "outdir"
+  ],
+  "required_no_default": [],
+  "ref_params": [
+   "genome",
+   "fasta"
+  ],
+  "required_cols": [
+   "sample"
+  ],
+  "all_cols": [
+   "sample",
+   "fastq_1",
+   "fastq_2",
+   "barcode"
+  ],
+  "notes": [],
+  "verdict": "config_only",
+  "why": ""
+ }
+]
