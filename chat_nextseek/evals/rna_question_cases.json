@@ -1,0 +1,475 @@
+[
+  {
+    "id": "gri-organoid-il1b",
+    "question": "Which genes change in the endometrial organoids when we add IL-1B on top of estradiol?",
+    "cohort": "231101GRI::A.GEX",
+    "study": "231101GRI",
+    "analysis": "A.GEX",
+    "seqtype": "Short Read Sequencing",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 68,
+    "expected": [
+      "rnaseq"
+    ],
+    "class": "matched",
+    "why": "Bulk human organoid RNA-seq with a real treatment contrast in CEL.Treatment. The atlas's own rnaseq-vs-differentialabundance entry says \"If you have no counts yet, both are needed in sequence\", so naming both is following the payload, not hedging: acceptable_sets allows either answer.",
+    "lab_actually_ran": "A.GEX",
+    "acceptable_sets": [
+      [
+        "rnaseq"
+      ],
+      [
+        "rnaseq",
+        "differentialabundance"
+      ]
+    ]
+  },
+  {
+    "id": "kam-tnbc-subtype",
+    "question": "Which genes are turned up or down in the mesenchymal MDA-MB-231 cells compared with the epithelial-like ones?",
+    "cohort": "240709KAM::A.GEX",
+    "study": "240709KAM",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-seq",
+    "libstrat": "RNA-seq",
+    "n_uids_available": 4,
+    "expected": [
+      "rnaseq"
+    ],
+    "class": "matched",
+    "why": "Bulk human cell-line RNA-seq, two subtypes in CEL.Type. Reworded after the first run: the original asked what differs \"at the transcript level\", which is standard wording for isoform-level analysis, and the model answered rnasplice 3/3. That reading was defensible, so the question was at fault, not the answer. It now names gene-level up/down explicitly.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "sha-granuloma-4v10wk",
+    "question": "How do the cell populations in these granulomas differ between the 4 week and 10 week animals?",
+    "cohort": "220823SHA::A.SCXP",
+    "study": "220823SHA",
+    "analysis": "A.SCXP",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "scRNA-Seq",
+    "n_uids_available": 38,
+    "expected": [
+      "scrnaseq"
+    ],
+    "class": "matched",
+    "why": "Seq-Well single-cell macaque granulomas; NHP.Cohort carries the 4wk/10wk split.",
+    "lab_actually_ran": "A.SCXP"
+  },
+  {
+    "id": "sha-bcg-route-bal",
+    "question": "What immune cell types show up in the lavage after IV BCG versus aerosol BCG?",
+    "cohort": "220917SHA::A.SCXP",
+    "study": "220917SHA",
+    "analysis": "A.SCXP",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 60,
+    "expected": [
+      "scrnaseq"
+    ],
+    "class": "matched",
+    "why": "Single-cell BAL, NHP.Cohort has the three BCG routes.",
+    "lab_actually_ran": "A.SCXP"
+  },
+  {
+    "id": "sas-cc-strain-lung",
+    "question": "Which lung cell types respond to infection differently across the CC mouse strains?",
+    "cohort": "230328SAS::A.SCXP",
+    "study": "230328SAS",
+    "analysis": "A.SCXP",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "scRNA-Seq",
+    "n_uids_available": 32,
+    "expected": [
+      "scrnaseq"
+    ],
+    "class": "matched",
+    "why": "CITE-seq mouse lung, MUS.Genotype = PWK / CC011 / CC024.",
+    "lab_actually_ran": "A.SCXP"
+  },
+  {
+    "id": "sha-cfu-cellstate",
+    "question": "How many distinct cell states are in these granulomas, and does that track with bacterial burden?",
+    "cohort": "221031SHA::A.SCXP",
+    "study": "221031SHA",
+    "analysis": "A.SCXP",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "RNAseq",
+    "n_uids_available": 111,
+    "expected": [
+      "scrnaseq"
+    ],
+    "class": "matched",
+    "why": "Single-cell with TIS.CFU recorded. The correlation is downstream work; the pipeline is still scrnaseq.",
+    "lab_actually_ran": "A.SCXP"
+  },
+  {
+    "id": "bry-antibody-lung",
+    "question": "What changes in the lung cells when the mice get the N297A antibody before Mtb infection?",
+    "cohort": "220720BRY::A.SCXP",
+    "study": "220720BRY",
+    "analysis": "A.SCXP",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 1,
+    "expected": [
+      "scrnaseq"
+    ],
+    "class": "matched",
+    "why": "Mouse lung CD45+ single-cell, MUS.Treatment1 = PBS / N297A / mIgG2a.",
+    "lab_actually_ran": "A.SCXP"
+  },
+  {
+    "id": "lau-mouse-splicing",
+    "question": "Run a splicing analysis on the samples isolated from these mice.",
+    "cohort": "240910LAU::A.GEX",
+    "study": "240910LAU",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-seq",
+    "libstrat": "RNA-seq",
+    "n_uids_available": 176,
+    "expected": [
+      "rnasplice"
+    ],
+    "class": "reframed",
+    "why": "The lab ran expression (A.GEX), but these are bulk total-RNA mouse libraries with an Uninfected/infected contrast, so the same FASTQs answer a splicing question.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "kam-tnbc-fusion",
+    "question": "Are there any fusion transcripts in this breast cancer line?",
+    "cohort": "240709KAM::A.GEX",
+    "study": "240709KAM",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-seq",
+    "libstrat": "RNA-seq",
+    "n_uids_available": 4,
+    "expected": [
+      "rnafusion"
+    ],
+    "class": "reframed",
+    "why": "Bulk paired-end human tumour-line RNA \u2014 exactly what fusion calling needs.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "bry-macrophage-hla",
+    "question": "Can you get HLA types out of these macrophage RNA-seq samples?",
+    "cohort": "241219BRY::A.GEX",
+    "study": "241219BRY",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-Seq",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 6,
+    "expected": [
+      "hlatyping"
+    ],
+    "class": "reframed",
+    "why": "Human primary macrophages, bulk RNA. hlatyping accepts RNA with seq_type=rna.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "gri-organoid-variants",
+    "question": "Can we call variants straight from the organoid RNA-seq rather than sequencing DNA?",
+    "cohort": "231101GRI::A.GEX",
+    "study": "231101GRI",
+    "analysis": "A.GEX",
+    "seqtype": "Short Read Sequencing",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 68,
+    "expected": [
+      "rnavar"
+    ],
+    "class": "reframed",
+    "why": "Same bulk library rnaseq uses; the question is variants, not expression.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "kam-chip-matrix",
+    "question": "We already have the count matrix from the chip experiment \u2014 just run the group comparison for me.",
+    "cohort": "250409KAM::A.GEX",
+    "study": "250409KAM",
+    "analysis": "A.GEX",
+    "seqtype": "ShortRead",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 22,
+    "expected": [
+      "differentialabundance"
+    ],
+    "class": "reframed",
+    "why": "A.GEX holds a counts CSV. The scientist explicitly does not want realignment.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "sho-3prime-isoforms",
+    "question": "Do the COL2A1-edited chondronoids use different isoforms from the wild type ones?",
+    "cohort": "250605SHO::A.GEX",
+    "study": "250605SHO",
+    "analysis": "A.GEX",
+    "seqtype": "ShortRead",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 18,
+    "expected": [],
+    "class": "unsupported",
+    "why": "THE library-prep test. DNA.LibraryPrepProtocol says oligo(dT)-primed UMI-based 3' RNA-Seq: only the 3' end is sequenced, so isoform usage is not recoverable. Nothing in the sample-type fields says this \u2014 it is only in the prep text.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "sha-sc-splicing",
+    "question": "Run a splicing analysis on these granuloma single-cell samples.",
+    "cohort": "240422SHA::A.SCXP",
+    "study": "240422SHA",
+    "analysis": "A.SCXP",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 43,
+    "expected": [],
+    "class": "unsupported",
+    "why": "3'-biased single-cell libraries carry no isoform-level information. Pairs with lau-mouse-splicing: same question, different data, opposite correct answer.",
+    "lab_actually_ran": "A.SCXP"
+  },
+  {
+    "id": "sha-macaque-hla",
+    "question": "What HLA alleles are these macaques carrying?",
+    "cohort": "220917SHA::A.SCXP",
+    "study": "220917SHA",
+    "analysis": "A.SCXP",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 60,
+    "expected": [],
+    "class": "unsupported",
+    "why": "Macaques have Mamu MHC, not HLA, and these are 3' single-cell libraries. Two independent reasons to decline.",
+    "lab_actually_ran": "A.SCXP"
+  },
+  {
+    "id": "sas-mouse-fusion",
+    "question": "Can we call gene fusions in these mouse macrophages?",
+    "cohort": "241112SAS::A.GEX",
+    "study": "241112SAS",
+    "analysis": "A.GEX",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "RNA-seq",
+    "n_uids_available": 20,
+    "expected": [],
+    "class": "unsupported",
+    "why": "nf-core/rnafusion's callers and reference bundles are human. Mouse is not supported.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "bry-mirna",
+    "question": "Can we look at miRNA levels in these macrophages?",
+    "cohort": "241219BRY::A.GEX",
+    "study": "241219BRY",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-Seq",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 6,
+    "expected": [],
+    "class": "unsupported",
+    "why": "smrnaseq needs a size-selected 18-30nt library. These are polyA/total RNA \u2014 the small RNAs were never captured.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "sho-riboseq",
+    "question": "Where are the ribosomes sitting on these transcripts?",
+    "cohort": "250605SHO::A.GEX",
+    "study": "250605SHO",
+    "analysis": "A.GEX",
+    "seqtype": "ShortRead",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 18,
+    "expected": [],
+    "class": "unsupported",
+    "why": "Ribosome profiling needs footprint libraries. None exist here.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "bac-hic-expression",
+    "question": "Which genes are differentially expressed between these samples?",
+    "cohort": "250422BAC::A.CHRM",
+    "study": "250422BAC",
+    "analysis": "A.CHRM",
+    "seqtype": "Hi-C",
+    "libstrat": "Hi-C",
+    "n_uids_available": 12,
+    "expected": [],
+    "class": "unsupported",
+    "why": "Hi-C. Not RNA at all \u2014 the plainest refusal in the set.",
+    "lab_actually_ran": "A.CHRM"
+  },
+  {
+    "id": "ess-duplex-expression",
+    "question": "Any expression changes in these duplex-capture samples?",
+    "cohort": "230306ESS::A.ALN",
+    "study": "230306ESS",
+    "analysis": "A.ALN",
+    "seqtype": "Duplex Sequencing",
+    "libstrat": "Targeted Capture",
+    "n_uids_available": 20,
+    "expected": [],
+    "class": "unsupported",
+    "why": "Targeted duplex DNA capture. The question presumes RNA that was never sequenced.",
+    "lab_actually_ran": "A.ALN"
+  },
+  {
+    "id": "sas-transcriptome-vague",
+    "question": "I'd like to look at the transcriptome of these samples.",
+    "cohort": "241112SAS::A.GEX",
+    "study": "241112SAS",
+    "analysis": "A.GEX",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "RNA-seq",
+    "n_uids_available": 20,
+    "expected": [
+      "rnaseq",
+      "scrnaseq"
+    ],
+    "class": "ambiguous",
+    "why": "The cohort whose label and data disagree: A.GEX label, single-cell SequencingType. Underspecified question on contradictory metadata \u2014 naming both, or asking, is the honest answer.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "lau-compare-vague",
+    "question": "Compare the infected and the uninfected animals for me.",
+    "cohort": "240910LAU::A.GEX",
+    "study": "240910LAU",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-seq",
+    "libstrat": "RNA-seq",
+    "n_uids_available": 176,
+    "expected": [
+      "rnaseq",
+      "rnasplice"
+    ],
+    "class": "ambiguous",
+    "why": "Deliberately vague -- \"compare the infected and the uninfected animals\" names no measurement. On bulk mouse RNA both a gene-level and an isoform-level reading are legitimate, which is what the ambiguous class is for; the earlier singleton expectation contradicted its own class.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "qout-pca-heatmap",
+    "question": "Do any of these produce a PCA and a sample-distance heatmap as part of the standard output, or would I have to make those myself?",
+    "cohort": "231101GRI::A.GEX",
+    "study": "231101GRI",
+    "analysis": "A.GEX",
+    "seqtype": "Short Read Sequencing",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 68,
+    "expected": [
+      "rnaseq"
+    ],
+    "class": "output",
+    "why": "rnaseq emits both from its DESeq2 QC step. That fact lives in the output guide and in no metadata field -- and it is the one the model missed when the docs were withheld earlier.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "qout-percell-matrix",
+    "question": "I need a filtered feature-barcode matrix I can load straight into Seurat. Which one gives me that?",
+    "cohort": "221031SHA::A.SCXP",
+    "study": "221031SHA",
+    "analysis": "A.SCXP",
+    "seqtype": "Single Cell RNA Sequencing",
+    "libstrat": "RNAseq",
+    "n_uids_available": 111,
+    "expected": [
+      "scrnaseq"
+    ],
+    "class": "output",
+    "why": "Names a scrnaseq output artifact explicitly rather than the analysis.",
+    "lab_actually_ran": "A.SCXP"
+  },
+  {
+    "id": "qout-vcf",
+    "question": "I want a VCF at the end of this. Can I get one without sequencing DNA?",
+    "cohort": "240709KAM::A.GEX",
+    "study": "240709KAM",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-seq",
+    "libstrat": "RNA-seq",
+    "n_uids_available": 4,
+    "expected": [
+      "rnavar"
+    ],
+    "class": "output",
+    "why": "rnavar is the only atlas entry that emits variant calls. It is NOT one of the pipelines whose docs are fetched, so this is answerable from atlas prose alone -- a useful contrast with the cases that need the docs.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "qout-allele-calls",
+    "question": "I need four-digit allele calls out of this, the A*02:01 kind of output.",
+    "cohort": "241219BRY::A.GEX",
+    "study": "241219BRY",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-Seq",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 6,
+    "expected": [
+      "hlatyping"
+    ],
+    "class": "output",
+    "why": "Names hlatyping's deliverable in the form it actually appears. Human macrophages, so the species constraint is satisfied.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "qout-fusion-breakpoints",
+    "question": "Give me a list of chimeric transcripts with their breakpoint coordinates.",
+    "cohort": "240709KAM::A.GEX",
+    "study": "240709KAM",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-seq",
+    "libstrat": "RNA-seq",
+    "n_uids_available": 4,
+    "expected": [
+      "rnafusion"
+    ],
+    "class": "output",
+    "why": "rnafusion's output. Human tumour line, so the GRCh38-only constraint is satisfied.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "qout-psi-events",
+    "question": "I want per-event inclusion levels -- PSI values for exon skipping -- across these mice.",
+    "cohort": "240910LAU::A.GEX",
+    "study": "240910LAU",
+    "analysis": "A.GEX",
+    "seqtype": "RNA-seq",
+    "libstrat": "RNA-seq",
+    "n_uids_available": 176,
+    "expected": [
+      "rnasplice"
+    ],
+    "class": "output",
+    "why": "Names rnasplice's output rather than asking for 'a splicing analysis'. Bulk mouse libraries support it.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "qout-normalised-from-matrix",
+    "question": "I already have the counts. I want normalised values and a differential table with p-values, nothing realigned.",
+    "cohort": "250409KAM::A.GEX",
+    "study": "250409KAM",
+    "analysis": "A.GEX",
+    "seqtype": "ShortRead",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 22,
+    "expected": [
+      "differentialabundance"
+    ],
+    "class": "output",
+    "why": "differentialabundance's whole purpose, and the cohort's A.GEX record is a counts CSV. Also not a docs-fetched pipeline.",
+    "lab_actually_ran": "A.GEX"
+  },
+  {
+    "id": "qout-psi-on-3prime",
+    "question": "Can I get PSI values for exon skipping out of these chondronoids?",
+    "cohort": "250605SHO::A.GEX",
+    "study": "250605SHO",
+    "analysis": "A.GEX",
+    "seqtype": "ShortRead",
+    "libstrat": "RNA-Seq",
+    "n_uids_available": 18,
+    "expected": [],
+    "class": "output",
+    "why": "The output framing of sho-3prime-isoforms. A 3'DGE library sequences only the 3' end, so no PSI is recoverable however the request is phrased. Pairs with qout-psi-events: same deliverable, different library, opposite answer.",
+    "lab_actually_ran": "A.GEX"
+  }
+]

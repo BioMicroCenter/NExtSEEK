@@ -1,0 +1,74 @@
+[
+  {
+    "id": "expression-two-groups",
+    "question": "Which genes changed between the treated and untreated mice?",
+    "acceptable": [["rnaseq"], ["rnaseq", "rnasplice"], ["rnaseq", "differentialabundance"]],
+    "must_not": ["smrnaseq", "scrnaseq", "hlatyping", "riboseq"]
+  },
+  {
+    "id": "isoform-shift",
+    "question": "Did the treatment change which isoforms of these genes get made?",
+    "acceptable": [["rnasplice"], ["rnasplice", "rnaseq"]],
+    "must_not": ["smrnaseq", "hlatyping", "scrnaseq", "denovotranscript"]
+  },
+  {
+    "id": "splicing-plain-language",
+    "question": "Run a splicing analysis on the samples isolated from these mice.",
+    "acceptable": [["rnasplice"], ["rnasplice", "rnaseq"]],
+    "must_not": ["smrnaseq", "hlatyping", "riboseq"]
+  },
+  {
+    "id": "gene-fusion",
+    "question": "Is there a translocation joining two genes in these tumour samples?",
+    "acceptable": [["rnafusion"]],
+    "must_not": ["rnaseq", "smrnaseq", "scrnaseq", "hlatyping"]
+  },
+  {
+    "id": "small-rna",
+    "question": "We sequenced the small RNA fraction — quantify the miRNAs.",
+    "acceptable": [["smrnaseq"]],
+    "must_not": ["rnaseq", "scrnaseq", "riboseq", "rnafusion"]
+  },
+  {
+    "id": "per-cell-expression",
+    "question": "Profile expression cell by cell across this tissue.",
+    "acceptable": [["scrnaseq"]],
+    "must_not": ["rnaseq", "smrnaseq", "rnavar", "riboseq"]
+  },
+  {
+    "id": "hla-alleles",
+    "question": "Which HLA alleles does this donor carry?",
+    "acceptable": [["hlatyping"]],
+    "must_not": ["rnaseq", "rnavar", "smrnaseq", "scrnaseq"]
+  },
+  {
+    "id": "variants-in-transcripts",
+    "question": "Are there any point mutations in the expressed transcripts?",
+    "acceptable": [["rnavar"]],
+    "must_not": ["smrnaseq", "scrnaseq", "riboseq", "hlatyping"]
+  },
+  {
+    "id": "translation-footprints",
+    "question": "We digested the polysomes and sequenced the protected fragments — what is being translated?",
+    "acceptable": [["riboseq"]],
+    "must_not": ["rnaseq", "scrnaseq", "rnafusion", "rnavar"]
+  },
+  {
+    "id": "no-reference-genome",
+    "question": "This beetle has no reference genome. Can we still get transcript abundances?",
+    "acceptable": [["denovotranscript"]],
+    "must_not": ["scrnaseq", "smrnaseq", "hlatyping", "riboseq", "rnaseq"]
+  },
+  {
+    "id": "ambiguous-expression-question",
+    "question": "I want to understand what is going on transcriptionally in these samples.",
+    "acceptable": [["rnaseq"], ["rnaseq", "rnasplice"], ["rnaseq", "scrnaseq"]],
+    "must_not": ["hlatyping", "riboseq"]
+  },
+  {
+    "id": "already-have-counts",
+    "question": "We already have a count matrix from an earlier run — just compare the two groups.",
+    "acceptable": [["differentialabundance"], ["differentialabundance", "rnaseq"]],
+    "must_not": ["scrnaseq", "smrnaseq", "hlatyping", "riboseq"]
+  }
+]
