@@ -1202,12 +1202,6 @@ def project_page(request, project_id):
 @requires_seek_login_redirect('/seek/samples/attributes/')
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def adminClades(request):
-    if verifySuperUser(request) != 1:
-        msg = 'Error: You login as admin to view this page.'
-        status = 0
-        logger.error(msg)
-        return json_response(msg, status, message='')
-
     cladedb = DBtable_clades()
     stcdb = DBtable_stc()
     stc = simplejson.dumps(stcdb.getAllWithTitles(), default=str)
@@ -1289,12 +1283,6 @@ def smartSearch(request):
 @requires_seek_login_redirect('/seek/samples/attributes/')
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def internalAssays(request):
-    if verifySuperUser(request) != 1:
-        msg = 'Error: You login as admin to view this page.'
-        status = 0
-        logger.error(msg)
-        return json_response(msg, status, message='')
-
     db_ia = DBtable_internalassays()
     db_aia = DBtable_assaysinternalassays()
     internal_assays = simplejson.dumps(db_ia.getAll(), default=list)
