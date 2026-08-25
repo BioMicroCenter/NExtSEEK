@@ -187,7 +187,7 @@ class DBtable_sample(DBtable):
         self.fieldMapping = SAMPLE_FILTER_MAPPING
         self.excludeFields = []
 
-    def __runQuery(self, query, withColumns=False):
+    def _runQuery(self, query, withColumns=False):
         db = settings.DATABASES[SEEK_DATABASE]
         conn = MySQLdb.connect(host=db['HOST'],
                                user=db['USER'],
@@ -206,7 +206,7 @@ class DBtable_sample(DBtable):
         except Exception:
             return None
         
-    def __notEmptyLine(self, csvdic):
+    def _notEmptyLine(self, csvdic):
         notEmpty = True
         if len(csvdic)==0:
             notEmpty = False
@@ -237,7 +237,7 @@ class DBtable_sample(DBtable):
         nextIndex = maxindex + 1    
         return nextIndex
     
-    def __defineUID(self, user_seek, record, attributeInfo):
+    def _defineUID(self, user_seek, record, attributeInfo):
         sampletype = attributeInfo['sampletype']
         typetitle = sampletype['title']
         uid_prefix = typetitle
@@ -252,7 +252,7 @@ class DBtable_sample(DBtable):
         uid = prefix + '-' + nextIndex
         return uid
     
-    def __getRecordToJson(self, record, attributeInfo):
+    def _getRecordToJson(self, record, attributeInfo):
         headers = attributeInfo['headers']
         record_new = {}
         for header in headers:
@@ -265,11 +265,11 @@ class DBtable_sample(DBtable):
         record_json = simplejson.dumps(record_new, default=str)
         return record_json
         
-    def __getRecordFromJson(self, record_json):
+    def _getRecordFromJson(self, record_json):
         record = json.loads(record_json)
         return record
         
-    def __updateSampleMetadata(self, metadata_db, metadata_in, attributes=None):
+    def _updateSampleMetadata(self, metadata_db, metadata_in, attributes=None):
         #logger.debug('updateSampleMetadata')
 
         logger.debug(f"Updating sample with UID: {metadata_db['UID']}")
@@ -314,7 +314,7 @@ class DBtable_sample(DBtable):
         #logger.debug('updateSampleMetadata: Finish')
         return metadata_out
         
-    def __getRecord(self, user_seek, record, attributeInfo, contributor_id):
+    def _getRecord(self, user_seek, record, attributeInfo, contributor_id):
         username = user_seek['username']
         project_id = user_seek['projectid']
         
@@ -328,7 +328,7 @@ class DBtable_sample(DBtable):
         uid = record['UID']
         newSample = False
         if uid is None or len(uid.strip())==0:
-            uid = self.__defineUID(user_seek, record, attributeInfo)
+            uid = self._defineUID(user_seek, record, attributeInfo)
             record['UID'] = uid
             newSample = True
             
@@ -345,12 +345,12 @@ class DBtable_sample(DBtable):
         
         record_new['title'] = samplename
         record_new['sample_type_id'] = attributeInfo['sampleType_id']
-        record_new['json_metadata'] = self.__getRecordToJson(record, attributeInfo)
+        record_new['json_metadata'] = self._getRecordToJson(record, attributeInfo)
         record_new['uuid'] = uid
         record_new['contributor_id'] = contributor_id
         
         policy = DBtable_policies("DEFAULT")
-        record_db = self.__retrieveSampleByUID(uid)
+        record_db = self._retrieveSampleByUID(uid)
         if record_db is None:
             msg, status, policy_id = policy.createDefaultPolicy(username, contributor_id, project_id)
         else:
@@ -358,9 +358,9 @@ class DBtable_sample(DBtable):
             contributor_id = record_db['contributor_id']
             record_new['contributor_id'] = contributor_id
             
-            metadata_db = self.__getRecordFromJson(record_db['json_metadata'])
-            metadata_in = self.__getRecordFromJson(record_new['json_metadata'])
-            metadata_out = self.__updateSampleMetadata(metadata_db, metadata_in)
+            metadata_db = self._getRecordFromJson(record_db['json_metadata'])
+            metadata_in = self._getRecordFromJson(record_new['json_metadata'])
+            metadata_out = self._updateSampleMetadata(metadata_db, metadata_in)
             record_new['json_metadata'] = simplejson.dumps(metadata_out, default=str)
             
             other_creators = record_db['other_creators']
@@ -375,7 +375,7 @@ class DBtable_sample(DBtable):
         record_new['first_letter'] = samplename[0]
         return record_new, newSample
         
-    def __updateSampleProject(self, user_seek, sample_id):
+    def _updateSampleProject(self, user_seek, sample_id):
         project_id = user_seek['projectid']
 
         db = settings.DATABASES[SEEK_DATABASE]
@@ -397,7 +397,7 @@ class DBtable_sample(DBtable):
         return
         
         
-    def __updateSampleAssetsCreators(self, sample_id, creator_id):
+    def _updateSampleAssetsCreators(self, sample_id, creator_id):
         records = Assets_creators.objects.filter(asset_id=sample_id, creator_id=creator_id, asset_type='Sample')
         if len(records)==1:
             return
@@ -410,7 +410,7 @@ class DBtable_sample(DBtable):
         record.save()
         return
         
-    def __verifyRequiredFields(self, record, fields_required):
+    def _verifyRequiredFields(self, record, fields_required):
         if 'UID' not in record.keys():
             msg = SAMPLE_ERRORCODE['503']
             meetRequired = False
@@ -447,7 +447,7 @@ class DBtable_sample(DBtable):
         return msg_required, meetRequired
         
     
-    def __loadSampleTypes(self, diclist_instruction):
+    def _loadSampleTypes(self, diclist_instruction):
         sampleTypes = {}      
         sampleTypes_order = []
         for dici in diclist_instruction:
@@ -482,7 +482,7 @@ class DBtable_sample(DBtable):
             
         return sampleTypes, sampleTypes_order
         
-    def __splitSampleTypes(self, sampleTypes, diclist_samples):
+    def _splitSampleTypes(self, sampleTypes, diclist_samples):
         sample_sheets = {}
         for sampleType in sampleTypes:
             sample_sheets[sampleType] = []
@@ -509,7 +509,7 @@ class DBtable_sample(DBtable):
                             samplename = value
                             
                 if samplename is None:
-                    pass    # no unique identifier; __getRecord() reports it later
+                    pass    # no unique identifier; _getRecord() reports it later
                 elif samplename in unique_samples:
                     dici_sample = unique_samples[samplename]
                 else:
@@ -520,7 +520,7 @@ class DBtable_sample(DBtable):
         return sample_sheets
     
     
-    def __setSampleDatafileAssociation(self, user_seek, sampleType, record, attributeInfo, diclist_assay):   
+    def _setSampleDatafileAssociation(self, user_seek, sampleType, record, attributeInfo, diclist_assay):   
         msg = ''
         status = 1
         
@@ -542,7 +542,7 @@ class DBtable_sample(DBtable):
         return msg, status
     
     
-    def __verifyUID(self, uidIn, attributeInfo):
+    def _verifyUID(self, uidIn, attributeInfo):
         isValid = True
         msg = ''
         sampletype = attributeInfo['sampletype']
@@ -562,7 +562,7 @@ class DBtable_sample(DBtable):
             isValid = False
             return isValid, msg
         
-        record = self.__retrieveSampleByUID(uidIn)
+        record = self._retrieveSampleByUID(uidIn)
         if record is None:
             msg = "Error: Sample UID " + uidIn + " does not exist in DB for update "
             isValid = False
@@ -571,19 +571,19 @@ class DBtable_sample(DBtable):
         return isValid, msg
 
             
-    def __storeSample(self, user_seek, sampleType, record, attributeInfo, diclist_assay, creator):
+    def _storeSample(self, user_seek, sampleType, record, attributeInfo, diclist_assay, creator):
         username = user_seek['username']
         contributor_id = user_seek['user_id']
         
         creator_id = creator['user_id']
         
-        if not self.__notEmptyLine(record):
+        if not self._notEmptyLine(record):
             msg = SAMPLE_ERRORCODE['501']
             return msg, 0, None
         
         headers_required = attributeInfo['headers_required']
         
-        msg_required, meetRequired = self.__verifyRequiredFields(record, headers_required)
+        msg_required, meetRequired = self._verifyRequiredFields(record, headers_required)
         if not meetRequired:
             msg = SAMPLE_ERRORCODE['502'] + msg_required
             return msg, 0, None
@@ -592,16 +592,16 @@ class DBtable_sample(DBtable):
             msg = SAMPLE_ERRORCODE['503']
             return msg, 0, None
         
-        record_new, newSample = self.__getRecord(creator, record, attributeInfo, contributor_id)
+        record_new, newSample = self._getRecord(creator, record, attributeInfo, contributor_id)
         uid = record_new['uuid']
         msg, status, sample_id = self.storeOneRecord(username, record_new)
         logger.debug(f"Username {username} storing record {record_new}")
         if status:
             if newSample:
-                self.__updateSampleProject(creator, sample_id)
-                self.__updateSampleAssetsCreators(sample_id, creator_id)
+                self._updateSampleProject(creator, sample_id)
+                self._updateSampleAssetsCreators(sample_id, creator_id)
                 if len(diclist_assay)>0:
-                    msgj, statusj = self.__storeSample_assay_asset(creator, sampleType, sample_id, diclist_assay)
+                    msgj, statusj = self._storeSample_assay_asset(creator, sampleType, sample_id, diclist_assay)
                     if statusj==0:
                         msgj = SAMPLE_ERRORCODE['601'] + msgj
                         msg += ';' + msgj
@@ -615,7 +615,7 @@ class DBtable_sample(DBtable):
             else:
                 msg = 'Info: No update on array-sample relationship for old sample id: ' + str(sample_id)
                     
-            msgdf, statusdf = self.__setSampleDatafileAssociation(creator, sampleType, record, attributeInfo, diclist_assay)
+            msgdf, statusdf = self._setSampleDatafileAssociation(creator, sampleType, record, attributeInfo, diclist_assay)
             if not statusdf:
                 msgdf = SAMPLE_ERRORCODE['602'] + msgdf
                 msg += ';' + msgdf
@@ -624,11 +624,11 @@ class DBtable_sample(DBtable):
         
         return msg, status, uid
     
-    def __storeSample_assay_asset(self, user_seek, sampleType, sample_id, diclist_assay):
+    def _storeSample_assay_asset(self, user_seek, sampleType, sample_id, diclist_assay):
         assay_assets = DBtable_assay_assets("DEFAULT")
         return assay_assets.storeSample_assay_asset(user_seek, sampleType, sample_id, diclist_assay)
         
-    def __searchUniqueSample(self, samplename, scientist, sample_type_id):
+    def _searchUniqueSample(self, samplename, scientist, sample_type_id):
         query = {}
         query['sample_type_id__exact'] = sample_type_id
         qset = Q(**query)
@@ -644,9 +644,9 @@ class DBtable_sample(DBtable):
         records = self.queryRecordsCustom(qset)
         return records
         
-    def __verifySampleUID(self, samplename, creator_id, uidIn, sample_type_id, scientist):
+    def _verifySampleUID(self, samplename, creator_id, uidIn, sample_type_id, scientist):
         samplename = str(samplename)
-        records = self.__searchUniqueSample(samplename, scientist, sample_type_id)
+        records = self._searchUniqueSample(samplename, scientist, sample_type_id)
         
         nr = len(records)
         status = 1
@@ -676,7 +676,7 @@ class DBtable_sample(DBtable):
             msg = SAMPLE_ERRORCODE['403']
         return msg, status
     
-    def __updateSampleErrorMsg(self, sampledic_feeback, primaryField, msg, sampleType):
+    def _updateSampleErrorMsg(self, sampledic_feeback, primaryField, msg, sampleType):
         header = sampleType + "::UID"
         sampledic_feeback[header] = msg
         
@@ -708,7 +708,7 @@ class DBtable_sample(DBtable):
             GROUP BY aa.assay_id
             HAVING COUNT(aa.assay_id) = 2
         """
-        connecting_assay_results = self.__runQuery(connecting_assay_query)
+        connecting_assay_results = self._runQuery(connecting_assay_query)
 
         if len(connecting_assay_results) != 0:
             connecting_assay_id, connecting_assay_title = connecting_assay_results[0]
@@ -723,7 +723,7 @@ class DBtable_sample(DBtable):
                 WHERE aia.assay_id = {connecting_assay_id}
             """
 
-            internal_assay_results = self.__runQuery(internal_assay_query)
+            internal_assay_results = self._runQuery(internal_assay_query)
 
             if len(internal_assay_results) != 0:
                 internal_assay_title = internal_assay_results[0][0]
@@ -752,7 +752,7 @@ class DBtable_sample(DBtable):
             WHERE s.id = {child_id}
         """
 
-        connecting_sop_results = self.__runQuery(connecting_sop_query)
+        connecting_sop_results = self._runQuery(connecting_sop_query)
         
         if len(connecting_sop_results) != 0:
             sop_id, sop_title = connecting_sop_results[0]
@@ -832,7 +832,7 @@ class DBtable_sample(DBtable):
         # No Sample nodes matched the requested UIDs (e.g. data-file UIDs absent
         # from the graph, or UIDs not present in this database). Return an empty
         # frame rather than building invalid ``WHERE uuid IN ()`` SQL — which
-        # __runQuery swallows into None, crashing the caller with
+        # _runQuery swallows into None, crashing the caller with
         # "cannot unpack non-iterable NoneType object" (a 500). The view treats
         # an empty frame as a clean 404 "No samples found".
         if not uids:
@@ -856,7 +856,7 @@ class DBtable_sample(DBtable):
             WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
             """
 
-        result = self.__runQuery(query, withColumns=True)
+        result = self._runQuery(query, withColumns=True)
         if not result:
             # Query failed (e.g. transient DB error). Degrade to an empty frame
             # so the endpoint returns a clean 404 instead of a 500 unpack crash.
@@ -866,11 +866,11 @@ class DBtable_sample(DBtable):
 
         return samples_retrieved_df
 
-    def __parse_json_metadata(self, metadata_series):
+    def _parse_json_metadata(self, metadata_series):
         return metadata_series.apply(lambda x: json.loads(x) if isinstance(x, str) else {})
 
-    def __parse_children_uids(self, children_uids):
-        children_uids['json_metadata'] = self.__parse_json_metadata(children_uids['json_metadata'])
+    def _parse_children_uids(self, children_uids):
+        children_uids['json_metadata'] = self._parse_json_metadata(children_uids['json_metadata'])
 
         metadata_df = pd.json_normalize(children_uids['json_metadata'])
         metadata_df = metadata_df.loc[:, ~metadata_df.columns.duplicated()]
@@ -884,9 +884,9 @@ class DBtable_sample(DBtable):
     def sampleRetrievalData(self, children_uids, output):
         # Sheet layout, README included, is owned by
         # nextseek_api.services.sample_workbook so it cannot drift per call path.
-        write_samples_workbook(self.__parse_children_uids(children_uids), output)
+        write_samples_workbook(self._parse_children_uids(children_uids), output)
 
-    def __batchUploadTest(self, seekdb, sampleType, diclist, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced=False):
+    def _batchUploadTest(self, seekdb, sampleType, diclist, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced=False):
         user_seek = seekdb.user_seek
         user_id = user_seek['user_id']
         contributor_id = user_id
@@ -948,7 +948,7 @@ class DBtable_sample(DBtable):
                 statusTest = False
                 msg0 += msgi +  '<br/>'
                 
-                dici_feedback = self.__updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
+                dici_feedback = self._updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
                 diclist_new.append(dici_feedback)
                 continue
             
@@ -962,7 +962,7 @@ class DBtable_sample(DBtable):
                 statusTest = False
                 msg0 += msgi +  '<br/>'
                 
-                dici_feedback = self.__updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
+                dici_feedback = self._updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
                 diclist_new.append(dici_feedback)
                 continue
             
@@ -974,7 +974,7 @@ class DBtable_sample(DBtable):
                 msgi = SAMPLE_ERRORCODE['304']
                 statusTest = False
                 msg0 += msgi +  '<br/>'
-                dici_feedback = self.__updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
+                dici_feedback = self._updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
                 diclist_new.append(dici_feedback)
                 continue
             
@@ -982,7 +982,7 @@ class DBtable_sample(DBtable):
                 msgi = SAMPLE_ERRORCODE['305'] + contributor
                 statusTest = False
                 msg0 += msgi +  '<br/>'
-                dici_feedback = self.__updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
+                dici_feedback = self._updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
                 diclist_new.append(dici_feedback)
                 continue
             
@@ -994,24 +994,24 @@ class DBtable_sample(DBtable):
                 uidIn = None
                 if 'UID' in dici:
                     uidIn = dici['UID']
-                msgi, statusi = self.__verifySampleUID(samplename, creator_id, uidIn, sample_type_id, scientist)
+                msgi, statusi = self._verifySampleUID(samplename, creator_id, uidIn, sample_type_id, scientist)
                 if statusi==0:
                     statusTest = False
                     msg0 += msgi +  '<br/>'
-                    dici_feedback = self.__updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
+                    dici_feedback = self._updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
                     diclist_new.append(dici_feedback)
                     continue
                 
                 if uidIn is not None and len(uidIn.strip())>0:
-                    isValid, msgi = self.__verifyUID(uidIn, attributeInfo)
+                    isValid, msgi = self._verifyUID(uidIn, attributeInfo)
                     if not isValid:
                         statusTest = False
                         msg0 += msgi +  '<br/>'
-                        dici_feedback = self.__updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
+                        dici_feedback = self._updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
                         diclist_new.append(dici_feedback)
                         continue
             
-            msgi, statusi, uid = self.__storeSample(user_seek, sampleType, dici, attributeInfo, diclist_assay, creator)
+            msgi, statusi, uid = self._storeSample(user_seek, sampleType, dici, attributeInfo, diclist_assay, creator)
                 
             nrow += 1
             if statusi:
@@ -1025,7 +1025,7 @@ class DBtable_sample(DBtable):
             else:
                 statusTest = False
                 msg0 += msgi +  '<br/>'
-                dici_feedback = self.__updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
+                dici_feedback = self._updateSampleErrorMsg(dici_feedback, primaryField, msgi, sampleType)
                 
             header = sampleType + "::UID"
             if statusi:
@@ -1049,7 +1049,7 @@ class DBtable_sample(DBtable):
         
         return msg, statusTest, diclist_new
     
-    def __batchUploadSampleTest(self, seekdb, sampleType, diclist_sample, diclist_feedback, attributeMapping, diclist_assay, uploadEnforced=False):
+    def _batchUploadSampleTest(self, seekdb, sampleType, diclist_sample, diclist_feedback, attributeMapping, diclist_assay, uploadEnforced=False):
         stype = DBtable_sampletype()
         sampletype_id = stype.getSampleTypeID(sampleType)
         if sampletype_id<=0:
@@ -1063,11 +1063,11 @@ class DBtable_sample(DBtable):
             status = 0
             return msg, status,diclist_feedback
         
-        msg, status, diclist_feedback = self.__batchUploadTest(seekdb, sampleType, diclist_sample, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced)
+        msg, status, diclist_feedback = self._batchUploadTest(seekdb, sampleType, diclist_sample, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced)
         return msg, status, diclist_feedback
 
 
-    def __outputUploadFeedback_V2(self, diclist, diclist_feedback, headers, feedbackfile):
+    def _outputUploadFeedback_V2(self, diclist, diclist_feedback, headers, feedbackfile):
         book = xlwt.Workbook(encoding="utf-8")
         sheet1 = book.add_sheet("Samples")
         row = 0
@@ -1114,7 +1114,7 @@ class DBtable_sample(DBtable):
             i += 1 
         book.save(feedbackfile)        
         
-    def __verifyUpdateSample(self, sheetData, feedbackfile):
+    def _verifyUpdateSample(self, sheetData, feedbackfile):
         #logger.debug('verifyUpdateSample')
         status = 1
         msg = "Okay"
@@ -1186,12 +1186,12 @@ class DBtable_sample(DBtable):
                 for header in headers_error:
                     dici[header] = 'Error:' + dici[header]
                 diclist_sanity.append(dici)
-            self.__outputUploadFeedback_V2(diclist, diclist_sanity, headers, feedbackfile)
+            self._outputUploadFeedback_V2(diclist, diclist_sanity, headers, feedbackfile)
         
         #logger.debug('verifyUpdateSample: Finish')
         return msg, status, attributes
         
-    def __batchUpdateSample(self, sheetData, feedbackfile, user_seek):
+    def _batchUpdateSample(self, sheetData, feedbackfile, user_seek):
         #logger.debug('batchUpdateSample')
         username = user_seek['username']
         msg = "batchUpdate"
@@ -1205,7 +1205,7 @@ class DBtable_sample(DBtable):
             logger.debug(msg)
             return msg, status
         
-        msg, status, attributes = self.__verifyUpdateSample(sheetData, feedbackfile)
+        msg, status, attributes = self._verifyUpdateSample(sheetData, feedbackfile)
         if status==0:
             logger.debug(msg)
             return msg, status
@@ -1248,13 +1248,13 @@ class DBtable_sample(DBtable):
             msg = msg + '<br/>' + msg0
             status = 1
                 
-        self.__outputUploadFeedback_V2(diclist, diclist_feedback, headers, feedbackfile)
+        self._outputUploadFeedback_V2(diclist, diclist_feedback, headers, feedbackfile)
         #logger.debug(feedbackfile)
         #logger.debug('batchUpdateSample: Finish')
         return msg, status
     
     
-    def __batchUpdateSampleAssociation(self, sheetData, feedbackfile, user_seek):
+    def _batchUpdateSampleAssociation(self, sheetData, feedbackfile, user_seek):
         msg = "batchUpdate sample-assay association"
         status = 0
         
@@ -1320,11 +1320,11 @@ class DBtable_sample(DBtable):
             msg = msg + '<br/>' + msg0
             status = 1
                 
-        self.__outputUploadFeedback_V2(diclist, diclist_feedback, headers, feedbackfile)
+        self._outputUploadFeedback_V2(diclist, diclist_feedback, headers, feedbackfile)
         return msg, status
     
     
-    def __runSanityCheck(self, diclist, diclist_ins, diclist_ont):
+    def _runSanityCheck(self, diclist, diclist_ins, diclist_ont):
         status = 1
         msg = ''
         diclist_sanity = []
@@ -1396,7 +1396,7 @@ class DBtable_sample(DBtable):
         if 'UPDATE' in filedata['sheetnames'] and 'UPDATE' in filedata:
             sheetData = filedata['UPDATE']
             if "ONTOLOGY" not in filedata or "INSTRUCTIONS" not in filedata:
-                return self.__batchUpdateSample(sheetData, feedbackfile, user_seek)
+                return self._batchUpdateSample(sheetData, feedbackfile, user_seek)
             
             sheetData_ont = filedata["ONTOLOGY"]
             diclist_ont = sheetData_ont['diclist']
@@ -1416,11 +1416,11 @@ class DBtable_sample(DBtable):
                     ontology.outputOntologyFeedback(diclist_up, headers, feedbackfile, ontology_feedback)     
                     return msg, status
             
-            return self.__batchUpdateSample(sheetData, feedbackfile, user_seek)
+            return self._batchUpdateSample(sheetData, feedbackfile, user_seek)
         
         elif 'UPDATE_ASSAY' in filedata['sheetnames'] and 'UPDATE_ASSAY' in filedata:
             sheetData = filedata['UPDATE_ASSAY']
-            return self.__batchUpdateSampleAssociation(sheetData, feedbackfile, user_seek)
+            return self._batchUpdateSampleAssociation(sheetData, feedbackfile, user_seek)
         
         status = 1
         for sheetname in SAMPLE_SHEET_NAMES:
@@ -1434,7 +1434,7 @@ class DBtable_sample(DBtable):
         
         sheetData_ins = filedata["INSTRUCTIONS"]
         diclist_ins = sheetData_ins['diclist']
-        sampleTypes, sampleTypes_order = self.__loadSampleTypes(diclist_ins)
+        sampleTypes, sampleTypes_order = self._loadSampleTypes(diclist_ins)
         if len(sampleTypes.keys())==0:
             msg = SAMPLE_ERRORCODE['103']
             status = 0
@@ -1464,13 +1464,13 @@ class DBtable_sample(DBtable):
                 return msg, status
         
         
-        msg, status, diclist_sanity = self.__runSanityCheck(diclist, diclist_ins, diclist_ont)
+        msg, status, diclist_sanity = self._runSanityCheck(diclist, diclist_ins, diclist_ont)
         if status==0:
             msg = 'Error: Refer to the feedback excel file for any error.'
-            self.__outputUploadFeedback_V2(diclist, diclist_sanity, headers, feedbackfile)
+            self._outputUploadFeedback_V2(diclist, diclist_sanity, headers, feedbackfile)
             return msg, status
         
-        sample_sheets = self.__splitSampleTypes(sampleTypes, diclist)
+        sample_sheets = self._splitSampleTypes(sampleTypes, diclist)
         
         msg = ""
         diclist_feedback = []
@@ -1479,7 +1479,7 @@ class DBtable_sample(DBtable):
                 diclist_sample = sample_sheets[sampleType]
                 attributeMapping = sampleTypes[sampleType]
 
-                msgi, statusi, diclist_feedback = self.__batchUploadSampleTest(seekdb, sampleType, diclist_sample, diclist_feedback, attributeMapping, diclist_assay)                
+                msgi, statusi, diclist_feedback = self._batchUploadSampleTest(seekdb, sampleType, diclist_sample, diclist_feedback, attributeMapping, diclist_assay)                
                 msg += msgi + "<br/>"
                 if not statusi:
                     status = 0
@@ -1488,10 +1488,10 @@ class DBtable_sample(DBtable):
                 status = 0
                 msg += msgi + "<br/>"
                 
-        self.__outputUploadFeedback_V2(diclist, diclist_feedback, headers, feedbackfile)
+        self._outputUploadFeedback_V2(diclist, diclist_feedback, headers, feedbackfile)
         return msg, status
     
-    def __retrieveSampleByUID(self, uid):
+    def _retrieveSampleByUID(self, uid):
         record = None
         if uid is None or len(uid.strip())==0:
             msg = 'No record is found based on the input UID: ' + uid  # noqa: F841 (LATENT_BUGS #38)
@@ -1506,14 +1506,14 @@ class DBtable_sample(DBtable):
     
     def getSampleID(self, uid):
         sample_id = None
-        record = self.__retrieveSampleByUID(uid)
+        record = self._retrieveSampleByUID(uid)
         if record is not None:
             sample_id = record['id']
             
         return sample_id
         
  
-    def __retrieveSampleByID(self, idIn):
+    def _retrieveSampleByID(self, idIn):
         record = None
         try:
             id = int(idIn)
@@ -1532,12 +1532,12 @@ class DBtable_sample(DBtable):
         
         return record           
         
-    def __getSeeklink(self, seek_type, id):
+    def _getSeeklink(self, seek_type, id):
         seek_url = settings.SEEK_PUBLIC_URL + "/" + seek_type + "/" + str(id) + "/"
         seeklink = '<a href="' + seek_url + '" target="_blank">' + str(id) + '</a>'
         return seeklink
         
-    def __getSamplelink(self, sample_uid, sample_id):
+    def _getSamplelink(self, sample_uid, sample_id):
         sample_url = "/seek/sample/id=" + str(sample_id) + "/"
         # The uid column is rendered as raw HTML by the client; escape the uid
         # text so a sample uid containing markup cannot inject script.
@@ -1549,12 +1549,12 @@ class DBtable_sample(DBtable):
         jdata_new = []
         for data in jdata:
             datadic = {}
-            datadic['idlink'] = self.__getSeeklink('samples', data['id'])
-            datadic['idurl'] = self.__getSamplelink(data['id'], data['id'])
+            datadic['idlink'] = self._getSeeklink('samples', data['id'])
+            datadic['idurl'] = self._getSamplelink(data['id'], data['id'])
             datadic['id'] = data['id']
             datadic['title'] = data['title']
             datadic['uuid'] = data['uid']
-            datadic['uid'] = self.__getSamplelink(data['uid'], data['id'])
+            datadic['uid'] = self._getSamplelink(data['uid'], data['id'])
             datadic['sample_type_id'] = data['sample_type_id']
             datadic['contributor_id'] = data['contributor_id']
             datadic['created_at'] = str(data['created_at'])
@@ -1569,7 +1569,7 @@ class DBtable_sample(DBtable):
         
         return jdata_new
     
-    def __sqlQuery_select_records_select(self):
+    def _sqlQuery_select_records_select(self):
         sqlquery_select =  " SELECT "
         sqlquery_select +=  "A.id as id,"
         sqlquery_select +=  "A.title as title,"
@@ -1589,7 +1589,7 @@ class DBtable_sample(DBtable):
         sqlquery_select +=  ") "
         return sqlquery_select
     
-    def __sqlQuery_select_records_from(self, projectID=None):
+    def _sqlQuery_select_records_from(self, projectID=None):
         sqlquery_from =  " FROM "   
         sqlquery_from +=  "samples A "
         sqlquery_from +=  "left join sample_types B on A.sample_type_id=B.id "
@@ -1599,14 +1599,14 @@ class DBtable_sample(DBtable):
         
         return sqlquery_from     
     
-    def __sqlQuery_select_records(self, filtersdic, withLimit=True):
+    def _sqlQuery_select_records(self, filtersdic, withLimit=True):
         # The query that this generates does not return all items that it should
         # in the simple search page
-        sqlquery_select = self.__sqlQuery_select_records_select()
+        sqlquery_select = self._sqlQuery_select_records_select()
         project_id = filtersdic['project_id']
-        sqlquery_from = self.__sqlQuery_select_records_from(project_id)
+        sqlquery_from = self._sqlQuery_select_records_from(project_id)
         orderby = filtersdic['orderby'] 
-        sqlquery_where = self.__sqlQuery_select_records_filters_advanced(filtersdic)
+        sqlquery_where = self._sqlQuery_select_records_filters_advanced(filtersdic)
         sqlqueryMega = sqlquery_select + sqlquery_from + sqlquery_where
         if len(orderby)==0:
             orderby = " ORDER BY A.id desc"
@@ -1617,7 +1617,7 @@ class DBtable_sample(DBtable):
         logger.debug(sqlqueryMega)
         return sqlqueryMega
 
-    def __getParentUIDs(self, sampleDic):
+    def _getParentUIDs(self, sampleDic):
         uids = []
         for key, value in sampleDic.items():
             if SAMPLE_PARENT_ACCESSOR_NAME in key:
@@ -1637,17 +1637,17 @@ class DBtable_sample(DBtable):
                 
         return uids
     
-    def __getParents(self, childuid):
-        record_db = self.__retrieveSampleByUID(childuid)
+    def _getParents(self, childuid):
+        record_db = self._retrieveSampleByUID(childuid)
         if record_db is None:
             return []
             
         metadata = record_db['json_metadata']
-        sampleDic = self.__getRecordFromJson(metadata)
-        uids = self.__getParentUIDs(sampleDic)
+        sampleDic = self._getRecordFromJson(metadata)
+        uids = self._getParentUIDs(sampleDic)
         return uids
 
-    def __filterSamples(self, jdata, sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo):
+    def _filterSamples(self, jdata, sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo):
         logger.debug('filterSamples')
         
         if filter_rule=='No Filter':
@@ -1659,7 +1659,7 @@ class DBtable_sample(DBtable):
         n = 0
         for data in jdata:
             json_metadata = data['json_metadata']
-            dici = self.__getRecordFromJson(json_metadata)
+            dici = self._getRecordFromJson(json_metadata)
             
             if accessor_name not in dici:
                 value = None
@@ -1667,7 +1667,7 @@ class DBtable_sample(DBtable):
                 value = dici[accessor_name]
             values.append(value)
             
-            #uids = self.__getParentUIDs(dici)
+            #uids = self._getParentUIDs(dici)
             #parentUIDs.append(uids)
             
             n += 1
@@ -1683,8 +1683,8 @@ class DBtable_sample(DBtable):
             passit = passvalues[index]
             if passit:
                 json_metadata = data['json_metadata']
-                dici = self.__getRecordFromJson(json_metadata)
-                attributeValue = self.__highlightKeyValues(dici, None, None, accessor_name)
+                dici = self._getRecordFromJson(json_metadata)
+                attributeValue = self._highlightKeyValues(dici, None, None, accessor_name)
                 if len(attributeValue)==0:
                     nf += 1
                     continue
@@ -1709,7 +1709,7 @@ class DBtable_sample(DBtable):
         logger.debug("Total number of samples passing filter but not highlighted: %d"%nf)
         return jdata_new
     
-    def __initSearchFilters(self, searchType, sampletype_id, project_id=0):
+    def _initSearchFilters(self, searchType, sampletype_id, project_id=0):
         filtersdic = {}
         filtersdic['orderby'] = " ";
         filtersdic['limit'] = " ";
@@ -1733,36 +1733,36 @@ class DBtable_sample(DBtable):
         filtersdic['searchType'] = searchType
         return filtersdic
     
-    def __retrieveSamplesInType(self, user_seek, sampletype_id, project_id=0):
+    def _retrieveSamplesInType(self, user_seek, sampletype_id, project_id=0):
         searchType = 'FILTERING'
-        filtersdic = self.__initSearchFilters(searchType, sampletype_id, project_id)
-        data = self.__retrieveRecords_advanced(user_seek, filtersdic)
+        filtersdic = self._initSearchFilters(searchType, sampletype_id, project_id)
+        data = self._retrieveRecords_advanced(user_seek, filtersdic)
         return data
     
-    def __getChildrenUIDs(self, currentuid):
+    def _getChildrenUIDs(self, currentuid):
         records = self.db.retrieveRecords(self.tablemodel, 'json_metadata', currentuid)
         uids = []
         for record in records:
             uid = record['uuid']
             metadata = record['json_metadata']
-            sampleDic = self.__getRecordFromJson(metadata)
-            parent_uids = self.__getParentUIDs(sampleDic)
+            sampleDic = self._getRecordFromJson(metadata)
+            parent_uids = self._getParentUIDs(sampleDic)
             if currentuid in parent_uids:
                 uids.append(uid)
             
         return uids
     
-    def __getChildLoop(self, parentuid):
+    def _getChildLoop(self, parentuid):
         child = {}
         child["name"] = str(parentuid)
         child["id"] = str(parentuid)
-        child_uids = self.__getChildrenUIDs(parentuid)
+        child_uids = self._getChildrenUIDs(parentuid)
         if len(child_uids)==0:
             return child
         
         next_children = []
         for uid in child_uids:
-            next_child = self.__getChildLoop(uid)
+            next_child = self._getChildLoop(uid)
             next_children.append(next_child)
         
         if len(next_children)>0:
@@ -1773,16 +1773,16 @@ class DBtable_sample(DBtable):
         return self.createSampleChildrenTreeParallel(sample_id)
         
     def createSampleChildrenTreeParallel_i(self, uid):
-        child = self.__getChildLoop(uid)
+        child = self._getChildLoop(uid)
         return child
     
     def createSampleChildrenTreeParallel(self, sample_id):
-        record = self.__retrieveSampleByID(sample_id)
+        record = self._retrieveSampleByID(sample_id)
         if record is None:
             return None
         
         currentuid = record['uuid']
-        children_uids =  self.__getChildrenUIDs(currentuid)
+        children_uids =  self._getChildrenUIDs(currentuid)
         
         treeData = {}
         treeData["name"] = str(currentuid)
@@ -1801,10 +1801,10 @@ class DBtable_sample(DBtable):
         return treeData
     
     
-    def __getParentTreeListLoop(self, childNode):
+    def _getParentTreeListLoop(self, childNode):
         upTreeList = []
         childuid = childNode['id']
-        parent_uids = self.__getParents(childuid)
+        parent_uids = self._getParents(childuid)
         if parent_uids is None or len(parent_uids)==0:
             upTreeList.append(childNode)
             return upTreeList
@@ -1812,29 +1812,29 @@ class DBtable_sample(DBtable):
         for uid in parent_uids:
             uid = str(uid)
             node = {'id':uid, 'name':uid, 'children':[childNode]}
-            parentTreeList = self.__getParentTreeListLoop(node)
+            parentTreeList = self._getParentTreeListLoop(node)
             upTreeList += parentTreeList
             
         return upTreeList
     
-    def __createMultiParentTree(self, sample_id, includeChilren, childrenTreeIn=None):
-        return self.__createMultiParentTreeParallel(sample_id, includeChilren, childrenTreeIn)
+    def _createMultiParentTree(self, sample_id, includeChilren, childrenTreeIn=None):
+        return self._createMultiParentTreeParallel(sample_id, includeChilren, childrenTreeIn)
         
     def createMultiParentTreeParallel_i(self, uid, child):
         uid = str(uid)
         childNode = {'id':uid, 'name':uid, 'children':[child]}
-        parentTreeList = self.__getParentTreeListLoop(childNode)
+        parentTreeList = self._getParentTreeListLoop(childNode)
         return parentTreeList
     
-    def __createMultiParentTreeParallel(self, sample_id, includeChilren, childrenTreeIn=None):
-        record = self.__retrieveSampleByID(sample_id)
+    def _createMultiParentTreeParallel(self, sample_id, includeChilren, childrenTreeIn=None):
+        record = self._retrieveSampleByID(sample_id)
         if record is None:
             return None, None
         
         childuid = record['uuid']
         json_metadata = record['json_metadata']
-        dici = self.__getRecordFromJson(json_metadata)
-        parent_uids =  self.__getParentUIDs(dici)
+        dici = self._getRecordFromJson(json_metadata)
+        parent_uids =  self._getParentUIDs(dici)
         # Parent uids aren't being found
         
         childuid = str(childuid)
@@ -1858,12 +1858,12 @@ class DBtable_sample(DBtable):
         
         return upTreeList, parent_uids
     
-    def __getChildrenListLoop(self, parentTreeData):
+    def _getChildrenListLoop(self, parentTreeData):
         listlists = []
         for node in parentTreeData:
             if 'children' in node:
                 children = node['children']
-                sublists = self.__getChildrenListLoop(children)
+                sublists = self._getChildrenListLoop(children)
             else:
                 sublists = [[]]
             
@@ -1874,7 +1874,7 @@ class DBtable_sample(DBtable):
         
         return listlists
     
-    def __getSampleTypeAttributes(self, parentList):
+    def _getSampleTypeAttributes(self, parentList):
         sampleTypes = []       
         sampleTypeCount = {}
         for listi in parentList:
@@ -1925,21 +1925,21 @@ class DBtable_sample(DBtable):
 
         return sampleTypes, sampleTypeCount, headers, headersMapping
     
-    def __retrieveSampleJsonData(self, uid):
-        record_db = self.__retrieveSampleByUID(uid)
+    def _retrieveSampleJsonData(self, uid):
+        record_db = self._retrieveSampleByUID(uid)
         if record_db is None:
             return None
             
         metadata = record_db['json_metadata']
-        sampleDic = self.__getRecordFromJson(metadata)
+        sampleDic = self._getRecordFromJson(metadata)
         return sampleDic
         
-    def __convertSampleTreeToList(self, parentList, sampleTypes, sampleTypeCount, headers):
+    def _convertSampleTreeToList(self, parentList, sampleTypes, sampleTypeCount, headers):
         uids = {}
         for listi in parentList:
             for uid in listi:
                 if uid not in uids:
-                    sampleDic = self.__retrieveSampleJsonData(uid)
+                    sampleDic = self._retrieveSampleJsonData(uid)
                     uids[uid] = sampleDic
                     
         diclist_new = []
@@ -1975,7 +1975,7 @@ class DBtable_sample(DBtable):
         headers_new = filterDiclist(headers, diclist_new)
         return headers_new, diclist_new
     
-    def __saveSampleList(self, headers_new, diclist_new, excelfile, attributeFilter=None):
+    def _saveSampleList(self, headers_new, diclist_new, excelfile, attributeFilter=None):
         headers_noneConstant, diclist_constant, headers_constant = getConstantRows(headers_new, diclist_new)
         if attributeFilter is not None and len(attributeFilter)>0:
             headersFiltered = []
@@ -2007,30 +2007,30 @@ class DBtable_sample(DBtable):
         return nsamples
 
 
-    def __createSampleTree(self, sample_ids):
+    def _createSampleTree(self, sample_ids):
         includeChilren = False
         parentList = []
         for sample_id in sample_ids:
-            upTreeList, parent_uids = self.__createMultiParentTree(sample_id, includeChilren)
-            parentList_i = self.__getChildrenListLoop(upTreeList)
+            upTreeList, parent_uids = self._createMultiParentTree(sample_id, includeChilren)
+            parentList_i = self._getChildrenListLoop(upTreeList)
             parentList += parentList_i
         
-        sampleTypes, sampleTypeCount, headers, headersMapping = self.__getSampleTypeAttributes(parentList)       
-        headers_new, diclist_new = self.__convertSampleTreeToList(parentList, sampleTypes, sampleTypeCount, headers)       
+        sampleTypes, sampleTypeCount, headers, headersMapping = self._getSampleTypeAttributes(parentList)       
+        headers_new, diclist_new = self._convertSampleTreeToList(parentList, sampleTypes, sampleTypeCount, headers)       
         return headers_new, diclist_new, headersMapping
 
-    def __createSampleTreeToList_new(self, sample_ids, xlsfile='test.xls', attributeFilter=None):
-        headers_new, diclist_new, headersMapping = self.__createSampleTreeFromDB(sample_ids)
-        nsamplesOutput = self.__saveSampleList(headers_new, diclist_new, xlsfile, attributeFilter)
+    def _createSampleTreeToList_new(self, sample_ids, xlsfile='test.xls', attributeFilter=None):
+        headers_new, diclist_new, headersMapping = self._createSampleTreeFromDB(sample_ids)
+        nsamplesOutput = self._saveSampleList(headers_new, diclist_new, xlsfile, attributeFilter)
         return nsamplesOutput
 
 
     def downloadSamples_new(self, user_seek, xlsfile, link, sample_ids, includeSampleTree=1, attributeFilter=None):
         if includeSampleTree==1:
-            nsamplesOutput = self.__createSampleTreeToList_new(sample_ids, xlsfile, attributeFilter)
+            nsamplesOutput = self._createSampleTreeToList_new(sample_ids, xlsfile, attributeFilter)
         else:
             isNewSheet = True
-            msg, status, nsamplesOutput = self.__downloadSampleList(sample_ids, xlsfile, isNewSheet)
+            msg, status, nsamplesOutput = self._downloadSampleList(sample_ids, xlsfile, isNewSheet)
         
         data = {}
         data['link'] = link
@@ -2044,7 +2044,7 @@ class DBtable_sample(DBtable):
         reportData = simplejson.dumps(data, default=str)
         return reportData
     
-    def __exportImmportSheetInfo(self, headersMapping, diclist_new, templatedata, sheetName, excelfile):
+    def _exportImmportSheetInfo(self, headersMapping, diclist_new, templatedata, sheetName, excelfile):
         nameup = sheetName.upper()
         sheetData = templatedata[nameup]
         diclist = sheetData['diclist']
@@ -2081,7 +2081,7 @@ class DBtable_sample(DBtable):
         reviseExcelDiclist(excelfile, headers, diclistOut, sheetName)
         return
     
-    def __exportImportProtocls(self, user_seek, diclist, zf):
+    def _exportImportProtocls(self, user_seek, diclist, zf):
         dbsop = DBtable_sops("DEFAULT")
         diclist_new = []
         for dici in diclist:
@@ -2110,7 +2110,7 @@ class DBtable_sample(DBtable):
         return diclist_new
         
     
-    def __exportImmportSheetInfoZip(self, user_seek, headersMapping, diclist_new, templatedata, sheetName, txtfile, fileLabel, zf):
+    def _exportImmportSheetInfoZip(self, user_seek, headersMapping, diclist_new, templatedata, sheetName, txtfile, fileLabel, zf):
         nameup = sheetName.upper()
         sheetData = templatedata[nameup]
         diclist = sheetData['diclist']
@@ -2145,7 +2145,7 @@ class DBtable_sample(DBtable):
             diclistOut = removeDiclistDuplicates(diclistOut)
         
         if sheetName=='protocols':
-            diclistOut = self.__exportImportProtocls(user_seek, diclistOut, zf)
+            diclistOut = self._exportImportProtocls(user_seek, diclistOut, zf)
         
         fo = open(txtfile,"w")
         
@@ -2173,9 +2173,9 @@ class DBtable_sample(DBtable):
         fo.close()    
         return           
             
-    def __exportImmportSampleListZip(self, user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping):
+    def _exportImmportSampleListZip(self, user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping):
         if 'xlsx' in downloadfile:
-            return self.__exportImmportSampleList(user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping)
+            return self._exportImmportSampleList(user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping)
             
         excelfile = downloadfile.replace('zip', 'xlsx')
         templatefile = IMMPORT_TEMPLATE_FILE
@@ -2210,15 +2210,15 @@ class DBtable_sample(DBtable):
             filename = sheetname + '.txt'
             sheetfile = DOWNLOAD_DIRECTORY + filename
             fileLabel = IMMPORT_TEMPLATES[sheetname]
-            self.__exportImmportSheetInfoZip(user_seek, headersMapping, diclist_new, filedata, sheetname, sheetfile, fileLabel, zf)
+            self._exportImmportSheetInfoZip(user_seek, headersMapping, diclist_new, filedata, sheetname, sheetfile, fileLabel, zf)
             zf.write(sheetfile, filename)
         
         zf.close()
         return "Okay", 1
     
-    def __exportImmportSampleList(self, user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping):
+    def _exportImmportSampleList(self, user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping):
         if 'zip' in downloadfile:
-            return self.__exportImmportSampleListZip(user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping)
+            return self._exportImmportSampleListZip(user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping)
             
         excelfile = downloadfile
         templatefile = IMMPORT_TEMPLATE_FILE
@@ -2247,25 +2247,25 @@ class DBtable_sample(DBtable):
                 return msg, status
         
         for sheetname in IMMPORT_TEMPLATES:
-            self.__exportImmportSheetInfo(headersMapping, diclist_new, filedata, sheetname, downloadfile)
+            self._exportImmportSheetInfo(headersMapping, diclist_new, filedata, sheetname, downloadfile)
             
         return "Okay", 1
     
     
-    def __exportImmportCreateSampleTreeToList(self, user_seek, sample_ids, downloadfile, sampletypeName):
-        headers_new, diclist_new, headersMapping = self.__createSampleTree(sample_ids)
-        msg, status = self.__exportImmportSampleList(user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping)
+    def _exportImmportCreateSampleTreeToList(self, user_seek, sample_ids, downloadfile, sampletypeName):
+        headers_new, diclist_new, headersMapping = self._createSampleTree(sample_ids)
+        msg, status = self._exportImmportSampleList(user_seek, headers_new, diclist_new, downloadfile, sampletypeName, headersMapping)
         return msg
     
     
     def exportSamples(self, user_seek, xlsfile, link, sample_ids, sampletype_id):
         stype = DBtable_sampletype()
         sampletypeName = stype.retrieveFieldValue(sampletype_id, 'title')
-        return self.__exportSamples0(user_seek, xlsfile, link, sample_ids, sampletypeName)
+        return self._exportSamples0(user_seek, xlsfile, link, sample_ids, sampletypeName)
 
-    def __exportSamples0(self, user_seek, downloadfile, link, sample_ids, sampletypeName):
+    def _exportSamples0(self, user_seek, downloadfile, link, sample_ids, sampletypeName):
         sampletypeName = 'D.MSP'
-        nsamplesOutput = self.__exportImmportCreateSampleTreeToList(user_seek, sample_ids, downloadfile, sampletypeName)
+        nsamplesOutput = self._exportImmportCreateSampleTreeToList(user_seek, sample_ids, downloadfile, sampletypeName)
         msg = 'Okay'
         data = {}
         data['link'] = link
@@ -2279,13 +2279,13 @@ class DBtable_sample(DBtable):
         reportData = simplejson.dumps(data, default=str)
         return reportData
     
-    def __verifyFileInRecord(self, sampleRecord, originalfilename, filetype):
+    def _verifyFileInRecord(self, sampleRecord, originalfilename, filetype):
         if 'json_metadata' not in sampleRecord:
             return False
         
         fileInRecord = 0
         json_metadata = sampleRecord['json_metadata']
-        sampledic = self.__getRecordFromJson(json_metadata)
+        sampledic = self._getRecordFromJson(json_metadata)
         for key, value in sampledic.items():
             if filetype=="SOP":
                 if SAMPLE_PROTOCOL_ACCESSOR_NAME in key:
@@ -2327,7 +2327,7 @@ class DBtable_sample(DBtable):
             sample_uid = record['uuid']
             msg += "Lab: " + creator_lab + "; sample UID: " + sample_uid
             if sample_uid is not None and creator_lab in sample_uid:
-                fileInRecord, sampledic = self.__verifyFileInRecord(record, originalfilename, filetype)
+                fileInRecord, sampledic = self._verifyFileInRecord(record, originalfilename, filetype)
                 if fileInRecord>0:
                     record.update(sampledic)
                     records_now.append(record)
@@ -2353,13 +2353,13 @@ class DBtable_sample(DBtable):
     def updateSampleDFurl(self, username, sample_uid, originalfilename, df_link):
         msg = ''
         status = 0
-        record_db = self.__retrieveSampleByUID(sample_uid)
+        record_db = self._retrieveSampleByUID(sample_uid)
         if record_db is None:
             msg = 'Error: sample not found: ' + sample_uid
             return msg, status
         
         metadata = record_db['json_metadata']
-        sampleDic = self.__getRecordFromJson(metadata)
+        sampleDic = self._getRecordFromJson(metadata)
         
         suffix = None
         for key, value in sampleDic.items():
@@ -2385,7 +2385,7 @@ class DBtable_sample(DBtable):
             logger.debug(f"NEO4J summary: {summary}")
 
     
-    def __deleteOneSample(self, sample_id, policy_id):
+    def _deleteOneSample(self, sample_id, policy_id):
         sqlqueries = []
         sqlquery = "DELETE FROM projects_samples where sample_id=" + str(sample_id) + ";"
         sqlqueries.append(sqlquery)
@@ -2416,14 +2416,14 @@ class DBtable_sample(DBtable):
         
         return msg, status
     
-    def __getSampleChildren(self, currentuid):
+    def _getSampleChildren(self, currentuid):
         records = self.db.retrieveRecords(self.tablemodel, 'json_metadata', currentuid)
         childrenList = []
         for record in records:
             uid = record['uuid']
             metadata = record['json_metadata']
-            sampleDic = self.__getRecordFromJson(metadata)
-            parent_uids = self.__getParentUIDs(sampleDic)
+            sampleDic = self._getRecordFromJson(metadata)
+            parent_uids = self._getParentUIDs(sampleDic)
             if currentuid in parent_uids:
                 sid = record['id']
                 dici = {'id':sid, 'uid':uid}
@@ -2431,7 +2431,7 @@ class DBtable_sample(DBtable):
             
         return childrenList
     
-    def __deleteSampleList(self, user_seek, sample_ids, xlsfile):
+    def _deleteSampleList(self, user_seek, sample_ids, xlsfile):
         user_id = user_seek['user_id']
         roles_mask = self.db.retrieveFieldValue(People, user_id, 'roles_mask')
     
@@ -2441,7 +2441,7 @@ class DBtable_sample(DBtable):
         for sample_id in sample_ids:
             dici = {}
             dici['id'] = sample_id
-            record = self.__retrieveSampleByID(sample_id)
+            record = self._retrieveSampleByID(sample_id)
             if record is None:
                 msgi = 'Error: Sample ' + str(sample_id) +  ' not found in DB '
                 status = 0
@@ -2455,10 +2455,10 @@ class DBtable_sample(DBtable):
             currentuid = record['uuid']
             
             dici['uid'] = currentuid
-            childrenList =  self.__getSampleChildren(currentuid)
+            childrenList =  self._getSampleChildren(currentuid)
             if user_id==contributor_id or int(roles_mask)>0:
                 if len(childrenList)==0:
-                    msgi, statusi = self.__deleteOneSample(sample_id, policy_id)
+                    msgi, statusi = self._deleteOneSample(sample_id, policy_id)
                     if statusi:
                         dici['statusi'] = 'DELETED'
                     else:
@@ -2481,7 +2481,7 @@ class DBtable_sample(DBtable):
         return diclist, msg, status 
     
     def deleteSamples(self, user_seek, xlsfile, link, sample_ids):
-        diclist, msg, status = self.__deleteSampleList(user_seek, sample_ids, xlsfile)
+        diclist, msg, status = self._deleteSampleList(user_seek, sample_ids, xlsfile)
         data = {}
         data['msg'] = msg
         data['status'] = status
@@ -2492,21 +2492,21 @@ class DBtable_sample(DBtable):
         return reportData
     
     
-    def __formatSampleUIDLink(self, sample_uid):
+    def _formatSampleUIDLink(self, sample_uid):
         url = "/seek/sampletree/uid=" + str(sample_uid) + "/";
         # Rendered as raw HTML by the client; escape the untrusted uid in both
         # the href attribute and the link text to prevent HTML injection.
         weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(str(sample_uid)) + '</a>'
         return weblink
 
-    def __formatSopUIDLink(self, sop_uid):
+    def _formatSopUIDLink(self, sop_uid):
         url = "/seek/sop/uid=" + str(sop_uid) + "/";
         # Rendered as raw HTML by the client; escape the untrusted uid in both
         # the href attribute and the link text to prevent HTML injection.
         weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(str(sop_uid)) + '</a>'
         return weblink
     
-    def __formatExternalLink(self, urlValue):
+    def _formatExternalLink(self, urlValue):
         weblink = urlValue
         if ";" in urlValue:
             weblink = ''
@@ -2533,7 +2533,7 @@ class DBtable_sample(DBtable):
         
         return weblink
     
-    def __formatLinkUrl(self, attrname, attrvalue):
+    def _formatLinkUrl(self, attrname, attrvalue):
         weblink = attrvalue
         value = attrvalue
         
@@ -2551,12 +2551,12 @@ class DBtable_sample(DBtable):
                         if i>0:
                             weblink += ","
                             
-                        weblink += self.__formatSampleUIDLink(vi)
+                        weblink += self._formatSampleUIDLink(vi)
                         i += 1
             else:
                 value = value.strip()
                 if len(value)>0:
-                    weblink = self.__formatSampleUIDLink(value)
+                    weblink = self._formatSampleUIDLink(value)
         
         elif SAMPLE_PROTOCOL_ACCESSOR_NAME in attrname:
             if attrvalue is None:
@@ -2572,33 +2572,33 @@ class DBtable_sample(DBtable):
                         if i>0:
                             weblink += ","
                             
-                        weblink += self.__formatSopUIDLink(vi)
+                        weblink += self._formatSopUIDLink(vi)
                         i += 1
             else:
                 value = value.strip()
                 if len(value)>0:
-                    weblink = self.__formatSopUIDLink(value)
+                    weblink = self._formatSopUIDLink(value)
         
         elif SAMPLE_LINK_ACCESSOR_NAME in attrname:
             if attrvalue is None:
                 return weblink
-            weblink = self.__formatExternalLink(attrvalue)
+            weblink = self._formatExternalLink(attrvalue)
             
         elif SAMPLE_FILE_ACCESSOR_NAME in attrname:
             if attrvalue is None:
                 return weblink
-            weblink = self.__formatExternalLink(attrvalue)
+            weblink = self._formatExternalLink(attrvalue)
             
         elif SAMPLE_PUBLISH_ACCESSOR_NAME in attrname:
             if attrvalue is None:
                 return weblink
-            weblink = self.__formatExternalLink(attrvalue)
+            weblink = self._formatExternalLink(attrvalue)
         
         return weblink
     
     
     def getSampleInfo(self, sample_id):
-        record = self.__retrieveSampleByID(sample_id)
+        record = self._retrieveSampleByID(sample_id)
         if record is None:
             return None, None
         
@@ -2607,7 +2607,7 @@ class DBtable_sample(DBtable):
         attributeInfo = sattr.getAttributeInfo(sampletype_id)
         headers = attributeInfo['headers']
         json_metadata = record['json_metadata']
-        dici = self.__getRecordFromJson(json_metadata)
+        dici = self._getRecordFromJson(json_metadata)
         
         diclist = []
         for header in headers:
@@ -2620,7 +2620,7 @@ class DBtable_sample(DBtable):
                     try:
                         valuestr = str(value)
                         if len(valuestr.strip())>0:
-                            attrdici['attrvalue'] = self.__formatLinkUrl(headerStripped, valuestr)
+                            attrdici['attrvalue'] = self._formatLinkUrl(headerStripped, valuestr)
                             diclist.append(attrdici)
                     except:
                         attrdici['attrvalue'] = value
@@ -2628,10 +2628,10 @@ class DBtable_sample(DBtable):
             
         return dici, diclist
     
-    def __publishSampleList(self, user_seek, sample_ids, xlsfile, assay_id=None, project_id=None):
+    def _publishSampleList(self, user_seek, sample_ids, xlsfile, assay_id=None, project_id=None):
         isNewSheet = False
         excelfile = xlsfile
-        msg, status, nsamplesOutput = self.__downloadSampleList(sample_ids, xlsfile, isNewSheet)
+        msg, status, nsamplesOutput = self._downloadSampleList(sample_ids, xlsfile, isNewSheet)
         
         filename = excelfile
         if "/" in filename:
@@ -2650,7 +2650,7 @@ class DBtable_sample(DBtable):
         return msg, status
         
     def publishSamples(self, user_seek, xlsfile, link, sample_ids, assay_id=None, project_id=None):
-        msg, status = self.__publishSampleList(user_seek, sample_ids, xlsfile, assay_id, project_id)
+        msg, status = self._publishSampleList(user_seek, sample_ids, xlsfile, assay_id, project_id)
         
         data = {}
         data['msg'] = msg
@@ -2661,7 +2661,7 @@ class DBtable_sample(DBtable):
         return reportData
     
     
-    def __loadPublishedSampleSheet(self, excelfile):
+    def _loadPublishedSampleSheet(self, excelfile):
         msg = "loadPublishedSampleSheet"
         status = 0
         sampletype = ''
@@ -2718,7 +2718,7 @@ class DBtable_sample(DBtable):
     
     def findSamplesForExport(self, user_seek, downloadfile, link, excelfile):
         
-        msg, status, sampletype, uids = self.__loadPublishedSampleSheet(excelfile)
+        msg, status, sampletype, uids = self._loadPublishedSampleSheet(excelfile)
         if status==0:
             data = {}
             data['link'] = link
@@ -2732,7 +2732,7 @@ class DBtable_sample(DBtable):
             sample_id = self.getSampleID(uid)
             sample_ids.append(sample_id)
             
-        sdata = self.__exportSamples0(user_seek, downloadfile, link, sample_ids, sampletype)
+        sdata = self._exportSamples0(user_seek, downloadfile, link, sample_ids, sampletype)
         return sdata 
         
     def getSampleType(self, user_seek, sampletype_id, attribute, project_id=0):
@@ -2746,11 +2746,11 @@ class DBtable_sample(DBtable):
                 reportData = simplejson.dumps(data, default=str)
                 return reportData
         
-        data = self.__retrieveSamplesInType(user_seek, sampletype_id, project_id)
+        data = self._retrieveSamplesInType(user_seek, sampletype_id, project_id)
         if attribute=='none':
             msg = 'ignore filtering'
         else:
-            rows = self.__filterSamples(data['rows'], sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo) 
+            rows = self._filterSamples(data['rows'], sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo) 
             data['rows'] = rows
             data['total'] = len(rows)
         data['msg'] = 'okay'
@@ -2759,7 +2759,7 @@ class DBtable_sample(DBtable):
         reportData = simplejson.dumps(data, default=str)
         return reportData
     
-    def __updateSampleMeta(self, metadata_db, diclist_attributes, attri_renamed):
+    def _updateSampleMeta(self, metadata_db, diclist_attributes, attri_renamed):
         metadata_out = {}
         
         for dici in diclist_attributes:
@@ -2779,7 +2779,7 @@ class DBtable_sample(DBtable):
         return metadata_out
         
     
-    def __updateSamplesMeta(self, user_seek, samples, sampletype_id, attri_renamed):
+    def _updateSamplesMeta(self, user_seek, samples, sampletype_id, attri_renamed):
         sattr = DBtable_sampleattribute()
         attributeInfo = sattr.getAttributeInfo(sampletype_id)
         diclist_attributes = attributeInfo['diclist']
@@ -2791,9 +2791,9 @@ class DBtable_sample(DBtable):
         status = 1
         for record in samples:
             json_metadata = record['json_metadata']
-            metadata_db = self.__getRecordFromJson(json_metadata)
+            metadata_db = self._getRecordFromJson(json_metadata)
             
-            metadata_out = self.__updateSampleMeta(metadata_db, diclist_attributes, attri_renamed)
+            metadata_out = self._updateSampleMeta(metadata_db, diclist_attributes, attri_renamed)
             
             record['json_metadata'] = simplejson.dumps(metadata_out, default=str)
             record['updated_at'] = getDefaultDateTime()
@@ -2811,8 +2811,8 @@ class DBtable_sample(DBtable):
     
     
     def updateSampleType(self, user_seek, sampletype_id, attri_renamed, project_id=0):
-        data = self.__retrieveSamplesInType(user_seek, sampletype_id, project_id)
-        msg, status = self.__updateSamplesMeta(user_seek, data['rows'], sampletype_id, attri_renamed)
+        data = self._retrieveSamplesInType(user_seek, sampletype_id, project_id)
+        msg, status = self._updateSamplesMeta(user_seek, data['rows'], sampletype_id, attri_renamed)
         data['msg'] = msg
         data['status'] = status
         data['link'] = ''
@@ -2841,7 +2841,7 @@ class DBtable_sample(DBtable):
             logger.debug(msg)
             return msg, status
                 
-        record = self.__retrieveSampleByUID(uidIn)
+        record = self._retrieveSampleByUID(uidIn)
         if record is None:
             msg = "Error: Sample UID " + uidIn + " does not exist in DB for update "
             status = False
@@ -2849,11 +2849,11 @@ class DBtable_sample(DBtable):
             return msg, status
             
         json_metadata = record['json_metadata']
-        dici_json = self.__getRecordFromJson(json_metadata)
+        dici_json = self._getRecordFromJson(json_metadata)
         
         metadata_db = dici_json
         metadata_in = dici
-        metadata_out = self.__updateSampleMetadata(metadata_db, metadata_in, attributes)
+        metadata_out = self._updateSampleMetadata(metadata_db, metadata_in, attributes)
         dici_json = metadata_out
                 
         json_metadata_updated = simplejson.dumps(dici_json, default=str)
@@ -2871,7 +2871,7 @@ class DBtable_sample(DBtable):
         return msg, status
     
     
-    def __getSampleTypeInfo(self, sampleType):
+    def _getSampleTypeInfo(self, sampleType):
         stype = DBtable_sampletype()
         sampletype_id = stype.getSampleTypeID(sampleType)
         if sampletype_id<=0:
@@ -2891,8 +2891,8 @@ class DBtable_sample(DBtable):
         return msg, status, attributeInfo
         
     
-    def __verifySampleAttributes(self, record, headers_required):
-        msg_required, meetRequired = self.__verifyRequiredFields(record, headers_required)
+    def _verifySampleAttributes(self, record, headers_required):
+        msg_required, meetRequired = self._verifyRequiredFields(record, headers_required)
         if not meetRequired:
             msg = SAMPLE_ERRORCODE['502'] + msg_required
             return msg, 0, '', ''
@@ -2935,11 +2935,11 @@ class DBtable_sample(DBtable):
         username = user_seek['username']
         user_id = user_seek['user_id']
         
-        if not self.__notEmptyLine(dici):
+        if not self._notEmptyLine(dici):
             msg = SAMPLE_ERRORCODE['501']
             return msg, 0, None
         
-        msg, status, attributeInfo = self.__getSampleTypeInfo(sampleType)
+        msg, status, attributeInfo = self._getSampleTypeInfo(sampleType)
         if status==0:
             return msg, status, None
         sampletype_id = attributeInfo['sampletype_id']
@@ -2951,7 +2951,7 @@ class DBtable_sample(DBtable):
             if header in dici:
                 record[header] = dici[header]
         
-        msg, status, samplename, scientist = self.__verifySampleAttributes(record, headers_required)
+        msg, status, samplename, scientist = self._verifySampleAttributes(record, headers_required)
         if status==0:
             return msg, status, None
             
@@ -2966,26 +2966,26 @@ class DBtable_sample(DBtable):
         elif 'UID' in dici:
             uidIn = dici['UID']
         
-        msg, status = self.__verifySampleUID(samplename, contributor_id, uidIn, sampletype_id, scientist)
+        msg, status = self._verifySampleUID(samplename, contributor_id, uidIn, sampletype_id, scientist)
         if status==0:
             status = 0
             return msg, status, None
                 
         if uidIn is not None and len(uidIn.strip())>0:
-            isValid, msg = self.__verifyUID(uidIn, attributeInfo)
+            isValid, msg = self._verifyUID(uidIn, attributeInfo)
             if not isValid:
                 return msg, 0, None
         
-        record_new, newSample = self.__getRecord(user_seek, record, attributeInfo, contributor_id)
+        record_new, newSample = self._getRecord(user_seek, record, attributeInfo, contributor_id)
         uid = record_new['uuid']
         
         msg, status, sample_id = self.storeOneRecord(username, record_new)
         if status:
             if newSample:
-                self.__updateSampleProject(user_seek, sample_id)
-                self.__updateSampleAssetsCreators(sample_id, contributor_id)
+                self._updateSampleProject(user_seek, sample_id)
+                self._updateSampleAssetsCreators(sample_id, contributor_id)
                 if len(diclist_assay)>0:
-                    msgj, statusj = self.__storeSample_assay_asset(user_seek, sampleType, sample_id, diclist_assay)
+                    msgj, statusj = self._storeSample_assay_asset(user_seek, sampleType, sample_id, diclist_assay)
                     if statusj==0:
                         msgj = SAMPLE_ERRORCODE['601'] + msgj
                         msg += ';' + msgj
@@ -2995,7 +2995,7 @@ class DBtable_sample(DBtable):
             else:
                 msg = 'Info: No update on array-sample relationship for old sample id: ' + str(sample_id)
                 
-            msgdf, statusdf = self.__setSampleDatafileAssociation(user_seek, sampleType, dici, attributeInfo, diclist_assay)
+            msgdf, statusdf = self._setSampleDatafileAssociation(user_seek, sampleType, dici, attributeInfo, diclist_assay)
             if not statusdf:
                 msgdf = SAMPLE_ERRORCODE['602'] + msgdf
                 msg += ';' + msgdf
@@ -3047,7 +3047,7 @@ class DBtable_sample(DBtable):
         if '-' not in sample_uid:
             return sinfo
         
-        record = self.__retrieveSampleByUID(sample_uid)
+        record = self._retrieveSampleByUID(sample_uid)
         if record is None:
             return sinfo
         
@@ -3081,7 +3081,7 @@ class DBtable_sample(DBtable):
         
         return sinfo
         
-    def __downloadSampleList(self, sample_ids, xlsfile, isNewSheet=True):
+    def _downloadSampleList(self, sample_ids, xlsfile, isNewSheet=True):
         status = 1
         msg = ''
         sample_type_id = None
@@ -3091,7 +3091,7 @@ class DBtable_sample(DBtable):
         diclist = []
         nsamplesOutput = 0
         for sample_id in sample_ids:
-            record = self.__retrieveSampleByID(sample_id)
+            record = self._retrieveSampleByID(sample_id)
             if record is None:
                 msgi = 'Error: Sample id ' + str(sample_id) +  ' not found in DB '
                 status = 0
@@ -3115,7 +3115,7 @@ class DBtable_sample(DBtable):
                     continue
             
             json_metadata = record['json_metadata']
-            dici = self.__getRecordFromJson(json_metadata)
+            dici = self._getRecordFromJson(json_metadata)
             dici_rev = {}
             for header in headers:
                 hi = header.strip()
@@ -3136,7 +3136,7 @@ class DBtable_sample(DBtable):
         return msg, status, nsamplesOutput
     
     
-    def __parseSearchFilters(self, filters, searchType, project_id=0):
+    def _parseSearchFilters(self, filters, searchType, project_id=0):
         msg = ''
         status = 1
         sampletype_id = None
@@ -3144,7 +3144,7 @@ class DBtable_sample(DBtable):
         filter_rule = None
         filter_valueFrom = None
         filter_valueTo = None
-        filtersdic = self.__initSearchFilters(searchType, sampletype_id, project_id)
+        filtersdic = self._initSearchFilters(searchType, sampletype_id, project_id)
         if searchType == "UIDs":
             filtersdic['searchText'] = filters['filter_searchUIDs']
             field = 'uid'
@@ -3217,17 +3217,17 @@ class DBtable_sample(DBtable):
     
     def searchAdvanced(self, user_seek, filters, searchType, project_id=0):
         logger.debug('searchAdvanced')
-        msg, status, filtersdic = self.__parseSearchFilters(filters, searchType, project_id)
+        msg, status, filtersdic = self._parseSearchFilters(filters, searchType, project_id)
         if status==0:
             data = {'msg':msg, 'status': status}
             reportData = simplejson.dumps(data, default=str)
             return reportData
         
-        data = self.__retrieveRecords_advanced(user_seek, filtersdic)
+        data = self._retrieveRecords_advanced(user_seek, filtersdic)
         
         if searchType=="UIDs":
             msg = 'ignore filtering'
-            data['tree'] = self.__getAttributeTree(data['rows'])
+            data['tree'] = self._getAttributeTree(data['rows'])
         elif searchType=="FILTERING":
             attribute = filtersdic['attribute']
             if attribute!='none':
@@ -3235,16 +3235,16 @@ class DBtable_sample(DBtable):
                 filter_rule = filtersdic['filter_rule']
                 filter_valueFrom = filtersdic['filter_valueFrom']
                 filter_valueTo = filtersdic['filter_valueTo']
-                rows = self.__filterSamples(data['rows'], sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo) 
+                rows = self._filterSamples(data['rows'], sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo) 
                 data['rows'] = rows
                 data['total'] = len(rows)
             elif filtersdic['searchText'] is not None:
                 filtersdic['matchType'] = 'CONTAIN'
-                rows = self.__filterSamples_advanced(data['rows'], filtersdic)    
+                rows = self._filterSamples_advanced(data['rows'], filtersdic)    
                 data['rows'] = rows
                 data['total'] = len(rows)
         else:
-            rows = self.__filterSamples_advanced(data['rows'], filtersdic)
+            rows = self._filterSamples_advanced(data['rows'], filtersdic)
             data['rows'] = rows
             data['total'] = len(rows)
             
@@ -3261,13 +3261,13 @@ class DBtable_sample(DBtable):
         reportData = simplejson.dumps(data, default=str)
         return reportData
     
-    def __retrieveRecords_advanced(self, user_seek, filtersdic):
-        sqlquery = self.__sqlQuery_select_records(filtersdic)
+    def _retrieveRecords_advanced(self, user_seek, filtersdic):
+        sqlquery = self._sqlQuery_select_records(filtersdic)
         headers = SAMPLE_HEADERS
         db_alias = settings.SEEK_DATABASE
         jdata = self.db.queryToListDics(sqlquery, headers, db_alias)
         total = len(jdata)
-        #sqlquery = self.__sqlQuery_select_records(filtersdic, False)
+        #sqlquery = self._sqlQuery_select_records(filtersdic, False)
         #total = self.db.getQueryValue(sqlquery, db_alias)
         #if total is None:
         #    total = 0
@@ -3279,7 +3279,7 @@ class DBtable_sample(DBtable):
         data = {'total':total,'rows':jdata_new,'footer':footer}
         return data
         
-    def __sqlQuery_select_records_filters_advanced(self, filtersdic):
+    def _sqlQuery_select_records_filters_advanced(self, filtersdic):
         from .search import Search
         spi = Search('')
         sqlquery_filter = spi.designSearchAdvanced(filtersdic, SAMPLE_FILTER_MAPPING)            
@@ -3293,7 +3293,7 @@ class DBtable_sample(DBtable):
         return sqlquery_filter
             
     
-    def __highlightKeyword(self, keyword, value, style=None):
+    def _highlightKeyword(self, keyword, value, style=None):
         defaultStyle = "color:red;"
         if style is None:
             style = defaultStyle
@@ -3318,7 +3318,7 @@ class DBtable_sample(DBtable):
                 value = value.replace(keyw, newKeyword)
         return value
     
-    def __highlightKeyValues(self, dici, terms, matchType, attribute=None):
+    def _highlightKeyValues(self, dici, terms, matchType, attribute=None):
         separator = ',   '
         attributeValue = ''
         ki = 0
@@ -3332,64 +3332,64 @@ class DBtable_sample(DBtable):
             
             if attribute is not None:
                 if key==attribute:
-                    key = self.__highlightKeyword(key, key, "color:blue;font-weight:bold;")
-                    attributeValue += key + ':' + self.__highlightKeyword(value, value)
+                    key = self._highlightKeyword(key, key, "color:blue;font-weight:bold;")
+                    attributeValue += key + ':' + self._highlightKeyword(value, value)
                 continue
                 
-            key = self.__highlightKeyword(key, key, "color:blue;font-weight:bold;")
+            key = self._highlightKeyword(key, key, "color:blue;font-weight:bold;")
             valuel = value.lower()
             for term in terms:
                 if matchType=='EXACT':
                     if term==value or term.upper()==value.upper():
                         if ki==0:
-                            attributeValue += key + ':' + self.__highlightKeyword(term, value)
+                            attributeValue += key + ':' + self._highlightKeyword(term, value)
                         else:
-                            attributeValue += separator + key + ':' + self.__highlightKeyword(term, value)
+                            attributeValue += separator + key + ':' + self._highlightKeyword(term, value)
                         ki += 1
                     continue   
                         
                 if term in value or term.lower() in valuel:     
                     if ki==0:
-                        attributeValue += key + ':' + self.__highlightKeyword(term, value)
+                        attributeValue += key + ':' + self._highlightKeyword(term, value)
                     else:
-                        attributeValue += separator + key + ':' + self.__highlightKeyword(term, value)
+                        attributeValue += separator + key + ':' + self._highlightKeyword(term, value)
                     ki += 1
                 elif "&" in term:
                     termi = term.split("&")
                     for ti in termi:
                         if ':' in ti:
-                            ti = self.__getCleanKeyword(ti)
+                            ti = self._getCleanKeyword(ti)
                                 
                         if ti in value or ti.lower() in valuel:
                             if ki==0:
-                                attributeValue += key + ':' + self.__highlightKeyword(ti, value)
+                                attributeValue += key + ':' + self._highlightKeyword(ti, value)
                             else:
-                                attributeValue += separator + key + ':' + self.__highlightKeyword(ti, value)
+                                attributeValue += separator + key + ':' + self._highlightKeyword(ti, value)
                             ki += 1
                 elif "^" in term:
                     termi = term.split("^")
                     for ti in termi:
                         if ':' in ti:
-                            ti = self.__getCleanKeyword(ti)
+                            ti = self._getCleanKeyword(ti)
 
                         if ti in value or ti.lower() in valuel:
                             if ki==0:
-                                attributeValue += key + ':' + self.__highlightKeyword(ti, value)
+                                attributeValue += key + ':' + self._highlightKeyword(ti, value)
                             else:
-                                attributeValue += separator + key + ':' + self.__highlightKeyword(ti, value)
+                                attributeValue += separator + key + ':' + self._highlightKeyword(ti, value)
                             ki += 1            
                 elif ':' in term:
-                    term = self.__getCleanKeyword(term)
+                    term = self._getCleanKeyword(term)
                     if term in value or term.lower() in valuel:
                         if ki==0:
                             attributeValue += key + ':' + html.escape(str(value))
                         else:
-                            attributeValue += separator + key + ':' + self.__highlightKeyword(term, value)
+                            attributeValue += separator + key + ':' + self._highlightKeyword(term, value)
                         ki += 1
                     
         return attributeValue
     
-    def __filterSamples_advanced(self, jdata, filtersdic):
+    def _filterSamples_advanced(self, jdata, filtersdic):
         sampletype_id = filtersdic['sampletype_id']
         matchType = filtersdic['matchType']
         
@@ -3407,9 +3407,9 @@ class DBtable_sample(DBtable):
         for data in jdata:
             json_metadata = data['json_metadata']
             sample_type_id = data['sample_type_id']
-            dici = self.__getRecordFromJson(json_metadata)
+            dici = self._getRecordFromJson(json_metadata)
             
-            attributeValue = self.__highlightKeyValues(dici, terms, matchType)
+            attributeValue = self._highlightKeyValues(dici, terms, matchType)
 
             data['json_metadata'] = json.loads(data['json_metadata'])
             
@@ -3428,7 +3428,7 @@ class DBtable_sample(DBtable):
         return jdata_new
     
     
-    def __getCleanKeyword(self, keywordIn):
+    def _getCleanKeyword(self, keywordIn):
         keywordOut = keywordIn
         if ':' in keywordIn:
             tii = keywordIn.split(':')
@@ -3440,7 +3440,7 @@ class DBtable_sample(DBtable):
         return keywordOut
         
  
-    def __createSampleTreeFromDB(self, sample_ids):
+    def _createSampleTreeFromDB(self, sample_ids):
         from .models import Sample_tree
         
         includeChilren = True
@@ -3461,16 +3461,16 @@ class DBtable_sample(DBtable):
                 fullTreeList = atree
                 upTreeList = fullTreeList
             else:
-                upTreeList, parent_uids = self.__createMultiParentTree(sample_id, includeChilren)
+                upTreeList, parent_uids = self._createMultiParentTree(sample_id, includeChilren)
 
-            parentList_i = self.__getChildrenListLoop(upTreeList)
+            parentList_i = self._getChildrenListLoop(upTreeList)
             parentList += parentList_i
         
-        sampleTypes, sampleTypeCount, headers, headersMapping = self.__getSampleTypeAttributes(parentList)       
-        headers_new, diclist_new = self.__convertSampleTreeToList(parentList, sampleTypes, sampleTypeCount, headers)       
+        sampleTypes, sampleTypeCount, headers, headersMapping = self._getSampleTypeAttributes(parentList)       
+        headers_new, diclist_new = self._convertSampleTreeToList(parentList, sampleTypes, sampleTypeCount, headers)       
         return headers_new, diclist_new, headersMapping
     
-    def __getAttributeTree(self, jdata):
+    def _getAttributeTree(self, jdata):
         sample_ids = []
         for data in jdata:
             id = data['id']
@@ -3478,7 +3478,7 @@ class DBtable_sample(DBtable):
 
         includeSampleTree = 1
         if includeSampleTree==1:
-            headers_new, diclist_new, headersMapping = self.__createSampleTreeFromDB(sample_ids)
+            headers_new, diclist_new, headersMapping = self._createSampleTreeFromDB(sample_ids)
             headers_noneConstant, diclist_constant, headers_constant = getConstantRows(headers_new, diclist_new)
 
             logger.debug(f"RETRIEVE: {diclist_new}")
@@ -3577,7 +3577,7 @@ class DBtable_sample(DBtable):
             
         return sampleTypes
         
-    def __createSampleTreeFromDB_noTree(self, sample_ids):
+    def _createSampleTreeFromDB_noTree(self, sample_ids):
         logger.debug("createSampleTreeFromDB_noTree")
         from .models import Sample_tree
         
@@ -3600,9 +3600,9 @@ class DBtable_sample(DBtable):
                 fullTreeList = atree
                 upTreeList = fullTreeList
             else:
-                upTreeList, parent_uids = self.__createMultiParentTree(sample_id, includeChilren)
+                upTreeList, parent_uids = self._createMultiParentTree(sample_id, includeChilren)
 
-            parentList_i = self.__getChildrenListLoop(upTreeList)
+            parentList_i = self._getChildrenListLoop(upTreeList)
             parentList += parentList_i
             '''
             sampleTypes_i = self.__getChildrenListLoop_noTree(upTreeList)
@@ -3617,10 +3617,10 @@ class DBtable_sample(DBtable):
                 else:
                     sampleTypes[sampleType] = uids_i
             '''
-        sampleTypes = self.__getTreeSampleTypes(parentList)
+        sampleTypes = self._getTreeSampleTypes(parentList)
         return sampleTypes
         
-    def __getSampleTypeFromUID(self, sampleUID):
+    def _getSampleTypeFromUID(self, sampleUID):
         if "-" in sampleUID:
             terms = sampleUID.split('-')
             sampleType = terms[0]
@@ -3632,12 +3632,12 @@ class DBtable_sample(DBtable):
             sampleType = uid
         return sampleType
         
-    def __getTreeSampleTypes(self, parentList):
+    def _getTreeSampleTypes(self, parentList):
         logger.debug("getTreeSampleTypes")
         sampleTypes = {}
         for listi in parentList:
             for uid in listi:
-                sampleType = self.__getSampleTypeFromUID(uid)
+                sampleType = self._getSampleTypeFromUID(uid)
                 if sampleType in sampleTypes:
                     uids = sampleTypes[sampleType]
                 else:
@@ -3648,10 +3648,10 @@ class DBtable_sample(DBtable):
                 sampleTypes[sampleType] = uids
         return sampleTypes
     
-    def __retrieveSamples(self, headers, sample_uids):
-        return self.__retrieveSamples_v2(headers, sample_uids)
+    def _retrieveSamples(self, headers, sample_uids):
+        return self._retrieveSamples_v2(headers, sample_uids)
             
-    def __retrieveSamples_v2(self, headers, sample_uids):
+    def _retrieveSamples_v2(self, headers, sample_uids):
         logger.debug("retrieveSamples_v2")
         status = 1
         msg = ''
@@ -3677,7 +3677,7 @@ class DBtable_sample(DBtable):
                 continue
             
             json_metadata = record['json_metadata']
-            dici = self.__getRecordFromJson(json_metadata)
+            dici = self._getRecordFromJson(json_metadata)
             dici_rev = {}
             for header in headers:
                 hi = header.strip()
@@ -3696,7 +3696,7 @@ class DBtable_sample(DBtable):
         #logger.debug(msg)
         return diclist, msg, status, nsamplesOutput
         
-    def __exportSamplesInZipfile(self, sampleTypes, dzipfile='test.zip', attributeFilter=None):
+    def _exportSamplesInZipfile(self, sampleTypes, dzipfile='test.zip', attributeFilter=None):
         logger.debug("exportSamplesInZipfile")
         
         headersFiltered = []
@@ -3729,7 +3729,7 @@ class DBtable_sample(DBtable):
             
             if len(headers_new)>0:
                 logger.debug(downfilei)
-                diclist, msg, status, nsamplesOutput = self.__retrieveSamples(headers_new, sample_uids)
+                diclist, msg, status, nsamplesOutput = self._retrieveSamples(headers_new, sample_uids)
                 isNewSheet = True
                 saveExcelDiclist(downfilei, headers_new, diclist, 'Samples', isNewSheet)
                 terms = downfilei.split('/')
@@ -3743,7 +3743,7 @@ class DBtable_sample(DBtable):
                 
         return n
     
-    def __exportSamplesInExcel(self, sampleTypes, excelfile, attributeFilter=None):
+    def _exportSamplesInExcel(self, sampleTypes, excelfile, attributeFilter=None):
         logger.debug("exportSamplesInExcel")
         
         headersFiltered = []
@@ -3777,7 +3777,7 @@ class DBtable_sample(DBtable):
             if len(headers_new)>0:
                 msg = 'exportSamplesInExcel: Retrieve sampletype: ' + sampleType + ' ' + str(len(sample_uids))
                 print(msg)
-                diclist, msg, status, nsamplesOutput = self.__retrieveSamples(headers_new, sample_uids)
+                diclist, msg, status, nsamplesOutput = self._retrieveSamples(headers_new, sample_uids)
                 if isNewFile:
                     saveExcelDiclist(excelfile, headers_new, diclist, sampleType, isNewFile, excludeEmptyColumns)
                 else:
@@ -3799,14 +3799,14 @@ class DBtable_sample(DBtable):
     def downloadSamples_noTree(self, user_seek, dzipfile, link, sample_ids, includeSampleTree=1, attributeFilter=None):
         logger.debug("downloadSamples_noTree")
         
-        sampleTypes = self.__createSampleTreeFromDB_noTree(sample_ids)
+        sampleTypes = self._createSampleTreeFromDB_noTree(sample_ids)
         
         if ".zip" in dzipfile:
             # download a zip file, in which each sample type has its own excel file
-            nsamplesOutput = self.__exportSamplesInZipfile(sampleTypes, dzipfile, attributeFilter)
+            nsamplesOutput = self._exportSamplesInZipfile(sampleTypes, dzipfile, attributeFilter)
         else:
             downloadfile = dzipfile
-            nsamplesOutput = self.__exportSamplesInExcel(sampleTypes, downloadfile, attributeFilter)
+            nsamplesOutput = self._exportSamplesInExcel(sampleTypes, downloadfile, attributeFilter)
         data = {}
         data['link'] = link
         #if nsamplesOutput>=len(sample_ids):

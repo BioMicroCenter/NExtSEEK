@@ -75,7 +75,7 @@ def getChildrenUIDs(conn_seek, currentuid):
 
 def getChildLoop(parentuid, sampleUIDs):
     ''' modified from
-        dbsample.__getChildLoop(self, parentuid):
+        dbsample._getChildLoop(self, parentuid):
     '''
     child = {}
     child["name"] = str(parentuid)
@@ -102,7 +102,7 @@ def getChildLoop(parentuid, sampleUIDs):
         
     next_children = []
     for uid in children_uids:
-        #next_child = self.__getChildLoop(uid)
+        #next_child = self._getChildLoop(uid)
         next_child, sampleUIDs = getChildLoop(uid, sampleUIDs)
         next_children.append(next_child)
         
@@ -149,7 +149,7 @@ def createSampleChildrenTree(currentuid, sampleUIDs):
     
     children = []
     for uid in children_uids:
-        #child = self.__getChildLoop(uid)
+        #child = self._getChildLoop(uid)
         child, sampleUIDs = getChildLoop(uid, sampleUIDs)
         children.append(child)
 
