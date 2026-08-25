@@ -6,7 +6,6 @@ urlpatterns = [
     re_path(r'^help/$', views.getting_started, name='getting_started'),
     re_path(r'^assistant/', views.smartSearch, name='assistant'),
     re_path(r'^remote/', views.remote, name='remote'),
-    # re_path(r'^samples/upload/', views.sampleUpload, name='sampleUpload'),
     re_path(r'^samples/query/', views.sampleQuery, name='sampleQuery'),
     re_path(r'^samples/search/', views.sampleSearch, name='sampleSearch'),
     re_path(r'^samples/searching/', views.sampleSearching, name='sampleSearching'),

@@ -39,13 +39,10 @@ from .dbtable_sampleattribute import DBtable_sampleattribute
 from .dbtable_attributetype import DBtable_attributetype
 from .dbtable_projects import DBtable_projects
 
-from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 
-import shlex
-from subprocess import Popen, PIPE
 
 from .timeline.services.timeline_service import run_All, get_event_data
 from .timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
@@ -79,15 +76,6 @@ def seek(request, url):
         report = {}
         report['bodyhtml'] = bodyhtml
         return render(request,"samples.html", {'bodyhtml' : bodyhtml})
-    
-@requires_seek_login_redirect()
-def getSeekPage(request, seek_url):
-    seekdb = request.seekdb
-
-    bodyhtml = seekdb.getPageRequests(seek_url)
-    report = {}
-    report['bodyhtml'] = bodyhtml
-    return render(request,"samples.html", {'bodyhtml' : bodyhtml})
     
 def sample(request, id):
     sample_id = id
@@ -151,24 +139,6 @@ def document(request, id):
         msg = 'Sample template is downloaded in ' + filename
         status = 1
     return json_response(msg, status, docurl)
-
-@requires_seek_login_redirect('/seek/samples/upload/')
-def sampleUpload(request):
-    seekdb = request.seekdb
-
-    report = {}
-    docs = DBtable_documents()
-    report['template_options'] = docs.getOptionsDocuments(0, "Sample Sheet Template")
-    
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        options = []
-        options.append({'id':-1, 'title':'Default','selected':True})
-    else:
-        options = seekdb.getObjectsToOptions("/institutions")
-    report['lab_options'] = json.dumps(options, default=str)
-    
-    return render(request,"sampleUpload.html", {'report':report})
 
 @requires_seek_login_redirect('/seek/samples/batchupload/', whetherFullInfo=True)
 def batchUpload(request):
@@ -346,17 +316,6 @@ def sampleSearch(request):
     #return render(request,"sampleSearch.html", {'report':report})
     return HttpResponseRedirect('/seek/search/')
 
-def __searchFilterKeywords(keywords):
-    kkk = keywords.strip()
-    if len(kkk)==0:
-        uids = []
-        return uids
-    
-    keywords = keywords.replace(" ",",")    
-    uids = keywords.split(",")
-    return uids
-
-
 def runSampleSearch(request, searchType):
     '''
     Input:
@@ -415,30 +374,9 @@ def datafileUpload(request):
 
     return render(request,"dataFileUpload.html", {'report':report})
 
-def __updateLabUser(seekdb, instituion_id, people_id):
-    return seekdb
-  
 #@api_view(http_method_names=['GET'])
 #@authentication_classes((TokenAuthentication,))
 #@permission_classes((IsAuthenticated,))
-def verifyToken(request):
-    user_auth_tuple = TokenAuthentication().authenticate(request)
-    tokenValidated = False
-    if user_auth_tuple is None:
-        tokenValidated = False
-    else:
-        (user, token) = user_auth_tuple 
-        tokenValidated = True
-    
-    return tokenValidated
-   
-def callCmdline(cmd):
-    args = shlex.split(cmd)
-    proc = Popen(args, stdout=PIPE, stderr=PIPE)
-    out, err = proc.communicate()
-    exitcode = proc.returncode
-    return exitcode, out, err    
-    
 def retrieveSamples(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
@@ -572,20 +510,6 @@ def sampleDelete(request):
         sample_ids = list(map(dbsample.getSampleID, sample_uids))
 
     sdata = dbsample.deleteSamples(user_seek, downloadfile, link, sample_ids)
-    return HttpResponse(sdata)
-    
-def publishSamples(user_seek, sample_ids, assay_id=None, project_id=None):
-    datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    filename = 'samples-publish' + datenow + '.xlsx'
-    downloadfile = DOWNLOAD_DIRECTORY + filename
-    link = DOWNLOAD_DIRECTORY_LINK + filename
-    
-    templatefile = SAMPLE_TEMPLATE_FILE
-    cmd = 'cp ' + templatefile + ' ' + downloadfile
-    os.system(cmd)
-    
-    dbsample = DBtable_sample()
-    sdata = dbsample.publishSamples(user_seek, downloadfile, link, sample_ids, assay_id, project_id)
     return HttpResponse(sdata)
     
 def getStudiesOptions(request, id):
@@ -955,40 +879,6 @@ def download_nhp_data(request, nhp_name: str):
         return response
     except Exception as e:
         return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-def extract_ids(data):
-    ids = []
-    if isinstance(data, dict):
-        if 'id' in data:
-            ids.append(data['id'])
-        for key, value in data.items():
-            ids.extend(extract_ids(value))
-    elif isinstance(data, list):
-        for item in data:
-            ids.extend(extract_ids(item))
-    return ids
-
-def get_clade_color(sample_type):
-    db = settings.DATABASES[SEEK_DATABASE]
-    nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
-    conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
-    cursor = conn.cursor()
-    query = f"""
-    SELECT c.color FROM {nextseekdb["NAME"]}.clades c
-    JOIN {nextseekdb["NAME"]}.sample_types_clades stc ON stc.clade_id = c.id
-    JOIN {db["NAME"]}.sample_types st ON stc.sample_type_id = st.id
-    WHERE st.title = '{sample_type}'
-    """
-
-    cursor.execute(query)
-    try:
-        color = cursor.fetchone()[0]
-    except Exception:
-        color = "#000000"
-
-    cursor.close()
-
-    return color
 
 def get_children_uids(sample_uids, user_project_ids, admin):
     db = settings.DATABASES[SEEK_DATABASE]
