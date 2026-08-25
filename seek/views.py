@@ -14,8 +14,6 @@ import pandas as pd
 from django.conf import settings
 from itertools import groupby
 
-from django.contrib.auth.models import User
-
 import simplejson
 import datetime
 import zipfile
@@ -28,6 +26,8 @@ from dmac.dbtable_internalassays import DBtable_internalassays
 from dmac.dbtable_assaysinternalassays import DBtable_assaysinternalassays
 from nextseek_api.services.sample_workbook import write_samples_workbook
 
+from .decorators import (requires_seek_login, requires_supervisor,
+                         verifySuperUser)
 from .seekdb import SeekDB
 from .models import Projects
 
@@ -134,18 +134,11 @@ def sampleTree(request, uid):
     sample_id = dbsample.getSampleID(sample_uid)
     return sample(request, sample_id)
 
+@requires_seek_login
 def document(request, id):
     document_id = id
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str)) 
-    
+    user_seek = request.user_seek
+
     seekdoc = DBtable_documents("DEFAULT")
     docurl, filename = seekdoc.getDownloadURL(document_id,
                 user_seek['server'],
@@ -664,38 +657,11 @@ def getSampleType(request):
     sdata = dbsample.getSampleType(user_seek, sampletype_id, attribute)
     return HttpResponse(sdata)
     
-def verifySuperUser(request):
-    user = request.user
-    if user.is_authenticated:
-        try:
-            if user.is_superuser:
-                return 1
-            return 0
-        except User.DoesNotExist:
-            return 0
-    return 0    
-    
+@requires_seek_login
+@requires_supervisor('The login user does not have the permission to add the sample attribute.')
 def sampleAttributeSave(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'The login user does not have the permission to add the sample attribute.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-    
+    user_seek = request.user_seek
+
     ret = request.GET
     sampletype_id = ret['sampletype_id']
     records = ret['records']
@@ -711,28 +677,11 @@ def sampleAttributeSave(request):
     
     return HttpResponse(reportData)
     
+@requires_seek_login(log_failure=True)
+@requires_supervisor('The login user does not have the permission to delete the sample attribute.')
 def sampleAttributeDelete(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'The login user does not have the permission to delete the sample attribute.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-    
+    user_seek = request.user_seek
+
     sampleattr = DBtable_sampleattribute()
     reportData = sampleattr.processRecords(request, user_seek, "delete")
     return HttpResponse(reportData)
@@ -1317,54 +1266,17 @@ def adminClades(request):
     
     return render(request,"clades.html", {'clades': list(cladedb.getAll()), 'stc': stc})
 
+@requires_seek_login
+@requires_supervisor('The login user does not have the permission to perform this action.')
 def cladesSyncSampleTypes(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    
-    if not user_seek['status']:
-        err = user_seek['err']
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'The login user does not have the permission to perform this action.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-
     stcdb = DBtable_stc()
     stcdb.syncSampleTypes()
     
     return HttpResponse({})
 
+@requires_seek_login
+@requires_supervisor('The login user does not have the permission to add the clade.')
 def cladeSave(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'The login user does not have the permission to add the clade.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-
     cladedb = DBtable_clades()
     
     ret = request.GET
@@ -1385,28 +1297,9 @@ def cladeSave(request):
         
     return HttpResponse({}, headers={"Refresh": 1})
     
+@requires_seek_login(log_failure=True)
+@requires_supervisor('The login user does not have the permission to delete the sample attribute.')
 def cladeDelete(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'The login user does not have the permission to delete the sample attribute.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-
     cladedb = DBtable_clades()
 
     ret = request.GET
@@ -1417,27 +1310,9 @@ def cladeDelete(request):
     
     return HttpResponse({}, headers={"Refresh": 1})
 
+@requires_seek_login
+@requires_supervisor('The login user does not have the permission to add the clade.')
 def cladeSampleTypesSave(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'The login user does not have the permission to add the clade.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-
     stcdb = DBtable_stc()
     
     ret = request.GET
@@ -1485,27 +1360,9 @@ def internalAssays(request):
 
     return render(request,"internal_assays.html", {"internal_assays": internal_assays, "assay_associations": assay_associations})
 
+@requires_seek_login
+@requires_supervisor('The login user does not have the permission to add the internal assay.')
 def internalAssaySave(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'The login user does not have the permission to add the internal assay.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-
     ia = DBtable_internalassays()
     
     ret = request.GET
@@ -1522,28 +1379,9 @@ def internalAssaySave(request):
         
     return HttpResponse({}, headers={"Refresh": 1})
 
+@requires_seek_login(log_failure=True)
+@requires_supervisor('You do not have the permission to delete the internal assay.')
 def internalAssayDelete(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'You do not have the permission to delete the internal assay.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-
     ia = DBtable_internalassays()
 
     ret = request.GET
@@ -1554,27 +1392,9 @@ def internalAssayDelete(request):
     
     return HttpResponse({}, headers={"Refresh": 1})
 
+@requires_seek_login
+@requires_supervisor('You do not have the permission to add the assay association.')
 def assayAssociationSave(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    if not user_seek['status']:
-        err = user_seek['err']
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'You do not have the permission to add the assay association.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-
     aia = DBtable_assaysinternalassays()
     
     ret = request.GET
@@ -1588,28 +1408,9 @@ def assayAssociationSave(request):
         
     return HttpResponse({}, headers={"Refresh": 1})
 
+@requires_seek_login
+@requires_supervisor('The login user does not have the permission to perform this action.')
 def syncInternalAssays(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request, False)
-    
-    if not user_seek['status']:
-        err = user_seek['err']
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-        
-    isSupervisor = verifySuperUser(request)
-    if isSupervisor==0: 
-        err = 'The login user does not have the permission to perform this action.'
-        logger.error(err)
-        msg = err
-        status = 0
-        docurl = ''
-        data = {'msg':msg, 'status': status, 'link':docurl}
-        return HttpResponse(simplejson.dumps(data, default=str))
-
     aia = DBtable_assaysinternalassays()
     aia.syncAssays()
     
