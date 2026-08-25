@@ -9,10 +9,14 @@ from openpyxl import load_workbook
 from nextseek_api.services.sample_workbook import (
     COLUMN_TABLE_HEADER,
     CONTEXTDB_URL,
+    DROPDOWN_SPARE_ROWS,
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
+    FLOW_ARROW_WIDTH,
+    FLOW_README_POINTER,
+    FLOW_SHEET,
+    FLOW_TYPE_WIDTH,
     SUMMARY_HEADER,
-    build_provenance_lines,
     build_readme_blocks,
     load_assay_titles,
     load_derivation_hops,
@@ -435,65 +439,10 @@ def _prov_df():
     ])
 
 
-def test_provenance_names_the_assay_recorded_on_the_neo4j_edge():
-    """The assay sits on DERIVED_FROM, between two specific UIDs."""
-    hops = [("DNA-9", "Short Read Sequencing", "D.SEQ-1")]
-    lines = build_provenance_lines(_prov_df(), {}, hops)
-    assert "DNA  --[Short Read Sequencing]-->  D.SEQ" in lines
-
-
-def test_neo4j_hops_win_over_the_parent_column():
-    """Both describe the same lineage, but only the graph edge knows which
-    assay produced this particular child."""
-    hops = [("DNA-9", "Short Read Sequencing", "D.SEQ-1")]
-    lines = build_provenance_lines(_prov_df(), {"D.SEQ-1": "Something Else"}, hops)
-    assert lines == ["DNA  --[Short Read Sequencing]-->  D.SEQ"]
-
-
-def test_provenance_falls_back_to_the_parent_column_without_neo4j():
-    """An unreachable graph costs the assay labels, not the lineage."""
-    lines = build_provenance_lines(_prov_df(), {}, [])
-    assert "DNA  ------>  D.SEQ" in lines
-    assert any(l.startswith("MUS") for l in lines)
-
-
 @patch(f"{_MOD}.GraphDatabase")
 def test_lineage_lookup_survives_an_unreachable_graph(mock_graph):
     mock_graph.driver.side_effect = RuntimeError("connection refused")
     assert load_derivation_hops(["D.SEQ-1"]) == []
-
-
-def test_provenance_names_the_assay_that_produced_the_child():
-    lines = build_provenance_lines(_prov_df(), {"D.SEQ-1": "Short Read Sequencing"})
-    assert "DNA  --[Short Read Sequencing]-->  D.SEQ" in lines
-
-
-def test_provenance_falls_back_to_a_plain_arrow_without_an_assay():
-    """A missing assay link costs the label, not the hop."""
-    lines = build_provenance_lines(_prov_df(), {})
-    assert "DNA  ------>  D.SEQ" in lines
-
-
-def test_provenance_collapses_repeated_parents_into_one_hop():
-    """TIS has two MUS parents; that is one relationship, not two."""
-    lines = build_provenance_lines(_prov_df(), {})
-    assert len([l for l in lines if l.startswith("MUS")]) == 1
-
-
-def test_provenance_includes_types_that_were_not_downloaded():
-    """DNA is not a sheet here. Upstream lineage is the part a reader cannot
-    otherwise see, so it belongs in the section."""
-    assert any(l.startswith("DNA") for l in build_provenance_lines(_prov_df(), {}))
-
-
-def test_provenance_ignores_a_parent_of_the_same_type():
-    df = pd.DataFrame([{"uuid": "CEL-1", "sample_type": "CEL", "Parent": "CEL-0"}])
-    assert build_provenance_lines(df, {}) == []
-
-
-def test_provenance_is_empty_without_a_parent_column():
-    df = pd.DataFrame([{"uuid": "MUS-1", "sample_type": "MUS", "Name": "m1"}])
-    assert build_provenance_lines(df, {}) == []
 
 
 @patch(f"{_MOD}.Samples")
@@ -600,3 +549,267 @@ def test_a_section_with_no_surviving_columns_has_no_table_header(_ctx, _fields, 
     ws = load_workbook(out)["README"]
     assert ws["A13"].value == "TIS — Tissue"
     assert [ws.cell(row=r, column=2).value for r in (14, 15, 16)] == [None, None, None]
+
+
+def _flow_df():
+    """PAT -> PAV -> TIS, with TIS also downloaded."""
+    return pd.DataFrame([
+        {"uuid": "PAV-1", "sample_type": "PAV", "Parent": "PAT-9"},
+        {"uuid": "TIS-2", "sample_type": "TIS", "Parent": "PAV-1"},
+    ])
+
+
+def _flow_rows(ws):
+    return [[c.value for c in row if c.value is not None] for row in ws.iter_rows()
+            if any(c.value is not None for c in row)]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_flow_sheet_sits_directly_after_the_readme(_ctx, _fields, _assays, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    assert load_workbook(out).sheetnames[:2] == ["README", FLOW_SHEET]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_a_chain_occupies_one_row_across_columns(_ctx, _fields, _assays, tmp_path):
+    """The whole reason for a separate sheet: one flow reads left to right."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    rows = _flow_rows(load_workbook(out)[FLOW_SHEET])
+    assert ["PAT", "------>", "PAV", "------>", "TIS"] in rows
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_no_flow_sheet_when_there_is_no_lineage(_ctx, _fields, _assays, tmp_path):
+    """An empty sheet reads as a rendering bug -- and so does a README that
+    points at a sheet the workbook does not contain. The pointer's absence was
+    caught only incidentally, by an unrelated cell-position assertion; state it
+    here, where the sheet's absence is the subject."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    wb = load_workbook(out)
+    assert FLOW_SHEET not in wb.sheetnames
+    text = " ".join(str(c.value) for row in wb["README"].iter_rows()
+                    for c in row if c.value)
+    assert FLOW_README_POINTER not in text
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_readme_points_at_the_flow_sheet(_ctx, _fields, _assays, tmp_path):
+    """A reader who never opens the tab must still learn it is there."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    text = " ".join(str(c.value) for row in load_workbook(out)["README"].iter_rows()
+                    for c in row if c.value)
+    assert FLOW_SHEET in text
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_the_flow_sheet_uses_its_own_alternating_widths(_ctx, _fields, _assays, tmp_path):
+    """The whole justification for a separate sheet is that it can have its own
+    column widths. Nothing else asserts FLOW_TYPE_WIDTH/FLOW_ARROW_WIDTH are
+    actually applied, so they -- or their order -- could be swapped or dropped
+    silently."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    ws = load_workbook(out)[FLOW_SHEET]
+    assert ws.column_dimensions["A"].width == FLOW_TYPE_WIDTH
+    assert ws.column_dimensions["C"].width == FLOW_TYPE_WIDTH
+    assert ws.column_dimensions["B"].width == FLOW_ARROW_WIDTH
+    assert ws.column_dimensions["D"].width == FLOW_ARROW_WIDTH
+
+
+def _order_df():
+    """Alphabetical order is DNA, PAT, PAV, TIS. Generation order is the
+    reverse of that for PAT/PAV and puts DNA last."""
+    return pd.DataFrame([
+        {"uuid": "TIS-1", "sample_type": "TIS", "Parent": "PAV-1"},
+        {"uuid": "DNA-1", "sample_type": "DNA", "Parent": "TIS-1"},
+        {"uuid": "PAT-1", "sample_type": "PAT", "Parent": ""},
+        {"uuid": "PAV-1", "sample_type": "PAV", "Parent": "PAT-1"},
+    ])
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_sample_tabs_follow_generation_order(_ctx, _fields, _assays, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_order_df(), str(out))
+    tabs = [n for n in load_workbook(out).sheetnames
+            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+    assert tabs == ["PAT", "PAV", "TIS", "DNA"]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_the_readme_summary_follows_the_same_order(_ctx, _fields, _assays, tmp_path):
+    """A workbook whose tabs and README disagree reads as a bug."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_order_df(), str(out))
+    ws = load_workbook(out)["README"]
+    codes = [ws.cell(row=r, column=1).value for r in range(4, 8)]
+    assert codes == ["PAT", "PAV", "TIS", "DNA"]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_a_type_with_no_lineage_sorts_last(_ctx, _fields, _assays, tmp_path):
+    """ABC has no hop at all. It cannot be placed in the pipeline, so it goes
+    after everything that can be."""
+    df = pd.DataFrame([
+        {"uuid": "TIS-1", "sample_type": "TIS", "Parent": "PAV-1"},
+        {"uuid": "PAV-1", "sample_type": "PAV", "Parent": ""},
+        {"uuid": "ABC-1", "sample_type": "ABC", "Parent": ""},
+    ])
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(df, str(out))
+    tabs = [n for n in load_workbook(out).sheetnames
+            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+    assert tabs == ["PAV", "TIS", "ABC"]
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_a_malformed_uid_does_not_cost_the_whole_download(_ctx, _fields, _assays, tmp_path):
+    """A UID carrying no [A-Z] run makes str.extract yield NaN, a float. It used
+    to reach derivation_edges' falsy guard -- which NaN passes -- seed an edge
+    keyed on a float, and blow up in sorted() as a 500 on the download. One
+    unparseable row must cost that row's tab, never the workbook."""
+    df = pd.DataFrame([
+        {"uuid": "123-456-7", "Name": "junk", "Parent": "MUS-3"},
+        {"uuid": "TIS-230101ABC-2", "Name": "t1", "Parent": "MUS-3"},
+    ])
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(df, str(out))          # must not raise
+    wb = load_workbook(out)
+    assert "README" in wb.sheetnames
+    assert "TIS" in wb.sheetnames
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_order_stays_alphabetical_without_any_lineage(_ctx, _fields, _assays, tmp_path):
+    """No graph and no usable Parent column: fall back to what it did before."""
+    df = pd.DataFrame([
+        {"uuid": "TIS-1", "sample_type": "TIS", "Name": "t"},
+        {"uuid": "DNA-1", "sample_type": "DNA", "Name": "d"},
+    ])
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(df, str(out))
+    tabs = [n for n in load_workbook(out).sheetnames
+            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+    assert tabs == ["DNA", "TIS"]
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_dropdowns_reach_past_the_filled_rows(_ctx, _fields, tmp_path):
+    """A researcher adding samples must keep the dropdown, not lose it at the
+    first empty row."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_cv_df(), str(out))
+    for rule in load_workbook(out)["MUS"].data_validations.dataValidation:
+        last = int(str(rule.sqref).split(":")[1].lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+        assert last == 2 + DROPDOWN_SPARE_ROWS  # one data row, plus the spare
+
+
+def test_a_dropdown_range_never_starts_below_its_end():
+    """A frame with no data rows must not produce A2:A1, which Excel rejects.
+    Called directly: write_samples_workbook always writes at least one row, so
+    the guard is unreachable through the public API."""
+    from openpyxl import Workbook
+
+    from nextseek_api.services.sample_workbook import _apply_dropdowns
+
+    ws = Workbook().active
+    _apply_dropdowns(ws, ["DataType"], {"DataType": "filetype"},
+                     {"filetype": "'Controlled Vocabularies'!$A$2:$A$9"}, 0)
+    rule, = ws.data_validations.dataValidation
+    start, end = (int(part.lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+                  for part in str(rule.sqref).split(":"))
+    assert start == 2
+    assert end == 2 + DROPDOWN_SPARE_ROWS
+
+
+def _vocabularies():
+    from nextseek_api.services.sample_workbook import _load_vocabularies
+    return _load_vocabularies()
+
+
+def test_every_governed_column_resolves_to_a_real_vocabulary():
+    field_map, vocabularies = _vocabularies()
+    assert field_map, "the file must load; a parse error costs every dropdown"
+    assert all(name in vocabularies for name in field_map.values())
+
+
+def test_the_house_layout_terms_are_the_ones_production_uses():
+    """Production holds Paired End 3511 times and bare 'paired' 52 times. The
+    dropdown used to offer only 'paired'."""
+    _, vocabularies = _vocabularies()
+    assert vocabularies["library_layout"] == ["Paired End", "Single End"]
+
+
+def test_imaging_formats_are_offered():
+    """GEO's filetype list has no term for any of these; production has
+    thousands of rows of them."""
+    _, vocabularies = _vocabularies()
+    for term in ("TIF", "OIB", "CZI", "DICOM", "LIF", "ND2"):
+        assert term in vocabularies["filetype"]
+
+
+def test_illumina_instruments_are_always_prefixed():
+    """GEO is inconsistent -- 'Illumina MiSeq' but bare 'NextSeq 500' -- and
+    production split on exactly that seam. Offering both forms is what caused
+    the split, so the bare ones are gone."""
+    _, vocabularies = _vocabularies()
+    models = vocabularies["instrument_model"]
+    for bare in ("NextSeq 500", "NextSeq 550", "NextSeq 1000", "NextSeq 2000"):
+        assert bare not in models
+        assert f"Illumina {bare}" in models
+
+
+def test_nextseek_only_instruments_are_present():
+    _, vocabularies = _vocabularies()
+    assert "Singular G4" in vocabularies["instrument_model"]
+    assert "PromethION P2 Solo" in vocabularies["instrument_model"]
+
+
+def test_no_vocabulary_offers_the_same_term_twice():
+    """A duplicate renders as two identical dropdown entries."""
+    _, vocabularies = _vocabularies()
+    for name, terms in vocabularies.items():
+        assert len(terms) == len(set(terms)), name
+
+
+def test_no_term_would_be_mangled_on_its_way_into_a_cell():
+    from nextseek_api.services.sample_workbook import _safe_cell_value
+    _, vocabularies = _vocabularies()
+    for terms in vocabularies.values():
+        for term in terms:
+            assert _safe_cell_value(term) == term
+
+
+def test_the_variants_block_documents_only_real_vocabularies():
+    """It is documentation, but documentation that drifts is worse than none."""
+    import json
+    from nextseek_api.services.sample_workbook import CV_PATH
+    doc = json.loads(CV_PATH.read_text())
+    documented = set(doc["variants"]) - {"_excluded"}
+    assert documented <= set(doc["vocabularies"])
+    assert set(doc["variants"]["_excluded"]) <= set(doc["vocabularies"])

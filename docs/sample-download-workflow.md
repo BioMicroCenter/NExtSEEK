@@ -114,34 +114,121 @@ control (a…g)
   └─ window.nsDownloadSamples(identifiers, {includeTree})   static/js/ns_sample_download.js:51
        └─ POST /nextseek_api/admin/samples/retrieve/
             {identifiers, output_format: "excel", include_tree}
-            └─ AdminSampleViewSet.admin_retrieve_samples    nextseek_api/views.py:566
-                 ├─ permission_classes = [IsAuthenticated]  nextseek_api/views.py:533
-                 ├─ SeekDB(None, *basic_tuple) → real projects   :617
-                 ├─ include_tree ? getChildrenUIDs (Neo4j)  :681
+            └─ AdminSampleViewSet.admin_retrieve_samples    nextseek_api/views.py:689
+                 ├─ permission_classes = [IsAuthenticated]  nextseek_api/views.py:656
+                 ├─ SeekDB(None, *basic_tuple) → real projects   :740
+                 ├─ include_tree ? getChildrenUIDs (Neo4j)  :807
                  │                : project-scoped MySQL query
-                 └─ write_samples_workbook(...)   nextseek_api/services/sample_workbook.py:157
-                      ├─ sheet 1: README   (build_readme_blocks :36, load_sample_type_context :63,
-                      │                     load_sample_field_context :90, _write_readme :131)
-                      └─ one sheet per sample type
+                 └─ dbs.sampleRetrievalData(df, path)   :945
+                      └─ write_samples_workbook(...)  nextseek_api/services/sample_workbook.py:430
+                           ├─ lineage first, because the sheet order comes from it
+                           │    (load_derivation_hops :217 → derivation_edges,
+                           │     sample_type_depths, build_provenance_rows —
+                           │     all in nextseek_api/services/sample_provenance.py)
+                           ├─ sheet 1: README      (build_readme_blocks :122,
+                           │                        load_sample_type_context :149,
+                           │                        load_sample_field_context :176,
+                           │                        _write_readme :320)
+                           ├─ sheet 2: How this data flowed   (_write_flow_sheet :367)
+                           │                                   — only if there is lineage
+                           ├─ sheet 3: Controlled Vocabularies (_write_vocabulary_sheet :96)
+                           │                                   — only if a column is governed
+                           └─ one sheet per sample type, in generation order
+                                (_annotate_header :387, _apply_dropdowns :404)
 ```
 
-`DBtable_sample.sampleRetrievalData` (`seek/dbtable_sample.py:941`) and
-`seek.views.sample_retrieval_data` (`seek/views.py:1233`) both delegate to
+**Line numbers above were re-verified against the current tree on 2026-08-21.**
+They move whenever this module does; treat a mismatch as the citation being
+stale, not the code being wrong.
+
+`DBtable_sample.sampleRetrievalData` (`seek/dbtable_sample.py:1038`) and
+`seek.views.sample_retrieval_data` (`seek/views.py:1252`) both delegate to
 `write_samples_workbook`, so the README cannot drift between call paths even
 though both legacy views still exist.
 
-### The README sheet
+### What the workbook contains
 
-This is the canonical description of the sheet; everything below refers back
-here rather than restating it.
+This is the canonical description; everything below refers back here rather than
+restating it.
 
-Sheet 1 of every downloaded workbook. A1 hyperlinks to the contextdb on GitHub,
-row 2 is blank, and the rest is one section per sample type, in the same order
-the sheets are written: a bold `CODE — Name` heading in column A, its
-description on the line beneath, then a `Column` / `Meaning` table indented into
-columns B and C listing every column of that tab. A sample type whose columns
-all dropped out gets its heading and description but no table header, since a
-`Column` / `Meaning` row with nothing under it reads as a rendering bug.
+A downloaded workbook has up to three preamble sheets and then one sheet per
+sample type:
+
+| # | Sheet | Written when |
+|---|---|---|
+| 1 | `README` | always |
+| 2 | `How this data flowed` | there is any lineage to draw |
+| 3 | `Controlled Vocabularies` | any written column is governed by a vocabulary |
+| 4… | one per sample type | always |
+
+**Sample-type tabs are in generation order, not alphabetical order.** Each type
+is placed at its longest distance from a type with no parent
+(`sample_type_depths`), so a reader meets the types in the order the samples
+were made — `PAT`, `PAV`, `TIS`, `DNA`, not `DNA`, `PAT`, `PAV`, `TIS`. A type
+with no hop at all cannot be placed in the pipeline and sorts after everything
+that can be; with no lineage available at all, every depth is infinite and the
+order falls back to alphabetical, which is what it was before. The README's
+summary table uses the same order, because a workbook whose tabs and README
+disagree reads as a bug.
+
+#### The README sheet
+
+Sheet 1 of every downloaded workbook, in this order:
+
+1. **A1** — a hyperlink to the contextdb on GitHub. Row 2 is blank.
+2. **A summary table**, from row 3: a bold `Sample Type` / `Name` /
+   `Description` header, then one row per sample type. This comes first so a
+   reader sees what the workbook contains before meeting any column detail.
+3. **A pointer to the flow sheet** — `How this data flowed: see the 'How this
+   data flowed' sheet.`, bold, written *only* when that sheet exists. A reader
+   who never opens the tab must still learn it is there; a pointer to a sheet
+   that was not written would be worse than none.
+4. **One section per sample type**, in the same order the sheets are written: a
+   bold `CODE — Name` heading in column A, then a `Column` / `Meaning` table
+   indented into columns B and C listing every column of that tab. A sample type
+   whose columns all dropped out gets its heading but no table header, since a
+   `Column` / `Meaning` row with nothing under it reads as a rendering bug.
+
+Note that the per-type description lives in the summary table, not under the
+section heading — the heading is followed directly by a blank line and then the
+column table.
+
+#### The flow sheet
+
+`How this data flowed` renders the derivation graph as one chain per row,
+alternating type and arrow cells (`PAT`, `--[Consent]-->`, `PAV`, …), so a flow
+reads left to right. Hops come from Neo4j's `DERIVED_FROM` relationship, where
+the assay is recorded on the edge itself; when the graph is unreachable they are
+recovered from each row's own `Parent` UIDs and labelled from the weaker
+per-sample assay link, or left as a bare `------>`. Upstream types are drawn
+even when they were not downloaded — that is the part a reader cannot otherwise
+see. It is a separate sheet rather than a README section precisely so it can
+carry its own alternating column widths; the README's 46/34/100 layout would put
+a 100-wide gap at every second type of a chain. No lineage, no sheet.
+
+#### Controlled vocabularies and dropdowns
+
+`Controlled Vocabularies` parks each needed vocabulary in its own column, and
+every governed column on a sample-type tab gets an Excel dropdown pointing at
+it. The terms need a real sheet because Excel caps an inline dropdown formula at
+255 characters. Which columns are governed, and by what, is data:
+`nextseek_api/services/controlled_vocabularies.json`, whose `variants` block
+also records which observed spellings each canonical term absorbs and the
+production row count that judgement rested on.
+
+**The dropdowns warn; they never reject.** `errorStyle` is `"warning"`, not
+`"stop"`, because downloaded data already contains values that predate these
+vocabularies (`RNA-seq` for `RNA-Seq`, `Paired End` for `paired`) and a hard
+reject would fire on open for rows the researcher never touched. Each range also
+runs 500 rows past the last filled row, so a researcher adding samples keeps the
+dropdown instead of losing it at the first empty row.
+
+Separately from the dropdowns, every column whose meaning is known also carries
+that definition as a **hover note on its header cell** — a researcher filling
+the sheet in reads the header, not the README. Columns with no definition get no
+note rather than an empty one.
+
+#### Where the text comes from
 
 Sample type names and descriptions come from `dmac.sample_types_context` via the
 `Sample_types_context` model (`seek/models.py`); per-column meanings come from
@@ -167,9 +254,18 @@ Definitions are written only for columns whose meaning is not self-evident; a
 column judged obvious has no row and renders blank, and "obvious" and
 "undocumented" are deliberately not distinguished in the workbook.
 
-The sheet fails soft in both directions. If either context table is missing or
-unreachable the lookup logs and returns empty — the README goes unpopulated but
-the download still works. And every string written to a cell is stripped of
+Every lookup here fails soft, and that is the rule the whole module is written
+to: a lost lookup costs its section, never the download. If either context table
+is missing or unreachable the lookup logs and returns empty — the README goes
+unpopulated but the download still works. Neo4j is bounded at five seconds and
+falls back to the `Parent` column, which costs the assay labels and not the
+lineage; losing the lineage entirely costs the flow sheet and returns the tabs
+to alphabetical order. An unreadable `controlled_vocabularies.json` costs the
+dropdowns. A UID carrying no sample-type code costs that row its tab — it must
+not cost the workbook, which is what the `isinstance` guard in
+`derivation_edges` is for.
+
+And every string written to a cell is stripped of
 control characters and truncated to Excel's 32,767-character cell limit
 (`_safe_cell_value`), because a `\x0b` — what a line break pasted from Word or a
 PDF becomes — otherwise raises `IllegalCharacterError` out of the writer and one
@@ -210,12 +306,14 @@ rather than shipping a broken button.
 
 ## Deliberately left alone
 
-- **`is_superuser or is_staff`** (`nextseek_api/views.py:638`). Staff still see
-  every sample rather than only their projects. The prerequisite the old comment
-  named — real project resolution — is now satisfied, so dropping `is_staff` is a
-  safe one-line change on its own terms, but it narrows what 11 of 20 local
-  accounts can read and would affect the assistant and container-CC consumers,
-  which currently rely on unfiltered reads. Assess that first.
+- ~~**`is_superuser or is_staff`**~~ — **no longer left alone.** Fixed since, in
+  `ca1c9d9b` (issue #74). `dmac/views.py:80,97` set `is_staff = 1` on every SEEK
+  user at login, so `or is_staff` made project scope a no-op for everyone and
+  handed every authenticated account the unfiltered branch of `getChildrenUIDs`.
+  The predicate is now `is_superuser` alone (`nextseek_api/views.py:747-754`),
+  matching the legacy path it mirrors (`seek/views.py:1249`, `verifySuperUser`).
+  Kept here rather than deleted: this section records what was knowingly
+  deferred, and this entry is the reason it stopped being deferred.
 - **`sampleDownload`, `adminRetrieveSamples`, the zip-of-xls path.** Unreachable
   from the UI, kept for external callers.
 - **The dead advanced-tab include-tree prompt.** Not revived; that is a UX change,
