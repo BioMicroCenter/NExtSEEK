@@ -178,7 +178,7 @@ def test_seek_views_sample_retrieval_data_delegates_to_the_shared_writer():
     from seek import views
 
     df = pd.DataFrame([{"uuid": "MUS-1", "json_metadata": '{"Name": "m1"}'}])
-    with patch("seek.views.write_samples_workbook") as mock_write:
+    with patch("seek.views.admin.write_samples_workbook") as mock_write:
         views.sample_retrieval_data(df, "/tmp/unused.xlsx")
     mock_write.assert_called_once()
     assert mock_write.call_args[0][1] == "/tmp/unused.xlsx"
