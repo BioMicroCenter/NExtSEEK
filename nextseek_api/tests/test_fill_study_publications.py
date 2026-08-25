@@ -129,3 +129,17 @@ class TestNcbiParsing:
     def test_esummary_non_numeric_pmid_is_dropped(self):
         payload = {"result": {"1": {"articleids": [{"idtype": "pmid", "value": "n/a"}]}}}
         assert cmd.parse_esummary_ids(payload, "1")["pmid"] is None
+
+
+class TestApplyNormalizesDois:
+    """Curators paste DOI URLs, not bare DOIs — the column must hold one shape."""
+
+    def test_doi_org_url_is_normalized(self):
+        assert cmd.curator_doi("https://doi.org/10.1016/j.mucimm.2025.10.011") == \
+            "10.1016/j.mucimm.2025.10.011"
+
+    def test_uppercase_url_is_lowercased(self):
+        assert cmd.curator_doi("https://doi.org/10.1084/JEM.20241760") == "10.1084/jem.20241760"
+
+    def test_supplementary_sub_doi_is_refused(self):
+        assert cmd.curator_doi("10.1021/acssensors.4c00927.s002") is None

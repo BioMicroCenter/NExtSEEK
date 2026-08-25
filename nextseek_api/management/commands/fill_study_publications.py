@@ -110,6 +110,20 @@ def ids_for_pmc(pmc_id: str) -> dict:
         return {}
 
 
+def curator_doi(text: str) -> str | None:
+    """The DOI in a hand-entered value, or None.
+
+    Curators paste whatever the publisher shows them — usually a
+    https://doi.org/... URL rather than a bare DOI — so this runs the same
+    extractor used on descriptions. That also means hand-entered values inherit
+    the rules that reject truncated prefixes and supplementary sub-DOIs.
+    """
+    for candidate in extract_publication_candidates(text):
+        if candidate.kind == "doi":
+            return candidate.value
+    return None
+
+
 def title_similarity(a: str | None, b: str | None) -> float:
     """0.0-1.0 similarity between a study title and a resolved paper title."""
     if not a or not b:
@@ -293,9 +307,19 @@ class Command(BaseCommand):
             self.stdout.write(f"added columns to studies: {added}")
 
         for row in approved:
-            doi = (row.get("normalized_doi") or "").strip().lower()
-            if not doi:
+            raw = (row.get("normalized_doi") or "").strip()
+            if not raw:
                 raise CommandError(f"study {row['study_id']}: approved row has no DOI")
+            # Curators paste whatever the publisher shows them — usually a
+            # https://doi.org/... URL. Normalize to a bare DOI so the column holds
+            # one shape, and so the same rules that reject supplementary sub-DOIs
+            # apply to hand-entered values too.
+            doi = curator_doi(raw)
+            if doi is None:
+                raise CommandError(
+                    f"study {row['study_id']}: {raw!r} is not a usable DOI "
+                    "(truncated, or a supplementary-file sub-DOI)"
+                )
             _write_study(int(row["study_id"]), doi, row.get("pmid"))
 
         synced = try_sync_study_publications()
