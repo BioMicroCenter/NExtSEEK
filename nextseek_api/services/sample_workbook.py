@@ -32,7 +32,7 @@ from seek.models import (
 
 from nextseek_api.services.sample_provenance import (
     SAMPLE_TYPE_RE,
-    build_provenance_rows,
+    build_provenance_tree,
     derivation_edges,
     sample_type_depths,
 )
@@ -52,10 +52,9 @@ COLUMN_TABLE_HEADER = ["Column", "Meaning"]
 SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
 FLOW_SHEET = "How this data flowed"
 FLOW_README_POINTER = f"How this data flowed: see the '{FLOW_SHEET}' sheet."
-# Sample-type codes are short; assay titles are not. Alternating widths keep a
-# chain readable without a 100-wide gap at every second type.
-FLOW_TYPE_WIDTH = 14
-FLOW_ARROW_WIDTH = 34
+# The tree's box-drawing characters only line up in a fixed-width font.
+FLOW_FONT = "Consolas"
+FLOW_MAX_WIDTH = 160
 # A download must not wait on the graph. Provenance is worth a moment, never a
 # stalled request.
 NEO4J_TIMEOUT_SECONDS = 5
@@ -364,24 +363,22 @@ def _write_readme(book, blocks: list[dict], *, has_flow_sheet: bool) -> None:
     ws.column_dimensions["C"].width = 100
 
 
-def _write_flow_sheet(book, rows: list[list[str]]) -> None:
-    """One chain per row, alternating type and arrow cells.
+def _write_flow_sheet(book, lines: list[str]) -> None:
+    """One indented tree line per row, in a single fixed-width column.
 
-    Its own sheet rather than a README section: README's columns are sized 46 /
-    34 / 100 for the summary and column tables, which puts a 100-wide gap at
-    every second type of a chain.
+    Its own sheet rather than a README section: README's columns are sized
+    46 / 34 / 100 for the summary and column tables, which would chop the tree.
+
+    The font is set per cell rather than on the column because openpyxl column
+    styles do not apply to cells that already carry a value.
     """
-    if not rows:
+    if not lines:
         return
     ws = book.create_sheet(FLOW_SHEET, 1)
-    for index, row in enumerate(rows, start=1):
-        for column, value in enumerate(row, start=1):
-            _write_cell(ws, index, column, value, bold=(column % 2 == 1))
-    widest = max(len(row) for row in rows)
-    for column in range(1, widest + 1):
-        ws.column_dimensions[get_column_letter(column)].width = (
-            FLOW_TYPE_WIDTH if column % 2 else FLOW_ARROW_WIDTH
-        )
+    for index, line in enumerate(lines, start=1):
+        _write_cell(ws, index, 1, line).font = Font(name=FLOW_FONT)
+    ws.column_dimensions["A"].width = min(
+        max(len(line) for line in lines) + 2, FLOW_MAX_WIDTH)
 
 
 def _annotate_header(ws, code: str, columns: list[str], meaning_by_pair) -> None:
@@ -448,7 +445,7 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
     hops = load_derivation_hops(uuids)
     edges = derivation_edges(df, {} if hops else load_assay_titles(uuids), hops)
     depths = sample_type_depths(edges)
-    flow_rows = build_provenance_rows(edges, depths)
+    flow_lines = build_provenance_tree(edges)
 
     prepared = []
     for sample_type, sample_type_df in df.groupby("sample_type"):
@@ -474,8 +471,8 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
         # pandas removes openpyxl's default sheet, but guard in case that changes.
         if "Sheet" in book.sheetnames:
             del book["Sheet"]
-        _write_readme(book, blocks, has_flow_sheet=bool(flow_rows))
-        _write_flow_sheet(book, flow_rows)
+        _write_readme(book, blocks, has_flow_sheet=bool(flow_lines))
+        _write_flow_sheet(book, flow_lines)
 
         field_map, vocabularies = _load_vocabularies()
         needed = sorted({

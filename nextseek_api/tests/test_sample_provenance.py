@@ -136,78 +136,6 @@ def test_depth_omits_types_that_appear_in_no_edge():
     assert sample_type_depths(edges).get("MUS", math.inf) == math.inf
 
 
-from nextseek_api.services.sample_provenance import build_provenance_rows
-
-
-def _rows(edges):
-    return build_provenance_rows(edges, sample_type_depths(edges))
-
-
-def test_a_chain_reads_left_to_right_across_the_row():
-    edges = {("PAT", "PAV"): {"Consent"}, ("PAV", "TIS"): {"Tissue Collection"}}
-    assert _rows(edges) == [
-        ["PAT", "--[Consent]-->", "PAV", "--[Tissue Collection]-->", "TIS"],
-    ]
-
-
-def test_a_hop_without_an_assay_gets_a_plain_arrow():
-    assert _rows({("DNA", "D.SEQ"): set()}) == [["DNA", "------>", "D.SEQ"]]
-
-
-def test_several_assays_on_one_hop_join_sorted():
-    edges = {("TIS", "D.IMG"): {"Imaging", "Histology"}}
-    assert _rows(edges)[0][1] == "--[Histology, Imaging]-->"
-
-
-def test_every_hop_appears_exactly_once():
-    """The whole point of a cover: no hop repeated, none dropped."""
-    edges = {("PAT", "PAV"): set(), ("PAV", "TIS"): set(), ("TIS", "DNA"): set(),
-             ("TIS", "D.IMG"): set(), ("DNA", "D.SEQ"): set()}
-    seen = []
-    for row in _rows(edges):
-        types = row[::2]
-        seen += list(zip(types, types[1:]))
-    assert sorted(seen) == sorted(edges)
-
-
-def test_chains_sort_by_the_depth_of_their_first_type():
-    """Earliest-generated flows come first -- that is the ordering asked for."""
-    edges = {("PAT", "PAV"): set(), ("PAV", "TIS"): set(), ("TIS", "D.IMG"): set(),
-             ("D.IMG", "A.MIGR"): set(), ("TIS", "D.TITR"): set()}
-    first_types = [row[0] for row in _rows(edges)]
-    depths = sample_type_depths(edges)
-    assert first_types == sorted(first_types, key=lambda t: (depths[t], t))
-    assert first_types[0] == "PAT"
-
-
-def test_a_chain_may_start_mid_pipeline():
-    """A hop whose upstream was already shown starts its own chain rather than
-    re-treading the prefix."""
-    edges = {("PAT", "PAV"): set(), ("PAV", "TIS"): set(),
-             ("TIS", "DNA"): set(), ("TIS", "D.IMG"): set()}
-    rows = _rows(edges)
-    assert len(rows) == 2
-    assert rows[0][0] == "PAT"
-    assert rows[1][0] == "TIS"
-
-
-def test_a_cycle_terminates_and_visits_each_type_once_per_chain():
-    edges = {("TIS", "CEL"): set(), ("CEL", "D.FLOW"): set(), ("D.FLOW", "CEL"): set()}
-    rows = _rows(edges)
-    for row in rows:
-        types = row[::2]
-        assert len(types) == len(set(types))
-    seen = []
-    for row in rows:
-        types = row[::2]
-        seen += list(zip(types, types[1:]))
-    assert sorted(seen) == sorted(edges)
-
-
-def test_no_edges_yields_no_rows():
-    assert build_provenance_rows({}, {}) == []
-
-
 import re
 
 from nextseek_api.services.sample_provenance import build_provenance_tree
@@ -238,9 +166,6 @@ def test_a_hop_without_an_assay_gets_no_bracket():
 
 
 def test_several_assays_on_one_hop_join_sorted_in_brackets():
-    # NOT `test_several_assays_on_one_hop_join_sorted` -- that name is already
-    # taken at line 157 by a build_provenance_rows test that Task 2 deletes.
-    # Reusing it here would silently shadow that test until then.
     lines = _tree({("TIS", "D.IMG"): {"Imaging", "Histology"}})
     assert lines[1] == "└── D.IMG   [Histology, Imaging]"
 

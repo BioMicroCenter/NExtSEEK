@@ -12,10 +12,9 @@ from nextseek_api.services.sample_workbook import (
     DROPDOWN_SPARE_ROWS,
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
-    FLOW_ARROW_WIDTH,
+    FLOW_MAX_WIDTH,
     FLOW_README_POINTER,
     FLOW_SHEET,
-    FLOW_TYPE_WIDTH,
     SUMMARY_HEADER,
     build_readme_blocks,
     load_assay_titles,
@@ -559,11 +558,6 @@ def _flow_df():
     ])
 
 
-def _flow_rows(ws):
-    return [[c.value for c in row if c.value is not None] for row in ws.iter_rows()
-            if any(c.value is not None for c in row)]
-
-
 @patch(f"{_MOD}.load_assay_titles", return_value={})
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
@@ -575,13 +569,14 @@ def test_the_flow_sheet_sits_directly_after_the_readme(_ctx, _fields, _assays, t
 
 @patch(f"{_MOD}.load_assay_titles", return_value={})
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
-@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_a_chain_occupies_one_row_across_columns(_ctx, _fields, _assays, tmp_path):
-    """The whole reason for a separate sheet: one flow reads left to right."""
+@patch(f"{_MOD}.load_sample_type_context", return_value={})
+def test_the_tree_puts_a_root_above_its_indented_child(_ctx, _fields, _assays, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_flow_df(), str(out))
-    rows = _flow_rows(load_workbook(out)[FLOW_SHEET])
-    assert ["PAT", "------>", "PAV", "------>", "TIS"] in rows
+    ws = load_workbook(out)[FLOW_SHEET]
+    column_a = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+    assert "PAT" in column_a
+    assert any(str(v).startswith(("├── ", "└── ")) for v in column_a if v)
 
 
 @patch(f"{_MOD}.load_assay_titles", return_value={})
@@ -616,18 +611,16 @@ def test_the_readme_points_at_the_flow_sheet(_ctx, _fields, _assays, tmp_path):
 @patch(f"{_MOD}.load_assay_titles", return_value={})
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value={})
-def test_the_flow_sheet_uses_its_own_alternating_widths(_ctx, _fields, _assays, tmp_path):
-    """The whole justification for a separate sheet is that it can have its own
-    column widths. Nothing else asserts FLOW_TYPE_WIDTH/FLOW_ARROW_WIDTH are
-    actually applied, so they -- or their order -- could be swapped or dropped
-    silently."""
+def test_the_flow_sheet_sizes_its_one_column_to_the_widest_line(_ctx, _fields, _assays, tmp_path):
+    """The justification for a separate sheet is that it can size its own
+    column. Nothing else asserts the width is applied, so it could be dropped
+    silently and the tree would render clipped."""
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_flow_df(), str(out))
     ws = load_workbook(out)[FLOW_SHEET]
-    assert ws.column_dimensions["A"].width == FLOW_TYPE_WIDTH
-    assert ws.column_dimensions["C"].width == FLOW_TYPE_WIDTH
-    assert ws.column_dimensions["B"].width == FLOW_ARROW_WIDTH
-    assert ws.column_dimensions["D"].width == FLOW_ARROW_WIDTH
+    widest = max(len(str(ws.cell(row=r, column=1).value or ""))
+                 for r in range(1, ws.max_row + 1))
+    assert ws.column_dimensions["A"].width == min(widest + 2, FLOW_MAX_WIDTH)
 
 
 def _order_df():
@@ -813,3 +806,25 @@ def test_the_variants_block_documents_only_real_vocabularies():
     documented = set(doc["variants"]) - {"_excluded"}
     assert documented <= set(doc["vocabularies"])
     assert set(doc["variants"]["_excluded"]) <= set(doc["vocabularies"])
+
+
+def test_the_flow_sheet_writes_one_monospace_column():
+    from openpyxl import Workbook
+    from nextseek_api.services.sample_workbook import _write_flow_sheet, FLOW_SHEET
+
+    book = Workbook()
+    _write_flow_sheet(book, ["PAT", "└── PAV   [Consent]"])
+    ws = book[FLOW_SHEET]
+    assert ws["A1"].value == "PAT"
+    assert ws["A2"].value == "└── PAV   [Consent]"
+    assert ws["B1"].value is None
+    assert ws["A1"].font.name == "Consolas"
+
+
+def test_the_flow_sheet_is_skipped_when_there_is_no_lineage():
+    from openpyxl import Workbook
+    from nextseek_api.services.sample_workbook import _write_flow_sheet, FLOW_SHEET
+
+    book = Workbook()
+    _write_flow_sheet(book, [])
+    assert FLOW_SHEET not in book.sheetnames
