@@ -169,3 +169,68 @@ def build_provenance_rows(edges: Mapping[tuple[str, str], set[str]],
             row.append(child)
         rows.append(row)
     return rows
+
+
+def build_provenance_tree(edges: Mapping[tuple[str, str], set[str]]) -> list[str]:
+    """One indented line per node, as an ASCII tree rooted at each origin type.
+
+    Replaces the flat-chain cover. That cover spent every hop on exactly one
+    row, so a chain arriving at a type whose onward hop was already used simply
+    stopped -- fifteen rows began bare at TIS with no way to see where TIS came
+    from. Re-treading a shared prefix is how a person reads lineage.
+
+    Two guards stop the walk and they are not interchangeable:
+
+    `(cycle)` fires when a type is already on the CURRENT path. The production
+    graph really does contain CEL <-> D.FLOW, TIS <-> BAC, TIS <-> D.BSRA,
+    CEL <-> OOC and A.IMG <-> MDL; without this the walk does not terminate.
+
+    `(expanded above)` fires when a type's subtree was already drawn ANYWHERE.
+    The graph is a DAG, not a tree -- TIS has six parents and D.IMG has
+    seventeen -- so expanding every occurrence yields 3,763 lines against the
+    150-hop production graph, nearly all of it the same subtrees repeated. With
+    the guard it is 178. A type with no children is drawn in full instead: the
+    marker would be noise where there is nothing to expand.
+
+    Roots and siblings sort by name, so the tree is stable across runs. It takes
+    no `depths` argument: every root is depth 0 by definition, so depth-sorting
+    them would be a no-op. The caller still computes depths -- the sheet ORDER
+    uses them -- but this function does not.
+    """
+    children: dict[str, list[tuple[str, list[str]]]] = {}
+    have_parent: set[str] = set()
+    for (parent, child), assays in edges.items():
+        children.setdefault(parent, []).append(
+            (child, sorted(assay for assay in assays if assay)))
+        children.setdefault(child, [])
+        have_parent.add(child)
+
+    lines: list[str] = []
+    expanded: set[str] = set()
+
+    def walk(node: str, assays: list[str], path: frozenset,
+             prefix: str, connector: str) -> None:
+        if node in path:
+            lines.append(f"{prefix}{connector}{node}   (cycle)")
+            return
+        if node in expanded and children.get(node):
+            lines.append(f"{prefix}{connector}{node}   (expanded above)")
+            return
+        expanded.add(node)
+        label = f"{node}   [{', '.join(assays)}]" if assays else node
+        lines.append(f"{prefix}{connector}{label}")
+
+        kids = sorted(children.get(node, []))
+        for index, (child, child_assays) in enumerate(kids):
+            last = index == len(kids) - 1
+            # The root's own line carries no connector, so its children hang
+            # directly off column zero rather than being pushed right by it.
+            extension = "" if not connector else ("    " if connector.startswith("└") else "│   ")
+            walk(child, child_assays, path | {node},
+                 prefix + extension, "└── " if last else "├── ")
+
+    for index, root in enumerate(sorted(n for n in children if n not in have_parent)):
+        if index:
+            lines.append("")
+        walk(root, [], frozenset(), "", "")
+    return lines

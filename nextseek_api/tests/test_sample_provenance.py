@@ -206,3 +206,97 @@ def test_a_cycle_terminates_and_visits_each_type_once_per_chain():
 
 def test_no_edges_yields_no_rows():
     assert build_provenance_rows({}, {}) == []
+
+
+import re
+
+from nextseek_api.services.sample_provenance import build_provenance_tree
+
+
+def _tree(edges):
+    return build_provenance_tree(edges)
+
+
+def _type_of(line):
+    """The sample type on a tree line, stripped of indent, connector and assays."""
+    text = re.sub(r"^[│ ]*(?:├── |└── )?", "", line)
+    return text.split("   ")[0].strip()
+
+
+def test_a_root_is_unindented_and_its_child_is_indented():
+    lines = _tree({("PAT", "PAV"): set()})
+    assert lines == ["PAT", "└── PAV"]
+
+
+def test_assays_render_in_brackets_after_the_type():
+    lines = _tree({("PAT", "PAV"): {"Consent"}})
+    assert lines[1] == "└── PAV   [Consent]"
+
+
+def test_a_hop_without_an_assay_gets_no_bracket():
+    assert _tree({("DNA", "D.SEQ"): set()})[1] == "└── D.SEQ"
+
+
+def test_several_assays_on_one_hop_join_sorted_in_brackets():
+    # NOT `test_several_assays_on_one_hop_join_sorted` -- that name is already
+    # taken at line 157 by a build_provenance_rows test that Task 2 deletes.
+    # Reusing it here would silently shadow that test until then.
+    lines = _tree({("TIS", "D.IMG"): {"Imaging", "Histology"}})
+    assert lines[1] == "└── D.IMG   [Histology, Imaging]"
+
+
+def test_a_non_final_child_uses_the_tee_connector():
+    edges = {("TIS", "DNA"): set(), ("TIS", "RNA"): set()}
+    assert _tree(edges) == ["TIS", "├── DNA", "└── RNA"]
+
+
+def test_a_grandchild_of_a_tee_keeps_the_trunk():
+    """The │ must continue past a child that has siblings below it."""
+    edges = {("TIS", "DNA"): set(), ("DNA", "D.SEQ"): set(), ("TIS", "RNA"): set()}
+    assert _tree(edges) == ["TIS", "├── DNA", "│   └── D.SEQ", "└── RNA"]
+
+
+def test_a_type_with_two_parents_is_expanded_once():
+    """The DAG is not a tree: expanding every occurrence explodes the sheet."""
+    edges = {("A", "X"): set(), ("B", "X"): set(), ("X", "Y"): set()}
+    lines = _tree(edges)
+    assert sum(1 for line in lines if _type_of(line) == "Y") == 1
+    assert [line for line in lines if line.endswith("(expanded above)")]
+
+
+def test_a_childless_repeat_is_shown_in_full_not_deferred():
+    """(expanded above) would be noise on a leaf -- there is nothing to expand."""
+    edges = {("A", "X"): set(), ("B", "X"): set()}
+    assert not [line for line in _tree(edges) if line.endswith("(expanded above)")]
+
+
+def test_a_cycle_terminates_and_is_marked():
+    edges = {("TIS", "CEL"): set(), ("CEL", "D.FLOW"): set(), ("D.FLOW", "CEL"): set()}
+    lines = _tree(edges)
+    assert [line for line in lines if line.endswith("(cycle)")]
+
+
+def test_every_type_in_every_hop_appears_somewhere():
+    """Nothing may be silently dropped -- that would be a correctness bug."""
+    edges = {("PAT", "PAV"): set(), ("PAV", "TIS"): set(), ("TIS", "DNA"): set(),
+             ("TIS", "D.IMG"): set(), ("DNA", "D.SEQ"): set()}
+    shown = {_type_of(line) for line in _tree(edges)}
+    for parent, child in edges:
+        assert parent in shown and child in shown
+
+
+def test_roots_appear_unindented_in_sorted_order():
+    edges = {("PAT", "PAV"): set(), ("MUS", "TIS"): set()}
+    lines = _tree(edges)
+    assert [line for line in lines if line and not line.startswith((" ", "│", "├", "└"))] == [
+        "MUS", "PAT",
+    ]
+
+
+def test_root_trees_are_separated_by_a_blank_line():
+    edges = {("PAT", "PAV"): set(), ("MUS", "TIS"): set()}
+    assert _tree(edges) == ["MUS", "└── TIS", "", "PAT", "└── PAV"]
+
+
+def test_no_edges_yields_no_lines():
+    assert build_provenance_tree({}) == []
