@@ -182,23 +182,88 @@ def test_a_grandchild_of_a_tee_keeps_the_trunk():
 
 
 def test_a_type_with_two_parents_is_expanded_once():
-    """The DAG is not a tree: expanding every occurrence explodes the sheet."""
+    """The DAG is not a tree: expanding every occurrence explodes the sheet.
+
+    Exact lines, not just presence -- a mutant that renders the deferred
+    node's marker at column 0 (`f"{node}   (expanded above)"`, dropping
+    `prefix` and `connector`) leaves the weaker presence checks green while
+    making the deferred node read as an extra root."""
     edges = {("A", "X"): set(), ("B", "X"): set(), ("X", "Y"): set()}
     lines = _tree(edges)
-    assert sum(1 for line in lines if _type_of(line) == "Y") == 1
-    assert [line for line in lines if line.endswith("(expanded above)")]
+    assert lines == [
+        "A",
+        "└── X",
+        "    └── Y",
+        "",
+        "B",
+        "└── X   (expanded above)",
+    ]
 
 
 def test_a_childless_repeat_is_shown_in_full_not_deferred():
-    """(expanded above) would be noise on a leaf -- there is nothing to expand."""
+    """(expanded above) would be noise on a leaf -- there is nothing to expand.
+
+    Exact lines, not just the absence of a marker -- a mutant that guards
+    the childless case as `if node in expanded: return` (emitting nothing at
+    all for the repeat) still passes an absence-only check while silently
+    dropping the whole B -> X hop."""
     edges = {("A", "X"): set(), ("B", "X"): set()}
-    assert not [line for line in _tree(edges) if line.endswith("(expanded above)")]
+    assert _tree(edges) == ["A", "└── X", "", "B", "└── X"]
+
+
+def test_the_line_count_equals_walk_starts_plus_edges_for_an_acyclic_graph():
+    """Every root walk and every edge contributes exactly one line. A mutant
+    that silently drops a repeated-but-childless hop (finding 2's mutant)
+    breaks this arithmetic even on graphs where no single exact-line
+    assertion happens to cover the dropped hop."""
+    edges = {
+        ("PAT", "PAV"): {"Consent"}, ("PAV", "TIS"): set(),
+        ("TIS", "DNA"): set(), ("TIS", "D.IMG"): set(),
+        ("DNA", "D.SEQ"): set(), ("MUS", "TIS"): set(),
+        ("A", "X"): set(), ("B", "X"): set(),
+    }
+    nodes = {n for pair in edges for n in pair}
+    children_of = {child for _, child in edges}
+    walk_starts = nodes - children_of
+    lines = _tree(edges)
+    non_blank = [line for line in lines if line]
+    assert len(non_blank) == len(walk_starts) + len(edges)
 
 
 def test_a_cycle_terminates_and_is_marked():
     edges = {("TIS", "CEL"): set(), ("CEL", "D.FLOW"): set(), ("D.FLOW", "CEL"): set()}
     lines = _tree(edges)
     assert [line for line in lines if line.endswith("(cycle)")]
+
+
+def test_a_cycle_line_carries_the_assays_of_the_hop_that_reached_it():
+    """The guard line used to emit the bare node name, discarding the assays
+    recorded on the very hop it marks -- a reader following the marker would
+    see no bracket at all, or (worse, on other graphs) a different hop's."""
+    edges = {("TIS", "CEL"): set(), ("CEL", "D.FLOW"): {"Flow"},
+             ("D.FLOW", "CEL"): {"Cytometry"}}
+    lines = _tree(edges)
+    assert lines == [
+        "TIS",
+        "└── CEL",
+        "    └── D.FLOW   [Flow]",
+        "        └── CEL   [Cytometry]   (cycle)",
+    ]
+
+
+def test_an_expanded_above_line_carries_the_assays_of_the_hop_that_reached_it():
+    """Same bug, the other guard: the deferred occurrence is reached by its
+    own hop (B -> X here) with its own assay, not the first occurrence's."""
+    edges = {("A", "X"): {"a1"}, ("B", "X"): {"b1"}, ("X", "Y"): set()}
+    lines = _tree(edges)
+    assert lines == [
+        "A",
+        "└── X   [a1]",
+        "    └── Y",
+        "",
+        "B",
+        "└── X   [b1]   (expanded above)",
+    ]
 
 
 def test_every_type_in_every_hop_appears_somewhere():

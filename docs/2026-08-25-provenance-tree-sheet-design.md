@@ -136,9 +136,12 @@ Excel substitutes a proportional font: the tree is still readable, merely ragged
 ### 4. What replaces what
 
 `build_provenance_rows(edges, depths) -> list[list[str]]` is replaced by
-`build_provenance_tree(edges, depths) -> list[str]`, returning one string per
-line. The caller in `sample_workbook.py` writes one cell per line rather than
-one row of alternating cells, and applies the font.
+`build_provenance_tree(edges) -> list[str]`, returning one string per line. It
+takes no `depths` argument: every root is depth 0 by definition, so
+depth-sorting them would be a no-op. The caller in `sample_workbook.py` still
+computes `depths` for the sheet order, but the tree builder itself does not
+take it. The caller writes one cell per line rather than one row of
+alternating cells, and applies the font.
 
 ## Measurements
 
@@ -166,9 +169,15 @@ All from project 1 on the local instance, 51,359 samples:
 
 New tests:
 
-- every hop appears somewhere in the tree
+- for an acyclic graph, the number of non-blank lines equals the number of
+  walk starts plus the number of edges -- stronger than "every hop appears
+  somewhere," which a mutant that silently drops a repeated-but-childless
+  hop can still satisfy by leaving the hop's *type* reachable via another
+  edge while the hop itself never renders a line
 - a type with two parents is expanded once and referenced once
-- a two-cycle renders `(cycle)` and terminates
+- a two-cycle renders `(cycle)` and terminates, and the `(cycle)` /
+  `(expanded above)` marker lines carry the assays of the hop that reached
+  them, not the first occurrence's
 - roots appear at zero indentation, in sorted order
 - an empty edge set yields no lines
 

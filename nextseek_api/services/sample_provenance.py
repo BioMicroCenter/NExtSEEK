@@ -150,14 +150,14 @@ def build_provenance_tree(edges: Mapping[tuple[str, str], set[str]]) -> list[str
 
     def walk(node: str, assays: list[str], path: frozenset,
              prefix: str, connector: str) -> None:
+        label = f"{node}   [{', '.join(assays)}]" if assays else node
         if node in path:
-            lines.append(f"{prefix}{connector}{node}   (cycle)")
+            lines.append(f"{prefix}{connector}{label}   (cycle)")
             return
         if node in expanded and children.get(node):
-            lines.append(f"{prefix}{connector}{node}   (expanded above)")
+            lines.append(f"{prefix}{connector}{label}   (expanded above)")
             return
         expanded.add(node)
-        label = f"{node}   [{', '.join(assays)}]" if assays else node
         lines.append(f"{prefix}{connector}{label}")
 
         kids = sorted(children.get(node, []))
