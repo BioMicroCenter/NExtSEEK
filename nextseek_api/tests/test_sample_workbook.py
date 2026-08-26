@@ -699,11 +699,20 @@ def test_the_tree_sits_between_the_summary_table_and_the_column_sections(
     heading_row = bold_row(FLOW_HEADING)
     # The first per-type section heading: the first bold column-A cell after
     # the tree heading that is not itself a heading we already know about.
-    section_row = min(
+    # Not min(...) over a bare generator: when the tree is moved BELOW the
+    # column tables there is no such heading, and min() then raises a bare
+    # ValueError instead of saying what went wrong. The regression is caught
+    # either way, but a future reader deserves the reason.
+    section_rows = [
         cell.row for cell in ws["A"]
         if cell.font.bold and cell.row > heading_row
         and cell.value not in (SUMMARY_HEADER[0], FLOW_HEADING)
+    ]
+    assert section_rows, (
+        "no per-type section heading follows the tree -- the tree must sit "
+        "between the summary table and the column tables, not after them"
     )
+    section_row = min(section_rows)
 
     last_summary_row = last_nonblank_before(heading_row)
     first_tree_row = first_nonblank_after(heading_row)

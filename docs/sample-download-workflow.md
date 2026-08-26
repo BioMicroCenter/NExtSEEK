@@ -147,7 +147,7 @@ own sheet onto the README — see
 [`2026-08-25-provenance-tree-sheet-design.md`](2026-08-25-provenance-tree-sheet-design.md).)
 
 `DBtable_sample.sampleRetrievalData` (`seek/dbtable_sample.py:1038`) and
-`seek.views.sample_retrieval_data` (`seek/views.py:1252`) both delegate to
+`seek.views.sample_retrieval_data` (`seek/views.py:1303`) both delegate to
 `write_samples_workbook`, so the README cannot drift between call paths even
 though both legacy views still exist.
 
