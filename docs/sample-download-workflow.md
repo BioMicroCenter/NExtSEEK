@@ -120,28 +120,30 @@ control (a…g)
                  ├─ include_tree ? getChildrenUIDs (Neo4j)  :807
                  │                : project-scoped MySQL query
                  └─ dbs.sampleRetrievalData(df, path)   :945
-                      └─ write_samples_workbook(...)  nextseek_api/services/sample_workbook.py:427
+                      └─ write_samples_workbook(...)  nextseek_api/services/sample_workbook.py:428
                            ├─ lineage first, because the sheet order comes from it
-                           │    (load_derivation_hops :216 → derivation_edges,
+                           │    (load_derivation_hops :218 → derivation_edges,
                            │     sample_type_depths, build_provenance_tree —
                            │     all in nextseek_api/services/sample_provenance.py)
-                           ├─ sheet 1: README      (build_readme_blocks :121,
-                           │                        load_sample_type_context :148,
-                           │                        load_sample_field_context :175,
-                           │                        _write_readme :319)
-                           ├─ sheet 2: How this data flowed   (_write_flow_sheet :366)
-                           │                                   — only if there is lineage
-                           ├─ sheet 3: Controlled Vocabularies (_write_vocabulary_sheet :95)
+                           ├─ sheet 1: README      (build_readme_blocks :123,
+                           │                        load_sample_type_context :150,
+                           │                        load_sample_field_context :177,
+                           │                        _write_readme :321 — the lineage
+                           │                        tree is written inline here,
+                           │                        only if there is lineage to draw)
+                           ├─ sheet 2: Controlled Vocabularies, written hidden
+                           │                        (_write_vocabulary_sheet :93)
                            │                                   — only if a column is governed
                            └─ one sheet per sample type, in generation order
-                                (_annotate_header :384, _apply_dropdowns :401)
+                                (_annotate_header :385, _apply_dropdowns :402)
 ```
 
 **Line numbers above were re-verified against the current tree on 2026-08-26.**
 They move whenever this module does; treat a mismatch as the citation being
 stale, not the code being wrong. (`build_provenance_rows`, the flat-chain-cover
 function this diagram used to cite, was replaced by `build_provenance_tree`
-when the flow sheet became an indented tree — see
+when the flow sheet became an indented tree, and the tree then moved off its
+own sheet onto the README — see
 [`2026-08-25-provenance-tree-sheet-design.md`](2026-08-25-provenance-tree-sheet-design.md).)
 
 `DBtable_sample.sampleRetrievalData` (`seek/dbtable_sample.py:1038`) and
@@ -154,15 +156,14 @@ though both legacy views still exist.
 This is the canonical description; everything below refers back here rather than
 restating it.
 
-A downloaded workbook has up to three preamble sheets and then one sheet per
+A downloaded workbook has up to two preamble sheets and then one sheet per
 sample type:
 
 | # | Sheet | Written when |
 |---|---|---|
-| 1 | `README` | always |
-| 2 | `How this data flowed` | there is any lineage to draw |
-| 3 | `Controlled Vocabularies` | any written column is governed by a vocabulary |
-| 4… | one per sample type | always |
+| 1 | `README` (lineage tree inline, see below) | always |
+| 2 | `Controlled Vocabularies`, written hidden | any written column is governed by a vocabulary |
+| 3… | one per sample type | always |
 
 **Sample-type tabs are in generation order, not alphabetical order.** Each type
 is placed at its longest distance from a type with no parent
@@ -176,16 +177,19 @@ disagree reads as a bug.
 
 #### The README sheet
 
-Sheet 1 of every downloaded workbook, in this order:
+Sheet 1 of every downloaded workbook, written by `_write_readme`
+(`nextseek_api/services/sample_workbook.py:321`), in this order, all in
+column A unless noted:
 
 1. **A1** — a hyperlink to the contextdb on GitHub. Row 2 is blank.
 2. **A summary table**, from row 3: a bold `Sample Type` / `Name` /
    `Description` header, then one row per sample type. This comes first so a
    reader sees what the workbook contains before meeting any column detail.
-3. **A pointer to the flow sheet** — `How this data flowed: see the 'How this
-   data flowed' sheet.`, bold, written *only* when that sheet exists. A reader
-   who never opens the tab must still learn it is there; a pointer to a sheet
-   that was not written would be worse than none.
+3. **The lineage tree**, under a bold `How this data flowed` heading, written
+   *only* when there is any lineage to draw. It is not its own sheet — it sits
+   inline in column A, between the summary table and the per-type sections —
+   see "The lineage tree" below for what it renders and why column A is not a
+   width ceiling for it.
 4. **One section per sample type**, in the same order the sheets are written: a
    bold `CODE — Name` heading in column A, then a `Column` / `Meaning` table
    indented into columns B and C listing every column of that tab. A sample type
@@ -196,30 +200,43 @@ Note that the per-type description lives in the summary table, not under the
 section heading — the heading is followed directly by a blank line and then the
 column table.
 
-#### The flow sheet
+#### The lineage tree
 
-`How this data flowed` renders the derivation graph as an indented ASCII tree,
-one line per type in a single monospace column (`build_provenance_tree` in
-`nextseek_api/services/sample_provenance.py`, written by `_write_flow_sheet`):
-each root type, then what was derived from it, box-drawn with `├── ` / `└── `
-/ `│   `, with the assay(s) recorded on each hop shown beside the type it
-produced, e.g. `└── PAV   [Consent]`. Hops come from Neo4j's `DERIVED_FROM`
-relationship, where the assay is recorded on the edge itself; when the graph is
-unreachable they are recovered from each row's own `Parent` UIDs. Upstream
-types are drawn even when they were not downloaded — that is the part a reader
-cannot otherwise see. A type's subtree is expanded only the first time it is
-reached; a later occurrence renders as `TYPE   (expanded above)`, and a type
-already on the current path renders as `TYPE   (cycle)` — both are load-bearing
-guards against the graph being a DAG with repeats and cycles, not a tree. A
-strongly-connected component with no external entry point would otherwise be
-skipped entirely, so after the normal roots are walked, a second pass walks any
-still-unexpanded node as its own root. It is a separate sheet rather than a
-README section precisely so it can size its own column to the tree; the
-README's 46/34/100 layout would chop it. No lineage, no sheet.
+Under the `How this data flowed` heading, the README renders the derivation
+graph as an indented ASCII tree, one line per type in a single monospace
+column (`build_provenance_tree` in
+`nextseek_api/services/sample_provenance.py`, written inline by
+`_write_readme`): each root type, then what was derived from it, box-drawn
+with `├── ` / `└── ` / `│   `, with the assay(s) recorded on each hop shown
+beside the type it produced, e.g. `└── PAV   [Consent]`. Hops come from
+Neo4j's `DERIVED_FROM` relationship, where the assay is recorded on the edge
+itself; when the graph is unreachable they are recovered from each row's own
+`Parent` UIDs. Upstream types are drawn even when they were not downloaded —
+that is the part a reader cannot otherwise see. A type's subtree is expanded
+only the first time it is reached; a later occurrence renders as `TYPE
+(expanded above)`, and a type already on the current path renders as `TYPE
+(cycle)` — both are load-bearing guards against the graph being a DAG with
+repeats and cycles, not a tree. A strongly-connected component with no
+external entry point would otherwise be skipped entirely, so after the normal
+roots are walked, a second pass walks any still-unexpanded node as its own
+root. No lineage, no tree, and the heading itself is skipped too.
+
+It used to be a separate sheet, on the reasoning that column A is only 46 wide
+and would chop the tree — that reasoning was wrong. Excel spills a cell's text
+rightward across empty neighbours, and the README writes nothing past column C
+on the tree's rows, so a tree line runs on through D, E, F … unimpeded; there
+is no 46-wide ceiling. It matters that this is unbounded rather than merely
+generous: the widest line the production graph produces is 330 characters. See
+[`2026-08-25-provenance-tree-sheet-design.md`](2026-08-25-provenance-tree-sheet-design.md)
+for the flat-chains-to-tree change, and its §3/§3b for the later move off its
+own sheet onto the README.
 
 #### Controlled vocabularies and dropdowns
 
-`Controlled Vocabularies` parks each needed vocabulary in its own column, and
+`Controlled Vocabularies` — written hidden (`sheet_state = "hidden"`; Excel
+resolves a data-validation range against a hidden sheet exactly as it does a
+visible one, so the dropdowns keep working while the term lists stay out of
+the reader's way) — parks each needed vocabulary in its own column, and
 every governed column on a sample-type tab gets an Excel dropdown pointing at
 it. The terms need a real sheet because Excel caps an inline dropdown formula at
 255 characters. Which columns are governed, and by what, is data:
@@ -270,8 +287,8 @@ to: a lost lookup costs its section, never the download. If either context table
 is missing or unreachable the lookup logs and returns empty — the README goes
 unpopulated but the download still works. Neo4j is bounded at five seconds and
 falls back to the `Parent` column, which costs the assay labels and not the
-lineage; losing the lineage entirely costs the flow sheet and returns the tabs
-to alphabetical order. An unreadable `controlled_vocabularies.json` costs the
+lineage; losing the lineage entirely costs the README's lineage tree and
+returns the tabs to alphabetical order. An unreadable `controlled_vocabularies.json` costs the
 dropdowns. A UID carrying no sample-type code costs that row its tab — it must
 not cost the workbook, which is what the `isinstance` guard in
 `derivation_edges` is for.

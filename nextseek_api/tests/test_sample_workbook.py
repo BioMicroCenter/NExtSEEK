@@ -494,6 +494,10 @@ def test_the_vocabulary_sheet_is_hidden_but_its_dropdowns_still_resolve(_ctx, _f
     rules = wb["MUS"].data_validations.dataValidation
     assert rules, "the dropdowns must survive hiding the sheet they point at"
     assert {r.formula1.split("!")[0].strip("'") for r in rules} == {CV_SHEET}
+    # Not a regression guard -- README is created unconditionally and never
+    # hidden, so this can't fail today. It documents the Excel constraint the
+    # test name promises instead: "hidden but still resolves" only makes sense
+    # because *some* sheet in the workbook stays visible.
     assert [ws.title for ws in wb.worksheets if ws.sheet_state == "visible"]
 
 
@@ -518,9 +522,10 @@ def _readme_sections(ws) -> dict[str, list[str]]:
         # Section headings are the bold cells of column A. The description
         # under each one is column A too, but plain; A1's link is not bold.
         if a.value and a.font.bold:
-            # The summary table's bold header is not a section; skip it and the
-            # sample-type rows beneath it.
-            if a.value == SUMMARY_HEADER[0]:
+            # The summary table's bold header and the (also bold) lineage-tree
+            # heading are not sections; skip each and whatever plain rows
+            # follow it.
+            if a.value in (SUMMARY_HEADER[0], FLOW_HEADING):
                 in_summary = True
                 continue
             in_summary = False
@@ -646,6 +651,74 @@ def test_no_flow_section_when_there_is_no_lineage(_ctx, _fields, _assays, tmp_pa
     write_samples_workbook(_df(), str(out))
     column_a = [c.value for c in load_workbook(out)["README"]["A"]]
     assert FLOW_HEADING not in column_a
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_tree_sits_between_the_summary_table_and_the_column_sections(
+    _ctx, _fields, _assays, tmp_path
+):
+    """Pins the ordering the README move rests on: summary table, one blank
+    row, the tree heading, one blank row, the tree's lines, one blank row, then
+    the first `CODE — Name` section. Found by row-scanning rather than
+    hand-computed coordinates, so the test still holds if unrelated rows above
+    or below the tree change count.
+
+    Mutation-tested against `_write_readme`: fails if the whole `if
+    flow_lines:` block is moved to after the per-block column-table loop
+    (order breaks -- the tree heading is no longer found before any section
+    heading), if the `row += 2` after the heading is deleted (the first tree
+    line overwrites the heading cell, so it can no longer be found at all), and
+    if the trailing `row += 1` after the tree loop is deleted (the blank row
+    between the last tree line and the next section disappears).
+    """
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    ws = load_workbook(out)["README"]
+
+    def bold_row(value):
+        for cell in ws["A"]:
+            if cell.value == value and cell.font.bold:
+                return cell.row
+        raise AssertionError(f"{value!r} not found bold in column A")
+
+    def first_nonblank_after(row):
+        r = row + 1
+        while ws.cell(row=r, column=1).value in (None, ""):
+            r += 1
+        return r
+
+    def last_nonblank_before(row):
+        r = row - 1
+        while ws.cell(row=r, column=1).value in (None, ""):
+            r -= 1
+        return r
+
+    summary_header_row = bold_row(SUMMARY_HEADER[0])
+    heading_row = bold_row(FLOW_HEADING)
+    # The first per-type section heading: the first bold column-A cell after
+    # the tree heading that is not itself a heading we already know about.
+    section_row = min(
+        cell.row for cell in ws["A"]
+        if cell.font.bold and cell.row > heading_row
+        and cell.value not in (SUMMARY_HEADER[0], FLOW_HEADING)
+    )
+
+    last_summary_row = last_nonblank_before(heading_row)
+    first_tree_row = first_nonblank_after(heading_row)
+    last_tree_row = last_nonblank_before(section_row)
+
+    assert last_summary_row > summary_header_row, "fixture produced no summary rows"
+    assert heading_row == last_summary_row + 2, (
+        "exactly one blank row between the summary table and the tree heading"
+    )
+    assert first_tree_row == heading_row + 2, (
+        "exactly one blank row between the tree heading and its first line"
+    )
+    assert section_row == last_tree_row + 2, (
+        "exactly one blank row between the tree's last line and the next section"
+    )
 
 
 def _order_df():

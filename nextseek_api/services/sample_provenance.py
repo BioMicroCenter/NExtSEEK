@@ -70,8 +70,8 @@ def derivation_edges(df, assay_by_uuid: Mapping[str, str],
 def sample_type_depths(edges: Mapping[tuple[str, str], set[str]]) -> dict[str, int]:
     """Each type -> its longest distance from a type with no parent.
 
-    This is the definition of "generation order" used for both the flow sheet
-    and the sheet order. Longest, not shortest: a type reachable both directly
+    This is the definition of "generation order" used for both the tree and
+    the sheet order. Longest, not shortest: a type reachable both directly
     and through a chain belongs at the later point, where a reader expects it.
 
     Cycle-safe -- the production graph really does contain CEL <-> D.FLOW,
