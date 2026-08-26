@@ -125,13 +125,34 @@ rejected as exactly the clutter this redesign removes.
 
 ### 3. Sheet rendering
 
-One column. Each tree line is written to column A of the "How this data flowed"
-sheet, and a monospace font (`Consolas`, falling back to the workbook default) is
-set on those cells via openpyxl so the box-drawing characters align. Column width
-is set to fit the longest line.
+The tree is written into column A of the **README**, under a bold
+"How this data flowed" heading, between the summary table and the per-tab column
+tables — the reader meets what the workbook contains, then how it was made, then
+the column detail. A monospace font (`Consolas`) is set on those cells via
+openpyxl so the box-drawing characters align.
+
+It first shipped as its own sheet, on the reasoning that README's column A is
+46 wide and would chop the tree. **That reasoning was wrong**, which is why the
+sheet is gone: Excel spills a cell's text rightward across empty neighbours, and
+the README writes nothing past column C, so a tree row runs on through D, E, F …
+with no ceiling. That it is unbounded rather than merely generous is what makes
+this work — the widest line the production graph produces is **330 characters**,
+a type whose hop carries many assay titles.
+
+The invariant this depends on is that **B and C stay empty on tree rows**. The
+summary table above and the column tables below both write there, so a row-cursor
+slip would clip the tree at 46 characters. A test asserts it directly.
 
 The box-drawing characters (`├── └── │`) carry the structure even if a reader's
 Excel substitutes a proportional font: the tree is still readable, merely ragged.
+
+### 3b. The vocabulary sheet is hidden
+
+`Controlled Vocabularies` is written exactly as before but set
+`sheet_state = "hidden"`. Excel resolves a data-validation range against a hidden
+sheet exactly as against a visible one, so every dropdown keeps working while the
+term lists stay out of the reader's way. Deleting the sheet instead would break
+every dropdown pointing at it.
 
 ### 4. What replaces what
 

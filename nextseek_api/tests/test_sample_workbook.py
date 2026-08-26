@@ -13,9 +13,7 @@ from nextseek_api.services.sample_workbook import (
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
     FLOW_FONT,
-    FLOW_MAX_WIDTH,
-    FLOW_README_POINTER,
-    FLOW_SHEET,
+    FLOW_HEADING,
     SUMMARY_HEADER,
     build_readme_blocks,
     load_assay_titles,
@@ -484,6 +482,23 @@ def test_dropdowns_warn_rather_than_reject(_ctx, _fields, tmp_path):
 
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_vocabulary_sheet_is_hidden_but_its_dropdowns_still_resolve(_ctx, _fields, tmp_path):
+    """Hidden, not absent. Excel resolves a data-validation range against a
+    hidden sheet exactly as against a visible one, so the term lists can stay
+    out of the reader's way while the dropdowns keep working. Deleting the
+    sheet instead would break every dropdown that points at it."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_cv_df(), str(out))
+    wb = load_workbook(out)
+    assert wb[CV_SHEET].sheet_state == "hidden"
+    rules = wb["MUS"].data_validations.dataValidation
+    assert rules, "the dropdowns must survive hiding the sheet they point at"
+    assert {r.formula1.split("!")[0].strip("'") for r in rules} == {CV_SHEET}
+    assert [ws.title for ws in wb.worksheets if ws.sheet_state == "visible"]
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
 def test_no_vocabulary_sheet_when_no_column_is_governed(_ctx, _fields, tmp_path):
     """The fixture is Name and Sex only; an empty extra sheet would be clutter."""
     out = tmp_path / "w.xlsx"
@@ -562,10 +577,14 @@ def _flow_df():
 @patch(f"{_MOD}.load_assay_titles", return_value={})
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_the_flow_sheet_sits_directly_after_the_readme(_ctx, _fields, _assays, tmp_path):
+def test_the_tree_lives_on_the_readme_not_its_own_sheet(_ctx, _fields, _assays, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_flow_df(), str(out))
-    assert load_workbook(out).sheetnames[:2] == ["README", FLOW_SHEET]
+    wb = load_workbook(out)
+    assert FLOW_HEADING not in wb.sheetnames
+    assert wb.sheetnames[0] == "README"
+    column_a = [c.value for c in wb["README"]["A"]]
+    assert FLOW_HEADING in column_a
 
 
 @patch(f"{_MOD}.load_assay_titles", return_value={})
@@ -574,8 +593,7 @@ def test_the_flow_sheet_sits_directly_after_the_readme(_ctx, _fields, _assays, t
 def test_the_tree_puts_a_root_above_its_indented_child(_ctx, _fields, _assays, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_flow_df(), str(out))
-    ws = load_workbook(out)[FLOW_SHEET]
-    column_a = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+    column_a = [c.value for c in load_workbook(out)["README"]["A"]]
     assert "PAT" in column_a
     assert any(str(v).startswith(("├── ", "└── ")) for v in column_a if v)
 
@@ -583,76 +601,51 @@ def test_the_tree_puts_a_root_above_its_indented_child(_ctx, _fields, _assays, t
 @patch(f"{_MOD}.load_assay_titles", return_value={})
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_no_flow_sheet_when_there_is_no_lineage(_ctx, _fields, _assays, tmp_path):
-    """An empty sheet reads as a rendering bug -- and so does a README that
-    points at a sheet the workbook does not contain. The pointer's absence was
-    caught only incidentally, by an unrelated cell-position assertion; state it
-    here, where the sheet's absence is the subject."""
+def test_the_tree_rows_leave_b_and_c_empty_so_excel_can_overflow(_ctx, _fields, _assays, tmp_path):
+    """This is what makes README placement viable at all.
+
+    Column A is 46 wide and tree lines run past 100 characters. Excel spills a
+    cell's text rightward only while its neighbours are EMPTY, so a stray value
+    in B or C on a tree row would clip the tree at 46 characters. Nothing else
+    pins that, and the summary table above and the column tables below both
+    write to B and C -- an off-by-one in the row cursor would land there.
+    """
     out = tmp_path / "w.xlsx"
-    write_samples_workbook(_df(), str(out))
-    wb = load_workbook(out)
-    assert FLOW_SHEET not in wb.sheetnames
-    text = " ".join(str(c.value) for row in wb["README"].iter_rows()
-                    for c in row if c.value)
-    assert FLOW_README_POINTER not in text
+    write_samples_workbook(_flow_df(), str(out))
+    ws = load_workbook(out)["README"]
+    tree_rows = [c.row for c in ws["A"]
+                 if c.value and str(c.value).startswith(("├── ", "└── "))]
+    assert tree_rows, "fixture produced no tree rows"
+    for row in tree_rows:
+        assert ws.cell(row=row, column=2).value is None
+        assert ws.cell(row=row, column=3).value is None
 
 
 @patch(f"{_MOD}.load_assay_titles", return_value={})
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_the_readme_points_at_the_flow_sheet(_ctx, _fields, _assays, tmp_path):
-    """A reader who never opens the tab must still learn it is there."""
+def test_the_tree_lines_are_monospace_but_the_summary_is_not(_ctx, _fields, _assays, tmp_path):
+    """The box-drawing characters only align in a fixed-width font, and the
+    font is set per cell -- so it must land on the tree rows and nowhere else."""
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_flow_df(), str(out))
-    text = " ".join(str(c.value) for row in load_workbook(out)["README"].iter_rows()
-                    for c in row if c.value)
-    assert FLOW_SHEET in text
+    ws = load_workbook(out)["README"]
+    tree = [c for c in ws["A"] if c.value and str(c.value).startswith(("├── ", "└── "))]
+    assert tree
+    for cell in tree:
+        assert cell.font.name == FLOW_FONT
+    assert ws["A1"].font.name != FLOW_FONT
 
 
-def test_the_flow_sheet_sizes_its_one_column_to_the_widest_line():
-    """The justification for a separate sheet is that it can size its own
-    column. Nothing else asserts the width is applied, so it could be dropped
-    silently and the tree would render clipped.
-
-    Calls `_write_flow_sheet` directly (as the monospace test below does)
-    rather than round-tripping through `write_samples_workbook`, so the
-    expected width is fully under this test's control. That matters: with a
-    short fixture, `widest + 2` can coincide with openpyxl's
-    `ColumnDimension` default width (13.0, as of openpyxl 3.1.5), which is
-    returned on any access whether or not a width was ever set -- making the
-    assertion pass even if the width assignment in `_write_flow_sheet` is
-    deleted. The line below is deliberately long enough that its `+ 2` width
-    cannot collide with that default, and `customWidth` is asserted directly
-    so an unset dimension cannot pass by coincidence at any length.
-    """
-    from openpyxl import Workbook
-    from nextseek_api.services.sample_workbook import _write_flow_sheet, FLOW_SHEET
-
-    book = Workbook()
-    lines = ["PAT", "└── PAV-with-an-unusually-long-sample-type-code-for-this-test"]
-    widest_plus_2 = max(len(line) for line in lines) + 2
-    assert widest_plus_2 != 13, "fixture must not collide with openpyxl's default width"
-
-    _write_flow_sheet(book, lines)
-    ws = book[FLOW_SHEET]
-    assert ws.column_dimensions["A"].customWidth is True
-    assert ws.column_dimensions["A"].width == widest_plus_2
-
-
-def test_the_flow_sheet_caps_width_at_flow_max_width():
-    """Lines longer than `FLOW_MAX_WIDTH` must not push the column past it --
-    the cap exists so one pathological line can't make the sheet unusably
-    wide. Uses a line whose `+ 2` width would exceed `FLOW_MAX_WIDTH` if the
-    `min(...)` cap in `_write_flow_sheet` were removed, so this test fails on
-    that regression the width test above cannot catch."""
-    from openpyxl import Workbook
-    from nextseek_api.services.sample_workbook import _write_flow_sheet, FLOW_SHEET
-
-    book = Workbook()
-    lines = ["x" * (FLOW_MAX_WIDTH + 50)]
-    _write_flow_sheet(book, lines)
-    ws = book[FLOW_SHEET]
-    assert ws.column_dimensions["A"].width == FLOW_MAX_WIDTH
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_no_flow_section_when_there_is_no_lineage(_ctx, _fields, _assays, tmp_path):
+    """A bare heading with nothing under it reads as a rendering bug."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    column_a = [c.value for c in load_workbook(out)["README"]["A"]]
+    assert FLOW_HEADING not in column_a
 
 
 def _order_df():
@@ -673,7 +666,7 @@ def test_sample_tabs_follow_generation_order(_ctx, _fields, _assays, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_order_df(), str(out))
     tabs = [n for n in load_workbook(out).sheetnames
-            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+            if n not in ("README", CV_SHEET)]
     assert tabs == ["PAT", "PAV", "TIS", "DNA"]
 
 
@@ -703,7 +696,7 @@ def test_a_type_with_no_lineage_sorts_last(_ctx, _fields, _assays, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(df, str(out))
     tabs = [n for n in load_workbook(out).sheetnames
-            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+            if n not in ("README", CV_SHEET)]
     assert tabs == ["PAV", "TIS", "ABC"]
 
 
@@ -738,7 +731,7 @@ def test_order_stays_alphabetical_without_any_lineage(_ctx, _fields, _assays, tm
     out = tmp_path / "w.xlsx"
     write_samples_workbook(df, str(out))
     tabs = [n for n in load_workbook(out).sheetnames
-            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+            if n not in ("README", CV_SHEET)]
     assert tabs == ["DNA", "TIS"]
 
 
@@ -838,25 +831,3 @@ def test_the_variants_block_documents_only_real_vocabularies():
     documented = set(doc["variants"]) - {"_excluded"}
     assert documented <= set(doc["vocabularies"])
     assert set(doc["variants"]["_excluded"]) <= set(doc["vocabularies"])
-
-
-def test_the_flow_sheet_writes_one_monospace_column():
-    from openpyxl import Workbook
-    from nextseek_api.services.sample_workbook import _write_flow_sheet, FLOW_SHEET
-
-    book = Workbook()
-    _write_flow_sheet(book, ["PAT", "└── PAV   [Consent]"])
-    ws = book[FLOW_SHEET]
-    assert ws["A1"].value == "PAT"
-    assert ws["A2"].value == "└── PAV   [Consent]"
-    assert ws["B1"].value is None
-    assert ws["A1"].font.name == FLOW_FONT
-
-
-def test_the_flow_sheet_is_skipped_when_there_is_no_lineage():
-    from openpyxl import Workbook
-    from nextseek_api.services.sample_workbook import _write_flow_sheet, FLOW_SHEET
-
-    book = Workbook()
-    _write_flow_sheet(book, [])
-    assert FLOW_SHEET not in book.sheetnames
