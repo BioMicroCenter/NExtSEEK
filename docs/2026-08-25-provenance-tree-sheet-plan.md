@@ -4,7 +4,7 @@
 
 **Goal:** Replace the "How this data flowed" sheet's flat chains with an indented tree, so every sample type is shown under what it was derived from.
 
-**Architecture:** One new pure function, `build_provenance_tree`, replaces `build_provenance_rows` in `nextseek_api/services/sample_provenance.py`. It walks the same `edges`/`depths` data depth-first from each root and returns one pre-indented string per line. `_write_flow_sheet` in `nextseek_api/services/sample_workbook.py` writes those strings into a single monospace column instead of alternating type/arrow cells.
+**Architecture:** One new pure function, `build_provenance_tree`, replaces `build_provenance_rows` in `nextseek_api/services/sample_provenance.py`. It walks the same `edges` data depth-first from each root and returns one pre-indented string per line. `_write_flow_sheet` in `nextseek_api/services/sample_workbook.py` writes those strings into a single monospace column instead of alternating type/arrow cells.
 
 **Tech Stack:** Python 3.14, Django, openpyxl 3.1.5, pytest. No new dependencies.
 
@@ -31,7 +31,7 @@ Adds `build_provenance_tree` alongside the existing `build_provenance_rows`. Not
 
 **Interfaces:**
 - Consumes: `derivation_edges(...) -> dict[tuple[str, str], set[str]]` and `sample_type_depths(...) -> dict[str, int]`, both already in the module.
-- Produces: `build_provenance_tree(edges: Mapping[tuple[str, str], set[str]], depths: Mapping[str, int]) -> list[str]` — one display line per node, already indented. Task 2 consumes this.
+- Produces: `build_provenance_tree(edges: Mapping[tuple[str, str], set[str]]) -> list[str]` — one display line per node, already indented. Task 2 consumes this.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -44,7 +44,7 @@ from nextseek_api.services.sample_provenance import build_provenance_tree
 
 
 def _tree(edges):
-    return build_provenance_tree(edges, sample_type_depths(edges))
+    return build_provenance_tree(edges)
 
 
 def _type_of(line):
@@ -129,7 +129,7 @@ def test_root_trees_are_separated_by_a_blank_line():
 
 
 def test_no_edges_yields_no_lines():
-    assert build_provenance_tree({}, {}) == []
+    assert build_provenance_tree({}) == []
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -143,8 +143,7 @@ Expected: FAIL — `ImportError: cannot import name 'build_provenance_tree' from
 Append to `nextseek_api/services/sample_provenance.py`, after `build_provenance_rows`:
 
 ```python
-def build_provenance_tree(edges: Mapping[tuple[str, str], set[str]],
-                          depths: Mapping[str, int]) -> list[str]:
+def build_provenance_tree(edges: Mapping[tuple[str, str], set[str]]) -> list[str]:
     """One indented line per node, as an ASCII tree rooted at each origin type.
 
     Replaces the flat-chain cover. That cover spent every hop on exactly one
@@ -165,10 +164,10 @@ def build_provenance_tree(edges: Mapping[tuple[str, str], set[str]],
     the guard it is 178. A type with no children is drawn in full instead: the
     marker would be noise where there is nothing to expand.
 
-    `depths` is unused for ordering here -- roots and siblings sort by name, so
-    the tree is stable across runs -- but stays in the signature because the
-    caller already computes it and a future ordering change should not need a
-    new call site.
+    Roots and siblings sort by name, so the tree is stable across runs. It takes
+    no `depths` argument: every root is depth 0 by definition, so depth-sorting
+    them would be a no-op. The caller still computes depths -- the sheet ORDER
+    uses them -- but this function does not.
     """
     children: dict[str, list[tuple[str, list[str]]]] = {}
     have_parent: set[str] = set()
@@ -234,7 +233,7 @@ Rewires `_write_flow_sheet` to the tree, then deletes `build_provenance_rows` an
 - Test: `nextseek_api/tests/test_sample_workbook.py`, `nextseek_api/tests/test_sample_provenance.py`
 
 **Interfaces:**
-- Consumes: `build_provenance_tree(edges, depths) -> list[str]` from Task 1.
+- Consumes: `build_provenance_tree(edges) -> list[str]` from Task 1.
 - Produces: `_write_flow_sheet(book, lines: list[str]) -> None` — writes column A only, monospace.
 
 - [ ] **Step 1: Write the failing test**
@@ -330,7 +329,7 @@ At line 451, replace:
 with:
 
 ```python
-    flow_lines = build_provenance_tree(edges, depths)
+    flow_lines = build_provenance_tree(edges)
 ```
 
 At lines 477-478, replace:
@@ -484,7 +483,7 @@ with connections["seek"].cursor() as cur:
 df = pd.DataFrame(rows, columns=["uuid", "Parent"])
 df["sample_type"] = df["uuid"].astype(str).str.extract(sw.SAMPLE_TYPE_RE, expand=False)
 edges = derivation_edges(df, sw.load_assay_titles(df["uuid"].astype(str).tolist()), None)
-lines = build_provenance_tree(edges, sample_type_depths(edges))
+lines = build_provenance_tree(edges)
 print(f"hops={len(edges)} lines={len(lines)}")
 print(f"cycle markers={sum(1 for x in lines if x.endswith('(cycle)'))}")
 print(f"deferred={sum(1 for x in lines if x.endswith('(expanded above)'))}")
