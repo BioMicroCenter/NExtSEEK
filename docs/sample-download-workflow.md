@@ -120,26 +120,29 @@ control (a…g)
                  ├─ include_tree ? getChildrenUIDs (Neo4j)  :807
                  │                : project-scoped MySQL query
                  └─ dbs.sampleRetrievalData(df, path)   :945
-                      └─ write_samples_workbook(...)  nextseek_api/services/sample_workbook.py:430
+                      └─ write_samples_workbook(...)  nextseek_api/services/sample_workbook.py:427
                            ├─ lineage first, because the sheet order comes from it
-                           │    (load_derivation_hops :217 → derivation_edges,
-                           │     sample_type_depths, build_provenance_rows —
+                           │    (load_derivation_hops :216 → derivation_edges,
+                           │     sample_type_depths, build_provenance_tree —
                            │     all in nextseek_api/services/sample_provenance.py)
-                           ├─ sheet 1: README      (build_readme_blocks :122,
-                           │                        load_sample_type_context :149,
-                           │                        load_sample_field_context :176,
-                           │                        _write_readme :320)
-                           ├─ sheet 2: How this data flowed   (_write_flow_sheet :367)
+                           ├─ sheet 1: README      (build_readme_blocks :121,
+                           │                        load_sample_type_context :148,
+                           │                        load_sample_field_context :175,
+                           │                        _write_readme :319)
+                           ├─ sheet 2: How this data flowed   (_write_flow_sheet :366)
                            │                                   — only if there is lineage
-                           ├─ sheet 3: Controlled Vocabularies (_write_vocabulary_sheet :96)
+                           ├─ sheet 3: Controlled Vocabularies (_write_vocabulary_sheet :95)
                            │                                   — only if a column is governed
                            └─ one sheet per sample type, in generation order
-                                (_annotate_header :387, _apply_dropdowns :404)
+                                (_annotate_header :384, _apply_dropdowns :401)
 ```
 
-**Line numbers above were re-verified against the current tree on 2026-08-21.**
+**Line numbers above were re-verified against the current tree on 2026-08-26.**
 They move whenever this module does; treat a mismatch as the citation being
-stale, not the code being wrong.
+stale, not the code being wrong. (`build_provenance_rows`, the flat-chain-cover
+function this diagram used to cite, was replaced by `build_provenance_tree`
+when the flow sheet became an indented tree — see
+[`2026-08-25-provenance-tree-sheet-design.md`](2026-08-25-provenance-tree-sheet-design.md).)
 
 `DBtable_sample.sampleRetrievalData` (`seek/dbtable_sample.py:1038`) and
 `seek.views.sample_retrieval_data` (`seek/views.py:1252`) both delegate to
@@ -195,16 +198,24 @@ column table.
 
 #### The flow sheet
 
-`How this data flowed` renders the derivation graph as one chain per row,
-alternating type and arrow cells (`PAT`, `--[Consent]-->`, `PAV`, …), so a flow
-reads left to right. Hops come from Neo4j's `DERIVED_FROM` relationship, where
-the assay is recorded on the edge itself; when the graph is unreachable they are
-recovered from each row's own `Parent` UIDs and labelled from the weaker
-per-sample assay link, or left as a bare `------>`. Upstream types are drawn
-even when they were not downloaded — that is the part a reader cannot otherwise
-see. It is a separate sheet rather than a README section precisely so it can
-carry its own alternating column widths; the README's 46/34/100 layout would put
-a 100-wide gap at every second type of a chain. No lineage, no sheet.
+`How this data flowed` renders the derivation graph as an indented ASCII tree,
+one line per type in a single monospace column (`build_provenance_tree` in
+`nextseek_api/services/sample_provenance.py`, written by `_write_flow_sheet`):
+each root type, then what was derived from it, box-drawn with `├── ` / `└── `
+/ `│   `, with the assay(s) recorded on each hop shown beside the type it
+produced, e.g. `└── PAV   [Consent]`. Hops come from Neo4j's `DERIVED_FROM`
+relationship, where the assay is recorded on the edge itself; when the graph is
+unreachable they are recovered from each row's own `Parent` UIDs. Upstream
+types are drawn even when they were not downloaded — that is the part a reader
+cannot otherwise see. A type's subtree is expanded only the first time it is
+reached; a later occurrence renders as `TYPE   (expanded above)`, and a type
+already on the current path renders as `TYPE   (cycle)` — both are load-bearing
+guards against the graph being a DAG with repeats and cycles, not a tree. A
+strongly-connected component with no external entry point would otherwise be
+skipped entirely, so after the normal roots are walked, a second pass walks any
+still-unexpanded node as its own root. It is a separate sheet rather than a
+README section precisely so it can size its own column to the tree; the
+README's 46/34/100 layout would chop it. No lineage, no sheet.
 
 #### Controlled vocabularies and dropdowns
 

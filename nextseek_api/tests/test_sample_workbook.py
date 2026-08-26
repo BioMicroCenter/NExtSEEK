@@ -12,6 +12,7 @@ from nextseek_api.services.sample_workbook import (
     DROPDOWN_SPARE_ROWS,
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
+    FLOW_FONT,
     FLOW_MAX_WIDTH,
     FLOW_README_POINTER,
     FLOW_SHEET,
@@ -608,19 +609,50 @@ def test_the_readme_points_at_the_flow_sheet(_ctx, _fields, _assays, tmp_path):
     assert FLOW_SHEET in text
 
 
-@patch(f"{_MOD}.load_assay_titles", return_value={})
-@patch(f"{_MOD}.load_sample_field_context", return_value={})
-@patch(f"{_MOD}.load_sample_type_context", return_value={})
-def test_the_flow_sheet_sizes_its_one_column_to_the_widest_line(_ctx, _fields, _assays, tmp_path):
+def test_the_flow_sheet_sizes_its_one_column_to_the_widest_line():
     """The justification for a separate sheet is that it can size its own
     column. Nothing else asserts the width is applied, so it could be dropped
-    silently and the tree would render clipped."""
-    out = tmp_path / "w.xlsx"
-    write_samples_workbook(_flow_df(), str(out))
-    ws = load_workbook(out)[FLOW_SHEET]
-    widest = max(len(str(ws.cell(row=r, column=1).value or ""))
-                 for r in range(1, ws.max_row + 1))
-    assert ws.column_dimensions["A"].width == min(widest + 2, FLOW_MAX_WIDTH)
+    silently and the tree would render clipped.
+
+    Calls `_write_flow_sheet` directly (as the monospace test below does)
+    rather than round-tripping through `write_samples_workbook`, so the
+    expected width is fully under this test's control. That matters: with a
+    short fixture, `widest + 2` can coincide with openpyxl's
+    `ColumnDimension` default width (13.0, as of openpyxl 3.1.5), which is
+    returned on any access whether or not a width was ever set -- making the
+    assertion pass even if the width assignment in `_write_flow_sheet` is
+    deleted. The line below is deliberately long enough that its `+ 2` width
+    cannot collide with that default, and `customWidth` is asserted directly
+    so an unset dimension cannot pass by coincidence at any length.
+    """
+    from openpyxl import Workbook
+    from nextseek_api.services.sample_workbook import _write_flow_sheet, FLOW_SHEET
+
+    book = Workbook()
+    lines = ["PAT", "└── PAV-with-an-unusually-long-sample-type-code-for-this-test"]
+    widest_plus_2 = max(len(line) for line in lines) + 2
+    assert widest_plus_2 != 13, "fixture must not collide with openpyxl's default width"
+
+    _write_flow_sheet(book, lines)
+    ws = book[FLOW_SHEET]
+    assert ws.column_dimensions["A"].customWidth is True
+    assert ws.column_dimensions["A"].width == widest_plus_2
+
+
+def test_the_flow_sheet_caps_width_at_flow_max_width():
+    """Lines longer than `FLOW_MAX_WIDTH` must not push the column past it --
+    the cap exists so one pathological line can't make the sheet unusably
+    wide. Uses a line whose `+ 2` width would exceed `FLOW_MAX_WIDTH` if the
+    `min(...)` cap in `_write_flow_sheet` were removed, so this test fails on
+    that regression the width test above cannot catch."""
+    from openpyxl import Workbook
+    from nextseek_api.services.sample_workbook import _write_flow_sheet, FLOW_SHEET
+
+    book = Workbook()
+    lines = ["x" * (FLOW_MAX_WIDTH + 50)]
+    _write_flow_sheet(book, lines)
+    ws = book[FLOW_SHEET]
+    assert ws.column_dimensions["A"].width == FLOW_MAX_WIDTH
 
 
 def _order_df():
@@ -818,7 +850,7 @@ def test_the_flow_sheet_writes_one_monospace_column():
     assert ws["A1"].value == "PAT"
     assert ws["A2"].value == "└── PAV   [Consent]"
     assert ws["B1"].value is None
-    assert ws["A1"].font.name == "Consolas"
+    assert ws["A1"].font.name == FLOW_FONT
 
 
 def test_the_flow_sheet_is_skipped_when_there_is_no_lineage():

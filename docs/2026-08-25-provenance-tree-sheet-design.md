@@ -82,6 +82,16 @@ depth-first walk from each root, children sorted.
 **Roots** are the types with no parent — 14 in the local graph: `A`, `AB`, `C`,
 `D.WTR`, `F`, `H`, `LOC`, `MEF`, `MUS`, `NHP`, `P`, `PAT`, `T`, `WTR`.
 
+That definition misses one case: a strongly-connected component with no
+external entry point (every member has a parent, so none of them qualifies as
+a root) would otherwise be skipped entirely and never appear in the sheet.
+After the normal roots are walked, a second pass scans every node in sorted
+order and walks any that is still unexpanded as its own root. Walking a node
+marks its whole forward-reachable component expanded, so this naturally lands
+on just the lowest-sorted unexpanded node of each remaining component — one
+extra tree per such component, still blank-line separated from the rest and
+still deterministic.
+
 Two guards stop the walk, and both are load-bearing:
 
 **Repeats — `(expanded above)`.** The graph is a DAG, not a tree: `TIS` has six
