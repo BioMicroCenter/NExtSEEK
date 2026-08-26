@@ -142,7 +142,7 @@ class SampleSearchMixin:
         matchType = filtersdic['matchType']
         
         searchText = filtersdic['searchText']
-        from .search import Search
+        from ..search import Search
         spi = Search('')
         tableField = 'json_metadata'
         categoryField = 'sample_type_id'

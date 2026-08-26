@@ -169,7 +169,7 @@ class SampleQueriesMixin:
         return data
 
     def _sqlQuery_select_records_filters_advanced(self, filtersdic):
-        from .search import Search
+        from ..search import Search
         spi = Search('')
         sqlquery_filter = spi.designSearchAdvanced(filtersdic, SAMPLE_FILTER_MAPPING)            
         if 'project_id' in filtersdic:
