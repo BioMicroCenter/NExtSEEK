@@ -196,6 +196,17 @@ def build_provenance_tree(edges: Mapping[tuple[str, str], set[str]]) -> list[str
     no `depths` argument: every root is depth 0 by definition, so depth-sorting
     them would be a no-op. The caller still computes depths -- the sheet ORDER
     uses them -- but this function does not.
+
+    A root is normally "a type no edge names as a child." That definition
+    misses a strongly-connected cluster with no external entry point -- e.g.
+    `{("X", "X"): set()}` or `{("A", "B"): set(), ("B", "A"): set()}` -- where
+    every member has a parent, so none is eligible and the whole cluster would
+    silently vanish. After the normal roots are walked, a second pass scans
+    every node in sorted order and walks any that is still unexpanded as its
+    own root. Walking a node marks its whole forward-reachable component
+    expanded, so this naturally lands on just the lowest-sorted unexpanded
+    node of each remaining component, one extra tree per component, still
+    blank-line separated and still deterministic.
     """
     children: dict[str, list[tuple[str, list[str]]]] = {}
     have_parent: set[str] = set()
@@ -233,4 +244,16 @@ def build_provenance_tree(edges: Mapping[tuple[str, str], set[str]]) -> list[str
         if index:
             lines.append("")
         walk(root, [], frozenset(), "", "")
+
+    # Second pass: any node still unexpanded belongs to a rootless component
+    # (every member has a parent, so the loop above never reached it). Walking
+    # the lowest-sorted unexpanded node marks its whole forward-reachable
+    # component expanded, so this loop naturally picks exactly one root per
+    # remaining component without tracking components explicitly.
+    for node in sorted(children):
+        if node in expanded:
+            continue
+        if lines:
+            lines.append("")
+        walk(node, [], frozenset(), "", "")
     return lines

@@ -300,3 +300,40 @@ def test_root_trees_are_separated_by_a_blank_line():
 
 def test_no_edges_yields_no_lines():
     assert build_provenance_tree({}) == []
+
+
+def test_a_bare_self_loop_is_not_dropped():
+    """X is its own only parent, so the normal root scan finds nothing
+    eligible -- the second pass must still walk X as its own root."""
+    edges = {("X", "X"): set()}
+    lines = _tree(edges)
+    assert lines == ["X", "└── X   (cycle)"]
+    shown = {_type_of(line) for line in lines}
+    assert shown == {"X"}
+    assert lines[-1].endswith("(cycle)")
+
+
+def test_a_mutual_pair_with_no_external_root_is_not_dropped():
+    """Neither A nor B has any parent outside the pair, so neither is
+    eligible under the normal root rule -- both must still appear."""
+    edges = {("A", "B"): set(), ("B", "A"): set()}
+    lines = _tree(edges)
+    assert lines == ["A", "└── B", "    └── A   (cycle)"]
+    shown = {_type_of(line) for line in lines}
+    assert shown == {"A", "B"}
+    assert [line for line in lines if line.endswith("(cycle)")]
+
+
+def test_a_detached_rootless_cycle_appears_alongside_a_normal_tree():
+    """A graph can mix a properly rooted tree with a separate rootless
+    component; both must be fully represented, not just the rooted one."""
+    edges = {
+        ("PAT", "PAV"): {"Consent"},
+        ("X", "X"): set(),
+    }
+    lines = _tree(edges)
+    shown = {_type_of(line) for line in lines}
+    for parent, child in edges:
+        assert parent in shown and child in shown
+    assert lines == ["PAT", "└── PAV   [Consent]", "", "X", "└── X   (cycle)"]
+    # The walk terminates -- a non-terminating second pass would hang the test.
