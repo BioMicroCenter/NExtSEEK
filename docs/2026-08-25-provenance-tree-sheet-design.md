@@ -64,7 +64,10 @@ AB
 ### Non-goals
 
 - No change to `derivation_edges` or `sample_type_depths`.
-- No change to the sheet's name, position, or to any other sheet.
+- ~~No change to the sheet's name, position, or to any other sheet.~~ **Revised
+  after review of the shipped output** (see §3 and §3b): the separate sheet is
+  gone and the tree moved onto the README, and `Controlled Vocabularies` is now
+  written hidden. The data sheets are still untouched.
 - No image or diagram. Considered and rejected: the sample-page graph is a
   client-side D3 v3 tree with no server-side rendering, and a picture would need
   either a headless browser (~300MB of browser binaries) or graphviz as a new
