@@ -903,8 +903,8 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         if send_event:
             try:
                 send_event(name, payload)
-            except Exception:  # noqa: BLE001 - progress events are advisory, never fatal
-                pass
+            except Exception as exc:  # noqa: BLE001 - progress events are advisory, never fatal
+                print(f"[DEBUG][PIPELINE_AGENT] send_event({name!r}) failed: {exc!r}")
 
     def _verdict_json(verdict, n_uids: int) -> str:
         state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
@@ -955,9 +955,7 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         return _verdict_json(selection.out_of_scope(
             "these are archive accessions, which carry no NExtSEEK metadata or protocol "
             "text to judge from — choose the pipeline from the request itself"), 0)
-    if not uids:
-        # Only reachable via kind == "last_search" here — explicit_uids already
-        # guaranteed non-empty above, and accessions already returned.
+    if kind == "last_search" and not uids:
         return _verdict_json(selection.out_of_scope(
             "there is no pinned search to profile"), 0)
 
@@ -1030,7 +1028,7 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         )
     except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
         return _verdict_json(selection.out_of_scope(
-            f"the selection model is not configured: {type(exc).__name__}: {exc}"), len(uids))
+            f"the selection model could not be run: {type(exc).__name__}: {exc}"), len(uids))
     return _verdict_json(verdict, len(uids))
 
 
