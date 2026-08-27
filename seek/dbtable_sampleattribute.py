@@ -4,7 +4,6 @@ import sys
 import time, json
 import simplejson
 import logging
-from typing import Dict, List
 logger = logging.getLogger(__name__)
 
 from seek.models import Sample_attributes
@@ -72,6 +71,28 @@ class DBtable_sampleattribute(DBtable):
             .values_list("sample_type_id", *columns)
         )
 
+    def _validBulkAttributeRows(self, ids, columns):
+        """Rows from _bulkAttributeRows(), with the skip/clean rules shared by
+        both bulk lookups applied once: drop rows whose sample_type_id doesn't
+        coerce to a positive-ish int, drop None titles, strip and drop blank
+        titles. Yields (sample_type_id, cleaned_title, *rest) -- `rest` holds
+        whatever extra columns were requested beyond "title", in order -- so
+        each public method can be a thin accumulation over this.
+        """
+        for row in self._bulkAttributeRows(ids, columns):
+            sid, title = row[0], row[1]
+            rest = row[2:]
+            try:
+                sid_int = int(sid)
+            except Exception:
+                continue
+            if title is None:
+                continue
+            t = str(title).strip()
+            if not t:
+                continue
+            yield (sid_int, t) + rest
+
     def getAttributeTitlesBySampleTypeIds(self, sample_type_ids):
         """
         Bulk fetch attribute titles for many sample types.
@@ -88,18 +109,10 @@ class DBtable_sampleattribute(DBtable):
             return {}
 
         out = {sid: [] for sid in ids}
-        for sid, title in self._bulkAttributeRows(ids, ["title"]):
-            try:
-                sid_int = int(sid)
-            except Exception:
-                continue
+        for sid_int, title in self._validBulkAttributeRows(ids, ["title"]):
             if sid_int not in out:
                 out[sid_int] = []
-            if title is None:
-                continue
-            t = str(title).strip()
-            if t:
-                out[sid_int].append(t)
+            out[sid_int].append(title)
         return out
 
     def getAttributeSpecsBySampleTypeIds(self, sample_type_ids):
@@ -119,22 +132,13 @@ class DBtable_sampleattribute(DBtable):
             return {}
 
         out = {sid: [] for sid in ids}
-        for sid, title, required, pos in self._bulkAttributeRows(
+        for sid_int, title, required, pos in self._validBulkAttributeRows(
             ids, ["title", "required", "pos"]
         ):
-            try:
-                sid_int = int(sid)
-            except Exception:
-                continue
             if sid_int not in out:
                 out[sid_int] = []
-            if title is None:
-                continue
-            t = str(title).strip()
-            if not t:
-                continue
             out[sid_int].append({
-                "title": t,
+                "title": title,
                 "required": bool(required),
                 "pos": int(pos) if pos is not None else 0,
             })
