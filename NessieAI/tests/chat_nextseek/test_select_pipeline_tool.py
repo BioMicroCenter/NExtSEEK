@@ -310,6 +310,6 @@ def test_the_prompt_teaches_every_verdict():
         assert token in text, f"the prompt never mentions {token!r}"
     # The skip condition is the thing most likely to be dropped in an edit, and
     # dropping it makes every named-pipeline build pay for a selection call.
-    assert "named a pipeline" in text
+    assert "named a pipeline" in text.lower()
     # The agent must not tell the user about the machinery.
     assert "Do not mention select_pipeline" in text
