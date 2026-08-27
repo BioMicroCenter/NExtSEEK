@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from chat_nextseek.pipeline import agent_tools, metadata_cache
+from chat_nextseek.pipeline import agent_tools
 from chat_nextseek.pipeline.sample_digest import DigestError
 from chat_nextseek.pipeline.selection import Verdict
 from chat_nextseek.pipeline.selection_context import PayloadTooLargeError
@@ -27,9 +27,10 @@ class _RaisingConfig(_Config):
 
 @pytest.fixture(autouse=True)
 def _clean():
-    metadata_cache.clear()
+    """No cache to clear any more (Task 6 removed metadata_cache), but
+    test_the_tool_is_exposed_first still names this fixture explicitly, so it
+    must keep existing."""
     yield
-    metadata_cache.clear()
 
 
 @pytest.fixture

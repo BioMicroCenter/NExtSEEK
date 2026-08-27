@@ -1,18 +1,4 @@
-import pytest
-
-from chat_nextseek.pipeline import metadata_cache
 from chat_nextseek.pipeline.agent_tools import PIPELINE_TOOL_SCHEMAS
-
-
-@pytest.fixture(autouse=True)
-def _clean_metadata_cache():
-    """tool_resolve_samples now drains the shared metadata_cache (Task 6). Several
-    tests below reuse the same literal UIDs with different mocked fetch data;
-    without clearing between tests, a later test would get an earlier test's
-    cached (and now stale) fetch instead of its own monkeypatched one."""
-    metadata_cache.clear()
-    yield
-    metadata_cache.clear()
 
 
 def test_tool_schemas_have_anthropic_shape():
