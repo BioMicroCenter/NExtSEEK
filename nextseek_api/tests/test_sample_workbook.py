@@ -16,6 +16,7 @@ from nextseek_api.services.sample_workbook import (
     FLOW_README_POINTER,
     FLOW_SHEET,
     FLOW_TYPE_WIDTH,
+    README_SHEET,
     SUMMARY_HEADER,
     build_readme_blocks,
     load_assay_titles,
@@ -813,3 +814,98 @@ def test_the_variants_block_documents_only_real_vocabularies():
     documented = set(doc["variants"]) - {"_excluded"}
     assert documented <= set(doc["vocabularies"])
     assert set(doc["variants"]["_excluded"]) <= set(doc["vocabularies"])
+
+
+# ---------------------------------------------------------------------------
+# Additive README extensions for the template workbook (Download Templates).
+# The sample-download path passes neither new argument and must be unaffected.
+# ---------------------------------------------------------------------------
+
+
+def test_blocks_without_the_new_arguments_are_byte_identical_to_before():
+    """The regression guard: sample downloads must not change shape."""
+    blocks = build_readme_blocks([("MUS", ["Sex"])], CONTEXT, {("MUS", "Sex"): "Sex at birth."})
+    assert blocks[0]["columns"] == [("Sex", "Sex at birth.")]
+    assert "required" not in blocks[0]
+    assert "relationships" not in blocks[0]
+
+
+def test_required_flags_arrive_as_a_parallel_list_not_wider_tuples():
+    blocks = build_readme_blocks(
+        [("MUS", ["UID", "Sex"])], CONTEXT, {},
+        required_by_pair={("MUS", "UID"): True, ("MUS", "Sex"): False},
+    )
+    assert blocks[0]["columns"] == [("UID", ""), ("Sex", "")]
+    assert blocks[0]["required"] == [True, False]
+
+
+def test_a_column_missing_from_required_by_pair_defaults_to_not_required():
+    blocks = build_readme_blocks(
+        [("MUS", ["UID", "Sex"])], CONTEXT, {},
+        required_by_pair={("MUS", "UID"): True},
+    )
+    assert blocks[0]["required"] == [True, False]
+
+
+def test_relationships_attach_per_code():
+    blocks = build_readme_blocks(
+        [("MUS", ["UID"])], CONTEXT, {},
+        relationships_by_code={"MUS": {"parents": ["AB"], "children": ["TIS"]}},
+    )
+    assert blocks[0]["relationships"] == {"parents": ["AB"], "children": ["TIS"]}
+
+
+def test_a_code_absent_from_relationships_gets_no_key():
+    blocks = build_readme_blocks(
+        [("MUS", ["UID"])], CONTEXT, {}, relationships_by_code={"TIS": {"parents": [], "children": ["DNA"]}},
+    )
+    assert "relationships" not in blocks[0]
+
+
+def test_readme_renders_a_required_column_only_when_flags_are_present(tmp_path):
+    from openpyxl import Workbook
+
+    from nextseek_api.services.sample_workbook import REQUIRED_TABLE_HEADER, _write_readme
+
+    book = Workbook()
+    blocks = build_readme_blocks(
+        [("MUS", ["UID"])], CONTEXT, {}, required_by_pair={("MUS", "UID"): True},
+    )
+    _write_readme(book, blocks, has_flow_sheet=False)
+    ws = book[README_SHEET]
+
+    values = [c.value for row in ws.iter_rows() for c in row]
+    assert REQUIRED_TABLE_HEADER == ["Column", "Required", "Meaning"]
+    assert "Required" in values
+
+
+def test_readme_without_flags_keeps_the_two_column_table(tmp_path):
+    from openpyxl import Workbook
+
+    from nextseek_api.services.sample_workbook import _write_readme
+
+    book = Workbook()
+    _write_readme(book, build_readme_blocks([("MUS", ["UID"])], CONTEXT, {}), has_flow_sheet=False)
+    ws = book[README_SHEET]
+
+    values = [c.value for row in ws.iter_rows() for c in row]
+    assert "Required" not in values
+    assert COLUMN_TABLE_HEADER == ["Column", "Meaning"]
+
+
+def test_readme_renders_the_relationships_line_when_present(tmp_path):
+    from openpyxl import Workbook
+
+    from nextseek_api.services.sample_workbook import _write_readme
+
+    book = Workbook()
+    blocks = build_readme_blocks(
+        [("MUS", ["UID"])], CONTEXT, {},
+        relationships_by_code={"MUS": {"parents": ["AB"], "children": ["TIS"]}},
+    )
+    _write_readme(book, blocks, has_flow_sheet=False)
+    ws = book[README_SHEET]
+
+    text = " ".join(str(c.value) for row in ws.iter_rows() for c in row if c.value)
+    assert "Typically derived from: AB" in text
+    assert "Typically feeds into: TIS" in text

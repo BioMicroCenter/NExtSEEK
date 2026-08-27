@@ -49,6 +49,10 @@ README_LINK_TEXT = "Sample type definitions: sampletypes_db.json (GitHub)"
 
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
+# The template workbook marks which columns upload validation requires. Sample
+# downloads carry real data whose required-ness is already settled, so they keep
+# the two-column table and this header is unused there.
+REQUIRED_TABLE_HEADER = ["Column", "Required", "Meaning"]
 SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
 FLOW_SHEET = "How this data flowed"
 FLOW_README_POINTER = f"How this data flowed: see the '{FLOW_SHEET}' sheet."
@@ -123,6 +127,8 @@ def build_readme_blocks(
     sheets: Iterable[tuple[str, Iterable[str]]],
     context_by_code: Mapping[str, Mapping[str, str]],
     meaning_by_pair: Mapping[tuple[str, str], str],
+    required_by_pair: Mapping[tuple[str, str], bool] | None = None,
+    relationships_by_code: Mapping[str, Mapping[str, list]] | None = None,
 ) -> list[dict]:
     """One block per sheet, in the order the sheets will be written.
 
@@ -130,19 +136,35 @@ def build_readme_blocks(
     in that order rather than sorted so the README can be read beside the tab.
     An undocumented sample type still gets a block, and a column with no
     definition is still listed, so the README always indexes the whole workbook.
+
+    `required_by_pair` and `relationships_by_code` serve the template workbook
+    and are optional. They add *separate* keys rather than widening `columns`,
+    because the sample-download path and its tests depend on `columns` being
+    (name, meaning) 2-tuples. Omit both and the output is what it has always
+    been.
     """
     blocks = []
     for code, columns in sheets:
         entry = context_by_code.get(code) or {}
-        blocks.append({
+        ordered = list(columns)
+        block = {
             "code": code,
             "name": entry.get("name", "") or "",
             "description": entry.get("description", "") or "",
             "columns": [
                 (column, meaning_by_pair.get((code, column), "") or "")
-                for column in columns
+                for column in ordered
             ],
-        })
+        }
+        if required_by_pair is not None:
+            block["required"] = [
+                bool(required_by_pair.get((code, column), False)) for column in ordered
+            ]
+        if relationships_by_code:
+            found = relationships_by_code.get(code)
+            if found:
+                block["relationships"] = found
+        blocks.append(block)
     return blocks
 
 
@@ -347,21 +369,46 @@ def _write_readme(book, blocks: list[dict], *, has_flow_sheet: bool) -> None:
     for block in blocks:
         heading = f"{block['code']} — {block['name']}" if block["name"] else block["code"]
         _write_cell(ws, row, 1, heading, bold=True)
-        row += 2  # heading, then a blank line before the column table
+        row += 1
+
+        # Relationships sit under the heading, before the column table: they say
+        # where the sheet belongs in a pipeline, which frames everything below.
+        related = block.get("relationships")
+        if related:
+            if related.get("parents"):
+                _write_cell(ws, row, 2,
+                            "Typically derived from: " + ", ".join(related["parents"]))
+                row += 1
+            if related.get("children"):
+                _write_cell(ws, row, 2,
+                            "Typically feeds into: " + ", ".join(related["children"]))
+                row += 1
+        row += 1  # blank line before the column table
+
         # A block whose columns all dropped out gets no table header: a bare
         # Column/Meaning row with nothing under it reads as a rendering bug.
         if block["columns"]:
-            for column, label in enumerate(COLUMN_TABLE_HEADER, start=2):
+            flags = block.get("required")
+            header = REQUIRED_TABLE_HEADER if flags is not None else COLUMN_TABLE_HEADER
+            for column, label in enumerate(header, start=2):
                 _write_cell(ws, row, column, label, bold=True)
             row += 1
-            for name, meaning in block["columns"]:
+            for index, (name, meaning) in enumerate(block["columns"]):
                 _write_cell(ws, row, 2, name)
-                _write_cell(ws, row, 3, meaning)
+                if flags is not None:
+                    _write_cell(ws, row, 3, "Yes" if flags[index] else "")
+                    _write_cell(ws, row, 4, meaning)
+                else:
+                    _write_cell(ws, row, 3, meaning)
                 row += 1
         row += 1  # blank line between sections
     ws.column_dimensions["A"].width = 46
     ws.column_dimensions["B"].width = 34
     ws.column_dimensions["C"].width = 100
+    if any(b.get("required") is not None for b in blocks):
+        # The meaning moved one column right, so widths shift with it.
+        ws.column_dimensions["C"].width = 10
+        ws.column_dimensions["D"].width = 100
 
 
 def _write_flow_sheet(book, rows: list[list[str]]) -> None:
