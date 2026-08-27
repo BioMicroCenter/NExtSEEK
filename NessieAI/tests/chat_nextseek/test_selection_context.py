@@ -275,3 +275,60 @@ def test_fetch_counts_are_zero_for_a_section_that_was_left_out():
 def test_an_unknown_section_name_is_rejected_rather_than_ignored():
     with pytest.raises(ValueError, match="unknown payload section"):
         _build().to_prompt_text(["atlas", "digset"])
+
+
+def test_sections_without_docs_fetches_no_docs():
+    """Dropping the docs section must drop its fetches, not just its rendering."""
+    doc_calls = []
+
+    def docs_getter(pipeline, revision):
+        doc_calls.append(pipeline)
+        return {"readme": "r", "usage": "u", "output": "o"}
+
+    ctx = build_selection_context(
+        config=None, uids=["D.SEQ-1"], digest=DIGEST, atlas=ATLAS,
+        schema_getter=_schema_getter(), docs_getter=docs_getter,
+        sections=("atlas", "digest", "schemas"),
+    )
+    assert doc_calls == []
+    assert ctx.docs == {}
+    assert "NF-CORE PIPELINE DOCS" not in ctx.to_prompt_text(("atlas", "digest", "schemas"))
+
+
+def test_sections_without_schemas_fetches_no_schemas():
+    schema_calls = []
+
+    def schema_getter(pipeline, revision):
+        schema_calls.append(pipeline)
+        return {"nextflow_schema": {}}
+
+    build_selection_context(
+        config=None, uids=["D.SEQ-1"], digest=DIGEST, atlas=ATLAS,
+        schema_getter=schema_getter, docs_getter=lambda p, r: {},
+        sections=("atlas", "digest"),
+    )
+    assert schema_calls == []
+
+
+def test_sections_none_still_fetches_everything():
+    """The default is unchanged, so the eval harness keeps its four-section arm."""
+    doc_calls, schema_calls = [], []
+    build_selection_context(
+        config=None, uids=["D.SEQ-1"], digest=DIGEST, atlas=ATLAS,
+        schema_getter=lambda p, r: schema_calls.append(p) or {"nextflow_schema": {}},
+        docs_getter=lambda p, r: doc_calls.append(p) or {"readme": "r"},
+    )
+    assert sorted(doc_calls) == sorted(schema_calls)
+    assert len(schema_calls) == len([k for k in RICH_PIPELINES if k in ATLAS["pipelines"]])
+
+
+def test_size_ceiling_measures_only_the_requested_sections():
+    """A payload under the ceiling for its own sections must not be refused
+    because the sections it is not sending would have pushed it over."""
+    big_digest = {**DIGEST, "filler": "x" * 40_000}
+    ctx = build_selection_context(
+        config=None, uids=["D.SEQ-1"], digest=big_digest, atlas=ATLAS,
+        schema_getter=_schema_getter(), docs_getter=lambda p, r: {},
+        sections=("atlas", "digest"), max_tokens=20_000,
+    )
+    assert ctx.size_report(("atlas", "digest"))["est_tokens"] <= 20_000
