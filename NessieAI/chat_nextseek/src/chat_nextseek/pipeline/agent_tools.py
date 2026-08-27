@@ -1,6 +1,7 @@
 """Tools + dispatch for the full-agentic nf-core pipeline agent.
 
 Anthropic-style tools driven by BedrockClient.chat_with_tools (submit tools exposed per config):
+  - select_pipeline:   samples' own metadata/protocols + the question -> a pipeline verdict
   - resolve_samples:   UIDs/last-search -> compact leaf table (+ caches refs)
   - write_samplesheet: agent-built cohorts -> validated samplesheet CSV (CSV only)
   - configure_run:     curated params + species references -> params.yml + launch.yml
@@ -99,7 +100,8 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "resolve_samples",
         "description": (
-            "Resolve a sample reference into a per-leaf metadata table. Call this FIRST. "
+            "Resolve a sample reference into a per-leaf metadata table. Call this after "
+            "select_pipeline, or directly when the user named the pipeline themselves. "
             "ref.kind is 'last_search' (the user's most recent search results), "
             "'explicit_uids' (uids you were given), or 'accessions' (raw GEO/ENA accessions "
             "for fetchngs). Returns each sequencing leaf with its uid, sample_type, assay, "
