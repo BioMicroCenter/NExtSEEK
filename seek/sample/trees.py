@@ -302,7 +302,7 @@ class SampleTreesMixin:
         return headers_new, diclist_new, headersMapping
 
     def _createSampleTreeFromDB(self, sample_ids):
-        from .models import Sample_tree
+        from ..models import Sample_tree
         
         includeChilren = True
         parentList = []

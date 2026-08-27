@@ -186,7 +186,7 @@ class SampleQueriesMixin:
         # it is not part of the sample select. Imported here rather than at module
         # scope to keep the dependency one-way — see
         # docs/2026-08-21-publication-links-design.md.
-        from .publications import attach_publications
+        from ..publications import attach_publications
         attach_publications(jdata_new)
 
         footer = []
@@ -200,7 +200,7 @@ class SampleQueriesMixin:
             (sqlquery_filter, params) since #93. The fragment contains only %s
             placeholders; every client-supplied value is in params.
         '''
-        from .search import Search
+        from ..search import Search
         spi = Search('')
         # #93: designSearchAdvanced returns (fragment, params) on all four of its
         # return paths instead of splicing request values in as quoted literals.
@@ -251,7 +251,7 @@ class SampleQueriesMixin:
         # only integer study ids, resolved through a parameterized lookup first —
         # so params is untouched. Same WHERE-or-AND handling as the scope above,
         # because an unfiltered search emits no WHERE at all.
-        from .publications import publication_predicate
+        from ..publications import publication_predicate
         pub_clause = publication_predicate(
             filtersdic.get('publication_query'),
             filtersdic.get('published_only', False),
