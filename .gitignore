@@ -243,3 +243,7 @@ nessie_bayes_*/
 # a local index, not source — and a `git add -A` that swept it in would be hard
 # to undo on a repo this widely forked.
 graphify-out/
+
+# Generated publication-transfer data, regenerable from the documented queries
+sample_publication_attributes/prod_pairs.tsv
+prod_publication_transfer/all_52_publications.sql

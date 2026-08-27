@@ -1,16 +1,16 @@
-"""Turn the DOIs sitting in study-description prose into study attributes.
-
-Two phases, deliberately separated by a human:
+"""Extract the DOIs sitting in study-description prose, for curator review.
 
     uv run manage.py fill_study_publications --extract --out review.tsv
-    # curator edits the `approve` column
-    uv run manage.py fill_study_publications --apply review.tsv
 
-Nothing is written to any database by --extract. --apply writes only rows whose
-`approve` column is exactly "yes" (case-insensitive), so an unreviewed file
-writes nothing.
+Nothing is written to any database. The reviewed file is the input a curator
+uses to fill the DOI and PMID attributes on the samples themselves.
 
-See docs/2026-08-21-publication-links-design.md, "Backfill".
+This command used to have an --apply phase that wrote studies.doi/studies.pmid.
+Those columns were retired on 2026-08-26 when DOI and PMID became attributes of
+the sample: study-level DOI cannot work on production, where every assay points
+at one of 7 project-level studies. The extraction and Crossref/PubMed
+verification are useful independently of where the answer is stored, which is
+why this half survives.
 """
 
 from __future__ import annotations
@@ -27,8 +27,18 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connections
 
 from seek.doi_extract import extract_publication_candidates
-from seek.publications import _rows, ensure_study_publication_columns
-from seek.publications_graph import try_sync_study_publications
+
+
+def _rows(sql: str, params: list | None = None) -> list[dict]:
+    """Run a parameterized query on the SEEK connection, return dict rows.
+
+    Inlined from the retired seek.publications module, which had no other
+    surviving caller.
+    """
+    with connections[settings.SEEK_DATABASE].cursor() as cursor:
+        cursor.execute(sql, params or [])
+        columns = [c[0] for c in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 REVIEW_COLUMNS = [
     "approve",
@@ -108,20 +118,6 @@ def ids_for_pmc(pmc_id: str) -> dict:
         return parse_esummary_ids(response.json(), numeric)
     except Exception:
         return {}
-
-
-def curator_doi(text: str) -> str | None:
-    """The DOI in a hand-entered value, or None.
-
-    Curators paste whatever the publisher shows them — usually a
-    https://doi.org/... URL rather than a bare DOI — so this runs the same
-    extractor used on descriptions. That also means hand-entered values inherit
-    the rules that reject truncated prefixes and supplementary sub-DOIs.
-    """
-    for candidate in extract_publication_candidates(text):
-        if candidate.kind == "doi":
-            return candidate.value
-    return None
 
 
 def title_similarity(a: str | None, b: str | None) -> float:
@@ -234,29 +230,12 @@ def build_review_rows(studies: list[dict], resolver) -> list[dict]:
     return rows
 
 
-def parse_review_file(path: str) -> list[dict]:
-    """Rows the curator approved. Anything not exactly "yes" is ignored."""
-    with open(path, encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
-        return [r for r in reader if (r.get("approve") or "").strip().lower() == "yes"]
-
-
-def _write_study(study_id: int, doi: str, pmid) -> None:
-    with connections[settings.SEEK_DATABASE].cursor() as cursor:
-        cursor.execute(
-            "UPDATE studies SET doi = %s, pmid = %s WHERE id = %s",
-            [doi or None, int(pmid) if pmid else None, int(study_id)],
-        )
-
-
 class Command(BaseCommand):
-    help = "Extract DOIs from study descriptions for review, then fill studies.doi/pmid."
+    help = "Extract DOIs from study descriptions for curator review."
 
     def add_arguments(self, parser):
         parser.add_argument("--extract", action="store_true",
                             help="Write a review file. Touches no database.")
-        parser.add_argument("--apply", metavar="FILE",
-                            help="Fill studies.doi/pmid from a reviewed file.")
         parser.add_argument("--out", default="study_publication_review.tsv",
                             help="Where --extract writes its review file.")
         parser.add_argument("--offline", action="store_true",
@@ -265,12 +244,9 @@ class Command(BaseCommand):
                             help="Resolution cache path.")
 
     def handle(self, *args, **options):
-        if bool(options["extract"]) == bool(options["apply"]):
-            raise CommandError("pass exactly one of --extract or --apply")
-        if options["extract"]:
-            self._extract(options)
-        else:
-            self._apply(options)
+        if not options["extract"]:
+            raise CommandError("pass --extract")
+        self._extract(options)
 
     def _extract(self, options):
         studies = _rows("SELECT id, title, description FROM studies ORDER BY id")
@@ -293,39 +269,6 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             "Nothing was written to the database. Set `approve` to yes on the rows "
-            "you accept, checking title_similarity, then rerun with --apply."
+            "you accept, checking title_similarity, then use the reviewed file to "
+            "fill the DOI and PMID attributes on the samples."
         )
-
-    def _apply(self, options):
-        approved = parse_review_file(options["apply"])
-        if not approved:
-            self.stdout.write("No rows approved — nothing to do.")
-            return
-
-        added = ensure_study_publication_columns()
-        if added:
-            self.stdout.write(f"added columns to studies: {added}")
-
-        for row in approved:
-            raw = (row.get("normalized_doi") or "").strip()
-            if not raw:
-                raise CommandError(f"study {row['study_id']}: approved row has no DOI")
-            # Curators paste whatever the publisher shows them — usually a
-            # https://doi.org/... URL. Normalize to a bare DOI so the column holds
-            # one shape, and so the same rules that reject supplementary sub-DOIs
-            # apply to hand-entered values too.
-            doi = curator_doi(raw)
-            if doi is None:
-                raise CommandError(
-                    f"study {row['study_id']}: {raw!r} is not a usable DOI "
-                    "(truncated, or a supplementary-file sub-DOI)"
-                )
-            _write_study(int(row["study_id"]), doi, row.get("pmid"))
-
-        synced = try_sync_study_publications()
-        self.stdout.write(
-            f"filled {len(approved)} studies; graph sync "
-            f"{'ok' if synced else 'deferred'}"
-        )
-        if not synced:
-            self.stdout.write("Run `manage.py sync_study_publications` to repair the graph.")

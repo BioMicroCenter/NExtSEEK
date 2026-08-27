@@ -165,11 +165,6 @@ def sample(request, id):
     report['sampledic'] = sampledic
     report['sampleinfo'] = samplelist
 
-    # The paper this sample appears in, inherited from its studies. Same helper
-    # the search results column uses, so the two can never disagree.
-    from .publications import publications_for_sample
-    report['publications'] = publications_for_sample(sample_id)
-
     return render(request,"samples.html", {'bodyhtml' : bodyhtml, 'report':report})
 
 def sampleTree(request, uid):
