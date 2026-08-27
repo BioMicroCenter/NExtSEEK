@@ -68,6 +68,35 @@ from ..seqera.nfcore_atlas import load_atlas
 
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
+        "name": "select_pipeline",
+        "description": (
+            "Choose an nf-core pipeline from the samples' own metadata and protocols "
+            "plus the user's question. Call this FIRST, BEFORE resolve_samples, whenever "
+            "the user described what they want to LEARN rather than naming a pipeline. "
+            "Do NOT call it when the user named a pipeline outright ('run rnaseq on these') "
+            "— go straight to resolve_samples. Returns a verdict: 'chosen' (use it), "
+            "'fork' (ask the user which), 'refused' (these samples cannot answer that — "
+            "conclude(rejected)), or 'out_of_scope' (decide for yourself from the catalog, "
+            "exactly as you would if this tool did not exist). Only RNA pipelines are "
+            "covered; everything else comes back out_of_scope, which is normal."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["last_search", "explicit_uids", "accessions"]},
+                "uids": {"type": "array", "items": {"type": "string"},
+                         "description": "Required when kind='explicit_uids'."},
+                "accessions": {"type": "array", "items": {"type": "string"},
+                               "description": "Required when kind='accessions'."},
+                "question": {"type": "string",
+                             "description": ("The user's question in their own words, VERBATIM. "
+                                             "Do not paraphrase, summarise, or translate it into "
+                                             "pipeline terms — the wording is what is being judged.")},
+            },
+            "required": ["kind", "question"],
+        },
+    },
+    {
         "name": "resolve_samples",
         "description": (
             "Resolve a sample reference into a per-leaf metadata table. Call this FIRST. "
@@ -233,6 +262,7 @@ _SCHEMA_BY_NAME = {t["name"]: t for t in PIPELINE_TOOL_SCHEMAS}
 def build_pipeline_tool_schemas(config) -> list[dict[str, Any]]:
     """Expose only the submit tools whose backend env is complete (core + conclude always)."""
     tools = [
+        _SCHEMA_BY_NAME["select_pipeline"],
         _SCHEMA_BY_NAME["resolve_samples"],
         _SCHEMA_BY_NAME["write_samplesheet"],
         _SCHEMA_BY_NAME["configure_run"],
@@ -1032,8 +1062,11 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
     return _verdict_json(verdict, len(uids))
 
 
-def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict, log_dir: str) -> str:
+def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict,
+                                log_dir: str, send_event=None) -> str:
     """Route a non-control tool to its implementation. 'conclude' is intercepted by the loop."""
+    if name == "select_pipeline":
+        return tool_select_pipeline(config, session, state, tool_input, send_event=send_event)
     if name == "resolve_samples":
         pipeline_key = state.get("pipeline_key") or tool_input.get("pipeline_key") or ""
         return tool_resolve_samples(config, session, state, tool_input, pipeline_key)

@@ -19,7 +19,8 @@ def test_tower_never_exposed_even_when_env_complete():
     assert "submit_to_luria" not in names           # luria env absent here
     # `handoff` is always exposed: an open build must never be able to trap the
     # conversation when the user asks about something else.
-    assert names == ["resolve_samples", "write_samplesheet", "configure_run", "conclude", "handoff"]
+    assert names == ["select_pipeline", "resolve_samples", "write_samplesheet", "configure_run",
+                     "conclude", "handoff"]
 
 
 def test_exposure_luria_only():
@@ -34,7 +35,8 @@ def test_exposure_luria_only_when_both_env_complete():
 
 def test_exposure_neither_still_has_core_and_conclude():
     names = _names(at.build_pipeline_tool_schemas(_Cfg(tower=False, luria=False)))
-    assert names == ["resolve_samples", "write_samplesheet", "configure_run", "conclude", "handoff"]
+    assert names == ["select_pipeline", "resolve_samples", "write_samplesheet", "configure_run",
+                     "conclude", "handoff"]
 
 
 def test_handoff_is_always_exposed():
@@ -93,5 +95,5 @@ def test_tool_submit_to_luria_leaves_gencode_off_for_ensembl_macaque(monkeypatch
 def test_existing_static_schema_unchanged():
     # Regression guard: the Tower-era constant, plus the handoff control tool.
     assert {t["name"] for t in at.PIPELINE_TOOL_SCHEMAS} == {
-        "resolve_samples", "write_samplesheet", "configure_run", "submit_to_tower",
-        "conclude", "handoff"}
+        "select_pipeline", "resolve_samples", "write_samplesheet", "configure_run",
+        "submit_to_tower", "conclude", "handoff"}

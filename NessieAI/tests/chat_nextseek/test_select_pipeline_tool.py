@@ -262,3 +262,38 @@ def test_a_raising_size_report_does_not_crash_the_call(monkeypatch, patched):
     out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"})
     assert out["ok"] is True
     assert out["verdict"] == "chosen"
+
+
+def test_the_tool_is_exposed_first(_clean):
+    names = [t["name"] for t in agent_tools.build_pipeline_tool_schemas(_Config())]
+    assert names[0] == "select_pipeline"
+    assert names[1] == "resolve_samples"
+
+
+def test_the_schema_demands_a_verbatim_question():
+    schema = agent_tools._SCHEMA_BY_NAME["select_pipeline"]
+    props = schema["input_schema"]["properties"]
+    assert schema["input_schema"]["required"] == ["kind", "question"]
+    assert "verbatim" in props["question"]["description"].lower()
+
+
+def test_dispatch_routes_select_pipeline(patched):
+    out = json.loads(agent_tools.dispatch_pipeline_tool_call(
+        config=_Config(), session={}, state={}, name="select_pipeline",
+        tool_input={"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"},
+        log_dir="."))
+    assert out["verdict"] == "chosen"
+
+
+def test_dispatch_forwards_send_event(patched):
+    seen = []
+    agent_tools.dispatch_pipeline_tool_call(
+        config=_Config(), session={}, state={}, name="select_pipeline",
+        tool_input={"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"},
+        log_dir=".", send_event=lambda n, p: seen.append(n))
+    assert "selection_done" in seen
+
+
+def test_max_iter_has_headroom_for_the_extra_tool():
+    from chat_nextseek.pipeline import agent
+    assert agent.MAX_ITER >= 13

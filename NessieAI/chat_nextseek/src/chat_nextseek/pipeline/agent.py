@@ -2,9 +2,11 @@
 
 One BedrockClient.chat_with_tools conversation per session. The LLM picks the
 pipeline, judges data-type fit, builds cohorts, and asks the user when unsure.
-Five tools (resolve_samples, write_samplesheet, configure_run, submit_to_luria,
-conclude) do the deterministic I/O; write_samplesheet builds the CSV (rejecting
-refs the agent didn't resolve), configure_run builds params.yml + launch.yml.
+Six tools (select_pipeline, resolve_samples, write_samplesheet, configure_run,
+submit_to_luria, conclude) do the deterministic I/O; select_pipeline judges the
+pipeline from the cohort's own evidence, write_samplesheet builds the CSV
+(rejecting refs the agent didn't resolve), configure_run builds params.yml +
+launch.yml.
 
 Public surface (unchanged contract with the orchestrator):
 - is_active(session) -> bool
@@ -28,7 +30,10 @@ from ..helpers import summarize_pinned_bundle
 from ..seqera.catalog import catalog_for_prompt
 
 PIPELINE_AGENT_KEY = "pipeline_agent"
-MAX_ITER = 12
+# 12 covered the five-tool loop. select_pipeline consumes one more before
+# resolve_samples ever runs, and a 'fork' verdict spends a further round-trip
+# waiting for the user, so the old budget would run out mid-build.
+MAX_ITER = 13
 CANCEL_TOKENS = {"cancel", "/cancel", "abort", "never mind", "drop", "drop it"}
 
 
