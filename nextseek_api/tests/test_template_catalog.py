@@ -175,3 +175,139 @@ class TestLoadCatalog:
         for entry in entries:
             assert len(entry.code) <= MAX_SHEET_NAME
             assert not (set(entry.code) & ILLEGAL_SHEET_CHARS)
+
+
+KNOWN = {"DNA", "RNA", "BAC", "CEL", "TIS", "AB", "CHM", "D.TITR", "D.IMG",
+         "A.GEX", "A.ALN", "D.SEQ", "PAV", "MUS"}
+
+
+class TestParseRelated:
+    """sample_types_context relationship columns are free text. Real values from
+    the seed database, separators and all."""
+
+    def test_splits_on_the_word_or_and_drops_wildcards(self):
+        from nextseek_api.services.template_catalog import parse_related
+
+        raw = "DNA or RNA or BAC or D.TITR or D.AD**, or D.IMG or CEL"
+        assert parse_related(raw, KNOWN) == ["DNA", "RNA", "BAC", "D.TITR", "D.IMG", "CEL"]
+
+    def test_splits_on_commas_and_a_stray_period(self):
+        """MUS.parent_sampletypes is literally 'AB, BAC. CHM'."""
+        from nextseek_api.services.template_catalog import parse_related
+
+        assert parse_related("AB, BAC. CHM", KNOWN) == ["AB", "BAC", "CHM"]
+
+    def test_a_clean_comma_list_is_unchanged(self):
+        from nextseek_api.services.template_catalog import parse_related
+
+        assert parse_related("A.GEX, A.ALN", KNOWN) == ["A.GEX", "A.ALN"]
+
+    def test_unknown_codes_are_dropped_silently(self):
+        from nextseek_api.services.template_catalog import parse_related
+
+        assert parse_related("DNA, NOPE, A.GEX", KNOWN) == ["DNA", "A.GEX"]
+
+    def test_duplicates_collapse_keeping_first_appearance(self):
+        from nextseek_api.services.template_catalog import parse_related
+
+        assert parse_related("DNA or RNA or DNA", KNOWN) == ["DNA", "RNA"]
+
+    def test_empty_and_none_yield_an_empty_list(self):
+        from nextseek_api.services.template_catalog import parse_related
+
+        assert parse_related("", KNOWN) == []
+        assert parse_related(None, KNOWN) == []
+
+    def test_a_code_containing_or_is_not_split_apart(self):
+        """'or' is only a separator when it stands alone."""
+        from nextseek_api.services.template_catalog import parse_related
+
+        assert parse_related("CORE, DNA", KNOWN | {"CORE"}) == ["CORE", "DNA"]
+
+
+class TestLoadRelationships:
+    def _context(self, rows):
+        m = MagicMock()
+        m.objects.filter.return_value.values.return_value = rows
+        return m
+
+    def test_maps_code_to_parents_and_children(self):
+        from nextseek_api.services.template_catalog import load_relationships
+
+        rows = [{"sample_type": "DNA",
+                 "parent_sampletypes": "CEL or TIS",
+                 "child_sampletypes": "D.SEQ"}]
+        with patch(f"{_MOD}.Sample_types_context", self._context(rows)):
+            out = load_relationships(["DNA"], KNOWN)
+
+        assert out == {"DNA": {"parents": ["CEL", "TIS"], "children": ["D.SEQ"]}}
+
+    def test_a_code_with_both_sides_empty_is_omitted(self):
+        """So the README omits the line rather than printing an empty one."""
+        from nextseek_api.services.template_catalog import load_relationships
+
+        rows = [{"sample_type": "ZZZ", "parent_sampletypes": "", "child_sampletypes": None}]
+        with patch(f"{_MOD}.Sample_types_context", self._context(rows)):
+            assert load_relationships(["ZZZ"], KNOWN) == {}
+
+    def test_a_failing_lookup_yields_no_relationships_not_an_error(self):
+        from nextseek_api.services.template_catalog import load_relationships
+
+        broken = MagicMock()
+        broken.objects.filter.side_effect = RuntimeError("db down")
+        with patch(f"{_MOD}.Sample_types_context", broken):
+            assert load_relationships(["DNA"], KNOWN) == {}
+
+
+class TestSuggest:
+    REL = {
+        "PAT": {"parents": [], "children": ["PAV"]},
+        "TIS": {"parents": ["MUS"], "children": ["DNA", "RNA"]},
+        "DNA": {"parents": ["TIS"], "children": ["D.SEQ"]},
+        "D.SEQ": {"parents": ["DNA"], "children": ["A.GEX", "A.ALN"]},
+    }
+
+    def test_offers_children_of_everything_selected(self):
+        from nextseek_api.services.template_catalog import suggest
+
+        assert set(suggest(["D.SEQ"], self.REL)) == {"A.GEX", "A.ALN"}
+
+    def test_never_offers_parents(self):
+        """Selecting D.SEQ must not push DNA back at a user who already has it."""
+        from nextseek_api.services.template_catalog import suggest
+
+        assert "DNA" not in suggest(["D.SEQ"], self.REL)
+
+    def test_excludes_what_is_already_selected(self):
+        from nextseek_api.services.template_catalog import suggest
+
+        assert suggest(["TIS", "DNA", "RNA"], self.REL) == ["D.SEQ"]
+
+    def test_is_one_hop_only(self):
+        """PAT -> PAV, and no further."""
+        from nextseek_api.services.template_catalog import suggest
+
+        assert suggest(["PAT"], self.REL) == ["PAV"]
+
+    def test_orders_by_how_many_selected_types_name_it_then_by_code(self):
+        from nextseek_api.services.template_catalog import suggest
+
+        rel = {
+            "A": {"parents": [], "children": ["SHARED", "ZONLY"]},
+            "B": {"parents": [], "children": ["SHARED", "AONLY"]},
+        }
+        assert suggest(["A", "B"], rel) == ["SHARED", "AONLY", "ZONLY"]
+
+    def test_caps_at_max_suggestions(self):
+        from nextseek_api.services.template_catalog import MAX_SUGGESTIONS, suggest
+
+        children = [f"C{i:02d}" for i in range(30)]
+        rel = {"A": {"parents": [], "children": children}}
+        out = suggest(["A"], rel)
+        assert len(out) == MAX_SUGGESTIONS == 12
+        assert out == children[:12]
+
+    def test_no_selection_yields_no_suggestions(self):
+        from nextseek_api.services.template_catalog import suggest
+
+        assert suggest([], self.REL) == []

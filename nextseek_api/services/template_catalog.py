@@ -5,7 +5,7 @@ Pure data: no Django request objects and no openpyxl. The writer in
 returns, so neither has to reach into the database itself.
 
 Grouping is done here rather than by reusing
-`DBtable_sampleattribute.getSampleTypes()`, whose rule is only `A.` / `D.` /
+`DBtable_sampletype.getSampleTypes()`, whose rule is only `A.` / `D.` /
 else and so files `M.LMM` and `M.CNN` under "Experimental". The search pages
 depend on that function's output, so it is left alone.
 """
@@ -13,9 +13,10 @@ depend on that function's output, so it is left alone.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 
-from seek.models import Sample_types
+from seek.models import Sample_types, Sample_types_context
 
 from nextseek_api.services.sample_workbook import load_sample_type_context
 
@@ -89,3 +90,92 @@ def load_catalog() -> list[SampleTypeEntry]:
 
     entries.sort(key=lambda e: (_GROUP_ORDER[e.group], e.code))
     return entries
+
+
+# Relationship columns are curated free text, not a delimited list. Real values:
+#   TIS.child_sampletypes  = "DNA or RNA or BAC or D.TITR or D.AD**, or CEL"
+#   MUS.parent_sampletypes = "AB, BAC. CHM"
+# Comma, semicolon, a standalone "or", and a stray period all separate; a
+# wildcard like D.AD** is not a code. Splitting on a bare "." would break every
+# D./A./M. code, so the period is only a separator when it is followed by
+# whitespace.
+_RELATED_SPLIT = re.compile(r",|;|\.\s+|\s+or\s+", flags=re.IGNORECASE)
+
+MAX_SUGGESTIONS = 12
+
+
+def parse_related(raw, known) -> list[str]:
+    """Codes named in a relationship column, in order, deduped.
+
+    Anything that is not an exact match for a known sample type code is dropped
+    silently: a suggestion is a convenience, and a malformed token must never
+    surface to the user or raise.
+    """
+    if not raw:
+        return []
+
+    out = []
+    for token in _RELATED_SPLIT.split(str(raw)):
+        code = token.strip().strip(".").strip()
+        if code in known and code not in out:
+            out.append(code)
+    return out
+
+
+def load_relationships(codes, known) -> dict[str, dict[str, list[str]]]:
+    """{code: {"parents": [...], "children": [...]}} for the codes given.
+
+    A code whose two sides are both empty is omitted rather than mapped to empty
+    lists, so a caller can test membership to decide whether to render anything.
+    """
+    wanted = sorted({c for c in codes if c})
+    if not wanted:
+        return {}
+
+    try:
+        rows = list(
+            Sample_types_context.objects.filter(sample_type__in=wanted).values(
+                "sample_type", "parent_sampletypes", "child_sampletypes"
+            )
+        )
+    except Exception:
+        # Soft, like every other enrichment here: no relationships costs the
+        # suggestion strip and a README line, never the download.
+        logger.exception("sample_types_context unavailable; no relationships")
+        return {}
+
+    out = {}
+    for row in rows:
+        code = row.get("sample_type")
+        if not code:
+            continue
+        parents = parse_related(row.get("parent_sampletypes"), known)
+        children = parse_related(row.get("child_sampletypes"), known)
+        if parents or children:
+            out[code] = {"parents": parents, "children": children}
+    return out
+
+
+def suggest(selected, relationships) -> list[str]:
+    """Types commonly used with the current selection.
+
+    Children only, one hop. Parents are excluded because suggesting DNA to
+    someone who just picked D.SEQ names something they almost certainly already
+    have. One hop because PAT's transitive closure is most of the catalog.
+
+    Ordered by how many selected types name each candidate, then by code, and
+    capped -- the UI's "add all" adds exactly what is shown, never a hidden tail.
+    """
+    chosen = list(selected or [])
+    if not chosen:
+        return []
+
+    counts = {}
+    for code in chosen:
+        for child in (relationships.get(code) or {}).get("children", []):
+            if child in chosen:
+                continue
+            counts[child] = counts.get(child, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [code for code, _ in ranked[:MAX_SUGGESTIONS]]
