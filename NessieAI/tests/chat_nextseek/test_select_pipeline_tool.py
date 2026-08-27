@@ -313,3 +313,60 @@ def test_the_prompt_teaches_every_verdict():
     assert "named a pipeline" in text.lower()
     # The agent must not tell the user about the machinery.
     assert "Do not mention select_pipeline" in text
+
+
+def test_agent_loop_threads_send_event_into_the_tool(monkeypatch):
+    """The events exist only if the loop passes the callback down."""
+    from chat_nextseek.pipeline import agent
+
+    seen = []
+    captured = {}
+
+    def fake_dispatch(*, config, session, state, name, tool_input, log_dir, send_event=None):
+        captured["send_event"] = send_event
+        if send_event:
+            send_event("selection_started", {})
+        return json.dumps({"ok": True, "verdict": "chosen", "pipelines": ["rnaseq"]})
+
+    class _Client:
+        def __init__(self):
+            self.n = 0
+
+        def chat_with_tools(self, *, messages, tools, system, model):
+            self.n += 1
+            if self.n == 1:
+                return {"content": [{"type": "tool_use", "id": "t1",
+                                     "name": "select_pipeline",
+                                     "input": {"kind": "explicit_uids",
+                                               "uids": ["D.SEQ-1"], "question": "q"}}]}
+            return {"content": [{"type": "text", "text": "Using nf-core/rnaseq."}]}
+
+    class _Cfg:
+        LOG_DIR = "."
+        PIPELINE_LAUNCH_MODE = "luria"
+
+        def get_agent_model(self, key):
+            return _Client(), "m", None
+
+        def _load_prompt(self, name):
+            return "prompt {catalog} {launch_mode}"
+
+    monkeypatch.setattr(agent, "dispatch_pipeline_tool_call", fake_dispatch)
+    monkeypatch.setattr(agent, "catalog_for_prompt", lambda: "CATALOG")
+
+    session = {}
+    agent.start(session, _Cfg(), user_query="which isoforms change?",
+                send_event=lambda n, p: seen.append(n))
+    assert captured["send_event"] is not None
+    assert "selection_started" in seen
+
+
+def test_agent_start_without_send_event_still_works(monkeypatch):
+    """The CC bridge calls start() with no callback; that must stay legal."""
+    from chat_nextseek.pipeline import agent
+    import inspect
+
+    sig = inspect.signature(agent.start)
+    assert sig.parameters["send_event"].default is None
+    sig2 = inspect.signature(agent.handle_turn)
+    assert sig2.parameters["send_event"].default is None

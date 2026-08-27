@@ -318,7 +318,8 @@ def run_pipeline_launch(
     if send_event:
         send_event("agent_started", {"agent": "pipeline_agent", "mode": "pipeline"})
 
-    pa_start = pipeline_agent.start(session, config, user_query=user_text, log_dir=log_dir)
+    pa_start = pipeline_agent.start(session, config, user_query=user_text, log_dir=log_dir,
+                                    send_event=send_event)
     reply = pa_start.get("reply") or ""
     snapshot = pipeline_agent.snapshot_for_chat_log(session)
     debug_payload = {"pipeline_agent": snapshot}
@@ -585,7 +586,8 @@ def _handle_pipeline_agent_turn(
     """
     if not pipeline_agent.is_active(session):
         return None
-    result = pipeline_agent.handle_turn(session, config, user_text, log_dir=log_dir)
+    result = pipeline_agent.handle_turn(session, config, user_text, log_dir=log_dir,
+                                        send_event=send_event)
     action = result.get("action")
     if action == "passthrough":
         pipeline_agent.clear(session)
@@ -869,6 +871,7 @@ def run_query(
                         parser_plan=plan,
                         reporter_plan=reporter_plan,
                         log_dir=log_dir,
+                        send_event=send_event,
                     )
                     reply = pa_start.get("reply") or ""
                     snapshot = pipeline_agent.snapshot_for_chat_log(session)
