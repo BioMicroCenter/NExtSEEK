@@ -298,3 +298,18 @@ def test_dispatch_forwards_send_event(patched):
 def test_max_iter_has_headroom_for_the_extra_tool():
     from chat_nextseek.pipeline import agent
     assert agent.MAX_ITER >= 13
+
+
+def test_the_prompt_teaches_every_verdict():
+    from pathlib import Path
+
+    import chat_nextseek
+
+    text = (Path(chat_nextseek.__file__).parent / "prompts" / "pipeline_agent.txt").read_text()
+    for token in ("select_pipeline", "chosen", "fork", "refused", "out_of_scope"):
+        assert token in text, f"the prompt never mentions {token!r}"
+    # The skip condition is the thing most likely to be dropped in an edit, and
+    # dropping it makes every named-pipeline build pay for a selection call.
+    assert "named a pipeline" in text
+    # The agent must not tell the user about the machinery.
+    assert "Do not mention select_pipeline" in text
