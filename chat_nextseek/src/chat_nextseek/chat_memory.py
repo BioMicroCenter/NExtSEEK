@@ -29,6 +29,81 @@ MAX_UID_EXAMPLES = 5
 
 _TAG_PATTERN = re.compile(r"<[^>]+>")
 
+# Shared chat_log entry contract. BOTH writers — this module's `append_turn`
+# (NS path) and nextseek_api's `serialize_cc_chat_log_entry` (CC path) — emit
+# entries that satisfy these base fields. Anything else (key_entities,
+# result_summary on NS; artifacts, cc_traces, cc_run_id on CC) is writer-specific.
+CHAT_LOG_REQUIRED_FIELDS: dict[str, type] = {
+    "turn_id": int,
+    "ts": str,
+    "mode": str,
+    "user_query": str,
+}
+CHAT_LOG_OPTIONAL_REPLY_FIELD = "assistant_reply"
+
+
+class ChatLogEntryError(ValueError):
+    """Raised when a chat_log entry violates the shared base schema."""
+
+
+def next_turn_id(log: Any) -> int:
+    """Next sequential turn id: (max over int-coercible turn_ids) + 1, else 1.
+
+    Type-tolerant by construction — a str (UUID) turn_id from a legacy CC entry
+    is skipped rather than added, so this never raises the `str + int` TypeError
+    the old `log[-1]["turn_id"] + 1` derivation did. Uses *max*, not the tail,
+    so it stays correct after FIFO eviction (where the largest id may not be
+    last). `bool` is excluded even though it subclasses `int`.
+    """
+    if not isinstance(log, list):
+        return 1
+    max_id = 0
+    for entry in log:
+        if not isinstance(entry, dict):
+            continue
+        tid = entry.get("turn_id")
+        if isinstance(tid, bool):
+            continue
+        if isinstance(tid, int):
+            max_id = max(max_id, tid)
+        elif isinstance(tid, str) and tid.strip().lstrip("-").isdigit():
+            max_id = max(max_id, int(tid))
+    return max_id + 1
+
+
+def validate_chat_log_entry(entry: Any) -> None:
+    """Assert `entry` satisfies the shared base schema; raise ChatLogEntryError.
+
+    Test-time invariant guard: both writers' outputs are pinned against this so a
+    future shape divergence (e.g. a str turn_id leaking back in) fails loudly
+    instead of silently poisoning the read site.
+    """
+    if not isinstance(entry, dict):
+        raise ChatLogEntryError(
+            f"chat_log entry must be a dict, got {type(entry).__name__}")
+    for field, typ in CHAT_LOG_REQUIRED_FIELDS.items():
+        if field not in entry:
+            raise ChatLogEntryError(
+                f"chat_log entry missing required field {field!r}")
+        val = entry[field]
+        if typ is int and isinstance(val, bool):
+            raise ChatLogEntryError(
+                f"chat_log entry field {field!r} must be int, got bool")
+        if not isinstance(val, typ):
+            raise ChatLogEntryError(
+                f"chat_log entry field {field!r} must be {typ.__name__}, "
+                f"got {type(val).__name__}")
+    reply = entry.get(CHAT_LOG_OPTIONAL_REPLY_FIELD)
+    if reply is not None:
+        if not isinstance(reply, str):
+            raise ChatLogEntryError(
+                f"chat_log entry field 'assistant_reply' must be str or None, "
+                f"got {type(reply).__name__}")
+        if reply == "":
+            raise ChatLogEntryError(
+                "chat_log entry field 'assistant_reply' must be non-empty when present "
+                "(use None/absent for non-answer turns)")
+
 
 def _strip_html(value: Any) -> str:
     """Strip HTML tags (NExtSEEK API wraps UIDs in <a href=...> links)."""
@@ -135,6 +210,9 @@ def append_turn(
     assistant_reply: str | None = None,
     bundle_id: int | None = None,
     wizard_state: dict[str, Any] | None = None,
+    router_choice: str | None = "nextseek_query",
+    status: str = "completed",
+    error: str | None = None,
 ) -> None:
     """Append a compact turn summary. Capped FIFO at MAX_TURNS."""
     log = session.get(CHAT_LOG_KEY) or []
@@ -142,7 +220,7 @@ def append_turn(
         log = []
 
     turn = {
-        "turn_id": (log[-1]["turn_id"] + 1) if log and isinstance(log[-1], dict) and "turn_id" in log[-1] else 1,
+        "turn_id": next_turn_id(log),
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "user_query": _truncate(user_query, 500),
         "intent_summary": _truncate(intent_summary, 240),
@@ -156,7 +234,11 @@ def append_turn(
         "assistant_reply": _strip_debug_block(assistant_reply or ""),
         "assistant_reply_preview": _truncate(_strip_debug_block(assistant_reply or ""), REPLY_PREVIEW_CHARS),
         "bundle_id": bundle_id,
+        "router_choice": router_choice,
+        "status": status,
     }
+    if error:
+        turn["error"] = error
     if wizard_state:
         turn["wizard_state"] = wizard_state
 
@@ -200,11 +282,16 @@ def _strip_debug_block(reply: str) -> str:
     return reply.strip()
 
 
+def _is_answered(entry: Any) -> bool:
+    """True when the entry carries a real assistant reply (non-empty str)."""
+    return isinstance(entry, dict) and bool(entry.get(CHAT_LOG_OPTIONAL_REPLY_FIELD))
+
+
 def recent_turns(
     session: "SessionState | SessionStateProxy | None",
     n: int = DEFAULT_TAIL,
 ) -> list[dict[str, Any]]:
-    """Return the most recent up-to-N turns. Older first; empty list if no log."""
+    """Return the most recent up-to-N answered turns. Older first; empty list if no log."""
     if session is None:
         return []
     log = session.get(CHAT_LOG_KEY) or []
@@ -212,7 +299,8 @@ def recent_turns(
         return []
     if n <= 0:
         return []
-    return log[-n:]
+    answered = [e for e in log if _is_answered(e)]
+    return answered[-n:]
 
 
 def format_for_prompt(turns: list[dict[str, Any]]) -> str:

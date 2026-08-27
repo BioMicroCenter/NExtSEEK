@@ -1,0 +1,77 @@
+# Neo4j Browser + HTTP Query API — DISABLED BY DEFAULT.
+#
+# Enable:   cp docker/nginx-optional/neo4j.conf.example docker/nginx-optional/neo4j.conf
+#           docker compose restart nextseek_nginx
+# Disable:  rm docker/nginx-optional/neo4j.conf  (and restart)
+#
+# The `.example` suffix is what keeps it inert: nginx.conf includes
+# /etc/nginx/optional/*.conf, which does not match *.conf.example.
+#
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE ENABLING
+# ---------------------------------------------------------------------------
+# This file has NO access control, and that is deliberate: this nginx normally
+# sits behind another reverse proxy, and an allow/deny here would match that
+# proxy's address rather than the real client. The gate therefore belongs at
+# YOUR EDGE PROXY, not here.
+#
+# What you are exposing:
+#
+#   /browser/   Neo4j Browser, an interactive Cypher console
+#   /db/        Neo4j's HTTP Query API — POST arbitrary Cypher, get JSON back
+#
+# Neo4j Community has NO read-only role. There is one user and no RBAC, so
+# anyone who reaches either path with the password can run `MATCH (n) DETACH
+# DELETE n`. Read-only is a convention here, not something the server enforces.
+#
+# Minimum before enabling on anything that is not a laptop:
+#   1. Change the Neo4j password from the default (see .env.example).
+#   2. Add an IP allow-list, or HTTP basic auth, or both, at your edge proxy,
+#      for BOTH /browser/ and /db/. Example, in the edge vhost:
+#
+#          location /db/ {
+#              allow 10.0.0.0/8;      # your network
+#              deny  all;
+#              proxy_pass http://127.0.0.1:8000;   # this nginx
+#              proxy_set_header Host $host;
+#              proxy_set_header X-Real-IP $remote_addr;
+#              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#              proxy_set_header X-Forwarded-Proto $scheme;
+#              proxy_http_version 1.1;
+#          }
+#
+# NOT INCLUDED HERE: bolt. Bolt cannot be reverse proxied under a subpath,
+# because the driver builds its websocket URL as scheme + "://" + host:port with
+# no path component. Browser's JS driver can reach bolt if your edge multiplexes
+# websocket upgrades on a port, but the Python/Java/Go drivers speak raw bolt
+# over TCP and need a direct route or an SSH tunnel either way. See
+# docs/neo4j-programmatic-access.md.
+# ---------------------------------------------------------------------------
+
+# Neo4j Browser UI. Neo4j already mounts the app at /browser/ upstream, so asset
+# paths line up with no rewriting.
+location /browser/ {
+    # `set` introduces a variable, which forces per-request re-resolution
+    # through the docker resolver declared in nginx.conf. Without it nginx
+    # resolves `neo4j` once at startup and caches a stale container IP.
+    set $neo4j_ui "neo4j";
+    proxy_pass http://$neo4j_ui:7474;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# Neo4j HTTP Query API. Same 7474 connector as /browser/ above.
+#   POST /db/neo4j/query/v2   {"statement": "...", "parameters": {...}}
+# Nothing in Django routes /db/, so this shadows no application URL.
+location /db/ {
+    set $neo4j_api "neo4j";
+    proxy_pass http://$neo4j_api:7474;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}

@@ -23,7 +23,7 @@ from .tools.memory_code import (  # noqa: F401
     _validate_memory_code,
     execute_memory_code,
 )
-from .results import slim_api_result_for_llm, collect_bundle_files, normalize_api_result_for_memory, uids_from_last_search, summarize_pinned_bundle  # noqa: F401
+from .results import api_row_count, build_api_result_meta, slim_api_result_for_llm, collect_bundle_files, normalize_api_result_for_memory, uids_from_last_search, summarize_pinned_bundle  # noqa: F401
 from .tools.neo4j import tool_neo4j_query  # noqa: F401
 from .tools.nextseek_api import (  # noqa: F401
     tool_nextseek_api_request,
@@ -80,6 +80,7 @@ _REPORTS_REEXPORTS: dict[str, str] = {
     "run_project_protocols_report": "runners",
     "run_project_published_report": "runners",
     "run_reporter_summary": "runners",
+    "reporter_reply_footer": "runners",
     # ..reports.metadata
     "annotate_metadata_with_sampletypes": "metadata",
     "fetch_reporter_metadata": "metadata",

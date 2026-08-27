@@ -1,0 +1,69 @@
+{
+  "schema": "plan018-v4-3-closeout/v1",
+  "recorded_at": "2026-08-11T19:38:25Z",
+  "gate": "PASS",
+  "worktree_sha": "4e204341ae82e7cd8c99ca0c3811d7bff78f262e",
+  "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "next_gate": "V4-4",
+  "artifacts": {
+    "prereq": "plan018-v4-3-prereq.json",
+    "port_receipt": "plan018-v4-3-port-receipt.json",
+    "aggregation": "plan018-v4-3-aggregation.sidecar.json",
+    "attempt_store": "plan018-v4-3-attempt-store.sidecar.json",
+    "stage_c": "plan018-v4-3-stage-c.sidecar.json",
+    "disposition": "plan018-v4-3-disposition.sidecar.json",
+    "human_annotations": "plan018-v4-3-human-annotations.sidecar.json",
+    "conservation": "plan018-v4-3-conservation.sidecar.json",
+    "verifier": "plan018-v4-3-verifier.sidecar.json",
+    "verifier_log": "plan018-v4-3-verifier.log",
+    "eval_tests_log": "plan018-v4-3-eval-tests.log",
+    "cold_review": "plan018-v4-3-cold-outcome-review.md"
+  },
+  "summary": {
+    "eval_tests_passed": 33,
+    "verifier_checks_passed": 12,
+    "route_execution_for_acceptance": false,
+    "set3_rerun": false,
+    "paid_or_live_resources_used": false,
+    "modules_added": [
+      "nextseek_api/eval/judge.py",
+      "nextseek_api/eval/judge_models.py",
+      "nextseek_api/eval/attempt_store.py",
+      "nextseek_api/eval/stage_c_runner.py",
+      "nextseek_api/eval/disposition.py",
+      "nextseek_api/eval/human_annotations.py",
+      "nextseek_api/eval/conservation.py",
+      "nextseek_api/eval/v4_3_verifier.py",
+      "scripts/plan018_v4_3_verifier.py"
+    ]
+  },
+  "residual_debt": [
+    "Live paid three-call judge runs need separate V4-8 at-time authorization",
+    "DB judge_cache / TurnJudgment migration deferred past V4-3",
+    "Full hibayes_* Bayesian fit packages deferred to V4-4",
+    "Living-plan progress SHA differs from published V14 SHA until explicit republish authorization",
+    "Vendor live functional_evaluator tests not used as acceptance",
+    "Coverage percentage not formally measured this gate; hermetic unit suite is primary acceptance"
+  ],
+  "artifact_sha256": {
+    "prereq": "20a65c7e16dac5899f110337bcd8988ef2bbfca01d951096816c352a67004627",
+    "port_receipt": "7191e866e5ee57c7842ca645d6778715c187e3f5c95c63d2bd7adb9790c72f93",
+    "aggregation": "40c021e04da5707e73d5dc3da11096823eb52ea83d5782c3f26f404d8a0a1c4c",
+    "attempt_store": "6273c417766f05ed8d36ec32958a50365692bf7ff043e4fdcd98ed679bc86982",
+    "stage_c": "ce1edf0a9c42810871d708e1a04c62a25619609404a49159c4d6abb8bb761cb4",
+    "disposition": "5624c60051dde71c0f3ac38db9095fbe5b7f855189cf531cb1b6801aa0d58901",
+    "human_annotations": "1f3d6a5416741ff0e628a1b73e80bff256164cc3a2a7c755c3bb4f3aeb624859",
+    "conservation": "d9848d8c1344ebf68bf93ab55ef8c39a8c6b394c92d2076df4c5ca2dd760febb",
+    "verifier": "24ca1b825b3f1e918fbdc0a13fa53e11ec4595d01b2bb7bfd2bf9ee673b78932",
+    "verifier_log": "868c767e73de7f76cc74f211499c0ef7f7a3fa6ef427b5194462b803a0c1748e",
+    "eval_tests_log": "b3bd307e5206d597f96dae833862939da65693ebb323fd975ca1fbb395c8fec7",
+    "cold_review": "a4e197890eff143dc7d23c8e927514f07f408f58c1409b66ec1b0305d1fbbc55"
+  },
+  "living_plan_progress": {
+    "updated_at": "2026-08-11T19:36:37Z",
+    "path": "/home/taishajo/work/NExtSEEK-deploydocs/docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md",
+    "local_sha_after_v4_3_close": "4e204341ae82e7cd8c99ca0c3811d7bff78f262e",
+    "published_sha256_v14": "af99a24b765f04330cf25b09c005a80002d175890f66743d2b2115b9b2f74a6e",
+    "note": "Progress markers only; not republished to origin/dev or registry"
+  }
+}

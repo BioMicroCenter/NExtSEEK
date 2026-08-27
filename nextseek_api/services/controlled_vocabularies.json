@@ -1,0 +1,458 @@
+{
+  "_source": "NExtSEEK's own house vocabularies, chosen from the values NExtSEEK actually holds (production, 166,235 samples, measured 2026-08-21). One term per concept, so future curation converges on a single spelling. Where GEO or SRA already had the concept and NExtSEEK agrees, the repository's spelling is kept. Illumina instruments are always prefixed 'Illumina ' -- GEO is inconsistent there, and production split on exactly that seam. The GEO 'platform' vocabulary that this file used to carry is gone; nothing referenced it here, and the term list lives in chat_nextseek's SRA.json and GEO-updated.json report templates.",
+  "_field_map": "Which sample column each vocabulary governs.",
+  "_variants": "Documentation only; nothing reads this. Records which observed spellings each canonical term absorbs, with the production row count the judgement rested on, so a later normalisation pass is mechanical rather than re-derived.",
+  "field_map": {
+    "LibraryStrategy": "library_strategy",
+    "LibrarySource": "library_source",
+    "LibrarySelection": "library_selection",
+    "LibraryDesign": "library_layout",
+    "Sequencer": "instrument_model",
+    "DataType": "filetype"
+  },
+  "vocabularies": {
+    "library_layout": [
+      "Paired End",
+      "Single End"
+    ],
+    "library_source": [
+      "Genomic",
+      "Transcriptomic"
+    ],
+    "library_strategy": [
+      "RNA-Seq",
+      "Bulk RNA-Seq",
+      "scRNA-Seq",
+      "WGS",
+      "Amplicon",
+      "Targeted Capture",
+      "Hi-C",
+      "Other"
+    ],
+    "library_selection": [
+      "Other",
+      "cDNA",
+      "PCR",
+      "RT-PCR",
+      "PolyA",
+      "Hybrid Selection",
+      "Inverse rRNA",
+      "RANDOM"
+    ],
+    "filetype": [
+      "FASTQ",
+      "BAM",
+      "FAST5",
+      "POD5",
+      "H5AD",
+      "H5",
+      "MTX",
+      "MCOOL",
+      "HIC",
+      "RDS",
+      "MZML",
+      "TIF",
+      "OIB",
+      "OIF",
+      "LIF",
+      "CZI",
+      "ND2",
+      "DICOM",
+      "NII",
+      "JPG",
+      "PNG",
+      "AVI",
+      "MOV",
+      "CSV",
+      "TSV",
+      "TXT",
+      "XLSX",
+      "XML",
+      "PDF",
+      "DOCX",
+      "PPTX",
+      "PZFX",
+      "SLX",
+      "SBD"
+    ],
+    "instrument_model": [
+      "HiSeq X Five",
+      "HiSeq X Ten",
+      "Illumina Genome Analyzer",
+      "Illumina Genome Analyzer II",
+      "Illumina Genome Analyzer IIx",
+      "Illumina HiScanSQ",
+      "Illumina HiSeq 1000",
+      "Illumina HiSeq 1500",
+      "Illumina HiSeq 2000",
+      "Illumina HiSeq 2500",
+      "Illumina HiSeq 3000",
+      "Illumina HiSeq 4000",
+      "Illumina HiSeq X",
+      "Illumina MiSeq",
+      "Illumina MiSeq i100",
+      "Illumina MiniSeq",
+      "Illumina NovaSeq 6000",
+      "Illumina NovaSeq X",
+      "Illumina NovaSeq X Plus",
+      "Illumina iSeq 100",
+      "Illumina NextSeq 1000",
+      "Illumina NextSeq 2000",
+      "Illumina NextSeq 500",
+      "Illumina NextSeq 550",
+      "PacBio RS",
+      "PacBio RS II",
+      "Revio",
+      "Sequel",
+      "Sequel II",
+      "Sequel IIe",
+      "Onso",
+      "AB 5500 Genetic Analyzer",
+      "AB 5500xl Genetic Analyzer",
+      "AB 5500x-Wl Genetic Analyzer",
+      "AB SOLiD 3 Plus System",
+      "AB SOLiD 4 System",
+      "AB SOLiD 4hq System",
+      "AB SOLiD PI System",
+      "AB SOLiD System",
+      "AB SOLiD System 2.0",
+      "AB SOLiD System 3.0",
+      "Ion Torrent PGM",
+      "Ion Torrent Proton",
+      "Ion Torrent S5 XL",
+      "Ion Torrent S5",
+      "Ion Torrent Genexus",
+      "Ion GeneStudio S5",
+      "Ion GeneStudio S5 Plus",
+      "Ion GeneStudio S5 Prime",
+      "AB 310 Genetic Analyzer",
+      "AB 3130 Genetic Analyzer",
+      "AB 3130xL Genetic Analyzer",
+      "AB 3500 Genetic Analyzer",
+      "AB 3500xL Genetic Analyzer",
+      "AB 3730 Genetic Analyzer",
+      "AB 3730xL Genetic Analyzer",
+      "BGISEQ-50",
+      "BGISEQ-500",
+      "MGISEQ-2000RS",
+      "DNBSEQ-G400",
+      "DNBSEQ-G50",
+      "DNBSEQ-T7",
+      "DNBSEQ-G400 FAST",
+      "FASTASeq 300",
+      "GenoCare 1600",
+      "GenoLab M",
+      "454 GS",
+      "454 GS 20",
+      "454 GS FLX",
+      "454 GS FLX+",
+      "454 GS FLX Titanium",
+      "454 GS Junior",
+      "Helicos HeliScope",
+      "Complete Genomics",
+      "GridION",
+      "MinION",
+      "PromethION",
+      "Element AVITI",
+      "GS111",
+      "Tapestri",
+      "UG 100",
+      "Sentosa SQ301",
+      "Singular G4",
+      "PromethION P2 Solo"
+    ]
+  },
+  "variants": {
+    "library_layout": {
+      "Paired End": [
+        "Paired End (3511)",
+        "Paired (789)",
+        "PAIRED (705)",
+        "Paired-end (218)",
+        "Paired end (118)",
+        "paired (52)"
+      ],
+      "Single End": [
+        "not present in production"
+      ]
+    },
+    "library_source": {
+      "Genomic": [
+        "Genomic (1504)",
+        "GENOMIC (1284)"
+      ],
+      "Transcriptomic": [
+        "transcriptomic (1034)",
+        "TRANSCRIPTOMIC (907)",
+        "Transcriptomic (688)"
+      ]
+    },
+    "library_strategy": {
+      "RNA-Seq": [
+        "RNA-Seq (2001)",
+        "RNA-seq (196)",
+        "RNAseq (102)",
+        "RNA-SEQ (2)"
+      ],
+      "Bulk RNA-Seq": [
+        "Bulk RNA-Seq (186)"
+      ],
+      "scRNA-Seq": [
+        "scRNA-Seq (142)"
+      ],
+      "WGS": [
+        "WGS (1065)"
+      ],
+      "Amplicon": [
+        "Amplicon (755)",
+        "AMPLICON (563)"
+      ],
+      "Targeted Capture": [
+        "Targeted Capture (69)"
+      ],
+      "Hi-C": [
+        "Hi-C (12)"
+      ],
+      "Other": [
+        "OTHER (32)"
+      ]
+    },
+    "library_selection": {
+      "Other": [
+        "other (1489)",
+        "Other (25)"
+      ],
+      "cDNA": [
+        "cDNA (1466)"
+      ],
+      "PCR": [
+        "PCR (1318)"
+      ],
+      "RT-PCR": [
+        "RT-PCR (426)"
+      ],
+      "PolyA": [
+        "PolyA (301)"
+      ],
+      "Hybrid Selection": [
+        "Hybrid Selection (44)"
+      ],
+      "Inverse rRNA": [
+        "Inverse rRNA selection (27)"
+      ],
+      "RANDOM": [
+        "RANDOM (22)",
+        "Random (4)"
+      ]
+    },
+    "filetype": {
+      "TIF": [
+        "tif (5877)",
+        "TIF (2447)",
+        "tiff (666)",
+        ".tif (24)",
+        "TIFF (4)",
+        "ome.tif (3)"
+      ],
+      "FASTQ": [
+        "FASTQ (4202)",
+        "fastq (1655)",
+        "Fastq (332)",
+        "fastq.gz (226)",
+        "FastQ (202)"
+      ],
+      "OIB": [
+        "oib (4799)"
+      ],
+      "JPG": [
+        "jpg (1172)",
+        "JPG (17)",
+        "JPEG (7)",
+        "jpeg (4)"
+      ],
+      "LIF": [
+        ".lif (1038)"
+      ],
+      "TXT": [
+        "TXT (690)"
+      ],
+      "XML": [
+        "tiff_metadata.xml (636)"
+      ],
+      "PNG": [
+        "png (463)",
+        "PNG (3)"
+      ],
+      "CZI": [
+        ".czi (360)",
+        "CZI (276)",
+        "czi (109)"
+      ],
+      "DICOM": [
+        ".dcm (345)",
+        "DICOM (239)",
+        "Dicom (97)"
+      ],
+      "BAM": [
+        "bam (95)",
+        "BAM (34)"
+      ],
+      "H5AD": [
+        "H5AD (47)"
+      ],
+      "ND2": [
+        "nd2 (45)",
+        "ND2 (9)"
+      ],
+      "OIF": [
+        "oif (45)"
+      ],
+      "NII": [
+        "nii.gz (40)"
+      ],
+      "H5": [
+        "h5 (25)",
+        "H5 (5)",
+        "HDF5 (2)",
+        "h5Ad (2)"
+      ],
+      "XLSX": [
+        "XLSX (15)",
+        "xlsx (1)"
+      ],
+      "MTX": [
+        "MTX (10)"
+      ],
+      "FAST5": [
+        "fast5 (8)"
+      ],
+      "HIC": [
+        "hic (8)"
+      ],
+      "CSV": [
+        "CSV (7)"
+      ],
+      "PZFX": [
+        "PZFX (7)",
+        "pzfx (1)"
+      ],
+      "MCOOL": [
+        "mcool (4)"
+      ],
+      "AVI": [
+        "avi (4)"
+      ],
+      "MZML": [
+        "mzML (4)"
+      ],
+      "POD5": [
+        "pod5 (3)"
+      ],
+      "RDS": [
+        "rds (3)",
+        "RDS (2)"
+      ],
+      "SLX": [
+        "slx (2)"
+      ],
+      "SBD": [
+        "sbd (2)"
+      ],
+      "PDF": [
+        "pdf (1)"
+      ],
+      "DOCX": [
+        "docx (1)"
+      ],
+      "PPTX": [
+        "pptx (1)"
+      ],
+      "MOV": [
+        "mov (1)"
+      ],
+      "TSV": [
+        "TSV (1)"
+      ]
+    },
+    "instrument_model": {
+      "Illumina NovaSeq 6000": [
+        "Illumina NovaSeq 6000 (1864)",
+        "NovaSeq 6000 (397)",
+        "Illumina NovaSeq6000 (99)",
+        "NovaSeq 6000, Illumina (24)",
+        "NovaSeq6000 (21)"
+      ],
+      "Illumina MiSeq": [
+        "Illumina MiSeq (1317)"
+      ],
+      "Illumina NextSeq 500": [
+        "Illumina NextSeq 500 (526)",
+        "NextSeq 500 (390)",
+        "Illumina NextSeq500 (232)"
+      ],
+      "Illumina NextSeq 550": [
+        "Illumina NextSeq 550 (92)"
+      ],
+      "Illumina NextSeq 1000": [
+        "not present in production; renamed for consistency with the other NextSeq models"
+      ],
+      "Illumina NextSeq 2000": [
+        "NextSeq 2000 (110)",
+        "Illumina NextSeq 2000 (32)"
+      ],
+      "Element AVITI": [
+        "Element Aviti (190)",
+        "Aviti (76)",
+        "Element AVITI (4)"
+      ],
+      "Illumina HiSeq 4000": [
+        "Illumina HiSeq 4000 (179)"
+      ],
+      "Illumina HiSeq 2500": [
+        "Illumina HiSeq 2500 (13)"
+      ],
+      "Singular G4": [
+        "Singular G4 (130)",
+        "SingularG4 (8)"
+      ],
+      "Illumina NovaSeq X": [
+        "Illumina NovaSeqX (80)",
+        "Illumina NovaSeq X (32)",
+        "Illumina NovaSeq X 25B (27)"
+      ],
+      "PromethION": [
+        "Prometheon 24 (19)"
+      ],
+      "PromethION P2 Solo": [
+        "P2 Solo (9)"
+      ]
+    },
+    "_excluded": {
+      "library_layout": [
+        "3DGE (384) -- a prep method, not a layout",
+        "Duplex Sequencing Mouse Mutagenesis Panel v2.0 (32) -- a kit",
+        "Paired-End 2x75nt (4) -- a read configuration"
+      ],
+      "library_selection": [
+        "Whole Genome Sequencing (292) -- a strategy, not a selection"
+      ],
+      "filetype": [
+        "22 distinct 'Ki-67 proliferation index = ...' values (1 row each)",
+        "Targeted LC-MS metabolomics + stable-isotope tracing (126)",
+        "Super-resolution localization microscopy (STORM) (76)",
+        "MALDI-MSI spatial molecular images / annotated features (42)",
+        "IHC / histology (Ki-67, H&E) (35)",
+        "PRISM (18)",
+        "mzML (converted; original .raw not deposited to PXD055726) (4)",
+        "Mutational spectra catalogue (absolute) / (differential) (1 each)"
+      ],
+      "instrument_model": [
+        "61 'NovaSeq 60NN' counter values, 1 row each, across three spellings",
+        "{\"vendor\": \"10x, Illumina\", ...} (47) -- a JSON blob",
+        "P.BMC-240301-V1_Illumina_NextSeq_Standard_Workflow.doc (2) -- a filename",
+        "NextSeq500:George (7) -- an instrument nickname",
+        "Illumina HiSeq (95) -- no model; ambiguous between six GEO HiSeq entries"
+      ]
+    }
+  }
+}

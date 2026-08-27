@@ -1,0 +1,101 @@
+[project]
+name = "dmac-assistant"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "baml-py~=0.222.0",
+    "docker>=7.1.0",
+    "fastapi>=0.116",
+    "httpx>=0.28.1",
+    # nextseek-batch-upload runtime stack (ported from dmac-assistant): the
+    # batch-upload runner/payload/client/models import these at module load.
+    # polars = sheet model + read; fastexcel = the calamine read engine;
+    # xlsxwriter = polars' Excel write backend; orjson = fast JSON I/O.
+    "orjson>=3.11.0",
+    "polars>=1.42.0",
+    "fastexcel>=0.20.2",
+    "xlsxwriter>=3.2.9",
+    "pydantic>=2.13.0",
+    "python-dotenv>=1.2.2",
+    "uvicorn[standard]>=0.35",
+    "websockets~=16.0",
+]
+
+[project.optional-dependencies]
+# Image-only extra (installed via `uv sync --extra container` in the Dockerfile).
+# markitdown backs nextseek-extract-text's document→text extraction; it is
+# lazy-imported, so the plugin loads without it, but nextseek-extract-text
+# fails closed unless this extra is installed. onnxruntime floor: markitdown
+# -> magika pulls onnxruntime; the floor keeps uv on a version that ships
+# wheels for the image's Python. Kept out of the host/build tree deliberately.
+container = [
+    "markitdown==0.1.6",
+    "onnxruntime>=1.24.1",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "pytest-socket>=0.7",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.15.12",
+]
+tools = [
+    "openpyxl>=3.1.5",
+    "pandas>=3.0.2",
+]
+
+# Amendment 6 ([tool.uv] environments scope) was REVERTED by Amendment 7.
+# The bridge lockfile is portable across all uv-supported platforms because
+# PDF/markitdown ingestion is not part of the bridge dependency tree.
+
+# Coverage scope notes: --cov=build_tools is intentionally REMOVED from the
+# bridge addopts below. build_tools moved to a sibling uv project with its
+# own coverage gate; running `pytest` here covers only the bridge.
+
+[tool.pytest.ini_options]
+addopts = "--disable-socket -q --cov=tests.harness --cov=src/dmac_assistant --cov-report=term-missing --cov-fail-under=95"
+testpaths = ["tests"]
+norecursedirs = ["tests/image", ".git", "__pycache__", "*.egg-info", "tools"]
+pythonpath = ["src", "."]
+markers = [
+    "integration: marks integration tests that exercise the bridge against a real Docker daemon and built image",
+    "live: marks live end-to-end tests requiring ~/.env (deselect with '-m \"not live\"')",
+    "live_bridge: marks live FastAPI bridge end-to-end tests requiring Docker + ~/.env (deselect with '-m \"not live_bridge\"')",
+    "live_docker: marks opt-in Docker-backed tests that do not require live service credentials",
+    "slow: marks slower local Docker build tests",
+]
+
+[tool.coverage.run]
+# Eval pipeline modules live in `src/dmac_assistant/eval/` but their runtime
+# deps (pandas, hibayes, numpyro, arviz, jinja2, matplotlib) live in the
+# `hibayes-runtime-reliability:dev` image, not the host bridge venv (DD-13:
+# split-coverage model). Host-side `uv run pytest` cannot exercise them —
+# the eval test files use `pytest.importorskip` to skip cleanly on host —
+# so they contribute 0% to the host coverage gate. The in-container §6.2
+# and §6.3 gates (from task-07 spec) are what enforce 95%+ on these modules.
+# Omitting them from host coverage measurement is the DD-13-compliant fix.
+# (Phase 7 H-2 reopened, 2026-05-13.)
+# T1.1: BAML-generated client (Pydantic models) — not human-authored; coverage
+# of generated code is non-load-bearing and noisy. Spec V.O. #5 mandates this entry.
+omit = [
+    "src/dmac_assistant/eval/*",
+    "src/dmac_assistant/router/baml_client/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/dmac_assistant/router/baml_client/*" = ["F401"]
+
+# T7 path-decision: PATH_B image-only — chat_nextseek install deferred to T8 (R4-NEW-5)

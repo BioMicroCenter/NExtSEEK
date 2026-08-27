@@ -1,0 +1,29 @@
+{
+  "schema": "plan018-v4-9-task3-ownership/v1",
+  "authority": {
+    "plan": "docs/superpowers/plans/2026-08-13-plan018-v4-9.md#task-3--fitter-publication-activation-and-store-coverage",
+    "assignment_map": "evidence/plan018-v4-9-task2-ownership.json"
+  },
+  "critical_modules": [
+    "nextseek_api/eval/fit/fit_boundary.py",
+    "nextseek_api/eval/fit/v14/combined.py",
+    "nextseek_api/eval/fit/v14/decision.py",
+    "nextseek_api/eval/fit/v14/fit_config.py",
+    "nextseek_api/eval/fit/v14/latency_model.py",
+    "nextseek_api/eval/fit/v14/pair_rows.py",
+    "nextseek_api/eval/fit/v14/quality_model.py",
+    "nextseek_api/eval/fit/v14/recovery_acceptance.py",
+    "nextseek_api/eval/fit/v14/recovery_matrix.py",
+    "nextseek_api/eval/fit/v14/recovery_runner.py",
+    "nextseek_api/eval/generation_store.py",
+    "nextseek_api/eval/generation_validation.py",
+    "nextseek_api/eval/publish.py"
+  ],
+  "explicit_noncritical_exclusions": {
+    "nextseek_api/eval/fit/__init__.py": "zero executable statements",
+    "nextseek_api/eval/fit/v14/__init__.py": "zero executable statements",
+    "nextseek_api/eval/fit/vendor/": "pre-V14 vendored HiBayes input/report tooling; Task 3 names the V14 fitter, decision, and recovery implementation, not inherited vendor utilities",
+    "nextseek_api/eval/human_grade_fit.py": "initial-release evidence replay/publisher orchestrator outside the accepted Task-3 assignment map; its full authenticated replay belongs to Task 6"
+  },
+  "mysql_required_target": "nextseek_api/eval/tests/test_generation_store_mysql.py"
+}

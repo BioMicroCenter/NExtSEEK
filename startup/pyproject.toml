@@ -9,6 +9,17 @@ dependencies = [
     # Used by steps/seed.py:load_neo4j_dump to bulk-load the Neo4j seed via
     # parameterized UNWIND batches over the bolt driver (fast path).
     "neo4j>=5.0.0",
+    "orjson>=3.11.9",
+    # steps/schema_fixups.py opens a direct MySQL connection to apply the
+    # managed SEEK indexes, so this CLI needs a driver of its own.
+    #
+    # PyMySQL, NOT mysqlclient: the root pyproject.toml records that startup/
+    # is kept isolated specifically to avoid requiring "mysqlclient et al."
+    # on a host with no C build toolchain. mysqlclient is a C extension and
+    # fails to build without pkg-config and the MySQL dev headers, which would
+    # make ./startup.sh unbootstrappable on exactly the machines that note is
+    # protecting. PyMySQL is pure Python and is already a main-project dep.
+    "PyMySQL>=1.1.0",
 ]
 
 # `package = false` tells uv to manage deps for this directory without trying
@@ -20,6 +31,8 @@ package = false
 [dependency-groups]
 test = [
     "pytest>=8.0.0",
+    "pytest-cov>=7.1.0",
+    "pyyaml>=6.0.2",
 ]
 maintainer = [
     "python-dotenv>=1.0.0",

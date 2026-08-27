@@ -1,6 +1,6 @@
 """Unit tests for WebSocket origin validation in TaskProgressConsumer."""
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from nextseek_api.assistant.consumers import TaskProgressConsumer
 
@@ -13,6 +13,7 @@ class WebSocketOriginCheckTest(TestCase):
             TaskProgressConsumer._is_allowed_origin("http://localhost:5173")
         )
 
+    @override_settings(CSRF_TRUSTED_ORIGINS=["https://nextseek-dev.mit.edu"])
     def test_server_origin_allowed(self):
         self.assertTrue(
             TaskProgressConsumer._is_allowed_origin("https://nextseek-dev.mit.edu")

@@ -1,0 +1,59 @@
+{
+  "description": "NExtSEEK Knowledge Graph — lightweight schema for parser routing decisions",
+  "node_types": [
+    {
+      "label": "Sample",
+      "description": "A biological sample. Property 'type' holds the sample type code (e.g. TIS, CEL, DNA, D.SEQ, NHP, MUS). Samples are linked to each other via DERIVED_FROM, to studies via IN_STUDY."
+    },
+    {
+      "label": "Study",
+      "description": "A research study grouping samples. Property 'title'. Linked to an Investigation via IN_INVESTIGATION."
+    },
+    {
+      "label": "Investigation",
+      "description": "A project grouping one or more studies. Property 'title'. Known values: CSBC, GBM_BTC, Griffith, Impact, MetNet, SRP, Shoulders."
+    }
+  ],
+  "relationships": [
+    {
+      "type": "DERIVED_FROM",
+      "direction": "(child_sample)-[:DERIVED_FROM]->(parent_sample)",
+      "note": "Carries assay and protocol metadata on the relationship (internal_assay_title, protocol_title). Used to traverse from derived data back to source samples."
+    },
+    {
+      "type": "IN_STUDY",
+      "direction": "(sample)-[:IN_STUDY]->(study)",
+      "note": "Links a sample directly to the study it belongs to."
+    },
+    {
+      "type": "IN_INVESTIGATION",
+      "direction": "(study)-[:IN_INVESTIGATION]->(investigation)",
+      "note": "Links a study to its parent investigation/project."
+    }
+  ],
+  "graph_query_triggers": [
+    "Query scopes to a named Study ('in the GBM study', 'in the Griffith study', 'what samples exist in study X')",
+    "Query scopes to a named Investigation or Project ('in the IMPACT project', 'in the SRP investigation', 'what studies are in project X')",
+    "Query asks what studies, projects, or investigations contain or relate to something ('what projects have mouse samples', 'which investigations have NHP samples with sequencing')",
+    "Query counts or aggregates within a study or investigation scope ('how many samples are in the GBM study', 'how many TIS samples exist across all studies')",
+    "Query asks about assay or protocol application by vocabulary name ('processed via Tissue Collection', 'underwent Short Read Sequencing', 'associated with flow cytometry protocol', 'samples that underwent single cell sequencing') — especially when no clean REST endpoint exists for the combination",
+    "Query mixes Sample results with Study or Investigation membership in the same output"
+  ],
+  "api_preferred_triggers": [
+    "Filter-based sample search with resolved sampletype code and/or assay code only, no study/investigation scope → advanced_search endpoint",
+    "Samples derived from or associated with a specific UID → /samples/tree/ or /samples/associated/ endpoint",
+    "Parent samples that have children of multiple specified types → /samples/parents_by_child_types/ endpoint",
+    "PATCH/update on a specific sample UID",
+    "Any intent that maps cleanly to a known API endpoint in the catalog"
+  ],
+  "disambiguation_rules": [
+    "If the query mentions a study or investigation by name → graph_query, even if a sampletype is also present",
+    "If the query says 'how many X in study Y' or 'across all studies' → graph_query",
+    "If the query says 'how many X' with no study/investigation scope and no time span → API advanced_search (not reporter)",
+    "If the query has entity-resolved sampletype + assay codes AND no study/investigation scope AND the assay is used as a keyword attribute filter (not a named assay/protocol traversal) → prefer API",
+    "If the query asks for samples 'associated with', 'that underwent', or 'processed via' a named assay or protocol → graph_query (assay metadata lives on DERIVED_FROM relationships, not on sample records; REST endpoints cannot filter on it)",
+    "If the query asks for parent samples that have children of multiple types → check API catalog for parents_by_child_types endpoint first; if it exists, prefer API",
+    "If the query involves project-level upload counts or statistics over time → reporter (not graph_query)",
+    "Investigation titles to recognize (case-insensitive): CSBC, GBM_BTC, GBM, Griffith, Impact, IMPACT, MetNet, SRP, Shoulders"
+  ]
+}

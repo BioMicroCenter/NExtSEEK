@@ -1,0 +1,131 @@
+{
+  "base_url": "http://localhost:8100",
+  "require_non_8000": true,
+  "max_total_usd": 15.0,
+  "forbidden_phrases": [
+    "backend is unreachable",
+    "backend unreachable",
+    "I cannot access",
+    "no results were found due to an error"
+  ],
+  "instance_identity": {
+    "compose_project": "nextseek-devmerge",
+    "worktree_head": "01a1d1f6ab0a7c2fb675321436ccc8c30c6ab031",
+    "nextseek_image_id": "sha256:aa0f33eb2a296c4af6975e3adaca5807f43ebc6857a368221d927c4e8101b323",
+    "installed_at": "2026-07-11T15:50:39-04:00"
+  },
+  "pinned_evidence": {
+    "seek_db": "seek_production",
+    "db_container": "devmerge-seek-mysql",
+    "uids_exist": {
+      "NHP-220630FLY-5-PUB": true,
+      "D.SEQ-221031SHA-67-PUB": true,
+      "D.SEQ-221031SHA-65-PUB": true
+    },
+    "counts": {
+      "NHP": 408,
+      "D.SEQ-SHA": 255,
+      "RNA": 289,
+      "D.SEQ_total": 2057
+    },
+    "impact_investigation_id": 3,
+    "investigations_baseline": 7,
+    "bprc_absent": true
+  },
+  "questions": [
+    {
+      "id": "advanced.rna_rin_score",
+      "family": "search_advanced",
+      "name": "parse: RNA samples with RIN attribute filter",
+      "turns": [
+        {
+          "label": "main",
+          "query": "Find RNA samples with a RIN score greater than 7.",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "new_search"
+            },
+            {
+              "field": "entity_sampletype_codes",
+              "op": "contains",
+              "value": "RNA"
+            },
+            {
+              "field": "api_plan.requestBody.sampletype",
+              "op": "eq",
+              "value": "RNA"
+            },
+            {
+              "field": "api_plan.requestBody.filter_searchText",
+              "op": "contains",
+              "value": "RIN"
+            },
+            {
+              "field": "api_ok",
+              "op": "true"
+            }
+          ]
+        }
+      ],
+      "route": "ns"
+    },
+    {
+      "id": "report.geo_submission",
+      "family": "reporting",
+      "name": "generate-submission: GEO submission for two D.SEQ UIDs",
+      "turns": [
+        {
+          "label": "main",
+          "query": "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB.",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "reporter"
+            },
+            {
+              "field": "reporter_plan.report_type",
+              "op": "eq",
+              "value": "GEO"
+            },
+            {
+              "field": "api_artifact.merged_report_GEO_GEO_template_filled.xlsx",
+              "op": "true"
+            },
+            {
+              "field": "api_artifact.merged_report_GEO_GEO_template_filled.xlsx.rows_gte",
+              "op": "gte",
+              "value": 2
+            },
+            {
+              "field": "ui_text.artifacts.geo_seq_workbooks.downloaded",
+              "op": "true"
+            }
+          ]
+        }
+      ],
+      "route": "ns"
+    },
+    {
+      "id": "write.create_investigation_bprc",
+      "family": "writes_unsupported",
+      "name": "write-safety: create/write queries route to Container-CC and must not write",
+      "route": "cc",
+      "turns": [
+        {
+          "label": "main",
+          "query": "Create Investigation 'BPRC'",
+          "pass_criteria": [
+            {
+              "field": "last_reply",
+              "op": "matches_re",
+              "value": "can'?t create|cannot create|not something i can do|read-only|read only|isn'?t supported|not supported|unsupported|unable to|not able to|falls outside what"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

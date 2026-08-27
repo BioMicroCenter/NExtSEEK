@@ -173,7 +173,7 @@
         <a href="/seek/projects/{{ project.id }}/" class="project-card">
             <div class="project-card-avatar">
                 <img
-                    src="https://{{ seek_hostname }}/assets/avatar-images/{{ project.avatar_id }}-120x120.png"
+                    src="{{ seek_public_url }}/assets/avatar-images/{{ project.avatar_id }}-120x120.png"
                     alt="{{ project.title }}"
                     onerror="this.style.display='none';this.nextElementSibling.style.display='block';"
                 >
@@ -188,7 +188,7 @@
                 </div>
             </div>
             <div class="project-card-action">
-                <span class="fairdata-link" onclick="event.preventDefault();event.stopPropagation();window.open('https://{{ seek_hostname }}/projects/{{ project.id }}','_blank');">
+                <span class="fairdata-link" onclick="event.preventDefault();event.stopPropagation();window.open('{{ seek_public_url }}/projects/{{ project.id }}','_blank');">
                     <i class="bi bi-box-arrow-up-right"></i> FAIRDATA
                 </span>
                 <i class="bi bi-chevron-right project-chevron"></i>

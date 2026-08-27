@@ -21,6 +21,14 @@ class SampleSearchMixin:
         filter_valueFrom = None
         filter_valueTo = None
         filtersdic = self._initSearchFilters(searchType, sampletype_id, project_id)
+
+        # Publication filter applies to every search type. Deliberately NOT the
+        # PubMed-style [CATEGORY] syntax: that bracket term resolves to a sample
+        # type (search.py:103), so "10.1101/...[DOI]" would look up a sample type
+        # named DOI and silently return nothing.
+        filtersdic['publication_query'] = filters.get('filter_publication') or None
+        filtersdic['published_only'] = filters.get('filter_published_only') in ('1', 'true', 'True', 'on')
+
         if searchType == "UIDs":
             filtersdic['searchText'] = filters['filter_searchUIDs']
             field = 'uid'
@@ -91,19 +99,39 @@ class SampleSearchMixin:
         filtersdic['filter_valueTo'] = filter_valueTo
         return msg, status, filtersdic
 
-    def searchAdvanced(self, user_seek, filters, searchType, project_id=0):
+    def searchAdvanced(self, user_seek, filters, searchType, project_id=0, skip_tree=False,
+                       scoped_project_ids=None):
         logger.debug('searchAdvanced')
         msg, status, filtersdic = self._parseSearchFilters(filters, searchType, project_id)
         if status==0:
             data = {'msg':msg, 'status': status}
             reportData = simplejson.dumps(data, default=str)
             return reportData
+
+        # Data scope for API callers. Distinct from `project_id` above, which is the
+        # legacy single-project path used by seek/views.py:runSampleSearch and is left
+        # untouched. This one is a LIST, because a SEEK person can belong to several
+        # projects, and it is applied as an EXISTS rather than a join (see
+        # _sqlQuery_select_records_filters_advanced for why the join is wrong).
+        #
+        #   None -> unrestricted (superuser)
+        #   []   -> no resolvable projects, matches nothing
+        #
+        # The empty list must NOT mean "no filter": that is the difference between
+        # failing closed and handing an unscoped read to a caller whose projects we
+        # could not resolve.
+        if scoped_project_ids is not None:
+            filtersdic['scoped_project_ids'] = [str(p) for p in scoped_project_ids]
         
         data = self._retrieveRecords_advanced(user_seek, filtersdic)
         
         if searchType=="UIDs":
             msg = 'ignore filtering'
-            data['tree'] = self._getAttributeTree(data['rows'])
+            # Building the sample lineage tree does per-row DB lookups (~0.7s/row) and is
+            # unused by the advanced_search API; callers that need the tree (e.g. the SEEK
+            # sample-tree UI) leave skip_tree False.
+            if not skip_tree:
+                data['tree'] = self._getAttributeTree(data['rows'])
         elif searchType=="FILTERING":
             attribute = filtersdic['attribute']
             if attribute!='none':
@@ -142,11 +170,14 @@ class SampleSearchMixin:
         matchType = filtersdic['matchType']
         
         searchText = filtersdic['searchText']
-        from ..search import Search
+        from .search import Search
         spi = Search('')
         tableField = 'json_metadata'
         categoryField = 'sample_type_id'
-        query, terms = spi.designSearchPubmed(searchText, tableField, categoryField)
+        # #93: designSearchPubmed returns (query, params, keywords) on every path.
+        # This call site wants only the keywords -- `query` is built and then
+        # discarded here, never executed -- so its params are discarded with it.
+        query, _params, terms = spi.designSearchPubmed(searchText, tableField, categoryField)
         
         sampletype_id = 0
         

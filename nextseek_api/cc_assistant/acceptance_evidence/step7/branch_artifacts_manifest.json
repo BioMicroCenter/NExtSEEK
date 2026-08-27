@@ -1,0 +1,42 @@
+{
+  "schema_version": "step7-branch-artifacts-manifest/v1",
+  "branch": "cc-step7-compose-native",
+  "gate": "3C",
+  "artifacts": [
+    {
+      "path": "acceptance_evidence/step7/R26-live-gate-prereqs-runbook.md",
+      "sha256": "8a2604715e9b517d620a536978d73db141280ac2ceb32dcf09949f20cc9149bc",
+      "promoted_from": null
+    },
+    {
+      "path": "acceptance_evidence/step7/STEP7-UPSTREAM-EXERCISE-CATALOG.json",
+      "sha256": "0d1beec86fcb9cd2107bd45b730409ac0afc8fa5a4af7401dd092279cdcae7a2",
+      "promoted_from": null
+    },
+    {
+      "path": "acceptance_evidence/step7/branch_artifacts_manifest.json",
+      "sha256": "866b372854be5d1d084c5626fae815c03691096621c0805e1ae34bafcae171d8",
+      "promoted_from": null
+    },
+    {
+      "path": "acceptance_evidence/step7/catalog_coverage_report.json",
+      "sha256": "9ea72aca05d614c5c3f1db60e950207ad59d365a6bdfe75746f3d4acc6aa57a6",
+      "promoted_from": null
+    },
+    {
+      "path": "acceptance_evidence/step7/catalog_provenance.json",
+      "sha256": "4c7fdb0ab599884682bf367a1da97b805bf8cd9c8539709d1c26d51d943ed093",
+      "promoted_from": null
+    },
+    {
+      "path": "acceptance_evidence/step7/cost_source_map.json",
+      "sha256": "c5d6063613af4beb7fc39b2946816bc846148e25879e9203bedd780b3536ca5e",
+      "promoted_from": null
+    },
+    {
+      "path": "acceptance_evidence/step7/instance_binding.json",
+      "sha256": "bf18f523d343a0f680f14995c1dc1065b52588a1844f4975fe2c4d13d63377f6",
+      "promoted_from": null
+    }
+  ]
+}

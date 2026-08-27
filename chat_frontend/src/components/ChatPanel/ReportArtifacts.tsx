@@ -8,6 +8,32 @@ interface Props {
   onDownloadArtifact: (artifactKey: string) => void;
 }
 
+/**
+ * Render nested cell values (CV-param objects/arrays, e.g. PRIDE metadata) as
+ * readable text instead of "[object Object]". Mirrors the backend
+ * `_flatten_cell` in excel_export.py.
+ */
+function flattenCellValue(value: unknown): string {
+  if (value == null) return "";
+  if (Array.isArray(value)) {
+    return value.map(flattenCellValue).filter(Boolean).join("; ");
+  }
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    if (o.name != null && o.name !== "") {
+      if (o.value != null && o.value !== "") return `${o.name} (${o.value})`;
+      return o.accession != null && o.accession !== ""
+        ? `${o.name} [${o.accession}]`
+        : String(o.name);
+    }
+    return Object.entries(o)
+      .filter(([, v]) => v != null && v !== "")
+      .map(([k, v]) => `${k}=${typeof v === "object" ? flattenCellValue(v) : String(v)}`)
+      .join("; ");
+  }
+  return String(value);
+}
+
 /** Format a numeric value with comma separators, pass through non-numbers. */
 function formatCell(value: unknown, column: string): string {
   if (value == null) return "";
@@ -16,6 +42,7 @@ function formatCell(value: unknown, column: string): string {
   if (column === "count" && typeof value === "string" && /^\d+$/.test(value)) {
     return Number(value).toLocaleString("en-US");
   }
+  if (typeof value === "object") return flattenCellValue(value);
   return String(value);
 }
 

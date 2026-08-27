@@ -1,0 +1,67 @@
+{
+  "superseded": true,
+  "superseded_by": "evidence/plan018-v4-4-recovery-feasibility.json",
+  "superseded_reason": "use_mcmc=False fast path (~0s durations); not valid DONE evidence — see plan018-v4-4-matrix-refreeze.md",
+  "gate": "PASS",
+  "matrix_fingerprint": "f7d1b57f9f29bcbd0cbce1dd05221aec27ff0fac841acd44abc1d635a10dcf80",
+  "completed": 5,
+  "serial_s": 0.001,
+  "wall_s": 0.002,
+  "results": [
+    {
+      "slot_index": 0,
+      "scenario": "null_equal",
+      "seed": 11,
+      "duration_s": 0.001,
+      "ground_truth": "indecisive",
+      "winner": "none",
+      "activated": [],
+      "generation_status": "empty_candidate_set",
+      "diagnostics_ok": true
+    },
+    {
+      "slot_index": 1,
+      "scenario": "null_equal",
+      "seed": 22,
+      "duration_s": 0.0,
+      "ground_truth": "indecisive",
+      "winner": "none",
+      "activated": [],
+      "generation_status": "empty_candidate_set",
+      "diagnostics_ok": true
+    },
+    {
+      "slot_index": 2,
+      "scenario": "null_equal",
+      "seed": 33,
+      "duration_s": 0.0,
+      "ground_truth": "indecisive",
+      "winner": "none",
+      "activated": [],
+      "generation_status": "empty_candidate_set",
+      "diagnostics_ok": true
+    },
+    {
+      "slot_index": 3,
+      "scenario": "null_equal",
+      "seed": 44,
+      "duration_s": 0.0,
+      "ground_truth": "indecisive",
+      "winner": "none",
+      "activated": [],
+      "generation_status": "empty_candidate_set",
+      "diagnostics_ok": true
+    },
+    {
+      "slot_index": 4,
+      "scenario": "null_equal",
+      "seed": 55,
+      "duration_s": 0.0,
+      "ground_truth": "indecisive",
+      "winner": "none",
+      "activated": [],
+      "generation_status": "empty_candidate_set",
+      "diagnostics_ok": true
+    }
+  ]
+}

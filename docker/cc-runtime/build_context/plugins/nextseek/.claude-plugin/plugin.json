@@ -1,0 +1,7 @@
+{
+  "name": "nextseek",
+  "version": "0.1.0",
+  "description": "Claude Code plugin for NExtSEEK research workflows.",
+  "author": {"name": "BMC"},
+  "keywords": ["nextseek", "chat_nextseek", "bmc", "metadata", "graph"]
+}

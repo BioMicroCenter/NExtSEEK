@@ -1,0 +1,36 @@
+#!/bin/sh
+# nextseek-project-resolve: resolve the target project (by live name or id) and create a
+# non-secret project confirmation token after curator confirmation.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=build_context/plugins/nextseek/bin/_nextseek_common.sh
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+PROJECT_ID=""; NAME=""; CONFIRMED=""; OUT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --project-id) PROJECT_ID="$2"; shift 2 ;;
+    --name) NAME="$2"; shift 2 ;;
+    --confirmed) CONFIRMED="--confirmed"; shift ;;
+    --out) OUT="$2"; shift 2 ;;
+    --confirmed-write|--start|--upload)
+      nextseek_die 3 "$1 is forbidden: this tool confirms project selection only and cannot write samples" ;;
+    --help)
+      echo "Usage: nextseek-project-resolve (--name <project name> | --project-id <id>) [--confirmed] --out <token.json>"
+      echo ""
+      echo "Resolve the project against the live /projects/ list (by exact title with --name,"
+      echo "preferred) and write a non-secret confirmation token. Run WITHOUT --confirmed to"
+      echo "surface the resolved id+title for curator confirmation, then re-run WITH --confirmed"
+      echo "to mint the token."
+      exit 0 ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$PROJECT_ID" ] || [ -n "$NAME" ] || nextseek_die 3 "one of --project-id or --name is required"
+[ -n "$OUT" ] || nextseek_die 3 "--out is required"
+set -- project-resolve
+if [ -n "$PROJECT_ID" ]; then set -- "$@" --project-id "$PROJECT_ID"; fi
+if [ -n "$NAME" ]; then set -- "$@" --name "$NAME"; fi
+if [ -n "$CONFIRMED" ]; then set -- "$@" --confirmed; fi
+set -- "$@" --out "$OUT"
+exec python "$SCRIPT_DIR/_batch_upload_runner.py" "$@"

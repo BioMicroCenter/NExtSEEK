@@ -1,0 +1,178 @@
+# Plan 018 V4-9 Task 2 report
+
+## Outcome
+
+**Status: PASS as of 2026-08-17.** A fresh source-mounted run in the deployed image
+digest, isolated with `--network none`, selected 785 exact node IDs in sixteen
+disjoint chunks: **780 passed, 5 skipped, 0 failed, 0 errors, 0 xfailed, and 0
+deselected**. The corrected fifteen-module gate is now **1797/1809 statements
+(99.3%)** and **546/556 branches (98.2%)**. Every named module independently clears
+both 95% floors; `judge_models.py` is branchless and therefore has an explicit N/A
+branch floor.
+
+This PASS was regenerated after merging current `origin/dev@ce8f8a8e` into the
+Task-2 branch. That upstream changed `nessie_tests/export.py`, so the previous
+source-bound evidence correctly failed validation as stale. The refreshed run kept
+the exact 785-node collection and the same aggregate coverage and test counts.
+
+The current source-bound evidence is `evidence/plan018-v4-9-task2-evidence.json`,
+with the per-module result in `evidence/plan018-v4-9-task2-coverage.json`. The
+authoritative validation command exits 0:
+
+```bash
+python3 scripts/plan018_v4_9_task2_coverage.py validate \
+  --root /home/taishajo/work/NExtSEEK-plan018-v4-9
+```
+
+The remediation restored the strict manifest schema lost during the later integration
+merge, made the frozen V4-2 replay hash the transferred corpus inside the pinned ZIP
+rather than today's expanded checkout corpus, ported the existing pure exporter and
+functional-input contract tests to their integrated namespace, and added small
+hermetic edge tests for the artifact and router proposal modules. The added focused
+sets execute in under one second; no MCMC, provider, network, live DB, producer, or
+deployed-service execution was added.
+
+## Prior expanded-ownership RED (superseded by the 2026-08-17 remediation)
+
+The 2026-08-13 authenticated bounded rerun selected 675 exact node IDs in fourteen
+chunks and measured **898/1809 statements (49.6%)** and **195/556 branches (35.1%)**.
+That result was accurate for that checkout and is retained as the RED baseline, but it
+is no longer the current coverage verdict.
+
+The current fail-closed summary is `evidence/plan018-v4-9-task2-coverage.json`; the
+raw coverage, full collection, chunk manifest, and per-chunk JUnits are SHA-bound by
+the runner. `judge_models.py` has no branches, so its branch floor is explicitly N/A,
+not a synthetic 100% claim.
+
+| Module | Statements | Branches |
+| --- | ---: | ---: |
+| `nessie_tests/bayes_manifest.py` | 95.0% | 62.5% |
+| `nessie_tests/bayesian.py` | 70.7% | 50.0% |
+| `nessie_tests/export.py` | 23.8% | 1.3% |
+| `nextseek_api/eval/artifact_validity_proposal.py` | 0.0% | 0.0% |
+| `nextseek_api/eval/export.py` | 0.0% | 0.0% |
+| `nextseek_api/eval/exporter.py` | 0.0% | 0.0% |
+| `nextseek_api/eval/functional_inputs.py` | 0.0% | 0.0% |
+| `nextseek_api/eval/router_models_proposal.py` | 78.9% | 45.8% |
+
+The remaining Task-2 modules clear the measured floor: `attempt_store`,
+`conservation`, `disposition`, `human_annotations`, `judge`, `judge_models`
+(branchless), and `stage_c_runner`. No producer, provider, network, live DB,
+deployment, or registry action occurred: the bounded Docker worktree-mount lane used
+`--network none` and mounted only the exact V4-2 transferred-evidence directory
+read-only, with SHA pins for `testquestions.zip` and `MANIFEST.json`.
+
+## Earlier ten-module claim (VOID; not the current PASS evidence)
+
+Task 2 is complete as a hermetic coverage gate: the source-derived paired producer,
+schema/export, attempt-storage, DD-44 judgment, disposition, conservation, and Stage-C
+cluster passes the required per-module and aggregate 95% statement and branch floors.
+
+## Earlier ten-module scope derivation (VOID)
+
+The critical cluster is the intersection of Task 2's nouns with existing coverage-bearing
+V4-2/V4-3 ownership entries in `evidence/plan018-v4-9-owned-surface.json`, checked against
+the V4-2/V4-3, V5-3 §2, and V9 clauses of the living plan. It contains:
+
+- `nessie_tests/bayes_manifest.py`, `bayesian.py`, and `export.py`;
+- `nextseek_api/eval/{human_annotations,conservation,disposition,judge,judge_models,attempt_store,stage_c_runner}.py`.
+
+Fitter/store/activation/router/monitoring/spend modules belong to Tasks 3/4. The owned-surface
+manifest marks `artifact_sources.py` and `artifact_validity.py` as declared absent, so this task
+does not pretend to cover modules that do not exist.
+
+## Earlier ten-module RED → GREEN evidence (VOID for the expanded scope)
+
+1. `scripts/test_plan018_v4_9_task2_coverage.py` was written before
+   `scripts/plan018_v4_9_task2_coverage.py`; the first network-denied lane run failed because the
+   gate module was absent. After the minimal evaluator was implemented, it passed (3 focused tests).
+2. The initial real branch measurement exposed below-floor defensive branches in attempt storage,
+   conservation, annotations, DD-44 rationale, Stage-C replay, producer resume, and export.
+3. Tests were added for observable fail-closed outcomes. The only test doubles simulate an
+   inconsistent internal/dependency contract (corrupt payload reader, corrupt vocabulary, corrupt
+   bucket); each asserts the safe outcome, never merely executes a line. No production module was
+   changed.
+
+## Earlier ten-module verification (VOID for the expanded scope)
+
+All product/Django tests used the required Docker worktree mount plus `dmac.test_settings`:
+
+```bash
+docker run --rm --network none \
+  -v /home/taishajo/work/NExtSEEK-plan018-v4-9:/repo -w /repo \
+  -e DJANGO_SETTINGS_MODULE=dmac.test_settings \
+  -e PYTHONPATH=/repo:/repo/dmac_assistant/src \
+  nextseek-nextseek:latest \
+  uv run --project /app --no-sync python -m coverage run --branch ... -m pytest ...
+```
+
+The accumulated bounded coverage collection selected **250** tests: **248 passed, 2 skipped,
+0 xfailed, 93 deselected**. The two skips are pre-existing root-only unreadable-file tests in
+`nessie_tests/tests/test_export.py`; no unexpected skip/xfail occurred. The two Bayesian chunks
+are complementary 16-test partitions and together cover the complete named Bayesian module.
+
+Focused final regression command:
+
+```bash
+docker run --rm --network none ... uv run --project /app --no-sync python -m pytest \
+  scripts/test_plan018_v4_9_task2_coverage.py \
+  nextseek_api/eval/tests/test_v4_9_task2_behavior.py \
+  nextseek_api/eval/tests/test_stage_c_runner.py \
+  nextseek_api/eval/tests/test_judge_aggregation.py \
+  nextseek_api/eval/tests/test_conservation.py \
+  nessie_tests/tests/test_bayesian.py -q -p no:cacheprovider \
+  -k 'v4_9 or completed_arms or replay_refuses or rationale_falls or corrupt_non_scored'
+```
+
+Result: **15 passed, 61 deselected**, exit 0. `git diff --check` was also clean.
+
+The source-bound evaluator writes:
+
+- `evidence/plan018-v4-9-task2-coverage.raw.json` — coverage.py branch data;
+- `evidence/plan018-v4-9-task2-coverage.json` — machine-checked floor result;
+- `evidence/plan018-v4-9-task2-evidence.json` — source hashes, exact counts, no-network proof,
+  and fault-injection rationale.
+
+Historical aggregate coverage was **98.8% statements (1082/1095), 96.9% branches
+(345/356)**. This is not the current verdict. In that earlier, incomplete scope, each
+named module clears both floors; per-module values and SHA-256 source identities are recorded in
+the evidence JSON.
+
+## External-effects confirmation and limitations
+
+Every test/coverage collection used `docker --network none` and synthetic evaluator/HTTP fakes;
+no paired producer, route execution, provider/network call, paid action, live DB, deployment,
+registry action, or production change occurred. The two root-only skipped export tests remain
+intentionally skipped; their behavior is unrelated to Task 2's network/producers and is disclosed
+in the collection accounting.
+
+## Files changed
+
+- Coverage gate and gate tests: `scripts/plan018_v4_9_task2_coverage.py`,
+  `scripts/test_plan018_v4_9_task2_coverage.py`.
+- Behavioral/fault tests: `nextseek_api/eval/tests/test_v4_9_task2_behavior.py` and narrow
+  additions to existing producer, conservation, DD-44, and Stage-C tests.
+- Final reproducible evidence: the three Task-2 evidence JSON files above.
+
+## Commit
+
+Implementation commit: `4b61e9590681c63b4af6d4ee255ac2bf6905eb3d` —
+`test(plan018-v4-9): gate task 2 branch coverage`. This report is committed in the
+immediately following local documentation commit so the implementation SHA is stable.
+
+## Fix round 1
+
+The original cluster list was replaced with the pinned
+`evidence/plan018-v4-9-task2-ownership.json` task-to-path mapping. It includes the previously
+omitted existing Task-2 export/schema paths and assigns fitter/store/spend/paired-boundary paths to
+Tasks 3/4; the two declared-absent artifact modules are explicit rather than silently omitted.
+Task-2 controls/evidence are now manifest controls, and
+`python3 scripts/plan018_v4_9_owned_surface.py validate --current` passes after regeneration.
+
+The coverage validator now derives its set from that mapping, rejects invalid/zero/impossible
+counters, and applies the 95% floor with integer arithmetic before display rounding. The DD-44
+corrupt no-match rationale case now fails closed with `ValueError` rather than returning a
+contradictory first rationale. Fresh focused verification: 16 passed; owned-surface generation and
+current validation passed. The previously recorded ten-module coverage evidence is retained as
+historical evidence only and must be regenerated for the expanded mapped cluster before a final
+Task-2 PASS claim.

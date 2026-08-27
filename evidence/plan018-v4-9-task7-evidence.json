@@ -1,0 +1,89 @@
+{
+  "coverage": {
+    "aggregate": {
+      "branch_percent": 100.0,
+      "branches": 70,
+      "covered_branches": 70,
+      "covered_statements": 264,
+      "statement_percent": 100.0,
+      "statements": 264
+    },
+    "files": {
+      "nextseek_api/eval/deploy_record.py": {
+        "branch_percent": 100.0,
+        "branches": 28,
+        "covered_branches": 28,
+        "covered_statements": 113,
+        "statement_percent": 100.0,
+        "statements": 113
+      },
+      "nextseek_api/eval/mixed_version_recovery.py": {
+        "branch_percent": 100.0,
+        "branches": 42,
+        "covered_branches": 42,
+        "covered_statements": 151,
+        "statement_percent": 100.0,
+        "statements": 151
+      }
+    },
+    "raw": "evidence/plan018-v4-9-task7-coverage.raw.json",
+    "raw_sha256": "900a495998e1a79263ecdd4a9117abeed9c44d0e0d075b832be7d0ace3140576"
+  },
+  "deploy_record": {
+    "fixture": "evidence/plan018-v4-9-deploy-record.fixture.json",
+    "schema": "evidence/plan018-v4-9-deploy-record.schema.json"
+  },
+  "gate": "PASS",
+  "lane": {
+    "errors": 0,
+    "failures": 0,
+    "image": "sha256:704e0936c966a5e4121957104f236d111c251db0feb413aa2c8e8a5e3f7fa651",
+    "junit": "evidence/plan018-v4-9-task7.junit.xml",
+    "junit_sha256": "0b99dfc40ef9d7d490014f5cca408a33cd519a361921af811f4fc7d4954f2773",
+    "network": "none",
+    "pytest_seconds": 0.16,
+    "resource_limits": {
+      "cpus": 2,
+      "memory": "4g"
+    },
+    "skipped": 0,
+    "tests": 34,
+    "unexpected_deselected": 0,
+    "unexpected_xfailed": 0,
+    "uv": "uv run --project /app --no-sync"
+  },
+  "mutations": {
+    "enumerated": 3,
+    "killed": 3,
+    "manifest": "evidence/plan018-v4-9-task7-mutations.json"
+  },
+  "paid_or_live_resources_used": false,
+  "scenarios": [
+    "old_reader_new_writer",
+    "new_reader_old_writer",
+    "queued_old_task_new_worker_redelivery",
+    "concurrent_readers_writers",
+    "drain_order",
+    "contract_absent_and_refused",
+    "non_destructive_forward_recovery"
+  ],
+  "schema": "plan018-v4-9-task7-evidence/v1",
+  "source": {
+    "nextseek_api/eval/deploy_record.py": {
+      "last_commit": "7676431dc97bbc902539c4c61277c564b0a5ded5",
+      "sha256": "a84ce7ced3e9fd5840cd96dd0bab1e7cc564e1195edad33200fc7276f626a2ac"
+    },
+    "nextseek_api/eval/mixed_version_recovery.py": {
+      "last_commit": "7676431dc97bbc902539c4c61277c564b0a5ded5",
+      "sha256": "6735da97c304286b4a6875b3a5a37b810f6de52f1f590cd1c633b5d6e51e10bb"
+    },
+    "nextseek_api/eval/tests/test_task7_deploy_recovery.py": {
+      "last_commit": "7676431dc97bbc902539c4c61277c564b0a5ded5",
+      "sha256": "182aafe7bebc126265a9b5b2d614203f815f20659326f56efdb60a17f3ea06f6"
+    },
+    "scripts/plan018_v4_9_task7_recovery.py": {
+      "last_commit": "7676431dc97bbc902539c4c61277c564b0a5ded5",
+      "sha256": "20055e730e30a9b31d2e8d873bae486a5748d1fe2fa5f11dfbf7c88ba29ed41c"
+    }
+  }
+}

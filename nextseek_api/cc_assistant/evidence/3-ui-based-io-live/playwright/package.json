@@ -1,0 +1,9 @@
+{
+  "name": "cc-step3-live-evidence",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.46.1"
+  }
+}

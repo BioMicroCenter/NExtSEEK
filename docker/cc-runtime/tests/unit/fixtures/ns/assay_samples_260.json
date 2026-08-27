@@ -1,0 +1,240 @@
+{
+  "data": {
+    "attributes": {
+      "assay_class": {
+        "description": null,
+        "key": "EXP",
+        "title": "Experimental assay"
+      },
+      "assay_type": {
+        "label": "Experimental Assay Type",
+        "uri": "http://jermontology.org/ontology/JERMOntology#Experimental_assay_type"
+      },
+      "creators": [],
+      "description": null,
+      "discussion_links": [],
+      "other_creators": null,
+      "policy": {
+        "access": "view",
+        "permissions": [
+          {
+            "access": "manage",
+            "resource": {
+              "id": "1",
+              "type": "projects"
+            }
+          }
+        ]
+      },
+      "position": null,
+      "snapshots": [],
+      "tags": [],
+      "technology_type": {
+        "label": "Technology Type",
+        "uri": "http://jermontology.org/ontology/JERMOntology#Technology_type"
+      },
+      "title": "Comet Chip Analysis - Data Attached"
+    },
+    "id": "260",
+    "links": {
+      "self": "/assays/260"
+    },
+    "meta": {
+      "api_version": "0.3",
+      "base_url": "http://localhost:3000",
+      "created": "2026-01-21T15:13:22.000Z",
+      "modified": "2026-01-22T20:36:09.000Z",
+      "uuid": "a68213f0-d909-013e-bc53-005056822fb3"
+    },
+    "relationships": {
+      "creators": {
+        "data": []
+      },
+      "data_files": {
+        "data": []
+      },
+      "documents": {
+        "data": []
+      },
+      "human_diseases": {
+        "data": []
+      },
+      "investigation": {
+        "data": {
+          "id": "6",
+          "type": "investigations"
+        }
+      },
+      "models": {
+        "data": []
+      },
+      "organisms": {
+        "data": []
+      },
+      "people": {
+        "data": [
+          {
+            "id": "1",
+            "type": "people"
+          }
+        ]
+      },
+      "placeholders": {
+        "data": []
+      },
+      "projects": {
+        "data": [
+          {
+            "id": "1",
+            "type": "projects"
+          }
+        ]
+      },
+      "publications": {
+        "data": []
+      },
+      "samples": {
+        "data": [
+          {
+            "id": "340787",
+            "type": "samples"
+          },
+          {
+            "id": "340788",
+            "type": "samples"
+          },
+          {
+            "id": "340789",
+            "type": "samples"
+          },
+          {
+            "id": "340790",
+            "type": "samples"
+          },
+          {
+            "id": "340791",
+            "type": "samples"
+          },
+          {
+            "id": "340792",
+            "type": "samples"
+          },
+          {
+            "id": "340793",
+            "type": "samples"
+          },
+          {
+            "id": "340794",
+            "type": "samples"
+          },
+          {
+            "id": "340795",
+            "type": "samples"
+          },
+          {
+            "id": "340796",
+            "type": "samples"
+          },
+          {
+            "id": "340797",
+            "type": "samples"
+          },
+          {
+            "id": "369134",
+            "type": "samples"
+          },
+          {
+            "id": "369135",
+            "type": "samples"
+          },
+          {
+            "id": "369136",
+            "type": "samples"
+          },
+          {
+            "id": "369137",
+            "type": "samples"
+          },
+          {
+            "id": "369138",
+            "type": "samples"
+          },
+          {
+            "id": "369139",
+            "type": "samples"
+          },
+          {
+            "id": "369140",
+            "type": "samples"
+          },
+          {
+            "id": "369141",
+            "type": "samples"
+          },
+          {
+            "id": "369142",
+            "type": "samples"
+          },
+          {
+            "id": "369143",
+            "type": "samples"
+          },
+          {
+            "id": "369144",
+            "type": "samples"
+          },
+          {
+            "id": "369145",
+            "type": "samples"
+          },
+          {
+            "id": "369146",
+            "type": "samples"
+          },
+          {
+            "id": "369147",
+            "type": "samples"
+          },
+          {
+            "id": "369898",
+            "type": "samples"
+          },
+          {
+            "id": "369899",
+            "type": "samples"
+          }
+        ]
+      },
+      "sops": {
+        "data": [
+          {
+            "id": "84",
+            "type": "sops"
+          },
+          {
+            "id": "130",
+            "type": "sops"
+          }
+        ]
+      },
+      "study": {
+        "data": {
+          "id": "36",
+          "type": "studies"
+        }
+      },
+      "submitter": {
+        "data": [
+          {
+            "id": "1",
+            "type": "people"
+          }
+        ]
+      }
+    },
+    "type": "assays"
+  },
+  "jsonapi": {
+    "version": "1.0"
+  }
+}

@@ -94,7 +94,8 @@ SAMPLE_ERRORCODE = {
     '504': 'Error: Sample not saved into DB - ',
     '601': 'Warning: Sample not saved to the SEEK database - ',
     '602': 'Warning: Data file not associated with a sample in the SEEK database - ',
-    
+    '603': 'Warning: Sample saved, but its lineage (parent relationships) was NOT saved to the graph database for UID - ',
+
     '701': 'Warning: Assay sheet does not contain valid "Update_assay" sheet.',
     
 }

@@ -1,0 +1,25 @@
+{
+  "schema": "plan018-v4-8-prereq/v1",
+  "recorded_at": "2026-08-12T22:00:00Z",
+  "gate": "PASS",
+  "phase0": "evidence/plan018-v4-8-phase0-publish.json",
+  "phase0_gate": "PASS",
+  "worktree_sha": "5bec28d9",
+  "v4_0_through_v4_7": "CLOSED",
+  "v4_7_closeout": "evidence/plan018-v4-7-closeout.json",
+  "migration_leaf": "0017_paid_run_state.py",
+  "lane_c_smoke": {
+    "module": "nextseek_api/cc_assistant/tests/test_run_authorization.py",
+    "passed": 35,
+    "note": "full V4-8 Lane C suite green"
+  },
+  "lane_a_smoke": {
+    "module": "nextseek_api/eval/tests/test_v4_8_manifest.py",
+    "passed": 7
+  },
+  "lane_m_script": "scripts/plan018_lane_m_mysql.sh",
+  "ownership_map_amended": true,
+  "provider_seam_inventory": "evidence/plan018-v4-8-provider-seam-inventory.json",
+  "v4_4_debt_v48_claim": "non_authoritative",
+  "paid_or_live_resources_used": false
+}

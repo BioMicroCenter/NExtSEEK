@@ -1,0 +1,13 @@
+{
+  "schema_version": "step7-instance-binding/v1",
+  "binding_id": "dev-2026-07-04",
+  "probe_command": "docker exec seek-mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -N -e \"SELECT id, title FROM seek_production.projects; SELECT COUNT(*) FROM seek_production.samples; SELECT COUNT(*) FROM seek_production.sample_types;\"",
+  "probe_timestamp": "2026-07-04T14:35:00-04:00",
+  "project_id": 1,
+  "project_title": "Published Data",
+  "sample_count": 50886,
+  "sample_type_count": 104,
+  "reference_uids": ["A.ADCD-250312ALT-1-PUB"],
+  "cc_project_dirname": "1-published-data",
+  "forbidden_actions": ["POST /nextseek_api/projects/", "create_seeded_fixture"]
+}

@@ -1,0 +1,208 @@
+{
+  "schema_version": "plan018-v4-9-router-multifamily-e2e/v1",
+  "executed_at": "2026-08-14T16:27:13-04:00",
+  "source_commit": "46bc49f7993509e71253c6eb7e6302ab77bcdede",
+  "base_image_id": "sha256:6e12938446602c273d00895259527f4f31fb211ed2c310527bffd181fa827179",
+  "execution": {
+    "database": "sqlite-memory-disposable",
+    "source_mount": "read_only",
+    "delivery_mount": "read_only",
+    "live_persistent_state_mutated": false,
+    "live_stack_rebuilt": false,
+    "live_stack_restarted": false,
+    "deployed": false,
+    "credential_scope": [
+      "GCP_API_KEY"
+    ],
+    "credential_transport": "temporary mode-600 env file deleted on shell exit"
+  },
+  "fit": {
+    "input_arms": 298,
+    "retained_pairs": 149,
+    "generation_hash": "f5ad8b1e3c4f7db5379111758d10e12811a659a2ce9e80b70cf0bc14c6eea95f",
+    "generation_status": "activated_all",
+    "activated_families": [
+      "graph_traversal",
+      "unsupported"
+    ]
+  },
+  "provider": {
+    "client": "GCPReasoner",
+    "model": "gemini-3.1-pro-preview",
+    "paid_calls_total": 10,
+    "calls_with_retained_exact_metadata": 8,
+    "retained_input_tokens": 13492,
+    "retained_output_tokens": 724,
+    "retained_provider_duration_ms": 81131,
+    "discarded_harness_attempt_calls": 2,
+    "discarded_harness_attempt_note": "The first completed sample_search decision was lost when the disposable serializer referenced RouteDecision.reason instead of reasoning. The decision completed before serialization, so ClassifyQuery and fallback RouteQuery were paid, but their exact token metadata was overwritten by the corrected rerun.",
+    "retained_calls": [
+      {
+        "question_index": 1,
+        "function": "ClassifyQuery",
+        "duration_ms": 6307,
+        "input_tokens": 808,
+        "output_tokens": 75
+      },
+      {
+        "question_index": 1,
+        "function": "RouteQuery",
+        "duration_ms": 4264,
+        "input_tokens": 3141,
+        "output_tokens": 81
+      },
+      {
+        "question_index": 2,
+        "function": "ClassifyQuery",
+        "duration_ms": 7780,
+        "input_tokens": 812,
+        "output_tokens": 86
+      },
+      {
+        "question_index": 2,
+        "function": "RouteQuery",
+        "duration_ms": 5740,
+        "input_tokens": 3145,
+        "output_tokens": 87
+      },
+      {
+        "question_index": 3,
+        "function": "ClassifyQuery",
+        "duration_ms": 5309,
+        "input_tokens": 812,
+        "output_tokens": 77
+      },
+      {
+        "question_index": 4,
+        "function": "ClassifyQuery",
+        "duration_ms": 13357,
+        "input_tokens": 810,
+        "output_tokens": 82
+      },
+      {
+        "question_index": 4,
+        "function": "RouteQuery",
+        "duration_ms": 33877,
+        "input_tokens": 3143,
+        "output_tokens": 162
+      },
+      {
+        "question_index": 5,
+        "function": "ClassifyQuery",
+        "duration_ms": 4497,
+        "input_tokens": 821,
+        "output_tokens": 74
+      }
+    ]
+  },
+  "questions": [
+    {
+      "index": 1,
+      "query": "Find me mice treated with NDMA.",
+      "expected_family": "sample_search",
+      "actual_family": "sample_search",
+      "posterior_status": "indecisive",
+      "posterior_activated": false,
+      "posterior_local_error": 1.0,
+      "actual_route": "nextseek_query",
+      "actual_source": "baml",
+      "result": "PASS",
+      "interpretation": "Quality equivalence remained uncertain at 0.95, so the router correctly preserved legacy fallback; legacy selected NS."
+    },
+    {
+      "index": 2,
+      "query": "How many sequencing samples descend from a non-human primate?",
+      "expected_family": "graph_traversal",
+      "actual_family": "lineage_tree",
+      "posterior_status": "indecisive",
+      "posterior_activated": false,
+      "posterior_local_error": 1.0,
+      "actual_route": "nextseek_query",
+      "actual_source": "baml",
+      "result": "FAIL",
+      "interpretation": "The classifier chose the adjacent lineage_tree family, bypassing the activated graph_traversal posterior and falling back to legacy NS."
+    },
+    {
+      "index": 3,
+      "query": "Explain what NDMA is and why it's carcinogenic.",
+      "expected_family": "unsupported",
+      "actual_family": null,
+      "posterior_status": null,
+      "posterior_activated": null,
+      "posterior_local_error": null,
+      "actual_route": "unrelated",
+      "actual_source": "baml",
+      "result": "FAIL",
+      "interpretation": "The transferred corpus assigns this query to unsupported, but the live classifier treated it as null/out-of-scope, so the activated unsupported posterior was unreachable."
+    },
+    {
+      "index": 4,
+      "query": "Make me a bar chart of sample counts by type",
+      "expected_family": "unsupported",
+      "actual_family": "followup_over_results",
+      "posterior_status": "indecisive",
+      "posterior_activated": false,
+      "posterior_local_error": 1.0,
+      "actual_route": "nextseek_query",
+      "actual_source": "baml",
+      "result": "FAIL",
+      "interpretation": "A standalone artifact-creation request with no prior results was misclassified as followup_over_results and sent to legacy NS rather than the intended CC capability path."
+    },
+    {
+      "index": 5,
+      "query": "Which assays were run on tissue samples from the CSBC investigation, and which protocols did those assays use?",
+      "expected_family": "graph_traversal",
+      "actual_family": "graph_traversal",
+      "posterior_status": "quality_equivalent_ns",
+      "posterior_activated": true,
+      "posterior_local_error": 0.035250000000000004,
+      "actual_route": "nextseek_query",
+      "actual_source": "posterior",
+      "generation_hash_reported": "f5ad8b1e3c4f7db5379111758d10e12811a659a2ce9e80b70cf0bc14c6eea95f",
+      "result": "PASS",
+      "interpretation": "The classifier reached graph_traversal and the new proven-equivalence policy selected NS directly from the activated posterior without a RouteQuery fallback call."
+    }
+  ],
+  "coverage": {
+    "questions_executed": 5,
+    "distinct_named_actual_families": [
+      "followup_over_results",
+      "graph_traversal",
+      "lineage_tree",
+      "sample_search"
+    ],
+    "additional_actual_outcomes": [
+      "unrelated"
+    ],
+    "question_oracle_passes": 2,
+    "question_oracle_failures": 3
+  },
+  "raw_artifacts": [
+    {
+      "path": "/tmp/plan018-v4-9-router-three-family-e2e.json",
+      "sha256": "688bd996ab3c03a573536ba80fb776d51a86fa58cda19665df52dacbbdb4a5e5"
+    },
+    {
+      "path": "/tmp/plan018-v4-9-router-three-family-e2e.partial.json",
+      "sha256": "8a84f06473ef70388bbfd83d4c01172bc1c4c84d417e75349e4b7eb572fc42c7"
+    },
+    {
+      "path": "/tmp/plan018-v4-9-router-extra-family-e2e.json",
+      "sha256": "ecae02509cedf80014c5dc7cb02a15acb429af4993ed42208e30eeb3360d787c"
+    },
+    {
+      "path": "/tmp/plan018-v4-9-router-extra-family-e2e.partial.json",
+      "sha256": "70931c8e1d125e998f92208d54b5286a875a0b4194e4d9ce762ca5079ffaebe2"
+    },
+    {
+      "path": "/tmp/plan018-v4-9-router-graph-target-e2e.json",
+      "sha256": "0810cfce0ebbf3a061e9675a3665f734888d9af35d840d01dd9cb34742320fd2"
+    },
+    {
+      "path": "/tmp/plan018-v4-9-router-graph-target-e2e.partial.json",
+      "sha256": "0a096e0b7cde1f001f4b197654db69c95d69ebfcb138d672ee982db16aa8b9a2"
+    }
+  ],
+  "result": "FAIL",
+  "failure": "The new quality-equivalence-to-NS policy works when ClassifyQuery reaches graph_traversal, but three of five questions missed their corpus-defined family or capability boundary. Classifier/taxonomy behavior remains the dominant E2E defect."
+}

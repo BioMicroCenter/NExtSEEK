@@ -1,0 +1,57 @@
+{
+  "schema": "plan018-v4-5-closeout/v1",
+  "recorded_at": "2026-08-13T00:30:00Z",
+  "gate": "PASS",
+  "worktree_sha": "100b4941ff7a90ae720d999bd224bcb6190a4b3f",
+  "implementation_note": "V4-5 cold-debt remediation complete @ rollup tip 100b4941",
+  "base_sha": "f515392b",
+  "next_gate": "V4-6",
+  "summary": {
+    "lane_c_passed": 32,
+    "lane_m_passed": 12,
+    "verifier_checks_passed": 22,
+    "migration_leaf": "0015_v4_5_generation_audit_and_turn_pin.py",
+    "mysql_isolation": "REPEATABLE-READ",
+    "paid_or_live_resources_used": false
+  },
+  "evidence": {
+    "phase0": "evidence/plan018-v4-5-phase0-publish.json",
+    "prereq": "evidence/plan018-v4-5-prereq.json",
+    "publish": "evidence/plan018-v4-5-publish.sidecar.json",
+    "validate": "evidence/plan018-v4-5-validate.sidecar.json",
+    "remediation_lane_c": "evidence/plan018-v4-5-remediation-lane-c.sidecar.json",
+    "cas": "evidence/plan018-v4-5-cas.sidecar.json",
+    "snapshot": "evidence/plan018-v4-5-snapshot.sidecar.json",
+    "overlay": "evidence/plan018-v4-5-overlay.sidecar.json",
+    "realstore": "evidence/plan018-v4-5-realstore.sidecar.json",
+    "verifier": "evidence/plan018-v4-5-verifier.sidecar.json",
+    "sdd_review": "evidence/plan018-v4-5-sdd-final-review.md",
+    "cold_review": "evidence/plan018-v4-5-cold-outcome-review.md"
+  },
+  "mysql_oracles": [
+    "stale_cas",
+    "two_activators",
+    "parent_mismatch_refused",
+    "immutable_overwrite_refused",
+    "rollback",
+    "reader_single_hash",
+    "corruption",
+    "payload_canonical_tamper",
+    "taxonomy_corpus_incompat",
+    "partial_publish_refused",
+    "crash_publish_boundary",
+    "crash_activation_boundary"
+  ],
+  "residual_debt": [
+    "V4-6 posterior selector and live DB activation remain separately gated (auth-gated, not remediation debt)"
+  ],
+  "vault_sync": {
+    "deploydocs_branch": "dev",
+    "deploydocs_sha": "d3153692",
+    "living_plan_sha256": "24c03ebda4a8f6f132ea9c3fcb73fb8ebb9f0ed27dfd2a1edabaebea449421ac",
+    "registry_asset": "nextseek--plan-018",
+    "registry_commit": "42a5ece",
+    "recorded_at": "2026-08-12T22:30:00Z",
+    "note": "Historical vault-sync from prior V4-5 close; rollup cold review may supersede"
+  }
+}

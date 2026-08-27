@@ -14,10 +14,31 @@ volumes, seeds, build, users, validate.
 ./startup.sh install --instance test       # named instance with auto-assigned ports
 ./startup.sh install --port-offset 1       # +1 on every port (8001/3001/7475/7688)
 ./startup.sh install --yes                 # skip confirmation prompts
+./startup.sh install --seek-public-url https://seek.example.com   # real SEEK hostname
 ```
 
 Idempotent for prereqs / config / volumes / users / validate. Seed import
 is skipped if the target DB already has tables.
+
+**`--seek-public-url`** — the browser-reachable SEEK base URL (host only, no
+path). Omit it on a laptop and it defaults to `http://localhost:<seek port>`.
+It is stored per-instance in `startup/.instance.json` and drives **both** layers
+that need it, so they cannot drift apart:
+
+- `SEEK_PUBLIC_URL` in `docker/nextseek.env` — how NExtSEEK builds links **to** SEEK
+- SEEK's own DB-backed `site_base_host` — how SEEK identifies **itself** (its
+  "SEEK ID", JSON-LD `@id`, sitemap). Applied after the seed and **before SEEK's
+  first boot**, so the boot-time sitemap is correct and no restart is needed.
+
+Resolution order (a hand-set value is never clobbered):
+
+```
+--seek-public-url  >  existing docker/nextseek.env  >  .instance.json  >  http://localhost:<seek port>
+```
+
+An existing `site_base_host` row in SEEK is treated as an admin decision:
+startup reports a mismatch and **never overwrites it**. `./startup.sh doctor`
+reports drift between the three ("SEEK public URL"). See `NExtSTEPS.md` §1d.
 
 ### `doctor`
 
@@ -41,13 +62,44 @@ Destructive: drops all volumes for the current instance and re-runs install.
 
 ### `rebuild`
 
-Rebuilds and restarts one service without touching volumes. Default service
-is `nextseek`.
+Safely rebuilds one first-party component without touching volumes. Before any
+build it creates and verifies a local rollback tag for every affected image.
+Long-running targets are recreated with `--no-deps --force-recreate`.
 
 ```
-./startup.sh rebuild
-./startup.sh rebuild --service nextseek_nginx
+./startup.sh rebuild                              # shared app image + all app runtimes
+./startup.sh rebuild --component cc-agent         # build-only; no persistent container
+./startup.sh rebuild --component nextseek-sidecar
+./startup.sh rebuild --component bedrock-proxy
+./startup.sh rebuild --component custom-stack     # all first-party images
 ```
+
+The default app component rebuilds one shared image and recreates `nextseek`,
+`attribute_mutation_worker`, `attribute_mutation_dispatcher`, and
+`attribute_mutation_recovery_scheduler`. It does not touch nginx, databases,
+SEEK, or Solr. The worker and dispatcher reattach the existing
+`attribute_mutation_broker` SQLite named volume: rebuild never renews or
+deletes it. The explicitly destructive `reset` command does delete volumes.
+`--service` remains an alias for `--component`; arbitrary Compose services are
+rejected.
+
+If the installed runtime checkout contains unrelated operator-owned files,
+use `./startup.sh rebuild --source-tree <clean-origin-dev-worktree>`. The CLI
+builds from that verified clean source while recreating from the installed
+instance, preserving its existing bind-mounted output, log, and configuration
+paths. Runtime/source SHAs must match, and dirty deployment-control files are
+refused.
+
+After a rebuild on the canonical instance (compose project `nextseek`), the
+CLI tries to push each rebuilt image to its private GHCR package, gated by the
+DEPLOYMENT.md §5.2 baked-secret check. **This step never fails the rebuild**:
+with no credential (or an expired one) it prints a banner
+telling the deployer how to fix it, records the failure in
+`startup/.ghcr-push-state.json` (gitignored), and `./startup.sh doctor` keeps
+flagging it until a push succeeds. Credential: a classic PAT with
+`write:packages` (owner must be a BioMicroCenter org member) in
+`~/.config/nextseek/ghcr.env` as `GHCR_USER=…` / `GHCR_TOKEN=…` (mode 600;
+override the path with `NEXTSEEK_GHCR_ENV`). See DEPLOYMENT.md §5.2.
 
 ### `seed-filestore`
 
@@ -90,7 +142,8 @@ Both stacks coexist; `./startup.sh reset` from `/tmp/NExtSEEK-test` nukes
 only the test data.
 
 Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
-(set in `startup/.instance.json`).
+(set in `startup/.instance.json` and mirrored to the root `.env` for manual
+`docker compose` commands).
 
 ## Files written by startup
 
@@ -98,9 +151,31 @@ Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
 |---|---|---|
 | `docker/db.env` | gitignored | MySQL credentials |
 | `docker/nextseek.env` | gitignored | Django/Neo4j config + API keys |
+| `docker/bedrock-proxy/proxy-secret.env` | gitignored | Bedrock proxy runtime token + region |
 | `dmac/local_settings.py` | gitignored | Django settings overlay |
+| `.env` | gitignored | Non-secret compose project + published port vars |
 | `startup/.instance.json` | gitignored | Per-instance state (name, prefix, ports) |
 | `logs/` | gitignored | Container runtime logs |
+
+## Tests & coverage
+
+The startup CLI is deployment-critical and holds a **95% minimum** coverage
+bar (currently ~99%). Hermetic suite (no docker daemon touched):
+
+```
+uv run --project startup --group test python -m pytest startup/tests/
+```
+
+Coverage gate (fails under 95%):
+
+```
+uv run --project startup --group test python -m pytest startup/tests/ \
+  --cov=startup.cli --cov=startup.lib --cov=startup.steps --cov-fail-under=95
+```
+
+Integration lanes: `test_integration_startup.py` chains real git repos, real
+state files, and multi-command CLI flows (docker mocked); set
+`NEXTSEEK_STARTUP_DOCKER_TESTS=1` to also run the opt-in real-docker tests.
 
 ## Known failure modes
 
@@ -120,6 +195,10 @@ Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
   placeholders (`SET_IN_LOCAL_ENV`). Fill in real values for
   `GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, or `FDH_API`, then
   `./startup.sh rebuild`.
+- **CC Bedrock calls don't work**: `docker/bedrock-proxy/proxy-secret.env`
+  is generated during install. If `AWS_BEARER_TOKEN_BEDROCK` was not exported
+  before install, fill it in there and re-run `./startup.sh rebuild --service
+  bedrock-proxy`.
 
 ## Maintainer: regenerating seed dumps
 

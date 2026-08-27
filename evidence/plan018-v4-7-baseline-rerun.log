@@ -1,0 +1,134 @@
+# Plan 018 V4-7 §3.1 hermetic baseline re-run (best effort)
+# Recipe: OPS-TESTING-HARNESSES.md §3.1 host variant on NExtSEEK-deploydocs
+# Recorded: 2026-08-12
+# Result: 1179 passed, 1 failed (known cc_sweep_staging DJANGO_SETTINGS gap)
+# Prior baseline: 1136 passed, 1 failed — same failure class; +43 tests collected
+
+........................................................................ [  6%]
+........................................................................ [ 12%]
+........................................................................ [ 18%]
+........................................................................ [ 24%]
+......F................................................................. [ 30%]
+........................................................................ [ 36%]
+........................................................................ [ 42%]
+........................................................................ [ 48%]
+........................................................................ [ 54%]
+........................................................................ [ 61%]
+........................................................................ [ 67%]
+........................................................................ [ 73%]
+........................................................................ [ 79%]
+........................................................................ [ 85%]
+........................................................................ [ 91%]
+........................................................................ [ 97%]
+............................                                             [100%]
+=================================== FAILURES ===================================
+________________ test_management_command_recovery_delivers_all _________________
+
+command_name = 'cc_sweep_staging'
+args = ('--user-id', 'alice', '--api-user', 'alice@mit.edu', '--project', '42-proj')
+options = {'stdout': <_io.StringIO object at 0x7fced89c0700>}
+
+    def call_command(command_name, *args, **options):
+        """
+        Call the given command, with the given options and args/kwargs.
+    
+        This is the primary API you should use for calling specific commands.
+    
+        `command_name` may be a string or a command object. Using a string is
+        preferred unless the command object is required for further processing or
+        testing.
+    
+        Some examples:
+            call_command('migrate')
+            call_command('shell', plain=True)
+            call_command('sqlmigrate', 'myapp')
+    
+            from django.core.management.commands import flush
+            cmd = flush.Command()
+            call_command(cmd, verbosity=0, interactive=False)
+            # Do something with cmd ...
+        """
+        if isinstance(command_name, BaseCommand):
+            # Command object passed in.
+            command = command_name
+            command_name = command.__class__.__module__.split(".")[-1]
+        else:
+            # Load the command object by name.
+            try:
+>               app_name = get_commands()[command_name]
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               KeyError: 'cc_sweep_staging'
+
+/tmp/cursor-sandbox-cache/40968d544e081809aba0224764fee420/uv/archive-v0/0oD_WU0DyXz44ohQrmNnx/lib/python3.12/site-packages/django/core/management/__init__.py:110: KeyError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/tmp/pytest-of-taishajo/pytest-29/test_management_command_recove0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fced89d0aa0>
+
+    def test_management_command_recovery_delivers_all(tmp_path, monkeypatch):
+        from django.core.management import call_command
+        from io import StringIO
+    
+        root = tmp_path / "users"
+        _scratch(root, PROJECT, USER)
+        _stage(root, API_USER, "99999999-9999-9999-9999-999999999999",
+               {"a.csv": b"a"}, marker_mtime=time.time() - 99_999)  # old stray
+    
+        monkeypatch.setenv("DMAC_USER_ROOT_MOUNT", str(root))
+        monkeypatch.setenv("DMAC_CC_USERS_VOLUME", "dmac-cc-users")
+    
+        out = StringIO()
+>       call_command("cc_sweep_staging", "--user-id", USER, "--api-user", API_USER,
+                     "--project", PROJECT, stdout=out)
+
+nextseek_api/cc_assistant/tests/test_cc_staging_sweep.py:581: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+command_name = 'cc_sweep_staging'
+args = ('--user-id', 'alice', '--api-user', 'alice@mit.edu', '--project', '42-proj')
+options = {'stdout': <_io.StringIO object at 0x7fced89c0700>}
+
+    def call_command(command_name, *args, **options):
+        """
+        Call the given command, with the given options and args/kwargs.
+    
+        This is the primary API you should use for calling specific commands.
+    
+        `command_name` may be a string or a command object. Using a string is
+        preferred unless the command object is required for further processing or
+        testing.
+    
+        Some examples:
+            call_command('migrate')
+            call_command('shell', plain=True)
+            call_command('sqlmigrate', 'myapp')
+    
+            from django.core.management.commands import flush
+            cmd = flush.Command()
+            call_command(cmd, verbosity=0, interactive=False)
+            # Do something with cmd ...
+        """
+        if isinstance(command_name, BaseCommand):
+            # Command object passed in.
+            command = command_name
+            command_name = command.__class__.__module__.split(".")[-1]
+        else:
+            # Load the command object by name.
+            try:
+                app_name = get_commands()[command_name]
+            except KeyError:
+>               raise CommandError("Unknown command: %r" % command_name)
+E               django.core.management.base.CommandError: Unknown command: 'cc_sweep_staging'
+
+/tmp/cursor-sandbox-cache/40968d544e081809aba0224764fee420/uv/archive-v0/0oD_WU0DyXz44ohQrmNnx/lib/python3.12/site-packages/django/core/management/__init__.py:112: CommandError
+=============================== warnings summary ===============================
+../../../../tmp/cursor-sandbox-cache/40968d544e081809aba0224764fee420/uv/archive-v0/0oD_WU0DyXz44ohQrmNnx/lib/python3.12/site-packages/_pytest/config/__init__.py:1464
+  /tmp/cursor-sandbox-cache/40968d544e081809aba0224764fee420/uv/archive-v0/0oD_WU0DyXz44ohQrmNnx/lib/python3.12/site-packages/_pytest/config/__init__.py:1464: PytestConfigWarning: Unknown config option: DJANGO_SETTINGS_MODULE
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED nextseek_api/cc_assistant/tests/test_cc_staging_sweep.py::test_management_command_recovery_delivers_all
+1 failed, 1179 passed, 1 warning in 12.47s

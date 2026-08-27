@@ -47,7 +47,12 @@ class SampleQueriesMixin:
         project_id = filtersdic['project_id']
         sqlquery_from = self._sqlQuery_select_records_from(project_id)
         orderby = filtersdic['orderby'] 
-        sqlquery_where = self._sqlQuery_select_records_filters_advanced(filtersdic)
+        startNo = filtersdic['startNo'] 
+        endNo = filtersdic['endNo']
+        # #93: the WHERE builder now hands back (fragment, params). The two must
+        # travel together all the way to cursor.execute -- the fragment holds
+        # only %s placeholders and every client-supplied value is in params.
+        sqlquery_where, params = self._sqlQuery_select_records_filters_advanced(filtersdic)
         sqlqueryMega = sqlquery_select + sqlquery_from + sqlquery_where
         if len(orderby)==0:
             orderby = " ORDER BY A.id desc"
@@ -55,8 +60,13 @@ class SampleQueriesMixin:
             sqlqueryMega = sqlquery_select + sqlquery_from + sqlquery_where + orderby
         else:
             sqlqueryMega = " SELECT count(A.id) " + sqlquery_from
+            # #93: this branch DISCARDS sqlquery_where, so the statement it
+            # returns carries no placeholders at all. The params must be dropped
+            # with it -- handing the cursor more params than %s raises at
+            # execute time and would turn a count query into a 500.
+            params = []
         logger.debug(sqlqueryMega)
-        return sqlqueryMega
+        return sqlqueryMega, params
 
     def _filterSamples(self, jdata, sampletype_id, attribute, filter_rule, filter_valueFrom, filter_valueTo):
         logger.debug('filterSamples')
@@ -142,6 +152,8 @@ class SampleQueriesMixin:
         filtersdic['categoryField'] = 'sample_type_id'
         filtersdic['filterRules'] = filterRules
         filtersdic['searchType'] = searchType
+        filtersdic['publication_query'] = None
+        filtersdic['published_only'] = False
         return filtersdic
 
     def _retrieveSamplesInType(self, user_seek, sampletype_id, project_id=0):
@@ -151,10 +163,15 @@ class SampleQueriesMixin:
         return data
 
     def _retrieveRecords_advanced(self, user_seek, filtersdic):
-        sqlquery = self._sqlQuery_select_records(filtersdic)
+        # #93: the filter values are bound now, so the params have to be handed
+        # to an execute that accepts them. Passing the statement alone would
+        # leave literal %s in the SQL. #99 gave the shared executor an optional
+        # params argument, so this goes through queryToListDics like every other
+        # caller instead of the private copy that used to live here.
+        sqlquery, params = self._sqlQuery_select_records(filtersdic)
         headers = SAMPLE_HEADERS
         db_alias = settings.SEEK_DATABASE
-        jdata = self.db.queryToListDics(sqlquery, headers, db_alias)
+        jdata = self.db.queryToListDics(sqlquery, headers, db_alias, params)
         total = len(jdata)
         #sqlquery = self._sqlQuery_select_records(filtersdic, False)
         #total = self.db.getQueryValue(sqlquery, db_alias)
@@ -164,22 +181,89 @@ class SampleQueriesMixin:
         #    total = int(total)
     
         jdata_new = self.reformatDataForClient(jdata)
+
+        # One query for the whole page: a sample's paper comes from its study, so
+        # it is not part of the sample select. Imported here rather than at module
+        # scope to keep the dependency one-way — see
+        # docs/2026-08-21-publication-links-design.md.
+        from .publications import attach_publications
+        attach_publications(jdata_new)
+
         footer = []
         data = {'total':total,'rows':jdata_new,'footer':footer}
         return data
 
     def _sqlQuery_select_records_filters_advanced(self, filtersdic):
-        from ..search import Search
+        '''Build the advanced-search WHERE clause.
+
+        Output:
+            (sqlquery_filter, params) since #93. The fragment contains only %s
+            placeholders; every client-supplied value is in params.
+        '''
+        from .search import Search
         spi = Search('')
-        sqlquery_filter = spi.designSearchAdvanced(filtersdic, SAMPLE_FILTER_MAPPING)            
+        # #93: designSearchAdvanced returns (fragment, params) on all four of its
+        # return paths instead of splicing request values in as quoted literals.
+        sqlquery_filter, params = spi.designSearchAdvanced(filtersdic, SAMPLE_FILTER_MAPPING)
         if 'project_id' in filtersdic:
             project_id = filtersdic['project_id']
             if int(project_id)>0:
+                # Preserved verbatim: this wraps whatever WHERE the builder
+                # emitted in parentheses so the project scope ANDs against the
+                # whole filter rather than only its last term.
                 sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (')
-                sqlquery_filter = sqlquery_filter + ") AND D.project_id=" + str(project_id)    
-            
+                # #93: bind the project scope too. The int() above only
+                # *validates* it -- the value concatenated here was the
+                # uncast original, so binding closes the shape rather than
+                # relying on that guard staying in place.
+                sqlquery_filter = sqlquery_filter + ") AND D.project_id=%s"
+                params = params + [project_id]
+
+        # API-caller project scope. EXISTS, deliberately, NOT the `D` join used above.
+        #
+        # _sqlQuery_select_records_from adds `left join projects_samples D` only when
+        # scoping, and projects_samples is many-to-many, so a sample belonging to N
+        # projects produces N rows. Nothing de-duplicates them and
+        # _retrieveRecords_advanced reports total = len(rows). That is why scoping by
+        # that join could return MORE rows than not scoping at all -- measured
+        # 2026-08-20 on prod data: project_id=3 gave 5134 against 5122 unscoped.
+        # EXISTS cannot multiply rows, so the count stays honest.
+        scoped_ids = filtersdic.get('scoped_project_ids')
+        if scoped_ids is not None:
+            if scoped_ids:
+                placeholders = ', '.join(['%s'] * len(scoped_ids))
+                clause = ("EXISTS (SELECT 1 FROM projects_samples ps "
+                          "WHERE ps.sample_id = A.id AND ps.project_id IN (%s))" % placeholders)
+                extra = list(scoped_ids)
+            else:
+                # Projects could not be resolved. Match nothing rather than everything.
+                clause, extra = "1=0", []
+            if 'WHERE ' in sqlquery_filter:
+                sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (', 1) + ") AND " + clause
+            else:
+                # The builder emits no WHERE for an unfiltered search; scope is then the
+                # only predicate. Without this branch that case would silently go
+                # unscoped, which is the exact bug being fixed.
+                sqlquery_filter = sqlquery_filter + " WHERE " + clause
+            params = params + extra
+
+        # Publication filter. The predicate carries no bound values — it splices
+        # only integer study ids, resolved through a parameterized lookup first —
+        # so params is untouched. Same WHERE-or-AND handling as the scope above,
+        # because an unfiltered search emits no WHERE at all.
+        from .publications import publication_predicate
+        pub_clause = publication_predicate(
+            filtersdic.get('publication_query'),
+            filtersdic.get('published_only', False),
+        )
+        if pub_clause:
+            if 'WHERE ' in sqlquery_filter:
+                sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (', 1) + ") AND " + pub_clause
+            else:
+                sqlquery_filter = sqlquery_filter + " WHERE " + pub_clause
+
         logger.debug(sqlquery_filter)
-        return sqlquery_filter
+        return sqlquery_filter, params
 
     def _highlightKeyword(self, keyword, value, style=None):
         defaultStyle = "color:red;"

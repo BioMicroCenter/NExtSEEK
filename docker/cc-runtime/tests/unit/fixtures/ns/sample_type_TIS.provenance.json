@@ -1,0 +1,8 @@
+{
+  "endpoint": "GET /nextseek_api/sample_types/TIS/",
+  "host": "https://nextseek-dev.mit.edu",
+  "captured": "2026-06-30",
+  "auth": "HTTP Basic (NEXTSEEK_USERNAME/PASSWORD)",
+  "sha256": "2a47a210008c68eeb33f1c7d8c70e39191f8a0048c4e43b6ba7a1f2627cca76a",
+  "note": "Durable anchor for the batch-upload build (T0). Real deployed dev-server response; 90 sample_attributes; required==true={UID,Name,Scientist}; is_title==true={UID}; Parent at index 5 required=false. Verified-live evidence, not skill code."
+}

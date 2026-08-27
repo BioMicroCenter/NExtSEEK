@@ -1,0 +1,50 @@
+{
+  "schema": "plan018-v4-9-task4-ownership/v1",
+  "authority": {
+    "plan": "docs/superpowers/plans/2026-08-13-plan018-v4-9.md#task-4--classifier-router-monitoring-and-authorization-coverage",
+    "accepted_ownership_map": "evidence/plan018-v4-0-ownership-map.md",
+    "assignment_map": "evidence/plan018-v4-9-task2-ownership.json",
+    "source_gate_evidence": [
+      "evidence/plan018-v4-6-family-labels.sidecar.json",
+      "evidence/plan018-v4-6-calltable.sidecar.json",
+      "evidence/plan018-v4-6-selector.sidecar.json",
+      "evidence/plan018-v4-7-monitoring.sidecar.json",
+      "evidence/plan018-v4-7-schemas.sidecar.json",
+      "evidence/plan018-v4-8-manifest.sidecar.json",
+      "evidence/plan018-v4-8-reserve.sidecar.json",
+      "evidence/plan018-v4-8-resume.sidecar.json",
+      "evidence/plan018-v4-8-gate.sidecar.json"
+    ]
+  },
+  "critical_modules": [
+    "nextseek_api/cc_assistant/baml_introspect.py",
+    "nextseek_api/cc_assistant/family_labels.py",
+    "nextseek_api/cc_assistant/posterior_selector.py",
+    "nextseek_api/cc_assistant/route_monitoring.py",
+    "nextseek_api/cc_assistant/router.py",
+    "nextseek_api/cc_assistant/transport_trace.py",
+    "nextseek_api/cc_assistant/turn_ledger.py",
+    "nextseek_api/eval/judging_engine.py",
+    "nextseek_api/eval/online_observation.py",
+    "nextseek_api/eval/paid_run_schedule.py",
+    "nextseek_api/eval/paid_run_state.py",
+    "nextseek_api/eval/paired_run.py",
+    "nextseek_api/eval/provider_gate.py",
+    "nextseek_api/eval/reconciliation.py",
+    "nextseek_api/eval/run_authorization.py",
+    "nextseek_api/eval/run_manifest.py",
+    "nextseek_api/eval/spend_conservation.py"
+  ],
+  "explicit_noncritical_exclusions": {
+    "nextseek_api/cc_assistant/risk_overlay.py": "pre-V4 observational telemetry overlay; Task 4 names the V4-6 comparative selector/fallback and V4-7 route monitoring surfaces",
+    "nextseek_api/eval/paired_run_registry.py": "registry persistence is not assigned to Task 4 by the accepted Task-2 assignment map; paired_run.py is explicitly assigned here as the experimental/observational boundary",
+    "nextseek_api/eval/seam_inventory.py": "source/evidence inventory generator rather than runtime classifier, monitoring, or authorization behavior",
+    "nextseek_api/eval/fake_provider.py": "hermetic test transport, not a provider authorization control",
+    "nextseek_api/eval/tasks.py": "declared by the older ownership manifest but absent from the current source tree; schedule refusal is implemented by paid_run_schedule.py"
+  },
+  "structural_non_python_oracles": {
+    "classifier_and_router_baml_schemas": "nextseek_api/cc_assistant/tests/test_router_family.py and test_baml_router_schema.py",
+    "frozen_flag_off_baseline": "evidence/fixtures/plan018-v4-6-flag-off-baseline.json"
+  },
+  "mysql_required_target": "nextseek_api/eval/tests/test_v4_8_mysql.py"
+}

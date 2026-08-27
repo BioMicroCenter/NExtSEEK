@@ -1,0 +1,2 @@
+=== /srv/dmac/output/demo/proof.txt ===
+DEPLOYED-OK-1782448755

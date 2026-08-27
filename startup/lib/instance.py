@@ -13,6 +13,12 @@ class InstanceState:
     ports: dict[str, int]
     compose_project_name: str
     created: str
+    # Browser-reachable SEEK base URL for this instance (dev/prod front SEEK on a
+    # real hostname; a laptop reaches it on the published port). Single source of
+    # truth: both docker/nextseek.env's SEEK_PUBLIC_URL and SEEK's own DB-backed
+    # site_base_host are applied from this, so the two cannot drift apart.
+    # Defaulted so .instance.json files written before this field still load.
+    seek_public_url: str = ""
 
     def compose_env(self) -> dict[str, str]:
         """Return env vars to pass to docker compose for this instance."""
@@ -25,6 +31,7 @@ class InstanceState:
             "seek": "SEEK_PORT",
             "neo4j_http": "NEO4J_HTTP_PORT",
             "neo4j_bolt": "NEO4J_BOLT_PORT",
+            "db": "DB_PORT",
         }
         for service_key, env_key in port_env_map.items():
             if service_key in self.ports:

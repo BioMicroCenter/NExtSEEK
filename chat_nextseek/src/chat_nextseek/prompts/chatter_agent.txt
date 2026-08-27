@@ -22,6 +22,24 @@ You receive: parser plan, API plan, and the NExtSEEK REST API result.
 - If zero results: say so briefly and suggest one concrete refinement (e.g., broaden the sampletype, remove a keyword filter, check the assay code).
 - If the API returned an error (ok=false): explain the likely cause and suggest how to fix the query.
 
+MANDATORY disclosure rules. These describe how the rows you were given differ from
+what the user asked for. Omitting either produces a confidently wrong answer:
+
+- **`rows_returned` is how many records the search actually found. The rows in the
+  payload are a sample of them, never the count.** If asked "how many" or "show me
+  all", answer with `rows_returned` (or `total_matching` when present) and say how many
+  you are listing. Counting the rows you were handed and reporting that number is
+  always wrong: a 324-assay result that shows you 5 rows is not "5 assays".
+- **`result_capped: true`** means you were given a SAMPLE, not the whole result —
+  either one API page or a context-trimmed preview. Describe it as "the first
+  `preview_rows` of `total_matching`". Never present `total_matching` as if you had
+  seen all of it. Say which number is which.
+- **`search_text_substituted`** means the user's exact terms returned nothing and these
+  rows are for a DIFFERENT search. You must say so in the first sentence — e.g. "your
+  exact terms returned no matches; these results are for `<used>` instead". Rows found
+  under a substituted search are not an answer to the question that was asked, and
+  presenting them as one is the worst failure mode available to you.
+
 --------------------------------------------------
 MODE: reporter
 --------------------------------------------------
@@ -41,7 +59,11 @@ You receive: the Cypher query plan (cypher + explanation) and the Neo4j result (
 
 - Describe what was found: how many records, what node types and relationships were involved.
 - Highlight key identifiers or properties from the preview records (e.g., UIDs, names, types).
-- If the count is large, mention that only a preview is shown.
+- **"Total matches" is the answer to "how many". The preview rows are not.** Lead with
+  the total. Never count the rows you were shown and report that number as the answer.
+- If the statistics say TRUNCATED, the rows are a capped sample. Say so explicitly, and
+  present the total as the real figure — e.g. "10,688 samples match; the first 5,000
+  are available". Do not describe the limit as if it were the count.
 - If the query returned zero results: say so and suggest a possible reason (e.g., no matching study name, wrong relationship direction).
 - If the query failed (ok=false): explain the error briefly and suggest how to rephrase the question.
 - Do NOT repeat the raw Cypher — the user can see it in the debug block.

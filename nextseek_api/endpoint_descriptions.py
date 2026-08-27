@@ -8,6 +8,121 @@ Import individual constants into ViewSet files and pass to @extend_schema(descri
 """
 
 # =============================================================================
+# AttributeViewSet (8 endpoints)
+# =============================================================================
+
+ATTRIBUTE_LIST_DESC = (
+    "**SUMMARY:** List native NExtSEEK attribute definitions in stable sample-type and logical-position order.\n\n"
+    "**USE WHEN:** The user wants to browse attribute definitions across sample types without first knowing specific attribute identifiers.\n\n"
+    "**DO NOT USE WHEN:** The user wants attributes only for named sample types or selected definitions — use `POST attributes/search/`; "
+    "the user wants sample values rather than attribute definitions — use a sample endpoint.\n\n"
+    "**ACCEPTS:** Optional `page` (default `1`) and `page_size` (default `500`, maximum `5000`) query parameters.\n\n"
+    "**RETURNS:** An `AttributeListResponse` containing definition records and page metadata. Each record identifies its owning sample type, "
+    "value type, logical position, required/title flags, optional unit, controlled vocabulary, linked sample type, and timestamps.\n\n"
+    "**TRIGGER PHRASES:** list attributes, browse attribute definitions, show metadata fields, all sample attributes, attribute catalog\n\n"
+    "**EXAMPLES:**\n"
+    "- 'List the first 100 attribute definitions'\n"
+    "- 'Show me the attribute catalog'\n"
+)
+
+ATTRIBUTE_FETCH_DESC = (
+    "**SUMMARY:** Fetch one native NExtSEEK attribute definition by its positive database ID.\n\n"
+    "**USE WHEN:** The user already has one attribute definition ID and wants its complete resolved metadata.\n\n"
+    "**DO NOT USE WHEN:** The user has an attribute title, needs multiple definitions, or needs to constrain by sample type — use `POST attributes/search/`.\n\n"
+    "**ACCEPTS:** `id` as a positive integer path parameter.\n\n"
+    "**RETURNS:** One `AttributeRecord`, including owning sample type, value type, logical position, relationship identities, and timestamps; "
+    "returns `404` when the ID does not exist.\n\n"
+    "**TRIGGER PHRASES:** get attribute, fetch attribute definition, attribute details, attribute by ID, metadata field details\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Fetch attribute definition 7'\n"
+    "- 'Show me the details for attribute ID 42'\n"
+)
+
+ATTRIBUTE_SEARCH_DESC = (
+    "**SUMMARY:** Search native NExtSEEK attribute definitions using nested sample-type targets while preserving each target-to-attribute association.\n\n"
+    "**USE WHEN:** The user wants all attributes for particular sample types or selected attributes identified by integer ID, numeric-string ID, "
+    "or exact title within each owning sample type.\n\n"
+    "**DO NOT USE WHEN:** The user wants the unfiltered global catalog — use `GET attributes/`; the user wants to change definitions — use a batch mutation endpoint.\n\n"
+    "**ACCEPTS:** A `SearchRequest` with one or more `targets`; each target names a sample type and may include a non-empty attribute selector list. "
+    "Optional `page` and `page_size` query parameters paginate the resolved results.\n\n"
+    "**RETURNS:** An `AttributeListResponse` in submitted-target and stable logical definition order; unresolved or ambiguous identifiers return structured errors.\n\n"
+    "**TRIGGER PHRASES:** search attributes, attributes for sample type, find metadata field, attribute by title, sample type schema fields\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Find Concentration and attribute 7 for the Serum sample type'\n"
+    "- 'List every attribute defined for sample type 12'\n"
+)
+
+ATTRIBUTE_BATCH_CREATE_DESC = (
+    "**SUMMARY:** Preview or execute an administrator-only batch creation of native attribute definitions grouped by owning sample type.\n\n"
+    "**USE WHEN:** An administrator wants to add one or more attribute definitions, optionally across multiple sample types, with deterministic "
+    "positioning and invariant checks.\n\n"
+    "**DO NOT USE WHEN:** The user wants to edit existing definitions — use `PATCH attributes/batch-patch/`; use `dry_run: true` when approval is "
+    "needed before any write.\n\n"
+    "**ACCEPTS:** A `BatchCreateRequest` containing non-empty nested targets. Each new definition requires `title` and `sample_attribute_type`; "
+    "optional fields include `required`, `pos`, `is_title`, `description`, `unit`, `sample_controlled_vocab`, and `linked_sample_type`.\n\n"
+    "**RETURNS:** `200` or `207` with a no-write preview or completed synchronous result, `202` with a durable asynchronous job and status URL, "
+    "or a structured `4xx` error. Execution mode is selected from the planned affected-row count.\n\n"
+    "**TRIGGER PHRASES:** create attributes, add metadata fields, batch create attribute definitions, add sample type fields, preview attribute creation\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Preview adding a Concentration float attribute to Serum'\n"
+    "- 'Create these attribute definitions for sample types 12 and 18'\n"
+)
+
+ATTRIBUTE_BATCH_PATCH_DESC = (
+    "**SUMMARY:** Preview or execute an administrator-only batch patch of native attribute definitions, partitioned atomically by sample type.\n\n"
+    "**USE WHEN:** An administrator wants to rename, reorder, or change the type, required/title flags, description, unit, controlled vocabulary, "
+    "or linked sample type for one or more existing definitions.\n\n"
+    "**DO NOT USE WHEN:** The user wants to create definitions or delete them — use the corresponding batch-create or batch-delete endpoint; "
+    "use `dry_run: true` to inspect automatic and sample-row effects before writing.\n\n"
+    "**ACCEPTS:** A `BatchPatchRequest` containing non-empty targets and non-empty `changes` objects. Attribute selectors accept IDs or exact titles; "
+    "title selectors require their owning `sample_type`. Explicit `null` clears nullable relationships while omission preserves them.\n\n"
+    "**RETURNS:** `200` or `207` with a preview or completed synchronous result, `202` with an asynchronous job, or a structured `4xx` error. "
+    "Results expose per-sample-type outcomes, counts, automatic changes, and errors.\n\n"
+    "**TRIGGER PHRASES:** update attributes, patch metadata fields, rename attribute, reorder sample fields, clear attribute unit, preview attribute changes\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Preview clearing the unit from Serum Concentration'\n"
+    "- 'Make attribute 7 required and move it to position 2'\n"
+)
+
+ATTRIBUTE_BATCH_DELETE_DESC = (
+    "**SUMMARY:** Preview or execute an administrator-only batch deletion of native attribute definitions, including dependent-sample policy checks.\n\n"
+    "**USE WHEN:** An administrator wants to remove one or more existing attribute definitions and inspect or apply the resulting sample metadata changes.\n\n"
+    "**DO NOT USE WHEN:** The user wants to remove only a value from an individual sample or wants to retain the definition — use a sample mutation endpoint; "
+    "use `dry_run: true` before deletion when effects need review.\n\n"
+    "**ACCEPTS:** A `BatchDeleteRequest` containing non-empty targets and attribute selectors. ID selectors may omit `sample_type`; exact-title selectors require it.\n\n"
+    "**RETURNS:** `200` or `207` with a preview or completed synchronous result, `202` with an asynchronous job, or a structured `4xx` error. "
+    "The response reports affected definitions, dependent sample rows, partition outcomes, and policy errors.\n\n"
+    "**TRIGGER PHRASES:** delete attributes, remove metadata fields, batch delete attribute definitions, drop sample type field, preview attribute deletion\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Preview deleting the Legacy Marker attribute from Serum'\n"
+    "- 'Delete attribute IDs 41 and 42'\n"
+)
+
+ATTRIBUTE_JOB_DESC = (
+    "**SUMMARY:** Get progress and the terminal result for one durable asynchronous attribute-mutation job.\n\n"
+    "**USE WHEN:** A batch create, patch, or delete returned `202 Accepted` and an administrator wants to poll its `status_url` or known `job_id`.\n\n"
+    "**DO NOT USE WHEN:** The mutation completed synchronously with `200` or `207`, because that response already contains the final result.\n\n"
+    "**ACCEPTS:** `job_id` as a UUID path parameter; SEEK authentication and administrator permission are required.\n\n"
+    "**RETURNS:** Current state and exact sample-type/sample-row progress. Terminal states include the same uniform completed mutation result shape used by synchronous execution.\n\n"
+    "**TRIGGER PHRASES:** attribute job status, mutation progress, check attribute batch, poll attribute job, attribute mutation result\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Check attribute mutation job 123e4567-e89b-12d3-a456-426614174000'\n"
+    "- 'Is my attribute batch finished?'\n"
+)
+
+ATTRIBUTE_JOB_CANCEL_DESC = (
+    "**SUMMARY:** Request cancellation of one queued or running asynchronous attribute-mutation job.\n\n"
+    "**USE WHEN:** An authorized administrator wants the worker to stop starting new sample-type partitions for a nonterminal attribute job.\n\n"
+    "**DO NOT USE WHEN:** The job is already terminal, cancellation was already requested, or the mutation completed synchronously; those cases are not cancellable.\n\n"
+    "**ACCEPTS:** `job_id` as a UUID path parameter. The caller must be a SEEK administrator authorized to cancel this job.\n\n"
+    "**RETURNS:** `202` with the updated job status when cancellation is accepted; `409` when the job is no longer cancellable; `404` when it does not exist.\n\n"
+    "**TRIGGER PHRASES:** cancel attribute job, stop attribute mutation, abort attribute batch, revoke metadata change job\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Cancel attribute mutation job 123e4567-e89b-12d3-a456-426614174000'\n"
+    "- 'Stop my running attribute batch'\n"
+)
+
+# =============================================================================
 # SampleTreeViewSet (1 endpoint)
 # =============================================================================
 
@@ -290,6 +405,7 @@ PEOPLE_FETCH_DESC = (
 PEOPLE_FETCH_CURRENT_DESC = (
     "**SUMMARY:** Fetch profile details for the currently authenticated user.\n\n"
     "**USE WHEN:** The user wants to view full details for themselves.\n\n"
+    "**ACCEPTS:** No request body. Requires authentication (Basic or Session).\n\n"
     "**RETURNS:** Full person metadata including name, email, institution, and all linked projects, studies, assays, data files, and publications.\n\n"
     "**TRIGGER PHRASES:** get current person, fetch my profile, current person details, current profile, show my account\n\n"
     "**EXAMPLES:**\n"
@@ -307,6 +423,58 @@ PEOPLE_CREATE_DESC = (
     "- 'Add a new researcher named Jane Doe to the system'\n"
     "- 'Register a collaborator from the partner institution'\n"
     "- 'Create a person record for John Smith'\n"
+)
+
+USER_LIST_DESC = (
+    "**SUMMARY:** List SEEK login accounts (User + linked Person) for superuser administration.\n\n"
+    "**USE WHEN:** An admin needs to audit or browse registered SEEK logins with project membership.\n\n"
+    "**DO NOT USE WHEN:** The caller is not a Django superuser, or the goal is profile-only CRUD without credentials — use `people/` instead.\n\n"
+    "**ACCEPTS:** No required parameters.\n\n"
+    "**RETURNS:** Admin records with SEEK user id, person id, login, email, activation state, and optional project/institution ids.\n\n"
+    "**TRIGGER PHRASES:** list users, list logins, admin user audit, browse seek accounts, show all logins\n\n"
+    "**EXAMPLES:**\n"
+    "- 'List every SEEK login account for admin review'\n"
+    "- 'Show me all registered Nessie logins with their project ids'\n"
+    "- 'Audit active and inactive user accounts'\n"
+)
+
+USER_FETCH_DESC = (
+    "**SUMMARY:** Fetch one SEEK login account by numeric SEEK user id.\n\n"
+    "**USE WHEN:** An admin needs details for a specific login before update or deactivation.\n\n"
+    "**DO NOT USE WHEN:** The caller is not a Django superuser, or the target is a login-less Person profile — use `people/{id}/` instead.\n\n"
+    "**ACCEPTS:** SEEK user id (numeric) as path parameter.\n\n"
+    "**RETURNS:** A single admin user record (passwords are never returned).\n\n"
+    "**TRIGGER PHRASES:** get user, fetch login, user details, lookup seek account, admin user retrieve\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Fetch SEEK user 10 before deactivating the account'\n"
+    "- 'Get login details for testuser'\n"
+    "- 'Look up user id 5 and its project membership'\n"
+)
+
+USER_CREATE_DESC = (
+    "**SUMMARY:** Mint a new SEEK login (User + Person + project membership) and mirror a Django auth user.\n\n"
+    "**USE WHEN:** A superuser needs a credential-bearing account that can authenticate to SEEK/Nessie — not a login-less Person profile.\n\n"
+    "**DO NOT USE WHEN:** The caller is not a Django superuser, project membership is unknown, or a profile without credentials suffices — use `POST people/` instead.\n\n"
+    "**ACCEPTS:** `login`, `password` (≥10 chars), `password_confirmation`, `email`, `first_name`, `last_name`, required `project_id` and `institution_id`, optional `is_superuser` (default false), optional `activate` (default true).\n\n"
+    "**RETURNS:** Created ids and metadata; never echoes the password.\n\n"
+    "**TRIGGER PHRASES:** create user login, mint seek account, register login, add project member login, create testuser\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Create a project member login named testuser for project 1'\n"
+    "- 'Mint a new SEEK account with email and password for a collaborator'\n"
+    "- 'Register an active login tied to institution 1 and project 1'\n"
+)
+
+USER_UPDATE_DESC = (
+    "**SUMMARY:** Update or deactivate an existing SEEK login (prefer `active: false` over deletion).\n\n"
+    "**USE WHEN:** An admin changes profile fields, password, project membership, Django superuser flag, or deactivates a former staff account.\n\n"
+    "**DO NOT USE WHEN:** Hard deletion is required, the caller is not a Django superuser, or only a Person profile change is needed — use `PATCH people/{id}/` instead.\n\n"
+    "**ACCEPTS:** Partial update fields; deactivation sets SEEK inactive and Django `is_active=false`.\n\n"
+    "**RETURNS:** The updated admin user record (passwords are never returned).\n\n"
+    "**TRIGGER PHRASES:** update user login, deactivate user, change password, deactivate staff account, patch seek login\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Deactivate user 10 with active false instead of deleting'\n"
+    "- 'Change testuser password and email'\n"
+    "- 'Move a login to a different project and institution'\n"
 )
 
 PEOPLE_UPDATE_DESC = (
@@ -371,6 +539,58 @@ INVESTIGATION_UPDATE_DESC = (
     "- 'Rename the vaccine study investigation'\n"
     "- 'Update the objectives for the immune response research topic'\n"
     "- 'Change the description for investigation 763'\n"
+)
+
+# =============================================================================
+# StudyProxyViewSet (4 endpoints)
+# =============================================================================
+
+STUDY_LIST_DESC = (
+    "**SUMMARY:** List all studies (experimental studies within investigations) accessible to the current user.\n\n"
+    "**USE WHEN:** The user wants to browse all studies.\n\n"
+    "**ACCEPTS:** No required parameters; supports pagination query params.\n\n"
+    "**RETURNS:** Paginated list of study records with titles and self links.\n\n"
+    "**TRIGGER PHRASES:** list studies, show studies, all studies, browse studies\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Show me all ongoing studies'\n"
+    "- 'What studies exist under the vaccine investigation?'\n"
+    "- 'List all studies'\n"
+)
+
+STUDY_FETCH_DESC = (
+    "**SUMMARY:** Fetch details for a specific study by its numeric SEEK ID.\n\n"
+    "**USE WHEN:** The user wants to view full metadata for ONE specific study.\n\n"
+    "**ACCEPTS:** Study SEEK ID (numeric) as path parameter.\n\n"
+    "**RETURNS:** Full study metadata including title, description, experimentalists, parent investigation, and associated assays.\n\n"
+    "**TRIGGER PHRASES:** get study, fetch study, study details, show study\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Show me the details of the dose response study'\n"
+    "- 'What assays are part of this study?'\n"
+    "- 'Get study 746'\n"
+)
+
+STUDY_CREATE_DESC = (
+    "**SUMMARY:** Create a new study within an investigation.\n\n"
+    "**USE WHEN:** The user wants to define a new study under an investigation.\n\n"
+    "**ACCEPTS:** Study data including title, description, experimentalists, and the required parent investigation relationship.\n\n"
+    "**RETURNS:** The created study with its assigned ID and metadata.\n\n"
+    "**TRIGGER PHRASES:** create study, new study, add study, set up study\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Create a new study for the vaccine dose response'\n"
+    "- 'Add a study under investigation 763'\n"
+    "- 'Set up a dose comparison study'\n"
+)
+
+STUDY_UPDATE_DESC = (
+    "**SUMMARY:** Update an existing study by its numeric SEEK ID.\n\n"
+    "**USE WHEN:** The user wants to modify a study's title, description, experimentalists, or investigation association.\n\n"
+    "**ACCEPTS:** Study SEEK ID as path parameter; partial update payload with fields to change.\n\n"
+    "**RETURNS:** The updated study with all current metadata.\n\n"
+    "**TRIGGER PHRASES:** update study, edit study, modify study, rename study\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Rename the dose response study'\n"
+    "- 'Update the experimentalists for study 746'\n"
+    "- 'Change the description for study 746'\n"
 )
 
 # =============================================================================

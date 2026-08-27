@@ -18,8 +18,9 @@ from ..decorators import requires_supervisor
 import simplejson
 from ..decorators import verifySuperUser
 import zipfile
+from django.conf import settings
 
-from .shared import DOWNLOAD_DIRECTORY, DOWNLOAD_DIRECTORY_LINK, SEEK_HOSTNAME
+from .shared import DOWNLOAD_DIRECTORY, DOWNLOAD_DIRECTORY_LINK
 
 def seek(request, url):
     report = {}
@@ -68,6 +69,12 @@ def sample(request, id):
     sampledic, samplelist = dbsample.getSampleInfo(sample_id)
     report['sampledic'] = sampledic
     report['sampleinfo'] = samplelist
+
+    # The paper this sample appears in, inherited from its studies. Same helper
+    # the search results column uses, so the two can never disagree.
+    from ..publications import publications_for_sample
+    report['publications'] = publications_for_sample(sample_id)
+
     return render(request,"samples.html", {'bodyhtml' : bodyhtml, 'report':report})
 
 def sampleTree(request, uid):
@@ -365,7 +372,7 @@ def getInstituionUsers(request, id):
     return HttpResponse(simplejson.dumps(data, default=str))   
 
 def editSample(request, id):
-    return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/edit")
+    return HttpResponseRedirect(f"{settings.SEEK_PUBLIC_URL}/samples/{id}/edit")
 
 def manageSample(request, id):
-    return HttpResponseRedirect(f"https://{SEEK_HOSTNAME}/samples/{id}/manage")
+    return HttpResponseRedirect(f"{settings.SEEK_PUBLIC_URL}/samples/{id}/manage")

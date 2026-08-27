@@ -1,0 +1,41 @@
+{
+  "schema_version": "step7-environment-comparison/v1",
+  "description": "Two-environment comparison fields for Gate 3C/3D (dev-vm vs MBP). Populate at live-gate run time.",
+  "required_fields": [
+    "harness_version",
+    "exercise_catalog_sha256",
+    "instance_binding_sha256",
+    "branch_sha",
+    "validator_module_sha256",
+    "cost_schema_version"
+  ],
+  "optional_fields": [
+    "host_label",
+    "run_id",
+    "gate_user_id",
+    "cost_ledger_total_usd",
+    "matrix_wall_secs_total"
+  ],
+  "environments": {
+    "dev-vm": {
+      "host_label": "dev-vm",
+      "exercise_catalog_sha256": null,
+      "instance_binding_sha256": null,
+      "branch_sha": null,
+      "validator_module_sha256": null,
+      "cost_schema_version": "cost_ledger/v1",
+      "harness_version": null,
+      "notes": "Primary Gate 3D target per PLAN-7"
+    },
+    "mbp": {
+      "host_label": "mbp",
+      "exercise_catalog_sha256": null,
+      "instance_binding_sha256": null,
+      "branch_sha": null,
+      "validator_module_sha256": null,
+      "cost_schema_version": "cost_ledger/v1",
+      "harness_version": null,
+      "notes": "Secondary environment; same catalog SHA256 required"
+    }
+  }
+}

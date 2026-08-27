@@ -1,0 +1,13 @@
+{
+  "schema": "plan018-v4-6-vault-sync/v1",
+  "recorded_at": "2026-08-12T19:55:00Z",
+  "gate": "PASS",
+  "implementation_branch": "ultraplan/hibayes-eval-routing",
+  "implementation_sha": "3da7aedd95df61a95ffb87e561eb3ec2c89d7711",
+  "deploydocs_branch": "dev",
+  "deploydocs_sha": "d160590d",
+  "living_plan_sha256": "b88825a9d2b7390f37290a042c10877379f2dbb7ded14aee9a82774d0834469f",
+  "registry_asset": "nextseek--plan-018",
+  "registry_commit": "8dcfd13",
+  "paid_or_live_resources_used": false
+}

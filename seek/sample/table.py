@@ -3,17 +3,18 @@
 The mixins are listed before ``DBtable`` so that this class's overrides
 (``__init__`` here, ``reformatDataForClient`` in ``core``) win over the
 base. They hold no state of their own; every one of them operates on the
-``self`` this class builds.
-"""
+``self`` this class builds."""
 
 from dmac.dbtable import DBtable
 from ..dbtable_sampleattribute import DBtable_sampleattribute
+from ..dbtable_sops import DBtable_sops
 from neo4j import GraphDatabase
 from ..models import People
 from ..models import Samples
 from dmac.conversion import getDefaultDateTime
 import html
 from dmac.iocsv import saveDiclistIntoExcel
+from django.conf import settings
 import simplejson
 
 from .constants import NEO4J_DATABASE, SAMPLE_FILE_ACCESSOR_NAME, SAMPLE_FILTER_MAPPING, SAMPLE_LINK_ACCESSOR_NAME, SAMPLE_PARENT_ACCESSOR_NAME, SAMPLE_PROTOCOL_ACCESSOR_NAME, SAMPLE_PUBLISH_ACCESSOR_NAME, SEEK_DATABASE, logger
@@ -177,10 +178,43 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         return weblink
 
     def _formatSopUIDLink(self, sop_uid):
-        url = "/seek/sop/uid=" + str(sop_uid) + "/";
+        # This used to point at /seek/sop/uid=<uid>/, whose route and view were
+        # both removed in 5834cda when the SOP pages moved to nextseek_api, so
+        # every protocol link on the sample page 404'd. Link to the SOP in SEEK
+        # instead, which is where the SOPs table already sends users. The SEEK
+        # route is id-based, so resolve the UID (stored as sops.title) to its
+        # id; only reached from getSampleInfo for a single sample, so the
+        # lookup is per protocol on one detail page, not per grid row.
+        sop_uid = str(sop_uid).strip()
+
+        # Not every Protocol value is a NExtSEEK SOP UID: samples also record it
+        # as a full URL into FAIRDOMHub or another SEEK instance (e.g.
+        # https://fairdomhub.org/sops/795). Those are already addressable, so
+        # link them straight through rather than failing a UID lookup and
+        # degrading them to plain text. The 'http' prefix check blocks
+        # javascript:/data: schemes, matching _formatExternalLink.
+        if sop_uid[0:4].lower() == 'http':
+            return '<a href="' + html.escape(sop_uid) + '" target="_blank">' + html.escape(sop_uid) + '</a>'
+
+        sop_id = None
+        try:
+            dbsop = DBtable_sops("DEFAULT")
+            records = dbsop.queryRecordsByConstraint({'title': sop_uid})
+            if records is not None and len(records) == 1:
+                sop_id = records[0]['id']
+        except Exception:
+            logger.exception('failed resolving SOP UID to a SEEK id: %s', sop_uid)
+            sop_id = None
+
+        # No unambiguous match: render the UID as plain text rather than emit a
+        # link that is known to go nowhere.
+        if sop_id is None:
+            return html.escape(sop_uid)
+
+        url = settings.SEEK_PUBLIC_URL + "/sops/" + str(sop_id)
         # Rendered as raw HTML by the client; escape the untrusted uid in both
         # the href attribute and the link text to prevent HTML injection.
-        weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(str(sop_uid)) + '</a>'
+        weblink = '<a href="' + html.escape(url) + '" target="_blank">' + html.escape(sop_uid) + '</a>'
         return weblink
 
     def _formatExternalLink(self, urlValue):

@@ -1,0 +1,86 @@
+{
+  "schema_version": "step7-cost-source-map/v2",
+  "generated_at": "2026-07-04T16:50:00-04:00",
+  "price_table_version": "2026-06-granular-realstack",
+  "budget_cap_field": "meta.json.budget_cap_usd",
+  "probe_note": "Bedrock proxy logs METHOD path -> status only (no USD). Sidecar responses carry no cost. Authoritative source: llm_client_ledger (outputs/_ledger.jsonl) with token×PRICES; claude_code_result for forced_cc_result.json.",
+  "ops": {
+    "nextseek-query": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id",
+      "notes": "Viewset path; STEP7_LLM_LEDGER=1 on nextseek gunicorn"
+    },
+    "nextseek-plan": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id"
+    },
+    "nextseek-entity-extract": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id"
+    },
+    "nextseek-parse": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id"
+    },
+    "nextseek-graph": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id"
+    },
+    "nextseek-api-read": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id"
+    },
+    "nextseek-api-write": {
+      "charged": false,
+      "source_system": "none",
+      "notes": "Unconfirmed leg only; exit 5 WRITE_BLOCKED"
+    },
+    "nextseek-report": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id"
+    },
+    "nextseek-generate-submission": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id"
+    },
+    "nextseek-recall": {
+      "charged": true,
+      "source_system": "llm_client_ledger",
+      "ledger_path": "outputs/_ledger.jsonl",
+      "usd_field": "computed_from_tokens",
+      "correlation_field": "call_id",
+      "notes": "Viewset session/bundle path; no Bedrock on happy path but charged when CC-routed"
+    },
+    "forced_cc_turn": {
+      "charged": true,
+      "source_system": "claude_code_result",
+      "code_path": "forced_cc_result.json",
+      "usd_field": "cost",
+      "correlation_field": "run_id"
+    }
+  }
+}

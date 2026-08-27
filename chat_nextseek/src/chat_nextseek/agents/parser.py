@@ -12,6 +12,7 @@ from ..config import ChatConfig
 from ..helpers import (
     build_recent_results_summary,
 )
+from ..llm_clients import LLMTimeoutError
 from ..schemas.schema_helper import call_llm_structured
 from ..schemas import (
     ContextEngineerOutput,
@@ -202,6 +203,11 @@ def _build_step_from_candidate(candidate: ParserCandidate, step_id: int, user_qu
 
 
 def _normalize_plan_step(step: PlanStep, parser_plan: MultiParserPlan | None, user_query: str) -> PlanStep:
+    # Function-local import: planner.execution imports this module at top level,
+    # so a top-level `from .planner.execution import _TERMINAL_REPLY_TOOLS`
+    # would be a circular import. Import is cached after first call.
+    from .planner.execution import _TERMINAL_REPLY_TOOLS
+
     execution = step.execution
     candidate = None
     if parser_plan and execution.parser_candidate_id:
@@ -377,7 +383,8 @@ def _canonical_multi_parse(
             usage_label="MULTI_PARSER",
             thinking_budget=mp_budget,
             client=mp_client,
-            timeout_seconds=60,
+            timeout_seconds=35,
+            timeout_retry_seconds=60,
         )
         normalized_candidates = [_fill_candidate_defaults(c) for c in result.candidates]
         result = result.model_copy(update={"candidates": normalized_candidates})
@@ -424,7 +431,7 @@ def _candidate_to_parser_plan(
             previous_api_plan = previous_api_plan or last_bundle.get("api_plan")
             previous_user_query = previous_user_query or last_bundle.get("user_query")
 
-    return ParserPlan(
+    projected = ParserPlan(
         mode=candidate.mode,
         target_endpoint=candidate.target_endpoint,
         intent_summary=parser_plan.intent_summary or user_query,
@@ -438,10 +445,148 @@ def _candidate_to_parser_plan(
         report_mode=candidate.report_mode,
         report_type=candidate.report_type,
     )
+    # The multi-parser path degrades the same way the single-path parser does.
+    return _note_refine_without_bundle(session, projected)
 
 
-def _apply_parser_guardrails(user_query: str, plan: ParserPlan) -> ParserPlan:
+# A well-formed NExtSEEK UID: <TYPE>-<YYMMDD><LAB>-<INC>[-PUB<n>].
+# `NHP-22052-1` does not match — the date block must be exactly 6 digits.
+_WELL_FORMED_UID_RE = re.compile(r"\b[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?\b")
+
+# Phrases that make the question about a *relationship* from the named UID rather
+# than about the record itself.
+_UID_RELATION_RE = re.compile(
+    r"\b(?:deriv(?:e|es|ed|ing)\s+from|came?\s+from|from\s+these|from\s+those"
+    r"|child(?:ren)?\s+of|parents?\s+of|lineage|ancestor|descendant"
+    r"|associated\s+with|linked\s+to|related\s+to|generated\s+from)\b",
+    re.IGNORECASE,
+)
+
+# "<some other entity> for/from/of <UIDs>" — the answer is a different set of records
+# than the ones named. Safe to act on ONLY in combination with the 2-UID floor below;
+# on its own it also matches legitimate single-UID REST work ("Build an SRA metadata
+# file for <UID>", "Make me an nfcore samplesheet for the sequencing samples
+# associated with <UID>").
+_UID_DERIVED_ENTITY_RE = re.compile(
+    r"\b(?:sequencing\s+data|data|assays?|samples?|files?|reads?|bams?|fastqs?|results?)"
+    r"\s+(?:for|from|of)\b",
+    re.IGNORECASE,
+)
+
+# Asking for the named record itself. REST answers this correctly and cheaply.
+_UID_RECORD_LOOKUP_RE = re.compile(
+    r"\b(?:full\s+details|details|metadata|record|info(?:rmation)?)\s+(?:for|on|about|of)\b",
+    re.IGNORECASE,
+)
+
+UID_LINEAGE_ROUTE_NOTE = (
+    "forced to graph_query: lineage across MULTIPLE named UIDs, which no single REST "
+    "endpoint serves (sample-tree is GET-per-UID, and a child record does not contain "
+    "its parent's UID as text)"
+)
+
+# How many UIDs it takes before REST stops being able to answer. Deliberately 2.
+#
+# A SINGLE-UID lineage question is served by REST and must stay there: sample-tree
+# returns the whole bidirectional tree around one UID, `retrieve` returns everything
+# associated with one UID, and the reporter builds a submission file for one UID. The
+# corpus has 20 such turns across the search_tree, retrieve, reporting and
+# pipeline_nfcore families, all asserting a REST endpoint.
+#
+# TWO OR MORE UIDs is the shape that has no REST answer, and is exactly task 797:
+# the api agent fused both UIDs into one filter_searchText, got total 0 (a child
+# record does not contain its parent's UID as text), and fell into the retry ladder
+# that eventually "succeeded" on the term "1" with 2,057 unrelated rows.
+_MIN_UIDS_FOR_FORCED_GRAPH = 2
+
+
+def _force_graph_for_uid_lineage(user_query: str, plan: ParserPlan) -> ParserPlan:
+    """
+    Route multi-UID lineage questions to the graph, deterministically.
+
+    `repro.cypher_uid_dot` went graph_query in the baseline (task 733, returning
+    exactly the correct six D.SEQ-220823SHA-1..6-PUB) and new_search post-fix
+    (task 797, wrong) with no code change on that path. The parser samples rather
+    than decides, and the prompt contradicted itself — parser_core_routing.txt said
+    do NOT use graph_query for "lineage from a known UID" in one place and DO for
+    "derivation chains, lineage, ancestor/descendant" in another.
+
+    Runs AFTER the LLM call so the model's choice is respected everywhere else.
+    """
+    if plan.mode == "graph_query":
+        return plan
+    query = user_query or ""
+    uids = list(dict.fromkeys(_WELL_FORMED_UID_RE.findall(query)))
+    if len(uids) < _MIN_UIDS_FOR_FORCED_GRAPH:
+        return plan
+    if _UID_RECORD_LOOKUP_RE.search(query):
+        return plan  # "full details for <UID>" is a plain record lookup
+    if not (_UID_RELATION_RE.search(query) or _UID_DERIVED_ENTITY_RE.search(query)):
+        return plan
+
+    merged = list(dict.fromkeys(list(plan.filters.uids or []) + uids))
+    print(f"[DEBUG][PARSER] {UID_LINEAGE_ROUTE_NOTE} (uids={merged})")
+    return plan.model_copy(update={
+        "mode": "graph_query",
+        "target_endpoint": None,
+        "filters": plan.filters.model_copy(update={"uids": merged}),
+        "notes": ((plan.notes + " | ") if plan.notes else "") + UID_LINEAGE_ROUTE_NOTE,
+    })
+
+
+REFINE_WITHOUT_BUNDLE_NOTE = (
+    "previous turn ran outside the NExtSEEK search path (no result bundle to refine); "
+    "re-ran as a fresh search"
+)
+
+
+def _note_refine_without_bundle(
+    session: "SessionState | SessionStateProxy | None", plan: ParserPlan
+) -> ParserPlan:
+    """
+    Make the refine -> new_search degrade visible.
+
+    A Container CC turn writes no result bundle (795 bid=None, 796 opened bid=1), so
+    `results_history` is empty, the refine plan is built with Nones and the turn
+    quietly becomes a fresh search. The router had explicitly asked for a memory
+    follow-up — 796's reasoning names `memory_lookup` — and nothing detected the
+    mismatch.
+
+    Deliberately NOT fixed by synthesising a bundle. A bundle's contract is a real
+    REST call plus its response; fabricating one would let the parser re-POST an
+    invented api_plan and return confidently wrong rows, which is strictly worse than
+    today. `ask_about_last_results` over a CC turn is legitimate and is unblocked
+    separately by carrying the CC reply preview into chat_log.
+
+    So: keep the fallback, but say so. `notes` flows into the reply debug block and
+    can be asserted on, converting a silent defect into a detectable one.
+    """
+    if plan.mode != "refine_last_search" or session is None:
+        return plan
+    try:
+        history = session.get("results_history", []) or []
+    except Exception:
+        return plan
+    if history:
+        return plan
+
+    print(f"[DEBUG][PARSER] refine_last_search with no result bundle; {REFINE_WITHOUT_BUNDLE_NOTE}")
+    return plan.model_copy(update={
+        "mode": "new_search",
+        "notes": ((plan.notes + " | ") if plan.notes else "") + REFINE_WITHOUT_BUNDLE_NOTE,
+        "previous_api_plan": None,
+        "previous_user_query": None,
+    })
+
+
+def _apply_parser_guardrails(
+    user_query: str,
+    plan: ParserPlan,
+    session: "SessionState | SessionStateProxy | None" = None,
+) -> ParserPlan:
     """Apply narrow deterministic safety checks after LLM routing."""
+    plan = _note_refine_without_bundle(session, plan)
+    plan = _force_graph_for_uid_lineage(user_query, plan)
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
         return ParserPlan(
             mode="unsupported",
@@ -454,6 +599,7 @@ def _apply_parser_guardrails(user_query: str, plan: ParserPlan) -> ParserPlan:
             notes=(
                 (plan.notes + " | ") if plan.notes else ""
             ) + "Unscoped bulk export/download is unsupported without filters, UIDs, project-reporting scope, or a supported report-generation target.",
+            metadata=plan.metadata,
             previous_api_plan=plan.previous_api_plan,
             previous_user_query=plan.previous_user_query,
             report_mode=None,
@@ -521,6 +667,17 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
     ])
 
     parser_client, parser_model_name, parser_thinking_budget = config.get_agent_model("parser")
+    # Log the *effective* temperature, not the requested one. Opus 4.7 and Mythos are
+    # adaptive-thinking-only (llm_clients.py), so temperature is never sent and routing
+    # samples between runs. Without this line a routing flip that was really a sample
+    # gets attributed to a code change — which is exactly what happened between the
+    # 2026-07-24 and 2026-07-27 runs for repro.cypher_uid_dot.
+    _adaptive_only = any(tag in parser_model_name for tag in ("opus-4-7", "mythos"))
+    print(
+        f"[DEBUG][PARSER] model={parser_model_name} "
+        f"temperature={'UNSET (adaptive-thinking-only; routing may vary run to run)' if _adaptive_only else 0} "
+        f"thinking_budget={parser_thinking_budget}"
+    )
     if parser_thinking_budget:
         print(f"[DEBUG][PARSER] Extended thinking enabled: budget={parser_thinking_budget} tokens, model={parser_model_name}")
 
@@ -539,14 +696,32 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             usage_label="PARSER",
             thinking_budget=parser_thinking_budget,
             client=parser_client,
-            timeout_seconds=60,
+            timeout_seconds=35,
+            timeout_retry_seconds=60,
+        )
+    except LLMTimeoutError as e:
+        # Never reached the model at all. Keep this distinct from a parse failure:
+        # mode stays "unsupported" so downstream routing is unchanged, but the notes
+        # and metadata record what actually happened so the user is not told their
+        # question is invalid when the real cause was a dead connection.
+        print("[DEBUG][PARSER] Timed out reaching the model:", repr(e))
+        plan_model = ParserPlan(
+            notes=(
+                "The query planner could not reach the language model in time "
+                "(transport timeout). This is a temporary system fault, not a "
+                "limitation of your question. Please try again."
+            ),
+            metadata={"failure": "transport_timeout", "error": repr(e)},
         )
     except Exception as e:
         print("[DEBUG][PARSER] Exception or parse error:", repr(e))
-        plan_model = ParserPlan(notes="Parser could not produce valid structured output.")
+        plan_model = ParserPlan(
+            notes=f"Parser could not produce valid structured output ({type(e).__name__}).",
+            metadata={"failure": "parse_error", "error": repr(e)},
+        )
 
     print("[DEBUG][PARSER] Parsed plan:", json.dumps(plan_model.model_dump(), indent=2))
-    plan_model = _apply_parser_guardrails(user_query, plan_model)
+    plan_model = _apply_parser_guardrails(user_query, plan_model, session=session)
     if plan_model.mode == "unsupported":
         print("[DEBUG][PARSER] Guardrailed plan:", json.dumps(plan_model.model_dump(), indent=2))
     return plan_model

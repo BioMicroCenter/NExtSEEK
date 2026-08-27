@@ -34,6 +34,14 @@ app.config_from_object(
         "accept_content": ["json"],
         "task_routes": {
             "batch_upload.*": {"queue": "batch_upload"},
+            "cc_assistant.*": {"queue": "batch_upload"},
+            "attribute_mutations.*": {"queue": "attribute_mutations"},
+        },
+        "beat_schedule": {
+            "cc-1c-summary-sweep": {
+                "task": "cc_assistant.sweep_cc_summaries",
+                "schedule": 300.0,
+            },
         },
         "task_soft_time_limit": int(os.environ.get("BATCH_TASK_SOFT_LIMIT", 7200)),
         "task_time_limit": int(os.environ.get("BATCH_TASK_HARD_LIMIT", 7800)),
@@ -41,4 +49,8 @@ app.config_from_object(
 )
 
 # Auto-discover tasks in this package
-app.autodiscover_tasks(["nextseek_api.batch_upload"])
+app.autodiscover_tasks(["nextseek_api.batch_upload", "nextseek_api.attributes"])
+
+# Step 1c Celery sweep (registers cc_assistant.sweep_cc_summaries)
+import nextseek_api.cc_assistant.cc_sweep  # noqa: F401, E402
+import nextseek_api.cc_assistant.cc_upload_tasks  # noqa: F401, E402

@@ -1,0 +1,18 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "A_host_hermetic",
+  "task": "V4-3-stage-c",
+  "recorded_at": "2026-08-11T19:36:20Z",
+  "exit_status": 0,
+  "argv_note": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD uv run --no-project --with pytest --with pydantic --with orjson python -m pytest nextseek_api/eval/tests/test_stage_c_runner.py nextseek_api/eval/tests/test_judge_mutations.py --noconftest -q -p no:cacheprovider",
+  "paths": [
+    "nextseek_api/eval/tests/test_stage_c_runner.py",
+    "nextseek_api/eval/tests/test_judge_mutations.py"
+  ],
+  "summary_lines": [
+    "6 passed, 1 warning in 0.25s"
+  ],
+  "paid_or_live_resources_used": false,
+  "log_sha256": "829316400f7222b89c538eef5a99daa70e491fc365b053808932be24401549c0",
+  "gate": "PASS"
+}

@@ -1,0 +1,46 @@
+{
+  "_name": "probe-2026-07-29-retest — only what the two fixes changed",
+  "_why": "The full probe (probe-2026-07-29.json) cost $0.94 and 9 of its 13 cases are unaffected by anything shipped since. This re-runs ONLY the four that the two fixes should move, so a diff against probe-v1 is attributable.",
+  "_fixes_under_test": {
+    "2ef28d8 graph literal masking": "repro.cypher_uid_dot failed in probe-v1 with \"properties ['SEQ'] do not exist\" — the guard read an inlined 'D.SEQ' literal as <var>.SEQ. Should now return the six D.SEQ-220823SHA records.",
+    "NEXTSEEK_CC_MAX_BUDGET_USD 0.50 -> 3.00": "All three CC turns below died on error_max_budget_usd at 168s / 120s / 77s and produced empty replies, so reingest has never actually been evaluated."
+  },
+  "_deliberately_excluded": {
+    "probe.nhp_seq_engine_q1 / q2": "Confirmed 408 twice. No fix shipped for the endpoint split yet, so re-running only re-confirms it.",
+    "probe.harmonize_genotypes": "Passed all three turns with real output (188 update rows). Expensive CC, nothing changed.",
+    "probe.xmode_ns_then_cc": "Passed. Nothing changed.",
+    "probe.xmode_cc_then_ns": "Failed, but the fix is still being investigated. Re-run once there is one.",
+    "advanced.find_me_mice / pbct.* / sys.what_kinds_of_reports_can_i_ge": "All passed; unaffected."
+  },
+  "_note_consistency": "cons.nhp_sequencing_engine will run anyway: nessie.py sets run_consistency = opts['consistency'] or tier == 'full', and there is no way to switch it off. Two cheap NS turns, ~$0.02, and it re-confirms the 408.",
+  "_note": "repro.cypher_uid_dot was retired 2026-07-30 (issue #35 review, round 2). Its slot here is now advanced.basic_ndma so the running order keeps a search case. The behaviours it caught stay covered by chat_nextseek/tests/test_graph_canonical_uid.py and test_graph_property_guard.py.",
+
+  "include_ids": [
+    "advanced.basic_ndma",
+    "write.export_all_metadata_for_nhp_22"
+  ],
+
+  "families": {
+    "probe_reingest": {
+      "description": "Verbatim copies of the two reingest probes from probe-2026-07-29.json. Both run directories were verified live on Luria: the gideon one holds alevin/alevinqc output, the rnaseq one holds salmon/star_salmon/trimgalore. Both satisfy the _run_ls runs-root guard.",
+      "variants": [
+        {"family": "probe_reingest", "id": "probe.reingest_scrnaseq_typed",
+         "name": "Reingest a finished scrnaseq run, target sample type given",
+         "tags": ["nessie", "probe", "full"], "requires_env": [],
+         "turns": [{"label": "main",
+                    "query": "The scrnaseq run at /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_gideon-4wk_260711_024438_0 has finished — register its outputs as new A.SCXP analysis samples.",
+                    "pass_criteria": [
+                      {"field": "route", "op": "eq", "value": "container_cc"},
+                      {"field": "last_reply", "op": "nonempty", "value": null}]}]},
+        {"family": "probe_reingest", "id": "probe.reingest_rnaseq_untyped",
+         "name": "Reingest a finished rnaseq run, sample type left to infer",
+         "tags": ["nessie", "probe", "full"], "requires_env": [],
+         "turns": [{"label": "main",
+                    "query": "Build me a NExtSEEK reingest upload sheet from the pipeline outputs in /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_rnaseq_260723_205359_0/",
+                    "pass_criteria": [
+                      {"field": "route", "op": "eq", "value": "container_cc"},
+                      {"field": "last_reply", "op": "nonempty", "value": null}]}]}
+      ]
+    }
+  }
+}

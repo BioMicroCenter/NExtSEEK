@@ -6,13 +6,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from startup.lib import docker_ops
 from startup.lib.docker_ops import (
     DockerOpsError,
+    compose_build,
     compose_up,
-    compose_down,
     compose_exec,
     volume_exists,
     volume_create,
+    bootstrap_staging_dir,
 )
 
 
@@ -27,6 +29,52 @@ def test_compose_up_invokes_compose_up_d(mock_run: MagicMock) -> None:
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_can_force_recreate(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_up(
+        services=["nextseek_nginx"],
+        project_dir="/repo",
+        env={},
+        force_recreate=True,
+    )
+    args = mock_run.call_args.args[0]
+    assert "--force-recreate" in args
+    assert args[-1] == "nextseek_nginx"
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_can_exclude_dependencies(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_up(
+        services=["nextseek"],
+        project_dir="/repo",
+        env={},
+        no_deps=True,
+    )
+    args = mock_run.call_args.args[0]
+    assert "--no-deps" in args
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_force_recreate_preserves_named_volumes(mock_run: MagicMock) -> None:
+    """Routine rebuild recreation must never renew or delete attached volumes."""
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_up(
+        services=["attribute_mutation_worker", "attribute_mutation_dispatcher"],
+        project_dir="/repo",
+        env={},
+        force_recreate=True,
+        no_deps=True,
+    )
+    args = mock_run.call_args.args[0]
+    assert "--force-recreate" in args
+    assert "--no-deps" in args
+    assert "--renew-anon-volumes" not in args
+    assert "down" not in args
+    assert "-v" not in args
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
 def test_compose_up_passes_env(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     compose_up(services=["db"], project_dir="/repo", env={"INSTANCE_PREFIX": "test-"})
@@ -35,10 +83,50 @@ def test_compose_up_passes_env(mock_run: MagicMock) -> None:
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_can_run_attached(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    compose_up(services=["db"], project_dir="/repo", env={}, detached=False)
+
+    assert "-d" not in mock_run.call_args.args[0]
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
 def test_compose_up_raises_on_nonzero_exit(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="boom")
     with pytest.raises(DockerOpsError, match="boom"):
         compose_up(services=["db"], project_dir="/repo", env={})
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_build_invokes_compose_build(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_build(services=["cc-agent"], project_dir="/repo", env={})
+    args = mock_run.call_args.args[0]
+    assert args == ["docker", "compose", "build", "cc-agent"]
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_build_targets_explicit_builder(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    compose_build(
+        services=["nextseek"],
+        project_dir="/repo",
+        env={},
+        builder="p18t8-builder",
+    )
+
+    assert mock_run.call_args.args[0] == [
+        "docker", "compose", "build", "--builder", "p18t8-builder", "nextseek"
+    ]
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_build_raises_on_nonzero_exit(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="build failed")
+    with pytest.raises(DockerOpsError, match="build failed"):
+        compose_build(services=["cc-agent"], project_dir="/repo", env={})
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
@@ -62,6 +150,36 @@ def test_volume_create_invokes_docker_volume_create(mock_run: MagicMock) -> None
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
+def test_bootstrap_staging_dir_invokes_docker_run_alpine_mkdir_chown(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    bootstrap_staging_dir("dmac-cc-users")
+    args = mock_run.call_args.args[0]
+    assert args[:4] == ["docker", "run", "--rm", "-v"]
+    assert "dmac-cc-users:/v" in args
+    assert args[-4] == "alpine"
+    assert args[-3] == "sh"
+    assert args[-2] == "-c"
+    shell_cmd = args[-1]
+    assert "mkdir -p /v/_staging" in shell_cmd
+    assert "chown 1001 /v/_staging" in shell_cmd
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_bootstrap_staging_dir_uid_overridable(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    bootstrap_staging_dir("dmac-cc-users", uid=2000)
+    shell_cmd = mock_run.call_args.args[0][-1]
+    assert "chown 2000 /v/_staging" in shell_cmd
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_bootstrap_staging_dir_raises_on_nonzero_exit(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="boom")
+    with pytest.raises(DockerOpsError, match="boom"):
+        bootstrap_staging_dir("dmac-cc-users")
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
 def test_compose_exec_passes_service_and_command(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
     compose_exec(
@@ -74,3 +192,34 @@ def test_compose_exec_passes_service_and_command(mock_run: MagicMock) -> None:
     assert args[:3] == ["docker", "compose", "exec"]
     assert "db" in args
     assert "SHOW DATABASES;" in args
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_exec_can_allocate_interactive_terminal(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+
+    compose_exec(
+        service="db",
+        command=["mysql"],
+        project_dir="/repo",
+        env={},
+        interactive=True,
+    )
+
+    assert "-T" not in mock_run.call_args.args[0]
+
+
+def test_compose_ps_running_filters_to_requested_services(monkeypatch):
+    calls = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="bedrock-proxy\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    running = docker_ops.compose_ps_running(
+        ["bedrock-proxy", "nextseek-sidecar"], "/tmp", {}
+    )
+    assert running == ["bedrock-proxy"]
+    assert calls["cmd"][:4] == ["docker", "compose", "ps", "--services"]
+    assert "--status=running" in calls["cmd"]

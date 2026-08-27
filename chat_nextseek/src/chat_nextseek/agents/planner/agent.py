@@ -25,10 +25,13 @@ from ...schemas import (
 )
 from ..parser import (
     _append_coding_filter_step_if_needed,
+    _build_step_from_candidate,
+    _canonical_multi_parse,
     _fill_candidate_defaults,
     _finalize_plan_steps,
     _find_mixed_scope_intersection_plan,
     _normalize_plan_step,
+    _step_query,
     _synthesize_top_candidate_plan,
     parser_agent,
 )

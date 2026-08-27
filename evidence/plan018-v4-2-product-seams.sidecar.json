@@ -1,0 +1,28 @@
+{
+  "schema": "plan018-evidence-sidecar/v1",
+  "lane": "V4-2-product-seams-hermetic",
+  "recorded_at": "2026-08-11T15:49:31Z",
+  "exit_status": 0,
+  "counts": {
+    "tests": 48,
+    "passed": 48,
+    "failures": 0,
+    "errors": 0
+  },
+  "summary_lines": [
+    "48 passed (includes V5-3 HTTP cross + product mutation killers)"
+  ],
+  "paid_or_live_resources_used": false,
+  "docker_worktree_mount": true,
+  "modules": [
+    "test_route_override.py",
+    "test_ns_run_root_event.py",
+    "test_decide_route_sticky_cc.py",
+    "test_decide_route_pipeline_gate.py",
+    "test_v4_2_force_route_http.py",
+    "test_v4_2_product_mutations.py"
+  ],
+  "log_sha256": "39f76deebce5353168e13e3d158767f4341ed9a3316a9d8f85df7f4a44a10d5b",
+  "junit_sha256": "0e3a48a51940017a7cec95ea42328f7f4a9680612678ae3216067ccc87df9fa2",
+  "gate": "PASS"
+}

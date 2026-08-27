@@ -1,0 +1,119 @@
+# Hardware-bounded Plan 018 V4-9 deployment rehearsal.
+#
+# This is intentionally an app-deployment cohort, not a second full NExtSEEK
+# installation.  It exercises the production app image/entrypoint, disposable
+# MySQL, gunicorn, nginx, and uniquely namespaced OI-3 peers while reusing the
+# host's immutable base images.  Every persistent resource has a run-specific
+# name supplied by the Task-8 runner and is removed after evidence capture.
+services:
+  db:
+    image: mysql:8.0
+    pull_policy: never
+    container_name: ${INSTANCE_PREFIX}seek-mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --log-error-verbosity=1
+    env_file:
+      - path: ./docker/db.env
+        required: false
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - ./docker/scripts/db:/docker-entrypoint-initdb.d:ro,z
+      - task8-mysql:/var/lib/mysql
+    deploy:
+      resources:
+        limits: {cpus: "0.50", memory: 1G}
+
+  nextseek:
+    build: .
+    image: ${COMPOSE_PROJECT_NAME}-nextseek:latest
+    pull_policy: never
+    container_name: ${INSTANCE_PREFIX}nextseek
+    env_file:
+      - path: ./docker/db.env
+        required: false
+      - path: ./docker/nextseek.env
+        required: false
+    environment:
+      DMAC_CC_USERS_VOLUME: ${INSTANCE_PREFIX}dmac-cc-users
+      NEXTSEEK_CC_NETWORK: ${TASK8_CC_NETWORK}
+      NEXTSEEK_CC_IMAGE: dmac-assistant:poc
+      NEXTSEEK_SERVER: gunicorn
+    depends_on:
+      db: {condition: service_healthy}
+    ports:
+      - "127.0.0.1:${NEXTSEEK_PORT}:8000"
+    volumes:
+      - task8-static:/static
+      - ./themes/NextSeek:/app/themes/NextSeek:ro,z
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:ro,z
+      - ./outputs:/app/outputs:z
+      - ./logs:/app/logs:z
+      - /var/run/docker.sock:/var/run/docker.sock
+      - task8-users:/dmac/users
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: {cpus: "1.20", memory: 4G}
+
+  nextseek_nginx:
+    image: nginx:latest
+    pull_policy: never
+    container_name: ${INSTANCE_PREFIX}nextseek-nginx
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro,z
+      - ./docker/nginx-optional:/etc/nginx/optional:ro,z
+      - task8-static:/static:ro
+    depends_on: [nextseek]
+    networks: [default, task8-cc]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: {cpus: "0.10", memory: 128M}
+
+  bedrock-proxy:
+    image: nextseek-bedrock-proxy:latest
+    pull_policy: never
+    container_name: ${INSTANCE_PREFIX}bedrock-proxy
+    env_file:
+      - path: ./docker/bedrock-proxy/proxy-secret.env
+        required: false
+    networks: [task8-cc, task8-egress]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: {cpus: "0.10", memory: 128M}
+
+  nextseek-sidecar:
+    image: nextseek-ns-sidecar:latest
+    pull_policy: never
+    container_name: ${INSTANCE_PREFIX}nextseek-sidecar
+    environment:
+      NEXTSEEK_BASE_URL: http://nextseek_nginx
+      SIDECAR_STAGING_DIR: /home/sidecar/staging
+      SIDECAR_WS_PORT: "8765"
+    volumes:
+      - task8-users:/home/sidecar/staging
+    networks: [task8-cc]
+    depends_on: [nextseek_nginx]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: {cpus: "0.10", memory: 128M}
+
+networks:
+  task8-cc:
+    name: ${TASK8_CC_NETWORK}
+    internal: true
+  task8-egress:
+    name: ${TASK8_EGRESS_NETWORK}
+
+volumes:
+  task8-mysql:
+    name: ${INSTANCE_PREFIX}mysql
+  task8-static:
+    name: ${INSTANCE_PREFIX}static
+  task8-users:
+    name: ${INSTANCE_PREFIX}dmac-cc-users

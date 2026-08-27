@@ -315,6 +315,100 @@ class TestBulkUpdateSamples:
 
         assert outcomes["U1"].parent_changed is True
 
+    @pytest.mark.parametrize("parent_key", [
+        "AntibodyParent",
+        "CompensationFCSParent",
+        "Treatment1Parent",
+        "Treatment2Parent",
+        "BacterialParent",
+        "AntibodyPanelParent",
+        "antibodyparent",
+        "ANTIBODYPARENT",
+    ])
+    def test_parent_changed_flag_set_for_variant_parent_keys(self, parent_key):
+        """parent_changed=True for any changed key CONTAINING 'parent'.
+
+        The literal-key check missed AntibodyParent (12,367 live references) and
+        CompensationFCSParent (66,529), leaving stale DERIVED_FROM edges behind
+        on re-upload because neo4j_sync only deletes edges for parent_changed rows.
+        """
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+
+        rows = [_make_sample("U1", meta=json.dumps({parent_key: "NHP-250101MIT-2"}))]
+        details = _make_details(
+            ("U1", 1, 5, json.dumps({parent_key: "NHP-250101MIT-1"}), "Old"),
+        )
+
+        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            outcomes = bulk_update_samples(
+                rows=rows,
+                details=details,
+                project_id=99,
+                direction_by_pair={},
+                conn=conn,
+            )
+
+        assert outcomes["U1"].parent_changed is True
+
+    def test_parent_changed_false_when_only_non_parent_key_changes(self):
+        """A non-parent key changing must NOT set parent_changed.
+
+        Guards the substring check against degenerating into `bool(changed_keys)`,
+        which would make every re-upload delete and rebuild lineage edges.
+        """
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+
+        rows = [_make_sample("U1", meta='{"ReferenceGenome":"GRCh39","Scientist":"B"}')]
+        details = _make_details(
+            ("U1", 1, 5, '{"ReferenceGenome":"GRCh38","Scientist":"A"}', "Old"),
+        )
+
+        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            outcomes = bulk_update_samples(
+                rows=rows,
+                details=details,
+                project_id=99,
+                direction_by_pair={},
+                conn=conn,
+            )
+
+        assert outcomes["U1"].parent_changed is False
+
+    def test_parent_changed_false_when_unchanged_variant_parent_is_present(self):
+        """An UNCHANGED AntibodyParent must not set the flag just by existing.
+
+        Guards against reading the merged metadata's keys instead of changed_keys.
+        """
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+
+        rows = [_make_sample("U1", meta='{"AntibodyParent":"AB-230327BOO-3","Name":"New"}')]
+        details = _make_details(
+            ("U1", 1, 5, '{"AntibodyParent":"AB-230327BOO-3","Name":"Old"}', "Old"),
+        )
+
+        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            outcomes = bulk_update_samples(
+                rows=rows,
+                details=details,
+                project_id=99,
+                direction_by_pair={},
+                conn=conn,
+            )
+
+        assert outcomes["U1"].parent_changed is False
+
     def test_assay_prefetch_uses_chunked_in_query(self):
         """Assay prefetch uses a single bulk query, not per-sample queries."""
         from nextseek_api.batch_upload.update import bulk_update_samples

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "plan005-closeout.schema.json",
+  "title": "Plan 005 16-row execution protocol",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_ids", "rows"],
+  "properties": {
+    "record_ids": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "prefixItems": [
+        {"const": "01-baseline"},
+        {"const": "02-export-check"},
+        {"const": "03-surfaces-check"},
+        {"const": "04-baml-setup"},
+        {"const": "05-future-op"},
+        {"const": "06-audit-a"},
+        {"const": "07-assistant-route"},
+        {"const": "08-build-tools"},
+        {"const": "09-compose-quiet"},
+        {"const": "10-compose-json"},
+        {"const": "11-plugin-validator"},
+        {"const": "12-coverage-run"},
+        {"const": "13-coverage-json"},
+        {"const": "14-coverage-report"},
+        {"const": "15-coverage-config"},
+        {"const": "16-final-gate"}
+      ],
+      "items": false
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "argv_template",
+          "image",
+          "network",
+          "declared_output_namespace",
+          "read_only_producer_inputs",
+          "repository_mount",
+          "evidence_mount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "argv_template": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
+          },
+          "image": {"type": "string"},
+          "network": {"const": "none"},
+          "declared_output_namespace": {"type": "string"},
+          "read_only_producer_inputs": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "repository_mount": {"type": "string"},
+          "evidence_mount": {"type": "string"}
+        }
+      }
+    }
+  }
+}

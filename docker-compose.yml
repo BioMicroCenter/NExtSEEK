@@ -1,14 +1,27 @@
 services:
   nextseek:
     build: .
+    # Every app-code process below runs this same image. COMPOSE_PROJECT_NAME
+    # keeps canonical and port-offset instances isolated from one another.
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     container_name: ${INSTANCE_PREFIX:-}nextseek
     restart: always
+    environment:
+      # cc_engine spawns the per-turn CC agent container via docker-py and mounts
+      # subpaths of this volume BY NAME. The compose `name:` indirection only
+      # covers this service's own /dmac/users mount, not the sibling container's
+      # docker-py Mount, so the prefixed volume name must reach cc_config here or
+      # cc_engine falls back to the bare `dmac-cc-users` and the mount 404s on a
+      # --instance install. Same INSTANCE_PREFIX the volume itself carries.
+      DMAC_CC_USERS_VOLUME: ${INSTANCE_PREFIX:-}dmac-cc-users
     env_file:
       - ./docker/db.env
       - ./docker/nextseek.env
     depends_on:
-      - seek
-      - db
+      seek:
+        condition: service_started
+      db:
+        condition: service_healthy
     volumes:
       - nextseek-static-files:/static
       # :z relabels the host path for SELinux-enforcing hosts (Fedora/RHEL).
@@ -17,23 +30,189 @@ services:
       - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
       - ./outputs:/app/outputs:z
       - ./logs:/app/logs:z
+      # Luria SLURM launch backend. LURIAKEY is the host path to the operator's
+      # private key, bind-mounted read-only at the SAME path inside so the value
+      # of LURIA_KEY needs no translation. Defaults to /dev/null so the stack
+      # still comes up when the Luria backend is unused.
+      - ${LURIAKEY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
+      # Writable ssh dir: ssh.py copies the key here and chmods 0600, which it
+      # cannot do on the read-only bind above.
+      - nextseek-luria-ssh:/app/.ssh
+      # Additive (Container-CC route): lets the assistant worker spawn sibling
+      # `claude` containers on the host Docker daemon. Used only by the new
+      # cc-assistant endpoints; the existing assistant never touches it.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Container-CC user trees (G7-10). Persisted in the external named volume
+      # `dmac-cc-users` (same pattern as seek-filestore) — NOT a host bind, so
+      # no manual host mkdir/chmod is ever required and data survives
+      # `docker compose up`/recreate (lost only on `down -v` / `startup.sh reset`).
+      # The nextseek worker mkdirs scratch/cc-state/memory/output dirs here;
+      # sibling CC containers mount per-user *subpaths* of this SAME volume
+      # (VolumeOptions.Subpath) into /data/input, /data/shared, /data/scratch,
+      # /home/user/.claude, and /home/user/.cc-memory/transcripts.
+      - dmac-cc-users:/dmac/users
 
   nextseek_nginx:
     image: nginx:latest
     ports:
-      - "${NEXTSEEK_PORT:-8000}:80"
+      - "127.0.0.1:${NEXTSEEK_PORT:-8000}:80"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro,z
+      # Optional drop-ins, included by nginx.conf as /etc/nginx/optional/*.conf.
+      # Ships only *.conf.example, so the directory is inert until an operator
+      # copies one to *.conf. See docker/nginx-optional/neo4j.conf.example.
+      - ./docker/nginx-optional:/etc/nginx/optional:ro,z
       - nextseek-static-files:/static:ro
     depends_on:
       - nextseek
+    # OI-3 / Container-CC route: nginx is the ONLY dual-homed service. It stays
+    # on the default stack network (reaching `nextseek`) and additionally joins
+    # the segmented `dmac-cc-net`, where it is the sandboxed CC agent's ONLY
+    # route back into NExtSEEK (see cc_engine._NEXTSEEK_SERVICE_HOST /
+    # _rewrite_loopback_url). `nextseek` itself is deliberately NOT listed here
+    # and so stays default-only — the de-credentialed agent must never gain L3
+    # reach to `nextseek`, `db`, `seek`, `solr`, or `neo4j` directly.
+    networks:
+      - default
+      - dmac-cc-net
+
+  # Container-CC (CC) route sidecar: holds the institutional
+  # AWS_BEARER_TOKEN_BEDROCK and adds the Authorization header server-side so
+  # the agent never carries an AWS credential (OI-3). Reachable ONLY on
+  # dmac-cc-net via the compose service DNS name `bedrock-proxy` (matches
+  # cc_engine.DMAC_BEDROCK_PROXY_URL's default host) — never on the default
+  # stack network, so it cannot be reached from db/seek/solr/neo4j either.
+  # `container_name: dmac-bedrock-proxy` is the HOST-side identity used only
+  # for `docker logs`/`docker inspect`/`docker network inspect` (see
+  # DMAC_PROXY_CONTAINER in test_cc_realstack.py) — never for in-network URLs.
+  bedrock-proxy:
+    build:
+      context: ./docker/bedrock-proxy
+    image: nextseek-bedrock-proxy:latest
+    container_name: dmac-bedrock-proxy
+    restart: always
+    env_file:
+      - ./docker/bedrock-proxy/proxy-secret.env
+    networks:
+      # On dmac-cc-net (internal, F1) so the agent reaches it, AND on the
+      # dedicated dmac-cc-egress network so the proxy itself can still reach
+      # bedrock-runtime.<region>.amazonaws.com. The agent is NOT on cc-egress,
+      # so it inherits no internet path. Still never on `default` — db/seek/
+      # solr/neo4j cannot reach the proxy.
+      - dmac-cc-net
+      - dmac-cc-egress
+    # :8080 must be reachable ONLY on dmac-cc-net (R-8/gate G5) — no host
+    # `ports:` publish here, ever.
+
+  # Container-CC agent image build target ONLY. The nextseek Django worker
+  # spawns one ephemeral, per-turn sibling container from this image directly
+  # via the host docker socket (docker-py `containers.run`, see cc_engine.py)
+  # — it is NOT a persistent compose-managed service. This stanza exists so
+  # `docker compose build` (part of the canonical `docker compose build &&
+  # docker compose up -d` deploy flow) produces/tags the image compose-
+  # natively instead of a separate manual `docker build`/`make image-build`
+  # step. `image:` is pinned to the literal NEXTSEEK_CC_IMAGE default
+  # (cc_config/cc_engine.DEFAULT_IMAGE) so a fresh build always produces the
+  # exact image cc_runner_available() looks for. `network_mode: none` +
+  # `command: ["true"]` make an accidental `docker compose up -d` start of
+  # this stanza a harmless, instantly-exiting no-op with no restart policy —
+  # never a networked or long-running container.
+  cc-agent:
+    build:
+      context: ./docker/cc-runtime
+# BEGIN PLAN005-GEN:additional-contexts
+      additional_contexts:
+        chat_nextseek: ./chat_nextseek
+# END PLAN005-GEN:additional-contexts
+    image: dmac-assistant:poc
+    network_mode: none
+    command: ["true"]
+
+  # NS shared-cred sidecar (G7-11, Task 13): forwards granular per-request
+  # NExtSEEK ops over a WebSocket the agent's nextseek plugin dials directly
+  # (docker/cc-runtime/build_context/plugins/nextseek/bin/_sidecar_client.py).
+  # THE COMPOSE SERVICE NAME IS THE LOAD-BEARING IDENTITY: `nextseek-sidecar`
+  # MUST equal `_sidecar_client.py`'s `NEXTSEEK_SIDECAR_HOST` default — that
+  # is the Docker DNS alias agents actually resolve. `container_name:
+  # nextseek-sidecar` is pinned only for host-side ops (`docker logs` /
+  # `docker inspect` / the validator's closed-set peer check), same pattern
+  # as `dmac-bedrock-proxy` above.
+  #
+  # OI-3: env carries ONLY the three non-secret keys below.
+  # NEXTSEEK_BASE_URL is pinned to the literal dual-homed nginx entrypoint —
+  # the sidecar's ONLY route back into NExtSEEK, same as the agent
+  # (cc_engine._NEXTSEEK_SERVICE_HOST). Per-request user Basic auth arrives
+  # inside WS frames from the agent, never via os.environ. No `ports:` —
+  # reachable only inside dmac-cc-net, never the default stack network.
+  #
+  # Task 14 (G7-11, documented two-state flip of Task 13, Task 3/4 precedent):
+  # the sidecar mounts the RESERVED top-level `_staging/` subpath of the
+  # `dmac-cc-users` volume at `SIDECAR_STAGING_DIR` (long-syntax
+  # `volume.subpath:` below). `_staging` is bootstrapped + chowned to uid 1001
+  # (the sidecar user) by `startup/steps/volumes.py::ensure_cc_staging_dir`
+  # BEFORE the sidecar ever starts (the Engine refuses to start a container
+  # whose `VolumeOptions.Subpath` backing dir is absent). The sidecar can write
+  # ONLY under `_staging/` — never a `{project}/{user}/` tree — so it cannot
+  # deliver cross-user by construction; the trusted `cc_engine`/management
+  # sweep (`nextseek_api/cc_assistant/cc_staging.py`) moves completed
+  # `.complete`-marked artifacts into the requesting user's own subtree.
+  #
+  # COMPOSE-FLOOR CONSEQUENCE (SPEC-7 conditional, PLAN-7 Task 2 iter-1 M-3):
+  # because this mount uses YAML `volume.subpath:` syntax, the Compose >=2.26
+  # floor now BINDS on every deploy host (Task 2's validator self-detects this
+  # via `compose_config.json`). Host Compose is well above 2.26.
+  nextseek-sidecar:
+    build:
+      context: ./docker/ns-sidecar
+    image: nextseek-ns-sidecar:latest
+    container_name: nextseek-sidecar
+    restart: unless-stopped
+    environment:
+      NEXTSEEK_BASE_URL: http://nextseek_nginx
+      SIDECAR_STAGING_DIR: /home/sidecar/staging
+      SIDECAR_WS_PORT: "8765"
+    volumes:
+      # `_staging` subpath of dmac-cc-users -> the sidecar's SIDECAR_STAGING_DIR.
+      # Only this reserved subtree is writable to the sidecar; the trusted sweep
+      # (Django, whole-volume mount at /dmac/users) reads it and delivers into
+      # each user's own {project}/{user}/scratch.
+      - type: volume
+        source: dmac-cc-users
+        target: /home/sidecar/staging
+        volume:
+          subpath: _staging
+    networks:
+      - dmac-cc-net
+    # Cold-start tolerance (Task 9/10 bring-up evidence must not capture a
+    # red-herring "unhealthy"): the sidecar's healthcheck GETs through
+    # nginx -> Django (see docker/ns-sidecar/app/healthcheck.py), which is
+    # legitimately unhealthy until the whole stack finishes booting.
+    # start_period + retries lifted from the upstream sidecar compose
+    # fragment's tolerance (dmac-assistant/sidecar/docker-compose.yml
+    # @a429f13) — everything else there (networks, env files, volumes) is
+    # deliberately NOT ported (the A-1 backend-network attachment is dead
+    # post-T16 and forbidden here).
+    healthcheck:
+      test: ["CMD", "python", "-m", "sidecar.app.healthcheck"]
+      interval: 10s
+      timeout: 8s
+      retries: 6
+      start_period: 20s
 
   db: # Database implementation, in this case MySQL
     image: mysql:8.0
     container_name: ${INSTANCE_PREFIX:-}seek-mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --log-error-verbosity=1
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
     restart: always
     stop_grace_period: 1m30s
+    ports:
+      - "127.0.0.1:${DB_PORT:-3306}:3306"
     env_file:
       - ./docker/db.env
     volumes:
@@ -47,10 +226,40 @@ services:
     volumes:
       - neo4j-data:/data
     environment:
-      NEO4J_AUTH: "neo4j/demopassword"
+      # Seeds the credential on FIRST START ONLY, when the neo4j-data volume is
+      # created. Changing it later does nothing: the password then lives in the
+      # volume, and rotating means
+      #   docker exec neo4j cypher-shell -u neo4j -p <old> \
+      #     "ALTER CURRENT USER SET PASSWORD FROM '<old>' TO '<new>'"
+      # followed by updating NEO4J_PASSWORD + NEXTSEEK_NEO4J_PASSWORD in
+      # docker/nextseek.env and recreating `nextseek`. See
+      # docs/neo4j-programmatic-access.md.
+      #
+      # Interpolated from the repo-root .env (gitignored; copy .env.example).
+      # `:?` rather than a default on purpose: a default here would ship a known
+      # credential to every install, and would silently disagree with
+      # docker/nextseek.env after any rotation.
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env (see .env.example)}"
+      # Kill any transaction that runs longer than this. The graph agent generates
+      # its Cypher with an LLM, so it is not always sane: on 2026-08-05 it emitted
+      # `MATCH (m:Sample) WHERE (m)-[:DERIVED_FROM*0..]->(s) OR (s)-[...]->(m)`,
+      # an unanchored scan of every Sample testing an unbounded path in both
+      # directions. That never finishes. The Django thread blocks on the bolt
+      # socket, and once enough of them do, the single ASGI process stops serving
+      # entirely -- it wedged the whole stack twice and burned 19 benchmark arms.
+      #
+      # Killing the query afterwards does NOT release the threads; only a restart
+      # does. So this bound is the only thing that keeps one bad generated query
+      # from taking the app down with it.
+      #
+      # 120s is ~1800x the healthy version of that same lineage query (66ms), so
+      # it fires only on the pathological case. `agents/graph.py:299,446` already
+      # catch driver errors, so a terminated transaction surfaces as one failed
+      # graph step rather than an outage.
+      NEO4J_db_transaction_timeout: "120s"
     ports:
-      - "${NEO4J_HTTP_PORT:-7474}:7474"
-      - "${NEO4J_BOLT_PORT:-7687}:7687"
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
 
   seek:
     image: fairdom/seek:1.15.1
@@ -70,7 +279,7 @@ services:
       - seek-filestore:/seek/filestore
       - seek-cache:/seek/tmp/cache
     ports:
-      - "${SEEK_PORT:-3000}:3000"
+      - "127.0.0.1:${SEEK_PORT:-3000}:3000"
     depends_on:
       - db
       - solr
@@ -117,6 +326,128 @@ services:
       - seek
       - /opt/solr/server/solr/configsets/seek_config
 
+  # Task-08 durable async orchestration (DD-29): a dedicated Celery worker
+  # for the `attribute_mutations` queue only. Never a subprocess of the
+  # `nextseek`/batch_upload worker containers, so an attribute-mutation
+  # backlog or crash can never starve or be starved by batch uploads.
+  attribute_mutation_worker:
+    # Opt-in: these three carry the async attribute-mutation pipeline and
+    # are only useful once native attribute mutation is in use. Without a
+    # profile a stock `docker compose up -d` starts 3 more always-on
+    # containers. Start them with `--profile attributes`.
+    profiles: [attributes]
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+      - attribute_mutation_broker:/var/lib/attribute-broker
+    environment:
+      CELERY_BROKER_URL: sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3
+    command: ["uv", "run", "--no-sync", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker", "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h", "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "worker"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "${ATTRIBUTE_MUTATION_WORKER_CPUS:-1.0}"
+          memory: "${ATTRIBUTE_MUTATION_WORKER_MEMORY:-1G}"
+
+  # The transactional-outbox dispatcher: the sole publisher for
+  # `attribute_mutations` messages. A request process never publishes
+  # directly (Section 6).
+  attribute_mutation_dispatcher:
+    # Opt-in: these three carry the async attribute-mutation pipeline and
+    # are only useful once native attribute mutation is in use. Without a
+    # profile a stock `docker compose up -d` starts 3 more always-on
+    # containers. Start them with `--profile attributes`.
+    profiles: [attributes]
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+      - attribute_mutation_broker:/var/lib/attribute-broker
+    environment:
+      CELERY_BROKER_URL: sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "dispatch_attribute_outbox"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "dispatcher"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "${ATTRIBUTE_MUTATION_DISPATCHER_CPUS:-0.25}"
+          memory: "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-1G}"
+
+  # Idempotent synchronous-job recovery scheduler (Section 3). Deliberately
+  # has no broker volume/env and runs no Celery command: it can never
+  # consume either Celery queue, only scan/claim/reconcile via the default
+  # database.
+  attribute_mutation_recovery_scheduler:
+    # Opt-in: these three carry the async attribute-mutation pipeline and
+    # are only useful once native attribute mutation is in use. Without a
+    # profile a stock `docker compose up -d` starts 3 more always-on
+    # containers. Start them with `--profile attributes`.
+    profiles: [attributes]
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "recovery"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}"
+          memory: "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-1G}"
+
+
+networks:
+  # Container-CC segmented network (OI-3). Compose-managed but pinned to the
+  # literal name `dmac-cc-net` (no project-name prefix) so it matches
+  # cc_engine.DEFAULT_NETWORK / NEXTSEEK_CC_NETWORK exactly. Members: this
+  # compose file only ever attaches `bedrock-proxy` and `nextseek_nginx` — the
+  # per-turn CC agent containers join it at spawn time via docker-py, not
+  # through this file. No manual `docker network create`/`connect` needed.
+  dmac-cc-net:
+    name: dmac-cc-net
+    # F1: no NAT/gateway. The per-turn agent (spawned onto this net via docker-py)
+    # runs `claude --permission-mode auto` with the requesting user's plaintext
+    # NExtSEEK password in its env — an internal net removes the L3 path a
+    # prompt-injected or jailbroken turn would use to exfiltrate it. bedrock-proxy
+    # keeps AWS egress via dmac-cc-egress below; the agent is not on that net.
+    internal: true
+  # F1: egress-capable network carrying ONLY bedrock-proxy, so the proxy can reach
+  # AWS Bedrock while dmac-cc-net stays internal. No other service joins this.
+  dmac-cc-egress:
+    name: dmac-cc-egress
+
 
 volumes:
   seek-filestore:
@@ -137,3 +468,27 @@ volumes:
   neo4j-data:
     external: true
     name: ${INSTANCE_PREFIX:-}neo4j-data
+  # Container-CC per-project/per-user trees (G7-10). Created by
+  # `./startup.sh install` (startup/steps/volumes.py REQUIRED_VOLUMES), same as
+  # the six SEEK/NExtSEEK volumes above.
+  # Writable ssh dir for the Luria launch backend. Compose-managed (not external
+  # like the six above) because startup/steps/volumes.py does not create it and
+  # it holds no seeded data — only a 0600 copy of the operator's key.
+  nextseek-luria-ssh:
+    name: ${INSTANCE_PREFIX:-}nextseek-luria-ssh
+
+  dmac-cc-users:
+    external: true
+    # Must carry INSTANCE_PREFIX like the six volumes above: volumes.py builds
+    # every REQUIRED_VOLUMES entry as f"{prefix}{name}", so without this an
+    # --instance install creates `{prefix}dmac-cc-users` while compose looks up
+    # the bare name and silently attaches ANOTHER instance's CC user tree.
+    name: ${INSTANCE_PREFIX:-}dmac-cc-users
+
+  # Task-08 durable async orchestration: the SQLAlchemy/SQLite Celery
+  # broker transport shared by attribute_mutation_worker and
+  # attribute_mutation_dispatcher. This compose-managed named volume survives
+  # normal `startup.sh rebuild` recreation; only destructive volume operations
+  # such as the explicitly-confirmed `startup.sh reset` remove it. The durable
+  # MySQL job/outbox records remain the application audit source of truth.
+  attribute_mutation_broker:

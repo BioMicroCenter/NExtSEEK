@@ -293,7 +293,8 @@ class TestSeekAPIClient:
         assert content == b'{"data": []}'
         # Verify session.request was called with correct args
         call_kwargs = client.session.request.call_args
-        assert call_kwargs.kwargs["auth"] == ("user", "pass")
+        assert "auth" not in call_kwargs.kwargs
+        assert call_kwargs.kwargs["headers"]["Authorization"] == "Basic " + base64.b64encode(b"user:pass").decode("ascii")
         assert call_kwargs.kwargs["url"] == "https://seek.example.com/samples"
 
     @patch("nextseek_api.helpers.resolve_seek_auth")
@@ -310,7 +311,7 @@ class TestSeekAPIClient:
         assert status == 200
         call_kwargs = client.session.request.call_args
         assert call_kwargs.kwargs["headers"]["Authorization"] == "Token tok123"
-        assert call_kwargs.kwargs["auth"] is None
+        assert "auth" not in call_kwargs.kwargs
 
     @patch("nextseek_api.helpers.resolve_seek_auth")
     def test_request_with_params_and_json(self, mock_resolve):
@@ -645,3 +646,58 @@ class TestResolveSampletypeToSeekId:
     def test_exception_returns_none(self, MockDBtable):
         MockDBtable.side_effect = RuntimeError("boom")
         assert resolve_sampletype_to_seek_id("NHP") is None
+
+
+# ===========================================================================
+# basic_auth_header (#52)
+# ===========================================================================
+
+
+class TestBasicAuthHeader:
+    """The one shared encoder behind every SEEK Basic-auth call site."""
+
+    def test_encodes_utf8_not_latin1(self):
+        import base64
+
+        from nextseek_api.helpers import basic_auth_header
+
+        user, password = "jörg", "pa55wörd-✓-Ω"
+        header = basic_auth_header((user, password))["Authorization"]
+        assert header.startswith("Basic ")
+        decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
+        assert decoded == f"{user}:{password}"
+
+    def test_password_with_a_colon_round_trips(self):
+        import base64
+
+        from nextseek_api.helpers import basic_auth_header
+
+        header = basic_auth_header(("demo", "a:b:c"))["Authorization"]
+        decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
+        # Only the first colon separates user from password.
+        assert decoded.split(":", 1) == ["demo", "a:b:c"]
+
+    def test_falsy_tuple_yields_no_header(self):
+        from nextseek_api.helpers import basic_auth_header
+
+        assert basic_auth_header(None) == {}
+        assert basic_auth_header(()) == {}
+
+    def test_none_credentials_yield_no_header(self):
+        """SeekDB(server, None, None) builds SeekAPI(server, None, None)
+        (seek/seekdb.py:31). Stringifying that would send the literal
+        credential pair ``None:None``."""
+        from nextseek_api.helpers import basic_auth_header
+
+        assert basic_auth_header((None, None)) == {}
+        assert basic_auth_header(("demo", None)) == {}
+        assert basic_auth_header((None, "user")) == {}
+
+    def test_empty_password_is_still_a_credential(self):
+        import base64
+
+        from nextseek_api.helpers import basic_auth_header
+
+        header = basic_auth_header(("demo", ""))["Authorization"]
+        decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
+        assert decoded == "demo:"

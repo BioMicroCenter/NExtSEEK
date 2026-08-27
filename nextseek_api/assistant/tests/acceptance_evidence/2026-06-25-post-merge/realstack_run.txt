@@ -1,0 +1,301 @@
+Found 8 test(s).
+Skipping setup of unused database(s): seek.
+Using existing test database for alias 'default' ('test_dmac')...
+Operations to perform:
+  Synchronize unmigrated apps: NextSeek, accounts, boot, channels, corsheaders, dj_rest_auth, django_crontab, drf_spectacular, drf_spectacular_sidecar, filebrowser_safe, grappelli_safe, markdownify, messages, rest_framework, sitemaps, staticfiles, widget_tweaks
+  Apply all migrations: admin, auth, authtoken, blog, conf, contenttypes, core, django_comments, forms, galleries, generic, nextseek_api, pages, redirects, seek, sessions, sites
+Synchronizing apps without migrations:
+  Creating tables...
+    Running deferred SQL...
+Running migrations:
+  No migrations to apply.
+  Your models in app(s): 'blog', 'core', 'generic', 'pages', 'seek' have changes that are not yet reflected in a migration, and so won't be applied.
+  Run 'manage.py makemigrations' to make new migrations, and then re-run 'manage.py migrate' to apply them.
+System check identified some issues:
+
+WARNINGS:
+blog.BlogCategory: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+blog.BlogPost: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+conf.Setting: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+core.SitePermission: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the CoreConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+forms.Field: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+forms.FieldEntry: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+forms.FormEntry: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+galleries.GalleryImage: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+generic.AssignedKeyword: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+generic.Keyword: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+generic.Rating: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the AppConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+pages.Page: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the PagesConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Assay_assets: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Assays: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Assays_internal_assays: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Assets_creators: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Clades: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Content_blobs: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Data_files: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Documents: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Internal_assays: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.People: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Permissions: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Policies: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Projects: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Sample_attribute_types: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Sample_attributes: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Sample_tree: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Sample_types: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Sample_types_clades: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Samples: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Session_state: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Sops: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.User_profile: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Users: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+
+System check identified 35 issues (0 silenced).
+test_01_entity_resolves_MUS (nextseek_api.assistant.tests.test_granular_realstack.RealStackAcceptance.test_01_entity_resolves_MUS) ... 
+[DEBUG][ENTITY] User query: mouse samples treated with NDMA
+INFO:google_genai.models:AFC is enabled with max remote calls: 10.
+INFO:httpx:HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent "HTTP/1.1 200 OK"
+[DEBUG][TOKENS][ENTITY] prompt=52021 completion=89 total=53446
+[DEBUG][ENTITY] Parsed entity result: {
+  "sampletypes": [
+    {
+      "code": "MUS",
+      "name": "Mouse"
+    }
+  ],
+  "assays": [
+    {
+      "code": "Chemical challenge",
+      "name": "Chemical challenge"
+    }
+  ],
+  "keywords": [
+    "NDMA"
+  ],
+  "projects": []
+}
+ok
+test_02_graph_executes_with_real_nodes (nextseek_api.assistant.tests.test_granular_realstack.RealStackAcceptance.test_02_graph_executes_with_real_nodes) ... 
+[DEBUG][ENTITY] User query: lineage of mouse samples
+INFO:google_genai.models:AFC is enabled with max remote calls: 10.
+INFO:httpx:HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent "HTTP/1.1 200 OK"
+[DEBUG][TOKENS][ENTITY] prompt=52020 completion=62 total=52718
+[DEBUG][ENTITY] Parsed entity result: {
+  "sampletypes": [
+    {
+      "code": "MUS",
+      "name": "Mouse"
+    }
+  ],
+  "assays": [],
+  "keywords": [
+    "lineage"
+  ],
+  "projects": []
+}
+
+[DEBUG][GRAPH] User query: lineage of mouse samples
+INFO:google_genai.models:AFC is enabled with max remote calls: 10.
+INFO:httpx:HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent "HTTP/1.1 200 OK"
+[DEBUG][GRAPH] Generated cypher: 'MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample) WHERE child.type = $type OR parent.type = $type RETURN child.uuid AS child_uuid, child.id AS child_id, child.type AS child_type, parent.uuid AS parent_uuid, parent.id AS parent_id, parent.type AS parent_type LIMIT 250'
+[DEBUG][GRAPHDB] Query returned 250 records
+ok
+test_03_api_read_returns_real_rows (nextseek_api.assistant.tests.test_granular_realstack.RealStackAcceptance.test_03_api_read_returns_real_rows) ... [DEBUG][API_AGENT] Calling API Agent with endpoint: /nextseek_api/samples/advanced_search/
+INFO:google_genai.models:AFC is enabled with max remote calls: 10.
+INFO:httpx:HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent "HTTP/1.1 200 OK"
+[DEBUG][TOKENS][API_AGENT] prompt=2071 completion=106 total=3070
+[DEBUG][API_AGENT] Parsed API plan: {
+  "endpoint": "/nextseek_api/samples/advanced_search/",
+  "method": "POST",
+  "requestBody": {
+    "sampletype": "MUS",
+    "filter_searchText": "NDMA",
+    "filter_matchType": "PARTIAL"
+  },
+  "queryParameters": {},
+  "notes": "Searches for mouse samples (sampletype code 'MUS') matching the free-text keyword 'NDMA'."
+}
+[DEBUG][API] Request:
+  METHOD: POST
+  URL:    http://127.0.0.1:8000/nextseek_api/samples/advanced_search/
+  PARAMS: {'page_size': 1000}
+  BODY:   {'sampletype': 'MUS', 'filter_searchText': 'NDMA', 'filter_matchType': 'PARTIAL'}
+  AUTH:   Basic
+  TIMEOUT:120s
+[DEBUG][API] Response:
+  STATUS: 200
+  PREVIEW: '{"total": 195, "rows": [{"idlink": "<a href=\\"http://seek:3000/samples/365215/\\" target=\\"_blank\\">365215</a>", "idurl": "<a href=\\"/seek/sample/id=365215/\\" target=\\"_blank\\">365215</a>", "id": 365215, "title": "MUS-200901ENG-23-PUB", "uuid": "MUS-200901ENG-23-PUB", "uid": "<a href=\\"/seek/sample/i'
+ok
+test_04_api_write_blocked_leaves_db_unchanged (nextseek_api.assistant.tests.test_granular_realstack.RealStackAcceptance.test_04_api_write_blocked_leaves_db_unchanged) ... WARNING:django.request:Forbidden: /nextseek_api/assistant/api-write/
+ok
+test_05_api_write_confirmed_executes_read_safe (nextseek_api.assistant.tests.test_granular_realstack.RealStackAcceptance.test_05_api_write_confirmed_executes_read_safe) ... [DEBUG][API_AGENT] Calling API Agent with endpoint: /nextseek_api/samples/advanced_search/
+INFO:google_genai.models:AFC is enabled with max remote calls: 10.
+INFO:httpx:HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent "HTTP/1.1 200 OK"
+[DEBUG][TOKENS][API_AGENT] prompt=2069 completion=97 total=2994
+[DEBUG][API_AGENT] Parsed API plan: {
+  "endpoint": "/nextseek_api/samples/advanced_search/",
+  "method": "POST",
+  "requestBody": {
+    "sampletype": "MUS",
+    "filter_searchText": "NDMA",
+    "filter_matchType": "PARTIAL"
+  },
+  "queryParameters": {},
+  "notes": "Searching for mouse (MUS) samples matching the keyword 'NDMA'."
+}
+[DEBUG][API] Request:
+  METHOD: POST
+  URL:    http://127.0.0.1:8000/nextseek_api/samples/advanced_search/
+  PARAMS: {'page_size': 1000}
+  BODY:   {'sampletype': 'MUS', 'filter_searchText': 'NDMA', 'filter_matchType': 'PARTIAL'}
+  AUTH:   Basic
+  TIMEOUT:120s
+[DEBUG][API] Response:
+  STATUS: 200
+  PREVIEW: '{"total": 195, "rows": [{"idlink": "<a href=\\"http://seek:3000/samples/365215/\\" target=\\"_blank\\">365215</a>", "idurl": "<a href=\\"/seek/sample/id=365215/\\" target=\\"_blank\\">365215</a>", "id": 365215, "title": "MUS-200901ENG-23-PUB", "uuid": "MUS-200901ENG-23-PUB", "uid": "<a href=\\"/seek/sample/i'
+ok
+test_06_report_published_has_db_values (nextseek_api.assistant.tests.test_granular_realstack.RealStackAcceptance.test_06_report_published_has_db_values) ... [DEBUG][REPORTER] Summary mode: published, project: Published Data, years: []
+[WARN][PROJECT] 'Published Data' fuzzy-matched to 'PUBLISHED' (id=6)
+[REPORTER][NEO4J] Running published samples query {'cypher': "MATCH (inv:Investigation)<-[:IN_INVESTIGATION]-(study:Study)<-[:IN_STUDY]-(s:Sample) WHERE replace(toLower(inv.title), ' ', '') CONTAINS $proj_hint RETURN s.uuid AS uuid, study.title AS study_title, s.type AS sampletype", 'params': {'proj_hint': 'publisheddata'}}
+[DEBUG][GRAPHDB] Query returned 0 records
+[REPORTER][SQL] Published protocols — prod query {'query': 'SELECT sop.title\nFROM seek_production.projects_sops ps\nJOIN seek_production.sops sop ON ps.sop_id = sop.id\nWHERE ps.project_id = %s;', 'params': [6]}
+[CONFIG][DB] Connected to dev at db:3306 as seek_db_user
+[REPORTER][SQL] Published protocols — dev query
+[DEBUG][REPORTER] result ok=True, rows=None, files=['published_report', 'reporter_result']
+ok
+test_07_parse_targets_advanced_search (nextseek_api.assistant.tests.test_granular_realstack.RealStackAcceptance.test_07_parse_targets_advanced_search) ... 
+[DEBUG][ENTITY] User query: mouse samples treated with NDMA
+INFO:google_genai.models:AFC is enabled with max remote calls: 10.
+INFO:httpx:HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent "HTTP/1.1 200 OK"
+[DEBUG][TOKENS][ENTITY] prompt=52021 completion=62 total=52520
+[DEBUG][ENTITY] Parsed entity result: {
+  "sampletypes": [
+    {
+      "code": "MUS",
+      "name": "Mouse"
+    }
+  ],
+  "assays": [],
+  "keywords": [
+    "NDMA"
+  ],
+  "projects": []
+}
+[DEBUG][PARSER] Extended thinking enabled: budget=16000 tokens, model=us.anthropic.claude-opus-4-7
+
+[DEBUG][PARSER] User query: mouse samples treated with NDMA
+[DEBUG][TOKENS][PARSER] prompt=13344 completion=318 total=13662
+[DEBUG][PARSER] Parsed plan: {
+  "mode": "new_search",
+  "target_endpoint": "/nextseek_api/samples/advanced_search/",
+  "intent_summary": "Find mouse (MUS) samples with NDMA treatment keyword.",
+  "filters": {
+    "sampletype_code": "MUS",
+    "assay_codes": [],
+    "keywords": [
+      "NDMA"
+    ],
+    "uids": []
+  },
+  "resolved": {
+    "sampletypes": [
+      {
+        "code": "MUS",
+        "name": "Mouse"
+      }
+    ],
+    "assays": [],
+    "keywords": [
+      "NDMA"
+    ],
+    "projects": []
+  },
+  "target_result_id": null,
+  "endpoint_candidates": [
+    "/nextseek_api/samples/advanced_search/"
+  ],
+  "notes": "Attribute/keyword sample search with no study or investigation scope; advanced_search is the appropriate endpoint.",
+  "previous_api_plan": null,
+  "previous_user_query": null,
+  "report_mode": null,
+  "report_type": null,
+  "metadata": {}
+}
+ok
+test_08_generate_submission_geo (nextseek_api.assistant.tests.test_granular_realstack.RealStackAcceptance.test_08_generate_submission_geo) ... [DEBUG][GRAPHDB] Query returned 1 records
+[DEBUG][TOKENS][REPORT_WRITER] prompt=2006 completion=336 total=2342
+[DEBUG][REPORT_WRITER] Parsed report writer output: {
+  "report_type": "GEO",
+  "report": {
+    "description": null,
+    "study": {
+      "title": null,
+      "summary": null
+    },
+    "samples": [
+      {
+        "uid": "A.MSP-250319WHI-17-PUB",
+        "tissue": null,
+        "assays": []
+      }
+    ],
+    "protocols": {},
+    "paired_end_experiments": [],
+    "notes": null,
+    "checksums": {}
+  },
+  "narrative": "GEO submission report scaffold for sample A.MSP-250319WHI-17-PUB. No metadata, lineage, or protocol context was provided in the reporter_context, so all descriptive fields are left empty.",
+  "notes": "reporter_context contained only the UID list with no metadata, assays, lineage, or protocols. Missing: study title, study summary, sample tissue/organism/source, assay type(s), extract protocol, library construction protocol, data processing details, and file/checksum information. No template fields were available to populate; structure follows the illustrative GEO shape. Re-run with full metadata and protocol payloads to produce a complete report."
+}
+ok
+
+[REALSTACK] LLM calls=8  cumulative_cost=$0.3587
+[REALSTACK]   gemini-3.5-flash: in=52021 out=89
+[REALSTACK]   gemini-3.5-flash: in=52020 out=62
+[REALSTACK]   gemini-3.5-flash: in=7154 out=163
+[REALSTACK]   gemini-3.5-flash: in=2071 out=106
+[REALSTACK]   gemini-3.5-flash: in=2069 out=97
+[REALSTACK]   gemini-3.5-flash: in=52021 out=62
+[REALSTACK]   us.anthropic.claude-opus-4-7: in=13344 out=318
+[REALSTACK]   us.anthropic.claude-opus-4-7: in=2006 out=336
+
+----------------------------------------------------------------------
+Ran 8 tests in 51.837s
+
+OK
+Preserving test database for alias 'default' ('test_dmac')...

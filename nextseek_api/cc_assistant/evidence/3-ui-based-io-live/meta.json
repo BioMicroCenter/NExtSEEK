@@ -1,0 +1,24 @@
+{
+  "repo_commit": "2939ffa921380209d3bb07266e6e6e6f50dc0a22",
+  "branch": "cc-step3-ui-io",
+  "deploy_image_id": "sha256:0c8b8f759e29757ff548368ab634ba75cfb0e7ced786482ab913e53dff292d8a",
+  "pre_step3_snapshot_tag": "nextseek-nextseek:pre-step3",
+  "pre_step3_image_id": "38895032f45d",
+  "deploy_timestamp": "2026-07-01T13:53:31Z",
+  "live_gate_verdict": "PASS_PLAN3_UI_UPLOAD_DOWNLOAD_GAP_CLOSURE",
+  "deploy_method": "service-account clone -> npm run build:embedded -> commit generated bundle -> docker build nextseek-nextseek:latest -> docker compose -p nextseek up -d --no-deps nextseek; entrypoint ran collectstatic",
+  "playwright_scripts": [
+    "nextseek_api/cc_assistant/evidence/3-ui-based-io-live/playwright/step3_live_gap_closure.mjs",
+    "nextseek_api/cc_assistant/evidence/3-ui-based-io-live/playwright/resume_ui.mjs",
+    "nextseek_api/cc_assistant/evidence/3-ui-based-io-live/playwright/xsession_1c.mjs"
+  ],
+  "evidence_logs": [
+    "nextseek_api/cc_assistant/evidence/3-ui-based-io-live/playwright_run.txt",
+    "nextseek_api/cc_assistant/evidence/3-ui-based-io-live/resume_ui_run.txt",
+    "nextseek_api/cc_assistant/evidence/3-ui-based-io-live/xsession_1c_run.txt"
+  ],
+  "notes": [
+    "xsession_1c_run.txt is a non-canonical probe and did not reuse the prior 1c live-test prompts; do not use it as a 1c verdict.",
+    "Manual static copying was not used as evidence; final verification used rebuilt image plus collectstatic via container entrypoint."
+  ]
+}

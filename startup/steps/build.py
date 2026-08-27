@@ -7,7 +7,8 @@ import urllib.request
 from pathlib import Path
 
 from startup.lib import ui
-from startup.lib.docker_ops import DockerOpsError, compose_exec, compose_up
+from startup.lib.docker_ops import DockerOpsError, compose_build, compose_exec, compose_up
+from startup.lib.rebuild_policy import app_runtime_services
 
 
 def wait_for_nextseek_http(port: int, max_attempts: int = 180, interval: float = 1.0) -> None:
@@ -124,17 +125,37 @@ def start_seek_side(repo_root: Path, env: dict[str, str]) -> None:
 
 
 def build_and_start_nextseek(repo_root: Path, env: dict[str, str]) -> None:
-    """Build the NExtSEEK image and start nextseek + nginx."""
+    """Build the shared app image and start every app-code runtime + nginx."""
+    compose_build(services=["nextseek"], project_dir=repo_root, env=env)
     compose_up(
-        services=["nextseek", "nextseek_nginx"],
+        services=[*app_runtime_services(), "nextseek_nginx"],
+        project_dir=repo_root,
+        env=env,
+        no_deps=True,
+    )
+
+
+def start_cc_stack(repo_root: Path, env: dict[str, str]) -> None:
+    """Build the per-turn CC image and start the long-running CC services."""
+    compose_build(services=["cc-agent"], project_dir=repo_root, env=env)
+    compose_up(
+        services=["bedrock-proxy", "nextseek-sidecar"],
         project_dir=repo_root,
         env=env,
         build=True,
+        force_recreate=True,
+    )
+    compose_up(
+        services=["nextseek_nginx"],
+        project_dir=repo_root,
+        env=env,
+        force_recreate=True,
     )
 
 
 def start_full_stack(repo_root: Path, env: dict[str, str]) -> None:
-    """Convenience: run all three phases in order."""
+    """Convenience: run all stack phases in order."""
     start_databases(repo_root, env)
     start_seek_side(repo_root, env)
     build_and_start_nextseek(repo_root, env)
+    start_cc_stack(repo_root, env)

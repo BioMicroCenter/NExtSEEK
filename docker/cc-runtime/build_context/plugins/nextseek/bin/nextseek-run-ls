@@ -1,0 +1,25 @@
+#!/bin/sh
+# nextseek-run-ls — recursive read-only listing of a finished Luria run directory.
+# Server-side SSHes Luria (holds the key) and runs `ls -laR` under the runs root.
+# Read-only w.r.t. Luria; the reingest input for building an upload sheet.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+RUN_DIR=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --run-dir) RUN_DIR="$2"; shift 2 ;;
+    --run-dir=*) RUN_DIR="${1#--run-dir=}"; shift ;;
+    --help)
+      echo "Usage: nextseek-run-ls --run-dir <absolute path under the Luria runs root>"
+      echo ""
+      echo "Recursive read-only listing (ls -laR) of a finished nf-core run directory."
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$RUN_DIR" ] || nextseek_die 3 "missing --run-dir"
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent run-ls --run-dir "$RUN_DIR"

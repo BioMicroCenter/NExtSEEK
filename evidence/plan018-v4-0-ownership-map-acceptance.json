@@ -1,0 +1,7 @@
+{
+  "schema": "plan018-v4-0-ownership-map-acceptance/v1",
+  "recorded_at": "2026-08-11T10:06:00-04:00",
+  "user_stated": "Accept ownership map as-is \u2192 run Lane A hermetic baseline",
+  "ownership_map": "evidence/plan018-v4-0-ownership-map.md",
+  "ownership_map_sha256": "a6777ecfc49907e81a97554be569e58946985df3d4c4c6ebb9e0985fff2e13be"
+}

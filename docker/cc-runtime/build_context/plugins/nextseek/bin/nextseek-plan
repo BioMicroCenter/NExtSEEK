@@ -1,0 +1,26 @@
+#!/bin/sh
+# nextseek-plan — multi_parser + planner advisor (read-only, Rev 2 D2).
+# Returns recommended next actions; does NOT execute writes.
+# Plan B · T5.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+QUERY=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --query) QUERY="$2"; shift 2 ;;
+    --query=*) QUERY="${1#--query=}"; shift ;;
+    --help)
+      echo "Usage: nextseek-plan --query \"<text>\""
+      echo ""
+      echo "Returns the planner's recommended next actions. Read-only:"
+      echo "any write actions in the plan must be invoked via nextseek-api-write."
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$QUERY" ] || nextseek_die 3 "missing --query"
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent plan --query "$QUERY"

@@ -210,7 +210,7 @@ class SampleDownloadMixin:
 
     def _createSampleTreeFromDB_noTree(self, sample_ids):
         logger.debug("createSampleTreeFromDB_noTree")
-        from ..models import Sample_tree
+        from .models import Sample_tree
         
         includeChilren = True
         parentList = []

@@ -1,0 +1,46 @@
+{
+  "schema": "plan018-v4-4-prereq/v1",
+  "recorded_at": "2026-08-11T21:21:00Z",
+  "gate": "PASS",
+  "worktree_sha": "107f40a6ef5145f9c0510ddebe4faa03f1a0fdf8",
+  "base_sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "phase0_publish": "evidence/plan018-v4-4-phase0-publish.json",
+  "preflight": {
+    "next_gate": "V4-4",
+    "v4_0_status": "CLOSED",
+    "v4_1_status": "CLOSED",
+    "v4_2_status": "CLOSED",
+    "v4_3_status": "CLOSED"
+  },
+  "v13a_zip": {
+    "path": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip",
+    "sha256": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
+    "exists": true
+  },
+  "eval_vendor": {
+    "repo": "/home/taishajo/work/dmac-assistant",
+    "commit": "dcca50c187890dc93659e5594810179793bb94eb",
+    "readable": true
+  },
+  "test_lanes": {
+    "A": "OPS-TESTING-HARNESSES.md §3.1 host hermetic + uv --no-project",
+    "C": "docker worktree mount + dmac.test_settings (V4-2 product seams sidecar)",
+    "F": "docker/eval image (to be created Task 1)"
+  },
+  "hard_refuses": [
+    "no push after Phase 0 unless asked",
+    "no paid/provider calls",
+    "no live NExtSEEK DB mutation",
+    "no deploy",
+    "no set3_final rerun",
+    "no live /app as port source"
+  ],
+  "paid_or_live_resources_used": false,
+  "missing_before_v4_4": [
+    "nextseek_api/eval/fit/**",
+    "docker/eval/Dockerfile",
+    "V14 pair-preserving fitter",
+    "decision/FDR layer",
+    "plan018_v4_4_* scripts"
+  ]
+}

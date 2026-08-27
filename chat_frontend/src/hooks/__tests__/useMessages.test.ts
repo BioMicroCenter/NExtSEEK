@@ -153,4 +153,37 @@ describe("useMessages — hydrateFromTurns", () => {
     expect(assistant.artifacts).toHaveLength(1);
     expect(assistant.artifacts![0]).toMatchObject({ artifact_type: "table", key: "samples" });
   });
+
+  it("hydrateFromTurns maps cc_traces and mode onto assistant messages", () => {
+    const { result } = renderHook(() => useMessages());
+
+    act(() => {
+      result.current.hydrateFromTurns([
+        {
+          bundle_id: 0,
+          user_query: "analyze",
+          reply: "Done.",
+          mode: "cc",
+          cc_traces: [
+            {
+              schema_version: "3/trace-v1",
+              cc_session_id: "s1",
+              ts: "t",
+              transcript_line_count: 1,
+              turn_count: 1,
+              steps: [],
+              tools_used: {},
+              files_created: [],
+              files_modified: [],
+            },
+          ],
+        },
+      ]);
+    });
+
+    const assistant = result.current.messages[1];
+    expect(assistant.mode).toBe("cc");
+    expect(assistant.ccTraces).toHaveLength(1);
+    expect(assistant.ccTraces![0].cc_session_id).toBe("s1");
+  });
 });

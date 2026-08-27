@@ -15,7 +15,7 @@ except Exception:  # pragma: no cover
     _HAVE_YAML = False
 
 from .catalog import get_pipeline_entry
-from .ena import ENAResolution
+from .ena import ENAResolution, ENARun
 from .tower_client import TowerAPIError, TowerClient
 from .tower_datasets import upload_samplesheet_as_dataset
 
@@ -220,10 +220,46 @@ def _coerce_csv(value: Any) -> str:
     return str(value)
 
 
+_R1_NAME = ("primary", "_r1", "read1"); _R1_FILE = ("_1.", "_r1")
+_R2_NAME = ("secondary", "_r2", "read2"); _R2_FILE = ("_2.", "_r2")
+
+
+def _fastq_from_meta(meta: Mapping[str, Any], read_hint: str) -> str:
+    """Pick a read's fastq path from the sample metadata, field-name-agnostically.
+
+    `read_hint` is 'primary' (R1) or 'secondary' (R2). Scans EVERY field for a VALUE that
+    is actually a fastq path/URL (has a '/', ends in .fastq.gz/.fq.gz), then assigns it to
+    this read by either the field NAME (…primary…/…secondary…, r1/r2) or the _1/_2 marker in
+    the filename. So it finds the path wherever it lives (Link_PrimaryData / File_* / any
+    name), skips bare-accession (File_PrimaryData='SRR…') and checksum fields, and prefers a
+    local absolute path over a remote URL. '' when nothing usable is found.
+    """
+    name_hints, file_hints = (_R1_NAME, _R1_FILE) if read_hint == "primary" else (_R2_NAME, _R2_FILE)
+    by_name: list[str] = []
+    by_file: list[str] = []
+    for key, val in (meta or {}).items():
+        kl = str(key).lower()
+        for part in str(val or "").split(";"):  # some fields pack R1;R2 or checksum pairs
+            p = part.strip()
+            pl = p.lower()
+            if not ("/" in p and (pl.endswith(".fastq.gz") or pl.endswith(".fq.gz"))):
+                continue
+            base = pl.rsplit("/", 1)[-1]
+            if any(h in kl for h in name_hints):
+                by_name.append(p)
+            if any(h in base for h in file_hints):
+                by_file.append(p)
+    pool = by_name or by_file            # trust the field name first, else the filename marker
+    local = [c for c in pool if c.startswith("/")]
+    return (local or pool or [""])[0]
+
+
 def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(columns), extrasaction="ignore")
+        # lineterminator="\n": csv defaults to CRLF, which leaves a stray \r on the last
+        # column; nf-core samplesheets want plain LF.
+        writer = csv.DictWriter(fh, fieldnames=list(columns), extrasaction="ignore", lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow({c: _coerce_csv(row.get(c)) for c in columns})
@@ -246,7 +282,7 @@ def _build_notes_md(
     if selector_rationale:
         lines.append(f"**Pipeline selection rationale:** {selector_rationale}")
         lines.append("")
-    lines.append("## Accession resolution (ENA filereport)")
+    lines.append("## Samples")
     lines.append("")
     if not resolutions:
         lines.append("- No accessions discovered in NExtSEEK metadata.")
@@ -266,20 +302,14 @@ def _build_notes_md(
         for acc in excluded_accessions:
             lines.append(f"- `{acc}` — see fetchngs_samplesheet.csv to backfill via nf-core/fetchngs")
         lines.append("")
-    lines.append("## Tower / Seqera")
+    lines.append("## Luria run")
     lines.append("")
-    if not tower_env_complete:
-        lines.append(
-            "- Tower env not configured — only `samplesheet.csv` was emitted. "
-            "Set `TOWER_ACCESS_TOKEN`, `TOWER_WORKSPACE_ID`, `SEQERA_COMPUTE_ENV`, "
-            "and `SEQERA_WORK_BUCKET` to also emit `params.yml` + `launch.yml`."
-        )
-    elif submitted:
-        lines.append("- Submitted via seqerakit. Run URLs:")
+    if submitted:
+        lines.append("- Submitted to Luria (ssh + sbatch). Run refs:")
         for url in run_urls:
             lines.append(f"  - {url}")
     else:
-        lines.append("- Run manually: `seqerakit launch.yml`")
+        lines.append("- Built for Luria submission (submit_to_luria stages run.sh + sbatch).")
     if extra_notes:
         lines.append("")
         lines.append("## Other notes")
@@ -483,6 +513,41 @@ def emit_launch_artifacts(
     return result
 
 
+def emit_luria_launch_artifacts(
+    out_dir: str | Path, *, pipeline: str, samplesheet_path: str | Path,
+    launch_plan: Mapping[str, Any],
+) -> EmissionResult:
+    """Write params.yml + a minimal launch.yml for a Luria run, with NO Tower env.
+
+    The Luria submitter consumes only name/pipeline/revision from each launch entry
+    and rebuilds params.yml on-cluster, so this deliberately does not stage to any
+    bucket or upload to Tower. This is the Luria path that severs the Tower-
+    completeness gate emit_launch_artifacts imposes (that function is left intact
+    for a future Tower re-enable).
+    """
+    out_path = Path(out_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    result = EmissionResult(out_dir=str(out_path))
+    entry = get_pipeline_entry(pipeline)
+    params: dict[str, Any] = dict(launch_plan.get("params") or {})
+    params.setdefault("input", "./samplesheet.csv")
+    params.setdefault("outdir", ".")
+    params_path = out_path / "params.yml"
+    params_path.write_text(_yaml_dump(params), encoding="utf-8")
+    result.saved_files["params"] = str(params_path)
+    run_name = (launch_plan.get("run_name") or f"{pipeline}-run").strip() or f"{pipeline}-run"
+    launch_entry = {
+        "name": run_name,
+        "pipeline": entry["repo"],
+        "revision": launch_plan.get("pipeline_revision") or entry.get("default_revision"),
+    }
+    result.launch_entry = launch_entry
+    launch_path = out_path / "launch.yml"
+    launch_path.write_text(_yaml_dump({"launch": [launch_entry]}), encoding="utf-8")
+    result.saved_files["launch"] = str(launch_path)
+    return result
+
+
 def emit_nfcore_artifacts(
     out_dir: str | Path,
     *,
@@ -534,29 +599,43 @@ def emit_nfcore_artifacts(
     accession_metadata = dict(accession_metadata or {})
     keep_rows: list[dict[str, Any]] = []
     for row in samplesheet_rows or []:
+        uid = str(row.get("sample") or row.get("Sample") or "")
         acc = row.get("accession") or row.get("Accession") or row.get("ena_accession")
-        if acc:
-            acc_str = str(acc).strip()
-            runs = acc_to_runs.get(acc_str)
-            if not runs:
-                continue
-            sample_meta = accession_metadata.get(acc_str) or {}
+        acc_str = str(acc).strip() if acc else ""
+        # Curated local fastq metadata: keyed by leaf UID (path-only samples) or accession.
+        sample_meta = (accession_metadata.get(uid)
+                       or (accession_metadata.get(acc_str) if acc_str else None) or {})
+        runs = acc_to_runs.get(acc_str) if acc_str else None
+        if runs:
+            # Legacy ENA fan-out — dormant on the Luria path (resolutions=[] -> acc_to_runs empty),
+            # kept intact for a future ENA re-enable.
+            curated_1 = _fastq_from_meta(sample_meta, "primary") if len(runs) == 1 else ""
+            curated_2 = _fastq_from_meta(sample_meta, "secondary") if len(runs) == 1 else ""
             for run in runs:
                 rewritten = dict(row)
                 rewritten["accession"] = acc_str
                 rewritten["run_accession"] = run.run_accession
-                rewritten["fastq_1"] = run.fastq_1 or ""
-                rewritten["fastq_2"] = run.fastq_2 or ""
+                rewritten["fastq_1"] = curated_1 or run.fastq_1 or ""
+                rewritten["fastq_2"] = curated_2 or run.fastq_2 or ""
                 if run.layout and "library_layout" not in rewritten:
                     rewritten["library_layout"] = run.layout
-                # Stamp enrichment columns from the source metadata. The LLM is
-                # not trusted for these — we look them up authoritatively.
                 for field in enrichment:
                     value = sample_meta.get(field)
                     rewritten[field] = "" if value is None else value
                 keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
-        else:
-            keep_rows.append(_remap_row_for_pipeline(row, pipeline))
+            continue
+        # Luria path (default): fill fastq from a local /net/bmc-* path when the sample's
+        # metadata carries one; otherwise leave fastq_1/fastq_2 empty and keep the accession
+        # as a fetch target for the run.sh fetchngs pre-stage. Never drop the row.
+        rewritten = dict(row)
+        if acc_str:
+            rewritten["accession"] = acc_str
+        rewritten["fastq_1"] = _fastq_from_meta(sample_meta, "primary")
+        rewritten["fastq_2"] = _fastq_from_meta(sample_meta, "secondary")
+        for field in enrichment:
+            value = sample_meta.get(field)
+            rewritten[field] = "" if value is None else value
+        keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
 
     columns = _ensure_columns(keep_rows, required, enrichment)
     samplesheet_path = out_path / "samplesheet.csv"

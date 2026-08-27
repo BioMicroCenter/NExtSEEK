@@ -1,0 +1,11 @@
+{
+  "schema": "plan018-v4-6-flag-off-baseline/v1",
+  "recorded_at": "2026-08-12T00:00:00Z",
+  "anchor_commit": "0a5b052a",
+  "query": "find mice treated with NDMA",
+  "destination": "nextseek_query",
+  "model_class": null,
+  "model_id": null,
+  "route_source": "baml",
+  "reasoning_prefix": "baml"
+}

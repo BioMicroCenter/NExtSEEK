@@ -1,0 +1,125 @@
+{
+  "_name": "probe-2026-07-29 — manual single-question probe, v1",
+  "_why": "Run with: manage.py nessie --tier full --cases /app/nessie_tests/probes/probe-2026-07-29.json",
+  "_scope": [
+    "1. Re-check the defects the 2026-07-29 seed-0 run left open.",
+    "2. pipeline_output_reingest — a declared CC task family with ZERO corpus coverage.",
+    "3. harmonization — a 3-turn shape the corpus cannot express; crosses NS -> CC -> CC.",
+    "4. cross-mode memory — two 2-turn pairs, one each direction."
+  ],
+  "_criteria_note": "Probe criteria are deliberately loose on the NEW families. We do not yet know what good output looks like for harmonization or reingest, and writing tight criteria from zero runs is exactly how the corpus got into the state issue #35 describes. Assert route and non-empty reply now; tighten from observed output afterwards.",
+  "_cost_note": "6 CC-routed turns here. Task 957 hit error_max_budget_usd on ONE bulk export, so CC turns are the expensive ones. Do not add more without checking the budget cap.",
+  "_note": "repro.cypher_uid_dot was retired 2026-07-30 (issue #35 review, round 2). Its slot here is now advanced.basic_ndma so the running order keeps a search case. The behaviours it caught stay covered by chat_nextseek/tests/test_graph_canonical_uid.py and test_graph_property_guard.py.",
+
+  "include_ids": [
+    "advanced.basic_ndma",
+    "advanced.find_me_mice",
+    "pbct.find_me_monkeys_that_have_both_2",
+    "sys.what_kinds_of_reports_can_i_ge",
+    "write.export_all_metadata_for_nhp_22"
+  ],
+
+  "families": {
+    "probe_endpoint_split": {
+      "description": "Issue #33 / cons.nhp_sequencing_engine. Both turns returned 408 = every NHP sample in the database, because advanced_search ORs a sampletype list instead of requiring a parent-child relationship. Ground truth is 139 via parents_by_child_types, corroborated by pbct returning 56 for [D.FLOW,D.SEQ] and 104 for [D.IMG,D.SEQ], both below 139. Written as two independent variants rather than a consistency group on purpose: agreement-only assertions cannot catch two identically-wrong turns, so this asserts a VALUE bound.",
+      "variants": [
+        {"family": "probe_endpoint_split", "id": "probe.nhp_seq_engine_q1",
+         "name": "NHP sequencing data (phrasing A) must not return every NHP sample",
+         "tags": ["nessie", "probe", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find NHP sequencing data.",
+                    "pass_criteria": [
+                      {"field": "route", "op": "eq", "value": "nextseek_query"},
+                      {"field": "api_ok", "op": "true", "value": null},
+                      {"field": "api_result_meta.row_count", "op": "lte", "value": 200}]}]},
+        {"family": "probe_endpoint_split", "id": "probe.nhp_seq_engine_q2",
+         "name": "NHP sequencing data (phrasing B) must not return every NHP sample",
+         "tags": ["nessie", "probe", "full"], "requires_env": [],
+         "turns": [{"label": "main", "query": "Find sequencing data for non-human primates.",
+                    "pass_criteria": [
+                      {"field": "route", "op": "eq", "value": "nextseek_query"},
+                      {"field": "api_ok", "op": "true", "value": null},
+                      {"field": "api_result_meta.row_count", "op": "lte", "value": 200}]}]}
+      ]
+    },
+
+    "probe_reingest": {
+      "description": "pipeline_output_reingest is declared in route_capabilities.json with three example queries and has ZERO variants in the corpus. Both probes carry a REAL run directory, because a path-free phrasing cannot distinguish 'routed correctly but found nothing' from 'reingest works'. The two openings are deliberately different in shape — one announces a finished run, one asks for an artefact — so a pass is not an artefact of matching one template.",
+      "_pair_design": "scrnaseq probe NAMES the target sample type (A.SCXP), rnaseq probe does NOT. That difference is the point: it tests whether reingest can infer the analysis type from the run outputs, or only when told.",
+      "_verified_2026_07_29": {
+        "reachability": "run-ls does NOT read these paths locally — granular._run_ls SSHes Luria and runs `ls -laR`. /net does not exist on fairdata-dev at all, which is expected and not a blocker.",
+        "path_guard": "_run_ls rejects anything not under <LURIA working_path>/runs. Dev box has LURIA_WORKING_PATH=/net/bmc-pub10/data1/bmc/pipeline_cd, so runs_root matches and both paths pass. The trailing slash on the rnaseq path is normalised away by os.path.normpath.",
+        "nfcore_gideon-4wk_260711_024438_0": "EXISTS on Luria. Contains alevin/, alevinqc/, fastqc/, gunzip/, multiqc/ — an alevin scrnaseq run, so the A.SCXP framing is right.",
+        "nfcore_rnaseq_260723_205359_0": "EXISTS on Luria. Contains salmon/, star_salmon/, trimgalore/, multiqc/, plus a fetchngs pre-stage (ids.csv, fetchngs.config). Real quant + alignment outputs to reingest."
+      },
+      "variants": [
+        {"family": "probe_reingest", "id": "probe.reingest_scrnaseq_typed",
+         "name": "Reingest a finished scrnaseq run, target sample type given",
+         "tags": ["nessie", "probe", "full"], "requires_env": [],
+         "turns": [{"label": "main",
+                    "query": "The scrnaseq run at /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_gideon-4wk_260711_024438_0 has finished — register its outputs as new A.SCXP analysis samples.",
+                    "pass_criteria": [
+                      {"field": "route", "op": "eq", "value": "container_cc"},
+                      {"field": "last_reply", "op": "nonempty", "value": null}]}]},
+        {"family": "probe_reingest", "id": "probe.reingest_rnaseq_untyped",
+         "name": "Reingest a finished rnaseq run, sample type left to infer",
+         "tags": ["nessie", "probe", "full"], "requires_env": [],
+         "turns": [{"label": "main",
+                    "query": "Build me a NExtSEEK reingest upload sheet from the pipeline outputs in /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_rnaseq_260723_205359_0/",
+                    "pass_criteria": [
+                      {"field": "route", "op": "eq", "value": "container_cc"},
+                      {"field": "last_reply", "op": "nonempty", "value": null}]}]}
+      ]
+    },
+
+    "harmonization": {
+      "description": "Three turns, operator-authored verbatim. Turn 1 makes the inconsistency visible; turn 2 asks for normalization; turn 3 converts it into a reingestable artefact. Crosses sample_search -> open_ended_analysis -> batch_upload_preparation, so it also exercises cross-mode memory. batch_upload_preparation already declares 'Build me an update sheet to normalize the genotypes in the database' as an example, so the capability is claimed but untested.",
+      "variants": [
+        {"family": "harmonization", "id": "probe.harmonize_genotypes",
+         "name": "Genotype harmonization: observe, normalize, produce an upload sheet",
+         "tags": ["nessie", "probe", "full"], "requires_env": [],
+         "turns": [
+           {"label": "observe",
+            "query": "Find all mice treated with NDMA and make a histogram on their genotype",
+            "pass_criteria": [{"field": "last_reply", "op": "nonempty", "value": null}]},
+           {"label": "normalize",
+            "query": "I notice some of these genotype terms look similar, could you attempt to normalize them?",
+            "pass_criteria": [{"field": "last_reply", "op": "nonempty", "value": null}]},
+           {"label": "upload_sheet",
+            "query": "Looks great, can you make an upload sheet for reingestion?",
+            "pass_criteria": [{"field": "last_reply", "op": "nonempty", "value": null}]}]}
+      ]
+    },
+
+    "cross_mode_memory": {
+      "description": "Two 2-turn pairs, one each direction. Each turn 2 is a VERBATIM example query of the other route's declared task family, so the routing expectation comes from route_capabilities.json rather than from a guess, and each turn 2 is unanswerable without the previous turn's result set.",
+      "variants": [
+        {"family": "cross_mode_memory", "id": "probe.xmode_ns_then_cc",
+         "name": "NS search, then a CC analysis over those results",
+         "tags": ["nessie", "probe", "full"], "requires_env": [],
+         "turns": [
+           {"label": "ns_seed", "query": "Find me mice treated with NDMA.",
+            "pass_criteria": [
+              {"field": "route", "op": "eq", "value": "nextseek_query"},
+              {"field": "api_result_meta.row_count", "op": "gte", "value": 1}]},
+           {"label": "cc_followup",
+            "query": "Cluster these samples by their metadata and tell me what the groups have in common.",
+            "pass_criteria": [
+              {"field": "route", "op": "eq", "value": "container_cc"},
+              {"field": "last_reply", "op": "nonempty", "value": null}]}]},
+        {"family": "cross_mode_memory", "id": "probe.xmode_cc_then_ns",
+         "name": "CC study resolution, then an NS recall over those results",
+         "tags": ["nessie", "probe", "full"], "requires_env": [],
+         "turns": [
+           {"label": "cc_seed",
+            "query": "Which samples belong to the CD8 depletion study? I don't think it's a project.",
+            "pass_criteria": [
+              {"field": "route", "op": "eq", "value": "container_cc"},
+              {"field": "last_reply", "op": "nonempty", "value": null}]},
+           {"label": "ns_followup", "query": "What sample types were in those results?",
+            "pass_criteria": [
+              {"field": "route", "op": "eq", "value": "nextseek_query"},
+              {"field": "last_reply", "op": "nonempty", "value": null}]}]}
+      ]
+    }
+  }
+}

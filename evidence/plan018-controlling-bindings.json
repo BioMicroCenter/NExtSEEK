@@ -1,0 +1,33 @@
+{
+  "schema": "plan018-controlling-bindings/v1",
+  "recorded_at": "2026-08-11T09:58:30-04:00",
+  "implementation_authorized": true,
+  "implementation_base": {
+    "sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+    "ref": "origin/dev",
+    "integration_branch": "ultraplan/hibayes-eval-routing",
+    "worktree": "/home/taishajo/work/NExtSEEK-plan018"
+  },
+  "eval_vendor_port_source": {
+    "clone": "/home/taishajo/work/dmac-assistant",
+    "sha": "dcca50c187890dc93659e5594810179793bb94eb",
+    "ref": "origin/main",
+    "note": "Existing clone only; no duplicate. Plan Task 6 pin."
+  },
+  "nessie_paired_harness_port_source": {
+    "ref": "origin/dev-v4-merge",
+    "sha": "3fe71670b954b78573795ac087caedec5eac2b97",
+    "nessie_tests_tree_sha256": "35f5b706a887c1f44e67df85420a80e2417594d2f95687aa11aee6cbed346e28",
+    "set3_producer_sha": "26609bdba100793ee33e1bc6e050a7a373a41419",
+    "set3_delivery": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07",
+    "note": "User-approved tip. Harness bytes identical to set3 producer and v3 tip; v4 is newest containing tip."
+  },
+  "not_authorized": [
+    "push",
+    "paid/provider calls",
+    "live NExtSEEK DB activation",
+    "deployment",
+    "production enablement",
+    "destructive persistent rollback"
+  ]
+}

@@ -133,6 +133,10 @@ class Sample_attributes(models.Model):
     original_accessor_name = models.CharField(max_length=255, default=None)
     sample_controlled_vocab_id = models.IntegerField(default=None)
     linked_sample_type_id = models.IntegerField(default=None)
+    # The column has always existed in SEEK's schema; it was simply never
+    # mapped, so no query returned it. Empty on every row until definitions
+    # are loaded. No migration: this table family is created out-of-band.
+    description = models.TextField(default=None, null=True)
     
     def __unicode__(self):
         return self.title

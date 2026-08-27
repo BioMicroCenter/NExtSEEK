@@ -26,7 +26,6 @@ from seek.seekdb import SeekDB
 from seek.dbtable_sample import DBtable_sample
 from seek.timeline.services.timeline_service import run_All, get_event_data
 from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
-from seek.views import get_children_uids, sample_retrieval_data
 from .batch_upload.views import BatchUploadViewSet
 
 logger = logging.getLogger(__name__)
@@ -45,7 +44,10 @@ from .services.sops import SopProxyViewSet as SopViewSet
 from .services.data_files import DataFileProxyViewSet as DataFileViewSet
 from .services.projects import ProjectProxyViewSet as ProjectViewSet
 from .services.people import PeopleProxyViewSet as PeopleViewSet
+from .services.users import UsersViewSet
 from .services.investigations import InvestigationProxyViewSet as InvestigationViewSet
+from .services.studies import StudyProxyViewSet as StudyViewSet
+from .attributes.views import AttributeViewSet
 from .services.assays import AssayProxyViewSet as AssayViewSet
 from .services.sample_types import SampleTypeProxyViewSet as SampleTypeViewSet
 from .services.sample_types import SampleTypeChildrenViewSet as SampleTypeChildrenViewSet
@@ -55,6 +57,8 @@ from .services.samples import _resolve_uid_to_seek_id
 from .services.samples import SampleAdvancedSearchViewSet as SampleAdvancedSearchViewSet
 from .services.schema_rag import SchemaRAGViewSet
 from .services.assistant import AssistantViewSet
+# Additive dmac_assistant integration (router + Container-Claude-Code).
+from .services.cc_assistant import CCAssistantViewSet
 from .services.evaluator import EvaluatorViewSet
 from .services.entity_tree import EntityTreeViewSet
 from .services.project_export import ProjectExportViewSet
@@ -77,14 +81,17 @@ def get_clade_color(sample_type):
     nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
     conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
     cursor = conn.cursor()
+    # sample_type is caller-supplied and MUST stay parameterized. Only the
+    # schema names (from settings) are interpolated, matching the already-safe
+    # twin at services/entity_tree.py::EntityTreeViewSet._get_clade_color.
     query = f"""
     SELECT c.color FROM {nextseekdb["NAME"]}.clades c
     JOIN {nextseekdb["NAME"]}.sample_types_clades stc ON stc.clade_id = c.id
     JOIN {db["NAME"]}.sample_types st ON stc.sample_type_id = st.id
-    WHERE st.title = '{sample_type}'
+    WHERE st.title = %s
     """
-    
-    cursor.execute(query)
+
+    cursor.execute(query, [sample_type])
     try:
         color = cursor.fetchone()[0]
     except Exception:
@@ -93,6 +100,80 @@ def get_clade_color(sample_type):
     cursor.close()
     conn.close()
     return color
+
+
+def _caller_seek_project_ids(basic_tuple):
+    """SEEK project ids the caller belongs to, as a list of str.
+
+    Same derivation as AdminSampleViewSet.admin_retrieve_samples: SeekDB has to
+    be built from real credentials, because the username-is-None branch
+    (seek/seekdb.py:31) never calls getSeekLogin() and so leaves __server unset,
+    after which getCurrentUser() raises.
+
+    Returns [] when the caller's projects cannot be resolved. Callers must treat
+    that as "sees nothing", not as "sees everything".
+    """
+    if not basic_tuple or not basic_tuple[0] or not basic_tuple[1]:
+        return []
+    try:
+        seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
+        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+        return [str(p['id']) for p in user_projects]
+    except Exception:
+        logger.exception("Could not resolve SEEK projects for the caller")
+        return []
+
+
+def _samples_visible_to_projects(sample_ids, project_ids):
+    """Subset of ``sample_ids`` (SEEK ``samples.id``) that belongs to one of
+    ``project_ids``, as a set of str.
+
+    Fails closed: an empty project list, an unresolvable id, or a DB error all
+    yield an empty set, i.e. nothing is visible.
+    """
+    numeric = []
+    for sid in sample_ids:
+        try:
+            numeric.append(int(sid))
+        except (TypeError, ValueError):
+            continue
+    scoped_projects = [str(pid) for pid in (project_ids or []) if str(pid).strip()]
+    if not numeric or not scoped_projects:
+        return set()
+
+    db = settings.DATABASES[SEEK_DATABASE]
+    try:
+        conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
+    except Exception:
+        logger.exception("Could not open SEEK DB connection for a project-scope check")
+        return set()
+    try:
+        cursor = conn.cursor()
+        # Both lists are bound, never interpolated; only the schema name (from
+        # settings) is formatted in.
+        sample_placeholders = ', '.join(['%s'] * len(numeric))
+        project_placeholders = ', '.join(['%s'] * len(scoped_projects))
+        cursor.execute(
+            f"""
+            SELECT DISTINCT sample_id
+            FROM {db["NAME"]}.projects_samples
+            WHERE sample_id IN ({sample_placeholders})
+              AND project_id IN ({project_placeholders})
+            """,
+            numeric + scoped_projects,
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        return {str(r[0]) for r in rows if r and r[0] is not None}
+    except Exception:
+        logger.exception("Project-scope check failed")
+        return set()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 
 class SampleTreeViewSet(viewsets.GenericViewSet):
     """
@@ -178,6 +259,23 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
         if seek_id is None:
             return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        # Project scope (#60). The traversal below resolves ANY uid and walks
+        # DERIVED_FROM from it, so without this gate any authenticated caller
+        # could read the lineage of any sample in the instance by UID.
+        #
+        # is_superuser ALONE is the admin predicate, deliberately. is_staff is
+        # set to 1 on every SEEK user at login (dmac/views.py:80 and :97, both
+        # the create and the update branch), so including it -- as
+        # admin_retrieve_samples still does, see the SECURITY comment there --
+        # would make this scoping a no-op for every account. Same predicate as
+        # nextseek_api.permissions.IsSuperUser and seek.views.verifySuperUser.
+        is_admin = bool(getattr(request.user, 'is_superuser', False))
+        project_ids = [] if is_admin else _caller_seek_project_ids(basic_tuple)
+        if not is_admin and str(seek_id) not in _samples_visible_to_projects([seek_id], project_ids):
+            # Same 404 as an unknown UID: do not confirm the sample exists to a
+            # caller who may not see it.
+            return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
+
         try:
             NEO4J_DATABASE = settings.NEO4J_DATABASE
             with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
@@ -204,6 +302,10 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
                     nodeDict[nodeUid] = {'id': str(nodeId), 'type': nodeType, 'parents': []}
 
                 rel_props = []
+                # Endpoint ids taken from the graph itself, in lockstep with
+                # rel_props, so pruning below does not depend on the
+                # relationship carrying child_id/parent_id properties.
+                rel_endpoints = []
                 for rel in r.relationships:
                     relProps = rel._properties
                     startRelProps = rel.start_node._properties
@@ -229,6 +331,30 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
                         if k in relProps_norm and relProps_norm[k] is not None:
                             relProps_norm[k] = str(relProps_norm[k])
                     rel_props.append(relProps_norm)
+                    rel_endpoints.append((str(startRelProps.get('id', '')), parentId))
+
+                # Prune anything outside the caller's projects (#60). The
+                # traversal reaches ancestors and descendants that may live in
+                # other projects, so the root gate above is not sufficient on
+                # its own. parentIds and rels are pruned in lockstep: a node
+                # whose parent was dropped simply becomes a root, so the
+                # response stays referentially consistent for the D3 consumer
+                # (static/js/dag/dag.js, whose graphStratify throws on a
+                # dangling parent id).
+                if not is_admin:
+                    visible_ids = _samples_visible_to_projects(
+                        [v['id'] for v in nodeDict.values()], project_ids
+                    )
+                    nodeDict = {
+                        uid_key: v for uid_key, v in nodeDict.items()
+                        if str(v['id']) in visible_ids
+                    }
+                    for v in nodeDict.values():
+                        v['parents'] = [p for p in v['parents'] if p in visible_ids]
+                    rel_props = [
+                        props for props, (child_id, parent_id) in zip(rel_props, rel_endpoints)
+                        if child_id in visible_ids and parent_id in visible_ids
+                    ]
 
                 nodes = []
                 for k, v in nodeDict.items():
@@ -618,21 +744,23 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
         except Exception:
             logger.exception("Could not resolve SEEK projects for the caller")
             user_project_ids = []
-        # SECURITY, known gap — still open, deliberately. Read before touching this line.
+        # Project membership is the data-scope boundary for this endpoint (#74).
         #
-        # Treating staff as admin makes project membership a no-op for data scope: every
-        # SEEK user synced into NExtSEEK is marked staff (dmac/views.py:80,97), so this
-        # takes the unfiltered branch of getChildrenUIDs for essentially every user.
-        # It is also more permissive than the legacy path it mirrors — seek/views.py:1249
-        # uses verifySuperUser(), i.e. is_superuser alone.
+        # `is_staff` must NOT widen it: dmac/views.py:80,97 set is_staff = 1 on every
+        # SEEK user at login, so `or is_staff` made project scope a no-op for everyone
+        # and handed every authenticated account the unfiltered branch of
+        # getChildrenUIDs. is_superuser is never assigned by any live application path,
+        # so it is the only trustworthy admin signal here — same predicate as the legacy
+        # path this mirrors, seek/views.py:1249 (verifySuperUser).
         #
-        # The prerequisite this comment used to name — resolving the caller's projects
-        # for real — is now done above, so dropping the is_staff clause is a safe
-        # one-line change on its own terms. It is NOT made here because it changes what
-        # every staff account can read (11 of 20 accounts in the local seed) and would
-        # narrow the assistant and container-CC consumers, which currently depend on
-        # unfiltered reads. Assess that impact first, then drop it.
-        is_superuser = bool(getattr(request.user, 'is_superuser', False) or getattr(request.user, 'is_staff', False))
+        # FUTURE (deliberately not built): a scoped miss and a nonexistent UID are
+        # currently indistinguishable — both return the 404 below, because the
+        # project-id sentinel keeps the SQL valid and matching nothing. We COULD
+        # distinguish them by re-querying unscoped on an empty result and returning 403
+        # "exists but not in your projects". Not done on purpose: that response confirms
+        # a UID is real to someone not authorised to see it. Revisit only if the
+        # ambiguous 404 actually causes support load. See #74.
+        is_superuser = bool(getattr(request.user, 'is_superuser', False))
         
         dbs = DBtable_sample()
 
@@ -692,26 +820,36 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
                 conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
                 cursor = conn.cursor()
 
-                uids_str = ', '.join(["'%s'" % uid for uid in requested_uids])
+                # requested_uids comes straight from the caller's `identifiers`
+                # POST body (models.py:1974 is an unvalidated List[str]), so it
+                # MUST stay parameterized -- it used to be inlined as
+                # "'%s'" % uid and a single quote broke out of the literal.
+                # Only the schema name (from settings) is interpolated, matching
+                # get_clade_color and services/entity_tree.py.
+                uid_placeholders = ', '.join(['%s'] * len(requested_uids))
 
                 if is_superuser:
                     query = f"""
                     SELECT id, sample_type_id, uuid, json_metadata
                     FROM {db["NAME"]}.samples
-                    WHERE uuid IN ({uids_str})
+                    WHERE uuid IN ({uid_placeholders})
                     """
+                    params = list(requested_uids)
                 else:
-                    # Avoid SQL syntax error when user has no mapped projects
-                    project_ids_str = ', '.join(["'%s'" % pid for pid in user_project_ids]) if user_project_ids else "''"
+                    # Sentinel keeps the statement valid, and matching nothing,
+                    # when the caller has no mapped projects.
+                    scoped_project_ids = [str(pid) for pid in user_project_ids] or ['']
+                    project_placeholders = ', '.join(['%s'] * len(scoped_project_ids))
                     query = f"""
                     SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
                     FROM {db["NAME"]}.samples s
                     JOIN {db["NAME"]}.projects_samples ps
                     ON s.id = ps.sample_id
-                    WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
+                    WHERE s.uuid IN ({uid_placeholders}) AND ps.sample_id = s.id AND ps.project_id IN ({project_placeholders})
                     """
+                    params = list(requested_uids) + scoped_project_ids
 
-                cursor.execute(query)
+                cursor.execute(query, params)
                 columns = [col[0] for col in cursor.description]
                 rows = cursor.fetchall()
                 children_uids_df = pd.DataFrame(rows, columns=columns)

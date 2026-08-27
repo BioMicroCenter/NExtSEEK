@@ -1,0 +1,47 @@
+#!/bin/sh
+# nextseek-api-write — write-class API dispatch.
+# Layer 1: NOT in the L1 allowlist (B12) — every call trips a permission prompt.
+# Layer 2: this shim requires both --parser-plan and --confirmed-write.
+#          The runner re-checks --confirmed-write at _nextseek_runner.py:179-181.
+# Layer 3: the SKILL.md (B10) requires Container-Claude to AskUserQuestion-confirm
+#          before invoking this shim.
+# Plan B · T6b.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+QUERY=""
+PARSER_PLAN=""
+CONFIRMED_WRITE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --query) QUERY="$2"; shift 2 ;;
+    --query=*) QUERY="${1#--query=}"; shift ;;
+    --parser-plan) PARSER_PLAN="$2"; shift 2 ;;
+    --parser-plan=*) PARSER_PLAN="${1#--parser-plan=}"; shift ;;
+    --confirmed-write) CONFIRMED_WRITE=1; shift ;;
+    --confirmed-write=*)
+      nextseek_die 3 "--confirmed-write requires no value; pass bare --confirmed-write"
+      ;;
+    --help)
+      echo "Usage: nextseek-api-write --parser-plan '<json>' --confirmed-write [--query \"<text>\"]"
+      echo ""
+      echo "Write-class API dispatch. BOTH --parser-plan and --confirmed-write are"
+      echo "required. The runner re-validates --confirmed-write before issuing the"
+      echo "request. This shim is intentionally NOT in the L1 permission allowlist;"
+      echo "every invocation prompts the user."
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$PARSER_PLAN" ] || nextseek_die 3 "missing --parser-plan"
+[ "$CONFIRMED_WRITE" = "1" ] || nextseek_die 3 "missing --confirmed-write"
+
+if [ -n "$QUERY" ]; then
+  exec python "$SCRIPT_DIR/_nextseek_runner.py" \
+    --agent api-write --parser-plan "$PARSER_PLAN" --confirmed-write --query "$QUERY"
+else
+  exec python "$SCRIPT_DIR/_nextseek_runner.py" \
+    --agent api-write --parser-plan "$PARSER_PLAN" --confirmed-write
+fi

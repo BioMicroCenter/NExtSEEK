@@ -143,6 +143,38 @@ def test_build_baml_env_uses_config_fallback():
     }
 
 
+# --- Review follow-up FU5 hygiene (2026-07-07): no .baml source dereferences
+# NEXTSEEK_BASE_URL today, but the key is kept for forward-compat — so it must
+# carry the RESOLVED transport URL (ChatConfig attribute, internal-preferred),
+# never the raw public env var, which is dead on port-bumped installs.
+
+
+def test_build_baml_env_base_url_prefers_config_attr_over_raw_env():
+    class _Config:
+        NEXTSEEK_BASE_URL = "http://127.0.0.1:8000"  # resolver output
+
+    env = {
+        "NEXTSEEK_BASE_URL": "http://127.0.0.1:8001",  # public, port-bumped
+        "API_USER": "user",
+    }
+    resolved = build_baml_env(env=env, config=_Config())
+    assert resolved["NEXTSEEK_BASE_URL"] == "http://127.0.0.1:8000"
+    assert resolved["API_USER"] == "user"  # other keys keep env-first order
+
+
+def test_build_baml_env_base_url_prefers_internal_env_without_config():
+    env = {
+        "NEXTSEEK_INTERNAL_BASE_URL": "http://127.0.0.1:8000",
+        "NEXTSEEK_BASE_URL": "http://127.0.0.1:8001",
+    }
+    assert build_baml_env(env=env)["NEXTSEEK_BASE_URL"] == "http://127.0.0.1:8000"
+
+
+def test_build_baml_env_base_url_public_fallback_unchanged():
+    env = {"NEXTSEEK_BASE_URL": "http://127.0.0.1:8001"}
+    assert build_baml_env(env=env)["NEXTSEEK_BASE_URL"] == "http://127.0.0.1:8001"
+
+
 def test_convert_signals_handles_graph_and_plan_modes():
     graph = convert_signals(
         EvaluatorRetrySignals(path_mode="graph_query", graph_ok=True, rows_returned=2),

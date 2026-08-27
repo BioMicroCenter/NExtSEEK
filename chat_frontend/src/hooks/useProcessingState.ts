@@ -1,6 +1,12 @@
 import { useState, useCallback } from "react";
 import type { Step, ProcessingState } from "@/lib/types/chat";
-import type { SearchStartedData, SearchCompleteData } from "@/lib/types/api";
+import type { SearchStartedData, SearchCompleteData, RouteDecidedData } from "@/lib/types/api";
+
+// Container-CC turns don't map onto a fixed pipeline — they run an open-ended
+// sequence of tool calls. So CC uses a dynamic "trace" mode (one step appended
+// per tool call / thinking block, led by the router decision) instead of the
+// NS STEP_CONFIGS below.
+const CC_MODE = "container_cc";
 
 const STEP_CONFIGS: Record<string, { label: string; agentName: string }[]> = {
   new_search: [
@@ -60,8 +66,14 @@ function buildSteps(
   }));
 }
 
+/** CC step label: the tool name as-is, except the synthetic "thinking" source. */
+function ccStepLabel(source: string): string {
+  return source === "thinking" ? "Thinking" : source;
+}
+
 interface UseProcessingStateReturn {
   processingState: ProcessingState;
+  handleRouteDecided: (data: RouteDecidedData) => void;
   handleAgentStarted: (agent: string, mode: string) => void;
   handleAgentComplete: (agent: string) => void;
   handleSearchStarted: (data: SearchStartedData) => void;
@@ -157,8 +169,34 @@ export function useProcessingState(): UseProcessingStateReturn {
     mode: null,
   });
 
+  // Router decision — starts the CC trace with a "Router → container_cc" step
+  // carrying the reasoning. For NS/unrelated the stepper is unchanged (the NS
+  // pipeline speaks for itself; the reasoning is in the Debug panel).
+  const handleRouteDecided = useCallback((data: RouteDecidedData) => {
+    if (String(data.route) !== CC_MODE) return;
+    const reasoning = typeof data.reasoning === "string" ? data.reasoning.trim() : "";
+    setState(() => ({
+      isProcessing: true,
+      steps: [{
+        index: 0,
+        label: "Router → container_cc",
+        agentName: "router",
+        status: "complete" as const,
+        detail: reasoning || undefined,
+      }],
+      currentStepIndex: 0,
+      mode: CC_MODE,
+    }));
+  }, []);
+
   const handleAgentStarted = useCallback((agent: string, mode: string) => {
     setState((prev) => {
+      // CC trace mode: the trace is built from search_started tool steps, not
+      // the NS STEP_CONFIGS. Just keep processing and stay in CC mode.
+      if (agent === CC_MODE || prev.mode === CC_MODE) {
+        return { ...prev, isProcessing: true, mode: CC_MODE };
+      }
+
       let steps = prev.steps;
       let expandedMode = prev.mode;
 
@@ -199,6 +237,13 @@ export function useProcessingState(): UseProcessingStateReturn {
 
   const handleAgentComplete = useCallback((agent: string) => {
     setState((prev) => {
+      if (prev.mode === CC_MODE) {
+        // CC turn wound down: close any step still spinning.
+        const steps = prev.steps.map((s) =>
+          s.status === "active" ? { ...s, status: "complete" as const } : s,
+        );
+        return { ...prev, steps };
+      }
       // Mark the agent's step complete AND clear its `detail` — the side-effect
       // it was reporting has finished alongside the agent itself.
       const steps = prev.steps.map((s) =>
@@ -211,9 +256,23 @@ export function useProcessingState(): UseProcessingStateReturn {
   }, []);
 
   const handleSearchStarted = useCallback((data: SearchStartedData) => {
-    const detail = formatSearchStartedDetail(data);
     setState((prev) => {
+      if (prev.mode === CC_MODE) {
+        // Append one step per tool call / thinking block; detail is the command
+        // / file / thought text the backend already formatted.
+        const source = String(data.source);
+        const detail = typeof data.detail === "string" ? data.detail : undefined;
+        const step: Step = {
+          index: prev.steps.length,
+          label: ccStepLabel(source),
+          agentName: source,
+          status: "active",
+          detail,
+        };
+        return { ...prev, steps: [...prev.steps, step] };
+      }
       if (prev.steps.length === 0) return prev;
+      const detail = formatSearchStartedDetail(data);
       const targetIdx = findSearchTargetIndex(prev.steps, String(data.source));
       if (targetIdx < 0) return prev;
       const steps = prev.steps.map((s, i) => (i === targetIdx ? { ...s, detail } : s));
@@ -222,9 +281,27 @@ export function useProcessingState(): UseProcessingStateReturn {
   }, []);
 
   const handleSearchComplete = useCallback((data: SearchCompleteData) => {
-    const detail = formatSearchCompleteDetail(data);
     setState((prev) => {
+      if (prev.mode === CC_MODE) {
+        const source = String(data.source);
+        const ok = data.ok !== false;
+        // Close the most recent still-active step for this source (its command
+        // detail stays visible; only the status flips).
+        let targetIdx = -1;
+        for (let i = prev.steps.length - 1; i >= 0; i--) {
+          if (prev.steps[i].agentName === source && prev.steps[i].status === "active") {
+            targetIdx = i;
+            break;
+          }
+        }
+        if (targetIdx < 0) return prev;
+        const steps = prev.steps.map((s, i) =>
+          i === targetIdx ? { ...s, status: ok ? ("complete" as const) : ("error" as const) } : s,
+        );
+        return { ...prev, steps };
+      }
       if (prev.steps.length === 0) return prev;
+      const detail = formatSearchCompleteDetail(data);
       const targetIdx = findSearchTargetIndex(prev.steps, String(data.source));
       if (targetIdx < 0) return prev;
       const steps = prev.steps.map((s, i) => (i === targetIdx ? { ...s, detail } : s));
@@ -243,6 +320,7 @@ export function useProcessingState(): UseProcessingStateReturn {
 
   return {
     processingState: state,
+    handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
     handleSearchStarted,

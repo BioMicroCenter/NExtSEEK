@@ -1,0 +1,13 @@
+{
+  "schema": "plan018-v4-7-schemas/v1",
+  "recorded_at": "2026-08-12T20:11:10Z",
+  "gate": "PASS",
+  "lane": "A",
+  "recipe": "host uv run --no-project + pydantic",
+  "counts": {
+    "tests": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  "paid_or_live_resources_used": false
+}

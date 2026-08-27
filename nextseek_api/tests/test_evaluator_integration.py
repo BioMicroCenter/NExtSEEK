@@ -47,11 +47,21 @@ class TestRouteRegistration(TestCase):
 
 
 class TestPermissionBoundary(TestCase):
-    """All evaluator endpoints reject non-admin users."""
+    """Evaluator endpoints are superuser-only (#75).
+
+    These reads return OTHER users' assistant prompts and result bundles, so the
+    gate must be is_superuser. It cannot be is_staff: dmac/views.py:80,97 set
+    is_staff = 1 on every SEEK user at login, which made the old IsAdminUser gate
+    equivalent to IsAuthenticated.
+    """
 
     def setUp(self):
         self.admin = User.objects.create_user(
-            username="intadmin", password="pass", is_staff=True,
+            username="intadmin", password="pass", is_staff=True, is_superuser=True,
+        )
+        # Every SEEK-synced user looks like this. Before #75 it was admitted.
+        self.staff_only = User.objects.create_user(
+            username="intstaff", password="pass", is_staff=True, is_superuser=False,
         )
         self.regular = User.objects.create_user(
             username="intuser", password="pass", is_staff=False,
@@ -62,6 +72,22 @@ class TestPermissionBoundary(TestCase):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.get("/nextseek_api/evaluator/runs/")
         self.assertEqual(resp.status_code, 200)
+
+    def test_runs_list_staff_only_forbidden(self):
+        """The #75 regression guard: staff alone must not read others' history."""
+        self.client.force_authenticate(user=self.staff_only)
+        resp = self.client.get("/nextseek_api/evaluator/runs/")
+        self.assertEqual(
+            resp.status_code,
+            403,
+            "a staff-but-not-superuser account read the evaluator runs list — "
+            "every SEEK-synced user is is_staff, so this is a cross-user leak",
+        )
+
+    def test_retry_context_staff_only_forbidden(self):
+        self.client.force_authenticate(user=self.staff_only)
+        resp = self.client.get("/nextseek_api/evaluator/tasks/1/retry-context/")
+        self.assertEqual(resp.status_code, 403)
 
     def test_runs_list_non_admin_forbidden(self):
         self.client.force_authenticate(user=self.regular)

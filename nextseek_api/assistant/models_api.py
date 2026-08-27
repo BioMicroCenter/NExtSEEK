@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 # --- Request models ---
@@ -16,6 +16,9 @@ class QueryRequest(BaseModel):
     mode: str = Field(..., description="What mode to execute the query as. E.g. standard, plan, etc.")
     force_new: bool = Field(False, description="If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one.")
     use_prod: bool = Field(False, description="If true and a NEXTSEEK_CHAT_CONFIG_PROD is configured, route this query through the prod ChatConfig (real production tables) instead of the default dev/docker one. Admin-only on the UI; ignored if a prod config wasn't built.")
+    fresh_session: bool = Field(False, description="If true, run this turn as a clean room: skip the Step-1c cross-session memory layer (no rendered ~/.claude/CLAUDE.md, no raw-transcript mount). 1b resume within this chat still applies.")
+    force_route: Optional[Literal["auto", "ns", "cc"]] = Field(None, description="Admin-only: supersede the BAML router for this query. 'ns' forces the core chat_nextseek path, 'cc' forces Container-Claude-Code, 'auto'/None uses the router. Ignored for non-admins (the server re-checks is_staff/is_superuser).")
+    max_turn_length_s: Optional[int] = Field(None, ge=1, description="Admin-only: per-turn wall-clock cap (seconds) for a Container-CC turn. Clamped server-side to [30, NEXTSEEK_CC_TIMEOUT_HARD_MAX]; None uses the configured default. Ignored for non-admins (the server re-checks is_staff/is_superuser).")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -128,11 +131,13 @@ class Turn(BaseModel):
     total_rows, rows_returned).
     """
     bundle_id: int
+    turn_id: Optional[int] = None
     user_query: str
     reply: str
     mode: str
     ts: Optional[str] = None
     artifacts: Optional[List[Dict[str, Any]]] = None
+    cc_traces: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -214,3 +219,264 @@ class TaskProgressResponse(BaseModel):
 
 
 SessionDetailResponse.model_rebuild()
+
+
+# ======================================================================
+# Granular ops (native NExtSEEK assistant endpoints)
+#
+# Request + response models for the 7 granular ops (entity, parse, graph,
+# api-read, api-write, report, generate-submission). These are designed to be
+# copied verbatim into dmac_assistant when its sidecar is rewired to call these
+# endpoints. Request models mirror the dmac _ws_contract arg schemas; response
+# models are a typed envelope ({op, result}) over a lenient (extra="allow")
+# result so the rich real agent output still validates while the load-bearing
+# fields stay type-checked. Optional ``use_prod`` / ``session_id`` are native
+# extensions (default-safe; dmac may ignore them).
+# ======================================================================
+
+_REPORT_MODES = ("samples", "protocols", "published", "rppr")
+_SUBMISSION_TYPES = ("GEO", "SRA", "NFCORE_RNASEQ", "NFCORE_SCRNASEQ", "PRIDE")
+
+
+# --- Request models ---
+
+class EntityOpRequest(BaseModel):
+    """POST /assistant/entity/ body (also parse/graph share this shape)."""
+    query: str = Field(..., min_length=1, max_length=32000)
+    use_prod: bool = Field(False, description="Admin-only: route through the prod ChatConfig.")
+    session_id: Optional[UUID] = Field(None, description="Optional session for parser continuity.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class ParseOpRequest(EntityOpRequest):
+    """POST /assistant/parse/ body."""
+
+
+class GraphOpRequest(EntityOpRequest):
+    """POST /assistant/graph/ body."""
+
+
+class ApiReadRequest(BaseModel):
+    """POST /assistant/api-read/ body."""
+    parser_plan: str = Field(..., description="A parser plan as a JSON string.")
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+class ApiWriteRequest(BaseModel):
+    """POST /assistant/api-write/ body.
+
+    ``confirmed_write`` is **strict bool**: the string "true" or integer 1 are
+    rejected at validation (they must never coerce to a confirmed write). The
+    server-side write gate independently re-checks ``is True``.
+    """
+    parser_plan: str
+    confirmed_write: bool = Field(False, strict=True)
+    query: Optional[str] = None
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+class ReportOpRequest(BaseModel):
+    """POST /assistant/report/ body."""
+    mode: str = Field(..., description="One of: samples | protocols | published | rppr")
+    project: str
+    use_prod: bool = False
+    session_id: Optional[UUID] = Field(
+        None, description="Optional chat session to attach the result bundle to; a new one is created if omitted.")
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("mode")
+    @classmethod
+    def _mode(cls, v: str) -> str:
+        if v not in _REPORT_MODES:
+            raise ValueError(f"bad report mode: {v!r}")
+        return v
+
+
+class RunLsRequest(BaseModel):
+    """POST /assistant/run-ls/ body — recursive read-only listing of a Luria run dir."""
+    run_dir: str = Field(..., description="Absolute path under <LURIA working_path>/runs.")
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+class BuildUploadXlsxRequest(BaseModel):
+    """POST /assistant/build-upload-xlsx/ body — render 4-sheet upload workbook(s)."""
+    rows: str = Field(..., description="JSON array of {SampleType, json_metadata, assay_ids} rows.")
+    existing_parent_uids: str = Field("", description="Comma-separated existing parent UIDs (for Parent QA).")
+    use_prod: bool = False
+    session_id: Optional[UUID] = Field(
+        None, description="Optional chat session to attach the workbook bundle to.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class SubmissionRequest(BaseModel):
+    """POST /assistant/generate-submission/ body."""
+    type: str = Field(..., description="One of: GEO | SRA | NFCORE_RNASEQ | NFCORE_SCRNASEQ | PRIDE")
+    uids: str = Field(..., description="Comma-separated UID list.")
+    query: Optional[str] = None
+    use_prod: bool = False
+    session_id: Optional[UUID] = Field(
+        None, description="Optional chat session to attach the result bundle to; a new one is created if omitted.")
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("type")
+    @classmethod
+    def _type(cls, v: str) -> str:
+        if v not in _SUBMISSION_TYPES:
+            raise ValueError(f"unsupported submission type: {v!r}")
+        return v
+
+    @field_validator("uids")
+    @classmethod
+    def _uids(cls, v: str) -> str:
+        if not [u for u in v.split(",") if u.strip()]:
+            raise ValueError("uids required (comma-separated)")
+        return v
+
+
+# --- Response models (typed envelope over a lenient result) ---
+
+class EntityItemModel(BaseModel):
+    code: str
+    name: Optional[str] = None
+    model_config = ConfigDict(extra="allow")
+
+
+class EntityResult(BaseModel):
+    sampletypes: List[EntityItemModel] = Field(default_factory=list)
+    assays: List[EntityItemModel] = Field(default_factory=list)
+    keywords: List[str] = Field(default_factory=list)
+    projects: List[Any] = Field(default_factory=list)
+    model_config = ConfigDict(extra="allow")
+
+
+class EntityOpResponse(BaseModel):
+    op: Literal["entity"] = "entity"
+    result: EntityResult
+    model_config = ConfigDict(extra="forbid")
+
+
+class ParseResult(BaseModel):
+    mode: str = ""
+    target_endpoint: Optional[str] = None
+    intent_summary: str = ""
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    resolved: Dict[str, Any] = Field(default_factory=dict)
+    report_mode: Optional[str] = None
+    report_type: Optional[str] = None
+    model_config = ConfigDict(extra="allow")
+
+
+class ParseOpResponse(BaseModel):
+    op: Literal["parse"] = "parse"
+    result: ParseResult
+    model_config = ConfigDict(extra="forbid")
+
+
+class GraphPlanModel(BaseModel):
+    cypher: str
+    explanation: str = ""
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="allow")
+
+
+class GraphResult(BaseModel):
+    plan: GraphPlanModel
+    result: Dict[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="allow")
+
+
+class GraphOpResponse(BaseModel):
+    op: Literal["graph"] = "graph"
+    result: GraphResult
+    model_config = ConfigDict(extra="forbid")
+
+
+class ApiPlanModel(BaseModel):
+    endpoint: Optional[str] = None
+    method: Optional[str] = None
+    requestBody: Dict[str, Any] = Field(default_factory=dict)
+    queryParameters: Dict[str, Any] = Field(default_factory=dict)
+    notes: str = ""
+    model_config = ConfigDict(extra="allow")
+
+
+class ApiCallResult(BaseModel):
+    endpoint: Optional[str] = None
+    method: Optional[str] = None
+    api_plan: ApiPlanModel
+    response: Dict[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="allow")
+
+
+class ApiReadResponse(BaseModel):
+    op: Literal["api-read"] = "api-read"
+    result: ApiCallResult
+    model_config = ConfigDict(extra="forbid")
+
+
+class ApiWriteResponse(BaseModel):
+    op: Literal["api-write"] = "api-write"
+    result: ApiCallResult
+    model_config = ConfigDict(extra="forbid")
+
+
+class ArtifactRef(BaseModel):
+    """A downloadable artifact produced by a report/generate-submission op."""
+    key: str
+    url: str = Field(..., description="Relative GET URL for the bundle artifact endpoint.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class DownloadRef(BaseModel):
+    """Where a report/generate-submission op's outputs were registered so they can
+    be fetched over HTTP via GET /assistant/sessions/{session_id}/bundles/{bundle_id}/artifacts/{key}/."""
+    session_id: UUID
+    bundle_id: int
+    artifacts: List[ArtifactRef] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+
+class ReportResult(BaseModel):
+    summary: Dict[str, Any] = Field(default_factory=dict)
+    saved_files: Dict[str, Any] = Field(default_factory=dict)
+    rows: Dict[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="allow")
+
+
+class ReportOpResponse(BaseModel):
+    op: Literal["report"] = "report"
+    result: ReportResult
+    download: Optional[DownloadRef] = Field(
+        None, description="Bundle + URLs for fetching the report's saved files over HTTP.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class SubmissionResult(BaseModel):
+    report_type: Optional[str] = None
+    report: Dict[str, Any] = Field(default_factory=dict)
+    narrative: Optional[str] = None
+    notes: str = ""
+    model_config = ConfigDict(extra="allow")
+
+
+class SubmissionResponse(BaseModel):
+    op: Literal["generate-submission"] = "generate-submission"
+    result: SubmissionResult
+    download: Optional[DownloadRef] = Field(
+        None, description="Bundle + URLs for fetching the submission output over HTTP.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class OpErrorResponse(BaseModel):
+    """Error envelope for a granular op.
+
+    Carries the NExtSEEK ``errors`` list AND the canonical dmac error ``code``
+    (CONFIG_MISSING / VALIDATION / AGENT_FAILED / WRITE_BLOCKED / CONFIG_ERROR /
+    AUTH_FAILED) so the dmac thin client can map it to its CLI exit taxonomy.
+    """
+    code: str
+    errors: List[Dict[str, Any]]
+    model_config = ConfigDict(extra="forbid")

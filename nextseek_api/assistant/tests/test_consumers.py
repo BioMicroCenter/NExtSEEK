@@ -68,6 +68,22 @@ def _run(coro):
         loop.close()
 
 
+def _authed_user(pk=42):
+    """A stand-in for a logged-in Django user."""
+    user = MagicMock()
+    user.is_authenticated = True
+    user.pk = pk
+    return user
+
+
+def _anonymous_user():
+    """The real AnonymousUser channels' AuthMiddlewareStack puts in scope
+    when no session cookie identifies a user."""
+    from django.contrib.auth.models import AnonymousUser
+
+    return AnonymousUser()
+
+
 def _make_consumer(task_id="00000000-0000-0000-0000-000000000001",
                    headers=None, user=None):
     """Build a TaskProgressConsumer with mocked transport.
@@ -145,6 +161,105 @@ class ConnectTaskLookupTests(SimpleTestCase):
         _run(consumer.connect())
         consumer.accept.assert_awaited_once()
         self.assertTrue(consumer._polling)
+
+
+class ConnectRequiresAuthenticatedOwnerTests(SimpleTestCase):
+    """End-to-end connect() behaviour with the real _get_task_info.
+
+    The task_id UUID is not a capability token: holding a valid one is not
+    enough, the connection must carry an authenticated user who owns the task.
+    Only the ORM is mocked here, so these exercise the actual auth branch.
+    """
+
+    OWNER_PK = 42
+
+    def _connect(self, consumer, task_status="running", task_user_id=OWNER_PK):
+        mock_task = MagicMock()
+        mock_task.status = task_status
+        mock_task.user_id = task_user_id
+        consumer._poll_loop = AsyncMock()
+        with patch("nextseek_api.assistant.models_db.QueryTask.objects") as mock_qs:
+            mock_qs.get.return_value = mock_task
+            _run(consumer.connect())
+
+    def test_no_user_in_scope_is_rejected(self):
+        consumer, _ = _make_consumer()
+        self._connect(consumer)
+        consumer.accept.assert_not_awaited()
+        consumer.close.assert_awaited_once()
+
+    def test_user_none_in_scope_is_rejected(self):
+        consumer, _ = _make_consumer()
+        consumer.scope["user"] = None
+        self._connect(consumer)
+        consumer.accept.assert_not_awaited()
+        consumer.close.assert_awaited_once()
+
+    def test_anonymous_user_is_rejected(self):
+        consumer, _ = _make_consumer(user=_anonymous_user())
+        self._connect(consumer)
+        consumer.accept.assert_not_awaited()
+        consumer.close.assert_awaited_once()
+
+    def test_authenticated_non_owner_is_rejected(self):
+        consumer, _ = _make_consumer(user=_authed_user(pk=99))
+        self._connect(consumer, task_user_id=self.OWNER_PK)
+        consumer.accept.assert_not_awaited()
+        consumer.close.assert_awaited_once()
+
+    def test_authenticated_owner_is_accepted(self):
+        consumer, _ = _make_consumer(user=_authed_user(pk=self.OWNER_PK))
+        self._connect(consumer, task_user_id=self.OWNER_PK)
+        consumer.accept.assert_awaited_once()
+        consumer.close.assert_not_awaited()
+        self.assertTrue(consumer._polling)
+
+    def test_authenticated_owner_still_receives_the_stream(self):
+        """The legitimate path must keep working, not merely be accepted:
+        the owner gets the progress events and the final done frame."""
+        consumer, sent = _make_consumer(user=_authed_user(pk=self.OWNER_PK))
+        consumer.POLL_INTERVAL = 0  # don't sleep 300ms in a unit test
+
+        mock_task = MagicMock()
+        mock_task.status = "running"
+        mock_task.user_id = self.OWNER_PK
+
+        call_count = 0
+
+        async def fake_get_progress():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return ("running", [{"event": "step", "step": "search"}], None)
+            return (
+                "completed",
+                [{"event": "step", "step": "search"}],
+                {"answer": "42"},
+            )
+
+        consumer._get_progress_snapshot = AsyncMock(side_effect=fake_get_progress)
+
+        async def scenario():
+            with patch("nextseek_api.assistant.models_db.QueryTask.objects") as mock_qs:
+                mock_qs.get.return_value = mock_task
+                await consumer.connect()
+            # connect() fire-and-forgets the poll loop; drain it.
+            pending = [
+                t for t in asyncio.all_tasks() if t is not asyncio.current_task()
+            ]
+            await asyncio.gather(*pending)
+
+        _run(scenario())
+
+        consumer.accept.assert_awaited_once()
+        messages = [json.loads(m) for m in sent]
+        step_msgs = [m for m in messages if m.get("event") == "step"]
+        done_msgs = [m for m in messages if m.get("event") == "done"]
+        self.assertEqual(len(step_msgs), 1)
+        self.assertEqual(step_msgs[0]["step"], "search")
+        self.assertEqual(len(done_msgs), 1)
+        self.assertEqual(done_msgs[0]["status"], "completed")
+        self.assertEqual(done_msgs[0]["result"], {"answer": "42"})
 
 
 class DisconnectTests(SimpleTestCase):
@@ -251,9 +366,10 @@ class GetTaskInfoTests(SimpleTestCase):
     """_get_task_info DB helper — tested with mocked ORM."""
 
     def test_task_not_found_returns_none(self):
-        consumer, _ = _make_consumer()
+        # Authenticated so the lookup is actually reached: this covers the
+        # DoesNotExist branch, not the unauthenticated short-circuit.
+        consumer, _ = _make_consumer(user=_authed_user(pk=42))
         consumer.task_id = str(uuid.uuid4())
-        consumer.scope["user"] = None
 
         with patch("nextseek_api.assistant.models_db.QueryTask.objects") as mock_qs:
             from nextseek_api.assistant.models_db import QueryTask
@@ -261,7 +377,13 @@ class GetTaskInfoTests(SimpleTestCase):
             result = _run(consumer._get_task_info())
         self.assertIsNone(result)
 
-    def test_task_found_returns_dict(self):
+    def test_task_found_but_user_is_none_returns_none(self):
+        """A valid task_id with no authenticated user must NOT be served.
+
+        This asserted the opposite before the UUID stopped being treated as a
+        capability token: the task was found, no user was in scope, and the
+        consumer handed the stream over anyway.
+        """
         consumer, _ = _make_consumer()
         consumer.task_id = str(uuid.uuid4())
         consumer.scope["user"] = None
@@ -273,7 +395,53 @@ class GetTaskInfoTests(SimpleTestCase):
         with patch("nextseek_api.assistant.models_db.QueryTask.objects") as mock_qs:
             mock_qs.get.return_value = mock_task
             result = _run(consumer._get_task_info())
-        self.assertEqual(result, {"status": "running", "user_id": 42})
+        self.assertIsNone(result)
+
+    def test_no_user_key_in_scope_returns_none(self):
+        """No auth middleware in the stack at all -> no "user" key. Reject,
+        and do not raise."""
+        consumer, _ = _make_consumer()
+        consumer.task_id = str(uuid.uuid4())
+        self.assertNotIn("user", consumer.scope)
+
+        mock_task = MagicMock()
+        mock_task.status = "running"
+        mock_task.user_id = 42
+
+        with patch("nextseek_api.assistant.models_db.QueryTask.objects") as mock_qs:
+            mock_qs.get.return_value = mock_task
+            result = _run(consumer._get_task_info())
+        self.assertIsNone(result)
+
+    def test_anonymous_user_returns_none(self):
+        """AnonymousUser is what AuthMiddlewareStack supplies without a
+        session cookie — it must be rejected and must not raise."""
+        consumer, _ = _make_consumer(user=_anonymous_user())
+        consumer.task_id = str(uuid.uuid4())
+
+        mock_task = MagicMock()
+        mock_task.status = "running"
+        mock_task.user_id = 42
+
+        with patch("nextseek_api.assistant.models_db.QueryTask.objects") as mock_qs:
+            mock_qs.get.return_value = mock_task
+            result = _run(consumer._get_task_info())
+        self.assertIsNone(result)
+
+    def test_user_without_is_authenticated_attribute_returns_none(self):
+        """A scope "user" that is not a Django user at all must be rejected
+        rather than blowing up in the consumer."""
+        consumer, _ = _make_consumer(user=object())
+        consumer.task_id = str(uuid.uuid4())
+
+        mock_task = MagicMock()
+        mock_task.status = "running"
+        mock_task.user_id = 42
+
+        with patch("nextseek_api.assistant.models_db.QueryTask.objects") as mock_qs:
+            mock_qs.get.return_value = mock_task
+            result = _run(consumer._get_task_info())
+        self.assertIsNone(result)
 
     def test_authenticated_user_wrong_owner_returns_none(self):
         user = MagicMock()

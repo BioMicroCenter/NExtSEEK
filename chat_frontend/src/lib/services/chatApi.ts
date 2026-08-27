@@ -39,34 +39,43 @@ export class NextseekApiService {
   async submitQuery(
     query: string,
     mode: string | { pipeline: "standard" | "plan"; useProd?: boolean },
-    opts: { sessionId?: string | null; forceNew?: boolean },
+    opts: { sessionId?: string | null; forceNew?: boolean; forceRoute?: "auto" | "ns" | "cc"; useProd?: boolean; maxTurnLengthS?: number | null },
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
   ): Promise<void> {
     const baseUrl = this.auth.getApiBaseUrl();
 
-    // Build body — accept either the legacy plain-string mode or the new
-    // {pipeline, useProd} shape coming from MessageInput.
-    let modeStr: string;
-    let useProd = false;
-    if (typeof mode === "string") {
-      modeStr = mode;
-    } else {
-      modeStr = mode.pipeline;
-      useProd = Boolean(mode.useProd);
-    }
-    const body: Record<string, unknown> = { query, mode: modeStr, use_prod: useProd };
+    // Build body — accept either the legacy plain-string mode or the {pipeline}
+    // object from MessageInput. The PROD toggle is a sticky admin control now in
+    // the Debug panel, read from opts at send time (mirrors force_route); the
+    // server re-checks admin and ignores it for non-admins.
+    const modeStr: string = typeof mode === "string" ? mode : mode.pipeline;
+    const body: Record<string, unknown> = { query, mode: modeStr, use_prod: Boolean(opts.useProd) };
     if (opts.sessionId) {
       body.session_id = opts.sessionId;
     } else if (opts.forceNew) {
       body.force_new = true;
+    }
+    // Admin-only route override (server re-checks admin + ignores for non-admins).
+    if (opts.forceRoute && opts.forceRoute !== "auto") {
+      body.force_route = opts.forceRoute;
+    }
+    // Admin-only per-turn timeout override (server admin-gates + clamps to the
+    // env-bounded hard ceiling). Omitted when unset -> server uses its default.
+    if (opts.maxTurnLengthS && opts.maxTurnLengthS > 0) {
+      body.max_turn_length_s = opts.maxTurnLengthS;
     }
 
     // 1. POST async query
     let taskId: string;
     try {
       const response = await fetch(
-        `${baseUrl}/nextseek_api/assistant/query/async/`,
+        // Routed through the additive cc-assistant endpoint: the dmac_assistant
+        // BAML router decides per query between the NExtSEEK pipeline (NS) and
+        // the sandboxed Container-Claude-Code path. It creates the SAME
+        // QueryTask, so the WS (ws/assistant/progress/) + poll + sessions calls
+        // below stay on the existing assistant routes and work unchanged.
+        `${baseUrl}/nextseek_api/cc-assistant/query/async/`,
         {
           method: "POST",
           headers: {
@@ -367,5 +376,50 @@ export class NextseekApiService {
       XLSX.utils.book_append_sheet(wb, ws, "Search Results");
       XLSX.writeFile(wb, filename);
     });
+  }
+
+  async uploadFiles(files: File[]): Promise<{ job_id: string }> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const fd = new FormData();
+    files.forEach((f) => fd.append("file", f));
+    const r = await fetch(`${baseUrl}/nextseek_api/cc-assistant/upload/`, {
+      method: "POST",
+      body: fd,
+      credentials: "include",
+      headers: { ...this.auth.getAuthHeaders() },
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+
+  async pollUpload(jobId: string): Promise<{ state: string; result?: unknown }> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const r = await fetch(`${baseUrl}/nextseek_api/cc-assistant/upload/status/${jobId}/`, {
+      credentials: "include",
+      headers: { ...this.auth.getAuthHeaders() },
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+
+  async downloadCcArtifact(sessionId: string, key: string): Promise<void> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const r = await fetch(
+      `${baseUrl}/nextseek_api/cc-assistant/artifacts/${sessionId}/download/?key=${encodeURIComponent(key)}`,
+      { credentials: "include", headers: { ...this.auth.getAuthHeaders() } },
+    );
+    if (!r.ok) throw new Error(await r.text());
+    const blob = await r.blob();
+    const disposition = r.headers.get("Content-Disposition");
+    const filenameMatch = disposition?.match(/filename="?(.+?)"?$/);
+    const filename = filenameMatch?.[1] ?? key.split("/").pop() ?? "artifact";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 }

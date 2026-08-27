@@ -1,0 +1,121 @@
+{
+  "schema": "plan018-v4-2-verifier/v1",
+  "recorded_at": "2026-08-18T16:42:08Z",
+  "gate": "PASS",
+  "zip_path": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip",
+  "route_execution": false,
+  "set3_rerun": false,
+  "paid_or_live_resources_used": false,
+  "checks_passed": 22,
+  "checks_total": 22,
+  "errors": [],
+  "checks": [
+    {
+      "name": "v13a_zip_sha256",
+      "pass": true,
+      "sha256": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814"
+    },
+    {
+      "name": "v13a_manifest_sha256",
+      "pass": true,
+      "sha256": "d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2"
+    },
+    {
+      "name": "v13a_corpus_sha256",
+      "pass": true,
+      "sha256": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652"
+    },
+    {
+      "name": "v13a_set3_bayes_sha256",
+      "pass": true,
+      "sha256": "b2afcb1cbfcf908662419db49aa16f82f22afbd9533b7a25053acf6a5641e6c0"
+    },
+    {
+      "name": "pair_count",
+      "pass": true,
+      "count": 149
+    },
+    {
+      "name": "selected_count",
+      "pass": true,
+      "count": 149
+    },
+    {
+      "name": "arm_count",
+      "pass": true,
+      "count": 298
+    },
+    {
+      "name": "complete_pairs",
+      "pass": true,
+      "count": 149
+    },
+    {
+      "name": "corpus_fingerprint_match",
+      "pass": true,
+      "fingerprint": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652"
+    },
+    {
+      "name": "corpus_fingerprint_transferred",
+      "pass": true,
+      "fingerprint": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652"
+    },
+    {
+      "name": "duplicate_pair_ids",
+      "pass": true
+    },
+    {
+      "name": "selected_ids_match_pairs",
+      "pass": true,
+      "count": 149
+    },
+    {
+      "name": "referential_integrity",
+      "pass": true,
+      "pairs": 149
+    },
+    {
+      "name": "route_trace_forced",
+      "pass": true,
+      "arms": 298
+    },
+    {
+      "name": "route_policy_set3",
+      "pass": true
+    },
+    {
+      "name": "reject_duplicate_pairs",
+      "pass": true,
+      "message": "duplicate pair ids"
+    },
+    {
+      "name": "reject_swapped_routes",
+      "pass": true,
+      "message": "x.y/ns: route 'container_cc' != 'nextseek_query'"
+    },
+    {
+      "name": "partial_pair_conservation",
+      "pass": true
+    },
+    {
+      "name": "reject_copied_execution",
+      "pass": true,
+      "message": "x.y: shared task_ids between arms"
+    },
+    {
+      "name": "reject_unknown_key",
+      "pass": true
+    },
+    {
+      "name": "reject_sticky_override",
+      "pass": true,
+      "message": "x.y/ns: route_source 'sticky' != forced"
+    },
+    {
+      "name": "future_dual_route_note",
+      "pass": true,
+      "note": "Future promoted corpus occurrences still require independent dual forced routes at use time; this gate replays stored set3_final only."
+    }
+  ],
+  "future_dual_route_note": "Future promoted occurrences still require independent dual forced routes when the finished product is later used; not a gate for this replay."
+}

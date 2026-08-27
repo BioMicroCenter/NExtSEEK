@@ -29,7 +29,7 @@ from .constants import ATTRIBUTETYPE_ID_URI, ATTRIBUTETYPE_ID_WEBLINK, RESERVED_
 class SampleCore:
     """Mixin for :class:`~seek.sample.table.DBtable_sample`."""
 
-    def _runQuery(self, query, withColumns=False):
+    def _runQuery(self, query, withColumns=False, params=None):
         db = settings.DATABASES[SEEK_DATABASE]
         conn = MySQLdb.connect(host=db['HOST'],
                                user=db['USER'],
@@ -38,7 +38,13 @@ class SampleCore:
         cursor = conn.cursor()
         
         try:
-            cursor.execute(query)
+            # `params is None` keeps the three pre-existing callers byte-identical;
+            # anything that builds %s placeholders passes its values here instead
+            # of interpolating them into the statement.
+            if params is None:
+                cursor.execute(query)
+            else:
+                cursor.execute(query, params)
             results = cursor.fetchall()
             if withColumns:
                 columns = [col[0] for col in cursor.description]

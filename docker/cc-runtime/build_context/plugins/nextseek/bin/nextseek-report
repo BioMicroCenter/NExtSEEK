@@ -1,0 +1,30 @@
+#!/bin/sh
+# nextseek-report — deterministic project-summary dispatcher (D8).
+# --mode samples|protocols|published|rppr (per chat_nextseek reporter sub-modes)
+# --project <NAME>
+# Runner enforces enum at _nextseek_runner.py:218.
+# Plan B · T9.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+MODE=""
+PROJECT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mode) MODE="$2"; shift 2 ;;
+    --mode=*) MODE="${1#--mode=}"; shift ;;
+    --project) PROJECT="$2"; shift 2 ;;
+    --project=*) PROJECT="${1#--project=}"; shift ;;
+    --help)
+      echo "Usage: nextseek-report --mode <samples|protocols|published|rppr> --project <NAME>"
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$MODE" ] || nextseek_die 3 "missing --mode"
+[ -n "$PROJECT" ] || nextseek_die 3 "missing --project"
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" \
+  --agent report --mode "$MODE" --project "$PROJECT"

@@ -1,0 +1,1256 @@
+{
+  "schema": "plan018-controlling-contract/v1",
+  "recorded_at": "2026-08-11T10:28:23-04:00",
+  "plan_path": "docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md",
+  "plan_sha256": "af99a24b765f04330cf25b09c005a80002d175890f66743d2b2115b9b2f74a6e",
+  "implementation_base": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
+  "status": "v4-0-complete-for-plan-tasks",
+  "bindings_ref": "evidence/plan018-controlling-bindings.json",
+  "ownership_map_ref": "evidence/plan018-v4-0-ownership-map.md",
+  "void_by_default": [
+    "historical Task 0 Steps 1–4 body",
+    "docker exec nextseek as implementation harness without worktree mount provenance",
+    "hand-authored BayesManifest as producer proof",
+    "set3_final replacement paired run",
+    "porting tools/hibayes/artifact_validator.py",
+    "editing route_capabilities.json for classifier labels",
+    "destructive persistent rollback",
+    "historical 0010_turn_ledger.py filename assumption",
+    "created_at__gt watermark as export correctness oracle",
+    "V8 RouteFamilyAggregate as fit input",
+    "max-of-three confidence field",
+    "premature beat registration / post-call spend arithmetic / skipped-live-test-as-acceptance",
+    "V2-T4 deterministic family fallback / Task 4 implementation",
+    "V2-T12b / Task 12b route_capabilities ops mapping",
+    "historical taxonomy crosswalk or fixed family Literal",
+    "DD-44 disagreement measurement or reducing three calls to one"
+  ],
+  "wave_entry_controlling_clause": {
+    "V4-0": "Exact base, port provenance, isolated harness — THIS GATE",
+    "V4-1": "Exact-run dynamic families from set3_final/corpus (V13 mechanical)",
+    "V4-2": "Own ordinary+paired producers from approved nessie tip",
+    "V4-3": "Judgment attempts / DD-44 / outcome conservation",
+    "V4-4": "Paired model + decision contract (V14)",
+    "V4-5": "Immutable generation publication/activation",
+    "V4-6": "Router split + call-count contract",
+    "V4-7": "Experimental vs observational separation",
+    "V4-8": "Paid-run authorization/reservation",
+    "V4-9": "Coverage, deployment, non-destructive recovery"
+  },
+  "port_sources": {
+    "eval_vendor": "dmac-assistant@dcca50c187890dc93659e5594810179793bb94eb",
+    "nessie_paired_harness": "origin/dev-v4-merge@3fe71670b954b78573795ac087caedec5eac2b97"
+  },
+  "clause_index": [
+    {
+      "id": "V2-0",
+      "title": "Mandatory execution preflight (before original Task 0)"
+    },
+    {
+      "id": "V2-T0",
+      "title": "Fixtures are staged, executable, valid, and network-free"
+    },
+    {
+      "id": "V2-T1",
+      "title": "Full turn snapshot model and safe migrations"
+    },
+    {
+      "id": "V2-T2",
+      "title": "Collision translation and atomic persistence primitive"
+    },
+    {
+      "id": "V2-T3",
+      "title": "Compiled BAML/Python family contract"
+    },
+    {
+      "id": "V2-T4",
+      "title": "VOID: no deterministic family fallback (V7-C)"
+    },
+    {
+      "id": "V2-T5",
+      "title": "Real writers, all terminal paths, one atomic row"
+    },
+    {
+      "id": "V2-T6",
+      "title": "Complete, hash-manifested, behavior-preserving port"
+    },
+    {
+      "id": "V2-T7",
+      "title": "Versioned full export; no lossy timestamp watermark"
+    },
+    {
+      "id": "V2-T8",
+      "title": "Content-bound cache and bounded failure retry"
+    },
+    {
+      "id": "V2-T9",
+      "title": "Incremental judging engine and run state (not scheduled yet)"
+    },
+    {
+      "id": "V2-T10",
+      "title": "Real fit, atomic generation publish, then registered nightly orchestration"
+    },
+    {
+      "id": "V2-T11",
+      "title": "Authorized, present, safe playbook examples and real injection"
+    },
+    {
+      "id": "V2-T12",
+      "title": "Observable default-off flag, structurally no reroute"
+    },
+    {
+      "id": "V2-T12b",
+      "title": "VOID/REMOVED: ops mapping into route_capabilities.json (V6-E)"
+    },
+    {
+      "id": "V2-T13",
+      "title": "Enforced free end-to-end, coverage, and separately approved paid acceptance"
+    },
+    {
+      "id": "V2-rollback",
+      "title": "Rollback and final release gate (non-destructive; V13 strengthens)"
+    },
+    {
+      "id": "V3-A",
+      "title": "The task-family set is not frozen (applied inline)"
+    },
+    {
+      "id": "V3-B",
+      "title": "Split the router into classification and routing"
+    },
+    {
+      "id": "V3-C",
+      "title": "Forced-route paired baseline (authorship claim voided by V8-K/V13)"
+    },
+    {
+      "id": "V3-D",
+      "title": "Posterior-driven routing with LLM fallback"
+    },
+    {
+      "id": "V4-0",
+      "title": "Exact base, port provenance, and isolated harness"
+    },
+    {
+      "id": "V4-1",
+      "title": "Exact-run dynamic families and common support (resolved by V13)"
+    },
+    {
+      "id": "V4-2",
+      "title": "Own and prove the ordinary and paired producers"
+    },
+    {
+      "id": "V4-3",
+      "title": "Judgment attempts, exact DD-44 aggregation, and outcome conservation"
+    },
+    {
+      "id": "V4-4",
+      "title": "Paired model and operational decision contract (resolved by V14)"
+    },
+    {
+      "id": "V4-5",
+      "title": "Immutable generation publication and activation"
+    },
+    {
+      "id": "V4-6",
+      "title": "Router split and explicit call-count contract"
+    },
+    {
+      "id": "V4-6-DONE",
+      "title": "V4-6 binding DONE oracle — classifier/router split"
+    },
+    {
+      "id": "V4-7",
+      "title": "Separate experimental evidence from observational monitoring"
+    },
+    {
+      "id": "V4-7-DONE",
+      "title": "V4-7 binding DONE oracle — experimental/observational separation"
+    },
+    {
+      "id": "V4-8",
+      "title": "Paid-run authorization, reservation, and resumability"
+    },
+    {
+      "id": "V4-8-DONE",
+      "title": "V4-8 binding DONE oracle — authorization and spend"
+    },
+    {
+      "id": "V4-9",
+      "title": "Coverage, deployment, and recoverable rollback"
+    },
+    {
+      "id": "V5-Task0",
+      "title": "V5 replacement Task 0 — incremental fixtures; historical body VOID"
+    },
+    {
+      "id": "V5-1",
+      "title": "SUPERSEDED by the existing-security baseline (V12/V13)"
+    },
+    {
+      "id": "V5-2",
+      "title": "SUPERSEDED by direct at-time approval (V11/V13)"
+    },
+    {
+      "id": "V5-3",
+      "title": "Binding producer, judgment, model, store, and selector oracles"
+    },
+    {
+      "id": "V5-4",
+      "title": "Evidence completeness, coverage, deployment, and non-destructive recovery"
+    },
+    {
+      "id": "V6-A",
+      "title": "route_capabilities.json is not the classifier's source"
+    },
+    {
+      "id": "V6-B",
+      "title": "The label space is sourced from the nessie_tests corpus (amended by V7)"
+    },
+    {
+      "id": "V6-C",
+      "title": "SUPERSEDED: stale non-wholesale inference"
+    },
+    {
+      "id": "V6-D",
+      "title": "RESOLVED: runtime-dynamic enum"
+    },
+    {
+      "id": "V6-E",
+      "title": "What this amendment changed, and one warning (removes V2-T12b/Task 12b)"
+    },
+    {
+      "id": "V7-A",
+      "title": "Corpus mutability — latest schema-compatible harness-owned corpus"
+    },
+    {
+      "id": "V7-B",
+      "title": "Label membership — every corpus families key is a classifier label"
+    },
+    {
+      "id": "V7-C",
+      "title": "Fallback and provenance — omit deterministic family fallback"
+    },
+    {
+      "id": "V7-D",
+      "title": "Internal retention — retain evaluation data by default"
+    },
+    {
+      "id": "V8-A",
+      "title": "Stage 2 feeds Stage 1 by growing the corpus, not by updating the posterior"
+    },
+    {
+      "id": "V8-B",
+      "title": "Execution reuse — grown corpus does not re-execute unchanged arms (extended by V10-A)"
+    },
+    {
+      "id": "V8-C",
+      "title": "The eval row (supersedes the Task 7 EvalRow dataclass)"
+    },
+    {
+      "id": "V8-D",
+      "title": "One combined outcome, and the total disposition mapping V4-3 requires"
+    },
+    {
+      "id": "V8-E",
+      "title": "Stack identity is four components, referenced by key"
+    },
+    {
+      "id": "V8-F",
+      "title": "The classifier enum is generated from the corpus, never hardcoded"
+    },
+    {
+      "id": "V8-G",
+      "title": "NessieManifestEntry is named but never defined"
+    },
+    {
+      "id": "V8-H",
+      "title": "Stage lettering is defined"
+    },
+    {
+      "id": "V8-I",
+      "title": "Which families object is the label space"
+    },
+    {
+      "id": "V8-J",
+      "title": "The upstream that locks the per-arm export column set is named"
+    },
+    {
+      "id": "V8-K",
+      "title": "Correction: live runs have happened (voids V3-C authorship invalidation)"
+    },
+    {
+      "id": "V9-A",
+      "title": "Artifact validity is owned by NExtSEEK; one upstream module is replaced"
+    },
+    {
+      "id": "V9-B",
+      "title": "Validation is kind-agnostic: the artifact declares its own schema"
+    },
+    {
+      "id": "V9-C",
+      "title": "The unit is a set of artifacts; worst status wins"
+    },
+    {
+      "id": "V9-D",
+      "title": "Required-but-empty is structural only"
+    },
+    {
+      "id": "V9-E",
+      "title": "The projection is total, and unmeasurable is not failure"
+    },
+    {
+      "id": "V9-F",
+      "title": "One validator, two sources: it must ingest stored paired evidence unchanged"
+    },
+    {
+      "id": "V9-G",
+      "title": "Reference results this task must reproduce"
+    },
+    {
+      "id": "V9-H",
+      "title": "Where the evidence lives"
+    },
+    {
+      "id": "V9-I",
+      "title": "Two consequences elsewhere in this plan"
+    },
+    {
+      "id": "V10",
+      "title": "Post-re-vet hardening — change control, authority, and controlling-contract requirement"
+    },
+    {
+      "id": "V10-A",
+      "title": "Content-bound execution reuse and independent promoted occurrences"
+    },
+    {
+      "id": "V10-B",
+      "title": "Immutable corpus uploads and automatic database-backed promotion"
+    },
+    {
+      "id": "V10-C",
+      "title": "Independently declared schemas and dynamic pydantic validation"
+    },
+    {
+      "id": "V10-D",
+      "title": "Canonical artifact expectation and total artifact safety"
+    },
+    {
+      "id": "V10-E",
+      "title": "Durable dispositions, pair preservation, and coherent rows"
+    },
+    {
+      "id": "V10-F",
+      "title": "Posterior provenance and the permanent unrelated gate"
+    },
+    {
+      "id": "V10-G",
+      "title": "Artifact-status, regression, and evidence oracles"
+    },
+    {
+      "id": "V10-H",
+      "title": "Owned implementation tasks and local DONE conditions"
+    },
+    {
+      "id": "V10-release",
+      "title": "V10 completion and release gate"
+    },
+    {
+      "id": "V11",
+      "title": "Direct-at-time approval amendment"
+    },
+    {
+      "id": "V12",
+      "title": "Existing-security-baseline amendment"
+    },
+    {
+      "id": "V13-voids",
+      "title": "Authority, exact scope, and mechanical voids"
+    },
+    {
+      "id": "V13-A",
+      "title": "Authoritative completed paired evidence"
+    },
+    {
+      "id": "V13-B",
+      "title": "Stored-evidence verification; no replacement paired benchmark"
+    },
+    {
+      "id": "V13-C",
+      "title": "Dynamic exact-run V4-1 and completed arm schema"
+    },
+    {
+      "id": "V13-D",
+      "title": "SUPERSEDED: V4-4 is resolved by V14"
+    },
+    {
+      "id": "V13-E",
+      "title": "Exactly three DD-44 calls and critical-mutant acceptance"
+    },
+    {
+      "id": "V13-F",
+      "title": "Activation and local Git workflow"
+    },
+    {
+      "id": "V13-G",
+      "title": "Non-destructive recovery only"
+    },
+    {
+      "id": "V13-H",
+      "title": "Controlling readiness and action gates"
+    },
+    {
+      "id": "V13-I",
+      "title": "Independent review before publication or implementation"
+    },
+    {
+      "id": "V14",
+      "title": "Resolved statistical-contract amendment"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "Task 0",
+      "phase": "Phase 1",
+      "status": "active",
+      "controlling_clauses": [
+        "V5-Task0",
+        "V2-T0",
+        "V2-0",
+        "V4-0",
+        "V10-H"
+      ],
+      "void_commands_or_oracles": [
+        "historical Task 0 Steps 1–4 body and collection-only DONE (V5 VOID)",
+        "module-level imports of future types (FamilyPosterior/turn_ledger/eval) before owning tasks",
+        "placeholder / lazy-raising fixtures as DONE",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Creates base-only conftest.py and evidence/task00-fixture-owners.json; later fixtures land with owning tasks. Collection alone never marks complete."
+    },
+    {
+      "task_id": "Task 1",
+      "phase": "Phase 1",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T1",
+        "V4-0",
+        "V10-B",
+        "V10-H",
+        "V8-E",
+        "V12",
+        "V13-G",
+        "V2-rollback"
+      ],
+      "void_commands_or_oracles": [
+        "historical File Structure / Task 1 assumption of migrations/0010_turn_ledger.py filename — renumber from actual leaf (V4-0)",
+        "align_charset_for_fk nonexistent recipe — use reviewed parameterized op from _cc_transcript_heal",
+        "sqlmigrate text alone as schema DONE oracle",
+        "metadata-only TurnLedger sketch (superseded by V2 durable contract)",
+        "destructive reverse migrate / migrate ... 0009 dropping evaluation data (V13-G)",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Owns TurnLedger plus V10-H CorpusVersion/CorpusPromotion/stack provenance models and migrations. Forward migrate empty + prod-shaped disposable DBs; applied-schema introspection required."
+    },
+    {
+      "task_id": "Task 2",
+      "phase": "Phase 1",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T2",
+        "V10-H",
+        "V10-B",
+        "V12"
+      ],
+      "void_commands_or_oracles": [
+        "swallowed collision leaving only the envelope",
+        "direct helper-only record_turn factories presented as writer proof (deferred to Task 5/V2-T5)",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Persistence primitive record_turn with LedgerCollision translation; shares automatic promotion writer ownership with Task 5 per V10-H."
+    },
+    {
+      "task_id": "Task 3",
+      "phase": "Phase 1",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T3",
+        "V3-B",
+        "V4-6",
+        "V4-6-DONE",
+        "V6-A",
+        "V6-B",
+        "V6-D",
+        "V7-A",
+        "V7-B",
+        "V7-C",
+        "V8-F",
+        "V8-I",
+        "V10-F",
+        "V10-H",
+        "V12"
+      ],
+      "void_commands_or_oracles": [
+        "editing or reading route_capabilities.json for classifier labels (V6-A)",
+        "hardcoded family count / Literal / static member list / include-exclude layer",
+        "redeclaring existing BAML class TaskFamily as classifier enum",
+        "mutating or dropping unrelated guard paragraph (V10-F)",
+        "single-call classifier+router wrapper that returns destination/model from classification",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Classifier/router split; ClassifiedFamily @@dynamic from corpus families ∪ {unrelated}. Blocked until V4-0 closeout per Task 3 heading."
+    },
+    {
+      "task_id": "Task 4",
+      "phase": "Phase 1",
+      "status": "omitted",
+      "controlling_clauses": [
+        "V7-C",
+        "V2-T4"
+      ],
+      "void_commands_or_oracles": [
+        "V2-T4 deterministic family fallback implementation (VOID)",
+        "any family_fallback / keyword-phrase table / mining corpus phrases for family",
+        "writing family_source=\"forced\" (forced arms use family_source=\"corpus\")",
+        "converting route heuristic into a classifier"
+      ],
+      "notes": "OMITTED under V7-C. Creates no files. DONE via negative tests only: no family fallback module; heuristic remains route-only."
+    },
+    {
+      "task_id": "Task 5",
+      "phase": "Phase 1",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T5",
+        "V5-3",
+        "V10-H",
+        "V10-B",
+        "V10-F",
+        "V12"
+      ],
+      "void_commands_or_oracles": [
+        "hand-authored terminal-path inventory as V2-T5 proof (V5-3 requires AST/telemetry-derived)",
+        "partial ledger writes outside transaction.atomic with envelope",
+        "fabricating family on non-classified turns",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Real NS/CC writers on all terminal paths; automatic CorpusPromotion disposition conservation with Task 2."
+    },
+    {
+      "task_id": "Task 6",
+      "phase": "Phase 2",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T6",
+        "V9-A",
+        "V4-0",
+        "V10-H"
+      ],
+      "void_commands_or_oracles": [
+        "porting tools/hibayes/artifact_validator.py (V9-A) — Task 7b fresh write replaces it",
+        "CSV_HEADER_29 from superseded artifact_validator as binding oracle (V9-I)",
+        "stub package or build-only proof closing Phase 2",
+        "root editable path dependency on chat_nextseek or dmac_assistant in eval image",
+        "two-string grep as import-boundary proof (require AST/parsed tracing)",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Vendor from dmac-assistant@dcca50c except artifact_validator; port ArtifactStatus/ArtifactKind enum surface unchanged."
+    },
+    {
+      "task_id": "Task 7",
+      "phase": "Phase 2",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T7",
+        "V8-C",
+        "V8-D",
+        "V8-E",
+        "V10-E",
+        "V10-H",
+        "V13-C",
+        "V4-3"
+      ],
+      "void_commands_or_oracles": [
+        "historical eight-field EvalRow dataclass sketch (superseded by V8-C)",
+        "created_at__gt watermark as correctness oracle (V2-T7/V10-H)",
+        "non-incremental export failure oracle as DONE (V10-H)",
+        "V8 marginal RouteFamilyAggregate as fit input (V10-E/V13-C)",
+        "defaulting missing artifact facts to success",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Seventeen-field EvalRow schema v3; EmittedArm/ExcludedArm dispositions; pair-preserving fit-admission object. Artifact fields populated by Task 7b."
+    },
+    {
+      "task_id": "Task 7b",
+      "phase": "Phase 2",
+      "status": "active",
+      "controlling_clauses": [
+        "V9-A",
+        "V9-B",
+        "V9-C",
+        "V9-D",
+        "V9-E",
+        "V9-F",
+        "V9-G",
+        "V9-H",
+        "V9-I",
+        "V10-C",
+        "V10-D",
+        "V10-G",
+        "V10-H",
+        "V13-A",
+        "V13-B"
+      ],
+      "void_commands_or_oracles": [
+        "porting tools/hibayes/artifact_validator.py",
+        "branching control flow on ArtifactKind / task_family / file extension",
+        "openpyxl on artifact validity path",
+        "Indeterminate coerced to false / success",
+        "basename equality as zip-subset proof",
+        "replacement set3_final paired run for regression pin (V13-B) — replay stored evidence only",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Fresh artifact_validity.py + sources; V9-G set3_final counts are regression pins against transferred evidence."
+    },
+    {
+      "task_id": "Task 8",
+      "phase": "Phase 2",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T8",
+        "V10-A",
+        "V9-I",
+        "V10-H",
+        "V8-B"
+      ],
+      "void_commands_or_oracles": [
+        "mtime / st_mtime / getmtime skip oracle",
+        "self-matching mtime grep as proof",
+        "four-field-only execution cache key without execution_input_sha256 (V8-B superseded/extended by V10-A)",
+        "treating failed judgment as completed cache hit",
+        "historical incomplete fingerprint omitting artifact/trace/version components",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Complete judgment fingerprint plus five-field execution reuse key and separate model/config/data guards (V10-A). V9-I: recomputed artifact facts invalidate cached judgments."
+    },
+    {
+      "task_id": "Task 9",
+      "phase": "Phase 2",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T9",
+        "V4-8",
+        "V4-8-DONE",
+        "V10-A",
+        "V10-B",
+        "V10-H",
+        "V11",
+        "V13-B"
+      ],
+      "void_commands_or_oracles": [
+        "premature beat registration before fit/publish exists (V2-T9/V10-H)",
+        "post-call spend arithmetic without pre-call reservation (V10-H)",
+        "default/schedule command entering paid lane without V4-8 manifest approval",
+        "replacement paired benchmark as Task 9 acceptance (V13-B)",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Judging engine + reservation + run state; promotion/run assembly over independently executed arms. Beat entry lands only with Task 10."
+    },
+    {
+      "task_id": "Task 10",
+      "phase": "Phase 2",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T10",
+        "V4-4",
+        "V14",
+        "V4-5",
+        "V5-3",
+        "V4-7",
+        "V4-7-DONE",
+        "V8-A",
+        "V8-D",
+        "V10-E",
+        "V10-H",
+        "V13-A",
+        "V13-B",
+        "V13-E"
+      ],
+      "void_commands_or_oracles": [
+        "permissive publisher upsert / mutable overwrite of generations (V10-H/V4-5)",
+        "RouteFamilyAggregate or unpaired (task_family, route) marginal as fit input",
+        "max-of-three confidence field (voided by V4 facts)",
+        "online/policy-selected rows updating comparative posterior (V4-7/V8-A)",
+        "hand-authored BayesManifest as producer/fit proof",
+        "set3_final replacement paired run",
+        "re-implementing banding thresholds in publish.py",
+        "counting skipped live tests as fit acceptance",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Paired V14 model adapter, immutable generation publish/activation, then register nightly orchestration. Recovery suite: 40 fits / 60-minute ceiling."
+    },
+    {
+      "task_id": "Task 11",
+      "phase": "Phase 3",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T11",
+        "V4-7",
+        "V12",
+        "V10-H"
+      ],
+      "void_commands_or_oracles": [
+        "worked examples from NS/unrelated/null-project rows",
+        "examples from other users/projects",
+        "pretending ns_digest alone has user/project context (must wire at cc_assistant composition after project resolution)",
+        "deleting all examples as a passing privacy implementation",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Observational playbook consumer only; cannot update comparative posterior."
+    },
+    {
+      "task_id": "Task 12",
+      "phase": "Phase 3",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T12",
+        "V3-D",
+        "V4-6",
+        "V4-6-DONE",
+        "V5-3",
+        "V10-F",
+        "V10-H",
+        "V4-5"
+      ],
+      "void_commands_or_oracles": [
+        "Task 12 historical telemetry-only body satisfying comparative selector DONE (V5-3)",
+        "assess return value changing route/model/destination when overlay-only path",
+        "interpreting TooUncertain as confident winner",
+        "relabeling posterior route_source into older enum without posterior member",
+        "sticky/safety override converting unrelated into in-scope route (V10-F)",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Owns both observational risk overlay (may_reroute=false) and comparative posterior selector with route_source=posterior per V10-H/V5-3. Selector requires approved V4-4/V4-5 first."
+    },
+    {
+      "task_id": "Task 12b",
+      "phase": "Phase 3",
+      "status": "void",
+      "controlling_clauses": [
+        "V6-E",
+        "V6-A"
+      ],
+      "void_commands_or_oracles": [
+        "V2-T12b entire section (removed)",
+        "Task 12b writing ops mapping into route_capabilities.json",
+        "updating route_capabilities.json hash pin for classifier/ops mapping in same commit"
+      ],
+      "notes": "Removed outright by V6-E because V6-A leaves it nothing to govern."
+    },
+    {
+      "task_id": "Task 13",
+      "phase": "Phase 3",
+      "status": "active",
+      "controlling_clauses": [
+        "V2-T13",
+        "V4-9",
+        "V5-4",
+        "V10-G",
+        "V10-H",
+        "V13-A",
+        "V13-B",
+        "V13-E",
+        "V13-G",
+        "V11",
+        "V12"
+      ],
+      "void_commands_or_oracles": [
+        "skipped-live-test-as-acceptance (V10-H) — proves default safety only",
+        "any new tiny/free/fake/production-seam/pilot/live/replacement paired E2E including set3_final rerun (V13-B)",
+        "hand-edited coverage evidence / evidence from another SHA/image",
+        "destructive rollback / destructive reverse migration as recovery (V13-G)",
+        "git revert + unchecked rollback script as sufficient recoverable rollback",
+        "narrow historical Task 13 coverage surface omitting V4 modules (V4-9 expands)",
+        "docker exec nextseek as implementation harness without worktree mount provenance (V2-0/V4-0/V10-H)",
+        "running-container /app tree as port source or DONE evidence (V4-0)",
+        "helper-only tests / string greps / skipped live test as DONE (V2 precedence / V10-H)"
+      ],
+      "notes": "Free network-denied E2E + expanded coverage + hermetic stored-evidence replay; paid lane separately approved per-run under V11/V4-8."
+    }
+  ],
+  "v4_waves": [
+    {
+      "task_id": "V4-0",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-0",
+        "V2-0",
+        "V10",
+        "V10-H",
+        "V11",
+        "V13-H",
+        "V13-F"
+      ],
+      "void_commands_or_oracles": [
+        "starting implementation without exact authorized base / controlling-contract emission",
+        "copying from dirty deployed clone or running container",
+        "assuming migration filename 0010",
+        "unmapped executable step proceeding past validator"
+      ],
+      "notes": "THIS GATE. Exact base 6881b6a8 (bindings), port provenance, isolated harness, ownership map, controlling-contract.json. Ordinary port occurs in V4-2 after V4-1."
+    },
+    {
+      "task_id": "V4-1",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-1",
+        "V13-C",
+        "V13-A",
+        "V7-B",
+        "V8-I"
+      ],
+      "void_commands_or_oracles": [
+        "historical family crosswalk / alias/rename/split/merge / master taxonomy / cross-version pooling (V13 voids)",
+        "approved fixed family list / Literal / static taxonomy",
+        "label-selection approval STOP (mechanically resolved)"
+      ],
+      "notes": "Mechanical from embedded corpus + set3_final; no product port. Does not choose V4-4 priors/thresholds."
+    },
+    {
+      "task_id": "V4-2",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-2",
+        "V5-3",
+        "V13-A",
+        "V13-B",
+        "V8-K",
+        "V3-C"
+      ],
+      "void_commands_or_oracles": [
+        "set3_final / 127-pair / replacement paired benchmark runs for Plan 018 acceptance (V13-B)",
+        "hand-authored BayesManifest as producer proof",
+        "claiming completed paired run invalid because harness author initiated it (void V3-C/V8-K)",
+        "renaming ordinary manifest.json as Bayesian evidence",
+        "copying producers from live /app"
+      ],
+      "notes": "Port ordinary+paired producers; acceptance via stored set3_final replay + hermetic mechanics — no new paired route execution."
+    },
+    {
+      "task_id": "V4-3",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-3",
+        "V5-3",
+        "V8-D",
+        "V13-E",
+        "V10-E",
+        "V14"
+      ],
+      "void_commands_or_oracles": [
+        "max-of-three confidence value / field",
+        "DD-44 disagreement measurement or reducing three calls to one (V13 voids)",
+        "pilot/amendment escape hatch reducing DD-44 call count inside this plan",
+        "coercing unknown enums / incomplete aggregation to success",
+        "hash-without-retrievable-bytes as replay evidence"
+      ],
+      "notes": "Exactly three sequential DD-44 calls; exact aggregation; total disposition; conservation equation."
+    },
+    {
+      "task_id": "V4-4",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-4",
+        "V14",
+        "V13-D",
+        "V5-3",
+        "V8-D",
+        "V10-E",
+        "V13-A",
+        "V13-B"
+      ],
+      "void_commands_or_oracles": [
+        "agent-chosen likelihood/priors/thresholds/utility (V14 resolves; no STOP remains)",
+        "broad parameter grid / extra repetitions beyond 40-fit suite",
+        "RouteFamilyAggregate as fit input",
+        "cost affecting winner; 25% slowdown as winner veto",
+        "latency overturning clear quality winner",
+        "replacement paired run for statistical DONE"
+      ],
+      "notes": "Resolved statistical + operational decision contract; bounded 40-fit recovery suite with 60-minute ceiling."
+    },
+    {
+      "task_id": "V4-5",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-5",
+        "V5-3",
+        "V10-F",
+        "V13-F",
+        "V11"
+      ],
+      "void_commands_or_oracles": [
+        "partial publication / mutable overwrite / filename-only validation",
+        "SQLite/in-memory/sequential concurrency as real-store oracle (V5-3)",
+        "requiring approval for candidate creation or test/local activation (V13-F voids)",
+        "live DB activation without at-time ask"
+      ],
+      "notes": "Immutable generations + CAS activation; observational overlay remains telemetry-only."
+    },
+    {
+      "task_id": "V4-6",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-6",
+        "V4-6-DONE",
+        "V3-B",
+        "V3-D",
+        "V10-F",
+        "V10-H",
+        "V7-C"
+      ],
+      "void_commands_or_oracles": [
+        "fake separation via two thin wrappers around one route-bearing classifier output",
+        "classifier schema containing destination/model fields",
+        "fabricating family after classification failure",
+        "mutating unrelated prompt/canned gate"
+      ],
+      "notes": "Structural classifier/router split and call-count table; posterior selection ownership with Task 12."
+    },
+    {
+      "task_id": "V4-7",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-7",
+        "V4-7-DONE",
+        "V8-A",
+        "V10-H"
+      ],
+      "void_commands_or_oracles": [
+        "goal/Stage-2 sentence letting real usage update comparative baseline (struck)",
+        "online rows entering paired fitter",
+        "claiming counterfactual route superiority from observational traffic"
+      ],
+      "notes": "Hard schema/type boundary between forced paired evidence and online monitoring."
+    },
+    {
+      "task_id": "V4-8",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-8",
+        "V4-8-DONE",
+        "V11",
+        "V10-H",
+        "V2-T9"
+      ],
+      "void_commands_or_oracles": [
+        "any provider call before approved immutable run-manifest hash",
+        "post-call-only spend arithmetic",
+        "bundling first real pilot with implementation authorization",
+        "replaying approval for changed inputs"
+      ],
+      "notes": "Paid-run authorization, atomic reservation, resumability, reconciliation."
+    },
+    {
+      "task_id": "V4-9",
+      "phase": "V4 wave",
+      "status": "active",
+      "controlling_clauses": [
+        "V4-9",
+        "V5-4",
+        "V13-B",
+        "V13-G",
+        "V13-E",
+        "V10-G",
+        "V11"
+      ],
+      "void_commands_or_oracles": [
+        "destructive rollback / reverse migration as recovery path",
+        "replacement paired E2E as hermetic acceptance",
+        "treating currently running image as rollback image",
+        "maintainer-approved global mutation-score percentage requirement (V13 voids)",
+        "unexpected skip/xfail/deselection or unchanged critical mutation passing"
+      ],
+      "notes": "Expanded coverage, hermetic stored-evidence acceptance, deploy record, non-destructive recovery only."
+    }
+  ],
+  "explicit_voids": [
+    {
+      "id": "void-historical-task0-body",
+      "authority": "V5-Task0",
+      "text": "Historical Task 0 Steps 1–4, collection-only success, and dependent-body-may-fail note are VOID and non-executable.",
+      "applies_to": [
+        "Task 0"
+      ]
+    },
+    {
+      "id": "void-docker-exec-nextseek-without-provenance",
+      "authority": "V10-H",
+      "text": "docker exec nextseek (and sibling running-container commands) as implementation/test harness without worktree-mount provenance is void.",
+      "applies_to": [
+        "Task 0",
+        "Task 1",
+        "Task 2",
+        "Task 3",
+        "Task 5",
+        "Task 6",
+        "Task 7",
+        "Task 7b",
+        "Task 8",
+        "Task 9",
+        "Task 10",
+        "Task 11",
+        "Task 12",
+        "Task 13",
+        "V4-0"
+      ]
+    },
+    {
+      "id": "void-port-artifact-validator",
+      "authority": "V9-A",
+      "text": "Do not port tools/hibayes/artifact_validator.py; replace with nextseek_api/eval/artifact_validity.py.",
+      "applies_to": [
+        "Task 6",
+        "Task 7b"
+      ]
+    },
+    {
+      "id": "void-edit-route-capabilities-for-labels",
+      "authority": "V6-A",
+      "text": "Do not read or modify route_capabilities.json for classifier labels; corpus families object is the label space.",
+      "applies_to": [
+        "Task 3",
+        "Task 4",
+        "Task 12b",
+        "V4-6"
+      ]
+    },
+    {
+      "id": "void-v2-t4-deterministic-family-fallback",
+      "authority": "V7-C",
+      "text": "V2-T4 / Task 4 deterministic family fallback is VOID/OMITTED.",
+      "applies_to": [
+        "Task 4",
+        "V2-T4"
+      ]
+    },
+    {
+      "id": "void-v2-t12b-task12b",
+      "authority": "V6-E",
+      "text": "V2-T12b and Task 12b (ops mapping into route_capabilities.json) were removed outright.",
+      "applies_to": [
+        "Task 12b",
+        "V2-T12b"
+      ]
+    },
+    {
+      "id": "void-set3-final-replacement-runs",
+      "authority": "V13-B",
+      "text": "No replacement paired benchmark: do not rerun set3_final, the 127-pair corpus, or any new NExtSEEK/Container-CC paired E2E for Plan 018 acceptance.",
+      "applies_to": [
+        "Task 7b",
+        "Task 10",
+        "Task 13",
+        "V4-2",
+        "V4-4",
+        "V4-9"
+      ]
+    },
+    {
+      "id": "void-hand-authored-bayes-manifest",
+      "authority": "V4-2",
+      "text": "Hand-authored BayesManifest fixtures cannot prove the producer.",
+      "applies_to": [
+        "V4-2",
+        "Task 10"
+      ]
+    },
+    {
+      "id": "void-historical-0010-filename",
+      "authority": "V4-0",
+      "text": "Historical prospective migration name 0010_turn_ledger.py is void; renumber/depend on actual merged-graph leaf.",
+      "applies_to": [
+        "Task 1",
+        "V4-0"
+      ]
+    },
+    {
+      "id": "void-destructive-reverse-migrate",
+      "authority": "V13-G",
+      "text": "Destructive persistent rollback, destructive reverse migration, and migrate ... 0009 dropping retained evaluation data are categorically forbidden.",
+      "applies_to": [
+        "Task 1",
+        "Task 13",
+        "V4-9",
+        "V2-rollback"
+      ]
+    },
+    {
+      "id": "void-created-at-gt-watermark",
+      "authority": "V10-H",
+      "text": "Historical Task 7 created_at__gt watermark test and non-incremental-export failure oracle are explicitly void.",
+      "applies_to": [
+        "Task 7"
+      ]
+    },
+    {
+      "id": "void-premature-beat-and-postcall-spend",
+      "authority": "V10-H",
+      "text": "Premature beat registration, post-call spend arithmetic, and skipped-live-test-as-acceptance are explicitly void.",
+      "applies_to": [
+        "Task 9",
+        "Task 10",
+        "Task 13",
+        "V4-8"
+      ]
+    },
+    {
+      "id": "void-v8-marginal-fit-aggregate",
+      "authority": "V10-E",
+      "text": "V8 (task_family, route) RouteFamilyAggregate marginal is not fit input and must not discard pair identity.",
+      "applies_to": [
+        "Task 7",
+        "Task 10",
+        "V4-4"
+      ]
+    },
+    {
+      "id": "void-max-of-three-confidence",
+      "authority": "V4",
+      "text": "Every V2/V3 reference to a max-of-three confidence value is void; DD-44 has no confidence field.",
+      "applies_to": [
+        "Task 10",
+        "V4-3",
+        "V4-4"
+      ]
+    },
+    {
+      "id": "void-v3-first-review-pass",
+      "authority": "V4",
+      "text": "First V3 review pass that did not inspect every NExtSEEK generation or deployment is void.",
+      "applies_to": [
+        "V4-0"
+      ]
+    },
+    {
+      "id": "void-paired-run-authorship-invalidation",
+      "authority": "V13-voids",
+      "text": "Claim that completed paired run is invalid because harness author (not this plan) initiated it is void (also V8-K).",
+      "applies_to": [
+        "V4-2",
+        "V13-A"
+      ]
+    },
+    {
+      "id": "void-historical-taxonomy-crosswalk",
+      "authority": "V13-voids",
+      "text": "Historical family crosswalk, aliases, rename/split/merge mappings, master taxonomy, cross-version pooling, or historical-observation migration are void.",
+      "applies_to": [
+        "V4-1",
+        "Task 3"
+      ]
+    },
+    {
+      "id": "void-dd44-disagreement-or-onecall",
+      "authority": "V13-voids",
+      "text": "DD-44 disagreement measurement or any path from three calls to one is void.",
+      "applies_to": [
+        "V4-3",
+        "Task 10"
+      ]
+    },
+    {
+      "id": "void-global-mutation-score-percentage",
+      "authority": "V13-voids",
+      "text": "Maintainer-approved global mutation-score percentage requirement is void; critical-mutant detection applies instead (V13-E).",
+      "applies_to": [
+        "Task 13",
+        "V4-9"
+      ]
+    },
+    {
+      "id": "void-commit-push-combined-gates",
+      "authority": "V13-voids",
+      "text": "Approval for candidate creation, test/local activation, local commits/merges, and combined commit/push gates are void; ask only before push/live mutation (V13-F).",
+      "applies_to": [
+        "V4-0",
+        "V4-5",
+        "Task 13"
+      ]
+    },
+    {
+      "id": "void-v5-1-v5-2-blockers",
+      "authority": "V13-voids",
+      "text": "V5-1 policy-program and V5-2 approval-infrastructure blockers are superseded/void as implementation blockers (V12/V11).",
+      "applies_to": [
+        "V4-0",
+        "Task 13"
+      ]
+    },
+    {
+      "id": "void-permissive-publisher-upsert",
+      "authority": "V10-H",
+      "text": "Permissive publisher upsert / mutable generation overwrite is void.",
+      "applies_to": [
+        "Task 10",
+        "V4-5"
+      ]
+    },
+    {
+      "id": "void-live-app-as-port-source",
+      "authority": "V4-0",
+      "text": "Live container /app and SA clone are evidence only — never port source or harness mount for implementation.",
+      "applies_to": [
+        "V4-0",
+        "V4-2",
+        "Task 6"
+      ]
+    }
+  ],
+  "validator_rules": [
+    "fail unmapped executable step",
+    "fail multiple active authorities for same step",
+    "fail execute void command"
+  ],
+  "coverage": {
+    "tasks_mapped": 16,
+    "waves_mapped": 10,
+    "explicit_voids": 23,
+    "clause_index_count": 91,
+    "unchecked_plan_boxes_note": "171 unchecked boxes remain as execution checklist; contract maps authorities not box completion"
+  }
+}

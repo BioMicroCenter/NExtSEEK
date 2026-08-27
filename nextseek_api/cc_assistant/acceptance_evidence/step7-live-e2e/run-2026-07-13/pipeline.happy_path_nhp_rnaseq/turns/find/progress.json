@@ -1,0 +1,2628 @@
+{
+  "task_id": "8b959e3b-db25-4153-ba90-aafe19ad30d6",
+  "session_id": "8191b56c-8983-4da2-8ef3-0f06268e3a7c",
+  "status": "completed",
+  "progress": [
+    {
+      "event": "route_decided",
+      "data": {
+        "route": "nextseek_query",
+        "model_class": null,
+        "source": "baml"
+      }
+    },
+    {
+      "event": "agent_started",
+      "data": {
+        "agent": "catalog",
+        "mode": ""
+      }
+    },
+    {
+      "event": "agent_complete",
+      "data": {
+        "agent": "catalog",
+        "summary": null
+      }
+    },
+    {
+      "event": "agent_started",
+      "data": {
+        "agent": "entity",
+        "mode": ""
+      }
+    },
+    {
+      "event": "agent_complete",
+      "data": {
+        "agent": "entity",
+        "summary": {
+          "sampletypes": [
+            {
+              "code": "NHP",
+              "name": "Non Human Primate"
+            },
+            {
+              "code": "D.SEQ",
+              "name": "Sequencing Data"
+            }
+          ],
+          "assays": [],
+          "keywords": [
+            "RNA-seq"
+          ],
+          "projects": [],
+          "labs": [],
+          "lab_codes": []
+        }
+      }
+    },
+    {
+      "event": "agent_started",
+      "data": {
+        "agent": "parser",
+        "mode": ""
+      }
+    },
+    {
+      "event": "agent_complete",
+      "data": {
+        "agent": "parser",
+        "summary": {
+          "mode": "new_search",
+          "endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/"
+        }
+      }
+    },
+    {
+      "event": "agent_started",
+      "data": {
+        "agent": "api",
+        "mode": "new_search"
+      }
+    },
+    {
+      "event": "agent_complete",
+      "data": {
+        "agent": "api",
+        "summary": {
+          "endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+          "method": "POST"
+        }
+      }
+    },
+    {
+      "event": "search_started",
+      "data": {
+        "source": "api",
+        "endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+        "method": "POST"
+      }
+    },
+    {
+      "event": "search_complete",
+      "data": {
+        "source": "api",
+        "ok": true,
+        "status_code": 200
+      }
+    },
+    {
+      "event": "agent_started",
+      "data": {
+        "agent": "chatter",
+        "mode": "search"
+      }
+    },
+    {
+      "event": "agent_complete",
+      "data": {
+        "agent": "chatter",
+        "summary": null
+      }
+    },
+    {
+      "event": "query_complete",
+      "data": {
+        "reply": "There are 139 Non-Human Primate (NHP) sequencing data (D.SEQ) samples matching your query. Representative sample UIDs include NHP-220913SED-16-PUB, NHP-220913SED-17-PUB, and NHP-220913SED-18-PUB.\n\n**Debug info**\n\n```json\n{\n  \"entity\": {\n    \"sampletypes\": [\n      {\n        \"code\": \"NHP\",\n        \"name\": \"Non Human Primate\"\n      },\n      {\n        \"code\": \"D.SEQ\",\n        \"name\": \"Sequencing Data\"\n      }\n    ],\n    \"assays\": [],\n    \"projects\": [],\n    \"filters\": {\n      \"sampletype_code\": \"NHP\",\n      \"assay_codes\": [],\n      \"keywords\": [\n        \"RNA-seq\"\n      ],\n      \"uids\": [],\n      \"lab_codes\": []\n    }\n  },\n  \"parser\": {\n    \"mode\": \"new_search\",\n    \"target_endpoint\": \"/nextseek_api/sample_types/get_parents/parents_by_child_types/\",\n    \"endpoint_candidates\": [\n      \"/nextseek_api/sample_types/get_parents/parents_by_child_types/\",\n      \"/nextseek_api/samples/advanced_search/\"\n    ]\n  },\n  \"api_agent\": {\n    \"requestBody\": {\n      \"child_sample_types\": [\n        \"D.SEQ\"\n      ],\n      \"parent_sample_type_filters\": [\n        \"NHP\"\n      ]\n    },\n    \"queryParameters\": {}\n  }\n}\n```",
+        "debug": {
+          "entity_result": {
+            "sampletypes": [
+              {
+                "code": "NHP",
+                "name": "Non Human Primate"
+              },
+              {
+                "code": "D.SEQ",
+                "name": "Sequencing Data"
+              }
+            ],
+            "assays": [],
+            "keywords": [
+              "RNA-seq"
+            ],
+            "projects": [],
+            "labs": [],
+            "lab_codes": []
+          },
+          "parser_plan": {
+            "mode": "new_search",
+            "target_endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+            "intent_summary": "Find NHP parent samples that have derived D.SEQ (sequencing data) children, filtered by RNA-seq keyword.",
+            "filters": {
+              "sampletype_code": "NHP",
+              "assay_codes": [],
+              "keywords": [
+                "RNA-seq"
+              ],
+              "uids": [],
+              "lab_codes": []
+            },
+            "resolved": {
+              "sampletypes": [
+                {
+                  "code": "NHP",
+                  "name": "Non Human Primate"
+                },
+                {
+                  "code": "D.SEQ",
+                  "name": "Sequencing Data"
+                }
+              ],
+              "assays": [],
+              "keywords": [
+                "RNA-seq"
+              ],
+              "projects": [],
+              "labs": [],
+              "lab_codes": []
+            },
+            "target_result_id": null,
+            "endpoint_candidates": [
+              "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+              "/nextseek_api/samples/advanced_search/"
+            ],
+            "notes": "User wants NHP samples that have RNA-seq sequencing data. This is a parent-by-child-type query: parent sampletype NHP with child sampletype D.SEQ, filtered by RNA-seq keyword. The parents_by_child_types endpoint directly satisfies this intent without requiring graph traversal.",
+            "previous_api_plan": null,
+            "previous_user_query": null,
+            "report_mode": null,
+            "report_type": null,
+            "metadata": {}
+          },
+          "shortlist_sampletype_codes": [
+            "NHP",
+            "RNA",
+            "A.GEX",
+            "D.FCS",
+            "A.MSP",
+            "PAV",
+            "D.SEQ",
+            "A.FLOW",
+            "A.LMX",
+            "A.DBMM",
+            "A.MUSP",
+            "A.IMP",
+            "D.ONC",
+            "A.CYTOF",
+            "D.SPC",
+            "D.CYTOF",
+            "D.XRS",
+            "A.SPTX",
+            "CEL",
+            "A.SCXP",
+            "LOC",
+            "AB",
+            "A.FPCL",
+            "OOC",
+            "D.FILE",
+            "SNSR",
+            "D.CRY",
+            "CHM",
+            "D.GPC",
+            "D.MBL",
+            "D.VIA",
+            "A.ALN",
+            "A.CNV",
+            "A.ELSA",
+            "D.WTR",
+            "D.FCRB",
+            "D.PRM",
+            "PAT",
+            "DNA",
+            "CEX",
+            "MUS",
+            "D.ADNP",
+            "TIS",
+            "VIR",
+            "SLD",
+            "D.MSI",
+            "D.ADCD",
+            "D.GPT",
+            "GAS",
+            "ABP"
+          ],
+          "shortlist_assay_codes": [
+            "Single Cell Clustering Analysis",
+            "Single Cell Sequencing",
+            "Single Cell Expression Analysis",
+            "CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing)",
+            "Flow Cytometry",
+            "CyTOF",
+            "ELISA",
+            "Flow Cytometry Analysis",
+            "Glycosylation Assay",
+            "Mass Spectrometry Analysis",
+            "Patient Visit",
+            "Spatial Metabolomics",
+            "Cell Extraction",
+            "Bacterial Extraction",
+            "Imaging Analysis",
+            "Antibody Functional Profiling (Systems Serology)",
+            "UV-Vis Spectroscopy",
+            "CometChip Assay",
+            "Immunohistochemistry",
+            "Field Water Quality Sensor Measurement",
+            "Antibody-Dependent Functional Profiling (ADFP)",
+            "Gel Permeation Chromatography (GPC)",
+            "Electron Paramagnetic Resonance (EPR) Spectroscopy",
+            "Cell Imaging",
+            "Targeted Cancer Gene Panel Sequencing (Oncopanel)",
+            "Luminex Data Processing",
+            "Real-time RT-PCR",
+            "Gene Expression Analysis",
+            "Single-Nucleus RNA Sequencing (snRNA-seq)",
+            "Library Creation",
+            "Long-Read Sequencing",
+            "Single Cell Sequencing",
+            "Chromatin Sequencing Analysis",
+            "Agglutination Assay",
+            "Antibody Titer Analysis",
+            "CITESEQ Analysis",
+            "Comet Chip",
+            "Crystallography",
+            "DNA Extraction",
+            "FC Receptor Binding Assay Analysis",
+            "Histopathology Analysis",
+            "ImmunoPeptideomics",
+            "Mutational Spectra Analysis",
+            "Nuclear Magnetic Resonance Spectroscopy Analysis",
+            "Spectroscopy Analysis",
+            "Western Blot",
+            "Cell Isolation",
+            "Magnetic Resonance Imaging (MRI)",
+            "Spatial Transcriptomics",
+            "Antibody Titer Assay Analysis",
+            "Electrochemical Sensor Assay",
+            "Illumina Next-Generation Sequencing",
+            "Absorption and Emission Spectroscopy",
+            "Mass Spectrometry",
+            "Alanine Aminotransferase (ALT/GPT) Activity Assay",
+            "Antibody-Dependent Cellular Phagocytosis (ADCP)",
+            "Antibody-Dependent Neutrophil Phagocytosis Analysis",
+            "Solid Phase Extraction (SPE)",
+            "Atomic Force Microscopy (AFM)",
+            "Proximity Extension Assay (PEA)",
+            "SureQuant Analysis",
+            "Western Blot Analysis",
+            "RNA Extraction",
+            "Chemical challenge",
+            "cDNA Synthesis",
+            "Tissue Collection",
+            "Genome Alignment",
+            "High Resolution Mass Spectra",
+            "Imaging",
+            "Spatial Proteomics",
+            "Tissue Imaging",
+            "X-ray Photoelectron Spectroscopy",
+            "Titer Assay",
+            "Sample Processing",
+            "Luminex Multiplex Immunoassay"
+          ],
+          "shortlist_diagnostics": {
+            "sampletype_codes": [
+              "NHP",
+              "RNA",
+              "A.GEX",
+              "D.FCS",
+              "A.MSP",
+              "PAV",
+              "D.SEQ",
+              "A.FLOW",
+              "A.LMX",
+              "A.DBMM",
+              "A.MUSP",
+              "A.IMP",
+              "D.ONC",
+              "A.CYTOF",
+              "D.SPC",
+              "D.CYTOF",
+              "D.XRS",
+              "A.SPTX",
+              "CEL",
+              "A.SCXP",
+              "LOC",
+              "AB",
+              "A.FPCL",
+              "OOC",
+              "D.FILE",
+              "SNSR",
+              "D.CRY",
+              "CHM",
+              "D.GPC",
+              "D.MBL",
+              "D.VIA",
+              "A.ALN",
+              "A.CNV",
+              "A.ELSA",
+              "D.WTR",
+              "D.FCRB",
+              "D.PRM",
+              "PAT",
+              "DNA",
+              "CEX",
+              "MUS",
+              "D.ADNP",
+              "TIS",
+              "VIR",
+              "SLD",
+              "D.MSI",
+              "D.ADCD",
+              "D.GPT",
+              "GAS",
+              "ABP"
+            ],
+            "sampletype_ranks": {},
+            "assay_codes": [
+              "Single Cell Clustering Analysis",
+              "Single Cell Sequencing",
+              "Single Cell Expression Analysis",
+              "CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing)",
+              "Flow Cytometry",
+              "CyTOF",
+              "ELISA",
+              "Flow Cytometry Analysis",
+              "Glycosylation Assay",
+              "Mass Spectrometry Analysis",
+              "Patient Visit",
+              "Spatial Metabolomics",
+              "Cell Extraction",
+              "Bacterial Extraction",
+              "Imaging Analysis",
+              "Antibody Functional Profiling (Systems Serology)",
+              "UV-Vis Spectroscopy",
+              "CometChip Assay",
+              "Immunohistochemistry",
+              "Field Water Quality Sensor Measurement",
+              "Antibody-Dependent Functional Profiling (ADFP)",
+              "Gel Permeation Chromatography (GPC)",
+              "Electron Paramagnetic Resonance (EPR) Spectroscopy",
+              "Cell Imaging",
+              "Targeted Cancer Gene Panel Sequencing (Oncopanel)",
+              "Luminex Data Processing",
+              "Real-time RT-PCR",
+              "Gene Expression Analysis",
+              "Single-Nucleus RNA Sequencing (snRNA-seq)",
+              "Library Creation",
+              "Long-Read Sequencing",
+              "Single Cell Sequencing",
+              "Chromatin Sequencing Analysis",
+              "Agglutination Assay",
+              "Antibody Titer Analysis",
+              "CITESEQ Analysis",
+              "Comet Chip",
+              "Crystallography",
+              "DNA Extraction",
+              "FC Receptor Binding Assay Analysis",
+              "Histopathology Analysis",
+              "ImmunoPeptideomics",
+              "Mutational Spectra Analysis",
+              "Nuclear Magnetic Resonance Spectroscopy Analysis",
+              "Spectroscopy Analysis",
+              "Western Blot",
+              "Cell Isolation",
+              "Magnetic Resonance Imaging (MRI)",
+              "Spatial Transcriptomics",
+              "Antibody Titer Assay Analysis",
+              "Electrochemical Sensor Assay",
+              "Illumina Next-Generation Sequencing",
+              "Absorption and Emission Spectroscopy",
+              "Mass Spectrometry",
+              "Alanine Aminotransferase (ALT/GPT) Activity Assay",
+              "Antibody-Dependent Cellular Phagocytosis (ADCP)",
+              "Antibody-Dependent Neutrophil Phagocytosis Analysis",
+              "Solid Phase Extraction (SPE)",
+              "Atomic Force Microscopy (AFM)",
+              "Proximity Extension Assay (PEA)",
+              "SureQuant Analysis",
+              "Western Blot Analysis",
+              "RNA Extraction",
+              "Chemical challenge",
+              "cDNA Synthesis",
+              "Tissue Collection",
+              "Genome Alignment",
+              "High Resolution Mass Spectra",
+              "Imaging",
+              "Spatial Proteomics",
+              "Tissue Imaging",
+              "X-ray Photoelectron Spectroscopy",
+              "Titer Assay",
+              "Sample Processing",
+              "Luminex Multiplex Immunoassay"
+            ],
+            "assay_ranks": {},
+            "enabled": false,
+            "fallback_reason": null
+          },
+          "api_plan": {
+            "endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+            "method": "POST",
+            "requestBody": {
+              "child_sample_types": [
+                "D.SEQ"
+              ],
+              "parent_sample_type_filters": [
+                "NHP"
+              ]
+            },
+            "queryParameters": {},
+            "notes": "The keyword 'RNA-seq' could not be applied because this endpoint does not support free-text search or keyword filtering."
+          },
+          "reporter_plan": null,
+          "reporter_result": null,
+          "report_writer_output": null,
+          "reporter_metadata": null,
+          "api_result_meta": {
+            "ok": true,
+            "status_code": 200,
+            "url": "http://127.0.0.1:8000/nextseek_api/sample_types/get_parents/parents_by_child_types/"
+          },
+          "api_result_slim": {
+            "ok": true,
+            "url": "http://127.0.0.1:8000/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+            "status_code": 200,
+            "method": "POST",
+            "query": {
+              "page_size": 1000
+            },
+            "body": {
+              "child_sample_types": [
+                "D.SEQ"
+              ],
+              "parent_sample_type_filters": [
+                "NHP"
+              ]
+            },
+            "data": {
+              "total": 139,
+              "items_preview": [],
+              "items_truncated": true,
+              "note": "Result truncated for LLM context (>5000 chars)."
+            }
+          },
+          "api_result_full": {
+            "ok": true,
+            "url": "http://127.0.0.1:8000/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+            "status_code": 200,
+            "method": "POST",
+            "query": {
+              "page_size": 1000
+            },
+            "body": {
+              "child_sample_types": [
+                "D.SEQ"
+              ],
+              "parent_sample_type_filters": [
+                "NHP"
+              ]
+            },
+            "data": {
+              "total": 139,
+              "samples": [
+                {
+                  "id": "320399",
+                  "uuid": "NHP-220913SED-16-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320401",
+                  "uuid": "NHP-220913SED-17-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320403",
+                  "uuid": "NHP-220913SED-18-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320405",
+                  "uuid": "NHP-220913SED-19-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320407",
+                  "uuid": "NHP-220913SED-2-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320409",
+                  "uuid": "NHP-220913SED-3-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320411",
+                  "uuid": "NHP-220913SED-4-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320413",
+                  "uuid": "NHP-220913SED-5-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320415",
+                  "uuid": "NHP-220913SED-6-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320417",
+                  "uuid": "NHP-220913SED-7-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320419",
+                  "uuid": "NHP-220913SED-8-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320421",
+                  "uuid": "NHP-220913SED-9-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320495",
+                  "uuid": "NHP-240116FLY-1-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320497",
+                  "uuid": "NHP-240116FLY-11-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320498",
+                  "uuid": "NHP-240116FLY-12-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320499",
+                  "uuid": "NHP-240116FLY-13-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320500",
+                  "uuid": "NHP-240116FLY-14-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320501",
+                  "uuid": "NHP-240116FLY-2-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320502",
+                  "uuid": "NHP-240116FLY-3-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320503",
+                  "uuid": "NHP-240116FLY-4-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320504",
+                  "uuid": "NHP-240116FLY-5-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320505",
+                  "uuid": "NHP-240116FLY-6-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320506",
+                  "uuid": "NHP-240116FLY-7-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320507",
+                  "uuid": "NHP-240116FLY-8-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "320508",
+                  "uuid": "NHP-240116FLY-9-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366470",
+                  "uuid": "NHP-220119FLY-1-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366471",
+                  "uuid": "NHP-220119FLY-2-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366472",
+                  "uuid": "NHP-220119FLY-3-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366473",
+                  "uuid": "NHP-220119FLY-4-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366474",
+                  "uuid": "NHP-220416FLY-1-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366476",
+                  "uuid": "NHP-220416FLY-2-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366478",
+                  "uuid": "NHP-220416FLY-3-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366480",
+                  "uuid": "NHP-220416FLY-4-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366482",
+                  "uuid": "NHP-220524FLY-1-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366483",
+                  "uuid": "NHP-220524FLY-2-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366484",
+                  "uuid": "NHP-220630FLY-1-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366485",
+                  "uuid": "NHP-220630FLY-10-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366486",
+                  "uuid": "NHP-220630FLY-11-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366487",
+                  "uuid": "NHP-220630FLY-12-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366488",
+                  "uuid": "NHP-220630FLY-13-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366489",
+                  "uuid": "NHP-220630FLY-14-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366490",
+                  "uuid": "NHP-220630FLY-15-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366491",
+                  "uuid": "NHP-220630FLY-16-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366492",
+                  "uuid": "NHP-220630FLY-17-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366493",
+                  "uuid": "NHP-220630FLY-18-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366494",
+                  "uuid": "NHP-220630FLY-19-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366495",
+                  "uuid": "NHP-220630FLY-2-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366496",
+                  "uuid": "NHP-220630FLY-20-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366497",
+                  "uuid": "NHP-220630FLY-21-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366498",
+                  "uuid": "NHP-220630FLY-22-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366499",
+                  "uuid": "NHP-220630FLY-23-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366500",
+                  "uuid": "NHP-220630FLY-24-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366501",
+                  "uuid": "NHP-220630FLY-25-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366502",
+                  "uuid": "NHP-220630FLY-26-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366503",
+                  "uuid": "NHP-220630FLY-27-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366504",
+                  "uuid": "NHP-220630FLY-28-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366505",
+                  "uuid": "NHP-220630FLY-29-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366506",
+                  "uuid": "NHP-220630FLY-3-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366507",
+                  "uuid": "NHP-220630FLY-30-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366508",
+                  "uuid": "NHP-220630FLY-31-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366509",
+                  "uuid": "NHP-220630FLY-32-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366510",
+                  "uuid": "NHP-220630FLY-33-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366511",
+                  "uuid": "NHP-220630FLY-34-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366513",
+                  "uuid": "NHP-220630FLY-4-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366524",
+                  "uuid": "NHP-220630FLY-5-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366535",
+                  "uuid": "NHP-220630FLY-6-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366538",
+                  "uuid": "NHP-220630FLY-7-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366539",
+                  "uuid": "NHP-220630FLY-8-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366540",
+                  "uuid": "NHP-220630FLY-9-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366543",
+                  "uuid": "NHP-220830FLY-1-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366544",
+                  "uuid": "NHP-220830FLY-10-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366546",
+                  "uuid": "NHP-220830FLY-11-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366547",
+                  "uuid": "NHP-220830FLY-12-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366548",
+                  "uuid": "NHP-220830FLY-13-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366549",
+                  "uuid": "NHP-220830FLY-14-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366551",
+                  "uuid": "NHP-220830FLY-15-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366554",
+                  "uuid": "NHP-220830FLY-18-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366555",
+                  "uuid": "NHP-220830FLY-19-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366556",
+                  "uuid": "NHP-220830FLY-2-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366557",
+                  "uuid": "NHP-220830FLY-20-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366560",
+                  "uuid": "NHP-220830FLY-24-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366561",
+                  "uuid": "NHP-220830FLY-25-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366563",
+                  "uuid": "NHP-220830FLY-27-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366564",
+                  "uuid": "NHP-220830FLY-28-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366566",
+                  "uuid": "NHP-220830FLY-3-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366568",
+                  "uuid": "NHP-220830FLY-30-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366569",
+                  "uuid": "NHP-220830FLY-31-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366571",
+                  "uuid": "NHP-220830FLY-33-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366574",
+                  "uuid": "NHP-220830FLY-35-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366575",
+                  "uuid": "NHP-220830FLY-36-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366576",
+                  "uuid": "NHP-220830FLY-37-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366577",
+                  "uuid": "NHP-220830FLY-38-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366585",
+                  "uuid": "NHP-220830FLY-42-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366586",
+                  "uuid": "NHP-220830FLY-43-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366587",
+                  "uuid": "NHP-220830FLY-44-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366589",
+                  "uuid": "NHP-220830FLY-45-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366591",
+                  "uuid": "NHP-220830FLY-48-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366592",
+                  "uuid": "NHP-220830FLY-5-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366598",
+                  "uuid": "NHP-220830FLY-52-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366599",
+                  "uuid": "NHP-220830FLY-53-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366600",
+                  "uuid": "NHP-220830FLY-54-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366607",
+                  "uuid": "NHP-220830FLY-6-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366608",
+                  "uuid": "NHP-220830FLY-60-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366610",
+                  "uuid": "NHP-220830FLY-62-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366612",
+                  "uuid": "NHP-220830FLY-63-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366613",
+                  "uuid": "NHP-220830FLY-64-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366616",
+                  "uuid": "NHP-220830FLY-66-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366618",
+                  "uuid": "NHP-220830FLY-67-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366619",
+                  "uuid": "NHP-220830FLY-68-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366621",
+                  "uuid": "NHP-220830FLY-7-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366623",
+                  "uuid": "NHP-220830FLY-70-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366624",
+                  "uuid": "NHP-220830FLY-71-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366625",
+                  "uuid": "NHP-220830FLY-72-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366626",
+                  "uuid": "NHP-220830FLY-73-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366628",
+                  "uuid": "NHP-220830FLY-74-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366629",
+                  "uuid": "NHP-220830FLY-75-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366630",
+                  "uuid": "NHP-220830FLY-77-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366631",
+                  "uuid": "NHP-220830FLY-78-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366632",
+                  "uuid": "NHP-220830FLY-79-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366633",
+                  "uuid": "NHP-220830FLY-8-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366634",
+                  "uuid": "NHP-220830FLY-80-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366635",
+                  "uuid": "NHP-220830FLY-9-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366636",
+                  "uuid": "NHP-220913FLY-1-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366639",
+                  "uuid": "NHP-220913FLY-10-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366642",
+                  "uuid": "NHP-220913FLY-2-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366645",
+                  "uuid": "NHP-220913FLY-3-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366648",
+                  "uuid": "NHP-220913FLY-4-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366651",
+                  "uuid": "NHP-220913FLY-5-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366654",
+                  "uuid": "NHP-220913FLY-6-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366657",
+                  "uuid": "NHP-220913FLY-7-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366660",
+                  "uuid": "NHP-220913FLY-8-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366663",
+                  "uuid": "NHP-220913FLY-9-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366666",
+                  "uuid": "NHP-220913SED-1-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366668",
+                  "uuid": "NHP-220913SED-10-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366670",
+                  "uuid": "NHP-220913SED-11-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366672",
+                  "uuid": "NHP-220913SED-12-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366674",
+                  "uuid": "NHP-220913SED-13-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366676",
+                  "uuid": "NHP-220913SED-14-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                },
+                {
+                  "id": "366678",
+                  "uuid": "NHP-220913SED-15-PUB",
+                  "sample_type": "NHP",
+                  "sample_type_description": "Non Human Primates"
+                }
+              ],
+              "msg": "OK"
+            }
+          },
+          "raw_json_path": "/app/outputs/260713_222028_demo/files/api/api_result_bundle_1.json",
+          "error_context": null
+        },
+        "bundle_id": 1,
+        "files": [
+          {
+            "key": "api_result",
+            "label": "Full API result JSON",
+            "path": "/app/outputs/260713_222028_demo/files/api/api_result_bundle_1.json",
+            "filename": "api_result_bundle_1.json",
+            "mime": "application/json",
+            "kind": "api",
+            "bundle_id": 1
+          }
+        ],
+        "session_id": "8191b56c-8983-4da2-8ef3-0f06268e3a7c"
+      }
+    }
+  ],
+  "result": {
+    "reply": "There are 139 Non-Human Primate (NHP) sequencing data (D.SEQ) samples matching your query. Representative sample UIDs include NHP-220913SED-16-PUB, NHP-220913SED-17-PUB, and NHP-220913SED-18-PUB.\n\n**Debug info**\n\n```json\n{\n  \"entity\": {\n    \"sampletypes\": [\n      {\n        \"code\": \"NHP\",\n        \"name\": \"Non Human Primate\"\n      },\n      {\n        \"code\": \"D.SEQ\",\n        \"name\": \"Sequencing Data\"\n      }\n    ],\n    \"assays\": [],\n    \"projects\": [],\n    \"filters\": {\n      \"sampletype_code\": \"NHP\",\n      \"assay_codes\": [],\n      \"keywords\": [\n        \"RNA-seq\"\n      ],\n      \"uids\": [],\n      \"lab_codes\": []\n    }\n  },\n  \"parser\": {\n    \"mode\": \"new_search\",\n    \"target_endpoint\": \"/nextseek_api/sample_types/get_parents/parents_by_child_types/\",\n    \"endpoint_candidates\": [\n      \"/nextseek_api/sample_types/get_parents/parents_by_child_types/\",\n      \"/nextseek_api/samples/advanced_search/\"\n    ]\n  },\n  \"api_agent\": {\n    \"requestBody\": {\n      \"child_sample_types\": [\n        \"D.SEQ\"\n      ],\n      \"parent_sample_type_filters\": [\n        \"NHP\"\n      ]\n    },\n    \"queryParameters\": {}\n  }\n}\n```",
+    "debug": {
+      "entity_result": {
+        "sampletypes": [
+          {
+            "code": "NHP",
+            "name": "Non Human Primate"
+          },
+          {
+            "code": "D.SEQ",
+            "name": "Sequencing Data"
+          }
+        ],
+        "assays": [],
+        "keywords": [
+          "RNA-seq"
+        ],
+        "projects": [],
+        "labs": [],
+        "lab_codes": []
+      },
+      "parser_plan": {
+        "mode": "new_search",
+        "target_endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+        "intent_summary": "Find NHP parent samples that have derived D.SEQ (sequencing data) children, filtered by RNA-seq keyword.",
+        "filters": {
+          "sampletype_code": "NHP",
+          "assay_codes": [],
+          "keywords": [
+            "RNA-seq"
+          ],
+          "uids": [],
+          "lab_codes": []
+        },
+        "resolved": {
+          "sampletypes": [
+            {
+              "code": "NHP",
+              "name": "Non Human Primate"
+            },
+            {
+              "code": "D.SEQ",
+              "name": "Sequencing Data"
+            }
+          ],
+          "assays": [],
+          "keywords": [
+            "RNA-seq"
+          ],
+          "projects": [],
+          "labs": [],
+          "lab_codes": []
+        },
+        "target_result_id": null,
+        "endpoint_candidates": [
+          "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+          "/nextseek_api/samples/advanced_search/"
+        ],
+        "notes": "User wants NHP samples that have RNA-seq sequencing data. This is a parent-by-child-type query: parent sampletype NHP with child sampletype D.SEQ, filtered by RNA-seq keyword. The parents_by_child_types endpoint directly satisfies this intent without requiring graph traversal.",
+        "previous_api_plan": null,
+        "previous_user_query": null,
+        "report_mode": null,
+        "report_type": null,
+        "metadata": {}
+      },
+      "shortlist_sampletype_codes": [
+        "NHP",
+        "RNA",
+        "A.GEX",
+        "D.FCS",
+        "A.MSP",
+        "PAV",
+        "D.SEQ",
+        "A.FLOW",
+        "A.LMX",
+        "A.DBMM",
+        "A.MUSP",
+        "A.IMP",
+        "D.ONC",
+        "A.CYTOF",
+        "D.SPC",
+        "D.CYTOF",
+        "D.XRS",
+        "A.SPTX",
+        "CEL",
+        "A.SCXP",
+        "LOC",
+        "AB",
+        "A.FPCL",
+        "OOC",
+        "D.FILE",
+        "SNSR",
+        "D.CRY",
+        "CHM",
+        "D.GPC",
+        "D.MBL",
+        "D.VIA",
+        "A.ALN",
+        "A.CNV",
+        "A.ELSA",
+        "D.WTR",
+        "D.FCRB",
+        "D.PRM",
+        "PAT",
+        "DNA",
+        "CEX",
+        "MUS",
+        "D.ADNP",
+        "TIS",
+        "VIR",
+        "SLD",
+        "D.MSI",
+        "D.ADCD",
+        "D.GPT",
+        "GAS",
+        "ABP"
+      ],
+      "shortlist_assay_codes": [
+        "Single Cell Clustering Analysis",
+        "Single Cell Sequencing",
+        "Single Cell Expression Analysis",
+        "CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing)",
+        "Flow Cytometry",
+        "CyTOF",
+        "ELISA",
+        "Flow Cytometry Analysis",
+        "Glycosylation Assay",
+        "Mass Spectrometry Analysis",
+        "Patient Visit",
+        "Spatial Metabolomics",
+        "Cell Extraction",
+        "Bacterial Extraction",
+        "Imaging Analysis",
+        "Antibody Functional Profiling (Systems Serology)",
+        "UV-Vis Spectroscopy",
+        "CometChip Assay",
+        "Immunohistochemistry",
+        "Field Water Quality Sensor Measurement",
+        "Antibody-Dependent Functional Profiling (ADFP)",
+        "Gel Permeation Chromatography (GPC)",
+        "Electron Paramagnetic Resonance (EPR) Spectroscopy",
+        "Cell Imaging",
+        "Targeted Cancer Gene Panel Sequencing (Oncopanel)",
+        "Luminex Data Processing",
+        "Real-time RT-PCR",
+        "Gene Expression Analysis",
+        "Single-Nucleus RNA Sequencing (snRNA-seq)",
+        "Library Creation",
+        "Long-Read Sequencing",
+        "Single Cell Sequencing",
+        "Chromatin Sequencing Analysis",
+        "Agglutination Assay",
+        "Antibody Titer Analysis",
+        "CITESEQ Analysis",
+        "Comet Chip",
+        "Crystallography",
+        "DNA Extraction",
+        "FC Receptor Binding Assay Analysis",
+        "Histopathology Analysis",
+        "ImmunoPeptideomics",
+        "Mutational Spectra Analysis",
+        "Nuclear Magnetic Resonance Spectroscopy Analysis",
+        "Spectroscopy Analysis",
+        "Western Blot",
+        "Cell Isolation",
+        "Magnetic Resonance Imaging (MRI)",
+        "Spatial Transcriptomics",
+        "Antibody Titer Assay Analysis",
+        "Electrochemical Sensor Assay",
+        "Illumina Next-Generation Sequencing",
+        "Absorption and Emission Spectroscopy",
+        "Mass Spectrometry",
+        "Alanine Aminotransferase (ALT/GPT) Activity Assay",
+        "Antibody-Dependent Cellular Phagocytosis (ADCP)",
+        "Antibody-Dependent Neutrophil Phagocytosis Analysis",
+        "Solid Phase Extraction (SPE)",
+        "Atomic Force Microscopy (AFM)",
+        "Proximity Extension Assay (PEA)",
+        "SureQuant Analysis",
+        "Western Blot Analysis",
+        "RNA Extraction",
+        "Chemical challenge",
+        "cDNA Synthesis",
+        "Tissue Collection",
+        "Genome Alignment",
+        "High Resolution Mass Spectra",
+        "Imaging",
+        "Spatial Proteomics",
+        "Tissue Imaging",
+        "X-ray Photoelectron Spectroscopy",
+        "Titer Assay",
+        "Sample Processing",
+        "Luminex Multiplex Immunoassay"
+      ],
+      "shortlist_diagnostics": {
+        "sampletype_codes": [
+          "NHP",
+          "RNA",
+          "A.GEX",
+          "D.FCS",
+          "A.MSP",
+          "PAV",
+          "D.SEQ",
+          "A.FLOW",
+          "A.LMX",
+          "A.DBMM",
+          "A.MUSP",
+          "A.IMP",
+          "D.ONC",
+          "A.CYTOF",
+          "D.SPC",
+          "D.CYTOF",
+          "D.XRS",
+          "A.SPTX",
+          "CEL",
+          "A.SCXP",
+          "LOC",
+          "AB",
+          "A.FPCL",
+          "OOC",
+          "D.FILE",
+          "SNSR",
+          "D.CRY",
+          "CHM",
+          "D.GPC",
+          "D.MBL",
+          "D.VIA",
+          "A.ALN",
+          "A.CNV",
+          "A.ELSA",
+          "D.WTR",
+          "D.FCRB",
+          "D.PRM",
+          "PAT",
+          "DNA",
+          "CEX",
+          "MUS",
+          "D.ADNP",
+          "TIS",
+          "VIR",
+          "SLD",
+          "D.MSI",
+          "D.ADCD",
+          "D.GPT",
+          "GAS",
+          "ABP"
+        ],
+        "sampletype_ranks": {},
+        "assay_codes": [
+          "Single Cell Clustering Analysis",
+          "Single Cell Sequencing",
+          "Single Cell Expression Analysis",
+          "CITE-seq (Cellular Indexing of Transcriptomes and Epitopes by Sequencing)",
+          "Flow Cytometry",
+          "CyTOF",
+          "ELISA",
+          "Flow Cytometry Analysis",
+          "Glycosylation Assay",
+          "Mass Spectrometry Analysis",
+          "Patient Visit",
+          "Spatial Metabolomics",
+          "Cell Extraction",
+          "Bacterial Extraction",
+          "Imaging Analysis",
+          "Antibody Functional Profiling (Systems Serology)",
+          "UV-Vis Spectroscopy",
+          "CometChip Assay",
+          "Immunohistochemistry",
+          "Field Water Quality Sensor Measurement",
+          "Antibody-Dependent Functional Profiling (ADFP)",
+          "Gel Permeation Chromatography (GPC)",
+          "Electron Paramagnetic Resonance (EPR) Spectroscopy",
+          "Cell Imaging",
+          "Targeted Cancer Gene Panel Sequencing (Oncopanel)",
+          "Luminex Data Processing",
+          "Real-time RT-PCR",
+          "Gene Expression Analysis",
+          "Single-Nucleus RNA Sequencing (snRNA-seq)",
+          "Library Creation",
+          "Long-Read Sequencing",
+          "Single Cell Sequencing",
+          "Chromatin Sequencing Analysis",
+          "Agglutination Assay",
+          "Antibody Titer Analysis",
+          "CITESEQ Analysis",
+          "Comet Chip",
+          "Crystallography",
+          "DNA Extraction",
+          "FC Receptor Binding Assay Analysis",
+          "Histopathology Analysis",
+          "ImmunoPeptideomics",
+          "Mutational Spectra Analysis",
+          "Nuclear Magnetic Resonance Spectroscopy Analysis",
+          "Spectroscopy Analysis",
+          "Western Blot",
+          "Cell Isolation",
+          "Magnetic Resonance Imaging (MRI)",
+          "Spatial Transcriptomics",
+          "Antibody Titer Assay Analysis",
+          "Electrochemical Sensor Assay",
+          "Illumina Next-Generation Sequencing",
+          "Absorption and Emission Spectroscopy",
+          "Mass Spectrometry",
+          "Alanine Aminotransferase (ALT/GPT) Activity Assay",
+          "Antibody-Dependent Cellular Phagocytosis (ADCP)",
+          "Antibody-Dependent Neutrophil Phagocytosis Analysis",
+          "Solid Phase Extraction (SPE)",
+          "Atomic Force Microscopy (AFM)",
+          "Proximity Extension Assay (PEA)",
+          "SureQuant Analysis",
+          "Western Blot Analysis",
+          "RNA Extraction",
+          "Chemical challenge",
+          "cDNA Synthesis",
+          "Tissue Collection",
+          "Genome Alignment",
+          "High Resolution Mass Spectra",
+          "Imaging",
+          "Spatial Proteomics",
+          "Tissue Imaging",
+          "X-ray Photoelectron Spectroscopy",
+          "Titer Assay",
+          "Sample Processing",
+          "Luminex Multiplex Immunoassay"
+        ],
+        "assay_ranks": {},
+        "enabled": false,
+        "fallback_reason": null
+      },
+      "api_plan": {
+        "endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+        "method": "POST",
+        "requestBody": {
+          "child_sample_types": [
+            "D.SEQ"
+          ],
+          "parent_sample_type_filters": [
+            "NHP"
+          ]
+        },
+        "queryParameters": {},
+        "notes": "The keyword 'RNA-seq' could not be applied because this endpoint does not support free-text search or keyword filtering."
+      },
+      "reporter_plan": null,
+      "reporter_result": null,
+      "report_writer_output": null,
+      "reporter_metadata": null,
+      "api_result_meta": {
+        "ok": true,
+        "status_code": 200,
+        "url": "http://127.0.0.1:8000/nextseek_api/sample_types/get_parents/parents_by_child_types/"
+      },
+      "api_result_slim": {
+        "ok": true,
+        "url": "http://127.0.0.1:8000/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+        "status_code": 200,
+        "method": "POST",
+        "query": {
+          "page_size": 1000
+        },
+        "body": {
+          "child_sample_types": [
+            "D.SEQ"
+          ],
+          "parent_sample_type_filters": [
+            "NHP"
+          ]
+        },
+        "data": {
+          "total": 139,
+          "items_preview": [],
+          "items_truncated": true,
+          "note": "Result truncated for LLM context (>5000 chars)."
+        }
+      },
+      "api_result_full": {
+        "ok": true,
+        "url": "http://127.0.0.1:8000/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+        "status_code": 200,
+        "method": "POST",
+        "query": {
+          "page_size": 1000
+        },
+        "body": {
+          "child_sample_types": [
+            "D.SEQ"
+          ],
+          "parent_sample_type_filters": [
+            "NHP"
+          ]
+        },
+        "data": {
+          "total": 139,
+          "samples": [
+            {
+              "id": "320399",
+              "uuid": "NHP-220913SED-16-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320401",
+              "uuid": "NHP-220913SED-17-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320403",
+              "uuid": "NHP-220913SED-18-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320405",
+              "uuid": "NHP-220913SED-19-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320407",
+              "uuid": "NHP-220913SED-2-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320409",
+              "uuid": "NHP-220913SED-3-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320411",
+              "uuid": "NHP-220913SED-4-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320413",
+              "uuid": "NHP-220913SED-5-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320415",
+              "uuid": "NHP-220913SED-6-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320417",
+              "uuid": "NHP-220913SED-7-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320419",
+              "uuid": "NHP-220913SED-8-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320421",
+              "uuid": "NHP-220913SED-9-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320495",
+              "uuid": "NHP-240116FLY-1-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320497",
+              "uuid": "NHP-240116FLY-11-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320498",
+              "uuid": "NHP-240116FLY-12-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320499",
+              "uuid": "NHP-240116FLY-13-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320500",
+              "uuid": "NHP-240116FLY-14-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320501",
+              "uuid": "NHP-240116FLY-2-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320502",
+              "uuid": "NHP-240116FLY-3-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320503",
+              "uuid": "NHP-240116FLY-4-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320504",
+              "uuid": "NHP-240116FLY-5-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320505",
+              "uuid": "NHP-240116FLY-6-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320506",
+              "uuid": "NHP-240116FLY-7-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320507",
+              "uuid": "NHP-240116FLY-8-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "320508",
+              "uuid": "NHP-240116FLY-9-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366470",
+              "uuid": "NHP-220119FLY-1-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366471",
+              "uuid": "NHP-220119FLY-2-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366472",
+              "uuid": "NHP-220119FLY-3-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366473",
+              "uuid": "NHP-220119FLY-4-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366474",
+              "uuid": "NHP-220416FLY-1-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366476",
+              "uuid": "NHP-220416FLY-2-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366478",
+              "uuid": "NHP-220416FLY-3-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366480",
+              "uuid": "NHP-220416FLY-4-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366482",
+              "uuid": "NHP-220524FLY-1-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366483",
+              "uuid": "NHP-220524FLY-2-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366484",
+              "uuid": "NHP-220630FLY-1-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366485",
+              "uuid": "NHP-220630FLY-10-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366486",
+              "uuid": "NHP-220630FLY-11-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366487",
+              "uuid": "NHP-220630FLY-12-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366488",
+              "uuid": "NHP-220630FLY-13-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366489",
+              "uuid": "NHP-220630FLY-14-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366490",
+              "uuid": "NHP-220630FLY-15-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366491",
+              "uuid": "NHP-220630FLY-16-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366492",
+              "uuid": "NHP-220630FLY-17-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366493",
+              "uuid": "NHP-220630FLY-18-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366494",
+              "uuid": "NHP-220630FLY-19-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366495",
+              "uuid": "NHP-220630FLY-2-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366496",
+              "uuid": "NHP-220630FLY-20-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366497",
+              "uuid": "NHP-220630FLY-21-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366498",
+              "uuid": "NHP-220630FLY-22-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366499",
+              "uuid": "NHP-220630FLY-23-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366500",
+              "uuid": "NHP-220630FLY-24-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366501",
+              "uuid": "NHP-220630FLY-25-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366502",
+              "uuid": "NHP-220630FLY-26-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366503",
+              "uuid": "NHP-220630FLY-27-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366504",
+              "uuid": "NHP-220630FLY-28-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366505",
+              "uuid": "NHP-220630FLY-29-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366506",
+              "uuid": "NHP-220630FLY-3-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366507",
+              "uuid": "NHP-220630FLY-30-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366508",
+              "uuid": "NHP-220630FLY-31-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366509",
+              "uuid": "NHP-220630FLY-32-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366510",
+              "uuid": "NHP-220630FLY-33-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366511",
+              "uuid": "NHP-220630FLY-34-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366513",
+              "uuid": "NHP-220630FLY-4-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366524",
+              "uuid": "NHP-220630FLY-5-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366535",
+              "uuid": "NHP-220630FLY-6-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366538",
+              "uuid": "NHP-220630FLY-7-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366539",
+              "uuid": "NHP-220630FLY-8-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366540",
+              "uuid": "NHP-220630FLY-9-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366543",
+              "uuid": "NHP-220830FLY-1-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366544",
+              "uuid": "NHP-220830FLY-10-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366546",
+              "uuid": "NHP-220830FLY-11-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366547",
+              "uuid": "NHP-220830FLY-12-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366548",
+              "uuid": "NHP-220830FLY-13-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366549",
+              "uuid": "NHP-220830FLY-14-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366551",
+              "uuid": "NHP-220830FLY-15-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366554",
+              "uuid": "NHP-220830FLY-18-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366555",
+              "uuid": "NHP-220830FLY-19-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366556",
+              "uuid": "NHP-220830FLY-2-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366557",
+              "uuid": "NHP-220830FLY-20-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366560",
+              "uuid": "NHP-220830FLY-24-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366561",
+              "uuid": "NHP-220830FLY-25-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366563",
+              "uuid": "NHP-220830FLY-27-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366564",
+              "uuid": "NHP-220830FLY-28-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366566",
+              "uuid": "NHP-220830FLY-3-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366568",
+              "uuid": "NHP-220830FLY-30-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366569",
+              "uuid": "NHP-220830FLY-31-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366571",
+              "uuid": "NHP-220830FLY-33-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366574",
+              "uuid": "NHP-220830FLY-35-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366575",
+              "uuid": "NHP-220830FLY-36-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366576",
+              "uuid": "NHP-220830FLY-37-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366577",
+              "uuid": "NHP-220830FLY-38-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366585",
+              "uuid": "NHP-220830FLY-42-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366586",
+              "uuid": "NHP-220830FLY-43-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366587",
+              "uuid": "NHP-220830FLY-44-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366589",
+              "uuid": "NHP-220830FLY-45-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366591",
+              "uuid": "NHP-220830FLY-48-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366592",
+              "uuid": "NHP-220830FLY-5-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366598",
+              "uuid": "NHP-220830FLY-52-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366599",
+              "uuid": "NHP-220830FLY-53-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366600",
+              "uuid": "NHP-220830FLY-54-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366607",
+              "uuid": "NHP-220830FLY-6-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366608",
+              "uuid": "NHP-220830FLY-60-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366610",
+              "uuid": "NHP-220830FLY-62-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366612",
+              "uuid": "NHP-220830FLY-63-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366613",
+              "uuid": "NHP-220830FLY-64-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366616",
+              "uuid": "NHP-220830FLY-66-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366618",
+              "uuid": "NHP-220830FLY-67-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366619",
+              "uuid": "NHP-220830FLY-68-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366621",
+              "uuid": "NHP-220830FLY-7-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366623",
+              "uuid": "NHP-220830FLY-70-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366624",
+              "uuid": "NHP-220830FLY-71-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366625",
+              "uuid": "NHP-220830FLY-72-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366626",
+              "uuid": "NHP-220830FLY-73-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366628",
+              "uuid": "NHP-220830FLY-74-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366629",
+              "uuid": "NHP-220830FLY-75-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366630",
+              "uuid": "NHP-220830FLY-77-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366631",
+              "uuid": "NHP-220830FLY-78-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366632",
+              "uuid": "NHP-220830FLY-79-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366633",
+              "uuid": "NHP-220830FLY-8-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366634",
+              "uuid": "NHP-220830FLY-80-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366635",
+              "uuid": "NHP-220830FLY-9-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366636",
+              "uuid": "NHP-220913FLY-1-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366639",
+              "uuid": "NHP-220913FLY-10-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366642",
+              "uuid": "NHP-220913FLY-2-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366645",
+              "uuid": "NHP-220913FLY-3-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366648",
+              "uuid": "NHP-220913FLY-4-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366651",
+              "uuid": "NHP-220913FLY-5-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366654",
+              "uuid": "NHP-220913FLY-6-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366657",
+              "uuid": "NHP-220913FLY-7-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366660",
+              "uuid": "NHP-220913FLY-8-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366663",
+              "uuid": "NHP-220913FLY-9-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366666",
+              "uuid": "NHP-220913SED-1-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366668",
+              "uuid": "NHP-220913SED-10-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366670",
+              "uuid": "NHP-220913SED-11-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366672",
+              "uuid": "NHP-220913SED-12-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366674",
+              "uuid": "NHP-220913SED-13-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366676",
+              "uuid": "NHP-220913SED-14-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            },
+            {
+              "id": "366678",
+              "uuid": "NHP-220913SED-15-PUB",
+              "sample_type": "NHP",
+              "sample_type_description": "Non Human Primates"
+            }
+          ],
+          "msg": "OK"
+        }
+      },
+      "raw_json_path": "/app/outputs/260713_222028_demo/files/api/api_result_bundle_1.json",
+      "error_context": null
+    },
+    "bundle_id": 1,
+    "files": [
+      {
+        "key": "api_result",
+        "label": "Full API result JSON",
+        "path": "/app/outputs/260713_222028_demo/files/api/api_result_bundle_1.json",
+        "filename": "api_result_bundle_1.json",
+        "mime": "application/json",
+        "kind": "api",
+        "bundle_id": 1
+      }
+    ],
+    "session_id": "8191b56c-8983-4da2-8ef3-0f06268e3a7c"
+  }
+}

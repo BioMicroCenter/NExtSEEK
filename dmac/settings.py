@@ -10,7 +10,11 @@ from django.utils.translation import gettext_lazy as _
 # MAIN DJANGO SETTINGS #
 ########################
 
-DEBUG = os.getenv("DJANGO_DEBUG", False)
+DEBUG = (os.getenv("DJANGO_DEBUG") or "").strip().lower() in ("1", "true", "yes")
+NEXTSEEK_POSTERIOR_ROUTING_ENABLED = (
+    (os.getenv("NEXTSEEK_POSTERIOR_ROUTING_ENABLED") or "").strip().lower()
+    in ("1", "true", "yes", "on")
+)
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
@@ -115,6 +119,10 @@ TEMPLATES = [
                 "django.template.context_processors.tz",
                 "mezzanine.conf.context_processors.settings",
                 "mezzanine.pages.context_processors.page",
+                # Browser-facing SEEK URLs. mezzanine.conf's processor above only
+                # exposes settings registered with Mezzanine, so project settings
+                # like SEEK_PUBLIC_URL need their own.
+                "dmac.context_processors.seek_urls",
             ],
             "loaders": [
                 "mezzanine.template.loaders.host_themes.Loader",
@@ -167,6 +175,7 @@ INSTALLED_APPS = (
     "corsheaders",
     "channels",
     "nextseek_api",
+    "nextseek_api.cc_assistant.apps.CcAssistantConfig",
 )
 
 # Django Channels (ASGI)
@@ -381,6 +390,16 @@ SPECTACULAR_SETTINGS = {
     ],
 }
 
+# Native attribute mutation routing. Small batches complete in-request; larger
+# affected-sample sets use the durable worker/outbox path. Both settings remain
+# environment-overridable for the measured T10 deployment profile.
+ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD = int(
+    os.environ.get("ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD", "5000")
+)
+ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM = int(
+    os.environ.get("ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM", "1")
+)
+
 ####################
 # CORS SETTINGS    #
 ####################
@@ -407,12 +426,15 @@ CORS_EXPOSE_HEADERS = [
 # SCHEMA RAG SETTINGS #
 #######################
 
-SCHEMA_RAG_DUCKDB_DIR = os.path.join(BASE_DIR, 'schema_rag', 'duckdb')
+# Defaults only when local_settings (exec'd above) did not already define them.
+if "SCHEMA_RAG_DUCKDB_DIR" not in globals():
+    SCHEMA_RAG_DUCKDB_DIR = os.path.join(BASE_DIR, "schema_rag", "duckdb")
 SCHEMA_RAG_DEFAULT_TTL_MINUTES = 15
 SCHEMA_RAG_MAX_ENDPOINTS = 250
 SCHEMA_RAG_MAX_TOP_K = 10
 SCHEMA_RAG_EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
-SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, 'schema_rag', 'embedding_models')
+if "SCHEMA_RAG_EMBEDDING_MODEL_PATH" not in globals():
+    SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, "schema_rag", "embedding_models")
 SCHEMA_RAG_EXCLUDED_PATH_PATTERNS = [
     "/schema_rag/",
 ]
@@ -429,35 +451,46 @@ os.makedirs(SCHEMA_RAG_EMBEDDING_MODEL_PATH, exist_ok=True)
 # Default: 200 MB. Override via environment variable.
 BATCH_UPLOAD_MAX_TOTAL_BYTES = int(os.getenv("BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024))
 
-NEO4J_DATABASE = {
-    "NAME": "neo4j",
-    "URI": "neo4j://" + os.getenv("NEXTSEEK_NEO4J_HOST"),
-    "AUTH": ("neo4j",os.getenv("NEXTSEEK_NEO4J_PASSWORD"))
-}
-
+# NExtSEEK service endpoints + Neo4j.
+#
+# Container/Docker deployments inject these via env (docker/nextseek.env).
+# Native deployments instead define NEO4J_DATABASE / SERVER_IPADDRESS / SEEK_*
+# in local_settings.py (exec'd above). The env-driven assignments below are
+# guarded so this Docker-oriented block does NOT clobber the authoritative
+# local_settings values on a native host, where these env vars are unset.
+# No behavior change under Docker (all the env vars are set there).
 NEXTSEEK_DATABASE = "default"
 SEEK_DATABASE = "seek"
-
-SERVER_IPADDRESS = os.getenv("NEXTSEEK_HOSTNAME")
-
-SEEK_HOSTNAME = os.getenv("SEEK_HOSTNAME")
-SEEK_SERVER = os.getenv("SEEK_HOST")
-SEEK_URL = "http://" + SEEK_SERVER + ":3000"
-# Public, browser-reachable SEEK base URL for links emitted into HTML (SOP /
-# data-file / sample tables, report links, the signup redirect). Distinct from
-# SEEK_URL, which is the *internal* docker hostname used for server-to-server
-# SEEK API calls and must stay http://seek:3000. Defaults to SEEK_URL for
-# backward-compat; set SEEK_PUBLIC_URL in docker/nextseek.env to the URL a
-# browser uses to reach SEEK — http://localhost:<SEEK_PORT> for local installs,
-# the real SEEK hostname in production.
-SEEK_PUBLIC_URL = os.getenv("SEEK_PUBLIC_URL", SEEK_URL)
-SEEK_JS_URL = SEEK_SERVER
-
-VIRTUOSO_URL = "http://" + SEEK_SERVER + ":8890/sparql/"
-VIRTUOSO_JS_URL = "http://" + SEEK_SERVER + ":8890/sparql"
-
-SEEK_DATAFILE_SERVER = 'https://' + SERVER_IPADDRESS
-SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/production/"
-SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/production/"
-
+# Public, browser-reachable SEEK base URL (dev). Unconditional module-level default
+# so the attribute always exists on native/env-less hosts (dev's unguarded consumers
+# seek/views.py + seek/dbtable_sample.py read it bare); reassigned to the real value
+# inside the SEEK_HOST guard below, where SEEK_URL is defined.
+SEEK_PUBLIC_URL = os.getenv("SEEK_PUBLIC_URL", "")
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
+
+if os.getenv("NEXTSEEK_NEO4J_HOST"):
+    NEO4J_DATABASE = {
+        "NAME": "neo4j",
+        "URI": "neo4j://" + os.getenv("NEXTSEEK_NEO4J_HOST"),
+        "AUTH": ("neo4j", os.getenv("NEXTSEEK_NEO4J_PASSWORD")),
+    }
+
+if os.getenv("SEEK_HOST"):
+    SERVER_IPADDRESS = os.getenv("NEXTSEEK_HOSTNAME")
+
+    SEEK_HOSTNAME = os.getenv("SEEK_HOSTNAME")
+    SEEK_SERVER = os.getenv("SEEK_HOST")
+    SEEK_URL = "http://" + SEEK_SERVER + ":3000"
+    # dev's SEEK_PUBLIC_URL intent, guard-safe (SEEK_URL exists here). Distinct from
+    # SEEK_URL, the *internal* docker hostname for server-to-server SEEK API calls
+    # (stays http://seek:3000); set SEEK_PUBLIC_URL in docker/nextseek.env to the
+    # browser-facing URL (http://localhost:<SEEK_PORT> local; real hostname in prod).
+    SEEK_PUBLIC_URL = os.getenv("SEEK_PUBLIC_URL", SEEK_URL)
+    SEEK_JS_URL = SEEK_SERVER
+
+    VIRTUOSO_URL = "http://" + SEEK_SERVER + ":8890/sparql/"
+    VIRTUOSO_JS_URL = "http://" + SEEK_SERVER + ":8890/sparql"
+
+    SEEK_DATAFILE_SERVER = 'https://' + SERVER_IPADDRESS
+    SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/production/"
+    SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/production/"

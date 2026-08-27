@@ -482,3 +482,146 @@ class TestOpenAPISchemaProcessor(TestCase):
         self.assertIn("name", result["$required"])
         self.assertIn("category", result["$required"])
 
+
+
+# ---------------------------------------------------------------------------
+# Internal-URL rewrite for self-ingest (#19)
+# ---------------------------------------------------------------------------
+
+import os
+from unittest.mock import patch as _patch
+
+from django.test import override_settings
+
+INTERNAL = "http://127.0.0.1:8000"
+PUBLIC_HOST = "nextseek-dev.example.mit.edu"
+
+
+def _resolve():
+    """Imported lazily so this module still collects against a tree without the
+    helper (the pre-fix state), letting the behavioural tests below report the
+    real failure instead of a collection error."""
+    from nextseek_api.schema_rag.schema_processor import resolve_transport_url
+
+    return resolve_transport_url
+
+
+def _env(**overrides):
+    """Env with all base-URL keys cleared, then the given overrides applied."""
+    base = {
+        "NEXTSEEK_INTERNAL_BASE_URL": "",
+        "NEXTSEEK_BASE_URL": "",
+        "NEXTSEEK_HOSTNAME": "",
+        "NEXTSEEK_PROD_URL": "",
+    }
+    base.update(overrides)
+    return _patch.dict(os.environ, base, clear=False)
+
+
+@override_settings(ALLOWED_HOSTS=[PUBLIC_HOST])
+class TestResolveTransportUrl(TestCase):
+    """The container cannot resolve its own public FQDN, so ingesting our own
+    OpenAPI schema by its public URL died with SCHEMA_FETCH_FAILED. Rewrite
+    only OUR host to the internal base; leave everything else alone.
+    """
+
+    def test_own_public_host_is_rewritten_to_internal(self):
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            got = _resolve()(f"https://{PUBLIC_HOST}/nextseek_api/schema/")
+        self.assertEqual(got, f"{INTERNAL}/nextseek_api/schema/")
+
+    def test_query_and_fragment_are_preserved(self):
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            got = _resolve()(
+                f"https://{PUBLIC_HOST}/nextseek_api/schema/?format=json#top"
+            )
+        self.assertEqual(got, f"{INTERNAL}/nextseek_api/schema/?format=json#top")
+
+    def test_public_host_from_nextseek_base_url_env(self):
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL,
+                  NEXTSEEK_BASE_URL="http://ns.example.org:9001"):
+            got = _resolve()("http://ns.example.org:9001/x.json")
+        self.assertEqual(got, f"{INTERNAL}/x.json")
+
+    def test_public_host_from_nextseek_hostname_env(self):
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL,
+                  NEXTSEEK_HOSTNAME="ns2.example.org:9002"):
+            got = _resolve()("http://ns2.example.org:9002/x.json")
+        self.assertEqual(got, f"{INTERNAL}/x.json")
+
+    def test_a_bumped_public_port_still_matches_on_host(self):
+        """The published port is auto-bumped when 8000 is busy; matching is on
+        hostname alone so the rewrite still fires."""
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL,
+                  NEXTSEEK_BASE_URL="http://ns.example.org:8000"):
+            got = _resolve()("http://ns.example.org:8123/x.json")
+        self.assertEqual(got, f"{INTERNAL}/x.json")
+
+    # --- the additive half: everything else must be untouched -------------
+
+    def test_unrelated_external_url_is_untouched(self):
+        url = "https://petstore3.swagger.io/api/v3/openapi.json"
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            self.assertEqual(_resolve()(url), url)
+
+    def test_no_internal_base_configured_is_a_noop(self):
+        url = f"https://{PUBLIC_HOST}/nextseek_api/schema/"
+        with _env():
+            self.assertEqual(_resolve()(url), url)
+
+    @override_settings(ALLOWED_HOSTS=["*"])
+    def test_wildcard_allowed_hosts_does_not_capture_the_world(self):
+        """ALLOWED_HOSTS=['*'] is common in dev; it must not mean 'every URL
+        is ours'."""
+        url = "https://petstore3.swagger.io/api/v3/openapi.json"
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            self.assertEqual(_resolve()(url), url)
+
+    def test_non_url_input_is_untouched(self):
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            self.assertEqual(_resolve()("/local/path.json"), "/local/path.json")
+
+
+@override_settings(ALLOWED_HOSTS=[PUBLIC_HOST])
+class TestFetchSchemaUsesInternalUrl(TestCase):
+    """fetch_schema must GET the rewritten URL."""
+
+    @patch(
+        'nextseek_api.schema_rag.schema_processor._generate_own_schema',
+        return_value=None,
+    )
+    @patch('nextseek_api.schema_rag.schema_processor.requests.get')
+    def test_fetch_schema_gets_the_internal_url(self, mock_get, _mock_generate):
+        """The URL used here is now also OUR OWN schema route, which #94 made
+        fetch_schema serve in-process. The internal-URL rewrite still has to
+        hold for the HTTP path, so the generator is disabled and the original
+        assertion is exercised through the #94 fallback, unchanged."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.text = '{"openapi": "3.0.0", "info": {"title": "T", "version": "1"}}'
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            OpenAPISchemaProcessor().fetch_schema(
+                f"https://{PUBLIC_HOST}/nextseek_api/schema/"
+            )
+
+        called_url = mock_get.call_args[0][0]
+        self.assertEqual(called_url, f"{INTERNAL}/nextseek_api/schema/")
+
+    @patch('nextseek_api.schema_rag.schema_processor.requests.get')
+    def test_fetch_schema_leaves_external_urls_alone(self, mock_get):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.text = '{"openapi": "3.0.0", "info": {"title": "T", "version": "1"}}'
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        url = "https://petstore3.swagger.io/api/v3/openapi.json"
+        with _env(NEXTSEEK_INTERNAL_BASE_URL=INTERNAL):
+            OpenAPISchemaProcessor().fetch_schema(url)
+
+        self.assertEqual(mock_get.call_args[0][0], url)

@@ -1,0 +1,32 @@
+#!/bin/sh
+# nextseek-sample-search: read-only advanced_search visibility helper.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=build_context/plugins/nextseek/bin/_nextseek_common.sh
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+UIDS=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --uid)
+      UIDS="${UIDS}${UIDS:+
+}$2"
+      shift 2 ;;
+    --confirmed-write|--start|--upload)
+      nextseek_die 3 "$1 is forbidden: this tool searches samples only and cannot write" ;;
+    --help)
+      echo "Usage: nextseek-sample-search --uid <UID> [--uid <UID> ...]"
+      echo ""
+      echo "Retrieve visible NExtSEEK sample rows by UID using the read-only search path."
+      exit 0 ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$UIDS" ] || nextseek_die 3 "--uid is required"
+set -- sample-search
+while IFS= read -r uid; do
+  set -- "$@" --uid "$uid"
+done <<EOF
+$UIDS
+EOF
+exec python "$SCRIPT_DIR/_batch_upload_runner.py" "$@"

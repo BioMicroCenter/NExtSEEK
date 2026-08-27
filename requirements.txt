@@ -64,6 +64,7 @@ Unidecode
 urllib3
 webencodings
 xlwt
+zstandard>=0.25
 duckdb>=0.10.0
 jsonref>=1.1.0
 sentence-transformers>=2.2.0

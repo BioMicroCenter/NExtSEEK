@@ -2,6 +2,12 @@ from django.urls import re_path
 from django.views.generic import TemplateView
 from . import views
 
+# The drf-spectacular serve-views used to be imported here for a commented-out
+# second copy of /schema/, /swagger/ and /redoc/. Removed with #77: uncommenting
+# them would have re-registered the documentation routes with the library's
+# default SERVE_PERMISSIONS of [AllowAny], reopening the hole that #77 closed in
+# nextseek_api/urls.py. The live routes are there, gated, and are the only ones.
+
 urlpatterns = [
     re_path(r'^help/$', views.getting_started, name='getting_started'),
     re_path(r'^assistant/', views.smartSearch, name='assistant'),

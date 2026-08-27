@@ -5,8 +5,10 @@ import { useSessions } from "@/hooks/useSessions";
 import { ChatPanel } from "@/components/ChatPanel";
 import { HeaderBar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
-import { NextseekApiService } from "@/lib/services/chatApi";
-import { authService } from "@/lib/services/auth";
+import { getForceRoute } from "@/lib/forceRoute";
+import { getUseProd } from "@/lib/useProd";
+import { getMaxTurnLength } from "@/lib/maxTurnLength";
+import { adoptTerminalSession } from "@/lib/sessionAdoption";
 import type {
   ProgressEvent,
   AgentStartedData,
@@ -15,8 +17,11 @@ import type {
   SearchCompleteData,
   QueryCompleteData,
   QueryErrorData,
+  RouteDecidedData,
+  CcTurnMetaData,
 } from "@/lib/types/api";
-import type { DebugData } from "@/lib/types/chat";
+import type { DebugData, DebugEntry } from "@/lib/types/chat";
+import { makeDebugEntry, routeDecidedSummary, ccTurnMetaSummary, queryErrorSummary } from "@/lib/debugEntries";
 
 interface AppLayoutProps {
   credentialError: string | null;
@@ -30,16 +35,18 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   });
   const [debugData, setDebugData] = useState<DebugData>({ entries: [], bundleId: null, query: "" });
 
-  const { messages, addUserMessage, addAssistantMessage, addSystemMessage, hydrateFromTurns } = useMessages();
+  const { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, hydrateFromTurns } = useMessages();
+  const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
+    handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
     handleSearchStarted,
     handleSearchComplete,
     resetProcessing,
   } = useProcessingState();
-  const { isQuerying, sessionId, submitQuery, downloadBundle } = useChatApi();
+  const { isQuerying, sessionId, submitQuery, downloadBundle, apiService, getAuthoritativeSessionId } = useChatApi();
 
   // sessionsRef breaks the chicken-and-egg between chatRoute (whose popstate
   // callback needs setActive) and sessions (returned after chatRoute). The
@@ -59,9 +66,8 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
       });
     },
   });
-  const [service] = useState(() => new NextseekApiService(authService));
   const sessions = useSessions({
-    service,
+    service: apiService,
     hydrate: hydrateFromTurns,
     onRouteChange: chatRoute.push,
   });
@@ -92,13 +98,29 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         case "agent_complete": {
           const d = event.data as AgentCompleteData;
           handleAgentComplete(d.agent);
+          const entry: DebugEntry = {
+            agent: d.agent,
+            summary: typeof d.summary === "string" ? d.summary : JSON.stringify(d.summary ?? "", null, 2),
+            timestamp: new Date(),
+          };
+          pendingDebugRef.current.push(entry);
           setDebugData((prev) => ({
             ...prev,
-            entries: [
-              ...prev.entries,
-              { agent: d.agent, summary: typeof d.summary === "string" ? d.summary : JSON.stringify(d.summary ?? "", null, 2), timestamp: new Date() },
-            ],
+            entries: [...prev.entries, entry],
           }));
+          break;
+        }
+        case "route_decided": {
+          handleRouteDecided(event.data as RouteDecidedData);
+          const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData));
+          pendingDebugRef.current.push(entry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
+          break;
+        }
+        case "cc_turn_meta": {
+          const entry = makeDebugEntry("container_cc", ccTurnMetaSummary(event.data as CcTurnMetaData));
+          pendingDebugRef.current.push(entry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
           break;
         }
         case "search_started": {
@@ -112,23 +134,42 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
+          const captured = pendingDebugRef.current.slice();
+          const bid = d.bundle_id ?? null;
+          const artifacts = d.artifacts ?? null;
+          const ccTraces = d.cc_traces ?? undefined;
+          const mode = d.mode ?? undefined;
+          queueMicrotask(() => {
+            updateLastAssistantMessage({
+              debugEntries: captured,
+              bundleId: bid,
+              artifacts,
+              ccTraces,
+              mode,
+            });
+          });
           resetProcessing();
           setDebugData((prev) => ({ ...prev, bundleId: d.bundle_id }));
-          if (d.session_id) {
-            if (sessions.pendingNewChat) sessions.promoteCreatedSession(d.session_id);
-            else sessions.refresh();
-          }
+          adoptTerminalSession(sessions, getAuthoritativeSessionId() ?? d.session_id);
           break;
         }
         case "query_error": {
           const d = event.data as QueryErrorData;
           addSystemMessage(`Error: ${d.error}`);
+          const errEntry = makeDebugEntry(d.agent || "error", queryErrorSummary(d));
+          pendingDebugRef.current.push(errEntry);
+          setDebugData((prev) => ({ ...prev, entries: [...prev.entries, errEntry] }));
           resetProcessing();
+          // #38: the backend created the session before the turn failed, and
+          // query_error carries the same session_id. Without adopting it,
+          // pendingNewChat stays true and the NEXT send posts force_new again,
+          // producing a second empty session.
+          adoptTerminalSession(sessions, getAuthoritativeSessionId() ?? d.session_id);
           break;
         }
       }
     },
-    [handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, resetProcessing, sessions],
+    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
   );
 
   const handleQueryError = useCallback(
@@ -139,14 +180,43 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   const handleSendMessage = useCallback(
     (text: string, mode: string | { pipeline: "standard" | "plan"; useProd?: boolean }) => {
       addUserMessage(text);
+      pendingDebugRef.current = [];
       setDebugData({ entries: [], bundleId: null, query: text });
-      const opts =
+      const base =
         sessions.activeSessionId ? { sessionId: sessions.activeSessionId } :
         sessions.pendingNewChat   ? { forceNew: true } :
         {};
+      const opts = {
+        ...base,
+        forceRoute: isAdmin ? getForceRoute() : ("auto" as const),
+        useProd: isAdmin ? getUseProd() : false,
+        maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
+      };
       submitQuery(text, mode, opts, handleProgress, handleQueryError);
     },
-    [addUserMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat],
+    [addUserMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
+  );
+
+  const handleArtifactDownload = useCallback(
+    (bundleId: number, artifactKey: string) => {
+      const sid = apiService.sessionId ?? sessions.activeSessionId;
+      if (sid) {
+        apiService
+          .downloadArtifact(sid, bundleId, artifactKey)
+          .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
+      }
+    },
+    [apiService, addSystemMessage, sessions.activeSessionId],
+  );
+
+  const handleCcArtifactDownload = useCallback(
+    (artifactKey: string) => {
+      const sid = apiService.sessionId ?? sessions.activeSessionId;
+      if (sid) {
+        void apiService.downloadCcArtifact(sid, artifactKey);
+      }
+    },
+    [apiService, sessions.activeSessionId],
   );
 
   const handleDownload = useCallback(
@@ -185,7 +255,9 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           processingState={processingState}
           isDisabled={isDisabled}
           onSendMessage={handleSendMessage}
-          isAdmin={isAdmin}
+          onArtifactDownload={handleArtifactDownload}
+          onCcArtifactDownload={handleCcArtifactDownload}
+          apiService={apiService}
         />
       </div>
       <RightSidebar
@@ -193,6 +265,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         onOpenChange={setRightOpen}
         debugData={debugData}
         onDownload={handleDownload}
+        isAdmin={isAdmin}
       />
     </div>
   );

@@ -352,6 +352,23 @@ def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
                 "file_format": "xlsx",
             })
 
+    # PRIDE submission files (submission.px manifest + optional SDRF tsv). Both
+    # are served from disk by the download endpoint; PRIDE has no fillable
+    # spreadsheet, so these are the canonical uploadable artifacts.
+    pride_file_artifacts = [
+        ("pride_submission_px", "PRIDE submission.px", "px"),
+        ("pride_sdrf", "PRIDE SDRF (experimental design)", "tsv"),
+    ]
+    for key, label, fmt in pride_file_artifacts:
+        files = saved.get(key)
+        if isinstance(files, list) and len(files) > 0:
+            artifacts.append({
+                "artifact_type": "file",
+                "key": key,
+                "label": label,
+                "file_format": fmt,
+            })
+
     return artifacts
 
 

@@ -130,7 +130,7 @@ describe("NextseekApiService — sessions methods", () => {
       const onError = vi.fn();
       await svc.submitQuery("hi", "standard", { sessionId: "uuid-1" }, onProgress, onError);
       const firstCall = fetchSpy.mock.calls[0];
-      expect(firstCall[0]).toBe(`${baseUrl}/nextseek_api/assistant/query/async/`);
+      expect(firstCall[0]).toBe(`${baseUrl}/nextseek_api/cc-assistant/query/async/`);
       const body = JSON.parse((firstCall[1] as RequestInit).body as string);
       expect(body).toEqual({ query: "hi", mode: "standard", use_prod: false, session_id: "uuid-1" });
     });
@@ -145,6 +145,20 @@ describe("NextseekApiService — sessions methods", () => {
     it("omits both when opts is empty", async () => {
       const fetchSpy = mockFetchForSubmit("t", "uuid-x");
       await svc.submitQuery("hi", "standard", {}, vi.fn(), vi.fn());
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+      expect(body).toEqual({ query: "hi", mode: "standard", use_prod: false });
+    });
+
+    it("includes force_route when opts.forceRoute is ns/cc", async () => {
+      const fetchSpy = mockFetchForSubmit("t", "uuid-fr");
+      await svc.submitQuery("hi", "standard", { forceRoute: "cc" }, vi.fn(), vi.fn());
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+      expect(body).toEqual({ query: "hi", mode: "standard", use_prod: false, force_route: "cc" });
+    });
+
+    it("omits force_route when it is 'auto'", async () => {
+      const fetchSpy = mockFetchForSubmit("t", "uuid-auto");
+      await svc.submitQuery("hi", "standard", { forceRoute: "auto" }, vi.fn(), vi.fn());
       const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
       expect(body).toEqual({ query: "hi", mode: "standard", use_prod: false });
     });

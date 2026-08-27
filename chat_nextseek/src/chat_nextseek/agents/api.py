@@ -11,6 +11,16 @@ from ..schemas import (
 )
 
 
+def _requires_request_body(method: str | None, schema: dict | None, enriched_entry: dict | None) -> bool:
+    """Would this endpoint reject an empty body?"""
+    if (method or "GET").upper() not in ("POST", "PUT", "PATCH"):
+        return False
+    if isinstance(enriched_entry, dict) and enriched_entry.get("request_body"):
+        return True
+    req_schema = ((schema or {}).get("request_schemas") or {}).get(method)
+    return bool(isinstance(req_schema, dict) and req_schema.get("required"))
+
+
 def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIRequestPlan:
     """
     Use the API agent to convert a parser plan into a concrete APIRequestPlan with method, endpoint, and payloads.
@@ -133,6 +143,24 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
         )
     except Exception as e:
         print("[DEBUG][API_AGENT] Exception or parse error:", repr(e))
+        # Structured parsing failed, so we do NOT know what this request should
+        # contain. Sending the endpoint anyway with an empty body is a guaranteed
+        # 4xx (observed: HTTP 422 against parents_by_child_types), and the user
+        # is then told the API rejected their question — which reads as their
+        # fault rather than ours. If the endpoint needs a body, decline instead
+        # of firing a request we already know is malformed.
+        if _requires_request_body(default_method, schema, enriched_entry):
+            print("[DEBUG][API_AGENT] Refusing to send an empty body to", endpoint)
+            return APIRequestPlan(
+                endpoint=None,
+                method=default_method,
+                requestBody={},
+                queryParameters={},
+                notes=(
+                    f"Structured parsing failed and {endpoint} requires a request body; "
+                    "no request was attempted."
+                ),
+            )
         api_plan_model = APIRequestPlan(
             endpoint=endpoint,
             method=default_method,
@@ -165,8 +193,24 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
     if api_plan.endpoint == "/nextseek_api/samples/advanced_search/":
         rb = dict(api_plan.requestBody or {})
         rb.pop("attribute", None)
-        if rb.get("filter_searchText") is None:
-            rb["filter_searchText"] = ""
+        if not str(rb.get("filter_searchText") or "").strip():
+            # An empty filter_searchText is not a neutral default: advanced_search
+            # treats it as "match everything" and returns the whole database. When
+            # the agent omitted the search text but the parser DID resolve keywords,
+            # use them. Observed failure: entity resolved ["4 week"], the agent sent
+            # "", and the user got all 50,886 samples back for "samples from a 4
+            # week study".
+            keywords = [
+                k.strip() for k in (filters.get("keywords") or [])
+                if isinstance(k, str) and k.strip()
+            ]
+            if keywords:
+                rb["filter_searchText"] = " ".join(keywords)
+                rb.setdefault("filter_matchType", "PARTIAL")
+                print("[DEBUG][API_AGENT] Backfilled filter_searchText from parser keywords:",
+                      rb["filter_searchText"])
+            else:
+                rb["filter_searchText"] = ""  # genuinely unfiltered: the user asked for everything
         api_plan = api_plan.model_copy(update={"requestBody": rb})
 
     # If the agent selected a method not in the allowed list, fall back to default

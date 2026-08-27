@@ -5,6 +5,7 @@ import type { Message } from "@/lib/types/chat";
 import { Badge } from "@/components/ui/badge";
 import { MarkdownContent } from "./MarkdownContent";
 import { ReportArtifacts } from "./ReportArtifacts";
+import { CCActivityPanel } from "./CCActivityPanel";
 
 /**
  * Strip "NExtSEEK search summary" and "API request preview" sections from
@@ -53,9 +54,10 @@ interface MessageBubbleProps {
   message: Message;
   index?: number;
   onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
+  onCcArtifactDownload?: (artifactKey: string) => void;
 }
 
-export function MessageBubble({ message, index, onArtifactDownload }: MessageBubbleProps) {
+export function MessageBubble({ message, index, onArtifactDownload, onCcArtifactDownload }: MessageBubbleProps) {
   const [debugOpen, setDebugOpen] = useState(false);
 
   // Strip debug sections from assistant messages
@@ -76,7 +78,13 @@ export function MessageBubble({ message, index, onArtifactDownload }: MessageBub
 
   const hasDebug = !message.isUser && message.debugEntries && message.debugEntries.length > 0;
   const hasExtracted = extractedSections.length > 0;
-  const hasSearchDetails = hasDebug || hasExtracted;
+  const hasCcTrace = !message.isUser && (message.ccTraces?.length ?? 0) > 0;
+  const hasSearchDetails = hasDebug || hasExtracted || hasCcTrace;
+
+  const handleDl = (key: string) =>
+    message.mode === "cc"
+      ? onCcArtifactDownload?.(key)
+      : onArtifactDownload?.(message.bundleId!, key);
 
   return (
     <div
@@ -103,7 +111,7 @@ export function MessageBubble({ message, index, onArtifactDownload }: MessageBub
         {!message.isUser && message.artifacts && message.artifacts.length > 0 && (
           <ReportArtifacts
             artifacts={message.artifacts}
-            onDownloadArtifact={(key) => onArtifactDownload?.(message.bundleId!, key)}
+            onDownloadArtifact={handleDl}
           />
         )}
       </div>
@@ -150,6 +158,14 @@ export function MessageBubble({ message, index, onArtifactDownload }: MessageBub
                         {entry.summary}
                       </p>
                     </div>
+                  ))}
+                </div>
+              )}
+
+              {hasCcTrace && (
+                <div className={cn(hasDebug || hasExtracted ? "mt-2 border-t border-border/40 pt-2" : "")}>
+                  {message.ccTraces!.map((trace, i) => (
+                    <CCActivityPanel key={`${trace.cc_session_id}-${i}`} trace={trace} />
                   ))}
                 </div>
               )}

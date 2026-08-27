@@ -1,0 +1,226 @@
+{
+  "schema": "plan018-v4-1-family-inventory/v1",
+  "recorded_at": "2026-08-11T15:00:29Z",
+  "label_space_authority": "corpus.families (top-level only; NOT route_policy.families)",
+  "route_policy_families_observation": {
+    "keys": [
+      "catalog_browse",
+      "followup_over_results",
+      "graph_traversal",
+      "lineage_tree",
+      "pipeline_launch",
+      "project_summary_report",
+      "sample_retrieve",
+      "sample_search",
+      "search_refinement",
+      "submission_package",
+      "system_capability_question",
+      "unsupported",
+      "writes_unsupported"
+    ],
+    "count": 13,
+    "is_proper_subset_of_top_level": true
+  },
+  "declared_families": [
+    {
+      "family": "artifact_delivery",
+      "description": "Get the file the assistant just made out of the turn and to the user.",
+      "variant_count": 2,
+      "evidence_free_label": false
+    },
+    {
+      "family": "batch_upload_preparation",
+      "description": "Prepare and validate an upload workbook, including reading a supplied document.",
+      "variant_count": 5,
+      "evidence_free_label": false
+    },
+    {
+      "family": "catalog_browse",
+      "description": "List the platform's own objects: assays, projects, people, protocols, investigations.",
+      "variant_count": 9,
+      "evidence_free_label": false
+    },
+    {
+      "family": "cc_sandbox_contract",
+      "description": "CC agent behaviour when a tool fails or a write is proposed. Stop-after-2, prohibitions, the L3 gate.",
+      "variant_count": 4,
+      "evidence_free_label": false
+    },
+    {
+      "family": "cross_session_memory",
+      "description": "What carries across sessions and containers, including the CC to NS asymmetry.",
+      "variant_count": 3,
+      "evidence_free_label": false
+    },
+    {
+      "family": "engine_routing",
+      "description": "Which engine a turn reaches: BAML decision, heuristic fallback, the unrelated outcome, router history.",
+      "variant_count": 3,
+      "evidence_free_label": false
+    },
+    {
+      "family": "entity_write",
+      "description": "Create, update or delete a record, or edit a sample type's attributes.",
+      "variant_count": 6,
+      "evidence_free_label": false
+    },
+    {
+      "family": "followup_over_results",
+      "description": "Ask about results already returned, including aggregating an attribute over 'those'. Absorbs within-chat memory for both engines.",
+      "variant_count": 51,
+      "evidence_free_label": false
+    },
+    {
+      "family": "graph_traversal",
+      "description": "Structural questions over the graph, including every assay and protocol traversal.",
+      "variant_count": 85,
+      "evidence_free_label": false
+    },
+    {
+      "family": "harmonization",
+      "description": "Find near-duplicate attribute values, propose a canonical mapping, hand it to batch upload.",
+      "variant_count": 8,
+      "evidence_free_label": false
+    },
+    {
+      "family": "lineage_tree",
+      "description": "Trace what came from what, in either direction.",
+      "variant_count": 42,
+      "evidence_free_label": false
+    },
+    {
+      "family": "pipeline_launch",
+      "description": "Run an nf-core pipeline on the cluster for a resolved cohort, including producing its samplesheet.",
+      "variant_count": 37,
+      "evidence_free_label": false
+    },
+    {
+      "family": "pipeline_output_reingest",
+      "description": "Register a finished run's outputs back into NExtSEEK.",
+      "variant_count": 3,
+      "evidence_free_label": false
+    },
+    {
+      "family": "project_summary_report",
+      "description": "How much data a project, lab or investigation holds. All four report modes.",
+      "variant_count": 47,
+      "evidence_free_label": false
+    },
+    {
+      "family": "retrieval_path_selection",
+      "description": "Which execution path inside the NExtSEEK engine a question takes.",
+      "variant_count": 6,
+      "evidence_free_label": false
+    },
+    {
+      "family": "route_overrides",
+      "description": "force_route precedence, sticky-CC and its exits, the per-turn request envelope.",
+      "variant_count": 0,
+      "evidence_free_label": true
+    },
+    {
+      "family": "sample_retrieve",
+      "description": "Pull the full record for samples the user can already name.",
+      "variant_count": 21,
+      "evidence_free_label": false
+    },
+    {
+      "family": "sample_search",
+      "description": "Find samples by type, attribute, treatment, keyword, lab code or UID. No assay: assay lives on DERIVED_FROM and belongs to graph_traversal.",
+      "variant_count": 71,
+      "evidence_free_label": false
+    },
+    {
+      "family": "search_refinement",
+      "description": "Change one filter and re-run the previous search.",
+      "variant_count": 24,
+      "evidence_free_label": false
+    },
+    {
+      "family": "session_lifecycle",
+      "description": "Create, name, resume and rehydrate a session; act as the right user or refuse.",
+      "variant_count": 2,
+      "evidence_free_label": false
+    },
+    {
+      "family": "submission_package",
+      "description": "Build a repository deposit for a UID set. GEO, SRA and PRIDE only; nf-core is a pipeline concern.",
+      "variant_count": 27,
+      "evidence_free_label": false
+    },
+    {
+      "family": "system_capability_question",
+      "description": "What the system is, what it can do, what vocabulary exists.",
+      "variant_count": 27,
+      "evidence_free_label": false
+    },
+    {
+      "family": "turn_delivery_and_trace",
+      "description": "How a turn starts, streams, ends with a legible outcome, and is reconstructed after.",
+      "variant_count": 2,
+      "evidence_free_label": false
+    },
+    {
+      "family": "turn_evaluation_and_retry",
+      "description": "Judge a completed turn and retry it automatically.",
+      "variant_count": 0,
+      "evidence_free_label": true
+    },
+    {
+      "family": "turn_limits_and_failure",
+      "description": "Timeout, budget cap, max turns, the error taxonomy and failover.",
+      "variant_count": 2,
+      "evidence_free_label": false
+    },
+    {
+      "family": "unsupported",
+      "description": "Refuse out-of-scope asks.",
+      "variant_count": 10,
+      "evidence_free_label": false
+    },
+    {
+      "family": "vocabulary_resolution",
+      "description": "Turn the user's words into NExtSEEK codes before anything else runs.",
+      "variant_count": 9,
+      "evidence_free_label": false
+    },
+    {
+      "family": "writes_unsupported",
+      "description": "Refuse a write on the read-only engine, without over-refusing a deliverable.",
+      "variant_count": 23,
+      "evidence_free_label": false
+    }
+  ],
+  "declared_family_keys": [
+    "artifact_delivery",
+    "batch_upload_preparation",
+    "catalog_browse",
+    "cc_sandbox_contract",
+    "cross_session_memory",
+    "engine_routing",
+    "entity_write",
+    "followup_over_results",
+    "graph_traversal",
+    "harmonization",
+    "lineage_tree",
+    "pipeline_launch",
+    "pipeline_output_reingest",
+    "project_summary_report",
+    "retrieval_path_selection",
+    "route_overrides",
+    "sample_retrieve",
+    "sample_search",
+    "search_refinement",
+    "session_lifecycle",
+    "submission_package",
+    "system_capability_question",
+    "turn_delivery_and_trace",
+    "turn_evaluation_and_retry",
+    "turn_limits_and_failure",
+    "unsupported",
+    "vocabulary_resolution",
+    "writes_unsupported"
+  ],
+  "unknown_pair_families": [],
+  "gate": "PASS"
+}

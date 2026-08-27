@@ -1,0 +1,139 @@
+from __future__ import annotations
+import base64, json, time, urllib.request
+from dataclasses import dataclass
+from typing import Callable
+from nessie_tests import route_observer as ro
+
+BASE_PATH = "/nextseek_api/cc-assistant"
+
+
+# A saturated web tier (e.g. several consecutive container_cc turns) can stall a
+# request for minutes. 30s here used to surface as a TimeoutError that the runner
+# recorded as a case `error`, discarding the route observation with it — an
+# infrastructure hiccup masquerading as a product failure.
+SOCKET_TIMEOUT_S = 120
+
+# Consecutive poll failures tolerated before we call the endpoint down and let
+# the error propagate (the runner records that as a case `error`, which is the
+# honest label for infrastructure). Interspersed blips reset the count, so a
+# slow-but-alive server keeps polling to its deadline instead.
+MAX_CONSECUTIVE_POLL_ERRORS = 5
+
+
+@dataclass
+class DriveResult:
+    session_id: str | None
+    task_id: str | None
+    payload: dict
+    route_obs: ro.RouteObservation
+    aborted_early: bool
+    status: str
+    poll_errors: int = 0
+
+
+def basic_auth(user: str, pw: str) -> str:
+    return "Basic " + base64.b64encode(f"{user}:{pw}".encode()).decode()
+
+
+def make_default_clients(base_url: str, auth_header: str, timeout_s: float = SOCKET_TIMEOUT_S):
+    def post_query(body: dict) -> dict:
+        req = urllib.request.Request(
+            f"{base_url}{BASE_PATH}/query/async/", data=json.dumps(body).encode(),
+            headers={"Authorization": auth_header, "Content-Type": "application/json"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode())
+
+    def get_progress(task_id: str) -> dict:
+        req = urllib.request.Request(
+            f"{base_url}{BASE_PATH}/tasks/{task_id}/progress/",
+            headers={"Authorization": auth_header})
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            return json.loads(r.read().decode())
+
+    return post_query, get_progress
+
+
+def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
+          get_progress: Callable[[str], dict], session_id: str | None = None,
+          force_new: bool = False,
+          fresh_session: bool = True,
+          force_route: str | None = None,
+          mode: str = "standard", poll_interval_s: float = 2.0,
+          route_timeout_s: float = 60.0, full_timeout_s: float = 600.0,
+          max_consecutive_poll_errors: int = MAX_CONSECUTIVE_POLL_ERRORS,
+          sleep: Callable[[float], None] = time.sleep,
+          clock: Callable[[], float] = time.monotonic) -> DriveResult:
+    """Drive one turn to completion (full tier) or to route_decided (route tier).
+
+    ``force_new`` asks the server for a fresh ChatSession. Without it the API
+    falls back to the caller's most recently updated session, which silently
+    joins every case into one conversation and leaks results_history, pinned
+    bundles and pipeline state across cases. It is ignored once ``session_id``
+    is known, so a case's later turns stay in the session its seed opened.
+
+    ``fresh_session`` closes the OTHER half of that isolation, and defaults to
+    True because per-case isolation is this harness's whole premise.
+    ``force_new`` only buys a new ChatSession, and the CC memory layer does not
+    key on the session: `_session_metas` filters
+    `ChatSession.objects.filter(user=user)` (cc_assistant.py:169), so a CC turn
+    is primed with a rendered ~/.claude/CLAUDE.md distilled from that USER's
+    recent CC sessions -- in a benchmark, from other cases of the same run.
+
+    The 2026-08-06 paired runs measured the cost of not sending it. All 152 CC
+    arms were started carrying digests of up to 5 other CC arms; NS arms get no
+    equivalent, so the comparison was not like-for-like. Five `refrec` variants
+    were handed "Out of the 408 NHP samples, 46 samples are CD8-depleted" before
+    being asked, and `sandbox.can_you_pull_together_the_sequen` -- a question
+    with no legitimate referent -- was answered from five other cases' results
+    while the NS arm correctly said it had nothing stored.
+
+    It skips INJECTION only: 1b resume within the chat still applies, so a
+    multi-turn case keeps its own earlier turns, and the within-chat digest of
+    CC's own bundles is untouched. Pass False deliberately to measure the memory
+    feature itself, never to save a code change.
+    """
+    body = {"query": query, "mode": mode}
+    if fresh_session:
+        # Server-side default is False (models_api.py:19), so this must be sent
+        # explicitly on every turn. `preflight.assert_fresh_session_works` is
+        # what stops a silently-dropped flag costing another paid run its
+        # comparability, exactly as the force_route guard does.
+        body["fresh_session"] = True
+    if force_route:
+        # Admin-only server side; a non-admin's value is silently dropped back to
+        # the router (cc_assistant.py:245-251). `preflight.assert_force_route_works`
+        # is what stops that turning into a whole run of meaningless data.
+        body["force_route"] = force_route
+    if session_id:
+        body["session_id"] = session_id
+    elif force_new:
+        body["force_new"] = True
+    resp = post_query(body)
+    task_id = resp.get("task_id")
+    sess = resp.get("session_id") or session_id
+    deadline = clock() + (route_timeout_s if tier == "route" else full_timeout_s)
+    payload: dict = {"status": "pending", "progress": [], "result": None}
+    aborted_early = False
+    poll_errors = 0
+    consecutive_errors = 0
+    while True:
+        try:
+            payload = get_progress(task_id)
+        except Exception:  # transient socket/proxy hiccup — keep the case alive
+            poll_errors += 1
+            consecutive_errors += 1
+            if consecutive_errors >= max_consecutive_poll_errors:
+                raise  # endpoint is down, not slow — report it as infra
+        else:
+            consecutive_errors = 0
+            if tier == "route" and ro.has_route_decided(payload):
+                aborted_early = True
+                break
+            if payload.get("status") in ("completed", "error"):
+                break
+        if clock() >= deadline:
+            break
+        sleep(poll_interval_s)
+    return DriveResult(sess, task_id, payload, ro.observe(payload),
+                       aborted_early, payload.get("status", "pending"), poll_errors)

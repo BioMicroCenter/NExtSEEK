@@ -1,0 +1,1 @@
+{"outcome":"NotSatisfied","usefulness_score":0,"primary_issue":"MissingContext","needs_human_review":false,"review_priority":"Low","rationale":"The agent failed to use prior context to address the user's question, instead providing a generic fallback error message that does not explain that no file was created in the previous turn."}

@@ -1,6 +1,11 @@
 from django.db import models
 
 from .assistant.models_db import ChatSession, QueryTask  # noqa: F401
+from .attributes.models_async import AttributeOutboxDispatcherHeartbeat  # noqa: F401
+from .attributes.models_db import (  # noqa: F401
+    AttributeMutationJob,
+    AttributeMutationPartition,
+)
 
 # Pydantic models for API request/response validation (JSON:API + SOPs)
 from typing import Any, Dict, List, Optional, Literal, Union, Callable
@@ -766,6 +771,87 @@ class PersonUpdateRequest(BaseModel):
 
 
 # -----------------------------
+# Users admin: constants
+# -----------------------------
+
+USERS_ADMIN_TAG = "Users (admin)"
+
+
+# -----------------------------
+# Users admin: request / response models
+# -----------------------------
+
+class UserCreateRequest(BaseModel):
+    login: str
+    password: str
+    password_confirmation: str
+    email: str
+    first_name: str
+    last_name: str
+    project_id: int
+    institution_id: int
+    is_superuser: bool = False
+    activate: bool = True
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class UserUpdateRequest(BaseModel):
+    password: Optional[str] = None
+    password_confirmation: Optional[str] = None
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    project_id: Optional[int] = None
+    institution_id: Optional[int] = None
+    is_superuser: Optional[bool] = None
+    active: Optional[bool] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class UserAdminRecord(BaseModel):
+    user_id: int
+    person_id: int
+    login: str
+    email: str
+    first_name: str
+    last_name: str
+    active: bool
+    django_is_active: bool
+    django_is_superuser: bool
+    project_id: Optional[int] = None
+    institution_id: Optional[int] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class UserListResponse(BaseModel):
+    data: List[UserAdminRecord]
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class UserSingleResponse(BaseModel):
+    data: UserAdminRecord
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AdminUserErrorItem(BaseModel):
+    title: str
+    detail: Optional[str] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class AdminUserErrorResponse(BaseModel):
+    errors: List[AdminUserErrorItem]
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
 # Investigations: constants
 # -----------------------------
 
@@ -906,6 +992,152 @@ class InvestigationUpdateRequest(BaseModel):
         if self.data.relationships is not None:
             payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
         payload['data']['type'] = INVESTIGATIONS_TYPE
+        return payload
+
+
+# -----------------------------
+# Studies: constants
+# -----------------------------
+
+STUDIES_TYPE = "studies"
+
+
+# -----------------------------
+# Studies: list/index models
+# -----------------------------
+
+class StudyIndexAttributes(BaseModel):
+    title: str
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class StudyIndexItem(BaseModel):
+    id: str
+    type: Literal['studies']
+    attributes: StudyIndexAttributes
+    links: Links
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class StudyListResponse(BaseModel):
+    data: List[StudyIndexItem]
+    jsonapi: JsonApiVersion
+    links: IndexLinks
+    meta: BaseMeta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Studies: detail models
+# -----------------------------
+
+class StudyResponseData(BaseModel):
+    id: str
+    type: Literal['studies']
+    attributes: Dict[str, Any]
+    relationships: Dict[str, Any]
+    links: Links
+    meta: Meta
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class StudySingleResponse(BaseModel):
+    data: StudyResponseData
+    jsonapi: Optional[JsonApiVersion] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# Studies: request models
+# -----------------------------
+
+class StudyPostAttributes(BaseModel):
+    title: str
+    description: Optional[str] = None
+    experimentalists: Optional[str] = None
+    other_creators: Optional[str] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class StudyPostRelationships(BaseModel):
+    investigation: SingleReference
+    creators: Optional[MultipleReferences] = None
+    publications: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class StudyPostData(BaseModel):
+    type: Literal['studies']
+    attributes: StudyPostAttributes
+    relationships: StudyPostRelationships
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class StudyCreateRequest(BaseModel):
+    data: StudyPostData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload = self.model_dump(exclude_none=True)
+        payload['data']['type'] = STUDIES_TYPE
+        return payload
+
+
+class StudyPatchAttributes(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    experimentalists: Optional[str] = None
+    other_creators: Optional[str] = None
+    creators: Optional[List[Dict[str, Any]]] = None
+    policy: Optional[Dict[str, Any]] = None
+    discussion_links: Optional[List[Dict[str, Any]]] = None
+    extended_attributes: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class StudyPatchRelationships(BaseModel):
+    investigation: Optional[SingleReference] = None
+    creators: Optional[MultipleReferences] = None
+    publications: Optional[MultipleReferences] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class StudyPatchData(BaseModel):
+    id: str
+    type: Literal['studies']
+    attributes: Optional[StudyPatchAttributes] = None
+    relationships: Optional[StudyPatchRelationships] = None
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class StudyUpdateRequest(BaseModel):
+    data: StudyPatchData
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    def to_seek_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"data": {"id": self.data.id, "type": self.data.type}}
+        if self.data.attributes is not None:
+            payload['data']['attributes'] = self.data.attributes.model_dump(exclude_none=True)
+        if self.data.relationships is not None:
+            payload['data']['relationships'] = self.data.relationships.model_dump(exclude_none=True)
+        payload['data']['type'] = STUDIES_TYPE
         return payload
 
 

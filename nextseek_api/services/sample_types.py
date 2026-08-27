@@ -13,6 +13,62 @@ from pydantic import ValidationError
 
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
+import logging
+from django.db import connections
+from seek.seekdb import SeekDB
+
+
+def _scope_graph_rows_to_caller_projects(request, basic_tuple, rows, uuid_key="uuid"):
+    """Drop graph rows whose sample is not in one of the caller's SEEK projects.
+
+    The graph cannot be scoped in Cypher: Sample nodes carry only
+    Parent/Protocol/UID/id/parent_titles/type/uuid, with no project membership
+    (verified against the live graph 2026-08-20). So the authoritative membership
+    table in MySQL, projects_samples, is consulted after the fact instead.
+
+    is_superuser ALONE is the admin predicate, never is_staff -- dmac/views.py:80,97
+    sets is_staff on every SEEK user at login, so it admits everyone.
+
+    Fails closed: if the caller's projects cannot be resolved, nothing is returned
+    rather than everything.
+    """
+    if bool(getattr(request.user, "is_superuser", False)):
+        return rows
+    if not (basic_tuple and basic_tuple[0] and basic_tuple[1]):
+        # See samples.py: a Token-authenticated caller resolves no Basic pair, so the
+        # SEEK project lookup cannot run. Return nothing rather than everything.
+        logging.getLogger(__name__).warning(
+            "No SEEK credentials resolved for caller; scoping to no projects")
+        return []
+    try:
+        seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
+        projects = seekdb.getCurrentUser()["data"]["relationships"]["projects"]["data"]
+        project_ids = [str(p["id"]) for p in projects]
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Could not resolve SEEK projects for the caller; scoping to none")
+        project_ids = []
+    if not project_ids:
+        return []
+
+    uuids = [r.get(uuid_key) for r in rows if r.get(uuid_key)]
+    if not uuids:
+        return []
+    up = ", ".join(["%s"] * len(uuids))
+    pp = ", ".join(["%s"] * len(project_ids))
+    sql = (
+        "SELECT DISTINCT s.uuid FROM samples s "
+        "JOIN projects_samples ps ON ps.sample_id = s.id "
+        f"WHERE s.uuid IN ({up}) AND ps.project_id IN ({pp})"
+    )
+    try:
+        with connections[settings.SEEK_DATABASE].cursor() as cursor:
+            cursor.execute(sql, list(uuids) + project_ids)
+            visible = {row[0] for row in cursor.fetchall()}
+    except Exception:
+        logging.getLogger(__name__).exception("Project scope lookup failed; scoping to none")
+        return []
+    return [r for r in rows if r.get(uuid_key) in visible]
 from nextseek_api.endpoint_descriptions import (
     SAMPLETYPE_LIST_DESC,
     SAMPLETYPE_FETCH_DESC,
@@ -436,6 +492,12 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
             return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception:
             return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # Data scope. This endpoint returns real sample UUIDs, so it is a data path,
+        # not schema metadata -- it previously returned parents from every project to
+        # any authenticated caller. See the helper for why this filters after the
+        # Cypher rather than inside it.
+        records = _scope_graph_rows_to_caller_projects(request, basic_tuple, records)
 
         # Collect unique sample types from results for description lookup
         unique_types = set()

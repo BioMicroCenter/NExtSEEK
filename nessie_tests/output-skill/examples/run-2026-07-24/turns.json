@@ -1,0 +1,1565 @@
+[
+ {
+  "q": "Launch an nf-core rnaseq run for D.SEQ-240910LAU-135.",
+  "id": 721,
+  "src": "baml",
+  "why": "The user is requesting to launch an nf-core pipeline run (rnaseq) for a specific sample (D.SEQ-240910LAU-135). Building and launching nf-core pipelines is handled by the pipeline_build_and_launch task family on the nextseek_query route.",
+  "cost": null,
+  "mode": "reporter",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": {
+   "uids": [
+    "D.SEQ-240910LAU-135"
+   ],
+   "notes": "nf-core pipeline run request mapped to NFCORE report type with target UID.",
+   "years": [],
+   "project": null,
+   "day_range": null,
+   "month_range": null,
+   "report_type": "NFCORE",
+   "summary_mode": null,
+   "reporter_mode": "report_generation",
+   "reporter_context": {}
+  },
+  "status": "completed",
+  "created": "2026-07-24 20:08:57.952418",
+  "updated": "2026-07-24 20:09:29.812196"
+ },
+ {
+  "q": "Build a NExtSEEK upload sheet from the nf-core rnaseq outputs.",
+  "id": 722,
+  "src": "baml",
+  "why": "The user is asking to build an upload sheet for the outputs of an nf-core rnaseq run. This matches the 'pipeline_output_reingest' task family, which involves building a reviewable batch-upload workbook to register finished pipeline outputs as new analysis samples. This requires the file I/O and skill execution capabilities (nextseek-run-ls and nextseek-build-upload-xlsx) available in the container_cc route.",
+  "cost": 0.34768675,
+  "mode": null,
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": "us.anthropic.claude-opus-4-8",
+  "route": "container_cc",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:09:04.541864",
+  "updated": "2026-07-24 20:09:53.016481"
+ },
+ {
+  "q": "Find me mice treated with NDMA.",
+  "id": 723,
+  "src": "baml",
+  "why": "The user is asking to search the database for specific samples (mice) filtered by a treatment condition (NDMA). This is a direct match for the 'sample_search' task family handled by the nextseek_query route.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Searched for samples with sampletype 'MUS' and keyword 'NDMA' using partial match type. The 'attribute' field was omitted per the endpoint guardrails.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "MUS",
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "NDMA"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:09:10.562599",
+  "updated": "2026-07-24 20:09:41.622027"
+ },
+ {
+  "q": "What's the weather in Boston tomorrow?",
+  "id": 724,
+  "src": "baml",
+  "why": "The user is asking for a weather forecast, which is general world knowledge/trivia entirely unrelated to NExtSEEK, the BioMicro Center, lab data, research, or coding workflows.",
+  "cost": null,
+  "mode": null,
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "unrelated",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:09:16.645361",
+  "updated": "2026-07-24 20:09:21.100209"
+ },
+ {
+  "q": "What studies have monkeys",
+  "id": 725,
+  "src": "baml",
+  "why": "The user is asking for studies containing a specific species ('monkeys'), which maps perfectly to the sample_search and lineage_or_graph task families of the nextseek_query route.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 11,
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE s.type = $sample_type RETURN DISTINCT st.title AS study_title, st.id AS study_id LIMIT 250",
+   "counters": {},
+   "parameters": {
+    "sample_type": "NHP"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE s.type = $sample_type RETURN DISTINCT st.title AS study_title, st.id AS study_id LIMIT 250",
+   "parameters": {
+    "sample_type": "NHP"
+   },
+   "explanation": "This query finds all unique studies associated with Non-Human Primate (NHP) samples by traversing the IN_STUDY relationship from Sample nodes of type 'NHP' to Study nodes."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:13:59.068989",
+  "updated": "2026-07-24 20:14:26.844677"
+ },
+ {
+  "q": "what PBMCs tissues in the GBM study have sequencing data",
+  "id": 726,
+  "src": "baml",
+  "why": "The user is asking a structured biomedical sample search query that involves filtering by sample type (PBMCs), graph traversal for study membership (GBM study), and assay presence (sequencing data). This fits perfectly into the sample_search and lineage_or_graph task families handled by the deterministic NExtSEEK pipeline.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 0,
+   "cypher": "MATCH (t:Sample)-[:IN_STUDY]->(st:Study) WHERE t.type = $parent_type AND toLower(st.title) CONTAINS toLower($study_title) MATCH (seq:Sample)-[:DERIVED_FROM*1..]->(t) WHERE seq.type = $child_type RETURN DISTINCT t.id AS id, t.uuid AS uuid, t.type AS type LIMIT 250",
+   "counters": {},
+   "parameters": {
+    "child_type": "D.SEQ",
+    "parent_type": "TIS",
+    "study_title": "GBM"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (t:Sample)-[:IN_STUDY]->(st:Study) WHERE t.type = $parent_type AND toLower(st.title) CONTAINS toLower($study_title) MATCH (seq:Sample)-[:DERIVED_FROM*1..]->(t) WHERE seq.type = $child_type RETURN DISTINCT t.id AS id, t.uuid AS uuid, t.type AS type LIMIT 250",
+   "parameters": {
+    "child_type": "D.SEQ",
+    "parent_type": "TIS",
+    "study_title": "GBM"
+   },
+   "explanation": "This query finds tissue (TIS) samples in the GBM study that have downstream sequencing (D.SEQ) data. Note that 'PBMC' is a metadata keyword not stored in the graph, so further filtering by cell type must be performed via the REST API."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:14:28.460156",
+  "updated": "2026-07-24 20:15:04.255777"
+ },
+ {
+  "q": "What mice are in the Impact study",
+  "id": 727,
+  "src": "baml",
+  "why": "The user is asking for specific samples (mice) associated with a specific study (the Impact study). This is a structured biomedical sample search query that maps directly to the sample_search/lineage_or_graph capabilities of the chat_nextseek pipeline.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 250,
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\nWHERE s.type = $sample_type\n  AND toLower(inv.title) CONTAINS toLower($investigation_title)\nRETURN DISTINCT s.uuid AS uuid, s.id AS id, s.type AS type\nLIMIT 250",
+   "counters": {},
+   "parameters": {
+    "sample_type": "MUS",
+    "investigation_title": "Impact"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\nWHERE s.type = $sample_type\n  AND toLower(inv.title) CONTAINS toLower($investigation_title)\nRETURN DISTINCT s.uuid AS uuid, s.id AS id, s.type AS type\nLIMIT 250",
+   "parameters": {
+    "sample_type": "MUS",
+    "investigation_title": "Impact"
+   },
+   "explanation": "This query finds all mouse (MUS) samples belonging to studies that are part of the 'Impact' investigation by traversing the Sample-Study-Investigation path."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:15:07.222539",
+  "updated": "2026-07-24 20:15:27.802650"
+ },
+ {
+  "q": "Find me studies in MetNet",
+  "id": 728,
+  "src": "baml",
+  "why": "The user is asking to search for studies related to a specific project or keyword ('MetNet') in the database, which is a standard metadata lookup / graph traversal task suited for the deterministic NExtSEEK pipeline.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 10,
+   "cypher": "MATCH (s:Study)-[:IN_INVESTIGATION]->(i:Investigation)\nWHERE toLower(i.title) CONTAINS toLower($investigation_title)\nRETURN s.id AS id, s.title AS title, s.description AS description\nLIMIT 250",
+   "counters": {},
+   "parameters": {
+    "investigation_title": "MetNet"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (s:Study)-[:IN_INVESTIGATION]->(i:Investigation)\nWHERE toLower(i.title) CONTAINS toLower($investigation_title)\nRETURN s.id AS id, s.title AS title, s.description AS description\nLIMIT 250",
+   "parameters": {
+    "investigation_title": "MetNet"
+   },
+   "explanation": "This query finds all Study nodes connected to the Investigation node matching 'MetNet' via the IN_INVESTIGATION relationship."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:15:30.755137",
+  "updated": "2026-07-24 20:15:50.250499"
+ },
+ {
+  "q": "Find all tissue and cell samples from IMPACT.",
+  "id": 729,
+  "src": "baml",
+  "why": "The user is asking to find specific sample types (tissue and cell samples) associated with a specific study (IMPACT). This falls under the 'sample_search' task family for the chat_nextseek pipeline, which handles filtered sample and metadata lookups deterministically.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 250,
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE toLower(inv.title) CONTAINS toLower($investigation_title) AND s.type IN $sample_types RETURN DISTINCT s.id AS id, s.uuid AS uuid, s.type AS type LIMIT 250",
+   "counters": {},
+   "parameters": {
+    "sample_types": [
+     "TIS",
+     "CEL"
+    ],
+    "investigation_title": "IMPACT"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE toLower(inv.title) CONTAINS toLower($investigation_title) AND s.type IN $sample_types RETURN DISTINCT s.id AS id, s.uuid AS uuid, s.type AS type LIMIT 250",
+   "parameters": {
+    "sample_types": [
+     "TIS",
+     "CEL"
+    ],
+    "investigation_title": "IMPACT"
+   },
+   "explanation": "This query finds all Sample nodes of type 'TIS' or 'CEL' that belong to a Study within the 'IMPACT' Investigation."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:15:51.882879",
+  "updated": "2026-07-24 20:16:15.338868"
+ },
+ {
+  "q": "What projects have samples that undergo Short Read Sequencing",
+  "id": 730,
+  "src": "baml",
+  "why": "The user is asking a direct database query about the relationship between projects, samples, and a specific assay type (Short Read Sequencing). This falls under the lineage_or_graph / sample_search task families which are best handled by the deterministic nextseek_query route.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 5,
+   "cypher": "MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)\nWHERE r.internal_assay_title = $assay\nMATCH (child)-[:IN_STUDY]->(std:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\nRETURN DISTINCT inv.title AS project",
+   "counters": {},
+   "parameters": {
+    "assay": "Short Read Sequencing"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)\nWHERE r.internal_assay_title = $assay\nMATCH (child)-[:IN_STUDY]->(std:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\nRETURN DISTINCT inv.title AS project",
+   "parameters": {
+    "assay": "Short Read Sequencing"
+   },
+   "explanation": "This query finds samples that underwent 'Short Read Sequencing' via the DERIVED_FROM relationship, traverses to their associated studies and investigations, and returns the distinct project (investigation) titles."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:16:18.120156",
+  "updated": "2026-07-24 20:16:44.198478"
+ },
+ {
+  "q": "Find samples from a 4 week study.",
+  "id": 731,
+  "src": "baml",
+  "why": "The user is asking for a filtered search for samples associated with a specific study duration or name ('4 week study'). This is a standard structured sample search query that maps directly to the chat_nextseek pipeline (sample_search task family).",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Fallback minimal plan; structured parsing failed.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "filter_searchText": ""
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:16:46.755895",
+  "updated": "2026-07-24 20:17:32.706910"
+ },
+ {
+  "q": "Just the 4 week ones.",
+  "id": 732,
+  "src": "baml",
+  "why": "The user is refining their previous query to specifically filter for '4 week' samples, which is a follow-up memory lookup and filtered sample search against the NExtSEEK database. This is handled by the deterministic chat_nextseek pipeline.",
+  "cost": null,
+  "mode": "refine_last_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Refined search to filter samples by the keyword '4 week' using partial match type.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "4 week"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:17:37.901899",
+  "updated": "2026-07-24 20:18:06.034022"
+ },
+ {
+  "q": "Find sequencing data for NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB.",
+  "id": 733,
+  "src": "baml",
+  "why": "The user is asking to find sequencing data associated with two specific sample UIDs, which is a lineage/graph traversal query within the NExtSEEK database.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 6,
+   "cypher": "MATCH (child:Sample)-[:DERIVED_FROM*1..]->(parent:Sample) WHERE parent.uuid IN $uids AND child.type = $child_type RETURN DISTINCT child.id AS id, child.uuid AS uuid, child.type AS type LIMIT 250",
+   "counters": {},
+   "parameters": {
+    "uids": [
+     "NHP-220524FLY-1-PUB",
+     "NHP-220524FLY-2-PUB"
+    ],
+    "child_type": "D.SEQ"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (child:Sample)-[:DERIVED_FROM*1..]->(parent:Sample) WHERE parent.uuid IN $uids AND child.type = $child_type RETURN DISTINCT child.id AS id, child.uuid AS uuid, child.type AS type LIMIT 250",
+   "parameters": {
+    "uids": [
+     "NHP-220524FLY-1-PUB",
+     "NHP-220524FLY-2-PUB"
+    ],
+    "child_type": "D.SEQ"
+   },
+   "explanation": "This query finds all sequencing data (D.SEQ) samples that are descendants of the specified NHP parent samples by traversing the DERIVED_FROM relationship chain."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:18:10.815570",
+  "updated": "2026-07-24 20:18:43.749331"
+ },
+ {
+  "q": "What's the weather in Boston tomorrow?",
+  "id": 734,
+  "src": "baml",
+  "why": "The user is asking for a weather forecast, which is a general trivia/current events question completely unrelated to NExtSEEK, biomedical samples, or the user's research data.",
+  "cost": null,
+  "mode": null,
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "unrelated",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:18:47.626606",
+  "updated": "2026-07-24 20:18:51.911431"
+ },
+ {
+  "q": "Create an nf-core samplesheet for D.SEQ-240709KAM-4-PUB and D.SEQ-241219BRY-2-PUB",
+  "id": 735,
+  "src": "baml",
+  "why": "The user is requesting to build an nf-core samplesheet for specific sequencing data samples. This falls squarely under the 'pipeline_build_and_launch' task family, which is handled by the full-agentic pipeline_agent within the nextseek_query route.",
+  "cost": null,
+  "mode": "reporter",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": {
+   "uids": [
+    "D.SEQ-240709KAM-4-PUB",
+    "D.SEQ-241219BRY-2-PUB"
+   ],
+   "notes": "Reporter could not produce a structured plan.",
+   "years": [],
+   "project": null,
+   "day_range": null,
+   "month_range": null,
+   "report_type": "NFCORE",
+   "summary_mode": null,
+   "reporter_mode": "report_generation",
+   "reporter_context": {}
+  },
+  "status": "completed",
+  "created": "2026-07-24 20:18:55.034592",
+  "updated": "2026-07-24 20:19:39.485821"
+ },
+ {
+  "q": "Build an nfcore samplesheet for these",
+  "id": 736,
+  "src": "pipeline",
+  "why": "pipeline_active",
+  "cost": null,
+  "mode": null,
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:19:42.564002",
+  "updated": "2026-07-24 20:19:46.563572"
+ },
+ {
+  "q": "Find me all D.SEQ samples for the SHA lab",
+  "id": 737,
+  "src": "pipeline",
+  "why": "pipeline_active",
+  "cost": null,
+  "mode": null,
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:19:50.242839",
+  "updated": "2026-07-24 20:19:54.868130"
+ },
+ {
+  "q": "Of those, which are actually from the SHA lab? Give me UIDs with their Lab field value",
+  "id": 738,
+  "src": "baml",
+  "why": "The user is asking a follow-up question regarding a previously retrieved set of samples ('Of those...'). This is a memory_lookup task that is handled deterministically by the chat_nextseek pipeline's memory and entity agents.",
+  "cost": null,
+  "mode": "ask_about_last_results",
+  "ameta": {
+   "ok": null,
+   "url": null,
+   "bundle_id": 11,
+   "source_mode": "graph_query",
+   "status_code": null
+  },
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:19:57.977329",
+  "updated": "2026-07-24 20:20:31.287244"
+ },
+ {
+  "q": "Find me mice treated with NDMA",
+  "id": 739,
+  "src": "baml",
+  "why": "The user is asking to perform a metadata search for specific biological samples (mice treated with NDMA). This maps exactly to the 'sample_search' task family under the nextseek_query route.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Searched for samples with sampletype 'MUS' and keyword 'NDMA' using partial match type. The 'attribute' field was omitted per the endpoint guardrails.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "MUS",
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "NDMA"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:20:33.901061",
+  "updated": "2026-07-24 20:20:59.033987"
+ },
+ {
+  "q": "Rerun that last search with project id = 2",
+  "id": 740,
+  "src": "baml",
+  "why": "The user is asking to rerun a previous sample search with an additional filter (project id = 2). This is a structured database query that falls under the 'sample_search' task family handled by the deterministic NExtSEEK pipeline.",
+  "cost": null,
+  "mode": "refine_last_search",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 0,
+   "cypher": "MATCH (child:Sample)-[:DERIVED_FROM*1..]->(parent:Sample) WHERE parent.uuid IN $uids AND child.type = $child_type MATCH (child)-[:IN_STUDY]->(s:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE inv.project_id = $project_id RETURN DISTINCT child.id AS id, child.uuid AS uuid, child.type AS type LIMIT 250",
+   "counters": {},
+   "parameters": {
+    "uids": [
+     "NHP-220524FLY-1-PUB",
+     "NHP-220524FLY-2-PUB"
+    ],
+    "child_type": "D.SEQ",
+    "project_id": 2
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (child:Sample)-[:DERIVED_FROM*1..]->(parent:Sample) WHERE parent.uuid IN $uids AND child.type = $child_type MATCH (child)-[:IN_STUDY]->(s:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE inv.project_id = $project_id RETURN DISTINCT child.id AS id, child.uuid AS uuid, child.type AS type LIMIT 250",
+   "parameters": {
+    "uids": [
+     "NHP-220524FLY-1-PUB",
+     "NHP-220524FLY-2-PUB"
+    ],
+    "child_type": "D.SEQ",
+    "project_id": 2
+   },
+   "explanation": "Finds D.SEQ samples derived from the specified parent UUIDs that belong to a study within the investigation for project ID 2."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:21:01.246937",
+  "updated": "2026-07-24 20:21:26.480321"
+ },
+ {
+  "q": "Find all NHP samples in the database",
+  "id": 741,
+  "src": "baml",
+  "why": "The user is asking for a filtered sample search to find all NHP (non-human primate) samples in the database. This directly maps to the sample_search task family of the nextseek_query route.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Retrieved NHP samples using the advanced search endpoint. As there are no free-text keywords, 'filter_searchText' is set to an empty string and 'sampletype' is set to 'NHP' per the endpoint rules. The 'attribute' field is excluded as instructed.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "NHP",
+    "filter_searchText": ""
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:21:29.183214",
+  "updated": "2026-07-24 20:22:06.909748"
+ },
+ {
+  "q": "Refine those results to CD8-depleted animals only",
+  "id": 742,
+  "src": "baml",
+  "why": "The user is asking to filter or refine the previous result set based on a specific attribute ('CD8-depleted animals'). This is a follow-up memory_lookup / sample_search query which is handled deterministically by the nextseek_query pipeline.",
+  "cost": null,
+  "mode": "refine_last_search",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:22:10.833072",
+  "updated": "2026-07-24 20:22:28.888648"
+ },
+ {
+  "q": "Find me mice associated with ndma",
+  "id": 743,
+  "src": "baml",
+  "why": "The user is asking to search for samples (mice) associated with a specific keyword (ndma) in the NExtSEEK database. This is a clear sample_search query which falls under the nextseek_query route.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Searched for samples with sampletype 'MUS' (Mouse) and keyword 'NDMA' using partial match type. The 'attribute' field was omitted per endpoint guardrails.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "MUS",
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "NDMA"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:22:32.542361",
+  "updated": "2026-07-24 20:22:51.791330"
+ },
+ {
+  "q": "Of those mice, can you summarize the sex statistics of it",
+  "id": 744,
+  "src": "baml",
+  "why": "The user is asking a follow-up question regarding the statistics of a metadata field (sex) for previously referenced samples ('those mice'). This is a 'memory_lookup' task that falls under the chat_nextseek deterministic pipeline.",
+  "cost": null,
+  "mode": "ask_about_last_results",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "bundle_id": 10,
+   "source_mode": "refine_last_search",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Refined search to filter samples by the keyword '4 week' using partial match type.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "4 week"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:22:54.314639",
+  "updated": "2026-07-24 20:23:58.956574"
+ },
+ {
+  "q": "Find mice treated with NDMA",
+  "id": 745,
+  "src": "baml",
+  "why": "The user is asking for a filtered sample search to find mice treated with NDMA. This is a direct metadata lookup on the NExtSEEK database, which maps perfectly to the sample_search task family of the nextseek_query route.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Searching for Mouse (MUS) samples with the keyword 'NDMA' using partial matching. The 'attribute' field is omitted per the endpoint guardrails.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "MUS",
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "NDMA"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:24:03.159493",
+  "updated": "2026-07-24 20:24:25.431342"
+ },
+ {
+  "q": "What sample types were represented in those results",
+  "id": 746,
+  "src": "baml",
+  "why": "The user is asking a follow-up Q&A question about the previous result set ('those results'). This maps perfectly to the memory_lookup task family in the chat_nextseek deterministic pipeline.",
+  "cost": null,
+  "mode": "ask_about_last_results",
+  "ameta": {
+   "ok": null,
+   "url": null,
+   "bundle_id": 12,
+   "source_mode": "graph_query",
+   "status_code": null
+  },
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:24:27.423313",
+  "updated": "2026-07-24 20:24:55.002655"
+ },
+ {
+  "q": "write me a geo submission for D.SEQ-240422SHA-23-PUB, D.SEQ-240422SHA-24-PUB",
+  "id": 747,
+  "src": "baml",
+  "why": "The user is requesting the generation of a GEO submission for specific samples, which falls under the report_generation task family handled by the nextseek_query pipeline.",
+  "cost": null,
+  "mode": "reporter",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": {
+   "uids": [
+    "D.SEQ-240422SHA-23-PUB",
+    "D.SEQ-240422SHA-24-PUB"
+   ],
+   "notes": "GEO submission report generation for specified UIDs under PUBLISHED project",
+   "years": [],
+   "project": "PUBLISHED",
+   "day_range": null,
+   "month_range": null,
+   "report_type": "GEO",
+   "summary_mode": null,
+   "reporter_mode": "report_generation",
+   "reporter_context": {}
+  },
+  "status": "completed",
+  "created": "2026-07-24 20:24:58.550518",
+  "updated": "2026-07-24 20:25:54.390371"
+ },
+ {
+  "q": "Put together an annual progress report for the Kamm project \ufffd I need it for our NIH grant renewal",
+  "id": 748,
+  "src": "baml",
+  "why": "The user is asking for an annual progress report (RPPR-style summary) for a specific project (Kamm project). This fits the reporter_summary task family handled by the deterministic nextseek_query route via the reporter_agent.",
+  "cost": null,
+  "mode": "reporter",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": {
+   "uids": [],
+   "notes": "RPPR annual progress report for Kamm lab (KAM)",
+   "years": [],
+   "project": null,
+   "day_range": null,
+   "month_range": null,
+   "report_type": "RPPR",
+   "summary_mode": "RPPR",
+   "reporter_mode": "summary",
+   "reporter_context": {
+    "lab_code": "KAM"
+   }
+  },
+  "status": "completed",
+  "created": "2026-07-24 20:25:56.868796",
+  "updated": "2026-07-24 20:26:30.092132"
+ },
+ {
+  "q": "How many samples did MetNet upload in 2024",
+  "id": 749,
+  "src": "baml",
+  "why": "The user is asking for a count of samples uploaded by a specific entity (MetNet) within a specific timeframe (2024). This is a structured sample/metadata search that maps perfectly to the chat_nextseek pipeline's sample_search capabilities.",
+  "cost": null,
+  "mode": "reporter",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": {
+   "uids": [],
+   "notes": "MetNet project upload count for the year 2024",
+   "years": [
+    2024
+   ],
+   "project": "METNET",
+   "day_range": null,
+   "month_range": null,
+   "report_type": null,
+   "summary_mode": "samples",
+   "reporter_mode": "summary",
+   "reporter_context": {}
+  },
+  "status": "completed",
+  "created": "2026-07-24 20:26:33.266251",
+  "updated": "2026-07-24 20:26:53.809524"
+ },
+ {
+  "q": "Build me an SRA submission for D.SEQ-230512FOR-288-PUB, D.SEQ-230512FOR-289-PUB.",
+  "id": 750,
+  "src": "baml",
+  "why": "The user is requesting the generation of an SRA submission template for specific samples, which maps directly to the 'report_generation' task family handled by the nextseek_query route (specifically the reporter_agent).",
+  "cost": null,
+  "mode": "reporter",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": {
+   "uids": [
+    "D.SEQ-230512FOR-288-PUB",
+    "D.SEQ-230512FOR-289-PUB"
+   ],
+   "notes": "SRA submission request for specified UIDs under PUBLISHED project.",
+   "years": [],
+   "project": "PUBLISHED",
+   "day_range": null,
+   "month_range": null,
+   "report_type": "SRA",
+   "summary_mode": null,
+   "reporter_mode": "report_generation",
+   "reporter_context": {}
+  },
+  "status": "completed",
+  "created": "2026-07-24 20:26:57.494827",
+  "updated": "2026-07-24 20:28:06.034683"
+ },
+ {
+  "q": "Build me a full NIH Report for SRP in 2025",
+  "id": 751,
+  "src": "baml",
+  "why": "The user is requesting an NIH progress report (RPPR-style summary) for a specific project (SRP) in a specific year. This matches the 'reporter_summary' task family in the nextseek_query route.",
+  "cost": null,
+  "mode": "reporter",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": {
+   "uids": [],
+   "notes": "Full NIH RPPR report for SRP in 2025",
+   "years": [
+    2025
+   ],
+   "project": "SRP",
+   "day_range": null,
+   "month_range": null,
+   "report_type": "RPPR",
+   "summary_mode": "RPPR",
+   "reporter_mode": "summary",
+   "reporter_context": {}
+  },
+  "status": "completed",
+  "created": "2026-07-24 20:28:09.446298",
+  "updated": "2026-07-24 20:28:25.592853"
+ },
+ {
+  "q": "How many samples were uploaded for SRP from December 3rd 2023 to October 5th 2025",
+  "id": 752,
+  "src": "baml",
+  "why": "The user is asking for a count of samples uploaded for a specific project (SRP) within a specific date range. This is a structured database query that falls under the sample_search / lineage_or_graph task families of the chat_nextseek deterministic pipeline.",
+  "cost": null,
+  "mode": "reporter",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": {
+   "uids": [],
+   "notes": "SRP project sample upload count from Dec 3, 2023 to Oct 5, 2025",
+   "years": [],
+   "project": "SRP",
+   "day_range": [
+    "2023-12-03",
+    "2025-10-05"
+   ],
+   "month_range": null,
+   "report_type": null,
+   "summary_mode": "samples",
+   "reporter_mode": "summary",
+   "reporter_context": {}
+  },
+  "status": "completed",
+  "created": "2026-07-24 20:28:28.205515",
+  "updated": "2026-07-24 20:28:49.506776"
+ },
+ {
+  "q": "How many samples are in the GBM study?",
+  "id": 753,
+  "src": "baml",
+  "why": "The query asks for a count of samples in a specific study (GBM), which is a classic graph traversal / study membership query handled by the nextseek_query route.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 1,
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE toLower(st.title) CONTAINS toLower($study_title) RETURN count(DISTINCT s) AS total",
+   "counters": {},
+   "parameters": {
+    "study_title": "GBM"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE toLower(st.title) CONTAINS toLower($study_title) RETURN count(DISTINCT s) AS total",
+   "parameters": {
+    "study_title": "GBM"
+   },
+   "explanation": "This query counts the number of unique samples associated with the study matching 'GBM' via the IN_STUDY relationship."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:28:53.042407",
+  "updated": "2026-07-24 20:29:12.169114"
+ },
+ {
+  "q": "How many organ on chips exist in the Kamm lab",
+  "id": 754,
+  "src": "baml",
+  "why": "The user is asking for a count of a specific sample type ('organ on chips') associated with a specific lab ('Kamm lab'). This is a filtered sample search query that maps directly to chat_nextseek's capabilities.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Mapped the lab code 'KAM' to 'filter_searchText' with 'PARTIAL' match type to substring-match the sample UIDs, and set 'sampletype' to 'OOC'.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "OOC",
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "KAM"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:29:15.434699",
+  "updated": "2026-07-24 20:29:39.053576"
+ },
+ {
+  "q": "Find me NHP samples from study GBM",
+  "id": 755,
+  "src": "baml",
+  "why": "The user is asking to find specific samples (NHP) filtered by a study (GBM). This perfectly matches the 'sample_search' task family handled by the deterministic nextseek_query route.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 0,
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)\nWHERE s.type = $sample_type AND toLower(st.title) CONTAINS toLower($study_title)\nRETURN DISTINCT s.id AS id, s.uuid AS uuid, s.type AS type\nLIMIT 250",
+   "counters": {},
+   "parameters": {
+    "sample_type": "NHP",
+    "study_title": "GBM"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)\nWHERE s.type = $sample_type AND toLower(st.title) CONTAINS toLower($study_title)\nRETURN DISTINCT s.id AS id, s.uuid AS uuid, s.type AS type\nLIMIT 250",
+   "parameters": {
+    "sample_type": "NHP",
+    "study_title": "GBM"
+   },
+   "explanation": "This query finds Sample nodes of type 'NHP' that are associated with a Study whose title contains 'GBM'."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:29:43.772540",
+  "updated": "2026-07-24 20:30:00.757003"
+ },
+ {
+  "q": "What proteomics data exists in the database",
+  "id": 756,
+  "src": "baml",
+  "why": "The user is asking for a standard search to find a specific type of data (proteomics data) in the NExtSEEK database. This maps perfectly to the sample_search task family of the chat_nextseek pipeline.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Mapped resolved sampletypes 'D.MSP' and 'A.MSP' to the sampletype field, and the keyword 'proteomics' to filter_searchText with PARTIAL matchType.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": [
+     "D.MSP",
+     "A.MSP"
+    ],
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "proteomics"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:30:04.197067",
+  "updated": "2026-07-24 20:30:31.389356"
+ },
+ {
+  "q": "Show me analyzed sequencing data",
+  "id": 757,
+  "src": "baml",
+  "why": "The user is querying the database for a specific sample type (analyzed sequencing data), which maps directly to the sample_search capability of the NExtSEEK pipeline.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Filtered samples by sampletype 'D.SEQ' and keyword 'analyzed' using partial match type.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "D.SEQ",
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "analyzed"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:30:35.187657",
+  "updated": "2026-07-24 20:31:00.334394"
+ },
+ {
+  "q": "Find me NHP samples from study IMPACT",
+  "id": 758,
+  "src": "baml",
+  "why": "The user is requesting a straightforward database search for specific samples (NHP) within a specific study (IMPACT). This aligns perfectly with the 'sample_search' task family handled by the deterministic nextseek_query pipeline.",
+  "cost": null,
+  "mode": "graph_query",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": {
+   "ok": true,
+   "count": 250,
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)\nOPTIONAL MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation)\nWHERE s.type = $sample_type\n  AND (toLower(st.title) CONTAINS toLower($project) OR toLower(inv.title) CONTAINS toLower($project))\nRETURN DISTINCT s.id AS id, s.uuid AS uuid, s.type AS type\nLIMIT 250",
+   "counters": {},
+   "parameters": {
+    "project": "IMPACT",
+    "sample_type": "NHP"
+   }
+  },
+  "gplan": {
+   "cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)\nOPTIONAL MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation)\nWHERE s.type = $sample_type\n  AND (toLower(st.title) CONTAINS toLower($project) OR toLower(inv.title) CONTAINS toLower($project))\nRETURN DISTINCT s.id AS id, s.uuid AS uuid, s.type AS type\nLIMIT 250",
+   "parameters": {
+    "project": "IMPACT",
+    "sample_type": "NHP"
+   },
+   "explanation": "This query finds NHP samples associated with a Study or Investigation matching 'IMPACT' by traversing the IN_STUDY and IN_INVESTIGATION relationships."
+  },
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:31:03.607958",
+  "updated": "2026-07-24 20:31:26.959756"
+ },
+ {
+  "q": "Find me images associated with fibrin",
+  "id": 759,
+  "src": "baml",
+  "why": "The user is asking for a filtered search of the database for samples (images) associated with a specific term (fibrin). This matches the 'sample_search' task family for the chat_nextseek pipeline.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Mapped sampletype 'D.IMG' and keyword 'fibrin' to the advanced search endpoint. Set filter_matchType to PARTIAL for keyword matching. Omitted the attribute field as per endpoint guardrails.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "D.IMG",
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "fibrin"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:31:30.943324",
+  "updated": "2026-07-24 20:31:57.084181"
+ },
+ {
+  "q": "Find me monkeys",
+  "id": 760,
+  "src": "baml",
+  "why": "The user is asking to find monkey samples in the database, which is a classic sample_search query handled perfectly by chat_nextseek's entity/graph agents.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Searching for samples with sampletype 'NHP'. Since there are no free-text keywords, filter_searchText is set to an empty string and the attribute field is excluded as per the endpoint guardrails.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "NHP",
+    "filter_searchText": ""
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:31:58.864200",
+  "updated": "2026-07-24 20:32:34.629511"
+ },
+ {
+  "q": "Find mass spectrometry data of type proteomics",
+  "id": 761,
+  "src": "baml",
+  "why": "The user is asking to search the database for samples matching specific criteria (mass spectrometry data of type proteomics). This is a standard filtered sample search that maps directly to the sample_search task family within the nextseek_query route.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/samples/advanced_search/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "The assay 'Mass Spectrometry Proteomics' could not be mapped directly because the advanced search endpoint does not have a dedicated assay filter field. Per the rules, assay codes were not concatenated into the free-text search field.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/samples/advanced_search/",
+   "requestBody": {
+    "sampletype": "D.MSP",
+    "filter_matchType": "PARTIAL",
+    "filter_searchText": "proteomics"
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:32:39.060490",
+  "updated": "2026-07-24 20:33:02.909378"
+ },
+ {
+  "q": "Find me non human primate samples that have flow and sequencing data associated with it",
+  "id": 762,
+  "src": "baml",
+  "why": "The user is asking for a filtered sample search involving non-human primate (NHP) samples and querying their associated assays/data types (flow and sequencing). This perfectly matches the sample_search and lineage_or_graph capabilities of the nextseek_query route.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Mapped child sample types D.FLOW and D.SEQ to child_sample_types, and parent sample type NHP to parent_sample_type_filters.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+   "requestBody": {
+    "child_sample_types": [
+     "D.FLOW",
+     "D.SEQ"
+    ],
+    "parent_sample_type_filters": [
+     "NHP"
+    ]
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:33:07.233984",
+  "updated": "2026-07-24 20:33:30.013598"
+ },
+ {
+  "q": "Show me patients that have both sequencing and imaging data.",
+  "id": 763,
+  "src": "baml",
+  "why": "The user is asking to find a specific type of sample (patients) filtered by the types of downstream data associated with them (sequencing and imaging data). This requires graph traversal and lineage tracing within the NExtSEEK database, which maps perfectly to the lineage_or_graph task family of the nextseek_query route.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": false,
+   "url": "http://127.0.0.1:8000/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+   "status_code": 422
+  },
+  "aplan": {
+   "notes": "Fallback minimal plan; structured parsing failed.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+   "requestBody": {},
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:33:32.344829",
+  "updated": "2026-07-24 20:34:01.912618"
+ },
+ {
+  "q": "Get the full details for D.SEQ-221031SHA-67-PUB",
+  "id": 764,
+  "src": "baml",
+  "why": "The user is asking for the specific metadata details of a single NExtSEEK sample (D.SEQ-221031SHA-67-PUB), which is a standard sample search query that chat_nextseek can handle deterministically.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/admin/samples/retrieve/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Retrieved full scientific metadata for the sample UID D.SEQ-221031SHA-67-PUB using the admin retrieve endpoint.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/admin/samples/retrieve/",
+   "requestBody": {
+    "identifiers": [
+     "D.SEQ-221031SHA-67-PUB"
+    ]
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:34:06.110148",
+  "updated": "2026-07-24 20:34:28.732087"
+ },
+ {
+  "q": "Can you return to me all samples associated with CEL-250319WHI-1-PUB",
+  "id": 765,
+  "src": "baml",
+  "why": "The user is asking for graph traversal / lineage to find all samples associated with a specific UID (CEL-250319WHI-1-PUB). This maps directly to chat_nextseek's graph_agent capabilities.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/admin/samples/retrieve/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Retrieved full metadata for CEL-250319WHI-1-PUB and its lineage using the admin retrieve endpoint.",
+   "method": "POST",
+   "endpoint": "/nextseek_api/admin/samples/retrieve/",
+   "requestBody": {
+    "identifiers": [
+     "CEL-250319WHI-1-PUB"
+    ]
+   },
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:34:31.412425",
+  "updated": "2026-07-24 20:35:01.981811"
+ },
+ {
+  "q": "Show me children of XXX-999999ZZZ-1-PUB.",
+  "id": 766,
+  "src": "baml",
+  "why": "The user is asking for the children of a specific sample UID (XXX-999999ZZZ-1-PUB). This is a graph traversal/lineage query that is best handled deterministically by the NExtSEEK pipeline.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": false,
+   "url": "http://127.0.0.1:8000/nextseek_api/sample-tree/XXX-999999ZZZ-1-PUB/tree/",
+   "status_code": 404
+  },
+  "aplan": {
+   "notes": "Successfully mapped the UID 'XXX-999999ZZZ-1-PUB' to the path parameter of the sample-tree endpoint to retrieve its lineage.",
+   "method": "GET",
+   "endpoint": "/nextseek_api/sample-tree/XXX-999999ZZZ-1-PUB/tree/",
+   "requestBody": {},
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:35:05.868026",
+  "updated": "2026-07-24 20:35:26.849491"
+ },
+ {
+  "q": "Show me the full lineage of D.SEQ-221031SHA-67-PUB",
+  "id": 767,
+  "src": "baml",
+  "why": "The user is requesting the full lineage of a specific sample UID (D.SEQ-221031SHA-67-PUB), which involves graph traversal to find connected samples. This falls directly under the 'lineage_or_graph' task family handled by the chat_nextseek deterministic pipeline.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/sample-tree/D.SEQ-221031SHA-67-PUB/tree/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Retrieved the full sample lineage (derivation tree) for the sample UID D.SEQ-221031SHA-67-PUB. The sampletype D.SEQ and project 'Published Data' are associated with this sample but are not explicitly parameterized as the lineage endpoint only requires the UID in the path.",
+   "method": "GET",
+   "endpoint": "/nextseek_api/sample-tree/D.SEQ-221031SHA-67-PUB/tree/",
+   "requestBody": {},
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:35:31.875785",
+  "updated": "2026-07-24 20:35:54.678370"
+ },
+ {
+  "q": "Tell me about Tissue collection",
+  "id": 768,
+  "src": "baml",
+  "why": "The user is asking about 'Tissue collection', which likely relates to the Tissue (TIS) sample type, tissue samples, or collection protocols stored in the NExtSEEK database. This is a general database lookup/search that can be handled by the nextseek_query route.",
+  "cost": null,
+  "mode": "system_question",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:35:57.209063",
+  "updated": "2026-07-24 20:36:23.109663"
+ },
+ {
+  "q": "Show me all assays I have access to",
+  "id": 769,
+  "src": "baml",
+  "why": "The user is asking for a list of all assay entities they have access to in the database. This is a structured metadata search that maps directly to the NExtSEEK sample_search task family.",
+  "cost": null,
+  "mode": "new_search",
+  "ameta": {
+   "ok": true,
+   "url": "http://127.0.0.1:8000/nextseek_api/assays/",
+   "status_code": 200
+  },
+  "aplan": {
+   "notes": "Listing all assays. No filters or request body are required for this GET request.",
+   "method": "GET",
+   "endpoint": "/nextseek_api/assays/",
+   "requestBody": {},
+   "queryParameters": {}
+  },
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:36:24.841307",
+  "updated": "2026-07-24 20:36:45.111168"
+ },
+ {
+  "q": "What assays are available to me",
+  "id": 770,
+  "src": "baml",
+  "why": "The user is asking for a list of available assays in the NExtSEEK database. This is a deterministic metadata lookup that can be handled by chat_nextseek.",
+  "cost": null,
+  "mode": "system_question",
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:36:47.751701",
+  "updated": "2026-07-24 20:37:07.825122"
+ },
+ {
+  "q": "Is treatment A significantly better than treatment B based on our sequencing results",
+  "id": 771,
+  "src": "baml",
+  "why": "The user is asking for an open-ended data analysis to compare two treatments based on sequencing results. This involves reading data files (like differential expression results), performing statistical reasoning, and potentially running code, which are tasks uniquely handled by the full agentic environment in container_cc.",
+  "cost": 0.31300125,
+  "mode": null,
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": "us.anthropic.claude-opus-4-8",
+  "route": "container_cc",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:37:09.919921",
+  "updated": "2026-07-24 20:37:48.061774"
+ },
+ {
+  "q": "Create me investigation \"Testing Investigation. Still Testing\"",
+  "id": 772,
+  "src": "baml",
+  "why": "The user is requesting the creation of a new Investigation in the database. Resource creation (writing to the API rather than just querying) falls outside the deterministic read-only pipeline of chat_nextseek. The container_cc environment has access to the nextseek-api tool and can execute the necessary script or API commands to create the investigation.",
+  "cost": 0.27399124999999996,
+  "mode": null,
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": "us.anthropic.claude-opus-4-8",
+  "route": "container_cc",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:37:52.348532",
+  "updated": "2026-07-24 20:40:36.527890"
+ },
+ {
+  "q": "Create me investigation TEST-CD with project id 2",
+  "id": 773,
+  "src": "baml",
+  "why": "The user is asking to create a new metadata entity (an investigation) in the NExtSEEK database. Creating or modifying database objects requires API interactions, scripting, or batch-upload tools which are handled in the container_cc environment, whereas nextseek_query is designed for read-only retrieval, reporting, and pipeline launches.",
+  "cost": 0.065983,
+  "mode": null,
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": "us.anthropic.claude-opus-4-8",
+  "route": "container_cc",
+  "rplan": null,
+  "status": "completed",
+  "created": "2026-07-24 20:39:25.504406",
+  "updated": "2026-07-24 20:41:23.508913"
+ },
+ {
+  "q": "Find NHP sequencing data.",
+  "id": 774,
+  "src": "baml",
+  "why": "The user is asking for a metadata search to find Non-Human Primate (NHP) sequencing data. This maps perfectly to the sample_search task family of the nextseek_query route.",
+  "cost": null,
+  "mode": null,
+  "ameta": null,
+  "aplan": null,
+  "gmeta": null,
+  "gplan": null,
+  "model": null,
+  "route": "nextseek_query",
+  "rplan": null,
+  "status": "running",
+  "created": "2026-07-24 20:40:28.399137",
+  "updated": "2026-07-24 20:41:04.711326"
+ }
+]

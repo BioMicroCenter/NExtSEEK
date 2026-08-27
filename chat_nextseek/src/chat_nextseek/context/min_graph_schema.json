@@ -1,17 +1,17 @@
 {
-  "description": "NExtSEEK Knowledge Graph — lightweight schema for parser routing decisions",
+  "description": "NExtSEEK Knowledge Graph \u2014 lightweight schema for parser routing decisions",
   "node_types": [
     {
       "label": "Sample",
-      "description": "A biological sample. Property 'type' holds the sample type code (e.g. TIS, CEL, DNA, D.SEQ, NHP, MUS). Samples are linked to each other via DERIVED_FROM, to studies via IN_STUDY."
+      "description": "A biological sample. Property 'type' holds the sample type code (e.g. TIS, CEL, DNA, D.SEQ, NHP, MUS); 'UID' and 'uuid' hold the sample identifier. Samples link to each other via DERIVED_FROM and to studies via IN_STUDY. The node carries ONLY identity, protocol and lineage properties: id, uuid, UID, type, Protocol, parent_titles, parent_title_hashes, and the lineage family Parent, AntibodyParent, BacteriaParent, CompensationFCSParent, ParentF, ParentM and Treatment1Parent..Treatment5Parent. Every key containing 'Parent' names an ancestor. Descriptive sample metadata (Scientist, Notes, storage, treatment, concentration, shipping, imaging, etc.) is NOT on the graph node; it lives in the REST API / json_metadata and must be fetched there."
     },
     {
       "label": "Study",
-      "description": "A research study grouping samples. Property 'title'. Linked to an Investigation via IN_INVESTIGATION."
+      "description": "A research study grouping samples. In this instance a study IS a published paper: 'title' is the paper title. The publication properties are 'DOI' and 'PMID' \u2014 UPPERCASE, unlike every other property on this node. A study is published when its DOI or PMID is a non-empty string. The unset value is an empty string, NOT null, so never test IS NOT NULL: it is true for every study. Use coalesce(st.DOI,'') <> '' instead. Most studies are unpublished, which is expected rather than missing data. Linked to an Investigation via IN_INVESTIGATION."
     },
     {
       "label": "Investigation",
-      "description": "A project grouping one or more studies. Property 'title'. Known values: CSBC, GBM_BTC, Griffith, Impact, MetNet, SRP, Shoulders."
+      "description": "A project grouping one or more studies. Property 'title'. Known values: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet."
     }
   ],
   "relationships": [
@@ -32,28 +32,35 @@
     }
   ],
   "graph_query_triggers": [
-    "Query scopes to a named Study ('in the GBM study', 'in the Griffith study', 'what samples exist in study X')",
-    "Query scopes to a named Investigation or Project ('in the IMPACT project', 'in the SRP investigation', 'what studies are in project X')",
+    "Query scopes to a named Study ('in the GBM_BTC study', 'in the MetNet study', 'what samples exist in study X')",
+    "Query scopes to a named Investigation or Project ('in the MetNet project', 'in the MIT_SRP investigation', 'what studies are in project X')",
     "Query asks what studies, projects, or investigations contain or relate to something ('what projects have mouse samples', 'which investigations have NHP samples with sequencing')",
-    "Query counts or aggregates within a study or investigation scope ('how many samples are in the GBM study', 'how many TIS samples exist across all studies')",
-    "Query asks about assay or protocol application by vocabulary name ('processed via Tissue Collection', 'underwent Short Read Sequencing', 'associated with flow cytometry protocol', 'samples that underwent single cell sequencing') — especially when no clean REST endpoint exists for the combination",
-    "Query mixes Sample results with Study or Investigation membership in the same output"
+    "Query counts or aggregates within a study or investigation scope ('how many samples are in the GBM_BTC study', 'how many TIS samples exist across all studies')",
+    "Query asks about assay or protocol application by vocabulary name ('processed via Tissue Collection', 'underwent Short Read Sequencing', 'associated with flow cytometry protocol', 'samples that underwent single cell sequencing') \u2014 especially when no clean REST endpoint exists for the combination",
+    "Query mixes Sample results with Study or Investigation membership in the same output",
+    "Query asks about ancestry, parentage or derivation by a lineage property rather than a UID ('samples whose AntibodyParent is set', 'what is the parent of X', 'trace the lineage of', 'samples with a Treatment1Parent') \u2014 the Parent-family properties live on the Sample node and only the graph can filter or traverse them",
+    "Query asks which samples have any parent of a given kind, or counts samples by lineage property ('how many samples have a BacteriaParent', 'which CEL samples have ParentF set')",
+    "Query asks which paper or publication a sample appears in ('what paper is this sample from', 'is UID X published', 'which publication used these samples') \u2014 traverse (s:Sample)-[:IN_STUDY]->(st:Study) and read st.DOI / st.PMID",
+    "Query names a paper by title, DOI, or PMID and asks for its samples ('what samples were used in the SureQuant paper', 'samples for 10.1101/2021.09.30.462577', 'samples in PMID 34981053')"
   ],
   "api_preferred_triggers": [
-    "Filter-based sample search with resolved sampletype code and/or assay code only, no study/investigation scope → advanced_search endpoint",
-    "Samples derived from or associated with a specific UID → /samples/tree/ or /samples/associated/ endpoint",
-    "Parent samples that have children of multiple specified types → /samples/parents_by_child_types/ endpoint",
+    "Filter-based sample search with resolved sampletype code and/or assay code only, no study/investigation scope \u2192 advanced_search endpoint",
+    "Samples derived from or associated with a specific UID \u2192 /samples/tree/ or /samples/associated/ endpoint",
+    "Parent samples that have children of multiple specified types \u2192 /samples/parents_by_child_types/ endpoint",
     "PATCH/update on a specific sample UID",
     "Any intent that maps cleanly to a known API endpoint in the catalog"
   ],
   "disambiguation_rules": [
-    "If the query mentions a study or investigation by name → graph_query, even if a sampletype is also present",
-    "If the query says 'how many X in study Y' or 'across all studies' → graph_query",
-    "If the query says 'how many X' with no study/investigation scope and no time span → API advanced_search (not reporter)",
-    "If the query has entity-resolved sampletype + assay codes AND no study/investigation scope AND the assay is used as a keyword attribute filter (not a named assay/protocol traversal) → prefer API",
-    "If the query asks for samples 'associated with', 'that underwent', or 'processed via' a named assay or protocol → graph_query (assay metadata lives on DERIVED_FROM relationships, not on sample records; REST endpoints cannot filter on it)",
-    "If the query asks for parent samples that have children of multiple types → check API catalog for parents_by_child_types endpoint first; if it exists, prefer API",
-    "If the query involves project-level upload counts or statistics over time → reporter (not graph_query)",
-    "Investigation titles to recognize (case-insensitive): CSBC, GBM_BTC, GBM, Griffith, Impact, IMPACT, MetNet, SRP, Shoulders"
+    "If the query mentions a study or investigation by name \u2192 graph_query, even if a sampletype is also present",
+    "If the query says 'how many X in study Y' or 'across all studies' \u2192 graph_query",
+    "If the query says 'how many X' with no study/investigation scope and no time span \u2192 API advanced_search (not reporter)",
+    "If the query has entity-resolved sampletype + assay codes AND no study/investigation scope AND the assay is used as a keyword attribute filter (not a named assay/protocol traversal) \u2192 prefer API",
+    "If the query asks for samples 'associated with', 'that underwent', or 'processed via' a named assay or protocol \u2192 graph_query (assay metadata lives on DERIVED_FROM relationships, not on sample records; REST endpoints cannot filter on it)",
+    "If the query asks for parent samples that have children of multiple types \u2192 check API catalog for parents_by_child_types endpoint first; if it exists, prefer API",
+    "If the query involves project-level upload counts or statistics over time \u2192 reporter (not graph_query)",
+    "If the query filters or reports on a descriptive sample attribute (Scientist, Notes, Name, storage, treatment, concentration, dates, shipping, imaging fields) \u2192 API. Those properties do not exist on graph nodes; Cypher referencing them can only match nothing.",
+    "If the query concerns lineage structure (parents, children, ancestry, derivation chains, any 'Parent' property) \u2192 graph_query, even when a specific UID is present.",
+    "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet",
+    "If the query mentions a DOI, a PMID, a paper, or a publication \u2192 graph_query (DOI/PMID live on Study nodes and no REST endpoint filters samples by them)"
   ]
 }

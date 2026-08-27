@@ -1,0 +1,475 @@
+{
+  "schema": "plan018-v4-2-port-receipt/v1",
+  "recorded_at": "2026-08-11T15:34:37Z",
+  "source_ref": "origin/dev-v4-merge@3fe71670b954b78573795ac087caedec5eac2b97",
+  "expected_nessie_tree_oid": "c1f468de3d52284d05438a95a35ed051d64cf571",
+  "file_count": 93,
+  "nessie_py_matches_tip": true,
+  "files": [
+    {
+      "path": "nessie_tests/FAMILIES.json",
+      "sha256": "ce94bfade7c6c88054b8b5072a38e0771d70c2be3040e2a6ef8cbf8661cb8d17",
+      "bytes": 684132
+    },
+    {
+      "path": "nessie_tests/README.md",
+      "sha256": "53214f5401ea616e0bb50fe1d82e3d8c3a5808abb6c61533df92e6fde9bbc5bf",
+      "bytes": 14387
+    },
+    {
+      "path": "nessie_tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "nessie_tests/__main__.py",
+      "sha256": "a7288a43bc20ac259d96008a6f8baa98a3bb678f259032fda0d5326f4abf6dc7",
+      "bytes": 63
+    },
+    {
+      "path": "nessie_tests/bayes_manifest.py",
+      "sha256": "baeb7526bd4d84d592b2555147864813bf496ceacbdc0a3f203fc7ca99140bc6",
+      "bytes": 4079
+    },
+    {
+      "path": "nessie_tests/bayesian.py",
+      "sha256": "71eb267e3cb1ecdb28a55d37241d5fb61999a40c19c2de7b9c6166ff477a4786",
+      "bytes": 12898
+    },
+    {
+      "path": "nessie_tests/bundle.py",
+      "sha256": "b7ae00cda9f2a81590343fea11e029e47bbb74c63626350d7e7a85a648a608ed",
+      "bytes": 1368
+    },
+    {
+      "path": "nessie_tests/cli.py",
+      "sha256": "a1bbdef68a8f9e1130fe94535d87266481a071099cb1589b55909132f4062c7e",
+      "bytes": 16034
+    },
+    {
+      "path": "nessie_tests/collect.py",
+      "sha256": "a1dde9451bd3b80383ff9e08f57a4cbf85b7943df9011c51e9773c201297e663",
+      "bytes": 38544
+    },
+    {
+      "path": "nessie_tests/conftest.py",
+      "sha256": "c7c0883a8777ae403be3737317717bc2c9d4b6eb0d46bcee464d3af2fcf21e9f",
+      "bytes": 82
+    },
+    {
+      "path": "nessie_tests/consistency.py",
+      "sha256": "b4269732a3a55f15a70d09a5aa9fc903a03cc5edf25816f57d2a4defb056de09",
+      "bytes": 5362
+    },
+    {
+      "path": "nessie_tests/corpus.json",
+      "sha256": "99efa7a10f2d418190a4a29eb550fea9927037a1b3844a6bc319017609155652",
+      "bytes": 841551
+    },
+    {
+      "path": "nessie_tests/corpus.py",
+      "sha256": "a61368fc74896c189b2c9ace5aff459d2212d1c616a1a698a22a39eae9148d03",
+      "bytes": 25736
+    },
+    {
+      "path": "nessie_tests/evaluate.py",
+      "sha256": "e0a40093fffa4479b3234d770da5ec4615e196aba712b07ae8d45b48447b3393",
+      "bytes": 36087
+    },
+    {
+      "path": "nessie_tests/export.py",
+      "sha256": "05d498c1752068dd45026e03d8ec69695bab7de83ebc1c8c56ba1b712fddc6d9",
+      "bytes": 65254
+    },
+    {
+      "path": "nessie_tests/http_driver.py",
+      "sha256": "b67f0457ab619eb9a9486d98c0b8a1d5b0ccbc225ef2061b40a2425005a78464",
+      "bytes": 6463
+    },
+    {
+      "path": "nessie_tests/limits.py",
+      "sha256": "79d123dc2793c9bd4b49d6c038dd0b09cb493c438a04348e6b5b71b435ba91dc",
+      "bytes": 966
+    },
+    {
+      "path": "nessie_tests/manifest.py",
+      "sha256": "7e2d67cdebae7f49d52c9680313f609aa7331edef572b3cc86c4dcc27d6634a4",
+      "bytes": 12896
+    },
+    {
+      "path": "nessie_tests/outage.py",
+      "sha256": "a9b688f11cf835240fd00bea5c3b64293e3f9190a1145db6c03835880eeb6c1f",
+      "bytes": 2844
+    },
+    {
+      "path": "nessie_tests/output-skill-bayesian/SKILL.md",
+      "sha256": "568375e39493d8af876ec0301404741ef7b676c1aff01d61d25fc59fb397d8b2",
+      "bytes": 16409
+    },
+    {
+      "path": "nessie_tests/output-skill-bayesian/scripts/build_bayes_report.py",
+      "sha256": "b4fa9edef44116c1ea8640b2044c8f9793161dc541a2d7d5aabc172c928f282d",
+      "bytes": 18270
+    },
+    {
+      "path": "nessie_tests/output-skill-bayesian/scripts/merge_grades.py",
+      "sha256": "08f61bea0b4a88ab1e1526bda172aca16449567ee5d428da5bce1a5acd6dc981",
+      "bytes": 1033
+    },
+    {
+      "path": "nessie_tests/output-skill-bayesian/templates/report_bayes.html.tpl",
+      "sha256": "30d2cdbc69140e158618e4b8b600673bdcde895fa1347fe1a97cfa4219e1d4d8",
+      "bytes": 38773
+    },
+    {
+      "path": "nessie_tests/output-skill/README.md",
+      "sha256": "c8d4d08e587a506aaff13610c2f1a77e317372200fbe9d0a32bdd2730eca5e8d",
+      "bytes": 2178
+    },
+    {
+      "path": "nessie_tests/output-skill/REFERENCE.md",
+      "sha256": "dc76992a3cbc2efc6f7970be8bee473b4905142f394b22e5cd6d81f18d9887b5",
+      "bytes": 14273
+    },
+    {
+      "path": "nessie_tests/output-skill/SKILL.md",
+      "sha256": "76102c00e098c83f7817c496e34ba2f54051b390286b1b39a213370cb190e6bc",
+      "bytes": 16468
+    },
+    {
+      "path": "nessie_tests/output-skill/examples/run-2026-07-24/manifest.json",
+      "sha256": "059ba48bb00f2eae54186bc7a6d655ca325c1a79d1fadc71b9c20e195c083018",
+      "bytes": 15764
+    },
+    {
+      "path": "nessie_tests/output-skill/examples/run-2026-07-24/turns.json",
+      "sha256": "12efd006478bee2f5ac7ef7f860dedd525f86670b0212f405084b71f40f8b0f2",
+      "bytes": 55229
+    },
+    {
+      "path": "nessie_tests/output-skill/examples/triage.json",
+      "sha256": "ce468c0d99784c29497e916f016fda6e790bea8e1e11bab666e1b6508f873778",
+      "bytes": 17411
+    },
+    {
+      "path": "nessie_tests/output-skill/scripts/build_report.py",
+      "sha256": "dc99f1f0c604121ffce94c5f4be1ae2dc61884d4d5f88654fb6e4ee83f105bb1",
+      "bytes": 16702
+    },
+    {
+      "path": "nessie_tests/output-skill/scripts/fetch_run.py",
+      "sha256": "2733665fa55fec5998f3d56ccdd08b8f1144ab17f2cb509603b5b9a575a09dcf",
+      "bytes": 7320
+    },
+    {
+      "path": "nessie_tests/output-skill/scripts/rehydrate_report.py",
+      "sha256": "4afbf1bca8e3af29e4e323206c1664cf9ecd8cb3c5fe53b699f6d22fc23e737f",
+      "bytes": 5867
+    },
+    {
+      "path": "nessie_tests/output-skill/templates/report.html.tpl",
+      "sha256": "846fa4695132b27c64f7e590ce5e953876caf2892b4b00816693698bb5a81d16",
+      "bytes": 39362
+    },
+    {
+      "path": "nessie_tests/output_skill_bayesian/__init__.py",
+      "sha256": "e9450b1af8150b03d008f2ef3c5d9a4136094a709734f8b9d17dfe65ac9b2f7c",
+      "bytes": 634
+    },
+    {
+      "path": "nessie_tests/output_skill_bayesian/merge_grades.py",
+      "sha256": "92f0f3c41c01c37537937642c76b420226ab24b2487702f3f1c849ad5c5e235d",
+      "bytes": 14823
+    },
+    {
+      "path": "nessie_tests/pathsetup.py",
+      "sha256": "101722f94299c3eae395d4e1a24498051737ae21a9617bb7ffa68800e61de138",
+      "bytes": 492
+    },
+    {
+      "path": "nessie_tests/preflight.py",
+      "sha256": "aee401fdda47182a3c10a67b6a2c5c53ced42bf7f1e2783a3cdd8cfca9e735df",
+      "bytes": 10222
+    },
+    {
+      "path": "nessie_tests/probes/probe-2026-07-29-retest.json",
+      "sha256": "b337f18a4bae5142077776c877a723ce2e3979368483e685078404937723af71",
+      "bytes": 3614
+    },
+    {
+      "path": "nessie_tests/probes/probe-2026-07-29.json",
+      "sha256": "36f03d8d5123166c8f1cc192cdc27f23c86ded0fee2a90957ab55938a5225dfd",
+      "bytes": 9770
+    },
+    {
+      "path": "nessie_tests/probes/probe-cc-2026-07-31.json",
+      "sha256": "4696dd3b2caf3acdb5f1abaee1a1619fda49f7e75a20e5a9f449382b823e2d6b",
+      "bytes": 27466
+    },
+    {
+      "path": "nessie_tests/report.py",
+      "sha256": "ec8d19d33de669a763fb083d268396fb5a66e18daaecb75f5c21a2def2ca9a69",
+      "bytes": 6993
+    },
+    {
+      "path": "nessie_tests/route_observer.py",
+      "sha256": "f875d5535379e76bc7ad6eac5fd35dd9114ffea1bf9937cc069053db76d60b62",
+      "bytes": 2176
+    },
+    {
+      "path": "nessie_tests/runner.py",
+      "sha256": "b57dc02bda82470367c4867fcc665da439d67bedac5eb2f06674796531b4e8a6",
+      "bytes": 34132
+    },
+    {
+      "path": "nessie_tests/scripts/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "nessie_tests/scripts/apply_qset.py",
+      "sha256": "7ce1114696eeafb94d32b03b20fdf7efa85f20eb46db654abb213912b97142c6",
+      "bytes": 5345
+    },
+    {
+      "path": "nessie_tests/scripts/atlas_variants.py",
+      "sha256": "47a5ed3d9d762a40e4204628a86429fcd42e6388dd0d71f0eec446fb5f5b47fc",
+      "bytes": 8255
+    },
+    {
+      "path": "nessie_tests/scripts/build_doc.py",
+      "sha256": "318f8c3fafeeec9c6d94a21f6064ca532cbabf4bb220953b51da9d1300f8fd51",
+      "bytes": 29789
+    },
+    {
+      "path": "nessie_tests/scripts/build_qset.py",
+      "sha256": "88d1c1dbc8b3b898d695962722ee52096507fa6b3b956fa7439401b91c95d66a",
+      "bytes": 4433
+    },
+    {
+      "path": "nessie_tests/scripts/check_qset.py",
+      "sha256": "da59ae7b205b6c5fe2f4c27328a2340f811375ea45ff1542d470cd439716fb1f",
+      "bytes": 2607
+    },
+    {
+      "path": "nessie_tests/scripts/delta_selection.py",
+      "sha256": "1fe2b15580901f0d1c8d621f49f6bcce77ffb7f574cb0834d591ebd229dd4e8e",
+      "bytes": 4047
+    },
+    {
+      "path": "nessie_tests/scripts/human_functional_rows.py",
+      "sha256": "c5e37468c896b096bcb3712fe45dbcd4873b577e9d1f693dac2d54c3cf53ee7d",
+      "bytes": 5984
+    },
+    {
+      "path": "nessie_tests/scripts/qset_data.py",
+      "sha256": "98395f817996e36a800ceb51597a5dd1de0c32a23a660faaf583d8d2c5d04d53",
+      "bytes": 109200
+    },
+    {
+      "path": "nessie_tests/scripts/remap_families.py",
+      "sha256": "fb67061536530421a4c51c9357a8b7bd7e4814170dd910814c2a5632519baa64",
+      "bytes": 15017
+    },
+    {
+      "path": "nessie_tests/scripts/reverify.sh",
+      "sha256": "ad9cb0d2f040c60fc8c2595ac406f405648fb38a60093933d7013044bfba1615",
+      "bytes": 11701
+    },
+    {
+      "path": "nessie_tests/sources.py",
+      "sha256": "dbebae3f4ee317db7cfea68efda8dcf32f94634cbcedfe16892be64dcaf183d1",
+      "bytes": 27811
+    },
+    {
+      "path": "nessie_tests/tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "nessie_tests/tests/test_bayes_report.py",
+      "sha256": "b53216025b0a3a6644e3541a09abb3a3e09288d4eb53df3cd2d881f59a7e05d4",
+      "bytes": 27220
+    },
+    {
+      "path": "nessie_tests/tests/test_bayesian.py",
+      "sha256": "789c3b97ea0d970be952fa2c4cfd8f85dd2fa92d97cfcbe5cdc701d147ace225",
+      "bytes": 26804
+    },
+    {
+      "path": "nessie_tests/tests/test_case_file.py",
+      "sha256": "d55ea11c13d4240aee313cb7f6e095f6bc313c48914d5a3097b3a33277d4347c",
+      "bytes": 10081
+    },
+    {
+      "path": "nessie_tests/tests/test_catalog_drift.py",
+      "sha256": "7c23c00f471742d98c145186b28b6ea426f7827184364084ded49b0787f7bf7a",
+      "bytes": 2868
+    },
+    {
+      "path": "nessie_tests/tests/test_cli.py",
+      "sha256": "c825a8c3f3d966740b660d0a32dfed2f87a5846c82371023f375597c5216a9ac",
+      "bytes": 19135
+    },
+    {
+      "path": "nessie_tests/tests/test_collect.py",
+      "sha256": "80fd80b09ab47cb66d5a4237968aad85eb53fcbbe329ce552b726bf968955bb7",
+      "bytes": 45727
+    },
+    {
+      "path": "nessie_tests/tests/test_consistency.py",
+      "sha256": "6925452fccc7e3d353d799540304361c539c6cfd5a2b3f33f855b78b4d31abab",
+      "bytes": 11777
+    },
+    {
+      "path": "nessie_tests/tests/test_corpus.py",
+      "sha256": "9b9638a08a4dddd230e7e6b5016feb71cadc93111ef56607306acda6666b8dc4",
+      "bytes": 19371
+    },
+    {
+      "path": "nessie_tests/tests/test_evaluate.py",
+      "sha256": "63d600861fa5f450ed34412fec897a63e9dfa152bbe40cd166a9b8e07dd04e27",
+      "bytes": 53962
+    },
+    {
+      "path": "nessie_tests/tests/test_export.py",
+      "sha256": "e3e66b5a2e45180a17902ac6f515dddff7ab2c2cd807619103025bea3bfded6d",
+      "bytes": 67301
+    },
+    {
+      "path": "nessie_tests/tests/test_floor_ops.py",
+      "sha256": "00f258547b0386ba9d90a687a796be6f75bc8a34647660c9d801c4e8874f98ad",
+      "bytes": 59322
+    },
+    {
+      "path": "nessie_tests/tests/test_http_driver.py",
+      "sha256": "8857b86a19780d795e436270b4d99b4a0ab778ec89a2fd9a98ef4ae16ac36445",
+      "bytes": 6892
+    },
+    {
+      "path": "nessie_tests/tests/test_import_smoke.py",
+      "sha256": "66c6b67475799b3fb69b24a61917896f14a37cc51b7dc5a5b33d87cd74cd2433",
+      "bytes": 523
+    },
+    {
+      "path": "nessie_tests/tests/test_inline_route_assertions.py",
+      "sha256": "6e77a0440395bb4700f26efe35bba5c6cd5b065917a9eec649afc235aba4e4d1",
+      "bytes": 25265
+    },
+    {
+      "path": "nessie_tests/tests/test_manifest_report.py",
+      "sha256": "2502c869582079b2e62ae948c5e7bc3a19b7dd7d0fae2775c59b95c8cc2e4d21",
+      "bytes": 21237
+    },
+    {
+      "path": "nessie_tests/tests/test_merge_grades.py",
+      "sha256": "e510352342dcf4c143f02ff2b4e04501788f29ad774e06c51c4235783262079a",
+      "bytes": 17571
+    },
+    {
+      "path": "nessie_tests/tests/test_output_skill_scripts.py",
+      "sha256": "0d06279feefd046c059a9c90704f859e0a5fdf55e979edec95961b5e0a3e781c",
+      "bytes": 13489
+    },
+    {
+      "path": "nessie_tests/tests/test_overlay_content.py",
+      "sha256": "16d5a553f6da8b55764d7bd55bb9b93de1a37103cc970f0a527b8142c436bea3",
+      "bytes": 12271
+    },
+    {
+      "path": "nessie_tests/tests/test_preflight.py",
+      "sha256": "d48d27cf852e2de647f0781800085b0603b152e98ff521e65baa98fccd3af595",
+      "bytes": 14272
+    },
+    {
+      "path": "nessie_tests/tests/test_probe_files.py",
+      "sha256": "a2bc381fe926345822ce1fdf6359d058eec1f121cb55bee5b63eb0fea393e319",
+      "bytes": 1092
+    },
+    {
+      "path": "nessie_tests/tests/test_repro_and_consistency_wiring.py",
+      "sha256": "60a065b8d40d683a4fdee497713c04b182c34c53ec1b22ba7a0772a226ad9906",
+      "bytes": 2936
+    },
+    {
+      "path": "nessie_tests/tests/test_retired.py",
+      "sha256": "8c89720f4243b23b5955ae3c07319c219e070b395417b46907c404d02aca6e4a",
+      "bytes": 7354
+    },
+    {
+      "path": "nessie_tests/tests/test_route_observer.py",
+      "sha256": "c08f62990bb2b57b45d2ce65011c691c797e31adecddcdaa8bf605e1d5029867",
+      "bytes": 1646
+    },
+    {
+      "path": "nessie_tests/tests/test_route_policy.py",
+      "sha256": "12673902862d1e86992affc0aac1014f753390d3b9a41131c16cb878d50b4ddd",
+      "bytes": 6646
+    },
+    {
+      "path": "nessie_tests/tests/test_route_policy_drop.py",
+      "sha256": "f14efb71deb7da8bb363d7dd832a833241c9afd928ae6a95d525c8b51ebaf320",
+      "bytes": 3909
+    },
+    {
+      "path": "nessie_tests/tests/test_route_policy_gate.py",
+      "sha256": "b1b5aee28d22f5028163300c2c4a126d5cab169d472ddc660a314f069c59ac01",
+      "bytes": 3239
+    },
+    {
+      "path": "nessie_tests/tests/test_run_case.py",
+      "sha256": "75acf39355991efd80a5a1e9061c49bd3298cad6b3f24b899726db1386ecc3ba",
+      "bytes": 19096
+    },
+    {
+      "path": "nessie_tests/tests/test_runner.py",
+      "sha256": "15b69d82f1ce5fd478ee1123139f2ce6488fdec3bd479b6a35ce66431e5a8db4",
+      "bytes": 51472
+    },
+    {
+      "path": "nessie_tests/tests/test_sample.py",
+      "sha256": "60eb760848830f09dc4a2350f265578e71fe5ef05be59bcd5900aabc0f54dfec",
+      "bytes": 1178
+    },
+    {
+      "path": "nessie_tests/tests/test_sources.py",
+      "sha256": "c3526160c817cedabf31fbcfa29be9098f30b94c4b2450b77a5dd81964f2829a",
+      "bytes": 31146
+    },
+    {
+      "path": "nessie_tests/tests/test_unified_corpus.py",
+      "sha256": "b17693c6a783a958ce8788248e5038990819ecf15ef3eff1f51f4271526c851d",
+      "bytes": 42588
+    },
+    {
+      "path": "nessie_tests/tests/test_write_refusal_coverage.py",
+      "sha256": "40924e0d779e7aabbeda7e2b0387b89d1ae2261087c8920ff11a53d2af50a501",
+      "bytes": 73305
+    },
+    {
+      "path": "nessie_tests/tests_container/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "nessie_tests/tests_container/test_bundle.py",
+      "sha256": "72e25cc665021601dbf4cdca562fce06f5293b440353ebe41a32974fe3fbec15",
+      "bytes": 1314
+    },
+    {
+      "path": "nessie_tests/tests_container/test_endpoint_contract.py",
+      "sha256": "0b368bd11492c948145570cf8bdc25086556308d0cd1286777d5a2e57874604b",
+      "bytes": 2040
+    },
+    {
+      "path": "nessie_tests/tests_container/test_management_command.py",
+      "sha256": "28b7e92d87fa345709c3fbae736696ea24aa9fe48b414f1f9308cd204d3fda50",
+      "bytes": 2082
+    },
+    {
+      "path": "nextseek_api/management/commands/nessie.py",
+      "sha256": "619e54be265385e309610b0bc65223ba6755ca9040e655b01c6b7372e99b9191",
+      "bytes": 7722
+    }
+  ]
+}

@@ -17,15 +17,17 @@ function getUrlForUid(uid: string): string {
 // Combined regex that matches either SOP or sample UIDs.
 // SOP pattern first (more specific due to P. prefix).
 const COMBINED_REGEX =
-  /\b(P\.[A-Z]{2,5}-\d{6}-V\d+_[\w.+\-]+(?:\.\w{2,5})?|(?:[AD]\.)?[A-Z]{3}-\d{6}[A-Z]{2,5}-\d+(?:-PUB\d*)?)\b/g;
+  /\b(P\.[A-Z]{2,5}-\d{6}-V\d+_[\w.+\-]+(?:\.\w{2,5})?|(?:[A-Z]\.)?[A-Z]{2,}-\d{6}[A-Z]{2,5}-\d+(?:-PUB\d*)?)\b/g;
 
 /**
  * Remark plugin that converts bare NExtSEEK UIDs into markdown links.
  *
  * Sample UIDs: {PREFIX}-{YYMMDD}{LAB}-{N}[-PUB[N]]
+ *   - 2-letter:       AB-230522GRI-1
  *   - 3-letter:       NHP-220630FLY-2
- *   - D. + 3-letter:  D.IMG-220630FLY-1
- *   - A. + 3-letter:  A.GEX-220630FLY-2
+ *   - D. + type:      D.IMG-220630FLY-1
+ *   - A. + type:      A.GEX-220630FLY-2
+ *   - M. + type:      M.LMM-231208ALT-1
  *
  * SOP UIDs: P.{2-5 letter}-{YYMMDD}-V{n}_{filename}[.ext]
  *   - P.ESS-251028-V1_NG_8-GEX.docx

@@ -47,8 +47,13 @@ def datafileQuery(request):
 def templatesList(request):
     user_seek = request.user_seek
 
+    # Basic auth is encoded here rather than passed as requests' auth= so a
+    # non-Latin-1 password doesn't raise UnicodeEncodeError before the
+    # request is sent. See nextseek_api.helpers.basic_auth_header (#52).
+    from nextseek_api.helpers import basic_auth_header
     headers = {'Accept': 'application/json'}
-    r = requests.get(user_seek['server'] + '/projects', auth=(user_seek['username'], user_seek['password']), headers=headers)
+    headers.update(basic_auth_header((user_seek['username'], user_seek['password'])))
+    r = requests.get(user_seek['server'] + '/projects', headers=headers)
     projects = [p['id'] for p in r.json()['data']]
     if not SAMPLE_TEMPLATES_FOLDER_PROJECT in projects:
         msg = 'You are not in the correct project to access this page'

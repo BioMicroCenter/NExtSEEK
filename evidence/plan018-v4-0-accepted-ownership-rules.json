@@ -1,0 +1,37 @@
+{
+  "schema": "plan018-v4-0-accepted-ownership-rules/v1",
+  "accepted_ownership": {
+    "acceptance_commit": "625b198ebf659ddea10a10b8355b6db06d92f8a3",
+    "acceptance_path": "evidence/plan018-v4-0-ownership-map-acceptance.json",
+    "acceptance_blob_sha1": "660c0c7a29eabd560ff7c8645371d54f1d8771e5",
+    "map_commit": "625b198ebf659ddea10a10b8355b6db06d92f8a3",
+    "map_path": "evidence/plan018-v4-0-ownership-map.md",
+    "map_blob_sha1": "a7d4a20a116c2126eb5d2e12f66968a30d728370",
+    "map_bytes_sha256": "d743ac7c519466b5d5caa2b93658c10c3996595e351dadb97e56feaa9c9b4b07"
+  },
+  "rules": [
+    {"id": "nessie", "match": "glob", "glob": "nessie_tests/**", "owner": "V4-2 ordinary and paired Nessie producer"},
+    {"id": "task0-conftest", "match": "exact", "path": "nextseek_api/cc_assistant/tests/conftest.py", "include_if_absent": true, "owner": "Task 0 shared fixtures"},
+    {"id": "task1-model", "match": "exact", "path": "nextseek_api/assistant/models_db.py", "owner": "Task 1 TurnLedger model"},
+    {"id": "task1-migrations", "match": "glob", "glob": "nextseek_api/migrations/001[0-9]_*.py", "owner": "Task 1 migration leaf after 0009"},
+    {"id": "task2-ledger", "match": "exact", "path": "nextseek_api/cc_assistant/turn_ledger.py", "owner": "Task 2/5 ledger writer"},
+    {"id": "task3-router-baml-dmac", "match": "exact", "path": "dmac_assistant/baml_src/router.baml", "include_if_absent": true, "owner": "Task 3 router.baml source tree"},
+    {"id": "task3-router-baml-runtime", "match": "exact", "path": "docker/cc-runtime/baml_src/router.baml", "include_if_absent": true, "owner": "Task 3 router.baml runtime tree"},
+    {"id": "task3-router", "match": "exact", "path": "nextseek_api/cc_assistant/router.py", "owner": "Task 3/V4-6 router"},
+    {"id": "task3-family-labels", "match": "exact", "path": "nextseek_api/cc_assistant/family_labels.py", "owner": "Task 3/V4-6 labels"},
+    {"id": "task6-eval", "match": "glob", "glob": "nextseek_api/eval/**", "owner": "Task 6 evaluation vendor tree"},
+    {"id": "task6-dockerfile", "match": "exact", "path": "docker/eval/Dockerfile", "owner": "Task 6 evaluation container"},
+    {"id": "task6-pyproject", "match": "exact", "path": "pyproject.toml", "owner": "Task 6 lockfile dependencies"},
+    {"id": "task6-lockfile", "match": "exact", "path": "uv.lock", "owner": "Task 6 lockfile dependencies"},
+    {"id": "task7-export", "match": "exact", "path": "nextseek_api/eval/export.py", "owner": "Task 7 exporter"},
+    {"id": "task7b-validity", "match": "exact", "path": "nextseek_api/eval/artifact_validity.py", "include_if_absent": true, "owner": "Task 7b artifact validity"},
+    {"id": "task7b-sources", "match": "exact", "path": "nextseek_api/eval/artifact_sources.py", "include_if_absent": true, "owner": "Task 7b artifact sources"},
+    {"id": "task8-cache", "match": "exact", "path": "nextseek_api/eval/judge_cache.py", "owner": "Task 8 judge cache"},
+    {"id": "task9-celery", "match": "exact", "path": "nextseek_api/eval/tasks.py", "include_if_absent": true, "owner": "Task 9 Celery nightly"},
+    {"id": "task10-publish", "match": "exact", "path": "nextseek_api/eval/publish.py", "owner": "Task 10 publish"},
+    {"id": "task11-playbook", "match": "exact", "path": "nextseek_api/eval/playbook.py", "include_if_absent": true, "owner": "Task 11 playbook"},
+    {"id": "task12-selector", "match": "exact", "path": "nextseek_api/cc_assistant/posterior_selector.py", "owner": "Task 12 selector"},
+    {"id": "task13-manifest", "match": "exact", "path": "evidence/plan018-v4-9-owned-surface.json", "include_if_absent": true, "owner": "Task 13 coverage manifest"},
+    {"id": "v4-9-recovery-docs", "match": "exact", "path": "docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md", "owner": "V4-9 deployment/recovery documentation"}
+  ]
+}

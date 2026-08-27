@@ -20,12 +20,19 @@ Open http://localhost:8000 and log in with `demo / demopassword` (admin) or
 > install to anyone you don't trust. Rotating the demo passwords is the
 > minimum.
 
+> **Deploying or operating a real instance?** Read
+> [`DEPLOYMENT.md`](DEPLOYMENT.md) — the authoritative deployment-hygiene
+> runbook: greenfield install, shipping changes, rollback, and post-deploy
+> verification.
+
 ## System requirements
 
-- Docker 24+ and Docker Compose v2
+- Docker Engine 26+ (API 1.45+) and Docker Compose plugin 2.26+ (the
+  sidecar's volume-subpath mount requires both floors)
 - [`uv`](https://docs.astral.sh/uv/) (Python package manager)
 - Python 3.14 (uv will install it on first startup run)
-- ~5 GB free disk, 4 GB free RAM
+- ≥ 40 GB free disk (images alone total ~18 GB; 60 GB recommended once
+  build cache accumulates), 8 GB free RAM
 
 ## What startup does
 
@@ -53,11 +60,11 @@ Common changes you'll make and how to apply them to a running stack:
 
 | What you changed | Command |
 |---|---|
-| Python views / models / settings (no static asset change) | `docker compose up -d --build nextseek` |
-| Files under `static/` (CSS/JS/images, hand-edited) | `docker compose up -d --build nextseek && docker compose exec nextseek uv run manage.py collectstatic --noinput` |
-| `chat_frontend/` React source | `npm run build` in `chat_frontend/` (Vite), then `collectstatic` as above |
+| Python views / models / settings (no static asset change) | `./startup.sh rebuild` |
+| Files under `static/` (CSS/JS/images, hand-edited) | `./startup.sh rebuild && docker compose exec nextseek uv run manage.py collectstatic --noinput` |
+| `chat_frontend/` React source | `npm run build:embedded` in `chat_frontend/` (emits to `static/js/chat_assistant/`), then `collectstatic` as above — plain `npm run build` outputs only the standalone app to `dist/`, which never ships |
 | `chat_nextseek/` source pulled in from canonical repo | `startup/scripts/sync_chat_nextseek.sh <source>`, commit, then `./startup.sh rebuild` |
-| New Django model field / migration | `docker compose up -d --build nextseek` (entrypoint runs `migrate` on startup) |
+| New Django model field / migration | mysqldump gate, then `./startup.sh rebuild` (entrypoint runs `migrate` on startup) |
 | Full reset (wipe data, re-seed) | `./startup.sh reset` |
 
 The Python-only-rebuild path is the common one. The key gotcha: rebuilding
@@ -78,7 +85,8 @@ yours to edit:
   (gitignored)
 
 All three are gitignored. Startup can re-render them via `./startup.sh reset`
-if you ever want a clean slate.
+if you ever want a clean slate (**destructive**: reset first drops every data
+volume — MySQL, Neo4j, filestore — and re-seeds from scratch).
 
 ## Troubleshooting
 

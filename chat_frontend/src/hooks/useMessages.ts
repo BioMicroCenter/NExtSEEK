@@ -87,6 +87,8 @@ export function useMessages(): UseMessagesReturn {
           bundleId: turn.bundle_id,
           debugEntries: [],
           artifacts: turn.artifacts ?? undefined,
+          ccTraces: turn.cc_traces ?? undefined,
+          mode: turn.mode ?? undefined,
         });
       }
       return next;

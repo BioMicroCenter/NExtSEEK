@@ -299,6 +299,8 @@ def build_saved_report_file_manifest(
         "geo_seq_workbooks": "GEO submission workbook",
         "sra_submission_workbooks": "SRA submission workbook",
         "sra_biosample_workbooks": "SRA BioSample workbook",
+        "pride_submission_px": "PRIDE submission.px",
+        "pride_sdrf": "PRIDE SDRF (experimental design)",
         "nfcore_csv_files": "nf-core CSV",
     }
     reporter_file_kinds: dict[str, str] = {
@@ -314,6 +316,8 @@ def build_saved_report_file_manifest(
         "geo_seq_workbooks": "export",
         "sra_submission_workbooks": "export",
         "sra_biosample_workbooks": "export",
+        "pride_submission_px": "export",
+        "pride_sdrf": "export",
         "nfcore_csv_files": "export",
     }
 

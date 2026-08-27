@@ -1,0 +1,6 @@
+# An enabled drop-in is local operator config, not source: it is how a given
+# install chooses to expose Neo4j, and it may grow site-specific gating. Only
+# the *.conf.example templates belong in git.
+#
+# `*.conf` does not match `neo4j.conf.example`, so the templates stay tracked.
+*.conf

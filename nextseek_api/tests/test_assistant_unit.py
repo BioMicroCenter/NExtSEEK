@@ -234,8 +234,25 @@ class ViewSetTests(TestCase):
         self.assertEqual(resp.data["username"], "testuser")
         self.assertFalse(resp.data["is_admin"])
 
-    def test_me_admin(self):
-        self.client.force_authenticate(user=self.admin)
+    def test_me_admin_is_superuser_only(self):
+        """is_admin drives the UI Admin badge and the Debug panel, so it must key on
+        is_superuser alone. dmac/views.py sets is_staff on every SEEK user at login,
+        so staff-as-admin showed the badge -- and the PROD/router/max-turn controls --
+        to every authenticated account."""
+        self.client.force_authenticate(user=self.admin)  # is_staff, NOT is_superuser
+        resp = self.client.get("/nextseek_api/assistant/me/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(
+            resp.data["is_admin"],
+            "a staff-but-not-superuser account must not be reported as admin",
+        )
+
+    def test_me_admin_true_for_superuser(self):
+        superuser = User.objects.create_user(
+            username="realsuper", password="super1234",
+            is_staff=True, is_superuser=True,
+        )
+        self.client.force_authenticate(user=superuser)
         resp = self.client.get("/nextseek_api/assistant/me/")
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.data["is_admin"])
@@ -277,7 +294,7 @@ class ViewSetTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_returns_sse_content_type(self, mock_run_query, mock_adapter_cls):
         """Verify POST /assistant/query/ returns text/event-stream."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, credentials=None):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -286,7 +303,7 @@ class ViewSetTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"session_id": str(session.session_id), "query": "Find me mice"},
+            {"session_id": str(session.session_id), "query": "Find me mice", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 200)
@@ -296,7 +313,7 @@ class ViewSetTests(TestCase):
         self.client.force_authenticate(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"session_id": str(uuid.uuid4()), "query": "test"},
+            {"session_id": str(uuid.uuid4()), "query": "test", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 404)
@@ -342,6 +359,10 @@ class ViewSetTests(TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    @patch(
+        "nextseek_api.services.assistant.TEST_CASES",
+        {"test_case_1": {"q1": {"prompt": "Example prompt"}}},
+    )
     def test_test_cases_admin(self):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.get("/nextseek_api/assistant/test-cases/")
@@ -358,7 +379,7 @@ class ViewSetTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_sse_event_format(self, mock_run_query, mock_adapter_cls):
         """Verify SSE events are correctly formatted and include session_id."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, credentials=None):
             send_event("agent_started", {"agent": "entity", "mode": ""})
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
@@ -368,7 +389,7 @@ class ViewSetTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"session_id": str(session.session_id), "query": "test"},
+            {"session_id": str(session.session_id), "query": "test", "mode": "standard"},
             format="json",
         )
 
@@ -383,7 +404,7 @@ class ViewSetTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_auto_session_reuses_recent(self, mock_run_query, mock_adapter_cls):
         """POST /query/ without session_id reuses the most recent session."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, credentials=None):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -392,7 +413,7 @@ class ViewSetTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"query": "Find me mice"},
+            {"query": "Find me mice", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 200)
@@ -400,6 +421,10 @@ class ViewSetTests(TestCase):
 
         content = b"".join(resp.streaming_content).decode()
         self.assertIn(str(session.session_id), content)
+        # The stream must actually have completed, not merely mentioned the id
+        # (a query_error payload also carries session_id).
+        self.assertIn("event: query_complete", content)
+        self.assertNotIn("event: query_error", content)
         # No new session should have been created
         self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
 
@@ -407,7 +432,7 @@ class ViewSetTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_auto_session_creates_when_none(self, mock_run_query, mock_adapter_cls):
         """POST /query/ without session_id auto-creates when user has no sessions."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, credentials=None):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -418,7 +443,7 @@ class ViewSetTests(TestCase):
 
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"query": "Find me mice"},
+            {"query": "Find me mice", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 200)
@@ -430,12 +455,14 @@ class ViewSetTests(TestCase):
 
         content = b"".join(resp.streaming_content).decode()
         self.assertIn(str(auto_session.session_id), content)
+        self.assertIn("event: query_complete", content)
+        self.assertNotIn("event: query_error", content)
 
     @patch("nextseek_api.services.assistant.DictSessionAdapter")
     @patch("nextseek_api.services.assistant.run_query")
     def test_query_explicit_session_still_works(self, mock_run_query, mock_adapter_cls):
         """POST /query/ with explicit session_id still validates ownership."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, credentials=None):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
 
         mock_run_query.side_effect = fake_run_query
@@ -444,13 +471,15 @@ class ViewSetTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"session_id": str(session.session_id), "query": "test"},
+            {"session_id": str(session.session_id), "query": "test", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 200)
 
         content = b"".join(resp.streaming_content).decode()
         self.assertIn(str(session.session_id), content)
+        self.assertIn("event: query_complete", content)
+        self.assertNotIn("event: query_error", content)
 
 
 # ---------------------------------------------------------------------------
@@ -589,7 +618,7 @@ class AsyncQueryViewSetTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
-            {"session_id": str(session.session_id), "query": "Find me mice"},
+            {"session_id": str(session.session_id), "query": "Find me mice", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 202)
@@ -606,7 +635,7 @@ class AsyncQueryViewSetTests(TestCase):
         self.client.force_authenticate(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
-            {"query": "Find me mice"},
+            {"query": "Find me mice", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 202)
@@ -623,7 +652,7 @@ class AsyncQueryViewSetTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
-            {"query": "test query"},
+            {"query": "test query", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 202)
@@ -639,7 +668,7 @@ class AsyncQueryViewSetTests(TestCase):
         session = ChatSession.objects.create(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
-            {"session_id": str(session.session_id), "query": "test"},
+            {"session_id": str(session.session_id), "query": "test", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 202)
@@ -658,7 +687,7 @@ class AsyncQueryViewSetTests(TestCase):
         self.client.force_authenticate(user=self.user)
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
-            {"session_id": str(uuid.uuid4()), "query": "test"},
+            {"session_id": str(uuid.uuid4()), "query": "test", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 404)
@@ -768,7 +797,7 @@ class CsrfExemptionTests(TestCase):
         session-authenticated user who sends no X-CSRFToken header."""
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
-            {"query": "Find me mice"},
+            {"query": "Find me mice", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 202)
@@ -778,13 +807,13 @@ class CsrfExemptionTests(TestCase):
     @patch("nextseek_api.services.assistant.run_query")
     def test_post_query_sse_no_csrf_token(self, mock_run_query, mock_adapter_cls):
         """POST /assistant/query/ must return 200 (SSE), not 403."""
-        def fake_run_query(adapter, chat_config, query, send_event):
+        def fake_run_query(adapter, chat_config, query, send_event, credentials=None):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
         mock_run_query.side_effect = fake_run_query
 
         resp = self.client.post(
             "/nextseek_api/assistant/query/",
-            {"query": "Find me mice"},
+            {"query": "Find me mice", "mode": "standard"},
             format="json",
         )
         self.assertEqual(resp.status_code, 200)

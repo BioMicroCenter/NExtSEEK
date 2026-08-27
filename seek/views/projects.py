@@ -12,10 +12,11 @@ from itertools import groupby
 import pandas as pd
 import re
 from django.shortcuts import render
+from django.conf import settings
 from ..decorators import requires_seek_login_redirect
 from ..decorators import verifySuperUser
 
-from .shared import PUBLISH_STATS_FILE, SEEK_HOSTNAME
+from .shared import PUBLISH_STATS_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def projects(request):
            
     return render(request, 'projectsList.html', {'projects': projects,
                                                  'clade_data': clade_data,
-                                                 'seek_hostname': SEEK_HOSTNAME})
+                                                 'seek_public_url': settings.SEEK_PUBLIC_URL})
 
 def project_page(request, project_id):
     seekdb = SeekDB(None, None, None)
@@ -122,6 +123,6 @@ def project_page(request, project_id):
         return render(request, 'projectPage.html', {'id': project.id,
                                                     'title': re.sub("-|_", " ", project.title),
                                                     'description': project.description.replace("\r", "\n"),
-                                                    'seek_hostname': SEEK_HOSTNAME,
+                                                    'seek_public_url': settings.SEEK_PUBLIC_URL,
                                                     'avatar_id': project.avatar_id,
                                                     'clade_data': clade_data,})

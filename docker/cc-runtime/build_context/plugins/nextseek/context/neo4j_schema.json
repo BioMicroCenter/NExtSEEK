@@ -1,0 +1,387 @@
+{
+  "fetched_at": "2026-04-23T15:51:35.942966+00:00",
+  "node_labels": [
+    "Sample",
+    "SampleType",
+    "Study",
+    "Investigation"
+  ],
+  "relationship_types": [
+    "OF_TYPE",
+    "DERIVED_FROM",
+    "IN_STUDY",
+    "IN_INVESTIGATION"
+  ],
+  "node_properties": {
+    "Sample": [
+      "uuid",
+      "type",
+      "id",
+      "parent_titles",
+      "Protocol",
+      "Checksum_PrimaryData",
+      "Link_PrimaryData",
+      "Parent",
+      "Scientist",
+      "UID",
+      "File_PrimaryData",
+      "Name",
+      "MediaBase",
+      "MinSeedingDensity",
+      "CultureFormat",
+      "Type",
+      "ExposureTime",
+      "MediaSupplements",
+      "Notes",
+      "Media supplement ",
+      "Catalog#",
+      "Source",
+      "Link_Catalog#"
+    ],
+    "SampleType": [
+      "title",
+      "id"
+    ],
+    "Study": [
+      "title",
+      "id",
+      "description"
+    ],
+    "Investigation": [
+      "description",
+      "title",
+      "id",
+      "project_id"
+    ]
+  },
+  "node_property_types": {
+    "SampleType": {
+      "id": [
+        "Long"
+      ],
+      "title": [
+        "String"
+      ]
+    },
+    "Study": {
+      "id": [
+        "Long"
+      ],
+      "title": [
+        "String"
+      ],
+      "description": [
+        "String"
+      ]
+    },
+    "Investigation": {
+      "id": [
+        "Long"
+      ],
+      "title": [
+        "String"
+      ],
+      "project_id": [
+        "Long"
+      ],
+      "description": [
+        "String"
+      ]
+    },
+    "Sample": {
+      "id": [
+        "Long"
+      ],
+      "uuid": [
+        "String"
+      ],
+      "type": [
+        "String"
+      ],
+      "Checksum_PrimaryData": [
+        "String"
+      ],
+      "Catalog#": [
+        "String"
+      ],
+      "Parent": [
+        "String"
+      ],
+      "Name": [
+        "String"
+      ],
+      "MinSeedingDensity": [
+        "String"
+      ],
+      "Scientist": [
+        "String"
+      ],
+      "UID": [
+        "String"
+      ],
+      "Protocol": [
+        "String"
+      ],
+      "Notes": [
+        "String"
+      ],
+      "File_PrimaryData": [
+        "String"
+      ],
+      "parent_titles": [
+        "StringArray"
+      ],
+      "Type": [
+        "String"
+      ],
+      "CultureFormat": [
+        "String"
+      ],
+      "MediaBase": [
+        "String"
+      ],
+      "Source": [
+        "String"
+      ],
+      "Link_PrimaryData": [
+        "String"
+      ],
+      "Media supplement ": [
+        "String"
+      ],
+      "Link_Catalog#": [
+        "String"
+      ],
+      "ExposureTime": [
+        "String"
+      ],
+      "MediaSupplements": [
+        "String"
+      ]
+    }
+  },
+  "relationship_properties": {
+    "OF_TYPE": [],
+    "DERIVED_FROM": [
+      "protocol_title",
+      "protocol_id",
+      "child_id",
+      "parent_id",
+      "internal_assay_id",
+      "internal_assay_title"
+    ],
+    "IN_STUDY": [],
+    "IN_INVESTIGATION": []
+  },
+  "relationship_property_types": {
+    ":`DERIVED_FROM": {
+      "child_id": [
+        "Long"
+      ],
+      "internal_assay_title": [
+        "String"
+      ],
+      "parent_id": [
+        "Long"
+      ],
+      "protocol_id": [
+        "Long"
+      ],
+      "internal_assay_id": [
+        "Long"
+      ],
+      "protocol_title": [
+        "String"
+      ]
+    }
+  },
+  "relationship_patterns": [
+    {
+      "start": "Study",
+      "type": "IN_INVESTIGATION",
+      "end": "Investigation"
+    },
+    {
+      "start": "Sample",
+      "type": "OF_TYPE",
+      "end": "SampleType"
+    },
+    {
+      "start": "Sample",
+      "type": "DERIVED_FROM",
+      "end": "Sample"
+    },
+    {
+      "start": "Sample",
+      "type": "IN_STUDY",
+      "end": "Study"
+    }
+  ],
+  "vocabulary": {
+    "study_titles": [
+      "Age and sex influence antibody profiles associated with tuberculosis progression",
+      "Antibody-Fab and -Fc features promote Mycobacterium tuberculosis restriction.",
+      "BCG vaccination elicits protection against Mtb infection mediated by two phases of T cell immunity",
+      "Benthic fluxes of fluorescent dissolved organic material, salt and heat measured by multiple-sensor aquatic eddy covariance",
+      "CD4+ T cells re-wire granuloma cellularity and regulatory networks to promote immunomodulation following Mtb reinfection",
+      "CD8+ lymphocytes are critical for early control of tuberculosis in macaques",
+      "Chemo-mechanical diffusion waves explain collective dynamics of immune cell podosomes",
+      "Chromatin conformation, gene transcription, and nucleosome remodeling as an emergent system",
+      "Colorimetric Detection of Aqueous N-Nitrosodimethylamine via Photonitrosation of a Naphtholsulfonate Indicator",
+      "CometChip Enables Parallel Analysis of Multiple DNA Repair Activities",
+      "Comparable Non-canonical T cell responses are associated with protection from tuberculosis in mice and humans",
+      "Confined cell migration along extracellular matrix space in vivo",
+      "DNA adduct and mutational profiles reveal the saturation point of cellular defenses against N-nitrosodimethylamine administered to mice in drinking water",
+      "Excision of mutagenic replication-blocking lesions suppresses cancer but promotes cytotoxicity and lethality in nitrosamine-exposed mice",
+      "Fc-engineered antibodies leverage neutrophils to drive control of Mycobacterium tuberculosis",
+      "Fc-engineered monoclonal antibodies drive antibody-dependent enhancement of Mycobacterium tuberculosis",
+      "GBM",
+      "High-dose intravenous BCG vaccination induces enhanced immune signaling in the airways",
+      "Human cartilage model of the precocious osteoarthritis-inducing COL2A1 p.R719C reveals pathology-driving matrix defects and a failure of the ER proteostasis network to recognize the defective procollagen-II",
+      "Humoral correlates of protection against Mycobacterium tuberculosis following intravenous Bacille Calmette-Gu\u00e9rin vaccination in rhesus macaques",
+      "IFN-\u03b3- GranzymeB\u202f+\u202fNatural killer cells are induced by IV BCG vaccination and associated with protection against tuberculosis in rhesus macaques",
+      "Immune cells in bronchoalveolar lavage fluid of Ugandan adults who resist versus those who develop latent Mycobacterium tuberculosis infection",
+      "Impact of fibrinogen, fibrin thrombi and thrombin on cancer cell extravasation using in vitro microvascular networks",
+      "Integrating endometrial proteomic and single cell transcriptomic pipelines reveals distinct menstrual cycle and endometriosis-associated molecular profiles",
+      "Interaction of N-Nitroamines with Bincuelar Copper Complexs for Luminsecent Detection",
+      "Intravenous BCG vaccination induces recruitment of Granzyme B+ Natural Killer cells to the lungs which is associated with protection against Mycobacterium tuberculosis in rhesus macaques",
+      "Intravenous BCG-mediated protection against tuberculosis requires CD4+ T cells and CD8alpha+ lymphocytes",
+      "Megan Maerz Placeholder",
+      "Mike Chao Barcoding Placeholder",
+      "Molecular origins of mutational spectra produced by the environmental carcinogen N-nitrosodimethylamine and SN1 chemotherapeutic agents",
+      "Multi-modal data integration using Markov Field graphical networks predicts B cell depletion and immune responses associated with protective intravenous BCG (IV-BCG) vaccination against tuberculosis in macaques",
+      "Multimodal profiling of lung granulomas in macaques reveals cellular correlates of tuberculosis control",
+      "Myofibroblasts reduce angiogenesis and vasculogenesis in a vascularized microphysiological model of lung fibrosis",
+      "Novel In Vivo CometChip Reveals NDMA-Induced DNA Damage and Repair in Multiple Mouse Tissues",
+      "Optical Detection of Interleukin-6 using Liquid Janus Emulsions using Hyperthermophilic Affinity Proteins",
+      "Organoid co-culture model of the cycling human endometrium in a fully-defined synthetic extracellular matrix reveals epithelial-stromal crosstalk",
+      "Patient-specific vascularized tumor model: Blocking monocyte recruitment with multispecific antibodies targeting CCR2 and CSF-1R",
+      "Persistent interferon signaling and clonal expansion mark early events in DNA methylation damage-induced liver cancer",
+      "Personalized Vascularized Models of Breast Cancer Desmoplasia Reveal Biomechanical Determinants of Drug Delivery to the Tumor",
+      "Polyploidy of MDA-MB-231 cells drives increased extravasation with enhanced cell-matrix adhesion",
+      "Protection against reinfection with Mycobacterium tuberculosis extends across heterologous Mtb lineages",
+      "Remodeling of self-assembled microvascular networks under long term flow",
+      "Reversible Electrochemical Sensor for NDMA: Leveraging Molecularly Imprinted Polymers for Enhanced Sensitivity and Selectivity",
+      "Robust IgM responses following intravenous vaccination with Bacille Calmette-Guerin associate with prevention of Mycobacterium tuberculosis infection in macaques. Irvine et al (2021)",
+      "Soloman placeholder",
+      "Specific CD4+ T cell phenotypes associate with bacterial control in people who \u2018resist\u2019 infection with Mycobacterium tuberculosis",
+      "Structural and systems characterization of phosphorylation on metabolic enzymes identifies sex-specific metabolic reprogramming in obesity",
+      "Systematic deconstruction of myeloid cell signaling in tuberculosis granulomas reveals IFN-\u03b3, TGF-\u03b2, and time are associated with conserved myeloid diversity",
+      "Systems-level computational translation of mouse and human transcriptomics reveals a role for the unfolded protein response in Mycobacterium tuberculosis infection",
+      "Utilizing convolutional neural networks for discriminating cancer and stromal cells in three-dimensional cell culture images with nuclei counterstain",
+      "Validation and quantification of peptide antigens presented on MHCs using SureQuant",
+      "Youth Dictates Susceptibility to DNA Damage-Induced Genotoxicity, Mutagenesis, and Tumorigenesis from N-Nitrosamine Exposure in Mice"
+    ],
+    "investigation_titles": [
+      "BreakThroughCancer",
+      "CSBC",
+      "Griffith",
+      "Impact",
+      "MetNet",
+      "SRP",
+      "Shoulders"
+    ],
+    "internal_assay_titles": [
+      "Agglutination Assay",
+      "Antibody Functional Profiling",
+      "Antibody Functional Profiling Analysis",
+      "Antibody Titer",
+      "Antibody Titer Analysis",
+      "Bacterial Extraction",
+      "Bacterial Extraction - Metadata",
+      "Bacterial Survivability Restriction Assay",
+      "CITESEQ Analysis",
+      "Cell Culture",
+      "Cell Isolation",
+      "Cell Sorting",
+      "Chemical Simulation",
+      "Chemical Synthesis",
+      "Chromatin Sequencing Analysis",
+      "Comet Chip",
+      "Comet Chip Analysis",
+      "Copy Number Variation Analysis",
+      "Crystallography",
+      "Cytokine Luminex - Data Linked",
+      "DNA Extraction",
+      "DNA Extraction - Metadata",
+      "Device Creation",
+      "Device Imaging",
+      "Digitally Barcoded Mtb Matrix Analysis",
+      "Digitally Barcoded Mtb Matrix Analysis - Data Linked",
+      "ELISA",
+      "ELISA - Data Linked",
+      "FC Receptor Binding Assay",
+      "FC Receptor Binding Assay Analysis",
+      "Field Water Sensor Run",
+      "Flow Cytometry",
+      "Flow Cytometry - Data Linked",
+      "Flow Cytometry Analysis",
+      "Flow Cytometry Analysis - Data Linked",
+      "GPT Assay",
+      "GPT Assay - Data Linked",
+      "Gel Permeation Chromatography",
+      "Gene Expression Analysis",
+      "Gene Expression Analysis - Data Linked",
+      "Genome Alignment",
+      "Imaging",
+      "Imaging - Data Linked",
+      "Imaging Analysis",
+      "Imaging Analysis - Data Linked",
+      "Immunohistochemistry",
+      "Library Prep",
+      "Library Prep - Metadata",
+      "Long Read Sequencing",
+      "Luminex",
+      "Luminex Analysis",
+      "MVN Imaging Analysis - Data Linked",
+      "Mass Cytometry - Data Linked",
+      "Mass Cytometry Analysis - Data Linked",
+      "Mass Spectrometry",
+      "Mass Spectrometry - Data Linked",
+      "Mass Spectrometry Analysis",
+      "Mass Spectrometry Proteomics",
+      "Mass Spectrometry Proteomics Analysis",
+      "Microfluidic Network Formation - Metadata",
+      "Microfluidic Network Imaging - Data Linked",
+      "Modeling",
+      "Mouse Challenge",
+      "Mutational Spectra Analysis - Data Linked",
+      "Nuclear Magnetic Resonance",
+      "Nuclear Magnetic Resonance Analysis",
+      "PCR",
+      "PCR - Data Linked",
+      "PET-CT Scan - Data Linked",
+      "PET/CT Scan",
+      "Patient Visit",
+      "Patient Visit - Metadata",
+      "Proteomics Analysis - Data Linked",
+      "Proximity Extension Assay",
+      "RNA Extraction",
+      "RNA Extraction - Metadata",
+      "RaDR - Data Linked",
+      "Real Time RT-PCR - Data Linked",
+      "Sensor Creation",
+      "Sensor Testing",
+      "Short Read Sequencing",
+      "Short Read Sequencing - Data Linked",
+      "Single Cell Clustering Analysis",
+      "Single Cell Expression Matrix Analysis",
+      "Single Cell Sequencing",
+      "Spatial Proteomics",
+      "Spatial Transcriptomics Analysis",
+      "Spectroscopy",
+      "Spectroscopy Analysis",
+      "SureQuant Analysis",
+      "Tensiometry",
+      "Tissue Collection",
+      "Tissue Collection - Metadata"
+    ],
+    "sampletype_titles": []
+  },
+  "graph_topology": [
+    "Study -[:IN_INVESTIGATION]-> Investigation",
+    "Sample -[:OF_TYPE]-> SampleType",
+    "Sample -[:DERIVED_FROM]-> Sample",
+    "Sample -[:IN_STUDY]-> Study"
+  ]
+}

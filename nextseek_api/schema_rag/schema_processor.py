@@ -13,7 +13,9 @@ This module provides:
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import jsonref
 import requests
@@ -22,6 +24,238 @@ import yaml
 from .errors import SchemaFetchError
 
 logger = logging.getLogger(__name__)
+
+
+def _own_public_hosts() -> set:
+    """Hostnames (no port) by which this app is known publicly.
+
+    Wildcards are deliberately excluded: ALLOWED_HOSTS is often "*" in dev, and
+    treating that as "everything is us" would rewrite unrelated external URLs.
+    """
+    candidates = []
+    for env_key in ("NEXTSEEK_BASE_URL", "NEXTSEEK_HOSTNAME", "NEXTSEEK_PROD_URL"):
+        value = os.getenv(env_key)
+        if value:
+            candidates.append(value)
+    try:
+        from django.conf import settings
+
+        candidates.extend(settings.ALLOWED_HOSTS or [])
+    except Exception:  # settings unconfigured (standalone import) — env only
+        pass
+
+    hosts = set()
+    for raw in candidates:
+        entry = (raw or "").strip()
+        if not entry or "*" in entry:
+            continue
+        # Accept bare hosts, host:port, and full URLs alike.
+        if "//" not in entry:
+            entry = "//" + entry
+        host = urlsplit(entry).hostname
+        if host:
+            hosts.add(host.lower())
+    return hosts
+
+
+# Only these two schemes can ever name us; the port is implied when a URL
+# omits it. Anything else (ftp:, file:, gopher:) is not this instance.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _add_origin(origins: set, entry: str) -> None:
+    """Record the (host, port) pair an env value or ALLOWED_HOSTS entry names.
+
+    Accepts bare hosts, `host:port`, and full URLs alike. A value that carries
+    no port at all could be reached on either standard port, so it contributes
+    both rather than guessing one.
+    """
+    entry = (entry or "").strip()
+    if not entry or "*" in entry:
+        return
+    if "//" not in entry:
+        entry = "//" + entry
+    parts = urlsplit(entry)
+    host = parts.hostname
+    if not host:
+        return
+    try:
+        port = parts.port
+    except ValueError:  # malformed port — not a usable origin
+        return
+    if port is not None:
+        origins.add((host.lower(), port))
+        return
+    scheme_port = _DEFAULT_PORTS.get((parts.scheme or "").lower())
+    if scheme_port is not None:
+        origins.add((host.lower(), scheme_port))
+    else:  # a bare hostname carries no scheme, so allow both standard ports
+        origins.update((host.lower(), p) for p in _DEFAULT_PORTS.values())
+
+
+def _own_origins() -> set:
+    """Every (hostname, port) pair on which THIS instance answers.
+
+    Ports matter. `resolve_transport_url` deliberately matches on hostname
+    alone, because the published port is auto-bumped when 8000 is busy and it
+    only ever REWRITES the transport. This check does something stronger — it
+    decides to answer a request from our own in-process generator instead of
+    fetching what was asked for — so a same-host, different-port service (a
+    second NExtSEEK instance under `INSTANCE_PREFIX`, say) must NOT be
+    mistaken for us. Getting that wrong returns the wrong schema and reports
+    success, which is worse than an error.
+
+    Deliberately built alongside `_own_public_hosts()` rather than by widening
+    it: that function must keep meaning exactly "hosts whose URLs need
+    rewriting to the internal base", or `resolve_transport_url` changes.
+    """
+    origins: set = set()
+    for env_key in (
+        "NEXTSEEK_BASE_URL",
+        "NEXTSEEK_HOSTNAME",
+        "NEXTSEEK_PROD_URL",
+        "NEXTSEEK_INTERNAL_BASE_URL",
+    ):
+        _add_origin(origins, os.getenv(env_key) or "")
+    try:
+        from django.conf import settings
+
+        for raw in settings.ALLOWED_HOSTS or []:
+            _add_origin(origins, raw)
+    except Exception:  # settings unconfigured (standalone import) — env only
+        pass
+    return origins
+
+
+def self_schema_route_path() -> Optional[str]:
+    """Path of THIS instance's OpenAPI schema route, or None if unavailable.
+
+    `reverse` is imported lazily and every failure is swallowed because this
+    module is importable standalone, with Django unconfigured (same reason
+    `_own_public_hosts` guards its `settings` access).
+    """
+    try:
+        from django.urls import reverse
+
+        return reverse("nextseek_api:schema")
+    except Exception:  # settings/urls unavailable, or the route was renamed
+        return None
+
+
+def is_self_schema_url(url: str) -> bool:
+    """True only for a URL naming OUR OWN OpenAPI schema route.
+
+    ALL of scheme, host, port and path must be ours. Matching on less than the
+    full origin is a correctness bug, and matching on hostname alone would also
+    be a security one:
+
+    * `https://<our own host>/anything/else` is an arbitrary document, and
+      treating it as ours would answer a caller-supplied `schema_url` with our
+      in-process schema — or, under any credential-attaching variant of this
+      fix, attach our credentials to a request we never meant to authenticate.
+    * `http://<our own host>:9001/nextseek_api/schema/` is a DIFFERENT service.
+      Serving our schema for it succeeds while returning the wrong endpoints,
+      which is worse than failing.
+    * a non-HTTP scheme is never this instance.
+    """
+    route = self_schema_route_path()
+    if not route:
+        return False
+
+    parts = urlsplit(url or "")
+    scheme = (parts.scheme or "").lower()
+    if scheme not in _DEFAULT_PORTS:
+        return False
+    host = parts.hostname
+    if not host:
+        return False
+    try:
+        port = parts.port
+    except ValueError:  # malformed port, e.g. "host:notaport"
+        return False
+    if port is None:
+        port = _DEFAULT_PORTS[scheme]
+    if (host.lower(), port) not in _own_origins():
+        return False
+    return parts.path.rstrip("/") == route.rstrip("/")
+
+
+def _generate_own_schema() -> Optional[dict]:
+    """Build this instance's OpenAPI document in-process, or return None.
+
+    This is exactly what `SpectacularAPIView` serves, minus the HTTP round trip
+    to a route we ourselves gate behind `IsAuthenticated` (#77 / #94).
+
+    Returns None — never raises — on ANY failure, so `fetch_schema` can fall
+    through to the pre-existing HTTP path and nothing that worked before stops
+    working. `drf_spectacular` is imported lazily for the same standalone-import
+    reason as `self_schema_route_path`.
+    """
+    try:
+        from drf_spectacular.generators import SchemaGenerator
+    except Exception as e:  # drf_spectacular absent or Django unconfigured
+        logger.warning(
+            "Cannot import drf_spectacular for in-process schema generation "
+            "(%s); falling back to HTTP", e
+        )
+        return None
+
+    try:
+        document = SchemaGenerator().get_schema(request=None, public=True)
+    except Exception as e:
+        logger.warning(
+            "In-process OpenAPI generation failed (%s); falling back to HTTP", e
+        )
+        return None
+
+    if not isinstance(document, dict):
+        logger.warning(
+            "In-process OpenAPI generation returned %s, not a dict; "
+            "falling back to HTTP", type(document).__name__
+        )
+        return None
+
+    return document
+
+
+def resolve_transport_url(schema_url: str) -> str:
+    """Rewrite a schema URL pointing at our OWN public host to the internal one.
+
+    The container cannot resolve (or reach) its own public FQDN/published port:
+    the public URL tracks the host-published port, which is auto-bumped when
+    8000 is busy and in any case is not routable from inside. Ingesting our own
+    OpenAPI schema by its public URL therefore died with SCHEMA_FETCH_FAILED.
+
+    Strictly additive: only the scheme+netloc of a URL whose host is one of
+    OUR public hosts is swapped for NEXTSEEK_INTERNAL_BASE_URL. Any unrelated
+    external URL, and every URL when the internal base is unset, is returned
+    untouched. Path, query and fragment are always preserved.
+
+    Same primitive as chat_nextseek.config._resolve_nextseek_base_url.
+    """
+    internal = (os.getenv("NEXTSEEK_INTERNAL_BASE_URL") or "").strip().rstrip("/")
+    if not internal:
+        return schema_url
+
+    parts = urlsplit(schema_url)
+    if not parts.hostname:
+        return schema_url
+    if parts.hostname.lower() not in _own_public_hosts():
+        return schema_url
+
+    internal_parts = urlsplit(internal)
+    if not internal_parts.netloc:
+        return schema_url
+
+    rewritten = urlunsplit((
+        internal_parts.scheme or parts.scheme,
+        internal_parts.netloc,
+        internal_parts.path.rstrip("/") + parts.path,
+        parts.query,
+        parts.fragment,
+    ))
+    logger.info("Rewrote schema URL %s -> %s (own public host)", schema_url, rewritten)
+    return rewritten
 
 
 class OpenAPISchemaProcessor:
@@ -57,9 +291,29 @@ class OpenAPISchemaProcessor:
         Raises:
             SchemaFetchError: If fetch, parse, or resolution fails.
         """
-        # Step 1: HTTP GET
+        # Step 0: our OWN schema route is generated in-process, never fetched
+        # over HTTP. #77 put IsAuthenticated on /nextseek_api/schema/, so the
+        # anonymous self-fetch this used to do now 401s (#94), and no service
+        # credential exists to attach. Strictly additive: if generation is
+        # unavailable for any reason we fall through to the HTTP path below.
+        if is_self_schema_url(schema_url):
+            own_document = _generate_own_schema()
+            if own_document is not None:
+                logger.info(
+                    "Serving our own OpenAPI schema in-process for %s", schema_url
+                )
+                return self._resolve_refs(own_document, schema_url)
+            logger.warning(
+                "In-process generation unavailable for our own schema %s; "
+                "falling back to the HTTP fetch", schema_url
+            )
+
+        # Step 1: HTTP GET. Fetch over the container-internal URL when the
+        # caller named our own public host, which is not resolvable from in
+        # here; the caller-supplied schema_url is still what gets recorded.
+        transport_url = resolve_transport_url(schema_url)
         try:
-            response = requests.get(schema_url, timeout=self.timeout)
+            response = requests.get(transport_url, timeout=self.timeout)
             response.raise_for_status()
         except requests.RequestException as e:
             logger.error("Failed to fetch schema from %s: %s", schema_url, e)
@@ -82,6 +336,25 @@ class OpenAPISchemaProcessor:
             raise SchemaFetchError(f"Schema parsing failed: {e}") from e
 
         # Step 3: Resolve all $ref pointers
+        return self._resolve_refs(parsed, schema_url)
+
+    def _resolve_refs(self, parsed: Any, schema_url: str) -> Any:
+        """
+        Resolve all $ref pointers in a parsed OpenAPI document.
+
+        Shared by the in-process and HTTP paths of fetch_schema so both report
+        resolution failures identically.
+
+        Args:
+            parsed: Parsed OpenAPI document (dict from JSON/YAML or generator).
+            schema_url: URL the document came from, for error reporting only.
+
+        Returns:
+            The document with all $ref resolved, as plain Python objects.
+
+        Raises:
+            SchemaFetchError: If $ref resolution fails.
+        """
         try:
             resolved = jsonref.replace_refs(parsed)
             # Convert back to regular dict (jsonref returns proxy objects)

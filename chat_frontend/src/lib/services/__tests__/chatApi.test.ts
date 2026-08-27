@@ -85,7 +85,7 @@ describe("NextseekApiService", () => {
 
     // Verify fetch was called with correct args
     expect(fetch).toHaveBeenCalledWith(
-      "http://localhost/nextseek_api/assistant/query/async/",
+      "http://localhost/nextseek_api/cc-assistant/query/async/",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ query: "test query", mode: "standard", use_prod: false }),
@@ -226,6 +226,71 @@ describe("NextseekApiService", () => {
       expect.objectContaining({
         headers: { Authorization: "Basic dGVzdDp0ZXN0" },
       }),
+    );
+    expect(mockElement.click).toHaveBeenCalled();
+  });
+
+  it("uploadFiles posts to cc-assistant upload endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ job_id: "job-abc" }),
+      }),
+    );
+
+    const file = new File(["x"], "test.txt", { type: "text/plain" });
+    const result = await service.uploadFiles([file]);
+
+    expect(result.job_id).toBe("job-abc");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost/nextseek_api/cc-assistant/upload/",
+      expect.objectContaining({ method: "POST", credentials: "include" }),
+    );
+  });
+
+  it("pollUpload fetches cc-assistant upload status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ state: "SUCCESS" }),
+      }),
+    );
+
+    const result = await service.pollUpload("job-abc");
+    expect(result.state).toBe("SUCCESS");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost/nextseek_api/cc-assistant/upload/status/job-abc/",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("downloadCcArtifact fetches cc-assistant artifact download URL", async () => {
+    const mockBlob = new Blob(["data"], { type: "application/octet-stream" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => Promise.resolve(mockBlob),
+        headers: { get: () => 'filename="report.md"' },
+      }),
+    );
+
+    const mockElement = { href: "", download: "", click: vi.fn() };
+    vi.spyOn(document, "createElement").mockReturnValue(mockElement as unknown as HTMLAnchorElement);
+    vi.spyOn(document.body, "appendChild").mockImplementation((node) => node);
+    vi.spyOn(document.body, "removeChild").mockImplementation((node) => node);
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn().mockReturnValue("blob:test"),
+      revokeObjectURL: vi.fn(),
+    });
+
+    await service.downloadCcArtifact("sess-cc", "output/report.md");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost/nextseek_api/cc-assistant/artifacts/sess-cc/download/?key=output%2Freport.md",
+      expect.objectContaining({ credentials: "include" }),
     );
     expect(mockElement.click).toHaveBeenCalled();
   });

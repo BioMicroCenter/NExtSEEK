@@ -1,0 +1,13 @@
+{
+  "schema": "plan018-v4-5-overlay/v1",
+  "gate": "PASS",
+  "lane": "C",
+  "settings_module": "dmac.test_settings",
+  "tests": [
+    "nextseek_api/cc_assistant/tests/test_risk_overlay.py"
+  ],
+  "may_reroute_only_false": true,
+  "counts": {"passed": 5, "failed": 0},
+  "log": "evidence/plan018-v4-5-lane-c.log",
+  "paid_or_live_resources_used": false
+}

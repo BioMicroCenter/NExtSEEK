@@ -16,7 +16,10 @@ dependencies = [
   "charset-normalizer",
   "deepmerge",
   "dj-rest-auth",
-  "Django",
+  # Pinned to the 5.2 LTS line: Django 6.0 dropped MariaDB 10.5 support
+  # (requires 10.6+), but this native server runs MariaDB 10.5.x. 5.2 supports
+  # 10.5. Revisit if/when the server's MariaDB is upgraded to >=10.6.
+  "Django>=5.2,<6",
   "django-contrib-comments",
   "django-cors-headers",
   "django-cprofile-middleware",
@@ -66,6 +69,7 @@ dependencies = [
   "oauthlib",
   "olefile",
   "openpyxl",
+  "orjson",
   "packaging",
   "pandas",
   "parse",
@@ -113,10 +117,12 @@ dependencies = [
   "webencodings",
   "xlwt",
   "zipp",
+  "zstandard>=0.25",
   "chat_nextseek",
   "pytest-django",
   "channels>=4.3.2",
   "daphne>=4.2.1",
+  "dmac-assistant",
 ]
 
 [[tool.uv.index]]
@@ -125,7 +131,12 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.sources]
-chat_nextseek = { path = "chat_nextseek" }
+# In-tree first-party packages: install EDITABLE so the venv imports the repo
+# source directly (one source of truth), not a divergent site-packages copy.
+chat_nextseek = { path = "chat_nextseek", editable = true }
+# Additive dmac_assistant integration (router + Container-CC). Vendored in-tree
+# as a path dependency, same pattern as chat_nextseek above.
+dmac-assistant = { path = "dmac_assistant", editable = true }
 # When chat_nextseek goes public, switch back to the pinned git install:
 # chat_nextseek = { git = "https://github.com/cdemurjian/chat_nextseek.git", rev = "3948d857783e3d130bfe6a880fe53a9eefeb603a" }
 torch = [
@@ -134,6 +145,7 @@ torch = [
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dmac.settings"
+markers = ["host_only: source-tree/host-lane test; excluded from in-container runs"]
 
 [dependency-groups]
 dev = [

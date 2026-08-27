@@ -283,6 +283,17 @@ class SeekDB(object):
         
         return objectdata
     
+    def __getProjectName(self, projectid):
+        if projectid is None or projectid=="":
+            return ""
+
+        pinfo = self.getInfoObject("/projects/", int(projectid))
+        projectname =  pinfo['attributes']['title']
+        return projectname
+
+    def getProjectName(self, projectid):
+        return self.__getProjectName(projectid)
+
     def __getNameFromID(self, objectname, id):
         if id is None or id=="":
             return ""

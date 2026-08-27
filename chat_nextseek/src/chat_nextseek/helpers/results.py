@@ -7,11 +7,180 @@ from pathlib import Path
 
 from .text import strip_html
 
+# tool_nextseek_api_request hard-defaults this. A search matching more rows than this
+# silently returns one page, so it must be disclosed rather than left implicit.
+DEFAULT_API_PAGE_SIZE = 1000
 
-def slim_api_result_for_llm(api_result: dict, max_rows: int = 5, max_chars: int = 5000) -> dict:
+
+def api_row_count(api_result: dict | None) -> int | None:
+    """How many rows an API result actually returned, or None if not countable.
+
+    ``api_result_meta`` used to carry only ok/status_code/url, so nothing
+    downstream — the debug panel, the chat log, or the test harness — could tell
+    a search that returned 195 rows from one that returned 0. Both looked like
+    ``ok: true``. Counting here makes the OUTCOME of a search observable rather
+    than just its plumbing.
+    """
+    if not isinstance(api_result, dict):
+        return None
+    data = api_result.get("data")
+    if isinstance(data, list):
+        return len(data)
+    if not isinstance(data, dict):
+        return None
+    # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'.
+    for key in ("samples", "rows", "nodes", "data"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return len(value)
+    # A totals-only payload (e.g. a count query) still reports a number.
+    for key in ("total", "total_samples", "total_nodes", "count"):
+        value = data.get(key)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def _result_total(api_result: dict | None) -> int | None:
+    """The API's reported grand total, independent of how many rows came back."""
+    if not isinstance(api_result, dict):
+        return None
+    data = api_result.get("data")
+    if not isinstance(data, dict):
+        return None
+    for key in ("total", "total_samples", "total_nodes"):
+        value = data.get(key)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def _rows_actually_returned(api_result: dict | None) -> int | None:
+    """Length of the returned row list, or None when the payload carries no list."""
+    if not isinstance(api_result, dict):
+        return None
+    data = api_result.get("data")
+    if isinstance(data, list):
+        return len(data)
+    if not isinstance(data, dict):
+        return None
+    for key in ("samples", "rows", "nodes", "data"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return len(value)
+    return None
+
+
+def build_result_disclosure(
+    api_result: dict | None,
+    api_plan: dict | None = None,
+    preview_rows: int | None = None,
+) -> dict:
+    """
+    Flags describing how the rows the chatter sees differ from what the user asked for.
+
+    Three silences this removes.
+
+    1. ``tool_nextseek_api_request`` hard-defaults ``page_size: 1000``, so a search
+       matching 2,057 records returns 1,000 rows and reports total 2,057. The chatter
+       faithfully said "2,057 records" while row_count was 1000, and nothing said the
+       rows were a page.
+    2. The LLM-context slim keeps 5 rows. ``/nextseek_api/assays/`` is a SEEK JSON:API
+       passthrough whose body carries no total at all, so after slimming the chatter
+       held 5 rows and no other number — and answered "You have access to 5 assays"
+       for a 324-row result (task 833). Reporting the preview length as the answer was
+       the only thing it could do with what it was given.
+    3. When the retry ladder substitutes a different search text, the rows are not the
+       user's terms at all.
+
+    None of these is a hallucination — the defect is that nothing told the chatter.
+    """
+    disclosure: dict = {}
+
+    total = _result_total(api_result)
+    rows = _rows_actually_returned(api_result)
+    if rows is not None:
+        disclosure["rows_returned"] = rows
+    if isinstance(api_plan, dict):
+        page_size = (api_plan.get("queryParameters") or {}).get("page_size")
+        if page_size is None and rows is not None:
+            page_size = DEFAULT_API_PAGE_SIZE
+        if page_size is not None:
+            disclosure["page_size"] = page_size
+
+    # Capped by the API's page size: more matched than came back.
+    if total is not None and rows is not None and total > rows:
+        disclosure["result_capped"] = True
+        disclosure["total_matching"] = total
+
+    # Capped by the LLM-context slim: more came back than the chatter can see.
+    if preview_rows is not None and rows is not None and preview_rows < rows:
+        disclosure["preview_rows"] = preview_rows
+        disclosure["result_capped"] = True
+        disclosure.setdefault("total_matching", total if total is not None else rows)
+
+    if isinstance(api_plan, dict) and api_plan.get("retry_substituted_search"):
+        disclosure["search_text_substituted"] = api_plan["retry_substituted_search"]
+
+    return disclosure
+
+
+def api_result_meta_truncation(api_result: dict | None, api_plan: dict | None = None) -> dict:
+    """The subset of ``build_result_disclosure`` that belongs on ``api_result_meta``.
+
+    T1.10 put ``result_capped`` / ``total_matching`` into the SLIMMED LLM payload, so
+    the chatter is told when it is holding a page rather than a result. But
+    ``api_result_meta`` is what the nessie harness asserts on, and it carries only
+    ``row_count``. So no criterion can distinguish a complete 1,000-row answer from a
+    1,000-row page of 1,179, and none ever has: ``advanced.find_me_mice`` reported
+    exactly the hard-coded ``DEFAULT_API_PAGE_SIZE`` in the seed-0 run and scored green.
+
+    This mirrors what the graph side already gained (``count`` / ``total`` /
+    ``truncated``), which is what made the 10,688 cap checkable rather than invisible.
+
+    Deliberately ignores the LLM-context preview cap: that one describes what the
+    chatter could see, not what the API returned, and the harness asserts on the API.
+    """
+    disclosure = build_result_disclosure(api_result, api_plan)
+    return {
+        "total_matching": disclosure.get("total_matching"),
+        "truncated": bool(disclosure.get("result_capped", False)),
+    }
+
+
+def build_api_result_meta(api_result: dict | None, api_plan: dict | None = None,
+                          *, bundle_id: int | None = None) -> dict:
+    """The full ``debug_payload['api_result_meta']`` block.
+
+    Assembled here rather than inline in the orchestrator so the truncation fields
+    have a seam a test can reach. The graph side's equivalent was written inline and
+    went two waves without a unit test.
+    """
+    api_result = api_result if isinstance(api_result, dict) else {}
+    return {
+        "ok": api_result.get("ok"),
+        "status_code": api_result.get("status_code"),
+        "url": api_result.get("url"),
+        # An ok:true search that returned nothing is not a success; make the row
+        # count visible so callers can tell those apart.
+        "row_count": api_row_count(api_result),
+        "bundle_id": bundle_id,
+        **api_result_meta_truncation(api_result, api_plan),
+    }
+
+
+def slim_api_result_for_llm(
+    api_result: dict,
+    max_rows: int = 5,
+    max_chars: int = 5000,
+    api_plan: dict | None = None,
+) -> dict:
     """
     Trim API results to keep LLM prompts small while preserving key totals and a few example rows.
     Caps row count and total serialized size, substituting a preview with truncation metadata when oversized.
+
+    ``api_plan`` is optional and only used to disclose capping and search-text
+    substitution; omitting it preserves the previous behaviour exactly.
     """
     data = api_result.get("data", {})
     new_data = data
@@ -55,6 +224,12 @@ def slim_api_result_for_llm(api_result: dict, max_rows: int = 5, max_chars: int 
             },
         }
 
+    # Row counts come from the ORIGINAL result; `preview_rows` is what actually
+    # survived into the payload the chatter reads. Passing both is what lets the
+    # chatter say "324, showing 5" instead of "5".
+    slimmed.update(
+        build_result_disclosure(api_result, api_plan, preview_rows=_rows_actually_returned(slimmed))
+    )
     return slimmed
 
 

@@ -2,6 +2,51 @@
 import logging
 logger = logging.getLogger(__name__)
 
+    
+
+# #93: every *value* in a WHERE fragment is bound as a %s parameter, but a column
+# *identifier* can never be bound, so the only defence for the identifier surface
+# is an allowlist. These are the values of seek.dbtable_sample.SAMPLE_FILTER_MAPPING
+# plus the two bare column names the PubMed/UID paths pass as defaults
+# (seek/dbtable_sample.py:1937-1938, :4044-4045).
+#
+# Hardcoded rather than imported on purpose: dbtable_sample imports search lazily
+# *inside* its methods, so a module-scope import in this direction would close an
+# import cycle. A test asserts this set stays a superset of the mapping's values.
+ALLOWED_SEARCH_IDENTIFIERS = frozenset({
+    "A.id",
+    "A.title",
+    "A.sample_type_id",
+    "B.title",
+    "A.uuid",
+    "A.contributor_id",
+    "C.first_name",
+    "A.created_at",
+    "A.json_metadata",
+    "D.assay_id",
+    "E.assayname",
+    "F.work_group_id",
+    "G.project_id",
+    "G.institution_id",
+    "H.title",
+    "I.title",
+    # bare defaults used when the caller does not go through SAMPLE_FILTER_MAPPING
+    "json_metadata",
+    "sample_type_id",
+})
+
+
+def _assert_identifier(name):
+    ''' Fail closed on any column identifier that is not server-owned (#93).
+
+    Raising beats falling through: a builder that silently dropped an unknown
+    identifier would emit a WHERE clause with no filter in it, which is a data
+    leak rather than an error.
+    '''
+    if name not in ALLOWED_SEARCH_IDENTIFIERS:
+        raise ValueError("Illegal search identifier: %r" % (name,))
+    return name
+
 
 class Search():
     ''' Usage: Parse the search text in PubMed style and return a
@@ -95,97 +140,121 @@ class Search():
                 the table field 'sample_type_id', for example.
             
         Output:
-            The clause, such as
-                "sample_type_id=15"
+            (clause, params), such as
+                ("sample_type_id=%s", [15])
         '''
         from .dbtable_sampletype import DBtable_sampletype
-        
+
         clause = None
         stype = DBtable_sampletype()
         sample_type_id = stype.getSampleTypeID(category)
         try:
             sample_type_id = int(sample_type_id)
         except:
-            logger.debug("Warning: Search text not in the right format for sample_type_id: " + keyword) 
-            return clause
-        
+            logger.debug("Warning: Search text not in the right format for sample_type_id: " + keyword)
+            return clause, []
+
         #clause = "sample_type_id=" + str(sample_type_id)
-        clause = categoryField + '=' + str(sample_type_id)
-        return clause
-        
+        _assert_identifier(categoryField)
+        clause = categoryField + '=%s'
+        return clause, [sample_type_id]
+
     def __designConstraint(self, field, keyword, isNOT=False, categoryField='sample_type_id'):
         keyword, category = self.__parseKeyword(keyword)
+        _assert_identifier(field)
+        # #93: the LIKE wildcards ride on the *bound value*, never on the statement
+        # text. That also leaves no literal '%' in the SQL, so no %%-escaping is
+        # needed anywhere downstream.
+        params = ["%" + str(keyword) + "%"]
         if isNOT:
-            constraint = field + " NOT LIKE '%" + str(keyword) + "%' "
+            constraint = field + " NOT LIKE %s "
         else:
-            constraint = field + " LIKE '%" + str(keyword) + "%' "
+            constraint = field + " LIKE %s "
         if category is None:
-            return constraint
-        
-        clause = self.__getCategoryClause(category, categoryField)  
+            return constraint, params
+
+        clause, clause_params = self.__getCategoryClause(category, categoryField)
         if clause is None:
             logger.debug("Warning: Search text " + keyword + " not in the right format for " + categoryField)
-            return constraint
-        
+            return constraint, params
+
         constraint = "(" + constraint + " AND " + clause + ")"
-        return constraint
-        
+        # keyword placeholder is emitted before the category placeholder
+        return constraint, params + clause_params
+
     def __designDualConstraint(self, field, expression, operator, termsdic):
         query = ''
+        params = []
         if operator not in expression:
-            return None
-        
+            return None, []
+
         terms = expression.split(operator)
         if len(terms)!=2:
             msg = "More than two" + operator + "operations found in: " + expression
             logger.debug(msg)
-            return None
-                    
+            return None, []
+
         keyword1 = terms[0].strip()
         keyword2 = terms[1].strip()
-        
+
         isNOT = False
         operator2 = operator
         if operator==' NOT ':
             isNOT = True
             operator2 = ' AND '
-            
+
+        # #93: params MUST be appended in exactly the left-to-right order their %s
+        # placeholders are concatenated into `query`, and ONLY on the branches that
+        # actually emit their fragment. Two traps below:
+        #   * a sub-query that comes back None contributes neither text nor params;
+        #   * in the `else` branch subQuery1 is *computed* before constraint2 but
+        #     *emitted* before it only when it is not None, so params follow the
+        #     emission order, not the call order.
+        # Getting this wrong binds values to the wrong columns, silently.
         if keyword1 not in termsdic:
-            constraint1 = self.__designConstraint(field, keyword1)
+            constraint1, params1 = self.__designConstraint(field, keyword1)
             query += constraint1
+            params += params1
             if keyword2 not in termsdic:
-                constraint2 = self.__designConstraint(field, keyword2, isNOT)
+                constraint2, params2 = self.__designConstraint(field, keyword2, isNOT)
                 query += operator2 + constraint2
+                params += params2
             else:
                 nextExpression = termsdic[keyword2]
-                subQuery = self.__designIterativeQuery(nextExpression, field, termsdic)
+                subQuery, subParams = self.__designIterativeQuery(nextExpression, field, termsdic)
                 if subQuery is not None:
                     query += operator2 + " (" + subQuery + ") "
-                
+                    params += subParams
+
         else:
             nextExpression = termsdic[keyword1]
-            subQuery1 = self.__designIterativeQuery(nextExpression, field, termsdic)
-                
+            subQuery1, subParams1 = self.__designIterativeQuery(nextExpression, field, termsdic)
+
             if keyword2 not in termsdic:
-                constraint2 = self.__designConstraint(field, keyword2, isNOT)
+                constraint2, params2 = self.__designConstraint(field, keyword2, isNOT)
                 if subQuery1 is not None:
                     query += " (" + subQuery1 + ") " + operator2
+                    params += subParams1
                 query += constraint2
-                
+                params += params2
+
             else:
                 nextExpression = termsdic[keyword2]
-                subQuery2 = self.__designIterativeQuery(nextExpression, field, termsdic)
+                subQuery2, subParams2 = self.__designIterativeQuery(nextExpression, field, termsdic)
                 if subQuery1 is not None:
                     if subQuery2 is not None:
                         query += " (" + subQuery1 + ") " + operator2 + " (" + subQuery2 + ") "
+                        params += subParams1 + subParams2
                     else:
                         query += " (" + subQuery1 + ") "
+                        params += subParams1
                 else:
                     if subQuery2 is not None:
                         query += " (" + subQuery2 + ") "
-                    
-        return query
-        
+                        params += subParams2
+
+        return query, params
+
     def __validateExpression(self, expression):
         isValid = True
         operatorFound = None
@@ -211,15 +280,15 @@ class Search():
         if not isValid:
             msg = 'Search expression not in the valid format: ' + expression
             logger.debug(msg)
-            return None
-            
+            return None, []
+
         if operatorFound is None:
-            constraint = self.__designConstraint(field, expression)
+            constraint, params = self.__designConstraint(field, expression)
             query = constraint
         else:
-            query = self.__designDualConstraint(field, expression, operatorFound, termsdic)     
-            
-        return query
+            query, params = self.__designDualConstraint(field, expression, operatorFound, termsdic)
+
+        return query, params
     
     def __getDualKeywords(self, expression, operator, termsdic):
         keywords = []
@@ -280,20 +349,26 @@ class Search():
                 tableField = 'json_metadata', which is in Samples table.
         
         Output:
-            The WHERE clause in a SQL query, such as
-                WHERE tableField like '%CD8%'
-        
+            (query, params, keywords), where query is the WHERE clause in a SQL
+            query, such as
+                ("WHERE json_metadata LIKE %s ", ["%CD8%"], ["CD8"])
+
         '''
         print('designSearchPubmed')
+        # #93: identifiers cannot be bound, so check before any of them is spliced
+        # in below (including the `query is None` fallback further down).
+        _assert_identifier(tableField)
         query = ''
+        # #93: a 3-tuple on *every* return path. These two early returns used to
+        # hand back a bare '' and made every caller raise ValueError on unpack.
         if searchText is None:
-            return query
+            return query, [], []
         try:
             pts = self.__findMatchedParentheses(searchText)
         except:
-            logger.debug("Warning: Search text has mismatched parentheses in : " + searchText) 
-            return query
-        
+            logger.debug("Warning: Search text has mismatched parentheses in : " + searchText)
+            return query, [], []
+
         searching = True
         sss = searchText
         iterations = []
@@ -324,39 +399,49 @@ class Search():
         
         query = ""
         si = iterations[-1]
-        expression = si['sss']     
-        query = self.__designIterativeQuery(expression, tableField, termsdic, categoryField)
+        expression = si['sss']
+        query, params = self.__designIterativeQuery(expression, tableField, termsdic, categoryField)
         if query is None:
-            query = tableField + " LIKE '%" + str(expression) + "%' "
-        
+            query = tableField + " LIKE %s "
+            params = ["%" + str(expression) + "%"]
+
         query = 'WHERE ' + query
         logger.debug("keyword query filter: " + query)
-        
+
         keywords = self.__getKeywords(expression, termsdic)
         print(f"query: {query}\nkeywords: {keywords}")
-        return query, keywords
-            
+        return query, params, keywords
+
     def __designSearchMatchKeywords(self, keywordList, tableField):
         '''Design a WHERE clause, given
         Input:
             keywordList, a list of keywords, such as a list of UIDs.
             tableField, the table field against, such as 'uid' or 'uuid'
-         
+
         Output:
-            The "WHERE" clause, such as,
-                "WHERE uid in (uid1, uid2, ...)"
+            (clause, params), the "WHERE" clause and its bound values, such as,
+                (" WHERE uid in (%s, %s);", [uid1, uid2])
         '''
         print('designSearchMatchKeywords')
         if len(keywordList)>0:
-            tarray = "('" + "','".join(keywordList) + "')"
+            _assert_identifier(tableField)
+            # One placeholder per UID: the statement text varies only with the
+            # *count* of UIDs, never with their content (#93).
+            tarray = "(" + ", ".join(["%s"] * len(keywordList)) + ")"
             #tablefield = 'uid'
             #tableField = SAMPLE_FILTER_MAPPING[tablefield]
+            # The trailing ';' is preserved deliberately: __sqlQuery_select_records
+            # appends filtersdic['orderby'], which defaults to " " and not "", so
+            # the ORDER BY default is already dead code and the ';' is harmless
+            # today. #93 is a binding change, not a behaviour change.
             sqlquery_filter = " WHERE " + tableField + " in " + tarray + ";"
+            params = list(keywordList)
         else:
             sqlquery_filter = " "
-        
-        return sqlquery_filter
-            
+            params = []
+
+        return sqlquery_filter, params
+
     def __getCleanKeyword(self, keywordIn):
         keywordOut = keywordIn
         if ':' in keywordIn:
@@ -372,12 +457,15 @@ class Search():
         '''
         Input:
             terms, keywords in several formats.
-            tableField, a table field, such 'json_metadta' 
-            
+            tableField, a table field, such 'json_metadta'
+
         Output:
-            SQL WHERE clause, such as,
-                'WHERE field like '%keyword%';
+            (clause, params), the SQL WHERE clause and its bound values, such as,
+                (" WHERE field LIKE %s ", ["%keyword%"])
         '''
+        _assert_identifier(tableField)
+        # #93: params are appended at each LIKE site, in emission order.
+        params = []
         query = {}
         multi_match = True
         for term in terms:
@@ -405,7 +493,8 @@ class Search():
                     sqlquery_filter += " WHERE " + tableField
                 else:
                     sqlquery_filter += " AND " + tableField
-                sqlquery_filter += " LIKE '%" + str(keyword) + "%' "
+                sqlquery_filter += " LIKE %s "
+                params.append("%" + str(keyword) + "%")
                 n += 1
         elif "multi_match" in query:
             keywords = query["multi_match"]
@@ -419,7 +508,8 @@ class Search():
                     sqlquery_filter += " WHERE " + tableField
                 else:
                     sqlquery_filter += " OR " + tableField
-                sqlquery_filter += " LIKE '%" + str(keyword) + "%' "
+                sqlquery_filter += " LIKE %s "
+                params.append("%" + str(keyword) + "%")
                 n += 1
         else:
             sqlquery_filter = ""
@@ -431,8 +521,9 @@ class Search():
                         sqlquery_filter += " WHERE " + tableField
                         if ":" in keyword:
                                 keyword = self.__getCleanKeyword(keyword)
-                                
-                        sqlquery_filter += " LIKE '%" + str(keyword) + "%' "
+
+                        sqlquery_filter += " LIKE %s "
+                        params.append("%" + str(keyword) + "%")
                     else:
                         keywords = term.split('&')
                         i = 0
@@ -440,21 +531,27 @@ class Search():
                             if ":" in keyword:
                                 keyword = self.__getCleanKeyword(keyword)
                             
-                            if i==0:   
+                            if i==0:
                                 sqlquery_filter += " WHERE (" + tableField
                             else:
                                 sqlquery_filter += " AND " + tableField
-                            sqlquery_filter += " LIKE '%" + str(keyword) + "%' "
+                            sqlquery_filter += " LIKE %s "
+                            params.append("%" + str(keyword) + "%")
                             i += 1
-                        sqlquery_filter += " )" 
+                        sqlquery_filter += " )"
                 else:
                     if '&' not in term:
                         keyword = term
                         if ":" in keyword:
                             keyword = self.__getCleanKeyword(keyword)
-                            
+
                         sqlquery_filter += " OR " + tableField
-                        sqlquery_filter += " LIKE '%" + str(term) + "%' "
+                        # Binds the RAW `term`, not the cleaned `keyword` its five
+                        # sibling sites bind. Pre-existing quirk, preserved
+                        # verbatim: #93 is a binding change, and "fixing" it here
+                        # would silently change search semantics.
+                        sqlquery_filter += " LIKE %s "
+                        params.append("%" + str(term) + "%")
                     else:
                         keywords = term.split('&')
                         i = 0
@@ -462,17 +559,18 @@ class Search():
                             if ":" in keyword:
                                 keyword = self.__getCleanKeyword(keyword)
                             
-                            if i==0:   
+                            if i==0:
                                 sqlquery_filter += " OR (" + tableField
                             else:
                                 sqlquery_filter += " AND " + tableField
-                            sqlquery_filter += " LIKE '%" + str(keyword) + "%' "
+                            sqlquery_filter += " LIKE %s "
+                            params.append("%" + str(keyword) + "%")
                             i += 1
-                        sqlquery_filter += " )" 
+                        sqlquery_filter += " )"
                 n += 1
-                
-        return sqlquery_filter     
-        
+
+        return sqlquery_filter, params
+
     def __designSearchFilters(self, filtersdic, fieldMapping):
         ''' Design a "WHERE" clause, given,
         Input:
@@ -484,33 +582,47 @@ class Search():
             fieldMapping, = {'field1':tableField1, 'field2':tableField2, ...}
         
         Output:
-            SQL WHERE clause, such as,
-                'WHERE tableField=value;
+            (clause, params), the SQL WHERE clause and its bound values, such as,
+                (" WHERE tableField=%s ", [value])
         '''
-        filterRules = filtersdic['filterRules'] 
+        filterRules = filtersdic['filterRules']
         sqlquery_filter = ""
+        params = []
         n = 0
         for rule in filterRules:
             tablefield = rule["field"]
             value = rule["value"]
             op = rule["op"]
             if tablefield in fieldMapping:
-                field = fieldMapping[tablefield]
-            
+                # The client picks a *key*; the column name is always this
+                # server-owned value, so this mapping is what already closes the
+                # identifier surface. _assert_identifier is defence in depth for
+                # the day someone hands in a wider mapping (#93).
+                field = _assert_identifier(fieldMapping[tablefield])
+
                 if n==0:
                     sqlquery_filter += " WHERE " + field
                 else:
                     sqlquery_filter += " AND " + field
                 if op=="contains":
-                    sqlquery_filter += " LIKE '%" + str(value) + "%' "
+                    sqlquery_filter += " LIKE %s "
+                    params.append("%" + str(value) + "%")
                 elif op=="equal":
-                    sqlquery_filter += "='" + str(value) + "' "
+                    sqlquery_filter += "=%s "
+                    # str() preserves the old `='<str(value)>'` literal exactly
+                    params.append(str(value))
                 else:
-                    sqlquery_filter += " LIKE '%" + str(value) + "%' "
+                    sqlquery_filter += " LIKE %s "
+                    params.append("%" + str(value) + "%")
+            # `n += 1` stays OUTSIDE the `if` on purpose: a rule whose field is not
+            # in the mapping still advances n, so the *next* rule emits " AND "
+            # with no preceding " WHERE ". That is a pre-existing defect and is
+            # left alone here: #93 is a binding change and must not also move
+            # this counter. Recorded as a residual.
             n += 1
-        
-        return sqlquery_filter
-        
+
+        return sqlquery_filter, params
+
     def __getSearchTerms(self, searchText):
         terms = []
         if searchText is None:
@@ -568,33 +680,36 @@ class Search():
             
             
             fieldMapping,                   # mapping between keywords and DB fields
-            tableField,                     # the table field in search 
+            tableField,                     # the table field in search
             categoryField                   # the category of the search
-        
-        
+
+        Output:
+            (sqlquery_filter, params) on every return path (#93). The caller binds
+            params at execute time instead of the values being spliced into the
+            statement text.
         '''
         sqlquery_filter = ' '
         if 'searchType' not in filtersdic:
-            return sqlquery_filter
-        
+            return sqlquery_filter, []
+
         searchType = filtersdic['searchType']
         if searchType=='FILTERING':
-            sqlquery_filter = self.__designSearchFilters(filtersdic, fieldMapping)
-            return sqlquery_filter
-            
+            sqlquery_filter, params = self.__designSearchFilters(filtersdic, fieldMapping)
+            return sqlquery_filter, params
+
         if 'searchText' not in filtersdic:
-            return sqlquery_filter
-            
+            return sqlquery_filter, []
+
         searchText = filtersdic['searchText']
         terms = self.__getSearchTerms(searchText)
         tableField = filtersdic['tableField']
         categoryField = filtersdic['categoryField']
         if searchType=="UIDs" or searchType=="UIDS":
-            sqlquery_filter = self.__designSearchMatchKeywords(terms, tableField)
+            sqlquery_filter, params = self.__designSearchMatchKeywords(terms, tableField)
         elif searchType=="Advanced" or searchType=="PUBMED":
-            sqlquery_filter, keywords = self.designSearchPubmed(searchText, tableField, categoryField)
+            sqlquery_filter, params, keywords = self.designSearchPubmed(searchText, tableField, categoryField)
         else:
             # will never reach here
-            sqlquery_filter = self.__designSearchContainKeywords(terms, tableField)
-        return sqlquery_filter
-           
+            sqlquery_filter, params = self.__designSearchContainKeywords(terms, tableField)
+        return sqlquery_filter, params
+

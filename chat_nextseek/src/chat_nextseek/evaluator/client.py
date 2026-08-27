@@ -118,9 +118,18 @@ def build_baml_env(
     resolved: dict[str, str] = {}
     source: Mapping[str, str | None] = env if env is not None else os.environ
     for key in _ENV_KEYS:
-        value = source.get(key)
-        if value is None and config is not None:
-            value = getattr(config, key, None)
+        if key == "NEXTSEEK_BASE_URL":
+            # Review follow-up FU5 (2026-07-07): the config attribute already
+            # holds the RESOLVED transport URL (internal-preferred); the raw
+            # public env var is dead on port-bumped installs. No .baml source
+            # dereferences this key today — kept for forward-compat only.
+            value = getattr(config, key, None) if config is not None else None
+            if not value:
+                value = source.get("NEXTSEEK_INTERNAL_BASE_URL") or source.get(key)
+        else:
+            value = source.get(key)
+            if value is None and config is not None:
+                value = getattr(config, key, None)
         if value:
             resolved[key] = value
     return resolved

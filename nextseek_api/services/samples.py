@@ -2,6 +2,8 @@ from typing import Optional, Any
 
 import json
 import logging
+
+import orjson
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -9,8 +11,10 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from pydantic import ValidationError
 from django.conf import settings
 
-from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id
+from seek.seekdb import SeekDB
+from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id, resolve_seek_auth
 from nextseek_api.helpers import paginate_rows_in_envelope
+from nextseek_api.batch_upload.helpers import UID_RE
 from nextseek_api.endpoint_descriptions import (
     SAMPLE_FETCH_DESC,
     SAMPLE_CREATE_DESC,
@@ -32,6 +36,20 @@ try:
     from seek.dbtable_sample import DBtable_sample
 except Exception:  # pragma: no cover - optional resolver
     DBtable_sample = None  # type: ignore
+
+
+def _nest_boolean_search_terms(terms: list[str], op: str) -> str:
+    """Build a right-nested binary boolean expression for the PubMed parser.
+
+    The upstream seek/search.py parser accepts at most one boolean operator per
+    expression level (strictly binary). A flat join like ``(t1) OR (t2) OR (t3)``
+    is rejected; nesting preserves semantics while satisfying that constraint.
+    """
+    if len(terms) < 2:
+        raise ValueError("_nest_boolean_search_terms requires at least two terms")
+    if len(terms) == 2:
+        return f"({terms[0]}){op}({terms[1]})"
+    return f"({terms[0]}){op}(" + _nest_boolean_search_terms(terms[1:], op) + ")"
 
 
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
@@ -367,7 +385,29 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
         tags=['Samples'],
         examples=[
             OpenApiExample(
-                name="Numeric sampletype",
+                name="Sample type by title",
+                description=(
+                    "Titles are resolved against the sample types of whichever instance "
+                    "you are calling, so this form is portable. Prefer it."
+                ),
+                value={
+                    "sampletype": "TIS",
+                    "filter_searchText": "lung",
+                    "attribute": "Organ",
+                    "filter_matchType": "PARTIAL"
+                }
+            ),
+            OpenApiExample(
+                name="Numeric sampletype (id is deployment-specific)",
+                description=(
+                    "A numeric sampletype is taken as a raw sample_type id. Those ids are "
+                    "NOT portable between deployments: TIS is id 2 on a seeded local stack "
+                    "but id 26 on production, whose ids start at 10 and so have no id 2 at "
+                    "all. An id that exists nowhere matches nothing and the endpoint "
+                    "correctly returns total=0 -- which is easily mistaken for a broken "
+                    "search. Look the id up for your instance first, or use the title form "
+                    "above."
+                ),
                 value={
                     "sampletype": "2",
                     "filter_searchText": "lung",
@@ -469,36 +509,121 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
 
         # Execute DB search
         try:
-            searchType = "Advanced"
             user_seek = getattr(request, "user", None)
             if DBtable_sample is None:
                 raise RuntimeError("DBtable_sample unavailable")
-            # Normalize multiple search texts into a PubMed-style boolean expression for upstream
-            try:
-                raw_st = req.filter_searchText
-                if isinstance(raw_st, list):
-                    terms = [str(t or '').strip() for t in raw_st if str(t or '').strip()]
-                    if len(terms) >= 2:
-                        st_logic = str(filters.get('searchText_logic') or 'OR').upper()
-                        op = ' AND ' if st_logic == 'AND' else ' OR '
-                        filters['filter_searchText'] = op.join(f'({t})' for t in terms)
-                    elif len(terms) == 1:
-                        # Single term: pass through unchanged (no parentheses)
-                        filters['filter_searchText'] = terms[0]
-                    else:
-                        filters['filter_searchText'] = ''
-                # If it's already a string, leave it as-is
-            except Exception:
-                # Best-effort normalization; fall back to existing value
-                pass
-            report = DBtable_sample().searchAdvanced(user_seek, filters, searchType)
+
+            # Split the search terms: exact UIDs take the fast path -- one indexed
+            # `WHERE uuid IN (...)` query (searchType="UIDs") with skip_tree (the sample
+            # lineage tree is ~0.7s/row and unused by this API). Any non-UID terms keep the
+            # PubMed text-search path. This turns a batch UID lookup from a full-text scan
+            # into a single indexed query. UID detection reuses the shared batch_upload
+            # UID_RE (no bespoke pattern).
+            raw_st = req.filter_searchText
+            if isinstance(raw_st, list):
+                _terms = [str(t or '').strip() for t in raw_st if str(t or '').strip()]
+            else:
+                _s = str(raw_st or '').strip()
+                _terms = [_s] if _s else []
+            uid_terms = [t for t in _terms if UID_RE.match(t)]
+            other_terms = [t for t in _terms if not UID_RE.match(t)]
+
+            # Data scope. Mirrors AdminSampleViewSet in nextseek_api/views.py (#74).
+            #
+            # IsAuthenticated on this viewset answers "is this a real logged-in user",
+            # which is not the same question as "what may they read". Until now this
+            # endpoint asked only the first: it threaded `user_seek` down three call
+            # layers and the final one never referenced it, so every authenticated
+            # caller read every project.
+            #
+            # is_superuser ALONE is the admin predicate, never is_staff --
+            # dmac/views.py:80,97 sets is_staff on every SEEK user at login, so it
+            # admits everyone and is not an authorization signal.
+            if bool(getattr(request.user, 'is_superuser', False)):
+                scoped_project_ids = None
+            else:
+                basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+                if not (basic_tuple and basic_tuple[0] and basic_tuple[1]):
+                    # Reachable: a Token-authenticated client resolves no Basic pair
+                    # (TOKEN is deliberately not in the order above, since SEEK project
+                    # lookup needs a username/password). Say so rather than letting
+                    # basic_tuple[0] raise into the except below, where a missing
+                    # credential would be indistinguishable from a SEEK outage.
+                    logging.getLogger(__name__).warning(
+                        "No SEEK credentials resolved for caller; scoping to no projects")
+                    return HttpResponse(
+                        b'{"errors":[{"title":"Cannot determine project scope for this caller"}]}',
+                        status=403, content_type='application/json')
+                try:
+                    seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
+                    user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+                    scoped_project_ids = [p['id'] for p in user_projects]
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Could not resolve SEEK projects for the caller; scoping to none")
+                    scoped_project_ids = []
+
+            def _run_search(search_type, sub_filters):
+                raw = DBtable_sample().searchAdvanced(
+                    user_seek, sub_filters, search_type, skip_tree=True,
+                    scoped_project_ids=scoped_project_ids)
+                return orjson.loads(raw) if raw else {}
+
+            partials = []
+            if uid_terms:
+                fu = dict(filters)
+                fu['filter_searchUIDs'] = "\n".join(uid_terms)
+                partials.append(_run_search("UIDs", fu))
+            if other_terms:
+                fo = dict(filters)
+                if len(other_terms) >= 2:
+                    op = ' AND ' if str(filters.get('searchText_logic') or 'OR').upper() == 'AND' else ' OR '
+                    fo['filter_searchText'] = _nest_boolean_search_terms(other_terms, op)
+                else:
+                    fo['filter_searchText'] = other_terms[0]
+                partials.append(_run_search("Advanced", fo))
+            if not partials:
+                fo = dict(filters)
+                fo['filter_searchText'] = ''
+                partials.append(_run_search("Advanced", fo))
+
+            if len(partials) == 1:
+                merged = partials[0]
+            else:
+                # Mixed UID + text search: union the rows, de-duplicated by sample id.
+                seen, rows_merged = set(), []
+                for part in partials:
+                    for row in (part.get('rows') or []):
+                        rid = row.get('id')
+                        if rid is not None and rid in seen:
+                            continue
+                        if rid is not None:
+                            seen.add(rid)
+                        rows_merged.append(row)
+                merged = {'total': len(rows_merged), 'rows': rows_merged, 'msg': 'okay', 'status': 1}
+
+            # Normalize row shape: the fast UIDs path returns json_metadata as a JSON
+            # string and no attributeValue, whereas the Advanced path (and the response
+            # schema + downstream consumers) expect a dict plus an attributeValue string.
+            # attributeValue is empty for a UID lookup (a UID is not free-text to
+            # highlight). No-op for Advanced-path rows, which are already shaped.
+            for _row in merged.get('rows') or []:
+                _jm = _row.get('json_metadata')
+                if isinstance(_jm, (str, bytes)):
+                    try:
+                        _row['json_metadata'] = orjson.loads(_jm)
+                    except Exception:
+                        _row['json_metadata'] = {}
+                if _row.get('attributeValue') is None:
+                    _row['attributeValue'] = ''
+            report = orjson.dumps(merged)
         except Exception as e:
             log.warning("samples_advanced.exec_exception action=create error=%s", str(e))
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
         # Validate output schema
         try:
-            data = json.loads(report or "{}")
+            data = orjson.loads(report or b"{}")
             SampleAdvancedSearchResult.model_validate(data)
         except ValidationError as ve:
             try:

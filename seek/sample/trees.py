@@ -17,6 +17,7 @@ from .constants import SAMPLE_PARENT_ACCESSOR_NAME, SEEK_DATABASE, logger
 def unwrap_self_createMultiParentTreeParallel_i(arg, **kwarg):    
     from .table import DBtable_sample  # deferred: circular import
     return DBtable_sample.createMultiParentTreeParallel_i(*arg, **kwarg)
+
 def unwrap_self_createSampleChildrenTreeParallel_i(arg, **kwarg):
     from .table import DBtable_sample  # deferred: circular import
     return DBtable_sample.createSampleChildrenTreeParallel_i(*arg, **kwarg)
@@ -49,25 +50,31 @@ class SampleTreesMixin:
         if not uids:
             return pd.DataFrame(columns=["id", "sample_type_id", "uuid", "json_metadata"])
 
-        uids_str = ', '.join(f"'{uid}'" for uid in uids)
-        project_ids_str = ', '.join(f"'{pid}'" for pid in user_project_ids)
+        # Bound, never inlined: a quote in a uuid or project id broke out of
+        # the literal. Only the schema name is interpolated (views.py:829).
+        uid_placeholders = ', '.join(['%s'] * len(uids))
 
         if admin:
             query = f"""
             SELECT id,sample_type_id,uuid,json_metadata
             FROM {db["NAME"]}.samples
-            WHERE uuid IN ({uids_str})
+            WHERE uuid IN ({uid_placeholders})
             """
+            params = list(uids)
         else:
+            # Sentinel: valid SQL matching nothing when no mapped projects.
+            scoped_project_ids = [str(pid) for pid in user_project_ids] or ['']
+            project_placeholders = ', '.join(['%s'] * len(scoped_project_ids))
             query = f"""
             SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
             FROM {db["NAME"]}.samples s
             JOIN {db["NAME"]}.projects_samples ps
             ON s.id = ps.sample_id
-            WHERE s.uuid IN ({uids_str}) AND ps.sample_id = s.id AND ps.project_id IN ({project_ids_str})
+            WHERE s.uuid IN ({uid_placeholders}) AND ps.sample_id = s.id AND ps.project_id IN ({project_placeholders})
             """
+            params = list(uids) + scoped_project_ids
 
-        result = self._runQuery(query, withColumns=True)
+        result = self._runQuery(query, withColumns=True, params=params)
         if not result:
             # Query failed (e.g. transient DB error). Degrade to an empty frame
             # so the endpoint returns a clean 404 instead of a 500 unpack crash.
@@ -295,7 +302,7 @@ class SampleTreesMixin:
         return headers_new, diclist_new, headersMapping
 
     def _createSampleTreeFromDB(self, sample_ids):
-        from ..models import Sample_tree
+        from .models import Sample_tree
         
         includeChilren = True
         parentList = []

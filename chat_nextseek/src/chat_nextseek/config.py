@@ -1,6 +1,8 @@
 import json
 import os
+import re
 import sys
+import threading
 from contextlib import nullcontext, redirect_stdout
 from datetime import datetime, timezone
 from io import StringIO
@@ -11,6 +13,114 @@ from dotenv import load_dotenv
 
 from .llm_clients import BaseLLMClient, build_llm_client
 
+
+def _resolve_nextseek_base_url() -> str | None:
+    """Transport URL for NExtSEEK REST self-calls.
+
+    Prefers NEXTSEEK_INTERNAL_BASE_URL — the container-internal listener URL
+    rendered by startup, decoupled from the published host port — over the
+    public NEXTSEEK_BASE_URL (which derives from NEXTSEEK_HOSTNAME and tracks
+    the host-published port, auto-bumped when 8000 is busy on the host). The
+    self-calls execute inside the nextseek container, so a bumped host port in
+    the public URL points at nothing (Step 7d greenfield: connection refused).
+    """
+    url = os.getenv("NEXTSEEK_INTERNAL_BASE_URL") or os.getenv("NEXTSEEK_BASE_URL")
+    if url is None:
+        return None
+    return url.rstrip("/")
+
+
+_VALID_LAUNCH_MODES = {"tower", "luria"}
+
+
+def detect_pipeline_launch_mode(env: dict | None = None) -> str:
+    """Return the default launch backend ('tower' | 'luria'). Invalid -> 'luria'."""
+    env = env if env is not None else os.environ
+    mode = (env.get("PIPELINE_LAUNCH_MODE") or "luria").strip().lower()
+    if mode not in _VALID_LAUNCH_MODES:
+        print(f"[CONFIG] Invalid PIPELINE_LAUNCH_MODE {mode!r}; defaulting to 'luria'.")
+        return "luria"
+    return mode
+
+
+def build_luria_env(env: dict | None = None) -> dict:
+    """Assemble the Luria SSH/SLURM env dict from process env (host hardcoded)."""
+    env = env if env is not None else os.environ
+    return {
+        "user": env.get("LURIA_USER"),
+        "key": env.get("LURIAKEY"),
+        "working_path": env.get("LURIA_WORKING_PATH"),
+        "host": "luria.mit.edu",
+    }
+
+
+def luria_env_complete(luria_env: dict) -> bool:
+    """True when the required Luria fields are all present."""
+    return all(luria_env.get(k) for k in ("user", "key", "working_path"))
+
+
+def db_conn_is_alive(conn) -> bool:
+    """
+    Actively probe a MySQL connection.
+
+    mysql-connector's ``is_connected()`` pings the server, so this catches a
+    connection the server hung up on — which a truthiness test cannot, because a
+    dead connection object is still truthy. Connections without the method (test
+    doubles, other drivers) are taken at face value.
+    """
+    probe = getattr(conn, "is_connected", None)
+    if probe is None:
+        return True
+    try:
+        return bool(probe())
+    except Exception:
+        return False
+
+
+def live_db_conn(config, env: str = "prod"):
+    """
+    Return a usable MySQL connection for ``config``, replacing a dead cached one.
+
+    ``config._db_conn`` is opened once per gunicorn worker in ``ChatConfig.__init__``
+    and outlives every request, so the server drops it long before the process ends.
+    A dead mysql-connector connection is still *truthy*, which is why the former
+
+        conn = config._db_conn or config._connect_db(env="prod")
+
+    idiom could never recover: ``or`` only falls through on ``None``, so the corpse
+    went straight to ``cursor()`` and every caller on that worker got
+
+        OperationalError(-1, 'MySQL Connection not available', None)
+
+    until the process restarted. Evict the corpse before reconnecting so it is never
+    served twice, and cache the replacement so the report runners (which never close
+    what they are handed) stop opening a fresh connection per report.
+
+    Takes ``config`` rather than ``self`` because the report runners are handed
+    lightweight config stand-ins, not always a real ``ChatConfig``. Anything exposing
+    ``_db_conn``/``_connect_db`` works.
+
+    Returns ``None`` when the database is genuinely unreachable; callers already
+    treat that as a clean "DB connection failed".
+    """
+    conn = getattr(config, "_db_conn", None)
+    if conn is not None and not db_conn_is_alive(conn):
+        print("[CONFIG][DB] Cached connection is dead; reconnecting.")
+        try:
+            conn.close()
+        except Exception:
+            pass
+        conn = None
+    if conn is None:
+        connect = getattr(config, "_connect_db", None)
+        conn = connect(env=env) if connect is not None else None
+    try:
+        config._db_conn = conn
+    except Exception:  # frozen/slotted stand-ins: caching is best-effort
+        pass
+    return conn
+
+
 class ChatConfig:
     def __init__(self, config_map={}):
         """Load configuration, provider clients, prompts, and cached context for one process."""
@@ -18,17 +128,18 @@ class ChatConfig:
         self.CATALOG_ENDPOINT_METHODS_ALL: dict[str, set[str]] = {}
         self.METHOD_PRIORITY = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 
-        self.PROJECT_NAME_TO_ID = {
-            "IMPACT": 2,
-            "SRP": 3,
-            "METNET": 4,
-            "PUBLISHED": 6,
-            "CGR": 7,
-            "CGR-ENDO": 7,
-            "BTC": 9,
-            "BREAK THROUGH CANCER": 9,
-            "CSBC": 10,
-        }
+        # Name -> id maps, built DYNAMICALLY from the live DB in
+        # _initialize_runtime_state (NOT hardcoded — the old literal held ids from
+        # another instance). PROJECT_NAME_TO_ID = seek_production.projects only;
+        # INVESTIGATION_NAME_TO_ID = seek_production.investigations, kept SEPARATE
+        # so the report can offer an investigation-scoped path without touching the
+        # project path. Both UPPER-cased keys; both {} when the DB is unreachable.
+        self.PROJECT_NAME_TO_ID: dict[str, int] = {}
+        self.INVESTIGATION_NAME_TO_ID: dict[str, int] = {}
+
+        # Lazy API_SCHEMA state must exist before config_map is applied (a
+        # config_map may assign API_SCHEMA, which routes through its setter).
+        self._init_api_schema_state()
 
         # Apply config_map first so _get_env_config can reference self.MODEL_MODE,
         # self.GCP_API_KEY, etc. when they are provided via DB/JSON config object.
@@ -68,7 +179,22 @@ class ChatConfig:
         self.FULL_PROJECTS_MAP: dict = {
             item["name"]: item for item in self.FULL_PROJECTS if item.get("name")
         }
+        # Dynamic maps from the live DB (replace the removed hardcoded literal):
+        # projects and investigations kept in SEPARATE maps.
+        self.PROJECT_NAME_TO_ID = self._load_name_to_id_from_db("seek_production.projects", env="prod")
         self.PROJECT_NAME_TO_ID = self._merge_project_name_to_id(self.PROJECT_NAME_TO_ID, self.FULL_PROJECTS)
+        self.INVESTIGATION_NAME_TO_ID = self._load_name_to_id_from_db("seek_production.investigations", env="prod")
+
+        # Published-report umbrella projects (DEV-ONLY opt-in; DEFAULT EMPTY so
+        # prod is unaffected). For a project listed here, run_project_published_report
+        # reports ALL investigations' samples instead of filtering investigation
+        # titles by the project-name hint — needed where one umbrella project
+        # (e.g. the dev "Published Data") contains every investigation and so
+        # matches no investigation title. Set via NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS
+        # (comma-separated project names and/or ids). See issue #1 / option 2.
+        self.PUBLISHED_UMBRELLA_PROJECTS = self._parse_umbrella_projects(
+            os.environ.get("NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS", "")
+        )
 
         # Min JSONs actually used by the agents
         self.MIN_SAMPLETYPES = self._load_json_list("min_sampletypes_db.json", "min sampletypes (db)")
@@ -153,7 +279,12 @@ class ChatConfig:
                 self.CATALOG_ENDPOINT_METHODS[path] = self._prefer_method(current, candidate)
                 self.CATALOG_ENDPOINT_METHODS_ALL.setdefault(path, set()).add(candidate)
 
-        self.API_SCHEMA = self._load_api_schema_from_remote()
+        # API_SCHEMA is deliberately NOT fetched here (review follow-up FU6,
+        # 2026-07-07): the fetch is a REST self-call, and at cold boot every
+        # gunicorn worker serialized on its own accept backlog for the full
+        # read timeout before the fail-soft branch left the schema empty for
+        # the process lifetime. It is a lazy property now — first access
+        # fetches, one retry when the first attempt came back empty.
 
         self.ENTITY_SYSTEM_PROMPT = self._load_prompt("entity_agent.txt")
         self.PARSER_CORE_ROUTING_PROMPT = self._load_prompt("parser_core_routing.txt")
@@ -195,6 +326,19 @@ class ChatConfig:
                 f"(auto_launch={self.SEQERA_AUTO_LAUNCH})"
             )
 
+        # Pipeline launch backend selector + Luria SSH/SLURM env. Sibling of the
+        # TOWER_ENV block above: Tower and Luria are the two launch backends,
+        # selected by PIPELINE_LAUNCH_MODE (default 'tower', so this is inert
+        # until an operator opts in).
+        self.PIPELINE_LAUNCH_MODE = detect_pipeline_launch_mode()
+        self.LURIA_ENV = build_luria_env()
+        self.LURIA_ENV_COMPLETE = luria_env_complete(self.LURIA_ENV)
+        if self.CONFIG_VERBOSE:
+            print(
+                f"[ChatConfig] pipeline launch mode: {self.PIPELINE_LAUNCH_MODE} "
+                f"(luria env complete: {self.LURIA_ENV_COMPLETE})"
+            )
+
         self.NEO4J_SCHEMA = self._ensure_neo4j_schema()
         self.PROTOCOL_SCHEMA = self._ensure_protocol_schema()
         self.ASSAY_SAMPLE_CONNECTIONS = self._ensure_assay_sample_connections()
@@ -203,6 +347,70 @@ class ChatConfig:
         """Assign each config_map entry directly onto the config object."""
         for key, value in config_map.items():
             setattr(self, key, value)
+
+    # ------------------------------------------------------------------
+    # Lazy API_SCHEMA (review follow-up FU6, 2026-07-07)
+    # ------------------------------------------------------------------
+
+    _API_SCHEMA_MAX_ATTEMPTS = 2  # first access + one retry after an empty result
+
+    def _init_api_schema_state(self) -> None:
+        # A shared mutable CELL, not plain instance attributes: the
+        # orchestrator and the granular ops copy.copy() the config per
+        # request (orchestrator.py, services/assistant.py), and a per-copy
+        # cache would die with each request — the process singleton would
+        # re-fetch on every query forever (cold-review finding, 2026-07-08).
+        # Shallow copies share this dict, so the first successful fetch (and
+        # the attempt cap) benefits the whole process.
+        self._api_schema_cell: dict = {"schema": None, "attempts": 0, "lock": threading.Lock()}
+
+    @property
+    def API_SCHEMA(self) -> dict:
+        """Remote body-schema registry, fetched lazily on first access.
+
+        Eager construction-time fetching serialized every gunicorn worker's
+        cold boot (~read-timeout each: the master binds :8000 pre-fork, so
+        the self-call connects into an accept backlog no still-importing
+        worker can serve) and a failed boot fetch left the schema empty for
+        the process lifetime. Lazy + one-shot retry removes the boot stall
+        and lets the first post-boot access recover; after the retry the
+        result is cached even when empty so a dead backend isn't hammered.
+        Fail-soft: a RAISING load counts against the same cap and yields {}
+        — never an exception into the calling request handler.
+        """
+        cell = self._api_schema_cell
+        cached = cell["schema"]
+        if cached is not None and (
+            cached or cell["attempts"] >= self._API_SCHEMA_MAX_ATTEMPTS
+        ):
+            return cached
+        with cell["lock"]:
+            cached = cell["schema"]
+            if cached is not None and (
+                cached or cell["attempts"] >= self._API_SCHEMA_MAX_ATTEMPTS
+            ):
+                return cached
+            cell["attempts"] += 1
+            try:
+                result = self._load_api_schema_from_remote()
+            except Exception as e:
+                print(f"[CONFIG][SCHEMA] Schema load raised: {e!r}")
+                result = {}
+            if result or cell["schema"] is None:
+                cell["schema"] = result
+            return cell["schema"]
+
+    @API_SCHEMA.setter
+    def API_SCHEMA(self, value: dict) -> None:
+        # Explicit assignment (e.g. via config_map) wins outright — never
+        # overwritten by a later lazy fetch. Rebinds a FRESH cell so an
+        # override on a per-request copy stays local to that copy and can
+        # never clobber the process singleton's shared cache.
+        self._api_schema_cell = {
+            "schema": value,
+            "attempts": self._API_SCHEMA_MAX_ATTEMPTS,
+            "lock": threading.Lock(),
+        }
 
     def _coerce_bool(self, value, default: bool = False) -> bool:
         """Coerce common truthy string forms into bool while preserving a default for None."""
@@ -350,13 +558,16 @@ class ChatConfig:
         # NExtSEEK API config
         # ======================================================
 
-        env_config_map["NEXTSEEK_BASE_URL"] = os.getenv("NEXTSEEK_BASE_URL")
-        if env_config_map["NEXTSEEK_BASE_URL"] is not None:
-            env_config_map["NEXTSEEK_BASE_URL"] = env_config_map["NEXTSEEK_BASE_URL"].rstrip("/")
+        env_config_map["NEXTSEEK_BASE_URL"] = _resolve_nextseek_base_url()
         env_config_map["API_USER"] = os.getenv("API_USER")
         env_config_map["API_PASS"] = os.getenv("API_PASS")
 
-        print(f"[CONFIG] NEXTSEEK_BASE_URL={env_config_map["NEXTSEEK_BASE_URL"] or 'NOT SET'}")
+        _base_url_source = (
+            "NEXTSEEK_INTERNAL_BASE_URL"
+            if os.getenv("NEXTSEEK_INTERNAL_BASE_URL")
+            else "NEXTSEEK_BASE_URL"
+        )
+        print(f"[CONFIG] NEXTSEEK_BASE_URL={env_config_map["NEXTSEEK_BASE_URL"] or 'NOT SET'} (from {_base_url_source})")
         print(f"[CONFIG] API_USER={'SET' if env_config_map["API_USER"] else 'NOT SET'}")
         print(f"[CONFIG] API_PASS={'SET' if env_config_map["API_PASS"] else 'NOT SET'}")
         if env_config_map["AGENT_MODEL_CATALOG"]:
@@ -491,7 +702,11 @@ class ChatConfig:
         except Exception as e:
             print(f"[CONFIG][DB] Connection to {target} failed: {e!r}")
             return None
-    
+
+    def _live_db_conn(self, env: str = "prod"):
+        """Return a usable connection, replacing the cached one once it has died."""
+        return live_db_conn(self, env=env)
+
     def _fetch_context_files_from_db(self, env: str = "prod") -> dict[str, Path]:
         """
         Pull context tables from MySQL and write them to JSON files under context/.
@@ -502,7 +717,7 @@ class ChatConfig:
         Returns a dict of {name: Path} for successfully written files.
         """
         exports: dict[str, Path] = {}
-        conn = self._db_conn or self._connect_db(env=env)
+        conn = self._live_db_conn(env=env)
         if conn is None:
             return exports
 
@@ -714,6 +929,12 @@ class ChatConfig:
     # ======================================================
 
 
+    # A refresh happened today iff this marker exists with a today mtime. Only a
+    # SUCCESSFUL _fetch_context_files_from_db writes it, and it is never baked
+    # into the image (runtime-only), so a stale context file baked with a today
+    # mtime can no longer masquerade as a fresh cache (2026-07-05 BUG-2).
+    _REFRESH_MARKER_NAME = ".context_db_refresh"
+
     def _is_today(self, path: Path) -> bool:
         """
         Check whether a file's mtime falls on today's UTC date.
@@ -727,10 +948,28 @@ class ChatConfig:
         return datetime.fromtimestamp(ts, timezone.utc).date() == today
 
 
+    def _write_refresh_marker(self) -> None:
+        """Record that a successful DB refresh happened now. Best-effort: if the
+        context dir is read-only the marker simply never registers as today, so
+        the gate degrades to always-refresh (safe) rather than crashing."""
+        try:
+            marker = Path(self.CONTEXT_DIR) / self._REFRESH_MARKER_NAME
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text("", encoding="utf-8")
+        except Exception as e:
+            print(f"[CONFIG][DB] Could not write refresh marker: {e!r}")
+
+
     def _ensure_context_files(self, env: str = "prod") -> dict[str, Path]:
         """
         Ensure DB-driven context JSON files exist and are fresh for today.
         Returns a dict of {label: Path}.
+
+        Freshness is tracked by ``_REFRESH_MARKER_NAME`` (written only by a
+        successful DB refresh), NOT by the context files' own mtime — a file
+        baked into the image on run-day carries a today mtime but stale content,
+        so trusting file mtime silently skipped the refresh (BUG-2). We still
+        refresh when any target file is missing.
         """
         targets = {
             "sampletypes_full": Path(self.CONTEXT_DIR) / "sampletypes_db.json",
@@ -740,17 +979,21 @@ class ChatConfig:
             "projects_full": Path(self.CONTEXT_DIR) / "projects_db.json",
         }
 
-        needs_refresh = any(not p.exists() or not self._is_today(p) for p in targets.values())
+        marker = Path(self.CONTEXT_DIR) / self._REFRESH_MARKER_NAME
+        needs_refresh = (not self._is_today(marker)) or any(not p.exists() for p in targets.values())
         if needs_refresh:
-            print("[CONFIG][DB] Context files are stale or missing; refreshing from DB.")
-            paths = self._fetch_context_files_from_db(env=env)
+            print("[CONFIG][DB] No verified DB refresh today (or a file is missing); refreshing from DB.")
+            fetched = self._fetch_context_files_from_db(env=env)
+            if fetched:  # a real DB pull produced at least one file
+                self._write_refresh_marker()
+            paths = dict(fetched)
             # Merge expected keys with returned paths for convenience
             for key, path in targets.items():
                 if path.exists():
                     paths[key] = path
             return paths
 
-        print("[CONFIG][DB] Context files are fresh for today; skipping DB export.")
+        print("[CONFIG][DB] DB refresh already verified for today; skipping DB export.")
         return {k: v for k, v in targets.items() if v.exists()}
 
     # ======================================================
@@ -789,6 +1032,71 @@ class ChatConfig:
         if data is not None:
             print(f"[CONFIG][CONTEXT] {label}: expected list, got {type(data)}")
         return []
+
+    @staticmethod
+    def _norm_project_key(value) -> str:
+        """Case/space-insensitive key for project name or id matching."""
+        return re.sub(r"\s+", "", str(value).strip().lower())
+
+    def _parse_umbrella_projects(self, raw: str) -> set[str]:
+        """Parse NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS (comma-separated names/ids)
+        into a normalized set. Empty/blank -> empty set (prod-safe default)."""
+        return {
+            self._norm_project_key(tok)
+            for tok in (raw or "").split(",")
+            if tok and tok.strip()
+        }
+
+    def is_umbrella_published_project(self, project, project_id=None) -> bool:
+        """True when the published report should SKIP the investigation-title
+        hint (report ALL samples) for this project. Opt-in via
+        NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS; empty by default so prod is
+        unchanged. Matches on normalized project name OR id."""
+        umbrella = getattr(self, "PUBLISHED_UMBRELLA_PROJECTS", None) or set()
+        if not umbrella:
+            return False
+        keys = set()
+        if project is not None:
+            keys.add(self._norm_project_key(project))
+        if project_id is not None:
+            keys.add(self._norm_project_key(project_id))
+        return bool(keys & umbrella)
+
+    def _load_name_to_id_from_db(self, table: str, env: str = "prod") -> dict[str, int]:
+        """Build an UPPER-cased ``title -> id`` map from one live DB table (e.g.
+        ``seek_production.projects`` or ``seek_production.investigations``) instead
+        of a hardcoded literal. ``table`` is a fixed internal constant (never user
+        input). Returns ``{}`` if the DB is unreachable — callers must NOT fall back
+        to hardcoded ids.
+        """
+        mapping: dict[str, int] = {}
+        conn = self._live_db_conn(env=env)
+        if conn is None:
+            return mapping
+        try:
+            try:
+                cursor = conn.cursor(dictionary=True)
+                dict_rows = True
+            except Exception:
+                cursor = conn.cursor()
+                dict_rows = False
+            cursor.execute(f"SELECT id, title FROM {table}")
+            for row in cursor.fetchall() or []:
+                if dict_rows and isinstance(row, dict):
+                    rid, title = row.get("id"), row.get("title")
+                elif isinstance(row, (list, tuple)) and len(row) >= 2:
+                    rid, title = row[0], row[1]
+                else:
+                    continue
+                if isinstance(rid, int) and isinstance(title, str) and title.strip():
+                    mapping.setdefault(title.strip().upper(), rid)
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[CONFIG][DB] name->id load failed for {table}: {e!r}")
+        return mapping
 
     def _merge_project_name_to_id(self, base_map: dict[str, int], projects: list[dict]) -> dict[str, int]:
         """
@@ -1066,21 +1374,62 @@ class ChatConfig:
 
         schema_url = f"{self.NEXTSEEK_BASE_URL}/nextseek_api/schema/"
 
+        # The schema route requires authentication (#77); an anonymous fetch
+        # gets a 401 and silently disables body validation (#94). Send the same
+        # Basic credentials every other REST call already carries — see
+        # helpers/tools/nextseek_api.py, and orchestrator.py which binds them
+        # per turn onto a copy of this config.
+        api_user = getattr(self, "API_USER", None)
+        api_pass = getattr(self, "API_PASS", None)
+        auth = (api_user, api_pass) if api_user and api_pass else None
+
         print(f"[CONFIG][SCHEMA] Fetching schema from {schema_url}")
         try:
-            resp = requests.get(schema_url, timeout=20)
+            # (2s connect, 5s read): connect SUCCEEDS against a bound-but-
+            # unserved listener (cold boot), so the read timeout is the only
+            # lever bounding the stall — keep it short; the lazy property
+            # retries once on the next access anyway.
+            resp = requests.get(schema_url, timeout=(2, 5), auth=auth)
         except Exception as e:
             print(f"[CONFIG][SCHEMA] Request to schema URL failed: {e!r}")
             return {}
 
         if resp.status_code != 200:
             print(f"[CONFIG][SCHEMA] Non-200 when fetching schema: {resp.status_code}")
+            if resp.status_code in (401, 403):
+                # "Rejected" and "never sent" are different failures and the
+                # operator reading this log has to tell them apart: one means
+                # the account is wrong, the other means it is missing.
+                if auth is None:
+                    cause = (
+                        "NO CREDENTIALS SENT: API_USER / API_PASS are not both "
+                        "set, so the request went out anonymously"
+                    )
+                else:
+                    # Name the account only. NEVER the password -- not the
+                    # value, not a mask, not a length hint (orchestrator.py).
+                    cause = (
+                        "CREDENTIALS REJECTED: the schema endpoint refused user "
+                        f"{api_user!r}"
+                    )
+                print(
+                    f"[CONFIG][SCHEMA] {cause}. Set API_USER / API_PASS to an "
+                    "account that can read /nextseek_api/schema/. "
+                    "Request-body validation is now DISABLED: "
+                    "validate_request_body will pass every body through unchecked."
+                )
             return {}
 
         try:
             spec = yaml.safe_load(resp.text)
         except Exception as e:
             print(f"[CONFIG][SCHEMA] Failed to parse remote schema YAML: {e!r}")
+            return {}
+
+        if not isinstance(spec, dict):
+            # A misrouted 200 (HTML error page, maintenance banner) parses to
+            # a YAML scalar — treat it as no schema, not an AttributeError.
+            print("[CONFIG][SCHEMA] Remote schema is not a mapping; skipping.")
             return {}
 
         api_schema: dict[str, dict] = {}
@@ -1430,6 +1779,26 @@ class ChatConfig:
                     print(f"[CONFIG][GRAPHDB] Fetched {len(schema['vocabulary']['study_titles'])} study titles")
                 except Exception as e:
                     print(f"[CONFIG][GRAPHDB] Study title fetch failed: {e!r}")
+
+                # Vocabulary: published studies, so the graph agent can map a
+                # phrase like "the SureQuant paper" onto a real node. Emptiness is
+                # tested with coalesce(...) <> '' because the unset value on these
+                # instances is an empty string, not null — IS NOT NULL would match
+                # every study.
+                try:
+                    result = db_session.run(
+                        "MATCH (s:Study) "
+                        "WHERE coalesce(s.DOI, '') <> '' OR coalesce(s.PMID, '') <> '' "
+                        "RETURN s.title AS title, s.DOI AS doi, s.PMID AS pmid "
+                        "ORDER BY s.title"
+                    )
+                    schema["vocabulary"]["published_studies"] = [
+                        {"title": r["title"], "doi": r["doi"], "pmid": r["pmid"]}
+                        for r in result
+                    ]
+                    print(f"[CONFIG][GRAPHDB] Fetched {len(schema['vocabulary']['published_studies'])} published studies")
+                except Exception as e:
+                    print(f"[CONFIG][GRAPHDB] Published-study vocabulary fetch failed: {e!r}")
 
                 # Vocabulary: Investigation titles
                 try:

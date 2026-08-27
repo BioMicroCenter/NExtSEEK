@@ -1,0 +1,349 @@
+{
+  "base_url": "http://localhost:8100",
+  "require_non_8000": true,
+  "max_total_usd": 15.0,
+  "forbidden_phrases": [
+    "backend is unreachable",
+    "backend unreachable",
+    "I cannot access",
+    "no results were found due to an error"
+  ],
+  "instance_identity": {
+    "compose_project": "nextseek-devmerge",
+    "worktree_head": "01a1d1f6ab0a7c2fb675321436ccc8c30c6ab031",
+    "nextseek_image_id": "sha256:aa0f33eb2a296c4af6975e3adaca5807f43ebc6857a368221d927c4e8101b323",
+    "installed_at": "2026-07-11T15:50:39-04:00"
+  },
+  "pinned_evidence": {
+    "seek_db": "seek_production",
+    "db_container": "devmerge-seek-mysql",
+    "uids_exist": {
+      "NHP-220630FLY-5-PUB": true,
+      "D.SEQ-221031SHA-67-PUB": true,
+      "D.SEQ-221031SHA-65-PUB": true
+    },
+    "counts": {
+      "NHP": 408,
+      "D.SEQ-SHA": 255,
+      "RNA": 289,
+      "D.SEQ_total": 2057
+    },
+    "impact_investigation_id": 3,
+    "investigations_baseline": 7,
+    "bprc_absent": true
+  },
+  "questions": [
+    {
+      "id": "graph.how_many_monkeys",
+      "family": "graph_query",
+      "name": "how many monkeys (count)",
+      "route": "ns",
+      "turns": [
+        {
+          "label": "main",
+          "query": "How many monkeys exist in the database?",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "graph_query"
+            },
+            {
+              "field": "entity_sampletype_codes",
+              "op": "contains",
+              "value": "NHP"
+            },
+            {
+              "field": "graph_cypher",
+              "op": "matches_re",
+              "value": "count"
+            },
+            {
+              "field": "neo4j_ok",
+              "op": "true",
+              "value": null
+            },
+            {
+              "field": "last_reply",
+              "op": "matches_re",
+              "value": "\\b408\\b"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "advanced.rna_rin_score",
+      "family": "search_advanced",
+      "name": "parse: RNA samples with RIN attribute filter",
+      "turns": [
+        {
+          "label": "main",
+          "query": "Find RNA samples with a RIN score greater than 7.",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "new_search"
+            },
+            {
+              "field": "entity_sampletype_codes",
+              "op": "contains",
+              "value": "RNA"
+            },
+            {
+              "field": "api_plan.requestBody.sampletype",
+              "op": "eq",
+              "value": "RNA"
+            },
+            {
+              "field": "api_plan.requestBody.filter_searchText",
+              "op": "contains",
+              "value": "RIN"
+            },
+            {
+              "field": "api_ok",
+              "op": "true"
+            }
+          ]
+        }
+      ],
+      "route": "ns"
+    },
+    {
+      "id": "retrieve.single_nhp",
+      "family": "search_retrieve",
+      "name": "api-read: retrieve all samples associated with an NHP UID",
+      "turns": [
+        {
+          "label": "main",
+          "query": "Retrieve all samples associated with: NHP-220630FLY-5-PUB.",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "new_search"
+            },
+            {
+              "field": "api_plan.endpoint",
+              "op": "contains",
+              "value": "retrieve"
+            },
+            {
+              "field": "api_ok",
+              "op": "true"
+            }
+          ]
+        }
+      ],
+      "route": "ns"
+    },
+    {
+      "id": "graph.show_me_all_nhps_in_the_impact",
+      "family": "graph_query",
+      "name": "graph: NHPs in the Impact investigation",
+      "turns": [
+        {
+          "label": "main",
+          "query": "Show me all NHPs in the Impact project",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "graph_query"
+            },
+            {
+              "field": "graph_cypher",
+              "op": "nonempty"
+            },
+            {
+              "field": "neo4j_ok",
+              "op": "true"
+            }
+          ]
+        }
+      ],
+      "route": "ns"
+    },
+    {
+      "id": "report.samples_uploaded_impact",
+      "family": "reporting",
+      "name": "report: samples uploaded for IMPACT 2023-2025",
+      "turns": [
+        {
+          "label": "main",
+          "query": "How many samples were uploaded for IMPACT from 2023 to 2025?",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "reporter"
+            },
+            {
+              "field": "reporter_plan.reporter_mode",
+              "op": "eq",
+              "value": "summary"
+            },
+            {
+              "field": "reporter_plan.summary_mode",
+              "op": "eq",
+              "value": "samples"
+            },
+            {
+              "field": "reporter_plan.project",
+              "op": "eq",
+              "value": "IMPACT"
+            }
+          ]
+        }
+      ],
+      "route": "ns"
+    },
+    {
+      "id": "report.geo_submission",
+      "family": "reporting",
+      "name": "generate-submission: GEO submission for two D.SEQ UIDs",
+      "turns": [
+        {
+          "label": "main",
+          "query": "Build me a GEO Submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB.",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "reporter"
+            },
+            {
+              "field": "reporter_plan.report_type",
+              "op": "eq",
+              "value": "GEO"
+            },
+            {
+              "field": "api_artifact.merged_report_GEO_GEO_template_filled.xlsx",
+              "op": "true"
+            },
+            {
+              "field": "api_artifact.merged_report_GEO_GEO_template_filled.xlsx.rows_gte",
+              "op": "gte",
+              "value": 2
+            },
+            {
+              "field": "ui_text.artifacts.geo_seq_workbooks.downloaded",
+              "op": "true"
+            }
+          ]
+        }
+      ],
+      "route": "ns"
+    },
+    {
+      "id": "write.create_investigation_bprc",
+      "family": "writes_unsupported",
+      "name": "write-safety: create/write queries route to Container-CC and must not write",
+      "route": "cc",
+      "turns": [
+        {
+          "label": "main",
+          "query": "Create Investigation 'BPRC'",
+          "pass_criteria": [
+            {
+              "field": "last_reply",
+              "op": "matches_re",
+              "value": "can'?t create|cannot create|not something i can do|read-only|read only|isn'?t supported|not supported|unsupported|unable to|not able to|falls outside what"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "refrec.refine_after_2023",
+      "family": "refine_and_recall",
+      "name": "plan: D.SEQ SHA-lab search then refine to post-2023",
+      "turns": [
+        {
+          "label": "find",
+          "query": "Find me D.SEQ samples for the SHA lab.",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "new_search"
+            },
+            {
+              "field": "api_ok",
+              "op": "true"
+            }
+          ]
+        },
+        {
+          "label": "refine",
+          "query": "Narrow those results to samples collected after 2023.",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "refine_last_search"
+            },
+            {
+              "field": "api_ok",
+              "op": "true"
+            }
+          ]
+        }
+      ],
+      "route": "ns"
+    },
+    {
+      "id": "pipeline.happy_path_nhp_rnaseq",
+      "family": "pipeline_nfcore",
+      "name": "NF-core multi-turn: NHP RNA-seq pipeline to final samplesheet",
+      "turns": [
+        {
+          "label": "find",
+          "query": "Find me NHP samples with RNA-seq data.",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "new_search"
+            },
+            {
+              "field": "entity_sampletype_codes",
+              "op": "contains",
+              "value": "NHP"
+            },
+            {
+              "field": "api_ok",
+              "op": "true"
+            }
+          ]
+        },
+        {
+          "label": "run",
+          "query": "Run rnaseq on these monkeys, group by Treatment1.",
+          "pass_criteria": [
+            {
+              "field": "pipeline_agent.active",
+              "op": "true"
+            }
+          ]
+        },
+        {
+          "label": "submit",
+          "query": "submit",
+          "pass_criteria": [
+            {
+              "field": "pipeline_agent.active",
+              "op": "true"
+            },
+            {
+              "field": "api_artifact.samplesheet.csv",
+              "op": "true"
+            }
+          ]
+        }
+      ],
+      "route": "ns"
+    }
+  ]
+}

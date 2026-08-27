@@ -31,13 +31,19 @@ def compose_up(
     env: dict[str, str],
     detached: bool = True,
     build: bool = False,
+    force_recreate: bool = False,
+    no_deps: bool = False,
 ) -> None:
-    """Run `docker compose up [-d] [--build] <services...>` in project_dir."""
+    """Run ``docker compose up`` for an explicit service set."""
     cmd = ["docker", "compose", "up"]
     if detached:
         cmd.append("-d")
     if build:
         cmd.append("--build")
+    if force_recreate:
+        cmd.append("--force-recreate")
+    if no_deps:
+        cmd.append("--no-deps")
     cmd.extend(services)
     result = subprocess.run(
         cmd,
@@ -47,6 +53,27 @@ def compose_up(
         text=True,
     )
     _check(result, f"docker compose up {' '.join(services)}")
+
+
+def compose_build(
+    services: Sequence[str],
+    project_dir: str | Path,
+    env: dict[str, str],
+    builder: str | None = None,
+) -> None:
+    """Run `docker compose build <services...>` in project_dir."""
+    cmd = ["docker", "compose", "build"]
+    if builder:
+        cmd.extend(["--builder", builder])
+    cmd.extend(services)
+    result = subprocess.run(
+        cmd,
+        cwd=str(project_dir),
+        env=_build_env(env),
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"docker compose build {' '.join(services)}")
 
 
 def compose_down(
@@ -131,6 +158,24 @@ def compose_port(
     return int(lines[-1].rsplit(":", 1)[-1])
 
 
+def compose_ps_running(
+    services: Sequence[str],
+    project_dir: str | Path,
+    env: dict[str, str],
+) -> list[str]:
+    """Return the subset of `services` that have a running container."""
+    result = subprocess.run(
+        ["docker", "compose", "ps", "--services", "--status=running", *services],
+        cwd=str(project_dir),
+        env=_build_env(env),
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"docker compose ps {' '.join(services)}")
+    running = set(result.stdout.split())
+    return [s for s in services if s in running]
+
+
 def volume_exists(name: str) -> bool:
     """True if `docker volume inspect <name>` succeeds."""
     result = subprocess.run(
@@ -150,3 +195,24 @@ def volume_create(name: str) -> None:
         text=True,
     )
     _check(result, f"docker volume create {name}")
+
+
+def bootstrap_staging_dir(volume_name: str, *, uid: int = 1001) -> None:
+    """One-shot helper container: mkdir -p + chown the `_staging` subdir
+    inside `volume_name` so a later VolumeOptions.Subpath mount (the NS
+    sidecar's `_staging` mount, Task 14) finds a pre-existing backing
+    directory. Docker's Engine refuses to start a container whose
+    VolumeOptions.Subpath backing dir is absent, and compose `restart:` does
+    NOT retry container-create failures -- this must run at install time.
+    Idempotent (mkdir -p / chown are safe to re-run). `uid` defaults to 1001,
+    the NS sidecar image's non-root user (docker/ns-sidecar/Dockerfile).
+    """
+    result = subprocess.run(
+        [
+            "docker", "run", "--rm", "-v", f"{volume_name}:/v", "alpine",
+            "sh", "-c", f"mkdir -p /v/_staging && chown {uid} /v/_staging",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"bootstrap _staging dir in volume {volume_name}")

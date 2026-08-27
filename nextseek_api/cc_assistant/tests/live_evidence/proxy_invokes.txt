@@ -1,0 +1,8 @@
+Bedrock auth-proxy during the live CC turns:
+  opus-4-8 invokes returning 200 OK: 26
+  opus-4-8 invokes non-200:          0
+  ABSK/Authorization tokens in log:  0
+  sample (redacted):
+INFO:     <addr> - "POST /model/us.anthropic.claude-opus-4-8/invoke-with-response-stream HTTP/1.1" 200 OK
+INFO:     <addr> - "POST /model/us.anthropic.claude-opus-4-8/invoke HTTP/1.1" 200 OK
+INFO:     <addr> - "POST /model/us.anthropic.claude-opus-4-8/invoke-with-response-stream HTTP/1.1" 200 OK

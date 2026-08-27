@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MessageBubble } from "../ChatPanel/MessageBubble";
 import type { Message } from "@/lib/types/chat";
 
@@ -42,5 +42,26 @@ describe("MessageBubble", () => {
     );
     expect(screen.getByText("notice")).toBeInTheDocument();
     expect(container.querySelector(".justify-center")).toBeTruthy();
+  });
+
+  it("routes CC artifact download through onCcArtifactDownload when mode is cc", () => {
+    const onCc = vi.fn();
+    const onNative = vi.fn();
+    render(
+      <MessageBubble
+        message={makeMsg({
+          mode: "cc",
+          bundleId: 0,
+          artifacts: [
+            { artifact_type: "file", key: "report.md", label: "Report", file_format: "md" },
+          ],
+        })}
+        onArtifactDownload={onNative}
+        onCcArtifactDownload={onCc}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("artifact-download"));
+    expect(onCc).toHaveBeenCalledWith("report.md");
+    expect(onNative).not.toHaveBeenCalled();
   });
 });

@@ -189,8 +189,7 @@ class GeminiClient(BaseLLMClient):
                 system_parts.append(str(content))
                 continue
             role_mapped = "model" if role == "assistant" else "user"
-            # contents.append({"role": role_mapped, "parts": [str(content)]})
-            contents.append({"text": [str(content)]})
+            contents.append({"role": role_mapped, "parts": [{"text": str(content)}]})
         system_instruction = "\n\n".join(system_parts) if system_parts else None
         return contents, system_instruction
 
@@ -206,6 +205,13 @@ class GeminiClient(BaseLLMClient):
         """Call Gemini `generate_content` and normalize the result into `LLMResponse`."""
 
         contents, system_instruction = self._convert_messages(messages)
+        if not contents:
+            # Previously fell through to an IndexError on contents[0], which the
+            # generic handler below reclassified as an opaque LLMError.
+            raise LLMError(
+                f"Gemini request for model={model} has no user/assistant content to send "
+                f"({len(messages)} message(s), all system)"
+            )
 
         generation_config: dict[str, Any] = {"system_instruction": system_instruction, "temperature": temperature}
         if isinstance(response_format, dict) and response_format.get("type") == "json_object":
@@ -216,7 +222,7 @@ class GeminiClient(BaseLLMClient):
         try:
             resp = self.client.models.generate_content(
                 model = model,
-                contents = contents[0]['text'],
+                contents = contents,
                 config = generation_config
             )
         except Exception as e:
@@ -255,12 +261,29 @@ class GeminiClient(BaseLLMClient):
         except Exception:
             pass
 
+        # Mirror BedrockClient's stop_reason so truncation is visible to callers.
+        # A completion that stops at a fixed token count every attempt is a cap,
+        # not a model choice, and without this the two are indistinguishable.
+        metadata = None
+        try:
+            candidates = getattr(resp, "candidates", None) or []
+            if candidates:
+                finish_reason = getattr(candidates[0], "finish_reason", None)
+                metadata = {
+                    "finish_reason": getattr(finish_reason, "name", None) or (
+                        str(finish_reason) if finish_reason is not None else None
+                    ),
+                }
+        except Exception:
+            pass
+
         return LLMResponse(
             content=text or "",
             raw=resp,
             usage=usage,
             model=model,
             provider=self.provider,
+            metadata=metadata,
         )
 
 
@@ -431,12 +454,51 @@ class BedrockClient(BaseLLMClient):
         kwargs: dict[str, Any] = {
             "service_name": "bedrock-runtime",
             "region_name": region,
-            "config": Config(read_timeout=read_timeout, connect_timeout=10),
+            # tcp_keepalive lets the kernel eventually notice a peer that has gone
+            # away. It is only half the defence: Linux waits net.ipv4.tcp_keepalive_time
+            # (7200s by default) before the first probe, so reset_connections() below is
+            # what actually rescues a request that drew a dead socket.
+            "config": Config(
+                read_timeout=read_timeout, connect_timeout=10, tcp_keepalive=True
+            ),
         }
         if bearer_token:
             kwargs["aws_session_token"] = bearer_token
+        self._client_kwargs = kwargs
         self.client = boto3.client(**kwargs)
         self.max_output_tokens = max_output_tokens
+
+    def reset_connections(self) -> bool:
+        """
+        Drop every pooled TCP connection so the next call dials out fresh.
+
+        ChatConfig is built once at Django import, so each gunicorn worker keeps one
+        boto3 client — and one urllib3 connection pool — for the whole process
+        lifetime. bedrock-runtime rotates its endpoint IPs, so a pooled socket
+        eventually points at an address AWS no longer serves. Nothing sends a RST, so
+        the socket stays ESTABLISHED and urllib3 hands it out again; the request then
+        sits in the kernel send queue unacknowledged until the caller gives up.
+
+        Measured on prod 2026-08-20: 43,832 bytes pinned in tx_q for a full 60s with
+        rx_q flat at 0, while 5 of the 8 pooled sockets pointed at IPs absent from the
+        endpoint's DNS rotation.
+
+        Returns True if the pool was cleared. Never raises.
+        """
+        import boto3
+
+        try:
+            # botocore >= 1.28: clears the urllib3 pool manager. The client stays
+            # usable and re-resolves DNS when it opens the next connection.
+            self.client.close()
+            return True
+        except Exception:
+            pass
+        try:
+            self.client = boto3.client(**self._client_kwargs)
+            return True
+        except Exception:
+            return False
 
     def _convert_messages(self, messages: List[dict]) -> tuple[list[dict], list[dict]]:
         """Split system messages out; convert the rest to Bedrock Converse format."""
