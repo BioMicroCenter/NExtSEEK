@@ -182,14 +182,28 @@ def build_selection_context(
     digest: dict[str, Any] | None = None,
     schema_getter: Callable[[str, str], dict[str, Any]] | None = None,
     docs_getter: Callable[[str, str], dict[str, str]] | None = None,
+    sections: Sequence[str] | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> SelectionContext:
-    """Build the full selection payload.
+    """Build the selection payload.
+
+    `sections` names the sections that will actually be rendered. Anything not
+    named is not fetched — dropping a section from the payload must drop its
+    network cost too, or the saving is only in tokens. `None` means all four,
+    which is what the ablation harness wants.
 
     Raises DigestError when the cohort cannot be profiled — there is no
     selection without evidence. Raises PayloadTooLargeError, with a breakdown,
     rather than handing something downstream to truncate.
     """
+    wanted = set(SECTION_NAMES if sections is None else sections)
+    unknown = wanted - set(SECTION_NAMES)
+    if unknown:
+        raise ValueError(
+            f"unknown payload section(s): {', '.join(sorted(unknown))}; "
+            f"expected any of {', '.join(SECTION_NAMES)}"
+        )
+
     resolved_atlas = atlas if atlas is not None else load_atlas()
     resolved_digest = (
         digest if digest is not None
@@ -206,14 +220,16 @@ def build_selection_context(
         entry = resolved_atlas["pipelines"].get(key)
         if not entry:
             continue
-        try:
-            schemas[key] = get(key, entry["revision"])
-        except SchemaFetchError as exc:
-            failed[key] = str(exc)
-        try:
-            docs[key] = get_docs(key, entry["revision"])
-        except SchemaFetchError as exc:
-            docs_failed[key] = str(exc)
+        if "schemas" in wanted:
+            try:
+                schemas[key] = get(key, entry["revision"])
+            except SchemaFetchError as exc:
+                failed[key] = str(exc)
+        if "docs" in wanted:
+            try:
+                docs[key] = get_docs(key, entry["revision"])
+            except SchemaFetchError as exc:
+                docs_failed[key] = str(exc)
 
     ctx = SelectionContext(
         atlas=resolved_atlas,
@@ -224,7 +240,7 @@ def build_selection_context(
         schema_fetch_failed=failed,
     )
 
-    report = ctx.size_report()
+    report = ctx.size_report(sections)
     if report["est_tokens"] > max_tokens:
         raise PayloadTooLargeError(
             f"selection payload exceeds ceiling of {max_tokens} tokens: {report}"
