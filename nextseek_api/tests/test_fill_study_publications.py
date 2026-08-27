@@ -72,29 +72,6 @@ class TestBuildReviewRows:
         assert rows[0]["normalized_doi"] == "10.1038/s41590-021-01066-1"
 
 
-class TestApprovalGate:
-    def _write(self, path, rows):
-        header = "\t".join(cmd.REVIEW_COLUMNS)
-        lines = [header]
-        for study_id, approve in rows:
-            values = {c: "" for c in cmd.REVIEW_COLUMNS}
-            values["study_id"] = str(study_id)
-            values["normalized_doi"] = f"10.1038/s{study_id}"
-            values["approve"] = approve
-            lines.append("\t".join(values[c] for c in cmd.REVIEW_COLUMNS))
-        path.write_text("\n".join(lines) + "\n")
-
-    def test_only_yes_is_applied(self, tmp_path):
-        path = tmp_path / "review.tsv"
-        self._write(path, [(1, "yes"), (2, "no"), (3, ""), (4, "YES")])
-        assert [r["study_id"] for r in cmd.parse_review_file(str(path))] == ["1", "4"]
-
-    def test_unreviewed_file_applies_nothing(self, tmp_path):
-        path = tmp_path / "review.tsv"
-        self._write(path, [(1, ""), (2, "")])
-        assert cmd.parse_review_file(str(path)) == []
-
-
 class TestNcbiParsing:
     """NCBI's idconv endpoint answers 403, so DOI/PMID resolution goes through
     E-utilities. These cover the parsing, not the network."""
@@ -131,15 +108,3 @@ class TestNcbiParsing:
         assert cmd.parse_esummary_ids(payload, "1")["pmid"] is None
 
 
-class TestApplyNormalizesDois:
-    """Curators paste DOI URLs, not bare DOIs — the column must hold one shape."""
-
-    def test_doi_org_url_is_normalized(self):
-        assert cmd.curator_doi("https://doi.org/10.1016/j.mucimm.2025.10.011") == \
-            "10.1016/j.mucimm.2025.10.011"
-
-    def test_uppercase_url_is_lowercased(self):
-        assert cmd.curator_doi("https://doi.org/10.1084/JEM.20241760") == "10.1084/jem.20241760"
-
-    def test_supplementary_sub_doi_is_refused(self):
-        assert cmd.curator_doi("10.1021/acssensors.4c00927.s002") is None

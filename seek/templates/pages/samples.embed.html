@@ -54,22 +54,6 @@
             <span class="l-btn-text">Download All Samples</span>
             <span class="l-btn-icon icon-save"></span>
         </button>
-			{% if report.publications %}
-			<div class="well" style="margin-bottom:10px;">
-				<strong>Published in</strong>
-				<table class="TFtable">
-					{% for p in report.publications %}
-					<tr>
-						<td>{{ p.citation }}</td>
-						<td>
-							{% if p.doi_url %}<a href="{{ p.doi_url }}" target="_blank" rel="noopener">DOI: {{ p.doi }}</a>{% endif %}
-							{% if p.pmid_url %} &nbsp;<a href="{{ p.pmid_url }}" target="_blank" rel="noopener">PMID: {{ p.pmid }}</a>{% endif %}
-						</td>
-					</tr>
-					{% endfor %}
-				</table>
-			</div>
-			{% endif %}
 			<div class="widget-body">
 				<div class="widget-main">
 					<div id="piechart-placeholder">
