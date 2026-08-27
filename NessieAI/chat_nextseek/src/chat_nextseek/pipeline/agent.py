@@ -10,8 +10,8 @@ launch.yml.
 
 Public surface (unchanged contract with the orchestrator):
 - is_active(session) -> bool
-- start(session, config, *, user_query, parser_plan, reporter_plan, log_dir=None) -> {action, reply, params}
-- handle_turn(session, config, user_text, *, log_dir=None) -> {action, reply, params}
+- start(session, config, *, user_query, parser_plan, reporter_plan, log_dir=None, send_event=None) -> {action, reply, params}
+- handle_turn(session, config, user_text, *, log_dir=None, send_event=None) -> {action, reply, params}
 - clear(session)
 - snapshot_for_chat_log(session) -> dict
 """
@@ -77,7 +77,8 @@ def _text_of(content: list) -> str:
 
 
 def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = None,
-          reporter_plan: Any = None, log_dir: str | None = None) -> dict[str, Any]:
+          reporter_plan: Any = None, log_dir: str | None = None,
+          send_event=None) -> dict[str, Any]:
     """Launch a fresh pipeline conversation.
 
     ``parser_plan``/``reporter_plan`` are accepted for the reporter-branch caller
@@ -94,10 +95,11 @@ def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = 
         "pipeline_key": None,
     }
     _save(session, state)
-    return _run_loop(session, config, log_dir=log_dir)
+    return _run_loop(session, config, log_dir=log_dir, send_event=send_event)
 
 
-def handle_turn(session, config: "ChatConfig", user_text: str, *, log_dir: str | None = None) -> dict[str, Any]:
+def handle_turn(session, config: "ChatConfig", user_text: str, *, log_dir: str | None = None,
+                send_event=None) -> dict[str, Any]:
     state = _state(session)
     if not state.get("active"):
         return {"action": "passthrough", "reply": "", "params": None}
@@ -106,10 +108,10 @@ def handle_turn(session, config: "ChatConfig", user_text: str, *, log_dir: str |
         return {"action": "cancel", "reply": "Cancelled. Ask me a fresh question whenever you're ready.", "params": None}
     state.setdefault("messages", []).append({"role": "user", "content": user_text})
     _save(session, state)
-    return _run_loop(session, config, log_dir=log_dir)
+    return _run_loop(session, config, log_dir=log_dir, send_event=send_event)
 
 
-def _run_loop(session, config: "ChatConfig", *, log_dir: str | None) -> dict[str, Any]:
+def _run_loop(session, config: "ChatConfig", *, log_dir: str | None, send_event=None) -> dict[str, Any]:
     state = _state(session)
     client, model_name, _ = config.get_agent_model(PIPELINE_AGENT_KEY)
     if not callable(getattr(client, "chat_with_tools", None)):
@@ -151,7 +153,9 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None) -> dict[str
                 return {"action": "passthrough", "reply": "", "params": None}
             try:
                 result = dispatch_pipeline_tool_call(config=config, session=session, state=state,
-                                                     name=name, tool_input=tool_input, log_dir=log_resolved_dir)
+                                                     name=name, tool_input=tool_input,
+                                                     log_dir=log_resolved_dir,
+                                                     send_event=send_event)
             except Exception as exc:
                 result = json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
             tool_results.append({"type": "tool_result", "tool_use_id": tuid, "content": result})
