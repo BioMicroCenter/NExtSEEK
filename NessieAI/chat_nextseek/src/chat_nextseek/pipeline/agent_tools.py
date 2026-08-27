@@ -344,11 +344,11 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     else:
         return json.dumps({"ok": False, "error": f"Unknown ref kind {kind!r}."})
 
-    raw = fetch_reporter_metadata(config, source_uids)
-    if not raw.get("ok"):
-        return json.dumps({"ok": False, "error": f"Metadata fetch failed: {raw.get('error') or 'unknown error'}"})
+    try:
+        raw, annotated, base_summary = _fetch_annotate_summarise(config, source_uids)
+    except RuntimeError as exc:
+        return json.dumps({"ok": False, "error": str(exc)})
 
-    annotated = annotate_metadata_with_sampletypes(config, raw)
     leaves = enumerate_lineage_leaves(annotated, accepted_types=_accepted_types_for(pipeline_key))
 
     if len(leaves) > MAX_RESOLVE_LEAVES:
@@ -370,7 +370,9 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     uid_index: dict = {}
     grouping_fields: dict = {}
     try:
-        summary = filter_summary_to_sequencing_lineage(build_metadata_summary({"__sample__": annotated}))
+        # base_summary comes from the shared cache; only this tool's filter is
+        # applied here, so selection and resolve never build the summary twice.
+        summary = filter_summary_to_sequencing_lineage(base_summary)
         uid_index = summary.get("_uid_index") or {}
         grouping_fields = {
             st: {f: fd.get("examples", []) for f, fd in (data.get("fields") or {}).items()}
@@ -886,8 +888,13 @@ def _fetch_annotate_summarise(config, uids: list[str]) -> tuple[dict, dict, dict
     build_metadata_summary output — each caller applies its own filter
     (filter_summary_to_sequencing_lineage here, filter_summary_for_deg in the
     digest). Raises RuntimeError with a readable message on a failed fetch.
+
+    The cache key includes the caller's identity (config.API_USER), because the
+    fetch itself is credential-scoped and this cache is process-global across
+    every turn a worker serves — see metadata_cache.py's module docstring.
     """
-    hit = _cache_get(uids)
+    identity = getattr(config, "API_USER", None)
+    hit = _cache_get(uids, identity)
     if hit is not None:
         return hit["raw"], hit["annotated"], hit["summary"]
 
@@ -900,7 +907,7 @@ def _fetch_annotate_summarise(config, uids: list[str]) -> tuple[dict, dict, dict
     except Exception as exc:  # advisory everywhere it is used; never fatal
         print(f"[DEBUG][PIPELINE_AGENT] summary build failed: {exc!r}")
         summary = {}
-    _cache_put(uids, raw=raw, annotated=annotated, summary=summary)
+    _cache_put(uids, identity, raw=raw, annotated=annotated, summary=summary)
     return raw, annotated, summary
 
 
