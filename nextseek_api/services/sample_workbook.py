@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 import pandas as pd
+from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.comments import Comment
 from openpyxl.utils import get_column_letter
@@ -22,6 +23,7 @@ from django.conf import settings
 from neo4j import GraphDatabase
 from openpyxl.styles import Font
 
+from seek.dbtable_sampleattribute import DBtable_sampleattribute
 from seek.models import (
     Assay_assets,
     Assays,
@@ -75,6 +77,17 @@ COMMENT_HEIGHT = 130
 
 CV_SHEET = "Controlled Vocabularies"
 CV_PATH = Path(__file__).with_name("controlled_vocabularies.json")
+
+MANIFEST_SHEET = "_NEXTSEEK"
+MANIFEST_HEADER = ["sheet", "code", "attribute", "database_field", "required"]
+# Bumped only when the manifest's shape changes, so the part-2 converter can
+# refuse a workbook it does not understand instead of misreading it.
+TEMPLATE_FORMAT_VERSION = 1
+# Same delimiter the INSTRUCTIONS sheet uses (seek/dbtable_sample.py:168). The
+# manifest stores the finished string so the converter concatenates nothing.
+MANIFEST_DBFIELD_DELIMITER = "::"
+EMPTY_TYPE_NOTE = "This sample type has no attributes defined in SEEK."
+REQUIRED_HEADER_MARK = "*"
 
 # How far a dropdown reaches below the last filled row. A download is a
 # starting point, not a finished sheet: a researcher adding samples must keep
@@ -537,3 +550,146 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
             sheet = writer.sheets[code]
             _annotate_header(sheet, code, list(frame.columns), meaning_by_pair)
             _apply_dropdowns(sheet, list(frame.columns), field_map, ranges, len(frame))
+
+
+def load_relationships(codes, known):
+    """Thin re-export so the writer has one patchable seam for relationships.
+
+    Imported lazily: template_catalog imports load_sample_type_context from this
+    module, so a top-level import here would be circular.
+    """
+    from nextseek_api.services.template_catalog import load_relationships as _impl
+
+    return _impl(codes, known)
+
+
+def _write_manifest(book, rows: list[list]) -> None:
+    """The hidden machine-readable map of the workbook, for the part-2 converter.
+
+    Hidden rather than absent so a researcher never has to look at it, and
+    hidden rather than deleted-on-open so renaming a tab cannot orphan the
+    mapping: `sheet` records where each column actually lives.
+    """
+    ws = book.create_sheet(MANIFEST_SHEET)
+    _write_cell(ws, 1, 1, "format_version", bold=True)
+    ws.cell(row=1, column=2, value=TEMPLATE_FORMAT_VERSION)
+    for index, label in enumerate(MANIFEST_HEADER, start=1):
+        _write_cell(ws, 2, index, label, bold=True)
+    for offset, row in enumerate(rows, start=3):
+        for index, value in enumerate(row, start=1):
+            if isinstance(value, int):
+                ws.cell(row=offset, column=index, value=value)
+            else:
+                _write_cell(ws, offset, index, value)
+    ws.sheet_state = "hidden"
+
+
+def write_template_workbook(entries, output_path) -> None:
+    """Write a blank upload template: README, a headers-only sheet per type,
+    then the hidden manifest.
+
+    The same artifact `write_samples_workbook` produces, minus the data rows and
+    the provenance sheet -- which is why it lives here and shares every helper.
+    A blank template has no lineage, so sheets follow the order the user picked
+    rather than derivation depth.
+    """
+    codes = [e.code for e in entries]
+
+    try:
+        specs_by_id = DBtable_sampleattribute().getAttributeSpecsBySampleTypeIds(
+            [e.sample_type_id for e in entries]
+        )
+    except Exception:
+        # Columns are this workbook's whole point, so losing them is not a soft
+        # failure for the affected type -- but it must not cost the other types
+        # their sheets. Every type is skipped only if every lookup failed.
+        logger.exception("attribute lookup failed; affected types are skipped")
+        specs_by_id = {}
+
+    prepared = []
+    for entry in entries:
+        specs = specs_by_id.get(entry.sample_type_id)
+        if specs is None:
+            continue
+        prepared.append((entry, specs))
+
+    sheets = [(e.code, [s["title"] for s in specs]) for e, specs in prepared]
+    pairs = [(code, title) for code, titles in sheets for title in titles]
+    meaning_by_pair = load_sample_field_context(pairs)
+    required_by_pair = {
+        (e.code, s["title"]): s["required"] for e, specs in prepared for s in specs
+    }
+
+    known = set(codes)
+    relationships = load_relationships(codes, known)
+
+    context_by_code = {
+        e.code: {"name": e.name, "description": e.description} for e in entries
+    }
+    blocks = build_readme_blocks(
+        sheets, context_by_code, meaning_by_pair,
+        required_by_pair=required_by_pair,
+        relationships_by_code=relationships,
+    )
+
+    book = Workbook()
+    if "Sheet" in book.sheetnames:
+        del book["Sheet"]
+
+    _write_readme(book, blocks, has_flow_sheet=False)
+
+    field_map, vocabularies = _load_vocabularies()
+    needed = sorted({
+        field_map[title]
+        for _, titles in sheets for title in titles
+        if title in field_map and field_map[title] in vocabularies
+    })
+    ranges = _write_vocabulary_sheet(book, needed, vocabularies)
+
+    manifest_rows = []
+    for entry, specs in prepared:
+        ws = book.create_sheet(entry.code)
+        if not specs:
+            _write_cell(ws, 1, 1, EMPTY_TYPE_NOTE)
+            ws.column_dimensions["A"].width = 60
+            continue
+
+        titles = [s["title"] for s in specs]
+        for index, spec in enumerate(specs, start=1):
+            label = spec["title"] + (REQUIRED_HEADER_MARK if spec["required"] else "")
+            cell = ws.cell(row=1, column=index, value=_safe_cell_value(label))
+            cell.font = Font(bold=bool(spec["required"]))
+            ws.column_dimensions[get_column_letter(index)].width = max(
+                14, min(len(label) + 4, 40)
+            )
+            manifest_rows.append([
+                entry.code,
+                entry.code,
+                spec["title"],
+                f"{entry.code}{MANIFEST_DBFIELD_DELIMITER}{spec['title']}",
+                1 if spec["required"] else 0,
+            ])
+
+        # The header text now carries the required marker, so notes and
+        # dropdowns are keyed on the bare titles the lookups know.
+        _annotate_header_titles(ws, entry.code, titles, meaning_by_pair)
+        _apply_dropdowns(ws, titles, field_map, ranges, 0)
+
+    _write_manifest(book, manifest_rows)
+    book.save(output_path)
+
+
+def _annotate_header_titles(ws, code: str, titles: list[str], meaning_by_pair) -> None:
+    """_annotate_header, but keyed on bare titles while the cells show markers.
+
+    The template's header cells read "UID*", so the shared helper's
+    read-the-cell approach would miss every required column's definition.
+    """
+    for index, title in enumerate(titles, start=1):
+        meaning = meaning_by_pair.get((code, title), "")
+        if not meaning:
+            continue
+        note = Comment(_safe_cell_value(meaning), COMMENT_AUTHOR)
+        note.width = COMMENT_WIDTH
+        note.height = COMMENT_HEIGHT
+        ws.cell(row=1, column=index).comment = note
