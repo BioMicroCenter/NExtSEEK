@@ -32,7 +32,7 @@ from seek.models import (
 
 from nextseek_api.services.sample_provenance import (
     SAMPLE_TYPE_RE,
-    build_provenance_rows,
+    build_provenance_tree,
     derivation_edges,
     sample_type_depths,
 )
@@ -50,12 +50,9 @@ README_LINK_TEXT = "Sample type definitions: sampletypes_db.json (GitHub)"
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
 SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
-FLOW_SHEET = "How this data flowed"
-FLOW_README_POINTER = f"How this data flowed: see the '{FLOW_SHEET}' sheet."
-# Sample-type codes are short; assay titles are not. Alternating widths keep a
-# chain readable without a 100-wide gap at every second type.
-FLOW_TYPE_WIDTH = 14
-FLOW_ARROW_WIDTH = 34
+FLOW_HEADING = "How this data flowed"
+# The tree's box-drawing characters only line up in a fixed-width font.
+FLOW_FONT = "Consolas"
 # A download must not wait on the graph. Provenance is worth a moment, never a
 # stalled request.
 NEO4J_TIMEOUT_SECONDS = 5
@@ -102,6 +99,10 @@ def _write_vocabulary_sheet(book, needed: list[str], vocabularies) -> dict[str, 
     if not needed:
         return {}
     ws = book.create_sheet(CV_SHEET)
+    # Hidden, not absent: Excel resolves a data-validation range against a
+    # hidden sheet exactly as it does a visible one, so the dropdowns keep
+    # working while the term lists stay out of the reader's way.
+    ws.sheet_state = "hidden"
     ranges = {}
     for index, name in enumerate(sorted(needed), start=1):
         letter = get_column_letter(index)
@@ -317,7 +318,7 @@ def _write_cell(ws, row: int, column: int, value: str, bold: bool = False):
     return cell
 
 
-def _write_readme(book, blocks: list[dict], *, has_flow_sheet: bool) -> None:
+def _write_readme(book, blocks: list[dict], *, flow_lines: list[str]) -> None:
     ws = book.create_sheet(README_SHEET, 0)
     _write_cell(ws, 1, 1, README_LINK_TEXT)
     ws["A1"].hyperlink = CONTEXTDB_URL
@@ -338,11 +339,28 @@ def _write_readme(book, blocks: list[dict], *, has_flow_sheet: bool) -> None:
         row += 1
     row += 1  # blank line between the summary table and what follows
 
-    # The flow lives on its own sheet; the README says so, because a reader who
-    # never opens the tab must still learn it is there.
-    if has_flow_sheet:
-        _write_cell(ws, row, 1, FLOW_README_POINTER, bold=True)
+    # The lineage tree sits inline, between the summary and the column detail:
+    # a reader meets what the workbook contains, then how it was made, then the
+    # columns. It used to be its own sheet, on the reasoning that column A is
+    # only 46 wide and would chop the tree.
+    #
+    # That reasoning was wrong. Excel spills a cell's text rightward across
+    # EMPTY neighbours, and the README writes nothing past column C, so a tree
+    # row's text runs on through D, E, F ... unimpeded -- there is no 46-wide
+    # ceiling and no A+B+C ceiling either. It matters that it is unbounded
+    # rather than merely generous: the widest line the production graph
+    # produces is 330 characters, a type whose hop carries many assay titles.
+    #
+    # What this DOES depend on is B and C staying empty on these rows, since
+    # the summary table above and the column tables below both write there.
+    # A row-cursor slip that put a value in B would clip the tree at 46.
+    if flow_lines:
+        _write_cell(ws, row, 1, FLOW_HEADING, bold=True)
         row += 2
+        for line in flow_lines:
+            _write_cell(ws, row, 1, line).font = Font(name=FLOW_FONT)
+            row += 1
+        row += 1
 
     for block in blocks:
         heading = f"{block['code']} — {block['name']}" if block["name"] else block["code"]
@@ -362,26 +380,6 @@ def _write_readme(book, blocks: list[dict], *, has_flow_sheet: bool) -> None:
     ws.column_dimensions["A"].width = 46
     ws.column_dimensions["B"].width = 34
     ws.column_dimensions["C"].width = 100
-
-
-def _write_flow_sheet(book, rows: list[list[str]]) -> None:
-    """One chain per row, alternating type and arrow cells.
-
-    Its own sheet rather than a README section: README's columns are sized 46 /
-    34 / 100 for the summary and column tables, which puts a 100-wide gap at
-    every second type of a chain.
-    """
-    if not rows:
-        return
-    ws = book.create_sheet(FLOW_SHEET, 1)
-    for index, row in enumerate(rows, start=1):
-        for column, value in enumerate(row, start=1):
-            _write_cell(ws, index, column, value, bold=(column % 2 == 1))
-    widest = max(len(row) for row in rows)
-    for column in range(1, widest + 1):
-        ws.column_dimensions[get_column_letter(column)].width = (
-            FLOW_TYPE_WIDTH if column % 2 else FLOW_ARROW_WIDTH
-        )
 
 
 def _annotate_header(ws, code: str, columns: list[str], meaning_by_pair) -> None:
@@ -448,7 +446,7 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
     hops = load_derivation_hops(uuids)
     edges = derivation_edges(df, {} if hops else load_assay_titles(uuids), hops)
     depths = sample_type_depths(edges)
-    flow_rows = build_provenance_rows(edges, depths)
+    flow_lines = build_provenance_tree(edges)
 
     prepared = []
     for sample_type, sample_type_df in df.groupby("sample_type"):
@@ -474,8 +472,7 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
         # pandas removes openpyxl's default sheet, but guard in case that changes.
         if "Sheet" in book.sheetnames:
             del book["Sheet"]
-        _write_readme(book, blocks, has_flow_sheet=bool(flow_rows))
-        _write_flow_sheet(book, flow_rows)
+        _write_readme(book, blocks, flow_lines=flow_lines)
 
         field_map, vocabularies = _load_vocabularies()
         needed = sorted({
