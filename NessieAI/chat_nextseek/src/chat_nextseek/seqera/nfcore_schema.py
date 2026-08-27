@@ -241,3 +241,37 @@ def clear_cache() -> None:
     _FAILURE_CACHE.clear()
     _DOCS_CACHE.clear()
     _DOCS_FAILURE_CACHE.clear()
+
+
+def warm_cache(pairs=None, *, schema_getter=None) -> dict[str, str]:
+    """Prefetch pinned schemas so no user turn pays the cold-cache cost.
+
+    The cache is per gunicorn worker and in memory, so the first selection
+    after a restart otherwise pays up to twelve HTTPS round-trips inside a
+    user's turn. Called on app ready, on a background thread.
+
+    `pairs` is an iterable of (pipeline, revision); the default is every
+    pipeline the selection payload fetches, at the revision the atlas pins.
+    Returns {pipeline: error} for whatever failed — never raises, because a
+    warm-up failure must not affect booting, and an unfetched schema simply
+    degrades to the behaviour that existed before this function.
+    """
+    if pairs is None:
+        from chat_nextseek.pipeline.selection_context import RICH_PIPELINES
+        from chat_nextseek.seqera.nfcore_atlas import load_atlas
+
+        try:
+            atlas_pipelines = (load_atlas().get("pipelines") or {})
+        except Exception as exc:  # noqa: BLE001
+            return {"__atlas__": f"{type(exc).__name__}: {exc}"}
+        pairs = [(key, atlas_pipelines[key]["revision"])
+                 for key in RICH_PIPELINES if key in atlas_pipelines]
+
+    get = schema_getter or get_schema
+    failures: dict[str, str] = {}
+    for pipeline, revision in pairs:
+        try:
+            get(pipeline, revision)
+        except Exception as exc:  # noqa: BLE001
+            failures[pipeline] = str(exc)
+    return failures

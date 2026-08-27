@@ -380,3 +380,47 @@ def test_all_six_pinned_pipelines_docs_parse():
     ]:
         out = get_pipeline_docs(pipeline, revision, fetcher=_docs_fixture_fetcher())
         assert set(out) == {"readme", "usage", "output"}, pipeline
+
+
+def test_warm_cache_fetches_every_rich_pipeline():
+    from chat_nextseek.pipeline.selection_context import RICH_PIPELINES
+    from chat_nextseek.seqera import nfcore_schema
+
+    fetched = []
+    failures = nfcore_schema.warm_cache(
+        schema_getter=lambda p, r: fetched.append((p, r)) or {"nextflow_schema": {}})
+    assert failures == {}
+    assert sorted(p for p, _ in fetched) == sorted(RICH_PIPELINES)
+
+
+def test_warm_cache_reports_failures_without_raising():
+    from chat_nextseek.seqera import nfcore_schema
+    from chat_nextseek.seqera.nfcore_schema import SchemaFetchError
+
+    def flaky(pipeline, revision):
+        if pipeline == "rnaseq":
+            raise SchemaFetchError("read timeout")
+        return {"nextflow_schema": {}}
+
+    failures = nfcore_schema.warm_cache(schema_getter=flaky)
+    assert list(failures) == ["rnaseq"]
+    assert "read timeout" in failures["rnaseq"]
+
+
+def test_warm_cache_survives_an_unexpected_exception():
+    from chat_nextseek.seqera import nfcore_schema
+
+    def explode(pipeline, revision):
+        raise OSError("no route to host")
+
+    failures = nfcore_schema.warm_cache(schema_getter=explode)
+    assert len(failures) >= 1
+
+
+def test_warm_cache_accepts_explicit_pairs():
+    from chat_nextseek.seqera import nfcore_schema
+
+    fetched = []
+    nfcore_schema.warm_cache(pairs=[("rnaseq", "3.18.0")],
+                             schema_getter=lambda p, r: fetched.append((p, r)) or {})
+    assert fetched == [("rnaseq", "3.18.0")]
