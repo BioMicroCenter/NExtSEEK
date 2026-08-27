@@ -94,6 +94,18 @@ def test_missing_question_is_a_tool_error_not_a_verdict():
     assert "question" in out["error"]
 
 
+def test_explicit_uids_with_empty_list_is_a_tool_error_not_a_verdict():
+    out = _call({"kind": "explicit_uids", "uids": [], "question": "q"})
+    assert out["ok"] is False
+    assert "uids" in out["error"]
+
+
+def test_unknown_kind_is_a_tool_error_not_a_verdict():
+    out = _call({"kind": "bogus", "question": "q"})
+    assert out["ok"] is False
+    assert "bogus" in out["error"]
+
+
 def test_accessions_are_out_of_scope_with_a_reason():
     out = _call({"kind": "accessions", "accessions": ["SRR123"], "question": "q"})
     assert out["verdict"] == "out_of_scope"
@@ -148,9 +160,17 @@ def test_a_slow_digest_times_out_into_out_of_scope(monkeypatch, patched):
 
     monkeypatch.setattr(agent_tools, "build_sample_digest", slow)
     monkeypatch.setattr(agent_tools, "DIGEST_TIMEOUT_SECONDS", 0.05)
+    t0 = time.perf_counter()
     out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"})
+    elapsed = time.perf_counter() - t0
     assert out["verdict"] == "out_of_scope"
     assert "timed out" in out["reason"].lower()
+    # The actual behaviour under test: the call must return promptly once the
+    # DIGEST_TIMEOUT_SECONDS deadline passes, not wait out the abandoned
+    # future's 2-second sleep. A `with ThreadPoolExecutor(...) as pool:` still
+    # returns the right verdict here but only after ~2s, because __exit__
+    # calls shutdown(wait=True) — this bound is what catches that regression.
+    assert elapsed < 1.0
 
 
 def test_the_verdict_is_recorded_in_state(patched):

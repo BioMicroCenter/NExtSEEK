@@ -901,7 +901,10 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
     """
     def _emit(name: str, payload: dict) -> None:
         if send_event:
-            send_event(name, payload)
+            try:
+                send_event(name, payload)
+            except Exception:  # noqa: BLE001 - progress events are advisory, never fatal
+                pass
 
     def _verdict_json(verdict, n_uids: int) -> str:
         state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
@@ -923,31 +926,45 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
             "Do not paraphrase it.")})
 
     kind = tool_input.get("kind")
+    if kind == "explicit_uids":
+        uids = [u for u in (tool_input.get("uids") or []) if u]
+        if not uids:
+            # Malformed call, not a selection failure — no verdict, so no
+            # selection_started/selection_done pair should fire for it.
+            return json.dumps({"ok": False,
+                               "error": "kind='explicit_uids' requires a non-empty uids list."})
+    elif kind == "last_search":
+        uids = uids_from_last_search(session)
+    elif kind == "accessions":
+        uids = []
+    else:
+        # Also a malformed call — same reasoning as above.
+        return json.dumps({"ok": False, "error": f"Unknown ref kind {kind!r}."})
+
+    # Every remaining path below produces a verdict, so every one of them gets
+    # a selection_started to pair with the selection_done that _verdict_json
+    # always emits. Emitting it any later would let a UI open a progress row
+    # on selection_started and then see an orphan selection_done for the
+    # accessions/no-pinned-search/over-cap paths, which all return before the
+    # digest is ever built.
+    _emit("selection_started", {"n_uids": len(uids)})
+
     if kind == "accessions":
         # Archive accessions carry no NExtSEEK metadata and no protocols, so there
         # is nothing to profile. This is a real limit, not a refusal — say so.
         return _verdict_json(selection.out_of_scope(
             "these are archive accessions, which carry no NExtSEEK metadata or protocol "
             "text to judge from — choose the pipeline from the request itself"), 0)
-    if kind == "last_search":
-        uids = uids_from_last_search(session)
-        if not uids:
-            return _verdict_json(selection.out_of_scope(
-                "there is no pinned search to profile"), 0)
-    elif kind == "explicit_uids":
-        uids = [u for u in (tool_input.get("uids") or []) if u]
-        if not uids:
-            return json.dumps({"ok": False,
-                               "error": "kind='explicit_uids' requires a non-empty uids list."})
-    else:
-        return json.dumps({"ok": False, "error": f"Unknown ref kind {kind!r}."})
+    if not uids:
+        # Only reachable via kind == "last_search" here — explicit_uids already
+        # guaranteed non-empty above, and accessions already returned.
+        return _verdict_json(selection.out_of_scope(
+            "there is no pinned search to profile"), 0)
 
     if len(uids) > MAX_SELECTION_UIDS:
         return _verdict_json(selection.out_of_scope(
             f"{len(uids)} samples is past the {MAX_SELECTION_UIDS}-sample limit for "
             "profiling a cohort interactively"), len(uids))
-
-    _emit("selection_started", {"n_uids": len(uids)})
 
     # build_sample_digest is synchronous and downloads SOP blobs with no
     # internal deadline. Run it on a worker so a stalled download cannot hold
@@ -965,7 +982,10 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         try:
             digest = future.result(timeout=DIGEST_TIMEOUT_SECONDS)
         except concurrent.futures.TimeoutError:
-            future.cancel()
+            # No future.cancel() here: with max_workers=1 the future is already
+            # running by the time the timeout fires, so cancel() would always
+            # return False and do nothing. The future is deliberately left to
+            # run to its own request timeouts — see the comment above.
             return _verdict_json(selection.out_of_scope(
                 f"profiling these samples timed out after "
                 f"{DIGEST_TIMEOUT_SECONDS:.0f}s"), len(uids))
@@ -992,13 +1012,25 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         return _verdict_json(selection.out_of_scope(
             f"assembling the evidence failed: {type(exc).__name__}: {exc}"), len(uids))
 
-    _emit("selection_evidence_ready", ctx.size_report(selection.SELECTION_SECTIONS))
+    try:
+        size_info = ctx.size_report(selection.SELECTION_SECTIONS)
+    except Exception:  # noqa: BLE001 - progress events are advisory, never fatal
+        size_info = {}
+    _emit("selection_evidence_ready", size_info)
 
-    client, model_name, budget = config.get_agent_model("pipeline_agent")
-    verdict = selection.decide(
-        client=client, model=model_name, budget=budget, payload=payload,
-        question=question, atlas_keys=set((atlas.get("pipelines") or {})),
-    )
+    try:
+        # get_agent_model can raise (a profile missing "model"/"thinking_budget",
+        # or a RuntimeError from config's catalog normalizers) on a misconfigured
+        # AGENT_MODEL_CATALOG. selection.decide itself never raises, but it costs
+        # nothing to keep it inside this guard too.
+        client, model_name, budget = config.get_agent_model("pipeline_agent")
+        verdict = selection.decide(
+            client=client, model=model_name, budget=budget, payload=payload,
+            question=question, atlas_keys=set((atlas.get("pipelines") or {})),
+        )
+    except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
+        return _verdict_json(selection.out_of_scope(
+            f"the selection model is not configured: {type(exc).__name__}: {exc}"), len(uids))
     return _verdict_json(verdict, len(uids))
 
 
