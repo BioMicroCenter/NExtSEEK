@@ -638,6 +638,13 @@ def write_template_workbook(entries, output_path) -> None:
 
     _write_readme(book, blocks, has_flow_sheet=False)
 
+    # _write_vocabulary_sheet must run before the type-sheet loop below: it
+    # returns the `ranges` dict _apply_dropdowns needs while writing each type
+    # sheet. But per the design doc the vocabulary sheet belongs AFTER the type
+    # sheets, immediately before the manifest. So it is created here, then
+    # repositioned once the type sheets exist (only when one was actually
+    # created -- with nothing to govern, _write_vocabulary_sheet returns {}
+    # and creates no sheet to move).
     field_map, vocabularies = _load_vocabularies()
     needed = sorted({
         field_map[title]
@@ -647,8 +654,10 @@ def write_template_workbook(entries, output_path) -> None:
     ranges = _write_vocabulary_sheet(book, needed, vocabularies)
 
     manifest_rows = []
+    type_sheet_count = 0
     for entry, specs in prepared:
         ws = book.create_sheet(entry.code)
+        type_sheet_count += 1
         if not specs:
             _write_cell(ws, 1, 1, EMPTY_TYPE_NOTE)
             ws.column_dimensions["A"].width = 60
@@ -674,6 +683,14 @@ def write_template_workbook(entries, output_path) -> None:
         # dropdowns are keyed on the bare titles the lookups know.
         _annotate_header_titles(ws, entry.code, titles, meaning_by_pair)
         _apply_dropdowns(ws, titles, field_map, ranges, 0)
+
+    if ranges:
+        # Right after creation the book is [README, Controlled Vocabularies,
+        # <type sheets...>]; moving it forward by the number of type sheets
+        # lands it immediately after them (the manifest is appended next).
+        # Dropdown formulas reference the sheet by name, so repositioning it
+        # does not disturb them.
+        book.move_sheet(CV_SHEET, offset=type_sheet_count)
 
     _write_manifest(book, manifest_rows)
     book.save(output_path)

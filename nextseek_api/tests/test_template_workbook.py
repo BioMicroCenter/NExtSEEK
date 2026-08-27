@@ -158,6 +158,25 @@ def test_no_governed_columns_means_no_vocabulary_sheet(tmp_path, _no_lookups):
     assert CV_SHEET not in book.sheetnames
 
 
+def test_the_vocabulary_sheet_sits_after_the_type_sheets_not_before_them(
+        tmp_path, _no_lookups):
+    """Per the design doc, sheet order is README, one sheet per selected type
+    in the given order, Controlled Vocabularies (only when needed), then the
+    hidden manifest. _write_vocabulary_sheet must run before the type-sheet
+    loop (it hands _apply_dropdowns the `ranges` it needs while the loop
+    runs), so this pins the *end result* rather than the write order."""
+    with patch(f"{_MOD}._load_vocabularies",
+               return_value=({"Weight": "units"}, {"units": ["mg", "g"]})):
+        book = _write(tmp_path, [SEQ, TIS])
+    assert book.sheetnames == [
+        README_SHEET, "D.SEQ", "TIS", CV_SHEET, MANIFEST_SHEET,
+    ]
+    # The dropdown formula references the vocabulary sheet by name, so the
+    # move must not have broken it.
+    rule = next(iter(book["TIS"].data_validations.dataValidation))
+    assert rule.formula1 == f"'{CV_SHEET}'!$A$2:$A$3"
+
+
 def test_there_is_no_flow_sheet(tmp_path, _no_lookups):
     """A blank template has no provenance to draw."""
     from nextseek_api.services.sample_workbook import FLOW_SHEET
@@ -166,12 +185,29 @@ def test_there_is_no_flow_sheet(tmp_path, _no_lookups):
     assert FLOW_SHEET not in book.sheetnames
 
 
-def test_a_failing_attribute_lookup_skips_that_type_not_the_workbook(tmp_path, _no_lookups):
+def test_a_failing_attribute_lookup_still_produces_a_readme_workbook(tmp_path, _no_lookups):
+    """A whole-batch lookup failure drops every type, but must not cost the
+    workbook itself: the README is still written."""
     _no_lookups.return_value.getAttributeSpecsBySampleTypeIds.side_effect = \
         RuntimeError("db down")
     book = _write(tmp_path, [TIS, SEQ])
     assert book.sheetnames[0] == README_SHEET
     assert "TIS" not in book.sheetnames
+
+
+def test_a_type_missing_from_a_successful_lookup_is_skipped_not_the_others(
+        tmp_path, _no_lookups):
+    """The realistic trigger for the `None` skip path: the batched lookup
+    succeeds but its dict simply has no key for one requested sample_type_id
+    (getAttributeSpecsBySampleTypeIds drops ids that are not positive ints),
+    while the other type's id is present and covered normally."""
+    _no_lookups.return_value.getAttributeSpecsBySampleTypeIds.return_value = {
+        2: SPECS[2],
+        # no key at all for SEQ's sample_type_id (11)
+    }
+    book = _write(tmp_path, [TIS, SEQ])
+    assert "TIS" in book.sheetnames
+    assert "D.SEQ" not in book.sheetnames
 
 
 def test_relationships_reach_the_readme(tmp_path, _no_lookups):
