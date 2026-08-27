@@ -47,3 +47,131 @@ class TestAttributeSpecs:
         table = self._table([])
         assert table.getAttributeSpecsBySampleTypeIds([]) == {}
         table.tablemodel.objects.filter.assert_not_called()
+
+
+_MOD = "nextseek_api.services.template_catalog"
+
+
+class TestGrouping:
+    def test_no_prefix_is_experimental(self):
+        from nextseek_api.services.template_catalog import group_for
+
+        assert group_for("TIS") == ""
+        assert group_for("DNA") == ""
+
+    def test_d_prefix_is_data(self):
+        from nextseek_api.services.template_catalog import group_for
+
+        assert group_for("D.SEQ") == "D."
+
+    def test_a_prefix_is_analysis(self):
+        from nextseek_api.services.template_catalog import group_for
+
+        assert group_for("A.GEX") == "A."
+
+    def test_m_prefix_gets_its_own_group_not_experimental(self):
+        """getSampleTypes() files M. under Experimental; this page does not."""
+        from nextseek_api.services.template_catalog import group_for
+
+        assert group_for("M.LMM") == "M."
+
+    def test_an_unrecognised_prefix_falls_back_to_experimental(self):
+        from nextseek_api.services.template_catalog import group_for
+
+        assert group_for("X.FOO") == ""
+
+
+class TestLoadCatalog:
+    def _types(self, rows):
+        m = MagicMock()
+        m.objects.all.return_value.values.return_value = rows
+        return m
+
+    def test_entries_carry_code_id_and_group(self):
+        from nextseek_api.services.template_catalog import load_catalog
+
+        with patch(f"{_MOD}.Sample_types", self._types([{"id": 2, "title": "TIS"}])), \
+             patch(f"{_MOD}.load_sample_type_context", return_value={}):
+            entries = load_catalog()
+
+        assert len(entries) == 1
+        assert entries[0].code == "TIS"
+        assert entries[0].sample_type_id == 2
+        assert entries[0].group == ""
+
+    def test_name_and_description_come_from_context(self):
+        from nextseek_api.services.template_catalog import load_catalog
+
+        context = {"TIS": {"name": "Tissue", "description": "A tissue sample."}}
+        with patch(f"{_MOD}.Sample_types", self._types([{"id": 2, "title": "TIS"}])), \
+             patch(f"{_MOD}.load_sample_type_context", return_value=context):
+            entries = load_catalog()
+
+        assert entries[0].name == "Tissue"
+        assert entries[0].description == "A tissue sample."
+
+    def test_a_type_with_no_context_row_still_appears_with_blanks(self):
+        """Three of the 104 types have no context row. They must not vanish."""
+        from nextseek_api.services.template_catalog import load_catalog
+
+        with patch(f"{_MOD}.Sample_types", self._types([{"id": 9, "title": "ZZZ"}])), \
+             patch(f"{_MOD}.load_sample_type_context", return_value={}):
+            entries = load_catalog()
+
+        assert entries[0].code == "ZZZ"
+        assert entries[0].name == ""
+        assert entries[0].description == ""
+
+    def test_a_failing_context_lookup_costs_names_not_the_catalog(self):
+        from nextseek_api.services.template_catalog import load_catalog
+
+        with patch(f"{_MOD}.Sample_types", self._types([{"id": 2, "title": "TIS"}])), \
+             patch(f"{_MOD}.load_sample_type_context", side_effect=RuntimeError("db down")):
+            entries = load_catalog()
+
+        assert [e.code for e in entries] == ["TIS"]
+        assert entries[0].name == ""
+
+    def test_entries_sort_by_group_order_then_code(self):
+        from nextseek_api.services.template_catalog import load_catalog
+
+        rows = [
+            {"id": 1, "title": "A.GEX"},
+            {"id": 2, "title": "TIS"},
+            {"id": 3, "title": "M.LMM"},
+            {"id": 4, "title": "D.SEQ"},
+            {"id": 5, "title": "DNA"},
+        ]
+        with patch(f"{_MOD}.Sample_types", self._types(rows)), \
+             patch(f"{_MOD}.load_sample_type_context", return_value={}):
+            entries = load_catalog()
+
+        assert [e.code for e in entries] == ["DNA", "TIS", "D.SEQ", "A.GEX", "M.LMM"]
+
+    def test_blank_titles_are_skipped(self):
+        from nextseek_api.services.template_catalog import load_catalog
+
+        rows = [{"id": 1, "title": "  "}, {"id": 2, "title": None}, {"id": 3, "title": "TIS"}]
+        with patch(f"{_MOD}.Sample_types", self._types(rows)), \
+             patch(f"{_MOD}.load_sample_type_context", return_value={}):
+            entries = load_catalog()
+
+        assert [e.code for e in entries] == ["TIS"]
+
+    def test_every_seeded_code_is_a_legal_sheet_name(self):
+        """Guards the assumption the writer relies on. Longest today is D.ADNKA (7)."""
+        from nextseek_api.services.template_catalog import (
+            ILLEGAL_SHEET_CHARS,
+            MAX_SHEET_NAME,
+            load_catalog,
+        )
+
+        rows = [{"id": i, "title": t} for i, t in enumerate(
+            ["TIS", "D.ADNKA", "A.GEX", "M.LMM"], start=1)]
+        with patch(f"{_MOD}.Sample_types", self._types(rows)), \
+             patch(f"{_MOD}.load_sample_type_context", return_value={}):
+            entries = load_catalog()
+
+        for entry in entries:
+            assert len(entry.code) <= MAX_SHEET_NAME
+            assert not (set(entry.code) & ILLEGAL_SHEET_CHARS)
