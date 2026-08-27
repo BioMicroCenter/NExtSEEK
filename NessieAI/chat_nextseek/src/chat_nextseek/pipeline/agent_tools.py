@@ -58,6 +58,14 @@ from ..luria.submitter import submit_luria
 from ..luria.run_script import local_luria_ref_files
 from ..reports.protocols import gather_protocol_text
 
+import concurrent.futures
+
+from . import selection
+from .metadata_cache import get as _cache_get, put as _cache_put
+from .sample_digest import DigestError, build_sample_digest
+from .selection_context import PayloadTooLargeError, build_selection_context
+from ..seqera.nfcore_atlas import load_atlas
+
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "resolve_samples",
@@ -825,6 +833,173 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     if luria_env.get("user") and luria_env.get("host"):
         state["artifacts"]["luria_ssh_target"] = f'{luria_env["user"]}@{luria_env["host"]}'
     return json.dumps({"ok": True, "luria_runs": runs})
+
+
+#: A cohort larger than this is not profiled. resolve_samples already refuses to
+#: assemble more than MAX_RESOLVE_LEAVES (75) leaves, so a cohort past that
+#: cannot be built anyway — paying for its digest first would buy nothing. The
+#: team-questions run supplied 663 UIDs, which is why this cap exists at all.
+MAX_SELECTION_UIDS = 75
+
+#: Wall-clock ceiling on the digest build. The digest downloads and text-extracts
+#: every SOP attached to the cohort with token_limit=None, which is unbounded on
+#: paper. On timeout the build continues without selection.
+DIGEST_TIMEOUT_SECONDS = 90.0
+
+
+def _fetch_annotate_summarise(config, uids: list[str]) -> tuple[dict, dict, dict]:
+    """The three calls selection and resolve_samples share, memoised.
+
+    Returns (raw, annotated, summary) where `summary` is the UNFILTERED
+    build_metadata_summary output — each caller applies its own filter
+    (filter_summary_to_sequencing_lineage here, filter_summary_for_deg in the
+    digest). Raises RuntimeError with a readable message on a failed fetch.
+    """
+    hit = _cache_get(uids)
+    if hit is not None:
+        return hit["raw"], hit["annotated"], hit["summary"]
+
+    raw = fetch_reporter_metadata(config, uids)
+    if not raw.get("ok"):
+        raise RuntimeError(f"Metadata fetch failed: {raw.get('error') or 'unknown error'}")
+    annotated = annotate_metadata_with_sampletypes(config, raw)
+    try:
+        summary = build_metadata_summary({"__sample__": annotated})
+    except Exception as exc:  # advisory everywhere it is used; never fatal
+        print(f"[DEBUG][PIPELINE_AGENT] summary build failed: {exc!r}")
+        summary = {}
+    _cache_put(uids, raw=raw, annotated=annotated, summary=summary)
+    return raw, annotated, summary
+
+
+_SELECTION_NEXT_STEP = {
+    "chosen": ("Call resolve_samples with this pipeline_key and carry on. "
+               "Tell the user which pipeline you are using and why, in one line."),
+    "fork": ("Two or three pipelines fit. Ask the user which they want, in plain text, "
+             "giving the reason. STOP — do not call resolve_samples or conclude yet."),
+    "refused": ("These samples cannot answer that question. Call "
+                "conclude(outcome='rejected') and give the reason as your message."),
+    "out_of_scope": ("Selection could not judge this one. Decide the pipeline yourself "
+                     "from the catalog above, exactly as you would if this tool did not "
+                     "exist. Do not mention the selection tool to the user."),
+}
+
+
+def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input: dict,
+                         *, send_event=None) -> str:
+    """Choose a pipeline from the cohort's evidence and the scientist's question.
+
+    This is the one tool that makes its own model call. The evidence payload is
+    ~84k tokens; returning it into the agent's conversation would carry that
+    cost on every later turn, so the payload lives and dies inside this call and
+    only a four-way verdict comes back.
+
+    Never raises, and never returns ok=false for a *selection* failure — every
+    one of those becomes the out_of_scope verdict, which puts the agent back on
+    the behaviour it had before this tool existed. ok=false is reserved for a
+    malformed tool call.
+    """
+    def _emit(name: str, payload: dict) -> None:
+        if send_event:
+            send_event(name, payload)
+
+    def _verdict_json(verdict, n_uids: int) -> str:
+        state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
+                              "reason": verdict.reason}
+        _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
+        return json.dumps({
+            "ok": True,
+            "verdict": verdict.kind,
+            "pipelines": verdict.pipelines,
+            "reason": verdict.reason,
+            "n_uids": n_uids,
+            "message": _SELECTION_NEXT_STEP[verdict.kind],
+        })
+
+    question = (tool_input.get("question") or "").strip()
+    if not question:
+        return json.dumps({"ok": False, "error": (
+            "select_pipeline requires 'question' — the user's own words, verbatim. "
+            "Do not paraphrase it.")})
+
+    kind = tool_input.get("kind")
+    if kind == "accessions":
+        # Archive accessions carry no NExtSEEK metadata and no protocols, so there
+        # is nothing to profile. This is a real limit, not a refusal — say so.
+        return _verdict_json(selection.out_of_scope(
+            "these are archive accessions, which carry no NExtSEEK metadata or protocol "
+            "text to judge from — choose the pipeline from the request itself"), 0)
+    if kind == "last_search":
+        uids = uids_from_last_search(session)
+        if not uids:
+            return _verdict_json(selection.out_of_scope(
+                "there is no pinned search to profile"), 0)
+    elif kind == "explicit_uids":
+        uids = [u for u in (tool_input.get("uids") or []) if u]
+        if not uids:
+            return json.dumps({"ok": False,
+                               "error": "kind='explicit_uids' requires a non-empty uids list."})
+    else:
+        return json.dumps({"ok": False, "error": f"Unknown ref kind {kind!r}."})
+
+    if len(uids) > MAX_SELECTION_UIDS:
+        return _verdict_json(selection.out_of_scope(
+            f"{len(uids)} samples is past the {MAX_SELECTION_UIDS}-sample limit for "
+            "profiling a cohort interactively"), len(uids))
+
+    _emit("selection_started", {"n_uids": len(uids)})
+
+    # build_sample_digest is synchronous and downloads SOP blobs with no
+    # internal deadline. Run it on a worker so a stalled download cannot hold
+    # the turn open. Deliberately NOT `with ThreadPoolExecutor(...) as pool:` —
+    # the context manager's __exit__ calls shutdown(wait=True), which blocks
+    # until the submitted call finishes regardless of the future.result()
+    # timeout below, silently turning the timeout into a no-op. shutdown(wait=
+    # False) in the finally block below lets this call return immediately; the
+    # abandoned future keeps running to its own request timeouts, which is
+    # accepted, since it holds no locks and writes only to a TemporaryDirectory
+    # it owns.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(build_sample_digest, config, uids)
+        try:
+            digest = future.result(timeout=DIGEST_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            return _verdict_json(selection.out_of_scope(
+                f"profiling these samples timed out after "
+                f"{DIGEST_TIMEOUT_SECONDS:.0f}s"), len(uids))
+    except DigestError as exc:
+        return _verdict_json(selection.out_of_scope(f"these samples could not be profiled: {exc}"),
+                             len(uids))
+    except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
+        return _verdict_json(selection.out_of_scope(
+            f"profiling these samples failed: {type(exc).__name__}: {exc}"), len(uids))
+    finally:
+        pool.shutdown(wait=False)
+
+    try:
+        atlas = load_atlas()
+        ctx = build_selection_context(
+            config=config, uids=uids, digest=digest, atlas=atlas,
+            sections=selection.SELECTION_SECTIONS,
+        )
+        payload = ctx.to_prompt_text(selection.SELECTION_SECTIONS)
+    except PayloadTooLargeError as exc:
+        return _verdict_json(selection.out_of_scope(
+            f"the evidence for these samples is too large to judge: {exc}"), len(uids))
+    except Exception as exc:  # noqa: BLE001
+        return _verdict_json(selection.out_of_scope(
+            f"assembling the evidence failed: {type(exc).__name__}: {exc}"), len(uids))
+
+    _emit("selection_evidence_ready", ctx.size_report(selection.SELECTION_SECTIONS))
+
+    client, model_name, budget = config.get_agent_model("pipeline_agent")
+    verdict = selection.decide(
+        client=client, model=model_name, budget=budget, payload=payload,
+        question=question, atlas_keys=set((atlas.get("pipelines") or {})),
+    )
+    return _verdict_json(verdict, len(uids))
 
 
 def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict, log_dir: str) -> str:
