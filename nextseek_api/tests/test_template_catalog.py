@@ -219,10 +219,17 @@ class TestParseRelated:
         assert parse_related(None, KNOWN) == []
 
     def test_a_code_containing_or_is_not_split_apart(self):
-        """'or' is only a separator when it stands alone."""
+        """'or' is only a separator when it stands alone.
+
+        The input puts CORE between two real 'or' separators, so a tokenizer
+        that split on the substring rather than the standalone word would
+        return ['C', 'E'] here and fail.
+        """
         from nextseek_api.services.template_catalog import parse_related
 
-        assert parse_related("CORE, DNA", KNOWN | {"CORE"}) == ["CORE", "DNA"]
+        known = KNOWN | {"CORE"}
+        assert parse_related("DNA or CORE or RNA", known) == ["DNA", "CORE", "RNA"]
+        assert parse_related("CORE, DNA", known) == ["CORE", "DNA"]
 
 
 class TestLoadRelationships:
