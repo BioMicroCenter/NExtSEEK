@@ -18,6 +18,13 @@ class _Config:
         return object(), "test-model", None
 
 
+class _RaisingConfig(_Config):
+    """A config whose model catalog is broken — get_agent_model raises."""
+
+    def get_agent_model(self, key):
+        raise KeyError("model")
+
+
 @pytest.fixture(autouse=True)
 def _clean():
     metadata_cache.clear()
@@ -195,7 +202,63 @@ def test_progress_events_are_emitted_in_order(patched):
     assert seen == ["selection_started", "selection_evidence_ready", "selection_done"]
 
 
+@pytest.mark.parametrize("tool_input", [
+    {"kind": "accessions", "accessions": ["SRR123"], "question": "q"},
+    {"kind": "last_search", "question": "q"},
+    {"kind": "explicit_uids",
+     "uids": [f"D.SEQ-{i}" for i in range(agent_tools.MAX_SELECTION_UIDS + 1)],
+     "question": "q"},
+], ids=["accessions", "no_pinned_search", "over_cap"])
+def test_early_verdicts_still_pair_started_with_done(patched, tool_input):
+    """These three exits return a verdict before the digest is ever built, but a
+    verdict is still a verdict — a UI that opened a progress row on
+    selection_started must not be left with an orphan selection_done."""
+    seen = []
+    _call(tool_input, session={}, send_event=lambda name, payload: seen.append(name))
+    assert seen == ["selection_started", "selection_done"]
+
+
+def test_a_malformed_call_emits_nothing(patched):
+    """kind='explicit_uids' with an empty list is a tool error, not a verdict —
+    it must not open a progress row that nothing will ever close."""
+    seen = []
+    _call({"kind": "explicit_uids", "uids": [], "question": "q"},
+          send_event=lambda name, payload: seen.append(name))
+    assert seen == []
+
+
 def test_no_send_event_is_fine(patched):
     out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"},
                 send_event=None)
     assert out["ok"] is True
+
+
+def test_a_broken_model_config_is_out_of_scope_not_a_crash(patched):
+    out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"},
+                config=_RaisingConfig())
+    assert out["verdict"] == "out_of_scope"
+    assert "model" in out["reason"].lower()
+
+
+def test_a_raising_send_event_does_not_crash_the_call(patched):
+    def boom(name, payload):
+        raise RuntimeError("websocket gone")
+    out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"},
+                send_event=boom)
+    assert out["ok"] is True
+    assert out["verdict"] == "chosen"
+
+
+def test_a_raising_size_report_does_not_crash_the_call(monkeypatch, patched):
+    class _BrokenSizeCtx:
+        def to_prompt_text(self, sections=None):
+            return "PAYLOAD"
+
+        def size_report(self, sections=None):
+            raise RuntimeError("size boom")
+
+    monkeypatch.setattr(agent_tools, "build_selection_context",
+                        lambda **kwargs: _BrokenSizeCtx())
+    out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"})
+    assert out["ok"] is True
+    assert out["verdict"] == "chosen"
