@@ -152,8 +152,6 @@ class SampleQueriesMixin:
         filtersdic['categoryField'] = 'sample_type_id'
         filtersdic['filterRules'] = filterRules
         filtersdic['searchType'] = searchType
-        filtersdic['publication_query'] = None
-        filtersdic['published_only'] = False
         return filtersdic
 
     def _retrieveSamplesInType(self, user_seek, sampletype_id, project_id=0):
@@ -181,13 +179,6 @@ class SampleQueriesMixin:
         #    total = int(total)
     
         jdata_new = self.reformatDataForClient(jdata)
-
-        # One query for the whole page: a sample's paper comes from its study, so
-        # it is not part of the sample select. Imported here rather than at module
-        # scope to keep the dependency one-way — see
-        # docs/2026-08-21-publication-links-design.md.
-        from ..publications import attach_publications
-        attach_publications(jdata_new)
 
         footer = []
         data = {'total':total,'rows':jdata_new,'footer':footer}
@@ -246,21 +237,6 @@ class SampleQueriesMixin:
                 # unscoped, which is the exact bug being fixed.
                 sqlquery_filter = sqlquery_filter + " WHERE " + clause
             params = params + extra
-
-        # Publication filter. The predicate carries no bound values — it splices
-        # only integer study ids, resolved through a parameterized lookup first —
-        # so params is untouched. Same WHERE-or-AND handling as the scope above,
-        # because an unfiltered search emits no WHERE at all.
-        from ..publications import publication_predicate
-        pub_clause = publication_predicate(
-            filtersdic.get('publication_query'),
-            filtersdic.get('published_only', False),
-        )
-        if pub_clause:
-            if 'WHERE ' in sqlquery_filter:
-                sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (', 1) + ") AND " + pub_clause
-            else:
-                sqlquery_filter = sqlquery_filter + " WHERE " + pub_clause
 
         logger.debug(sqlquery_filter)
         return sqlquery_filter, params

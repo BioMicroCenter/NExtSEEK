@@ -22,13 +22,6 @@ class SampleSearchMixin:
         filter_valueTo = None
         filtersdic = self._initSearchFilters(searchType, sampletype_id, project_id)
 
-        # Publication filter applies to every search type. Deliberately NOT the
-        # PubMed-style [CATEGORY] syntax: that bracket term resolves to a sample
-        # type (search.py:103), so "10.1101/...[DOI]" would look up a sample type
-        # named DOI and silently return nothing.
-        filtersdic['publication_query'] = filters.get('filter_publication') or None
-        filtersdic['published_only'] = filters.get('filter_published_only') in ('1', 'true', 'True', 'on')
-
         if searchType == "UIDs":
             filtersdic['searchText'] = filters['filter_searchUIDs']
             field = 'uid'

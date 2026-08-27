@@ -16,6 +16,10 @@ than guessing.
 
 ## Revision history
 
+**Revision 3** (2026-08-25) adds finding 14, which records why production's
+study id space cannot be trusted across stores and what that costs the
+deployment plan. No change to the data model.
+
 **Revision 2** replaced the data model. The first revision built publication
 records in SEEK's own `publications` table, linked them to studies through the
 `relationships` table, and mirrored them into Neo4j as `:Publication` nodes with
@@ -145,6 +149,41 @@ All verified against the running stack on 2026-08-21.
     `seek/dbrouters.py:allow_migrate` expresses no opinion for other schemas. DDL
     against `seek_production` must therefore be performed explicitly by the fill
     command, not by a migration that would silently never run.
+
+14. **Prod's paper-titled studies exist only in Neo4j.** Verified 2026-08-25
+    against a direct `fairdata.mit.edu` API token (not the NExtSEEK proxy): prod
+    SEEK holds **7** studies and 7 investigations, `links.next` null. Prod's Neo4j
+    holds **56** `Study` nodes. Dev SEEK, for contrast, holds 51.
+
+    The cause is `~/Documents/MIT/ns-prod-create-studies`, which populated prod's
+    graph from a *dev* export by writing Cypher directly
+    (`nsprod/cli/migrate.py:100`, `MERGE (s:Study {title: row.study_title})`) and
+    minting ids from a graph-local counter
+    (`nsprod/cli/migrate.py:57,67`, `coalesce(max(s.id),0)` then `max + 1`). It
+    makes no SEEK API call at any point.
+
+    So prod's graph splits into two id spaces:
+
+    | Graph `Study.id` | Meaning |
+    |---|---|
+    | ≤ 13 | a real prod SEEK study id — the original faithful mirror (3 Impactb, 4 MIT_SRP, 6 MetNet, 9 Endometriosis, 12 GBM, 13 CSBC) |
+    | ≥ 14 | graph-only, minted by `ns-migrate-studies`; **collides** with prod SEEK's live ids and means nothing there |
+
+    Minting started at 14 because the graph's max was 13, walking straight over
+    SEEK's already-issued 14/15/16. Hence graph 16 is the cartilage paper while
+    SEEK 16 is "RMS-NGC Study" — the collision that halted the prod renames.
+    Graph investigations 13 (Collagen Study) and 22 (BioMicroCenter) are likewise
+    graph-only.
+
+    Two consequences beyond the renames. First, prod's publication fill landed
+    entirely on graph-only nodes: 41 of the 50 `id ≥ 14` studies carry a DOI,
+    covering 47,229 samples. Nessie reads Neo4j, so Nessie answers correctly on
+    prod — but prod SEEK and prod MySQL do not know these studies exist, so
+    running `fill_study_publications --apply` there has nothing to attach to and
+    the web UI column stays empty. This supersedes the prod half of the
+    deployment note. Second, the sample migration is substantially unfinished:
+    113,416 prod samples still sit on the six placeholder/project studies against
+    49,041 moved onto paper studies.
 
 ## Data model
 

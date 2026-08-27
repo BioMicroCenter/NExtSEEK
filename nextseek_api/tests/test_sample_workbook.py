@@ -12,10 +12,8 @@ from nextseek_api.services.sample_workbook import (
     DROPDOWN_SPARE_ROWS,
     EXCEL_MAX_CELL_CHARS,
     CV_SHEET,
-    FLOW_ARROW_WIDTH,
-    FLOW_README_POINTER,
-    FLOW_SHEET,
-    FLOW_TYPE_WIDTH,
+    FLOW_FONT,
+    FLOW_HEADING,
     SUMMARY_HEADER,
     build_readme_blocks,
     load_assay_titles,
@@ -484,6 +482,27 @@ def test_dropdowns_warn_rather_than_reject(_ctx, _fields, tmp_path):
 
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_vocabulary_sheet_is_hidden_but_its_dropdowns_still_resolve(_ctx, _fields, tmp_path):
+    """Hidden, not absent. Excel resolves a data-validation range against a
+    hidden sheet exactly as against a visible one, so the term lists can stay
+    out of the reader's way while the dropdowns keep working. Deleting the
+    sheet instead would break every dropdown that points at it."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_cv_df(), str(out))
+    wb = load_workbook(out)
+    assert wb[CV_SHEET].sheet_state == "hidden"
+    rules = wb["MUS"].data_validations.dataValidation
+    assert rules, "the dropdowns must survive hiding the sheet they point at"
+    assert {r.formula1.split("!")[0].strip("'") for r in rules} == {CV_SHEET}
+    # Not a regression guard -- README is created unconditionally and never
+    # hidden, so this can't fail today. It documents the Excel constraint the
+    # test name promises instead: "hidden but still resolves" only makes sense
+    # because *some* sheet in the workbook stays visible.
+    assert [ws.title for ws in wb.worksheets if ws.sheet_state == "visible"]
+
+
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
 def test_no_vocabulary_sheet_when_no_column_is_governed(_ctx, _fields, tmp_path):
     """The fixture is Name and Sex only; an empty extra sheet would be clutter."""
     out = tmp_path / "w.xlsx"
@@ -503,9 +522,10 @@ def _readme_sections(ws) -> dict[str, list[str]]:
         # Section headings are the bold cells of column A. The description
         # under each one is column A too, but plain; A1's link is not bold.
         if a.value and a.font.bold:
-            # The summary table's bold header is not a section; skip it and the
-            # sample-type rows beneath it.
-            if a.value == SUMMARY_HEADER[0]:
+            # The summary table's bold header and the (also bold) lineage-tree
+            # heading are not sections; skip each and whatever plain rows
+            # follow it.
+            if a.value in (SUMMARY_HEADER[0], FLOW_HEADING):
                 in_summary = True
                 continue
             in_summary = False
@@ -559,75 +579,155 @@ def _flow_df():
     ])
 
 
-def _flow_rows(ws):
-    return [[c.value for c in row if c.value is not None] for row in ws.iter_rows()
-            if any(c.value is not None for c in row)]
-
-
 @patch(f"{_MOD}.load_assay_titles", return_value={})
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_the_flow_sheet_sits_directly_after_the_readme(_ctx, _fields, _assays, tmp_path):
+def test_the_tree_lives_on_the_readme_not_its_own_sheet(_ctx, _fields, _assays, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_flow_df(), str(out))
-    assert load_workbook(out).sheetnames[:2] == ["README", FLOW_SHEET]
-
-
-@patch(f"{_MOD}.load_assay_titles", return_value={})
-@patch(f"{_MOD}.load_sample_field_context", return_value={})
-@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_a_chain_occupies_one_row_across_columns(_ctx, _fields, _assays, tmp_path):
-    """The whole reason for a separate sheet: one flow reads left to right."""
-    out = tmp_path / "w.xlsx"
-    write_samples_workbook(_flow_df(), str(out))
-    rows = _flow_rows(load_workbook(out)[FLOW_SHEET])
-    assert ["PAT", "------>", "PAV", "------>", "TIS"] in rows
-
-
-@patch(f"{_MOD}.load_assay_titles", return_value={})
-@patch(f"{_MOD}.load_sample_field_context", return_value={})
-@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_no_flow_sheet_when_there_is_no_lineage(_ctx, _fields, _assays, tmp_path):
-    """An empty sheet reads as a rendering bug -- and so does a README that
-    points at a sheet the workbook does not contain. The pointer's absence was
-    caught only incidentally, by an unrelated cell-position assertion; state it
-    here, where the sheet's absence is the subject."""
-    out = tmp_path / "w.xlsx"
-    write_samples_workbook(_df(), str(out))
     wb = load_workbook(out)
-    assert FLOW_SHEET not in wb.sheetnames
-    text = " ".join(str(c.value) for row in wb["README"].iter_rows()
-                    for c in row if c.value)
-    assert FLOW_README_POINTER not in text
-
-
-@patch(f"{_MOD}.load_assay_titles", return_value={})
-@patch(f"{_MOD}.load_sample_field_context", return_value={})
-@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
-def test_the_readme_points_at_the_flow_sheet(_ctx, _fields, _assays, tmp_path):
-    """A reader who never opens the tab must still learn it is there."""
-    out = tmp_path / "w.xlsx"
-    write_samples_workbook(_flow_df(), str(out))
-    text = " ".join(str(c.value) for row in load_workbook(out)["README"].iter_rows()
-                    for c in row if c.value)
-    assert FLOW_SHEET in text
+    assert FLOW_HEADING not in wb.sheetnames
+    assert wb.sheetnames[0] == "README"
+    column_a = [c.value for c in wb["README"]["A"]]
+    assert FLOW_HEADING in column_a
 
 
 @patch(f"{_MOD}.load_assay_titles", return_value={})
 @patch(f"{_MOD}.load_sample_field_context", return_value={})
 @patch(f"{_MOD}.load_sample_type_context", return_value={})
-def test_the_flow_sheet_uses_its_own_alternating_widths(_ctx, _fields, _assays, tmp_path):
-    """The whole justification for a separate sheet is that it can have its own
-    column widths. Nothing else asserts FLOW_TYPE_WIDTH/FLOW_ARROW_WIDTH are
-    actually applied, so they -- or their order -- could be swapped or dropped
-    silently."""
+def test_the_tree_puts_a_root_above_its_indented_child(_ctx, _fields, _assays, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_flow_df(), str(out))
-    ws = load_workbook(out)[FLOW_SHEET]
-    assert ws.column_dimensions["A"].width == FLOW_TYPE_WIDTH
-    assert ws.column_dimensions["C"].width == FLOW_TYPE_WIDTH
-    assert ws.column_dimensions["B"].width == FLOW_ARROW_WIDTH
-    assert ws.column_dimensions["D"].width == FLOW_ARROW_WIDTH
+    column_a = [c.value for c in load_workbook(out)["README"]["A"]]
+    assert "PAT" in column_a
+    assert any(str(v).startswith(("├── ", "└── ")) for v in column_a if v)
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_tree_rows_leave_b_and_c_empty_so_excel_can_overflow(_ctx, _fields, _assays, tmp_path):
+    """This is what makes README placement viable at all.
+
+    Column A is 46 wide and tree lines run past 100 characters. Excel spills a
+    cell's text rightward only while its neighbours are EMPTY, so a stray value
+    in B or C on a tree row would clip the tree at 46 characters. Nothing else
+    pins that, and the summary table above and the column tables below both
+    write to B and C -- an off-by-one in the row cursor would land there.
+    """
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    ws = load_workbook(out)["README"]
+    tree_rows = [c.row for c in ws["A"]
+                 if c.value and str(c.value).startswith(("├── ", "└── "))]
+    assert tree_rows, "fixture produced no tree rows"
+    for row in tree_rows:
+        assert ws.cell(row=row, column=2).value is None
+        assert ws.cell(row=row, column=3).value is None
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_tree_lines_are_monospace_but_the_summary_is_not(_ctx, _fields, _assays, tmp_path):
+    """The box-drawing characters only align in a fixed-width font, and the
+    font is set per cell -- so it must land on the tree rows and nowhere else."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    ws = load_workbook(out)["README"]
+    tree = [c for c in ws["A"] if c.value and str(c.value).startswith(("├── ", "└── "))]
+    assert tree
+    for cell in tree:
+        assert cell.font.name == FLOW_FONT
+    assert ws["A1"].font.name != FLOW_FONT
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_no_flow_section_when_there_is_no_lineage(_ctx, _fields, _assays, tmp_path):
+    """A bare heading with nothing under it reads as a rendering bug."""
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    column_a = [c.value for c in load_workbook(out)["README"]["A"]]
+    assert FLOW_HEADING not in column_a
+
+
+@patch(f"{_MOD}.load_assay_titles", return_value={})
+@patch(f"{_MOD}.load_sample_field_context", return_value={})
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_the_tree_sits_between_the_summary_table_and_the_column_sections(
+    _ctx, _fields, _assays, tmp_path
+):
+    """Pins the ordering the README move rests on: summary table, one blank
+    row, the tree heading, one blank row, the tree's lines, one blank row, then
+    the first `CODE — Name` section. Found by row-scanning rather than
+    hand-computed coordinates, so the test still holds if unrelated rows above
+    or below the tree change count.
+
+    Mutation-tested against `_write_readme`: fails if the whole `if
+    flow_lines:` block is moved to after the per-block column-table loop
+    (order breaks -- the tree heading is no longer found before any section
+    heading), if the `row += 2` after the heading is deleted (the first tree
+    line overwrites the heading cell, so it can no longer be found at all), and
+    if the trailing `row += 1` after the tree loop is deleted (the blank row
+    between the last tree line and the next section disappears).
+    """
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_flow_df(), str(out))
+    ws = load_workbook(out)["README"]
+
+    def bold_row(value):
+        for cell in ws["A"]:
+            if cell.value == value and cell.font.bold:
+                return cell.row
+        raise AssertionError(f"{value!r} not found bold in column A")
+
+    def first_nonblank_after(row):
+        r = row + 1
+        while ws.cell(row=r, column=1).value in (None, ""):
+            r += 1
+        return r
+
+    def last_nonblank_before(row):
+        r = row - 1
+        while ws.cell(row=r, column=1).value in (None, ""):
+            r -= 1
+        return r
+
+    summary_header_row = bold_row(SUMMARY_HEADER[0])
+    heading_row = bold_row(FLOW_HEADING)
+    # The first per-type section heading: the first bold column-A cell after
+    # the tree heading that is not itself a heading we already know about.
+    # Not min(...) over a bare generator: when the tree is moved BELOW the
+    # column tables there is no such heading, and min() then raises a bare
+    # ValueError instead of saying what went wrong. The regression is caught
+    # either way, but a future reader deserves the reason.
+    section_rows = [
+        cell.row for cell in ws["A"]
+        if cell.font.bold and cell.row > heading_row
+        and cell.value not in (SUMMARY_HEADER[0], FLOW_HEADING)
+    ]
+    assert section_rows, (
+        "no per-type section heading follows the tree -- the tree must sit "
+        "between the summary table and the column tables, not after them"
+    )
+    section_row = min(section_rows)
+
+    last_summary_row = last_nonblank_before(heading_row)
+    first_tree_row = first_nonblank_after(heading_row)
+    last_tree_row = last_nonblank_before(section_row)
+
+    assert last_summary_row > summary_header_row, "fixture produced no summary rows"
+    assert heading_row == last_summary_row + 2, (
+        "exactly one blank row between the summary table and the tree heading"
+    )
+    assert first_tree_row == heading_row + 2, (
+        "exactly one blank row between the tree heading and its first line"
+    )
+    assert section_row == last_tree_row + 2, (
+        "exactly one blank row between the tree's last line and the next section"
+    )
 
 
 def _order_df():
@@ -648,7 +748,7 @@ def test_sample_tabs_follow_generation_order(_ctx, _fields, _assays, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(_order_df(), str(out))
     tabs = [n for n in load_workbook(out).sheetnames
-            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+            if n not in ("README", CV_SHEET)]
     assert tabs == ["PAT", "PAV", "TIS", "DNA"]
 
 
@@ -678,7 +778,7 @@ def test_a_type_with_no_lineage_sorts_last(_ctx, _fields, _assays, tmp_path):
     out = tmp_path / "w.xlsx"
     write_samples_workbook(df, str(out))
     tabs = [n for n in load_workbook(out).sheetnames
-            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+            if n not in ("README", CV_SHEET)]
     assert tabs == ["PAV", "TIS", "ABC"]
 
 
@@ -713,7 +813,7 @@ def test_order_stays_alphabetical_without_any_lineage(_ctx, _fields, _assays, tm
     out = tmp_path / "w.xlsx"
     write_samples_workbook(df, str(out))
     tabs = [n for n in load_workbook(out).sheetnames
-            if n not in ("README", FLOW_SHEET, CV_SHEET)]
+            if n not in ("README", CV_SHEET)]
     assert tabs == ["DNA", "TIS"]
 
 

@@ -136,73 +136,194 @@ def test_depth_omits_types_that_appear_in_no_edge():
     assert sample_type_depths(edges).get("MUS", math.inf) == math.inf
 
 
-from nextseek_api.services.sample_provenance import build_provenance_rows
+import re
+
+from nextseek_api.services.sample_provenance import build_provenance_tree
 
 
-def _rows(edges):
-    return build_provenance_rows(edges, sample_type_depths(edges))
+def _tree(edges):
+    return build_provenance_tree(edges)
 
 
-def test_a_chain_reads_left_to_right_across_the_row():
-    edges = {("PAT", "PAV"): {"Consent"}, ("PAV", "TIS"): {"Tissue Collection"}}
-    assert _rows(edges) == [
-        ["PAT", "--[Consent]-->", "PAV", "--[Tissue Collection]-->", "TIS"],
+def _type_of(line):
+    """The sample type on a tree line, stripped of indent, connector and assays."""
+    text = re.sub(r"^[│ ]*(?:├── |└── )?", "", line)
+    return text.split("   ")[0].strip()
+
+
+def test_a_root_is_unindented_and_its_child_is_indented():
+    lines = _tree({("PAT", "PAV"): set()})
+    assert lines == ["PAT", "└── PAV"]
+
+
+def test_assays_render_in_brackets_after_the_type():
+    lines = _tree({("PAT", "PAV"): {"Consent"}})
+    assert lines[1] == "└── PAV   [Consent]"
+
+
+def test_a_hop_without_an_assay_gets_no_bracket():
+    assert _tree({("DNA", "D.SEQ"): set()})[1] == "└── D.SEQ"
+
+
+def test_several_assays_on_one_hop_join_sorted_in_brackets():
+    lines = _tree({("TIS", "D.IMG"): {"Imaging", "Histology"}})
+    assert lines[1] == "└── D.IMG   [Histology, Imaging]"
+
+
+def test_a_non_final_child_uses_the_tee_connector():
+    edges = {("TIS", "DNA"): set(), ("TIS", "RNA"): set()}
+    assert _tree(edges) == ["TIS", "├── DNA", "└── RNA"]
+
+
+def test_a_grandchild_of_a_tee_keeps_the_trunk():
+    """The │ must continue past a child that has siblings below it."""
+    edges = {("TIS", "DNA"): set(), ("DNA", "D.SEQ"): set(), ("TIS", "RNA"): set()}
+    assert _tree(edges) == ["TIS", "├── DNA", "│   └── D.SEQ", "└── RNA"]
+
+
+def test_a_type_with_two_parents_is_expanded_once():
+    """The DAG is not a tree: expanding every occurrence explodes the sheet.
+
+    Exact lines, not just presence -- a mutant that renders the deferred
+    node's marker at column 0 (`f"{node}   (expanded above)"`, dropping
+    `prefix` and `connector`) leaves the weaker presence checks green while
+    making the deferred node read as an extra root."""
+    edges = {("A", "X"): set(), ("B", "X"): set(), ("X", "Y"): set()}
+    lines = _tree(edges)
+    assert lines == [
+        "A",
+        "└── X",
+        "    └── Y",
+        "",
+        "B",
+        "└── X   (expanded above)",
     ]
 
 
-def test_a_hop_without_an_assay_gets_a_plain_arrow():
-    assert _rows({("DNA", "D.SEQ"): set()}) == [["DNA", "------>", "D.SEQ"]]
+def test_a_childless_repeat_is_shown_in_full_not_deferred():
+    """(expanded above) would be noise on a leaf -- there is nothing to expand.
+
+    Exact lines, not just the absence of a marker -- a mutant that guards
+    the childless case as `if node in expanded: return` (emitting nothing at
+    all for the repeat) still passes an absence-only check while silently
+    dropping the whole B -> X hop."""
+    edges = {("A", "X"): set(), ("B", "X"): set()}
+    assert _tree(edges) == ["A", "└── X", "", "B", "└── X"]
 
 
-def test_several_assays_on_one_hop_join_sorted():
-    edges = {("TIS", "D.IMG"): {"Imaging", "Histology"}}
-    assert _rows(edges)[0][1] == "--[Histology, Imaging]-->"
+def test_the_line_count_equals_walk_starts_plus_edges_for_an_acyclic_graph():
+    """Every root walk and every edge contributes exactly one line. A mutant
+    that silently drops a repeated-but-childless hop (finding 2's mutant)
+    breaks this arithmetic even on graphs where no single exact-line
+    assertion happens to cover the dropped hop."""
+    edges = {
+        ("PAT", "PAV"): {"Consent"}, ("PAV", "TIS"): set(),
+        ("TIS", "DNA"): set(), ("TIS", "D.IMG"): set(),
+        ("DNA", "D.SEQ"): set(), ("MUS", "TIS"): set(),
+        ("A", "X"): set(), ("B", "X"): set(),
+    }
+    nodes = {n for pair in edges for n in pair}
+    children_of = {child for _, child in edges}
+    walk_starts = nodes - children_of
+    lines = _tree(edges)
+    non_blank = [line for line in lines if line]
+    assert len(non_blank) == len(walk_starts) + len(edges)
 
 
-def test_every_hop_appears_exactly_once():
-    """The whole point of a cover: no hop repeated, none dropped."""
+def test_a_cycle_terminates_and_is_marked():
+    edges = {("TIS", "CEL"): set(), ("CEL", "D.FLOW"): set(), ("D.FLOW", "CEL"): set()}
+    lines = _tree(edges)
+    assert [line for line in lines if line.endswith("(cycle)")]
+
+
+def test_a_cycle_line_carries_the_assays_of_the_hop_that_reached_it():
+    """The guard line used to emit the bare node name, discarding the assays
+    recorded on the very hop it marks -- a reader following the marker would
+    see no bracket at all, or (worse, on other graphs) a different hop's."""
+    edges = {("TIS", "CEL"): set(), ("CEL", "D.FLOW"): {"Flow"},
+             ("D.FLOW", "CEL"): {"Cytometry"}}
+    lines = _tree(edges)
+    assert lines == [
+        "TIS",
+        "└── CEL",
+        "    └── D.FLOW   [Flow]",
+        "        └── CEL   [Cytometry]   (cycle)",
+    ]
+
+
+def test_an_expanded_above_line_carries_the_assays_of_the_hop_that_reached_it():
+    """Same bug, the other guard: the deferred occurrence is reached by its
+    own hop (B -> X here) with its own assay, not the first occurrence's."""
+    edges = {("A", "X"): {"a1"}, ("B", "X"): {"b1"}, ("X", "Y"): set()}
+    lines = _tree(edges)
+    assert lines == [
+        "A",
+        "└── X   [a1]",
+        "    └── Y",
+        "",
+        "B",
+        "└── X   [b1]   (expanded above)",
+    ]
+
+
+def test_every_type_in_every_hop_appears_somewhere():
+    """Nothing may be silently dropped -- that would be a correctness bug."""
     edges = {("PAT", "PAV"): set(), ("PAV", "TIS"): set(), ("TIS", "DNA"): set(),
              ("TIS", "D.IMG"): set(), ("DNA", "D.SEQ"): set()}
-    seen = []
-    for row in _rows(edges):
-        types = row[::2]
-        seen += list(zip(types, types[1:]))
-    assert sorted(seen) == sorted(edges)
+    shown = {_type_of(line) for line in _tree(edges)}
+    for parent, child in edges:
+        assert parent in shown and child in shown
 
 
-def test_chains_sort_by_the_depth_of_their_first_type():
-    """Earliest-generated flows come first -- that is the ordering asked for."""
-    edges = {("PAT", "PAV"): set(), ("PAV", "TIS"): set(), ("TIS", "D.IMG"): set(),
-             ("D.IMG", "A.MIGR"): set(), ("TIS", "D.TITR"): set()}
-    first_types = [row[0] for row in _rows(edges)]
-    depths = sample_type_depths(edges)
-    assert first_types == sorted(first_types, key=lambda t: (depths[t], t))
-    assert first_types[0] == "PAT"
+def test_roots_appear_unindented_in_sorted_order():
+    edges = {("PAT", "PAV"): set(), ("MUS", "TIS"): set()}
+    lines = _tree(edges)
+    assert [line for line in lines if line and not line.startswith((" ", "│", "├", "└"))] == [
+        "MUS", "PAT",
+    ]
 
 
-def test_a_chain_may_start_mid_pipeline():
-    """A hop whose upstream was already shown starts its own chain rather than
-    re-treading the prefix."""
-    edges = {("PAT", "PAV"): set(), ("PAV", "TIS"): set(),
-             ("TIS", "DNA"): set(), ("TIS", "D.IMG"): set()}
-    rows = _rows(edges)
-    assert len(rows) == 2
-    assert rows[0][0] == "PAT"
-    assert rows[1][0] == "TIS"
+def test_root_trees_are_separated_by_a_blank_line():
+    edges = {("PAT", "PAV"): set(), ("MUS", "TIS"): set()}
+    assert _tree(edges) == ["MUS", "└── TIS", "", "PAT", "└── PAV"]
 
 
-def test_a_cycle_terminates_and_visits_each_type_once_per_chain():
-    edges = {("TIS", "CEL"): set(), ("CEL", "D.FLOW"): set(), ("D.FLOW", "CEL"): set()}
-    rows = _rows(edges)
-    for row in rows:
-        types = row[::2]
-        assert len(types) == len(set(types))
-    seen = []
-    for row in rows:
-        types = row[::2]
-        seen += list(zip(types, types[1:]))
-    assert sorted(seen) == sorted(edges)
+def test_no_edges_yields_no_lines():
+    assert build_provenance_tree({}) == []
 
 
-def test_no_edges_yields_no_rows():
-    assert build_provenance_rows({}, {}) == []
+def test_a_bare_self_loop_is_not_dropped():
+    """X is its own only parent, so the normal root scan finds nothing
+    eligible -- the second pass must still walk X as its own root."""
+    edges = {("X", "X"): set()}
+    lines = _tree(edges)
+    assert lines == ["X", "└── X   (cycle)"]
+    shown = {_type_of(line) for line in lines}
+    assert shown == {"X"}
+    assert lines[-1].endswith("(cycle)")
+
+
+def test_a_mutual_pair_with_no_external_root_is_not_dropped():
+    """Neither A nor B has any parent outside the pair, so neither is
+    eligible under the normal root rule -- both must still appear."""
+    edges = {("A", "B"): set(), ("B", "A"): set()}
+    lines = _tree(edges)
+    assert lines == ["A", "└── B", "    └── A   (cycle)"]
+    shown = {_type_of(line) for line in lines}
+    assert shown == {"A", "B"}
+    assert [line for line in lines if line.endswith("(cycle)")]
+
+
+def test_a_detached_rootless_cycle_appears_alongside_a_normal_tree():
+    """A graph can mix a properly rooted tree with a separate rootless
+    component; both must be fully represented, not just the rooted one."""
+    edges = {
+        ("PAT", "PAV"): {"Consent"},
+        ("X", "X"): set(),
+    }
+    lines = _tree(edges)
+    shown = {_type_of(line) for line in lines}
+    for parent, child in edges:
+        assert parent in shown and child in shown
+    assert lines == ["PAT", "└── PAV   [Consent]", "", "X", "└── X   (cycle)"]
+    # The walk terminates -- a non-terminating second pass would hang the test.
