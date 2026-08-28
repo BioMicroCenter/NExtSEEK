@@ -349,3 +349,11 @@ def test_unauthenticated_caller_is_refused():
     assert IsAuthenticated().has_permission(req, None) is False
     assert IsSuperUser().has_permission(req, None) is False
     assert SampleTypeConnectionsViewSet.permission_classes == [IsAuthenticated, IsSuperUser]
+
+
+def test_endpoint_is_tagged_admin_because_it_is_superuser_only():
+    """The swagger tag tracks the privilege gate, not the URL prefix."""
+    from drf_spectacular.generators import SchemaGenerator
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    op = schema["paths"]["/nextseek_api/sample_types/connections/"]["get"]
+    assert op["tags"] == ["admin"]

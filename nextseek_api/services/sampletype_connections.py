@@ -379,7 +379,10 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
     @extend_schema(
         operation_id="List SampleType assay connections",
         description=SAMPLETYPE_CONNECTIONS_DESC,
-        tags=["SampleTypes"],
+        # "admin", not "SampleTypes": the tag tracks the gate, not the URL. Every
+        # other superuser-only endpoint is tagged admin, and SPECTACULAR_SETTINGS
+        # orders that section directly under Assays.
+        tags=["admin"],
         parameters=_QUERY_PARAMS,
         responses={
             (200, "application/json"): SampleTypeConnectionsResponse,
