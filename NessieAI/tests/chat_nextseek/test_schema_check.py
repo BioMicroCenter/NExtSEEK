@@ -1,6 +1,4 @@
 """Cross-check the final run params against the pipeline's own pinned schema."""
-import pytest
-
 from chat_nextseek.seqera.nfcore_schema import SchemaFetchError
 from chat_nextseek.seqera.schema_check import (
     check_params,
@@ -98,6 +96,64 @@ def test_a_boolean_is_not_accepted_as_an_integer():
 
 def test_an_integer_is_accepted_where_a_number_belongs():
     errors, _ = check_params("rnaseq", "3.18.0", {"extra_fdr": 1}, schema_getter=_getter())
+    assert errors == []
+
+
+def test_a_boolean_is_not_accepted_as_a_number():
+    errors, _ = check_params("rnaseq", "3.18.0", {"extra_fdr": True},
+                             schema_getter=_getter())
+    assert "extra_fdr" in errors[0]
+
+
+def test_a_list_type_accepts_any_matching_value():
+    """List-valued type declarations occur in real schemas: help is
+    ["boolean", "string"] in hlatyping and smrnaseq."""
+    schema = {
+        "$defs": {"test": {"properties": {
+            "help": {"type": ["boolean", "string"]}
+        }}}
+    }
+    # Bool should pass
+    errors, _ = check_params("test", "1.0", {"help": True}, schema_getter=lambda p, r: {"nextflow_schema": schema})
+    assert errors == []
+    # String should pass
+    errors, _ = check_params("test", "1.0", {"help": "some text"}, schema_getter=lambda p, r: {"nextflow_schema": schema})
+    assert errors == []
+    # Int should fail
+    errors, _ = check_params("test", "1.0", {"help": 42}, schema_getter=lambda p, r: {"nextflow_schema": schema})
+    assert len(errors) == 1
+    assert "help" in errors[0]
+
+
+def test_null_in_type_list_is_dropped():
+    """List-type declarations include "null" in real schemas: dfam_version
+    is ["number", "null"] in rnafusion. None values are already skipped,
+    so "null" adds no information and would make the type unjudgeable."""
+    schema = {
+        "$defs": {"test": {"properties": {
+            "version": {"type": ["number", "null"]}
+        }}}
+    }
+    # Number should pass
+    errors, _ = check_params("test", "1.0", {"version": 1.5}, schema_getter=lambda p, r: {"nextflow_schema": schema})
+    assert errors == []
+    # String should fail (not "number" or "null")
+    errors, _ = check_params("test", "1.0", {"version": "1.5"}, schema_getter=lambda p, r: {"nextflow_schema": schema})
+    assert len(errors) == 1
+    assert "version" in errors[0]
+
+
+def test_unrecognized_type_spelling_passes_through():
+    """If a type in the schema is not in _TYPE_CHECKS, we cannot judge and
+    must not guess. Rejecting on a subset of recognisable types could
+    falsely reject a value that is legal under an unrecognised type."""
+    schema = {
+        "$defs": {"test": {"properties": {
+            "custom": {"type": "custom_type"}
+        }}}
+    }
+    # Should silently pass even though "custom_type" is not recognised
+    errors, _ = check_params("test", "1.0", {"custom": "anything"}, schema_getter=lambda p, r: {"nextflow_schema": schema})
     assert errors == []
 
 
