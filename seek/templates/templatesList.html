@@ -180,8 +180,21 @@
     suggBar.dataset.codes = ranked.join(',');
   }
 
+  // Picking something clears the query, the way a tag input does: the search
+  // has served its purpose, the pick is now a chip, and the full list comes
+  // back for the next one. Deliberately NOT called when something is
+  // deselected -- yanking the filter away while a user prunes their selection
+  // would lose their place. applyFilter() is called explicitly because setting
+  // .value in script does not fire an 'input' event.
+  function clearSearch() {
+    if (!search.value) { return; }
+    search.value = '';
+    applyFilter();
+  }
+
   function check(code, value) {
     boxes.forEach(function (b) { if (b.value === code) { b.checked = value; } });
+    if (value) { clearSearch(); }
     render();
   }
 
@@ -199,7 +212,12 @@
     renderSuggestions(chosen);
   }
 
-  boxes.forEach(function (b) { b.addEventListener('change', render); });
+  boxes.forEach(function (b) {
+    b.addEventListener('change', function () {
+      if (b.checked) { clearSearch(); }
+      render();
+    });
+  });
 
   document.getElementById('tpl-clear').addEventListener('click', function () {
     boxes.forEach(function (b) { b.checked = false; });
@@ -211,6 +229,7 @@
     (suggBar.dataset.codes || '').split(',').filter(Boolean).forEach(function (c) {
       boxes.forEach(function (b) { if (b.value === c) { b.checked = true; } });
     });
+    clearSearch();
     render();
   });
 
@@ -229,7 +248,7 @@
     if (event.key === 'Enter') { event.preventDefault(); }
   });
 
-  search.addEventListener('input', function () {
+  function applyFilter() {
     var q = search.value.trim().toLowerCase();
     document.querySelectorAll('.tpl-group').forEach(function (group) {
       var visible = 0;
@@ -242,7 +261,9 @@
       });
       group.hidden = visible === 0;
     });
-  });
+  }
+
+  search.addEventListener('input', applyFilter);
 
   render();
 })();
