@@ -157,6 +157,50 @@ def test_unrecognized_type_spelling_passes_through():
     assert errors == []
 
 
+def test_scalar_type_error_message_shows_scalar_not_list():
+    """Error messages must show the type as declared in the schema, not as
+    an internal list representation. Scalar types should say 'should be string'
+    not 'should be ['string']'."""
+    errors, _ = check_params("rnaseq", "3.18.0", {"skip_dupradar": "true"},
+                             schema_getter=_getter())
+    assert len(errors) == 1
+    # Should contain "should be boolean" not "should be ['boolean']"
+    assert "should be boolean" in errors[0]
+    assert "['boolean']" not in errors[0]
+
+
+def test_list_type_error_message_shows_list_representation():
+    """For list-valued type declarations, the error message should show the
+    list representation so users can see all accepted types."""
+    schema = {
+        "$defs": {"test": {"properties": {
+            "help": {"type": ["boolean", "string"]}
+        }}}
+    }
+    errors, _ = check_params("test", "1.0", {"help": 42},
+                             schema_getter=lambda p, r: {"nextflow_schema": schema})
+    assert len(errors) == 1
+    # Should contain the list representation
+    assert "['boolean', 'string']" in errors[0] or '["boolean", "string"]' in errors[0]
+
+
+def test_mixed_recognized_and_unrecognized_types_passes_through():
+    """If a type list contains both recognised and unrecognised types, the
+    entire check must be skipped to avoid false rejections. This is the
+    anti-false-rejection guard: we must be 100% sure all types are recognised
+    before judging any value."""
+    schema = {
+        "$defs": {"test": {"properties": {
+            "mixed": {"type": ["string", "custom_type"]}
+        }}}
+    }
+    # Non-string value should pass through unchecked because "custom_type"
+    # is unrecognised and might accept numbers
+    errors, _ = check_params("test", "1.0", {"mixed": 42},
+                             schema_getter=lambda p, r: {"nextflow_schema": schema})
+    assert errors == []
+
+
 def test_a_none_value_is_not_type_checked():
     errors, _ = check_params("rnaseq", "3.18.0", {"gtf": None}, schema_getter=_getter())
     assert errors == []
