@@ -78,49 +78,9 @@ CLASSES = ["matched", "reframed", "unsupported", "ambiguous", "output"]
 #: ignore-the-question baseline. Not an expectation for any case.
 LAB_RAN_PIPELINE = {"A.GEX": "rnaseq", "A.SCXP": "scrnaseq", "A.SCCL+A.SCXP": "scrnaseq"}
 
-SYSTEM_PROMPT = """You are choosing an nf-core pipeline for a working scientist.
-
-You will be given, in order:
-
-  1. PIPELINE ATLAS — the pipelines you may choose from, what each answers,
-     what input each requires, and how neighbouring ones differ.
-  2. SAMPLE DIGEST — what is actually known about THIS cohort: its metadata
-     fields, its lineage, its grouping candidates, and the full text of any
-     protocol documents attached to it.
-  3. NF-CORE PIPELINE DOCS — each rich pipeline's README, usage and output
-     guide, when fetched.
-  4. NF-CORE SCHEMAS — the live parameter schemas, when fetched.
-
-Then you will be given the scientist's QUESTION.
-
-Decide which pipeline(s) genuinely answer THAT QUESTION on THESE SAMPLES.
-Both halves matter. A pipeline that fits the data but does not answer the
-question is wrong, and so is a pipeline that answers the question but cannot
-run on this cohort's data.
-
-Judge what the library can support, not only what it is called. A library
-that sequences only one end of each transcript cannot answer a question about
-isoforms; a library with no size selection cannot answer a question about
-small RNAs; a species with no reference bundle cannot be run at all. The
-protocol text is often the only place the preparation is described.
-
-Return an empty pipelines list when nothing fits — because the data cannot
-support the question, or because no pipeline in the atlas does what was asked.
-Refusing is a correct, expected answer, not a hedge. Equally, do not refuse
-merely because the pipeline's output would still need downstream analysis;
-that is true of almost every correct answer.
-
-Respond with ONLY a single JSON object, no markdown fence, no text around it:
-
-{"pipelines": ["<atlas key>", ...], "reason": "<one sentence>"}"""
-
-USER_TEMPLATE = """{payload}
-
-## QUESTION
-
-{question}
-
-Respond with ONLY the JSON object described in your instructions."""
+# The prompt lives in the shipped module, not here. A copy in the harness would
+# mean this eval scores a photocopy of the selector rather than the selector.
+from chat_nextseek.pipeline.selection import SYSTEM_PROMPT, USER_TEMPLATE  # noqa: E402
 
 
 

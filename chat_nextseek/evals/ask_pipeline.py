@@ -44,6 +44,7 @@ from typing import Any
 
 from chat_nextseek.config import ChatConfig
 from chat_nextseek.pipeline.sample_digest import DigestError
+from chat_nextseek.pipeline.selection import SELECTION_SECTIONS
 from chat_nextseek.pipeline.selection_context import SECTION_NAMES, build_selection_context
 
 EVALS_DIR = Path(__file__).resolve().parent
@@ -60,7 +61,9 @@ TEAM_QUESTIONS = EVALS_DIR / "team_questions.json"
 PROD_DIGESTS = EVALS_DIR / "prod_digests.json"
 CACHE_DIR = EVALS_DIR / ".digest-cache"
 SAMPLE_CAP = 10
-CHEAP = ["atlas", "digest", "schemas"]
+
+#: The live path's sections, so --cheap and production cannot drift apart.
+CHEAP = list(SELECTION_SECTIONS)
 
 
 def cohort_uids(name: str) -> list[str]:
