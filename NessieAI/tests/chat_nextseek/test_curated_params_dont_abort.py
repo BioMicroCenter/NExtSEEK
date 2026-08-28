@@ -276,8 +276,6 @@ def test_an_unreachable_schema_reports_a_skip_and_still_builds(monkeypatch, tmp_
 
 
 def test_the_revision_checked_is_the_revision_that_will_run(monkeypatch, tmp_path):
-    import json
-
     from chat_nextseek.pipeline import agent_tools
 
     seen = {}
@@ -314,3 +312,87 @@ def test_reference_flag_warnings_ride_along_without_blocking(monkeypatch, tmp_pa
         object(), _state(tmp_path), {"pipeline_key": "rnaseq", "params": {}}, str(tmp_path)))
     assert out["ok"] is True
     assert "gff" in out["schema_check"]["reference_warnings"][0]
+
+
+# --- Task 12 review round: the split must survive :675's setdefault and
+# --- :697/700's genome pop, not just partition the untouched merged dict. ---
+
+def test_a_setdefault_filled_data_driven_param_the_schema_rejects_warns_not_errors(monkeypatch, tmp_path):
+    """rnaseq's extra_salmon_quant_args is a real run_param target in the atlas:
+    :675 setdefaults it into agent_params from unanimous leaf evidence, so it was
+    never in tool_input["params"]. The agent cannot drop it (re-sending a
+    different value is rejected by check_run_params as a correction; re-sending
+    the derived value changes nothing) and cannot correct it either — so a
+    schema complaint about it must warn, not hard-fail, or this is the same
+    MAX_ITER livelock the curated-default case exists to prevent, just sourced
+    from the param atlas instead of the curated menu.
+    """
+    import json
+
+    from chat_nextseek.pipeline import agent_tools
+
+    monkeypatch.setattr(agent_tools, "check_params", _fake_check({"extra_salmon_quant_args"}))
+    monkeypatch.setattr(agent_tools, "check_reference_flags", lambda k, r, **kw: [])
+
+    state = _state(tmp_path)
+    state["data_driven_evidence"] = {
+        "leaf-1": {"extra_salmon_quant_args": {"value": "--noLengthCorrection",
+                                               "verdict": "corroborated"}},
+    }
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "rnaseq", "params": {}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert any("extra_salmon_quant_args" in w for w in out["schema_check"]["curated_warnings"])
+
+
+def test_a_resolved_genome_override_the_schema_rejects_warns_not_errors(monkeypatch, tmp_path):
+    """A genome override that resolves to a known bundle is popped out of
+    agent_params at :697/700; the `genome` that lands in `merged` comes from the
+    curated reference-bundle file, not from anything the agent typed. A schema
+    complaint about it is a curation error, so it must warn, not hard-fail —
+    this is the trap the naive 'partition on tool_input alone' fix falls into.
+    """
+    import json
+
+    from chat_nextseek.pipeline import agent_tools
+
+    monkeypatch.setattr(agent_tools, "check_params", _fake_check({"genome"}))
+    monkeypatch.setattr(agent_tools, "check_reference_flags", lambda k, r, **kw: [])
+    monkeypatch.setattr(agent_tools, "load_reference_bundles", lambda: {"bundles": {}})
+    monkeypatch.setattr(agent_tools, "resolve_bundle_for_species", lambda species: "mm10_bundle")
+    monkeypatch.setattr(agent_tools, "build_run_params",
+                        lambda k, ap, bk: ({"genome": "GRCm39", "aligner": "star_salmon"},
+                                           [], "igenomes_fallback"))
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), _state(tmp_path), {"pipeline_key": "rnaseq", "params": {"genome": "mouse"}},
+        str(tmp_path)))
+    assert out["ok"] is True
+    assert any("genome" in w for w in out["schema_check"]["curated_warnings"])
+
+
+def test_an_unresolvable_genome_override_the_schema_rejects_still_hard_fails(monkeypatch, tmp_path):
+    """A genome override that does NOT resolve to a known bundle or species stays
+    in agent_params (the agent's literal iGenomes key, passed through verbatim).
+    The agent chose that value and CAN change it, so a schema complaint about it
+    must still be a hard error — this is the case a naive 'always warn on
+    genome' fix would wrongly silence.
+    """
+    import json
+
+    from chat_nextseek.pipeline import agent_tools
+
+    monkeypatch.setattr(agent_tools, "check_params", _fake_check({"genome"}))
+    monkeypatch.setattr(agent_tools, "check_reference_flags", lambda k, r, **kw: [])
+    monkeypatch.setattr(agent_tools, "load_reference_bundles", lambda: {"bundles": {}})
+    monkeypatch.setattr(agent_tools, "resolve_bundle_for_species", lambda species: None)
+    monkeypatch.setattr(agent_tools, "build_run_params",
+                        lambda k, ap, bk: ({"genome": "GRCh38", "aligner": "star_salmon"},
+                                           [], "igenomes_fallback"))
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), _state(tmp_path), {"pipeline_key": "rnaseq", "params": {"genome": "GRCh38"}},
+        str(tmp_path)))
+    assert out["ok"] is False
+    assert any("genome" in e for e in out["errors"])

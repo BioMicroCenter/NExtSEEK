@@ -78,11 +78,20 @@ def _load_properties(pipeline_key: str, revision: str | None,
 
 
 def check_params(pipeline_key: str, revision: str | None, params: dict[str, Any],
-                 *, schema_getter=None) -> tuple[list[str], str | None]:
+                 *, schema_getter=None, source: str = "curated") -> tuple[list[str], str | None]:
     """Check every final param against the pinned schema.
 
     Returns (errors, skip_reason). When skip_reason is set, errors is empty and
     the caller should validate on the curated menu alone.
+
+    `source` only changes the wording of the "unknown parameter" message: the
+    caller knows whether `params` came from the curated menu (the default) or
+    was supplied by the agent (`source="supplied"`), and the two audiences need
+    different advice. A curated-menu drift is a NExtSEEK bug the agent cannot
+    fix, so it's told to correct the curated file. A supplied param is one the
+    agent chose and CAN fix, so it's told to drop or correct the value it sent
+    — telling it to "correct the curated file" would send it to edit a file it
+    has no tool for and no business touching.
     """
     props, skip = _load_properties(pipeline_key, revision, schema_getter)
     if props is None:
@@ -92,10 +101,13 @@ def check_params(pipeline_key: str, revision: str | None, params: dict[str, Any]
     for name, value in (params or {}).items():
         prop = props.get(name)
         if prop is None:
+            if source == "supplied":
+                advice = "drop it or correct the value you sent"
+            else:
+                advice = "the curated menu has drifted from the pipeline; drop it or correct the curated file"
             errors.append(
                 f"param {name!r} is not a parameter of nf-core/{pipeline_key}@{revision} — "
-                "the curated menu has drifted from the pipeline; drop it or correct the "
-                "curated file. nf-schema aborts the run on an unknown parameter.")
+                f"{advice}. nf-schema aborts the run on an unknown parameter.")
             continue
         if value is None:
             continue

@@ -716,17 +716,33 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     # (emitter.py:669/741), or the check would validate a version nobody runs.
     #
     # Split by WHO supplied the param, because only one of the two is fixable by
-    # the agent. `params` it sent can be corrected and re-sent, so those are hard
-    # errors. A curated DEFAULT it never asked for cannot be removed at all —
-    # build_run_params merges defaults first and agent params only override — so
-    # failing on one would spin the agent to MAX_ITER re-sending a param it has
-    # no way to drop. Those become warnings the user is told about instead.
+    # the agent. A param it can correct and re-send is a hard error. Everything
+    # else it either never asked for or has no way to change, so it becomes a
+    # warning instead — hard-failing on it would spin the agent to MAX_ITER.
+    #
+    # "In agent_params" is NOT the same as "the model sent it": :675 setdefaults
+    # data-driven run_params into agent_params before this point, and :697/700
+    # pop a resolved `genome` override back OUT of agent_params after injecting
+    # the matching bundle default into `merged`. So the split is the
+    # intersection of "in agent_params" and "in what the model actually sent"
+    # (`tool_input["params"]`, never mutated above):
+    #   - a setdefault-filled run_param: in agent_params, not sent -> curated/warns.
+    #     (the agent cannot drop it either way: re-sending a different value is
+    #     rejected by check_run_params as a correction, and re-sending the
+    #     derived value changes nothing — hard-failing here would alternate
+    #     between those two errors forever.)
+    #   - a popped, resolved `genome`: sent, no longer in agent_params -> curated/warns
+    #     (the bundle default came from the curated reference file, not the agent).
+    #   - an ordinary agent param: both -> supplied/hard error.
+    #   - an unresolvable `genome` override: stays in agent_params AND was sent
+    #     -> supplied/hard error, correctly, since the agent chose that literal value.
     revision = (tool_input.get("revision")
                 or (NFCORE_PIPELINE_CATALOG.get(pipeline_key) or {}).get("default_revision"))
-    supplied = {k: v for k, v in merged.items() if k in agent_params}
-    curated = {k: v for k, v in merged.items() if k not in agent_params}
+    sent_by_model = set(tool_input.get("params") or {})
+    supplied = {k: v for k, v in merged.items() if k in agent_params and k in sent_by_model}
+    curated = {k: v for k, v in merged.items() if k not in supplied}
 
-    schema_errors, schema_skip = check_params(pipeline_key, revision, supplied)
+    schema_errors, schema_skip = check_params(pipeline_key, revision, supplied, source="supplied")
     if schema_errors:
         return json.dumps({"ok": False, "errors": schema_errors})
     if schema_skip:
