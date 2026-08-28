@@ -58,7 +58,6 @@ from nextseek_api.services.template_catalog import (
     GROUPS,
     load_catalog,
     load_relationships,
-    suggest,
 )
 
 from .seekdb import SeekDB
@@ -1118,13 +1117,16 @@ def _templates_context(selected=None, message=""):
     return {
         "groups": [g for g in groups if g["entries"]],
         "selected": chosen,
-        "suggestions": [
-            {"code": code,
-             "name": by_code[code].name,
-             "group": by_code[code].group}
-            for code in suggest(chosen, relationships)
-        ],
         "message": message,
+        # The strip is re-derived in the browser as boxes are ticked, so picking
+        # a type costs no round trip. Same one-hop children-only rule as
+        # template_catalog.suggest, which stays the server-side source of truth.
+        "children_json": json.dumps({
+            code: rel.get("children", []) for code, rel in relationships.items()
+        }),
+        "meta_json": json.dumps({
+            e.code: {"name": e.name, "group": e.group} for e in entries
+        }),
     }
 
 

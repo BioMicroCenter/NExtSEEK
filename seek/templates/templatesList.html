@@ -3,145 +3,206 @@
 
 {% block extra_head %}
 <style>
-.templates-page { max-width: 760px; }
-
-.ns-page-header { margin-bottom: 2rem; }
-.ns-page-title {
-    font-family: var(--ns-font-display);
-    font-size: 1.8rem;
-    font-weight: 700;
-    color: var(--ns-ink);
-    letter-spacing: -0.02em;
-    margin-bottom: 0.35rem;
-}
+.templates-page { max-width: 1080px; }
+.ns-page-header { margin-bottom: 1rem; display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; }
+.ns-page-title { font-family: var(--ns-font-display); font-size: 1.8rem; font-weight: 700; color: var(--ns-ink); letter-spacing: -0.02em; margin-bottom: 0.35rem; }
 .ns-page-subtitle { font-size: 0.9rem; color: var(--ns-muted); margin: 0; }
 
-.template-folder { margin-bottom: 1.5rem; }
-.template-folder-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.6rem 0;
-    border-bottom: 1px solid var(--ns-border);
-    margin-bottom: 0.5rem;
-}
-.template-folder-name {
-    font-family: var(--ns-font-display);
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--ns-ink);
-    letter-spacing: -0.01em;
-}
-.template-folder-icon { color: var(--ns-crimson); font-size: 0.95rem; }
+.tpl-search { width: 260px; padding: 0.4rem 0.65rem; border: 1px solid var(--ns-border); border-radius: 5px; font-size: 0.85rem; }
 
-.template-subfolder { margin: 0.35rem 0 0.35rem 1.25rem; }
-.template-subfolder-name {
-    font-size: 0.82rem;
-    font-weight: 700;
-    color: var(--ns-muted);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    margin-bottom: 0.35rem;
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-}
+.tpl-selbar { position: sticky; top: 0; z-index: 5; background: var(--ns-bg); border: 1px solid var(--ns-border); border-radius: 6px 6px 0 0; padding: 0.5rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.tpl-selbar-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); white-space: nowrap; }
+.tpl-actions { margin-left: auto; display: flex; gap: 0.4rem; }
 
-.template-files { display: flex; flex-direction: column; gap: 0.25rem; margin-left: 1.1rem; }
+.tpl-chip { display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 11px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; font-family: var(--bs-font-monospace, monospace); border: 1px solid; cursor: pointer; }
+.tpl-chip[data-group=""]   { background: #fdf1f3; border-color: #e8b4bf; color: #8d1c2d; }
+.tpl-chip[data-group="D."] { background: #eef5fd; border-color: #a2c8f0; color: #1d4f7d; }
+.tpl-chip[data-group="A."] { background: #eef1fc; border-color: #a9b9e8; color: #26417f; }
+.tpl-chip[data-group="M."] { background: #f3f0fa; border-color: #c0b2e0; color: #4a3a7a; }
 
-.template-file-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.45rem 0.75rem;
-    font-size: 0.875rem;
-    color: var(--ns-body);
-    text-decoration: none;
-    border-radius: 6px;
-    transition: all 0.15s;
-    border: 1px solid transparent;
-}
-.template-file-link:hover {
-    background: var(--ns-crimson-soft);
-    border-color: var(--ns-crimson-border);
-    color: var(--ns-crimson);
-    text-decoration: none;
-}
-.template-file-link i { font-size: 0.85rem; color: var(--ns-muted); flex-shrink: 0; }
-.template-file-link:hover i { color: var(--ns-crimson); }
+.tpl-sugg { border: 1px solid var(--ns-border); border-top: 0; border-radius: 0 0 6px 6px; background: #fafafb; padding: 0.4rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.tpl-sugg[hidden] { display: none; }
+.tpl-sg { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px dashed #c3c6cc; background: #fff; border-radius: 11px; padding: 0.1rem 0.5rem; font-size: 0.72rem; color: #3f4650; cursor: pointer; }
+.tpl-sg code { color: var(--ns-crimson); font-weight: 700; }
 
-.template-root-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.45rem 0.75rem;
-    font-size: 0.875rem;
-    color: var(--ns-muted);
-    text-decoration: none;
-    border-radius: 6px;
-    border: 1px solid var(--ns-border);
-    background: var(--ns-bg);
-    transition: all 0.15s;
-    margin-left: 1.25rem;
-    margin-bottom: 0.25rem;
-}
-.template-root-link:hover {
-    background: var(--ns-crimson-soft);
-    border-color: var(--ns-crimson-border);
-    color: var(--ns-crimson);
-    text-decoration: none;
-}
+.tpl-group { margin-top: 1rem; }
+.tpl-group[hidden] { display: none; }
+.tpl-group-name { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); padding-bottom: 0.2rem; border-bottom: 1.5px solid var(--ns-border); }
+.tpl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 0.75rem; margin-top: 0.25rem; }
+@media (max-width: 900px) { .tpl-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .tpl-grid { grid-template-columns: 1fr; } }
+.tpl-item { display: flex; align-items: baseline; gap: 0.35rem; padding: 0.15rem 0.25rem; border-radius: 3px; font-size: 0.8rem; }
+.tpl-item[hidden] { display: none; }
+.tpl-item code { font-weight: 700; min-width: 3.4rem; color: var(--ns-ink); }
+.tpl-item span { color: var(--ns-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl-empty { font-size: 0.85rem; color: var(--ns-muted); padding: 1.5rem 0; }
+.tpl-message { background: var(--ns-crimson-soft); border: 1px solid var(--ns-crimson-border); color: var(--ns-crimson); border-radius: 5px; padding: 0.5rem 0.75rem; font-size: 0.85rem; margin-bottom: 0.75rem; }
 </style>
 {% endblock %}
 
 {% block main %}
 <div class="templates-page">
 
-    <div class="ns-page-header">
-        <h1 class="ns-page-title">Download Templates</h1>
-        <p class="ns-page-subtitle">Sample upload templates organized by type. Download and fill out before uploading assay data.</p>
+  <div class="ns-page-header">
+    <div>
+      <h1 class="ns-page-title">Download Templates</h1>
+      <p class="ns-page-subtitle">Pick your sample types. You'll get one workbook: a README defining every attribute, then one sheet per type.</p>
+    </div>
+    <input type="search" id="tpl-search" class="tpl-search" placeholder="Search code or name&hellip;" autocomplete="off">
+  </div>
+
+  {% if message %}<div class="tpl-message">{{ message }}</div>{% endif %}
+
+  <form id="tpl-form" method="post" action="/seek/templates/download/">
+    {% csrf_token %}
+
+    <div class="tpl-selbar">
+      <span class="tpl-selbar-label">Selected <span id="tpl-count">0</span></span>
+      <span id="tpl-chips"></span>
+      <span class="tpl-actions">
+        <button type="button" id="tpl-clear" class="btn btn-sm btn-outline-secondary">Clear</button>
+        <button type="submit" id="tpl-submit" class="btn btn-sm btn-danger" disabled>Download workbook</button>
+      </span>
     </div>
 
-    {% for folder, contents in folders.items %}
-    {% if contents %}
-    <div class="template-folder">
-        <div class="template-folder-header">
-            <i class="bi bi-folder-fill template-folder-icon"></i>
-            <span class="template-folder-name">{{ folder }}</span>
-        </div>
+    <div class="tpl-sugg" id="tpl-sugg" hidden>
+      <span class="tpl-selbar-label">Commonly used with</span>
+      <span id="tpl-sugg-items"></span>
+      <button type="button" id="tpl-add-all" class="btn btn-sm btn-link p-0 ms-auto" style="font-size:0.72rem">add all &rsaquo;</button>
+    </div>
 
-        {% for subitem, subcontents in contents.items %}
-        {% if subcontents %}
-        <div class="template-subfolder">
-            <div class="template-subfolder-name">
-                <i class="bi bi-folder2"></i> {{ subitem }}
-            </div>
-            <div class="template-files">
-                {% for file in subcontents %}
-                <a href="/templates/{{ file }}" class="template-file-link" download>
-                    <i class="bi bi-file-earmark-arrow-down"></i>
-                    {{ file }}
-                </a>
-                {% endfor %}
-            </div>
-        </div>
-        {% else %}
-        <a href="/templates/{{ folder }}/{{ subitem }}" class="template-root-link" download>
-            <i class="bi bi-file-earmark-arrow-down"></i>
-            {{ subitem }}
-        </a>
-        {% endif %}
+    {% for group in groups %}
+    <div class="tpl-group" data-group="{{ group.key }}">
+      <div class="tpl-group-name">{{ group.label }} <span class="text-muted">{{ group.entries|length }}</span></div>
+      <div class="tpl-grid">
+        {% for entry in group.entries %}
+        <label class="tpl-item" data-code="{{ entry.code }}" data-name="{{ entry.name|lower }}">
+          <input type="checkbox" name="codes" value="{{ entry.code }}"
+                 data-group="{{ entry.group }}" data-name="{{ entry.name }}">
+          <code>{{ entry.code }}</code>
+          <span>{{ entry.name|default:entry.description }}</span>
+        </label>
         {% endfor %}
+      </div>
     </div>
-    {% else %}
-    <div class="template-folder">
-        <div class="template-folder-header">
-            <i class="bi bi-file-earmark template-folder-icon"></i>
-            <span class="template-folder-name">{{ folder }}</span>
-        </div>
-    </div>
-    {% endif %}
+    {% empty %}
+    <p class="tpl-empty">No sample types are defined on this instance.</p>
     {% endfor %}
-
+  </form>
 </div>
+
+<script>
+(function () {
+  var form = document.getElementById('tpl-form');
+  if (!form) { return; }
+
+  var boxes = Array.prototype.slice.call(form.querySelectorAll('input[name="codes"]'));
+  var chips = document.getElementById('tpl-chips');
+  var count = document.getElementById('tpl-count');
+  var submit = document.getElementById('tpl-submit');
+  var suggBar = document.getElementById('tpl-sugg');
+  var suggItems = document.getElementById('tpl-sugg-items');
+
+  // Suggestions are rendered server-side for the initial selection; after that
+  // the strip is driven from this map so picking a type does not cost a round
+  // trip. {code: [childCode, ...]}
+  var CHILDREN = {{ children_json|safe }};
+  var META = {{ meta_json|safe }};
+  var MAX_SUGGESTIONS = 12;
+
+  function selected() {
+    return boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+  }
+
+  function chip(code, group, onClick) {
+    var el = document.createElement('span');
+    el.className = 'tpl-chip';
+    el.setAttribute('data-group', group || '');
+    el.textContent = code + ' ✕';
+    el.addEventListener('click', onClick);
+    return el;
+  }
+
+  function renderSuggestions(chosen) {
+    var picked = {};
+    chosen.forEach(function (c) { picked[c] = true; });
+
+    var tally = {};
+    chosen.forEach(function (code) {
+      (CHILDREN[code] || []).forEach(function (child) {
+        if (picked[child]) { return; }
+        tally[child] = (tally[child] || 0) + 1;
+      });
+    });
+
+    var ranked = Object.keys(tally).sort(function (a, b) {
+      return tally[b] - tally[a] || a.localeCompare(b);
+    }).slice(0, MAX_SUGGESTIONS);
+
+    suggItems.innerHTML = '';
+    ranked.forEach(function (code) {
+      var meta = META[code] || {};
+      var el = document.createElement('span');
+      el.className = 'tpl-sg';
+      el.innerHTML = '<code>+ ' + code + '</code> ' + (meta.name || '');
+      el.addEventListener('click', function () { check(code, true); });
+      suggItems.appendChild(el);
+    });
+    suggBar.hidden = ranked.length === 0;
+    suggBar.dataset.codes = ranked.join(',');
+  }
+
+  function check(code, value) {
+    boxes.forEach(function (b) { if (b.value === code) { b.checked = value; } });
+    render();
+  }
+
+  function render() {
+    var chosen = selected();
+    chips.innerHTML = '';
+    chosen.forEach(function (code) {
+      var box = boxes.filter(function (b) { return b.value === code; })[0];
+      chips.appendChild(chip(code, box.getAttribute('data-group'), function () {
+        check(code, false);
+      }));
+    });
+    count.textContent = chosen.length;
+    submit.disabled = chosen.length === 0;
+    renderSuggestions(chosen);
+  }
+
+  boxes.forEach(function (b) { b.addEventListener('change', render); });
+
+  document.getElementById('tpl-clear').addEventListener('click', function () {
+    boxes.forEach(function (b) { b.checked = false; });
+    render();
+  });
+
+  // Adds exactly what is on screen, never a hidden tail.
+  document.getElementById('tpl-add-all').addEventListener('click', function () {
+    (suggBar.dataset.codes || '').split(',').filter(Boolean).forEach(function (c) {
+      boxes.forEach(function (b) { if (b.value === c) { b.checked = true; } });
+    });
+    render();
+  });
+
+  var search = document.getElementById('tpl-search');
+  search.addEventListener('input', function () {
+    var q = search.value.trim().toLowerCase();
+    document.querySelectorAll('.tpl-group').forEach(function (group) {
+      var visible = 0;
+      group.querySelectorAll('.tpl-item').forEach(function (item) {
+        var hit = !q
+          || item.getAttribute('data-code').toLowerCase().indexOf(q) !== -1
+          || item.getAttribute('data-name').indexOf(q) !== -1;
+        item.hidden = !hit;
+        if (hit) { visible += 1; }
+      });
+      group.hidden = visible === 0;
+    });
+  });
+
+  render();
+})();
+</script>
 {% endblock %}
