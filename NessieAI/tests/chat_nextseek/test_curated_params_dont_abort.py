@@ -189,3 +189,128 @@ def test_only_pipelines_that_need_it_get_their_ids_rewritten(tmp_path):
             accession_metadata={uid: {"Link_PrimaryData": "/net/x/a_R1.fastq.gz"}})
         row = next(iter(csv.DictReader((out / "samplesheet.csv").open(newline=""))))
         assert row["sample"] == uid, f"{key} rewrote an id it did not need to"
+
+
+def _state(tmp_path):
+    (tmp_path / "s.csv").write_text("sample\nA\n")
+    return {"artifacts": {"samplesheet": str(tmp_path / "s.csv"), "base_dir": str(tmp_path)},
+            "pipeline_key": "rnaseq", "bundle_key": None}
+
+
+def _fake_check(bad_names):
+    """Stand in for check_params: error on any param named in `bad_names`."""
+    def check(pipeline_key, revision, params, **kwargs):
+        return ([f"param {n!r} is not a parameter of nf-core/{pipeline_key}@{revision}"
+                 for n in params if n in bad_names], None)
+    return check
+
+
+def test_a_param_the_agent_supplied_is_rejected(monkeypatch, tmp_path):
+    """An agent-supplied param the schema rejects is something the agent can fix."""
+    import json
+
+    from chat_nextseek.pipeline import agent_tools
+
+    monkeypatch.setattr(agent_tools, "check_params", _fake_check({"aligner"}))
+    monkeypatch.setattr(agent_tools, "check_reference_flags", lambda k, r, **kw: [])
+    monkeypatch.setattr(agent_tools, "build_run_params",
+                        lambda k, ap, bk: ({"aligner": "bowtie2", "gencode": True}, [], "no_bundle"))
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), _state(tmp_path),
+        {"pipeline_key": "rnaseq", "params": {"aligner": "bowtie2"}}, str(tmp_path)))
+    assert out["ok"] is False
+    assert any("aligner" in e for e in out["errors"])
+
+
+def test_a_drifted_curated_default_warns_but_still_builds(monkeypatch, tmp_path):
+    """A bad curated DEFAULT is our bug, not the agent's, and the agent cannot
+    remove it — build_run_params merges defaults first and params can only
+    override. Hard-failing here would spin the agent to MAX_ITER re-sending a
+    param it has no way to drop."""
+    import json
+
+    from chat_nextseek.pipeline import agent_tools
+
+    monkeypatch.setattr(agent_tools, "check_params", _fake_check({"ghost_default"}))
+    monkeypatch.setattr(agent_tools, "check_reference_flags", lambda k, r, **kw: [])
+    monkeypatch.setattr(agent_tools, "build_run_params",
+                        lambda k, ap, bk: ({"ghost_default": True, "aligner": "star_salmon"},
+                                           [], "no_bundle"))
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), _state(tmp_path),
+        {"pipeline_key": "rnaseq", "params": {"aligner": "star_salmon"}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert any("ghost_default" in w for w in out["schema_check"]["curated_warnings"])
+
+
+def test_a_clean_run_carries_no_warnings(monkeypatch, tmp_path):
+    import json
+
+    from chat_nextseek.pipeline import agent_tools
+
+    monkeypatch.setattr(agent_tools, "check_params", _fake_check(set()))
+    monkeypatch.setattr(agent_tools, "check_reference_flags", lambda k, r, **kw: [])
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), _state(tmp_path), {"pipeline_key": "rnaseq", "params": {}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert out["schema_check"] == {"status": "ok"}
+
+
+def test_an_unreachable_schema_reports_a_skip_and_still_builds(monkeypatch, tmp_path):
+    import json
+
+    from chat_nextseek.pipeline import agent_tools
+
+    monkeypatch.setattr(agent_tools, "check_params",
+                        lambda k, r, p, **kw: ([], "rnaseq@3.18.0 schema unavailable (read timeout)"))
+    monkeypatch.setattr(agent_tools, "check_reference_flags", lambda k, r, **kw: [])
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), _state(tmp_path), {"pipeline_key": "rnaseq", "params": {}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert out["schema_check"]["status"] == "skipped"
+    assert "read timeout" in out["schema_check"]["reason"]
+
+
+def test_the_revision_checked_is_the_revision_that_will_run(monkeypatch, tmp_path):
+    import json
+
+    from chat_nextseek.pipeline import agent_tools
+
+    seen = {}
+
+    def spy(pipeline_key, revision, params, **kwargs):
+        seen["revision"] = revision
+        return [], None
+
+    monkeypatch.setattr(agent_tools, "check_params", spy)
+    monkeypatch.setattr(agent_tools, "check_reference_flags", lambda k, r, **kw: [])
+    state = _state(tmp_path)
+
+    agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "rnaseq", "params": {}, "revision": "3.14.0"},
+        str(tmp_path))
+    assert seen["revision"] == "3.14.0"          # an explicit revision wins
+
+    agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "rnaseq", "params": {}}, str(tmp_path))
+    assert seen["revision"] == \
+        agent_tools.NFCORE_PIPELINE_CATALOG["rnaseq"]["default_revision"]
+
+
+def test_reference_flag_warnings_ride_along_without_blocking(monkeypatch, tmp_path):
+    import json
+
+    from chat_nextseek.pipeline import agent_tools
+
+    monkeypatch.setattr(agent_tools, "check_params", lambda k, r, p, **kw: ([], None))
+    monkeypatch.setattr(agent_tools, "check_reference_flags",
+                        lambda k, r, **kw: ["the catalog declares reference flag(s) gff"])
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), _state(tmp_path), {"pipeline_key": "rnaseq", "params": {}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert "gff" in out["schema_check"]["reference_warnings"][0]

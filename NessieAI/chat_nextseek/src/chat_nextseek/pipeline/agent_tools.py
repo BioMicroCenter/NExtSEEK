@@ -41,6 +41,7 @@ from ..seqera.pipeline_params import (
     process_args_for,
     resolve_bundle_for_species,
 )
+from ..seqera.schema_check import check_params, check_reference_flags
 from ..seqera.submitter import submit_launch
 from ..seqera.user_params import (
     missing_user_params,
@@ -707,6 +708,40 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     if errors:
         return json.dumps({"ok": False, "errors": errors})
 
+    # Cross-check the assembled params against the pipeline's OWN pinned schema.
+    # The curated menu above is hand-maintained; four of the six defects found on
+    # 2026-08-05 were curation errors at this step, and nf-schema aborts the run
+    # on any parameter it does not recognise — so drift surfaces on the cluster
+    # rather than here unless we look. Same revision the emitter will use
+    # (emitter.py:669/741), or the check would validate a version nobody runs.
+    #
+    # Split by WHO supplied the param, because only one of the two is fixable by
+    # the agent. `params` it sent can be corrected and re-sent, so those are hard
+    # errors. A curated DEFAULT it never asked for cannot be removed at all —
+    # build_run_params merges defaults first and agent params only override — so
+    # failing on one would spin the agent to MAX_ITER re-sending a param it has
+    # no way to drop. Those become warnings the user is told about instead.
+    revision = (tool_input.get("revision")
+                or (NFCORE_PIPELINE_CATALOG.get(pipeline_key) or {}).get("default_revision"))
+    supplied = {k: v for k, v in merged.items() if k in agent_params}
+    curated = {k: v for k, v in merged.items() if k not in agent_params}
+
+    schema_errors, schema_skip = check_params(pipeline_key, revision, supplied)
+    if schema_errors:
+        return json.dumps({"ok": False, "errors": schema_errors})
+    if schema_skip:
+        schema_check = {"status": "skipped", "reason": schema_skip}
+    else:
+        schema_check = {"status": "ok"}
+        # The schema is cached by (pipeline, revision) after the call above, so
+        # this second call costs a dict lookup, not a fetch.
+        curated_warnings, _ = check_params(pipeline_key, revision, curated)
+        if curated_warnings:
+            schema_check["curated_warnings"] = curated_warnings
+        reference_warnings = check_reference_flags(pipeline_key, revision)
+        if reference_warnings:
+            schema_check["reference_warnings"] = reference_warnings
+
     base = artifacts.get("base_dir") or str(Path(log_dir or getattr(config, "LOG_DIR", ".")))
     plan = SeqeraLaunchPlan(
         run_name=(Path(base).name or pipeline_key),
@@ -733,6 +768,7 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "reference_status": reference_status,
         "reference_files": ref_files,
         "bundle_key": bundle_key,
+        "schema_check": schema_check,
         "params_yml": result.saved_files.get("params"),
         "launch_yml": result.saved_files.get("launch"),
     })
