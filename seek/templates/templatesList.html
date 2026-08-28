@@ -8,9 +8,20 @@
 .ns-page-title { font-family: var(--ns-font-display); font-size: 1.8rem; font-weight: 700; color: var(--ns-ink); letter-spacing: -0.02em; margin-bottom: 0.35rem; }
 .ns-page-subtitle { font-size: 0.9rem; color: var(--ns-muted); margin: 0; }
 
-.tpl-search { width: 260px; padding: 0.4rem 0.65rem; border: 1px solid var(--ns-border); border-radius: 5px; font-size: 0.85rem; }
+/* Sits inside .tpl-selbar rather than in its own box: no border of its own, and
+   it grows to take whatever width the chips leave. min-width keeps a usable
+   field once a long selection wraps the chips onto their own line. */
+.tpl-search { flex: 1 1 8rem; min-width: 8rem; border: 0; outline: none; background: transparent; padding: 0.15rem 0.1rem; font-size: 0.85rem; color: var(--ns-body); }
+.tpl-search::placeholder { color: var(--ns-muted); }
+.tpl-search::-webkit-search-cancel-button { cursor: pointer; }
 
-.tpl-selbar { position: sticky; top: 0; z-index: 5; background: var(--ns-bg); border: 1px solid var(--ns-border); border-radius: 6px 6px 0 0; padding: 0.5rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.tpl-selbar { position: sticky; top: 0; z-index: 5; background: var(--ns-bg); border: 1px solid var(--ns-border); border-radius: 6px 6px 0 0; padding: 0.5rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; cursor: text; margin: 0; }
+/* The whole bar reads as one input, so it takes the focus ring rather than the
+   bare field inside it. */
+.tpl-selbar:focus-within { border-color: var(--ns-crimson-border, #e8b4bf); box-shadow: 0 0 0 2px rgba(163, 31, 52, 0.12); }
+/* Buttons are inside a <label>, so a click would otherwise focus the input and
+   fire twice; they also must not inherit the label's text cursor. */
+.tpl-actions button { cursor: pointer; }
 .tpl-selbar-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); white-space: nowrap; }
 .tpl-actions { margin-left: auto; display: flex; gap: 0.4rem; }
 
@@ -48,7 +59,6 @@
       <h1 class="ns-page-title">Download Templates</h1>
       <p class="ns-page-subtitle">Pick your sample types. You'll get one workbook: a README defining every attribute, then one sheet per type.</p>
     </div>
-    <input type="search" id="tpl-search" class="tpl-search" placeholder="Search code or name&hellip;" autocomplete="off">
   </div>
 
   {% if message %}<div class="tpl-message">{{ message }}</div>{% endif %}
@@ -56,9 +66,17 @@
   <form id="tpl-form" method="post" action="/seek/templates/download/">
     {% csrf_token %}
 
-    <div class="tpl-selbar">
+    {# The chips and the search input share one control: the selection stays #}
+    {# visible and editable while filtering, so a user never has to clear the #}
+    {# search to see or remove what they have already picked. Deliberately a #}
+    {# div, not a label -- a label must not contain buttons or other #}
+    {# interactive controls, and clicking a chip would both remove it and #}
+    {# focus the field. The JS focuses the input on clicks that land on the #}
+    {# bar's own padding instead. #}
+    <div class="tpl-selbar" id="tpl-selbar">
       <span class="tpl-selbar-label">Selected <span id="tpl-count">0</span></span>
       <span id="tpl-chips"></span>
+      <input type="search" id="tpl-search" class="tpl-search" placeholder="Search code or name&hellip;" autocomplete="off" aria-label="Search sample types by code or name">
       <span class="tpl-actions">
         <button type="button" id="tpl-clear" class="btn btn-sm btn-outline-secondary">Clear</button>
         <button type="submit" id="tpl-submit" class="btn btn-sm btn-danger" disabled>Download workbook</button>
@@ -197,6 +215,20 @@
   });
 
   var search = document.getElementById('tpl-search');
+
+  // The bar reads as one text field, so a click on its padding should land in
+  // the input. Clicks on a chip, a button or the input itself are left alone --
+  // stealing focus from a chip's remove would fight the user.
+  document.getElementById('tpl-selbar').addEventListener('mousedown', function (event) {
+    if (event.target === this) { search.focus(); }
+  });
+
+  // The input now lives inside the form, so Enter would submit it mid-search.
+  // Filtering is live, so Enter has nothing to do here.
+  search.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') { event.preventDefault(); }
+  });
+
   search.addEventListener('input', function () {
     var q = search.value.trim().toLowerCase();
     document.querySelectorAll('.tpl-group').forEach(function (group) {
