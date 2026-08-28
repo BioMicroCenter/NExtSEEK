@@ -7,7 +7,6 @@ are schema definitions, not sample data. Login is still required.
 import json
 from unittest.mock import MagicMock, patch
 
-import requests
 from django.test import RequestFactory
 
 from nextseek_api.services.template_catalog import SampleTypeEntry
