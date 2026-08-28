@@ -97,6 +97,34 @@ class TestPicker:
         assert "Data types" in body
         assert "TIS" in body and "D.SEQ" in body
 
+    @patch("seek.views.load_catalog")
+    @patch("seek.views.SeekDB")
+    def test_a_hostile_sample_type_name_cannot_break_out_of_the_script_block(
+            self, mock_db, mock_catalog):
+        """A curator-written name is untrusted by the time it reaches the page.
+
+        children_json/meta_json are built from DB-sourced sample type names
+        with no Django write path (out-of-band curation pipeline), so a name
+        containing markup must still render inert. The raw `</script>`
+        sequence must never appear unescaped in the response body -- that is
+        exactly what would terminate the inline script block early and let
+        the rest of the payload run as markup.
+        """
+        from seek.views import templatesList
+
+        hostile = SampleTypeEntry(
+            code="EVIL", sample_type_id=99,
+            name="</script><img src=x onerror=alert(1)>",
+            description="", group="")
+
+        mock_catalog.return_value = [TIS, SEQ, hostile]
+        mock_db.return_value = _logged_in()
+        resp = templatesList(_get())
+        body = resp.content.decode()
+
+        assert "</script><img" not in body
+        assert "<img src=x onerror=alert(1)>" not in body
+
 
 class TestDownload:
     @patch("seek.views.SeekDB")

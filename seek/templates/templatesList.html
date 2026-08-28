@@ -91,6 +91,8 @@
   </form>
 </div>
 
+{{ children_json|json_script:"tpl-children-data" }}
+{{ meta_json|json_script:"tpl-meta-data" }}
 <script>
 (function () {
   var form = document.getElementById('tpl-form');
@@ -106,8 +108,8 @@
   // Suggestions are rendered server-side for the initial selection; after that
   // the strip is driven from this map so picking a type does not cost a round
   // trip. {code: [childCode, ...]}
-  var CHILDREN = {{ children_json|safe }};
-  var META = {{ meta_json|safe }};
+  var CHILDREN = JSON.parse(document.getElementById('tpl-children-data').textContent);
+  var META = JSON.parse(document.getElementById('tpl-meta-data').textContent);
   var MAX_SUGGESTIONS = 12;
 
   function selected() {
@@ -144,7 +146,10 @@
       var meta = META[code] || {};
       var el = document.createElement('span');
       el.className = 'tpl-sg';
-      el.innerHTML = '<code>+ ' + code + '</code> ' + (meta.name || '');
+      var codeEl = document.createElement('code');
+      codeEl.textContent = '+ ' + code;
+      el.appendChild(codeEl);
+      el.appendChild(document.createTextNode(' ' + (meta.name || '')));
       el.addEventListener('click', function () { check(code, true); });
       suggItems.appendChild(el);
     });

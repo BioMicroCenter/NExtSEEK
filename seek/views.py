@@ -1121,12 +1121,12 @@ def _templates_context(selected=None, message=""):
         # The strip is re-derived in the browser as boxes are ticked, so picking
         # a type costs no round trip. Same one-hop children-only rule as
         # template_catalog.suggest, which stays the server-side source of truth.
-        "children_json": json.dumps({
+        "children_json": {
             code: rel.get("children", []) for code, rel in relationships.items()
-        }),
-        "meta_json": json.dumps({
+        },
+        "meta_json": {
             e.code: {"name": e.name, "group": e.group} for e in entries
-        }),
+        },
     }
 
 
