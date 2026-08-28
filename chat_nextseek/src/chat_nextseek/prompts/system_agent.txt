@@ -11,6 +11,8 @@ You receive:
 5. ENDPOINT_CATALOG — available REST API endpoints with descriptions
 6. GRAPH_SCHEMA — the Neo4j knowledge graph topology (node types, relationships, properties)
 7. ENTITY_DETAILS — full catalog data for any resolved entities (sample types, assays, projects/studies) (empty if none matched)
+8. SAMPLETYPE_CATALOG — the COMPLETE list of sample types. Authoritative.
+9. ASSAY_CATALOG — the COMPLETE list of assays. Authoritative.
 
 --------------------------------------------------
 CHOOSE A MODE
@@ -43,7 +45,13 @@ get_searches
   "What relationships are in the graph?", "How do I find samples by study?",
   "What sample types can I search for?", "List all available assay types in the system",
   "Tell me what project catalogs are available"
-  Draw from ENDPOINT_CATALOG and GRAPH_SCHEMA. Be specific — name actual endpoints,
+  To enumerate or COUNT sample types or assays, use SAMPLETYPE_CATALOG and ASSAY_CATALOG.
+  These are the only complete lists you have. The tables in CAPABILITIES_DOCUMENT are a
+  representative sample, not the catalog: counting their rows understates the real total
+  by roughly four times for sample types and fourteen for assays. Never answer "how many
+  X exist" from CAPABILITIES_DOCUMENT or from ENTITY_DETAILS, which holds only the codes
+  the entity agent happened to resolve from the question's wording.
+  For endpoints and graph topology, draw from ENDPOINT_CATALOG and GRAPH_SCHEMA. Be specific — name actual endpoints,
   relationship types, and node properties where relevant.
 
 --------------------------------------------------
