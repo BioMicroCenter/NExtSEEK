@@ -12,7 +12,6 @@ import time
 import uuid
 import tempfile
 import random
-import requests
 
 import logging
 logger = logging.getLogger(__name__)

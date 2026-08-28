@@ -7,6 +7,7 @@ are schema definitions, not sample data. Login is still required.
 import json
 from unittest.mock import MagicMock, patch
 
+import requests
 from django.test import RequestFactory
 
 from nextseek_api.services.template_catalog import SampleTypeEntry
@@ -54,11 +55,11 @@ class TestPicker:
         assert resp.status_code == 302
         assert "/login/" in resp.url
 
-    @patch("seek.views.requests")
+    @patch("requests.adapters.HTTPAdapter.send")
     @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.views.SeekDB")
     def test_a_logged_in_user_gets_the_page_without_any_project_check(
-            self, mock_db, _catalog, mock_requests):
+            self, mock_db, _catalog, mock_send):
         """The behaviour change: membership no longer gates the page.
 
         A plain 200 can't distinguish "no project check" from "project check
@@ -68,6 +69,12 @@ class TestPicker:
         The picker template still expects the pre-rewrite `folders` context
         variable (next task), so we don't assert on picker markup here --
         only on the absence of the old denial response.
+
+        Patches ``requests.adapters.HTTPAdapter.send`` -- the point where
+        every ``requests`` call actually hits the network, regardless of
+        which module holds the reference -- rather than a `seek.views`-local
+        alias, so this keeps proving no SEEK HTTP call happens even now that
+        `seek/views.py` no longer imports `requests` at all.
         """
         from seek.views import templatesList
 
@@ -75,7 +82,7 @@ class TestPicker:
         resp = templatesList(_get())
         assert resp.status_code == 200
         mock_db.return_value.getSeekLogin.assert_called_once()
-        mock_requests.get.assert_not_called()
+        mock_send.assert_not_called()
 
         body = resp.content.decode()
         assert "You are not in the correct project" not in body
