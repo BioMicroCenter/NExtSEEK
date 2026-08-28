@@ -140,3 +140,27 @@ class TestExtractFromRealDescriptions:
             "see 10.1126/sciadv.adq6652 and also https://doi.org/10.1126/sciadv.adq6652"
         )
         assert [c.value for c in cands] == ["10.1126/sciadv.adq6652"]
+
+    def test_supplementary_file_doi_is_rejected(self):
+        # Study 26's description cites both the article DOI and its supplementary
+        # file, which publishers mint as a sub-DOI. Crossref 404s on the latter,
+        # and it produced a spurious duplicate row in the curator review file.
+        assert normalize_doi(
+            "10.1126/sciadv.adq6652/suppl_file/sciadv.adq6652_sm.pdf"
+        ) is None
+
+    def test_article_doi_survives_alongside_its_supplement(self):
+        cands = extract_publication_candidates(
+            "https://doi.org/10.1126/sciadv.adq6652 and "
+            "https://doi.org/10.1126/sciadv.adq6652/suppl_file/sciadv.adq6652_sm.pdf"
+        )
+        assert [c.value for c in cands] == ["10.1126/sciadv.adq6652"]
+
+    def test_acs_supplementary_suffix_doi_is_rejected(self):
+        # ACS mints one DOI per supplementary file by appending .sNNN to the
+        # article DOI. Crossref resolves it, so it looks valid — but it is the
+        # supplement, not the paper.
+        assert normalize_doi("10.1021/acssensors.4c00927.s002") is None
+
+    def test_article_doi_without_the_suffix_is_kept(self):
+        assert normalize_doi("10.1021/acssensors.4c00927") == "10.1021/acssensors.4c00927"

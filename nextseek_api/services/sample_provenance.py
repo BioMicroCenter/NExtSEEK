@@ -70,8 +70,8 @@ def derivation_edges(df, assay_by_uuid: Mapping[str, str],
 def sample_type_depths(edges: Mapping[tuple[str, str], set[str]]) -> dict[str, int]:
     """Each type -> its longest distance from a type with no parent.
 
-    This is the definition of "generation order" used for both the flow sheet
-    and the sheet order. Longest, not shortest: a type reachable both directly
+    This is the definition of "generation order" used for both the tree and
+    the sheet order. Longest, not shortest: a type reachable both directly
     and through a chain belongs at the later point, where a reader expects it.
 
     Cycle-safe -- the production graph really does contain CEL <-> D.FLOW,
@@ -100,72 +100,89 @@ def sample_type_depths(edges: Mapping[tuple[str, str], set[str]]) -> dict[str, i
     return depths
 
 
-def _arrow(assays: set[str]) -> str:
-    labels = sorted(a for a in assays if a)
-    return f"--[{', '.join(labels)}]-->" if labels else "------>"
+def build_provenance_tree(edges: Mapping[tuple[str, str], set[str]]) -> list[str]:
+    """One indented line per node, as an ASCII tree rooted at each origin type.
 
+    Replaces the flat-chain cover. That cover spent every hop on exactly one
+    row, so a chain arriving at a type whose onward hop was already used simply
+    stopped -- fifteen rows began bare at TIS with no way to see where TIS came
+    from. Re-treading a shared prefix is how a person reads lineage.
 
-def build_provenance_rows(edges: Mapping[tuple[str, str], set[str]],
-                          depths: Mapping[str, int]) -> list[list[str]]:
-    """One row per chain, as alternating cells: type, arrow, type, arrow, type.
+    Two guards stop the walk and they are not interchangeable:
 
-    A *fresh-hop path cover*: take the earliest uncovered hop, extend it
-    forward and backward through hops not yet used, emit, repeat. Every hop
-    appears in exactly one row, so nothing is lost and nothing is duplicated.
+    `(cycle)` fires when a type is already on the CURRENT path. The production
+    graph really does contain CEL <-> D.FLOW, TIS <-> BAC, TIS <-> D.BSRA,
+    CEL <-> OOC and A.IMG <-> MDL; without this the walk does not terminate.
 
-    Measured on the full local graph: 129 hops become 71 chains, widest 13
-    cells. The obvious alternative -- root-anchored paths, longest first --
-    produced 89 chains that re-tread the same prefixes and still missed the two
-    hops reachable only through a cycle.
+    `(expanded above)` fires when a type's subtree was already drawn ANYWHERE.
+    The graph is a DAG, not a tree -- TIS has six parents and D.IMG has
+    seventeen -- so expanding every occurrence yields 3,763 lines against the
+    150-hop production graph, nearly all of it the same subtrees repeated. With
+    the guard it is 178. A type with no children is drawn in full instead: the
+    marker would be noise where there is nothing to expand.
 
-    Chains that start mid-pipeline are expected: their upstream was already
-    shown by an earlier row.
+    Roots and siblings sort by name, so the tree is stable across runs. It takes
+    no `depths` argument: every root is depth 0 by definition, so depth-sorting
+    them would be a no-op. The caller still computes depths -- the sheet ORDER
+    uses them -- but this function does not.
+
+    A root is normally "a type no edge names as a child." That definition
+    misses a strongly-connected cluster with no external entry point -- e.g.
+    `{("X", "X"): set()}` or `{("A", "B"): set(), ("B", "A"): set()}` -- where
+    every member has a parent, so none is eligible and the whole cluster would
+    silently vanish. After the normal roots are walked, a second pass scans
+    every node in sorted order and walks any that is still unexpanded as its
+    own root. Walking a node marks its whole forward-reachable component
+    expanded, so this naturally lands on just the lowest-sorted unexpanded
+    node of each remaining component, one extra tree per component, still
+    blank-line separated and still deterministic.
     """
-    children: dict[str, list[str]] = {}
-    parents: dict[str, list[str]] = {}
-    for parent, child in edges:
-        children.setdefault(parent, []).append(child)
-        parents.setdefault(child, []).append(parent)
+    children: dict[str, list[tuple[str, list[str]]]] = {}
+    have_parent: set[str] = set()
+    for (parent, child), assays in edges.items():
+        children.setdefault(parent, []).append(
+            (child, sorted(assay for assay in assays if assay)))
         children.setdefault(child, [])
-        parents.setdefault(parent, [])
+        have_parent.add(child)
 
-    def rank(node: str) -> tuple:
-        return (depths.get(node, len(depths)), node)
+    lines: list[str] = []
+    expanded: set[str] = set()
 
-    free = set(edges)
-    chains: list[list[str]] = []
-    while free:
-        parent, child = min(free, key=lambda e: (rank(e[0]), e[1]))
-        path = [parent, child]
-        free.discard((parent, child))
+    def walk(node: str, assays: list[str], path: frozenset,
+             prefix: str, connector: str) -> None:
+        label = f"{node}   [{', '.join(assays)}]" if assays else node
+        if node in path:
+            lines.append(f"{prefix}{connector}{label}   (cycle)")
+            return
+        if node in expanded and children.get(node):
+            lines.append(f"{prefix}{connector}{label}   (expanded above)")
+            return
+        expanded.add(node)
+        lines.append(f"{prefix}{connector}{label}")
 
-        while True:
-            forward = [(path[-1], c) for c in children[path[-1]]
-                       if (path[-1], c) in free and c not in path]
-            if not forward:
-                break
-            step = min(forward, key=lambda e: rank(e[1]))
-            path.append(step[1])
-            free.discard(step)
+        kids = sorted(children.get(node, []))
+        for index, (child, child_assays) in enumerate(kids):
+            last = index == len(kids) - 1
+            # The root's own line carries no connector, so its children hang
+            # directly off column zero rather than being pushed right by it.
+            extension = "" if not connector else ("    " if connector.startswith("└") else "│   ")
+            walk(child, child_assays, path | {node},
+                 prefix + extension, "└── " if last else "├── ")
 
-        while True:
-            backward = [(p, path[0]) for p in parents[path[0]]
-                        if (p, path[0]) in free and p not in path]
-            if not backward:
-                break
-            step = max(backward, key=lambda e: rank(e[0]))
-            path.insert(0, step[0])
-            free.discard(step)
+    for index, root in enumerate(sorted(n for n in children if n not in have_parent)):
+        if index:
+            lines.append("")
+        walk(root, [], frozenset(), "", "")
 
-        chains.append(path)
-
-    chains.sort(key=lambda path: rank(path[0]))
-
-    rows = []
-    for path in chains:
-        row = [path[0]]
-        for parent, child in zip(path, path[1:]):
-            row.append(_arrow(edges[(parent, child)]))
-            row.append(child)
-        rows.append(row)
-    return rows
+    # Second pass: any node still unexpanded belongs to a rootless component
+    # (every member has a parent, so the loop above never reached it). Walking
+    # the lowest-sorted unexpanded node marks its whole forward-reachable
+    # component expanded, so this loop naturally picks exactly one root per
+    # remaining component without tracking components explicitly.
+    for node in sorted(children):
+        if node in expanded:
+            continue
+        if lines:
+            lines.append("")
+        walk(node, [], frozenset(), "", "")
+    return lines
