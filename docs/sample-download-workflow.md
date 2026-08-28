@@ -362,3 +362,28 @@ takes to light the meanings up on an instance:
 Steps can happen in any order. `load_sample_field_context` fails soft: if the
 table is missing or unreachable it logs and every meaning renders blank, so
 there is no window in which downloads break.
+
+## Blank templates
+
+`/seek/templates/` (`seek/views.py:templatesList`) is a second entry point into
+the same writer module. `write_template_workbook` produces the same artifact as
+`write_samples_workbook` minus the data rows and the provenance sheet: README
+first, then one headers-only sheet per sample type, then a hidden `_NEXTSEEK`
+manifest.
+
+It lives beside `write_samples_workbook` rather than in its own module for the
+reason this document records above — two writers meant a change to the workbook
+had to be made twice. Both share `build_readme_blocks`, `_write_readme`,
+`_apply_dropdowns` and `_write_vocabulary_sheet`. The template path passes
+`required_by_pair` and `relationships_by_code`; the sample path passes neither
+and its output is unchanged, which
+`test_blocks_without_the_new_arguments_are_byte_identical_to_before` pins.
+
+Columns come from `sample_attributes` via
+`DBtable_sampleattribute.getAttributeSpecsBySampleTypeIds`, so a template always
+matches what upload validation enforces.
+
+The `_NEXTSEEK` manifest carries `database_field` pre-rendered as
+`Code::Attribute` — the shape the `INSTRUCTIONS` sheet needs — so the planned
+converter that turns a filled-in template back into canonical upload format
+reads a mapping rather than reconstructing one.
