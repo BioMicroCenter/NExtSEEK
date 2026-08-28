@@ -4,9 +4,9 @@ The project-membership gate that used to guard this page is gone -- templates
 are schema definitions, not sample data. Login is still required.
 """
 
+import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 from django.test import RequestFactory
 
 from nextseek_api.services.template_catalog import SampleTypeEntry
@@ -54,17 +54,36 @@ class TestPicker:
         assert resp.status_code == 302
         assert "/login/" in resp.url
 
+    @patch("seek.views.requests")
     @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.views.SeekDB")
     def test_a_logged_in_user_gets_the_page_without_any_project_check(
-            self, mock_db, _catalog):
-        """The behaviour change: membership no longer gates the page."""
+            self, mock_db, _catalog, mock_requests):
+        """The behaviour change: membership no longer gates the page.
+
+        A plain 200 can't distinguish "no project check" from "project check
+        present and denying" -- the old denial branch also returned 200, just
+        with a JSON error blob in the body. Pin the real behaviour instead:
+        no SEEK HTTP call is made, and the body isn't that JSON denial blob.
+        The picker template still expects the pre-rewrite `folders` context
+        variable (next task), so we don't assert on picker markup here --
+        only on the absence of the old denial response.
+        """
         from seek.views import templatesList
 
         mock_db.return_value = _logged_in()
         resp = templatesList(_get())
         assert resp.status_code == 200
         mock_db.return_value.getSeekLogin.assert_called_once()
+        mock_requests.get.assert_not_called()
+
+        body = resp.content.decode()
+        assert "You are not in the correct project" not in body
+        try:
+            parsed = json.loads(body)
+        except ValueError:
+            parsed = None
+        assert not (isinstance(parsed, dict) and parsed.get("status") == 0)
 
     @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.views.SeekDB")
@@ -136,6 +155,18 @@ class TestDownload:
         templatesDownload(_post(["TIS", "NOPE"]))
         entries = mock_write.call_args[0][0]
         assert [e.code for e in entries] == ["TIS"]
+
+    @patch("seek.views.write_template_workbook")
+    @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
+    @patch("seek.views.SeekDB")
+    def test_a_duplicated_code_is_written_only_once(
+            self, mock_db, _catalog, mock_write):
+        from seek.views import templatesDownload
+
+        mock_db.return_value = _logged_in()
+        templatesDownload(_post(["TIS", "TIS", "D.SEQ"]))
+        entries = mock_write.call_args[0][0]
+        assert [e.code for e in entries] == ["TIS", "D.SEQ"]
 
     @patch("seek.views.write_template_workbook")
     @patch("seek.views.load_catalog", return_value=[TIS, SEQ])

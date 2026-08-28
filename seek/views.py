@@ -1161,8 +1161,10 @@ def templatesDownload(request):
     # order the user built them. Unknown codes are dropped rather than 400ing --
     # a stale bookmark should still produce the types it names.
     chosen = []
+    seen = set()
     for code in requested:
-        if code in by_code and code not in chosen:
+        if code in by_code and code not in seen:
+            seen.add(code)
             chosen.append(by_code[code])
 
     if not chosen:
