@@ -33,11 +33,37 @@ GROUPS = (
 _GROUP_ORDER = {key: index for index, (key, _) in enumerate(GROUPS)}
 _PREFIXES = tuple(key for key, _ in GROUPS if key)
 
-# Excel's own limits. Asserted against real codes in the tests rather than
-# trusted: today the longest code is 7 characters and none carries an illegal
-# character, but a future sample type could break either.
+# Excel's own limits, enforced in load_catalog() below: today the longest code
+# is 7 characters and none carries an illegal character, but a future sample
+# type could break either, and an unusable code must cost that one type rather
+# than crash the whole download.
 MAX_SHEET_NAME = 31
 ILLEGAL_SHEET_CHARS = set("[]:*?/\\")
+
+# Sheet names write_template_workbook always creates itself (README_SHEET,
+# MANIFEST_SHEET, CV_SHEET in sample_workbook.py). Duplicated here as literals
+# rather than imported: sample_workbook.py already imports
+# load_sample_type_context from this module at module level, so importing
+# back would be circular.
+RESERVED_SHEET_NAMES = ("README", "_NEXTSEEK", "Controlled Vocabularies")
+
+
+def _is_legal_sheet_name(code: str) -> bool:
+    """Whether `code` can safely become its own Excel sheet.
+
+    Three ways a code can break `book.create_sheet`: an illegal character
+    (`ValueError`), a name over 31 characters (`ValueError`), or -- not an
+    openpyxl error, but just as unusable -- a name matching one of the sheets
+    the writer always creates itself, which would either collide outright or
+    be silently renamed to something the part-2 converter cannot find.
+    """
+    if len(code) > MAX_SHEET_NAME:
+        return False
+    if set(code) & ILLEGAL_SHEET_CHARS:
+        return False
+    if code in RESERVED_SHEET_NAMES:
+        return False
+    return True
 
 
 @dataclass
@@ -63,6 +89,11 @@ def load_catalog() -> list[SampleTypeEntry]:
     The type list is the one hard dependency: there is no page without it. The
     context lookup is soft, per this module's house rule -- a code with no
     context row still appears, with a blank name and description.
+
+    A code that cannot become a legal, unambiguous sheet name is dropped here,
+    the same rule this module already applies to relationship parsing: a
+    malformed input must never surface to the user or raise. It costs that one
+    type rather than every type in the download.
     """
     rows = list(Sample_types.objects.all().values("id", "title"))
 
@@ -70,6 +101,12 @@ def load_catalog() -> list[SampleTypeEntry]:
     for row in rows:
         title = (row.get("title") or "").strip()
         if not title:
+            continue
+        if not _is_legal_sheet_name(title):
+            logger.warning(
+                "sample type %r cannot be used as a sheet name; dropped from the catalog",
+                title,
+            )
             continue
         entries.append(SampleTypeEntry(
             code=title,
@@ -165,6 +202,11 @@ def suggest(selected, relationships) -> list[str]:
 
     Ordered by how many selected types name each candidate, then by code, and
     capped -- the UI's "add all" adds exactly what is shown, never a hidden tail.
+
+    This has no production call site of its own: `templatesList.html`'s inline
+    `renderSuggestions()` reimplements the same rule in JavaScript, because the
+    strip is re-derived client-side as boxes are ticked, with no round trip.
+    Keep the two in lockstep by hand if you change either.
     """
     chosen = list(selected or [])
     if not chosen:

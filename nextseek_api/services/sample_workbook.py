@@ -169,6 +169,12 @@ def build_readme_blocks(
                 for column in ordered
             ],
         }
+        # Deliberately different guards, not an inconsistency: an empty dict
+        # still means "the template path is asking for this column" for
+        # required-ness (required_by_pair={} must still switch the README to
+        # the three-column header, with every column marked not-required),
+        # but for relationships an empty dict means "nothing to say" (no
+        # relationships_by_code={} block should render).
         if required_by_pair is not None:
             block["required"] = [
                 bool(required_by_pair.get((code, column), False)) for column in ordered
@@ -621,7 +627,17 @@ def write_template_workbook(entries, output_path) -> None:
     }
 
     known = set(codes)
-    relationships = load_relationships(codes, known)
+    raw_relationships = load_relationships(codes, known)
+    # A type can name itself as its own parent or child in the source data
+    # (DNA does). The README must never say a type is derived from itself, so
+    # self-references are dropped here, scoped to this writer, rather than in
+    # load_relationships itself, which just reports sample_types_context as-is.
+    relationships = {}
+    for code, rel in raw_relationships.items():
+        parents = [p for p in rel.get("parents", []) if p != code]
+        children = [c for c in rel.get("children", []) if c != code]
+        if parents or children:
+            relationships[code] = {"parents": parents, "children": children}
 
     context_by_code = {
         e.code: {"name": e.name, "description": e.description} for e in entries
@@ -680,8 +696,9 @@ def write_template_workbook(entries, output_path) -> None:
             ])
 
         # The header text now carries the required marker, so notes and
-        # dropdowns are keyed on the bare titles the lookups know.
-        _annotate_header_titles(ws, entry.code, titles, meaning_by_pair)
+        # dropdowns are keyed on the bare titles the lookups know, not the
+        # starred labels the cells display.
+        _annotate_header(ws, entry.code, titles, meaning_by_pair)
         _apply_dropdowns(ws, titles, field_map, ranges, 0)
 
     if ranges:
@@ -694,19 +711,3 @@ def write_template_workbook(entries, output_path) -> None:
 
     _write_manifest(book, manifest_rows)
     book.save(output_path)
-
-
-def _annotate_header_titles(ws, code: str, titles: list[str], meaning_by_pair) -> None:
-    """_annotate_header, but keyed on bare titles while the cells show markers.
-
-    The template's header cells read "UID*", so the shared helper's
-    read-the-cell approach would miss every required column's definition.
-    """
-    for index, title in enumerate(titles, start=1):
-        meaning = meaning_by_pair.get((code, title), "")
-        if not meaning:
-            continue
-        note = Comment(_safe_cell_value(meaning), COMMENT_AUTHOR)
-        note.width = COMMENT_WIDTH
-        note.height = COMMENT_HEIGHT
-        ws.cell(row=1, column=index).comment = note

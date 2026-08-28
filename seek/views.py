@@ -55,6 +55,7 @@ from nextseek_api.services.sample_workbook import (
 )
 from nextseek_api.services.template_catalog import (
     GROUPS,
+    MAX_SUGGESTIONS,
     load_catalog,
     load_relationships,
 )
@@ -1096,7 +1097,7 @@ def samplesValidate(request):
                 
     return HttpResponse(simplejson.dumps(data, default=str))       
 
-def _templates_context(selected=None, message=""):
+def _templates_context(message=""):
     """Everything the picker template needs.
 
     Grouping and relationships come from template_catalog, so the view stays
@@ -1107,7 +1108,6 @@ def _templates_context(selected=None, message=""):
     by_code = {e.code: e for e in entries}
     relationships = load_relationships(list(by_code), set(by_code))
 
-    chosen = [c for c in (selected or []) if c in by_code]
     groups = [
         {"key": key, "label": label,
          "entries": [e for e in entries if e.group == key]}
@@ -1115,17 +1115,18 @@ def _templates_context(selected=None, message=""):
     ]
     return {
         "groups": [g for g in groups if g["entries"]],
-        "selected": chosen,
         "message": message,
-        # The strip is re-derived in the browser as boxes are ticked, so picking
-        # a type costs no round trip. Same one-hop children-only rule as
-        # template_catalog.suggest, which stays the server-side source of truth.
+        # The strip is re-derived in the browser as boxes are ticked, so no
+        # selection is ever rendered server-side -- see render() in
+        # templatesList.html. Same one-hop children-only rule as
+        # template_catalog.suggest(), which this mirrors; keep both in sync.
         "children_json": {
             code: rel.get("children", []) for code, rel in relationships.items()
         },
         "meta_json": {
             e.code: {"name": e.name, "group": e.group} for e in entries
         },
+        "max_suggestions": MAX_SUGGESTIONS,
     }
 
 

@@ -374,7 +374,7 @@ manifest.
 It lives beside `write_samples_workbook` rather than in its own module for the
 reason this document records above — two writers meant a change to the workbook
 had to be made twice. Both share `build_readme_blocks`, `_write_readme`,
-`_apply_dropdowns` and `_write_vocabulary_sheet`. The template path passes
+`_annotate_header`, `_apply_dropdowns` and `_write_vocabulary_sheet`. The template path passes
 `required_by_pair` and `relationships_by_code`; the sample path passes neither
 and its output is unchanged, which
 `test_blocks_without_the_new_arguments_are_byte_identical_to_before` pins.

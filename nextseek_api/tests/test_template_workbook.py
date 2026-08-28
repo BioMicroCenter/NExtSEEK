@@ -217,3 +217,30 @@ def test_relationships_reach_the_readme(tmp_path, _no_lookups):
     text = " ".join(str(c.value) for row in book[README_SHEET].iter_rows()
                     for c in row if c.value)
     assert "Typically derived from: MUS" in text
+
+
+def test_a_type_naming_itself_as_a_relative_is_not_shown_as_its_own_relative(
+        tmp_path, _no_lookups):
+    """DNA really does list itself in its own parent_sampletypes column.
+
+    The README must never say a type is derived from, or feeds into, itself.
+    """
+    with patch(f"{_MOD}.load_relationships",
+               return_value={"TIS": {"parents": ["TIS", "MUS"], "children": ["TIS"]}}):
+        book = _write(tmp_path, [TIS])
+    text = " ".join(str(c.value) for row in book[README_SHEET].iter_rows()
+                    for c in row if c.value)
+    assert "Typically derived from: MUS" in text
+    assert "Typically derived from: TIS" not in text
+    assert "Typically feeds into" not in text
+
+
+def test_a_type_whose_only_relatives_are_itself_gets_no_relationship_lines(
+        tmp_path, _no_lookups):
+    with patch(f"{_MOD}.load_relationships",
+               return_value={"TIS": {"parents": ["TIS"], "children": ["TIS"]}}):
+        book = _write(tmp_path, [TIS])
+    text = " ".join(str(c.value) for row in book[README_SHEET].iter_rows()
+                    for c in row if c.value)
+    assert "Typically derived from" not in text
+    assert "Typically feeds into" not in text

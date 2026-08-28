@@ -158,23 +158,32 @@ class TestLoadCatalog:
 
         assert [e.code for e in entries] == ["TIS"]
 
-    def test_every_seeded_code_is_a_legal_sheet_name(self):
-        """Guards the assumption the writer relies on. Longest today is D.ADNKA (7)."""
-        from nextseek_api.services.template_catalog import (
-            ILLEGAL_SHEET_CHARS,
-            MAX_SHEET_NAME,
-            load_catalog,
-        )
+    def test_a_code_that_cannot_be_a_sheet_name_is_dropped_not_fatal(self):
+        """An illegal character, an over-length code, and a reserved-name
+        collision must each cost only that one type -- not raise, and not
+        take the legal codes down with them. This is what stands between a
+        curator's `sample_types.title` and an HTTP 500 on every download.
 
-        rows = [{"id": i, "title": t} for i, t in enumerate(
-            ["TIS", "D.ADNKA", "A.GEX", "M.LMM"], start=1)]
+        Replaces the old version of this test, which fed four hardcoded
+        known-good codes through and asserted a property of those literals --
+        it could never fail regardless of what load_catalog actually did.
+        """
+        from nextseek_api.services.template_catalog import load_catalog
+
+        rows = [
+            {"id": 1, "title": "TIS"},          # legal, survives
+            {"id": 2, "title": "TIS/FFPE"},      # illegal character
+            {"id": 3, "title": "A" * 32},        # over MAX_SHEET_NAME (31)
+            {"id": 4, "title": "README"},        # collides with the README sheet
+            {"id": 5, "title": "_NEXTSEEK"},     # collides with the manifest sheet
+            {"id": 6, "title": "Controlled Vocabularies"},  # collides with the CV sheet
+            {"id": 7, "title": "D.SEQ"},         # legal, survives
+        ]
         with patch(f"{_MOD}.Sample_types", self._types(rows)), \
              patch(f"{_MOD}.load_sample_type_context", return_value={}):
             entries = load_catalog()
 
-        for entry in entries:
-            assert len(entry.code) <= MAX_SHEET_NAME
-            assert not (set(entry.code) & ILLEGAL_SHEET_CHARS)
+        assert sorted(e.code for e in entries) == ["D.SEQ", "TIS"]
 
 
 KNOWN = {"DNA", "RNA", "BAC", "CEL", "TIS", "AB", "CHM", "D.TITR", "D.IMG",
