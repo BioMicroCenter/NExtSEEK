@@ -1063,3 +1063,32 @@ BATCH_UPLOAD_VALIDATE_DESC = (
     "- `curl -u user:pass -F 'file=@samples.xlsx' -F 'project_id=4475' "
     "'https://host/nextseek_api/batch-upload/validate/?checks=structure,name_check'`\n"
 )
+
+
+# ---------------------------------------------------------------------------
+# SampleTypeConnectionsViewSet (1 endpoint)
+# ---------------------------------------------------------------------------
+
+SAMPLETYPE_CONNECTIONS_DESC = (
+    "**SUMMARY:** Every unique SampleType -> SampleType connection and the internal assay "
+    "that makes it, for one investigation, one sample type, or the whole graph. Superuser only.\n\n"
+    "**USE WHEN:** The user wants the assay-connection map for a project or investigation — "
+    "'what connects to what, and by which assay' — as data, a CSV, or a clade-coloured diagram.\n\n"
+    "**ACCEPTS:** At least one selector is required:\n"
+    "- `graph_inv_id` — Investigation.id in the graph\n"
+    "- `seek_inv_id` — Investigation.project_id (a SEEK *project* id, so it spans that project's investigations)\n"
+    "- `name` — Investigation.title, exact and case-insensitive\n"
+    "- `sample_type` — a sample type code; matches either endpoint, and alone spans every project\n"
+    "- `all_conns=yes` — the whole graph, unfiltered\n\n"
+    "Investigation selectors are AND-ed with each other and with `sample_type`. "
+    "`output_format` is `json` (default), `csv`, or `svg`.\n\n"
+    "**RETURNS:** `parent_sample_type`, `child_sample_type`, `internal_assay`, `n_edges`, "
+    "and the clade of each endpoint. As CSV: `SampleType,isParent,SampleType,InternalAssay,Edges`. "
+    "As SVG: a clade-coloured diagram laid out Source -> Raw -> Processed -> Analyzed.\n\n"
+    "**TRIGGER PHRASES:** sample type connections, assay connections, what connects to what, "
+    "connection map, sample type graph for a project, clade diagram\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Show me all the sample type connections in the Impactb investigation'\n"
+    "- 'Which assays connect CEL to anything, across all projects?'\n"
+    "- 'Give me a diagram of the connections in project 11'\n"
+)

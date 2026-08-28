@@ -24,6 +24,7 @@ router.register(r"investigations", views.InvestigationViewSet, basename="investi
 router.register(r"studies", views.StudyViewSet, basename="studies")
 router.register(r"attributes", views.AttributeViewSet, basename="attribute")
 router.register(r"assays", views.AssayViewSet, basename="assays")
+router.register(r"sample_types/connections", views.SampleTypeConnectionsViewSet, basename="sampletype-connections")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
 router.register(r"samples/advanced_search", views.SampleAdvancedSearchViewSet, basename="samples-advanced-search")
 router.register(r"sample_types/get_parents", views.SamplesByChildTypesViewSet,basename="get-parents-by-childtype")

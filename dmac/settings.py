@@ -388,6 +388,32 @@ SPECTACULAR_SETTINGS = {
     "PREPROCESSING_HOOKS": [
         "dmac.openapi_hooks.exclude_seek_paths",
     ],
+    # Section order in Swagger UI. Without this, Swagger orders sections by the
+    # first path that carries each tag, which is alphabetical -- so "admin"
+    # landed at the very top of the page, above every endpoint a normal caller
+    # can actually use. The list below is that same alphabetical reading order
+    # with the two superuser-only sections pulled down under Assays instead.
+    # A tag missing from this list still appears; it is just appended after.
+    "TAGS": [
+        "Assays",
+        "admin",
+        "Users (admin)",
+        "Assistant",
+        "Assistant (CC)",
+        "Attributes",
+        "DataFiles",
+        "EntityTree",
+        "evaluator",
+        "Investigations",
+        "People",
+        "Projects",
+        "Samples",
+        "SampleTypes",
+        "Schema RAG",
+        "SOPs",
+        "Studies",
+        "Timeline",
+    ],
 }
 
 # Native attribute mutation routing. Small batches complete in-request; larger
