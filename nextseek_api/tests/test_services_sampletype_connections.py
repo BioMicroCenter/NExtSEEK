@@ -293,3 +293,59 @@ def test_labels_are_suppressed_on_a_dense_graph():
     svg = rows_to_svg(dense, {})
     assert 'paint-order="stroke"' not in svg
     assert svg.count("<title>") >= 60  # every edge still carries its tooltip
+
+
+# ---------------------------------------------------------------------------
+# Schema generation (nextseek-viewset SKILL.md section 10.2)
+#
+# The endpoint's own tests all passed while this route was returning a 500,
+# because they call the viewset method directly and never build the schema.
+# A description-only OpenApiResponse emits no `content` block and drf-spectacular
+# raises KeyError('content') merging it, taking /nextseek_api/schema/ down with it.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestConnectionsSchema:
+    def _schema(self):
+        from drf_spectacular.generators import SchemaGenerator
+        return SchemaGenerator().get_schema(request=None, public=True)
+
+    def test_schema_generates_at_all(self):
+        assert "paths" in self._schema()
+
+    def test_connections_path_is_registered_once_without_a_doubled_segment(self):
+        paths = [p for p in self._schema()["paths"] if "connections" in p]
+        assert paths == ["/nextseek_api/sample_types/connections/"]
+
+    def test_all_three_content_types_are_advertised(self):
+        op = self._schema()["paths"]["/nextseek_api/sample_types/connections/"]["get"]
+        assert set(op["responses"]["200"]["content"]) == {
+            "application/json", "text/csv", "image/svg+xml",
+        }
+
+    def test_every_selector_is_documented_as_a_query_param(self):
+        op = self._schema()["paths"]["/nextseek_api/sample_types/connections/"]["get"]
+        names = {p["name"] for p in op.get("parameters", [])}
+        assert names == {
+            "graph_inv_id", "seek_inv_id", "name", "sample_type", "all_conns", "output_format",
+        }
+
+    def test_response_model_lands_in_components(self):
+        assert "SampleTypeConnectionsResponse" in self._schema()["components"]["schemas"]
+
+    def test_admin_sections_sort_under_assays(self):
+        tags = [t if isinstance(t, str) else t["name"] for t in self._schema().get("tags", [])]
+        assert tags.index("Assays") < tags.index("admin") < tags.index("Assistant")
+        assert tags.index("Assays") < tags.index("Users (admin)")
+
+
+def test_unauthenticated_caller_is_refused():
+    """401, not 403: the gate must challenge rather than leak that the route exists."""
+    from rest_framework.permissions import IsAuthenticated
+    user = MagicMock()
+    user.is_authenticated = False
+    user.is_superuser = False
+    req = MagicMock(user=user)
+    assert IsAuthenticated().has_permission(req, None) is False
+    assert IsSuperUser().has_permission(req, None) is False
+    assert SampleTypeConnectionsViewSet.permission_classes == [IsAuthenticated, IsSuperUser]
