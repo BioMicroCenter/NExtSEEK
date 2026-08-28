@@ -96,6 +96,58 @@ def test_atlas_keys_are_passed_so_invented_keys_can_be_caught(patched):
     assert patched["decide_kwargs"]["atlas_keys"] == {"rnaseq"}
 
 
+def test_an_atlas_only_key_absent_from_the_catalog_degrades_to_out_of_scope(monkeypatch):
+    """differentialabundance is real in the atlas but is not in
+    NFCORE_PIPELINE_CATALOG — no downstream tool (resolve_samples,
+    write_samplesheet, configure_run) can build it. tool_select_pipeline must
+    intersect the atlas keys with the catalog before handing them to
+    selection.decide as the invented-key allowlist, so a model choosing
+    differentialabundance degrades exactly like any other invented key would,
+    instead of coming back as a `chosen` verdict the build path cannot execute.
+
+    This deliberately does NOT stub selection.decide (unlike the `patched`
+    fixture) — the bug is in what atlas_keys agent_tools computes and hands to
+    the real decide(), not in decide()'s own invented-key logic, which already
+    has its own coverage in test_selection.py.
+    """
+    monkeypatch.setattr(agent_tools, "build_sample_digest",
+                        lambda config, uids, **kw: DIGEST)
+
+    class _Ctx:
+        def to_prompt_text(self, sections=None):
+            return "PAYLOAD"
+
+        def size_report(self, sections=None):
+            return {}
+
+    monkeypatch.setattr(agent_tools, "build_selection_context", lambda **kw: _Ctx())
+    monkeypatch.setattr(agent_tools, "load_atlas", lambda: {
+        "pipelines": {
+            "rnaseq": {"revision": "3.18.0"},
+            # Real atlas key, absent from NFCORE_PIPELINE_CATALOG.
+            "differentialabundance": {"revision": "1.5.0"},
+        },
+    })
+
+    class _Resp:
+        content = '{"pipelines": ["differentialabundance"], "reason": "compares counts"}'
+
+    class _StubClient:
+        def chat(self, **kwargs):
+            return _Resp()
+
+    class _ModelConfig:
+        LOG_DIR = "."
+
+        def get_agent_model(self, key):
+            return _StubClient(), "test-model", None
+
+    out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"},
+               config=_ModelConfig())
+    assert out["verdict"] == "out_of_scope"
+    assert "differentialabundance" in out["reason"]
+
+
 def test_missing_question_is_a_tool_error_not_a_verdict():
     out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"]})
     assert out["ok"] is False
@@ -178,6 +230,31 @@ def test_a_slow_digest_times_out_into_out_of_scope(monkeypatch, patched):
     # future's 2-second sleep. A `with ThreadPoolExecutor(...) as pool:` still
     # returns the right verdict here but only after ~2s, because __exit__
     # calls shutdown(wait=True) — this bound is what catches that regression.
+    assert elapsed < 1.0
+
+
+def test_a_slow_selection_model_call_times_out_into_out_of_scope(monkeypatch, patched):
+    """selection.decide's Bedrock call has no ceiling of its own (only botocore's
+    600s read_timeout, times retries, on a daemon thread gunicorn will not reap).
+    tool_select_pipeline must bound it the same way it bounds the digest build."""
+    import time
+
+    def slow_decide(**kwargs):
+        time.sleep(2)
+        return Verdict(kind="chosen", pipelines=["rnaseq"], reason="bulk polyA")
+
+    monkeypatch.setattr(agent_tools.selection, "decide", slow_decide)
+    monkeypatch.setattr(agent_tools, "SELECTION_MODEL_TIMEOUT_SECONDS", 0.05)
+    t0 = time.perf_counter()
+    out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"})
+    elapsed = time.perf_counter() - t0
+    assert out["verdict"] == "out_of_scope"
+    assert "timed out" in out["reason"].lower()
+    # As with the digest timeout above: the call must return promptly once the
+    # SELECTION_MODEL_TIMEOUT_SECONDS deadline passes, not wait out the
+    # abandoned future's 2-second sleep. A verdict-only assertion here would
+    # pass against a version that still waited out the full call, which is
+    # the exact bug this pattern exists to prevent.
     assert elapsed < 1.0
 
 

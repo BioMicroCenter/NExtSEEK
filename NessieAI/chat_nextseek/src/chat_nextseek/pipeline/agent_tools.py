@@ -918,16 +918,29 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     return json.dumps({"ok": True, "luria_runs": runs})
 
 
-#: A cohort larger than this is not profiled. resolve_samples already refuses to
-#: assemble more than MAX_RESOLVE_LEAVES (75) leaves, so a cohort past that
-#: cannot be built anyway — paying for its digest first would buy nothing. The
-#: team-questions run supplied 663 UIDs, which is why this cap exists at all.
+#: A cohort larger than this is not profiled. This caps the *queried* UIDs
+#: passed into select_pipeline, not the *expanded leaf set* that
+#: MAX_RESOLVE_LEAVES (75) caps after lineage walking — the two are different
+#: quantities and share only a number by coincidence, not a bound: a handful
+#: of root UIDs can expand well past MAX_RESOLVE_LEAVES leaves and still pass
+#: this cap, and a cohort of accepted-plus-rejected-type UIDs can trip this
+#: cap while the accepted-type subset alone would have resolved fine. Neither
+#: number has been measured against the other; do not read one as validating
+#: the other. The team-questions run supplied 663 UIDs, which is why this cap
+#: exists at all.
 MAX_SELECTION_UIDS = 75
 
 #: Wall-clock ceiling on the digest build. The digest downloads and text-extracts
 #: every SOP attached to the cohort with token_limit=None, which is unbounded on
 #: paper. On timeout the build continues without selection.
 DIGEST_TIMEOUT_SECONDS = 90.0
+
+#: Wall-clock ceiling on the selection model call. The payload is ~84k tokens and
+#: botocore's own read_timeout (600s) times its retries is the only other bound,
+#: on a daemon thread gunicorn will not reap. Like DIGEST_TIMEOUT_SECONDS this is
+#: an unmeasured starting value, chosen to be generous enough not to cut off a
+#: legitimate call.
+SELECTION_MODEL_TIMEOUT_SECONDS = 240.0
 
 
 _SELECTION_NEXT_STEP = {
@@ -1080,10 +1093,38 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         # AGENT_MODEL_CATALOG. selection.decide itself never raises, but it costs
         # nothing to keep it inside this guard too.
         client, model_name, budget = config.get_agent_model("pipeline_agent")
-        verdict = selection.decide(
-            client=client, model=model_name, budget=budget, payload=payload,
-            question=question, atlas_keys=set((atlas.get("pipelines") or {})),
-        )
+        # Restrict to atlas keys that are also in the build-path catalog: every
+        # downstream tool (resolve_samples, write_samplesheet, configure_run)
+        # validates against NFCORE_PIPELINE_CATALOG, not the atlas, and the two
+        # sets are not nested — differentialabundance is atlas-only. Choosing it
+        # would pass selection's own invented-key check and then fail every tool
+        # after it. differentialabundance stays in the atlas payload itself
+        # (its versus.rnaseq entry is load-bearing for disambiguation) — it is
+        # only excluded from what the model may choose.
+        atlas_keys = set(atlas.get("pipelines") or {}) & set(NFCORE_PIPELINE_CATALOG)
+        # decide() itself never raises, but its Bedrock call has no ceiling of
+        # its own — botocore's read_timeout (600s) times its retries is the only
+        # other bound, on a daemon thread gunicorn will not reap. Bound it the
+        # same way build_sample_digest is bounded above: deliberately NOT
+        # `with ThreadPoolExecutor(...) as pool:`, for the same reason as above
+        # — __exit__ would call shutdown(wait=True) and turn the timeout below
+        # into a no-op.
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            future = pool.submit(selection.decide, client=client, model=model_name,
+                                 budget=budget, payload=payload, question=question,
+                                 atlas_keys=atlas_keys)
+            try:
+                verdict = future.result(timeout=SELECTION_MODEL_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
+                # No future.cancel() here, for the same reason as the digest
+                # timeout above: with max_workers=1 the future is already
+                # running, so cancel() would always return False.
+                return _verdict_json(selection.out_of_scope(
+                    f"choosing a pipeline for these samples timed out after "
+                    f"{SELECTION_MODEL_TIMEOUT_SECONDS:.0f}s"), len(uids))
+        finally:
+            pool.shutdown(wait=False)
     except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
         return _verdict_json(selection.out_of_scope(
             f"the selection model could not be run: {type(exc).__name__}: {exc}"), len(uids))
