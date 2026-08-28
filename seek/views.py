@@ -50,7 +50,16 @@ from dmac.dbtable_clades import DBtable_clades
 from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtable_stc
 from dmac.dbtable_internalassays import DBtable_internalassays
 from dmac.dbtable_assaysinternalassays import DBtable_assaysinternalassays
-from nextseek_api.services.sample_workbook import write_samples_workbook
+from nextseek_api.services.sample_workbook import (
+    write_samples_workbook,
+    write_template_workbook,
+)
+from nextseek_api.services.template_catalog import (
+    GROUPS,
+    load_catalog,
+    load_relationships,
+    suggest,
+)
 
 from .seekdb import SeekDB
 from .nextcloudapi import NextCloudAPI
@@ -94,8 +103,6 @@ UPLOAD_DIRECTORY = settings.MEDIA_ROOT + "/uploads/"
 SEEK_DATAFILE_ROOT = settings.SEEK_DATAFILE_ROOT
 
 SAMPLE_TEMPLATE_FILE = settings.MEDIA_ROOT + "/reserved/SAMPLE_TEMPLATE.xlsx"
-SAMPLE_TEMPLATES_FOLDER = settings.SAMPLE_TEMPLATES_FOLDER
-SAMPLE_TEMPLATES_FOLDER_PROJECT = settings.SAMPLE_TEMPLATES_FOLDER_PROJECT
 
 PUBLISH_STATS_FILE = settings.PUBLISH_STATS_FILE
 
@@ -1091,43 +1098,99 @@ def samplesValidate(request):
                 
     return HttpResponse(simplejson.dumps(data, default=str))       
 
-def getTemplateFolders(directory_path):
-    folders = {}
-    try:
-        for item in os.listdir(directory_path):
-            path = os.path.join(directory_path, item)
-            if os.path.isdir(path):
-                folders[item] = getTemplateFolders(path)
-            else:
-                folders[item] = None
-    except OSError:
-        return {}
-    return folders
+def _templates_context(selected=None, message=""):
+    """Everything the picker template needs.
+
+    Grouping and relationships come from template_catalog, so the view stays
+    HTTP-only and the same data can be reused by the download path when it has
+    to re-render.
+    """
+    entries = load_catalog()
+    by_code = {e.code: e for e in entries}
+    relationships = load_relationships(list(by_code), set(by_code))
+
+    chosen = [c for c in (selected or []) if c in by_code]
+    groups = [
+        {"key": key, "label": label,
+         "entries": [e for e in entries if e.group == key]}
+        for key, label in GROUPS
+    ]
+    return {
+        "groups": [g for g in groups if g["entries"]],
+        "selected": chosen,
+        "suggestions": [
+            {"code": code,
+             "name": by_code[code].name,
+             "group": by_code[code].group}
+            for code in suggest(chosen, relationships)
+        ],
+        "message": message,
+    }
+
 
 def templatesList(request):
+    """The Download Templates picker.
+
+    Login is required; project membership is not. Templates are schema
+    definitions, not sample data, so there is nothing project-scoped to expose.
+    """
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        url_redirect = '/login/?next=/seek/templates'
-        return HttpResponseRedirect(url_redirect)
-    else:
-        # Basic auth is encoded here rather than passed as requests' auth= so a
-        # non-Latin-1 password doesn't raise UnicodeEncodeError before the
-        # request is sent. See nextseek_api.helpers.basic_auth_header (#52).
-        from nextseek_api.helpers import basic_auth_header
-        headers = {'Accept': 'application/json'}
-        headers.update(basic_auth_header((user_seek['username'], user_seek['password'])))
-        r = requests.get(user_seek['server'] + '/projects', headers=headers)
-        projects = [p['id'] for p in r.json()['data']]
-        if not SAMPLE_TEMPLATES_FOLDER_PROJECT in projects:
-            msg = 'You are not in the correct project to access this page'
-            status = 0
-            data = {'msg':msg, 'status': status, 'link': ""}
-            return HttpResponse(simplejson.dumps(data, default=str)) 
+        return HttpResponseRedirect('/login/?next=/seek/templates')
 
-    folders = getTemplateFolders(SAMPLE_TEMPLATES_FOLDER)
+    return render(request, 'templatesList.html', _templates_context())
 
-    return render(request, 'templatesList.html', {'folders': folders})
+
+def templatesDownload(request):
+    """Generate and stream one workbook for the selected sample types.
+
+    The bytes are returned directly rather than written under outputs/ and
+    linked: a template is cheap to regenerate, so a persistent link buys little
+    and would leave a file per download behind with nothing to clean it up.
+    """
+    seekdb = SeekDB(None, None, None)
+    user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        return HttpResponseRedirect('/login/?next=/seek/templates')
+
+    requested = request.POST.getlist('codes')
+    entries = load_catalog()
+    by_code = {e.code: e for e in entries}
+    # Selection order, not catalog order: the sheets should come out in the
+    # order the user built them. Unknown codes are dropped rather than 400ing --
+    # a stale bookmark should still produce the types it names.
+    chosen = []
+    for code in requested:
+        if code in by_code and code not in chosen:
+            chosen.append(by_code[code])
+
+    if not chosen:
+        context = _templates_context(message="Select at least one sample type.")
+        return render(request, 'templatesList.html', context)
+
+    with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as handle:
+        temp_path = handle.name
+    try:
+        write_template_workbook(chosen, temp_path)
+        with open(temp_path, 'rb') as fh:
+            payload = fh.read()
+    finally:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            logger.warning("could not remove temp workbook %s", temp_path)
+
+    stamp = datetime.datetime.now().strftime('%Y%m%d')
+    filename = f"NExtSEEK_templates_{len(chosen)}types_{stamp}.xlsx"
+    response = HttpResponse(
+        payload,
+        content_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+    )
+    response['Content-Disposition'] = f'attachment; filename={filename}'
+    return response
 
 @api_view(['GET'])
 def nhp_info(request, nhp_name):
