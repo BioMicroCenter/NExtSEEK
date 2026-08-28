@@ -31,12 +31,16 @@ class NextseekApiConfig(AppConfig):
     name = 'nextseek_api'
 
     def ready(self):
-        # RUN_MAIN is set in the autoreloader's child process; without this the
-        # dev server warms twice. Skipped entirely under tests and migrations,
-        # where the network is neither available nor wanted.
-        if os.environ.get("RUN_MAIN") == "false":
-            return
+        # No RUN_MAIN guard: gunicorn never sets it, and Django's autoreloader
+        # leaves it unset in the parent and "true" in the child — so no test on
+        # that variable distinguishes production from the reloader's parent.
+        # Warming twice under `runserver` is harmless (twelve pinned documents,
+        # on a daemon thread, blocking nothing); skipping it in production
+        # would not be.
         if os.environ.get("NEXTSEEK_SKIP_SCHEMA_WARM"):
             return
-        threading.Thread(target=_warm_nfcore_schemas, name="nfcore-schema-warm",
-                         daemon=True).start()
+        try:
+            threading.Thread(target=_warm_nfcore_schemas, name="nfcore-schema-warm",
+                             daemon=True).start()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("nf-core schema warm-up thread could not start: %r", exc)
