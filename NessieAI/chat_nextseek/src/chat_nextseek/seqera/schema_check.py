@@ -107,7 +107,8 @@ def check_params(pipeline_key: str, revision: str | None, params: dict[str, Any]
             continue
         # Handle both string and list-valued type declarations; drop "null" since
         # None values are already skipped and "null" adds no information.
-        declared = prop.get("type")
+        original_type = prop.get("type")
+        declared = original_type
         if isinstance(declared, str):
             declared = [declared]
         types = [t for t in declared if t != "null"] if isinstance(declared, list) else []
@@ -116,7 +117,7 @@ def check_params(pipeline_key: str, revision: str | None, params: dict[str, Any]
         # unrecognised type — a false rejection, which is never acceptable.
         if types and all(isinstance(t, str) and t in _TYPE_CHECKS for t in types):
             if not any(_TYPE_CHECKS[t](value) for t in types):
-                type_str = declared if isinstance(prop.get("type"), str) else repr(prop.get("type"))
+                type_str = original_type if isinstance(original_type, str) else repr(original_type)
                 errors.append(
                     f"param {name!r} should be {type_str} per "
                     f"nf-core/{pipeline_key}@{revision}, got {type(value).__name__} {value!r}.")
