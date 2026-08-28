@@ -15,6 +15,11 @@ Nothing here reads a default from the schema or adds a parameter to a run.
 
 An unreachable schema is never an error. It returns a skip reason, the caller
 validates on the curated menu alone as it always did, and says so.
+
+Type validation handles both string and list-valued `type` properties, which occur
+in the six pinned pipelines: `help` is `["boolean", "string"]` in hlatyping and
+smrnaseq, and `dfam_version` / `pfam_version` are `["number", "null"]` in rnafusion.
+A value must satisfy at least one declared type.
 """
 from __future__ import annotations
 
@@ -40,7 +45,7 @@ def schema_properties(nextflow_schema: dict[str, Any]) -> dict[str, dict]:
     nf-core groups parameters under `$defs` (rnaseq, hlatyping, smrnaseq,
     rnafusion) or `definitions` (scrnaseq, rnasplice) — both spellings occur
     among the six pinned pipelines, so both are read. Top-level `properties` is
-    empty in all six but is read too, because the spec allows it.
+    absent in all six but is read too, because the spec allows it.
     """
     props: dict[str, dict] = {}
     props.update(nextflow_schema.get("properties") or {})
@@ -100,11 +105,21 @@ def check_params(pipeline_key: str, revision: str | None, params: dict[str, Any]
                 f"param {name!r} value {value!r} is not allowed by "
                 f"nf-core/{pipeline_key}@{revision} (choose from {allowed}).")
             continue
-        check = _TYPE_CHECKS.get(prop.get("type")) if isinstance(prop.get("type"), str) else None
-        if check and not check(value):
-            errors.append(
-                f"param {name!r} should be a {prop['type']} per "
-                f"nf-core/{pipeline_key}@{revision}, got {type(value).__name__} {value!r}.")
+        # Handle both string and list-valued type declarations; drop "null" since
+        # None values are already skipped and "null" adds no information.
+        declared = prop.get("type")
+        if isinstance(declared, str):
+            declared = [declared]
+        types = [t for t in declared if t != "null"] if isinstance(declared, list) else []
+        # All declared types must be recognisable, or we cannot judge and must not guess.
+        # Judging on a partial set could reject a value that is legal under an
+        # unrecognised type — a false rejection, which is never acceptable.
+        if types and all(isinstance(t, str) and t in _TYPE_CHECKS for t in types):
+            if not any(_TYPE_CHECKS[t](value) for t in types):
+                type_str = declared if isinstance(prop.get("type"), str) else repr(prop.get("type"))
+                errors.append(
+                    f"param {name!r} should be {type_str} per "
+                    f"nf-core/{pipeline_key}@{revision}, got {type(value).__name__} {value!r}.")
     return errors, None
 
 
