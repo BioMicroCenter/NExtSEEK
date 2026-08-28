@@ -243,3 +243,8 @@ nessie_bayes_*/
 # a local index, not source — and a `git add -A` that swept it in would be hard
 # to undo on a repo this widely forked.
 graphify-out/
+
+# Brainstorming visual companion mockups (scratch). The SDD ledger and task
+# reports under .superpowers/sdd/ ARE tracked, deliberately -- see the existing
+# committed ones -- so only the brainstorm subtree is excluded here.
+.superpowers/brainstorm/

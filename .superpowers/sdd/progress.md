@@ -1,88 +1,54 @@
-# SDD ledger — plan: docs/2026-08-21-download-provenance-order-and-house-vocabularies-plan.md
+# SDD ledger — plan: docs/superpowers/plans/2026-08-27-download-templates-page.md
 
-Worktree: /Users/jps/Documents/MIT/NExtSEEK-readme-columns
-Branch: feat/download-readme-columns
-Base commit before Task 1: 25d2abd2
+Spec: docs/superpowers/specs/2026-08-27-download-templates-page-design.md
+Branch: feat/download-templates-page
+Base commit before Task 1: e642b1f9
+Test baseline (pre-existing, unrelated): 41 failed, 1928 passed, 2 skipped, 3 errors
+  -> named failures in .superpowers/sdd/baseline-failures.txt
+
+Prior ledger for the completed provenance plan: progress-2026-08-21-provenance.md
 
 | Task | Status | Evidence |
 |---|---|---|
-| 1 Provenance edges + depth | complete | commits 25d2abd..dd44b6e, review clean (spec OK, quality approved) |
-| 2 Chain cover | complete | commit ee1af98, review clean; reviewer fuzzed 3000 random graphs, coverage+termination hold |
-| 3 Flow sheet | complete | commit 87f86c1, review clean. Implementer deviated (kept 1 of the 9 "superseded" tests as new coverage); reviewer validated by mutation - it is the ONLY test covering the Parent-fallback assay-labelling branch across 1798 tests. Brief was wrong, implementer right. |
-| 4 Generation order | complete | commit 8f72be9, review clean. Width test added (closes T3 Minor). Brief Step 2 was WRONG - claimed test_a_type_with_no_lineage_sorts_last passed pre-change; it could not have. Planning artifact, not an impl defect. |
-| 5 Dropdown extent | complete | commit a3057aa, review clean, zero findings. Reviewer confirmed the new test is not vacuous (fixture keeps 2 governed columns) and 500 spare rows cost ~nothing (one sqref string per rule, not per-cell). |
-| 6 House vocabularies | complete | commit f471553, review clean. 84 instruments / 34 filetypes verified against the committed file; field_map fully resolves; no dupes; Illumina renames applied. |
-| 7 Verification | complete | commit cad4ada. Full suite 41 failed/3 errors = baseline exactly, nothing new. Workbook sheets: README, How this data flowed, A.ADCD, A.ADCP. Ran against the PEER-RENAMED table+code; passed. |
+| 1 Attribute specs + required flag | complete | commits e642b1f9..94d28e16, review clean (spec OK, quality approved). Fix pass deduped the row-validation loop into `_validBulkAttributeRows` and dropped a dead typing import. 58 passed. |
+| 2 Catalog: types + prefix grouping | complete | commit f375b1c6, review clean (spec OK, quality approved). 18 passed. Reviewer independently re-ran the suite and traced the sort test as genuinely discriminating (declared group order E,D,A,M is not alphabetical, so a naive sort fails it). |
+| 3 Catalog: relationships + suggestions | complete | commits 5fbedf49, 9d0d056e; review clean (spec OK). 35 passed. Reviewer independently stress-tested the regex against uncovered edge cases (leading/doubled/trailing separators, mixed-case Or, `D.SEQ.,RNA`) and found no tearing of dotted codes. Important finding: my brief's or-test was near-vacuous ('CORE, DNA' had no real 'or' in it); replaced with 'DNA or CORE or RNA'. Also carried the two T2 docstring/import fixes. |
+| 4 Extend shared README functions | complete | commits 2d6dab67, d9d96386; review clean (spec OK, quality approved). 77 passed. Byte-identical guarantee for sample downloads verified THREE ways: pre-existing untouched positional tests, reviewer's live `write_samples_workbook` run reading real widths (A=46,B=34,C=100, D untouched), and new tests pinning exact cells + widths. Fix pass strengthened 2 near-tautological assertions and added the width lock. |
+| 5 Template workbook writer | complete | commits e15dd812, 23913779; re-review clean (spec OK, quality approved). 97 passed (20 template + 77 sample). CRITICAL found+fixed: vocabulary sheet was landing between README and the type sheets, violating the design doc; my brief caused it by copying write_samples_workbook's ordering. Fixed with move_sheet + a test that actually forces a CV sheet to exist. Reviewer traced openpyxl move_sheet source and stress-tested 0/6/skipped-type cases. write_samples_workbook deliberately untouched. |
+| 6 Smoke test a real workbook | complete | no code changes needed. Generated against the LIVE db for PAT/TIS/DNA/D.SEQ/A.GEX. Sheets: README, DNA, PAT, TIS, D.SEQ, A.GEX, Controlled Vocabularies, _NEXTSEEK (hidden) - spec order confirmed on real data. TIS 92 cols/85 notes/3 bold-required; D.SEQ 88 cols/73 notes/6 dropdowns. Manifest format_version=1 at B1, header row 2, DNA::UID required=1. File handed to user for Excel eyeball. |
+| 7 The two views | complete | commits 2aaad54f, f6ce179b; re-review clean (spec OK after ❌→fix). 10 passed, 1 EXPECTED fail (stale template, Task 8 fixes). CRITICAL found+fixed: dedup guard compared str to SampleTypeEntry so duplicates never collapsed -> openpyxl silently renamed the 2nd sheet TIS1. My plan's bug. Reviewer mutation-tested the fix (reverted it, confirmed the new test fails). Also strengthened the no-project-check test, which previously could not distinguish 'no check' from 'check denying' (old denial path also returned 200). |
+| 8 Picker template | complete (browser check pending) | commits f9e02d5a, 4e5f644a; review spec OK. 12 passed. TWO XSS vectors found and fixed: (1) `{{ ...|safe }}` json.dumps into an inline <script> — json.dumps does not escape < > &, so a name containing </script> breaks out; (2) MISSED BY BOTH implementer and me — `renderSuggestions()` concatenated `meta.name` into innerHTML, a more direct path needing no breakout. Fixed with json_script + createElement/textContent, plus a test rendering a hostile name. Exploit needs curator-level DB write access (no Django write path to those columns). |
+| 9 Retire dead settings + tests | complete | commits b9f07017, 0cfeed7f; 28 passed. Implementer correctly BLOCKED twice on gaps in my brief. Review then found spec ❌: two MORE tracked files defined the settings, incl. `startup/templates/local_settings.py.template` which `render_local_settings()` uses to scaffold EVERY new install — leaving it would have regenerated the dead settings forever under a comment falsely calling them required. Also `scripts/attribute_api_test.sh`. Both fixed; `git grep` now clean (exit 1). Deleted TestTemplatesListAuth (subject removed) with a docstring note so #52 coverage does not look silently regressed; TestSeekAPIAuth intact. |
+| 10 Full suite + docs | complete | commit ccb25e12. ZERO REGRESSIONS: failure set byte-identical to the 44-line baseline (diff empty, exit 0). 41 failed both before and after; passed 1928 -> 2001 (+73 = 35 catalog + 20 workbook + 9 README + 12 views - 3 deleted TestTemplatesListAuth, exact). Doc section appended to docs/sample-download-workflow.md; cited test name verified to exist. |
+
+## FINAL WHOLE-BRANCH REVIEW (opus) — NOT READY -> fixed in 503d91f3
+Verified sound: byte-identity of write_samples_workbook proven EMPIRICALLY (loaded the base-commit module alongside head, ran both, diffed a full semantic dump - sheets, order, state, every cell, bold, styles, hyperlinks, comments, widths, all data validations: identical). End-to-end POST traced. Soft/hard failure contract holds. No third XSS path (every DB-derived sink enumerated). Access-control removal sound.
+Three Importants found and fixed:
+ 1. Illegal sheet names were UNGUARDED despite the spec promising an assertion; MAX_SHEET_NAME/ILLEGAL_SHEET_CHARS had ZERO production readers and the test asserted properties of its own literals (unfalsifiable). A curator adding `TIS/FFPE` = HTTP 500, whole download lost. Also `_NEXTSEEK`/`README` type codes would silently shadow the manifest. Now dropped-with-warning in load_catalog + a discriminating test.
+ 2. `_annotate_header_titles` was a byte-for-byte duplicate of `_annotate_header`, justified by a docstring that was FACTUALLY WRONG (claimed the shared helper reads cell text; it takes the column list as an argument). MY error in the task brief, propagated in good faith. Exactly the drift sample_workbook.py exists to prevent. Deleted; call site now uses the shared helper.
+ 3. Python/JS suggestion rule unpinned: cap duplicated as a bare literal, and `suggest()` has zero production call sites so the "source of truth" comment described code no request runs. MAX_SUGGESTIONS now single-sourced via context + cross-referencing comments.
+Also fixed: the is-not-None/truthiness asymmetry comment, dead `selected` plumbing, self-referencing parent in README relationships.
 
 ## Minor findings rolled up for the final review
-- T1 Minor: `import re` now dead in `nextseek_api/services/sample_workbook.py:12`. FOLDED INTO TASK 3 dispatch (that task rewrites the file anyway).
-- T1 Minor: `test_depth_resolves_a_cycle_the_same_way_every_run` (test_sample_provenance.py) calls the function 5x on the same dict in one process, so CPython's deterministic dict order makes it pass even without the `sorted()` traversal it is meant to pin. Weak regression net; the longest-path and cycle-termination tests carry the real weight. Came from the plan, not the implementer.
-- T2 Minor: `test_sample_provenance.py:96` has a second mid-file import from a module already imported at the top of the file. Cosmetic; fold into the top import block.
-- T2 Minor: `sample_provenance.py:105` `depths.get(node, len(depths))` fallback is unreachable for any node in `edges`. Defensive-only, harmless.
-- T2 Minor: `sample_provenance.py:92-94` docstring cites 129 hops -> 71 chains / widest 13. These figures WERE verified against the live local graph during planning (2026-08-21) but nothing in the repo re-checks them, so they can go stale silently.
-- T3 Minor: `sample_workbook.py:371,376` spell the same parity test two ways (`column % 2 == 1` vs `column % 2`).
-- T3 Minor: `_write_readme(..., has_flow_sheet: bool = False)` default is unnecessary; the one caller always passes it, and a forgetful future caller gets a flow sheet with no README pointer.
-- T3 Minor: flow sheet column widths untested -> RESOLVED in Task 4 (test_the_flow_sheet_uses_its_own_alternating_widths; reviewer confirmed it fails if widths are swapped or dropped).
-- T3 Minor: `test_no_flow_sheet_when_there_is_no_lineage` does not assert the README pointer is also absent; only incidentally caught by an unrelated cell-position assertion.
-- T3 Minor: the four new workbook tests patch `load_assay_titles` but not `load_derivation_hops`, relying on Neo4j being unreachable in the runner. Matches the file's existing pattern.
-- T3 Minor: `docs/sample-download-workflow.md:123+` still describes the old sheet layout and has stale line-number citations. Pre-existing drift, widened slightly.
-
-## RETRACTED: "the test suite mutates tracked files"
-Two subagents (T3 reviewer, T4 implementer) reported that running the tests rewrites
-`startup/seed/sql/sample_attributes_description.sql` and three neo4j context JSONs, and BOTH
-reverted the file. That was a MISATTRIBUTION. A concurrent Claude session was editing that exact
-file in this shared worktree at the time.
-
-Verified 2026-08-21 on a clean tree: `./scripts/run_tests.sh nextseek_api/tests/test_sample_workbook.py`
--> 57 passed, `git status` shows ZERO changed files. Tests do not mutate the SQL script.
-
-CONSEQUENCE: my subagents destroyed the peer session's uncommitted rewrite of that file, twice.
-Peer notified. Do NOT report "tests mutate tracked files" to the user - it is not true for the
-single-file runs, and the SQL portion was never the tests at all.
-- T4 Minor: `write_samples_workbook` is accreting phases (load context -> load lineage -> prepare -> sort -> build -> write) with no named seam. Extraction candidate if another phase is ever added.
-- T6 Minor: the `variants` block is partial, not exhaustive - it documents 12 of 84 instrument terms and never records the `Illumina NextSeq 1000` rename. Undercuts its stated purpose of making a later normalisation pass mechanical.
-- T6 Minor: dropping the old `platform` vocabulary is UNDOCUMENTED in-repo (only in a subagent report that does not ship). FOLDED INTO TASK 7.
-
-## CORRECTION to my own T6 review dispatch
-I told the reviewer "this JSON was the only place in the repo holding the platform term list".
-FALSE. The identical 17-term GEO platform vocabulary also lives verbatim in
-`chat_nextseek/src/chat_nextseek/reports/templates/SRA.json` and `GEO-updated.json` - which are
-the templates that would actually consume it to resolve ANN-8. Dropping it from the workbook
-vocab file loses nothing. Do not repeat the false claim.
-- T7 finding (process, not code): the running `nextseek` container image was built 2026-08-20 20:43,
-  BEFORE every commit on this branch - `sample_provenance.py` was not inside it. A first workbook
-  generation showed NO flow sheet, which looks exactly like "unreachable graph" or "no lineage" but
-  was neither (Neo4j resolved 12,018 hops when queried directly). `./startup.sh rebuild` fixed it.
-  NOTE: `./scripts/run_tests.sh` mounts the checkout over /app so TESTS were always on current code;
-  only `docker exec nextseek` ran stale code. Anyone hand-verifying via docker exec must rebuild first.
-
-## FINAL WHOLE-BRANCH REVIEW (opus) + FIX WAVE — COMPLETE
-Reviewed a0f5dc00..cad4ada8 (11 commits). Found 1 Important REAL BUG the per-task reviews could
-not see, because each saw only one task's diff:
-
-  A malformed UID 500s the entire download. `str.extract` yields NaN (a float) for a UID with no
-  [A-Z] run; the guard `if not child_type` let it through because `not float('nan')` is False;
-  `sorted(parents)` then raised TypeError comparing float to str. It fired on the DEGRADED path
-  (Neo4j down + a Parent column) and before any sheet was written, so nothing at all came out.
-  Fixed in 1bb749d0 with an isinstance guard + 2 regression tests, re-verified independently.
-
-Fix wave: 1bb749d0, ac15e6c3, 1359510b, 175df430, 816f359f. All 6 findings CLOSED and
-independently re-verified (reviewer reconstructed the crash input itself, and mutation-tested
-that the rewritten determinism test now genuinely fails without `sorted()`). 90 tests passing.
-
-Verdict: READY TO MERGE.
-
-### Deferred to issues, NOT fixed (need the user's call)
-1. Silent Neo4j degradation. "Graph unreachable" and "these samples have no lineage" produce
-   byte-comparable workbooks - no flow sheet, no pointer, alphabetical tabs, and the only trace
-   is a traceback in logs/django.log. Provenance is the point of the feature; it degrades
-   silently. A one-line README note when both the graph and the fallback come up empty closes it.
-2. The 5s Neo4j bound does not bound what its docstring claims. `connection_timeout` bounds TCP
-   connect and `max_transaction_retry_time` bounds retries; NEITHER bounds server-side query
-   execution, so a graph that connects fast and answers slowly is unbounded. Fold into issue #110.
-
-### Left as acceptable
-`_write_vocabulary_sheet` writes the vocabulary NAME without _safe_cell_value (names are
-repo-controlled, unreachable today); chain width is unbounded (107 cells on a synthetic 400-hop
-graph - harmless, Excel takes 16384 columns); rank()'s dead fallback; the two parity spellings;
-some new tests hit the real ORM and log a caught traceback.
+- T9 PRE-EXISTING dead weight, deliberately NOT touched (out of scope, needs a separate issue): `SMART_SEARCH_URL` has ZERO read sites anywhere in the tree. Its only consumer, `seek/views.py`'s `smartSearch` view, was deleted in commit 518179be ("Wire Talk-to-Nessie directly to /seek/assistant/"), long before this branch. It is still defined in the scaffold template, lane settings, test settings and two test fixtures, under a comment claiming it is required. Worth a cleanup issue.
+- T9 Minor: the `requests.adapters.HTTPAdapter.send` patch does trip when an HTTP call is reintroduced, but via a TypeError from requests internals choking on the MagicMock response, not a clean assert_not_called failure. Net effect is the same (test fails) but the failure message would be confusing.
+- T8 Minor: context keys are still named `children_json`/`meta_json` but now hold raw dicts, not JSON strings (json_script serialises them). Names are now slightly misleading.
+- T8 Minor (from brief): `data-group="{{ group.key }}"` on `.tpl-group` is never selected by CSS or JS — dead attribute. `meta_json`'s `group` field is likewise unread by the JS.
+- T8 Gap: the page's JavaScript (chips, suggestion strip, search, add-all) has NO automated coverage. Reviewer ranked the likeliest silent regressions: (1) the JS suggestion tie-break drifting from `template_catalog.suggest()` since nothing pins the two copies together; (2) `add all` reading a stale `dataset.codes` if call order changes; (3) search `hidden` toggling vs the `{% empty %}` zero-types state.
+- T8 Note: `test_types_reach_the_template_grouped_in_display_order` only asserts substring membership, not DOM nesting or order, so 'grouped in display order' is not actually verified by automation.
+- T7 Minor: `import requests` in `seek/views.py:15` is now dead (verified: zero `requests.` calls remain in the file). Its only call site was the removed project check. FOLDED INTO TASK 9 dispatch.
+- T6 Design question for user (NOT a defect): README relationship lines are filtered to the SELECTED codes (`known = set(codes)` in write_template_workbook), so DNA shows "derived from: DNA, TIS" instead of the full CEL/RNA/DNA/TIS/BAC. Self-consistent (every named type has a sheet) but hides real relationships. The Task 8 suggestion strip uses the full catalog, so it is unaffected.
+- T6 Minor cosmetic: DNA lists itself as its own parent. That is real source data in sample_types_context, not a parse bug. Could filter self-references.
+- Controller note: my `.gitignore` edit originally ignored all of `.superpowers/`, which fights this repo's convention of tracking sdd ledgers/reports (7 tracked files). Narrowed to `.superpowers/brainstorm/`.
+- T5 Minor (NOT fixed): `type_sheet_count` in `write_template_workbook` is a manual counter that always equals `len(prepared)`; using that directly would drop the counter. Purely stylistic.
+- T5 Minor (NOT fixed): `test_one_sheet_per_type_named_by_its_code_in_the_given_order` still runs under the empty-vocab fixture, so it remains unfalsifiable for CV ordering. The new `test_the_vocabulary_sheet_sits_after_the_type_sheets_not_before_them` covers that case properly, so this is redundancy not a gap.
+- T5 Minor (NOT fixed): two README tests search whole-sheet text for a substring rather than pinning a cell.
+- T4 Minor (NOT fixed, deliberate): `relationships_by_code` is guarded by truthiness while `required_by_pair` uses `is not None`. Behaviourally equivalent for all reachable inputs, but asymmetric; a one-line comment would stop the next reader assuming it is a bug.
+- T4 Minor (NOT fixed): with-flags column widths (C=10, D=100) are now locked by test, but no production caller exercises that path until Task 5 lands.
+- T2 Minor: `template_catalog.py` module docstring misattributed the buggy grouping rule to `DBtable_sampleattribute.getSampleTypes()`; it is `DBtable_sampletype.getSampleTypes()`. My planning error, copied verbatim. FOLDED INTO TASK 3 dispatch.
+- T2 Minor: `from dataclasses import dataclass, field` imports unused `field`. FOLDED INTO TASK 3 dispatch.
+- T2 Observation: `load_sample_type_context` already catches internally, so `load_catalog`'s outer try/except is unreachable in real failures today. Defense-in-depth, not a defect.
+- T2 Coverage note: no test asserts that a failing `Sample_types` query propagates (the hard dependency). Confirmed correct by reading the source; not test-locked.
+- T1 Minor: `_validBulkAttributeRows` docstring says it drops rows whose sample_type_id is not "positive-ish", but the code only checks int-coercibility. Wording overstates the check.
+- T1 Minor: the `if sid_int not in out: out[sid_int] = []` guard is two identical lines in both public methods. Correctly NOT pushed into the shared generator (it belongs to each accumulator), but worth a comment if the file is touched again.
+- T1 Observation (pre-existing, not caused here): the five `test_services_entity_tree.py` tests patch the whole `DBtable_sampleattribute` class and stub the return value, so they do not exercise the refactored internals at all. The 6 new `test_template_catalog.py` tests are the only real behavioural net on that code.
