@@ -19,7 +19,7 @@ MariaDB ``TRIM()`` without explicit trim characters only removes ASCII spaces,
 while Python ``str.strip()`` removes broader Unicode whitespace. That mismatch
 is accepted for this ASCII-oriented identity domain (sample IDs and filenames).
 """
-from django.db import migrations
+from django.db import migrations, router
 
 
 FORWARD_SQL = r"""
@@ -70,8 +70,34 @@ ALTER TABLE samples
 """
 
 
+def _targets_this_alias(schema_editor):
+    """Whether `samples` DDL belongs on the alias currently being migrated.
+
+    RunPython never consults a database router -- Django applies allow_migrate
+    to schema operations, not to the arbitrary Python in a RunPython -- so this
+    migration has to ask on its own behalf. Without it, correcting
+    seek/dbrouters.py:allow_migrate breaks the --no-seed install path: the
+    seek_mirror tables stop being created on `default`, this ALTER then hits a
+    missing table, and docker/scripts/entrypoint.sh deliberately refuses to
+    serve on a failed migrate.
+
+    `samples` is a SEEK-owned mirror table (_DATABASE = SEEK_DATABASE), so this
+    DDL belongs only on the `seek` alias. Since `manage.py migrate` is never
+    invoked with --database, that makes this migration a no-op in practice --
+    which is the honest outcome. The column that batch_upload/uid_gen.py
+    queries lives on `seek` and arrives there from startup/seed/, not from
+    migrate; before this gate, the ALTER was decorating the dead duplicate
+    `samples` table on the NExtSEEK database instead.
+    """
+    return router.allow_migrate(
+        schema_editor.connection.alias, "seek", model_name="samples"
+    )
+
+
 def _forward(apps, schema_editor):
     if schema_editor.connection.vendor != "mysql":
+        return
+    if not _targets_this_alias(schema_editor):
         return
     # params=None is load-bearing: the default params=() makes the mysqlclient
     # driver interpolate `%` (the LIKE 'D.%'/'A.%' wildcards) and crash with
@@ -82,6 +108,8 @@ def _forward(apps, schema_editor):
 
 def _reverse(apps, schema_editor):
     if schema_editor.connection.vendor != "mysql":
+        return
+    if not _targets_this_alias(schema_editor):
         return
     schema_editor.execute(REVERSE_SQL, params=None)
 
