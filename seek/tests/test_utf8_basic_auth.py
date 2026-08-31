@@ -10,12 +10,12 @@ same defect survived in ``seek/``, where it does serve traffic:
 * ``seek/views.py:1070`` -- ``templatesList()`` hands a real logged-in user's
   SEEK password from ``getSeekLogin()`` to ``requests.get(auth=...)``. This is
   a live request path (routed at ``seek/urls.py``).
-* ``seek/seekapi.py:190`` -- ``SeekAPI.getCurrentUser()``. Also live:
+* ``seek/seekapi.py:189`` -- ``SeekAPI.getCurrentUser()``. Also live:
   ``SeekDB.__init__`` builds a ``SeekAPI`` (``seek/seekdb.py:28,31``),
   ``SeekDB.getCurrentUser`` delegates to it (``seek/seekdb.py:267-268``), and
   ``AdminSampleViewSet.admin_retrieve_samples`` calls that to resolve the
   caller's project scope (``nextseek_api/views.py:611-613``).
-* ``seek/seekapi.py:128`` -- ``SeekAPI.getPageRequests()``.
+* ``seek/seekapi.py:178`` -- ``SeekAPI.getPageRequests()``.
 
 Note on the ``ö`` trap: U+00F6 IS representable in Latin-1, so a password
 containing only ``ö`` does NOT reproduce the bug. The fixtures below use
@@ -134,7 +134,7 @@ class TestTemplatesListAuth:
 
 
 # ===========================================================================
-# seek/seekapi.py:128, :190
+# seek/seekapi.py:178, :189
 # ===========================================================================
 
 

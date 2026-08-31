@@ -131,13 +131,12 @@ def test_a_fully_configured_instance_passes(settings):
 def test_a_session_without_a_password_is_unauthenticated_not_a_crash(rf):
     """An OAuth session carries a username and no password by construction.
 
-    Before the guard, None passed getSeekLogin's checks (only "" was rejected),
-    reached SeekAPI(server, username, None), and raised TypeError inside
-    __curlPrefix, which guards on the username alone and then evaluates
-    str + None (seek/seekapi.py:18-21).
-
-    This asserts the failure is clean. It does NOT assert that OAuth sessions
-    can talk to SEEK -- they cannot until sub-project 2.
+    Before the guard, None passed getSeekLogin's checks (only "" was rejected)
+    and reached SeekAPI(server, username, None), which raised TypeError. That
+    particular crash is gone -- sub-project 2 rewrote __curlPrefix -- but the
+    guard still matters: without it a password-less session sends a
+    credential-less request to SEEK and waits for a 401, instead of failing
+    here for free.
     """
     from seek.seekdb import SeekDB
 

@@ -203,13 +203,14 @@ class SeekDB(object):
         # `is None` matters as much as `== ""`, and only one of them was here.
         # An OAuth session carries a username but no password by construction
         # (seek/oauth/views.py writes the former and not the latter), and a None
-        # password used to pass this check, reach SeekAPI(server, username,
-        # None), and blow up in __curlPrefix -- which guards only on the
-        # username and then evaluates str + None (seek/seekapi.py:18-21).
+        # password used to pass this check.
         #
-        # This does NOT make OAuth sessions work against SEEK; that is
-        # sub-project 2's job. It makes them fail as "not authenticated"
-        # instead of as a TypeError.
+        # It used to then reach SeekAPI(server, username, None) and raise
+        # TypeError inside __curlPrefix, which guarded on the username alone and
+        # concatenated str + None. Sub-project 2 rewrote that method, so the
+        # TypeError is gone -- but the guard still earns its place: without it a
+        # password-less session produces a credential-less request that travels
+        # to SEEK and comes back 401, instead of failing here for free.
         if user_seek['password'] is None or user_seek['password']=="":
             # De-duplicated because this shares its wording with the username
             # check above, and `err` is rendered as a list straight onto the

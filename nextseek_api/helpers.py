@@ -92,7 +92,7 @@ def get_oauth_auth(request) -> Optional[str]:
     try:
         # Imported here, not at module scope: seek.oauth.service imports the
         # models, and this module is already inside the seekdb <-> seekapi
-        # import knot (see seek/seekapi.py:109).
+        # import knot (see SeekAPI.authHeaders, which imports back into here).
         from seek.oauth.service import get_valid_access_token
 
         return get_valid_access_token(user)

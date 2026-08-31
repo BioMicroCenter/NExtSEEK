@@ -8,55 +8,124 @@ from subprocess import Popen, PIPE
 import logging
 logger = logging.getLogger(__name__)
 
+def _curl_config_quote(value):
+    """Escape a value for a double-quoted curl config parameter.
+
+    curl recognises ``\\\\`` and ``\\"`` inside a quoted config value, so those
+    two are the whole escape set. Backslash first, or the quote escape's own
+    backslash gets doubled.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 class SeekAPI(object):
-    def __init__(self, server, username, password):
+    """Talk to SEEK, either as a user (Basic) or with an OAuth token (Bearer).
+
+    ``token_provider`` is a zero-argument callable rather than a token string
+    (issue #16, sub-project 2). A ``SeekDB`` instance can outlive a token's
+    lifetime, so a string captured at construction would go stale; the callable
+    is invoked at the moment of each call, which lets the token service refresh
+    underneath it.
+
+    **Credentials never appear in the command line.** They are written to
+    curl's stdin as a config file (``curl --config -``). The previous form
+    interpolated them into a string run with ``shell=True``, which put them in
+    ``ps`` output for every user on the host and made the credential
+    shell-interpolated. That was already wrong for passwords; it is worse for a
+    bearer token, which is already-authenticated, refreshable and usable
+    non-interactively.
+    """
+
+    def __init__(self, server, username, password, token_provider=None):
         self.__server = server
         self.__username = username
         self.__password = password
-            
+        self.__token_provider = token_provider
+
+    def __hasCredential(self):
+        return self.__token_provider is not None or self.__username is not None
+
+    def _credentialConfig(self):
+        """The curl config text carrying this call's credential, or None.
+
+        Resolved at call time, not at construction: that is the point of
+        token_provider being a callable.
+
+        A provider that returns nothing yields no credential rather than an
+        error -- the request goes out unauthenticated and SEEK answers 401,
+        which is the same shape as any other expired-session outcome.
+        """
+        if self.__token_provider is not None:
+            token = self.__token_provider()
+            if token:
+                return 'header = "Authorization: Bearer %s"\n' % _curl_config_quote(token)
+            return None
+        if self.__username is None or self.__password is None:
+            return None
+        credential = "%s:%s" % (self.__username, self.__password)
+        return 'user = "%s"\n' % _curl_config_quote(credential)
+
+    def authHeaders(self):
+        """The same credential as a ``requests`` header dict.
+
+        Used by the two methods here that speak ``requests`` rather than curl.
+        """
+        if self.__token_provider is not None:
+            token = self.__token_provider()
+            return {"Authorization": "Bearer %s" % token} if token else {}
+        # Basic is encoded here rather than passed as requests' auth= so a
+        # non-Latin-1 password doesn't raise UnicodeEncodeError (#52). Imported
+        # inside the method to avoid the seekdb <-> seekapi import cycle.
+        from nextseek_api.helpers import basic_auth_header
+
+        return basic_auth_header((self.__username, self.__password))
+
     def __curlPrefix(self):
-        if self.__username is None:
-            curl_prefix = "curl -k "
-        else:    
-            curl_prefix = "curl -u '" + self.__username + ":" + self.__password + "' -k "
-        
-        return curl_prefix
-            
+        if not self.__hasCredential():
+            return "curl -k "
+        # The credential itself is supplied on stdin by __queryRaw/callCmdline.
+        return "curl --config - -k "
+
     def apiPost(self):
         apicmd = self.__curlPrefix() + " -X POST \"" + self.__server + "\""
         return apicmd
-    
+
     def __apiGet(self):
         apicmd = self.__curlPrefix() + " -X GET " + self.__server
-        return apicmd        
-            
+        return apicmd
+
     def __apiSilent(self):
         apicmd = self.__curlPrefix() + " -s " + self.__server
-        return apicmd         
-            
-    def __queryRaw(self, apiquery):
-        resultset = subprocess.Popen([apiquery],
-            stdout=subprocess.PIPE,
-            shell=True).communicate()[0].decode("utf-8")
+        return apicmd
 
-        return resultset  
-            
+    def __queryRaw(self, apiquery):
+        config = self._credentialConfig()
+        proc = subprocess.Popen(
+            [apiquery],
+            stdin=subprocess.PIPE if config else None,
+            stdout=subprocess.PIPE,
+            shell=True,
+        )
+        out = proc.communicate(input=config.encode("utf-8") if config else None)[0]
+        return out.decode("utf-8")
+
     def __query(self, apiquery):
         resultset = self.__queryRaw(apiquery)
         if 'Access denied' in resultset:
             resultDic = None
         else:
             resultDic = json.loads(resultset)
-        
+
         return resultDic
-    
+
     def callCmdline(self, cmd):
         args = shlex.split(cmd)
-        proc = Popen(args, stdout=PIPE, stderr=PIPE)
-        out, err = proc.communicate()
+        config = self._credentialConfig()
+        proc = Popen(args, stdin=PIPE if config else None, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate(input=config.encode("utf-8") if config else None)
         exitcode = proc.returncode
         return exitcode, out, err
-        
+
     def runGetQuery(self, queryurl):
         apicmd = self.__apiGet()
         suffix = " -H \"accept: application/json\""
@@ -82,10 +151,12 @@ class SeekAPI(object):
     
     
     def callFileAPI(self, apiurl, file):
+        # Built its own `curl -u` rather than going through __curlPrefix, which
+        # is why the credential here needed fixing separately. `-T` reads the
+        # upload body from the named file, so stdin stays free for --config.
         data_file_query = (
-            "curl -u '" +
-            self.__username + ":" + self.__password +
-            "' -k -X PUT \"" + apiurl + "\" "
+            self.__curlPrefix() +
+            " -X PUT \"" + apiurl + "\" "
             "-H \"accept: */*\" -H \"Content-Type: application/octet-stream\" -T \"" +
             file + "\""
         )
@@ -106,12 +177,9 @@ class SeekAPI(object):
         
     def getPageRequests(self, seekurl):
         import requests
-        # Imported inside the method: nextseek_api.helpers imports seek.seekdb,
-        # which imports this module, so a top-level import here would cycle.
-        from nextseek_api.helpers import basic_auth_header
         urlIn = self.__server + seekurl
         response = requests.get(urlIn,
-                                headers=basic_auth_header((self.__username, self.__password)),
+                                headers=self.authHeaders(),
                                 verify=False)
         htmlpage = response.text
         htmlpage = self.__reviseURLs(htmlpage)
@@ -120,13 +188,9 @@ class SeekAPI(object):
     
     def getCurrentUser(self):
         import requests
-        # Basic auth is encoded here rather than passed as requests' auth= so a
-        # non-Latin-1 password doesn't raise UnicodeEncodeError (#52). Imported
-        # inside the method to avoid the seekdb <-> seekapi import cycle.
-        from nextseek_api.helpers import basic_auth_header
         headers = {"content-type": "application/json",
                    "accept": "application/json"}
-        headers.update(basic_auth_header((self.__username, self.__password)))
+        headers.update(self.authHeaders())
         req = requests.get(self.__server + "/people/current",
                            headers=headers)
         return req.json()
