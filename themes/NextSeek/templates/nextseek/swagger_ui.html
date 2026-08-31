@@ -1,5 +1,6 @@
 {% extends "drf_spectacular/swagger_ui.html" %}
-{# Replaces Swagger UI's Authorize button with the caller's real identity. See #119.
+{% comment %}
+   Replaces Swagger UI's Authorize button with the caller's real identity. See #119.
 
    The Authorize button is inert on this page. DRF stops at the first authenticator
    that succeeds, and CsrfExemptSessionAuthentication sits above BasicAuthentication
@@ -15,7 +16,8 @@
 
    securitySchemes stay in the schema on purpose. They document Basic and Token for
    curl and script callers, where the Authorization header IS honoured. Only the
-   browser control is misleading, so only the browser control goes. #}
+   browser control is misleading, so only the browser control goes.
+{% endcomment %}
 {% block body %}
 <style>
   /* The button is removed rather than disabled: a greyed-out control still reads
