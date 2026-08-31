@@ -19,6 +19,9 @@ _ASSAY_EXISTS_CACHE: Dict[int, bool] = {}
 _SAMPLE_TYPE_TITLE_TO_ID: Dict[str, int] = {}
 _PROJECT_SAMPLE_TYPE_LINKED: Dict[int, Set[int]] = {}
 _SAMPLE_TYPE_ATTRIBUTES_CACHE: Dict[int, Set[str]] = {}
+# Database-side generation stamp for _SAMPLE_TYPE_ATTRIBUTES_CACHE.
+# See refresh_sample_type_attributes_cache.
+_ATTRIBUTES_GENERATION: Optional[Tuple[int, Optional[str]]] = None
 
 _config = BatchUploadConfig()
 
@@ -208,6 +211,55 @@ def validate_assay_ids(
     return known_valid, known_invalid
 
 
+def refresh_sample_type_attributes_cache(conn: Connection) -> None:
+    """Drop this process's cached attribute sets if sample_attributes has changed.
+
+    Call ONCE PER BATCH, not per row. prefetch_sample_type_attributes is called per
+    row (transform.py:79), and the whole point of its cache is that a cache hit costs
+    no SQL; putting this check inside it would add an aggregate query per row.
+
+    Why a database stamp rather than an invalidation hook on the writer:
+    _SAMPLE_TYPE_ATTRIBUTES_CACHE is a plain module-level dict, so it is PER PROCESS,
+    and gunicorn runs 4 workers (gunicorn.conf.py:2). A write served by worker 1 cannot
+    reach worker 2's dict, and the project configures no shared cache backend (no CACHES
+    in dmac/settings.py; Django's default LocMemCache is per-process too). An in-process
+    hook would look correct under a single local worker and still leave production
+    serving stale attribute sets from the other three -- the reported symptom being a
+    rejection count that oscillates between runs on an unchanged file.
+
+    Reading the stamp from the one thing every worker shares -- the database -- also
+    makes this writer-agnostic. It equally catches writes from the attributes API, from
+    NExtSEEK's own /seek/samples/attributes/ editor, from the dmac-curation
+    sampletype_attr.py stopgap, and from manual SQL. No writer has to cooperate, or even
+    know this cache exists.
+
+    (COUNT(*), MAX(updated_at)) suffices for THIS cache because it stores attribute
+    TITLES: inserts and deletes move the count, and title edits move updated_at
+    (attributes/executor.py:681-684 sets updated_at=NOW(6)). The one write that moves
+    neither is the position-only UPDATE at executor.py:668-671, which sets just `pos`,
+    and pos is not cached -- so not reacting to it is correct, not a gap.
+    """
+    global _ATTRIBUTES_GENERATION
+    row = conn.execute(
+        text("SELECT COUNT(*), MAX(updated_at) FROM sample_attributes")
+    ).fetchone()
+    if row is None:
+        generation: Tuple[int, Optional[str]] = (0, None)
+    else:
+        generation = (int(row[0]), str(row[1]) if row[1] is not None else None)
+
+    with _CACHE_LOCK:
+        if generation == _ATTRIBUTES_GENERATION:
+            return
+        if _ATTRIBUTES_GENERATION is not None:
+            log.info(
+                "sample_attributes changed (%s -> %s); dropping %d cached attribute set(s)",
+                _ATTRIBUTES_GENERATION, generation, len(_SAMPLE_TYPE_ATTRIBUTES_CACHE),
+            )
+        _SAMPLE_TYPE_ATTRIBUTES_CACHE.clear()
+        _ATTRIBUTES_GENERATION = generation
+
+
 def prefetch_sample_type_attributes(
     sample_type_ids: List[int], conn: Connection
 ) -> Dict[int, Set[str]]:
@@ -261,6 +313,8 @@ def clear_caches() -> None:
         _SAMPLE_TYPE_TITLE_TO_ID.clear()
         _PROJECT_SAMPLE_TYPE_LINKED.clear()
         _SAMPLE_TYPE_ATTRIBUTES_CACHE.clear()
+        global _ATTRIBUTES_GENERATION
+        _ATTRIBUTES_GENERATION = None
     log.debug("Prefetch caches cleared")
 
 

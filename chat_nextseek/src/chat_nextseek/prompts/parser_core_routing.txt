@@ -19,16 +19,17 @@ The Neo4j knowledge graph stores biological entities and the relationships betwe
 Node types: Sample, with property "type" for the sample type code; Study, with "title"; Investigation, project-level grouping with "title".
 Relationships: DERIVED_FROM between samples, carrying assay and protocol metadata on the relationship itself; IN_STUDY from sample to study; IN_INVESTIGATION from study to investigation.
 
-Known investigation titles: CSBC, Break Through Cancer, Griffith, Impact, MetNet, SRP, Shoulders.
-Note: "GBM" is a study inside the Break Through Cancer investigation.
+Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet.
+Note: "GBM" is a study inside the GBM_BTC investigation. Most other study titles are
+full paper titles, not short codes, because in this instance a study IS a published paper.
 
 Use graph_query when the user's intent requires traversing relationships in the graph and the answer cannot be obtained by filtering on sample attributes alone:
 - "What samples are in the GBM study?" requires IN_STUDY traversal; no REST endpoint can scope a sample query to a named study.
-- "What studies are in the Griffith project?" requires IN_INVESTIGATION traversal.
+- "What studies are in the MetNet project?" requires IN_INVESTIGATION traversal.
 - "What projects have mouse samples?" requires traversal from Sample to Study to Investigation.
 - "How many samples are in the GBM study?" is a count scoped to a graph node.
 - "How many TIS samples exist across all studies?" is aggregation across graph structure.
-- "How many studies are there in the Griffith project?" is a count of related nodes via traversal.
+- "How many studies are there in the MetNet project?" is a count of related nodes via traversal.
 - "Show me all NHPs in the SRP project" is multi-hop: NHP samples to study to investigation.
 - "Find samples that underwent single cell sequencing" requires assay/protocol matching on DERIVED_FROM relationship properties.
 - "Find all tissues associated with flow cytometry protocols" requires protocol matching on DERIVED_FROM relationship properties.
@@ -229,7 +230,7 @@ If yes, use ask_about_last_results or refine_last_search.
 
 6. Does answering this require the knowledge graph?
 Ask whether the nature of the request requires graph structure to answer:
-- Is the answer scoped to a named Study or Investigation? Even if the user also specifies sample types or keywords, a named organizational scope such as GBM, IMPACT, Griffith, SRP, or CSBC requires IN_STUDY or IN_INVESTIGATION traversal. That is always graph. Multiple sample type codes do not change this; use s.type IN [...] in the Cypher.
+- Is the answer scoped to a named Study or Investigation? Even if the user also specifies sample types or keywords, a named organizational scope such as the GBM study, or the GBM_BTC, MetNet, MIT_SRP or CSBC investigations, requires IN_STUDY or IN_INVESTIGATION traversal. That is always graph. Multiple sample type codes do not change this; use s.type IN [...] in the Cypher.
 - Is the user asking what studies, investigations, or projects contain or are associated with something? That is a structural question about graph topology.
 - Is the user asking for a count or aggregation that is organized by graph structure, such as "across all studies", "per study", or "how many X in study Y"?
 - Is the user asking for a global count of a sample type with no other attribute filters, such as "How many mice are in the database?" There is no filtering happening, only counting. This is a graph COUNT query, not a search.

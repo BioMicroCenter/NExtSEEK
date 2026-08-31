@@ -24,6 +24,7 @@ router.register(r"investigations", views.InvestigationViewSet, basename="investi
 router.register(r"studies", views.StudyViewSet, basename="studies")
 router.register(r"attributes", views.AttributeViewSet, basename="attribute")
 router.register(r"assays", views.AssayViewSet, basename="assays")
+router.register(r"sample_types/connections", views.SampleTypeConnectionsViewSet, basename="sampletype-connections")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
 router.register(r"samples/advanced_search", views.SampleAdvancedSearchViewSet, basename="samples-advanced-search")
 router.register(r"sample_types/get_parents", views.SamplesByChildTypesViewSet,basename="get-parents-by-childtype")
@@ -60,7 +61,17 @@ urlpatterns = [
     # Authentication is untouched: SERVE_AUTHENTICATION is unset, so the views fall
     # back to DEFAULT_AUTHENTICATION_CLASSES (Token, Session, Basic).
     re_path(r'^schema/$', SpectacularAPIView.as_view(permission_classes=[IsAuthenticated]), name='schema'),
-    re_path(r'^swagger/$', SpectacularSwaggerView.as_view(url_name='nextseek_api:schema', permission_classes=[IsAuthenticated]), name='swagger-ui'),
+    # template_name overrides drf-spectacular's default to add the effective-identity
+    # banner (#119). Swagger's Authorize button is silently ignored whenever the browser
+    # holds a NExtSEEK session cookie, because DRF stops at the first authenticator that
+    # succeeds and CsrfExemptSessionAuthentication sits above BasicAuthentication. The
+    # banner states who the requests will ACTUALLY run as, so a mismatch is visible
+    # instead of being discovered by mis-diagnosing an authorization gap.
+    re_path(r'^swagger/$', SpectacularSwaggerView.as_view(
+        url_name='nextseek_api:schema',
+        permission_classes=[IsAuthenticated],
+        template_name='nextseek/swagger_ui.html',
+    ), name='swagger-ui'),
     re_path(r'^redoc/$', SpectacularRedocView.as_view(url_name='nextseek_api:schema', permission_classes=[IsAuthenticated]), name='redoc'),
 
     # Include router URLs

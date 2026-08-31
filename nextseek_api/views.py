@@ -52,6 +52,7 @@ from .services.assays import AssayProxyViewSet as AssayViewSet
 from .services.sample_types import SampleTypeProxyViewSet as SampleTypeViewSet
 from .services.sample_types import SampleTypeChildrenViewSet as SampleTypeChildrenViewSet
 from .services.sample_types import SamplesByChildTypesViewSet as SamplesByChildTypesViewSet
+from .services.sampletype_connections import SampleTypeConnectionsViewSet as SampleTypeConnectionsViewSet
 from .services.samples import SampleProxyViewSet as SampleViewSet
 from .services.samples import _resolve_uid_to_seek_id
 from .services.samples import SampleAdvancedSearchViewSet as SampleAdvancedSearchViewSet

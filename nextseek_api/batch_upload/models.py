@@ -499,6 +499,14 @@ class DerivedFromRelRow(BaseModel):
     assay_id: Optional[int] = None
     internal_assay_id: Optional[int] = None
     internal_assay_title: Optional[str] = None
+    #: EVERY internal assay shared by this edge's two endpoints, not just the
+    #: winner above. The singular fields keep the lowest-id assay for backward
+    #: compatibility -- entity_tree, the download workbook, chat_nextseek's
+    #: context files and seek/views.py all read them -- while these carry what
+    #: used to be discarded. Kept parallel and sorted by id, so
+    #: internal_assay_ids[i] names internal_assay_titles[i]. See issue #118.
+    internal_assay_ids: List[int] = Field(default_factory=list)
+    internal_assay_titles: List[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 

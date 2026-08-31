@@ -1,5 +1,6 @@
 
 from __future__ import absolute_import, unicode_literals
+import json
 import os
 
 from django import VERSION as DJANGO_VERSION
@@ -381,6 +382,41 @@ REST_FRAMEWORK = {
 # NExtSEEK-specific settings #
 ##############################
 
+#: Swagger section order, defined once and used twice below.
+#
+# Swagger UI does NOT order its sections from the OpenAPI root "tags" array -- that
+# array only supplies descriptions. Section order comes from tagsSorter, and with no
+# sorter it falls back to the order tags first appear in "paths", which is why "admin"
+# sat above every endpoint a normal caller can use. Setting "TAGS" alone looked right
+# in schema.json and changed nothing on the page; both were verified by rendering.
+#
+# "TAGS" is still declared because it is the spec-correct way to name the tag set and
+# other consumers (redoc, generators) do honour it. tagsSorter is what actually moves
+# the sections in Swagger UI. Sharing one list keeps them from drifting.
+API_TAG_ORDER = [
+    "Assays",
+    "admin",
+    "Users (admin)",
+    "Assistant",
+    "Assistant (CC)",
+    "cc-assistant",
+    "Attributes",
+    "batch-upload",
+    "DataFiles",
+    "EntityTree",
+    "evaluator",
+    "Investigations",
+    "People",
+    "Projects",
+    "Samples",
+    "SampleTypes",
+    "Schema RAG",
+    "SOPs",
+    "Studies",
+    "Timeline",
+    "schema",
+]
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "NExtSEEK API",
     "VERSION": "0.1.0",
@@ -388,7 +424,20 @@ SPECTACULAR_SETTINGS = {
     "PREPROCESSING_HOOKS": [
         "dmac.openapi_hooks.exclude_seek_paths",
     ],
+    "TAGS": API_TAG_ORDER,
+    # Injected into the page with |safe, so a JS function survives. Anything not in
+    # the list sorts to the end, alphabetically, rather than disappearing.
+    "SWAGGER_UI_SETTINGS": (
+        "{deepLinking: true, tagsSorter: function (a, b) {"
+        "  var o = " + json.dumps(API_TAG_ORDER) + ";"
+        "  var ia = o.indexOf(a), ib = o.indexOf(b);"
+        "  if (ia < 0) ia = o.length;"
+        "  if (ib < 0) ib = o.length;"
+        "  return ia - ib || a.localeCompare(b);"
+        "}}"
+    ),
 }
+
 
 # Native attribute mutation routing. Small batches complete in-request; larger
 # affected-sample sets use the durable worker/outbox path. Both settings remain

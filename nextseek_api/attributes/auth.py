@@ -209,9 +209,12 @@ def can_view_job(request) -> bool:
 
 
 def can_cancel_job(request, creator_seek_person_id: object) -> bool:
+    # NB: no admin check here. The admin gate is applied once, by the permission list
+    # in AttributeViewSet.get_permissions (now IsSuperUser). This function answers only
+    # the narrower question it is named for: is the caller the SEEK person who created
+    # this job. Re-checking admin here would AND a second, different admin population
+    # onto the gate and silently defeat it.
     if not isinstance(creator_seek_person_id, int) or isinstance(creator_seek_person_id, bool) or creator_seek_person_id <= 0:
-        return False
-    if not is_seek_admin(request):
         return False
     return authenticate_seek_person(request).person_id == creator_seek_person_id
 
@@ -234,7 +237,9 @@ class CanCancelAttributeJob(BasePermission):
     message = "Only the creating SEEK administrator may cancel this job."
 
     def has_permission(self, request, view) -> bool:
-        return isinstance(getattr(request, "auth", None), AuthenticatedSeekPerson) and is_seek_admin(request)
+        # Admin is gated by IsSuperUser alongside this class in get_permissions; this
+        # class contributes only the job-ownership check in has_object_permission.
+        return isinstance(getattr(request, "auth", None), AuthenticatedSeekPerson)
 
     def has_object_permission(self, request, view, obj) -> bool:
         return can_cancel_job(request, getattr(obj, "actor_seek_person_id", None))

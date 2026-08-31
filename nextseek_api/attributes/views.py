@@ -28,7 +28,8 @@ from nextseek_api.endpoint_descriptions import (
 
 from . import openapi as _openapi  # noqa: F401 - registers authentication schema extension
 from . import schemas
-from .auth import CanCancelAttributeJob, IsSeekAdmin, SeekAuthenticated, SeekPersonAuthentication
+from nextseek_api.permissions import IsSuperUser
+from .auth import CanCancelAttributeJob, SeekAuthenticated, SeekPersonAuthentication
 from .scalars import ScalarInputError, parse_positive_int
 from .schemas import CREATE_REQUEST_ADAPTER, DELETE_REQUEST_ADAPTER, PATCH_REQUEST_ADAPTER, SEARCH_REQUEST_ADAPTER
 
@@ -116,10 +117,17 @@ class AttributeViewSet(viewsets.ViewSet):
     permission_classes = [SeekAuthenticated]
 
     def get_permissions(self):
+        # Admin gate: Django ``is_superuser``, matching the sample-type connections
+        # endpoint (nextseek_api/sampletype_connections.py) and seek.views.verifySuperUser.
+        # This replaced ``IsSeekAdmin`` (SEEK ``roles.role_type_id = 1``) so the whole API
+        # has ONE admin population. The two are not nested: a SEEK admin who is not a
+        # Django superuser loses write access here, and vice versa.
+        # ``SeekAuthenticated`` still stands in front, so a SEEK identity is always present
+        # for the audit trail and for the job-ownership check in CanCancelAttributeJob.
         if self.action in {"batch_create", "batch_patch", "batch_delete", "job"}:
-            return [SeekAuthenticated(), IsSeekAdmin()]
+            return [SeekAuthenticated(), IsSuperUser()]
         if self.action == "job_cancel":
-            return [SeekAuthenticated(), IsSeekAdmin(), CanCancelAttributeJob()]
+            return [SeekAuthenticated(), IsSuperUser(), CanCancelAttributeJob()]
         return [SeekAuthenticated()]
 
     def handle_exception(self, exc):

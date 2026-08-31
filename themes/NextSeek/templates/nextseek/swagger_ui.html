@@ -1,0 +1,84 @@
+{% extends "drf_spectacular/swagger_ui.html" %}
+{# Replaces Swagger UI's Authorize button with the caller's real identity. See #119.
+
+   The Authorize button is inert on this page. DRF stops at the first authenticator
+   that succeeds, and CsrfExemptSessionAuthentication sits above BasicAuthentication
+   in every viewset here, so the session cookie wins and the Authorization header
+   Swagger sends is never read. Whatever you type into Authorize, requests run as
+   whoever you are signed in to NExtSEEK as. It is a control that cannot do anything,
+   and believing it works produces false readings in BOTH directions when testing
+   authorization: a gated endpoint looks open, and a broken gate looks closed.
+
+   So the button is removed and replaced by the fact it was obscuring. To exercise a
+   different account, sign in as that account in a private window; session auth is
+   what this page actually uses.
+
+   securitySchemes stay in the schema on purpose. They document Basic and Token for
+   curl and script callers, where the Authorization header IS honoured. Only the
+   browser control is misleading, so only the browser control goes. #}
+{% block body %}
+<style>
+  /* The button is removed rather than disabled: a greyed-out control still reads
+     as "works, but not right now". */
+  .swagger-ui .scheme-container .auth-wrapper { display: none !important; }
+  .swagger-ui .scheme-container { box-shadow: none; border-bottom: 1px solid #e8e8e8; }
+  #ns-whoami{
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+    padding:9px 14px;border:1px solid #d5dbe1;border-radius:6px;background:#fff;
+  }
+  #ns-whoami .who{font-weight:700;color:#1F2328}
+  #ns-whoami .tag{border-radius:11px;padding:1px 10px;font-size:11.5px;font-weight:600}
+  #ns-whoami .tag.su{background:#DDF4E4;color:#1B4620}
+  #ns-whoami .tag.std{background:#EAEEF2;color:#42474D}
+  #ns-whoami .note{color:#57606A;font-size:12px}
+  #ns-whoami.err{border-color:#D9A600;background:#FFF8E1}
+</style>
+{{ block.super }}
+<script>
+(function () {
+  var ME = '{% url "nextseek_api:assistant-me" %}';
+
+  function mount(container) {
+    if (document.getElementById('ns-whoami')) { return; }
+    var box = document.createElement('div');
+    box.id = 'ns-whoami';
+    box.setAttribute('role', 'status');
+    box.innerHTML = '<span class="note">checking your account…</span>';
+    container.appendChild(box);
+
+    fetch(ME, {credentials: 'include', headers: {'Accept': 'application/json'}})
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (me) {
+        var su = !!me.is_admin;
+        box.innerHTML =
+          'You are logged in as <span class="who">' + esc(me.username || 'unknown') + '</span>' +
+          '<span class="tag ' + (su ? 'su' : 'std') + '">' +
+          (su ? 'superuser' : 'standard account') + '</span>' +
+          '<span class="note">Every request on this page runs as this account. ' +
+          'To use a different one, sign in as that account in a private window.</span>';
+      })
+      .catch(function () {
+        box.className = 'err';
+        box.innerHTML = '<span class="note">Could not determine your account. ' +
+          'Requests still run as whoever this browser is signed in to NExtSEEK as.</span>';
+      });
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Swagger UI renders asynchronously, so the scheme container does not exist yet.
+  // Watch for it, mount once, then stop; a bounded fallback keeps this from
+  // observing forever if the layout ever changes.
+  var seen = false;
+  var obs = new MutationObserver(function () {
+    var c = document.querySelector('.swagger-ui .scheme-container');
+    if (c && !seen) { seen = true; obs.disconnect(); mount(c); }
+  });
+  obs.observe(document.body, {childList: true, subtree: true});
+  setTimeout(function () { obs.disconnect(); }, 15000);
+})();
+</script>
+{% endblock %}

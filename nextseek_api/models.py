@@ -2590,3 +2590,114 @@ class BatchDeleteResponse(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
+# SampleType assay connections: request/response models
+# -----------------------------
+
+
+class SampleTypeConnectionsRequest(BaseModel):
+    """Selector for the sample-type assay-connection graph.
+
+    At least one of ``graph_inv_id`` / ``seek_inv_id`` / ``name`` /
+    ``sample_type`` / ``all_conns`` must be supplied. Without that floor an
+    empty querystring would dump every connection in the graph, which is the
+    one result a caller never asks for by accident.
+
+    The three investigation selectors are AND-ed, not OR-ed: passing two that
+    disagree returns nothing rather than the union. They address the same
+    Investigation node three different ways, so agreement is the norm and
+    disagreement is a caller bug worth surfacing as an empty result.
+    """
+
+    graph_inv_id: Optional[int] = Field(
+        None, description="Investigation.id in the graph (SEEK investigation id)."
+    )
+    seek_inv_id: Optional[int] = Field(
+        None, description="Investigation.project_id in the graph. NOTE: this is a SEEK *project* id."
+    )
+    name: Optional[str] = Field(
+        None, description="Investigation.title, matched exactly and case-insensitively."
+    )
+    sample_type: Optional[str] = Field(
+        None,
+        description=(
+            "Sample type code (e.g. 'CEL'). Matches connections where the type is "
+            "EITHER endpoint. Alone, it spans every project."
+        ),
+    )
+    direct_connections: bool = Field(
+        False,
+        description=(
+            "Default false: every edge in the tree rooted at sample_type, walked all the "
+            "way down (NHP -> PAV -> TIS -> DNA ...), which is almost always the more "
+            "useful answer -- NHP returns 38 connections that way against 3 direct. "
+            "Set true for only the edges where sample_type is itself an endpoint. "
+            "Has no effect without sample_type, since there is no root to walk from."
+        ),
+    )
+    all_conns: bool = Field(
+        False,
+        description=(
+            "Explicitly request every connection in the graph, unfiltered. Exists so that "
+            "a whole-graph dump is always deliberate and never the result of an empty querystring."
+        ),
+    )
+    layout: Optional[Literal["radial", "layered"]] = Field(
+        None,
+        description=(
+            "SVG layout. None (default) picks radial for an investigation or project and "
+            "layered for a sample_type; set it to override that choice."
+        ),
+    )
+    output_format: Literal["json", "csv", "svg", "html"] = Field(
+        "json",
+        description=(
+            "json (default), csv, svg (static clade-coloured diagram), or html "
+            "(interactive cytoscape/dagre network, same visual language as the "
+            "curation skill's SAMPLE_TREE)."
+        ),
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+    @model_validator(mode="after")
+    def _require_at_least_one_selector(self):
+        if not any(
+            [
+                self.graph_inv_id is not None,
+                self.seek_inv_id is not None,
+                bool(self.name),
+                bool(self.sample_type),
+                self.all_conns,
+            ]
+        ):
+            raise ValueError(
+                "Supply at least one of: graph_inv_id, seek_inv_id, name, sample_type, "
+                "or all_conns=yes."
+            )
+        return self
+
+
+class SampleTypeConnection(BaseModel):
+    """One unique parent-type -> child-type connection, made by one internal assay."""
+
+    parent_sample_type: str = Field(..., description="Parent sample type code")
+    child_sample_type: str = Field(..., description="Child sample type code")
+    internal_assay: str = Field(..., description="Internal assay title that produced the derivation")
+    n_edges: int = Field(..., description="Count of DERIVED_FROM relationships behind this connection")
+    parent_clade: Optional[str] = Field(None, description="Clade of the parent sample type")
+    child_clade: Optional[str] = Field(None, description="Clade of the child sample type")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class SampleTypeConnectionsResponse(BaseModel):
+    """Response model for the sample-type assay-connections endpoint."""
+
+    total: int = Field(..., description="Number of unique connections returned")
+    filters: Dict[str, Any] = Field(..., description="Selectors actually applied, echoed back")
+    connections: List[SampleTypeConnection] = Field(..., description="The connections")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)

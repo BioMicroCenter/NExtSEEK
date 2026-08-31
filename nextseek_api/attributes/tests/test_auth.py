@@ -408,7 +408,7 @@ def test_attribute_action_evaluates_permission_exactly_once_before_validation():
     )
     trace = []
     with patch("nextseek_api.attributes.auth.SeekAuthenticated.has_permission", side_effect=lambda *_: trace.append("authenticated") or True), \
-         patch("nextseek_api.attributes.auth.IsSeekAdmin.has_permission", side_effect=lambda *_: trace.append("admin") or True), \
+         patch("nextseek_api.permissions.IsSuperUser.has_permission", side_effect=lambda *_: trace.append("admin") or True), \
          patch("nextseek_api.attributes.views.CREATE_REQUEST_ADAPTER.validate_python", side_effect=lambda *_: trace.append("validate") or (_ for _ in ()).throw(ValueError("stop"))):
         with pytest.raises(ValueError, match="stop"):
             AttributeViewSet.as_view({"post": "batch_create"})(request)

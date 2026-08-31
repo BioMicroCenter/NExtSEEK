@@ -1,0 +1,18 @@
+# Do not convert line endings on checkout or commit.
+#
+# 913 tracked files in this repo are CRLF, including 29 of the 30 Python modules
+# under nextseek_api/batch_upload/. That is the historical norm here, not damage.
+#
+# `-text` tells git to store and check out bytes exactly as they are, so a
+# checkout on a different platform never silently reflows a file and no one is
+# handed a whole-file diff they did not create.
+#
+# NOTE what this does NOT do: it cannot stop a TOOL from converting. Reading a
+# CRLF file with Python's text mode and writing it back yields LF, which git then
+# reports as every line changed -- 5,491 lines for what was a 75-line edit, on
+# 2026-08-31. Preventing that requires `text` (normalising stored content), which
+# would reflow all 913 files once. That is a deliberate repo-wide decision and is
+# deliberately NOT taken here.
+#
+# When editing a file programmatically, read and write in BINARY mode.
+* -text

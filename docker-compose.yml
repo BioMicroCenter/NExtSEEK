@@ -278,6 +278,7 @@ services:
     volumes:
       - seek-filestore:/seek/filestore
       - seek-cache:/seek/tmp/cache
+      - ./docker/seek-nginx.conf:/seek/nginx.conf
     ports:
       - "127.0.0.1:${SEEK_PORT:-3000}:3000"
     depends_on:

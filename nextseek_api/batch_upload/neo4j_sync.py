@@ -185,6 +185,12 @@ def bulk_merge_relationships(
     SET r.protocol_id = row.protocol_id, r.protocol_title = row.protocol_title,
         r.assay_id = row.assay_id,
         r.internal_assay_id = row.internal_assay_id, r.internal_assay_title = row.internal_assay_title,
+        // The full shared-assay set (#118). The singular fields above stay the
+        // lowest-id winner for every existing consumer; these carry what used to
+        // be silently dropped. An empty list is written rather than skipped, so an
+        // edge re-ingested after losing an assay does not keep a stale list.
+        r.internal_assay_ids = row.internal_assay_ids,
+        r.internal_assay_titles = row.internal_assay_titles,
         r.child_id = row.child_id, r.parent_id = row.parent_id
     RETURN count(r) AS processed
     """
@@ -1475,21 +1481,64 @@ def build_derived_from_payloads_from_db(
 
             assay_id: Optional[int] = None
 
+            all_internal_ids: List[int] = []
+            all_internal_titles: List[str] = []
+
             if shared:
-                # Resolve each shared assay_id to its internal_assay_id,
-                # then pick the minimum internal_assay_id
-                best_ia_id: Optional[int] = None
-                best_ia_title: Optional[str] = None
-                best_assay_id: Optional[int] = None
-                for assay_id in shared:
-                    resolved = combined_mapping.get(assay_id)
+                # Resolve every shared assay_id, keep them ALL, and additionally
+                # nominate the minimum internal_assay_id as the singular winner.
+                #
+                # Keeping only the winner silently discarded the rest, and the
+                # discarded one was often the more specific of the pair -- on
+                # production, Cell Isolation lost to Flow Cytometry on 998 edges
+                # and Bacterial Extraction lost to DNA Extraction on 387 (#118).
+                # The graph could not even report the loss, because the dropped
+                # assay exists only in seek_production.assay_assets.
+                #
+                # The winner stays exactly as it was: entity_tree, the download
+                # workbook, chat_nextseek's context and seek/views.py all read
+                # the singular fields, so changing them would ripple everywhere.
+                # (internal_assay_id, resolved_title_or_None, source_assay_id).
+                # The title is kept RAW here, including None: the winner's
+                # internal_assay_title must stay None when there is no title,
+                # because consumers filter on `internal_assay_title IS NOT NULL`
+                # and an empty string would make untitled edges start matching.
+                resolved_pairs: List[Tuple[int, Optional[str], int]] = []
+                for candidate_assay_id in shared:
+                    resolved = combined_mapping.get(candidate_assay_id)
                     if resolved is None:
                         continue
                     ia_id, ia_title = resolved
+                    resolved_pairs.append((ia_id, ia_title, candidate_assay_id))
+
+                # Winner selection is unchanged from before this commit: lowest
+                # internal_assay_id wins, chosen by an explicit scan rather than
+                # min() so a tie never compares None against str.
+                best_ia_id: Optional[int] = None
+                best_ia_title: Optional[str] = None
+                best_assay_id: Optional[int] = None
+                for ia_id, ia_title, src_assay_id in resolved_pairs:
                     if best_ia_id is None or ia_id < best_ia_id:
                         best_ia_id = ia_id
                         best_ia_title = ia_title
-                        best_assay_id = assay_id
+                        best_assay_id = src_assay_id
+
+                # The full set, sorted by internal_assay_id and de-duplicated so the
+                # two lists stay parallel and output is stable across runs. Neo4j
+                # list properties cannot hold nulls, so a missing title becomes ""
+                # HERE only -- never on the singular winner field.
+                seen_ia: Set[int] = set()
+                for ia_id, ia_title, src_assay_id in sorted(
+                    resolved_pairs, key=lambda t: (t[0], t[2])
+                ):
+                    if ia_id in seen_ia:
+                        continue
+                    seen_ia.add(ia_id)
+                    user_title = provided_assay_title_by_id.get(src_assay_id)
+                    all_internal_ids.append(ia_id)
+                    all_internal_titles.append(
+                        user_title if user_title is not None else (ia_title or "")
+                    )
 
                 assay_id = best_assay_id
 
@@ -1510,6 +1559,8 @@ def build_derived_from_payloads_from_db(
                 assay_id=assay_id,
                 internal_assay_id=internal_assay_id,
                 internal_assay_title=internal_assay_title,
+                internal_assay_ids=all_internal_ids,
+                internal_assay_titles=all_internal_titles,
             ))
 
     if missing_parents_by_child:

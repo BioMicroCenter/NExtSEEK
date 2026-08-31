@@ -43,6 +43,15 @@ def system_agent(
         if project_name and project_name in config.FULL_PROJECTS_MAP:
             entity_details[project_name] = config.FULL_PROJECTS_MAP[project_name]
 
+    # The full catalogs, not just the codes the entity agent happened to resolve.
+    # Without these the only enumerable list in context is the representative
+    # table in capabilities.md (25 sample types, 15 assays), and the agent
+    # answers "how many D.* types exist" with that table's row count instead of
+    # the catalog's. Every other catalog-answering agent already passes these;
+    # see agents/entity.py:38-40.
+    sampletypes_json = json.dumps(config.MIN_SAMPLETYPES, indent=2)
+    assays_json = json.dumps(config.MIN_ASSAYS, indent=2)
+
     caps_doc = config.CAPABILITIES_DOC or "(No capabilities document loaded — describe general NExtSEEK capabilities.)"
     endpoints_json = json.dumps(config.MIN_API_ENDPOINTS, indent=2)
     schema_json = json.dumps(config.NEO4J_SCHEMA, indent=2) if config.NEO4J_SCHEMA else "{}"
@@ -52,6 +61,13 @@ def system_agent(
         {"role": "system", "content": config.SYSTEM_AGENT_SYSTEM_PROMPT},
         {"role": "system", "content": f"CAPABILITIES_DOCUMENT:\n{caps_doc}"},
         {"role": "system", "content": f"ENDPOINT_CATALOG:\n{endpoints_json}"},
+        {"role": "system", "content":
+            "SAMPLETYPE_CATALOG (COMPLETE — this is the authoritative list; "
+            "count and enumerate from here, never from the representative table "
+            f"in the capabilities document):\n{sampletypes_json}"},
+        {"role": "system", "content":
+            "ASSAY_CATALOG (COMPLETE — authoritative, same rule as the sampletype "
+            f"catalog):\n{assays_json}"},
         {"role": "system", "content": f"GRAPH_SCHEMA:\n{schema_json}"},
         {"role": "system", "content": f"ENTITY_RESULT (from entity agent):\n{json.dumps(entity_dict, indent=2)}"},
         {"role": "system", "content": f"ENTITY_DETAILS (full catalog data for resolved entities):\n{entity_details_json}"},
