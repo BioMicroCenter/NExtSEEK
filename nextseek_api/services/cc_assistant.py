@@ -42,7 +42,7 @@ from nextseek_api.assistant.models_api import AsyncQueryResponse, QueryRequest, 
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
-from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.helpers import resolve_seek_auth, chat_credentials_for
 
 # Reuse the existing assistant's helpers (do NOT redefine its behavior).
 from nextseek_api.services.assistant import (
@@ -470,10 +470,45 @@ class CCAssistantViewSet(viewsets.ViewSet):
         return existing or ChatSession.objects.create(user=request.user)
 
     def _resolve_credentials(self, request):
+        """Deprecated: use _chat_credentials or _seek_credentials.
+
+        Kept only so nothing outside this class breaks on the rename. It cannot
+        express an OAuth caller -- returning (username, None) -- which is the
+        whole reason it was split.
+        """
+        creds = self._chat_credentials(request)
+        return creds["api_user"], creds["api_pass"]
+
+    def _chat_credentials(self, request):
+        """The **NExtSEEK** identity for the chat pipeline (#16, sub-project 3).
+
+        A DRF token for an OAuth caller, a Basic pair otherwise. This is the
+        credential the pipeline presents to NExtSEEK's own API.
+        """
+        return chat_credentials_for(request)
+
+    def _seek_credentials(self, request):
+        """The **SEEK** identity, as ``(api_user, api_pass, token_provider)``.
+
+        A different credential system from _chat_credentials, in the opposite
+        direction, and this file needs both: resolve_user_project builds a
+        SeekDB and calls getCurrentUser(), which goes to SEEK, while the chat
+        pipeline calls NExtSEEK. Handing either one the other's credential
+        produces a 401 from whichever service was not expecting it.
+
+        api_user is still returned alongside the token: resolve_user_project
+        names a user's personal namespace after it when they belong to no SEEK
+        project.
+        """
         basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
         if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-            return basic_tuple
-        return request.session.get("username"), request.session.get("password")
+            return basic_tuple[0], basic_tuple[1], None
+
+        from seek.oauth.service import token_provider_for_request
+
+        session = getattr(request, "session", {}) or {}
+        username = session.get("username") or getattr(request.user, "username", None)
+        return username, session.get("password"), token_provider_for_request(request)
 
     # ------------------------------------------------------------------ dispatch
     def _start_task(self, request, req, *, force_cc: bool) -> Response:
@@ -492,8 +527,12 @@ class CCAssistantViewSet(viewsets.ViewSet):
         terminal_seen = cc_turn_complete.new_terminal_tracker()
         send_event = cc_turn_complete.wrap_send_event(send_event, terminal_seen)
         adapter = DictSessionAdapter(chat_session)
-        api_user, api_pass = self._resolve_credentials(request)
-        user_api_user, user_api_pass = api_user, api_pass
+        # Both credential systems, kept apart on purpose (#16, sub-project 3).
+        # _chat_credentials is a NExtSEEK identity for the pipeline;
+        # _seek_credentials is a SEEK identity for project resolution and for
+        # the CC container. They are not interchangeable.
+        chat_creds = self._chat_credentials(request)
+        user_api_user, user_api_pass, user_seek_token_provider = self._seek_credentials(request)
         chat_config = _select_chat_config(request, req)
 
         # Prod-config credential swap (mirror AssistantViewSet).
@@ -501,7 +540,14 @@ class CCAssistantViewSet(viewsets.ViewSet):
         prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
         if prod_config is not None and chat_config is prod_config:
             if chat_config.API_USER and chat_config.API_PASS:
-                api_user, api_pass = chat_config.API_USER, chat_config.API_PASS
+                # Prod's baked-in identity replaces the caller's entirely. The
+                # DRF token goes too: it names a user on this instance and is
+                # meaningless on prod.
+                chat_creds = {
+                    "api_user": chat_config.API_USER,
+                    "api_pass": chat_config.API_PASS,
+                    "api_token": None,
+                }
 
         mode = getattr(req, "mode", "standard")
         # Capture identity for the CC route (scoped Dropbox mounts + output).
@@ -551,7 +597,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
                 if decision.route == cc_router.ROUTE_NS:
                     ran_ns = True
-                    creds = {"api_user": api_user, "api_pass": api_pass}
+                    creds = chat_creds
                     try:
                         if mode == "plan":
                             run_query_plan(adapter, chat_config, req.query, send_event, credentials=creds)
@@ -604,7 +650,9 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         resolve_user_project,
                     )
                     try:
-                        project = resolve_user_project(user_api_user, user_api_pass)
+                        project = resolve_user_project(
+                            user_api_user, user_api_pass,
+                            token_provider=user_seek_token_provider)
                     except ProjectResolutionError as exc:
                         logger.warning("cc-step2: project resolution failed: %s", exc)
                         send_event("query_error", {
@@ -656,10 +704,16 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         # those bytes (to a third-party model / to a later agent
                         # container), and the engine's in-place source scrub
                         # covers neither for a session that never runs again.
+                        # API_TOKEN is here for the same reason as API_PASS:
+                        # it is a bearer credential for NExtSEEK's API, and this
+                        # scrubber is what stops a credential reaching a
+                        # third-party model or a later agent container inside a
+                        # republished transcript.
                         transcript_scrub = cc_engine.transcript_scrubber({
                             "NEXTSEEK_USERNAME": user_api_user or "",
                             "NEXTSEEK_PASSWORD": user_api_pass or "",
                             "API_PASS": user_api_pass or "",
+                            "API_TOKEN": chat_creds.get("api_token") or "",
                         })
                         metas = _session_metas(
                             request.user, cc_state_key, paths, mem_cfg, project_dirname)
@@ -863,9 +917,10 @@ class CCAssistantViewSet(viewsets.ViewSet):
         if sum(f.size for f in uploaded) > cap:
             return Response({"error": "upload too large"}, status=413)
 
-        api_user, api_pass = self._resolve_credentials(request)
+        api_user, api_pass, seek_token_provider = self._seek_credentials(request)
         try:
-            project = resolve_user_project(api_user, api_pass)
+            project = resolve_user_project(api_user, api_pass,
+                                           token_provider=seek_token_provider)
         except ProjectResolutionError:
             return Response({"error": "could not resolve SEEK project"}, status=503)
         dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
@@ -918,9 +973,10 @@ class CCAssistantViewSet(viewsets.ViewSet):
             resolve_user_project, ProjectResolutionError, build_user_dirs)
         from nextseek_api.cc_assistant.cc_upload_list import list_input_files
 
-        api_user, api_pass = self._resolve_credentials(request)
+        api_user, api_pass, seek_token_provider = self._seek_credentials(request)
         try:
-            project = resolve_user_project(api_user, api_pass)
+            project = resolve_user_project(api_user, api_pass,
+                                           token_provider=seek_token_provider)
         except ProjectResolutionError:
             return Response({"error": "could not resolve SEEK project"}, status=503)
         dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
@@ -940,9 +996,10 @@ class CCAssistantViewSet(viewsets.ViewSet):
         if not key or (key != "all" and not _safe_relpath(key)):
             raise Http404("bad key")
 
-        api_user, api_pass = self._resolve_credentials(request)
+        api_user, api_pass, seek_token_provider = self._seek_credentials(request)
         try:
-            project = resolve_user_project(api_user, api_pass)
+            project = resolve_user_project(api_user, api_pass,
+                                           token_provider=seek_token_provider)
         except ProjectResolutionError:
             return Response({"error": "could not resolve SEEK project"}, status=503)
         dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)

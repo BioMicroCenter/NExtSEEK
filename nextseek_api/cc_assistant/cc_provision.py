@@ -150,7 +150,21 @@ class ProjectResolutionError(Exception):
 def _default_seekdb_factory():
     from seek.seekdb import SeekDB
 
-    return lambda server, username, password: SeekDB(server, username, password)
+    return lambda server, username, password, token_provider=None: SeekDB(
+        server, username, password, token_provider=token_provider
+    )
+
+
+def _build_seekdb(factory, api_user, api_pass, token_provider):
+    """Call the factory, tolerating one that predates token_provider.
+
+    seekdb_factory is an injection point used by the tests, and existing
+    doubles take three positional arguments. Passing a keyword they do not
+    accept would break them, so the token is only offered when there is one.
+    """
+    if token_provider is None:
+        return factory(None, api_user, api_pass)
+    return factory(None, api_user, api_pass, token_provider=token_provider)
 
 
 def resolve_user_project(
@@ -158,6 +172,7 @@ def resolve_user_project(
     api_pass: str,
     *,
     seekdb_factory=None,
+    token_provider=None,
     personal_prefix: str = "personal-",
 ) -> ProjectIdentity:
     """Resolve the logged-in user's SEEK project using their own credentials.
@@ -165,10 +180,17 @@ def resolve_user_project(
     Confirmed empty membership maps to an isolated personal namespace. Any
     unresolved/unknown state raises ProjectResolutionError so the CC turn is
     rejected instead of guessed into the wrong project.
+
+    ``token_provider`` (#16, sub-project 3) carries an OAuth caller's SEEK
+    credential. Note this is a **SEEK** credential and has nothing to do with
+    the NExtSEEK DRF token the same caller uses for the chat API -- this
+    function calls ``getCurrentUser()``, which goes to SEEK. ``api_user`` is
+    still needed even when a token is supplied: it names the personal namespace
+    for a user with no project membership, below.
     """
     factory = seekdb_factory or _default_seekdb_factory()
     try:
-        seekdb = factory(None, api_user, api_pass)
+        seekdb = _build_seekdb(factory, api_user, api_pass, token_provider)
         current = seekdb.getCurrentUser()
         projects = current["data"]["relationships"]["projects"]["data"]
     except Exception as exc:  # noqa: BLE001
