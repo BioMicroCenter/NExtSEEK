@@ -303,9 +303,30 @@ class TestConnectionsSchema:
         assert "SampleTypeConnectionsResponse" in self._schema()["components"]["schemas"]
 
     def test_admin_sections_sort_under_assays(self):
-        tags = [t if isinstance(t, str) else t["name"] for t in self._schema().get("tags", [])]
-        assert tags.index("Assays") < tags.index("admin") < tags.index("Assistant")
-        assert tags.index("Assays") < tags.index("Users (admin)")
+        """Order comes from tagsSorter, NOT from the root tags array.
+
+        Swagger UI uses the root "tags" array only for descriptions; section order
+        is tagsSorter, falling back to first-appearance-in-paths. Setting TAGS alone
+        produced a schema that read correctly and a page that still showed admin
+        first. Both were verified by rendering, twice.
+        """
+        from django.conf import settings as dj
+        order = dj.API_TAG_ORDER
+        assert order.index("Assays") < order.index("admin") < order.index("Attributes")
+        assert order.index("Assays") < order.index("Users (admin)")
+        assert "tagsSorter" in dj.SPECTACULAR_SETTINGS["SWAGGER_UI_SETTINGS"], \
+            "without tagsSorter the order is ignored and admin returns to the top"
+
+    def test_tag_order_covers_every_tag_actually_in_use(self):
+        """A tag missing from the list sorts to the end silently. Three were missed
+        the first time -- batch-upload, cc-assistant and schema are derived by
+        drf-spectacular from the URL, not written as an explicit tags=[...]."""
+        from django.conf import settings as dj
+        used = {t for item in self._schema()["paths"].values()
+                for op in item.values() if isinstance(op, dict)
+                for t in (op.get("tags") or [])}
+        assert not (used - set(dj.API_TAG_ORDER)), \
+            f"tags used but not ordered: {sorted(used - set(dj.API_TAG_ORDER))}"
 
 
 def test_unauthenticated_caller_is_refused():
