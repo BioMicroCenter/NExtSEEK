@@ -3,6 +3,7 @@ bleach==5.0.1
 bunch
 certifi
 chardet
+cryptography
 deepmerge
 Django
 django-contrib-comments

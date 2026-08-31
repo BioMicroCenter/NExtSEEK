@@ -14,6 +14,9 @@ dependencies = [
   "celery",
   "chardet",
   "charset-normalizer",
+  # Fernet encryption for stored SEEK OAuth tokens (seek/oauth/crypto.py).
+  # Already present transitively; named here because we now import it directly.
+  "cryptography",
   "deepmerge",
   "dj-rest-auth",
   # Pinned to the 5.2 LTS line: Django 6.0 dropped MariaDB 10.5 support

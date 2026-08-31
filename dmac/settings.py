@@ -494,3 +494,71 @@ if os.getenv("SEEK_HOST"):
     SEEK_DATAFILE_SERVER = 'https://' + SERVER_IPADDRESS
     SEEK_DATAFILE_ROOT = MEDIA_ROOT + "/uploads/production/"
     SEEK_DATAFILE_ROOT_WEBLINK = MEDIA_URL + "uploads/production/"
+
+############################
+# SEEK OAUTH2 (issue #16)  #
+############################
+
+# Every name below is defined unconditionally at module level rather than inside
+# the SEEK_HOST guard above, for the same reason SEEK_PUBLIC_URL is (see its
+# comment): the attribute must exist on an env-less native host, or a bare
+# `settings.SEEK_OAUTH_ENABLED` read raises AttributeError at import time.
+#
+# SEEK_URL, by contrast, is ONLY defined inside that guard, so the token URL is
+# derived through globals() rather than by naming it directly.
+
+
+def _env_flag(name, default=False):
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+# Master switch. Off is the production default until the OAuth path is validated
+# end to end; with it off, the login/callback views 404 and the password path
+# behaves exactly as it did before this work.
+SEEK_OAUTH_ENABLED = _env_flag("SEEK_OAUTH_ENABLED", False)
+
+# From the Doorkeeper application registered on the SEEK instance.
+SEEK_OAUTH_CLIENT_ID = os.getenv("SEEK_OAUTH_CLIENT_ID", "")
+SEEK_OAUTH_CLIENT_SECRET = os.getenv("SEEK_OAUTH_CLIENT_SECRET", "")
+
+# Explicit, never derived. Doorkeeper compares this against the registered value
+# byte for byte, so a value assembled from a hostname and a path is a reliable
+# source of "invalid_grant" on a deployment whose scheme or port differs.
+SEEK_OAUTH_REDIRECT_URI = os.getenv("SEEK_OAUTH_REDIRECT_URI", "")
+
+# Passed to SEEK verbatim. Left empty by default and deliberately not guessed:
+# which scope names SEEK 1.15.1 exposes, and which of them the API operations
+# NExtSEEK performs actually require, is an open question to answer against a
+# real instance. Keeping it configuration means answering it does not need a
+# code change.
+SEEK_OAUTH_SCOPE = os.getenv("SEEK_OAUTH_SCOPE", "")
+
+# The browser follows the authorize URL, so it must be the PUBLIC SEEK host. The
+# token exchange is server-to-server and uses the internal one -- the same split
+# that dmac/context_processors.py documents for password reset.
+SEEK_OAUTH_AUTHORIZE_URL = os.getenv(
+    "SEEK_OAUTH_AUTHORIZE_URL",
+    (SEEK_PUBLIC_URL.rstrip("/") + "/oauth/authorize") if SEEK_PUBLIC_URL else "",
+)
+_seek_internal_url = globals().get("SEEK_URL", "")
+SEEK_OAUTH_TOKEN_URL = os.getenv(
+    "SEEK_OAUTH_TOKEN_URL",
+    (_seek_internal_url.rstrip("/") + "/oauth/token") if _seek_internal_url else "",
+)
+
+# Comma-separated urlsafe-base64 Fernet keys; the first encrypts, all are tried
+# when decrypting. See seek/oauth/crypto.py for the rotation procedure.
+SEEK_OAUTH_TOKEN_KEYS = os.getenv("SEEK_OAUTH_TOKEN_KEYS", "")
+
+# Whether logout also revokes the token at SEEK. Off by default because whether
+# SEEK 1.15.1 exposes a revocation endpoint is unconfirmed, and the default has
+# to be the behaviour that works either way.
+SEEK_OAUTH_REVOKE_ON_LOGOUT = _env_flag("SEEK_OAUTH_REVOKE_ON_LOGOUT", False)
+
+# Bounds every server-to-server call to SEEK's OAuth endpoints. Load-bearing:
+# get_valid_access_token holds a row lock across the refresh call, so this is
+# what caps how long a concurrent caller for the same user can be blocked.
+SEEK_OAUTH_HTTP_TIMEOUT = int(os.getenv("SEEK_OAUTH_HTTP_TIMEOUT", "10"))

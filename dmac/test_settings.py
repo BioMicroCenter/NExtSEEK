@@ -59,3 +59,22 @@ SAMPLE_TEMPLATES_FOLDER = "/templates"
 SAMPLE_TEMPLATES_FOLDER_PROJECT = "1"
 PUBLISH_STATS_FILE = "/path/to/published_stats.xlsx"
 SMART_SEARCH_URL = ""
+
+# SEEK OAuth (issue #16). Disabled by default so the suite exercises the same
+# password path production runs; tests that need the OAuth path flip it with
+# override_settings. dmac/settings.py derives the two endpoint URLs from
+# SEEK_PUBLIC_URL/SEEK_URL at import time, before this module reassigns
+# SEEK_URL above, so both are stated outright here rather than inherited.
+SEEK_OAUTH_ENABLED = False
+SEEK_OAUTH_CLIENT_ID = "test-client-id"
+SEEK_OAUTH_CLIENT_SECRET = "test-client-secret"
+SEEK_OAUTH_REDIRECT_URI = "https://nextseek.test/oauth/seek/callback"
+SEEK_OAUTH_SCOPE = "read write"
+SEEK_OAUTH_AUTHORIZE_URL = "http://seek-public:3000/oauth/authorize"
+SEEK_OAUTH_TOKEN_URL = "http://seek:3000/oauth/token"
+# A fixed, deliberately non-secret Fernet key: EncryptedTextField encrypts on
+# every save, so the suite cannot store a token row without one. Never reuse
+# this anywhere real -- it is bytes 0..31, and it is in version control.
+SEEK_OAUTH_TOKEN_KEYS = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+SEEK_OAUTH_REVOKE_ON_LOGOUT = False
+SEEK_OAUTH_HTTP_TIMEOUT = 10

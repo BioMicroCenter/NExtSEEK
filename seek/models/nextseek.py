@@ -8,6 +8,8 @@ alias -- pre-existing and deliberate; changing it would move data between schema
 from django.db import models
 from django.conf import settings
 
+from seek.oauth.crypto import EncryptedTextField
+
 NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
 
 PROJECT_CHOICES = (
@@ -152,7 +154,52 @@ class Sample_attributes_unique(models.Model):
         # The table is created out-of-band in SQL (startup/seed/sql/
         # sample_attributes_unique.sql, applied by startup's schema fixups); this
         # model only maps it. Left managed, the next unrelated `makemigrations`
-        # in this app would propose creating the table, and CustomRouter.
-        # allow_migrate returns None for non-`default` app labels, so applying
-        # that migration would create it on both the default and seek aliases.
+        # in this app would propose creating the table a second time.
+        #
+        # This originally carried a second reason -- that allow_migrate returned
+        # None for non-`default` app labels, so such a migration would have been
+        # applied on both the default and seek aliases. That defect is fixed
+        # (seek/dbrouters.py), so a managed model here would now be routed
+        # correctly. The out-of-band-SQL reason above stands on its own, so this
+        # stays unmanaged.
         managed = False
+
+
+class SeekOAuthToken(models.Model):
+    """One user's SEEK OAuth2 credentials (issue #16, sub-project 1).
+
+    Replaces the plaintext SEEK password that ``login_seek`` puts in the Django
+    session (``dmac/views.py:127-128``). Durable and worker-reachable on
+    purpose: a Celery task or a cron job can resolve a token from the user
+    alone, with no session to borrow, which is what makes the "run as the
+    triggering user" model in sub-projects 3 and 4 possible.
+
+    Never read the token columns directly -- go through
+    ``seek.oauth.service.get_valid_access_token``, which refreshes on expiry
+    under a row lock. A column read straight off this model may be expired, and
+    the two token columns are ``None`` rather than raising when they cannot be
+    decrypted (see ``seek.oauth.crypto``).
+
+    ``seek_person_id`` is the durable identity link to SEEK and is indexed
+    because it is the primary lookup on every login. It is authoritative over
+    the Django username, which SEEK can rename out from under us.
+    """
+
+    _DATABASE = NEXTSEEK_DATABASE
+
+    user = models.OneToOneField(
+        "auth.User", on_delete=models.CASCADE, related_name="seek_oauth_token"
+    )
+    seek_person_id = models.IntegerField(null=True, blank=True, db_index=True)
+    access_token = EncryptedTextField()
+    refresh_token = EncryptedTextField(null=True, blank=True)
+    access_token_expires_at = models.DateTimeField()
+    scope = models.TextField(default="", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"SEEK OAuth token for user {self.user_id}"
+
+    class Meta:
+        db_table = "seek_oauth_token"
