@@ -18,20 +18,34 @@ from __future__ import annotations
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-#: Every code the endpoint can return on a row. Kept as a module constant so
-#: the resolver, the planner and the tests cannot drift apart.
+#: Every code this API can emit, on a row or in an error envelope.
+#: ``RowError`` ENFORCES membership, so a new code must be declared here before
+#: it can be constructed. That enforcement is what actually keeps the resolver,
+#: the planner, the views and the tests from drifting apart; the constant alone
+#: would only look like it did.
+#:
+#: Note the two assay families. They are not near-duplicates: they split by
+#: which form the caller used to name the assay.
 ERROR_CODES = frozenset({
-    "sample_uid_not_found",
-    "sample_uid_not_unique",
-    "sample_has_no_project",
-    "assay_not_found",
-    "assay_project_mismatch",
-    "internal_assay_not_found",
-    "assay_not_in_sample_project",
-    "assay_ambiguous_in_project",
-    "write_not_confirmed_by_readback",
+    # Sample resolution.
+    "sample_uid_not_found",            # no `samples` row carries the uid
+    "sample_uid_not_unique",           # 2+ rows carry it; the chunk-06 killer
+    "sample_has_no_project",           # no projects_samples row
+    # Assay named by numeric `assay_id`.
+    "assay_not_found",                 # id reaches no project through studies
+    "assay_project_mismatch",          # assay's projects disjoint from sample's
+    # Assay named by internal title.
+    "internal_assay_not_found",        # no internal assay by that title
+    "assay_not_in_sample_project",     # candidates exist, none in the sample's project
+    "assay_ambiguous_in_project",      # 2+ candidates in the sample's project
+    # Write.
+    "write_not_confirmed_by_readback",  # insert reported no error, row absent
+    # Envelope-level, emitted by the ViewSet and service rather than per row.
+    "request_validation_error",
+    "job_not_found",
+    "not_cancellable",
 })
 
 
@@ -70,6 +84,22 @@ class RowError(BaseModel):
     code: str
     message: str
     submitted_identifier: Optional[str] = None
+
+    @field_validator("code")
+    @classmethod
+    def code_is_declared(cls, value: str) -> str:
+        """Make ERROR_CODES load-bearing rather than decorative.
+
+        Without this, any module could invent a code and nothing — not the
+        model, not the tests, not a type checker — would notice. Five modules
+        construct RowError; this is the only place that can hold them to one
+        vocabulary.
+        """
+        if value not in ERROR_CODES:
+            raise ValueError(
+                f"unknown error code {value!r}; declare it in ERROR_CODES first"
+            )
+        return value
 
 
 class RowResult(BaseModel):

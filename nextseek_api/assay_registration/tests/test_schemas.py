@@ -8,8 +8,10 @@ import pytest
 from pydantic import ValidationError
 
 from nextseek_api.assay_registration.schemas import (
+    ERROR_CODES,
     RegistrationRequest,
     RegistrationRow,
+    RowError,
     RowResult,
 )
 
@@ -55,6 +57,12 @@ class TestRegistrationRow:
         with pytest.raises(ValidationError):
             RegistrationRow(**{"sample_uid": "X", "assay_id": 351, field: 1})
 
+    def test_the_field_set_is_exactly_the_three_additive_fields(self):
+        """The blacklist above catches the names we thought of. This catches
+        the ones we did not: a deletion field called `action`, `op` or `mode`
+        would slip past a name list but not past this."""
+        assert set(RegistrationRow.model_fields) == {"sample_uid", "assay", "assay_id"}
+
 
 class TestRegistrationRequest:
     def test_dry_run_defaults_to_false(self):
@@ -71,6 +79,24 @@ class TestRegistrationRequest:
                 registrations=[{"sample_uid": "X", "assay_id": 1}],
                 update_existing=True,
             )
+
+
+class TestErrorCodes:
+    def test_an_undeclared_code_is_rejected(self):
+        """Proves ERROR_CODES is enforced, not decorative."""
+        with pytest.raises(ValidationError, match="unknown error code"):
+            RowError(code="assay_missing", message="m")
+
+    def test_every_declared_code_constructs(self):
+        for code in ERROR_CODES:
+            assert RowError(code=code, message="m").code == code
+
+    def test_the_codes_every_other_module_emits_are_declared(self):
+        """The set has to cover the envelope codes too, not just row codes.
+        The ViewSet and service construct these three, so enforcing membership
+        without declaring them would break Task 8 rather than protect it."""
+        for code in ("request_validation_error", "job_not_found", "not_cancellable"):
+            assert code in ERROR_CODES
 
 
 class TestRowResult:
