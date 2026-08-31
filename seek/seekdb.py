@@ -145,6 +145,50 @@ class SeekDB(object):
         return self.user_seek
         
         
+    def __oauthTokenProvider(self, request):
+        """A callable yielding a fresh SEEK access token, or None.
+
+        None means "this request has no OAuth credential" and covers every
+        ordinary case: the flag is off, the request is anonymous, the user has
+        no token row. Callers treat it exactly as they treat a missing password.
+
+        A token is resolved once here to decide whether the credential exists at
+        all -- getSeekLogin needs that answer to know whether to fail the login
+        -- but the value is deliberately discarded. What is returned is a
+        callable that resolves again on each use, so a SeekDB held across a long
+        request cannot serve a token that expired in the meantime.
+
+        That does mean two resolutions on the first use, each opening a short
+        transaction and taking a row lock. Accepted knowingly: the cheaper
+        alternative is an existence check on the token row, but a row can exist
+        while its refresh token is dead, and that variant would report a
+        successful login and then surface a 401 from SEEK partway through a
+        page. Failing at the login is worth one extra indexed read.
+
+        Never raises. getSeekLogin sits on the ordinary request path, so a SEEK
+        outage during a refresh has to look like "no credential" rather than a
+        500.
+        """
+        if not getattr(settings, "SEEK_OAUTH_ENABLED", False):
+            return None
+        user = getattr(request, "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            return None
+        try:
+            from seek.oauth.service import get_valid_access_token
+
+            if not get_valid_access_token(user):
+                return None
+            return lambda: get_valid_access_token(user)
+        except Exception:
+            logger.warning(
+                "seek_oauth: could not resolve an access token for user_id=%s; "
+                "treating the request as having no SEEK credential.",
+                getattr(user, "pk", None),
+                exc_info=True,
+            )
+            return None
+
     def getSeekLogin(self, request, whetherFullInfo=True):
         user_seek = {}
         status = True
@@ -199,7 +243,20 @@ class SeekDB(object):
             
         if user_seek['server']=="https://localhost":
             user_seek['server'] = settings.SEEK_URL
-            
+
+        # The OAuth branch (#16, sub-project 2). A session established by "Log
+        # in with SEEK" carries a username and deliberately no password, so
+        # everything below has to be satisfied by a token instead.
+        #
+        # This resolves a *provider* rather than a token: the callable is handed
+        # to SeekAPI and invoked per call, so a long-lived SeekDB cannot pin a
+        # token that has since expired. Resolving one here and now also proves
+        # the user actually has a usable token, which is what lets the password
+        # check below be skipped rather than merely bypassed.
+        user_seek['token_provider'] = None
+        if request is not None and user_seek['password'] in (None, ""):
+            user_seek['token_provider'] = self.__oauthTokenProvider(request)
+
         # `is None` matters as much as `== ""`, and only one of them was here.
         # An OAuth session carries a username but no password by construction
         # (seek/oauth/views.py writes the former and not the latter), and a None
@@ -211,7 +268,8 @@ class SeekDB(object):
         # TypeError is gone -- but the guard still earns its place: without it a
         # password-less session produces a credential-less request that travels
         # to SEEK and comes back 401, instead of failing here for free.
-        if user_seek['password'] is None or user_seek['password']=="":
+        if (user_seek['password'] is None or user_seek['password']=="") \
+                and user_seek['token_provider'] is None:
             # De-duplicated because this shares its wording with the username
             # check above, and `err` is rendered as a list straight onto the
             # login page (dmac/views.py:163, login.html). Widening this check to
@@ -222,7 +280,7 @@ class SeekDB(object):
                 err.append(message)
             logger.debug(message)
             status = False
-            
+
         if status:
             if request is None:
                 logger.debug("SeekAPI should already be initialized")
@@ -231,8 +289,10 @@ class SeekDB(object):
                 status = False
                 logger.debug("Person id not defined")
             else:
-                self.__seekapi = SeekAPI(user_seek['server'], user_seek['username'], user_seek['password'])
-                
+                self.__seekapi = SeekAPI(user_seek['server'], user_seek['username'],
+                                         user_seek['password'],
+                                         token_provider=user_seek['token_provider'])
+
                 if whetherFullInfo:
                     person_id = self.__getSeekPersonID(user_seek['username'])
                     userInfo, status, msg = self.getUserInfo(person_id)
