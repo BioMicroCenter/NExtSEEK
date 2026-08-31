@@ -850,8 +850,15 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
         try:
             selector = SampleTypeConnectionsRequest.model_validate(raw)
         except ValidationError as exc:
+            # json.loads(exc.json()), NOT exc.errors(). For a failure raised by our own
+            # @model_validator, pydantic puts the live ValueError instance in the error's
+            # ctx, and DRF's JSONRenderer dies on it with "Object of type ValueError is
+            # not JSON serializable" -- turning an intended 422 into a 500 with an HTML
+            # body. Pydantic's own .json() is already JSON-safe. Errors from pydantic's
+            # built-in validators carry ctx.error = None and render either way, which is
+            # why only the two custom-validator paths broke.
             return Response(
-                {"errors": [{"title": "Invalid request", "detail": exc.errors()}]},
+                {"errors": [{"title": "Invalid request", "detail": json.loads(exc.json())}]},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 

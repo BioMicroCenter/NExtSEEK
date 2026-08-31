@@ -1,0 +1,51 @@
+{% extends "drf_spectacular/swagger_ui.html" %}
+{# Adds an effective-identity banner to Swagger UI. See issue #119.
+
+   Swagger's Authorize button is silently ignored whenever the browser holds a
+   NExtSEEK session cookie: DRF walks authentication_classes in order and
+   CsrfExemptSessionAuthentication sits above BasicAuthentication, so the cookie
+   authenticates first and the Authorization header is never read. Every request
+   then runs as the logged-in user no matter what was typed into Authorize.
+
+   Detection is exact, not a guess. The probe below calls /assistant/me/ with
+   credentials:'include' and NO Authorization header, so it sees only what the
+   cookie authenticates as. A 200 therefore proves a session is active and that
+   Authorize cannot take effect; a 401 proves the opposite. #}
+{% block body %}
+<div id="ns-identity" role="status"></div>
+<style>
+  #ns-identity{font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    padding:9px 18px;display:none;align-items:center;gap:10px;flex-wrap:wrap}
+  #ns-identity.warn{background:#FFF4CE;border-bottom:1px solid #D9A600;color:#5C4400;display:flex}
+  #ns-identity.ok{background:#E8F5E9;border-bottom:1px solid #66BB6A;color:#1B4620;display:flex}
+  #ns-identity b{font-weight:700}
+  #ns-identity .tag{background:rgba(0,0,0,.08);border-radius:10px;padding:1px 9px;font-size:12px}
+</style>
+{{ block.super }}
+<script>
+(function () {
+  var el = document.getElementById('ns-identity');
+  fetch('{% url "nextseek_api:assistant-me" %}', {
+    credentials: 'include', headers: {'Accept': 'application/json'}
+  }).then(function (r) {
+    if (r.status === 401 || r.status === 403) {
+      el.className = 'ok';
+      el.innerHTML = 'No NExtSEEK session in this browser. ' +
+        '<b>Authorize will take effect</b> — requests run as whoever you enter there.';
+      return null;
+    }
+    return r.json();
+  }).then(function (me) {
+    if (!me) { return; }
+    var who = me.username || 'unknown';
+    var admin = me.is_admin ? 'superuser' : 'not a superuser';
+    el.className = 'warn';
+    el.innerHTML =
+      'Signed in to NExtSEEK as <b>' + who + '</b> <span class="tag">' + admin + '</span>' +
+      '&nbsp;&mdash;&nbsp;<b>the Authorize button is ignored.</b> ' +
+      'Every request on this page runs as ' + who + ', whatever credentials you type in. ' +
+      'To exercise a different account, use a private window or sign out of NExtSEEK first.';
+  }).catch(function () { /* never block the docs on the probe */ });
+})();
+</script>
+{% endblock %}

@@ -670,3 +670,49 @@ def test_layered_puts_processed_left_of_raw_when_both_are_present():
     svg = rows_to_svg_layered(four, clades)
     assert svg.index(">SOURCE<") < svg.index(">PROCESSED<") \
         < svg.index(">RAW<") < svg.index(">ANALYZED<")
+
+
+# ---------------------------------------------------------------------------
+# 422 bodies must actually RENDER
+#
+# The endpoint shipped returning 500 with an HTML body for both custom-validator
+# failures, while these tests were green. Asserting resp.status_code inspects an
+# unrendered DRF Response; the crash happens in the renderer, which the test path
+# never reached. Pydantic stores the live ValueError from a @model_validator in
+# ctx.error, and JSONRenderer raises "Object of type ValueError is not JSON
+# serializable" on it. Built-in validator errors carry ctx.error = None, which is
+# why bad output_format returned a correct 422 while "no selector" did not.
+# ---------------------------------------------------------------------------
+
+def _render(resp):
+    """Force the response through the JSON renderer, as a real request would."""
+    from rest_framework.renderers import JSONRenderer
+    return JSONRenderer().render(resp.data)
+
+
+@pytest.mark.parametrize("query,label", [
+    ({}, "no selector at all"),
+    ({"direct_connections": "no"}, "direct_connections=no without a sample_type"),
+    ({"sample_type": "CEL", "output_format": "pdf"}, "unknown output_format"),
+    ({"sample_type": "CEL", "layout": "spiral"}, "unknown layout"),
+    ({"graph_inv_id": "abc"}, "non-numeric graph_inv_id"),
+])
+def test_every_422_body_is_json_serializable(query, label):
+    resp = _call(query)
+    assert resp.status_code == 422, label
+    body = json.loads(_render(resp))
+    assert body["errors"][0]["title"] == "Invalid request"
+    assert isinstance(body["errors"][0]["detail"], list)
+
+
+def test_custom_validator_message_survives_into_the_rendered_body():
+    body = json.loads(_render(_call({})))
+    blob = json.dumps(body)
+    assert "sample_type" in blob and "all_conns" in blob
+
+
+def test_no_exception_objects_leak_into_the_error_detail():
+    """ctx.error is where the unserializable ValueError hid."""
+    for query in ({}, {"direct_connections": "no"}):
+        for err in _call(query).data["errors"][0]["detail"]:
+            assert not isinstance(err.get("ctx", {}).get("error"), BaseException)
