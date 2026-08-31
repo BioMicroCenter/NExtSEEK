@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import asdict
 import uuid
 
 from django.conf import settings
@@ -98,8 +99,13 @@ def _preview(plan) -> MutationPreviewResponse:
             status=public_status,
             counts=MutationCounts.model_validate(item.counts),
             attributes=persisted,
-            automatic_changes=[AutomaticChange.model_validate(change) for change in item.automatic_changes] + hypothetical,
-            errors=[MutationError.model_validate(error) for error in item.errors],
+            # asdict() because these arrive as the PLANNER's dataclasses (planner.py:166
+            # AutomaticChange, planner.py:175 PlanError), which merely share a name with the
+            # pydantic models imported here. ContractModel is strict=True (schemas.py:68), so
+            # it accepts a dict or its own instance and refuses to duck-type a foreign object.
+            # Field names and order are identical in both pairs, so extra="forbid" is satisfied.
+            automatic_changes=[AutomaticChange.model_validate(asdict(change)) for change in item.automatic_changes] + hypothetical,
+            errors=[MutationError.model_validate(asdict(error)) for error in item.errors],
         ))
     statuses = {item.status for item in outcomes}
     executable = bool(statuses & {"succeeded", "unchanged"})
@@ -173,7 +179,7 @@ class AttributeServices:
         unresolved = [item for item in plan.types if item.sample_type_id is None]
         if unresolved:
             errors = [
-                MutationError.model_validate(error)
+                MutationError.model_validate(asdict(error))
                 for item in unresolved for error in item.errors
             ] or [MutationError(
                 code="unresolved_sample_type",
