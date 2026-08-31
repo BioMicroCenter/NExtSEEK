@@ -94,6 +94,28 @@ class TestUidGate:
         assert good.error is None and good.assay_id == 351
         assert dup.error.code == "sample_uid_not_unique"
 
+    def test_a_uid_that_vanishes_between_the_two_queries_is_reported_not_raised(self):
+        """The count query and the id query are separate statements.
+
+        A row deleted between them, or a collation-driven key mismatch, would
+        raise KeyError out of resolve() and take down the whole submission,
+        which is the failure class this module exists to prevent. Without this
+        test the guard has the same shape of gap as assay_not_found did:
+        deleting it leaves every other test green.
+        """
+        conn = _conn(
+            uid_counts=[("GONE", 1), ("GOOD", 1)],
+            sample_ids=[("GOOD", 100)],   # GONE counted as unique, then not returned
+            sample_projects=[(100, 3)],
+            assay_projects=[(351, 3)],
+            title_assays=[],
+        )
+        rows = [RegistrationRow(sample_uid="GONE", assay_id=351),
+                RegistrationRow(sample_uid="GOOD", assay_id=351)]
+        gone, good = resolve(rows, conn)
+        assert gone.error.code == "sample_uid_not_found"
+        assert good.error is None, "a vanished row must not stop its neighbours"
+
 
 class TestProjectGate:
     def test_assay_id_in_another_project_is_rejected(self):
