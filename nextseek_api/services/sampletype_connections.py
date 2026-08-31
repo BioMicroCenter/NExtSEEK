@@ -74,10 +74,22 @@ WHERE r.internal_assay_title IS NOT NULL
               AND ($seek_inv_id  IS NULL OR i.project_id = $seek_inv_id)
               AND ($name         IS NULL OR toLower(i.title) = toLower($name))
           })
+WITH parent, child, r,
+     // #118: the edge kept only the lowest-id shared assay and dropped the rest, so
+     // Cell Isolation never appeared anywhere (it loses to Flow Cytometry on 998
+     // production edges). internal_assay_titles carries the full set on edges written
+     // or backfilled since that fix; coalesce falls back to the singular winner so
+     // un-backfilled edges keep reporting exactly what they did before.
+     CASE WHEN size(coalesce(r.internal_assay_titles, [])) > 0
+          THEN r.internal_assay_titles
+          ELSE [r.internal_assay_title] END AS assay_titles
+UNWIND assay_titles AS internal_assay_title
+WITH parent, child, internal_assay_title
+WHERE internal_assay_title IS NOT NULL AND internal_assay_title <> ''
 RETURN
   parent.type            AS parent_sample_type,
   child.type             AS child_sample_type,
-  r.internal_assay_title AS internal_assay,
+  internal_assay_title   AS internal_assay,
   count(*)               AS n_edges
 ORDER BY parent_sample_type, child_sample_type, internal_assay
 """
@@ -115,10 +127,22 @@ WHERE r.internal_assay_title IS NOT NULL
               AND ($seek_inv_id  IS NULL OR i.project_id = $seek_inv_id)
               AND ($name         IS NULL OR toLower(i.title) = toLower($name))
           })
+WITH parent, child, r,
+     // #118: the edge kept only the lowest-id shared assay and dropped the rest, so
+     // Cell Isolation never appeared anywhere (it loses to Flow Cytometry on 998
+     // production edges). internal_assay_titles carries the full set on edges written
+     // or backfilled since that fix; coalesce falls back to the singular winner so
+     // un-backfilled edges keep reporting exactly what they did before.
+     CASE WHEN size(coalesce(r.internal_assay_titles, [])) > 0
+          THEN r.internal_assay_titles
+          ELSE [r.internal_assay_title] END AS assay_titles
+UNWIND assay_titles AS internal_assay_title
+WITH parent, child, internal_assay_title
+WHERE internal_assay_title IS NOT NULL AND internal_assay_title <> ''
 RETURN
   parent.type            AS parent_sample_type,
   child.type             AS child_sample_type,
-  r.internal_assay_title AS internal_assay,
+  internal_assay_title   AS internal_assay,
   count(*)               AS n_edges
 ORDER BY parent_sample_type, child_sample_type, internal_assay
 """

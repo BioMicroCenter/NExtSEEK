@@ -2725,3 +2725,106 @@ class TestUploadAllSkippedChildrenMetric:
             derived_from_rows=[], merged_count=0,
             build_side_effect=_build, error_collector=ec)
         assert metrics.skipped_children_missing_parents == 1
+
+
+class TestSharedAssaysAreAllKept:
+    """DERIVED_FROM kept only the lowest-id shared assay and dropped the rest (#118).
+
+    On production that silently discarded a second assay on 3,645 edges, and the
+    discarded one was often the more specific: Cell Isolation lost to Flow Cytometry
+    on 998 edges, Bacterial Extraction lost to DNA Extraction on 387. The graph could
+    not report the loss because the dropped assay exists only in assay_assets.
+    """
+
+    @staticmethod
+    def _conn():
+        conn = MagicMock()
+        parent_result = MagicMock()
+        parent_result.fetchall.return_value = [("P-1", 201)]
+        child_result = MagicMock()
+        child_result.fetchall.return_value = [(101, "{}")]
+        conn.execute.side_effect = [parent_result, child_result]
+        return conn
+
+    @patch(
+        "nextseek_api.batch_upload.neo4j_sync._resolve_internal_assays",
+        return_value={30: (30, "Flow Cytometry"), 87: (87, "Cell Isolation")},
+    )
+    def test_every_shared_assay_survives(self, _m):
+        rows = build_derived_from_payloads_from_db(
+            {"C-1": {"P-1"}}, self._conn(),
+            {"C-1": {30, 87}, "P-1": {30, 87}},
+            {"C-1": _outcome("success", sample_id=101)}, [_input("C-1")],
+        )
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.internal_assay_ids == [30, 87]
+        assert r.internal_assay_titles == ["Flow Cytometry", "Cell Isolation"]
+
+    @patch(
+        "nextseek_api.batch_upload.neo4j_sync._resolve_internal_assays",
+        return_value={30: (30, "Flow Cytometry"), 87: (87, "Cell Isolation")},
+    )
+    def test_the_singular_winner_is_unchanged(self, _m):
+        """Existing consumers read the singular fields; they must not move."""
+        rows = build_derived_from_payloads_from_db(
+            {"C-1": {"P-1"}}, self._conn(),
+            {"C-1": {30, 87}, "P-1": {30, 87}},
+            {"C-1": _outcome("success", sample_id=101)}, [_input("C-1")],
+        )
+        assert rows[0].internal_assay_id == 30              # lowest id still wins
+        assert rows[0].internal_assay_title == "Flow Cytometry"
+
+    @patch(
+        "nextseek_api.batch_upload.neo4j_sync._resolve_internal_assays",
+        return_value={30: (30, None)},
+    )
+    def test_a_missing_title_stays_None_on_the_winner(self, _m):
+        """Never "" on the singular field.
+
+        Consumers filter `WHERE r.internal_assay_title IS NOT NULL`. An empty string
+        is not null, so coercing here would make untitled edges start matching and
+        render with blank labels.
+        """
+        rows = build_derived_from_payloads_from_db(
+            {"C-1": {"P-1"}}, self._conn(),
+            {"C-1": {30}, "P-1": {30}},
+            {"C-1": _outcome("success", sample_id=101)}, [_input("C-1")],
+        )
+        assert rows[0].internal_assay_title is None
+        assert rows[0].internal_assay_titles == [""]   # lists cannot hold nulls
+
+    @patch("nextseek_api.batch_upload.neo4j_sync._resolve_internal_assays", return_value={})
+    def test_no_shared_assay_yields_empty_lists_not_none(self, _m):
+        """An empty list is written, so a re-ingest cannot leave a stale one behind."""
+        rows = build_derived_from_payloads_from_db(
+            {"C-1": {"P-1"}}, self._conn(),
+            {"C-1": {30}, "P-1": {99}},
+            {"C-1": _outcome("success", sample_id=101)}, [_input("C-1")],
+        )
+        assert rows[0].internal_assay_ids == []
+        assert rows[0].internal_assay_titles == []
+
+    @patch(
+        "nextseek_api.batch_upload.neo4j_sync._resolve_internal_assays",
+        return_value={30: (30, "Flow Cytometry"), 87: (87, "Cell Isolation")},
+    )
+    def test_lists_are_parallel_sorted_and_deduplicated(self, _m):
+        rows = build_derived_from_payloads_from_db(
+            {"C-1": {"P-1"}}, self._conn(),
+            {"C-1": {87, 30}, "P-1": {87, 30}},   # reversed input order
+            {"C-1": _outcome("success", sample_id=101)}, [_input("C-1")],
+        )
+        r = rows[0]
+        assert len(r.internal_assay_ids) == len(r.internal_assay_titles)
+        assert r.internal_assay_ids == sorted(r.internal_assay_ids)
+        assert len(set(r.internal_assay_ids)) == len(r.internal_assay_ids)
+
+
+def test_write_cypher_persists_the_shared_assay_lists():
+    """The lists are useless if the MERGE does not SET them."""
+    import inspect
+    from nextseek_api.batch_upload import neo4j_sync
+    src = inspect.getsource(neo4j_sync)
+    assert "r.internal_assay_ids = row.internal_assay_ids" in src
+    assert "r.internal_assay_titles = row.internal_assay_titles" in src

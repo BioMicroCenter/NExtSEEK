@@ -136,8 +136,21 @@ def test_sample_type_matches_either_endpoint():
     assert "child.type  = $sample_type" in CONNECTIONS_CYPHER
 
 
+def _cypher_without_comments(cypher: str) -> str:
+    """Strip // comments before checking for write verbs.
+
+    The guard below is a substring scan, so explanatory prose can trip it: a
+    comment reading "carries the full set on edges" contains "set ". Comments are
+    not query, so they are removed before the check rather than the prose being
+    contorted around the test.
+    """
+    return "\n".join(
+        line.split("//")[0] for line in cypher.splitlines()
+    ).lower()
+
+
 def test_query_is_read_only():
-    lowered = CONNECTIONS_CYPHER.lower()
+    lowered = _cypher_without_comments(CONNECTIONS_CYPHER)
     for verb in ("create", "delete", "merge", "set ", "remove", "detach"):
         assert verb not in lowered
 
@@ -465,7 +478,7 @@ def test_both_variants_scope_to_an_investigation_identically():
 
 
 def test_subtree_variant_is_read_only():
-    lowered = CONNECTIONS_SUBTREE_CYPHER.lower()
+    lowered = _cypher_without_comments(CONNECTIONS_SUBTREE_CYPHER)
     for verb in ("create", "delete", "merge", "set ", "remove", "detach"):
         assert verb not in lowered
 
