@@ -928,9 +928,16 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
         clade_map = fetch_clade_map()
 
         if selector.output_format == "html":
-            return HttpResponse(
+            response = HttpResponse(
                 rows_to_html(rows, clade_map), content_type="text/html; charset=utf-8"
             )
+            # inline, so a browser still renders the network in the tab, but with a
+            # filename for anyone who saves it. Without this the browser has nothing
+            # to name the file from and falls back on the URL, which has no extension.
+            response["Content-Disposition"] = (
+                f'inline; filename="{download_name(selector, "html")}"'
+            )
+            return response
 
         if selector.output_format == "svg":
             svg = rows_to_svg(rows, clade_map, layout=choose_layout(selector))

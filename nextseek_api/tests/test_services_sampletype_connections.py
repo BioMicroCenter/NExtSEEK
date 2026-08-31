@@ -418,6 +418,19 @@ def test_svg_download_is_named_svg_not_xml():
     assert ".xml" not in resp["Content-Disposition"]
 
 
+def test_html_download_is_named_and_inline():
+    """Without a filename the browser has nothing to name a saved page from."""
+    resp = _call({"graph_inv_id": "2", "output_format": "html"})
+    assert resp["Content-Disposition"].startswith("inline;")
+    assert resp["Content-Disposition"].endswith('.html"')
+
+
+def test_every_format_declares_its_content_type():
+    for fmt, ctype in [("csv", "text/csv"), ("svg", "image/svg+xml"), ("html", "text/html")]:
+        resp = _call({"graph_inv_id": "2", "output_format": fmt})
+        assert resp["Content-Type"].startswith(ctype), fmt
+
+
 def test_svg_is_inline_and_csv_is_attachment():
     assert _call({"graph_inv_id": "2", "output_format": "svg"})["Content-Disposition"].startswith("inline;")
     assert _call({"graph_inv_id": "2", "output_format": "csv"})["Content-Disposition"].startswith("attachment;")
