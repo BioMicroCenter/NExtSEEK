@@ -175,6 +175,50 @@ def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optio
     return None, None
 
 
+def seekdb_for_caller(request):
+    """A ``SeekDB`` that can call SEEK *as the caller*, or None.
+
+    Collapses a pattern that was open-coded at three sites, each of which built
+    ``SeekDB(None, basic_tuple[0], basic_tuple[1])`` and so silently stopped
+    working for a caller with no password -- which, after #16, is every caller
+    who signed in through SEEK.
+
+    That failure was worse than an error. The callers use this to resolve the
+    caller's SEEK projects for data scoping, and they treat an unresolvable
+    result as "sees nothing" (``nextseek_api/views.py:105``, deliberately, so a
+    lookup failure cannot widen access). An OAuth user would therefore have got
+    an empty, entirely successful response instead of a 401 -- no error anywhere,
+    just missing data.
+
+    Returns None only when the request carries no SEEK credential at all.
+    """
+    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
+        return SeekDB(None, basic_tuple[0], basic_tuple[1])
+
+    from seek.oauth.service import token_provider_for_request
+
+    provider = token_provider_for_request(request)
+    if provider is not None:
+        return SeekDB(None, None, None, token_provider=provider)
+    return None
+
+
+def caller_is_authenticated(request):
+    """Whether this request carries any credential NExtSEEK recognises.
+
+    The auth gates in this package are written as ``if not basic_tuple and not
+    request.user.is_authenticated``, which already admits an OAuth session --
+    the callback establishes an ordinary Django session. Two gates were missing
+    that second clause and rejected OAuth users; this exists so the check has
+    one spelling rather than two.
+    """
+    basic_tuple, extra_headers = resolve_seek_auth(request)
+    if basic_tuple or extra_headers:
+        return True
+    return bool(getattr(getattr(request, "user", None), "is_authenticated", False))
+
+
 class SeekAPIClient:
     """Minimal SEEK API client using requests.Session and JSON:API headers."""
 

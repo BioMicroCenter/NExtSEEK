@@ -152,6 +152,42 @@ def _refresh_locked(row, db):
     return tokens.access_token
 
 
+def token_provider_for_request(request):
+    """A callable yielding a fresh access token for this request's user, or None.
+
+    None means "this request carries no OAuth credential" and covers every
+    ordinary case: the flag is off, the request is anonymous, the user has no
+    usable token. Callers treat it exactly as they treat a missing password.
+
+    A token is resolved once here so the caller can tell whether the credential
+    exists at all, but the value is discarded: what is returned resolves again
+    on each use, so a long-lived object cannot serve a token that has since
+    expired.
+
+    Never raises. This sits on the ordinary request path, so a SEEK outage
+    during a refresh must look like "no credential" rather than a 500.
+    """
+    from django.conf import settings
+
+    if not getattr(settings, "SEEK_OAUTH_ENABLED", False):
+        return None
+    user = getattr(request, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return None
+    try:
+        if not get_valid_access_token(user):
+            return None
+        return lambda: get_valid_access_token(user)
+    except Exception:
+        log.warning(
+            "seek_oauth: could not resolve an access token for user_id=%s; "
+            "treating the request as having no SEEK credential.",
+            getattr(user, "pk", None),
+            exc_info=True,
+        )
+        return None
+
+
 def store_tokens(user, tokens, seek_person_id=None):
     """Create or replace ``user``'s stored SEEK credentials.
 

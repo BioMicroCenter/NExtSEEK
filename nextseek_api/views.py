@@ -62,7 +62,7 @@ from .services.cc_assistant import CCAssistantViewSet
 from .services.evaluator import EvaluatorViewSet
 from .services.entity_tree import EntityTreeViewSet
 from .services.project_export import ProjectExportViewSet
-from .helpers import resolve_seek_auth
+from .helpers import resolve_seek_auth, seekdb_for_caller, caller_is_authenticated
 from nextseek_api.helpers import StandardResultsSetPagination
 from nextseek_api.endpoint_descriptions import SAMPLE_TREE_GET_DESC, ADMIN_SAMPLE_RETRIEVE_DESC
 from nextseek_api.models import (
@@ -102,21 +102,27 @@ def get_clade_color(sample_type):
     return color
 
 
-def _caller_seek_project_ids(basic_tuple):
+def _caller_seek_project_ids(request):
     """SEEK project ids the caller belongs to, as a list of str.
 
-    Same derivation as AdminSampleViewSet.admin_retrieve_samples: SeekDB has to
-    be built from real credentials, because the username-is-None branch
-    (seek/seekdb.py:31) never calls getSeekLogin() and so leaves __server unset,
-    after which getCurrentUser() raises.
+    SeekDB has to be built from real credentials, because the
+    username-is-None branch never calls getSeekLogin() and so leaves __server
+    unset, after which getCurrentUser() raises. seekdb_for_caller does that for
+    either credential kind -- Basic, or a #16 OAuth token.
+
+    Takes the request rather than a basic_tuple (#16, sub-project 2). The old
+    signature could not express an OAuth caller: they have no username/password
+    pair, so this returned [] for them, and callers correctly read that as
+    "sees nothing". The result was a successful, empty response rather than an
+    error -- the worst shape a permissions bug can take.
 
     Returns [] when the caller's projects cannot be resolved. Callers must treat
     that as "sees nothing", not as "sees everything".
     """
-    if not basic_tuple or not basic_tuple[0] or not basic_tuple[1]:
+    seekdb = seekdb_for_caller(request)
+    if seekdb is None:
         return []
     try:
-        seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
         user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
         return [str(p['id']) for p in user_projects]
     except Exception:
@@ -270,7 +276,7 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
         # would make this scoping a no-op for every account. Same predicate as
         # nextseek_api.permissions.IsSuperUser and seek.views.verifySuperUser.
         is_admin = bool(getattr(request.user, 'is_superuser', False))
-        project_ids = [] if is_admin else _caller_seek_project_ids(basic_tuple)
+        project_ids = [] if is_admin else _caller_seek_project_ids(request)
         if not is_admin and str(seek_id) not in _samples_visible_to_projects([seek_id], project_ids):
             # Same 404 as an unknown UID: do not confirm the sample exists to a
             # caller who may not see it.
@@ -588,9 +594,12 @@ class SampleQueryViewSet(viewsets.GenericViewSet):
         Convert HttpResponse to DRF Response and add pagination.
         """
         # Core logic extracted from retrieveSamples (lines 892-896)
-        # Gate using BASIC header or session only (no token)
+        # Gate: a Basic header, a password session, or any authenticated
+        # session -- which is what admits a #16 OAuth caller, who has no
+        # username/password pair to produce. The other gates in this package
+        # already had the is_authenticated clause; this one did not.
         basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if not basic_tuple:
+        if not basic_tuple and not caller_is_authenticated(request):
             return Response(
                 {"detail": "Authentication required"}, 
                 status=status.HTTP_401_UNAUTHORIZED
@@ -688,9 +697,11 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=["post"], url_path="retrieve")
     def admin_retrieve_samples(self, request):
         """Admin export: accepts sample UIDs/SEEK ids, returns JSON (default) or an Excel workbook (opt-in)."""
-        # Gate using BASIC header or session only (no token)
+        # Gate: see the note on the same pattern in advanced retrieval above.
+        # An OAuth caller has no username/password pair, so basic_tuple alone
+        # would reject them.
         basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if not basic_tuple:
+        if not basic_tuple and not caller_is_authenticated(request):
             return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
 
         # Normalize request payload for pydantic validation (support legacy field names as input)
@@ -732,12 +743,14 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
         # Project scope for this caller.
         #
         # This used to be SeekDB(None, None, None), which takes the username-is-None
-        # branch (seek/seekdb.py:31), never calls getSeekLogin(), and so leaves
-        # __server None. getCurrentUser() then did None + "/people/current"
-        # (seek/seekapi.py:188) -> TypeError -> swallowed by the bare except below ->
-        # user_project_ids was ALWAYS []. Build it from the credentials
-        # resolve_seek_auth already returned at the top of this method instead.
-        seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
+        # branch, never calls getSeekLogin(), and so leaves __server None.
+        # getCurrentUser() then did None + "/people/current" -> TypeError ->
+        # swallowed by the bare except below -> user_project_ids was ALWAYS [].
+        # It was then built from the basic_tuple resolved at the top of this
+        # method, which fixed that but could not express an OAuth caller -- who
+        # has no username/password pair and would silently land back on [], i.e.
+        # a successful response scoped to nothing. seekdb_for_caller covers both.
+        seekdb = seekdb_for_caller(request)
         try:
             user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
             user_project_ids = list(map(lambda x: x['id'], user_projects))

@@ -11,8 +11,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from pydantic import ValidationError
 from django.conf import settings
 
-from seek.seekdb import SeekDB
-from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id, resolve_seek_auth
+from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id, resolve_seek_auth, seekdb_for_caller
 from nextseek_api.helpers import paginate_rows_in_envelope
 from nextseek_api.batch_upload.helpers import UID_RE
 from nextseek_api.endpoint_descriptions import (
@@ -542,20 +541,22 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
             if bool(getattr(request.user, 'is_superuser', False)):
                 scoped_project_ids = None
             else:
-                basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-                if not (basic_tuple and basic_tuple[0] and basic_tuple[1]):
-                    # Reachable: a Token-authenticated client resolves no Basic pair
-                    # (TOKEN is deliberately not in the order above, since SEEK project
-                    # lookup needs a username/password). Say so rather than letting
-                    # basic_tuple[0] raise into the except below, where a missing
-                    # credential would be indistinguishable from a SEEK outage.
+                # seekdb_for_caller resolves either credential kind: a Basic
+                # pair, or a #16 OAuth token for a caller who has no password to
+                # give. It returns None only when there is no SEEK credential at
+                # all -- still reachable for a Token-authenticated client, which
+                # resolves neither.
+                seekdb = seekdb_for_caller(request)
+                if seekdb is None:
+                    # Said explicitly rather than letting a missing credential
+                    # fall into the except below, where it would be
+                    # indistinguishable from a SEEK outage.
                     logging.getLogger(__name__).warning(
                         "No SEEK credentials resolved for caller; scoping to no projects")
                     return HttpResponse(
                         b'{"errors":[{"title":"Cannot determine project scope for this caller"}]}',
                         status=403, content_type='application/json')
                 try:
-                    seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
                     user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
                     scoped_project_ids = [p['id'] for p in user_projects]
                 except Exception:

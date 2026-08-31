@@ -9,8 +9,18 @@ import logging
 logger = logging.getLogger(__name__)
 
 class SeekDB(object):
-    def __init__(self, server, username, password):
-        if username is not None:
+    def __init__(self, server, username, password, token_provider=None):
+        """
+        ``token_provider`` (#16, sub-project 2) builds a credentialed SeekDB for
+        a caller who has no username/password -- an OAuth session. It matters
+        because ``SeekDB(None, None, None)`` takes the branch below, which never
+        calls ``getSeekLogin`` and so leaves ``SeekAPI.__server`` as None; any
+        method that builds a URL from it then fails. Callers needing to *call*
+        SEEK as the user (rather than resolve credentials from a request) have
+        therefore always had to pass real credentials -- see
+        ``nextseek_api/views.py:105`` -- and this is the OAuth equivalent.
+        """
+        if username is not None or token_provider is not None:
             self.user_seek = {}
             if server is None:
                 self.user_seek['server'] = settings.SEEK_URL
@@ -21,8 +31,14 @@ class SeekDB(object):
             self.user_seek['storagetype'] = 'SEEK'
             self.user_seek['username'] = username
             self.user_seek['password'] = password
-            self.__seekapi = SeekAPI(self.user_seek['server'], username, password)
-            self.getSeekLogin(None)
+            self.user_seek['token_provider'] = token_provider
+            self.__seekapi = SeekAPI(self.user_seek['server'], username, password,
+                                     token_provider=token_provider)
+            if username is not None:
+                # Unchanged for the credentialed path. Not called for a
+                # token-only caller: it resolves a person id from the username,
+                # which there is not one of here.
+                self.getSeekLogin(None)
         else:
             self.user_seek = None
             self.__seekapi = SeekAPI(server, username, password)
@@ -146,48 +162,20 @@ class SeekDB(object):
         
         
     def __oauthTokenProvider(self, request):
-        """A callable yielding a fresh SEEK access token, or None.
+        """A callable yielding a fresh SEEK access token for `request`, or None.
 
-        None means "this request has no OAuth credential" and covers every
-        ordinary case: the flag is off, the request is anonymous, the user has
-        no token row. Callers treat it exactly as they treat a missing password.
-
-        A token is resolved once here to decide whether the credential exists at
-        all -- getSeekLogin needs that answer to know whether to fail the login
-        -- but the value is deliberately discarded. What is returned is a
-        callable that resolves again on each use, so a SeekDB held across a long
-        request cannot serve a token that expired in the meantime.
-
-        That does mean two resolutions on the first use, each opening a short
-        transaction and taking a row lock. Accepted knowingly: the cheaper
-        alternative is an existence check on the token row, but a row can exist
-        while its refresh token is dead, and that variant would report a
-        successful login and then surface a 401 from SEEK partway through a
-        page. Failing at the login is worth one extra indexed read.
-
-        Never raises. getSeekLogin sits on the ordinary request path, so a SEEK
-        outage during a refresh has to look like "no credential" rather than a
-        500.
+        Resolving once to decide whether the credential exists means two
+        resolutions on first use, each a short transaction taking a row lock.
+        Accepted knowingly: the cheaper alternative is an existence check on the
+        token row, but a row can exist while its refresh token is dead, and that
+        variant would report a successful login and then surface a 401 from SEEK
+        partway through a page. Failing at the login is worth an indexed read.
         """
-        if not getattr(settings, "SEEK_OAUTH_ENABLED", False):
-            return None
-        user = getattr(request, "user", None)
-        if user is None or not getattr(user, "is_authenticated", False):
-            return None
-        try:
-            from seek.oauth.service import get_valid_access_token
+        # Imported here, not at module scope: seek.oauth.service imports the
+        # models, which import back through this package.
+        from seek.oauth.service import token_provider_for_request
 
-            if not get_valid_access_token(user):
-                return None
-            return lambda: get_valid_access_token(user)
-        except Exception:
-            logger.warning(
-                "seek_oauth: could not resolve an access token for user_id=%s; "
-                "treating the request as having no SEEK credential.",
-                getattr(user, "pk", None),
-                exc_info=True,
-            )
-            return None
+        return token_provider_for_request(request)
 
     def getSeekLogin(self, request, whetherFullInfo=True):
         user_seek = {}
