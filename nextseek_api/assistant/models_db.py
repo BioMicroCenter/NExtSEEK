@@ -342,3 +342,39 @@ class CCSessionTranscript(models.Model):
         app_label = "nextseek_api"
         unique_together = (("chat_session", "cc_session_id", "turn_id"),)
         ordering = ["-created_at"]
+
+
+class SelfServiceApiToken(models.Model):
+    """Marks a user's NExtSEEK API token as issued for unattended use (#16, SP5).
+
+    DRF's ``Token`` is a OneToOne -- one token per user -- so a user cannot hold
+    a separate "script" token alongside their session one. This marks the single
+    token they do have as exempt from logout revocation instead.
+
+    Why the exemption exists: sub-project 3 revokes the token at logout so its
+    life tracks the SEEK session, which is right for a token the user never asked
+    for and never sees. A token they deliberately issued for a script must not
+    evaporate when they close a browser tab.
+
+    **The exemption is from logout only.** A token is still revoked when SEEK
+    rejects the user's refresh token, because at that point their SEEK access is
+    gone and almost every NExtSEEK endpoint is SEEK-backed -- a surviving token
+    would authenticate to an API that can no longer answer for them. In practice
+    a script in regular use keeps its own SEEK session alive, since its requests
+    drive ``get_valid_access_token`` and hence the refresh.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="self_service_api_token",
+    )
+    issued_at = models.DateTimeField(auto_now_add=True)
+    last_rotated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "self_service_api_token"
+        app_label = "nextseek_api"
+
+    def __str__(self):
+        return f"SelfServiceApiToken(user={self.user_id})"

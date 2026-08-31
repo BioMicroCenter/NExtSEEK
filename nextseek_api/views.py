@@ -62,6 +62,7 @@ from .services.cc_assistant import CCAssistantViewSet
 from .services.evaluator import EvaluatorViewSet
 from .services.entity_tree import EntityTreeViewSet
 from .services.project_export import ProjectExportViewSet
+from .services.api_token import ApiTokenViewSet
 from .helpers import resolve_seek_auth, seekdb_for_caller, caller_is_authenticated
 from nextseek_api.helpers import StandardResultsSetPagination
 from nextseek_api.endpoint_descriptions import SAMPLE_TREE_GET_DESC, ADMIN_SAMPLE_RETRIEVE_DESC

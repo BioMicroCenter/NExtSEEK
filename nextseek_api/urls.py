@@ -20,6 +20,10 @@ router.register(r"data_files", views.DataFileViewSet, basename="data_files")
 router.register(r"projects", views.ProjectViewSet, basename="projects")
 router.register(r"people", views.PeopleViewSet, basename="people")
 router.register(r"users", views.UsersViewSet, basename="users")
+# Self-service NExtSEEK API token (#16, SP5). Session-authenticated only --
+# a credential that works unattended is handed out solely to a caller who
+# proved themselves interactively. See services/api_token.py.
+router.register(r"me/api-token", views.ApiTokenViewSet, basename="me-api-token")
 router.register(r"investigations", views.InvestigationViewSet, basename="investigations")
 router.register(r"studies", views.StudyViewSet, basename="studies")
 router.register(r"attributes", views.AttributeViewSet, basename="attribute")

@@ -928,8 +928,8 @@ BATCH_UPLOAD_START_DESC = (
     "**EXAMPLES:**\n"
     "- 'Upload these Excel files to create samples in bulk for project 4475'\n"
     "- 'Programmatically create 500 samples via the API'\n"
-    "- `curl -u user:pass -F 'file=@samples.xlsx' -F 'project_id=4475' https://host/nextseek_api/batch-upload/start/`\n"
-    "- `curl -u user:pass -H 'Content-Type: application/json' "
+    "- `curl -H 'Authorization: Token <key>' -F 'file=@samples.xlsx' -F 'project_id=4475' https://host/nextseek_api/batch-upload/start/`\n- Issue a token at `POST /nextseek_api/me/api-token/` while signed in; the key is shown once.\n- `curl -u user:pass ...` still works today but is being retired with password login (#16).\n"
+    "- `curl -H 'Authorization: Token <key>' -H 'Content-Type: application/json' "
     "-d '{\"project_id\": 4475, \"rows\": [{\"SampleType\": \"M.Mice\", \"json_metadata\": {\"Name\": \"mouse1\"}}]}' "
     "https://host/nextseek_api/batch-upload/start/`\n\n"
     "---\n\n"
@@ -1060,6 +1060,6 @@ BATCH_UPLOAD_VALIDATE_DESC = (
     "check Excel before upload, validate samples, batch upload validation\n\n"
     "**EXAMPLES:**\n"
     "- 'Validate this spreadsheet before I upload it for project 4475'\n"
-    "- `curl -u user:pass -F 'file=@samples.xlsx' -F 'project_id=4475' "
+    "- `curl -H 'Authorization: Token <key>' -F 'file=@samples.xlsx' -F 'project_id=4475' "
     "'https://host/nextseek_api/batch-upload/validate/?checks=structure,name_check'`\n"
 )

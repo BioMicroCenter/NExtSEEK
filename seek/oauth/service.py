@@ -122,7 +122,10 @@ def _refresh_locked(row, db):
         # DRF token's otherwise unlimited life.
         from nextseek_api.local_tokens import revoke_for
 
-        revoke_for(row.user)
+        # force=True: this overrides even a self-service exemption (#16, SP5).
+        # That exemption is from *logout*, not from losing SEEK access -- and
+        # SEEK has just refused this user's refresh token.
+        revoke_for(row.user, force=True)
         return None
     except client.SeekOAuthError as exc:
         # Transient, or our own misconfiguration. Either way the stored
