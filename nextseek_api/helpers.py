@@ -68,6 +68,44 @@ def get_auth(request) -> Optional[Tuple[str, str]]:
     return user['username'], user['password']
 
 
+def get_oauth_auth(request) -> Optional[str]:
+    """Return the logged-in user's stored SEEK OAuth access token, or None.
+
+    Distinct from ``get_token_auth`` below in both provenance and wire format,
+    and conflating the two is the easy mistake here. ``get_token_auth`` reads a
+    credential the *caller* presented on this request and it is sent on as
+    ``Authorization: Token ...``. This one is a credential NExtSEEK holds on the
+    user's behalf (issue #16, sub-project 1), and Doorkeeper requires it be
+    presented as ``Bearer``.
+
+    Returns None -- never raises -- for every ordinary "no token available"
+    case: the feature flag is off, the request is anonymous, or the user has no
+    usable token row. resolve_seek_auth runs on every proxied request, so a SEEK
+    outage mid-refresh has to degrade to "no credential" and fall through to the
+    caller's existing 401 path rather than 500 the request.
+    """
+    if not getattr(settings, "SEEK_OAUTH_ENABLED", False):
+        return None
+    user = getattr(request, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return None
+    try:
+        # Imported here, not at module scope: seek.oauth.service imports the
+        # models, and this module is already inside the seekdb <-> seekapi
+        # import knot (see seek/seekapi.py:109).
+        from seek.oauth.service import get_valid_access_token
+
+        return get_valid_access_token(user)
+    except Exception:
+        log.warning(
+            "seek_oauth: could not resolve a stored access token for user_id=%s; "
+            "falling through to the remaining auth sources.",
+            getattr(user, "pk", None),
+            exc_info=True,
+        )
+        return None
+
+
 def get_token_auth(request) -> Optional[str]:
     try:
         # Prefer SEEK-specific header if you decide to introduce it in the future:
@@ -97,11 +135,24 @@ def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optio
     order controls which sources to try first. Allowed entries:
       - "BASIC": try HTTP Basic Authorization header
       - "SESSION": try session-derived Basic (SeekDB)
+      - "OAUTH": try the logged-in user's stored SEEK OAuth token (#16)
       - "TOKEN": try HTTP Token Authorization header
 
-    Default order is ["BASIC", "SESSION", "TOKEN"].
+    Default order is ["BASIC", "SESSION", "OAUTH", "TOKEN"].
+
+    OAUTH sits after the two Basic sources deliberately. An explicitly presented
+    credential -- a Basic header, or a session established by password login --
+    keeps winning, so flag-off behaviour is provably identical to before this
+    source existed: get_oauth_auth returns None when SEEK_OAUTH_ENABLED is off,
+    and the loop falls through exactly as it used to. Sub-project 5 promotes
+    OAUTH to the front, when the entries ahead of it are being deleted anyway.
+
+    Note that OAUTH and TOKEN emit *different* schemes, and that is not an
+    inconsistency to tidy up: TOKEN forwards a credential the caller presented
+    and has always been sent on as ``Token``, while OAUTH is an OAuth2 access
+    token, which Doorkeeper only accepts as ``Bearer``.
     """
-    order = order or ["BASIC", "SESSION", "TOKEN"]
+    order = order or ["BASIC", "SESSION", "OAUTH", "TOKEN"]
 
     for method in order:
         if method == "BASIC":
@@ -112,6 +163,10 @@ def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optio
             sess = get_auth(request)
             if sess:
                 return sess, {}
+        elif method == "OAUTH":
+            oauth_token = get_oauth_auth(request)
+            if oauth_token:
+                return None, { 'Authorization': f'Bearer {oauth_token}' }
         elif method == "TOKEN":
             token = get_token_auth(request)
             if token:
