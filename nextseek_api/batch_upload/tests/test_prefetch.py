@@ -323,3 +323,48 @@ class TestPrefetchSampleTypeAttributes:
         result = prefetch_sample_type_attributes([1, 99], conn)
         assert result == {1: {"UID"}}
         assert 99 not in result
+
+
+# ── refresh_sample_type_attributes_cache ─────────────────────────────────
+
+
+class TestRefreshSampleTypeAttributesCache:
+    """The batch-level invalidation that lets a schema change be seen without a restart.
+
+    _SAMPLE_TYPE_ATTRIBUTES_CACHE is a module-level dict, so it is per gunicorn
+    worker (4 of them, gunicorn.conf.py:2) and no writer in another process can
+    reach it. The refresh is therefore a stamp every worker reads from the shared
+    database, called once per batch by _run_pre_insert_stages -- not per row, which
+    is where prefetch_sample_type_attributes itself is called from (transform.py:79).
+    """
+
+    def test_refresh_drops_cached_attributes_when_sample_attributes_changed(self):
+        # Establish the current generation, then prime the cache underneath it.
+        prefetch_module.refresh_sample_type_attributes_cache(
+            _make_conn(rows=[(1, "2026-08-31 11:00:00")])
+        )
+        conn = _make_conn(rows=[(1, "UID")])
+        assert prefetch_sample_type_attributes([1], conn) == {1: {"UID"}}
+
+        # A write lands: 'Notes' is added, moving both the count and updated_at.
+        prefetch_module.refresh_sample_type_attributes_cache(
+            _make_conn(rows=[(2, "2026-08-31 12:00:00")])
+        )
+
+        # The next lookup must return to the database, not serve the pre-change set.
+        conn2 = _make_conn(rows=[(1, "UID"), (1, "Notes")])
+        assert prefetch_sample_type_attributes([1], conn2) == {1: {"UID", "Notes"}}
+        conn2.execute.assert_called_once()
+
+    def test_refresh_keeps_cache_when_sample_attributes_unchanged(self):
+        # Pins the reason this is a stamp and not an unconditional clear: with no
+        # write in between, the per-row lookups must stay free of SQL.
+        stamp = [(3, "2026-08-31 11:00:00")]
+        prefetch_module.refresh_sample_type_attributes_cache(_make_conn(rows=stamp))
+        prefetch_sample_type_attributes([1], _make_conn(rows=[(1, "UID")]))
+
+        prefetch_module.refresh_sample_type_attributes_cache(_make_conn(rows=stamp))
+
+        conn2 = _make_conn(rows=[(1, "UID")])
+        assert prefetch_sample_type_attributes([1], conn2) == {1: {"UID"}}
+        conn2.execute.assert_not_called()

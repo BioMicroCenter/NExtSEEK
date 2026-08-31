@@ -31,6 +31,7 @@ from .prefetch import (
     prefetch_assay_ids,
     prefetch_project_sample_type_links,
     prefetch_sample_type_attributes,
+    refresh_sample_type_attributes_cache,
     prefetch_sample_types,
 )
 from .report import (
@@ -456,6 +457,11 @@ def _run_pre_insert_stages(
     all_assay_ids = list({aid for r in valid_rows for aid in r.assay_ids})
 
     with get_connection() as conn:
+        # Once per batch, before any attribute lookup: drop attribute sets this
+        # worker cached before a schema change landed. Per-batch and not per-row --
+        # transform.py calls prefetch_sample_type_attributes for every row and
+        # relies on a cache hit costing no SQL.
+        refresh_sample_type_attributes_cache(conn)
         prefetch_sample_types(all_titles, conn)
         if all_assay_ids:
             prefetch_assay_ids(all_assay_ids, conn)
