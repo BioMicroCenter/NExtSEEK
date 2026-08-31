@@ -25,10 +25,13 @@ class NsHttpConfig:
     """Lightweight per-request HTTP config: base_url + Basic auth credentials.
     Replaces the old in-process NS runtime config (T16, DD-A5-6). No env mutation."""
     base_url: str
-    auth: tuple[str, str]
+    # Either an (api_user, api_pass) tuple for Basic, or an ns_client.TokenAuth
+    # (#16, sub-project 3). httpx accepts both in its ``auth=`` parameter, which
+    # is why the twelve ops.py call sites that thread this through are unchanged.
+    auth: Any
 
     def __repr__(self) -> str:
-        return f"NsHttpConfig(base_url={self.base_url!r}, auth=('<redacted>', '<redacted>'))"
+        return f"NsHttpConfig(base_url={self.base_url!r}, auth='<redacted>')"
 
 
 def _err_response(request_id: str, code: str, message: str, retryable: bool = False) -> str:
@@ -40,10 +43,18 @@ def _err_response(request_id: str, code: str, message: str, retryable: bool = Fa
 def _build_user_config(login: NsLogin) -> NsHttpConfig:
     """Build a per-request NsHttpConfig from the caller's NS login (U-2, T16).
 
-    No os.environ mutation — credentials are passed as per-request Basic auth
-    on each HTTP call via ns_client (DD-A5-6), eliminating the cross-user-bleed
-    race class that the previous ChatConfig approach carried.
+    No os.environ mutation — credentials are passed per-request on each HTTP call
+    via ns_client (DD-A5-6), eliminating the cross-user-bleed race class that the
+    previous ChatConfig approach carried.
+
+    A caller who signed in through SEEK has no password and carries a NExtSEEK
+    DRF token instead (#16, sub-project 3). NsLogin guarantees exactly one of
+    the two is set, so this is a straight either/or rather than a precedence.
     """
+    if login.api_token:
+        from sidecar.app.ns_client import TokenAuth
+
+        return NsHttpConfig(base_url=_CFG.nextseek_base_url, auth=TokenAuth(login.api_token))
     return NsHttpConfig(base_url=_CFG.nextseek_base_url, auth=(login.api_user, login.api_pass))
 
 

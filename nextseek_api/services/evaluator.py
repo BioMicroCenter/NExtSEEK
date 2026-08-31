@@ -48,7 +48,7 @@ from nextseek_api.assistant.models_evaluator import (
     RetryRequest,
     RetryResponse,
 )
-from nextseek_api.helpers import resolve_seek_auth, StandardResultsSetPagination
+from nextseek_api.helpers import StandardResultsSetPagination, chat_credentials_for
 from nextseek_api.permissions import IsSuperUser
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
@@ -659,12 +659,18 @@ class EvaluatorViewSet(viewsets.ViewSet):
             source_bundle_id = req.bundle_id
 
         # --- Resolve credentials ---
-        basic_tuple, extra_headers = resolve_seek_auth(
-            request, ["BASIC", "SESSION"]
-        )
-        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-            api_user, api_pass = basic_tuple
+        # An OAuth caller has no Basic pair, and before #16 sub-project 3 that
+        # dropped them straight to the service account -- running someone else's
+        # query under a shared identity, which is the exact hole
+        # orchestrator.py's identity gate was added to close. Their DRF token is
+        # used instead when they have one; the service-account fallback survives
+        # only for callers we genuinely cannot identify.
+        _creds = chat_credentials_for(request)
+        api_user, api_pass = _creds["api_user"], _creds["api_pass"]
+        if api_user and api_pass:
             credential_source = "basic_auth"
+        elif _creds["api_token"]:
+            credential_source = "drf_token"
         else:
             api_user, api_pass = None, None
             credential_source = "service_account"
@@ -686,7 +692,7 @@ class EvaluatorViewSet(viewsets.ViewSet):
         def _run_pipeline():
             try:
                 run_query, run_query_plan = _get_orchestrator()
-                creds = {"api_user": api_user, "api_pass": api_pass}
+                creds = _creds if credential_source != "service_account" else None
                 if req.mode == "plan":
                     run_query_plan(
                         adapter,

@@ -27,6 +27,29 @@ from sidecar.app.exceptions import (
 _TIMEOUT = 60.0
 
 
+class TokenAuth(httpx.Auth):
+    """Send ``Authorization: Token <key>`` instead of HTTP Basic (#16, SP3).
+
+    An httpx.Auth rather than a header dict so it drops straight into the
+    existing ``auth=`` parameter: ops.py threads ``config.auth`` through twelve
+    call sites, and httpx accepts either a (user, pass) tuple or an Auth object
+    there. Nothing else in the sidecar changes shape.
+
+    The credential is a NExtSEEK DRF token belonging to the calling user -- not
+    a SEEK token. The sidecar calls NExtSEEK's own API.
+    """
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    def auth_flow(self, request):
+        request.headers["Authorization"] = f"Token {self._token}"
+        yield request
+
+    def __repr__(self) -> str:
+        return "TokenAuth('<redacted>')"
+
+
 def _map_error(resp: httpx.Response) -> None:
     """Inspect a non-2xx response and raise the appropriate sidecar exception.
 
@@ -74,7 +97,7 @@ def call_op(
     body: dict,
     *,
     base_url: str,
-    auth: tuple[str, str],
+    auth,
 ) -> dict:
     """POST a granular op to NExtSEEK and return the parsed JSON response dict.
 
@@ -82,7 +105,7 @@ def call_op(
         op:       Sidecar op name (e.g. "entity", "report").
         body:     Request payload dict (forwarded as JSON).
         base_url: NExtSEEK base URL, e.g. "http://nextseek_nginx".
-        auth:     (api_user, api_pass) tuple for HTTP Basic auth.
+        auth:     an (api_user, api_pass) tuple for Basic, or a TokenAuth.
 
     Returns:
         The full response dict ({"op": ..., "result": ..., "download"?: ...}).
@@ -112,14 +135,14 @@ def fetch_artifact(
     rel_url: str,
     *,
     base_url: str,
-    auth: tuple[str, str],
+    auth,
 ) -> bytes:
     """GET a report/submission artifact from NExtSEEK and return raw bytes.
 
     Args:
         rel_url:  Server-relative URL from download.artifacts[].url.
         base_url: NExtSEEK base URL, e.g. "http://nextseek_nginx".
-        auth:     (api_user, api_pass) tuple for HTTP Basic auth.
+        auth:     an (api_user, api_pass) tuple for Basic, or a TokenAuth.
 
     Returns:
         Raw artifact bytes.

@@ -22,7 +22,7 @@ class AuthenticatedSeekPerson:
     person_id: int
     django_user_id: int
     login: str
-    scheme: Literal["basic", "session", "token"]
+    scheme: Literal["basic", "session", "token", "oauth"]
 
     def to_json(self) -> dict[str, int | str]:
         """Canonical non-secret actor provenance consumed unchanged by T03/T05/T08/T09."""
@@ -72,7 +72,12 @@ def _reject_competing_sources(request, selected_scheme: str) -> None:
         sources.add("session")
     if request.META.get("HTTP_X_SEEK_AUTHORIZATION"):
         sources.add("x-seek")
-    if sources - {selected_scheme}:
+    # An OAuth session is still a session as far as the transport is concerned:
+    # the cookie is what carried it. Without this the selected scheme would
+    # never match the source and every OAuth caller would be rejected as
+    # "conflicting" (#16, sub-project 3).
+    equivalent = {"oauth": "session"}.get(selected_scheme, selected_scheme)
+    if sources - {equivalent}:
         raise AuthenticationFailed("Conflicting authentication credentials.")
 
 
@@ -92,9 +97,25 @@ def _selected_credential(request, authenticator, local_auth) -> SelectedSeekCred
             raise AuthenticationFailed("Selected Basic credential is unavailable.")
         return SelectedSeekCredential("basic", authorization=value)
     username, password = request.session.get("username"), request.session.get("password")
-    if not isinstance(username, str) or not isinstance(password, str) or not username or not password:
-        raise AuthenticationFailed("Selected session SEEK bridge is unavailable.")
-    return SelectedSeekCredential("session", username=username, password=password)
+    if isinstance(username, str) and isinstance(password, str) and username and password:
+        return SelectedSeekCredential("session", username=username, password=password)
+
+    # No password: a session established through "Log in with SEEK". Its SEEK
+    # identity was proven at the callback and recorded on the token row, so
+    # there is a binding to select here -- this branch is what stops an OAuth
+    # caller being rejected outright (#16, sub-project 3).
+    from seek.models.nextseek import SeekOAuthToken
+
+    person_id = (
+        SeekOAuthToken.objects.filter(user=getattr(request, "user", None))
+        .values_list("seek_person_id", flat=True)
+        .first()
+        if getattr(getattr(request, "user", None), "pk", None)
+        else None
+    )
+    if person_id:
+        return SelectedSeekCredential("oauth", username=username or None)
+    raise AuthenticationFailed("Selected session SEEK bridge is unavailable.")
 
 
 def _assert_local_seek_binding(user, person_id: int) -> None:
@@ -113,7 +134,28 @@ def _assert_local_seek_binding(user, person_id: int) -> None:
 
 
 def _prove_seek_person(selected: SelectedSeekCredential, user) -> AuthenticatedSeekPerson:
-    if selected.scheme == "token":
+    if selected.scheme == "oauth":
+        # No SEEK round trip: the person id on the token row was written by the
+        # OAuth callback from /people/current, which is the same proof the
+        # basic/session branch performs below -- already done, once, at login.
+        #
+        # The recorded id is then checked against SEEK's own users/people tables
+        # exactly as the other two branches check theirs. Skipping that would
+        # make a stale or tampered token row sufficient to claim another
+        # person's identity, which is the one thing this module exists to
+        # prevent.
+        from seek.models.nextseek import SeekOAuthToken
+
+        person_id = (
+            SeekOAuthToken.objects.filter(user=user)
+            .values_list("seek_person_id", flat=True)
+            .first()
+        )
+        if not person_id or int(person_id) <= 0:
+            raise AuthenticationFailed("Selected OAuth session has no SEEK person binding.")
+        person_id = int(person_id)
+        _assert_local_seek_binding(user, person_id)
+    elif selected.scheme == "token":
         with connections[settings.SEEK_DATABASE].cursor() as cursor:
             cursor.execute(
                 "SELECT people.id, users.login FROM people JOIN users ON users.person_id = people.id "

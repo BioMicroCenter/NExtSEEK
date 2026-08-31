@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SIDECAR_OPS = frozenset(
     {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission",
@@ -38,7 +38,23 @@ class NsLogin(BaseModel):
     # ns:{sha256("")} (one shared session/staging dir) — the sidecar must not rely on
     # client-side validation to keep identities distinct.
     api_user: str = Field(min_length=1)
-    api_pass: str
+    # api_pass is no longer required on its own (#16, sub-project 3): a caller
+    # who signed in through SEEK has no password, and carries a NExtSEEK DRF
+    # token instead. Exactly one of the two must be present -- see the validator
+    # below, which is what stops a login with neither reaching the transport as
+    # an unauthenticated call.
+    api_pass: str = ""
+    api_token: str | None = None
+
+    @model_validator(mode="after")
+    def _one_credential(self):
+        if not self.api_pass and not self.api_token:
+            raise ValueError("NsLogin requires either api_pass or api_token")
+        if self.api_pass and self.api_token:
+            # NExtSEEK refuses competing credentials, so sending both is an
+            # error here rather than a preference to resolve downstream.
+            raise ValueError("NsLogin accepts api_pass or api_token, not both")
+        return self
 
 
 class SidecarRequest(BaseModel):
