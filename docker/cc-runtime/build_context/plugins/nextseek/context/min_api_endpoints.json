@@ -22,7 +22,7 @@
   {
     "path": "/nextseek_api/assays/{uid}/",
     "method": "PATCH",
-    "description": "Update an existing assay by its ID. Modify title, description, assay type, technology, or linked samples and data files. Returns the updated assay with all current metadata. Examples: 'Update the description for the RNA-seq assay'; 'Add additional samples to the flow cytometry experiment'"
+    "description": "Update an existing assay by its ID. Modify title, description, assay type, or technology. DO NOT USE to place further samples into an assay: this forwards to SEEK verbatim and a JSON:API PATCH on a to-many relationship REPLACES the complete list, so naming one sample removes every other sample from the assay. Use POST /nextseek_api/assay-registrations/ instead. Returns the updated assay with all current metadata. Examples: 'Update the description for the RNA-seq assay'; 'Change the technology type for assay 351'"
   },
   {
     "path": "/nextseek_api/data_files/",

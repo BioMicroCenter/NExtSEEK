@@ -635,13 +635,25 @@ ASSAY_CREATE_DESC = (
 
 ASSAY_UPDATE_DESC = (
     "**SUMMARY:** Update an existing assay by its numeric SEEK ID.\n\n"
-    "**USE WHEN:** The user wants to modify an assay's title, description, type, technology, or linked samples/data.\n\n"
-    "**ACCEPTS:** Assay SEEK ID as path parameter; partial update payload with fields to change.\n\n"
+    "**USE WHEN:** The user wants to modify an assay's title, description, type or "
+    "technology.\n\n"
+    # The warning deliberately avoids the phrasings ADDITIVE_PHRASES bans. In a
+    # catalog consumed by retrieval, a prohibition that contains the bait phrase
+    # still matches on it, and the match is what routes an agent here.
+    "**DO NOT USE WHEN:** The user wants to place further samples into an assay. This "
+    "endpoint forwards the payload to SEEK verbatim, and a JSON:API PATCH on a to-many "
+    "relationship REPLACES the complete list: naming one sample removes every other "
+    "sample from the assay. The largest assay in production holds 48,440 samples. "
+    "To register memberships additively, use POST /nextseek_api/assay-registrations/ "
+    "instead.\n\n"
+    "**ACCEPTS:** Assay SEEK ID as path parameter; partial update payload with fields "
+    "to change. A `relationships.samples` block replaces the assay's entire sample "
+    "list and must therefore enumerate every sample that should remain.\n\n"
     "**RETURNS:** The updated assay with all current metadata.\n\n"
-    "**TRIGGER PHRASES:** update assay, edit assay, modify experiment, change assay, patch assay\n\n"
+    "**TRIGGER PHRASES:** update assay, edit assay, rename assay, change assay "
+    "description, patch assay\n\n"
     "**EXAMPLES:**\n"
     "- 'Update the description for the RNA-seq assay'\n"
-    "- 'Add additional samples to the flow cytometry experiment'\n"
     "- 'Change the technology type for assay 351'\n"
 )
 
