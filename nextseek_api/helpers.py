@@ -133,36 +133,35 @@ def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optio
     - extra_headers: {'Authorization': 'Token <token>'} when using Token auth
 
     order controls which sources to try first. Allowed entries:
-      - "BASIC": try HTTP Basic Authorization header
-      - "SESSION": try session-derived Basic (SeekDB)
-      - "OAUTH": try the logged-in user's stored SEEK OAuth token (#16)
-      - "TOKEN": try HTTP Token Authorization header
+      - "OAUTH": the logged-in user's stored SEEK OAuth token (#16)
+      - "TOKEN": an HTTP Token Authorization header the caller presented
 
-    Default order is ["BASIC", "SESSION", "OAUTH", "TOKEN"].
+    Default order is ["OAUTH", "TOKEN"].
 
-    OAUTH sits after the two Basic sources deliberately. An explicitly presented
-    credential -- a Basic header, or a session established by password login --
-    keeps winning, so flag-off behaviour is provably identical to before this
-    source existed: get_oauth_auth returns None when SEEK_OAUTH_ENABLED is off,
-    and the loop falls through exactly as it used to. Sub-project 5 promotes
-    OAUTH to the front, when the entries ahead of it are being deleted anyway.
+    "BASIC" and "SESSION" are gone (#16, sub-project 5). Both resolved a SEEK
+    username and password: one from an inbound Basic header, one from the
+    session that password login wrote. NExtSEEK no longer holds a SEEK password
+    to resolve, so neither could return anything. They are accepted and ignored
+    rather than raising, because call sites pass literal order lists and a
+    stale one should degrade to "no credential from that source" rather than
+    500 a request.
 
-    Note that OAUTH and TOKEN emit *different* schemes, and that is not an
-    inconsistency to tidy up: TOKEN forwards a credential the caller presented
-    and has always been sent on as ``Token``, while OAUTH is an OAuth2 access
-    token, which Doorkeeper only accepts as ``Bearer``.
+    OAUTH is now first, which sub-project 2 deferred to here: it was second so
+    that flag-off behaviour stayed provably identical while both paths coexisted,
+    and there is nothing left ahead of it.
+
+    OAUTH and TOKEN emit *different* schemes, and that is not an inconsistency
+    to tidy up: TOKEN forwards a credential the caller presented and has always
+    been sent on as ``Token``, while OAUTH is an OAuth2 access token, which
+    Doorkeeper only accepts as ``Bearer``.
     """
-    order = order or ["BASIC", "SESSION", "OAUTH", "TOKEN"]
+    order = order or ["OAUTH", "TOKEN"]
 
     for method in order:
-        if method == "BASIC":
-            basic = get_basic_auth(request)
-            if basic and basic[0] and basic[1]:
-                return basic, {}
-        elif method == "SESSION":
-            sess = get_auth(request)
-            if sess:
-                return sess, {}
+        if method in ("BASIC", "SESSION"):
+            # Retired with password login. See the docstring: ignored, not an
+            # error, so a call site still naming them keeps working.
+            continue
         elif method == "OAUTH":
             oauth_token = get_oauth_auth(request)
             if oauth_token:
@@ -190,12 +189,10 @@ def seekdb_for_caller(request):
     an empty, entirely successful response instead of a 401 -- no error anywhere,
     just missing data.
 
-    Returns None only when the request carries no SEEK credential at all.
+    Returns None only when the request carries no SEEK credential at all --
+    after the cutover (#16, sub-project 5) that means no OAuth token, since
+    there is no password to fall back on.
     """
-    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-        return SeekDB(None, basic_tuple[0], basic_tuple[1])
-
     from seek.oauth.service import token_provider_for_request
 
     provider = token_provider_for_request(request)
@@ -221,21 +218,17 @@ def chat_credentials_for(request):
     Note this is a **NExtSEEK** credential throughout; the chat stack never
     calls SEEK. See nextseek_api/local_tokens.py.
     """
-    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-        return {"api_user": basic_tuple[0], "api_pass": basic_tuple[1], "api_token": None}
+    # After the cutover (#16, sub-project 5) there is exactly one shape: a DRF
+    # token. The Basic and session-password branches that used to precede this
+    # resolved a NExtSEEK password, and no user has one. api_pass stays in the
+    # dict because the orchestrator's identity gate reads it.
+    #
+    # The token is fetched, never minted here -- see local_tokens.get_for.
+    from nextseek_api.local_tokens import get_for
 
     session = getattr(request, "session", {}) or {}
     user = getattr(request, "user", None)
     username = session.get("username") or getattr(user, "username", None)
-    password = session.get("password")
-    if password:
-        return {"api_user": username, "api_pass": password, "api_token": None}
-
-    # No password: an OAuth session, or one after cutover. The DRF token is
-    # fetched, never minted here -- see local_tokens.get_for for why.
-    from nextseek_api.local_tokens import get_for
-
     return {"api_user": username, "api_pass": None, "api_token": get_for(user)}
 
 

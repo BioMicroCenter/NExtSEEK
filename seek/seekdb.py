@@ -242,27 +242,20 @@ class SeekDB(object):
         # the user actually has a usable token, which is what lets the password
         # check below be skipped rather than merely bypassed.
         user_seek['token_provider'] = None
-        if request is not None and user_seek['password'] in (None, ""):
+        if request is not None:
             user_seek['token_provider'] = self.__oauthTokenProvider(request)
 
-        # `is None` matters as much as `== ""`, and only one of them was here.
-        # An OAuth session carries a username but no password by construction
-        # (seek/oauth/views.py writes the former and not the latter), and a None
-        # password used to pass this check.
+        # A token is now the only credential (#16, sub-project 5). The check this
+        # replaces tested the password and accepted a token as an alternative;
+        # with no passwords left, the token is the whole test.
         #
-        # It used to then reach SeekAPI(server, username, None) and raise
-        # TypeError inside __curlPrefix, which guarded on the username alone and
-        # concatenated str + None. Sub-project 2 rewrote that method, so the
-        # TypeError is gone -- but the guard still earns its place: without it a
-        # password-less session produces a credential-less request that travels
-        # to SEEK and comes back 401, instead of failing here for free.
-        if (user_seek['password'] is None or user_seek['password']=="") \
-                and user_seek['token_provider'] is None:
-            # De-duplicated because this shares its wording with the username
-            # check above, and `err` is rendered as a list straight onto the
-            # login page (dmac/views.py:163, login.html). Widening this check to
-            # cover None would otherwise make an anonymous request show the same
-            # sentence twice.
+        # It still fails here rather than letting the request travel: a
+        # credential-less call to SEEK comes back 401 after a round trip, which
+        # is a worse answer to "you are not signed in" than the one we already
+        # have locally.
+        if user_seek['token_provider'] is None:
+            # De-duplicated: this shares its wording with the username check
+            # above, and `err` renders as a list onto the login page.
             message = "No valid username or password"
             if message not in err:
                 err.append(message)
