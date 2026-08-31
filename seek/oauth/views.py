@@ -136,6 +136,14 @@ def seek_callback(request):
 
     service.store_tokens(user, tokens, seek_person_id=person_id)
 
+    # A NExtSEEK API token, so services can call NExtSEEK's own API as this user
+    # (#16, sub-project 3). Not a SEEK credential -- see nextseek_api/local_tokens.py.
+    # Issued here so its lifetime is bounded by the SEEK session: logout and any
+    # clearing of the SEEK credentials revoke it.
+    from nextseek_api.local_tokens import ensure_for
+
+    ensure_for(user)
+
     # Exactly the keys login_seek writes (dmac/views.py:124-127), minus the
     # password. Note the key is `storage_type` with an underscore -- that is
     # what dmac/views.py:267 reads back.

@@ -176,6 +176,13 @@ def logout_seek(request):
     from seek.oauth.views import revoke_on_logout
     revoke_on_logout(getattr(request, "user", None))
 
+    # Revoke the NExtSEEK API token too (#16, sub-project 3). A DRF token does
+    # not expire on its own, so logout is what bounds its life; leaving it
+    # behind would hand out an indefinite bearer credential every time someone
+    # signed in. Also never raises.
+    from nextseek_api.local_tokens import revoke_for
+    revoke_for(getattr(request, "user", None))
+
     if request.session.get('username') is not None:
         call(["rm", "-r", request.session.get('username')])
         request.session.flush()

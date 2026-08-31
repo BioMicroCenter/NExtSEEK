@@ -116,6 +116,13 @@ def _refresh_locked(row, db):
         row.access_token = ""
         row.refresh_token = None
         row.save(using=db, update_fields=["access_token", "refresh_token", "updated_at"])
+        # The NExtSEEK API token was issued on the strength of this SEEK session
+        # (#16, sub-project 3). With the SEEK credential dead, it must not keep
+        # letting services act as this user -- it is the one thing bounding a
+        # DRF token's otherwise unlimited life.
+        from nextseek_api.local_tokens import revoke_for
+
+        revoke_for(row.user)
         return None
     except client.SeekOAuthError as exc:
         # Transient, or our own misconfiguration. Either way the stored
