@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import math
 import re
@@ -252,7 +253,14 @@ def rows_to_csv(rows: List[Dict[str, Any]]) -> str:
 # rows, so they are testable as strings and identical on every run.
 # ---------------------------------------------------------------------------
 
-CLADE_PIPELINE = ["Source", "Raw", "Processed", "Analyzed"]
+#: Pipeline order, NOT the clades table's id order. The table happens to number
+#: them 9 Source / 10 Raw / 11 Processed / 12 Analyzed, but the real flow is
+#: Source -> Processed -> Raw -> Analyzed: a processed SPECIMEN (TIS, DNA, RNA)
+#: comes before the RAW DATA FILE measured from it (D.*), which comes before the
+#: ANALYSIS derived from that (A.*). Sorting by clade id puts Raw second and
+#: makes the diagram tell the wrong story. Matches CLADE_STYLES in
+#: curation_skill/templates/SAMPLE_TREE.html.j2.
+CLADE_PIPELINE = ["Source", "Processed", "Raw", "Analyzed"]
 
 _CHAR_W, _LABEL_PAD, _MIN_NODE_R = 6.6, 11.0, 17.0
 _TOP_BAR = 86
@@ -279,8 +287,18 @@ def _text_on(hex_color: str) -> str:
     return "#111111" if (0.299 * r + 0.587 * g + 0.114 * b) > 150 else "#FFFFFF"
 
 
+def _uniform_node_radius(types) -> float:
+    """One radius for every node, sized to fit the longest label in the graph.
+
+    Deliberately uniform: sizing each node to its own label made a diagram where
+    circle size carried no meaning but looked like it did.
+    """
+    longest = max((len(t) for t in types), default=3)
+    return max(_MIN_NODE_R, (longest * _CHAR_W + _LABEL_PAD) / 2)
+
+
 def _node_radius(label: str) -> float:
-    """Radius that fits the label inside the node. Codes run to 7 characters."""
+    """Per-label radius. Retained only for width math; layouts use the uniform size."""
     return max(_MIN_NODE_R, (len(label) * _CHAR_W + _LABEL_PAD) / 2)
 
 
@@ -360,9 +378,9 @@ def _edge_weight(n_edges, busiest):
     return 0.55 + 2.4 * (math.log1p(n_edges) / math.log1p(max(1, busiest)))
 
 
-def _draw_node(x, y, sample_type, clade_map, extra=""):
+def _draw_node(x, y, sample_type, clade_map, extra="", radius=None):
     colour = _colour(clade_map, sample_type)
-    radius = _node_radius(sample_type)
+    radius = _node_radius(sample_type) if radius is None else radius
     return (
         f'<g><title>{_esc(sample_type)} \u00b7 {_esc(_clade(clade_map, sample_type))}{_esc(extra)}</title>'
         f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius:.1f}" fill="{_esc(colour)}" '
@@ -381,7 +399,7 @@ def _empty_svg():
     )
 
 
-def _radial_layout(types, children, parents, depth, clade_map):
+def _radial_layout(types, children, parents, depth, clade_map, uniform):
     """Ring radius fits its own members; angle relaxed toward neighbours.
 
     The relaxation is what makes this readable: without it, ring members sit in
@@ -395,10 +413,10 @@ def _radial_layout(types, children, parents, depth, clade_map):
 
     radius, previous = {}, 0.0
     for d in sorted(rings):
-        needed = sum(2 * _node_radius(t) for t in rings[d]) * 1.28
+        needed = sum(2 * uniform for _t in rings[d]) * 1.28
         # Gap follows the nodes actually on the ring. A fixed minimum made a
         # 13-node graph claim the same canvas as a 163-node one, nearly all empty.
-        gap = max(74.0, 2 * max(_node_radius(t) for t in rings[d]) + 34)
+        gap = max(74.0, 2 * uniform + 34)
         r = max(previous + gap, needed / (2 * math.pi))
         if d == 0 and len(rings[d]) == 1:
             r = 0.0
@@ -442,10 +460,11 @@ def rows_to_svg_radial(rows, clade_map, title="Connection network"):
     if not rows:
         return _empty_svg()
     types, children, parents, depth = hop_depths(rows, clade_map)
-    pos, radius, rings = _radial_layout(types, children, parents, depth, clade_map)
+    uniform = _uniform_node_radius(types)
+    pos, radius, rings = _radial_layout(types, children, parents, depth, clade_map, uniform)
 
     outermost = max(radius.values())
-    pad = 70 + max(_node_radius(t) for t in types)
+    pad = 70 + uniform
     cx = cy = outermost + pad
     width, height = cx * 2, cy * 2 + _TOP_BAR
     cy2 = cy + _TOP_BAR
@@ -484,7 +503,8 @@ def rows_to_svg_radial(rows, clade_map, title="Connection network"):
         )
     for t in sorted(types, key=lambda t: (depth[t], t)):
         out.append(
-            _draw_node(pos[t][0] + cx, pos[t][1] + cy2, t, clade_map, f" \u00b7 hop {depth[t]}")
+            _draw_node(pos[t][0] + cx, pos[t][1] + cy2, t, clade_map,
+                       f" \u00b7 hop {depth[t]}", radius=uniform)
         )
     out.append("</svg>")
     return "\n".join(out)
@@ -522,7 +542,7 @@ def rows_to_svg_layered(rows, clade_map, title="Connection map"):
     present += sorted(c for c in columns if c not in CLADE_PIPELINE)
     columns = _barycentre(present, columns, rows)
 
-    node_w = max(2 * _node_radius(t) for t in types)
+    node_w = 2 * _uniform_node_radius(types)
     top = _TOP_BAR + 34
     pos = {}
     for ci, clade in enumerate(present):
@@ -584,6 +604,115 @@ def rows_to_svg_layered(rows, clade_map, title="Connection map"):
     return "\n".join(out)
 
 
+# ---------------------------------------------------------------------------
+# Interactive HTML
+#
+# Same visual language as curation_skill/templates/SAMPLE_TREE.html.j2, so a
+# connection map and a curated sample tree read as the same picture: cytoscape
+# + dagre, one shape and colour per clade, uniform node boxes, click for detail.
+# That template is the prior art for this view; the palette and shapes below are
+# copied from its CLADE_STYLES deliberately rather than reinvented.
+# ---------------------------------------------------------------------------
+
+#: clade -> (fill, cytoscape shape). Mirrors CLADE_STYLES in the curation template.
+CLADE_STYLES = {
+    "Source":    ("#2E7D32", "ellipse"),
+    "Processed": ("#E65100", "round-rectangle"),
+    "Raw":       ("#42A5F5", "diamond"),
+    "Analyzed":  ("#1565C0", "hexagon"),
+}
+_CYTO_CDN = "https://unpkg.com"
+
+
+def rows_to_html(rows, clade_map, title="SampleType connections") -> str:
+    """Interactive cytoscape/dagre page. Nodes are uniform; colour and shape carry clade."""
+    types = sorted(
+        {r["parent_sample_type"] for r in rows} | {r["child_sample_type"] for r in rows}
+    )
+    nodes = [
+        {"id": t, "clade": _clade(clade_map, t),
+         "colour": CLADE_STYLES.get(_clade(clade_map, t), (UNASSIGNED_COLOR, "ellipse"))[0],
+         "shape": CLADE_STYLES.get(_clade(clade_map, t), (UNASSIGNED_COLOR, "ellipse"))[1]}
+        for t in types
+    ]
+    by_pair = defaultdict(list)
+    for r in rows:
+        by_pair[(r["parent_sample_type"], r["child_sample_type"])].append(r)
+    edges = []
+    for (src, dst), group in sorted(by_pair.items()):
+        assays = sorted({g["internal_assay"] for g in group})
+        edges.append({
+            "source": src, "target": dst,
+            "label": assays[0] + (f" +{len(assays) - 1}" if len(assays) > 1 else ""),
+            "assays": assays, "n": sum(g["n_edges"] for g in group),
+        })
+    payload = json.dumps({"nodes": nodes, "edges": edges})
+    legend = "".join(
+        f'<span class="lg"><i style="background:{c}"></i>{_esc(k)}</span>'
+        for k, (c, _shape) in CLADE_STYLES.items()
+        if any(n["clade"] == k for n in nodes)
+    )
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>{_esc(title)}</title>
+<script src="{_CYTO_CDN}/cytoscape@3/dist/cytoscape.min.js"></script>
+<script src="{_CYTO_CDN}/dagre@0.8/dist/dagre.min.js"></script>
+<script src="{_CYTO_CDN}/cytoscape-dagre@2/cytoscape-dagre.js"></script>
+<style>
+html,body{{margin:0;height:100%;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1F2328}}
+header{{padding:10px 18px;border-bottom:1px solid #E1E4E8;background:#fff;display:flex;
+gap:16px;align-items:center;flex-wrap:wrap}}
+h1{{margin:0;font-size:15px;font-weight:700}}
+.sub{{color:#57606A;font-size:12px}}
+.lg{{font-size:12px;color:#444;display:inline-flex;align-items:center;gap:5px;margin-right:10px}}
+.lg i{{width:11px;height:11px;border-radius:3px;display:inline-block}}
+#cy{{position:absolute;top:52px;bottom:0;left:0;right:0;background:#FCFCFD}}
+#dp{{position:absolute;right:14px;top:66px;width:250px;background:#fff;border:1px solid #D0D7DE;
+border-radius:8px;padding:12px 14px;box-shadow:0 4px 14px rgba(0,0,0,.09);display:none;font-size:12.5px}}
+#dp b{{display:block;font-size:14px;margin-bottom:4px}}
+#dp ul{{margin:6px 0 0;padding-left:18px}}
+</style></head><body>
+<header><h1>{_esc(title)}</h1>
+<span class="sub">{len(nodes)} sample types &middot; {len(edges)} connections</span>{legend}
+<span class="sub">click a node or edge for detail</span></header>
+<div id="cy"></div><div id="dp"></div>
+<script>
+var D={payload};
+var els=D.nodes.map(function(n){{return {{group:'nodes',data:{{
+  id:n.id,label:n.id,bg:n.colour,shape:n.shape,clade:n.clade}}}};}})
+ .concat(D.edges.map(function(e){{return {{group:'edges',data:{{
+  id:'e_'+e.source+'__'+e.target,source:e.source,target:e.target,
+  label:e.label,assays:e.assays,n:e.n}}}};}}));
+var cy=cytoscape({{container:document.getElementById('cy'),elements:els,
+ style:[
+  {{selector:'node',style:{{'background-color':'data(bg)','shape':'data(shape)','label':'data(label)',
+    'text-valign':'center','text-halign':'center','color':'#fff','font-size':'11px','font-weight':'bold',
+    'width':'96px','height':'62px','border-width':1,'border-color':'data(bg)',
+    'text-outline-color':'data(bg)','text-outline-width':'1px'}}}},
+  {{selector:'edge',style:{{'width':1.5,'line-color':'#999','target-arrow-color':'#999',
+    'target-arrow-shape':'triangle','arrow-scale':0.9,'curve-style':'bezier','label':'data(label)',
+    'font-size':'10px','color':'#333','text-rotation':'autorotate','text-background-color':'#fff',
+    'text-background-opacity':0.9,'text-background-padding':'3px','text-margin-y':'-9px'}}}},
+  {{selector:'edge:loop',style:{{'curve-style':'bezier','loop-direction':'-90deg','loop-sweep':'-45deg',
+    'control-point-step-size':'110px','text-rotation':'none'}}}},
+  {{selector:':selected',style:{{'border-color':'#A31F34','border-width':4,
+    'line-color':'#A31F34','target-arrow-color':'#A31F34'}}}}
+ ],
+ layout:{{name:'dagre',rankDir:'TB',rankSep:85,nodeSep:45,edgeSep:18,padding:30,animate:false}},
+ minZoom:0.2,maxZoom:3,wheelSensitivity:0.3}});
+var dp=document.getElementById('dp');
+function esc(s){{return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
+cy.on('tap','node',function(e){{var d=e.target.data();
+  dp.innerHTML='<b>'+esc(d.id)+'</b>clade: '+esc(d.clade)
+   +'<br>in: '+e.target.indegree()+' &middot; out: '+e.target.outdegree();
+  dp.style.display='block';}});
+cy.on('tap','edge',function(e){{var d=e.target.data();
+  dp.innerHTML='<b>'+esc(d.source)+' &rarr; '+esc(d.target)+'</b>'+d.n+' edges<ul>'
+   +d.assays.map(function(a){{return '<li>'+esc(a)+'</li>';}}).join('')+'</ul>';
+  dp.style.display='block';}});
+cy.on('tap',function(e){{if(e.target===cy)dp.style.display='none';}});
+</script></body></html>"""
+
+
 def choose_layout(selector) -> str:
     """Auto-pick a layout, honouring an explicit override.
 
@@ -626,7 +755,7 @@ _QUERY_PARAMS = [
                      description="SVG layout. Default is radial for an investigation or project "
                                  "and layered for a sample_type; this overrides that."),
     OpenApiParameter("output_format", OpenApiTypes.STR, OpenApiParameter.QUERY,
-                     enum=["json", "csv", "svg"], description="Default json."),
+                     enum=["json", "csv", "svg", "html"], description="Default json."),
 ]
 
 
@@ -663,6 +792,10 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
             (200, "image/svg+xml"): OpenApiResponse(
                 response=OpenApiTypes.STR,
                 description="Clade-coloured connection diagram",
+            ),
+            (200, "text/html"): OpenApiResponse(
+                response=OpenApiTypes.STR,
+                description="Interactive cytoscape/dagre network",
             ),
         },
         examples=[
@@ -752,6 +885,11 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
             return response
 
         clade_map = fetch_clade_map()
+
+        if selector.output_format == "html":
+            return HttpResponse(
+                rows_to_html(rows, clade_map), content_type="text/html; charset=utf-8"
+            )
 
         if selector.output_format == "svg":
             svg = rows_to_svg(rows, clade_map, layout=choose_layout(selector))

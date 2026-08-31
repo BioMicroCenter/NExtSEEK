@@ -6,6 +6,8 @@ Neo4j failure handling, and the clade-column SVG layout.
 
 import csv
 import io
+import json
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,6 +20,7 @@ from nextseek_api.services.sampletype_connections import (
     CONNECTIONS_CYPHER,
     choose_layout,
     hop_depths,
+    rows_to_html,
     rows_to_svg_layered,
     rows_to_svg_radial,
     CONNECTIONS_SUBTREE_CYPHER,
@@ -285,7 +288,7 @@ class TestConnectionsSchema:
     def test_all_three_content_types_are_advertised(self):
         op = self._schema()["paths"]["/nextseek_api/sample_types/connections/"]["get"]
         assert set(op["responses"]["200"]["content"]) == {
-            "application/json", "text/csv", "image/svg+xml",
+            "application/json", "text/csv", "image/svg+xml", "text/html",
         }
 
     def test_every_selector_is_documented_as_a_query_param(self):
@@ -564,3 +567,106 @@ def test_endpoint_uses_the_chosen_layout():
     assert "hop 1" in resp.content.decode()          # radial
     resp2 = _call({"sample_type": "CEL", "output_format": "svg"})
     assert ">RAW<" in resp2.content.decode()         # layered
+
+
+# ---------------------------------------------------------------------------
+# Clade pipeline order and uniform node sizing
+# ---------------------------------------------------------------------------
+
+def test_clade_pipeline_puts_processed_before_raw():
+    """Source -> Processed -> Raw -> Analyzed. A processed SPECIMEN (TIS, DNA)
+    precedes the RAW DATA FILE measured from it (D.*). The clades table's id
+    order says otherwise and is not the pipeline."""
+    from nextseek_api.services.sampletype_connections import CLADE_PIPELINE
+    assert CLADE_PIPELINE == ["Source", "Processed", "Raw", "Analyzed"]
+    assert CLADE_PIPELINE.index("Processed") < CLADE_PIPELINE.index("Raw")
+
+
+def test_node_size_is_uniform_across_the_graph():
+    """One size for every node; a per-label size implied a meaning it did not carry."""
+    from nextseek_api.services.sampletype_connections import _uniform_node_radius
+    types = ["CEL", "D.ADDCP", "TIS"]
+    assert _uniform_node_radius(types) == _uniform_node_radius(list(reversed(types)))
+    assert _uniform_node_radius(["CEL"]) < _uniform_node_radius(["D.ADDCP"])
+
+
+def test_layered_svg_draws_one_node_width_for_everything():
+    svg = rows_to_svg_layered(ROWS, CLADES)
+    widths = set(re.findall(r'<rect x="[\d.]+" y="[\d.]+" width="(\d+)" height="26"', svg))
+    assert len(widths) == 1, f"expected a single node width, got {widths}"
+
+
+# ---------------------------------------------------------------------------
+# Interactive HTML output
+# ---------------------------------------------------------------------------
+
+def test_html_uses_the_curation_clade_styles():
+    """Same palette and shapes as curation_skill SAMPLE_TREE, so the two read alike."""
+    from nextseek_api.services.sampletype_connections import CLADE_STYLES
+    assert CLADE_STYLES["Source"] == ("#2E7D32", "ellipse")
+    assert CLADE_STYLES["Processed"] == ("#E65100", "round-rectangle")
+    assert CLADE_STYLES["Raw"] == ("#42A5F5", "diamond")
+    assert CLADE_STYLES["Analyzed"] == ("#1565C0", "hexagon")
+    assert list(CLADE_STYLES) == ["Source", "Processed", "Raw", "Analyzed"]
+
+
+def test_html_is_a_self_contained_cytoscape_page():
+    page = rows_to_html(ROWS, CLADES)
+    assert page.startswith("<!doctype html>")
+    assert "cytoscape.min.js" in page and "cytoscape-dagre" in page
+    assert "name:'dagre'" in page
+    assert "'width':'96px','height':'62px'" in page   # uniform nodes
+
+
+def test_html_embeds_every_node_and_collapses_pairs_to_one_edge():
+    page = rows_to_html(ROWS, CLADES)
+    data = json.loads(re.search(r"var D=(\{.*?\});\n", page, re.S).group(1))
+    assert {n["id"] for n in data["nodes"]} == {"CEL", "TIS", "D.IMG"}
+    pairs = [(e["source"], e["target"]) for e in data["edges"]]
+    assert len(pairs) == len(set(pairs)), "one edge per pair; assays are collapsed into it"
+
+
+def test_html_edge_carries_every_assay_for_that_pair():
+    rows = [
+        {"parent_sample_type": "CEL", "child_sample_type": "D.IMG",
+         "internal_assay": "Imaging", "n_edges": 10},
+        {"parent_sample_type": "CEL", "child_sample_type": "D.IMG",
+         "internal_assay": "Comet Chip", "n_edges": 5},
+    ]
+    data = json.loads(re.search(r"var D=(\{.*?\});\n", rows_to_html(rows, CLADES), re.S).group(1))
+    edge = data["edges"][0]
+    assert edge["assays"] == ["Comet Chip", "Imaging"]
+    assert edge["n"] == 15
+    assert edge["label"].endswith("+1")
+
+
+def test_html_escapes_markup_in_a_title():
+    page = rows_to_html(ROWS, CLADES, title="<script>x</script>")
+    assert "<title><script>" not in page
+
+
+def test_endpoint_serves_html():
+    resp = _call({"sample_type": "CEL", "output_format": "html"})
+    assert resp.status_code == 200
+    assert resp["Content-Type"].startswith("text/html")
+    assert b"cytoscape" in resp.content
+
+
+def test_layered_puts_processed_left_of_raw_when_both_are_present():
+    """The whole point of the order fix: a processed specimen sits before the raw
+    data file measured from it. ROWS has no Processed type, so this uses its own."""
+    four = [
+        {"parent_sample_type": "NHP", "child_sample_type": "TIS",
+         "internal_assay": "Tissue Collection", "n_edges": 5},
+        {"parent_sample_type": "TIS", "child_sample_type": "D.SEQ",
+         "internal_assay": "Short Read Sequencing", "n_edges": 9},
+        {"parent_sample_type": "D.SEQ", "child_sample_type": "A.GEX",
+         "internal_assay": "Gene Expression Analysis", "n_edges": 3},
+    ]
+    clades = {
+        "NHP": ("Source", "#A3D46F"), "TIS": ("Processed", "#F4A45E"),
+        "D.SEQ": ("Raw", "#A2C8F0"), "A.GEX": ("Analyzed", "#6B8FDD"),
+    }
+    svg = rows_to_svg_layered(four, clades)
+    assert svg.index(">SOURCE<") < svg.index(">PROCESSED<") \
+        < svg.index(">RAW<") < svg.index(">ANALYZED<")

@@ -2649,8 +2649,13 @@ class SampleTypeConnectionsRequest(BaseModel):
             "layered for a sample_type; set it to override that choice."
         ),
     )
-    output_format: Literal["json", "csv", "svg"] = Field(
-        "json", description="json (default), csv, or svg (clade-coloured diagram)."
+    output_format: Literal["json", "csv", "svg", "html"] = Field(
+        "json",
+        description=(
+            "json (default), csv, svg (static clade-coloured diagram), or html "
+            "(interactive cytoscape/dagre network, same visual language as the "
+            "curation skill's SAMPLE_TREE)."
+        ),
     )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
