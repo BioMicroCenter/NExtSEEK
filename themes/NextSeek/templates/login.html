@@ -205,6 +205,48 @@ body.nextseek-auth {
 }
 .auth-submit:active { transform: scale(0.99); }
 
+/* ── "Log in with SEEK" (#16) ─────────────────────────
+   Rendered only when SEEK_OAUTH_ENABLED is on. Styled as the secondary action
+   while both paths coexist: until sub-projects 2-4 land, the password form
+   below is still the only one that reaches SEEK's API. */
+.auth-oauth {
+    display: block;
+    width: 100%;
+    padding: 0.7rem 1rem;
+    font-family: 'Source Sans 3', system-ui, sans-serif;
+    font-size: 0.925rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-align: center;
+    text-decoration: none;
+    color: #A31F34;
+    background: transparent;
+    border: 1.5px solid #A31F34;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.18s, color 0.18s;
+    margin-bottom: 1.25rem;
+}
+.auth-oauth:hover { background: #A31F34; color: #fff; }
+
+.auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ns-muted);
+}
+.auth-divider::before,
+.auth-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--ns-border, rgba(0,0,0,0.12));
+}
+
 .auth-links {
     text-align: center;
     font-size: 0.83rem;
@@ -288,6 +330,20 @@ body.nextseek-auth {
                     {{ error }}
                 {% endif %}
             </div>
+            {% endif %}
+
+            {% if seek_oauth_enabled %}
+            {% comment %}
+              Offered above the password form because it is the destination
+              path, but the form stays: until sub-projects 2-4 land, an OAuth
+              session cannot yet reach SEEK's API, so removing the password
+              option here would strand every user. Sub-project 5 removes it.
+              `next` is carried through and re-validated in the callback.
+            {% endcomment %}
+            <a class="auth-oauth" href="{% url 'seek_oauth_login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}">
+                Log in with SEEK
+            </a>
+            <div class="auth-divider">or</div>
             {% endif %}
 
             <form action="" method="post" novalidate>

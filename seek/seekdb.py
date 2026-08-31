@@ -200,9 +200,26 @@ class SeekDB(object):
         if user_seek['server']=="https://localhost":
             user_seek['server'] = settings.SEEK_URL
             
-        if user_seek['password']=="":
-            err.append("No valid username or password")
-            logger.debug("No valid username or password")
+        # `is None` matters as much as `== ""`, and only one of them was here.
+        # An OAuth session carries a username but no password by construction
+        # (seek/oauth/views.py writes the former and not the latter), and a None
+        # password used to pass this check, reach SeekAPI(server, username,
+        # None), and blow up in __curlPrefix -- which guards only on the
+        # username and then evaluates str + None (seek/seekapi.py:18-21).
+        #
+        # This does NOT make OAuth sessions work against SEEK; that is
+        # sub-project 2's job. It makes them fail as "not authenticated"
+        # instead of as a TypeError.
+        if user_seek['password'] is None or user_seek['password']=="":
+            # De-duplicated because this shares its wording with the username
+            # check above, and `err` is rendered as a list straight onto the
+            # login page (dmac/views.py:163, login.html). Widening this check to
+            # cover None would otherwise make an anonymous request show the same
+            # sentence twice.
+            message = "No valid username or password"
+            if message not in err:
+                err.append(message)
+            logger.debug(message)
             status = False
             
         if status:

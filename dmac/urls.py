@@ -39,6 +39,17 @@ urlpatterns += [
     re_path(r"^media/(?P<path>.*)$", _static_serve, {"document_root": settings.MEDIA_ROOT}),
 ]
 
+# SEEK OAuth (#16). Deliberately OUTSIDE i18n_patterns, for the same reason as
+# the media route above and one more: SEEK_OAUTH_REDIRECT_URI is registered in
+# SEEK's Doorkeeper application and compared byte for byte, so a language prefix
+# appearing on the callback would break every sign-in. USE_I18N is currently
+# False, which makes i18n_patterns a no-op, but that is a setting rather than a
+# guarantee. Placed before the mezzanine "^" catch-all below so it resolves.
+# The views 404 while SEEK_OAUTH_ENABLED is off; the routes are always present.
+urlpatterns += [
+    re_path(r"^oauth/seek/", include("seek.oauth.urls")),
+]
+
 if settings.USE_MODELTRANSLATION:
     urlpatterns += [
         re_path('^i18n/$', set_language, name='set_language'),

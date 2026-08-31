@@ -168,6 +168,14 @@ def login_seek(request):
     return render(request, 'login.html')
 
 def logout_seek(request):
+    # Revoke the SEEK token first, while request.user is still resolvable. A
+    # no-op unless SEEK_OAUTH_REVOKE_ON_LOGOUT is on, and it never raises:
+    # logging out is a local act and must succeed whether or not SEEK is up.
+    # Imported here rather than at module scope to keep dmac.views free of a
+    # dependency on the OAuth package during app loading.
+    from seek.oauth.views import revoke_on_logout
+    revoke_on_logout(getattr(request, "user", None))
+
     if request.session.get('username') is not None:
         call(["rm", "-r", request.session.get('username')])
         request.session.flush()

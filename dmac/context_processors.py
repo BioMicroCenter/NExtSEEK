@@ -29,3 +29,18 @@ def seek_urls(request):
         "seek_public_url": base,
         "seek_forgot_password_url": f"{base}/forgot_password" if base else "",
     }
+
+
+def seek_oauth(request):
+    """Whether to offer "Log in with SEEK" on the login page.
+
+    ``getattr`` with a default rather than a bare attribute read, for the same
+    reason as above: templates must render on a host where the setting has not
+    been defined, not raise.
+
+    While this is on, the password form stays on the page alongside the button.
+    That is the coexistence requirement, not an oversight -- until sub-projects
+    2 to 4 land, the password path is still the only one that reaches SEEK's
+    API.
+    """
+    return {"seek_oauth_enabled": bool(getattr(settings, "SEEK_OAUTH_ENABLED", False))}

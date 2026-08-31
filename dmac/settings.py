@@ -55,7 +55,14 @@ SITE_ID = 1
 USE_I18N = False
 
 FILE_CHARSET = "utf-8"
-AUTHENTICATION_BACKENDS = ("mezzanine.core.auth_backends.MezzanineBackend",)
+# SeekOAuthBackend is inert while SEEK_OAUTH_ENABLED is off: it only answers
+# authenticate() calls that name a seek_person_id, so a password login falls
+# straight through it to Mezzanine's backend. It is listed second so that
+# ordering stays true. Sub-project 5's cutover removes the Mezzanine entry.
+AUTHENTICATION_BACKENDS = (
+    "mezzanine.core.auth_backends.MezzanineBackend",
+    "seek.oauth.backends.SeekOAuthBackend",
+)
 
 FILE_UPLOAD_PERMISSIONS = 0o644
 
@@ -123,6 +130,8 @@ TEMPLATES = [
                 # exposes settings registered with Mezzanine, so project settings
                 # like SEEK_PUBLIC_URL need their own.
                 "dmac.context_processors.seek_urls",
+                # Whether to offer the "Log in with SEEK" button.
+                "dmac.context_processors.seek_oauth",
             ],
             "loaders": [
                 "mezzanine.template.loaders.host_themes.Loader",
