@@ -2628,11 +2628,13 @@ class SampleTypeConnectionsRequest(BaseModel):
         ),
     )
     direct_connections: bool = Field(
-        True,
+        False,
         description=(
-            "True (default): only edges where sample_type is one endpoint. "
-            "False: every edge in the tree rooted at sample_type, walked all the way down "
-            "(NHP -> PAV -> TIS -> DNA ...). Requires sample_type."
+            "Default false: every edge in the tree rooted at sample_type, walked all the "
+            "way down (NHP -> PAV -> TIS -> DNA ...), which is almost always the more "
+            "useful answer -- NHP returns 38 connections that way against 3 direct. "
+            "Set true for only the edges where sample_type is itself an endpoint. "
+            "Has no effect without sample_type, since there is no root to walk from."
         ),
     )
     all_conns: bool = Field(
@@ -2674,13 +2676,6 @@ class SampleTypeConnectionsRequest(BaseModel):
             raise ValueError(
                 "Supply at least one of: graph_inv_id, seek_inv_id, name, sample_type, "
                 "or all_conns=yes."
-            )
-        if not self.direct_connections and not self.sample_type:
-            # Rejected rather than ignored: the flag names a root to walk down from,
-            # and without one it would silently have no effect on the result.
-            raise ValueError(
-                "direct_connections=no walks the tree below a sample_type, so sample_type "
-                "is required with it."
             )
         return self
 

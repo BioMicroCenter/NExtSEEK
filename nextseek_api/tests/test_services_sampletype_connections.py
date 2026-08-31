@@ -398,8 +398,9 @@ def test_svg_document_declares_itself_as_xml():
     ({"graph_inv_id": 2}, "sampletype_connections_inv2.svg"),
     ({"seek_inv_id": 11}, "sampletype_connections_proj11.svg"),
     ({"name": "Impactb Investigation"}, "sampletype_connections_impactb-investigation.svg"),
-    ({"sample_type": "D.IMG"}, "sampletype_connections_d-img.svg"),
-    ({"graph_inv_id": 2, "sample_type": "CEL"}, "sampletype_connections_inv2_cel.svg"),
+    ({"sample_type": "D.IMG"}, "sampletype_connections_d-img_tree.svg"),
+    ({"sample_type": "D.IMG", "direct_connections": True}, "sampletype_connections_d-img_direct.svg"),
+    ({"graph_inv_id": 2, "sample_type": "CEL"}, "sampletype_connections_inv2_cel_tree.svg"),
     ({"all_conns": True}, "sampletype_connections_all.svg"),
 ])
 def test_download_name_reflects_the_selector(selector, expected):
@@ -431,8 +432,9 @@ def test_svg_document_declares_itself_as_xml():
     ({"graph_inv_id": 2}, "sampletype_connections_inv2.svg"),
     ({"seek_inv_id": 11}, "sampletype_connections_proj11.svg"),
     ({"name": "Impactb Investigation"}, "sampletype_connections_impactb-investigation.svg"),
-    ({"sample_type": "D.IMG"}, "sampletype_connections_d-img.svg"),
-    ({"graph_inv_id": 2, "sample_type": "CEL"}, "sampletype_connections_inv2_cel.svg"),
+    ({"sample_type": "D.IMG"}, "sampletype_connections_d-img_tree.svg"),
+    ({"sample_type": "D.IMG", "direct_connections": True}, "sampletype_connections_d-img_direct.svg"),
+    ({"graph_inv_id": 2, "sample_type": "CEL"}, "sampletype_connections_inv2_cel_tree.svg"),
     ({"all_conns": True}, "sampletype_connections_all.svg"),
 ])
 def test_download_name_reflects_the_selector(selector, expected):
@@ -483,17 +485,46 @@ def test_subtree_variant_is_read_only():
         assert verb not in lowered
 
 
-def test_direct_connections_defaults_to_yes():
-    assert SampleTypeConnectionsRequest.model_validate({"sample_type": "NHP"}).direct_connections is True
+def test_direct_connections_defaults_to_the_tree_walk():
+    """The walk is the useful answer: NHP gives 38 connections that way against 3 direct."""
+    assert SampleTypeConnectionsRequest.model_validate({"sample_type": "NHP"}).direct_connections is False
 
 
-def test_direct_connections_no_requires_a_sample_type():
-    """The flag names a root to walk from; without one it would silently do nothing."""
-    with pytest.raises(ValidationError):
-        SampleTypeConnectionsRequest.model_validate({"graph_inv_id": 2, "direct_connections": False})
+@pytest.mark.parametrize("selector", [
+    {"all_conns": True}, {"graph_inv_id": 2}, {"seek_inv_id": 11}, {"name": "Impactb Investigation"},
+])
+def test_a_rootless_request_is_accepted_and_uses_the_direct_query(selector):
+    """With the walk as the default, requiring a sample_type would reject every
+    unscoped and investigation-only request. There is no root to walk from, so the
+    flag is ignored rather than rejected -- and the subtree query, which matches a
+    root by type, would return zero rows if it were used."""
+    from nextseek_api.services.sampletype_connections import (
+        CONNECTIONS_CYPHER, CONNECTIONS_SUBTREE_CYPHER, run_connections_query,
+    )
+    sel = SampleTypeConnectionsRequest.model_validate(selector)
+    assert sel.direct_connections is False
+    seen = {}
+    with patch(f"{MODULE}.GraphDatabase.driver") as drv:
+        drv.return_value.__enter__.return_value.execute_query.side_effect = (
+            lambda cy, **kw: seen.setdefault("cy", cy) and None or ([], None, None))
+        run_connections_query(sel)
+    assert seen["cy"] is CONNECTIONS_CYPHER
+    assert seen["cy"] is not CONNECTIONS_SUBTREE_CYPHER
 
 
-def test_endpoint_selects_the_subtree_query_when_asked():
+def test_a_sample_type_uses_the_subtree_query_by_default():
+    from nextseek_api.services.sampletype_connections import (
+        CONNECTIONS_SUBTREE_CYPHER, run_connections_query,
+    )
+    seen = {}
+    with patch(f"{MODULE}.GraphDatabase.driver") as drv:
+        drv.return_value.__enter__.return_value.execute_query.side_effect = (
+            lambda cy, **kw: seen.setdefault("cy", cy) and None or ([], None, None))
+        run_connections_query(SampleTypeConnectionsRequest.model_validate({"sample_type": "NHP"}))
+    assert seen["cy"] is CONNECTIONS_SUBTREE_CYPHER
+
+
+def test_endpoint_honours_an_explicit_direct_yes():
     captured = {}
 
     def _fake(selector):
@@ -503,17 +534,18 @@ def test_endpoint_selects_the_subtree_query_when_asked():
     with patch(f"{MODULE}.run_connections_query", side_effect=_fake), \
          patch(f"{MODULE}.fetch_clade_map", return_value=CLADES):
         resp = SampleTypeConnectionsViewSet().list(
-            _request({"sample_type": "NHP", "direct_connections": "no"}))
-    assert resp.status_code == 200 and captured["direct"] is False
+            _request({"sample_type": "NHP", "direct_connections": "yes"}))
+    assert resp.status_code == 200 and captured["direct"] is True
 
 
-def test_default_flag_is_not_echoed_but_a_set_one_is():
+def test_only_the_non_default_flag_is_echoed():
+    """The walk is the default, so direct_connections appears in filters only when true."""
     assert "direct_connections" not in _call({"sample_type": "CEL"}).data["filters"]
     with patch(f"{MODULE}.run_connections_query", return_value=ROWS), \
          patch(f"{MODULE}.fetch_clade_map", return_value=CLADES):
         resp = SampleTypeConnectionsViewSet().list(
-            _request({"sample_type": "NHP", "direct_connections": "no"}))
-    assert resp.data["filters"]["direct_connections"] is False
+            _request({"sample_type": "NHP", "direct_connections": "yes"}))
+    assert resp.data["filters"]["direct_connections"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -750,3 +782,12 @@ def test_no_exception_objects_leak_into_the_error_detail():
     for query in ({}, {"direct_connections": "no"}):
         for err in _call(query).data["errors"][0]["detail"]:
             assert not isinstance(err.get("ctx", {}).get("error"), BaseException)
+
+
+def test_the_two_modes_do_not_share_a_download_filename():
+    """Both landed as sampletype_connections_nhp.csv while holding 3 rows and 38."""
+    tree = download_name(SampleTypeConnectionsRequest.model_validate({"sample_type": "NHP"}), "csv")
+    direct = download_name(SampleTypeConnectionsRequest.model_validate(
+        {"sample_type": "NHP", "direct_connections": True}), "csv")
+    assert tree != direct
+    assert tree.endswith("_tree.csv") and direct.endswith("_direct.csv")

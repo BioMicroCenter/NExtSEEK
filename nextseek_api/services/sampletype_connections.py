@@ -197,7 +197,12 @@ def run_connections_query(selector: SampleTypeConnectionsRequest) -> List[Dict[s
         "seek_inv_id": selector.seek_inv_id,
         "name": selector.name or None,
     }
-    cypher = CONNECTIONS_CYPHER if selector.direct_connections else CONNECTIONS_SUBTREE_CYPHER
+    # The subtree walk needs a root. Without a sample_type there is nothing to walk
+    # from, and the subtree query would match no root and return zero rows -- so an
+    # unscoped or investigation-only request always uses the direct form regardless
+    # of the flag. This is why direct_connections defaulting to False is safe.
+    use_subtree = bool(selector.sample_type) and not selector.direct_connections
+    cypher = CONNECTIONS_SUBTREE_CYPHER if use_subtree else CONNECTIONS_CYPHER
     with GraphDatabase.driver(neo["URI"], auth=neo["AUTH"]) as driver:
         records, _summary, _keys = driver.execute_query(
             cypher, **params, database_=neo["NAME"]
@@ -236,6 +241,10 @@ def download_name(selector, extension: str) -> str:
         parts.append(re.sub(r"[^A-Za-z0-9]+", "-", selector.name).strip("-").lower())
     if selector.sample_type:
         parts.append(re.sub(r"[^A-Za-z0-9]+", "-", selector.sample_type).strip("-").lower())
+        # Without this both modes land as sampletype_connections_nhp.csv while holding
+        # very different data -- 3 rows direct against 38 for the tree -- so a browser
+        # silently overwrites the first download with the second.
+        parts.append("direct" if selector.direct_connections else "tree")
     if not parts:
         parts.append("all")
     return f"sampletype_connections_{'_'.join(parts)}.{extension}"
@@ -770,8 +779,9 @@ _QUERY_PARAMS = [
     OpenApiParameter("sample_type", OpenApiTypes.STR, OpenApiParameter.QUERY,
                      description="Sample type code; matches either endpoint. Alone, spans all projects."),
     OpenApiParameter("direct_connections", OpenApiTypes.BOOL, OpenApiParameter.QUERY,
-                     description="Default true. False walks the whole subtree rooted at "
-                                 "sample_type (NHP -> PAV -> TIS -> DNA ...). Requires sample_type."),
+                     description="Default FALSE: walks the whole tree rooted at sample_type "
+                                 "(NHP -> PAV -> TIS -> DNA ...). Set true for direct edges only. "
+                                 "No effect without sample_type."),
     OpenApiParameter("all_conns", OpenApiTypes.BOOL, OpenApiParameter.QUERY,
                      description="Deliberately return the whole graph unfiltered."),
     OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY,
@@ -866,7 +876,7 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
             "seek_inv_id": params.get("seek_inv_id") or None,
             "name": params.get("name") or None,
             "sample_type": params.get("sample_type") or None,
-            "direct_connections": _truthy(params.get("direct_connections", "yes")),
+            "direct_connections": _truthy(params.get("direct_connections")),
             "all_conns": _truthy(params.get("all_conns")),
             "layout": (params.get("layout") or None),
             "output_format": (params.get("output_format") or "json").lower(),
@@ -905,8 +915,8 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
         applied = {k: v for k, v in selector.model_dump().items()
                    if k not in ("output_format", "direct_connections", "layout")
                    and v not in (None, False, "")}
-        if not selector.direct_connections:
-            applied["direct_connections"] = False
+        if selector.direct_connections:
+            applied["direct_connections"] = True   # non-default; the walk is the default
 
         if selector.output_format == "csv":
             response = HttpResponse(rows_to_csv(rows), content_type="text/csv")
