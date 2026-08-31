@@ -332,54 +332,19 @@ body.nextseek-auth {
             </div>
             {% endif %}
 
-            {% if seek_oauth_enabled %}
             {% comment %}
-              Offered above the password form because it is the destination
-              path, but the form stays: until sub-projects 2-4 land, an OAuth
-              session cannot yet reach SEEK's API, so removing the password
-              option here would strand every user. Sub-project 5 removes it.
+              The password form is gone (#16, sub-project 5). SEEK is the only
+              identity provider now: NExtSEEK holds no usable password, so a
+              form here could not authenticate anyone.
+
+              The seek_oauth_enabled guard is gone too: after cutover, the flag
+              being off would leave a page with no way to sign in at all, which
+              a Django system check now refuses to boot (seek/oauth/checks.py).
               `next` is carried through and re-validated in the callback.
             {% endcomment %}
             <a class="auth-oauth" href="{% url 'seek_oauth_login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}">
                 Log in with SEEK
             </a>
-            <div class="auth-divider">or</div>
-            {% endif %}
-
-            <form action="" method="post" novalidate>
-                {% csrf_token %}
-
-                <div class="auth-field">
-                    <label for="username">Username</label>
-                    <input
-                        type="text"
-                        name="username"
-                        id="username"
-                        placeholder="Enter your username"
-                        autocomplete="username"
-                        required
-                    >
-                </div>
-
-                <div class="auth-field">
-                    <label for="password">Password</label>
-                    <input
-                        type="password"
-                        name="password"
-                        id="password"
-                        placeholder="Enter your password"
-                        autocomplete="current-password"
-                        required
-                    >
-                </div>
-
-                <div class="auth-check">
-                    <input type="checkbox" name="no-expire" id="no-expire" value="yes">
-                    <label for="no-expire">Stay signed in</label>
-                </div>
-
-                <button type="submit" class="auth-submit">Sign in</button>
-            </form>
 
             {% url "signup_seek" as signup_url %}
             {% url "mezzanine_password_reset" as password_reset_url %}

@@ -1,17 +1,9 @@
-from django.shortcuts import redirect, render
-from django.http import HttpResponseRedirect, HttpResponse
-from django.contrib.auth.models import User
-from django import forms
-from django.db.models import Q
-from django.contrib.auth import authenticate, login
+from django.shortcuts import render
+from django.http import HttpResponseRedirect
 from django.conf import settings
 
-import simplejson
-import datetime
-import json
 import os
 from subprocess import call
-from subprocess import check_call
 
 import logging
 logging.basicConfig(
@@ -23,7 +15,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from seek.seekdb import SeekDB
-from seek.models import People
 from dmac.dbtable import DBtable
 
 DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "download/"
@@ -49,123 +40,26 @@ def save(request):
 def delete(request):
     return __process(request, "delete")
 
-def userSynchronization(user_seek):
-    status = 0
-    msg = ''
-    username = user_seek['username']
-    password = user_seek['password']
-    try:
-        person_id = user_seek['user_id']
-        person = People.objects.get(id__exact=person_id)
-    except:
-        person = None
-        msg = "Error: Login user not found in SEEK people table, ask admin for help."
-        logger.error(msg)
-        return status
-
-    try:
-        user = User.objects.get(username__exact=username)
-    except:
-        user = None
-        msg = "username not found in NExtSEEK: " + username
-        logger.debug(msg)
-
-    if user is None:
-        logger.debug("Register new SEEK user in NExtSEEK")
-        try:
-            attributes = user_seek['userdata']['attributes']
-            user = User.objects.create_user(username, person.email, password)
-            user.last_name = attributes['last_name']
-            user.first_name = attributes['first_name']
-            user.is_staff = 1
-            user.is_active = 1
-            user.save()
-            msg = "Registration of SEEK user successful."
-            status = 1
-        except:
-            msg = "Error: Registration of SEEK user failed, ask admin for help."
-            logger.error(msg)
-            status = 0
-    else:
-        logger.debug("Update SEEK user in NExtSEEK")
-        try:
-            attributes = user_seek['userdata']['attributes']
-            user.email = person.email
-            user.set_password(password)
-            user.last_name = attributes['last_name']
-            user.first_name = attributes['first_name']
-            user.is_staff = 1
-            user.is_active = 1
-            user.save()
-            msg = "Update of SEEK user successful."
-            logger.debug(msg)
-            status = 1
-        except:
-            msg = "Error: Update of SEEK user failed, ask admin for help."
-            logger.error(msg)
-            status = 0
-
-    return status, msg
-
 def login_seek(request):
-    seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
+    """Render the login page. Signing in happens at SEEK (#16, sub-project 5).
 
-    logger.debug(f"User trying to log in: {user_seek}")
-    logger.debug(f"User request: {request}")
-    status = user_seek['status']
-    err = user_seek['err']
-    username = user_seek['username']
-    password = user_seek['password']
-    if request.method == 'POST':
-        logger.debug(f"Request method: {request.method}")
-        if user_seek['status']:
-            logger.debug(f"User was able to log in")
-            request.session['server'] = user_seek['server']
-            request.session['storage_type'] = user_seek['storagetype']
-            request.session['storage'] = user_seek['storage']
-            request.session['username'] = user_seek['username']
-            request.session['password'] = user_seek['password']
-            if user_seek['noexpire'] == "yes":
-                request.session.set_expiry(0)
-            else:
-                request.session.set_expiry(43200)
-                
-            username = user_seek['username']
-            password = user_seek['password']
-            user = authenticate(username=username, password=password)
-            logger.debug(f"Authenticated Django user: {user}")
-            if user is not None:
-                login(request, user)
-            else:
-                statusi, msg = userSynchronization(user_seek)
-                if statusi:
-                    user = authenticate(username=username, password=password)
-                    if user is not None:
-                        login(request, user)
-                    else:    
-                        request.session.flush()
-                        return render(request, 'login.html', {'error': "Error after user registration, ask admin for help."})
-                else:        
-                    request.session.flush()
-                    return render(request, 'login.html', {'error': msg})
-            
-            httpurl = request.get_full_path()
-            urls = httpurl.split('?next=')
-            if len(urls)>1:
-                url_redirect = urls[1]
-            else:
-                url_redirect = "/"
-            return HttpResponseRedirect(url_redirect)
-        else:
-            logger.debug("SEEK authentication failed, re-login")
-            request.session.flush()
-            return render(request, 'login.html', {'error': user_seek['err']})
-    else:
-        msg = 'Warning: Not a http POST operation.'
-        logger.debug(msg)
-        
+    The POST branch is gone, and with it ``userSynchronization``. What they did
+    was validate a username and password against SEEK, mirror that password into
+    the Django ``auth_user`` row so ``request.user`` and ``@login_required``
+    would work, and stash the plaintext password in the session for every later
+    SEEK call to reuse. All three are exactly what this project set out to
+    remove.
+
+    This view stays because it is ``LOGIN_URL``: ``@login_required`` sends
+    unauthenticated users here, and the page now offers "Log in with SEEK" and
+    nothing else. ``seek/oauth/views.py`` does the actual work.
+
+    A POST here is no longer meaningful -- there is no form to submit -- but it
+    renders rather than 405s, so a stale bookmarked form or a cached page gets
+    the login screen instead of an error.
+    """
     return render(request, 'login.html')
+
 
 def logout_seek(request):
     # Revoke the SEEK token first, while request.user is still resolvable. A
@@ -188,57 +82,18 @@ def logout_seek(request):
         request.session.flush()
     return HttpResponseRedirect(reverse('index'))
     
-def login_full(request):
-    if request.method == 'POST':
-        err = []
-        if request.POST.get('server')[-1] == '/':
-            server = request.POST.get('server')
-        else:
-            server = request.POST.get('server') + '/'
-        username = request.POST.get('username')
-        password = request.POST.get('password')
-        server = settings.SEEK_URL
-        storage = settings.SEEK_URL
-        storagetype = request.POST.get("storagetype")
-        noexpire = request.POST.get('no-expire')
-        if storage != "":
-            request.session['storage_type'] = storagetype
-            request.session['storage'] = storage
-        else:
-            request.session.flush()
-        
-        if server != "":
-            request.session['server'] = server
-        else:
-            err.append("No server selected")
-            request.session.flush()
-            return render(request, 'login.html', context={
-                'error': err})
-            
-        if username != "" and password != "":
-            request.session['username'] = username
-            request.session['password'] = password
-        else:
-            err.append("No valid username or password")
-            request.session.flush()
-            return render(request, 'login.html', context={'error': err})
-        if noexpire == "yes":
-            request.session.set_expiry(0)
-        else:
-            request.session.set_expiry(43200)
-        return render(request, 'home.html', context={'error': err})
-        
-    return render(request, 'login.html')
-    
+# login_full was here: an unrouted duplicate of the password login form that
+# also wrote request.session['password']. Deleted with the rest of the password
+# path (#16, sub-project 5); nothing referenced it.
+
+
 def index(request):
-    if (request.method == 'POST' and
-        request.session.get('username') is None
-    ):
-        login(request)
-    else:
-        pass
-    
-    
+    # A `login(request)` call sat here, guarded on an anonymous POST. It could
+    # only ever raise -- django.contrib.auth.login takes (request, user) and was
+    # given one argument -- so the branch was a latent 500, not a login. It went
+    # with the password path (#16, sub-project 5): there is nothing for it to do
+    # now, and the block immediately below already renders the login page for a
+    # request with no session username, which is what it was reaching for.
     if (
         request.session.get('username') is None or
         request.session.get('username') == ""
@@ -254,11 +109,14 @@ def index(request):
             investigation = ""
             
         username = request.session.get('username')
-        password = request.session.get('password')
         storage = settings.SEEK_URL
         virtuoso = settings.VIRTUOSO_JS_URL
         server = request.session.get('server')
-        seekdb = SeekDB(storage, username, password)
+        # SeekDB(storage, username, password) used to be built here from the
+        # session password and then immediately replaced by getSeekLogin's own
+        # client. The construction was always redundant; with the password gone
+        # (#16, sub-project 5) it is also impossible, so only the call remains.
+        seekdb = SeekDB(None, None, None)
         user_seek = seekdb.getSeekLogin(request)
         if user_seek['status']:
             userinfo_seek = user_seek['userdata']
@@ -268,8 +126,10 @@ def index(request):
         investigations,folders = seekdb.get_investigations_folders(investigation)
         return render(
             request, 'seek_login.html',
+            # 'password' was rendered into this context. It is gone with the
+            # session password, and the template it targets does not exist.
             context={'user': username, 'username': username,
-                     'password': password, 'server': server,
+                     'server': server,
                      'storage': storage,
                      'storagetype': request.session.get('storage_type'),
                      'virtuoso_url': virtuoso,
