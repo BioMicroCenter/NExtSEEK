@@ -2,9 +2,88 @@
 
 from unittest.mock import MagicMock, patch
 
-from nextseek_api.assay_registration.planner import Plan, plan_batch
+from nextseek_api.assay_registration.planner import (
+    Plan,
+    existing_membership_ids,
+    plan_batch,
+)
 from nextseek_api.assay_registration.resolver import ResolvedRow
 from nextseek_api.assay_registration.schemas import RegistrationRow, RowError
+
+
+class FakeConn:
+    """Drives the one SELECT this module issues, hermetically.
+
+    Deliberately local rather than imported from test_resolver: that fake
+    dispatches across five statements, this module issues exactly one. It
+    answers only the asset ids the call actually asked for, so a test cannot
+    pass by being handed rows the query never selected, and it emulates the
+    GROUP BY so removing MIN(id) from the SQL changes the answer.
+    """
+
+    def __init__(self, rows):
+        self._rows = rows
+        self.calls = []
+
+    def execute(self, statement, params=None):
+        sql = str(statement)
+        params = dict(params or {})
+        self.calls.append((sql, params))
+        wanted = {v for k, v in params.items() if k.startswith("s_")}
+        aid = params.get("aid")
+        rows = [(a, s, i) for (a, s, i) in self._rows if a == aid and s in wanted]
+        if "MIN(" in sql.upper():
+            lowest = {}
+            for a, s, i in rows:
+                if (a, s) not in lowest or i < lowest[(a, s)]:
+                    lowest[(a, s)] = i
+            rows = [(a, s, i) for (a, s), i in sorted(lowest.items())]
+        result = MagicMock()
+        result.fetchall.return_value = rows
+        return result
+
+
+class TestExistingMembershipIds:
+    """The module's only database call, and the only one patched out of every
+    plan_batch test. Untested, a transposed column in the SELECT list would
+    invert the mapping silently and produce wrong receipts."""
+
+    def test_no_pairs_issues_no_query(self):
+        conn = FakeConn([])
+        assert existing_membership_ids([], conn) == {}
+        assert conn.calls == []
+
+    def test_maps_each_pair_to_its_own_row_id(self):
+        conn = FakeConn([(1, 100, 5001), (1, 200, 5002)])
+        assert existing_membership_ids([(1, 100), (1, 200)], conn) == {
+            (1, 100): 5001, (1, 200): 5002,
+        }
+
+    def test_two_assays_sharing_an_asset_id_do_not_cross_contaminate(self):
+        """The unpack is (assay_id, asset_id, id). A transposed SELECT list
+        inverts the mapping, and only a case where the two columns differ in
+        value can catch it."""
+        conn = FakeConn([(1, 100, 5001), (2, 100, 6001)])
+        assert existing_membership_ids([(1, 100), (2, 100)], conn) == {
+            (1, 100): 5001, (2, 100): 6001,
+        }
+
+    def test_one_statement_per_assay_not_per_pair(self):
+        conn = FakeConn([(1, i, 5000 + i) for i in range(50)])
+        existing_membership_ids([(1, i) for i in range(50)], conn)
+        assert len(conn.calls) == 1, "grouped by assay_id, not one query per pair"
+
+    def test_a_pair_that_is_absent_is_simply_absent(self):
+        conn = FakeConn([(1, 100, 5001)])
+        assert existing_membership_ids([(1, 100), (1, 999)], conn) == {(1, 100): 5001}
+
+    def test_a_duplicated_membership_resolves_to_its_lowest_id(self):
+        """assay_assets has no unique constraint on (assay_id, asset_id,
+        asset_type) and production carries duplicate pairs. Rows are ordered
+        here so that last-one-wins would answer 6001; MIN(id) answers 5001 on
+        every run."""
+        conn = FakeConn([(1, 100, 5001), (1, 100, 6001)])
+        assert existing_membership_ids([(1, 100)], conn) == {(1, 100): 5001}
 
 
 def _ok(index, uid, sample_id, assay_id, project_id=3):
@@ -36,6 +115,11 @@ class TestPlanBatch:
         assert plan.already_present == {1: 219104}
         assert [r.sample_uid for r in plan.skipped] == ["C"]
         assert plan.total_rows == 3
+        # plan.resolved is what the receipt builder iterates, and it is the one
+        # field the buckets cannot reconstruct: a within-request duplicate is
+        # collapsed out of all three. Pin its order, count and identity, or
+        # Plan(resolved=[]) passes every other assertion in this file.
+        assert [r.index for r in plan.resolved] == [0, 1, 2]
 
     def test_a_bad_row_never_blocks_a_good_row(self):
         """Partial with honest receipts: a landmine does not stop the batch."""

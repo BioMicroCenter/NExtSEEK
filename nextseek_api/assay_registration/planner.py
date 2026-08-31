@@ -35,10 +35,20 @@ def existing_membership_ids(pairs: List[Tuple[int, int]], conn) -> Dict[Tuple[in
             params: Dict[str, Any] = dict(zip(names, chunk))
             params["aid"] = assay_id
             holes = ", ".join(f":{n}" for n in names)
+            # MIN(id) with a GROUP BY, not a bare SELECT of id. `assay_assets`
+            # has no unique constraint on (assay_id, asset_id, asset_type) --
+            # only two non-unique KEYs -- and production carries at least two
+            # duplicate membership pairs (max_id 136,656 and 398,139, both
+            # predating this work). Without the aggregate, a duplicated pair
+            # yields whichever row the server happened to return last, so the
+            # already_present receipt would name a different assay_assets.id on
+            # different runs over identical data. Same class of defect as the
+            # unordered title tie-break in resolver.py, and the same fix.
             sql = text(
-                f"SELECT assay_id, asset_id, id FROM {db}.assay_assets "
+                f"SELECT assay_id, asset_id, MIN(id) FROM {db}.assay_assets "
                 f"WHERE assay_id = :aid AND asset_type = 'Sample' "
-                f"AND asset_id IN ({holes})"
+                f"AND asset_id IN ({holes}) "
+                f"GROUP BY assay_id, asset_id"
             )
             for a_id, s_id, row_id in conn.execute(sql, params).fetchall():
                 out[(int(a_id), int(s_id))] = int(row_id)
