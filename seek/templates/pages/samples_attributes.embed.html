@@ -1,31 +1,59 @@
 <script type="text/javascript">
-	var type_options = {{report.type_options|safe}};
+
+	var type_options = {{report.type_options|safe}};
 
 	function getAttributes(rec) {
-		if (rec.id == 0) {
-			return;
-		} else {
-		}
-		var url = '/seek/attributes/id=' + rec.id + '/';
-		$.get(url, {
-			'valueSelected': 'yes'
-		}, function(data) {
-			var obj = jQuery.parseJSON(data);
-			var msg = obj.msg;
-			var status = obj.status;
-			if (status == 1) {
-				var attr_options = obj.attrOptions;
-				$('#sample_attribute').combobox('loadData', attr_options);
-
-				var valueSelected = obj.valueSelected;
-				if (valueSelected == 'yes') {
-					var datanow = obj.rows;
-					$('#dg_atype').datagrid('loadData', datanow);
-				}
-			} else {
-				alert(msg);
+		if (!rec || !rec.id || rec.id == 0) { return; }
+		// Reads through the nextseek_api attributes API rather than
+		// /seek/attributes/id=<id>/, so this page has one source of truth shared
+		// with its writes. The search pages keep their own copy of this function
+		// pointing at the old route, and that route is unchanged.
+		//
+		// Auth is the existing browser session: the API uses
+		// CsrfExemptSessionAuthentication, so no CSRF token is needed. Reads are
+		// open to any signed-in SEEK user; only writes require a superuser.
+		fetch('/nextseek_api/attributes/search/', {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+			body: JSON.stringify({targets: [{sample_type: parseInt(rec.id, 10)}]})
+		}).then(function (response) {
+			return response.text().then(function (text) {
+				var body;
+				try { body = JSON.parse(text); } catch (e) { body = {}; }
+				return {status: response.status, body: body};
+			});
+		}).then(function (result) {
+			if (result.status >= 400) {
+				var errs = (result.body.errors || []).map(function (e) {
+					return e.message || e.code;
+				}).join(', ');
+				$.messager.alert('Could not load attributes', errs || ('HTTP ' + result.status), 'error');
+				return;
 			}
-			return;
+			// A sample type never approaches the API's 500-row default page size,
+			// so a single page is always the whole type.
+			var rows = (result.body.attributes || []).map(function (a) {
+				return {
+					id: a.id,
+					pos: a.pos,
+					title: a.title,
+					// Display name. The combobox editor overwrites this field with the
+					// numeric type id when a row is edited (its valueField is
+					// sample_attribute_type_id); the API accepts either form.
+					sample_attribute_type_title: a.sample_attribute_type_title,
+					sample_attribute_type_id: a.sample_attribute_type_id,
+					// The grid's checkbox editors are configured on:1 / off:0, while
+					// the API returns real booleans.
+					required: a.required ? 1 : 0,
+					is_title: a.is_title ? 1 : 0,
+					sample_controlled_vocab_id: a.sample_controlled_vocab_id,
+					description: a.description
+				};
+			}).sort(function (x, y) { return (x.pos || 0) - (y.pos || 0); });
+			$('#dg_atype').datagrid('loadData', rows);
+		}).catch(function (err) {
+			$.messager.alert('Could not load attributes', String(err), 'error');
 		});
 	}
 
