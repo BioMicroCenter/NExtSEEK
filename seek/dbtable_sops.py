@@ -5,7 +5,6 @@ logger = logging.getLogger(__name__)
 
 from .models import Sops
 from .models import Projects
-from .seekdb import SeekDB
 
 from dmac.dbtable import DBtable
 
@@ -193,31 +192,9 @@ class DBtable_sops(DBtable):
             msg = SOP_ERRORCODE['303'] + uid
             return msg, status, fileInfo
         
-        user_seek = None
-        if user_seek is None:
-            fileInfo = self.__getUploadPathByUID(uid)
-        else:
-            record = diclist[0]
-            contributor_id = record['contributor_id']
-            seekdb = SeekDB(user_seek['server'], user_seek['username'], user_seek['password'])
-            creator, status, msg = seekdb.getUserInfo(contributor_id)
-            if not status:
-                logger.debug(msg)
-                return msg, status, fileInfo
-        
-            username = user_seek['username']
-            lababbv, upload_full_path = self.__getUploadPath(creator)
-
-            outfilename = self.__defineUploadFilename(username, None, uid)
-            fullfilename = os.path.join(upload_full_path, outfilename)
-            fileInfo = {
-                'uid':uid,               
-                'sampleuid':'',         
-                'originalfilename':'',  
-                'lababbv':lababbv,   
-                'upload_full_path':upload_full_path, 
-                'fullfilename':fullfilename,     
-            }
+        # Dead `else` removed -- see the twin in dbtable_data_files.py. The
+        # variable was set to None on the line above the test that guarded it.
+        fileInfo = self.__getUploadPathByUID(uid)
         fileInfo['uid'] = uid
         fullfilename = fileInfo['fullfilename']
         if fullfilename=='':
