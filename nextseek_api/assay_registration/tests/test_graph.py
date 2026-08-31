@@ -6,13 +6,59 @@ dropped exists only in seek_production.assay_assets." A membership write
 therefore invalidates the labels on every edge incident to a written sample.
 """
 
+import logging
 import re
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.conf import settings
 
 from nextseek_api.assay_registration import graph
+
+
+def _norm(text: str) -> str:
+    """Collapse all whitespace, so a reformatting cannot change the comparison."""
+    return " ".join(text.split())
+
+
+#: The recompute query, pinned exactly.
+EXPECTED_RECOMPUTE = _norm("""
+MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
+WHERE r.internal_assay_title IS NOT NULL
+  AND r.child_id IS NOT NULL AND r.parent_id IS NOT NULL
+WITH r, $edges[toString(r.child_id) + "_" + toString(r.parent_id)] AS entry
+WHERE entry IS NOT NULL
+SET r.internal_assay_ids = entry.ids, r.internal_assay_titles = entry.titles
+RETURN count(r) AS written
+""")
+
+
+class TestCypherIsPinned:
+    def test_the_recompute_query_is_exactly_this(self):
+        """A golden-text pin, because phrase guards on this branch have now been
+        walked past twice: a multi-line DELETE in the executor, and a singular
+        assignment written as a comma-continued clause here. A phrase guard
+        catches the spelling you thought of; pinning the text catches every
+        spelling, including the ones nobody has invented yet.
+
+        Three properties this query must keep, each of which cost something to
+        learn, and none of which a reader would guess from the query alone:
+
+        * ONE pass with a server-side map lookup. The obvious UNWIND-then-MATCH
+          form is a full DERIVED_FROM scan PER ROW on a database with no
+          property indexes; it died on TransactionTimedOutClientConfiguration
+          at 5,000 rows.
+        * `WHERE entry IS NOT NULL`. Without it the SET applies to every
+          labelled edge in the graph -- 514,067 of them on the reference data --
+          blanking the plural fields wholesale.
+        * The SET targets ONLY the plural fields. internal_assay_id and
+          internal_assay_title have four independent consumers.
+
+        If you are changing the query deliberately, update this constant in the
+        same commit and say in the message which of the three you rechecked.
+        """
+        assert _norm(graph.RECOMPUTE_CYPHER) == EXPECTED_RECOMPUTE
 
 
 class TestCypherShape:
@@ -116,11 +162,6 @@ class TestBackfillScriptStillWorks:
 #: `r.<prop>` on the left of an `=`, in any spelling: spaced, unspaced, or on a
 #: continuation line. Nothing in this query family uses `=` outside a SET.
 _ASSIGNED = re.compile(r"\br\.(\w+)\s*=(?!=)")
-
-
-def _norm(cypher: str) -> str:
-    """Whitespace-normalised, so a guard cannot be evaded by a line break."""
-    return " ".join(cypher.split())
 
 
 class TestCypherShapeUnderMutation:
@@ -230,18 +271,48 @@ class TestNothingIsWrittenWithoutASharedAssay:
 
 
 class TestTheSeekAlias:
+    #: The two aliases resolve to the SAME name (":memory:") under test settings,
+    #: so asserting the resolved name against the real settings proves nothing:
+    #: it holds for either alias. Substitute a settings object whose two aliases
+    #: resolve differently, and the resolved name becomes discriminating.
+    _SETTINGS = SimpleNamespace(
+        SEEK_DATABASE="seek",
+        NEXTSEEK_DATABASE="default",
+        DATABASES={"seek": {"NAME": "seek_production"}, "default": {"NAME": "dmac"}},
+    )
+
+    def test_the_real_settings_have_the_shape_the_stub_models(self):
+        """The stub below hardcodes the alias names, so pin them here rather
+        than let the stub quietly stop describing the real config."""
+        assert settings.SEEK_DATABASE == "seek"
+        assert settings.NEXTSEEK_DATABASE == "default"
+
     def test_the_cursor_is_opened_on_seek_not_on_the_empty_dmac_copy(self):
         """TRAP 1, the module docstring's headline warning, previously with no
         test at all. `dmac.assay_assets` EXISTS but is EMPTY, so the wrong alias
         returns a confident and entirely wrong answer instead of an error --
         once "0% of edges share an assay" for a test set AND its control."""
         conns = MagicMock()
-        with patch.object(graph, "connections", conns):
+        with patch.object(graph, "settings", self._SETTINGS), \
+             patch.object(graph, "connections", conns):
             _cursor, name = graph._seek_cursor()
 
-        assert settings.SEEK_DATABASE != settings.NEXTSEEK_DATABASE
-        conns.__getitem__.assert_called_once_with(settings.SEEK_DATABASE)
-        assert name == settings.DATABASES[settings.SEEK_DATABASE]["NAME"]
+        conns.__getitem__.assert_called_once_with("seek")
+        assert name == "seek_production"
+
+    def test_it_logs_the_resolved_database_for_the_operator(self, caplog):
+        """The operator's LIVE confirmation of trap 1 during a backfill dry run.
+        Reading the resolved database name off the log is what catches a run
+        that silently went to the empty dmac copy; without it the dry run looks
+        identical either way. The lift dropped this line once already."""
+        conns = MagicMock()
+        with caplog.at_level(logging.INFO, logger=graph.log.name):
+            with patch.object(graph, "settings", self._SETTINGS), \
+                 patch.object(graph, "connections", conns):
+                graph._seek_cursor()
+
+        assert "seek_production" in caplog.text
+        assert "seek" in caplog.text
 
 
 class TestAssaysBySample:
@@ -307,3 +378,72 @@ class TestTheScriptKeepsItsOwnGuard:
         with patch.object(script, "assays_by_sample", return_value={}):
             with pytest.raises(SystemExit, match="empty dmac copy"):
                 script.plan(driver, "neo4j")
+
+
+class TestTheShortfallIsNeverSilent:
+    """`written` can come back smaller than the number of edges planned, because
+    RECOMPUTE_CYPHER writes only where the singular internal_assay_title is not
+    NULL while _EDGES_FOR_SAMPLES selects every incident edge. Reporting that
+    shortfall as an unqualified success is the exact defect class this branch
+    exists to eliminate. The sibling backfill script warns on the same
+    comparison (`written != len(rows)` in its main()).
+    """
+
+    @staticmethod
+    def _run(planned_edges, written, caplog):
+        edges_result = MagicMock()
+        edges_result.data.return_value = [
+            {"child_id": c, "parent_id": p} for c, p in planned_edges
+        ]
+        write_result = MagicMock()
+        write_result.single.return_value = {"written": written}
+        driver = MagicMock()
+        session = driver.session.return_value.__enter__.return_value
+        session.run.side_effect = [edges_result, write_result]
+
+        shared = {c: {351} for c, _ in planned_edges}
+        shared.update({p: {351} for _, p in planned_edges})
+        with caplog.at_level(logging.INFO, logger=graph.log.name), \
+             patch.object(graph, "assays_by_sample", return_value=shared), \
+             patch.object(graph, "resolve_internal", return_value={351: (9, "A")}):
+            return graph.recompute_for_samples({100}, driver, "neo4j")
+
+    def test_a_partial_write_is_reported_as_a_warning_with_both_numbers(self, caplog):
+        got = self._run([(100, 200), (300, 400), (500, 600)], written=2,
+                        caplog=caplog)
+        assert got == 2
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+        message = warnings[0].getMessage()
+        assert "2" in message and "3" in message
+        assert "internal_assay_title" in message
+
+    def test_a_clean_write_warns_about_nothing(self, caplog):
+        got = self._run([(100, 200), (300, 400)], written=2, caplog=caplog)
+        assert got == 2
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+        assert any(r.levelno == logging.INFO for r in caplog.records)
+
+
+class TestTheChunkConstant:
+    def test_the_chunk_size_is_named_and_is_the_size_actually_used(self):
+        """`BATCH_SIZE = 1000` was dead while the real chunk was a repeated 5000
+        literal, so tuning the named constant changed nothing. SQL_CHUNK, not
+        CHUNK: resolver.py defines its own CHUNK = 1000 in this same package."""
+        assert graph.SQL_CHUNK == 5000
+        assert not hasattr(graph, "BATCH_SIZE")
+
+    def test_the_helpers_chunk_at_that_size(self):
+        """Proves the constant is wired to the loops rather than shadowed by a
+        literal: shrink it and the number of round trips must change."""
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        with patch.object(graph, "SQL_CHUNK", 2), \
+             patch.object(graph, "_seek_cursor",
+                          return_value=(cursor, "seek_production")):
+            graph.assays_by_sample({1, 2, 3, 4, 5})
+
+        assert cursor.execute.call_count == 3
+        assert [c.args[1] for c in cursor.execute.call_args_list] == [
+            [1, 2], [3, 4], [5],
+        ]

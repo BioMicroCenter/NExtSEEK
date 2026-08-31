@@ -31,7 +31,10 @@ from django.db import connections
 
 log = logging.getLogger(__name__)
 
-BATCH_SIZE = 1000
+#: SQL chunk size for the two helpers below. Named SQL_CHUNK, not CHUNK: resolver.py
+#: defines its own CHUNK = 1000 in this same package, and two module constants sharing
+#: a name with different values reads like a bug even when it is not.
+SQL_CHUNK = 5000
 
 #: ONE pass over the edges, with a server-side map lookup per edge.
 #:
@@ -68,6 +71,11 @@ def _seek_cursor():
     """Cursor on seek_production. See trap 1 in the module docstring."""
     alias = settings.SEEK_DATABASE
     name = settings.DATABASES[alias]["NAME"]
+    # Keep this line. It is the operator's live confirmation of trap 1 during a
+    # backfill dry run: the `default` alias is dmac, whose assay_assets table
+    # exists and is EMPTY, so querying it returns a confident and entirely wrong
+    # answer. Seeing the resolved database name is what catches that.
+    log.info("SQL alias %r -> database %r", alias, name)
     return connections[alias].cursor(), name
 
 
@@ -77,8 +85,8 @@ def assays_by_sample(sample_ids: Set[int]) -> Dict[int, Set[int]]:
     out: Dict[int, Set[int]] = defaultdict(set)
     ids = sorted(sample_ids)
     with cursor:
-        for start in range(0, len(ids), 5000):
-            chunk = ids[start : start + 5000]
+        for start in range(0, len(ids), SQL_CHUNK):
+            chunk = ids[start : start + SQL_CHUNK]
             ph = ", ".join(["%s"] * len(chunk))
             cursor.execute(
                 f"SELECT asset_id, assay_id FROM {dbname}.assay_assets "
@@ -97,8 +105,8 @@ def resolve_internal(assay_ids: Set[int]) -> Dict[int, Tuple[int, str]]:
     mapping: Dict[int, Tuple[int, str]] = {}
     ids = sorted(assay_ids)
     with cursor:
-        for start in range(0, len(ids), 5000):
-            chunk = ids[start : start + 5000]
+        for start in range(0, len(ids), SQL_CHUNK):
+            chunk = ids[start : start + SQL_CHUNK]
             ph = ", ".join(["%s"] * len(chunk))
             cursor.execute(
                 f"SELECT aia.assay_id, ia.id, ia.internal_assay_title "
@@ -110,8 +118,8 @@ def resolve_internal(assay_ids: Set[int]) -> Dict[int, Tuple[int, str]]:
             for assay_id, ia_id, ia_title in cursor.fetchall():
                 mapping[int(assay_id)] = (int(ia_id), ia_title or "")
         unresolved = [a for a in ids if a not in mapping]
-        for start in range(0, len(unresolved), 5000):
-            chunk = unresolved[start : start + 5000]
+        for start in range(0, len(unresolved), SQL_CHUNK):
+            chunk = unresolved[start : start + SQL_CHUNK]
             ph = ", ".join(["%s"] * len(chunk))
             cursor.execute(
                 f"SELECT id, title FROM {dbname}.assays WHERE id IN ({ph})", chunk
@@ -122,9 +130,24 @@ def resolve_internal(assay_ids: Set[int]) -> Dict[int, Tuple[int, str]]:
 
 
 def recompute_for_samples(sample_ids: Set[int], driver, db_name: str) -> int:
-    """Rewrite the plural assay fields on every edge incident to these samples.
+    """Repair the plural assay lists on ALREADY-LABELLED edges incident to these samples.
 
-    Returns the number of edges the database reported writing.
+    It does not label previously-unlabelled edges. `_EDGES_FOR_SAMPLES` selects
+    every incident edge, but RECOMPUTE_CYPHER writes only where
+    `r.internal_assay_title IS NOT NULL`, so an edge whose singular label is
+    NULL is planned and then skipped. That is inherited from the backfill this
+    was lifted from, and it is deliberate: writing the plural fields alone on a
+    null-singular edge would be invisible anyway, because every plural consumer
+    gates on the singular being present (see the outer MATCH in
+    services/sampletype_connections.py), so it would create dead data rather
+    than a repaired edge. Writing the singular fields instead is a different
+    change with four independent consumers.
+
+    Measured on the reference graph: 7,972 of 522,039 DERIVED_FROM edges are in
+    that state, 1.53%.
+
+    Returns the number of edges the database reported writing, which may be
+    fewer than were planned; the shortfall is logged.
     """
     if not sample_ids:
         return 0
@@ -161,6 +184,17 @@ def recompute_for_samples(sample_ids: Set[int], driver, db_name: str) -> int:
 
         if not payload:
             return 0
-        written = session.run(RECOMPUTE_CYPHER, edges=payload).single()["written"]
-        log.info("recomputed assay labels on %d DERIVED_FROM edges", written)
-        return int(written)
+        written = int(session.run(RECOMPUTE_CYPHER, edges=payload).single()["written"])
+        # Never return a shortfall silently. Planned-but-unwritten edges are the
+        # null-singular ones the docstring describes, and a caller that sees only
+        # `written` cannot tell a clean run from a partial one. The sibling
+        # backfill script warns on exactly this comparison; so does this.
+        if written != len(payload):
+            log.warning(
+                "recompute wrote %d of %d planned edges; %d were planned but not "
+                "written, which means their singular internal_assay_title is NULL",
+                written, len(payload), len(payload) - written,
+            )
+        else:
+            log.info("recomputed assay labels on %d DERIVED_FROM edges", written)
+        return written
