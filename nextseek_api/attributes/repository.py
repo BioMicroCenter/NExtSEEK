@@ -811,20 +811,39 @@ class SeekAttributeGateway:
 
     # -- create/patch title collation oracle ---------------------------------
 
-    def _title_collation(self) -> str:
+    def _title_collation(self) -> tuple[str, str]:
+        """Observe both halves of the column's text identity: (collation, character set).
+
+        The CHARACTER SET matters as much as the collation. A collation is only valid for
+        its own charset, so applying the column's collation to a literal bound in the
+        CONNECTION charset is rejected by MySQL with 1253. Production's seek_production is
+        an aged database whose columns are utf8mb3 (and 13 latin1) under a utf8mb4
+        connection -- a schema default governs only newly created columns, and MySQL never
+        converts existing ones -- so the two differ there and agree on a freshly built dev
+        stack. See _apply_title_charset for how both are used.
+        """
         rows = self._execute(
-            "SELECT COLLATION_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "SELECT COLLATION_NAME, CHARACTER_SET_NAME FROM INFORMATION_SCHEMA.COLUMNS "
             "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sample_attributes' AND COLUMN_NAME = 'title'"
         )
         if not rows or not rows[0][0]:
             raise ResolutionError("missing_title_collation_oracle", "sample_attributes.title has no observable collation")
-        return str(rows[0][0])
+        if len(rows[0]) < 2 or not rows[0][1]:
+            raise ResolutionError("missing_title_collation_oracle", "sample_attributes.title has no observable character set")
+        return str(rows[0][0]), str(rows[0][1])
 
     @staticmethod
     def _safe_collation(collation: str) -> str:
         if not collation.replace("_", "").isalnum():
             raise ResolutionError("stale_title_collation_oracle", "observed collation name is unsafe")
         return collation
+
+    @staticmethod
+    def _safe_charset(charset: str) -> str:
+        # Same guard as _safe_collation: this value is interpolated into SQL, never bound.
+        if not charset.replace("_", "").isalnum():
+            raise ResolutionError("stale_title_collation_oracle", "observed character set name is unsafe")
+        return charset
 
     def resolve_title_collation_classes(
         self, requests: Sequence[TitleCollationRequest]
@@ -838,7 +857,9 @@ class SeekAttributeGateway:
         result: dict[tuple[int, int, str], TitleCollationClass] = {}
         if not requests:
             return result
-        collation = self._safe_collation(self._title_collation())
+        observed_collation, observed_charset = self._title_collation()
+        collation = self._safe_collation(observed_collation)
+        charset = self._safe_charset(observed_charset)
         by_type: dict[int, list[TitleCollationRequest]] = {}
         for request in requests:
             by_type.setdefault(request.sample_type_id, []).append(request)
@@ -846,7 +867,18 @@ class SeekAttributeGateway:
             for chunk in bounded_identifier_chunks(type_requests):
                 self.chunk_sizes.append(len(chunk))
                 candidate_select = " UNION ALL ".join(
-                    f"SELECT CONCAT('c:', %s) AS source, %s COLLATE {collation} AS canon_title" for _ in chunk
+                    # CONVERT the candidate into the COLUMN's charset before collating.
+                    # The literal arrives in the connection charset, and a collation is only
+                    # valid for its own charset (MySQL 1253). The stored-title side below
+                    # needs no conversion -- it is already in that charset.
+                    #
+                    # A title carrying characters the column cannot represent (4-byte
+                    # characters against utf8mb3) converts lossily and may group with
+                    # another such title. That direction is safe: grouping produces a
+                    # reported collision, i.e. a refusal, and the title could not have been
+                    # stored in this column anyway.
+                    f"SELECT CONCAT('c:', %s) AS source, "
+                    f"CONVERT(%s USING {charset}) COLLATE {collation} AS canon_title" for _ in chunk
                 )
                 candidate_params: list[Any] = []
                 for index, request in enumerate(chunk):
