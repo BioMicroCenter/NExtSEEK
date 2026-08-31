@@ -2627,11 +2627,26 @@ class SampleTypeConnectionsRequest(BaseModel):
             "EITHER endpoint. Alone, it spans every project."
         ),
     )
+    direct_connections: bool = Field(
+        True,
+        description=(
+            "True (default): only edges where sample_type is one endpoint. "
+            "False: every edge in the tree rooted at sample_type, walked all the way down "
+            "(NHP -> PAV -> TIS -> DNA ...). Requires sample_type."
+        ),
+    )
     all_conns: bool = Field(
         False,
         description=(
             "Explicitly request every connection in the graph, unfiltered. Exists so that "
             "a whole-graph dump is always deliberate and never the result of an empty querystring."
+        ),
+    )
+    layout: Optional[Literal["radial", "layered"]] = Field(
+        None,
+        description=(
+            "SVG layout. None (default) picks radial for an investigation or project and "
+            "layered for a sample_type; set it to override that choice."
         ),
     )
     output_format: Literal["json", "csv", "svg"] = Field(
@@ -2654,6 +2669,13 @@ class SampleTypeConnectionsRequest(BaseModel):
             raise ValueError(
                 "Supply at least one of: graph_inv_id, seek_inv_id, name, sample_type, "
                 "or all_conns=yes."
+            )
+        if not self.direct_connections and not self.sample_type:
+            # Rejected rather than ignored: the flag names a root to walk down from,
+            # and without one it would silently have no effect on the result.
+            raise ValueError(
+                "direct_connections=no walks the tree below a sample_type, so sample_type "
+                "is required with it."
             )
         return self
 

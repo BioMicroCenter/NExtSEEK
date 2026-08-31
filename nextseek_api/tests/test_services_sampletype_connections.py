@@ -16,8 +16,13 @@ from nextseek_api.models import SampleTypeConnectionsRequest
 from nextseek_api.permissions import IsSuperUser
 from nextseek_api.services.sampletype_connections import (
     CONNECTIONS_CYPHER,
-    _bezier_at,
-    _inside_any_node,
+    choose_layout,
+    hop_depths,
+    rows_to_svg_layered,
+    rows_to_svg_radial,
+    CONNECTIONS_SUBTREE_CYPHER,
+    download_name,
+    download_name,
     SampleTypeConnectionsViewSet,
     _text_on,
     _truthy,
@@ -168,16 +173,12 @@ def test_svg_response_headers():
     resp = _call({"sample_type": "CEL", "output_format": "svg"})
     assert resp.status_code == 200
     assert resp["Content-Type"] == "image/svg+xml"
-    assert resp.content.decode().startswith("<svg")
+    assert "<svg" in resp.content.decode()[:120]
 
 
 # ---------------------------------------------------------------------------
 # SVG layout
 # ---------------------------------------------------------------------------
-
-def test_svg_places_clades_in_pipeline_order():
-    svg = rows_to_svg(ROWS, CLADES)
-    assert svg.index(">Source<") < svg.index(">Raw<") < svg.index(">Analyzed<")
 
 
 def test_svg_colours_each_node_by_its_clade():
@@ -186,12 +187,14 @@ def test_svg_colours_each_node_by_its_clade():
         assert f'fill="{color}"' in svg
 
 
-def test_svg_renders_a_self_loop_without_crashing():
-    """CEL -> CEL 'Cell Culture' is real data, not a malformed row."""
-    svg = rows_to_svg([ROWS[1]], CLADES)
-    assert svg.count("<path") >= 1
-    assert "CEL" in svg
-
+def test_self_loop_is_drawn_by_layered_and_skipped_by_radial():
+    """CEL -> CEL 'Cell Culture' is real data. It carries no hop depth, so the
+    radial layout omits the edge but must still place the node and not crash."""
+    loop = [ROWS[1]]
+    layered = rows_to_svg_layered(loop, CLADES)
+    assert layered.count("<path") >= 1 and ">CEL<" in layered
+    radial = rows_to_svg_radial(loop, CLADES)
+    assert ">CEL<" in radial
 
 def test_svg_handles_a_sample_type_with_no_clade():
     svg = rows_to_svg(ROWS, {"CEL": ("Raw", "#A2C8F0")})
@@ -209,7 +212,7 @@ def test_svg_escapes_markup_in_an_assay_title():
 
 def test_svg_on_empty_rows_is_still_valid_svg():
     svg = rows_to_svg([], CLADES)
-    assert svg.startswith("<svg") and svg.endswith("</svg>")
+    assert "<svg" in svg[:120] and svg.endswith("</svg>")
     assert "No connections matched" in svg
 
 
@@ -252,47 +255,9 @@ def test_clade_lookup_failure_still_returns_connections():
 # Edge-label placement
 # ---------------------------------------------------------------------------
 
-def test_bezier_endpoints_are_exact():
-    assert _bezier_at(0.0, 0, 0, 1, 1, 2, 2, 3, 3) == (0.0, 0.0)
-    assert _bezier_at(1.0, 0, 0, 1, 1, 2, 2, 3, 3) == (3.0, 3.0)
 
 
-def test_inside_any_node_detects_containment():
-    pos = {"CEL": (100.0, 200.0)}
-    assert _inside_any_node((110.0, 210.0), pos) is True
-    assert _inside_any_node((10.0, 10.0), pos) is False
 
-
-def test_edge_labels_are_emitted_after_nodes():
-    """Nodes paint opaque boxes; a label emitted first would be clipped by them."""
-    svg = rows_to_svg(ROWS, CLADES)
-    last_node = svg.rindex("<g><title>")
-    first_label = svg.index('paint-order="stroke"')
-    assert first_label > last_node
-
-
-def test_edge_labels_avoid_landing_inside_a_node():
-    import re
-    svg = rows_to_svg(ROWS, CLADES)
-    # Reconstruct node boxes from the rendered rects, then assert no label sits in one.
-    boxes = [(float(x), float(y)) for x, y in
-             re.findall(r'<rect x="([\d.]+)" y="([\d.]+)" width="170"', svg)]
-    labels = [(float(x), float(y)) for x, y in
-              re.findall(r'<text x="([\d.]+)" y="([\d.]+)"[^>]*paint-order="stroke"', svg)]
-    assert labels, "expected at least one edge label"
-    assert not _inside_any_node(labels[0], {i: b for i, b in enumerate(boxes)})
-
-
-def test_labels_are_suppressed_on_a_dense_graph():
-    """Above the limit, assay names live in tooltips only, or the diagram is a smear."""
-    dense = [
-        {"parent_sample_type": f"P{i}", "child_sample_type": f"C{i}",
-         "internal_assay": f"Assay {i}", "n_edges": 1}
-        for i in range(60)
-    ]
-    svg = rows_to_svg(dense, {})
-    assert 'paint-order="stroke"' not in svg
-    assert svg.count("<title>") >= 60  # every edge still carries its tooltip
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +292,8 @@ class TestConnectionsSchema:
         op = self._schema()["paths"]["/nextseek_api/sample_types/connections/"]["get"]
         names = {p["name"] for p in op.get("parameters", [])}
         assert names == {
-            "graph_inv_id", "seek_inv_id", "name", "sample_type", "all_conns", "output_format",
+            "graph_inv_id", "seek_inv_id", "name", "sample_type", "all_conns",
+            "direct_connections", "layout", "output_format",
         }
 
     def test_response_model_lands_in_components(self):
@@ -357,3 +323,244 @@ def test_endpoint_is_tagged_admin_because_it_is_superuser_only():
     schema = SchemaGenerator().get_schema(request=None, public=True)
     op = schema["paths"]["/nextseek_api/sample_types/connections/"]["get"]
     assert op["tags"] == ["admin"]
+
+
+# ---------------------------------------------------------------------------
+# Download filenames
+#
+# Without an explicit Content-Disposition the client guesses from the content
+# type, and the "+xml" in image/svg+xml makes Swagger and browsers save the
+# diagram as a .xml file.
+# ---------------------------------------------------------------------------
+
+def test_svg_download_is_named_svg_not_xml():
+    resp = _call({"graph_inv_id": "2", "output_format": "svg"})
+    assert resp["Content-Type"] == "image/svg+xml"
+    assert resp["Content-Disposition"].endswith('.svg"')
+    assert ".xml" not in resp["Content-Disposition"]
+
+
+def test_svg_is_inline_so_a_browser_renders_it():
+    resp = _call({"graph_inv_id": "2", "output_format": "svg"})
+    assert resp["Content-Disposition"].startswith("inline;")
+
+
+def test_csv_is_an_attachment():
+    resp = _call({"graph_inv_id": "2", "output_format": "csv"})
+    assert resp["Content-Disposition"].startswith("attachment;")
+    assert resp["Content-Disposition"].endswith('.csv"')
+
+
+def test_svg_document_declares_itself_as_xml():
+    svg = rows_to_svg(ROWS, CLADES)
+    assert svg.startswith('<?xml version="1.0" encoding="UTF-8"?>')
+    assert rows_to_svg([], CLADES).startswith('<?xml version="1.0" encoding="UTF-8"?>')
+
+
+@pytest.mark.parametrize("selector,expected", [
+    ({"graph_inv_id": 2}, "sampletype_connections_inv2.svg"),
+    ({"seek_inv_id": 11}, "sampletype_connections_proj11.svg"),
+    ({"name": "Impactb Investigation"}, "sampletype_connections_impactb-investigation.svg"),
+    ({"sample_type": "D.IMG"}, "sampletype_connections_d-img.svg"),
+    ({"graph_inv_id": 2, "sample_type": "CEL"}, "sampletype_connections_inv2_cel.svg"),
+    ({"all_conns": True}, "sampletype_connections_all.svg"),
+])
+def test_download_name_reflects_the_selector(selector, expected):
+    assert download_name(SampleTypeConnectionsRequest.model_validate(selector), "svg") == expected
+
+
+# ---------------------------------------------------------------------------
+# Download filenames
+# ---------------------------------------------------------------------------
+
+def test_svg_download_is_named_svg_not_xml():
+    """image/svg+xml makes clients guess .xml unless the filename is explicit."""
+    resp = _call({"graph_inv_id": "2", "output_format": "svg"})
+    assert resp["Content-Disposition"].endswith('.svg"')
+    assert ".xml" not in resp["Content-Disposition"]
+
+
+def test_svg_is_inline_and_csv_is_attachment():
+    assert _call({"graph_inv_id": "2", "output_format": "svg"})["Content-Disposition"].startswith("inline;")
+    assert _call({"graph_inv_id": "2", "output_format": "csv"})["Content-Disposition"].startswith("attachment;")
+
+
+def test_svg_document_declares_itself_as_xml():
+    assert rows_to_svg(ROWS, CLADES).startswith('<?xml version="1.0" encoding="UTF-8"?>')
+    assert rows_to_svg([], CLADES).startswith('<?xml version="1.0" encoding="UTF-8"?>')
+
+
+@pytest.mark.parametrize("selector,expected", [
+    ({"graph_inv_id": 2}, "sampletype_connections_inv2.svg"),
+    ({"seek_inv_id": 11}, "sampletype_connections_proj11.svg"),
+    ({"name": "Impactb Investigation"}, "sampletype_connections_impactb-investigation.svg"),
+    ({"sample_type": "D.IMG"}, "sampletype_connections_d-img.svg"),
+    ({"graph_inv_id": 2, "sample_type": "CEL"}, "sampletype_connections_inv2_cel.svg"),
+    ({"all_conns": True}, "sampletype_connections_all.svg"),
+])
+def test_download_name_reflects_the_selector(selector, expected):
+    assert download_name(SampleTypeConnectionsRequest.model_validate(selector), "svg") == expected
+
+
+# ---------------------------------------------------------------------------
+# direct_connections: the subtree walk
+# ---------------------------------------------------------------------------
+
+def test_subtree_cypher_collects_the_tree_once_then_filters_edges():
+    """The per-edge EXISTS form is a performance trap under a parameter: measured
+    >100s unbounded, versus 0.3s for this inverted form on identical data."""
+    assert "collect(DISTINCT elementId(descendant))" in CONNECTIONS_SUBTREE_CYPHER
+    assert "elementId(parent) IN subtree" in CONNECTIONS_SUBTREE_CYPHER
+    assert "root.type = $sample_type" in CONNECTIONS_SUBTREE_CYPHER
+
+
+def test_subtree_does_not_use_the_per_edge_exists_form():
+    """Guards the regression: this shape times out when $sample_type is a parameter."""
+    assert "MATCH (parent)-[:DERIVED_FROM*0..]->(root" not in CONNECTIONS_SUBTREE_CYPHER
+
+
+def test_subtree_traversal_is_not_depth_bounded():
+    """*0..4 answered fast but silently dropped 3 of 39 triples. Completeness wins."""
+    import re as _re
+    assert not _re.search(r"DERIVED_FROM\*0\.\.\d", CONNECTIONS_SUBTREE_CYPHER)
+
+
+def test_subtree_includes_the_root_itself():
+    """*0.. not *1..: NHP's own direct edges must stay inside NHP's tree."""
+    assert "*0.." in CONNECTIONS_SUBTREE_CYPHER and "*1.." not in CONNECTIONS_SUBTREE_CYPHER
+
+
+def test_direct_cypher_does_not_traverse():
+    assert "DERIVED_FROM*" not in CONNECTIONS_CYPHER
+
+
+def test_both_variants_scope_to_an_investigation_identically():
+    for cy in (CONNECTIONS_CYPHER, CONNECTIONS_SUBTREE_CYPHER):
+        assert "IN_INVESTIGATION" in cy
+        assert "$graph_inv_id IS NULL AND $seek_inv_id IS NULL AND $name IS NULL" in cy
+
+
+def test_subtree_variant_is_read_only():
+    lowered = CONNECTIONS_SUBTREE_CYPHER.lower()
+    for verb in ("create", "delete", "merge", "set ", "remove", "detach"):
+        assert verb not in lowered
+
+
+def test_direct_connections_defaults_to_yes():
+    assert SampleTypeConnectionsRequest.model_validate({"sample_type": "NHP"}).direct_connections is True
+
+
+def test_direct_connections_no_requires_a_sample_type():
+    """The flag names a root to walk from; without one it would silently do nothing."""
+    with pytest.raises(ValidationError):
+        SampleTypeConnectionsRequest.model_validate({"graph_inv_id": 2, "direct_connections": False})
+
+
+def test_endpoint_selects_the_subtree_query_when_asked():
+    captured = {}
+
+    def _fake(selector):
+        captured["direct"] = selector.direct_connections
+        return ROWS
+
+    with patch(f"{MODULE}.run_connections_query", side_effect=_fake), \
+         patch(f"{MODULE}.fetch_clade_map", return_value=CLADES):
+        resp = SampleTypeConnectionsViewSet().list(
+            _request({"sample_type": "NHP", "direct_connections": "no"}))
+    assert resp.status_code == 200 and captured["direct"] is False
+
+
+def test_default_flag_is_not_echoed_but_a_set_one_is():
+    assert "direct_connections" not in _call({"sample_type": "CEL"}).data["filters"]
+    with patch(f"{MODULE}.run_connections_query", return_value=ROWS), \
+         patch(f"{MODULE}.fetch_clade_map", return_value=CLADES):
+        resp = SampleTypeConnectionsViewSet().list(
+            _request({"sample_type": "NHP", "direct_connections": "no"}))
+    assert resp.data["filters"]["direct_connections"] is False
+
+
+# ---------------------------------------------------------------------------
+# Layout selection and the radial renderer
+# ---------------------------------------------------------------------------
+
+def test_layout_is_layered_for_a_bare_sample_type():
+    """A sample-type query is a pipeline question, so it reads left to right."""
+    sel = SampleTypeConnectionsRequest.model_validate({"sample_type": "CEL"})
+    assert choose_layout(sel) == "layered"
+
+
+@pytest.mark.parametrize("selector", [
+    {"graph_inv_id": 2}, {"seek_inv_id": 11}, {"name": "Impactb Investigation"},
+    {"all_conns": True}, {"graph_inv_id": 2, "sample_type": "CEL"},
+])
+def test_layout_is_radial_for_everything_else(selector):
+    assert choose_layout(SampleTypeConnectionsRequest.model_validate(selector)) == "radial"
+
+
+@pytest.mark.parametrize("want", ["radial", "layered"])
+def test_explicit_layout_overrides_the_auto_choice(want):
+    sel = SampleTypeConnectionsRequest.model_validate({"sample_type": "CEL", "layout": want})
+    assert choose_layout(sel) == want
+
+
+def test_hop_depth_puts_source_clade_at_ring_zero():
+    _types, _ch, _pa, depth = hop_depths(ROWS, CLADES)
+    assert depth["TIS"] == 0          # Source clade
+    assert depth["CEL"] == 1          # TIS -> CEL
+    assert depth["D.IMG"] == 2        # TIS -> CEL -> D.IMG
+
+
+def test_hop_depth_keeps_unreachable_types_visible():
+    """An orphan pair must land on an outer ring, never vanish from the diagram."""
+    rows = ROWS + [{"parent_sample_type": "ORPH", "child_sample_type": "ORPHB",
+                    "internal_assay": "Detached", "n_edges": 1}]
+    types, _ch, _pa, depth = hop_depths(rows, CLADES)
+    assert "ORPH" in types and "ORPHB" in types
+    assert depth["ORPH"] > max(depth[t] for t in ("TIS", "CEL", "D.IMG"))
+
+
+def test_radial_svg_draws_every_node_and_its_rings():
+    svg = rows_to_svg_radial(ROWS, CLADES)
+    assert svg.startswith('<?xml version="1.0" encoding="UTF-8"?>')
+    for t in ("TIS", "CEL", "D.IMG"):
+        assert f">{t}<" in svg
+    assert "hop 1" in svg and "hop 2" in svg
+
+
+def test_node_is_wide_enough_for_its_label():
+    """D.ADDCP is 7 characters; a fixed radius clipped it."""
+    from nextseek_api.services.sampletype_connections import _node_radius
+    assert _node_radius("D.ADDCP") > _node_radius("CEL")
+    assert _node_radius("D.ADDCP") >= (7 * 6.6 + 11.0) / 2
+
+
+def test_both_layouts_are_deterministic():
+    """Output is a pure function of the rows, so it is safe to assert on as a string."""
+    assert rows_to_svg_radial(ROWS, CLADES) == rows_to_svg_radial(ROWS, CLADES)
+    assert rows_to_svg_layered(ROWS, CLADES) == rows_to_svg_layered(ROWS, CLADES)
+
+
+def test_layered_orders_columns_along_the_clade_pipeline():
+    svg = rows_to_svg_layered(ROWS, CLADES)
+    assert svg.index(">SOURCE<") < svg.index(">RAW<") < svg.index(">ANALYZED<")
+
+
+def test_both_layouts_survive_a_sample_type_with_no_clade():
+    for fn in (rows_to_svg_radial, rows_to_svg_layered):
+        svg = fn(ROWS, {"CEL": ("Raw", "#A2C8F0")})
+        assert "Unassigned" in svg and "#D9D9D9" in svg
+
+
+def test_both_layouts_escape_markup_in_an_assay_title():
+    rows = [{"parent_sample_type": "A", "child_sample_type": "B",
+             "internal_assay": "<script>x</script>", "n_edges": 1}]
+    for fn in (rows_to_svg_radial, rows_to_svg_layered):
+        svg = fn(rows, {})
+        assert "<script>" not in svg and "&lt;script&gt;" in svg
+
+
+def test_endpoint_uses_the_chosen_layout():
+    resp = _call({"graph_inv_id": "2", "output_format": "svg"})
+    assert "hop 1" in resp.content.decode()          # radial
+    resp2 = _call({"sample_type": "CEL", "output_format": "svg"})
+    assert ">RAW<" in resp2.content.decode()         # layered
