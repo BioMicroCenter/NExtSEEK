@@ -114,17 +114,20 @@ def _build_assistant_client() -> Any:
     """Construct AssistantClient from environment variables.
 
     Reads NEXTSEEK_URL, NEXTSEEK_ASSISTANT_PREFIX (default nextseek_api/assistant),
-    API_USER, API_PASS -- mirrors the pattern used by T8's _run_viewset in
+    and whichever NExtSEEK credential this container was given -- API_USER/API_PASS,
+    or a DRF token for a caller who signed in through SEEK (#16, sub-project 3).
+    Mirrors the pattern used by T8's _run_viewset in
     build_context/plugins/nextseek/bin/_nextseek_runner.py.
     """
     import _assistant_client as ac  # noqa: PLC0415 -- deferred for path resolution
+    import _ns_auth  # noqa: PLC0415 -- same deferred path resolution
 
     return ac.AssistantClient(
         base_url=os.environ["NEXTSEEK_URL"],
         assistant_prefix=os.environ.get(
             "NEXTSEEK_ASSISTANT_PREFIX", "nextseek_api/assistant"
         ),
-        auth=(os.environ.get("API_USER", ""), os.environ.get("API_PASS", "")),
+        auth=_ns_auth.auth_from_env(),
     )
 
 

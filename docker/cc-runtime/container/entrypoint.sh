@@ -11,10 +11,13 @@ set -eu
 # D20: chat_nextseek's ChatConfig reads API_USER / API_PASS.
 : "${API_USER:=${NEXTSEEK_USERNAME:-}}"
 : "${API_PASS:=${NEXTSEEK_PASSWORD:-}}"
+# #16 SP3: a caller who signed in through SEEK has no password and is given a
+# per-user NExtSEEK DRF token instead. Only ever one of the two is injected.
+: "${API_TOKEN:=${NEXTSEEK_TOKEN:-}}"
 : "${NEXTSEEK_BASE_URL:=${NEXTSEEK_URL:-}}"
 # D23: GCP-only profile.
 : "${NEXTSEEK_MODE:=gcp}"
-export API_USER API_PASS NEXTSEEK_BASE_URL NEXTSEEK_MODE
+export API_USER API_PASS API_TOKEN NEXTSEEK_BASE_URL NEXTSEEK_MODE
 
 # Backward compat: SEEK_USER / SEEK_PASSWORD still exported for any host-side
 # tooling that grew up reading them. Removable post-Plan-B once nothing

@@ -109,6 +109,9 @@ def test_cc_runtime_runner_helper_present():
     "_assistant_models.py",
     "_assistant_client.py",
     "_sidecar_client.py",
+    # #16 SP3: the shared NExtSEEK-credential resolver. runner_ns.py imports it
+    # for auth_from_env, so it needs the same /opt/dmac/ COPY as the others.
+    "_ns_auth.py",
 ])
 def test_cc_runtime_runner_sibling_helpers_present(helper):
     """The Dockerfile COPYs these sibling helper modules to /opt/dmac/

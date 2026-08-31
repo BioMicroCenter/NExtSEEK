@@ -29,6 +29,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+
+import _ns_auth
 import sys
 import typing
 
@@ -98,7 +100,7 @@ def _make_client():  # pragma: no cover
     return ac.AssistantClient(  # pragma: no cover
         base_url=os.environ["NEXTSEEK_URL"],  # pragma: no cover
         assistant_prefix=os.environ.get("NEXTSEEK_ASSISTANT_PREFIX", "nextseek_api/assistant"),  # pragma: no cover
-        auth=(_api_user(), _api_pass()),  # pragma: no cover
+        auth=_ns_auth.auth_from_env(),  # pragma: no cover
     )  # pragma: no cover
 
 
@@ -522,8 +524,11 @@ def main() -> None:
     # exercised, so we skip the check -- matching old runner behavior where
     # _load_config was only called outside the dry-run branch.
     if not _dry_run():
-        if not os.environ.get("API_USER") or not os.environ.get("API_PASS"):
-            _err("CONFIG_MISSING", "API_USER / API_PASS not set", 2)
+        # Either a Basic pair or a DRF token counts (#16, sub-project 3): a
+        # user who signed in through SEEK has no password to give.
+        if not _ns_auth.have_credential():
+            _err("CONFIG_MISSING",
+                 "no NExtSEEK credential: set API_USER/API_PASS or API_TOKEN", 2)
 
     try:
         result = _DISPATCH[args.agent](args)

@@ -127,7 +127,11 @@ _CONTAINER_NAME_SAFE_RE = re.compile(r"^[0-9a-f-]{1,64}$")
 # holds no AWS/backend creds; the per-request NExtSEEK password is the remaining
 # secret. DMAC_PATH_MAPPINGS encodes host layout (not a credential, still redact).
 _REDACTED_ENV_KEYS = frozenset({
-    "NEXTSEEK_PASSWORD", "API_PASS", "DMAC_PATH_MAPPINGS",
+    # NEXTSEEK_TOKEN/API_TOKEN are per-user DRF tokens (#16, sub-project 3).
+    # They replace the password for an OAuth caller and are exactly as secret:
+    # a bearer credential for NExtSEEK's API, usable non-interactively.
+    "NEXTSEEK_PASSWORD", "API_PASS", "NEXTSEEK_TOKEN", "API_TOKEN",
+    "DMAC_PATH_MAPPINGS",
     # belt-and-suspenders: these must NEVER be in the agent env, but redact if seen.
     "AWS_BEARER_TOKEN_BEDROCK", "NEO4J_PASSWORD", "MYSQL_PASSWORD",
     "MYSQL_DEV_PASSWORD", "GCP_API_KEY", "ANTHROPIC_API_KEY",
@@ -284,6 +288,7 @@ def build_agent_environment(
     source: Mapping[str, str] | None = None,
     api_user: str | None,
     api_pass: str | None,
+    api_token: str | None = None,
     path_mappings: Mapping[str, Any],
     chat_session_id: str | None = None,
 ) -> dict[str, str]:
@@ -315,6 +320,13 @@ def build_agent_environment(
     if api_pass:
         env["NEXTSEEK_PASSWORD"] = api_pass
         env["API_PASS"] = api_pass
+    # An OAuth caller has no password and carries a DRF token instead (#16,
+    # sub-project 3). Only ever one of the two: NExtSEEK refuses competing
+    # credentials, so a container holding both would have its calls rejected
+    # rather than falling back to whichever worked.
+    if api_token and not api_pass:
+        env["NEXTSEEK_TOKEN"] = api_token
+        env["API_TOKEN"] = api_token
     # Non-secret topology the agent legitimately needs.
     region = src.get("AWS_REGION") or src.get("AWS_DEFAULT_REGION")
     if region:
@@ -1018,6 +1030,7 @@ def run_cc_turn(
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
+    api_token: str | None = None,
     max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
     turn_timeout: int = _DEFAULT_TURN_TIMEOUT,
     chat_session: Any | None = None,
@@ -1122,6 +1135,7 @@ def run_cc_turn(
     # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
     environment = build_agent_environment(
         source=os.environ, api_user=api_user, api_pass=api_pass,
+        api_token=api_token,
         path_mappings=path_mappings,
         chat_session_id=chat_session_id,
     )

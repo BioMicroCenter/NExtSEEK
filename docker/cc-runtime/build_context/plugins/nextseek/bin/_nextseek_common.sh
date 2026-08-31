@@ -4,8 +4,10 @@
 # D20: re-export env names chat_nextseek's ChatConfig reads.
 : "${API_USER:=${NEXTSEEK_USERNAME:-}}"
 : "${API_PASS:=${NEXTSEEK_PASSWORD:-}}"
+# #16 SP3: the DRF-token alternative for a caller with no password.
+: "${API_TOKEN:=${NEXTSEEK_TOKEN:-}}"
 : "${NEXTSEEK_BASE_URL:=${NEXTSEEK_URL:-}}"
-export API_USER API_PASS NEXTSEEK_BASE_URL
+export API_USER API_PASS API_TOKEN NEXTSEEK_BASE_URL
 
 # D23: force GCP profile.
 : "${NEXTSEEK_MODE:=gcp}"

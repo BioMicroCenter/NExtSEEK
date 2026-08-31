@@ -1,6 +1,8 @@
 """Typed httpx client for NExtSEEK's assistant viewset (U-3, OD-6). No chat_nextseek.
 
-Auth = per-call user NS login as Basic (recon:nsApi §2 _check_auth accepts Basic).
+Auth = the per-call user NS login: a Basic tuple, or an _ns_auth.TokenAuth
+for a caller who signed in through SEEK and has no password (#16, SP3).
+httpx accepts either in the same `auth=` parameter.
 Transport = POST query/async/ -> 202 AsyncQueryResponse, then GET tasks/{task_id}/progress/
 polling until a terminal event (query_complete | query_error) appears in the progress list.
 The assistant_prefix (with/without the i18n locale segment) is resolved by T0a.
@@ -50,7 +52,7 @@ _PROGRESS_GET_RETRY_BACKOFF: float = 0.5
 
 
 class AssistantClient:
-    def __init__(self, *, base_url: str, assistant_prefix: str, auth: tuple[str, str],
+    def __init__(self, *, base_url: str, assistant_prefix: str, auth,
                  timeout: float = 300.0, request_timeout: float = 30.0,
                  transport: httpx.BaseTransport | None = None,
                  poll_interval: float = _DEFAULT_POLL_INTERVAL) -> None:

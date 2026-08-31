@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+
+import _ns_auth
 import pathlib
 import sys
 from collections.abc import Iterable
@@ -40,23 +42,29 @@ class BatchUploadClient:
         cls, *, transport: httpx.BaseTransport | None = None
     ) -> "BatchUploadClient":
         base = os.environ.get("NEXTSEEK_URL") or os.environ.get("NEXTSEEK_BASE_URL") or ""
-        ns_user = os.environ.get("NEXTSEEK_USERNAME") or ""
-        ns_password = os.environ.get("NEXTSEEK_PASSWORD") or ""
-        legacy_user = os.environ.get("API_USER") or ""
-        legacy_password = os.environ.get("API_PASS") or ""
-        if ns_user or ns_password:
-            user = ns_user
-            password = ns_password
-        else:
-            user = legacy_user
-            password = legacy_password
-        if not base or not user or not password:
+        # A DRF token is a complete credential on its own (#16, sub-project 3):
+        # a user who signed in through SEEK has no password to give. _ns_auth
+        # prefers NEXTSEEK_* over the legacy API_* names, as this did.
+        auth = _ns_auth.auth_from_env(
+            {
+                "API_USER": os.environ.get("NEXTSEEK_USERNAME")
+                or os.environ.get("API_USER")
+                or "",
+                "API_PASS": os.environ.get("NEXTSEEK_PASSWORD")
+                or os.environ.get("API_PASS")
+                or "",
+                "NEXTSEEK_TOKEN": os.environ.get("NEXTSEEK_TOKEN") or "",
+                "API_TOKEN": os.environ.get("API_TOKEN") or "",
+            }
+        )
+        if not base or auth is None:
             sys.stderr.write(
                 "nextseek-error: CONFIG_MISSING — NEXTSEEK_URL/NEXTSEEK_BASE_URL "
-                "and NEXTSEEK_USERNAME/NEXTSEEK_PASSWORD or API_USER/API_PASS not set\n"
+                "and one of NEXTSEEK_USERNAME+NEXTSEEK_PASSWORD, API_USER+API_PASS, "
+                "or NEXTSEEK_TOKEN/API_TOKEN not set\n"
             )
             raise SystemExit(2)
-        return cls(base_url=base, auth=(user, password), transport=transport)
+        return cls(base_url=base, auth=auth, transport=transport)
 
     def list_sample_types(self) -> list[dict[str, Any]]:
         response = self._client.get(f"{_API}/sample_types/")

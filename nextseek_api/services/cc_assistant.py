@@ -772,6 +772,10 @@ class CCAssistantViewSet(viewsets.ViewSet):
                         memory_claude_md=memory_claude_md,
                         transcripts_subpath=transcripts_subpath,
                         api_user=user_api_user, api_pass=user_api_pass,
+                        # #16 SP3: an OAuth caller has no password; the
+                        # container authenticates to NExtSEEK with their
+                        # DRF token instead.
+                        api_token=chat_creds.get("api_token"),
                         chat_session=chat_session,
                         user_query=req.query or "",
                         on_turn_complete=_append_cc_turn_complete,
