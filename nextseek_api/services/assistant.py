@@ -96,7 +96,7 @@ from rest_framework.authentication import (
     TokenAuthentication,
 )
 
-from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
+from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient, chat_credentials_for
 
 from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
 from chat_nextseek.config import ChatConfig
@@ -293,22 +293,24 @@ def _granular_chat_config(request, req) -> ChatConfig:
     requesting user and the shared singleton is never mutated.
     """
     chat_config = _select_chat_config(request, req)
-    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-        api_user, api_pass = basic_tuple
-    else:
-        api_user = request.session.get("username")
-        api_pass = request.session.get("password")
+    # See the note at the other entry points: one identity, resolved once.
+    _creds = chat_credentials_for(request)
+    api_user, api_pass = _creds["api_user"], _creds["api_pass"]
+    api_token = _creds["api_token"]
     prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
     if prod_config is not None and chat_config is prod_config:
         if chat_config.API_USER and chat_config.API_PASS:
             api_user = chat_config.API_USER
             api_pass = chat_config.API_PASS
+            # A DRF token identifies a user on THIS instance and means nothing
+            # on prod, so it is dropped along with the local identity it names.
+            api_token = None
     cfg = copy.copy(chat_config)
     if api_user:
         cfg.API_USER = api_user
     if api_pass:
         cfg.API_PASS = api_pass
+    cfg.API_TOKEN = api_token
     return cfg
 
 
@@ -769,12 +771,12 @@ class AssistantViewSet(viewsets.ViewSet):
         adapter = DictSessionAdapter(chat_session)
 
         # Resolve credentials: try Basic auth header first, fall back to session
-        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-            api_user, api_pass = basic_tuple
-        else:
-            api_user = request.session.get("username")
-            api_pass = request.session.get("password")
+        # One identity, resolved in one place (#16, sub-project 3). The block
+        # this replaces ended at request.session["password"], which an OAuth
+        # session does not have, so the orchestrator refused the request as a
+        # half-supplied identity.
+        _creds = chat_credentials_for(request)
+        api_user, api_pass = _creds["api_user"], _creds["api_pass"]
 
         chat_config = _select_chat_config(request, req)
 
@@ -788,14 +790,18 @@ class AssistantViewSet(viewsets.ViewSet):
             if chat_config.API_USER and chat_config.API_PASS:
                 api_user = chat_config.API_USER
                 api_pass = chat_config.API_PASS
+                # Rebuild the dict, not just the locals: _creds is what reaches
+                # the orchestrator. The DRF token goes too -- it names a user on
+                # this instance and is meaningless on prod.
+                _creds = {"api_user": api_user, "api_pass": api_pass, "api_token": None}
 
         def _run_pipeline() -> None:
             try:
                 match getattr(req, "mode", "standard"):
                     case "plan":
-                        run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query_plan(adapter, chat_config, req.query, send_event, credentials=_creds)
                     case _:
-                        run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query(adapter, chat_config, req.query, send_event, credentials=_creds)
             except Exception:
                 logger.exception("Unhandled pipeline error")
                 send_event("query_error", {
@@ -896,12 +902,12 @@ class AssistantViewSet(viewsets.ViewSet):
         adapter = DictSessionAdapter(chat_session)
 
         # Resolve credentials: try Basic auth header first, fall back to session
-        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-            api_user, api_pass = basic_tuple
-        else:
-            api_user = request.session.get("username")
-            api_pass = request.session.get("password")
+        # One identity, resolved in one place (#16, sub-project 3). The block
+        # this replaces ended at request.session["password"], which an OAuth
+        # session does not have, so the orchestrator refused the request as a
+        # half-supplied identity.
+        _creds = chat_credentials_for(request)
+        api_user, api_pass = _creds["api_user"], _creds["api_pass"]
 
         chat_config = _select_chat_config(request, req)
 
@@ -915,16 +921,20 @@ class AssistantViewSet(viewsets.ViewSet):
             if chat_config.API_USER and chat_config.API_PASS:
                 api_user = chat_config.API_USER
                 api_pass = chat_config.API_PASS
+                # Rebuild the dict, not just the locals: _creds is what reaches
+                # the orchestrator. The DRF token goes too -- it names a user on
+                # this instance and is meaningless on prod.
+                _creds = {"api_user": api_user, "api_pass": api_pass, "api_token": None}
 
         def _run_pipeline() -> None:
             try:
                 match getattr(req, "mode", "standard"):
                     case "plan":
-                        run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query_plan(adapter, chat_config, req.query, send_event, credentials=_creds)
                     case "pipeline":
-                        run_pipeline_launch(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_pipeline_launch(adapter, chat_config, req.query, send_event, credentials=_creds)
                     case _:
-                        run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                        run_query(adapter, chat_config, req.query, send_event, credentials=_creds)
             except Exception:
                 logger.exception("Unhandled pipeline error (async)")
                 send_event("query_error", {

@@ -59,6 +59,31 @@ def ensure_for(user):
         return None
 
 
+def get_for(user):
+    """Return ``user``'s existing token, or None. Never creates one.
+
+    The request path uses this rather than ``ensure_for`` on purpose. Minting is
+    confined to the OAuth callback so the token's life is exactly the SEEK
+    session's: if it has been revoked -- at logout, or because SEEK rejected the
+    refresh -- a later request must not quietly bring it back. A user whose
+    token is missing signs in again, which is the intended repair.
+    """
+    if user is None or not getattr(user, "pk", None):
+        return None
+    try:
+        from rest_framework.authtoken.models import Token
+
+        token = Token.objects.filter(user=user).first()
+        return token.key if token is not None else None
+    except Exception:
+        log.warning(
+            "local_token: could not read the NExtSEEK API token for user_id=%s.",
+            getattr(user, "pk", None),
+            exc_info=True,
+        )
+        return None
+
+
 def revoke_for(user):
     """Delete ``user``'s NExtSEEK API token. Returns whether one was removed.
 

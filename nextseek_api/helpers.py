@@ -204,6 +204,41 @@ def seekdb_for_caller(request):
     return None
 
 
+def chat_credentials_for(request):
+    """The per-request identity the chat stack should act under (#16, SP3).
+
+    Returns a dict with ``api_user``/``api_pass``/``api_token``, matching what
+    ``orchestrator._apply_credentials`` consumes. Exactly one credential kind is
+    populated: NExtSEEK rejects competing credentials outright
+    (``attributes/auth.py::_reject_competing_sources``), so a caller carrying
+    both Basic and Token would be refused rather than fall back to one.
+
+    Collapses the identical four-line block previously open-coded at each chat
+    entry point, which ended ``api_pass = request.session.get("password")`` --
+    None for an OAuth session, so the orchestrator refused the request as a
+    half-supplied identity.
+
+    Note this is a **NExtSEEK** credential throughout; the chat stack never
+    calls SEEK. See nextseek_api/local_tokens.py.
+    """
+    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
+        return {"api_user": basic_tuple[0], "api_pass": basic_tuple[1], "api_token": None}
+
+    session = getattr(request, "session", {}) or {}
+    user = getattr(request, "user", None)
+    username = session.get("username") or getattr(user, "username", None)
+    password = session.get("password")
+    if password:
+        return {"api_user": username, "api_pass": password, "api_token": None}
+
+    # No password: an OAuth session, or one after cutover. The DRF token is
+    # fetched, never minted here -- see local_tokens.get_for for why.
+    from nextseek_api.local_tokens import get_for
+
+    return {"api_user": username, "api_pass": None, "api_token": get_for(user)}
+
+
 def caller_is_authenticated(request):
     """Whether this request carries any credential NExtSEEK recognises.
 

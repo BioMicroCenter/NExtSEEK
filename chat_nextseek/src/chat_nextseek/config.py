@@ -561,6 +561,11 @@ class ChatConfig:
         env_config_map["NEXTSEEK_BASE_URL"] = _resolve_nextseek_base_url()
         env_config_map["API_USER"] = os.getenv("API_USER")
         env_config_map["API_PASS"] = os.getenv("API_PASS")
+        # A per-user NExtSEEK DRF token (#16, sub-project 3). Normally supplied
+        # per-request by the caller's identity rather than from the environment;
+        # the env var exists so a single-operator deployment can run on a token
+        # instead of a password once passwords are gone. NOT a SEEK credential.
+        env_config_map["API_TOKEN"] = os.getenv("API_TOKEN")
 
         _base_url_source = (
             "NEXTSEEK_INTERNAL_BASE_URL"
@@ -570,6 +575,7 @@ class ChatConfig:
         print(f"[CONFIG] NEXTSEEK_BASE_URL={env_config_map["NEXTSEEK_BASE_URL"] or 'NOT SET'} (from {_base_url_source})")
         print(f"[CONFIG] API_USER={'SET' if env_config_map["API_USER"] else 'NOT SET'}")
         print(f"[CONFIG] API_PASS={'SET' if env_config_map["API_PASS"] else 'NOT SET'}")
+        print(f"[CONFIG] API_TOKEN={'SET' if env_config_map["API_TOKEN"] else 'NOT SET'}")
         if env_config_map["AGENT_MODEL_CATALOG"]:
             print(f"[CONFIG] AGENT_MODEL_CATALOG=SET (from env)")
         else:

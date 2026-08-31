@@ -153,14 +153,19 @@ def _emit_identity_warning(message: str) -> None:
 
 
 def _credentials_are_complete(credentials: dict[str, str] | None) -> bool:
-    """True only when BOTH halves of a per-request identity are present.
+    """True when a per-request identity is fully supplied.
 
-    A half-supplied pair is worse than none: the old code applied the supplied
-    half and left the other on the service account, producing a mixed identity
-    (user A's name, the service account's password). Partial counts as missing.
+    Two shapes qualify. A DRF token (#16, sub-project 3) is a complete identity
+    on its own -- it names the user and proves them in one value. A Basic pair
+    needs BOTH halves: a half-supplied pair is worse than none, because the old
+    code applied the supplied half and left the other on the service account,
+    producing a mixed identity (user A's name, the service account's password).
+    Partial still counts as missing.
     """
     if not isinstance(credentials, dict):
         return False
+    if credentials.get("api_token"):
+        return True
     return bool(credentials.get("api_user")) and bool(credentials.get("api_pass"))
 
 
@@ -194,8 +199,21 @@ def _identity_gate(
     """
     if _credentials_are_complete(credentials):
         config = copy.copy(config)
-        config.API_USER = credentials["api_user"]
-        config.API_PASS = credentials["api_pass"]
+        api_token = credentials.get("api_token")
+        if api_token:
+            # A token supersedes the pair, and the service account's Basic
+            # credentials are cleared rather than left alongside it. NExtSEEK
+            # rejects competing credentials outright, so a request carrying both
+            # would fail; and leaving them would risk falling back to the
+            # service account's identity, which is the mixed-identity bug this
+            # function exists to prevent.
+            config.API_TOKEN = api_token
+            config.API_USER = credentials.get("api_user")
+            config.API_PASS = None
+        else:
+            config.API_TOKEN = None
+            config.API_USER = credentials["api_user"]
+            config.API_PASS = credentials["api_pass"]
         return config, None
 
     # Name the account only. NEVER the password -- not the value, not a mask,

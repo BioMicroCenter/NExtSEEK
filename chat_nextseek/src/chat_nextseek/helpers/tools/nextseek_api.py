@@ -129,7 +129,19 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
         return error_payload
 
     url = f"{base}/{path.lstrip('/')}"
-    auth = (config.API_USER, config.API_PASS) if config.API_USER and config.API_PASS else None
+
+    # A per-user DRF token is a complete identity on its own and takes
+    # precedence (#16, sub-project 3). Basic and Token are never sent together:
+    # NExtSEEK rejects competing credentials outright
+    # (nextseek_api/attributes/auth.py::_reject_competing_sources), so a request
+    # carrying both would fail rather than fall back to one.
+    api_token = getattr(config, "API_TOKEN", None)
+    headers = {"Authorization": f"Token {api_token}"} if api_token else None
+    auth = (
+        None if api_token
+        else (config.API_USER, config.API_PASS) if config.API_USER and config.API_PASS
+        else None
+    )
     request_timeout = 90
     if path == "/nextseek_api/samples/advanced_search/":
         request_timeout = 120
@@ -139,7 +151,7 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
     print(f"  URL:    {url}")
     print(f"  PARAMS: {queryParameters}")
     print(f"  BODY:   {requestBody}")
-    print(f"  AUTH:   {'Basic' if auth else 'None'}")
+    print(f"  AUTH:   {'Token' if api_token else 'Basic' if auth else 'None'}")
     print(f"  TIMEOUT:{request_timeout}s")
 
     try:
@@ -147,6 +159,7 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
             method=verb,
             url=url,
             auth=auth,
+            headers=headers,
             params=queryParameters,
             json=requestBody if requestBody else None,
             timeout=request_timeout,
