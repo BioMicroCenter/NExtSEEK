@@ -60,14 +60,20 @@ class DBtable_documents(DBtable):
     
         return simplejson.dumps(options)
 
-    def __getInfo(self, document_id, server, username, password):
+    def __getInfo(self, document_id, server, username, password, token_provider=None):
         from .seekdb import SeekDB
-        seekdb = SeekDB(server, username, password)
+        seekdb = SeekDB(server, username, password, token_provider=token_provider)
         return seekdb.getInfoObject("/documents/", document_id)
-        
-        
-    def getDownloadURL(self, document_id, server, username, password):
-        infodata = self.__getInfo(document_id, server, username, password)
+
+
+    def getDownloadURL(self, document_id, server, username, password,
+                       token_provider=None):
+        # token_provider (#16, sub-project 2) carries an OAuth caller's
+        # credential, which has no username/password form. The caller reads it
+        # off the same user_seek dict the other three arguments come from --
+        # getSeekLogin puts it there.
+        infodata = self.__getInfo(document_id, server, username, password,
+                                  token_provider=token_provider)
         if infodata is None or document_id==0:
             return None, None
         

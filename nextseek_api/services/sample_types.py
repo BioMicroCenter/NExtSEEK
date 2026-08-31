@@ -15,10 +15,10 @@ from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
 import logging
 from django.db import connections
-from seek.seekdb import SeekDB
+from nextseek_api.helpers import seekdb_for_caller
 
 
-def _scope_graph_rows_to_caller_projects(request, basic_tuple, rows, uuid_key="uuid"):
+def _scope_graph_rows_to_caller_projects(request, rows, uuid_key="uuid"):
     """Drop graph rows whose sample is not in one of the caller's SEEK projects.
 
     The graph cannot be scoped in Cypher: Sample nodes carry only
@@ -34,14 +34,19 @@ def _scope_graph_rows_to_caller_projects(request, basic_tuple, rows, uuid_key="u
     """
     if bool(getattr(request.user, "is_superuser", False)):
         return rows
-    if not (basic_tuple and basic_tuple[0] and basic_tuple[1]):
-        # See samples.py: a Token-authenticated caller resolves no Basic pair, so the
+    # Takes the request rather than a basic_tuple (#16, sub-project 2): an OAuth
+    # caller has no username/password pair, so the old signature could only
+    # report "no credentials" for them and scope them to nothing -- a 200 with
+    # an empty result set rather than an error. seekdb_for_caller covers both
+    # credential kinds and returns None only when there is genuinely neither.
+    seekdb = seekdb_for_caller(request)
+    if seekdb is None:
+        # Still reachable: a Token-authenticated caller resolves neither, so the
         # SEEK project lookup cannot run. Return nothing rather than everything.
         logging.getLogger(__name__).warning(
             "No SEEK credentials resolved for caller; scoping to no projects")
         return []
     try:
-        seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
         projects = seekdb.getCurrentUser()["data"]["relationships"]["projects"]["data"]
         project_ids = [str(p["id"]) for p in projects]
     except Exception:
@@ -497,7 +502,7 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
         # not schema metadata -- it previously returned parents from every project to
         # any authenticated caller. See the helper for why this filters after the
         # Cypher rather than inside it.
-        records = _scope_graph_rows_to_caller_projects(request, basic_tuple, records)
+        records = _scope_graph_rows_to_caller_projects(request, records)
 
         # Collect unique sample types from results for description lookup
         unique_types = set()

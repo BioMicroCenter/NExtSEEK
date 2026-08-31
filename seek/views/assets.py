@@ -20,7 +20,8 @@ def document(request, id):
     docurl, filename = seekdoc.getDownloadURL(document_id,
                 user_seek['server'],
                 user_seek['username'],
-                user_seek['password'])
+                user_seek['password'],
+                token_provider=user_seek.get('token_provider'))
     
     if docurl is None:
         msg = 'Sample template is not available. Choose a template from the list.'
