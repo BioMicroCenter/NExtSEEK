@@ -216,7 +216,21 @@ def resolve(rows: List[RegistrationRow], conn) -> List[ResolvedRow]:
                            uid)))
             continue
 
-        sample_id = uid_to_sample[uid]
+        sample_id = uid_to_sample.get(uid)
+        if sample_id is None:
+            # The count query said this uid resolves to exactly one row, but the
+            # id query did not return it. They are separate statements, so a row
+            # deleted between them — or a collation-driven key mismatch — lands
+            # here. Report the row instead of raising: a KeyError out of
+            # resolve() would take down the whole submission, which is precisely
+            # the failure class this module exists to prevent.
+            resolved.append(ResolvedRow(
+                index=index, sample_uid=uid,
+                error=_err("sample_uid_not_found",
+                           "uid counted as unique but did not resolve to a row; "
+                           "it may have been deleted mid-request", uid)))
+            continue
+
         projects = sample_projects.get(sample_id, set())
         if not projects:
             resolved.append(ResolvedRow(
@@ -285,7 +299,14 @@ def _resolve_by_title(index, uid, sample_id, projects, title, title_index) -> Re
                 f"'{title}' resolves to {len(distinct)} assays in the sample's "
                 f"project: {distinct}. Retry naming one with `assay_id`.",
                 title))
-    assay_id, project_id, assay_title = in_project[0]
+    # sorted(), not in_project[0]: assays_for_titles has no ORDER BY, and MySQL
+    # guarantees no row order without one. When one assay reaches two or more of
+    # the sample's own projects, an unsorted index makes the reported project_id
+    # and assay_title vary between identical runs on identical data. assay_id is
+    # stable either way, so nothing wrong gets written, but a receipt that
+    # changes run to run is a bad property for an endpoint whose whole claim is
+    # an honest receipt. Matches the min() convention on the numeric path.
+    assay_id, project_id, assay_title = sorted(in_project)[0]
     return ResolvedRow(index=index, sample_uid=uid, sample_id=sample_id,
                        assay_id=assay_id, assay_title=assay_title,
                        project_id=project_id)

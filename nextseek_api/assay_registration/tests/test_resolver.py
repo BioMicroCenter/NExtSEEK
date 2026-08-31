@@ -8,12 +8,7 @@ queries and the tests are about which ROWS come back, not which SQL is sent.
 
 from unittest.mock import MagicMock
 
-import pytest
-
-from nextseek_api.assay_registration.resolver import (
-    ResolvedRow,
-    resolve,
-)
+from nextseek_api.assay_registration.resolver import resolve
 from nextseek_api.assay_registration.schemas import RegistrationRow
 
 
@@ -119,6 +114,27 @@ class TestProjectGate:
         assert resolved.error.code == "assay_project_mismatch"
         assert "7" in resolved.error.message and "3" in resolved.error.message
 
+    def test_an_unknown_assay_id_is_reported_distinctly(self):
+        """Locks `assay_not_found` apart from `assay_project_mismatch`.
+
+        Without this test, deleting the `if not assay_prj:` guard leaves all
+        the other tests green: `projects & set()` is empty, control falls
+        through, and the row reports assay_project_mismatch saying the assay
+        "belongs to project(s) []". That is exactly the collapse the spec
+        forbids, and nothing else would catch it.
+        """
+        conn = _conn(
+            uid_counts=[("S1", 1)],
+            sample_ids=[("S1", 100)],
+            sample_projects=[(100, 3)],
+            assay_projects=[],
+            title_assays=[],
+        )
+        rows = [RegistrationRow(sample_uid="S1", assay_id=999)]
+        [resolved] = resolve(rows, conn)
+        assert resolved.error.code == "assay_not_found"
+        assert resolved.error.submitted_identifier == "999"
+
     def test_assay_id_in_the_samples_project_resolves(self):
         conn = _conn(
             uid_counts=[("S1", 1)],
@@ -219,7 +235,18 @@ class TestTitleResolution:
 
 class TestBatching:
     def test_resolution_is_a_fixed_number_of_queries_regardless_of_row_count(self):
-        """Defect 4: validate up front with set queries, never per row."""
+        """Defect 4: validate up front with set queries, never per row.
+
+        The bound below is "at most 5 for a submission that fits in one CHUNK",
+        not an absolute. 500 uids fit inside CHUNK=1000, so the helpers issue one
+        statement each. A correct implementation handed 1500 rows would issue
+        more, because chunking is per statement — do not read a higher count at
+        larger sizes as a regression.
+
+        Note this exercises the numeric-id form only. The title path's freedom
+        from per-row queries rests on the structural fact that neither
+        `_resolve_by_id` nor `_resolve_by_title` accepts a connection at all.
+        """
         conn = _conn(
             uid_counts=[("S%d" % i, 1) for i in range(500)],
             sample_ids=[("S%d" % i, 100 + i) for i in range(500)],
