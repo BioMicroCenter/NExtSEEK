@@ -63,6 +63,15 @@ jobs:
             | tee pytest-run.txt
           echo "pytest exit: ${PIPESTATUS[0]}"
 
+      # The one blocking check in this otherwise informational job. Deterministic
+      # and new, so it carries none of the "red on run one" risk that made the
+      # rest of the job informational.
+      - name: Route registry completeness gate
+        env:
+          DJANGO_SETTINGS_MODULE: dmac.test_settings
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: uv run pytest ci/gate -q
+
       - name: Diff against the baseline
         run: |
           python ci/diff_baseline.py pytest-run.txt \
