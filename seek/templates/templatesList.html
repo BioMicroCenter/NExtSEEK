@@ -293,6 +293,11 @@
 
   document.getElementById('tpl-clear').addEventListener('click', function () {
     boxes.forEach(function (b) { b.checked = false; });
+    // Assigning .checked in script fires no 'change' event, so the
+    // change-handler cleanup above never runs here -- clear the
+    // auto-added bookkeeping directly, or a later re-tick of a former
+    // child shows a stale "required by" chip on an unrelated parent.
+    autoAdded = {};
     render();
   });
 
