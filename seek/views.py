@@ -58,6 +58,7 @@ from nextseek_api.services.template_catalog import (
     MAX_SUGGESTIONS,
     load_catalog,
     load_relationships,
+    load_requirements,
 )
 
 from .seekdb import SeekDB
@@ -1126,6 +1127,10 @@ def _templates_context(message=""):
         "meta_json": {
             e.code: {"name": e.name, "group": e.group} for e in entries
         },
+        # Requirements are keyed on the whole catalog, not the selection: the
+        # page needs the rule for every type a user might tick, and the strip
+        # is derived in the browser with no round trip.
+        "requirements_json": load_requirements(set(by_code)),
         "max_suggestions": MAX_SUGGESTIONS,
     }
 

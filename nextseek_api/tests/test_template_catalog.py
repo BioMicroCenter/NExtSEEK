@@ -1,5 +1,6 @@
 """The template catalog: what types exist, their columns, and what they relate to."""
 
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -389,3 +390,24 @@ class TestLoadRequirements:
         with patch(f"{_MOD}.Sample_type_requirements", m):
             assert load_requirements(set()) == {}
         m.objects.filter.assert_not_called()
+
+    def test_coverage_is_converted_to_a_plain_float(self):
+        """coverage is a DecimalField; json_script cannot serialise a Decimal."""
+        from nextseek_api.services.template_catalog import load_requirements
+
+        rows = [{"child_code": "PAV", "parent_codes": '["NHP"]',
+                 "assay_titles": None, "coverage": Decimal("0.980")}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            out = load_requirements({"PAV", "NHP"})
+        assert isinstance(out["PAV"]["coverage"], float)
+
+    def test_a_row_with_a_non_json_type_in_parent_codes_is_skipped(self):
+        """parent_codes=None hits the TypeError branch of the parse, not ValueError."""
+        from nextseek_api.services.template_catalog import load_requirements
+
+        rows = [{"child_code": "PAV", "parent_codes": None,
+                 "assay_titles": None, "coverage": 0.98},
+                {"child_code": "CEX", "parent_codes": '["NHP"]',
+                 "assay_titles": None, "coverage": 1.0}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            assert sorted(load_requirements({"PAV", "CEX", "NHP"})) == ["CEX"]

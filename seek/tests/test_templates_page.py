@@ -131,6 +131,43 @@ class TestPicker:
         assert "</script><img" not in body
         assert "<img src=x onerror=alert(1)>" not in body
 
+    @patch("seek.views.load_requirements")
+    @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
+    @patch("seek.views.SeekDB")
+    def test_requirements_are_embedded_for_the_page(self, mock_db, _cat, mock_req):
+        from seek.views import templatesList
+
+        mock_db.return_value = _logged_in()
+        mock_req.return_value = {
+            "D.SEQ": {"parents": ["TIS"], "assays": ["Short Read Sequencing"],
+                      "coverage": 1.0}
+        }
+        body = templatesList(_get()).content.decode()
+        assert "tpl-requirements-data" in body
+        assert "Short Read Sequencing" in body
+
+    @patch("seek.views.load_requirements", return_value={})
+    @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
+    @patch("seek.views.SeekDB")
+    def test_no_requirements_still_renders_the_picker(self, mock_db, _cat, _req):
+        """The table ships empty; the page must not depend on it."""
+        from seek.views import templatesList
+
+        mock_db.return_value = _logged_in()
+        resp = templatesList(_get())
+        assert resp.status_code == 200
+        assert "Experimental types" in resp.content.decode()
+
+    @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
+    @patch("seek.views.SeekDB")
+    def test_requirements_are_scoped_to_the_catalog(self, mock_db, _cat):
+        from seek.views import templatesList
+
+        mock_db.return_value = _logged_in()
+        with patch("seek.views.load_requirements") as mock_req:
+            templatesList(_get())
+        assert mock_req.call_args[0][0] == {"TIS", "D.SEQ"}
+
 
 class TestDownload:
     @patch("seek.views.SeekDB")
