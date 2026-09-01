@@ -189,11 +189,22 @@ def recompute_for_samples(sample_ids: Set[int], driver, db_name: str) -> int:
         # null-singular ones the docstring describes, and a caller that sees only
         # `written` cannot tell a clean run from a partial one. The sibling
         # backfill script warns on exactly this comparison; so does this.
-        if written != len(payload):
+        if written < len(payload):
             log.warning(
                 "recompute wrote %d of %d planned edges; %d were planned but not "
                 "written, which means their singular internal_assay_title is NULL",
                 written, len(payload), len(payload) - written,
+            )
+        elif written > len(payload):
+            # Cannot happen: the write matches only keys present in $edges, so it
+            # can touch at most len(payload) edges. Reported rather than ignored
+            # because if it ever fires, the query has stopped meaning what this
+            # module thinks it means, and a wrong count is how that would first
+            # show. Never phrased as a negative shortfall.
+            log.error(
+                "recompute wrote %d edges but planned only %d; the write query "
+                "matched more than its parameter map, which should be impossible",
+                written, len(payload),
             )
         else:
             log.info("recomputed assay labels on %d DERIVED_FROM edges", written)

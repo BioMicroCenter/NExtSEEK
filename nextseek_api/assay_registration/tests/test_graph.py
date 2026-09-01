@@ -101,26 +101,38 @@ class TestRecompute:
         """monkeypatch, not assignment: a bare `graph.x = ...` leaks into every
         later test in the session."""
         monkeypatch.setattr(graph, "assays_by_sample",
-                            lambda ids: {100: {351}, 200: {351}})
+                            lambda ids: {100: {351}, 200: {351}, 300: {351}})
         monkeypatch.setattr(graph, "resolve_internal",
                             lambda ids: {351: (9, "Flow Cytometry")})
 
         edges_result = MagicMock()
-        edges_result.data.return_value = [{"child_id": 100, "parent_id": 200}]
+        # TWO planned edges, ONE written. Deliberately not equal: with written
+        # == len(payload) the test cannot tell "returns what the database said"
+        # from "returns the number we planned", and the second is a mutation
+        # this test exists to kill. The shortfall is also the realistic case --
+        # the unwritten edge is one whose singular internal_assay_title is NULL.
+        edges_result.data.return_value = [
+            {"child_id": 100, "parent_id": 200},
+            {"child_id": 300, "parent_id": 200},
+        ]
         write_result = MagicMock()
-        write_result.single.return_value = {"written": 47}
+        write_result.single.return_value = {"written": 1}
 
         driver = MagicMock()
         session = driver.session.return_value.__enter__.return_value
         session.run.side_effect = [edges_result, write_result]
 
-        assert graph.recompute_for_samples({100}, driver, "neo4j") == 47
+        assert graph.recompute_for_samples({100}, driver, "neo4j") == 1
 
-        # The second call is the one-pass write, carrying the edges map.
+        # The second call is the one-pass write, carrying the edges map. Both
+        # planned edges are in it: the payload is what we ASKED to write, and
+        # the returned count is what the database SAID it wrote. Keeping those
+        # two distinct is the point of this fixture.
         write_call = session.run.call_args_list[1]
         assert write_call.args[0] is graph.RECOMPUTE_CYPHER
         assert write_call.kwargs["edges"] == {
-            "100_200": {"ids": [9], "titles": ["Flow Cytometry"]}
+            "100_200": {"ids": [9], "titles": ["Flow Cytometry"]},
+            "300_200": {"ids": [9], "titles": ["Flow Cytometry"]},
         }
 
     def test_an_edge_whose_endpoints_share_nothing_is_left_alone(self):
@@ -417,12 +429,34 @@ class TestTheShortfallIsNeverSilent:
         message = warnings[0].getMessage()
         assert "2" in message and "3" in message
         assert "internal_assay_title" in message
+        assert not re.search(r"-\d", message), "a shortfall is never negative"
+        assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
 
     def test_a_clean_write_warns_about_nothing(self, caplog):
         got = self._run([(100, 200), (300, 400)], written=2, caplog=caplog)
         assert got == 2
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
         assert any(r.levelno == logging.INFO for r in caplog.records)
+
+    def test_an_over_write_is_an_error_and_never_a_negative_shortfall(self, caplog):
+        """This state cannot occur: the write matches only keys present in
+        $edges, so it can touch at most len(payload) edges. It is tested because
+        the single `written != len(payload)` guard it replaces DID take this
+        branch and print "-46 were planned but not written" -- taught to a reader
+        by a fixture asserting a state that cannot happen. Reported rather than
+        ignored: if it ever fires, the query has stopped meaning what this module
+        thinks it means, and a wrong count is how that would first surface.
+        """
+        got = self._run([(100, 200)], written=47, caplog=caplog)
+        assert got == 47
+
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(errors) == 1
+        message = errors[0].getMessage()
+        assert "47" in message and "1" in message
+        assert not re.search(r"-\d", message), "never phrased as a negative"
+        # It is an error, NOT the shortfall warning.
+        assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
 
 class TestTheChunkConstant:
