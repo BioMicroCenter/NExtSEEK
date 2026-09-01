@@ -31,6 +31,7 @@ together with CI_FORCE_PROFILE_CONFIRM=yes, so it cannot happen by accident.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -41,7 +42,8 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from ci.routes import PROFILES
+from ci import routes as ci_routes
+from ci.routes import PLACEHOLDERS, PROFILES
 from ci.smoke.client import GuardedSession
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
@@ -401,6 +403,129 @@ def web(profile, base_url, smoke_creds) -> GuardedSession:
     )
     assert s.cookies.get("sessionid"), "login did not set a sessionid cookie"
     return s
+
+
+# --------------------------------------------------------------------------- #
+# run-time discovery of the registry's {placeholders}
+# --------------------------------------------------------------------------- #
+
+# Where each PLACEHOLDERS name comes from. Eight of the eleven are the first id
+# of a JSON:API list, so they are declared as data rather than as eight copies of
+# the same three lines; the other three need their own request and are resolved
+# below. Keyed by placeholder name so ci/smoke/test_registry_contents.py can
+# assert, with no stack running, that this covers exactly the vocabulary
+# ci/routes.py declares. The two cannot drift apart silently: an undeclared name
+# is a KeyError mid-sweep and an unresolved one is a route that skips forever.
+_JSONAPI_LIST_SOURCE: dict[str, str] = {
+    "assay_id":         "/nextseek_api/assays/",
+    "data_file_id":     "/nextseek_api/data_files/",
+    "investigation_id": "/nextseek_api/investigations/",
+    "person_id":        "/nextseek_api/people/",
+    "sample_type_id":   "/nextseek_api/sample_types/",
+    "seek_project_id":  "/nextseek_api/projects/",
+    "sop_id":           "/nextseek_api/sops/",
+    "study_id":         "/nextseek_api/studies/",
+}
+
+# The attributes endpoint answers {"attributes": [...]}, not a JSON:API document.
+_ATTRIBUTE_SOURCE = "/nextseek_api/attributes/"
+
+# Both sample names come from one request: the query the search page itself makes.
+_SAMPLE_SOURCE = "/seek/searchAdvanced/"
+
+DISCOVERED_KEYS = frozenset(_JSONAPI_LIST_SOURCE) | {
+    "attribute_id", "sample_id", "sample_uid",
+}
+
+
+def _profile_permits(profile: str, base_url: str, path: str) -> bool:
+    """Is this discovery request one the active profile permits?
+
+    Asked before the request rather than caught after it. The guard raises on a
+    route the profile does not enable, and a raise inside a session fixture takes
+    every test in the run down with it -- where returning None here costs only the
+    routes that needed that one value. /seek/searchAdvanced/ is exactly this case:
+    it is enabled for local and dev but not for prod.
+    """
+    route = ci_routes.match(base_url + path)
+    return route is not None and profile in route.profiles
+
+
+def _first_id(client, base_url: str, path: str, key: str) -> str | None:
+    """The first id of a list endpoint, or None when there is nothing to take.
+
+    None rather than a failure for both the empty list and the unhappy status:
+    every one of these endpoints is itself a registry route with its own T0 case,
+    so a broken list is already reported there. Failing here instead would report
+    it once, as a session error covering every route in the sweep, which says less.
+    """
+    r = client.get(base_url + path, timeout=90, allow_redirects=False,
+                   headers={"Accept": "application/json"})
+    if r.status_code != 200:
+        return None
+    try:
+        items = r.json().get(key) or []
+    except ValueError:
+        return None
+    if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+        return None
+    value = items[0].get("id")
+    return None if value is None else str(value)
+
+
+@pytest.fixture(scope="session")
+def discovered(profile, api, web, base_url) -> dict[str, str | None]:
+    """Real values for the registry's {placeholders}, found at run time.
+
+    Ids are deployment-specific -- the seed, dev and production disagree about
+    all of them -- so nothing here may be hard-coded. A name this environment has
+    no value for is None, and T0 skips only the routes whose path needs it; the
+    seed carries no data files, so data_file_id is routinely None.
+
+    Requests go through the guarded clients, so every path touched here is a
+    declared route and is checked against the profile before it is sent.
+    """
+    found: dict[str, str | None] = {
+        name: (_first_id(api, base_url, path, "data")
+               if _profile_permits(profile, base_url, path) else None)
+        for name, path in _JSONAPI_LIST_SOURCE.items()
+    }
+    found["attribute_id"] = (
+        _first_id(api, base_url, _ATTRIBUTE_SOURCE, "attributes")
+        if _profile_permits(profile, base_url, _ATTRIBUTE_SOURCE) else None
+    )
+
+    # The sample pair. This is the query the advanced-search grid itself issues,
+    # and the same one test_flows.py's a_sample fixture uses: a bare GET of this
+    # view is a 500, so the full filter set is not decoration.
+    found["sample_id"] = found["sample_uid"] = None
+    if _profile_permits(profile, base_url, _SAMPLE_SOURCE):
+        r = web.get(
+            base_url + _SAMPLE_SOURCE,
+            params={
+                "sampletype_id": "", "attribute": "none", "filter_logic": "AND",
+                "filter_searchValue": "", "filter_searchText": "Uterus",
+                "filter_matchType": "PARTIAL",
+            },
+            timeout=180,
+        )
+        rows = []
+        if r.status_code == 200:
+            try:
+                rows = r.json().get("rows") or []
+            except ValueError:
+                rows = []
+        if rows:
+            found["sample_id"] = str(rows[0]["id"])
+            # The grid renders the UID as a link, so the raw field carries markup.
+            found["sample_uid"] = re.sub(r"<[^>]+>", "", str(rows[0].get("uid", ""))).strip() or None
+
+    assert set(found) == set(PLACEHOLDERS), (
+        "this fixture and ci.routes.PLACEHOLDERS have drifted apart.\n"
+        f"  resolved but not declared: {sorted(set(found) - set(PLACEHOLDERS))}\n"
+        f"  declared but not resolved: {sorted(set(PLACEHOLDERS) - set(found))}"
+    )
+    return found
 
 
 # --------------------------------------------------------------------------- #

@@ -144,8 +144,10 @@ class Route:
 # differ between the seed, dev and production, so none of them is ever written
 # into a path literally. Where an id space has nothing to discover -- a job,
 # task, session, bundle or NHP name -- the path carries a syntactically valid
-# NONEXISTENT literal instead and `expect` is the route's not-found status; that
-# still proves the route resolves and denies, and it needs no fixture.
+# NONEXISTENT literal instead, and `expect` is whatever that route answers for an
+# identifier it cannot find. That is not always a not-found status: the three
+# outcomes are listed with the literals below. Either way it proves the route
+# resolves, and it needs no fixture.
 PLACEHOLDERS: dict[str, str] = {
     "assay_id":        "data[0].id of GET /nextseek_api/assays/ (SEEK numeric assay id)",
     "attribute_id":    "id of the first item in GET /nextseek_api/attributes/",
@@ -164,9 +166,11 @@ PLACEHOLDERS: dict[str, str] = {
 
 # A UUID that is valid syntax and belongs to nothing, for the job / task /
 # session id spaces. Every route that takes one is declared with whatever it
-# answers for an identifier it cannot find -- a 404 for most, and for two of the
-# seek helpers a 200 whose body carries the failure instead (their notes say so).
-# Either way the entry proves the route resolves and denies, without a fixture.
+# answers for an identifier it cannot find, and that is three different things:
+# a 404 for most; a 200 whose body carries the failure instead, for two of the
+# seek helpers (their notes say so); and a 500 for /seek/nhpdata/<name>/, which
+# is a defect rather than a denial and so carries an xfail as well. All three
+# prove the route resolves without a fixture; the first two also prove it denies.
 _NO_SUCH_UUID = "00000000-0000-4000-8000-000000000000"
 _NO_SUCH_ID = "999999999"
 _NO_SUCH_NHP = "NEXTSEEK-CI-NO-SUCH-NHP"

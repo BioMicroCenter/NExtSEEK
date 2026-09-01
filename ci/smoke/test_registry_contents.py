@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ci.routes import PLACEHOLDERS, REGISTRY, _check_unique_patterns
+from ci.smoke.conftest import DISCOVERED_KEYS
 
 # Routes Django's resolver reports and CI therefore owns, measured on
 # 2026-09-01 by scripts/dump_routes.py against docker/dev. When the application
@@ -104,6 +105,21 @@ def test_every_placeholder_is_declared_and_every_declaration_is_used():
     unused = sorted(set(PLACEHOLDERS) - used)
     assert not undeclared, f"paths use placeholders PLACEHOLDERS does not define: {undeclared}"
     assert not unused, f"PLACEHOLDERS defines names no path uses: {unused}"
+
+
+def test_the_discovery_fixture_resolves_exactly_the_declared_vocabulary():
+    """The two halves of the placeholder contract, checked without a stack.
+
+    ci/routes.py names the placeholders and the conftest `discovered` fixture
+    resolves them. A name in one and not the other fails late and obscurely: an
+    undeclared key is a KeyError in the middle of the sweep, and an unresolved one
+    is a route that skips on every run in every environment and is never noticed.
+    """
+    assert DISCOVERED_KEYS == set(PLACEHOLDERS), (
+        "the discovery fixture and PLACEHOLDERS have drifted apart.\n"
+        f"  resolved but not declared: {sorted(DISCOVERED_KEYS - set(PLACEHOLDERS))}\n"
+        f"  declared but not resolved: {sorted(set(PLACEHOLDERS) - DISCOVERED_KEYS)}"
+    )
 
 
 def test_every_placeholder_says_where_its_value_comes_from():
