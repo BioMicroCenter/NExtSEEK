@@ -132,6 +132,35 @@ class TestPicker:
         assert "<img src=x onerror=alert(1)>" not in body
 
     @patch("seek.views.load_requirements")
+    @patch("seek.views.load_catalog")
+    @patch("seek.views.SeekDB")
+    def test_a_hostile_assay_title_in_requirements_cannot_break_out_of_the_script_block(
+            self, mock_db, mock_catalog, mock_req):
+        """requirements_json is the newest data island and carries the same
+
+        DB-sourced, curator-controlled strings (assay titles, codes) as
+        children_json/meta_json -- it needs the same proof that a hostile
+        value flowing through it renders inert rather than terminating the
+        inline script block early.
+        """
+        from seek.views import templatesList
+
+        mock_catalog.return_value = [TIS, SEQ]
+        mock_db.return_value = _logged_in()
+        mock_req.return_value = {
+            "D.SEQ": {
+                "parents": ["TIS"],
+                "assays": ["</script><img src=x onerror=alert(1)>"],
+                "coverage": 1.0,
+            }
+        }
+        resp = templatesList(_get())
+        body = resp.content.decode()
+
+        assert "</script><img" not in body
+        assert "<img src=x onerror=alert(1)>" not in body
+
+    @patch("seek.views.load_requirements")
     @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.views.SeekDB")
     def test_requirements_are_embedded_for_the_page(self, mock_db, _cat, mock_req):

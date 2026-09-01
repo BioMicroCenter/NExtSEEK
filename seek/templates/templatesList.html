@@ -151,6 +151,14 @@
     return boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
   }
 
+  // Live state, not a snapshot -- renderRequirements' loop below can tick a
+  // box mid-iteration (via the recursive check() call), and a later
+  // iteration must see that change, not the `chosen` array as it was when
+  // the loop started.
+  function isChecked(code) {
+    return boxes.some(function (b) { return b.value === code && b.checked; });
+  }
+
   function chip(code, group, onClick) {
     var el = document.createElement('span');
     el.className = 'tpl-chip';
@@ -199,14 +207,11 @@
   // Mirrors nextseek_api/services/type_requirements.py: one parent is a hard
   // requirement, two or three are alternatives needing one. Keep in step.
   function renderRequirements(chosen) {
-    var picked = {};
-    chosen.forEach(function (c) { picked[c] = true; });
-
     var needs = [];
     chosen.forEach(function (code) {
       var req = REQUIRES[code];
       if (!req || !req.parents.length) { return; }
-      var satisfied = req.parents.some(function (p) { return picked[p]; });
+      var satisfied = req.parents.some(isChecked);
       if (satisfied) { return; }
       if (req.parents.length === 1) {
         autoAdded[req.parents[0]] = code;
