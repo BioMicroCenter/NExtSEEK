@@ -37,6 +37,16 @@ DEFAULT_PORTS = {
 }
 
 
+# What --ci-profile accepts, mirroring ci.routes.PROFILES. Restated rather than
+# imported: startup/ is its own uv project and never imports ci/, so that
+# ./startup.sh stays bootstrappable on a host with none of the suite's
+# dependencies. The two lists are three words long and both are pinned by tests.
+CI_PROFILE_CHOICES = ("local", "dev", "prod")
+
+# A box nobody has configured gets the most restrictive profile, never the least.
+DEFAULT_CI_PROFILE = "prod"
+
+
 def _warn_if_proxy_token_empty(proxy_env_path: Path) -> None:
     if not read_env(proxy_env_path).get("AWS_BEARER_TOKEN_BEDROCK"):
         ui.warn(
@@ -78,6 +88,7 @@ def _install_impl(
     port_offset: int | None = None,
     no_seed: bool = False,
     seek_public_url: str | None = None,
+    ci_profile: str = DEFAULT_CI_PROFILE,
     yes: bool = False,
 ) -> None:
     """Install body as plain Python with real defaults.
@@ -87,6 +98,15 @@ def _install_impl(
     so no typer.Option sentinel can ever stand in for an unpassed argument.
     """
     _reject_leaked_option_defaults(dict(locals()))
+    # Before the banner and before anything is written: an unusable value here
+    # would otherwise be discovered only by the first CI run after the install,
+    # as a pytest.exit(2) with no obvious connection to what was typed.
+    if ci_profile not in CI_PROFILE_CHOICES:
+        ui.fail(
+            f"unknown ci profile: {ci_profile!r}. "
+            f"Allowed: {', '.join(CI_PROFILE_CHOICES)}."
+        )
+        raise typer.Exit(code=2)
     ui.banner("NExtSEEK Startup")
     total = 9
 
@@ -145,6 +165,7 @@ def _install_impl(
         compose_project_name=f"nextseek{('-' + name) if prefix else ''}",
         created=datetime.datetime.now().astimezone().isoformat(),
         seek_public_url=resolved_seek_public_url,
+        ci_profile=ci_profile,
     )
 
     # Show the install summary before any destructive action (config writes,
@@ -167,6 +188,7 @@ def _install_impl(
         ui.console.print(f"    demo / demopassword   (admin)")
         ui.console.print(f"    user / userpassword   (regular)")
         ui.console.print(f"    neo4j / demopassword")
+        ui.console.print(f"  CI profile          {ci_profile}  (which routes ./startup.sh ci may call)")
         if no_seed:
             ui.console.print(f"  Seed import         [yellow]SKIPPED (--no-seed)[/yellow]")
         else:
@@ -368,6 +390,16 @@ def install(
             "and SEEK's own site_base_host."
         ),
     ),
+    ci_profile: str = typer.Option(
+        DEFAULT_CI_PROFILE,
+        "--ci-profile",
+        help=(
+            "Which CI profile this box declares: local, dev or prod. It decides "
+            "which routes the post-deploy smoke suite may call here. Defaults to "
+            "prod, the most restrictive, so an unconfigured box is never widened "
+            "by accident. Stored in startup/.instance.json."
+        ),
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts."),
 ) -> None:
     """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
@@ -380,6 +412,7 @@ def install(
         port_offset=port_offset,
         no_seed=no_seed,
         seek_public_url=seek_public_url,
+        ci_profile=ci_profile,
         yes=yes,
     )
 
@@ -466,6 +499,10 @@ def reset(
         port_offset=None,
         no_seed=False,
         seek_public_url=state.seek_public_url or None,
+        # Carried across the wipe for the same reason as the SEEK URL: .instance.json
+        # has just been deleted, so an omitted value would silently re-declare a dev
+        # box as prod -- narrowing, not widening, but still a change nobody asked for.
+        ci_profile=state.ci_profile or DEFAULT_CI_PROFILE,
         yes=True,
     )
 

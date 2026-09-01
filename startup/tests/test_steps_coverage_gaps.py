@@ -553,7 +553,13 @@ def test_doctor_full_path_includes_health_checks(
     ]
     results = diagnose(tmp_path)
     names = [name for name, _, _ in results]
-    assert names == ["docker", "off-box baseline", "instance state", "http"]
+    assert names == [
+        "docker", "off-box baseline", "instance state",
+        # Both read-only, both between the instance state they describe and the
+        # health checks: what the box declares to CI, then whether CI can log in.
+        "CI profile", "CI credentials",
+        "http",
+    ]
 
 
 @patch("startup.steps.doctor.validate")
@@ -588,5 +594,6 @@ def test_doctor_app_scope_uses_only_app_registry_and_health(
     mock_validate.run_app_health_checks.assert_called_once()
     mock_validate.run_all_health_checks.assert_not_called()
     assert [name for name, _, _ in results] == [
-        "off-box baseline", "instance state", "NExtSEEK"
+        "off-box baseline", "instance state", "CI profile", "CI credentials",
+        "NExtSEEK",
     ]

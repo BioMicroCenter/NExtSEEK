@@ -140,7 +140,8 @@ def test_install_calls_render_start_health_in_order(monkeypatch) -> None:
         lambda ports, root, env: calls.append("health") or [],
     )
 
-    cli.install(instance=None, port_offset=None, no_seed=True, seek_public_url=None, yes=True)
+    cli.install(instance=None, port_offset=None, no_seed=True, seek_public_url=None,
+                ci_profile="prod", yes=True)
 
     assert calls.index("proxy") < calls.index("root") < calls.index("start") < calls.index("health")
 
@@ -183,7 +184,8 @@ def test_install_applies_site_base_host_before_seek_first_boot(monkeypatch) -> N
     monkeypatch.setattr(cli.users, "verify_users_present", lambda root, env: [])
     monkeypatch.setattr(cli.validate, "run_all_health_checks", lambda ports, root, env: [])
 
-    cli.install(instance=None, port_offset=None, no_seed=True, seek_public_url=None, yes=True)
+    cli.install(instance=None, port_offset=None, no_seed=True, seek_public_url=None,
+                ci_profile="prod", yes=True)
 
     assert "site_base_host" in calls, "install must apply SEEK's site_base_host"
     assert "seek_boot" in calls

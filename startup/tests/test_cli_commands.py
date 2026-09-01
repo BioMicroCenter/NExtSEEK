@@ -744,3 +744,150 @@ def test_run_ci_reports_a_missing_uv_instead_of_a_traceback(
 
     assert rc == 127
     assert "'uv' is not on PATH" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# --ci-profile (install) and the doctor lines that report it
+# ---------------------------------------------------------------------------
+
+def test_install_defaults_the_ci_profile_to_prod(repo: Path, steps) -> None:
+    """Fail closed. A box nobody told about CI gets the narrowest profile."""
+    assert runner.invoke(cli.app, ["install", "--yes"]).exit_code == 0
+    assert load_instance(repo).ci_profile == "prod"
+
+
+@pytest.mark.parametrize("value", ["local", "dev", "prod"])
+def test_install_round_trips_the_ci_profile_into_instance_json(
+    repo: Path, steps, value: str,
+) -> None:
+    result = runner.invoke(cli.app, ["install", "--yes", "--ci-profile", value])
+    assert result.exit_code == 0, result.output
+    assert load_instance(repo).ci_profile == value
+    # It is shown before anything is written, not only stored.
+    assert f"CI profile          {value}" in result.output
+
+
+def test_install_rejects_an_unknown_ci_profile_with_exit_2(repo: Path, steps) -> None:
+    """And before the banner: nothing is written, no volume is touched."""
+    result = runner.invoke(cli.app, ["install", "--yes", "--ci-profile", "production"])
+    assert result.exit_code == 2
+    assert "unknown ci profile" in result.output
+    assert "local, dev, prod" in result.output
+    assert load_instance(repo) is None
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_carries_the_declared_ci_profile_across_the_wipe(
+    mock_down: MagicMock, repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """.instance.json is deleted by reset, so an unforwarded value would silently
+    re-declare a dev box as prod."""
+    _saved_state(repo, ci_profile="dev")
+    reinstall = MagicMock()
+    monkeypatch.setattr(cli, "install", reinstall)
+
+    assert runner.invoke(cli.app, ["reset", "--yes"]).exit_code == 0
+    assert reinstall.call_args.kwargs["ci_profile"] == "dev"
+
+
+def _flat(output: str) -> str:
+    """Doctor output with its line wrapping collapsed.
+
+    rich wraps a long detail onto the next line at whatever width the captured
+    console guesses, so asserting against a single output LINE tests the wrap
+    point rather than the message.
+    """
+    return " ".join(output.split())
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_reports_the_declared_ci_profile(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(tmp_path / "nothing.env"))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "CI profile: dev (startup/.instance.json)" in _flat(result.output)
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_reports_an_absent_ci_profile_as_prod(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    _saved_state(repo)  # ci_profile defaults to ""
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(tmp_path / "nothing.env"))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    assert "CI profile: absent -> prod" in _flat(result.output)
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_names_the_credential_keys_and_never_their_values(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The whole point of the check: it says the keys are there, not what they say."""
+    secret_user, secret_pass = "ci_smoke_realname", "hunter2-not-in-any-log"
+    env_file = tmp_path / "ci.env"
+    env_file.write_text(
+        f"# comment\nCI_SMOKE_USER={secret_user}\nCI_SMOKE_PASS={secret_pass}\n"
+    )
+    _saved_state(repo, ci_profile="local")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(env_file))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "names CI_SMOKE_USER, CI_SMOKE_PASS" in _flat(result.output)
+    assert secret_user not in result.output, "doctor printed a credential value"
+    assert secret_pass not in result.output, "doctor printed a credential value"
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_says_what_a_missing_credential_file_will_break(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(tmp_path / "absent.env"))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    # Reported, not failed: a box that does not run CI is not broken.
+    assert result.exit_code == 0, result.output
+    flat = _flat(result.output)
+    assert "CI credentials:" in flat
+    assert "absent -- ./startup.sh rebuild will exit 2" in flat
+    assert "--no-ci" in flat
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_reports_a_credential_file_missing_a_key(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "ci.env"
+    env_file.write_text("CI_SMOKE_USER=someone\n")
+    _saved_state(repo, ci_profile="local")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(env_file))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    assert "does not name CI_SMOKE_PASS" in _flat(result.output)
+    assert "someone" not in result.output

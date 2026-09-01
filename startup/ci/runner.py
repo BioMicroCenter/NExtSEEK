@@ -45,10 +45,11 @@ def run_ci(repo_root: Path, state: InstanceState, *, wait_ready: bool,
     try:
         return subprocess.run(cmd, cwd=repo_root, env=env).returncode
     except FileNotFoundError:
-        # startup/ has no rich dependency by design and this module must not
-        # acquire one, so this is the one place in the CLI that writes its own
-        # stderr. A traceback here reads as a harness fault rather than as the
-        # missing tool it is.
+        # This module stays free of the UI layer -- startup.lib.ui and the rich
+        # console behind it -- so that it can be called from anywhere: the CLI, a
+        # test, or a future hook that has no terminal. That is why it writes its own
+        # stderr here rather than calling ui.fail. A traceback would read as a
+        # harness fault rather than as the missing tool it is.
         print("cannot run CI: 'uv' is not on PATH. Install it (see DEPLOYMENT.md) "
               "or rerun with --no-ci.", file=sys.stderr)
         return 127

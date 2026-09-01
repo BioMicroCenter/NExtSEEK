@@ -15,6 +15,7 @@ volumes, seeds, build, users, validate.
 ./startup.sh install --port-offset 1       # +1 on every port (8001/3001/7475/7688)
 ./startup.sh install --yes                 # skip confirmation prompts
 ./startup.sh install --seek-public-url https://seek.example.com   # real SEEK hostname
+./startup.sh install --ci-profile dev      # what the smoke suite may call here
 ```
 
 Idempotent for prereqs / config / volumes / users / validate. Seed import
@@ -40,6 +41,17 @@ An existing `site_base_host` row in SEEK is treated as an admin decision:
 startup reports a mismatch and **never overwrites it**. `./startup.sh doctor`
 reports drift between the three ("SEEK public URL"). See `NExtSTEPS.md` §1d.
 
+**`--ci-profile`** — which CI profile this box declares: `local`, `dev` or
+`prod`. It decides which routes `./startup.sh ci` may call here (see `ci` below).
+It defaults to **`prod`**, the most restrictive, so a box nobody configured is
+never widened by accident, and it is stored per-instance as `ci_profile` in
+`startup/.instance.json`. An unknown value exits 2 before anything is written.
+
+On a box installed **before** this option existed the key is simply absent,
+which also reads as `prod`. Add it by hand — `"ci_profile": "dev"` — rather than
+re-running install, which re-renders config and rotates the Django secret key.
+`reset` carries the declared value across the wipe.
+
 ### `doctor`
 
 Read-only diagnostic. Runs prereqs + health checks and reports drift.
@@ -49,6 +61,14 @@ Read-only diagnostic. Runs prereqs + health checks and reports drift.
 ```
 
 Exits non-zero if any check fails. **Run this first when something's broken.**
+
+Two of its lines are about CI and neither can fail the run, because a box that
+does not run CI is not broken:
+
+- **CI profile** — what this instance declares, or `absent -> prod`.
+- **CI credentials** — whether `~/.config/nextseek/ci.env` (or `NEXTSEEK_CI_ENV`)
+  exists and **names** `CI_SMOKE_USER` / `CI_SMOKE_PASS`. It never reads or prints
+  a value. Check this first when `./startup.sh rebuild` fails at its CI step.
 
 ### `reset`
 
@@ -144,6 +164,12 @@ the registry the suite may call: a route registered for `local,dev` is not
 called on a box declaring `prod`. **An absent or empty `ci_profile` means
 `prod`**: a machine nobody has configured gets the most restrictive profile,
 never the least.
+
+Set it with `install --ci-profile`, or on an existing install by adding the key
+to `startup/.instance.json` by hand. `./startup.sh doctor` reports which value is
+in force. The profile also gates whole tests, not only routes: a browser flow
+whose shape is a write (`@pytest.mark.profiles("local", "dev")`) is **skipped**
+under `prod` rather than run and refused.
 
 `--profile` may only *narrow* that declaration; asking for a wider one exits
 non-zero rather than running. `--force-profile` is the deliberate override: it
