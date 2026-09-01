@@ -60,9 +60,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             config = settings.NEO4J_DATABASE
-            driver = GraphDatabase.driver(config["URI"], auth=config["AUTH"])
-            with driver.session() as session:
-                rows = list(session.run(CYPHER))
+            with GraphDatabase.driver(config["URI"], auth=config["AUTH"]) as driver:
+                with driver.session() as session:
+                    rows = list(session.run(CYPHER))
         except Exception:
             # Exit before touching the table. A stale set of requirements is
             # worth more than none: the page keeps working either way, but an
@@ -72,6 +72,11 @@ class Command(BaseCommand):
             sys.exit(1)
 
         # (child, parent) may appear several times, once per assay variant.
+        # The suffix must be stripped (_strip_suffix) before dedup, or every
+        # SEEK title variant appended below counts as a distinct assay. Note
+        # that classify() below also de-dupes the titles of the parents it
+        # selects, so this file's own tests cannot detect the wrong order on
+        # their own -- a bug here is silently absorbed downstream.
         merged = {}
         for row in rows:
             key = (row["child"], row["parent"])
