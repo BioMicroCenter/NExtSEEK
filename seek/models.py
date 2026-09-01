@@ -258,6 +258,37 @@ class Sample_attributes_unique(models.Model):
         # that migration would create it on both the default and seek aliases.
         managed = False
 
+class Sample_type_requirements(models.Model):
+    """Sample types an upload of `child_code` cannot omit.
+
+    Filled by `manage.py derive_sample_type_requirements` from Neo4j's
+    DERIVED_FROM edges. `parent_codes` is a JSON array ordered by descending
+    share: one entry is a hard requirement, two or three are alternatives of
+    which the upload needs one.
+
+    Unmanaged for the same reason as Sample_attributes_unique above: the table
+    is created out-of-band in SQL (startup/seed/sql/sample_type_requirements.sql,
+    applied by startup's schema fixups) and a managed model would have an
+    unrelated makemigrations propose creating it on both aliases.
+    """
+    _DATABASE = NEXTSEEK_DATABASE
+
+    child_code = models.CharField(max_length=32, unique=True)
+    parent_codes = models.TextField()
+    coverage = models.DecimalField(max_digits=4, decimal_places=3)
+    support = models.IntegerField()
+    assay_titles = models.TextField(default=None, null=True)
+    source = models.CharField(max_length=16, default="graph")
+    computed_at = models.DateTimeField()
+
+    def __str__(self):
+        return self.child_code
+
+    class Meta:
+        db_table = "sample_type_requirements"
+        managed = False
+
+
 class Sample_attributes(models.Model):
     _DATABASE = SEEK_DATABASE
     
