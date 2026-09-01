@@ -17,6 +17,7 @@ from .schemas import (
     ErrorResponse,
     GraphOutcome,
     JobStatusResponse,
+    RegistrationCounts,
     RegistrationAcceptedResponse,
     RegistrationRequest,
     RegistrationResponse,
@@ -99,7 +100,16 @@ def register(payload: RegistrationRequest, request) -> Tuple[dict, int]:
                 mode="asynchronous", job_id=job.job_id,
                 status_url=reverse("nextseek_api:assay-registrations-job",
                                    kwargs={"job_id": str(job.job_id)}),
-                counts=preview(plan).counts,
+                # `submitted` ONLY. Not preview(plan).counts, which labels every
+                # row in to_write as "written" -- so a 25,765-row POST would
+                # answer {"written": 25700} with zero rows written and, until a
+                # worker claims the job, none ever written. That is precisely the
+                # defect this endpoint replaces, reproduced on its own new path,
+                # and worse than a stale number because nothing will ever make it
+                # true. Every other bucket defaults to 0, which is the honest
+                # value at 202. A caller who wants the projection asks for it by
+                # name: that is what dry_run is for.
+                counts=RegistrationCounts(submitted=plan.total_rows),
             )
             return body.model_dump(mode="json"), 202
 

@@ -93,9 +93,15 @@ class TestErrorCodes:
 
     def test_the_codes_every_other_module_emits_are_declared(self):
         """The set has to cover the envelope codes too, not just row codes.
-        The ViewSet and service construct these three, so enforcing membership
-        without declaring them would break Task 8 rather than protect it."""
-        for code in ("request_validation_error", "job_not_found", "not_cancellable"):
+        The ViewSet and service construct these five, so enforcing membership
+        without declaring them would break Task 8 rather than protect it.
+
+        `authentication_classes` puts session auth first, whose challenge header
+        is None, so DRF would coerce an anonymous request to 403; the ViewSet
+        overrides handle_exception to answer 401 and 403 in this package's own
+        ErrorResponse envelope, and these are the two codes it emits there."""
+        for code in ("request_validation_error", "job_not_found", "not_cancellable",
+                     "authentication_failed", "permission_denied"):
             assert code in ERROR_CODES
 
 

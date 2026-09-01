@@ -30,17 +30,29 @@ from .schemas import (
     RowError,
 )
 
-#: A malformed `job_id` reaches the ORM as an unparseable UUID, and Django's
-#: UUIDField.to_python raises django.core.exceptions.ValidationError -- NOT
-#: ValueError, and NOT ObjectDoesNotExist. Catching only those two turns
-#: `GET /assay-registrations/jobs/garbage/` into a 500. The action's url_path
-#: is `[^/.]+`, so any non-empty token routes here and this is reachable from
-#: the open internet side of the auth gate.
+#: LOOKUP failures only, and the narrowness is the point. Named once because
+#: both job actions need the same tuple for the same reason, so a future fix
+#: cannot correct one and miss the other.
 #:
-#: Note also that this is Django's ValidationError, not pydantic's, which is
+#: `ObjectDoesNotExist` is the missing row. `DjangoValidationError` is the
+#: malformed id: a `job_id` that will not parse reaches the ORM and Django's
+#: UUIDField.to_python raises THAT -- not ValueError and not ObjectDoesNotExist.
+#: The action's url_path is `[^/.]+`, so any non-empty token routes here, and
+#: omitting it turns `GET /assay-registrations/jobs/garbage/` into a 500.
+#:
+#: A bare `ValueError` MUST NOT be added back. pydantic's ValidationError
+#: subclasses ValueError, and `service.job_status` ends by validating the stored
+#: terminal report, so `ValueError` here answers any drift between a persisted
+#: result and the response model with 404 "Job not found" -- for a job that
+#: exists and has finished. On an endpoint whose whole purpose is a truthful
+#: receipt, telling a caller their completed batch was never created is the worst
+#: available answer. Unparseable stored state is a server error: let it 500,
+#: loudly. This is live the moment a worker starts writing terminal results.
+#:
+#: Note also that `DjangoValidationError` is Django's, not pydantic's, which is
 #: imported unqualified above for request-body validation. Same class name,
 #: unrelated classes, opposite meanings -- so the Django one is aliased.
-_JOB_LOOKUP_FAILURES = (ObjectDoesNotExist, DjangoValidationError, ValueError)
+_JOB_LOOKUP_FAILURES = (ObjectDoesNotExist, DjangoValidationError)
 
 REQUEST_EXAMPLE = {
     "registrations": [

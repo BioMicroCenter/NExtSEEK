@@ -171,6 +171,7 @@ class TestSchema:
 import uuid
 from contextlib import contextmanager
 from unittest.mock import patch as _patch
+from pydantic import ValidationError as PydanticValidationError
 
 from nextseek_api.assay_registration import jobs
 from nextseek_api.assay_registration.executor import ExecutionResult
@@ -606,3 +607,170 @@ class TestThreshold:
         assert (settings.ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD
                 == settings.ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD)
         assert isinstance(settings.ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD, int)
+
+
+# ---------------------------------------------------------------------------
+# Fix round 1.
+# ---------------------------------------------------------------------------
+
+#: Codes the ViewSet and service emit in an error ENVELOPE rather than on a row.
+#: Everything else in ERROR_CODES describes a row outcome and therefore has to
+#: appear in the published description, or a caller meets it with no way to look
+#: it up.
+ENVELOPE_ONLY_CODES = frozenset({
+    "request_validation_error", "job_not_found", "not_cancellable",
+    "authentication_failed", "permission_denied",
+})
+
+
+@pytest.mark.django_db
+class TestTheAcceptedCountsPromiseNothing:
+    """A 202 must not report rows as written that nothing has written.
+
+    `preview(plan)` labels every row in `plan.to_write` "written", so
+    `counts=preview(plan).counts` answered a 25,765-row POST with
+    `{"written": 25700}` before a single row existed -- and, with no worker on
+    this branch, before any ever would. That is the defect this endpoint was
+    built to remove, reproduced on its own new path.
+    """
+
+    def _post(self, superuser, total_rows=6000):
+        with _patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
+             _patch("nextseek_api.assay_registration.service.preview") as preview, \
+             _patch("nextseek_api.assay_registration.service.execute") as execute, \
+             _patch("nextseek_api.assay_registration.service.get_connection"):
+            plan.return_value = MagicMock(
+                total_rows=total_rows,
+                execution_mode=lambda threshold: "asynchronous")
+            response = _client(superuser).post(URL, BODY, format="json")
+        execute.assert_not_called()
+        return response, preview
+
+    def test_only_submitted_is_populated(self, superuser):
+        response, _ = self._post(superuser)
+        assert response.status_code == 202
+        assert response.json()["counts"] == {
+            "submitted": 6000, "written": 0, "already_present": 0,
+            "skipped": 0, "failed": 0,
+        }
+
+    def test_no_projection_is_computed_at_all(self, superuser):
+        """Stronger than checking the numbers: the forecast is never built, so
+        it cannot leak into the 202 by a later edit."""
+        _, preview = self._post(superuser)
+        preview.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestAStoredResultThatWillNotValidate:
+    def test_it_is_a_server_error_not_a_404(self, superuser):
+        """`_JOB_LOOKUP_FAILURES` must not contain bare `ValueError`.
+
+        pydantic's ValidationError SUBCLASSES ValueError, and `job_status` ends
+        by validating the stored terminal report, so a bare ValueError in the
+        tuple answers drift between a persisted result and the response model
+        with 404 "Job not found" -- for a job that exists and has finished. A
+        superuser polling a completed batch would conclude it was never created.
+        Unparseable stored state is a server error; it should 500 loudly.
+
+        The trigger here is real, not contrived: RowError enforces ERROR_CODES on
+        READ as well as write, so a code retired from the set breaks the status
+        read of every job whose stored report carries it.
+        """
+        job = jobs.create_job({"registrations": [], "dry_run": False},
+                              superuser, total_rows=1)
+        AssayRegistrationJob.objects.filter(pk=job.pk).update(
+            state="succeeded",
+            terminal_result={
+                "mode": "synchronous", "overall_status": "failed",
+                "counts": {"submitted": 1, "written": 0, "already_present": 0,
+                           "skipped": 1, "failed": 0},
+                "rows": [{"index": 0, "sample_uid": "A", "status": "skipped",
+                          "error": {"code": "a_code_since_retired",
+                                    "message": "was declared once"}}],
+                "graph": {"status": "skipped"},
+            })
+        with pytest.raises(PydanticValidationError):
+            _client(superuser).get(f"{JOBS_URL}{job.job_id}/")
+
+
+class TestAuthenticationClassesAreGuarded:
+    """`force_authenticate` bypasses the authenticators entirely and the
+    conventions validator never inspects them, so the project-wide "never
+    TokenAuthentication" rule had no standing guard on this ViewSet. Asserting
+    the class lists is the cheapest form of one.
+    """
+
+    def test_the_authenticators_are_exactly_session_then_basic(self):
+        from rest_framework.authentication import BasicAuthentication
+
+        from nextseek_api.assay_registration.views import AssayRegistrationViewSet
+        from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+
+        assert AssayRegistrationViewSet.authentication_classes == [
+            CsrfExemptSessionAuthentication, BasicAuthentication]
+
+    def test_token_authentication_is_absent(self):
+        """Stated as the rule rather than as a list equality, so it still holds
+        if the list is ever legitimately extended. Token auth does not work in
+        this project."""
+        from rest_framework.authentication import TokenAuthentication
+
+        from nextseek_api.assay_registration.views import AssayRegistrationViewSet
+
+        assert not any(issubclass(cls, TokenAuthentication)
+                       for cls in AssayRegistrationViewSet.authentication_classes)
+
+    def test_the_gate_is_authenticated_then_superuser_not_is_admin_user(self):
+        """IsAdminUser checks is_staff, which dmac/views.py:80,97 sets on every
+        SEEK user at login, so it collapses to IsAuthenticated."""
+        from rest_framework.permissions import IsAdminUser, IsAuthenticated
+
+        from nextseek_api.assay_registration.views import AssayRegistrationViewSet
+        from nextseek_api.permissions import IsSuperUser
+
+        assert AssayRegistrationViewSet.permission_classes == [
+            IsAuthenticated, IsSuperUser]
+        assert IsAdminUser not in AssayRegistrationViewSet.permission_classes
+
+
+class TestThePublishedErrorCodes:
+    def test_every_row_level_code_is_documented(self):
+        """Self-maintaining, unlike the one-time edit that added
+        `write_not_confirmed_by_readback`: a new row code declared in
+        ERROR_CODES and left out of the description fails here. That code in
+        particular is the single most important thing a row can say -- the
+        insert reported no error and the row was not there on read-back."""
+        from nextseek_api.assay_registration.schemas import ERROR_CODES
+        from nextseek_api.endpoint_descriptions import ASSAY_REGISTRATION_CREATE_DESC
+
+        undocumented = sorted(
+            code for code in ERROR_CODES - ENVELOPE_ONLY_CODES
+            if f"`{code}`" not in ASSAY_REGISTRATION_CREATE_DESC)
+        assert undocumented == []
+
+    def test_the_envelope_only_split_still_covers_every_declared_code(self):
+        """Guards the guard: if a code is neither documented nor listed as
+        envelope-only, the test above would quietly stop checking it."""
+        from nextseek_api.assay_registration.schemas import ERROR_CODES
+
+        assert ENVELOPE_ONLY_CODES <= ERROR_CODES
+
+
+class TestTheDescriptionDoesNotOverstate:
+    def test_the_asynchronous_mode_is_published(self):
+        """Nothing told a client the 202's numbers were a forecast, because
+        RETURNS never mentioned the asynchronous mode at all."""
+        from nextseek_api.endpoint_descriptions import ASSAY_REGISTRATION_CREATE_DESC
+
+        for token in ("202", "status_url", "job_id"):
+            assert token in ASSAY_REGISTRATION_CREATE_DESC
+
+    def test_dry_run_is_not_called_an_identical_report(self):
+        """It is the same SHAPE, not the identical report: a planned row carries
+        no assay_assets_id because no database has assigned one, and the graph
+        block is skipped."""
+        from nextseek_api.endpoint_descriptions import ASSAY_REGISTRATION_CREATE_DESC
+
+        assert "identical report" not in ASSAY_REGISTRATION_CREATE_DESC
+        assert "assay_assets_id" in ASSAY_REGISTRATION_CREATE_DESC
