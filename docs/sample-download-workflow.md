@@ -387,3 +387,27 @@ The `_NEXTSEEK` manifest carries `database_field` pre-rendered as
 `Code::Attribute` — the shape the `INSTRUCTIONS` sheet needs — so the planned
 converter that turns a filled-in template back into canonical upload format
 reads a mapping rather than reconstructing one.
+
+## Required sample types
+
+The Download Templates picker pulls in types a selection cannot be uploaded
+without: `D.SEQ` brings `DNA`, `PAV` asks for one of `NHP` or `PAT`.
+
+The relation is derived, not curated. `manage.py
+derive_sample_type_requirements` runs one Cypher query over Neo4j's
+`DERIVED_FROM` edges — which carry `internal_assay_title` on the edge, so the
+joining assay comes back with the pair — and writes
+`dmac.sample_type_requirements`. `nextseek_api/services/type_requirements.py`
+holds the rule: parent types by descending share until they cover 95% of the
+child's derivations, at least 20 supporting samples, at most 3 alternatives.
+One parent is a hard requirement; two or three are a choice.
+
+Nothing runs the command automatically. The table ships empty and the picker
+treats that as "no requirements known", so a fresh install behaves exactly as it
+did before the feature existed.
+
+Neo4j is never on the request path: the page reads only the materialised table.
+
+Note that `sample_attributes.linked_sample_type_id` is populated zero times on
+this instance and no `Parent` attribute is marked required, which is why the
+requirement is derived from observed data rather than read from the schema.
