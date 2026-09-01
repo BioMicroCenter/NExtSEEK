@@ -397,6 +397,10 @@ ADVERTISED_MUTATIONS = {
     ("PATCH", "/nextseek_api/samples/{uid}/"): WRITE,
     ("PATCH", "/nextseek_api/sops/{uid}/"): WRITE,
     ("POST", "/nextseek_api/admin/samples/retrieve/"): POST_AS_READ,
+    # Additive membership registration. WRITE, not POST_AS_READ: it inserts
+    # assay_assets rows. It cannot delete — removal is not expressible in the
+    # request shape — but "cannot delete" is not "does not write".
+    ("POST", "/nextseek_api/assay-registrations/"): WRITE,
     ("POST", "/nextseek_api/assays/"): WRITE,
     ("POST", "/nextseek_api/data_files/"): WRITE,
     ("POST", "/nextseek_api/investigations/"): WRITE,

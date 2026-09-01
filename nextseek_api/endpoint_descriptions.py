@@ -635,13 +635,25 @@ ASSAY_CREATE_DESC = (
 
 ASSAY_UPDATE_DESC = (
     "**SUMMARY:** Update an existing assay by its numeric SEEK ID.\n\n"
-    "**USE WHEN:** The user wants to modify an assay's title, description, type, technology, or linked samples/data.\n\n"
-    "**ACCEPTS:** Assay SEEK ID as path parameter; partial update payload with fields to change.\n\n"
+    "**USE WHEN:** The user wants to modify an assay's title, description, type or "
+    "technology.\n\n"
+    # The warning deliberately avoids the phrasings ADDITIVE_PHRASES bans. In a
+    # catalog consumed by retrieval, a prohibition that contains the bait phrase
+    # still matches on it, and the match is what routes an agent here.
+    "**DO NOT USE WHEN:** The user wants to place further samples into an assay. This "
+    "endpoint forwards the payload to SEEK verbatim, and a JSON:API PATCH on a to-many "
+    "relationship REPLACES the complete list: naming one sample removes every other "
+    "sample from the assay. The largest assay in production holds 48,440 samples. "
+    "To register memberships additively, use POST /nextseek_api/assay-registrations/ "
+    "instead.\n\n"
+    "**ACCEPTS:** Assay SEEK ID as path parameter; partial update payload with fields "
+    "to change. A `relationships.samples` block replaces the assay's entire sample "
+    "list and must therefore enumerate every sample that should remain.\n\n"
     "**RETURNS:** The updated assay with all current metadata.\n\n"
-    "**TRIGGER PHRASES:** update assay, edit assay, modify experiment, change assay, patch assay\n\n"
+    "**TRIGGER PHRASES:** update assay, edit assay, rename assay, change assay "
+    "description, patch assay\n\n"
     "**EXAMPLES:**\n"
     "- 'Update the description for the RNA-seq assay'\n"
-    "- 'Add additional samples to the flow cytometry experiment'\n"
     "- 'Change the technology type for assay 351'\n"
 )
 
@@ -1101,4 +1113,90 @@ SAMPLETYPE_CONNECTIONS_DESC = (
     "- 'Show me all the sample type connections in the Impactb investigation'\n"
     "- 'Which assays connect CEL to anything, across all projects?'\n"
     "- 'Give me a diagram of the connections in project 11'\n"
+)
+
+
+# =============================================================================
+# AssayRegistrationViewSet (3 endpoints)
+# =============================================================================
+
+ASSAY_REGISTRATION_CREATE_DESC = (
+    "**SUMMARY:** Register a batch of samples as members of assays. Additive only: "
+    "this endpoint cannot remove a membership. Superuser only.\n\n"
+    "**USE WHEN:** The user wants to add one or many samples to one or many assays, "
+    "for example after a curation pass decides which assay a sample belongs to. This "
+    "is the correct endpoint for 'add samples to an assay'.\n\n"
+    "**DO NOT USE WHEN:** The caller wants to REMOVE a membership, or to set an "
+    "assay's sample list to an exact set. Neither is expressible here, deliberately. "
+    "Do not reach for PATCH /nextseek_api/assays/{uid}/ to add samples: that is a "
+    "complete-list replace and would remove every sample not named.\n\n"
+    "**ACCEPTS:** `registrations`, a list of rows, each naming `sample_uid` plus "
+    "exactly one of `assay` (an internal assay title, resolved inside that sample's "
+    "own project) or `assay_id` (a numeric SEEK assay id, validated against that "
+    "sample's project). Optional `dry_run` (default false) returns the same report "
+    "shape without writing -- with three honest differences: a planned row carries no "
+    "`assay_assets_id`, because no database has assigned one yet; the `graph` block "
+    "is `skipped`; and where the same pair appears twice in one request, the second "
+    "copy is reported `already_present` even though the database holds neither copy "
+    "yet, because the first copy is what would write it.\n\n"
+    "**RETURNS:** Per-row outcomes with `status` of written, already_present, skipped "
+    "or failed. Every written row carries the `assay_assets_id` the database assigned, "
+    "so no follow-up query is needed to confirm the write. A `graph` block reports the "
+    "DERIVED_FROM label recompute the write triggered.\n\n"
+    "A batch above the synchronous row threshold instead returns 202 with `job_id` and "
+    "`status_url`, and its `counts` carries `submitted` only -- every other bucket is 0, "
+    "because at that moment nothing has been written. Poll `status_url` for the per-row "
+    "report. This does not apply to `dry_run`: a dry run writes nothing, so it is always "
+    "answered inline with the full per-row report, at any size. To see what a batch "
+    "WOULD do before running it, use `dry_run`.\n\n"
+    "**ERROR CODES:** `sample_uid_not_found`, `sample_uid_not_unique` (the uid matches "
+    "two or more sample rows), `sample_has_no_project`, `assay_not_found`, "
+    "`assay_project_mismatch`, `internal_assay_not_found`, `assay_not_in_sample_project`, "
+    "`assay_ambiguous_in_project` (the title maps to several assays in that project; "
+    "the message lists them, retry with `assay_id`), `write_not_confirmed_by_readback` "
+    "(the insert reported no error but the row was not there when read back; that row was "
+    "NOT written -- go and look at it, do not blindly retry), `job_execution_failed` "
+    "(a 202 job's batch never reached the insert at all: the connection failed or planning "
+    "raised, the transaction rolled back, nothing was written -- this one is safe to "
+    "retry), and `job_request_not_executable` (a 202 job's stored request cannot be run: "
+    "it no longer validates against the request schema, or it carries `dry_run`. Nothing "
+    "was attempted and, unlike `job_execution_failed`, retrying that job fails "
+    "identically every time -- resubmit the batch instead).\n\n"
+    "**TRIGGER PHRASES:** register assay, add samples to an assay, assay membership, "
+    "bulk assay registration, link samples to assay\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Add these 40 samples to the flow cytometry assay'\n"
+    "- 'Register D.NHP-240115MIT-001 under assay 351'\n"
+    "- 'Dry run: which of these registrations would fail?'\n"
+)
+
+ASSAY_REGISTRATION_JOB_DESC = (
+    "**SUMMARY:** Status of one batch assay-registration job. Superuser only.\n\n"
+    "**USE WHEN:** A registration returned 202 with a job id and the caller wants "
+    "progress or the finished per-row report.\n\n"
+    "**ACCEPTS:** `job_id`, the UUID returned by the registration call.\n\n"
+    "**RETURNS:** `state`, `processed_rows`, `total_rows`, and once terminal, the "
+    "full per-row `result`.\n\n"
+    "`processed_rows` stays 0 until the batch is terminal, then jumps to `total_rows` "
+    "on success. It is not granular progress and never will be: the write is a single "
+    "transaction, so at any moment before it commits the honest number of rows "
+    "processed is zero. Watch `state`, not `processed_rows`, to tell whether a job is "
+    "moving.\n\n"
+    "**TRIGGER PHRASES:** registration job status, assay registration progress\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Is my assay registration finished?'\n"
+)
+
+ASSAY_REGISTRATION_JOB_CANCEL_DESC = (
+    "**SUMMARY:** Request cancellation of a running batch assay-registration job. "
+    "Superuser only.\n\n"
+    "**USE WHEN:** A large registration is running and should stop.\n\n"
+    "**DO NOT USE WHEN:** The caller expects rows already written to be undone. "
+    "Cancellation stops further writes; it does not remove memberships already "
+    "registered, and nothing in this API can.\n\n"
+    "**ACCEPTS:** `job_id`, the UUID returned by the registration call.\n\n"
+    "**RETURNS:** The job status after the cancellation request.\n\n"
+    "**TRIGGER PHRASES:** cancel registration, stop assay registration\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Cancel that assay registration job'\n"
 )

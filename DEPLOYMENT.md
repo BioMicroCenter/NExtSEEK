@@ -23,8 +23,10 @@ Related docs (each has a distinct job — don't cross-purpose them):
 ## 0. Topology at a glance
 
 One `docker-compose.yml` at the repo root defines the whole stack:
-**13 services, 2 networks, and 9 named volumes**. Seven volumes are external;
+**14 services, 2 networks, and 9 named volumes**. Seven volumes are external;
 two are Compose-managed, including the attribute Celery SQLite broker.
+(The 14th is `assay_registration_worker`, listed below; it is profile-gated, so
+`docker compose ps` will not show it unless the profile is on.)
 
 | Service | Image | Host port | Network(s) | Role |
 |---|---|---|---|---|
@@ -38,6 +40,7 @@ two are Compose-managed, including the attribute Celery SQLite broker.
 | `nextseek-sidecar` | built from `docker/ns-sidecar/` | — | dmac-cc-net | NS sidecar for the CC agent (healthchecked) |
 | `cc-agent` | built from `docker/cc-runtime/` → `dmac-assistant:poc` | — | none | **build-target only** — never runs as a service; per-turn agent containers are spawned from this image by the app via the docker socket |
 | `attribute_mutation_worker` / `attribute_mutation_dispatcher` / `attribute_mutation_recovery_scheduler` | shared `nextseek-nextseek:latest` app image | — | default | durable attribute execution, outbox dispatch, and recovery processes |
+| `assay_registration_worker` | shared `nextseek-nextseek:latest` app image | — | default | drains the batch assay-registration job queue. **Requires `COMPOSE_PROFILES=assay-registration`, and it must be EXPORTED into the environment, not set in the project-root `.env`.** Compose honours both, but `startup/lib/rebuild_policy.py` reads `os.environ` only — so an operator who sets it in `.env` gets a worker Compose starts and `./startup.sh rebuild` never names, which leaves a **stale worker running old code** after a deploy: the same class of failure as no worker at all, arriving by a different route. Without the profile set at all the service never starts, and a `202` from `POST /nextseek_api/assay-registrations/` is accepted and then **never executed** — `status_url` reports `accepted`, 0 of N, indefinitely, with no error anywhere. Any instance that can return that 202 must run this. |
 
 Key facts every operator must internalize:
 
@@ -251,7 +254,7 @@ docker logs -f nextseek        # until gunicorn workers are up; no FAILED marker
 
 | You changed | Required action |
 |---|---|
-| Python / templates / anything baked (`nextseek_api/`, `chat_nextseek/`, `seek/`, `dmac/` except `local_settings.py`) | `./startup.sh rebuild` — rebuild shared app image; recreate web + attribute runtimes |
+| Python / templates / anything baked (`nextseek_api/`, `chat_nextseek/`, `seek/`, `dmac/` except `local_settings.py`) | `./startup.sh rebuild` — rebuild shared app image; recreate web + attribute runtimes, plus the assay-registration worker when `COMPOSE_PROFILES` (exported) names `assay-registration` |
 | `static/` assets | rebuild + recreate, **then** `docker compose exec nextseek uv run manage.py collectstatic --noinput` |
 | `chat_frontend/` React source | `npm run build:embedded` in `chat_frontend/`, commit the emitted assets, then rebuild + recreate + collectstatic |
 | `docker/cc-runtime/**` (agent plugin/skills/CLAUDE.md/deps) | `./startup.sh rebuild --component cc-agent` — next turn uses it; no service restart |

@@ -43,7 +43,7 @@ import csv
 import logging
 import os
 from collections import defaultdict
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Tuple
 
 import django
 
@@ -51,8 +51,13 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
 django.setup()
 
 from django.conf import settings  # noqa: E402
-from django.db import connections  # noqa: E402
 from neo4j import GraphDatabase  # noqa: E402
+
+from nextseek_api.assay_registration.graph import (  # noqa: E402
+    RECOMPUTE_CYPHER as _WRITE,
+    assays_by_sample,
+    resolve_internal,
+)
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -69,88 +74,6 @@ RETURN r.child_id AS child_id, r.parent_id AS parent_id,
        r.internal_assay_id AS current_id, r.internal_assay_title AS current_title
 """
 
-#: ONE pass over the edges, with a server-side map lookup per edge.
-#:
-#: The obvious form -- UNWIND $rows, then MATCH the edge by child_id/parent_id --
-#: is a full DERIVED_FROM scan PER ROW, because this database has no property
-#: indexes at all (only the two default LOOKUPs). At 5,000 rows against 500k+
-#: edges it does not finish; the first attempt died on
-#: TransactionTimedOutClientConfiguration. Matching Sample nodes by uuid or id
-#: instead is no better, since those are unindexed label scans.
-_WRITE = """
-MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
-WHERE r.internal_assay_title IS NOT NULL
-  AND r.child_id IS NOT NULL AND r.parent_id IS NOT NULL
-WITH r, $edges[toString(r.child_id) + "_" + toString(r.parent_id)] AS entry
-WHERE entry IS NOT NULL
-SET r.internal_assay_ids = entry.ids, r.internal_assay_titles = entry.titles
-RETURN count(r) AS written
-"""
-
-
-def _seek_cursor():
-    """Cursor on seek_production. See trap 1 in the module docstring."""
-    alias = settings.SEEK_DATABASE
-    name = settings.DATABASES[alias]["NAME"]
-    log.info("SQL alias %r -> database %r", alias, name)
-    return connections[alias].cursor(), name
-
-
-def assays_by_sample(sample_ids: Set[int]) -> Dict[int, Set[int]]:
-    """sample_id -> {assay_id}, from assay_assets."""
-    cursor, dbname = _seek_cursor()
-    out: Dict[int, Set[int]] = defaultdict(set)
-    ids = sorted(sample_ids)
-    with cursor:
-        for start in range(0, len(ids), 5000):
-            chunk = ids[start : start + 5000]
-            ph = ", ".join(["%s"] * len(chunk))
-            cursor.execute(
-                f"SELECT asset_id, assay_id FROM {dbname}.assay_assets "
-                f"WHERE asset_type = 'Sample' AND asset_id IN ({ph})",
-                chunk,
-            )
-            for asset_id, assay_id in cursor.fetchall():
-                out[int(asset_id)].add(int(assay_id))
-    if not out:
-        raise SystemExit(
-            "assay_assets returned nothing for any sample. Refusing to continue: "
-            "this is the signature of querying the empty dmac copy instead of "
-            "seek_production (trap 1)."
-        )
-    return out
-
-
-def resolve_internal(assay_ids: Set[int]) -> Dict[int, Tuple[int, str]]:
-    """assay_id -> (internal_assay_id, title), junction table first, id fallback."""
-    cursor, dbname = _seek_cursor()
-    ns = settings.DATABASES[settings.NEXTSEEK_DATABASE]["NAME"]
-    mapping: Dict[int, Tuple[int, str]] = {}
-    ids = sorted(assay_ids)
-    with cursor:
-        for start in range(0, len(ids), 5000):
-            chunk = ids[start : start + 5000]
-            ph = ", ".join(["%s"] * len(chunk))
-            cursor.execute(
-                f"SELECT aia.assay_id, ia.id, ia.internal_assay_title "
-                f"FROM {ns}.assays_internal_assays aia "
-                f"JOIN {ns}.internal_assays ia ON ia.id = aia.internal_assay_id "
-                f"WHERE aia.assay_id IN ({ph})",
-                chunk,
-            )
-            for assay_id, ia_id, ia_title in cursor.fetchall():
-                mapping[int(assay_id)] = (int(ia_id), ia_title or "")
-        unresolved = [a for a in ids if a not in mapping]
-        for start in range(0, len(unresolved), 5000):
-            chunk = unresolved[start : start + 5000]
-            ph = ", ".join(["%s"] * len(chunk))
-            cursor.execute(
-                f"SELECT id, title FROM {dbname}.assays WHERE id IN ({ph})", chunk
-            )
-            for assay_id, title in cursor.fetchall():
-                mapping[int(assay_id)] = (int(assay_id), title or "")
-    return mapping
-
 
 def plan(driver, db_name: str) -> List[dict]:
     """Every edge needing a list, with the winner it currently reports."""
@@ -160,6 +83,12 @@ def plan(driver, db_name: str) -> List[dict]:
 
     sample_ids = {int(e["child_id"]) for e in edges} | {int(e["parent_id"]) for e in edges}
     by_sample = assays_by_sample(sample_ids)
+    if not by_sample:
+        raise SystemExit(
+            "assay_assets returned nothing for any sample. Refusing to continue: "
+            "this is the signature of querying the empty dmac copy instead of "
+            "seek_production (trap 1)."
+        )
     every_assay = {a for s in by_sample.values() for a in s}
     mapping = resolve_internal(every_assay)
     log.info("samples %d | assays %d | resolved %d", len(by_sample), len(every_assay), len(mapping))

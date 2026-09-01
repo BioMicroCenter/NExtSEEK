@@ -10,72 +10,218 @@ $(function(){
 });
 
 	var sample_attribute_types = {{ report.attribute_types_options|safe }};
-	
+
+	// ------------------------------------------------------------------
+	// This page writes through the nextseek_api attributes API, NOT through
+	// /seek/attribute/save/ and /seek/attribute/delete/.
+	//
+	// Those endpoints wrote to sample_attributes through the Django ORM with
+	// no validation, no position normalisation and no cache invalidation, so
+	// a change stayed invisible to batch-upload validation until the gunicorn
+	// workers were restarted. The API enforces the SEEK invariants
+	// server-side, normalises positions, invalidates the prefetch cache and
+	// returns structured errors.
+	//
+	// Auth is the browser session already in hand: the attributes API uses
+	// CsrfExemptSessionAuthentication (nextseek_api/attributes/auth.py:15), so
+	// no CSRF token and no credentials are needed here. Mutations require the
+	// signed-in user to be a Django superuser and answer 403 otherwise.
+	// ------------------------------------------------------------------
+
+	var NS_ATTR_API = '/nextseek_api/attributes/';
+
+	function nsAttrApi(method, path, payload) {
+		return fetch(path, {
+			method: method,
+			credentials: 'same-origin',
+			headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+			body: payload === undefined ? undefined : JSON.stringify(payload)
+		}).then(function (response) {
+			return response.text().then(function (text) {
+				var body;
+				try { body = JSON.parse(text); } catch (e) { body = {raw: text}; }
+				return {status: response.status, body: body};
+			});
+		});
+	}
+
+	function nsAttrErrors(result) {
+		var body = result.body || {};
+		var errors = (body.errors || []).slice();
+		// Per-target failures -- a duplicate title, an unknown value type -- arrive
+		// in outcomes[].errors[], NOT at the top level. The top-level `errors` shape
+		// is used only for envelope-level failures such as an unresolved sample
+		// type. Reading just the top level reports a bare "HTTP 409" and throws away
+		// the one sentence that tells the operator what to fix.
+		(body.outcomes || []).forEach(function (outcome) {
+			(outcome.errors || []).forEach(function (e) { errors.push(e); });
+		});
+		if (!errors.length) {
+			if (result.status === 403) { return 'Superuser access is required to change attributes.'; }
+			if (result.status === 401) { return 'Your session has expired. Please sign in again.'; }
+			return 'HTTP ' + result.status;
+		}
+		return errors.map(function (e) {
+			var where = e.field ? ' (' + e.field + ')' : '';
+			return (e.message || e.code) + where;
+		}).join('<br/>');
+	}
+
+	// The Type column holds the NUMERIC type id even though its field is named
+	// sample_attribute_type_title -- the combobox uses sample_attribute_type_id
+	// as its valueField. The API takes an id, a numeric string or an exact
+	// title, so the id passes straight through.
+	function nsAttrTypeOf(row) { return row.sample_attribute_type_title; }
+
+	function nsAttrInt(value) {
+		var n = parseInt(value, 10);
+		return isNaN(n) ? null : n;
+	}
+
+	function nsAttrFields(row) {
+		var out = {
+			title: row.title,
+			sample_attribute_type: nsAttrTypeOf(row),
+			required: String(row.required) === '1',
+			is_title: String(row.is_title) === '1'
+		};
+		var pos = nsAttrInt(row.pos);
+		if (pos !== null && pos > 0) { out.pos = pos; }
+		return out;
+	}
+
+	function nsAttrCreatePayload(rows, sample_type_id, dry_run) {
+		var attributes = rows.map(function (row) {
+			var attr = nsAttrFields(row);
+			// The old /seek/attribute/save/ path silently DROPPED this field.
+			if (row.sample_controlled_vocab_id) {
+				attr.sample_controlled_vocab = nsAttrInt(row.sample_controlled_vocab_id);
+			}
+			return attr;
+		});
+		return {targets: [{sample_type: nsAttrInt(sample_type_id), attributes: attributes}], dry_run: dry_run};
+	}
+
+	function nsAttrPatchPayload(rows, sample_type_id, dry_run) {
+		var attributes = rows.map(function (row) {
+			return {attribute: nsAttrInt(row.id), changes: nsAttrFields(row)};
+		});
+		return {targets: [{sample_type: nsAttrInt(sample_type_id), attributes: attributes}], dry_run: dry_run};
+	}
+
+	// What the server says it will do. Surfacing automatic_changes matters:
+	// adding one attribute to a type with gappy positions can renumber dozens.
+	function nsAttrPreview(result) {
+		var body = result.body || {};
+		var counts = body.counts || {};
+		var parts = [];
+		['created', 'patched', 'deleted', 'reordered', 'unchanged'].forEach(function (k) {
+			if (counts[k]) { parts.push(counts[k] + ' ' + k); }
+		});
+		var line = parts.length ? parts.join(', ') : 'no change';
+		var auto = 0;
+		(body.outcomes || []).forEach(function (o) { auto += (o.automatic_changes || []).length; });
+		if (auto) { line += '<br/>' + auto + ' automatic change(s), including position renumbering.'; }
+		return line;
+	}
+
+	// Preview with dry_run, let the operator confirm, then apply for real.
+	function nsAttrSubmit(dg, calls) {
+		Promise.all(calls.map(function (c) { return nsAttrApi(c.method, c.path, c.payload(true)); }))
+			.then(function (results) {
+				var bad = results.filter(function (r) { return r.status >= 400; });
+				if (bad.length) {
+					$.messager.alert('Cannot save', nsAttrErrors(bad[0]), 'error');
+					return;
+				}
+				var summary = results.map(nsAttrPreview).join('<br/>');
+				$.messager.confirm('Confirm change', summary + '<br/><br/>Apply these changes?', function (ok) {
+					if (!ok) { return; }
+					var win = $.messager.progress({title: 'Please wait', msg: 'Saving ...'});
+					Promise.all(calls.map(function (c) { return nsAttrApi(c.method, c.path, c.payload(false)); }))
+						.then(function (applied) {
+							$.messager.progress('close');
+							var failed = applied.filter(function (r) { return r.status >= 400; });
+							if (failed.length) {
+								$.messager.alert('Save failed', nsAttrErrors(failed[0]), 'error');
+								return;
+							}
+							dg.datagrid('acceptChanges');
+							$.messager.alert('Saved', applied.map(nsAttrPreview).join('<br/>'), 'info');
+							nsAttrReloadCurrentType();
+						})
+						.catch(function (err) {
+							$.messager.progress('close');
+							$.messager.alert('Save failed', String(err), 'error');
+						});
+				});
+			})
+			.catch(function (err) {
+				$.messager.alert('Cannot save', String(err), 'error');
+			});
+	}
+
+	function nsAttrReloadCurrentType() {
+		var id = $('#sample_type').combobox('getValue');
+		if (id && typeof getAttributes === 'function') { getAttributes({id: id}); }
+	}
+
+	// Shadows the shared datagrid-custom.js implementation for THIS page only,
+	// so Clades and Internal Assays keep their existing behaviour.
 	function saveSelectedIntoDB(dg, url_save) {
 		var sample_type_id = $('#sample_type').combobox('getValue');
-		if(sample_type_id==0){
-			alert('No sample type is selected.');
-			return;
-		}
-		var records = [];
-		var rows = dg.datagrid('getChanges');
-		if (rows.length==0){
-			alert("You have not entered any new person!");
+		if (!sample_type_id || !nsAttrInt(sample_type_id)) {
+			$.messager.alert('No sample type', 'Select a sample type first.', 'warning');
 			return false;
 		}
-		for(var i=0; i<rows.length; i++){
-			var row = rows[i];
-			var record = {}
-			for(var key in row) {
-				var value = row[key];
-				record[key] = value;
-			}
-			record['sample_type_id'] = sample_type_id;
-			records.push(record);
+		var inserted = dg.datagrid('getChanges', 'inserted') || [];
+		var updated = dg.datagrid('getChanges', 'updated') || [];
+		if (!inserted.length && !updated.length) {
+			$.messager.alert('Nothing to save', 'No rows have been added or edited.', 'info');
+			return false;
 		}
-		var msg = 'You have entered '
-			+ rows.length
-			+ ' records for saving. Do you really want to save the change?'
-			+ '?';
-		$.messager.confirm('Saving record', msg, function(r){
-			if (r){
-			}
-			else{
-				return false;
-			}
-							
-			var win = $.messager.progress({
-				title:'Please waiting',
-				msg:'Saving record ...'
-			});
-			$.get(url_save,
-				{
-					records: JSON.stringify(records),
-					sampletype_id: sample_type_id
-				},
-				function(data){
-					$.messager.progress('close');
-					var obj = jQuery.parseJSON(data);
-					var msg = obj.msg;
-					var link = obj.link;
-					var status = obj.status;
-					if(!status){
-						var msg2 = "Error in saving record. <br/><br/>";
-						msg2 += msg;
-						alert(msg);
-						window.location.href = link;
-						return false;
-					} 
-					else{
-						$.messager.alert('Saving record',msg,'info');
-					}
-					window.location.href = link;
-					return true;
-				}
-			);
+		var blank = inserted.filter(function (r) { return !r.title || !nsAttrTypeOf(r); });
+		if (blank.length) {
+			$.messager.alert('Incomplete row', 'Every new attribute needs a Name and a Type.', 'warning');
+			return false;
+		}
+		var calls = [];
+		if (inserted.length) {
+			calls.push({method: 'POST', path: NS_ATTR_API + 'batch-create/',
+				payload: function (dry) { return nsAttrCreatePayload(inserted, sample_type_id, dry); }});
+		}
+		if (updated.length) {
+			calls.push({method: 'PATCH', path: NS_ATTR_API + 'batch-patch/',
+				payload: function (dry) { return nsAttrPatchPayload(updated, sample_type_id, dry); }});
+		}
+		nsAttrSubmit(dg, calls);
+		// The call is asynchronous and acceptChanges happens in nsAttrSubmit on
+		// success. Returning false stops accept() in datagrid-custom.js from
+		// clearing the grid before the server has answered.
+		return false;
+	}
+
+	// Shadows the shared implementation for THIS page only.
+	function deleteSelectedFromDB(dg, url_delete) {
+		var sample_type_id = $('#sample_type').combobox('getValue');
+		var rows = dg.datagrid('getSelections') || [];
+		if (!rows.length) {
+			$.messager.alert('Nothing selected', 'Select the attribute row you want to remove.', 'warning');
+			return false;
+		}
+		var ids = rows.filter(function (r) { return r.id; }).map(function (r) { return nsAttrInt(r.id); });
+		if (!ids.length) {
+			// Never persisted, so just drop it locally.
+			rows.forEach(function (r) { dg.datagrid('deleteRow', dg.datagrid('getRowIndex', r)); });
 			return true;
-		});
-		return true;
+		}
+		nsAttrSubmit(dg, [{
+			method: 'POST', path: NS_ATTR_API + 'batch-delete/',
+			payload: function (dry) {
+				return {targets: [{sample_type: nsAttrInt(sample_type_id), attributes: ids}], dry_run: dry};
+			}
+		}]);
+		return false;
 	}
 </script>
 <style type="text/css">
@@ -128,8 +274,8 @@ $(function(){
 	</table>
 	<div id="tb_toolbar" style="height:auto">
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="append($('#dg_atype'))">Add an attribute</a>
-        <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="removeit($('#dg_atype'), '/seek/attribute/delete/')">Remove an attribute</a>
-        <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="accept($('#dg_atype'), '/seek/attribute/save/')">Save an attribute</a>
+        <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="removeit($('#dg_atype'))">Remove an attribute</a>
+        <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="accept($('#dg_atype'))">Save an attribute</a>
         <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#dg_atype'))">Cancel</a>
     </div>
 </div>
