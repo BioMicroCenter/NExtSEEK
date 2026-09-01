@@ -1,10 +1,20 @@
-"""HTTP health sweep. Seconds, not minutes.
+"""The hand-written half of the health tier. Seconds, not minutes.
 
-Three assertions per URL, never just a status code:
-  * a sane status, and specifically not a dead gateway
-  * not a silent redirect to /login/ while authenticated
-  * for JSON endpoints, a shape assertion, because a great many of them return
-    200 on failure
+T0 -- `test_reachability.py` -- sweeps every route in `ci/routes.py` for a sane
+status, a live gateway and no silent bounce to /login/. This file holds what a
+registry row cannot express:
+
+  * contract: the API root's exact viewset list, the OpenAPI document
+    generating at all
+  * identity and liveness: which person the caller resolves to, that the account
+    is not a superuser, neo4j answering, an enrichment step that fails silently
+    behind a 200
+  * what an authenticated sweep cannot see: five /seek/ pages must bounce a
+    visitor holding no credentials, and /seek/assistant/ denies one at HTTP 200
+
+The parametrised sweeps that used to live here are now `ci/routes.py` entries.
+Their body-key assertions were not discarded either: each survives as that
+entry's `shape` field, which T1 asserts.
 
 The sweep is, by construction, a program that issues GETs at every URL it knows
 about. So it never holds rights it does not need: the health sweep and the flows
@@ -12,10 +22,6 @@ authenticate as the non-superuser, and the sweep never requests any path under
 /seek/admin/, at any privilege level. Which routes make that rule necessary, and
 why, is recorded in the private findings note, which this public repository does
 not carry.
-
-What is left here is what a registry row cannot express. The parametrised sweeps
-that used to live in this file are now `ci/routes.py` entries, swept by
-`test_reachability.py`.
 """
 from __future__ import annotations
 
@@ -165,6 +171,42 @@ def test_entity_tree_nodes(api, base_url):
 # --------------------------------------------------------------------------- #
 # pages
 # --------------------------------------------------------------------------- #
+
+# Written out, never derived from the registry. See the test's docstring.
+BOUNCING_PAGES = [
+    "/seek/search/",
+    "/seek/projects/",
+    "/seek/samples/query/",
+    "/seek/samples/upload/",
+    "/seek/samples/attributes/",
+]
+
+
+@pytest.mark.parametrize("path", BOUNCING_PAGES)
+def test_seek_page_bounces_an_anonymous_visitor(anon, base_url, path):
+    """The one claim in this suite that no registry row expresses.
+
+    `auth` records which client T0 sweeps a route WITH, so T0 requests all five
+    of these as `web` and proves they render for a logged-in user. That is the
+    opposite claim. Nothing else here issues an anonymous GET at them.
+
+    The list is literal rather than every `auth="web"` route under /seek/,
+    deliberately: derived, it would also name the helper views that do answer an
+    anonymous GET today, and the failure message naming them is written to a
+    public CI log. Five pages, hand-chosen, no index.
+
+    allow_redirects=False is mandatory. Followed, every one of these reports 200,
+    because that is the status of the login page.
+    """
+    r = anon.get(base_url + path, timeout=60, allow_redirects=False)
+    check_gateway(r)
+    assert r.status_code in (301, 302), f"{path} served an anonymous visitor {r.status_code}"
+    # Substring, not equality: the upload page bounces to
+    # /login/?next=<the page it wanted>, and where it came from is not the claim.
+    assert "/login" in r.headers.get("location", ""), (
+        f"{path} redirected to {r.headers.get('location')!r}, not the login page"
+    )
+
 
 def test_assistant_denies_anonymous_visitors_at_status_200(anon, base_url):
     """Pins a known wart rather than pretending it is not there.

@@ -10,9 +10,14 @@ user does. Same command locally, on fairdata-dev, and in CI.
 uv run --no-project --with playwright playwright install chromium
 
 # everything except the write lane
+CI_BOX_PROFILE=local \
 uv run --no-project --with pytest --with requests --with playwright \
   pytest ci/smoke/ --base-url http://127.0.0.1:8000
 ```
+
+`CI_BOX_PROFILE` is not decoration: an absent value means `prod`, and `--profile`
+can only narrow, so pasting this line without it runs a laptop as the most
+restrictive profile with no way to widen. `./startup.sh ci` sets it for you.
 
 Useful flags:
 
@@ -48,8 +53,9 @@ silent bounce to the login page, and it grows by itself as the registry does.
 
 Everything else is hand-written because it is what a table row cannot express --
 the API root's exact viewset list, the OpenAPI document generating at all, an
-enrichment step that fails silently behind a 200, and the four browser flows.
-Per-route body assertions are T1's job and are not in this increment.
+enrichment step that fails silently behind a 200, the five `/seek/` pages that
+must bounce a visitor with no credentials, and the four browser flows. Per-route
+body assertions are T1's job and are not in this increment.
 
 ## Profiles
 
@@ -118,8 +124,10 @@ while the defect is there and **XPASS** the day it is fixed -- XPASS is the
 signal to fix the declaration and delete the pin, and it is why none of these
 can quietly turn into a pass.
 
-Most of them now live in the registry: eleven routes carry an `xfail` reason in
-`ci/routes.py` and are reported one by one by T0. A registry entry declares the
+Most of them now live in the registry and are reported one by one by T0: eleven
+routes carry an `xfail` reason in `ci/routes.py` under `local` and `dev`, which a
+`prod` box narrows to two (`/seek/searchAdvanced/` and
+`/nextseek_api/entity_tree/nodes/`). A registry entry declares the
 status a *working* route returns, never the status the broken one returns today,
 which is what makes the flip work in both directions.
 
@@ -138,8 +146,9 @@ failure) from an application 502 (a JSON envelope, a data condition). Beyond
 that, a great many endpoints return 200 on failure: `schema_rag/retrieve/` always
 does, roughly thirty `seek` paths return permission denials and wrong-method
 errors as 200, `batch-upload/validate/` returns 200 for an invalid sheet, and a
-SEEK outage becomes `total: 0` in several places. Every assertion here checks a
-body or a rendered element, not just a status.
+SEEK outage becomes `total: 0` in several places. Every hand-written assertion
+here checks a body, a header or a rendered element, not just a status; T0's
+per-route checks are deliberately shallower, which is why T1 exists.
 
 ## Cost
 

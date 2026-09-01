@@ -33,7 +33,7 @@ def test_empty_profiles_requires_an_exclude_code():
 def test_exclude_code_must_be_from_the_allowed_set():
     with pytest.raises(ValueError, match="category code"):
         Route(pattern=r"^x/$", path=None, methods=(), profiles="",
-              exclude="deletes rows on a bare superuser GET")
+              exclude="a prose reason instead of a category code")
 
 
 def test_exclude_code_accepted():
