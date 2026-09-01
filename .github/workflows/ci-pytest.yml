@@ -1,0 +1,77 @@
+name: pytest (informational)
+
+# Informational by decision: this job surfaces NEW failures against a committed
+# baseline and never blocks. The suite is not green and will not be; a
+# "must be green" gate fails on run one and is ignored by run five.
+#
+# Measured 2026-09-01 on ghcr.io/astral-sh/uv:debian, cold cache:
+#   uv sync 45s, tests 4m10s, 228 failed / 7663 passed / 73 errors.
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pytest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # No system packages are needed. The application image is built from
+      # ghcr.io/astral-sh/uv:debian and installs nothing beyond openssh-client,
+      # so every dependency resolves as a wheel, mysqlclient included.
+      - name: Install dependencies
+        run: uv sync
+
+      # baml_client is generated and gitignored, so a fresh checkout lacks it and
+      # imports of the router fail without this step.
+      - name: Generate the BAML client
+        run: uv run baml-cli generate --from ./dmac_assistant/baml_src --no-version-check
+
+      - name: Run the no-stack lanes
+        continue-on-error: true
+        env:
+          # SQLite in memory, and stubs for everything that normally comes from
+          # dmac/local_settings.py, which is gitignored and absent here.
+          DJANGO_SETTINGS_MODULE: dmac.test_settings
+          # This repo has been bitten by stale .pyc producing untrustworthy results.
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set +e
+          # Explicit paths are MANDATORY. A bare `pytest` at the repo root hits 6
+          # collection errors and exits without running a single test.
+          # --continue-on-collection-errors is likewise mandatory, for the same reason.
+          # Never add -p no:logging: it removes the plugin providing caplog and
+          # manufactures "fixture 'caplog' not found" errors.
+          uv run pytest \
+            nextseek_api seek chat_nextseek startup build_tools scripts \
+            --continue-on-collection-errors -q \
+            | tee pytest-run.txt
+          echo "pytest exit: ${PIPESTATUS[0]}"
+
+      - name: Diff against the baseline
+        run: |
+          python ci/diff_baseline.py pytest-run.txt \
+            --baseline ci/pytest-baseline.txt \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-run
+          path: pytest-run.txt
+          retention-days: 14

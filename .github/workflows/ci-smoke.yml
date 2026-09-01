@@ -1,0 +1,84 @@
+name: post-deploy smoke (fairdata-dev)
+
+# The OPERATOR rebuilds; CI then tests. This workflow never restarts anything.
+# fairdata-dev is shared by people and by several Claude sessions at once, so a
+# workflow that bounced the stack would be pulling the rug out from under
+# somebody else's work.
+#
+# Trigger it by hand after ./startup.sh rebuild, or let startup.sh call
+# `gh workflow run ci-smoke.yml` on success if that is enabled.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Stack to test. Must be the nginx front door, not gunicorn."
+        required: true
+        default: "http://127.0.0.1:8000"
+      wait_ready:
+        description: "Run the readiness gate first. Use after a rebuild."
+        type: boolean
+        default: true
+      ready_floor:
+        description: "Seconds to wait before the first probe."
+        default: "300"
+      strict_console:
+        description: "Fail a flow on any non-allowlisted console error."
+        type: boolean
+        default: false
+      write_lane:
+        description: "Also run the opt-in write lane (needs ci_write)."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # One at a time on a shared box.
+  group: ci-smoke-fairdata-dev
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, fairdata-dev]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Deliberately an isolated environment, NOT the application's. The suite
+      # runs on the runner host rather than inside the container, because the app
+      # image has the playwright package but no browser binaries, and because
+      # testing the deployment from outside is the honest test. It needs none of
+      # the application's 67 dependencies and no C toolchain.
+      - name: Run the health sweep and the flows
+        env:
+          # Credentials live on the box at ~/.config/nextseek/ci.env (mode 600),
+          # never in GitHub. conftest reads that file; env vars override it.
+          NEXTSEEK_CI_ENV: ${{ env.NEXTSEEK_CI_ENV }}
+        run: |
+          set -euo pipefail
+          ARGS=(--base-url "${{ inputs.base_url }}")
+          if [ "${{ inputs.wait_ready }}" = "true" ]; then
+            ARGS+=(--wait-ready --ready-floor "${{ inputs.ready_floor }}")
+          fi
+          if [ "${{ inputs.strict_console }}" = "true" ]; then
+            ARGS+=(--strict-console)
+          fi
+          uv run --no-project \
+            --with pytest --with requests --with playwright \
+            pytest ci/smoke/ "${ARGS[@]}" -q --junitxml=smoke-results.xml
+
+      - name: Run the write lane
+        if: ${{ inputs.write_lane }}
+        run: |
+          uv run --no-project \
+            --with pytest --with requests --with playwright \
+            pytest ci/smoke/ -m write --base-url "${{ inputs.base_url }}" -q
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-results
+          path: smoke-results.xml
+          retention-days: 14

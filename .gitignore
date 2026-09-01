@@ -247,3 +247,7 @@ graphify-out/
 # Generated publication-transfer data, regenerable from the documented queries
 sample_publication_attributes/prod_pairs.tsv
 prod_publication_transfer/all_52_publications.sql
+
+# CI credentials must never enter git (they live at ~/.config/nextseek/ci.env)
+ci/**/*.env
+ci.env
