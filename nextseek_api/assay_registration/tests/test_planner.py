@@ -43,6 +43,58 @@ class FakeConn:
         return result
 
 
+class TestTheStatementItself:
+    """`FakeConn` answers from `params` and one "MIN(" probe, never from the SQL
+    text, so every test below it passes against a statement that does not say
+    what this module needs it to say. That gap is not academic:
+
+    * `planner.py:56` unpacks `(a_id, s_id, row_id)`. Transpose the select list
+      and the map is keyed `(sample_id, assay_id)`, so every
+      `confirmed.get((assay_id, sample_id))` in `executor.py:135` misses, and
+      every CORRECTLY WRITTEN row is reported `failed` with
+      `write_not_confirmed_by_readback` -- the founding defect run backwards,
+      reporting successful writes as failures.
+    * Drop `asset_type = 'Sample'` and a DataFile or Model sharing an asset_id
+      answers for a sample, so a pair that is not present reads as
+      already_present and never writes.
+    * Drop `assay_id = :aid` and the query returns every assay's memberships for
+      those samples, so a sample already in ANY assay reads as already_present
+      in the one being registered.
+
+    So assert the statement, not just the answer.
+    """
+
+    def _statement(self):
+        conn = FakeConn([(1, 100, 5001)])
+        existing_membership_ids([(1, 100)], conn)
+        return " ".join(conn.calls[0][0].split())
+
+    def test_the_select_list_is_in_the_order_the_unpack_expects(self):
+        assert "SELECT assay_id, asset_id, MIN(id)" in self._statement()
+
+    def test_both_where_predicates_are_present(self):
+        sql = self._statement()
+        assert "assay_id = :aid" in sql, \
+            "without it the query answers for every assay these samples are in"
+        assert "asset_type = 'Sample'" in sql, \
+            "without it a non-Sample asset sharing an id answers for a sample"
+
+    def test_the_asset_ids_are_bound_not_interpolated(self):
+        """The one place this module builds SQL by f-string. The holes are
+        generated names; the VALUES must arrive as parameters."""
+        conn = FakeConn([(1, 100, 5001), (1, 200, 5002)])
+        existing_membership_ids([(1, 100), (1, 200)], conn)
+        sql, params = conn.calls[0]
+        assert "100" not in sql and "200" not in sql
+        assert sorted(v for k, v in params.items() if k.startswith("s_")) == [100, 200]
+        assert params["aid"] == 1
+
+    def test_the_aggregate_is_grouped_by_the_pair(self):
+        """MIN(id) without the matching GROUP BY collapses the whole chunk to
+        one row, so one pair answers for all of them."""
+        assert "GROUP BY assay_id, asset_id" in self._statement()
+
+
 class TestExistingMembershipIds:
     """The module's only database call, and the only one patched out of every
     plan_batch test. Untested, a transposed column in the SELECT list would
