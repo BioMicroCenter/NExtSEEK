@@ -98,7 +98,12 @@ def pytest_addoption(parser):
 # profile
 # --------------------------------------------------------------------------- #
 
-_PROFILE_RANK = {"prod": 0, "dev": 1, "local": 2}
+# Derived, never restated. PROFILES is ordered widest-first -- ("local", "dev",
+# "prod") -- so counting from the narrow end makes a HIGHER rank a WIDER profile,
+# which is the comparison the narrowing rule needs. A profile added to the
+# registry and forgotten here would pass _valid_profile and then raise a bare
+# KeyError below; deriving it means there is nothing to forget.
+_PROFILE_RANK = {name: len(PROFILES) - 1 - i for i, name in enumerate(PROFILES)}
 
 
 def _valid_profile(source: str, value: str) -> str:
@@ -137,6 +142,12 @@ def resolve_profile(config) -> str:
         os.environ.get("CI_BOX_PROFILE", "prod"),   # absent means prod: fail closed
     )
     forced = config.getoption("--force-profile")
+    asked = config.getoption("--profile")
+    if forced and asked:
+        pytest.exit(
+            f"--profile {asked!r} and --force-profile {forced!r} were both given. "
+            f"Pass exactly one: which of them wins should not be a question anyone "
+            f"has to look up.", returncode=2)
     if forced:
         forced = _valid_profile("--force-profile", forced)
         if os.environ.get("CI_FORCE_PROFILE_CONFIRM") != "yes":
@@ -146,7 +157,6 @@ def resolve_profile(config) -> str:
         print(f"\n*** FORCED PROFILE {forced!r} on a box declaring {declared!r} ***\n")
         resolved = forced
     else:
-        asked = config.getoption("--profile")
         if not asked:
             resolved = declared
         else:
@@ -170,6 +180,11 @@ def profile(pytestconfig) -> str:
 def pytest_configure(config):
     config.addinivalue_line("markers", "write: mutates the database.")
     config.addinivalue_line("markers", "flow: drives a real browser.")
+    # --help and --version reach _do_configure() from a caller that does not
+    # catch Exit, so a refusal raised here surfaces as a traceback and rc=1
+    # instead of the message. Printing the options must always work.
+    if getattr(config.option, "help", False) or getattr(config.option, "version", False):
+        return
     # Resolve before collection. A run whose tests happen not to request the
     # fixture would otherwise never evaluate the command line at all, so a
     # refusal has to happen here to be reliable -- and it costs nothing.
@@ -346,9 +361,9 @@ def api(profile, base_url, smoke_creds) -> GuardedSession:
 def anon(profile, base_url) -> GuardedSession:
     """Unauthenticated client, for the routes that must answer without credentials.
 
-    No auth and no Accept header, so it looks like a visitor arriving with
-    nothing. Sharing the api fixture instead would prove the opposite of what
-    those checks claim.
+    No credentials, and no JSON Accept header -- requests still sends its default
+    `Accept: */*` -- so it looks like a visitor arriving with nothing. Sharing the
+    api fixture instead would prove the opposite of what those checks claim.
     """
     return GuardedSession(profile=profile, base_url=base_url)
 
@@ -361,7 +376,10 @@ def web(profile, base_url, smoke_creds) -> GuardedSession:
     writes, so Basic auth is not sufficient for them.
     """
     s = GuardedSession(profile=profile, base_url=base_url)
-    s.get(f"{base_url}/login/", timeout=30)
+    # Not followed: send() guards every hop, so a /login/ that ever redirected
+    # would fail session setup with a ProfileViolation about wherever it landed,
+    # in place of the csrftoken assertion two lines below that says what is wrong.
+    s.get(f"{base_url}/login/", timeout=30, allow_redirects=False)
     token = s.cookies.get("csrftoken")
     assert token, "GET /login/ did not set a csrftoken cookie"
     r = s.post(
@@ -456,8 +474,8 @@ def page(browser, storage_state, profile, base_url, pytestconfig, request):
         storage_state=storage_state,
         base_url=base_url,
     )
-    p = ctx.new_page()
     _guard_context(ctx, profile)
+    p = ctx.new_page()
     errors: list[str] = []
     p.on("console", lambda m: errors.append(f"console.{m.type}: {m.text}")
          if m.type == "error" else None)
