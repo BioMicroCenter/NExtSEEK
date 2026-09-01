@@ -65,10 +65,10 @@ def test_no_prod_route_declares_a_write_method():
 
 
 def test_the_seek_admin_surface_never_reaches_prod_or_a_weaker_account():
-    """Several routes under /seek/admin/ act on request.GET with no method check.
-    The sweep must never hold the rights to reach them and must never run there.
+    """The sweep never runs against /seek/admin/ and never holds the account that
+    could reach it.
 
-    Keyed off the PATTERN as well as the path, so an excluded entry -- which
+    Keyed off the pattern as well as the path, so an excluded entry -- which
     carries no path at all -- is still covered if somebody later gives it one.
     """
     for route in REGISTRY:

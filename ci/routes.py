@@ -163,8 +163,10 @@ PLACEHOLDERS: dict[str, str] = {
 }
 
 # A UUID that is valid syntax and belongs to nothing, for the job / task /
-# session id spaces. Every route that takes one is declared with its not-found
-# status, so the entry proves the route resolves and denies without a fixture.
+# session id spaces. Every route that takes one is declared with whatever it
+# answers for an identifier it cannot find -- a 404 for most, and for two of the
+# seek helpers a 200 whose body carries the failure instead (their notes say so).
+# Either way the entry proves the route resolves and denies, without a fixture.
 _NO_SUCH_UUID = "00000000-0000-4000-8000-000000000000"
 _NO_SUCH_ID = "999999999"
 _NO_SUCH_NHP = "NEXTSEEK-CI-NO-SUCH-NHP"
@@ -202,9 +204,8 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^media/(?P<path>.*)$",
           path="/media/download/nextseek-ci-probe-no-such-file.xlsx",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
-          note="Django's static serve over MEDIA_ROOT; the path names a file that "
-               "does not exist, so the entry proves the route resolves and denies "
-               "and downloads nothing"),
+          note="Django's static serve; probed with a nonexistent file, so the entry "
+               "proves the route resolves and denies and downloads nothing"),
     Route(pattern=r"^signup/", path="/signup/",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
           note="hands account creation to SEEK; redirects to SEEK_PUBLIC_URL/signup"),
@@ -260,7 +261,8 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
     Route(pattern=r"^seek/^remote/", path="/seek/remote/",
           methods=("GET",), profiles="local,dev", auth="web", expect=500,
-          xfail="NameError: samples is not defined at seek/views.py:499"),
+          xfail="NameError: samples is not defined, raised by "
+                "seek/views/search.py::remote"),
     Route(pattern=r"^seek/^sample/id=(?P<id>\d+)/$", path="/seek/sample/id={sample_id}/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
     Route(pattern=r"^seek/^sample_timeline/.*$", path="/seek/sample_timeline/",
@@ -296,7 +298,8 @@ REGISTRY: list[Route] = [
           note="renders zero template links on a stock deployment; T2 pins that"),
     Route(pattern=r"^seek/^url/(?P<url>[\w-]+)/$", path="/seek/url/smoke/",
           methods=("GET",), profiles="local,dev", auth="web", expect=500,
-          xfail="NameError: getPageRequests is not defined at seek/views.py:113"),
+          xfail="NameError: getPageRequests is not defined, raised by "
+                "seek/views/samples.py::seek"),
 
     # ----------------------------------------------------------------- #
     # seek: JSON helpers behind the pages
@@ -330,7 +333,8 @@ REGISTRY: list[Route] = [
           note="NHP timeline workbook. Unknown name: proves the route resolves and denies"),
     Route(pattern=r"^seek/^operators/$", path="/seek/operators/",
           methods=("GET",), profiles="local,dev", auth="web", expect=500,
-          xfail="MultiValueDictKeyError: 'sampletype_id'. The view indexes request.GET "
+          xfail="MultiValueDictKeyError: 'sampletype_id' from "
+                "seek/views/samples.py::getOperators, which indexes the query string "
                 "for two required parameters with no default, so a bare GET is a 500 "
                 "rather than a 400"),
     Route(pattern=r"^seek/^sample/id=(?P<id>\d+)/edit",
@@ -344,31 +348,33 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^samplefind/", path="/seek/samplefind/",
           methods=("GET",), profiles="local,dev", auth="web", expect=200,
           note="workbook-driven sample lookup; the real path is a POST with a file, "
-               "which produces an export under MEDIA_ROOT, so this stays off prod"),
+               "which writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/download/", path="/seek/samples/download/",
           methods=("GET",), profiles="local,dev", auth="web", expect=500,
-          xfail="MultiValueDictKeyError: 'includeSampleTree'. The view indexes "
-                "request.GET for required parameters with no default, so a bare GET "
-                "is a 500 rather than a 400",
-          note="a parameterised call produces an export under MEDIA_ROOT, so this "
-               "stays off prod"),
+          xfail="MultiValueDictKeyError: 'includeSampleTree' from "
+                "seek/views/samples.py::sampleDownload, which indexes the query "
+                "string for a required parameter with no default, so a bare GET is "
+                "a 500 rather than a 400",
+          note="a parameterised call writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/export/", path="/seek/samples/export/",
           methods=("GET",), profiles="local,dev", auth="web", expect=500,
-          xfail="MultiValueDictKeyError: 'allids'. The view indexes request.GET for "
-                "required parameters with no default, so a bare GET is a 500 rather "
-                "than a 400",
-          note="a parameterised call produces an export under MEDIA_ROOT, so this "
-               "stays off prod"),
+          xfail="MultiValueDictKeyError: 'allids' from "
+                "seek/views/samples.py::sampleExport, which indexes the query string "
+                "for a required parameter with no default, so a bare GET is a 500 "
+                "rather than a 400",
+          note="a parameterised call writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/retrieveType/", path="/seek/samples/retrieveType/",
           methods=("GET",), profiles="local,dev", auth="web", expect=500,
-          xfail="MultiValueDictKeyError: 'sampletype_id'. The view indexes request.GET "
+          xfail="MultiValueDictKeyError: 'sampletype_id' from "
+                "seek/views/samples.py::getSampleType, which indexes the query string "
                 "for two required parameters with no default, so a bare GET is a 500 "
                 "rather than a 400"),
     Route(pattern=r"^seek/^samples/searching/", path="/seek/samples/searching/",
           methods=("GET",), profiles="local,dev", auth="web", expect=500,
-          xfail="MultiValueDictKeyError: 'sampletype_id'. The filter builder indexes "
-                "request.GET for required parameters with no default, so a bare GET "
-                "is a 500 rather than a 400"),
+          xfail="MultiValueDictKeyError: 'sampletype_id' from "
+                "seek/views/search.py::sampleSearching, whose filter builder indexes "
+                "the query string for required parameters with no default, so a bare "
+                "GET is a 500 rather than a 400"),
     Route(pattern=r"^seek/^samplesvalidate/", path="/seek/samplesvalidate/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="upload validator; a GET returns the not-a-POST envelope at 200 and "
@@ -379,25 +385,28 @@ REGISTRY: list[Route] = [
                "reads nothing"),
     Route(pattern=r"^seek/^searchAdvanced/", path="/seek/searchAdvanced/",
           methods=("GET",), profiles="local,dev", auth="web", expect=500,
-          xfail="MultiValueDictKeyError: 'filter_searchText'. The filter builder "
-                "indexes request.GET for required parameters with no default, so a "
-                "bare GET is a 500 rather than a 400",
+          xfail="MultiValueDictKeyError: 'filter_searchText' from "
+                "seek/views/search.py::searchingAdvanced, whose filter builder indexes "
+                "the query string for required parameters with no default, so a bare "
+                "GET is a 500 rather than a 400",
           note="the JSON behind the advanced-search grid; the T3 flow drives it with "
                "a full filter set"),
     Route(pattern=r"^seek/^searchUIDs/", path="/seek/searchUIDs/",
           methods=("GET",), profiles="local,dev", auth="web", expect=500,
-          xfail="MultiValueDictKeyError: 'filter_searchUIDs'. The filter builder "
-                "indexes request.GET for required parameters with no default, so a "
-                "bare GET is a 500 rather than a 400"),
+          xfail="MultiValueDictKeyError: 'filter_searchUIDs' from "
+                "seek/views/search.py::searchingUIDs, whose filter builder indexes the "
+                "query string for required parameters with no default, so a bare GET "
+                "is a 500 rather than a 400"),
     Route(pattern=r"^seek/^studies/id=(?P<id>\d+)/$", path="/seek/studies/id={study_id}/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="assay options for a study, for the search form"),
     Route(pattern=r"^seek/nhpdata/(?P<nhp_name>[\w-]+)/$",
           path="/seek/nhpdata/" + _NO_SUCH_NHP + "/",
           methods=("GET",), profiles="local,dev", auth="smoke", expect=500,
-          xfail="TypeError: 'NoneType' object does not support item assignment. The "
-                "timeline builder does not handle an NHP it cannot find, so an "
-                "unknown name is a 500 rather than the 404 its siblings return"),
+          xfail="TypeError: 'NoneType' object does not support item assignment, "
+                "surfaced by seek/views/timeline.py::get_nhp_data. The timeline "
+                "builder does not handle an NHP it cannot find, so an unknown name is "
+                "a 500 rather than the 404 its siblings return"),
     Route(pattern=r"^seek/nhpinfo/(?P<nhp_name>[\w-]+)/$",
           path="/seek/nhpinfo/" + _NO_SUCH_NHP + "/",
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=404,
@@ -563,8 +572,13 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^entity_tree/nodes/$",
           path="/nextseek_api/entity_tree/nodes/",
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
-          xfail="34 sample types have no attribute definitions; endpoint returns an "
-                "application-level 502 rather than emit empty metadata_fields"),
+          shape="results",
+          xfail="34 sample types have no attribute definitions, so "
+                "nextseek_api/services/entity_tree.py::EntityTreeViewSet.list_nodes "
+                "returns an application-level 502 rather than emit empty "
+                "metadata_fields",
+          note="the envelope is doubly wrapped: assert results.total, never a "
+               "top-level total"),
     Route(pattern=r"^nextseek_api/^^evaluator/runs/$", path="/nextseek_api/evaluator/runs/",
           methods=("GET",), profiles="local,dev", auth="write", expect=200,
           note="superuser only, so the expectation is by inspection"),
@@ -654,18 +668,18 @@ REGISTRY: list[Route] = [
           note="unknown id: proves the route resolves and denies. Superuser only, so "
                "the expectation is by inspection"),
     Route(pattern=r"^nextseek_api/^redoc/$", path="/nextseek_api/redoc/",
-          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=406,
-          note="the ReDoc UI renders HTML only. Measured 2026-09-01: 200 to a caller "
-               "sending Accept: text/html, 406 to the API client's Accept: "
-               "application/json, which is what the sweep sends"),
+          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
+          note="the ReDoc UI renders HTML only, and T0 sends Accept: */*, which "
+               "content negotiation answers with that document. A client pinned to "
+               "Accept: application/json gets a 406 here instead"),
     Route(pattern=r"^nextseek_api/^schema/$", path="/nextseek_api/schema/",
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
           note="drf-spectacular walks every annotated endpoint; validates 67 paths at once"),
     Route(pattern=r"^nextseek_api/^swagger/$", path="/nextseek_api/swagger/",
-          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=406,
-          note="the Swagger UI renders HTML only. Measured 2026-09-01: 200 to a caller "
-               "sending Accept: text/html, 406 to the API client's Accept: "
-               "application/json, which is what the sweep sends"),
+          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
+          note="the Swagger UI renders HTML only, and T0 sends Accept: */*, which "
+               "content negotiation answers with that document. A client pinned to "
+               "Accept: application/json gets a 406 here instead"),
 
     # ----------------------------------------------------------------- #
     # nextseek_api: writes
@@ -719,15 +733,20 @@ REGISTRY: list[Route] = [
           note="unknown id: proves the route resolves and denies"),
     Route(pattern=r"^nextseek_api/^^batch-upload/start/$",
           path="/nextseek_api/batch-upload/start/",
-          methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
-          note="starts a real ingest; the destructive lane owns it"),
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=202,
+          note="starts a real ingest and returns the Celery job id; the destructive "
+               "lane owns it. 202 by inspection at "
+               "nextseek_api/batch_upload/views.py::BatchUploadViewSet.start; unprobed"),
     Route(pattern=r"^nextseek_api/^^batch-upload/validate/$",
           path="/nextseek_api/batch-upload/validate/",
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
           note="the fifth safe preview: a separate action rather than a dry_run flag"),
     Route(pattern=r"^nextseek_api/^^cc-assistant/upload/$",
           path="/nextseek_api/cc-assistant/upload/",
-          methods=("POST",), profiles="local,dev", auth="smoke", expect=200),
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=202,
+          note="queues the upload and returns the job id. 202 by inspection at "
+               "nextseek_api/services/cc_assistant.py::CCAssistantViewSet.upload; "
+               "unprobed"),
     Route(pattern=r"^nextseek_api/^^data_files/download/$",
           path="/nextseek_api/data_files/download/",
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200),
@@ -740,15 +759,20 @@ REGISTRY: list[Route] = [
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
           note="a read expressed as a POST, so the prod guard refuses it"),
     Route(pattern=r"^nextseek_api/^^samples/$", path="/nextseek_api/samples/",
-          methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
-          note="create only; the list action is not registered on this viewset"),
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=(200, 201),
+          note="create only; the list action is not registered on this viewset. The "
+               "proxy passes SEEK's own status through "
+               "(nextseek_api/services/samples.py::SampleProxyViewSet.create), so "
+               "either is correct. By inspection; unprobed"),
     Route(pattern=r"^nextseek_api/^^samples/advanced_search/$",
           path="/nextseek_api/samples/advanced_search/",
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
           note="a search expressed as a POST, so the prod guard refuses it"),
     Route(pattern=r"^nextseek_api/^^schema_rag/ingest/$",
           path="/nextseek_api/schema_rag/ingest/",
-          methods=("POST",), profiles="local,dev", auth="smoke", expect=200),
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=201,
+          note="201 by inspection at "
+               "nextseek_api/services/schema_rag.py::SchemaRAGViewSet.ingest; unprobed"),
     Route(pattern=r"^nextseek_api/^^schema_rag/retrieve/$",
           path="/nextseek_api/schema_rag/retrieve/",
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
