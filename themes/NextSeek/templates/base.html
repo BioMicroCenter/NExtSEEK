@@ -29,8 +29,14 @@
 
     <!-- jQuery + EasyUI -->
     <script src="{% static 'jquery-easyui-1.5.2/jquery.min.js' %}"></script>
-    <script src="{% static 'js/easyui/datagrid-filter.js' %}"></script>
+    <!-- datagrid-filter.js EXTENDS the EasyUI datagrid plugin: its first statement
+         reads $.fn.datagrid.methods, so it must load AFTER jquery.easyui.min.js.
+         Loaded before it, every page throws "Cannot read properties of undefined
+         (reading 'methods')" at head-parse time and the whole IIFE aborts, which
+         installs none of the filter API. Filtering survived only because ten
+         templates re-load this file in the body, after the plugin. -->
     <script src="{% static 'jquery-easyui-1.5.2/jquery.easyui.min.js' %}"></script>
+    <script src="{% static 'js/easyui/datagrid-filter.js' %}"></script>
 
     {% block extra_head %}{% endblock %}
 </head>
