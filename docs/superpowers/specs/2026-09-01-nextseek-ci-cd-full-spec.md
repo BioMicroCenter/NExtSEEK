@@ -151,9 +151,9 @@ The five approved decisions stand. Three more were settled during this review.
 
 ### 2.1 Why two accounts is a safety rule, not hygiene
 
-Several `seek` admin routes act on `request.GET` and perform their work with no method check
-and no confirmation. At least one **deletes rows** in response to a bare superuser GET. A
-health sweep is, by construction, a program that issues GETs at every URL it knows about.
+A health sweep is, by construction, a program that issues GETs at every URL it knows about,
+so it must never hold rights it does not need. Which routes make that rule necessary, and
+why, is recorded in the private findings note, which this public repository does not carry.
 
 Two rules follow, and they are not negotiable:
 

@@ -6,47 +6,22 @@ Three assertions per URL, never just a status code:
   * for JSON endpoints, a shape assertion, because a great many of them return
     200 on failure
 
-Nothing here is under /seek/admin/ and nothing here authenticates as a superuser.
-Several admin routes act on request.GET with no method check and at least one
-deletes rows in response to a bare GET, so a sweep is exactly the wrong program to
-point at them. See the private findings note, not committed.
+The sweep is, by construction, a program that issues GETs at every URL it knows
+about. So it never holds rights it does not need: the health sweep and the flows
+authenticate as the non-superuser, and the sweep never requests any path under
+/seek/admin/, at any privilege level. Which routes make that rule necessary, and
+why, is recorded in the private findings note, which this public repository does
+not carry.
+
+What is left here is what a registry row cannot express. The parametrised sweeps
+that used to live in this file are now `ci/routes.py` entries, swept by
+`test_reachability.py`.
 """
 from __future__ import annotations
 
 import pytest
-import requests
 
-from ci.smoke.assertions import assert_not_bounced, check_gateway
-
-
-# --------------------------------------------------------------------------- #
-# the API sweep
-# --------------------------------------------------------------------------- #
-
-# (path, key that must be present in the JSON body or None)
-API_SWEEP = [
-    ("/nextseek_api/sops/", "data"),
-    ("/nextseek_api/data_files/", "data"),
-    ("/nextseek_api/projects/", "data"),
-    ("/nextseek_api/people/", "data"),
-    ("/nextseek_api/investigations/", "data"),
-    ("/nextseek_api/studies/", "data"),
-    ("/nextseek_api/assays/", "data"),
-    ("/nextseek_api/sample_types/", "data"),
-    ("/nextseek_api/attributes/", "attributes"),
-    ("/nextseek_api/batch-upload/", None),
-]
-
-
-@pytest.mark.parametrize("path,key", API_SWEEP, ids=[p for p, _ in API_SWEEP])
-def test_api_endpoint_is_healthy(api, base_url, path, key):
-    r = api.get(base_url + path, timeout=60, allow_redirects=False)
-    check_gateway(r)
-    assert_not_bounced(r)
-    assert r.status_code == 200, f"{path} returned {r.status_code}: {r.text[:300]}"
-    body = r.json()
-    if key:
-        assert key in body, f"{path} 200 but body has no {key!r}: {sorted(body)[:8]}"
+from ci.smoke.assertions import check_gateway
 
 
 def test_api_root_advertises_exactly_the_expected_viewsets(api, base_url):
@@ -136,9 +111,9 @@ def test_seek_identity_matches_the_authenticated_caller(api, base_url, smoke_cre
 def test_ci_account_is_not_a_superuser(api, base_url):
     """A guard on the suite itself, not on the product.
 
-    The sweep issues GETs at many URLs. Several admin routes perform destructive
-    work on a bare superuser GET, so running the sweep with superuser rights is
-    the actual hazard. is_admin here reflects is_superuser only: login sets
+    The sweep issues GETs at many URLs, so the rights it runs with are the
+    hazard rather than the URLs; which routes make that so is in the private
+    findings note, not here. is_admin reflects is_superuser only: login sets
     is_staff=1 on every SEEK user, so is_staff admits everyone.
     """
     r = api.get(f"{base_url}/nextseek_api/assistant/me/", timeout=60)
@@ -191,48 +166,7 @@ def test_entity_tree_nodes(api, base_url):
 # pages
 # --------------------------------------------------------------------------- #
 
-# Authenticated via a real session cookie. Basic auth does NOT work for these:
-# they read request.session['username'], so a Basic-authenticated request gets a
-# 302 to /login/ that an allow_redirects=True sweep reports as 200.
-SEEK_PAGES = [
-    "/seek/search/",
-    "/seek/projects/",
-    "/seek/samples/query/",
-    "/seek/samples/upload/",
-    "/seek/samples/attributes/",
-    "/seek/assistant/",
-]
-
-
-@pytest.mark.parametrize("path", SEEK_PAGES)
-def test_seek_page_renders_for_a_logged_in_user(web, base_url, path):
-    r = web.get(base_url + path, timeout=120, allow_redirects=False)
-    check_gateway(r)
-    assert_not_bounced(r)
-    assert r.status_code == 200, f"{path} returned {r.status_code}"
-    assert "text/html" in r.headers.get("content-type", "")
-    assert len(r.text) > 500, f"{path} returned a suspiciously short body"
-
-
-# /seek/assistant/ is excluded deliberately: it does not redirect. It renders an
-# error template at HTTP 200 for anonymous visitors, which the next test pins.
-BOUNCING_PAGES = [p for p in SEEK_PAGES if p != "/seek/assistant/"]
-
-
-@pytest.mark.parametrize("path", BOUNCING_PAGES)
-def test_seek_page_bounces_an_anonymous_visitor(base_url, path):
-    """The other half of the same claim. allow_redirects=False is mandatory:
-    followed, every one of these reports 200, because that is the status of the
-    login page."""
-    r = requests.get(base_url + path, timeout=60, allow_redirects=False)
-    check_gateway(r)
-    assert r.status_code in (301, 302), f"{path} served an anonymous visitor {r.status_code}"
-    assert "/login" in r.headers.get("location", ""), (
-        f"{path} redirected to {r.headers.get('location')!r}, not the login page"
-    )
-
-
-def test_assistant_denies_anonymous_visitors_at_status_200(base_url):
+def test_assistant_denies_anonymous_visitors_at_status_200(anon, base_url):
     """Pins a known wart rather than pretending it is not there.
 
     smartSearch checks request.user.is_authenticated and renders an error
@@ -241,7 +175,7 @@ def test_assistant_denies_anonymous_visitors_at_status_200(base_url):
     this ever starts returning 302 the assertion should be tightened, not
     deleted.
     """
-    r = requests.get(f"{base_url}/seek/assistant/", timeout=60, allow_redirects=False)
+    r = anon.get(f"{base_url}/seek/assistant/", timeout=60, allow_redirects=False)
     check_gateway(r)
     assert r.status_code == 200
     body = r.text.lower()
@@ -250,18 +184,8 @@ def test_assistant_denies_anonymous_visitors_at_status_200(base_url):
     )
 
 
-PUBLIC = ["/login/", "/admin/login/", "/seek/help/", "/static/css/nextseek.css"]
-
-
-@pytest.mark.parametrize("path", PUBLIC)
-def test_public_url_is_served(base_url, path):
-    r = requests.get(base_url + path, timeout=30, allow_redirects=False)
-    check_gateway(r)
-    assert r.status_code == 200, f"{path} returned {r.status_code}"
-
-
-def test_login_page_issues_a_csrf_token(base_url):
-    r = requests.get(f"{base_url}/login/", timeout=30)
+def test_login_page_issues_a_csrf_token(anon, base_url):
+    r = anon.get(f"{base_url}/login/", timeout=30, allow_redirects=False)
     check_gateway(r)
     assert r.status_code == 200
     assert r.cookies.get("csrftoken"), "no csrftoken cookie: the login form cannot be posted"
