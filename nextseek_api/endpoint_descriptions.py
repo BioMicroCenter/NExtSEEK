@@ -1114,3 +1114,66 @@ SAMPLETYPE_CONNECTIONS_DESC = (
     "- 'Which assays connect CEL to anything, across all projects?'\n"
     "- 'Give me a diagram of the connections in project 11'\n"
 )
+
+
+# =============================================================================
+# AssayRegistrationViewSet (3 endpoints)
+# =============================================================================
+
+ASSAY_REGISTRATION_CREATE_DESC = (
+    "**SUMMARY:** Register a batch of samples as members of assays. Additive only: "
+    "this endpoint cannot remove a membership. Superuser only.\n\n"
+    "**USE WHEN:** The user wants to add one or many samples to one or many assays, "
+    "for example after a curation pass decides which assay a sample belongs to. This "
+    "is the correct endpoint for 'add samples to an assay'.\n\n"
+    "**DO NOT USE WHEN:** The caller wants to REMOVE a membership, or to set an "
+    "assay's sample list to an exact set. Neither is expressible here, deliberately. "
+    "Do not reach for PATCH /nextseek_api/assays/{uid}/ to add samples: that is a "
+    "complete-list replace and would remove every sample not named.\n\n"
+    "**ACCEPTS:** `registrations`, a list of rows, each naming `sample_uid` plus "
+    "exactly one of `assay` (an internal assay title, resolved inside that sample's "
+    "own project) or `assay_id` (a numeric SEEK assay id, validated against that "
+    "sample's project). Optional `dry_run` (default false) returns the identical "
+    "report without writing.\n\n"
+    "**RETURNS:** Per-row outcomes with `status` of written, already_present, skipped "
+    "or failed. Every written row carries the `assay_assets_id` the database assigned, "
+    "so no follow-up query is needed to confirm the write. A `graph` block reports the "
+    "DERIVED_FROM label recompute the write triggered.\n\n"
+    "**ERROR CODES:** `sample_uid_not_found`, `sample_uid_not_unique` (the uid matches "
+    "two or more sample rows), `sample_has_no_project`, `assay_not_found`, "
+    "`assay_project_mismatch`, `internal_assay_not_found`, `assay_not_in_sample_project`, "
+    "`assay_ambiguous_in_project` (the title maps to several assays in that project; "
+    "the message lists them, retry with `assay_id`).\n\n"
+    "**TRIGGER PHRASES:** register assay, add samples to an assay, assay membership, "
+    "bulk assay registration, link samples to assay\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Add these 40 samples to the flow cytometry assay'\n"
+    "- 'Register D.NHP-240115MIT-001 under assay 351'\n"
+    "- 'Dry run: which of these registrations would fail?'\n"
+)
+
+ASSAY_REGISTRATION_JOB_DESC = (
+    "**SUMMARY:** Status of one batch assay-registration job. Superuser only.\n\n"
+    "**USE WHEN:** A registration returned 202 with a job id and the caller wants "
+    "progress or the finished per-row report.\n\n"
+    "**ACCEPTS:** `job_id`, the UUID returned by the registration call.\n\n"
+    "**RETURNS:** `state`, `processed_rows`, `total_rows`, and once terminal, the "
+    "full per-row `result`.\n\n"
+    "**TRIGGER PHRASES:** registration job status, assay registration progress\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Is my assay registration finished?'\n"
+)
+
+ASSAY_REGISTRATION_JOB_CANCEL_DESC = (
+    "**SUMMARY:** Request cancellation of a running batch assay-registration job. "
+    "Superuser only.\n\n"
+    "**USE WHEN:** A large registration is running and should stop.\n\n"
+    "**DO NOT USE WHEN:** The caller expects rows already written to be undone. "
+    "Cancellation stops further writes; it does not remove memberships already "
+    "registered, and nothing in this API can.\n\n"
+    "**ACCEPTS:** `job_id`, the UUID returned by the registration call.\n\n"
+    "**RETURNS:** The job status after the cancellation request.\n\n"
+    "**TRIGGER PHRASES:** cancel registration, stop assay registration\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Cancel that assay registration job'\n"
+)

@@ -23,6 +23,8 @@ router.register(r"users", views.UsersViewSet, basename="users")
 router.register(r"investigations", views.InvestigationViewSet, basename="investigations")
 router.register(r"studies", views.StudyViewSet, basename="studies")
 router.register(r"attributes", views.AttributeViewSet, basename="attribute")
+router.register(r"assay-registrations", views.AssayRegistrationViewSet,
+                basename="assay-registrations")
 router.register(r"assays", views.AssayViewSet, basename="assays")
 router.register(r"sample_types/connections", views.SampleTypeConnectionsViewSet, basename="sampletype-connections")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")

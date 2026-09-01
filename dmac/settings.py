@@ -449,6 +449,12 @@ ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM = int(
     os.environ.get("ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM", "1")
 )
 
+# Batches at or below this many submitted rows answer synchronously; larger ones
+# get a durable job. Mirrors ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD above.
+ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD = int(
+    os.environ.get("ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD", "5000")
+)
+
 ####################
 # CORS SETTINGS    #
 ####################

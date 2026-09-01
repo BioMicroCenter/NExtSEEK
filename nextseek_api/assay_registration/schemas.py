@@ -46,6 +46,8 @@ ERROR_CODES = frozenset({
     "request_validation_error",
     "job_not_found",
     "not_cancellable",
+    "authentication_failed",
+    "permission_denied",
 })
 
 
