@@ -174,6 +174,24 @@ class TestATransitionTouchesExactlyOneJob:
         assert second.state == "accepted"
         assert second.state_version == 0
 
+    def test_finishing_one_job_does_not_terminate_every_job(self, actor):
+        """Kills M46.
+
+        `finish` filters on `pk` alone. Replacing that filter with `.all()` --
+        the single most destructive edit possible in this module, since it would
+        mark every job in the table succeeded and overwrite every terminal
+        result -- left all 25 of the preceding tests green.
+        """
+        first = jobs.create_job({}, actor, total_rows=1)
+        second = jobs.create_job({}, actor, total_rows=1)
+        jobs.claim(first, "worker-a")
+
+        jobs.finish(first, "succeeded", {"mode": "synchronous"})
+
+        second.refresh_from_db()
+        assert second.state == "accepted"
+        assert second.terminal_result is None
+
     def test_progress_is_written_to_one_job_only(self, actor):
         """Kills M19 (record_progress unscoped to the job)."""
         first = jobs.create_job({}, actor, total_rows=10)
@@ -236,9 +254,14 @@ class TestTheHeartbeat:
         job.refresh_from_db()
         first_expiry = job.lease_expires_at
 
+        first_beat = job.last_heartbeat_at
+
         assert jobs.heartbeat(job, "worker-a") is True
         job.refresh_from_db()
-        assert job.lease_expires_at >= first_expiry
+        # Strictly later, not `>=`: kills M41 and M42, where heartbeat returns
+        # True having written nothing, so a lease would silently never renew.
+        assert job.lease_expires_at > first_expiry
+        assert job.last_heartbeat_at > first_beat
 
     def test_a_stranger_cannot_renew_someone_elses_lease(self, actor):
         """Kills M30 (drop `claim_owner` from heartbeat's filter) and M32."""
@@ -270,6 +293,21 @@ class TestWhatIsDurablyRecorded:
         job.refresh_from_db()
         assert job.submitted_request == payload
 
+    def test_a_claimed_but_uncancelled_job_is_not_cancelled(self, actor):
+        """Kills M48.
+
+        Every job that reaches `is_cancelled` in the tests above was claimed
+        first, so `lease_expires_at` and `last_heartbeat_at` are set on it too --
+        which means `is_cancelled` could read either of those columns instead of
+        the cancellation column and every one of those tests would still pass.
+        """
+        job = jobs.create_job({}, actor, total_rows=1)
+        jobs.claim(job, "worker-a")
+        job.refresh_from_db()
+        assert job.lease_expires_at is not None
+
+        assert jobs.is_cancelled(job) is False
+
     def test_the_cancelling_actor_is_recorded(self, actor):
         """Kills M16. Who cancelled a production write is audit evidence."""
         job = jobs.create_job({}, actor, total_rows=1)
@@ -277,6 +315,13 @@ class TestWhatIsDurablyRecorded:
         assert jobs.request_cancellation(job, actor) is True
         job.refresh_from_db()
         assert job.cancellation_actor_django_user_id == actor.id
+
+    def test_the_submitting_actor_id_is_recorded(self, actor):
+        """Kills M47. The brief's create test checks `actor_login` but never the
+        id it is paired with, so the id could be dropped and go unnoticed."""
+        job = jobs.create_job({}, actor, total_rows=1)
+        job.refresh_from_db()
+        assert job.actor_django_user_id == actor.id
 
     def test_a_finished_job_reports_every_row_as_processed(self, actor):
         """Kills M23.
