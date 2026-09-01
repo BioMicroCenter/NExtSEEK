@@ -55,7 +55,8 @@ WHERE r.internal_assay_title IS NOT NULL
 WITH r, $edges[toString(r.child_id) + "_" + toString(r.parent_id)] AS entry
 WHERE entry IS NOT NULL
 SET r.internal_assay_ids = entry.ids, r.internal_assay_titles = entry.titles
-RETURN count(r) AS written
+RETURN count(r) AS written,
+       count(DISTINCT toString(r.child_id) + "_" + toString(r.parent_id)) AS pairs
 """
 
 #: Edges incident to a set of samples, in either direction.
@@ -184,28 +185,33 @@ def recompute_for_samples(sample_ids: Set[int], driver, db_name: str) -> int:
 
         if not payload:
             return 0
-        written = int(session.run(RECOMPUTE_CYPHER, edges=payload).single()["written"])
-        # Never return a shortfall silently. Planned-but-unwritten edges are the
-        # null-singular ones the docstring describes, and a caller that sees only
-        # `written` cannot tell a clean run from a partial one. The sibling
-        # backfill script warns on exactly this comparison; so does this.
-        if written < len(payload):
+        record = session.run(RECOMPUTE_CYPHER, edges=payload).single()
+        written, pairs = int(record["written"]), int(record["pairs"])
+
+        # Never return a shortfall silently. But compare PAIRS, not relationships.
+        #
+        # `payload` holds one entry per distinct (child_id, parent_id) pair, while
+        # `written` counts RELATIONSHIPS, and the two are not the same unit: a pair
+        # can be carried by more than one DERIVED_FROM edge. Measured on the
+        # reference graph, 1,920 pairs are carried by 5,117 relationships, worst
+        # multiplicity 6 -- and no two Sample nodes share a MySQL id, so this is
+        # ordinary multi-edge structure rather than corruption.
+        #
+        # Comparing `written` against `len(payload)` was therefore a category
+        # error with two failure modes: it flagged a healthy multi-edge run as an
+        # impossible over-write, and an over-count on one pair could cancel a
+        # genuine skip on another and log the whole run as clean. `pairs` is the
+        # same unit as `payload`, so this comparison is exact.
+        if pairs < len(payload):
             log.warning(
-                "recompute wrote %d of %d planned edges; %d were planned but not "
-                "written, which means their singular internal_assay_title is NULL",
-                written, len(payload), len(payload) - written,
-            )
-        elif written > len(payload):
-            # Cannot happen: the write matches only keys present in $edges, so it
-            # can touch at most len(payload) edges. Reported rather than ignored
-            # because if it ever fires, the query has stopped meaning what this
-            # module thinks it means, and a wrong count is how that would first
-            # show. Never phrased as a negative shortfall.
-            log.error(
-                "recompute wrote %d edges but planned only %d; the write query "
-                "matched more than its parameter map, which should be impossible",
-                written, len(payload),
+                "recompute covered %d of %d planned edge pairs (%d relationships "
+                "written); %d pairs were planned but not written, which means "
+                "their singular internal_assay_title is NULL",
+                pairs, len(payload), written, len(payload) - pairs,
             )
         else:
-            log.info("recomputed assay labels on %d DERIVED_FROM edges", written)
+            log.info(
+                "recomputed assay labels on %d DERIVED_FROM relationships "
+                "across %d edge pairs", written, pairs,
+            )
         return written

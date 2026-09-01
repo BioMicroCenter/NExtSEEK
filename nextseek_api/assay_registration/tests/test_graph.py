@@ -30,7 +30,8 @@ WHERE r.internal_assay_title IS NOT NULL
 WITH r, $edges[toString(r.child_id) + "_" + toString(r.parent_id)] AS entry
 WHERE entry IS NOT NULL
 SET r.internal_assay_ids = entry.ids, r.internal_assay_titles = entry.titles
-RETURN count(r) AS written
+RETURN count(r) AS written,
+       count(DISTINCT toString(r.child_id) + "_" + toString(r.parent_id)) AS pairs
 """)
 
 
@@ -116,7 +117,11 @@ class TestRecompute:
             {"child_id": 300, "parent_id": 200},
         ]
         write_result = MagicMock()
-        write_result.single.return_value = {"written": 1}
+        # `written` counts relationships, `pairs` counts distinct id pairs. They
+        # differ whenever a pair is carried by more than one edge, which is
+        # ordinary structure here: 1,920 pairs on the reference graph are carried
+        # by 5,117 relationships. Only `pairs` is comparable with len(payload).
+        write_result.single.return_value = {"written": 1, "pairs": 1}
 
         driver = MagicMock()
         session = driver.session.return_value.__enter__.return_value
@@ -266,7 +271,7 @@ class TestNothingIsWrittenWithoutASharedAssay:
         edges_result = MagicMock()
         edges_result.data.return_value = [{"child_id": 100, "parent_id": 200}]
         write_result = MagicMock()
-        write_result.single.return_value = {"written": 1}
+        write_result.single.return_value = {"written": 1, "pairs": 1}
         driver = MagicMock()
         session = driver.session.return_value.__enter__.return_value
         session.run.side_effect = [edges_result, write_result]
@@ -323,8 +328,13 @@ class TestTheSeekAlias:
                  patch.object(graph, "connections", conns):
                 graph._seek_cursor()
 
-        assert "seek_production" in caplog.text
-        assert "seek" in caplog.text
+        # `assert "seek" in caplog.text` would be vacuous here: "seek_production"
+        # contains it, and so does the logger name. Assert the record's args, which
+        # pins BOTH halves exactly -- alias and resolved name -- and so also catches
+        # a line that logs the database without saying which alias produced it.
+        assert len(caplog.records) == 1
+        assert caplog.records[0].args == ("seek", "seek_production")
+        assert "seek_production" in caplog.text, "and it survives formatting"
 
 
 class TestAssaysBySample:
@@ -393,22 +403,24 @@ class TestTheScriptKeepsItsOwnGuard:
 
 
 class TestTheShortfallIsNeverSilent:
-    """`written` can come back smaller than the number of edges planned, because
-    RECOMPUTE_CYPHER writes only where the singular internal_assay_title is not
-    NULL while _EDGES_FOR_SAMPLES selects every incident edge. Reporting that
-    shortfall as an unqualified success is the exact defect class this branch
-    exists to eliminate. The sibling backfill script warns on the same
-    comparison (`written != len(rows)` in its main()).
+    """The accounting must be in ONE unit. `payload` holds one entry per distinct
+    (child_id, parent_id) PAIR; `written` counts RELATIONSHIPS, and a pair can be
+    carried by more than one DERIVED_FROM edge -- measured, 1,920 pairs on the
+    reference graph are carried by 5,117 relationships, worst multiplicity 6.
+    So the query also returns `pairs`, and that is what is compared against
+    len(payload). A shortfall means some planned pair was skipped for having a
+    NULL singular internal_assay_title, and reporting that as an unqualified
+    success is the exact defect class this branch exists to eliminate.
     """
 
     @staticmethod
-    def _run(planned_edges, written, caplog):
+    def _run(planned_edges, written, pairs, caplog):
         edges_result = MagicMock()
         edges_result.data.return_value = [
             {"child_id": c, "parent_id": p} for c, p in planned_edges
         ]
         write_result = MagicMock()
-        write_result.single.return_value = {"written": written}
+        write_result.single.return_value = {"written": written, "pairs": pairs}
         driver = MagicMock()
         session = driver.session.return_value.__enter__.return_value
         session.run.side_effect = [edges_result, write_result]
@@ -420,43 +432,58 @@ class TestTheShortfallIsNeverSilent:
              patch.object(graph, "resolve_internal", return_value={351: (9, "A")}):
             return graph.recompute_for_samples({100}, driver, "neo4j")
 
-    def test_a_partial_write_is_reported_as_a_warning_with_both_numbers(self, caplog):
-        got = self._run([(100, 200), (300, 400), (500, 600)], written=2,
-                        caplog=caplog)
-        assert got == 2
+    def test_a_partial_write_is_reported_as_a_warning_counted_in_pairs(self, caplog):
+        """Three pairs planned, two covered, and those two carried by five
+        relationships. Every number is distinct on purpose: the comparison has to
+        be pairs against payload, while the relationship count is reported beside
+        it and is what the function returns."""
+        got = self._run([(100, 200), (300, 400), (500, 600)],
+                        written=5, pairs=2, caplog=caplog)
+        assert got == 5
+
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warnings) == 1
         message = warnings[0].getMessage()
-        assert "2" in message and "3" in message
+        assert "2 of 3" in message, "the comparison is pairs against payload"
+        assert "5" in message, "the relationship count is reported beside it"
         assert "internal_assay_title" in message
         assert not re.search(r"-\d", message), "a shortfall is never negative"
         assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
 
     def test_a_clean_write_warns_about_nothing(self, caplog):
-        got = self._run([(100, 200), (300, 400)], written=2, caplog=caplog)
+        got = self._run([(100, 200), (300, 400)], written=2, pairs=2,
+                        caplog=caplog)
         assert got == 2
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
         assert any(r.levelno == logging.INFO for r in caplog.records)
 
-    def test_an_over_write_is_an_error_and_never_a_negative_shortfall(self, caplog):
-        """This state cannot occur: the write matches only keys present in
-        $edges, so it can touch at most len(payload) edges. It is tested because
-        the single `written != len(payload)` guard it replaces DID take this
-        branch and print "-46 were planned but not written" -- taught to a reader
-        by a fixture asserting a state that cannot happen. Reported rather than
-        ignored: if it ever fires, the query has stopped meaning what this module
-        thinks it means, and a wrong count is how that would first surface.
-        """
-        got = self._run([(100, 200)], written=47, caplog=caplog)
-        assert got == 47
+    def test_a_pair_carried_by_two_relationships_is_not_a_false_alarm(self, caplog):
+        """The bug this accounting replaces. One planned pair matched by two
+        DERIVED_FROM relationships is a HEALTHY multi-edge run. Comparing
+        relationships against payload called that an impossible over-write and
+        sent the operator hunting a query bug that does not exist. It must log
+        clean, and it must report both units."""
+        got = self._run([(100, 200)], written=2, pairs=1, caplog=caplog)
+        assert got == 2, "the return is relationships, not pairs"
 
-        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
-        assert len(errors) == 1
-        message = errors[0].getMessage()
-        assert "47" in message and "1" in message
-        assert not re.search(r"-\d", message), "never phrased as a negative"
-        # It is an error, NOT the shortfall warning.
-        assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+        info = [r for r in caplog.records if r.levelno == logging.INFO]
+        assert len(info) == 1
+        message = info[0].getMessage()
+        assert "2" in message and "1" in message, "both units are reported"
+
+    def test_an_over_count_cannot_cancel_a_genuine_skip(self, caplog):
+        """The second and worse failure mode of counting relationships. Two pairs
+        planned, one skipped, the other carried by two relationships: written ==
+        len(payload) == 2, so the old comparison logged the whole run as clean
+        over a real shortfall. Counted in pairs it is 1 of 2, and it warns."""
+        got = self._run([(100, 200), (300, 400)], written=2, pairs=1,
+                        caplog=caplog)
+        assert got == 2
+
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+        assert "1 of 2" in warnings[0].getMessage()
 
 
 class TestTheChunkConstant:
@@ -467,8 +494,8 @@ class TestTheChunkConstant:
         assert graph.SQL_CHUNK == 5000
         assert not hasattr(graph, "BATCH_SIZE")
 
-    def test_the_helpers_chunk_at_that_size(self):
-        """Proves the constant is wired to the loops rather than shadowed by a
+    def test_assays_by_sample_chunks_at_that_size(self):
+        """Proves the constant is wired to the loop rather than shadowed by a
         literal: shrink it and the number of round trips must change."""
         cursor = MagicMock()
         cursor.fetchall.return_value = []
@@ -480,4 +507,23 @@ class TestTheChunkConstant:
         assert cursor.execute.call_count == 3
         assert [c.args[1] for c in cursor.execute.call_args_list] == [
             [1, 2], [3, 4], [5],
+        ]
+
+    def test_resolve_internal_chunks_at_that_size_in_BOTH_loops(self):
+        """The previous version of this test exercised only assays_by_sample, so
+        shadowing SQL_CHUNK at either of resolve_internal's two loops survived.
+        That was a gap in mutation SELECTION, not in the arithmetic. Every row
+        comes back unresolved, so both the junction loop and the id-fallback loop
+        run over all five ids: three chunks each, six round trips.
+        """
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        with patch.object(graph, "SQL_CHUNK", 2), \
+             patch.object(graph, "_seek_cursor",
+                          return_value=(cursor, "seek_production")):
+            graph.resolve_internal({1, 2, 3, 4, 5})
+
+        assert cursor.execute.call_count == 6
+        assert [c.args[1] for c in cursor.execute.call_args_list] == [
+            [1, 2], [3, 4], [5], [1, 2], [3, 4], [5],
         ]
