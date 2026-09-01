@@ -69,6 +69,10 @@ def suggest_path(pattern: str) -> str:
     Named groups become '{name}' placeholders for a human to fill in, and the
     anchors go, the same way ci.routes.Route.matcher strips them -- a '^' that
     negates a character class is not an anchor.
+
+    Only FLAT named groups are substituted. Anything else -- an unnamed group, a
+    bare wildcard, a named group with a group of its own inside -- passes through
+    verbatim for the author of the entry to replace by hand.
     """
     body = _NAMED_GROUP.sub(lambda m: "{" + m.group(1) + "}", pattern)
     body = re.sub(r"(?<!\[)\^", "", body)   # anchors, not class negations
@@ -76,29 +80,32 @@ def suggest_path(pattern: str) -> str:
     return "/" + body.lstrip("/")
 
 
-def _walk(resolver, prefix: str = ""):
+def _walk(resolver, prefix: str = "", converter: str | None = None):
     """Yield (pattern, converter) for every leaf under a resolver.
 
     'pattern' is the include() prefixes and the leaf concatenated, which is how
-    ci.routes declares a route. 'converter' is the leaf's own route string when
-    that leaf came from path() and spells a '<converter>', and None otherwise;
+    ci.routes declares a route. 'converter' is the route string of the first
+    path() component on the way down that spells a '<converter>' -- the leaf
+    itself, or any include() prefix above it, since a prefix lands in the
+    concatenated pattern just as surely as the leaf does -- and None otherwise;
     live_patterns() refuses to hand one to the stdlib matcher.
     """
     from django.urls.resolvers import RoutePattern
 
     for entry in resolver.url_patterns:
-        if hasattr(entry, "url_patterns"):
-            yield from _walk(entry, prefix + str(entry.pattern))
-            continue
         text = str(entry.pattern)
-        converter = None
+        found = converter
+        if found is None and isinstance(entry.pattern, RoutePattern) and "<" in text:
+            found = text
+        if hasattr(entry, "url_patterns"):
+            yield from _walk(entry, prefix + text, found)
+            continue
         if isinstance(entry.pattern, RoutePattern):
             # Django anchors every path() endpoint with '\Z' but str() drops it,
             # and a pattern with no terminal '$' is a prefix match. Unanchored,
             # the DRF router root '^nextseek_api/^' would swallow every API URL.
-            converter = text if "<" in text else None
             text += "$"
-        yield prefix + text, converter
+        yield prefix + text, found
 
 
 def live_patterns() -> set[str]:

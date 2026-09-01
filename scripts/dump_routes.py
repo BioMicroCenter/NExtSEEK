@@ -8,12 +8,16 @@ the exact command.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 
 def main() -> int:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    # Without this a hand run dies on a bare ImproperlyConfigured. The gate lane
+    # already exports it, and setdefault leaves that export alone.
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.test_settings")
 
     import django
 
