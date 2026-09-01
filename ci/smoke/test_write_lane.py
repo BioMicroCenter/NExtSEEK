@@ -19,9 +19,15 @@ Do not remove that second gate to make the lane "more thorough".
 from __future__ import annotations
 
 import os
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from ci.smoke.client import GuardedSession
 
 pytestmark = pytest.mark.write
 
@@ -33,15 +39,14 @@ needs_destructive = pytest.mark.skipif(
 
 
 @pytest.fixture(scope="module")
-def wapi(base_url, write_creds):
+def wapi(profile, base_url, write_creds):
     """A fresh Basic-authenticated client for the write account.
 
     Fresh, and separate from the read fixtures, for the same reason as always:
     a sessionid cookie would outrank the Basic header and silently change which
     identity is performing the write.
     """
-    import requests
-    s = requests.Session()
+    s = GuardedSession(profile=profile, base_url=base_url)
     s.auth = write_creds
     s.headers["Accept"] = "application/json"
     return s

@@ -23,15 +23,26 @@ sessionid cookie silently changes which identity is under test.
 Both accounts must have logged in through /login/ at least once on each box before
 anything here works. BasicAuthentication validates against Django's auth_user
 table, and that row is only created by the login view.
+
+The box declares its profile in CI_BOX_PROFILE, and an absent value means prod.
+--profile may only narrow what the box declares; widening needs --force-profile
+together with CI_FORCE_PROFILE_CONFIRM=yes, so it cannot happen by accident.
 """
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from ci.routes import PROFILES
+from ci.smoke.client import GuardedSession
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_CRED_FILE = Path.home() / ".config" / "nextseek" / "ci.env"
@@ -76,11 +87,93 @@ def pytest_addoption(parser):
                      "CONSOLE_ALLOWLIST. Off by default so the first runs report "
                      "what is actually there before the gate goes live.")
     g.addoption("--headed", action="store_true", help="Run the browser headed.")
+    g.addoption("--profile", default=None,
+                help="Narrow the profile below what the box declares. Cannot widen.")
+    g.addoption("--force-profile", default=None,
+                help="Widen the profile above what the box declares. Requires "
+                     "CI_FORCE_PROFILE_CONFIRM=yes. Never use in a workflow file.")
+
+
+# --------------------------------------------------------------------------- #
+# profile
+# --------------------------------------------------------------------------- #
+
+_PROFILE_RANK = {"prod": 0, "dev": 1, "local": 2}
+
+
+def _valid_profile(source: str, value: str) -> str:
+    """Return `value`, or stop the run naming what was allowed.
+
+    Every input is checked, the box's own declaration included. Without this an
+    unknown name reaches _PROFILE_RANK and raises a bare KeyError, which reads as
+    a harness fault rather than as the typo it is.
+    """
+    if value not in PROFILES:
+        pytest.exit(
+            f"{source} {value!r} is not a profile. Allowed: {', '.join(PROFILES)}.",
+            returncode=2,
+        )
+    return value
+
+
+def resolve_profile(config) -> str:
+    """Resolve the active profile.
+
+    The box declares a default; the command line may only narrow it. Widening
+    needs --force-profile AND an environment acknowledgement, so it cannot be
+    reached by a typo or by copying a line out of a workflow file.
+
+    A module-level function rather than only a fixture, because collection-time
+    hooks need the same answer and no fixture exists yet at collection. The
+    result is memoised on the config object so the forced-profile banner is
+    printed once per run rather than once per caller.
+    """
+    cached = getattr(config, "_nextseek_profile", None)
+    if cached is not None:
+        return cached
+
+    declared = _valid_profile(
+        "CI_BOX_PROFILE",
+        os.environ.get("CI_BOX_PROFILE", "prod"),   # absent means prod: fail closed
+    )
+    forced = config.getoption("--force-profile")
+    if forced:
+        forced = _valid_profile("--force-profile", forced)
+        if os.environ.get("CI_FORCE_PROFILE_CONFIRM") != "yes":
+            pytest.exit(
+                f"--force-profile {forced} needs CI_FORCE_PROFILE_CONFIRM=yes. "
+                f"The box declares {declared!r}.", returncode=2)
+        print(f"\n*** FORCED PROFILE {forced!r} on a box declaring {declared!r} ***\n")
+        resolved = forced
+    else:
+        asked = config.getoption("--profile")
+        if not asked:
+            resolved = declared
+        else:
+            asked = _valid_profile("--profile", asked)
+            if _PROFILE_RANK[asked] > _PROFILE_RANK[declared]:
+                pytest.exit(
+                    f"--profile {asked!r} would widen past the box's {declared!r}. "
+                    f"Use --force-profile if that is deliberate.", returncode=2)
+            resolved = asked
+
+    config._nextseek_profile = resolved
+    return resolved
+
+
+@pytest.fixture(scope="session")
+def profile(pytestconfig) -> str:
+    """The profile every client in this file is built for. See resolve_profile."""
+    return resolve_profile(pytestconfig)
 
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "write: mutates the database.")
     config.addinivalue_line("markers", "flow: drives a real browser.")
+    # Resolve before collection. A run whose tests happen not to request the
+    # fixture would otherwise never evaluate the command line at all, so a
+    # refusal has to happen here to be reliable -- and it costs nothing.
+    resolve_profile(config)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -121,7 +214,14 @@ def _cred(pair: tuple[str, str]) -> tuple[str, str] | None:
 
 @pytest.fixture(scope="session")
 def base_url(pytestconfig) -> str:
-    return pytestconfig.getoption("--base-url").rstrip("/")
+    value = pytestconfig.getoption("--base-url").rstrip("/")
+    if not urlsplit(value).scheme:
+        pytest.exit(
+            f"--base-url {value!r} has no scheme. Every client is bound to this "
+            f"URL and compares scheme, host and port against it, so a bare host "
+            f"refuses every request without saying why. Write it as "
+            f"http://{value}.", returncode=2)
+    return value
 
 
 @pytest.fixture(scope="session")
@@ -230,27 +330,37 @@ def stack_ready(pytestconfig, base_url, request):
 # --------------------------------------------------------------------------- #
 
 @pytest.fixture(scope="session")
-def api(base_url, smoke_creds) -> requests.Session:
+def api(profile, base_url, smoke_creds) -> GuardedSession:
     """Basic-authenticated client for /nextseek_api/*. Never touches /login/.
 
     Keeping this session cookie-free is load-bearing: a sessionid would outrank
     the Basic header and silently change which identity is under test.
     """
-    s = requests.Session()
+    s = GuardedSession(profile=profile, base_url=base_url)
     s.auth = smoke_creds
     s.headers["Accept"] = "application/json"
-    s.base = base_url
     return s
 
 
 @pytest.fixture(scope="session")
-def web(base_url, smoke_creds) -> requests.Session:
+def anon(profile, base_url) -> GuardedSession:
+    """Unauthenticated client, for the routes that must answer without credentials.
+
+    No auth and no Accept header, so it looks like a visitor arriving with
+    nothing. Sharing the api fixture instead would prove the opposite of what
+    those checks claim.
+    """
+    return GuardedSession(profile=profile, base_url=base_url)
+
+
+@pytest.fixture(scope="session")
+def web(profile, base_url, smoke_creds) -> GuardedSession:
     """Session-cookie client for /seek/* pages.
 
     Those views read request.session['username'], which only the login view
     writes, so Basic auth is not sufficient for them.
     """
-    s = requests.Session()
+    s = GuardedSession(profile=profile, base_url=base_url)
     s.get(f"{base_url}/login/", timeout=30)
     token = s.cookies.get("csrftoken")
     assert token, "GET /login/ did not set a csrftoken cookie"
@@ -272,13 +382,32 @@ def web(base_url, smoke_creds) -> requests.Session:
         "the login page on failure rather than returning 4xx."
     )
     assert s.cookies.get("sessionid"), "login did not set a sessionid cookie"
-    s.base = base_url
     return s
 
 
 # --------------------------------------------------------------------------- #
 # browser
 # --------------------------------------------------------------------------- #
+
+def _guard_context(ctx, profile: str) -> None:
+    """Apply the prod non-GET rule at the browser layer.
+
+    Same rule as GuardedSession: a page that tries to POST under the prod profile
+    gets an aborted request, not a live one. Method only, deliberately: a real
+    page pulls fonts, bundles and XHR that the registry does not describe, and
+    test_flows.py installs its own page-level handler on top of this one. The
+    single carve-out is the login form post, which ci/routes.py grants /login/
+    for the same reason -- authenticating is a precondition of reading.
+    """
+    if profile != "prod":
+        return
+    ctx.route("**/*", lambda route: (
+        route.continue_()
+        if route.request.method == "GET"
+        or urlsplit(route.request.url).path == "/login/"
+        else route.abort()
+    ))
+
 
 @pytest.fixture(scope="session")
 def browser(pytestconfig):
@@ -290,7 +419,7 @@ def browser(pytestconfig):
 
 
 @pytest.fixture(scope="session")
-def storage_state(browser, base_url, smoke_creds, tmp_path_factory):
+def storage_state(browser, profile, base_url, smoke_creds, tmp_path_factory):
     """Log in once in a real browser and reuse the cookies for every flow.
 
     Do NOT set an HTTP Basic-Auth header on the browser context instead: it leaks
@@ -298,6 +427,7 @@ def storage_state(browser, base_url, smoke_creds, tmp_path_factory):
     which breaks the bundle. Session cookie only.
     """
     ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+    _guard_context(ctx, profile)
     page = ctx.new_page()
     page.goto(f"{base_url}/login/", wait_until="domcontentloaded")
     page.fill("input#username", smoke_creds[0])
@@ -314,7 +444,7 @@ def storage_state(browser, base_url, smoke_creds, tmp_path_factory):
 
 
 @pytest.fixture
-def page(browser, storage_state, base_url, pytestconfig, request):
+def page(browser, storage_state, profile, base_url, pytestconfig, request):
     """An authenticated page that records console errors and failed requests.
 
     Viewport is 1440x900 deliberately. searchAdvanced.html renders two separate
@@ -327,6 +457,7 @@ def page(browser, storage_state, base_url, pytestconfig, request):
         base_url=base_url,
     )
     p = ctx.new_page()
+    _guard_context(ctx, profile)
     errors: list[str] = []
     p.on("console", lambda m: errors.append(f"console.{m.type}: {m.text}")
          if m.type == "error" else None)
