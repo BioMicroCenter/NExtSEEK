@@ -1,0 +1,205 @@
+{
+  "report_meta": {
+    "schema_version": "handoff/v1",
+    "tool": "handoff",
+    "date": "2026-09-01",
+    "slug": "rewrite-the-sample-attributes-gui-frontend-only",
+    "title": "Rewrite the Sample Attributes GUI — frontend only, the data layer is done",
+    "gist": "Scoped a frontend-only rewrite of /seek/samples/attributes/. The page already runs entirely on the attributes API and that API is verified on production, so this is a UI job with no server-side risk. Spec at docs/superpowers/specs/2026-09-01-sample-attributes-gui-rewrite-design.md. START WITH THE FIRST handoff_note.",
+    "generated_at": "2026-09-01T11:27:31-04:00",
+    "report_path": ".claude/reports/2026-09-01-rewrite-the-sample-attributes-gui-frontend-only.json",
+    "indexed_in": "CLAUDE.md"
+  },
+  "annotation_file": {
+    "schema_version": "handoff/v1",
+    "session_id": "handoff-2026-09-01-rewrite-the-sample-attributes-gui-frontend-only",
+    "annotations": [
+      {
+        "annotation_id": "ANN-1",
+        "annotation_type": "handoff_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:27:31-04:00",
+        "blocks": {
+          "summary": "START HERE. Read the spec, settle the five open UI decisions with the operator, then build. Frontend only.",
+          "details": "Spec: docs/superpowers/specs/2026-09-01-sample-attributes-gui-rewrite-design.md\n\nThe task is to replace the EasyUI datagrid at /seek/samples/attributes/ with a purpose-built UI. The server side needs NO change -- the page was rewired onto the attributes API on 2026-09-01 and that API is verified working on production.\n\nIf the work starts reaching into nextseek_api/, something has been misunderstood. No Python, no endpoints, no migrations.\n\nThe five decisions to settle first, because they are genuine choices rather than omissions:\n  1. Chrome -- stay in the current NExtSEEK page frame, or a standalone admin view?\n  2. Look -- match the newer pages, or whatever the house is standardising on?\n  3. Framework -- plain JS is entirely sufficient for one table and four actions; anything heavier needs a reason\n  4. Editing model -- inline rows like today, or a side panel / modal per attribute?\n  5. Whether the sample-type picker gains search (~101 types)",
+          "agent_guidance": "The operator's words when scoping this: 'as long as the attribute endpoint works then the GUI should be good'. The endpoint does work. Treat the data layer as settled and spend the effort on the interface.",
+          "caveats": null
+        },
+        "evidence_refs": [
+          {
+            "evidence_id": "EV-1.1",
+            "evidence_type": "file",
+            "ref": "docs/superpowers/specs/2026-09-01-sample-attributes-gui-rewrite-design.md"
+          }
+        ],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-2",
+        "annotation_type": "implementation_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:27:31-04:00",
+        "blocks": {
+          "summary": "The API contract the new UI codes against, and the four behaviours that must survive.",
+          "details": "All same-origin fetch with credentials:'same-origin'. The API uses CsrfExemptSessionAuthentication (attributes/auth.py:15), so NO CSRF token and NO credentials belong in the page. Reads are open to any signed-in SEEK user; mutations need a Django superuser and answer 403.\n\n  read    POST /nextseek_api/attributes/search/  {\"targets\":[{\"sample_type\": <id>}]}\n  create  POST  .../batch-create/\n  patch   PATCH .../batch-patch/\n  delete  POST  .../batch-delete/     all take {\"targets\":[...], \"dry_run\": bool}\n\nMust survive the rewrite:\n\n1. A dry_run PREVIEW before every write, with the automatic_changes count shown. Not decoration: adding one attribute to a type with gappy positions renumbers everything below the gap -- BLD on production emitted 68 position_changed entries from a one-attribute request.\n\n2. Errors arrive in TWO places. Envelope-level failures as top-level errors[]; per-target failures (duplicate title, bad type) as outcomes[].errors[]. Reading only the top level was a real bug -- the operator saw 'HTTP 409' instead of 'final title collides with an untouched sibling'.\n\n3. A human sentence on 403.\n\n4. Surface affected_samples / updated_samples so the operator sees the blast radius.",
+          "agent_guidance": null,
+          "caveats": "A sample type never approaches the API's 500-row default page size, so one page is the whole type. No pagination needed."
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-3",
+        "annotation_type": "implementation_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:27:31-04:00",
+        "blocks": {
+          "summary": "Creating an attribute backfills it as blank JSON into every sample of the type; deleting removes the key. Server-side -- the UI must not implement it.",
+          "details": "The operator asked to confirm this specifically. Verified on the local stack against D.FILE (sample type 19, one sample):\n\n  create MDTEST -> counts affected_samples: 1, updated_samples: 1\n                   JSON_EXTRACT(json_metadata,'$.MDTEST') == \"\"   (key present, blank)\n  delete MDTEST -> counts affected_samples: 1, updated_samples: 1\n                   key REMOVED from the document\n\nnextseek_api/attributes/metadata.py is a dedicated bounded bulk-rewrite kernel doing\nUPDATE samples SET json_metadata = CASE id ... END in chunks, driven from\nexecutor.rewrite_metadata.\n\nThis is BETTER than the old /seek/attribute/delete/ path, which never called\nupdateSampleType and so left orphaned keys in every sample forever.",
+          "agent_guidance": "The UI's only job here is to display the counts. Do not attempt any client-side metadata manipulation.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-4",
+        "annotation_type": "warning",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:27:31-04:00",
+        "blocks": {
+          "summary": "Do not touch datagrid-custom.js, and leave the three old routes alone.",
+          "details": "static/js/custom/datagrid-custom.js is SHARED with the Clades and Internal Assays pages, which still use it. The current attributes page deliberately shadows two of its functions inline rather than editing it, for exactly this reason. Editing it breaks two other pages.\n\nThe old routes /seek/attributes/id=, /seek/attribute/save/ and /seek/attribute/delete/ all still exist. This page no longer uses the last two, but /seek/attributes/id= is still used by three search templates (samples_search, samples_newsearch, searchAdvanced_search). Leave all three routes in place.\n\nSafe to replace freely: seek/templates/sampleAttributes.html and both embed templates under seek/templates/pages/ -- samples_attributes.embed.html and samples_atable.embed.html are included by NOTHING else.",
+          "agent_guidance": null,
+          "caveats": "samples_attributes.embed.html is CRLF (207 lines); samples_atable.embed.html is LF. 913 tracked files in this repo are CRLF. Reading one in Python text mode and writing it back silently reflows the whole file -- a 4-line edit once produced a 607-line diff. Detect and preserve, or check `git diff --stat` after every scripted edit."
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-5",
+        "annotation_type": "implementation_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:27:31-04:00",
+        "blocks": {
+          "summary": "Two data-shape traps the current grid works around. The new UI should not inherit either.",
+          "details": "1. The Type column's field is named `sample_attribute_type_title` but carries the NUMERIC type id once a row is edited, because the EasyUI combobox uses `sample_attribute_type_id` as its valueField. The API tolerates both an id and an exact title, which is the only reason this works today.\n\n2. `required` and `is_title` come back from the API as real booleans, while the grid's checkbox editors are configured on:1 / off:0, so the read path converts.\n\nA purpose-built UI can simply hold the id and the boolean and skip both workarounds.",
+          "agent_guidance": "Send sample_attribute_type as the numeric id. It is unambiguous, whereas a title can collide.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-6",
+        "annotation_type": "handoff_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:27:31-04:00",
+        "blocks": {
+          "summary": "Local loop needs no rebuild: bind-mount the worktree so template edits are live on refresh.",
+          "details": "Run from code/dmac/docker/dev (the compose dir -- docker/*.env is gitignored and only lives there):\n\n  docker compose run --rm --no-deps -p 18000:8000 \\\n    -v <worktree>:/app -v /app/.venv \\\n    nextseek /app/.venv/bin/python manage.py runserver 0.0.0.0:8000 --noreload --insecure\n\n--insecure serves static files. Log in at 127.0.0.1:18000 as a local superuser (demo works\nlocally). Cookies are per-host not per-port, so a session from :8000 carries over.\n\nAllow 30-60s for `docker compose run` to create the container before Django starts. nginx is\nnot in the path on 18000, so there is no 502 phase.",
+          "agent_guidance": "Do NOT rebuild the shared local stack to test a template change. The bind mount runs the worktree's code directly and leaves other sessions' work alone.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-7",
+        "annotation_type": "open_question",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:27:31-04:00",
+        "blocks": {
+          "summary": "Dropping EasyUI should kill a JS error this page has thrown forever. Confirm it does.",
+          "details": "/seek/samples/attributes/ raises `TypeError: Cannot read properties of undefined (reading 'methods')` from datagrid-filter.js:10 on EVERY load, and has for as long as anyone has looked. It is an EasyUI extension load-order problem, not a data-path one, and it was deliberately left alone during the API rewire.\n\nA clean browser console is one of the acceptance criteria for this rewrite.",
+          "agent_guidance": "Check the console on the FIRST load of the new page, before assuming it is gone. If some other page-level include still pulls EasyUI in, the error can survive a rewrite of the grid itself.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-8",
+        "annotation_type": "handoff_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:27:31-04:00",
+        "blocks": {
+          "summary": "How to verify: drive the real page, not just the API.",
+          "details": "The five paths, all previously exercised this way with Playwright against a local instance:\n\n  read       select a type; rows match what the API returns\n  create     preview -> apply -> row gets a real id -> DB confirms\n  patch      rename AND toggle a flag -> DB confirms both\n  delete     preview -> apply -> row gone AND its json_metadata key gone\n  rejection  rename an attribute to a title already on the type -> the page must BLOCK the\n             write and show the server's sentence, not a bare status code\n\nPlus: the console must be clean.\n\nClean up test attributes afterwards. VIR (sample type 1) should return to 11 attributes; the\nlocal DB was left in that state.",
+          "agent_guidance": "The rejection case is the one most likely to be skipped and the one that caught a real bug last time. Do not omit it.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-9",
+        "annotation_type": "risk",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:27:31-04:00",
+        "blocks": {
+          "summary": "This page writes to a GLOBAL, shared schema. A UI bug is not cosmetic.",
+          "details": "Sample types are not project-scoped. Adding, renaming or deleting an attribute changes that type for every project and every existing record of it, and rewrites json_metadata across every sample of the type.\n\nThe dry_run preview exists precisely so the operator sees the blast radius before committing. Whatever the new UI looks like, it must not make it easy to apply a change without reading what the server said it would do.",
+          "agent_guidance": "Resist a one-click Save that skips the preview, however much tidier it looks.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      }
+    ]
+  }
+}
