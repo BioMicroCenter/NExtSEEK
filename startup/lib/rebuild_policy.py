@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 
 ATTRIBUTES_PROFILE = "attributes"
+ASSAY_REGISTRATION_PROFILE = "assay-registration"
 
 #: Always-on services that run the app image.
 BASE_APP_RUNTIME_SERVICES = ("nextseek",)
@@ -18,11 +19,31 @@ ATTRIBUTE_RUNTIME_SERVICES = (
     "attribute_mutation_recovery_scheduler",
 )
 
+#: The batch assay-registration worker. Gated behind its own compose profile for
+#: the same reason as the attribute runtimes: it is only useful once the
+#: asynchronous registration path is in use, and a stock bring-up should not gain
+#: an always-on container.
+ASSAY_REGISTRATION_RUNTIME_SERVICES = ("assay_registration_worker",)
+
+
+def _profile_enabled(profile: str) -> bool:
+    """Whether ``profile`` is in COMPOSE_PROFILES.
+
+    One parser, two predicates. Duplicating the split is how two gates come to
+    disagree about whether " attributes " counts.
+    """
+    profiles = os.environ.get("COMPOSE_PROFILES", "")
+    return profile in {p.strip() for p in profiles.split(",") if p.strip()}
+
 
 def attributes_profile_enabled() -> bool:
     """Whether the operator asked for the attribute-mutation pipeline."""
-    profiles = os.environ.get("COMPOSE_PROFILES", "")
-    return ATTRIBUTES_PROFILE in {p.strip() for p in profiles.split(",") if p.strip()}
+    return _profile_enabled(ATTRIBUTES_PROFILE)
+
+
+def assay_registration_profile_enabled() -> bool:
+    """Whether the operator asked for the batch assay-registration worker."""
+    return _profile_enabled(ASSAY_REGISTRATION_PROFILE)
 
 
 def app_runtime_services() -> tuple[str, ...]:
@@ -34,10 +55,19 @@ def app_runtime_services() -> tuple[str, ...]:
     the profile is on. Otherwise the gate holds for a bare ``docker compose
     up -d`` and silently does nothing for ``./startup.sh install``, which is the
     supported entry point.
+
+    The profiles ACCUMULATE rather than choose. An early-return per profile
+    would let whichever branch came first decide the whole list, so an operator
+    running both would silently lose one set -- and the way that failure
+    presents is a worker left on its old container after `./startup.sh rebuild`,
+    running old code under `restart: unless-stopped`, which looks healthy.
     """
+    services = BASE_APP_RUNTIME_SERVICES
     if attributes_profile_enabled():
-        return BASE_APP_RUNTIME_SERVICES + ATTRIBUTE_RUNTIME_SERVICES
-    return BASE_APP_RUNTIME_SERVICES
+        services += ATTRIBUTE_RUNTIME_SERVICES
+    if assay_registration_profile_enabled():
+        services += ASSAY_REGISTRATION_RUNTIME_SERVICES
+    return services
 
 
 #: Backwards-compatible alias. Prefer ``app_runtime_services()``: this constant is

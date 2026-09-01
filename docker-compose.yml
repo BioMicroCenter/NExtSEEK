@@ -451,14 +451,26 @@ services:
       - ./logs:/app/logs:z
     command: ["uv", "run", "--no-sync", "python", "manage.py", "run_assay_registration_jobs", "--interval", "5"]
     restart: unless-stopped
-    # NO healthcheck, deliberately. The two siblings above share
-    # attribute_runtime_healthcheck.py, which probes a Celery broker and an
-    # outbox heartbeat singleton -- neither of which this worker has: it holds
-    # no lease between passes and writes no heartbeat row. The only check that
-    # could be written today is one that always passes, and a healthcheck that
-    # cannot fail is worse than none: it reports green through a crashloop.
-    # `restart: unless-stopped` plus the drain log is the honest supervision
-    # until a heartbeat exists to probe.
+    # NO healthcheck, deliberately. All THREE attribute runtimes above share
+    # docker/scripts/attribute_runtime_healthcheck.py, and what it probes
+    # differs by mode: `worker` checks a Celery process plus read access to the
+    # SQLite broker, while `dispatcher` and `recovery` read a durable heartbeat
+    # row out of MySQL. This worker has neither shape -- no Celery, no broker,
+    # and it writes no heartbeat row, holding no state at all between passes.
+    # The only check writable today is one that always passes, and a healthcheck
+    # that cannot fail is worse than none: it reports green through a crashloop.
+    #
+    # SO BE CLEAR ABOUT THE SUPERVISION THIS SERVICE HAS, WHICH IS LESS THAN IT
+    # LOOKS. `restart: unless-stopped` only fires if the process exits, and the
+    # drain loop deliberately swallows a failing pass so one bad job cannot stop
+    # every other job draining. A failure that recurs EVERY pass therefore runs
+    # forever: logged, never restarted, never unhealthy. And because the loop
+    # stays quiet on a zero-drain pass, stdout shows only the opening
+    # "draining every Ns" line, so `docker logs` looks like a healthy idle
+    # worker. Before this service existed the command exited and an operator
+    # saw the traceback. Until a heartbeat row exists to probe, the real check
+    # is `docker logs` for "assay-registration drain pass failed" and the
+    # `accepted` job count on the endpoint itself.
     deploy:
       resources:
         limits:

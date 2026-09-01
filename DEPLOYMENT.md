@@ -38,6 +38,7 @@ two are Compose-managed, including the attribute Celery SQLite broker.
 | `nextseek-sidecar` | built from `docker/ns-sidecar/` | — | dmac-cc-net | NS sidecar for the CC agent (healthchecked) |
 | `cc-agent` | built from `docker/cc-runtime/` → `dmac-assistant:poc` | — | none | **build-target only** — never runs as a service; per-turn agent containers are spawned from this image by the app via the docker socket |
 | `attribute_mutation_worker` / `attribute_mutation_dispatcher` / `attribute_mutation_recovery_scheduler` | shared `nextseek-nextseek:latest` app image | — | default | durable attribute execution, outbox dispatch, and recovery processes |
+| `assay_registration_worker` | shared `nextseek-nextseek:latest` app image | — | default | drains the batch assay-registration job queue. **Requires `COMPOSE_PROFILES=assay-registration`.** Without it the service never starts, and a `202` from `POST /nextseek_api/assay-registrations/` is accepted and then **never executed** — `status_url` reports `accepted`, 0 of N, indefinitely, with no error anywhere. Any instance that can return that 202 must run this. |
 
 Key facts every operator must internalize:
 
