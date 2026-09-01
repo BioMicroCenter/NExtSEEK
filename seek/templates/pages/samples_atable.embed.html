@@ -46,7 +46,16 @@ $(function(){
 	}
 
 	function nsAttrErrors(result) {
-		var errors = (result.body && result.body.errors) || [];
+		var body = result.body || {};
+		var errors = (body.errors || []).slice();
+		// Per-target failures -- a duplicate title, an unknown value type -- arrive
+		// in outcomes[].errors[], NOT at the top level. The top-level `errors` shape
+		// is used only for envelope-level failures such as an unresolved sample
+		// type. Reading just the top level reports a bare "HTTP 409" and throws away
+		// the one sentence that tells the operator what to fix.
+		(body.outcomes || []).forEach(function (outcome) {
+			(outcome.errors || []).forEach(function (e) { errors.push(e); });
+		});
 		if (!errors.length) {
 			if (result.status === 403) { return 'Superuser access is required to change attributes.'; }
 			if (result.status === 401) { return 'Your session has expired. Please sign in again.'; }
