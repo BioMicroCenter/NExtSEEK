@@ -1,0 +1,376 @@
+{
+  "report_meta": {
+    "schema_version": "handoff/v1",
+    "tool": "handoff",
+    "date": "2026-09-01",
+    "slug": "ci-cd-design-plus-the-attribute-and-assay-work-now-on-dev",
+    "title": "CI/CD design approved; attribute API + GUI and the assay-registration endpoint merged to dev and deployed",
+    "gist": "Approved a CI/CD design (spec at docs/superpowers/specs/2026-09-01-nextseek-ci-cd-design.md) for a new session to implement. Also: three defects that had never let the attributes mutation API complete a write on production are fixed and live, the Sample Attributes GUI now runs on that API, and the batch assay-registration endpoint is merged. dev = 32043fe8, deployed to the dev box. START WITH THE FIRST handoff_note.",
+    "generated_at": "2026-09-01T11:18:16-04:00",
+    "report_path": ".claude/reports/2026-09-01-ci-cd-design-plus-the-attribute-and-assay-work-now-on-dev.json",
+    "indexed_in": "CLAUDE.md"
+  },
+  "annotation_file": {
+    "schema_version": "handoff/v1",
+    "session_id": "handoff-2026-09-01-ci-cd-design-plus-the-attribute-and-assay-work-now-on-dev",
+    "annotations": [
+      {
+        "annotation_id": "ANN-1",
+        "annotation_type": "handoff_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "START HERE if you are implementing CI/CD. The design is approved and written; no YAML exists yet.",
+          "details": "Spec: docs/superpowers/specs/2026-09-01-nextseek-ci-cd-design.md (commit ebb86940). Read it in full before writing anything -- it encodes measurements that a green-field CI would get wrong.\n\nThere is NO CI in this repo today. .github/ holds only ISSUE_TEMPLATE; no workflows/, no other CI config anywhere.\n\nThe five approved decisions:\n  1. Hybrid runners -- pytest on GitHub-hosted, health/smoke on a self-hosted runner on fairdata-dev\n  2. The OPERATOR rebuilds, then CI tests (workflow_dispatch, optionally called by startup.sh on success). CI must never restart that box on its own -- humans and other Claude sessions work on it concurrently\n  3. Tiered write policy -- read-only by default, opt-in write lane behind @pytest.mark.write\n  4. Both drivers -- a fast HTTP sweep for health, Playwright for four real flows, failing on uncaught console errors\n  5. The pytest job is INFORMATIONAL and never blocks (operator's explicit choice, differing from my recommendation). It still diffs a committed baseline and surfaces NEW failures in the job summary.\n\nPlanned layout:\n  .github/workflows/ci-pytest.yml\n  .github/workflows/ci-smoke.yml\n  ci/pytest-baseline.txt\n  ci/smoke/{conftest,test_health,test_flows,test_write_lane}.py",
+          "agent_guidance": "Three prerequisites are the operator's, not yours: installing a self-hosted runner on fairdata-dev, creating a dedicated CI login (preferably NOT a superuser so a bug in the suite cannot mutate schema, and a deliberate decision about where its credentials live), and confirming whether startup.sh may call `gh workflow run`. Ask before assuming any of them.",
+          "caveats": null
+        },
+        "evidence_refs": [
+          {
+            "evidence_id": "EV-1.1",
+            "evidence_type": "file",
+            "ref": "docs/superpowers/specs/2026-09-01-nextseek-ci-cd-design.md"
+          },
+          {
+            "evidence_id": "EV-1.2",
+            "evidence_type": "file",
+            "ref": "ebb86940"
+          }
+        ],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-2",
+        "annotation_type": "implementation_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "Four measurements that must shape any CI here. Each was learned the hard way in this session.",
+          "details": "1. THE SUITE IS NOT GREEN AND WILL NOT BE. Merged code measures 12 failed / 1704 passed / 363 errors. The failures and errors are pre-existing and environmental. A 'must be green' gate fails on run one.\n\n2. COUNTS LIE; NAMES DO NOT. One combined run read '11 failed' where the pre- and post-merge failure NAME sets were byte-identical -- collecting assay_registration alongside the others changes OpenAPI schema generation. Always diff sorted test IDs, never totals. This is the method that proved the merge clean.\n\n3. `-p no:logging` MANUFACTURES ERRORS. It disables the plugin providing `caplog`, so every test using that fixture errors with \"fixture 'caplog' not found\". It inflated my own error counts by 10 (assay_registration: 253 passed/6 errors with the flag, 259/0 without). CI must not pass it, and earlier numbers quoted in commit messages as '373 errors' are really 363.\n\n4. NGINX SERVES 502 FOR 60-120s AFTER A RESTART, AND ANSWERS IT INSTANTLY. A naive retry loop burns every attempt in about two seconds. Use `curl --retry N --retry-delay 5 --retry-all-errors`, or an explicit sleep.",
+          "agent_guidance": "Point 2 is the single most useful technique in this report. Whenever you need to prove a change is regression-free, capture sorted FAILED names before and after and `comm` them; do not compare totals.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-3",
+        "annotation_type": "warning",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "Verify the deployed commit INSIDE the running container before testing. Three rebuilds this session reported success while serving older code.",
+          "details": "Each time, ./startup.sh rebuild printed 'app rebuilt and restarted' and the container came up healthy, while the image had been built from a different checkout than the one on disk -- because the checkout moved after the build, or a merge had not run. Testing against that produced a 500 that looked like a failed fix but was simply absent code, and cost real time to diagnose twice.\n\nThe check, one grep per distinguishing marker:\n  docker exec nextseek grep -c 'CONVERT(%s USING' /app/nextseek_api/attributes/repository.py\n  docker exec nextseek grep -c 'asdict(change)'  /app/nextseek_api/attributes/service.py\n  docker exec nextseek grep -c 'IsSuperUser'     /app/nextseek_api/attributes/views.py\n  docker exec nextseek grep -c 'NS_ATTR_API'     /app/seek/templates/pages/samples_atable.embed.html\n\nRELATED: migrations DO run on rebuild, via the container entrypoint -- but the output goes to the CONTAINER log, not the startup.sh log. `docker logs nextseek | grep Applying`. I wrongly reported that startup.sh does not migrate, because I queried django_migrations 10 seconds after restart, before the entrypoint had finished.",
+          "agent_guidance": "Put `git log --oneline -1` on the line immediately before ./startup.sh rebuild, and grep the container afterwards. It is the only cheap way to tell 'the fix is wrong' from 'the fix is not there'.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-4",
+        "annotation_type": "handoff_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "Branch and deployment state as of 2026-09-01.",
+          "details": "origin/dev      = 32043fe8  Merge dev-temp into dev  <- both workstreams\norigin/dev-temp = 019f8cb7  (+ ebb86940, the CI spec, on feat/sampletype-attr-write-api)\norigin/main     = 079210c6  BEHIND dev\n\nPRODUCTION (ssh fairdata) runs 06dd8aa3 on branch dev-temp. It does NOT have the GUI rewire, the error-message fix, the assay-registration endpoint, or the CI spec.\n\nDEV BOX (ssh service-dev / fairdata-dev) runs 32043fe8 on branch dev -- rebuilt and verified (NS_ATTR_API present in the container).\n\nLOCAL docker/dev is DETACHED at 019f8cb7, not on a branch, because dev-temp is checked out in a /tmp worktree and git refuses the same branch twice.\n\nTwo different NExtSEEK clones exist on the workstation and only one is production's: docker/dev (remote BioMicroCenter/NExtSEEK, also answers to BMCBCC) has prod's commits; docker/NExtSEEK (remotes cdemurjian/NExtSEEK-docker + BMCBCC) does not. Build from the wrong one and nothing you expect will be there.",
+          "agent_guidance": "Production is behind dev by design -- it was left on dev-temp deliberately during testing. Decide whether prod goes back to tracking main or follows dev before the next production deploy.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-5",
+        "annotation_type": "implementation_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "Three defects fixed that had never let the attributes mutation API complete a write on production. Each was hidden behind the previous.",
+          "details": "1. fcc27af7 -- COLLATION CHARSET. Every mutation 500'd with MySQL 1253. repository.py:814 read sample_attributes.title's collation and applied it to BOTH sides of a comparison; the candidate literal binds in the CONNECTION charset, so a utf8mb3 collation on a utf8mb4 literal is rejected. Production's columns are utf8mb3/latin1 under a utf8mb4 connection; local dev and every test database are utf8mb4 throughout, so NO fresh environment can reproduce it. Fixed by emitting CONVERT(%s USING <charset>) COLLATE <collation>.\n\n2. 06dd8aa3 -- PLANNER DATACLASSES vs STRICT PYDANTIC, at three call sites. planner.AutomaticChange (a dataclass) and schemas.AutomaticChange (a ContractModel with strict=True) share a name; service.py handed the former to the latter. The same defect on item.errors meant legitimate rejections surfaced as 500s rather than structured errors. Fixed with asdict().\n\n3. 1e688891 -- the is_superuser gate and prefetch-cache invalidation (see the separate decision annotation).\n\nAll three were in planning/serialization; the executor path was clean. Verified on production: TEST-222 created on BLD (id 3872) and deleted, with the cache sequence passing against the real database.",
+          "agent_guidance": null,
+          "caveats": "Adding one attribute to a type with gappy positions renumbers every definition below the gap -- BLD emitted 68 position_changed entries. That normalisation is permanent and is not undone by deleting the attribute."
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-6",
+        "annotation_type": "decision",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "The Sample Attributes GUI now runs on the attributes API. The URL did not change.",
+          "details": "/seek/samples/attributes/ is the SAME page at the SAME path. Nothing new was created; the existing EasyUI page was rewired underneath.\n\n  read   GET /seek/attributes/id=<id>/  ->  POST /nextseek_api/attributes/search/\n  write  GET /seek/attribute/save|delete/ -> batch-create / batch-patch / batch-delete\n\nHow to tell you are looking at the new one, in devtools: selecting a sample type fires POST .../attributes/search/ rather than GET /seek/attributes/id=; clicking Save shows a dry-run confirmation reading e.g. '1 created, 1 automatic change(s)' instead of 'You have entered N records'; and a rejected change now reports the server's reason.\n\nScope was kept deliberately narrow. saveSelectedIntoDB and deleteSelectedFromDB are redefined INLINE in samples_atable.embed.html, shadowing static/js/custom/datagrid-custom.js for this page only, so Clades and Internal Assays are untouched. getAttributes is rewritten in samples_attributes.embed.html, which nothing else includes; the three search templates keep their own copies on the old route, and that route still works. No Python, no urls.py, no endpoint removed -- revertable by reverting two templates.",
+          "agent_guidance": "The old /seek/attribute/save/ and /seek/attribute/delete/ endpoints still exist and still have no validation. They are now unused by this page but remain reachable. Removing them is separate work.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-7",
+        "annotation_type": "decision",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "user"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "One admin population across the API: Django is_superuser, not the SEEK admin role.",
+          "details": "The attributes endpoints were gated on IsSeekAdmin (SEEK roles.role_type_id = 1). They are now on IsSuperUser (Django is_superuser), matching the sample-type connections endpoint. The assay-registration endpoint independently chose the same gate, so both new endpoints now agree.\n\nThe operator was told, and accepted, that the two populations are NOT nested: a SEEK admin who is not a Django superuser loses write access, and a Django superuser who is not a SEEK admin gains it.\n\nIsSuperUser deliberately does not check is_staff, because dmac/views.py:80,97 sets is_staff=1 on every SEEK user at login -- DRF's IsAdminUser would gate nothing. Confirmed over HTTP: an account with is_staff=1 and is_superuser=0 got 403.",
+          "agent_guidance": null,
+          "caveats": "can_cancel_job and CanCancelAttributeJob.has_permission each re-checked is_seek_admin independently; both checks were removed so admin is decided in one place. Leaving them would have ANDed a second admin population onto the gate and silently defeated the switch."
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-8",
+        "annotation_type": "implementation_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "The restart-required bug is fixed and proven on production, with a control.",
+          "details": "_SAMPLE_TYPE_ATTRIBUTES_CACHE (batch_upload/prefetch.py) had no TTL and no invalidation on write, so a new attribute stayed invisible to validation until the workers restarted. gunicorn runs 4 workers and there is NO shared cache backend (no CACHES in dmac/settings.py), so an in-process hook would work under one local worker and still serve stale data from the other three.\n\nThe fix is refresh_sample_type_attributes_cache(conn): a (COUNT(*), MAX(updated_at)) stamp on sample_attributes, called ONCE PER BATCH from _run_pre_insert_stages -- the single path shared by validate and upload. It is writer-agnostic: it catches writes from this API, from /seek/samples/attributes/, from the dmac-curation stopgap, and from manual SQL.\n\nProven on production, project_id 15: validate a BLD row (populates the cache) -> create TEST-223 with NO restart -> validate a row USING TEST-223 -> success. CONTROL: a row using TEST-999, never created, on the same path -> rejected with VALIDATION_ATTRIBUTE_NAME. Same code path, opposite outcomes.",
+          "agent_guidance": null,
+          "caveats": "Do NOT put the check inside prefetch_sample_type_attributes itself -- that is called PER ROW (transform.py:79) and would add an aggregate query per row. An earlier draft did exactly that and was caught by test_cache_hit_issues_no_sql_on_second_call."
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-9",
+        "annotation_type": "blocker",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "The assay-registration endpoint cannot be reached through the agent: its POST allowlist blocks it entirely.",
+          "details": "From the owning session's own handoff. Consequences for testing and for CI: the endpoint must be exercised DIRECTLY, and a green agent path is not evidence that it works.\n\nAlso still open on that side: the cc-agent image rebuild has not run, so a live agent reads the ARMED catalog; and three issue drafts are owed per repo conventions -- the turnledger migration drift, the startup/ lane that reports green while running nothing, and the missing lease reaper.\n\nThe endpoint itself is verified working directly against the local stack: POST /nextseek_api/assay-registrations/ with {\"registrations\":[{\"sample_uid\":\"...\",\"assay_id\":N}],\"dry_run\":true}. Exactly one of `assay` or `assay_id`. Behaviours confirmed: 401 unauthenticated; internal_assay_not_found; assay_ambiguous_in_project when a title maps to more than one assay in the project (it refuses to guess); already_present for an existing pair; and written:1 PREDICTED for a new pair with zero rows actually written.",
+          "agent_guidance": "The startup/ lane reporting green while running nothing is directly relevant to the CI work -- do not build a CI job on top of a lane that does not actually execute anything. Confirm it runs before trusting it.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-10",
+        "annotation_type": "blocker",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "The 47-test attributes auth lane cannot run outside its author's machine. It gates nothing here and must not gate CI.",
+          "details": "scripts/attribute_api_test.sh sets UV_PROJECT=/home/taishajo/work/NExtSEEK-dev and every lane reads /home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json with `|| exit 65`. attribute_fixtures.py:16 points MANIFEST at the same path. Neither exists on any other machine.\n\nRunning the tests directly gets further -- ATTRIBUTE_TEST_DB_* can point at the local db service -- but then needs ATTRIBUTE_EVIDENCE_RUN_ROOT with a boundary-identity.json whose server_identity and database_uuid match a live disposable database that only that runner provisions.\n\nThis is the bulk of the 363 environmental errors.",
+          "agent_guidance": "Do not try to make these pass, and do not let CI depend on them. Record them in ci/pytest-baseline.txt and move on. Parameterising that runner off the hard-coded paths is worthwhile separate work.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-11",
+        "annotation_type": "risk",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "An untracked review workspace on the dev checkout holds a ledger, briefs and 22 review packages. A git clean would delete it.",
+          "details": "dev/.superpowers/sdd/2026-08-31-batch-assay-registration/ -- 44 items on disk, `git ls-files` returns 0. It belongs to the assay-registration session, which said it had 'kept' the workspace; nothing in git is keeping it.\n\nIt survived every branch switch made this session, but the merge did not carry it anywhere and a `git clean -xdf` in that tree removes it without a prompt.",
+          "agent_guidance": "Commit it or archive it outside the repo before running any cleanup in docker/dev. Note .gitignore:219 ignores docs/superpowers/specs/* yet the specs there are force-added -- the same precedent would apply.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-12",
+        "annotation_type": "risk",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "Production's database is charset-drifted. The collation fix is a workaround; issue #120 tracks the cure.",
+          "details": "seek_production has 558 utf8mb3 columns, 13 latin1, 1 ascii, and ZERO utf8mb4, under a utf8mb4 connection. Local dev has the same 558 columns as utf8mb4. Both run MySQL 8.0.46 and both schemas declare a utf8mb4 DEFAULT -- a default governs only newly created columns, and MySQL never converts existing ones.\n\nThe consequence that matters for CI: NO freshly-built environment can reproduce this class of defect. Dev stacks and test databases are utf8mb4 throughout, so code assuming column charset == connection charset passes every local check and fails only on production. That is exactly how the mutation 500 reached production and stayed.\n\nhttps://github.com/BioMicroCenter/NExtSEEK/issues/120 carries the measured evidence, the index key-length risk (utf8mb4 is 4 bytes/char), the latin1 mojibake risk, and the note that the schema is SEEK/Rails-owned.",
+          "agent_guidance": "This is a standing argument for testing against production-like data, not just a fresh seed. Worth remembering when scoping what CI can and cannot catch.",
+          "caveats": null
+        },
+        "evidence_refs": [
+          {
+            "evidence_id": "EV-12.1",
+            "evidence_type": "file",
+            "ref": "https://github.com/BioMicroCenter/NExtSEEK/issues/120"
+          }
+        ],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-13",
+        "annotation_type": "handoff_note",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "The dmac-curation plugin's sampletype_attr.py stopgap can now be retired. Separate chat, separate report.",
+          "details": "That script exists solely because 'there is currently no REST write path that works'. That is no longer true on production. Full detail, including the endpoint contract and the list of plugin docs that become wrong, is in the curation_skill repo at .claude/reports/2026-08-31-attributes-api-live-on-prod-retire-the-sampletype-attr-stopgap.json.",
+          "agent_guidance": "That work belongs in the dmac-curation plugin repo, not here. Mentioned only so this report is not the last place it is recorded.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-14",
+        "annotation_type": "warning",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "Off-box rollback baselines are not being saved on the workstation: no usable GHCR credential.",
+          "details": "Every local ./startup.sh rebuild reports: 'no usable GHCR credential at /home/cdemurjian/.config/nextseek/ghcr.env -- off-box rollback baselines are NOT being saved; after a disk cleanup this host's images would be unrecoverable (it has happened).' Fix per DEPLOYMENT.md 5.2: a classic PAT with write:packages from a BioMicroCenter org member, written to that file at mode 600.\n\nUnrelated to this session's changes, but it flags on every rebuild and is a real data-loss risk.",
+          "agent_guidance": "Relevant to CI: if CI ever prunes images on that box, this gap becomes load-bearing. On production, prefer `docker builder prune -f` (freed 8.2GB, zero risk) and never `docker image prune -a`, which deletes the rollback images.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "verified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-15",
+        "annotation_type": "user_preference",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "user"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "Iterate locally; deploy only when a change is genuinely ready.",
+          "details": "Stated directly: 'instead of rebuilding on production though, can we just rebuild here and then test it here? and not push to production until we are ready?'\n\nThe local loop needs no rebuild at all -- a throwaway container with the worktree bind-mounted over /app runs the worktree's code directly:\n  docker compose run --rm --no-deps -p 18000:8000 -v <worktree>:/app -v /app/.venv nextseek /app/.venv/bin/python manage.py runserver 0.0.0.0:8000 --noreload --insecure\n(--insecure so static files are served). Copying into docker/dev and rebuilding is unnecessary and risks disturbing another session's tree.",
+          "agent_guidance": "Default to the bind-mounted container for any NExtSEEK change. Deploy once, at the end, with the deployed-commit verification from the warning annotation.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "unverified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-16",
+        "annotation_type": "user_correction",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "user"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "ssh service-dev is the DEV box; production is ssh fairdata. I handed over a command block naming the wrong host.",
+          "details": "The operator caught it: 'ssh fairdata and check? we arent running this on dev'. My deploy instructions began with `ssh service-dev`, which is fairdata-dev. My own checks had been going to fairdata throughout, so the reported state was right -- only the handed-over commands named the wrong box. Verified afterwards that nothing had run on the dev box.\n\nBoth boxes have a repo at /home/service-account/Documents/Programs/NExtSEEK, so a wrong hostname is not obvious from the prompt or the path.",
+          "agent_guidance": "Production: `ssh fairdata`, direct key login as service-account. Dev: `ssh service-dev` (or `ssh fairdata-dev` with sudo -u service-account for scripted one-liners).",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "unverified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      },
+      {
+        "annotation_id": "ANN-17",
+        "annotation_type": "open_question",
+        "interpretation_source": "mixed",
+        "created_by": {
+          "actor_type": "agent"
+        },
+        "created_at": "2026-09-01T11:18:16-04:00",
+        "blocks": {
+          "summary": "Production is on branch dev-temp and behind dev. Decide what it should track.",
+          "details": "Prod runs 06dd8aa3 on dev-temp. origin/dev is 32043fe8 and origin/main is 079210c6, itself behind dev. The dev-temp branch was a testing convenience and has served its purpose now that everything is merged to dev.\n\nTwo chats pushing through different branch names onto one deploy checkout caused real confusion during this session -- at one point prod's branch was called `main` while sitting on a commit `main` did not contain.",
+          "agent_guidance": "Pick one branch for production to follow and make the deploy instructions say so. Whatever the choice, `git log --oneline -1` immediately before ./startup.sh rebuild is what stops the confusion recurring.",
+          "caveats": null
+        },
+        "evidence_refs": [],
+        "verification_status": "unverified",
+        "must_verify_before_use": false,
+        "supersedes_annotation_ids": [],
+        "claims": []
+      }
+    ]
+  }
+}

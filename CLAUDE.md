@@ -227,4 +227,5 @@ not `plugin.json` or `discover_ops`.
 
 ## Session reports / handoffs
 
+- 2026-09-01 — Approved a CI/CD design (spec at docs/superpowers/specs/2026-09-01-nextseek-ci-cd-design.md) for a new session to implement. Also: three defects that had never let the attributes mutation API complete a write on production are fixed and live, the Sample Attributes GUI now runs on that API, and the batch assay-registration endpoint is merged. dev = 32043fe8, deployed to the dev box. START WITH THE FIRST handoff_note. See `.claude/reports/2026-09-01-ci-cd-design-plus-the-attribute-and-assay-work-now-on-dev.json`.
 - 2026-08-04 — Superuser-only Users admin ViewSet merged to dev and pushed (6d99f85); mints SEEK logins via Rails runner. HTTP E2E deferred until deploy on shared box. See `.claude/reports/2026-08-04-users-admin-viewset-shipped.json`.
