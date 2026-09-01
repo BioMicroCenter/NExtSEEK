@@ -226,3 +226,16 @@ def test_unique_patterns_refuses_a_repeated_pattern():
     ]
     with pytest.raises(ValueError, match="duplicate pattern"):
         _check_unique_patterns(routes)
+
+
+def test_a_bare_string_method_is_wrapped_not_iterated():
+    """methods="GET" must mean one method, not three one-letter ones.
+
+    Iterating a string yields characters, so without the wrap this entry becomes
+    ('G', 'E', 'T'): a route with no GET, which every consumer reads as one CI does
+    not call, and whose set difference against {"GET"} reads as three write methods
+    -- enough to fail test_no_prod_route_declares_a_write_method for a route that
+    only ever meant to say GET. Same wrap, same reason, as `profiles`.
+    """
+    r = Route(pattern=r"^x/$", path="/x/", methods="get", profiles="local")
+    assert r.methods == ("GET",)

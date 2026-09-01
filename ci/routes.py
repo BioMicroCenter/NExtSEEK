@@ -66,6 +66,12 @@ class Route:
             )
         # Same reasoning for methods: one representation, so `"GET" in route.methods`
         # and `set(methods) - {"GET"}` cannot be defeated by a lowercase entry.
+        # A bare string is wrapped first, exactly as `profiles` is: iterating one
+        # yields CHARACTERS, so methods="GET" would become ("G", "E", "T") -- an
+        # entry with no GET in it at all, which every consumer reads as a route CI
+        # does not call, and `set(methods) - {"GET"}` reads as three write methods.
+        if isinstance(self.methods, str):
+            object.__setattr__(self, "methods", (self.methods,))
         object.__setattr__(
             self, "methods", tuple(m.strip().upper() for m in self.methods)
         )

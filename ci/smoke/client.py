@@ -69,6 +69,18 @@ class GuardedSession(requests.Session):
                     f"This session is bound to {self.base_url}. A redirect or a "
                     f"hard-coded host has taken the request somewhere else."
                 )
+        # A '..' segment makes the URL the guard reads and the path the server
+        # serves two different things. '/login/../nextseek_api/samples/' matches the
+        # '^login' prefix carve-out -- which is the one entry allowed to POST under
+        # prod -- and is then normalised by the server, or by an intermediary, into
+        # a request at a route that carve-out says nothing about. Refuse the whole
+        # shape rather than trying to decide which normalisation wins.
+        if any(segment == ".." for segment in urlsplit(url).path.split("/")):
+            raise ProfileViolation(
+                f"path traversal refused: {url}\n"
+                "A '..' segment means the path the guard checked is not the path "
+                "the server will serve. Write the URL out in full."
+            )
         route = routes.match(url)
         if route is None:
             raise ProfileViolation(

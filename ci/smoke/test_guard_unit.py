@@ -158,3 +158,52 @@ def test_a_bound_session_still_forwards_a_url_on_its_own_host(monkeypatch):
 def test_a_constructor_kwarg_cannot_replace_the_guard():
     with pytest.raises(TypeError, match="request"):
         GuardedSession(profile="local", request=lambda *a, **k: None)
+
+
+def test_a_path_traversal_segment_is_refused(monkeypatch):
+    """'/login/../nextseek_api/samples/' matches the '^login' prefix carve-out.
+
+    That carve-out is the single entry allowed to send a non-GET under prod, and
+    the pattern is a PREFIX, so the guard reading the URL literally sees /login/
+    and waves the POST through -- while the server, or any intermediary, normalises
+    the same string into a POST at /nextseek_api/samples/. Refused outright.
+    """
+    monkeypatch.setattr(routes, "REGISTRY", [
+        Route(pattern=r"^login", path="/login/", methods=("GET", "POST"),
+              profiles="local,dev,prod", auth="anon", prod_allows_non_get=True),
+        Route(pattern=r"^nextseek_api/^^samples/$", path="/nextseek_api/samples/",
+              methods=("POST",), profiles="local,dev"),
+    ])
+    s = GuardedSession(profile="prod")
+    with pytest.raises(ProfileViolation, match="path traversal refused"):
+        s.post("http://h/login/../nextseek_api/samples/")
+
+
+def test_a_traversal_segment_is_refused_on_a_get_and_on_every_profile():
+    """Not a prod-only or a write-only rule: the guard's answer is wrong about the
+    request whatever the verb, so the shape is refused wherever it appears."""
+    s = GuardedSession(profile="local")
+    with pytest.raises(ProfileViolation, match="path traversal refused"):
+        s.get("http://h/nextseek_api/sops/../not_declared/")
+
+
+def test_a_dotted_path_segment_that_is_not_a_traversal_still_passes(monkeypatch):
+    """'..' is refused as a whole SEGMENT, never as a substring: a UID like
+    'A.TIS-240101XY..Z' is not path traversal and must not be treated as it."""
+    monkeypatch.setattr(routes, "REGISTRY", [
+        Route(pattern=r"^nextseek_api/^^samples/(?P<uid>[^/]+)/$",
+              path="/nextseek_api/samples/{sample_uid}/",
+              methods=("GET",), profiles="local,dev,prod"),
+    ])
+    sent = []
+    forwarded = object()
+
+    def stub(self, method, url, *args, **kwargs):
+        sent.append((method, url))
+        return forwarded
+
+    monkeypatch.setattr(requests.Session, "request", stub)
+
+    s = GuardedSession(profile="prod")
+    assert s.get("http://h/nextseek_api/samples/A.TIS-240101XY..Z/") is forwarded
+    assert len(sent) == 1
