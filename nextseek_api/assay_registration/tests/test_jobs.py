@@ -85,6 +85,23 @@ class TestJobLifecycle:
         job.refresh_from_db()
         assert job.state == "cancelled"
 
+    def test_cancelling_a_job_claimed_since_our_handle_asks_the_worker_to_stop(self, actor):
+        """The fall-through, exercised with the state it exists for.
+
+        Handle A reads the job unclaimed; worker B claims it; A then cancels.
+        The unclaimed branch must miss, and the fall-through must set the flag
+        on the now-running job rather than cancelling it outright, because a
+        worker IS running and cooperative cancellation is the right mechanism.
+        """
+        job = jobs.create_job({}, actor, total_rows=1)
+        stale_handle = jobs.get_job(job.job_id)      # reads claim_owner as None
+        assert jobs.claim(job, "worker-b") is True
+
+        assert jobs.request_cancellation(stale_handle, actor) is True
+        job.refresh_from_db()
+        assert job.state == "running", "a running job is asked to stop, not terminated"
+        assert jobs.is_cancelled(job) is True
+
     def test_finish_refuses_an_undeclared_state(self, actor):
         job = jobs.create_job({}, actor, total_rows=1)
         jobs.claim(job, "worker-a")
@@ -123,7 +140,6 @@ class TestJobLifecycle:
         b = jobs.create_job({}, actor, total_rows=1)
         assert isinstance(a.job_id, uuid.UUID)
         assert a.job_id != b.job_id
-
 
 # --------------------------------------------------------------------------
 # Hardening. Every test below exists because a measured mutation survived the
@@ -605,6 +621,72 @@ class TestCancellationReachesTheWorker:
         assert job.state == "running"
         assert job.claim_owner == "worker-a"
         assert job.cancellation_requested_at is not None
+
+    def test_the_fall_through_still_refuses_an_already_cancelled_job(self, actor):
+        """Kills N70 (the fall-through dropping `cancellation_requested_at__isnull`).
+
+        Reachable through the public API alone, and an ordinary thing for a user
+        to do: cancel, then cancel again from a page whose handle predates the
+        claim. The second request takes the fall-through, where the
+        already-cancelled predicate is the only thing left to refuse it -- the
+        first branch's own copy was passed over, and the fall-through drops the
+        version pin by design. Without it the second cancel reports success and
+        re-bumps the version for a cancellation that was already recorded.
+        """
+        job = jobs.create_job({}, actor, total_rows=1)
+        stale_handle = jobs.get_job(job.job_id)      # reads claim_owner as None
+        jobs.claim(job, "worker-b")
+        assert jobs.request_cancellation(job, actor) is True
+        job.refresh_from_db()
+        version_after_the_real_cancellation = job.state_version
+
+        assert jobs.request_cancellation(stale_handle, actor) is False
+
+        job.refresh_from_db()
+        assert job.state_version == version_after_the_real_cancellation, (
+            "a refused cancellation must not advance the token"
+        )
+
+    def test_pure_version_drift_on_an_unclaimed_job_is_refused_not_half_applied(self, actor):
+        """Kills N66 (the fall-through dropping `claim_owner__isnull=False`).
+
+        The fall-through exists for one case: the job was claimed between our
+        read and our write, so the cancellation should reach the running worker
+        as a flag. Without a predicate pinning it to that case it ALSO catches
+        pure version drift on a job that is still unclaimed -- and then it writes
+        `cancellation_requested_at` without `state="cancelled"`, recreating the
+        orphaned cancellation the unclaimed branch exists to prevent, from inside
+        that branch's own fall-through. Nothing would ever act on the flag,
+        because nothing is running.
+
+        The drift is reached through the ORM because no public writer produces
+        it: every writer that bumps the version either takes ownership or leaves
+        the job terminal. That made this unreachable in practice and therefore
+        latent, which is why the previous round reported it instead of pinning
+        it -- a test then could only have pinned the wrong behaviour. Now that
+        the behaviour is right, pinning it is what keeps it right.
+
+        Refusing is the honest outcome: the caller retries with a fresh handle
+        and gets a real cancellation, rather than a half-applied one that reads
+        as success.
+        """
+        job = jobs.create_job({}, actor, total_rows=1)
+        stale = jobs.get_job(job.job_id)
+        _move_the_row_behind_the_handles_back(job)
+
+        assert jobs.request_cancellation(stale, actor) is False
+
+        job.refresh_from_db()
+        assert job.state == "accepted"
+        assert job.cancellation_requested_at is None, (
+            "a refused cancellation must write nothing at all, not a flag with "
+            "no state change behind it"
+        )
+
+        # The row is genuinely cancellable; only the stale handle was refused.
+        assert jobs.request_cancellation(jobs.get_job(job.job_id), actor) is True
+        job.refresh_from_db()
+        assert job.state == "cancelled"
 
 
 @pytest.mark.django_db

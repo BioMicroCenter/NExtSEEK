@@ -164,8 +164,17 @@ def request_cancellation(job: AssayRegistrationJob, user) -> bool:
             return True
         # It was claimed between our read and our write; fall through and ask
         # the now-running worker to stop instead.
+        #
+        # `claim_owner__isnull=False` is load-bearing, not decoration. Without
+        # it this branch also catches PURE VERSION DRIFT on a job that is still
+        # unclaimed, and then sets the cancellation flag WITHOUT state
+        # "cancelled" -- recreating the orphaned cancellation the unclaimed
+        # branch above exists to prevent, from inside its own fall-through.
+        # Requiring the job to actually be claimed makes drift return False, and
+        # the caller retries with a fresh handle, which is the honest outcome.
         base = AssayRegistrationJob.objects.filter(
             pk=job.pk,
+            claim_owner__isnull=False,
             state__in=AssayRegistrationJob.ACTIVE_STATES,
             cancellation_requested_at__isnull=True,
         )
