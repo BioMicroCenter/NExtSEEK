@@ -198,12 +198,21 @@ def test_upload_is_blocked_when_no_file_is_chosen(page, base_url):
     assert log.strip() == "", f"a request appears to have been made: {log!r}"
 
 
+@pytest.mark.profiles("local", "dev")
 def test_upload_validate_reports_a_result(page, base_url, request):
     """Drives the real validate call.
 
     Validation is free and writes nothing: no LLM, no Celery, no INSERT. It does
     take a MySQL advisory lock for UID generation, so on a shared box it can
     contend briefly with somebody's live upload.
+
+    Not run under prod, and the reason is the SHAPE of the request rather than its
+    effect. This is the one flow that makes the browser issue a POST, and the prod
+    guard aborts every non-GET at the network layer -- correctly. The abort is
+    silent to the page, so `expect_response` below would sit out its own five-minute
+    timeout and report red for a rule the suite had just enforced. `profiles` is
+    honoured by pytest_collection_modifyitems in the conftest; the other five flows
+    are GET-only and stay on prod.
 
     NEVER click button[form="sample_upload"]. That is /batch-upload/start/, a real
     Celery job that writes to MySQL and neo4j.

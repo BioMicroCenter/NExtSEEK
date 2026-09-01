@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 
 from ci.routes import PROFILES
-from ci.smoke.conftest import _PROFILE_RANK, resolve_profile
+from ci.smoke.conftest import _PROFILE_RANK, _redact_console, resolve_profile
 
 # pytest.exit raises this. Bound once so the tests read as what they assert.
 Exit = pytest.exit.Exception
@@ -203,3 +203,36 @@ def test_a_cached_answer_is_returned_without_consulting_anything(monkeypatch):
     config = Explodes()
     config._nextseek_profile = "dev"
     assert resolve_profile(config) == "dev"
+
+
+# --------------------------------------------------------------------------- #
+# console redaction (the other thing the resolved profile decides)
+# --------------------------------------------------------------------------- #
+
+# What a failed XHR looks like in the console once the discovery fixture has put a
+# real identifier into the URL the page asked for.
+CONSOLE_LINE = (
+    "console.error: Failed to load resource: the server responded with a status "
+    "of 502 (Bad Gateway) http://box/nextseek_api/samples/A.TIS-240101XYZ-7/"
+)
+
+
+def test_a_console_line_is_redacted_under_prod():
+    out = _redact_console(CONSOLE_LINE, "prod")
+    assert "A.TIS-240101XYZ-7" not in out, f"an identifier survived redaction: {out}"
+    assert "<url>" in out
+    # The half that says what went wrong is untouched.
+    assert "502 (Bad Gateway)" in out
+
+
+def test_every_url_on_the_line_is_redacted_not_only_the_first():
+    line = "pageerror: http://box/a/1/ failed while loading https://box/b/2/"
+    out = _redact_console(line, "prod")
+    assert out.count("<url>") == 2
+    assert "http" not in out
+
+
+@pytest.mark.parametrize("profile", ["local", "dev"])
+def test_a_console_line_is_left_alone_off_prod(profile):
+    """On a box whose data is not production data the URL is the useful half."""
+    assert _redact_console(CONSOLE_LINE, profile) == CONSOLE_LINE

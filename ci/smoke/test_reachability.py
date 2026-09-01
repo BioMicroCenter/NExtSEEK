@@ -26,11 +26,13 @@ import sys
 from pathlib import Path
 
 import pytest
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ci.routes import REGISTRY
 from ci.smoke.assertions import assert_not_bounced, check_gateway
+from ci.smoke.client import ProfileViolation
 # pytest loads the conftest as its own plugin module, so importing it by name
 # here makes a second copy. Harmless, and deliberately kept that way: the module
 # holds constants and pure functions, the fixtures come from the copy pytest
@@ -132,10 +134,27 @@ def test_route_is_reachable(route, base_url, discovered, clients):
     # Accept: */* on every request, whatever the client's own default is. T0
     # asserts reachability, not representation, and two routes -- the swagger and
     # redoc UIs -- answer 406 to a JSON-only Accept because they serve HTML.
-    r = client.get(
-        base_url + path, timeout=90, allow_redirects=False,
-        headers={"Accept": "*/*"},
-    )
+    # Both exceptions are caught for the same reason the label exists: their
+    # messages carry the RESOLVED url. requests puts it in every ConnectionError
+    # and ReadTimeout, ProfileViolation puts it in every refusal, and --tb=short
+    # prints the exception, so an uncaught one writes a real production identifier
+    # into the CI log the moment the box has a network hiccup. Only the type is
+    # reported, against the template.
+    try:
+        r = client.get(
+            base_url + path, timeout=90, allow_redirects=False,
+            headers={"Accept": "*/*"},
+        )
+    except ProfileViolation as exc:
+        # A refusal here is a HARNESS bug, not a product one: T0 only ever requests
+        # routes _callable_routes already filtered to this profile, with a GET.
+        pytest.fail(
+            f"{template} was refused by the guard ({type(exc).__name__}). T0 asks "
+            f"only for routes the profile enables, so this is a harness bug: the "
+            f"registry entry, the profile filter and the client disagree."
+        )
+    except requests.RequestException as exc:
+        pytest.fail(f"{template} raised {type(exc).__name__}")
     # The template, never `path`: under prod the resolved one carries a real
     # production identifier, and a failure message is written to a CI log.
     check_gateway(r, label=template)

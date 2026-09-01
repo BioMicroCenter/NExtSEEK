@@ -14,7 +14,7 @@ registry row cannot express:
 
 The parametrised sweeps that used to live here are now `ci/routes.py` entries.
 Their body-key assertions were not discarded either: each survives as that
-entry's `shape` field, which T1 asserts.
+entry's `shape` field, which T1 will assert in increment 2.
 
 The sweep is, by construction, a program that issues GETs at every URL it knows
 about. So it never holds rights it does not need: the health sweep and the flows
@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import pytest
 
-from ci.smoke.assertions import check_gateway
+from ci.smoke.assertions import check_gateway, describe_shape
 
 
 def test_api_root_advertises_exactly_the_expected_viewsets(api, base_url):
@@ -58,7 +58,7 @@ def test_openapi_schema_generates(api, base_url):
     """
     r = api.get(f"{base_url}/nextseek_api/schema/", timeout=120)
     check_gateway(r)
-    assert r.status_code == 200, f"schema generation failed: {r.text[:500]}"
+    assert r.status_code == 200, f"schema generation failed: {describe_shape(r)}"
 
     # Content negotiation: YAML by default, JSON when Accept asks for it. The api
     # fixture sets Accept: application/json, so handle both rather than assuming.
@@ -66,7 +66,9 @@ def test_openapi_schema_generates(api, base_url):
     if text.startswith("{"):
         paths = r.json().get("paths", {})
     else:
-        assert text.startswith("openapi:"), f"not an OpenAPI document: {text[:120]!r}"
+        assert text.startswith("openapi:"), (
+            f"not an OpenAPI document: {describe_shape(r)}"
+        )
         paths = {ln for ln in r.text.splitlines() if ln.startswith("  /")}
     # Guard against the schema silently collapsing to a near-empty document.
     assert len(paths) >= 50, f"schema has only {len(paths)} paths; expected around 67"
@@ -135,7 +137,7 @@ def test_neo4j_is_answering(api, base_url):
     """Cheapest liveness proof for neo4j that is also a real product surface."""
     r = api.get(f"{base_url}/nextseek_api/entity_tree/edges/", timeout=90)
     check_gateway(r)
-    assert r.status_code == 200, f"{r.status_code}: {r.text[:300]}"
+    assert r.status_code == 200, describe_shape(r)
     assert r.json().get("count", 0) > 0, "no lineage edges returned; neo4j may be empty or down"
 
 
@@ -164,7 +166,7 @@ def test_edge_attributes_are_enriched(api, base_url):
 def test_entity_tree_nodes(api, base_url):
     r = api.get(f"{base_url}/nextseek_api/entity_tree/nodes/", timeout=90)
     check_gateway(r)
-    assert r.status_code == 200, f"{r.status_code}: {r.text[:300]}"
+    assert r.status_code == 200, describe_shape(r)
     assert "total" in r.json().get("results", {}), "envelope is doubly wrapped: expected results.total"
 
 

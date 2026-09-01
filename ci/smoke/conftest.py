@@ -182,6 +182,10 @@ def profile(pytestconfig) -> str:
 def pytest_configure(config):
     config.addinivalue_line("markers", "write: mutates the database.")
     config.addinivalue_line("markers", "flow: drives a real browser.")
+    config.addinivalue_line(
+        "markers",
+        "profiles(*names): only run under these box profiles; skipped under any other.",
+    )
     # --help and --version reach _do_configure() from a caller that does not
     # catch Exit, so a refusal raised here surfaces as a traceback and rc=1
     # instead of the message. Printing the options must always work.
@@ -194,7 +198,30 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Deselect the write lane unless it was explicitly asked for."""
+    """Two independent gates, in this order.
+
+    The PROFILE gate runs unconditionally. GuardedSession refuses a non-GET under
+    prod before it is sent, which is the right answer for a requests client and the
+    wrong one for a browser flow: the page's POST is aborted at the network layer
+    and the test then waits out its own response timeout and fails red, five
+    minutes later, for a rule the suite is enforcing correctly. A test whose SHAPE
+    is a write declares the profiles it belongs to and is skipped elsewhere.
+
+    The WRITE-LANE gate is the pre-existing opt-in and stays subject to -m. The
+    profile gate must not be: `-m write` on a prod box would otherwise re-admit
+    every browser flow the first gate had just excluded.
+    """
+    active = resolve_profile(config)
+    for item in items:
+        marker = item.get_closest_marker("profiles")
+        if marker and active not in marker.args:
+            item.add_marker(pytest.mark.skip(
+                reason=(
+                    f"needs profile {' or '.join(marker.args)}; "
+                    f"this box declares {active!r}"
+                )
+            ))
+
     if config.getoption("-m"):
         return
     skip = pytest.mark.skip(reason="write lane is opt-in: run with -m write")
@@ -470,8 +497,10 @@ def _profile_permits(profile: str, base_url: str, path: str) -> bool:
     Asked before the request rather than caught after it. The guard raises on a
     route the profile does not enable, and a raise inside a session fixture takes
     every test in the run down with it -- where returning None here costs only the
-    routes that needed that one value. /seek/searchAdvanced/ is exactly this case:
-    it is enabled for local and dev but not for prod.
+    routes that needed that one value. Every source below happens to be enabled for
+    all three profiles today, /seek/searchAdvanced/ included, so nothing is skipped
+    for this reason; the check is what keeps that a property of the registry rather
+    than an assumption this fixture is making about it.
     """
     route = ci_routes.match(base_url + path)
     return route is not None and profile in route.profiles
@@ -561,6 +590,25 @@ def discovered(profile, api, web, base_url) -> dict[str, str | None]:
 # browser
 # --------------------------------------------------------------------------- #
 
+_URL_IN_TEXT = re.compile(r"https?://\S+")
+
+
+def _redact_console(text: str, profile: str) -> str:
+    """Strip URLs out of a console line before it is printed. Prod only.
+
+    A console error is application text, and the application writes its own URLs
+    into it: a failed XHR reports the URL it asked for, and under prod that URL
+    carries the identifiers the discovery fixture resolved out of production data.
+    The line is printed to a CI log either way -- by the reporter, or inside a
+    failure message under --strict-console -- so the redaction has to happen before
+    it is formatted, not at whichever of the two exits happens to be taken.
+
+    Only under prod: on local and dev the URL is the most useful half of the
+    message and there is nothing in it to protect.
+    """
+    return _URL_IN_TEXT.sub("<url>", text) if profile == "prod" else text
+
+
 def _guard_context(ctx, profile: str) -> None:
     """Apply the prod non-GET rule at the browser layer.
 
@@ -638,9 +686,12 @@ def page(browser, storage_state, profile, base_url, pytestconfig, request):
 
     yield p
 
+    # Allowlisted against the RAW text -- the allowlist is a list of URL fragments,
+    # and matching it against a redacted line would allowlist nothing. Redaction is
+    # a property of the output, so it happens once, here, on the way to both exits.
     unexpected = [e for e in errors if not any(a in e for a in CONSOLE_ALLOWLIST)]
     if unexpected:
-        report = "\n  ".join(unexpected)
+        report = "\n  ".join(_redact_console(e, profile) for e in unexpected)
         if pytestconfig.getoption("--strict-console"):
             ctx.close()
             pytest.fail(f"{len(unexpected)} uncaught console error(s):\n  {report}")

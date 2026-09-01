@@ -10,6 +10,10 @@ that built its URL out of a discovered identifier passes the TEMPLATE path, so
 that a message written to a CI log by a production run carries
 `/nextseek_api/samples/{sample_id}/` rather than a real production id. Callers
 that request a literal path pass nothing and get the URL, which is what they want.
+
+`describe_shape` is the third of the same family and answers the other half of
+the rule: what a failing response WAS, said without quoting a single byte the
+application put in the body.
 """
 from __future__ import annotations
 
@@ -57,3 +61,45 @@ def assert_not_bounced(r: requests.Response, label: str | None = None) -> None:
         f"{_where(r, label)} redirected an authenticated client to "
         f"{shown}. The session is not what the test thinks."
     )
+
+
+def describe_shape(r: requests.Response) -> str:
+    """Say what came back without quoting any of it.
+
+    A failure message is written to a CI log that outlives the run, and under the
+    prod profile the body of a real response is production data: a sample UID, a
+    person's name, a stack trace naming a path on the box. Printing `r.text[:500]`
+    puts whichever of those happened to be in the first 500 bytes into that log.
+    Every fact this function reports is STRUCTURAL -- a status, a content type, the
+    names of the top-level JSON keys and how many entries the container-valued ones
+    hold -- which is what a reader triaging the failure actually needs:
+
+        502 application/json keys=[detail,status] len(data)=0
+        200 text/html len=41273
+
+    A JSON body's top-level KEY names are part of the contract the test is
+    asserting, so they are reported. No VALUE ever is, at any depth.
+    """
+    ctype = r.headers.get("content-type", "") or "no content-type"
+    raw = r.content or b""
+    if "json" not in ctype.lower():
+        return f"{r.status_code} {ctype} len={len(raw)}"
+    try:
+        body = r.json()
+    except ValueError:
+        # Claimed JSON and is not. The claim is the finding; the bytes are not.
+        return f"{r.status_code} {ctype} unparseable-json len={len(raw)}"
+    if isinstance(body, dict):
+        keys = sorted(str(k) for k in body)
+        sizes = [
+            f"len({k})={len(body[k])}"
+            for k in keys
+            if isinstance(body.get(k), (list, dict))
+        ]
+        return " ".join(
+            [f"{r.status_code} {ctype}", f"keys=[{','.join(keys)}]", *sizes]
+        )
+    if isinstance(body, list):
+        return f"{r.status_code} {ctype} list len={len(body)}"
+    # A bare scalar: its type, never the scalar. A JSON string body IS a value.
+    return f"{r.status_code} {ctype} {type(body).__name__}"

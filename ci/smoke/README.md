@@ -76,6 +76,14 @@ least.
 
 Passing both exits 2 rather than deciding which one wins.
 
+The profile gates whole tests as well as routes. A test marked
+`@pytest.mark.profiles("local", "dev")` is **skipped** under any other profile.
+One test carries it today: the browser flow that submits an upload for
+validation, which is the only flow that makes the page issue a POST. Under `prod`
+the browser guard aborts that POST at the network layer, correctly, and the page
+would then wait out its own response timeout — five red minutes for a rule the
+suite had just enforced. Skipping says the same thing in a line.
+
 ## Credentials
 
 Two accounts, and the split is a safety rule rather than hygiene. The sweep is,
