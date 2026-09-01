@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from startup.lib.instance import InstanceState
@@ -41,4 +42,13 @@ def run_ci(repo_root: Path, state: InstanceState, *, wait_ready: bool,
         # Set for this invocation only, and only after the operator answered the
         # prompt in cli.ci. Never persisted, never exported to a workflow file.
         env["CI_FORCE_PROFILE_CONFIRM"] = "yes"
-    return subprocess.run(cmd, cwd=repo_root, env=env).returncode
+    try:
+        return subprocess.run(cmd, cwd=repo_root, env=env).returncode
+    except FileNotFoundError:
+        # startup/ has no rich dependency by design and this module must not
+        # acquire one, so this is the one place in the CLI that writes its own
+        # stderr. A traceback here reads as a harness fault rather than as the
+        # missing tool it is.
+        print("cannot run CI: 'uv' is not on PATH. Install it (see DEPLOYMENT.md) "
+              "or rerun with --no-ci.", file=sys.stderr)
+        return 127

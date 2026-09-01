@@ -681,5 +681,66 @@ def test_rebuild_exits_with_the_ci_return_code(
     result = runner.invoke(cli.app, ["rebuild"])
 
     assert result.exit_code == 3
-    assert "CI failed after rebuild (exit 3)" in result.output
-    assert "DEPLOYMENT.md" in result.output
+    # rich wraps long lines at console width — compare whitespace-free
+    compact = "".join(result.output.split())
+    assert "CIfailedafterrebuild(exit3)" in compact
+    assert "Therebuilditselfsucceededandisrunning" in compact
+    assert "--no-ciskipsthisstep" in compact
+    assert "SeeDEPLOYMENT.mdfortherollbackprocedureifthefailuresareregressions" in compact
+
+
+def test_rebuild_no_restart_does_not_run_ci_against_the_old_containers(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The suite tests the running stack over HTTP. With the restart deferred
+    those containers still carry the previous image, so a run would be a
+    statement about the old code either way."""
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    calls = _record_ci_subprocess(monkeypatch)
+    ran: list[int] = []
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: ran.append(1) or 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-restart"])
+
+    assert result.exit_code == 0, result.output
+    assert ran == []
+    assert calls == []
+    compact = "".join(result.output.split())
+    assert "CIskipped:runtimerestartwasdeferred" in compact
+    assert "donotcarrythenewimage" in compact
+
+
+def test_rebuild_of_an_image_only_component_still_runs_ci(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """cc-agent has no persistent container, so there is no deferred restart to
+    invalidate the run. The skip must key on a DEFERRED restart, not on the
+    absence of one."""
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    ran: list[dict] = []
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: ran.append(k) or 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--component", "cc-agent"])
+
+    assert result.exit_code == 0, result.output
+    assert ran == [{"wait_ready": True}]
+    assert "CI skipped" not in result.output
+
+
+def test_run_ci_reports_a_missing_uv_instead_of_a_traceback(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    """The runner shells out to uv. If it is not installed the operator gets a
+    sentence, not a FileNotFoundError out of a deploy command."""
+    def explode(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "uv")
+
+    monkeypatch.setattr(ci_runner.subprocess, "run", explode)
+    state = _saved_state(repo, ci_profile="local")
+
+    rc = ci_runner.run_ci(repo, state, wait_ready=False)
+
+    assert rc == 127
+    assert "'uv' is not on PATH" in capsys.readouterr().err

@@ -18,7 +18,7 @@ Useful flags:
 
 | flag | what it does |
 |---|---|
-| `--wait-ready` | Run the readiness gate first. Use after a rebuild; skip it for local iteration or you wait out the 300s floor every time. |
+| `--wait-ready` | Run the readiness gate first. Use after a rebuild; skip it for local iteration or you wait out the 300s floor every time. The gate probes an authenticated endpoint, so with no `CI_SMOKE_USER`/`CI_SMOKE_PASS` it exits 2 rather than skipping: a caller that asked for a gate must not read "0 tests, exit 0" as a pass. Without the flag, missing credentials still degrade to per-test skips. |
 | `--ready-floor N` | Seconds before the first probe (default 300). |
 | `--strict-console` | Fail a flow on any console error not in `CONSOLE_ALLOWLIST`. Off by default so early runs report what is actually there. |
 | `--headed` | Watch the browser. |

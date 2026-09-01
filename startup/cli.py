@@ -591,18 +591,28 @@ def rebuild(
             ui.warn(f"off-box baseline push step crashed ({exc}) — deploy unaffected")
 
     if run_ci_after:
-        from startup.ci import runner
+        if policy.restart_services and not restart:
+            # The suite tests the RUNNING stack over HTTP. With the restart
+            # deferred those containers still carry the previous image, so a
+            # green run would be a statement about the old code and a red one
+            # would blame the new. Neither is worth the minutes it costs.
+            ui.warn("CI skipped: runtime restart was deferred, so the running "
+                    "containers do not carry the new image")
+        else:
+            from startup.ci import runner
 
-        ui.info("running CI after rebuild (--no-ci to skip)")
-        rc = runner.run_ci(REPO_ROOT, state, wait_ready=True)
-        if rc != 0:
-            # The rebuild already happened and CI does not undo it. Report and exit
-            # non-zero; never auto-roll-back, which is a larger and more dangerous
-            # action than the one it would be reacting to.
-            ui.fail(f"CI failed after rebuild (exit {rc}). "
-                    f"See DEPLOYMENT.md for the rollback procedure.")
-            raise typer.Exit(code=rc)
-        ui.ok("CI passed")
+            ui.info("running CI after rebuild (--no-ci to skip)")
+            rc = runner.run_ci(REPO_ROOT, state, wait_ready=True)
+            if rc != 0:
+                # The rebuild already happened and CI does not undo it. Report and
+                # exit non-zero; never auto-roll-back, which is a larger and more
+                # dangerous action than the one it would be reacting to.
+                ui.fail(f"CI failed after rebuild (exit {rc}). The rebuild itself "
+                        f"succeeded and is running; --no-ci skips this step. See "
+                        f"DEPLOYMENT.md for the rollback procedure if the failures "
+                        f"are regressions.")
+                raise typer.Exit(code=rc)
+            ui.ok("CI passed")
 
 
 @app.command()

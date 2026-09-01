@@ -102,16 +102,28 @@ flagging it until a push succeeds. Credential: a classic PAT with
 override the path with `NEXTSEEK_GHCR_ENV`). See DEPLOYMENT.md §5.2.
 
 A rebuild ends by running the CI smoke suite against the rebuilt stack, with
-the readiness gate applied. `--no-ci` skips it.
+the readiness gate applied. The gate waits out the readiness floor (300 s by
+default) before its first probe and then polls for consecutive successes, so
+expect several quiet minutes; the suite prints `[readiness]` lines throughout.
+`--no-ci` skips the step, and it is skipped automatically after
+`--no-restart`, where the running containers do not yet carry the new image.
 
 ```
 ./startup.sh rebuild --no-ci                      # rebuild only; run CI yourself later
 ```
 
 **If CI fails after a rebuild** the failure is reported and `rebuild` exits with
-the suite's exit code. The rebuild is *not* rolled back — undoing a deploy is a
-larger and more dangerous action than the one it would be reacting to, so the
-decision stays with the deployer. See DEPLOYMENT.md for the rollback procedure.
+the suite's exit code. The rebuild itself succeeded and is still running: it is
+*not* rolled back, because undoing a deploy is a larger and more dangerous
+action than the one it would be reacting to, so the decision stays with the
+deployer. See DEPLOYMENT.md for the rollback procedure if the failures are
+regressions.
+
+The suite needs `~/.config/nextseek/ci.env` to exist. Under `--wait-ready` a
+missing `CI_SMOKE_USER`/`CI_SMOKE_PASS` is an **exit 2**, not a skip: a
+readiness gate probes an authenticated endpoint, so with no credentials it
+cannot do its job, and a rebuild must never report "CI passed" for a run that
+proved nothing.
 
 ### `ci`
 

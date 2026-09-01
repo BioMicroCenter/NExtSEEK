@@ -292,6 +292,34 @@ def _probe_once(base: str, creds: tuple[str, str]) -> tuple[bool, str]:
     return True, "login 200, people/current 200"
 
 
+def resolve_readiness_credentials(config) -> tuple[str, str] | None:
+    """The credentials the readiness gate will probe with, or None if no gate runs.
+
+    A module-level function rather than fixture-inline code, so the decision can
+    be asserted without starting a session -- the same reason resolve_profile is
+    one.
+
+    The gate probes an AUTHENTICATED endpoint, so with no credentials it cannot
+    do its job. Skipping there is the wrong answer: every other test skips for
+    the same missing credentials, pytest exits 0, and the caller that asked for a
+    readiness gate -- `startup rebuild`, which always passes --wait-ready -- reads
+    that as "CI passed" having proved nothing about the deploy. Exit 2 instead, so
+    a box with no ci.env fails loudly rather than green.
+
+    Without --wait-ready there is no gate and nothing to be silent about: local
+    iteration with no credentials keeps degrading to the per-test skips.
+    """
+    if not config.getoption("--wait-ready"):
+        return None
+    creds = _cred(("CI_SMOKE_USER", "CI_SMOKE_PASS"))
+    if not creds:
+        pytest.exit(
+            "readiness gate needs CI_SMOKE_USER/CI_SMOKE_PASS (env or "
+            "~/.config/nextseek/ci.env); a gate with no credentials cannot do "
+            "its job", returncode=2)
+    return creds
+
+
 @pytest.fixture(scope="session", autouse=True)
 def stack_ready(pytestconfig, base_url, request):
     """Block until the stack is sustainably up, or fail saying what was last seen.
@@ -303,11 +331,9 @@ def stack_ready(pytestconfig, base_url, request):
     nginx answers 502 instantly, so a naive retry loop burns every attempt in about
     two seconds. The explicit sleep in the loop below is what prevents that.
     """
-    if not pytestconfig.getoption("--wait-ready"):
+    creds = resolve_readiness_credentials(pytestconfig)
+    if creds is None:
         return
-    creds = _cred(("CI_SMOKE_USER", "CI_SMOKE_PASS"))
-    if not creds:
-        pytest.skip("readiness gate needs CI_SMOKE_USER/CI_SMOKE_PASS")
 
     floor = pytestconfig.getoption("--ready-floor")
     ceiling = pytestconfig.getoption("--ready-ceiling")
