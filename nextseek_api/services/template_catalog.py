@@ -12,11 +12,12 @@ depend on that function's output, so it is left alone.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
 
-from seek.models import Sample_types, Sample_types_context
+from seek.models import Sample_type_requirements, Sample_types, Sample_types_context
 
 from nextseek_api.services.sample_workbook import load_sample_type_context
 
@@ -221,3 +222,46 @@ def suggest(selected, relationships) -> list[str]:
 
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return [code for code, _ in ranked[:MAX_SUGGESTIONS]]
+
+
+def load_requirements(codes) -> dict[str, dict]:
+    """{child: {"parents": [...], "assays": [...], "coverage": float}}.
+
+    A requirement is dropped unless every parent it names is a code this
+    instance still has -- a chip the user cannot satisfy is worse than no chip.
+    Same rule parse_related() applies to the curator columns.
+
+    Soft, like every other enrichment here: an absent or unreadable table costs
+    requirements and the picker behaves as it did before the feature existed.
+    """
+    known = {c for c in (codes or []) if c}
+    if not known:
+        return {}
+
+    try:
+        rows = list(
+            Sample_type_requirements.objects.filter(child_code__in=sorted(known)).values(
+                "child_code", "parent_codes", "assay_titles", "coverage"
+            )
+        )
+    except Exception:
+        logger.exception("sample_type_requirements unavailable; no requirements shown")
+        return {}
+
+    out = {}
+    for row in rows:
+        try:
+            parents = json.loads(row["parent_codes"])
+            assays = json.loads(row["assay_titles"]) if row["assay_titles"] else []
+        except (TypeError, ValueError):
+            # A malformed row is one bad requirement, not a broken page.
+            logger.warning("unparseable requirement row for %s", row.get("child_code"))
+            continue
+        if not parents or not set(parents) <= known:
+            continue
+        out[row["child_code"]] = {
+            "parents": parents,
+            "assays": assays,
+            "coverage": float(row["coverage"]),
+        }
+    return out

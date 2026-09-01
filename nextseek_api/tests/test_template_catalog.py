@@ -327,3 +327,65 @@ class TestSuggest:
         from nextseek_api.services.template_catalog import suggest
 
         assert suggest([], self.REL) == []
+
+
+class TestLoadRequirements:
+    """dmac.sample_type_requirements -> {child: {parents, assays, coverage}}."""
+
+    def _model(self, rows):
+        m = MagicMock()
+        m.objects.filter.return_value.values.return_value = rows
+        return m
+
+    def test_parses_the_json_columns(self):
+        from nextseek_api.services.template_catalog import load_requirements
+
+        rows = [{"child_code": "PAV", "parent_codes": '["NHP", "PAT"]',
+                 "assay_titles": '["Patient Visit"]', "coverage": 0.98}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            out = load_requirements({"PAV", "NHP", "PAT"})
+        assert out == {"PAV": {"parents": ["NHP", "PAT"],
+                               "assays": ["Patient Visit"], "coverage": 0.98}}
+
+    def test_a_null_assay_column_becomes_an_empty_list(self):
+        from nextseek_api.services.template_catalog import load_requirements
+
+        rows = [{"child_code": "CEX", "parent_codes": '["NHP"]',
+                 "assay_titles": None, "coverage": 1.0}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            assert load_requirements({"CEX", "NHP"})["CEX"]["assays"] == []
+
+    def test_a_requirement_naming_an_unknown_parent_is_dropped(self):
+        """A chip the user cannot satisfy is worse than no chip."""
+        from nextseek_api.services.template_catalog import load_requirements
+
+        rows = [{"child_code": "PAV", "parent_codes": '["NHP", "GONE"]',
+                 "assay_titles": None, "coverage": 0.98}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            assert load_requirements({"PAV", "NHP"}) == {}
+
+    def test_malformed_json_is_skipped_not_raised(self):
+        from nextseek_api.services.template_catalog import load_requirements
+
+        rows = [{"child_code": "PAV", "parent_codes": "not json",
+                 "assay_titles": None, "coverage": 0.98},
+                {"child_code": "CEX", "parent_codes": '["NHP"]',
+                 "assay_titles": None, "coverage": 1.0}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            assert sorted(load_requirements({"PAV", "CEX", "NHP"})) == ["CEX"]
+
+    def test_a_missing_table_costs_requirements_not_the_page(self):
+        from nextseek_api.services.template_catalog import load_requirements
+
+        broken = MagicMock()
+        broken.objects.filter.side_effect = RuntimeError("no such table")
+        with patch(f"{_MOD}.Sample_type_requirements", broken):
+            assert load_requirements({"PAV"}) == {}
+
+    def test_no_codes_short_circuits_without_querying(self):
+        from nextseek_api.services.template_catalog import load_requirements
+
+        m = self._model([])
+        with patch(f"{_MOD}.Sample_type_requirements", m):
+            assert load_requirements(set()) == {}
+        m.objects.filter.assert_not_called()
