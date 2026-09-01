@@ -9,11 +9,13 @@ re-check the endpoint, so no downstream gate catches it.
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 from nextseek_api.assay_registration.schemas import (
+    RegistrationAcceptedResponse,
     RegistrationRequest,
     RegistrationRow,
     RowResult,
@@ -118,6 +120,45 @@ def test_the_registration_row_says_it_cannot_delete(catalog):
     assert "cannot remove" in description
 
 
+#: Every model whose field names the description is allowed to teach. Note
+#: RegistrationAcceptedResponse: the 202 path's job_id and status_url are real
+#: fields an agent must know, and omitting the model here would make the guard
+#: below reject its own correct description.
+ADVERTISED_MODELS = (
+    RegistrationRow, RegistrationRequest, RowResult, RegistrationAcceptedResponse,
+)
+
+#: snake_case tokens, which is the shape every field name in these models takes.
+_SNAKE = re.compile(r"\b[a-z]+(?:_[a-z]+)+\b")
+
+
+@pytest.mark.parametrize("catalog", CATALOGS, ids=["source", "baked"])
+def test_the_registration_row_teaches_no_key_the_models_reject(catalog):
+    """The "only" half, which an in-the-description check cannot cover.
+
+    Asserting that every real field APPEARS catches a name being dropped. It
+    does not catch a name being INVENTED, and an invented one is worse: the
+    request models are extra="forbid", so a description mentioning `sample_id`
+    teaches an agent a key that is rejected outright. This walks the other
+    direction -- every snake_case token in the description must be a field of
+    one of the models above.
+    """
+    if not catalog.exists():
+        pytest.skip(f"{catalog} not present in this checkout")
+    rows = json.loads(catalog.read_text())
+    [row] = [r for r in rows
+             if (r.get("method", "").upper(), r.get("path", "")) == REGISTRATION_ROW]
+
+    known = {name for model in ADVERTISED_MODELS for name in model.model_fields}
+    taught = set(_SNAKE.findall(row["description"]))
+    invented = taught - known
+    assert not invented, (
+        f"the registration row teaches {sorted(invented)}, which no request or "
+        f"response model declares. The request models forbid extra keys, so an "
+        f"invented name is a 422 an agent cannot debug from the catalog."
+    )
+
+
 #: The request/response vocabulary the registration row teaches, mapped to the
 #: model that actually defines each name.
 #:
@@ -136,6 +177,13 @@ def test_the_registration_row_says_it_cannot_delete(catalog):
 #: tautological, since "assay" is also an ordinary word in this description.
 #: It stays because its model side is not weak: dropping the field from
 #: RegistrationRow still fails this test.
+#:
+#: NOT exhaustive, and one absence is deliberate: `registrations` is a real
+#: RegistrationRequest field that the description does name, but requiring it
+#: here would pin the envelope key's prose rather than the agent's ability to
+#: use it, which test_the_registration_row_teaches_no_key_the_models_reject
+#: already covers from the other side. Read this as "names the description must
+#: teach", not "every field that exists".
 ADVERTISED_FIELDS = {
     "sample_uid": RegistrationRow,
     "assay": RegistrationRow,
@@ -145,6 +193,16 @@ ADVERTISED_FIELDS = {
     # database, so a description that misnames it promises a field no response
     # carries.
     "assay_assets_id": RowResult,
+    # The 202 path. service.register (service.py:96-114) returns
+    # RegistrationAcceptedResponse above ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD,
+    # and that model has NO `rows` field, so a description that never mentions
+    # the mode leaves an agent expecting rows it will not get and no way to
+    # reach the per-row report. Requiring these two names is what makes "the
+    # catalog must say the async mode exists" a test rather than a promise: if
+    # the mode is ever removed, RegistrationAcceptedResponse goes with it and
+    # this import fails loudly instead of the catalog going quietly stale.
+    "job_id": RegistrationAcceptedResponse,
+    "status_url": RegistrationAcceptedResponse,
 }
 
 
