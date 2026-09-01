@@ -164,7 +164,7 @@ class TestPicker:
         from seek.views import templatesList
 
         mock_db.return_value = _logged_in()
-        with patch("seek.views.load_requirements") as mock_req:
+        with patch("seek.views.load_requirements", return_value={}) as mock_req:
             templatesList(_get())
         assert mock_req.call_args[0][0] == {"TIS", "D.SEQ"}
 

@@ -36,6 +36,11 @@
 .tpl-sg { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px dashed #c3c6cc; background: #fff; border-radius: 11px; padding: 0.1rem 0.5rem; font-size: 0.72rem; color: #3f4650; cursor: pointer; }
 .tpl-sg code { color: var(--ns-crimson); font-weight: 700; }
 
+.tpl-req { border: 1px solid var(--ns-crimson-border, #e8b4bf); border-top: 0; background: var(--ns-crimson-soft, #fdf1f3); padding: 0.4rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.tpl-req[hidden] { display: none; }
+.tpl-req-need { font-size: 0.72rem; color: #8d1c2d; }
+.tpl-chip.is-required { border-style: dashed; }
+
 .tpl-group { margin-top: 1rem; }
 .tpl-group[hidden] { display: none; }
 .tpl-group-name { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); padding-bottom: 0.2rem; border-bottom: 1.5px solid var(--ns-border); }
@@ -89,6 +94,11 @@
       <button type="button" id="tpl-add-all" class="btn btn-sm btn-link p-0 ms-auto" style="font-size:0.72rem">add all &rsaquo;</button>
     </div>
 
+    <div class="tpl-req" id="tpl-req" hidden>
+      <span class="tpl-selbar-label">Also needed</span>
+      <span id="tpl-req-items"></span>
+    </div>
+
     {% for group in groups %}
     <div class="tpl-group" data-group="{{ group.key }}">
       <div class="tpl-group-name">{{ group.label }} <span class="text-muted">{{ group.entries|length }}</span></div>
@@ -111,6 +121,7 @@
 
 {{ children_json|json_script:"tpl-children-data" }}
 {{ meta_json|json_script:"tpl-meta-data" }}
+{{ requirements_json|json_script:"tpl-requirements-data" }}
 <script>
 (function () {
   var form = document.getElementById('tpl-form');
@@ -129,6 +140,7 @@
   // {code: [childCode, ...]}
   var CHILDREN = JSON.parse(document.getElementById('tpl-children-data').textContent);
   var META = JSON.parse(document.getElementById('tpl-meta-data').textContent);
+  var REQUIRES = JSON.parse(document.getElementById('tpl-requirements-data').textContent);
   // Mirrors template_catalog.suggest() (children only, one hop, exclude
   // selected, order by count then code, cap MAX_SUGGESTIONS) -- keep both in
   // sync. The cap itself has exactly one definition, template_catalog's, and
@@ -180,6 +192,53 @@
     suggBar.dataset.codes = ranked.join(',');
   }
 
+  // Types auto-added to satisfy a requirement, so unticking the child can take
+  // them away again -- but never one the user ticked themselves.
+  var autoAdded = {};
+
+  // Mirrors nextseek_api/services/type_requirements.py: one parent is a hard
+  // requirement, two or three are alternatives needing one. Keep in step.
+  function renderRequirements(chosen) {
+    var picked = {};
+    chosen.forEach(function (c) { picked[c] = true; });
+
+    var needs = [];
+    chosen.forEach(function (code) {
+      var req = REQUIRES[code];
+      if (!req || !req.parents.length) { return; }
+      var satisfied = req.parents.some(function (p) { return picked[p]; });
+      if (satisfied) { return; }
+      if (req.parents.length === 1) {
+        autoAdded[req.parents[0]] = code;
+        check(req.parents[0], true);   // re-enters render()
+        return;
+      }
+      needs.push({ child: code, parents: req.parents, assays: req.assays || [] });
+    });
+
+    var box = document.getElementById('tpl-req-items');
+    box.innerHTML = '';
+    needs.forEach(function (need) {
+      var line = document.createElement('span');
+      line.className = 'tpl-req-need';
+      var label = need.child + ' needs one of:';
+      if (need.assays.length) { label += ' (' + need.assays.join(', ') + ')'; }
+      line.appendChild(document.createTextNode(label));
+      need.parents.forEach(function (p) {
+        var btn = document.createElement('span');
+        btn.className = 'tpl-sg';
+        btn.textContent = '+ ' + p;
+        btn.addEventListener('click', function () {
+          autoAdded[p] = need.child;
+          check(p, true);
+        });
+        line.appendChild(btn);
+      });
+      box.appendChild(line);
+    });
+    document.getElementById('tpl-req').hidden = needs.length === 0;
+  }
+
   // Picking something clears the query, the way a tag input does: the search
   // has served its purpose, the pick is now a chip, and the full list comes
   // back for the next one. Deliberately NOT called when something is
@@ -203,18 +262,31 @@
     chips.innerHTML = '';
     chosen.forEach(function (code) {
       var box = boxes.filter(function (b) { return b.value === code; })[0];
-      chips.appendChild(chip(code, box.getAttribute('data-group'), function () {
+      var el = chip(code, box.getAttribute('data-group'), function () {
         check(code, false);
-      }));
+      });
+      if (autoAdded[code]) {
+        el.classList.add('is-required');
+        el.title = 'required by ' + autoAdded[code];
+      }
+      chips.appendChild(el);
     });
     count.textContent = chosen.length;
     submit.disabled = chosen.length === 0;
     renderSuggestions(chosen);
+    renderRequirements(chosen);
   }
 
   boxes.forEach(function (b) {
     b.addEventListener('change', function () {
       if (b.checked) { clearSearch(); }
+      if (!b.checked) {
+        Object.keys(autoAdded).forEach(function (parent) {
+          if (autoAdded[parent] !== b.value) { return; }
+          delete autoAdded[parent];
+          boxes.forEach(function (x) { if (x.value === parent) { x.checked = false; } });
+        });
+      }
       render();
     });
   });
