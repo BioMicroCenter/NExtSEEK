@@ -11,6 +11,11 @@ The property worth guarding: **exactly one credential kind is ever populated.**
 NExtSEEK rejects competing credentials outright
 (``attributes/auth.py::_reject_competing_sources``), so a caller carrying both
 Basic and Token is refused rather than falling back to one.
+
+Sub-project 5 then removed the Basic side entirely, so "exactly one" is now
+"only ever the token". The first two tests below are inverted from how they
+started: they assert that a leftover password in a session, or a Basic header on
+the request, resolves nothing rather than taking precedence.
 """
 
 from types import SimpleNamespace
@@ -41,28 +46,29 @@ def _exactly_one_kind(creds):
     return basic != token
 
 
-# -- password sessions are untouched -----------------------------------------
+# -- password credentials no longer resolve ----------------------------------
 
 
-def test_a_password_session_still_yields_a_basic_pair():
-    """Coexistence. This is what production runs on today."""
+def test_a_password_session_no_longer_yields_a_basic_pair():
+    """Inverted by the cutover (#16, sub-project 5). This used to return the
+    session's Basic pair; there is no password in a session now, and even a
+    stale one is ignored -- the caller's DRF token is the only identity."""
     creds = helpers.chat_credentials_for(
-        _request(session={"username": "researcher", "password": "hunter2"})
+        _request(session={"username": "researcher", "password": "leftover"})
     )
-    assert creds == {"api_user": "researcher", "api_pass": "hunter2", "api_token": None}
-    assert _exactly_one_kind(creds)
+    assert creds["api_pass"] is None
+    assert creds["api_token"] is None  # no token issued for this user
 
 
-def test_an_explicit_basic_header_wins():
+def test_an_inbound_basic_header_is_ignored():
     import base64
 
-    raw = base64.b64encode(b"alice:pw").decode()
-    request = _request(session={"username": "researcher", "password": "hunter2"})
-    request.META["HTTP_AUTHORIZATION"] = f"Basic {raw}"
+    request = _request(session={"username": "researcher"})
+    request.META["HTTP_AUTHORIZATION"] = "Basic " + base64.b64encode(b"alice:pw").decode()
 
     creds = helpers.chat_credentials_for(request)
-    assert (creds["api_user"], creds["api_pass"]) == ("alice", "pw")
-    assert creds["api_token"] is None
+    assert creds["api_user"] == "researcher"
+    assert creds["api_pass"] is None
 
 
 # -- OAuth sessions ----------------------------------------------------------

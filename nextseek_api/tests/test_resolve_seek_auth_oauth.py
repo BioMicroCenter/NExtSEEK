@@ -1,10 +1,10 @@
-"""The OAUTH source in ``resolve_seek_auth`` (#16, sub-project 2).
+"""The OAUTH source in ``resolve_seek_auth`` (#16, sub-projects 2 and 5).
 
-Two properties matter more than the rest.
-
-**Flag-off behaviour is unchanged.** The default order gained an entry, and
-production runs on the flag-off path, so the order matrix below asserts that an
-OAuth-less request resolves to exactly what it resolved to before.
+Written for the coexistence period, when the order was BASIC, SESSION, OAUTH,
+TOKEN and an explicitly presented credential outranked a stored one. Sub-project
+5 removed the two password-backed sources, so the order is now OAUTH, TOKEN and
+several assertions here are inverted from how they started -- see
+``test_an_inbound_basic_header_no_longer_resolves_anything``.
 
 **OAUTH and TOKEN emit different schemes, on purpose.** TOKEN forwards a
 credential the *caller* presented and has always gone out as ``Token``; OAUTH is
@@ -12,8 +12,8 @@ an OAuth2 access token NExtSEEK holds on the user's behalf, which Doorkeeper
 only accepts as ``Bearer``. A test pins each, because "tidying up" the
 inconsistency would break one of the two.
 
-The precedence is BASIC, SESSION, OAUTH, TOKEN: an explicitly presented
-credential still wins over a stored one.
+The flag still gates the OAUTH source itself, which is why the first group below
+survives the cutover unchanged.
 """
 
 import base64
@@ -63,11 +63,6 @@ def _stub_token(value):
     return patch("seek.oauth.service.get_valid_access_token", return_value=value)
 
 
-def _no_session_auth():
-    """Neutralise the SESSION source, which would otherwise hit SeekDB."""
-    return patch("nextseek_api.helpers.get_auth", return_value=None)
-
-
 # -- the flag gates everything -----------------------------------------------
 
 
@@ -103,7 +98,7 @@ def test_a_failure_in_the_token_service_never_propagates(oauth_on):
 
 
 def test_oauth_is_sent_as_bearer(oauth_on):
-    with _stub_token("at-1"), _no_session_auth():
+    with _stub_token("at-1"):
         basic, headers = helpers.resolve_seek_auth(_request(user=_authed_user()))
     assert basic is None
     assert headers == {"Authorization": "Bearer at-1"}
@@ -112,7 +107,7 @@ def test_oauth_is_sent_as_bearer(oauth_on):
 def test_an_inbound_token_header_is_still_sent_as_token(oauth_off):
     """Unchanged, and deliberately different from OAUTH. Forwarding it as
     Bearer would change the meaning of a credential the caller chose."""
-    with _no_session_auth():
+    with _stub_token(None):
         basic, headers = helpers.resolve_seek_auth(_request(token_header="caller-token"))
     assert basic is None
     assert headers == {"Authorization": "Token caller-token"}
@@ -121,27 +116,35 @@ def test_an_inbound_token_header_is_still_sent_as_token(oauth_off):
 # -- precedence --------------------------------------------------------------
 
 
-def test_an_explicit_basic_header_beats_a_stored_oauth_token(oauth_on):
-    """A credential the caller presented outranks one we hold for them."""
-    with _stub_token("at-1"), _no_session_auth():
+def test_an_inbound_basic_header_no_longer_resolves_anything(oauth_on):
+    """The inverse of what this asserted before the cutover.
+
+    BASIC used to outrank OAUTH: an explicitly presented credential beat a
+    stored one. There is no longer a SEEK password behind a Basic header, so the
+    header is simply ignored and the caller's own token is used.
+    """
+    with _stub_token("at-1"):
         basic, headers = helpers.resolve_seek_auth(
             _request(basic=("alice", "pw"), user=_authed_user())
         )
-    assert basic == ("alice", "pw")
-    assert headers == {}
+    assert basic is None
+    assert headers == {"Authorization": "Bearer at-1"}
 
 
-def test_a_password_session_beats_a_stored_oauth_token(oauth_on):
-    with _stub_token("at-1"), \
-         patch("nextseek_api.helpers.get_auth", return_value=("bob", "pw")):
-        basic, headers = helpers.resolve_seek_auth(_request(user=_authed_user()))
-    assert basic == ("bob", "pw")
+def test_a_retired_source_in_an_explicit_order_is_ignored_not_an_error(oauth_on):
+    """Call sites pass literal order lists. A stale one must degrade to "no
+    credential from that source" rather than raise on a request path that runs
+    for every proxied call."""
+    with _stub_token("at-1"):
+        assert helpers.resolve_seek_auth(
+            _request(user=_authed_user()), ["BASIC", "SESSION"]
+        ) == (None, None)
 
 
 def test_oauth_beats_an_inbound_token_header(oauth_on):
     """OAUTH is ahead of TOKEN: during coexistence a signed-in user's own
     credential is the more specific one."""
-    with _stub_token("at-1"), _no_session_auth():
+    with _stub_token("at-1"):
         _, headers = helpers.resolve_seek_auth(
             _request(token_header="caller-token", user=_authed_user())
         )
@@ -150,14 +153,14 @@ def test_oauth_beats_an_inbound_token_header(oauth_on):
 
 def test_an_explicit_order_can_still_exclude_oauth(oauth_on):
     """Call sites pass restricted orders; omitting OAUTH must omit it."""
-    with _stub_token("at-1") as stub, _no_session_auth():
+    with _stub_token("at-1") as stub:
         basic, headers = helpers.resolve_seek_auth(
-            _request(user=_authed_user()), ["BASIC", "SESSION"]
+            _request(user=_authed_user()), ["TOKEN"]
         )
     assert (basic, headers) == (None, None)
     stub.assert_not_called()
 
 
 def test_nothing_available_still_resolves_to_nothing(oauth_on):
-    with _stub_token(None), _no_session_auth():
+    with _stub_token(None):
         assert helpers.resolve_seek_auth(_request(user=_authed_user())) == (None, None)

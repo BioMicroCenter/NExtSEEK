@@ -128,18 +128,23 @@ def test_the_stored_provider_resolves_a_fresh_token_per_call(oauth_on):
         assert provider() == "at-3"
 
 
-# -- the password path is untouched ------------------------------------------
+# -- stale password data cannot revive the old path --------------------------
 
 
-def test_a_password_session_never_consults_the_token_service(oauth_on):
-    """Coexistence: a session that still has a password behaves exactly as it
-    always did, even with the flag on."""
+def test_a_leftover_session_password_no_longer_short_circuits_the_token(oauth_on):
+    """Inverted by the cutover (#16, sub-project 5).
+
+    While both paths coexisted, a session carrying a password skipped the token
+    service entirely. Nothing writes a session password now, but a stale one
+    could survive in an old session -- and it must not resurrect a credential
+    path that no longer exists, so the token is still what authenticates.
+    """
     with _stub_token("at-1") as stub:
         result = _login(_request(password="hunter2"))
 
-    assert result["password"] == "hunter2"
-    assert result["token_provider"] is None
-    stub.assert_not_called()
+    assert result["status"] is True
+    assert result["token_provider"] is not None
+    stub.assert_called()
 
 
 def test_the_command_line_path_is_untouched(oauth_on):

@@ -56,23 +56,20 @@ def _stub_token(value):
     return patch("seek.oauth.service.get_valid_access_token", return_value=value)
 
 
-def _no_session_auth():
-    return patch("nextseek_api.helpers.get_auth", return_value=None)
-
-
 # -- seekdb_for_caller -------------------------------------------------------
 
 
-def test_a_basic_caller_still_gets_a_password_seekdb(oauth_off):
-    """Unchanged path. This is what production runs on."""
-    with patch("nextseek_api.helpers.get_auth", return_value=("alice", "pw")), \
-         patch("nextseek_api.helpers.SeekDB") as SeekDB:
-        helpers.seekdb_for_caller(_request())
-    SeekDB.assert_called_once_with(None, "alice", "pw")
+def test_a_caller_with_no_token_gets_no_seekdb(oauth_off):
+    """Inverted by the cutover (#16, sub-project 5). This asserted that a Basic
+    caller got a password-backed SeekDB; there is no password branch now, so a
+    request with no OAuth token resolves nothing at all."""
+    with patch("nextseek_api.helpers.SeekDB") as SeekDB:
+        assert helpers.seekdb_for_caller(_request()) is None
+    SeekDB.assert_not_called()
 
 
 def test_an_oauth_caller_gets_a_token_backed_seekdb(oauth_on):
-    with _stub_token("at-1"), _no_session_auth(), \
+    with _stub_token("at-1"), \
          patch("nextseek_api.helpers.SeekDB") as SeekDB:
         helpers.seekdb_for_caller(_request())
 
@@ -84,16 +81,16 @@ def test_an_oauth_caller_gets_a_token_backed_seekdb(oauth_on):
 def test_a_caller_with_no_seek_credential_gets_nothing(oauth_on):
     """Still reachable -- a DRF-token client resolves neither a Basic pair nor
     an OAuth token. Callers must fail closed on this, not proceed unscoped."""
-    with _stub_token(None), _no_session_auth():
+    with _stub_token(None):
         assert helpers.seekdb_for_caller(_request()) is None
 
 
-def test_a_basic_pair_is_preferred_over_a_stored_token(oauth_on):
-    with _stub_token("at-1"), \
-         patch("nextseek_api.helpers.get_auth", return_value=("alice", "pw")), \
-         patch("nextseek_api.helpers.SeekDB") as SeekDB:
+def test_a_stored_token_is_now_the_only_source(oauth_on):
+    """Was "a Basic pair is preferred over a stored token". The preference is
+    moot: the Basic source is gone, so the token is all there is."""
+    with _stub_token("at-1"), patch("nextseek_api.helpers.SeekDB") as SeekDB:
         helpers.seekdb_for_caller(_request())
-    SeekDB.assert_called_once_with(None, "alice", "pw")
+    assert SeekDB.call_args.kwargs["token_provider"]() == "at-1"
 
 
 # -- caller_is_authenticated -------------------------------------------------
@@ -102,13 +99,12 @@ def test_a_basic_pair_is_preferred_over_a_stored_token(oauth_on):
 def test_an_oauth_session_counts_as_authenticated(oauth_on):
     """The two gates that lacked an is_authenticated clause rejected OAuth
     callers outright; this is the check they now share with the other ten."""
-    with _stub_token(None), _no_session_auth():
+    with _stub_token(None):
         assert helpers.caller_is_authenticated(_request(authed=True)) is True
 
 
 def test_an_anonymous_request_is_not_authenticated(oauth_off):
-    with _no_session_auth():
-        assert helpers.caller_is_authenticated(_request(authed=False)) is False
+    assert helpers.caller_is_authenticated(_request(authed=False)) is False
 
 
 # -- the project-scope regression --------------------------------------------
@@ -123,7 +119,7 @@ def test_an_oauth_caller_resolves_their_projects(oauth_on):
     seekdb = SimpleNamespace(getCurrentUser=lambda: {
         "data": {"relationships": {"projects": {"data": [{"id": 3}, {"id": 5}]}}}
     })
-    with _stub_token("at-1"), _no_session_auth(), \
+    with _stub_token("at-1"), \
          patch("nextseek_api.views.seekdb_for_caller", return_value=seekdb):
         assert _caller_seek_project_ids(_request()) == ["3", "5"]
 

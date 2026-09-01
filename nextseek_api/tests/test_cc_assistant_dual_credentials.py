@@ -78,21 +78,25 @@ def test_an_oauth_caller_gets_a_drf_token_for_chat_and_a_provider_for_seek(oauth
     assert seek_user == "researcher"
 
 
-def test_a_password_caller_gets_a_basic_pair_on_both_sides(oauth_on):
-    """Coexistence: nothing changes for a session that still has a password."""
+def test_a_leftover_session_password_resolves_neither_credential(oauth_on):
+    """Inverted by the cutover (#16, sub-project 5).
+
+    Both resolvers used to hand back the session's Basic pair. Neither has a
+    password branch now, so a stale password resolves nothing on the NExtSEEK
+    side and nothing on the SEEK side -- the split still holds, with one source
+    each instead of two.
+    """
     user = _db_user()
     view = CCAssistantViewSet()
     request = _request(user, {"username": "researcher", "password": "hunter2"})
 
-    with patch("seek.oauth.service.get_valid_access_token") as seek_token:
+    with patch("seek.oauth.service.get_valid_access_token", return_value=None):
         chat = view._chat_credentials(request)
         seek_user, seek_pass, provider = view._seek_credentials(request)
 
-    assert (chat["api_user"], chat["api_pass"]) == ("researcher", "hunter2")
-    assert chat["api_token"] is None
-    assert (seek_user, seek_pass) == ("researcher", "hunter2")
-    assert provider is None
-    seek_token.assert_not_called()
+    assert chat["api_pass"] is None and chat["api_token"] is None
+    assert seek_pass is None and provider is None
+    assert (chat["api_user"], seek_user) == ("researcher", "researcher")
 
 
 # -- resolve_user_project accepts the SEEK token -----------------------------

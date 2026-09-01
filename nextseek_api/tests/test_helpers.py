@@ -2,10 +2,11 @@
 Tests for nextseek_api/helpers.py
 
 Covers:
-- get_basic_auth (Basic Authorization header parsing)
-- get_auth (session-derived auth via SeekDB)
 - get_token_auth (Token/Bearer header parsing)
 - resolve_seek_auth (multi-source auth resolution with order parameter)
+
+get_basic_auth and get_auth were removed with password login (#16, sub-project
+5), and their tests with them.
 - SeekAPIClient (init, _request, all endpoint methods, stream, upload)
 - StandardResultsSetPagination (page size settings)
 - paginate_rows_in_envelope (pagination helper)
@@ -20,8 +21,6 @@ import pytest
 from django.test import RequestFactory
 
 from nextseek_api.helpers import (
-    get_basic_auth,
-    get_auth,
     get_token_auth,
     resolve_seek_auth,
     SeekAPIClient,
@@ -51,65 +50,6 @@ def _make_request(auth_header=None, x_seek_header=None):
 def _basic_header(user, password):
     creds = base64.b64encode(f"{user}:{password}".encode()).decode()
     return f"Basic {creds}"
-
-
-# ===========================================================================
-# get_basic_auth
-# ===========================================================================
-class TestGetBasicAuth:
-    def test_valid_basic(self):
-        req = _make_request(_basic_header("alice", "s3cret"))
-        assert get_basic_auth(req) == ("alice", "s3cret")
-
-    def test_password_with_colon(self):
-        req = _make_request(_basic_header("bob", "pa:ss:word"))
-        assert get_basic_auth(req) == ("bob", "pa:ss:word")
-
-    def test_missing_header(self):
-        req = _make_request()
-        assert get_basic_auth(req) is None
-
-    def test_non_basic_scheme(self):
-        req = _make_request("Bearer abc123")
-        assert get_basic_auth(req) is None
-
-    def test_empty_header(self):
-        req = _make_request("")
-        assert get_basic_auth(req) is None
-
-    def test_invalid_base64(self):
-        req = _make_request("Basic %%%notbase64%%%")
-        assert get_basic_auth(req) is None
-
-
-# ===========================================================================
-# get_auth (session-based via SeekDB)
-# ===========================================================================
-class TestGetAuth:
-    @patch("nextseek_api.helpers.SeekDB")
-    def test_authenticated_session(self, MockSeekDB):
-        instance = MockSeekDB.return_value
-        instance.getSeekLogin.return_value = {
-            "status": True,
-            "username": "alice",
-            "password": "pw123",
-        }
-        req = _make_request()
-        assert get_auth(req) == ("alice", "pw123")
-
-    @patch("nextseek_api.helpers.SeekDB")
-    def test_unauthenticated_session_no_status(self, MockSeekDB):
-        instance = MockSeekDB.return_value
-        instance.getSeekLogin.return_value = {"status": False, "username": "", "password": ""}
-        req = _make_request()
-        assert get_auth(req) is None
-
-    @patch("nextseek_api.helpers.SeekDB")
-    def test_unauthenticated_session_none(self, MockSeekDB):
-        instance = MockSeekDB.return_value
-        instance.getSeekLogin.return_value = None
-        req = _make_request()
-        assert get_auth(req) is None
 
 
 # ===========================================================================
@@ -172,79 +112,81 @@ class TestGetTokenAuth:
 # resolve_seek_auth
 # ===========================================================================
 class TestResolveSeekAuth:
-    @patch("nextseek_api.helpers.get_auth")
-    @patch("nextseek_api.helpers.get_basic_auth")
-    def test_default_order_basic_first(self, mock_basic, mock_session):
-        mock_basic.return_value = ("user", "pass")
-        req = _make_request()
-        result = resolve_seek_auth(req)
-        assert result == (("user", "pass"), {})
-        mock_session.assert_not_called()
+    """The order matrix after the cutover (#16, sub-project 5).
+
+    BASIC and SESSION are gone: both resolved a SEEK username and password, and
+    nothing holds one now. What remains is OAUTH (a token NExtSEEK stores for
+    the signed-in user, sent as Bearer) and TOKEN (a credential the caller
+    presented, forwarded as Token).
+
+    Retired names are *ignored, not rejected*. Call sites pass literal order
+    lists, and a stale one should resolve nothing from that source rather than
+    raise on a request path that runs for every proxied call.
+    """
 
     @patch("nextseek_api.helpers.get_token_auth")
-    @patch("nextseek_api.helpers.get_auth")
-    @patch("nextseek_api.helpers.get_basic_auth")
-    def test_default_order_falls_to_session(self, mock_basic, mock_session, mock_token):
-        mock_basic.return_value = None
-        mock_session.return_value = ("sess_u", "sess_p")
-        req = _make_request()
-        result = resolve_seek_auth(req)
-        assert result == (("sess_u", "sess_p"), {})
+    @patch("nextseek_api.helpers.get_oauth_auth")
+    def test_oauth_is_tried_first(self, mock_oauth, mock_token):
+        mock_oauth.return_value = "at-1"
+        result = resolve_seek_auth(_make_request())
+        assert result == (None, {"Authorization": "Bearer at-1"})
         mock_token.assert_not_called()
 
     @patch("nextseek_api.helpers.get_token_auth")
-    @patch("nextseek_api.helpers.get_auth")
-    @patch("nextseek_api.helpers.get_basic_auth")
-    def test_default_order_falls_to_token(self, mock_basic, mock_session, mock_token):
-        mock_basic.return_value = None
-        mock_session.return_value = None
+    @patch("nextseek_api.helpers.get_oauth_auth")
+    def test_falls_through_to_a_presented_token(self, mock_oauth, mock_token):
+        mock_oauth.return_value = None
         mock_token.return_value = "mytoken"
-        req = _make_request()
-        result = resolve_seek_auth(req)
+        result = resolve_seek_auth(_make_request())
         assert result == (None, {"Authorization": "Token mytoken"})
 
     @patch("nextseek_api.helpers.get_token_auth")
-    @patch("nextseek_api.helpers.get_auth")
-    @patch("nextseek_api.helpers.get_basic_auth")
-    def test_no_auth_found(self, mock_basic, mock_session, mock_token):
-        mock_basic.return_value = None
-        mock_session.return_value = None
-        mock_token.return_value = None
-        req = _make_request()
-        result = resolve_seek_auth(req)
-        assert result == (None, None)
+    @patch("nextseek_api.helpers.get_oauth_auth")
+    def test_the_two_sources_emit_different_schemes(self, mock_oauth, mock_token):
+        """Not an inconsistency to tidy up: OAUTH is an OAuth2 access token and
+        Doorkeeper only accepts Bearer, while TOKEN forwards what the caller
+        sent and has always gone out as Token."""
+        mock_oauth.return_value = "at-1"
+        assert resolve_seek_auth(_make_request())[1]["Authorization"].startswith("Bearer ")
+        mock_oauth.return_value = None
+        mock_token.return_value = "t"
+        assert resolve_seek_auth(_make_request())[1]["Authorization"].startswith("Token ")
 
     @patch("nextseek_api.helpers.get_token_auth")
-    @patch("nextseek_api.helpers.get_basic_auth")
-    def test_custom_order_token_only(self, mock_basic, mock_token):
+    @patch("nextseek_api.helpers.get_oauth_auth")
+    def test_no_auth_found(self, mock_oauth, mock_token):
+        mock_oauth.return_value = None
+        mock_token.return_value = None
+        assert resolve_seek_auth(_make_request()) == (None, None)
+
+    @patch("nextseek_api.helpers.get_token_auth")
+    @patch("nextseek_api.helpers.get_oauth_auth")
+    def test_custom_order_token_only(self, mock_oauth, mock_token):
         mock_token.return_value = "tok"
-        req = _make_request()
-        result = resolve_seek_auth(req, order=["TOKEN"])
+        result = resolve_seek_auth(_make_request(), order=["TOKEN"])
         assert result == (None, {"Authorization": "Token tok"})
-        mock_basic.assert_not_called()
+        mock_oauth.assert_not_called()
 
-    @patch("nextseek_api.helpers.get_auth")
-    def test_custom_order_session_only(self, mock_session):
-        mock_session.return_value = ("u", "p")
-        req = _make_request()
-        result = resolve_seek_auth(req, order=["SESSION"])
-        assert result == (("u", "p"), {})
+    @patch("nextseek_api.helpers.get_oauth_auth")
+    def test_custom_order_oauth_only(self, mock_oauth):
+        mock_oauth.return_value = "at-1"
+        result = resolve_seek_auth(_make_request(), order=["OAUTH"])
+        assert result == (None, {"Authorization": "Bearer at-1"})
 
-    @patch("nextseek_api.helpers.get_basic_auth")
-    def test_basic_with_empty_username_skipped(self, mock_basic):
-        """BASIC auth with empty username should be skipped."""
-        mock_basic.return_value = ("", "pass")
-        req = _make_request()
-        result = resolve_seek_auth(req, order=["BASIC"])
-        assert result == (None, None)
+    @pytest.mark.parametrize("retired", [["BASIC"], ["SESSION"], ["BASIC", "SESSION"]])
+    @patch("nextseek_api.helpers.get_oauth_auth")
+    def test_retired_sources_resolve_nothing(self, mock_oauth, retired):
+        """The compatibility shim. A call site naming only retired sources gets
+        no credential -- and, importantly, does not raise."""
+        mock_oauth.return_value = "at-1"
+        assert resolve_seek_auth(_make_request(), order=retired) == (None, None)
+        mock_oauth.assert_not_called()
 
-    @patch("nextseek_api.helpers.get_basic_auth")
-    def test_basic_with_empty_password_skipped(self, mock_basic):
-        """BASIC auth with empty password should be skipped."""
-        mock_basic.return_value = ("user", "")
-        req = _make_request()
-        result = resolve_seek_auth(req, order=["BASIC"])
-        assert result == (None, None)
+    @patch("nextseek_api.helpers.get_oauth_auth")
+    def test_a_retired_source_does_not_shadow_a_live_one(self, mock_oauth):
+        mock_oauth.return_value = "at-1"
+        result = resolve_seek_auth(_make_request(), order=["BASIC", "SESSION", "OAUTH"])
+        assert result == (None, {"Authorization": "Bearer at-1"})
 
 
 # ===========================================================================

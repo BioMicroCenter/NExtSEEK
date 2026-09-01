@@ -74,8 +74,13 @@ def test_an_oauth_session_selects_the_oauth_scheme(settings):
     assert selected.password is None
 
 
-def test_a_password_session_still_selects_the_session_scheme(settings):
-    """Coexistence: unchanged for a session that still carries a password."""
+def test_a_leftover_session_password_still_selects_oauth(settings):
+    """Inverted by the cutover (#16, sub-project 5).
+
+    The "session" scheme proved a SEEK password against SEEK. Nothing writes one
+    now, but a stale value in an old session must not select a scheme whose
+    proof path no longer has credentials behind it.
+    """
     settings.SESSION_COOKIE_NAME = "sessionid"
     user = _oauth_user()
     request = _oauth_request(user)
@@ -85,8 +90,7 @@ def test_a_password_session_still_selects_the_session_scheme(settings):
         request, attributes_auth.SeekSessionAuthentication(), None
     )
 
-    assert selected.scheme == "session"
-    assert selected.password == "hunter2"
+    assert selected.scheme == "oauth"
 
 
 def test_a_session_with_neither_credential_is_still_refused(settings):

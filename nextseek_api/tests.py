@@ -870,7 +870,7 @@ class SopProxyViewSetTests(APITestCase):
             "jsonapi": {"version": "1.0"}
         }
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sops_list_200(self, _auth):
         from nextseek_api.services.sops import SopProxyViewSet
         # Mock upstream JSON
@@ -882,13 +882,13 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_sops_list_401(self, _auth):
         url = reverse('nextseek_api:sops-list')
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sops_list_502_html(self, _auth):
         from nextseek_api.services.sops import SopProxyViewSet
         SopProxyViewSet.client.list_sops = Mock(return_value=(
@@ -899,7 +899,7 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sops_retrieve_200_numeric_uid(self, _auth):
         from nextseek_api.services.sops import SopProxyViewSet
         SopProxyViewSet.client.get_sop = Mock(return_value=(
@@ -910,7 +910,7 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     @patch('nextseek_api.services.sops.DBtable_sops')
     def test_sops_retrieve_404_string_uid_not_found(self, mock_dbsop, _auth):
         # No matching title → None
@@ -920,7 +920,7 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sops_retrieve_502_html(self, _auth):
         from nextseek_api.services.sops import SopProxyViewSet
         SopProxyViewSet.client.get_sop = Mock(return_value=(
@@ -931,7 +931,7 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sops_create_201(self, _auth):
         from nextseek_api.services.sops import SopProxyViewSet
         SopProxyViewSet.client.create_sop = Mock(return_value=(
@@ -952,7 +952,7 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
         self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sops_create_422_invalid_body(self, _auth):
         # Missing required fields (title/content_blobs/projects)
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
@@ -961,7 +961,7 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sops_patch_200(self, _auth):
         from nextseek_api.services.sops import SopProxyViewSet
         SopProxyViewSet.client.update_sop = Mock(return_value=(
@@ -973,7 +973,7 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sops_patch_404_no_resolution(self, _auth):
         # No id in payload and non-numeric uid that won't be resolved (DB not patched returns None)
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
@@ -982,14 +982,14 @@ class SopProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_sops_patch_401_no_auth(self, _auth):
         url = reverse('nextseek_api:sops-detail', kwargs={'uid': '132'})
         payload = {"data": {"type": "sops", "id": "132", "attributes": {"title": "Patched"}}}
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sops_patch_502_html(self, _auth):
         from nextseek_api.services.sops import SopProxyViewSet
         SopProxyViewSet.client.update_sop = Mock(return_value=(
@@ -1038,7 +1038,7 @@ class DataFileProxyViewSetTests(APITestCase):
             "jsonapi": {"version": "1.0"}
         }
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_list_200(self, _auth):
         from nextseek_api.services.data_files import DataFileProxyViewSet
         DataFileProxyViewSet.client.list_data_files = Mock(return_value=(
@@ -1049,13 +1049,13 @@ class DataFileProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_data_files_list_401(self, _auth):
         url = reverse('nextseek_api:data_files-list')
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_list_502_html(self, _auth):
         from nextseek_api.services.data_files import DataFileProxyViewSet
         DataFileProxyViewSet.client.list_data_files = Mock(return_value=(
@@ -1066,7 +1066,7 @@ class DataFileProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_retrieve_422_missing_version(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:data_files-detail', kwargs={'uid': '560'})
@@ -1074,7 +1074,7 @@ class DataFileProxyViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     @patch('nextseek_api.services.data_files.DBtable_data_files')
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_retrieve_200_with_version(self, _auth, mock_dbdf):
         from nextseek_api.services.data_files import DataFileProxyViewSet
         # ensure uid resolution returns same numeric id
@@ -1088,7 +1088,7 @@ class DataFileProxyViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     @patch('nextseek_api.services.data_files.DBtable_data_files')
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_retrieve_404_unresolved_uid(self, _auth, mock_dbdf):
         mock_dbdf.return_value.queryRecordsByConstraint.return_value = []
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
@@ -1096,7 +1096,7 @@ class DataFileProxyViewSetTests(APITestCase):
         resp = self.client.get(url, {'version': 1})
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_retrieve_502_html(self, _auth):
         from nextseek_api.services.data_files import DataFileProxyViewSet
         DataFileProxyViewSet.client.get_data_file = Mock(return_value=(
@@ -1107,7 +1107,7 @@ class DataFileProxyViewSetTests(APITestCase):
         resp = self.client.get(url, {'version': 1})
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_create_422_invalid_body(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:data_files-list')
@@ -1115,7 +1115,7 @@ class DataFileProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_create_201(self, _auth):
         from nextseek_api.services.data_files import DataFileProxyViewSet
         DataFileProxyViewSet.client.create_data_file = Mock(return_value=(
@@ -1133,7 +1133,7 @@ class DataFileProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
         self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_patch_422_mismatched_id(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:data_files-detail', kwargs={'uid': '560'})
@@ -1142,7 +1142,7 @@ class DataFileProxyViewSetTests(APITestCase):
         # Without upstream call mocked, this returns 422 from our service validation
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_patch_404_no_resolution(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:data_files-detail', kwargs={'uid': 'NotThere.csv'})
@@ -1150,7 +1150,7 @@ class DataFileProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_patch_200(self, _auth):
         from nextseek_api.services.data_files import DataFileProxyViewSet
         DataFileProxyViewSet.client.update_data_file = Mock(return_value=(
@@ -1162,14 +1162,14 @@ class DataFileProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_data_files_patch_401(self, _auth):
         url = reverse('nextseek_api:data_files-detail', kwargs={'uid': '560'})
         payload = {"data": {"type": "data_files", "id": "560", "attributes": {"description": "x"}}}
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_data_files_patch_502_html(self, _auth):
         from nextseek_api.services.data_files import DataFileProxyViewSet
         DataFileProxyViewSet.client.update_data_file = Mock(return_value=(
@@ -1234,7 +1234,7 @@ class ProjectProxyViewSetTests(APITestCase):
             "jsonapi": {"version": "1.0"}
         }
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_projects_list_200(self, _auth):
         from nextseek_api.services.projects import ProjectProxyViewSet
         ProjectProxyViewSet.client.list_projects = Mock(return_value=(
@@ -1245,13 +1245,13 @@ class ProjectProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_projects_list_401(self, _auth):
         url = reverse('nextseek_api:projects-list')
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_projects_list_502_html(self, _auth):
         from nextseek_api.services.projects import ProjectProxyViewSet
         ProjectProxyViewSet.client.list_projects = Mock(return_value=(
@@ -1299,7 +1299,7 @@ class InvestigationProxyViewSetTests(APITestCase):
             "jsonapi": {"version": "1.0"}
         }
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_list_200(self, _auth):
         from nextseek_api.services.investigations import InvestigationProxyViewSet
         InvestigationProxyViewSet.client.list_investigations = Mock(return_value=(
@@ -1310,13 +1310,13 @@ class InvestigationProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_investigations_list_401(self, _auth):
         url = reverse('nextseek_api:investigations-list')
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_list_502_html(self, _auth):
         from nextseek_api.services.investigations import InvestigationProxyViewSet
         InvestigationProxyViewSet.client.list_investigations = Mock(return_value=(
@@ -1327,7 +1327,7 @@ class InvestigationProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_retrieve_200_numeric_uid(self, _auth):
         from nextseek_api.services.investigations import InvestigationProxyViewSet
         InvestigationProxyViewSet.client.get_investigation = Mock(return_value=(
@@ -1338,14 +1338,14 @@ class InvestigationProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_retrieve_404_unresolved_uid(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:investigations-detail', kwargs={'uid': 'INV-XYZ'})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_retrieve_502_html(self, _auth):
         from nextseek_api.services.investigations import InvestigationProxyViewSet
         InvestigationProxyViewSet.client.get_investigation = Mock(return_value=(
@@ -1356,7 +1356,7 @@ class InvestigationProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_create_201(self, _auth):
         from nextseek_api.services.investigations import InvestigationProxyViewSet
         InvestigationProxyViewSet.client.create_investigation = Mock(return_value=(
@@ -1374,7 +1374,7 @@ class InvestigationProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
         self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_create_422_invalid_body(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:investigations-list')
@@ -1382,7 +1382,7 @@ class InvestigationProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_patch_200(self, _auth):
         from nextseek_api.services.investigations import InvestigationProxyViewSet
         InvestigationProxyViewSet.client.update_investigation = Mock(return_value=(
@@ -1394,14 +1394,14 @@ class InvestigationProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_investigations_patch_401(self, _auth):
         url = reverse('nextseek_api:investigations-detail', kwargs={'uid': '763'})
         payload = {"data": {"type": "investigations", "id": "763", "attributes": {"title": "Revised Title"}}}
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_patch_404_no_resolution(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:investigations-detail', kwargs={'uid': 'INV-XYZ'})
@@ -1409,7 +1409,7 @@ class InvestigationProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_investigations_patch_502_html(self, _auth):
         from nextseek_api.services.investigations import InvestigationProxyViewSet
         InvestigationProxyViewSet.client.update_investigation = Mock(return_value=(
@@ -1463,7 +1463,7 @@ class AssayProxyViewSetTests(APITestCase):
             "jsonapi": {"version": "1.0"}
         }
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_list_200(self, _auth):
         from nextseek_api.services.assays import AssayProxyViewSet
         AssayProxyViewSet.client.list_assays = Mock(return_value=(
@@ -1474,13 +1474,13 @@ class AssayProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_assays_list_401(self, _auth):
         url = reverse('nextseek_api:assays-list')
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_list_502_html(self, _auth):
         from nextseek_api.services.assays import AssayProxyViewSet
         AssayProxyViewSet.client.list_assays = Mock(return_value=(
@@ -1520,7 +1520,7 @@ class SampleProxyViewSetTests(APITestCase):
             "jsonapi": {"version": "1.0"}
         }
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_samples_retrieve_200_numeric_uid(self, _auth):
         from nextseek_api.services.samples import SampleProxyViewSet
         SampleProxyViewSet.client.get_sample = Mock(return_value=(
@@ -1531,14 +1531,14 @@ class SampleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_samples_retrieve_404_unresolved_uid(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:samples-detail', kwargs={'uid': 'NOT-A-NUMERIC'})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_samples_retrieve_502_html(self, _auth):
         from nextseek_api.services.samples import SampleProxyViewSet
         SampleProxyViewSet.client.get_sample = Mock(return_value=(
@@ -1549,7 +1549,7 @@ class SampleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_samples_create_201(self, _auth):
         from nextseek_api.services.samples import SampleProxyViewSet
         SampleProxyViewSet.client.create_sample = Mock(return_value=(
@@ -1567,7 +1567,7 @@ class SampleProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
         self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_samples_create_422_invalid_body(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:samples-list')
@@ -1575,7 +1575,7 @@ class SampleProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_samples_patch_200(self, _auth):
         from nextseek_api.services.samples import SampleProxyViewSet
         SampleProxyViewSet.client.update_sample = Mock(return_value=(
@@ -1587,14 +1587,14 @@ class SampleProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_samples_patch_401(self, _auth):
         url = reverse('nextseek_api:samples-detail', kwargs={'uid': '321'})
         payload = {"data": {"type": "samples", "id": "321", "attributes": {"title": "Revised"}}}
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_samples_patch_404_no_resolution(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:samples-detail', kwargs={'uid': 'NOT-A-NUMERIC'})
@@ -1602,7 +1602,7 @@ class SampleProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_samples_patch_502_html(self, _auth):
         from nextseek_api.services.samples import SampleProxyViewSet
         SampleProxyViewSet.client.update_sample = Mock(return_value=(
@@ -1656,7 +1656,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
             "jsonapi": {"version": "1.0"}
         }
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sample_types_list_200(self, _auth):
         from nextseek_api.services.sample_types import SampleTypeProxyViewSet
         SampleTypeProxyViewSet.client.list_sample_types = Mock(return_value=(
@@ -1667,13 +1667,13 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_sample_types_list_401(self, _auth):
         url = reverse('nextseek_api:sample_types-list')
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sample_types_list_502_html(self, _auth):
         from nextseek_api.services.sample_types import SampleTypeProxyViewSet
         SampleTypeProxyViewSet.client.list_sample_types = Mock(return_value=(
@@ -1684,7 +1684,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sample_types_retrieve_200_numeric_uid(self, _auth):
         from nextseek_api.services.sample_types import SampleTypeProxyViewSet
         SampleTypeProxyViewSet.client.get_sample_type = Mock(return_value=(
@@ -1695,7 +1695,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     @patch('nextseek_api.services.sample_types.DBtable_sampletype')
     def test_sample_types_retrieve_404_string_uid_not_found(self, mock_dbst, _auth):
         mock_dbst.return_value.getSampleTypeID.return_value = 0
@@ -1704,7 +1704,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sample_types_retrieve_502_html(self, _auth):
         from nextseek_api.services.sample_types import SampleTypeProxyViewSet
         SampleTypeProxyViewSet.client.get_sample_type = Mock(return_value=(
@@ -1715,7 +1715,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sample_types_create_201(self, _auth):
         from nextseek_api.services.sample_types import SampleTypeProxyViewSet
         SampleTypeProxyViewSet.client.create_sample_type = Mock(return_value=(
@@ -1738,7 +1738,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
         self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sample_types_create_422_invalid_body(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:sample_types-list')
@@ -1746,7 +1746,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sample_types_patch_200(self, _auth):
         from nextseek_api.services.sample_types import SampleTypeProxyViewSet
         SampleTypeProxyViewSet.client.update_sample_type = Mock(return_value=(
@@ -1758,14 +1758,14 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_sample_types_patch_401(self, _auth):
         url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': '12'})
         payload = {"data": {"type": "sample_types", "id": "12", "attributes": {"title": "Revised"}}}
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sample_types_patch_422_mismatched_id(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:sample_types-detail', kwargs={'uid': '12'})
@@ -1773,7 +1773,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     @patch('nextseek_api.services.sample_types.DBtable_sampletype')
     def test_sample_types_patch_404_no_resolution(self, mock_dbst, _auth):
         mock_dbst.return_value.getSampleTypeID.return_value = 0
@@ -1783,7 +1783,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_sample_types_patch_502_html(self, _auth):
         from nextseek_api.services.sample_types import SampleTypeProxyViewSet
         SampleTypeProxyViewSet.client.update_sample_type = Mock(return_value=(
@@ -1795,7 +1795,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_retrieve_200_numeric_uid(self, _auth):
         from nextseek_api.services.assays import AssayProxyViewSet
         AssayProxyViewSet.client.get_assay = Mock(return_value=(
@@ -1806,14 +1806,14 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_retrieve_404_unresolved_uid(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:assays-detail', kwargs={'uid': 'ASSAY-XYZ'})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_retrieve_502_html(self, _auth):
         from nextseek_api.services.assays import AssayProxyViewSet
         AssayProxyViewSet.client.get_assay = Mock(return_value=(
@@ -1824,7 +1824,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_create_201(self, _auth):
         from nextseek_api.services.assays import AssayProxyViewSet
         AssayProxyViewSet.client.create_assay = Mock(return_value=(
@@ -1846,7 +1846,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
         self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_create_422_invalid_body(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:assays-list')
@@ -1854,7 +1854,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_patch_200(self, _auth):
         from nextseek_api.services.assays import AssayProxyViewSet
         AssayProxyViewSet.client.update_assay = Mock(return_value=(
@@ -1866,14 +1866,14 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_assays_patch_401(self, _auth):
         url = reverse('nextseek_api:assays-detail', kwargs={'uid': '351'})
         payload = {"data": {"type": "assays", "id": "351", "attributes": {"description": "Revised"}}}
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_patch_404_no_resolution(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:assays-detail', kwargs={'uid': 'ASSAY-XYZ'})
@@ -1881,7 +1881,7 @@ class SampleTypeProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_assays_patch_502_html(self, _auth):
         from nextseek_api.services.assays import AssayProxyViewSet
         AssayProxyViewSet.client.update_assay = Mock(return_value=(
@@ -1944,7 +1944,7 @@ class PeopleProxyViewSetTests(APITestCase):
             "jsonapi": {"version": "1.0"}
         }
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_list_200(self, _auth):
         from nextseek_api.services.people import PeopleProxyViewSet
         PeopleProxyViewSet.client.list_people = Mock(return_value=(
@@ -1955,13 +1955,13 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_people_list_401(self, _auth):
         url = reverse('nextseek_api:people-list')
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_list_502_html(self, _auth):
         from nextseek_api.services.people import PeopleProxyViewSet
         PeopleProxyViewSet.client.list_people = Mock(return_value=(
@@ -1972,7 +1972,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_retrieve_200_numeric_uid(self, _auth):
         from nextseek_api.services.people import PeopleProxyViewSet
         PeopleProxyViewSet.client.get_person = Mock(return_value=(
@@ -1983,7 +1983,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     @patch('nextseek_api.services.people.DBtable_people')
     def test_people_retrieve_404_string_uid_not_found(self, mock_dbp, _auth):
         mock_dbp.return_value.queryRecordsByConstraint.return_value = []
@@ -1992,7 +1992,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_retrieve_502_html(self, _auth):
         from nextseek_api.services.people import PeopleProxyViewSet
         PeopleProxyViewSet.client.get_person = Mock(return_value=(
@@ -2003,7 +2003,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_create_201(self, _auth):
         from nextseek_api.services.people import PeopleProxyViewSet
         PeopleProxyViewSet.client.create_person = Mock(return_value=(
@@ -2015,7 +2015,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
         self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_create_422_invalid_body(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:people-list')
@@ -2023,7 +2023,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_patch_200(self, _auth):
         from nextseek_api.services.people import PeopleProxyViewSet
         PeopleProxyViewSet.client.update_person = Mock(return_value=(
@@ -2035,7 +2035,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_patch_422_mismatched_id(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:people-detail', kwargs={'uid': '1652'})
@@ -2043,7 +2043,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_patch_404_no_resolution(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:people-detail', kwargs={'uid': 'NotThere'})
@@ -2051,14 +2051,14 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_people_patch_401(self, _auth):
         url = reverse('nextseek_api:people-detail', kwargs={'uid': '1652'})
         payload = {"data": {"type": "people", "id": "1652", "attributes": {"first_name": "Patched"}}}
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_people_patch_502_html(self, _auth):
         from nextseek_api.services.people import PeopleProxyViewSet
         PeopleProxyViewSet.client.update_person = Mock(return_value=(
@@ -2070,7 +2070,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     @patch('nextseek_api.services.projects.DBtable_projects')
     def test_projects_retrieve_200_numeric_uid(self, mock_dbp, _auth):
         from nextseek_api.services.projects import ProjectProxyViewSet
@@ -2083,7 +2083,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     @patch('nextseek_api.services.projects.DBtable_projects')
     def test_projects_retrieve_404_string_uid_not_found(self, mock_dbp, _auth):
         mock_dbp.return_value.queryRecordsByConstraint.return_value = []
@@ -2092,7 +2092,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_projects_retrieve_502_html(self, _auth):
         from nextseek_api.services.projects import ProjectProxyViewSet
         ProjectProxyViewSet.client.get_project = Mock(return_value=(
@@ -2103,7 +2103,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_projects_create_422_invalid_body(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:projects-list')
@@ -2111,7 +2111,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(bad_payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_projects_create_201(self, _auth):
         from nextseek_api.services.projects import ProjectProxyViewSet
         ProjectProxyViewSet.client.create_project = Mock(return_value=(
@@ -2123,7 +2123,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.post(url, data=json.dumps(payload), content_type='application/json')
         self.assertIn(resp.status_code, (status.HTTP_201_CREATED, status.HTTP_200_OK))
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_projects_patch_422_mismatched_id(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:projects-detail', kwargs={'uid': '2558'})
@@ -2131,7 +2131,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_projects_patch_404_no_resolution(self, _auth):
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
         url = reverse('nextseek_api:projects-detail', kwargs={'uid': 'NotThere'})
@@ -2139,7 +2139,7 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_projects_patch_200(self, _auth):
         from nextseek_api.services.projects import ProjectProxyViewSet
         ProjectProxyViewSet.client.update_project = Mock(return_value=(
@@ -2151,14 +2151,14 @@ class PeopleProxyViewSetTests(APITestCase):
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=None)
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value=None)
     def test_projects_patch_401(self, _auth):
         url = reverse('nextseek_api:projects-detail', kwargs={'uid': '2558'})
         payload = {"data": {"type": "projects", "id": "2558", "attributes": {"title": "x"}}}
         resp = self.client.patch(url, data=json.dumps(payload), content_type='application/json')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('nextseek_api.helpers.get_auth', return_value=("u","p"))
+    @patch('nextseek_api.helpers.get_oauth_auth', return_value='seek-at-1')
     def test_projects_patch_502_html(self, _auth):
         from nextseek_api.services.projects import ProjectProxyViewSet
         ProjectProxyViewSet.client.update_project = Mock(return_value=(

@@ -12,6 +12,8 @@ late and confusingly:
   authenticated" rather than a TypeError.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from django.contrib.auth.models import User
 from django.core.checks import Error
@@ -149,17 +151,20 @@ def test_a_session_without_a_password_is_unauthenticated_not_a_crash(rf):
     assert any("username or password" in message for message in result["err"])
 
 
-def test_a_session_with_a_password_is_unaffected_by_the_guard(rf):
-    """The guard must not narrow the existing password path, which is what
-    production still runs on."""
+def test_a_leftover_session_password_does_not_authenticate(rf):
+    """Inverted by the cutover (#16, sub-project 5).
+
+    This used to assert the guard left the password path alone. There is no
+    password path now: the check tests for a token provider, so a stale password
+    in an old session resolves nothing rather than logging someone in.
+    """
     from seek.seekdb import SeekDB
 
     request = rf.get("/")
     request.session = {
-        "server": "http://seek:3000", "username": "researcher", "password": "",
+        "server": "http://seek:3000", "username": "researcher", "password": "hunter2",
     }
+    request.user = SimpleNamespace(is_authenticated=False, pk=None)
 
-    # An empty password was already rejected before this change; assert the
-    # behaviour is identical rather than merely still-failing.
     result = SeekDB(None, None, None).getSeekLogin(request)
     assert result["status"] is False

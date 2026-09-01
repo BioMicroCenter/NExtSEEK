@@ -41,31 +41,10 @@ def basic_auth_header(basic_tuple: Optional[Tuple[str, str]]) -> Dict[str, str]:
     }
 
 
-def get_basic_auth(request) -> Optional[Tuple[str, str]]:
-    try:
-        auth_header = request.META.get('HTTP_AUTHORIZATION') or ''
-        if not auth_header.lower().startswith('basic '):
-            return None
-        encoded_credentials = auth_header.split(' ', 1)[1]
-        decoded = base64.b64decode(encoded_credentials).decode("utf-8")
-        # Only split on the first colon to allow colons in password
-        username, password = decoded.split(':', 1)
-        return username, password
-    except Exception:
-        return None
-
-
-def get_auth(request) -> Optional[Tuple[str, str]]:
-    """Return (username, password) for the current SEEK user session, or None if unauthenticated.
-
-    Note: This does NOT consider Token auth or direct Basic headers. Use resolve_seek_auth
-    when you need to consider multiple upstream auth sources.
-    """
-    seekdb = SeekDB(None, None, None)
-    user = seekdb.getSeekLogin(request, False)
-    if not user or not user.get('status'):
-        return None
-    return user['username'], user['password']
+# get_basic_auth and get_auth were here. Both resolved a SEEK username and
+# password -- one from an inbound Basic header, one from the session that
+# password login wrote -- and both are gone with it (#16, sub-project 5).
+# Nothing holds a SEEK password for them to find.
 
 
 def get_oauth_auth(request) -> Optional[str]:

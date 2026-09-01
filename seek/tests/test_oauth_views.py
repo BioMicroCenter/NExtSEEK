@@ -82,9 +82,13 @@ def test_the_views_404_while_the_flag_is_off(client_fixture, oauth_off, route):
     assert client_fixture.get(route).status_code == 404
 
 
-def test_the_login_page_does_not_offer_seek_while_the_flag_is_off(client_fixture, oauth_off):
+def test_the_login_page_offers_seek_regardless_of_the_flag(client_fixture, oauth_off):
+    """Inverted by the cutover (#16, sub-project 5). The button used to be
+    conditional; SEEK is now the only identity provider, and a system check
+    refuses to boot with the flag off rather than serving a page with no way
+    in. So the button is unconditional and the *views* remain flag-gated."""
     body = client_fixture.get("/login").content.decode()
-    assert "Log in with SEEK" not in body
+    assert "Log in with SEEK" in body
 
 
 # -- starting the flow -------------------------------------------------------
@@ -225,5 +229,7 @@ def test_the_callback_will_not_redirect_off_site(client_fixture, oauth_on, seek_
 def test_the_login_page_offers_seek_while_the_flag_is_on(client_fixture, oauth_on):
     body = client_fixture.get("/login").content.decode()
     assert "Log in with SEEK" in body
-    # Coexistence: the password form must still be there until SP2-4 land.
-    assert 'name="password"' in body
+    # The password form is gone (#16, sub-project 5): NExtSEEK holds no usable
+    # password, so a form here could not authenticate anyone.
+    assert 'name="password"' not in body
+    assert "<form" not in body
