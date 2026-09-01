@@ -20,29 +20,17 @@ UID_RE = re.compile(r"\A([A-Z]\.)?[A-Z]{2,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?\Z")
 
 
 @pytest.fixture(scope="session")
-def a_sample(web, base_url):
-    """Discover a real sample at run time. Never hard-code an id.
+def a_sample(discovered):
+    """A real sample, discovered at run time. Never hard-code an id.
 
-    Uses the endpoint the search page itself calls. Sample-type ids and row
-    counts are deployment-specific, so this returns whatever the environment
-    actually has and skips when it has nothing.
+    This used to make its own searchAdvanced request. It now reads the one the
+    conftest `discovered` fixture already makes for the whole suite: two copies of
+    the same query could disagree about which sample is under test, and a flow
+    failing on a different row from the one T0 swept is a bad half-hour.
     """
-    r = web.get(
-        f"{base_url}/seek/searchAdvanced/",
-        params={
-            "sampletype_id": "", "attribute": "none", "filter_logic": "AND",
-            "filter_searchValue": "", "filter_searchText": "Uterus",
-            "filter_matchType": "PARTIAL",
-        },
-        timeout=180,
-    )
-    assert r.status_code == 200, f"sample discovery failed: {r.status_code}"
-    rows = r.json().get("rows") or []
-    if not rows:
-        pytest.skip("no samples matched the discovery query in this environment")
-    row = rows[0]
-    uid = re.sub(r"<[^>]+>", "", str(row.get("uid", ""))).strip()
-    return {"id": row["id"], "uid": uid}
+    if not discovered.get("sample_id"):
+        pytest.skip("no sample could be discovered in this environment")
+    return {"id": discovered["sample_id"], "uid": discovered.get("sample_uid") or ""}
 
 
 # --------------------------------------------------------------------------- #

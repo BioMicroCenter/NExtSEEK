@@ -95,6 +95,45 @@ def test_no_prod_route_uses_the_superuser_account():
     assert not offenders, f"write-auth routes enabled for prod: {offenders}"
 
 
+AUTH_VOCABULARY = {"anon", "smoke", "web", "write"}
+
+
+def test_every_route_declares_an_auth_the_suite_can_supply():
+    """`auth` names which client calls the route, and T0 looks it up by name.
+
+    A typo or a fifth value has no client behind it, so the route would either
+    raise from a dict index in the middle of the sweep or, worse, be quietly
+    dropped by whichever consumer looked it up with .get(). Four values, pinned.
+    """
+    offenders = sorted({r.auth for r in REGISTRY} - AUTH_VOCABULARY)
+    assert not offenders, (
+        f"routes declare auth value(s) no client implements: {offenders}. "
+        f"Allowed: {sorted(AUTH_VOCABULARY)}."
+    )
+
+
+def test_no_xfailed_route_expects_the_status_it_is_broken_with():
+    """`expect` is what a FIXED route returns. Declaring 500 inverts the signal.
+
+    An xfailed route whose `expect` is the status it returns while broken passes
+    its own assertion today, so the tier reports XPASS while the defect is there
+    and flips to xfailed the day somebody fixes it -- the opposite of what the
+    spec asks for, and ten lines of permanent noise that train a reader to skip
+    the XPASS block, which is exactly where a real fix announces itself.
+
+    500 specifically, rather than any mismatch: what a working route returns is a
+    judgement, but a server error is never it.
+    """
+    offenders = [
+        (r.pattern, r.expect) for r in REGISTRY
+        if r.xfail and 500 in (r.expect if isinstance(r.expect, tuple) else (r.expect,))
+    ]
+    assert not offenders, (
+        "these xfailed routes expect a 500, so they will report XPASS while broken "
+        f"and xfailed once fixed: {offenders}"
+    )
+
+
 def test_every_placeholder_is_declared_and_every_declaration_is_used():
     """Task 6's fixture supplies exactly these names. An undeclared placeholder is
     a KeyError mid-sweep; an unused declaration is a fixture doing needless work."""

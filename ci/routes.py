@@ -41,6 +41,11 @@ class Route:
     methods: tuple[str, ...]          # what CI will send, not what the route allows
     profiles: frozenset[str]          # empty means never called; then exclude is required
     auth: str = "smoke"               # anon | smoke | web | write
+    # The status a WORKING route returns, never the status a broken one returns
+    # today. With `xfail` set, that makes the tier report xfailed while the defect
+    # is there and XPASS the day it is fixed. Declaring the broken status instead
+    # inverts both signals, so ci/smoke/test_registry_contents.py refuses a 500 in
+    # the `expect` of an xfailed route.
     expect: int | tuple[int, ...] = 200
     shape: str | None = None          # a key that must exist in the JSON body
     xfail: str | None = None          # reason, when the route is broken today
@@ -144,10 +149,10 @@ class Route:
 # differ between the seed, dev and production, so none of them is ever written
 # into a path literally. Where an id space has nothing to discover -- a job,
 # task, session, bundle or NHP name -- the path carries a syntactically valid
-# NONEXISTENT literal instead, and `expect` is whatever that route answers for an
-# identifier it cannot find. That is not always a not-found status: the three
-# outcomes are listed with the literals below. Either way it proves the route
-# resolves, and it needs no fixture.
+# NONEXISTENT literal instead, and `expect` is what that route answers for an
+# identifier it cannot find once it behaves. That is not always a not-found
+# status: the three outcomes are listed with the literals below. Either way it
+# proves the route resolves, and it needs no fixture.
 PLACEHOLDERS: dict[str, str] = {
     "assay_id":        "data[0].id of GET /nextseek_api/assays/ (SEEK numeric assay id)",
     "attribute_id":    "id of the first item in GET /nextseek_api/attributes/",
@@ -166,11 +171,12 @@ PLACEHOLDERS: dict[str, str] = {
 
 # A UUID that is valid syntax and belongs to nothing, for the job / task /
 # session id spaces. Every route that takes one is declared with whatever it
-# answers for an identifier it cannot find, and that is three different things:
-# a 404 for most; a 200 whose body carries the failure instead, for two of the
-# seek helpers (their notes say so); and a 500 for /seek/nhpdata/<name>/, which
-# is a defect rather than a denial and so carries an xfail as well. All three
-# prove the route resolves without a fixture; the first two also prove it denies.
+# answers for an identifier it cannot find once it behaves, and that is three
+# different things: a 404 for most; a 200 whose body carries the failure instead,
+# for two of the seek helpers (their notes say so); and, for
+# /seek/nhpdata/<name>/, the same 404 its two siblings return, which it does not
+# manage today -- that entry carries an xfail naming what it raises instead. All
+# three prove the route resolves without a fixture.
 _NO_SUCH_UUID = "00000000-0000-4000-8000-000000000000"
 _NO_SUCH_ID = "999999999"
 _NO_SUCH_NHP = "NEXTSEEK-CI-NO-SUCH-NHP"
@@ -264,7 +270,7 @@ REGISTRY: list[Route] = [
           path="/seek/projects/{seek_project_id}/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
     Route(pattern=r"^seek/^remote/", path="/seek/remote/",
-          methods=("GET",), profiles="local,dev", auth="web", expect=500,
+          methods=("GET",), profiles="local,dev", auth="web", expect=200,
           xfail="NameError: samples is not defined, raised by "
                 "seek/views/search.py::remote"),
     Route(pattern=r"^seek/^sample/id=(?P<id>\d+)/$", path="/seek/sample/id={sample_id}/",
@@ -301,7 +307,7 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="renders zero template links on a stock deployment; T2 pins that"),
     Route(pattern=r"^seek/^url/(?P<url>[\w-]+)/$", path="/seek/url/smoke/",
-          methods=("GET",), profiles="local,dev", auth="web", expect=500,
+          methods=("GET",), profiles="local,dev", auth="web", expect=200,
           xfail="NameError: getPageRequests is not defined, raised by "
                 "seek/views/samples.py::seek"),
 
@@ -336,7 +342,7 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=404,
           note="NHP timeline workbook. Unknown name: proves the route resolves and denies"),
     Route(pattern=r"^seek/^operators/$", path="/seek/operators/",
-          methods=("GET",), profiles="local,dev", auth="web", expect=500,
+          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
           xfail="MultiValueDictKeyError: 'sampletype_id' from "
                 "seek/views/samples.py::getOperators, which indexes the query string "
                 "for two required parameters with no default, so a bare GET is a 500 "
@@ -354,27 +360,27 @@ REGISTRY: list[Route] = [
           note="workbook-driven sample lookup; the real path is a POST with a file, "
                "which writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/download/", path="/seek/samples/download/",
-          methods=("GET",), profiles="local,dev", auth="web", expect=500,
+          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
           xfail="MultiValueDictKeyError: 'includeSampleTree' from "
                 "seek/views/samples.py::sampleDownload, which indexes the query "
                 "string for a required parameter with no default, so a bare GET is "
                 "a 500 rather than a 400",
           note="a parameterised call writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/export/", path="/seek/samples/export/",
-          methods=("GET",), profiles="local,dev", auth="web", expect=500,
+          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
           xfail="MultiValueDictKeyError: 'allids' from "
                 "seek/views/samples.py::sampleExport, which indexes the query string "
                 "for a required parameter with no default, so a bare GET is a 500 "
                 "rather than a 400",
           note="a parameterised call writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/retrieveType/", path="/seek/samples/retrieveType/",
-          methods=("GET",), profiles="local,dev", auth="web", expect=500,
+          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
           xfail="MultiValueDictKeyError: 'sampletype_id' from "
                 "seek/views/samples.py::getSampleType, which indexes the query string "
                 "for two required parameters with no default, so a bare GET is a 500 "
                 "rather than a 400"),
     Route(pattern=r"^seek/^samples/searching/", path="/seek/samples/searching/",
-          methods=("GET",), profiles="local,dev", auth="web", expect=500,
+          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
           xfail="MultiValueDictKeyError: 'sampletype_id' from "
                 "seek/views/search.py::sampleSearching, whose filter builder indexes "
                 "the query string for required parameters with no default, so a bare "
@@ -388,15 +394,19 @@ REGISTRY: list[Route] = [
           note="upload receiver; a GET returns the not-a-POST envelope at 200 and "
                "reads nothing"),
     Route(pattern=r"^seek/^searchAdvanced/", path="/seek/searchAdvanced/",
-          methods=("GET",), profiles="local,dev", auth="web", expect=500,
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=(200, 400),
           xfail="MultiValueDictKeyError: 'filter_searchText' from "
                 "seek/views/search.py::searchingAdvanced, whose filter builder indexes "
                 "the query string for required parameters with no default, so a bare "
                 "GET is a 500 rather than a 400",
-          note="the JSON behind the advanced-search grid; the T3 flow drives it with "
-               "a full filter set"),
+          note="the JSON behind the advanced-search grid. Read-only, and prod-enabled "
+               "for that reason: it is where the sample fixtures find a real sample id "
+               "and UID, so without it the sample pages and the sample-page flow have "
+               "nothing to ask for under prod. The bare GET T0 sends is pinned by the "
+               "xfail above; the parameterised query is the one discovery and the "
+               "flows make"),
     Route(pattern=r"^seek/^searchUIDs/", path="/seek/searchUIDs/",
-          methods=("GET",), profiles="local,dev", auth="web", expect=500,
+          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
           xfail="MultiValueDictKeyError: 'filter_searchUIDs' from "
                 "seek/views/search.py::searchingUIDs, whose filter builder indexes the "
                 "query string for required parameters with no default, so a bare GET "
@@ -406,7 +416,7 @@ REGISTRY: list[Route] = [
           note="assay options for a study, for the search form"),
     Route(pattern=r"^seek/nhpdata/(?P<nhp_name>[\w-]+)/$",
           path="/seek/nhpdata/" + _NO_SUCH_NHP + "/",
-          methods=("GET",), profiles="local,dev", auth="smoke", expect=500,
+          methods=("GET",), profiles="local,dev", auth="smoke", expect=404,
           xfail="TypeError: 'NoneType' object does not support item assignment, "
                 "surfaced by seek/views/timeline.py::get_nhp_data. The timeline "
                 "builder does not handle an NHP it cannot find, so an unknown name is "

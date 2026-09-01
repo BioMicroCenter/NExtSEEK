@@ -31,6 +31,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ci.routes import REGISTRY
 from ci.smoke.assertions import assert_not_bounced, check_gateway
+# pytest loads the conftest as its own plugin module, so importing it by name
+# here makes a second copy. Harmless, and deliberately kept that way: the module
+# holds constants and pure functions, the fixtures come from the copy pytest
+# loaded, and resolve_profile memoises on the config object rather than in module
+# state, so the two copies cannot answer differently.
 from ci.smoke.conftest import resolve_profile
 
 
@@ -106,25 +111,36 @@ def test_route_is_reachable(route, base_url, discovered, clients):
     template = route.path
     missing = [n for n in _placeholder_names(template) if not discovered.get(n)]
     if missing:
-        # Only this route, not the run. An environment without data files still
-        # sweeps the other ninety-two.
+        # This route only, never the run: an environment with no data files still
+        # sweeps the other ninety-two. "Could not be discovered" rather than "this
+        # deployment has none", because a list endpoint answering 502 lands here
+        # too and the two are not the same claim. Which of them it was is reported
+        # by that endpoint's own case.
         pytest.skip(
-            "no value for "
+            "could not be discovered: "
             + ", ".join("{" + name + "}" for name in missing)
-            + " in this environment"
         )
 
     path = template.format(**discovered)
+    # Not clients[route.auth]: a registry entry carrying a fourth auth value would
+    # raise a bare KeyError from inside the test body, which reads as a harness
+    # fault rather than as the declaration bug it is. test_registry_contents.py
+    # pins the vocabulary; this says so again at the point of use.
+    client = clients.get(route.auth)
+    if client is None:
+        pytest.fail(f"no client for auth {route.auth!r}")
     # Accept: */* on every request, whatever the client's own default is. T0
     # asserts reachability, not representation, and two routes -- the swagger and
     # redoc UIs -- answer 406 to a JSON-only Accept because they serve HTML.
-    r = clients[route.auth].get(
+    r = client.get(
         base_url + path, timeout=90, allow_redirects=False,
         headers={"Accept": "*/*"},
     )
-    check_gateway(r)
+    # The template, never `path`: under prod the resolved one carries a real
+    # production identifier, and a failure message is written to a CI log.
+    check_gateway(r, label=template)
     if route.auth != "anon":
-        assert_not_bounced(r)
+        assert_not_bounced(r, label=template)
     expected = route.expect if isinstance(route.expect, tuple) else (route.expect,)
     assert r.status_code in expected, (
         f"{template} returned {r.status_code}; the registry expects "

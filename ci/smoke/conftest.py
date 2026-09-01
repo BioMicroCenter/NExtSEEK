@@ -515,7 +515,10 @@ def discovered(profile, api, web, base_url) -> dict[str, str | None]:
                 rows = r.json().get("rows") or []
             except ValueError:
                 rows = []
-        if rows:
+        # Guarded the same way as _first_id, and for the same reason: a malformed
+        # row is one placeholder resolving to None, not a KeyError inside a
+        # session fixture that would take every test in the run with it.
+        if rows and isinstance(rows[0], dict) and rows[0].get("id") is not None:
             found["sample_id"] = str(rows[0]["id"])
             # The grid renders the UID as a link, so the raw field carries markup.
             found["sample_uid"] = re.sub(r"<[^>]+>", "", str(rows[0].get("uid", ""))).strip() or None
