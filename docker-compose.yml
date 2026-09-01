@@ -428,6 +428,43 @@ services:
           cpus: "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}"
           memory: "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-1G}"
 
+  # Drains the batch assay-registration queue. POST /nextseek_api/assay-registrations/
+  # answers 202 with a status_url for any batch above the row threshold, and
+  # NOTHING claims those jobs unless this runs -- the URL then reports
+  # `accepted`, 0 of N, forever, which is the exact defect that endpoint exists
+  # to remove. Modelled on attribute_mutation_recovery_scheduler above: the
+  # broker-less sibling, because this worker uses no Celery and no queue, only
+  # the durable MySQL job row and its compare-and-set lease.
+  assay_registration_worker:
+    # Opt-in, like the three above: without a profile a stock
+    # `docker compose up -d` gains another always-on container. Start it with
+    # `--profile assay-registration`. Any deployment that can return 202 from
+    # the registration endpoint must run this.
+    profiles: [assay-registration]
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
+    env_file: [./docker/db.env, ./docker/nextseek.env]
+    depends_on:
+      seek: {condition: service_started}
+      db: {condition: service_healthy}
+    volumes:
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./logs:/app/logs:z
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "run_assay_registration_jobs", "--interval", "5"]
+    restart: unless-stopped
+    # NO healthcheck, deliberately. The two siblings above share
+    # attribute_runtime_healthcheck.py, which probes a Celery broker and an
+    # outbox heartbeat singleton -- neither of which this worker has: it holds
+    # no lease between passes and writes no heartbeat row. The only check that
+    # could be written today is one that always passes, and a healthcheck that
+    # cannot fail is worse than none: it reports green through a crashloop.
+    # `restart: unless-stopped` plus the drain log is the honest supervision
+    # until a heartbeat exists to probe.
+    deploy:
+      resources:
+        limits:
+          cpus: "${ASSAY_REGISTRATION_WORKER_CPUS:-0.5}"
+          memory: "${ASSAY_REGISTRATION_WORKER_MEMORY:-1G}"
+
 
 networks:
   # Container-CC segmented network (OI-3). Compose-managed but pinned to the

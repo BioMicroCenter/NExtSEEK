@@ -16,11 +16,13 @@ run before it was changed:
   so that shape makes every failed job's status_url a 500 rather than a report.
   See `TestTheReceiptIsReadableByTheStatusEndpoint`, which is the test that
   catches it; the assertions here read the receipt's own row.
-* `test_a_lost_lease_does_not_overwrite_the_new_owner` never reaches `finish`:
-  a worker that does not hold the lease loses at `jobs.claim`, so the patched
-  `finish` is never called. Kept, because the guard it does exercise is real,
-  and joined by `test_a_finish_the_lease_rejects_is_not_a_success`, which
-  actually drives the branch its name describes.
+* `test_a_lost_lease_does_not_overwrite_the_new_owner` was DELETED. It never
+  reached `finish`: a worker that does not hold the lease loses at `jobs.claim`,
+  so all five of its patches were unused. Its name and docstring described a
+  branch it did not cover, which is the habit `jobs.py`'s own module docstring
+  argues against, and it was a strict subset of
+  `test_a_job_claimed_by_someone_else_is_left_alone`. The branch it named is
+  driven by `test_a_finish_the_lease_rejects_is_not_a_success`.
 """
 
 from unittest.mock import MagicMock, patch
@@ -41,6 +43,11 @@ from nextseek_api.assay_registration.schemas import (
 )
 
 BODY = {"registrations": [{"sample_uid": "D.NHP-1", "assay_id": 351}], "dry_run": False}
+
+#: The command module, not the runner: the command imports `run_pending` by
+#: value, so patching `runner.run_pending` would not be seen by it.
+_CMD = ("nextseek_api.assay_registration.management.commands"
+        ".run_assay_registration_jobs")
 
 
 @pytest.fixture
@@ -98,18 +105,6 @@ class TestRunOne:
         ex.assert_not_called()
         job.refresh_from_db()
         assert job.state == "cancelled"
-
-    def test_a_lost_lease_does_not_overwrite_the_new_owner(self, actor):
-        """finish is owner-scoped and returns False rather than raising. A
-        zombie must not clobber a receipt it did not produce."""
-        job = jobs.create_job(BODY, actor, total_rows=1)
-        jobs.claim(job, "worker-a")
-        job.refresh_from_db()
-        a, b, c, d = _runs(graph_status="skipped", edges=0)
-        with a, b, c, d, \
-             patch("nextseek_api.assay_registration.runner.jobs.finish",
-                   return_value=False):
-            assert runner.run_one(job, "worker-b") is False
 
     def test_an_execution_failure_is_recorded_as_failed_not_left_running(self, actor):
         """A crashed worker must not leave the job claimed forever. The caller
@@ -231,6 +226,47 @@ class TestRunOne:
         job.refresh_from_db()
         assert job.terminal_result["counts"]["submitted"] == 9
 
+    def test_a_recompute_that_RAISES_still_leaves_the_batch_succeeded(self, actor):
+        """The one the failed-recompute test below does not cover.
+
+        That one patches `_recompute` to RETURN a failed outcome. This patches it
+        to RAISE, which is the case that used to land in the `except` that writes
+        "the whole batch failed, nothing was written" -- for a batch already
+        committed at the block exit above it. Without this test the invariant is
+        defended only by `service._recompute`'s own except clause, one module
+        away, with nothing pinning it across the boundary.
+        """
+        job = jobs.create_job(BODY, actor, total_rows=1)
+        with patch("nextseek_api.assay_registration.runner.get_connection"), \
+             patch("nextseek_api.assay_registration.runner.plan_batch"), \
+             patch("nextseek_api.assay_registration.runner.execute",
+                   return_value=_result()), \
+             patch("nextseek_api.assay_registration.runner._recompute",
+                   side_effect=RuntimeError("bolt refused")):
+            assert runner.run_one(job, "worker-a") is True
+
+        job.refresh_from_db()
+        assert job.state == "succeeded", "a committed batch is not failed by the graph"
+        assert job.terminal_result["rows"][0]["status"] == "written"
+        assert job.terminal_result["rows"][0]["assay_assets_id"] == 414936
+        assert job.terminal_result["graph"]["status"] == "failed"
+        assert "bolt refused" in job.terminal_result["graph"]["error"]
+
+    def test_a_dry_run_job_is_refused_rather_than_executed(self, actor):
+        """Unreachable through `service.register`, which answers a dry run inline
+        before any job exists. Pinned so the runner is safe on its own terms
+        rather than by a caller's construction: a stored request that says "do
+        not write" must not be executed by whatever writes this table next."""
+        job = jobs.create_job({"registrations": [{"sample_uid": "D.NHP-1",
+                                                  "assay_id": 351}],
+                               "dry_run": True}, actor, total_rows=1)
+        with patch("nextseek_api.assay_registration.runner.get_connection") as conn:
+            assert runner.run_one(job, "worker-a") is False
+        conn.assert_not_called()
+        job.refresh_from_db()
+        assert job.state == "failed"
+        assert "dry_run" in job.terminal_result["rows"][0]["error"]["message"]
+
     def test_a_failed_recompute_does_not_fail_the_job(self, actor):
         """assay_assets is the source of truth; the graph is derived. A stale
         derived view must not turn a correct write into a failed receipt."""
@@ -285,7 +321,11 @@ class TestTheReceiptIsReadableByTheStatusEndpoint:
         assert status.result.graph.status == "skipped", (
             "nothing was written, so nothing was recomputed"
         )
-        assert status.result.rows[0].error.code == "write_not_confirmed_by_readback"
+        assert status.result.rows[0].error.code == "job_execution_failed", (
+            "not write_not_confirmed_by_readback: that code is published as 'an "
+            "insert was attempted and the row was not there on read-back', which "
+            "sends a client to inspect a row nothing touched. This one says retry"
+        )
         assert "mysql gone" in status.result.rows[0].error.message
 
     def test_a_revalidation_failure_receipt_reads_back(self, actor):
@@ -432,23 +472,103 @@ class TestTheManagementCommand:
         jobs.create_job(BODY, actor, total_rows=1)
         with patch("nextseek_api.assay_registration.runner.run_one",
                    return_value=True):
-            call_command("run_assay_registration_jobs", "--limit", "3")
+            call_command("run_assay_registration_jobs", "--once", "--limit", "3")
         assert "1 job(s) succeeded" in capsys.readouterr().out
+
+    def test_a_hand_drain_reports_even_when_it_found_nothing(self, actor, capsys):
+        """Silence from `--once` is indistinguishable from a hang."""
+        with patch("nextseek_api.assay_registration.runner.run_one") as run:
+            call_command("run_assay_registration_jobs", "--once")
+        run.assert_not_called()
+        assert "0 job(s) succeeded" in capsys.readouterr().out
+
+    def test_it_loops_by_default(self, actor):
+        """The founding argument of this task, one level up. A command that makes
+        one pass and exits is only a worker if something re-runs it, and nothing
+        did -- so `status_url` would still report `accepted`, 0 of N, forever in
+        a real deployment. `dispatch_attribute_outbox` says the same in its own
+        docstring and compose runs it `restart: unless-stopped`.
+
+        The loop is broken by making `time.sleep` raise on the third call, which
+        is also what proves the sleep is between passes rather than absent.
+        """
+        calls = []
+
+        def stop_after_three(seconds):
+            calls.append(seconds)
+            if len(calls) == 3:
+                raise KeyboardInterrupt
+
+        with patch(_CMD + ".run_pending", return_value=0) as run_pending, \
+             patch(_CMD + ".time.sleep", side_effect=stop_after_three):
+            with pytest.raises(KeyboardInterrupt):
+                call_command("run_assay_registration_jobs")
+
+        assert run_pending.call_count == 3, "it must keep draining, not run once"
+        assert calls == [5.0, 5.0, 5.0], "the default interval, between passes"
+
+    def test_once_makes_exactly_one_pass_and_never_sleeps(self, actor):
+        with patch(_CMD + ".run_pending", return_value=0) as run_pending, \
+             patch(_CMD + ".time.sleep") as sleep:
+            call_command("run_assay_registration_jobs", "--once")
+        assert run_pending.call_count == 1
+        sleep.assert_not_called()
+
+    def test_the_interval_is_the_operators(self, actor):
+        with patch(_CMD + ".run_pending", return_value=0), \
+             patch(_CMD + ".time.sleep", side_effect=KeyboardInterrupt) as sleep:
+            with pytest.raises(KeyboardInterrupt):
+                call_command("run_assay_registration_jobs", "--interval", "0.25")
+        sleep.assert_called_once_with(0.25)
+
+    def test_one_bad_pass_does_not_kill_the_loop(self, actor, caplog):
+        """Swallowed on purpose. One job's failure is already recorded on that
+        job by run_one; a loop that dies on it stops draining every OTHER job."""
+        with patch(_CMD + ".run_pending",
+                   side_effect=[RuntimeError("db blipped"), 1, KeyboardInterrupt]) as rp, \
+             patch(_CMD + ".time.sleep"):
+            with pytest.raises(KeyboardInterrupt):
+                call_command("run_assay_registration_jobs")
+        assert rp.call_count == 3, "the pass after the failure still ran"
+        assert "assay-registration drain pass failed" in caplog.text
+
+    def test_the_loop_reports_each_pass_that_drained_something(self, actor, capsys):
+        """The loop's report line had nothing pinning it: only the `--once`
+        branch's was asserted, so a long-running container could drain job after
+        job and log nothing but its opening line. Found by mutation testing."""
+        with patch(_CMD + ".run_pending", side_effect=[2, KeyboardInterrupt]), \
+             patch(_CMD + ".time.sleep"):
+            with pytest.raises(KeyboardInterrupt):
+                call_command("run_assay_registration_jobs")
+        assert "2 job(s) succeeded" in capsys.readouterr().out
+
+    def test_the_loop_stays_quiet_on_a_pass_that_found_nothing(self, actor, capsys):
+        """The other half: a line every --interval seconds forever is noise, not
+        a log. Zero-drain passes say nothing."""
+        with patch(_CMD + ".run_pending", side_effect=[0, KeyboardInterrupt]), \
+             patch(_CMD + ".time.sleep"):
+            with pytest.raises(KeyboardInterrupt):
+                call_command("run_assay_registration_jobs")
+        assert "job(s) succeeded" not in capsys.readouterr().out
+
+    def test_the_loop_announces_itself_before_the_first_sleep(self, actor, capsys):
+        """A container whose logs are empty for its first interval looks stuck."""
+        with patch(_CMD + ".run_pending", return_value=0), \
+             patch(_CMD + ".time.sleep", side_effect=KeyboardInterrupt):
+            with pytest.raises(KeyboardInterrupt):
+                call_command("run_assay_registration_jobs")
+        assert "draining every 5.0s" in capsys.readouterr().out
 
     def test_it_passes_the_operators_limit_through(self, actor):
         """Asserting only the printed line lets `--limit` be silently ignored:
         with one job queued, a hardcoded limit of 1 prints the same sentence."""
-        with patch("nextseek_api.assay_registration.management.commands"
-                   ".run_assay_registration_jobs.run_pending",
-                   return_value=0) as run_pending:
-            call_command("run_assay_registration_jobs", "--limit", "7")
+        with patch(_CMD + ".run_pending", return_value=0) as run_pending:
+            call_command("run_assay_registration_jobs", "--once", "--limit", "7")
         assert run_pending.call_args.kwargs["limit"] == 7
 
     def test_the_owner_it_passes_is_the_worker_identity(self, actor):
-        with patch("nextseek_api.assay_registration.management.commands"
-                   ".run_assay_registration_jobs.run_pending",
-                   return_value=0) as run_pending:
-            call_command("run_assay_registration_jobs")
+        with patch(_CMD + ".run_pending", return_value=0) as run_pending:
+            call_command("run_assay_registration_jobs", "--once")
         assert run_pending.call_args.kwargs["limit"] == 1, (
             "the default must claim one job, not drain the whole backlog"
         )

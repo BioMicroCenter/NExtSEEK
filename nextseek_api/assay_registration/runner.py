@@ -27,6 +27,11 @@ broken" for every failed job, which is the same defect as the one this endpoint
 replaces wearing a different hat. `_failure_receipt` is the only failure shape,
 and `TestTheReceiptIsReadableByTheStatusEndpoint` drives every terminal
 state this module can write through the real `service.job_status`.
+
+A COMMITTED BATCH IS NEVER REPORTED AS FAILED. The write and the graph
+recompute have separate exception guards for that one reason: they are two
+different questions, and answering the second badly must not retract the answer
+to the first.
 """
 from __future__ import annotations
 
@@ -141,16 +146,44 @@ def run_one(job, owner: str) -> bool:
         # inside the transaction, with the job left claimed.
         return _fail(job, owner, "request_validation_error", str(exc))
 
+    if payload.dry_run:
+        # Unreachable through `service.register`, which returns the preview
+        # before a job is ever created. Here anyway so the runner is safe on its
+        # own terms rather than by a caller's construction: a stored request
+        # that says "do not write" must not be executed by whatever puts a row
+        # in this table next.
+        return _fail(job, owner, "request_validation_error",
+                     "job carries dry_run=true; a dry run is answered inline and "
+                     "must never be executed as a durable job")
+
     try:
         with get_connection() as conn:
             plan = plan_batch(payload.registrations, conn)
             result = execute(plan, conn)
-        # Outside the MySQL transaction, deliberately: a failed recompute must
-        # never invalidate a correct write. See service._recompute.
+    except Exception as exc:  # noqa: BLE001
+        # `get_connection` rolls back on any exception, so reaching here means
+        # nothing was committed and the failure receipt is true rather than
+        # merely convenient. `job_execution_failed`, NOT
+        # `write_not_confirmed_by_readback`: the published meaning of that code
+        # is "an insert was attempted for this pair and the row was not there on
+        # read-back", which tells a client to go and look at a row nothing
+        # touched. This one says retry.
+        log.exception("assay-registration job %s failed", job.job_id)
+        return _fail(job, owner, "job_execution_failed", str(exc))
+
+    # OUTSIDE that except, deliberately, and with a guard of its own. Inside it,
+    # a recompute that RAISES would write "the whole batch failed, nothing was
+    # written" for a batch already committed at the block exit above -- the exact
+    # lie this endpoint exists to remove, produced by the handler meant to
+    # prevent it. Leaving it to `service._recompute`'s own `except Exception`
+    # would rest this module's correctness on another module's error handling
+    # with nothing pinning the invariant across the boundary. Belt and braces,
+    # cheaply. assay_assets is the source of truth; the graph is derived.
+    try:
         graph: GraphOutcome = _recompute(result.written_sample_ids)
     except Exception as exc:  # noqa: BLE001
-        log.exception("assay-registration job %s failed", job.job_id)
-        return _fail(job, owner, "write_not_confirmed_by_readback", str(exc))
+        log.exception("assay-registration job %s: recompute raised", job.job_id)
+        graph = GraphOutcome(status="failed", error=str(exc))
 
     jobs.record_progress(job, owner, result.counts.submitted)
     body = RegistrationResponse(

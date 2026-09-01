@@ -42,6 +42,15 @@ ERROR_CODES = frozenset({
     "assay_ambiguous_in_project",      # 2+ candidates in the sample's project
     # Write.
     "write_not_confirmed_by_readback",  # insert reported no error, row absent
+    # Job execution. NOT the same as the code above, and the distinction is the
+    # caller's action: `write_not_confirmed_by_readback` says an insert was
+    # ATTEMPTED for that pair and the row was not there on read-back, so the
+    # right response is to go and look at it. `job_execution_failed` says the
+    # batch never got that far -- the connection died, planning raised -- so
+    # nothing was attempted, the transaction rolled back, and the right response
+    # is to retry. Emitting the readback code for a connection failure tells a
+    # client switching on it to investigate a row that was never touched.
+    "job_execution_failed",
     # Envelope-level, emitted by the ViewSet and service rather than per row.
     "request_validation_error",
     "job_not_found",
