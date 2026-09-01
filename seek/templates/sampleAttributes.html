@@ -1,19 +1,1603 @@
 {% extends "base.html" %}
-{% include "pages/seek_includes.html" %} 
+{% block title %}Sample Attributes - NExtSEEK{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ================================================================
+   Sample Attributes — purpose-built editor.
+
+   No EasyUI on this page. The table is plain markup driven by the
+   nextseek_api attributes API; Bootstrap 5 and the NExtSEEK theme
+   tokens (--ns-*) come from base.html.
+   ================================================================ */
+
+.attrs-page { max-width: 1500px; }
+
+/* ---- header ---------------------------------------------------- */
+.ns-page-header { margin-bottom: 1.5rem; }
+.ns-page-title {
+    font-family: var(--ns-font-display);
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.35rem;
+}
+.ns-page-subtitle {
+    font-size: 0.9rem;
+    color: var(--ns-muted);
+    margin: 0;
+    max-width: 74ch;
+}
+
+/* ---- notices --------------------------------------------------- */
+.attrs-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    font-size: 0.85rem;
+    border: 1px solid var(--ns-border);
+    background: var(--ns-sidebar-bg);
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    margin-bottom: 1.25rem;
+    color: var(--ns-body);
+}
+.attrs-notice i { color: var(--ns-muted); margin-top: 0.15rem; }
+.attrs-notice--warn {
+    background: var(--ns-crimson-soft);
+    border-color: var(--ns-crimson-border);
+}
+.attrs-notice--warn i { color: var(--ns-crimson); }
+
+/* ---- toolbar --------------------------------------------------- */
+.attrs-toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+.attrs-toolbar-actions { margin-left: auto; display: flex; gap: 0.5rem; }
+
+.attrs-field-label {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    margin-bottom: 0.3rem;
+}
+
+.attrs-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.83rem;
+    font-weight: 600;
+    font-family: var(--ns-font-body);
+    border-radius: 6px;
+    border: 1px solid var(--ns-border);
+    background: var(--ns-white);
+    color: var(--ns-body);
+    padding: 0.42rem 0.85rem;
+    cursor: pointer;
+    transition: all 0.15s var(--ns-ease);
+    white-space: nowrap;
+}
+.attrs-btn:hover:not(:disabled) { border-color: var(--ns-crimson-border); color: var(--ns-crimson); }
+.attrs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.attrs-btn--primary {
+    background: var(--ns-crimson);
+    border-color: var(--ns-crimson);
+    color: #fff;
+}
+.attrs-btn--primary:hover:not(:disabled) {
+    background: var(--ns-crimson-hover);
+    border-color: var(--ns-crimson-hover);
+    color: #fff;
+}
+.attrs-btn--ghost { border-color: transparent; background: transparent; color: var(--ns-muted); }
+.attrs-btn--ghost:hover:not(:disabled) { background: var(--ns-sidebar-hover); color: var(--ns-body); }
+
+/* ---- sample type combobox -------------------------------------- */
+.ns-combo { position: relative; width: 340px; max-width: 100%; }
+.ns-combo-input {
+    width: 100%;
+    font-family: var(--ns-font-body);
+    font-size: 0.9rem;
+    color: var(--ns-ink);
+    background: var(--ns-white);
+    border: 1px solid var(--ns-border);
+    border-radius: 6px;
+    padding: 0.45rem 2rem 0.45rem 0.7rem;
+    transition: border-color var(--ns-transition), box-shadow var(--ns-transition);
+}
+.ns-combo-input:focus {
+    outline: none;
+    border-color: var(--ns-crimson);
+    box-shadow: 0 0 0 3px rgba(163,31,52,0.1);
+}
+.ns-combo-caret {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--ns-muted);
+    font-size: 0.8rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0.2rem;
+}
+.ns-combo-list {
+    position: absolute;
+    z-index: 60;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 340px;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0.25rem;
+    list-style: none;
+    background: var(--ns-white);
+    border: 1px solid var(--ns-border);
+    border-radius: 8px;
+    box-shadow: var(--ns-shadow-md);
+    scrollbar-width: thin;
+}
+.ns-combo-group {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    padding: 0.5rem 0.6rem 0.25rem;
+}
+.ns-combo-option {
+    padding: 0.35rem 0.6rem;
+    border-radius: 5px;
+    font-size: 0.88rem;
+    color: var(--ns-body);
+    cursor: pointer;
+}
+.ns-combo-option:hover, .ns-combo-option.is-active { background: var(--ns-crimson-soft); color: var(--ns-crimson); }
+.ns-combo-option mark { background: transparent; color: var(--ns-crimson); font-weight: 700; padding: 0; }
+.ns-combo-empty { padding: 0.6rem; font-size: 0.85rem; color: var(--ns-muted); }
+
+/* ---- table ----------------------------------------------------- */
+.attrs-table-wrap {
+    border: 1px solid var(--ns-border);
+    border-radius: 10px;
+    overflow: auto;
+    max-height: calc(100vh - 340px);
+    background: var(--ns-white);
+    box-shadow: var(--ns-shadow-xs);
+    scrollbar-width: thin;
+}
+.attrs-table {
+    width: 100%;
+    /* Scroll inside .attrs-table-wrap rather than squeezing Name and Definition
+       into ellipses on a narrow viewport. */
+    min-width: 1120px;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.85rem;
+    font-family: var(--ns-font-body);
+}
+.attrs-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--ns-sidebar-bg);
+    border-bottom: 1px solid var(--ns-border);
+    padding: 0.55rem 0.6rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    text-align: left;
+    white-space: nowrap;
+}
+.attrs-table tbody td {
+    border-bottom: 1px solid var(--ns-border);
+    padding: 0.2rem 0.35rem;
+    vertical-align: middle;
+}
+.attrs-table tbody tr:last-child td { border-bottom: 0; }
+.attrs-row:hover > td { background: #fbfbfc; }
+
+/* column widths */
+.c-expand { width: 32px; text-align: center; }
+.c-pos    { width: 84px; }
+.c-name   { width: 220px; }
+.c-type   { width: 190px; }
+.c-flag   { width: 78px; text-align: center; }
+.c-badges { width: 190px; }
+.c-act    { width: 40px; text-align: center; }
+
+/* in-cell inputs: read as a table until touched */
+.attrs-input, .attrs-select {
+    width: 100%;
+    font-family: inherit;
+    font-size: 0.85rem;
+    color: var(--ns-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 0.3rem 0.4rem;
+    transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.attrs-select { cursor: pointer; }
+.attrs-row:hover .attrs-input, .attrs-row:hover .attrs-select { border-color: #e3e3e6; background: var(--ns-white); }
+.attrs-input:focus, .attrs-select:focus {
+    outline: none;
+    background: var(--ns-white);
+    border-color: var(--ns-crimson);
+    box-shadow: 0 0 0 3px rgba(163,31,52,0.1);
+}
+.attrs-input:disabled, .attrs-select:disabled { color: var(--ns-body); border-color: transparent; background: transparent; }
+.attrs-input--pos { font-family: var(--ns-font-mono); font-size: 0.8rem; text-align: center; }
+.attrs-input::placeholder { color: #b8b8be; }
+
+.attrs-check { width: 15px; height: 15px; accent-color: var(--ns-crimson); cursor: pointer; margin: 0; }
+.attrs-check:disabled { cursor: default; }
+
+.attrs-icon-btn {
+    border: 0;
+    background: transparent;
+    color: #c2c2c8;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0.3rem;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+.attrs-icon-btn:hover { color: var(--ns-crimson); background: var(--ns-crimson-soft); }
+.attrs-row:hover .attrs-icon-btn { color: var(--ns-muted); }
+.attrs-chevron { transition: transform 0.15s var(--ns-ease); display: inline-block; }
+.attrs-row.is-open .attrs-chevron { transform: rotate(90deg); }
+
+/* row states */
+.attrs-row.is-dirty > td { background: #fffafb; }
+.attrs-row.is-dirty > td:first-child { box-shadow: inset 3px 0 0 var(--ns-crimson); }
+.attrs-row.is-new > td { background: #fffafb; }
+.attrs-row.is-new > td:first-child { box-shadow: inset 3px 0 0 var(--ns-crimson-border); }
+.attrs-row.is-deleted > td { background: var(--ns-crimson-soft); }
+.attrs-row.is-deleted > td:first-child { box-shadow: inset 3px 0 0 var(--ns-crimson); }
+.attrs-row.is-deleted .attrs-input, .attrs-row.is-deleted .attrs-select { text-decoration: line-through; color: var(--ns-muted); }
+
+.attrs-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 0.08rem 0.45rem;
+    border: 1px solid var(--ns-crimson-border);
+    color: var(--ns-crimson);
+    background: var(--ns-white);
+    white-space: nowrap;
+}
+.attrs-chip--quiet { border-color: var(--ns-border); color: var(--ns-muted); }
+.attrs-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.attrs-badge {
+    font-size: 0.7rem;
+    color: var(--ns-muted);
+    background: var(--ns-bg);
+    border: 1px solid var(--ns-border);
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.attrs-badge b { color: var(--ns-body); font-weight: 600; }
+
+/* detail row */
+.attrs-detail > td { padding: 0 !important; border-bottom: 1px solid var(--ns-border) !important; background: var(--ns-sidebar-bg); }
+.attrs-detail-inner {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.9rem 1.25rem;
+    padding: 0.9rem 1.1rem 1rem 3rem;
+}
+.attrs-detail-field label {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    margin-bottom: 0.25rem;
+}
+.attrs-detail-field .attrs-input, .attrs-detail-field .attrs-select {
+    border-color: var(--ns-border);
+    background: var(--ns-white);
+}
+.attrs-detail-hint { font-size: 0.72rem; color: var(--ns-muted); margin-top: 0.25rem; }
+.attrs-detail-meta {
+    grid-column: 1 / -1;
+    font-size: 0.72rem;
+    color: var(--ns-muted);
+    font-family: var(--ns-font-mono);
+    border-top: 1px dashed var(--ns-border);
+    padding-top: 0.6rem;
+}
+
+/* ---- status panes ---------------------------------------------- */
+.attrs-status {
+    border: 1px dashed var(--ns-border);
+    border-radius: 10px;
+    padding: 3rem 1.5rem;
+    text-align: center;
+    color: var(--ns-muted);
+    font-size: 0.9rem;
+    background: var(--ns-white);
+}
+.attrs-status i { font-size: 1.6rem; display: block; margin-bottom: 0.6rem; opacity: 0.7; }
+.attrs-status--error { border-style: solid; border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); }
+
+/* ---- change tray ----------------------------------------------- */
+.attrs-tray {
+    position: fixed;
+    left: calc(var(--sidebar-width) + 1.75rem);
+    right: 1.75rem;
+    bottom: 1.25rem;
+    z-index: 55;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--ns-ink);
+    color: #fff;
+    border-radius: 10px;
+    padding: 0.7rem 0.9rem 0.7rem 1.1rem;
+    box-shadow: var(--ns-shadow-md);
+}
+@media (max-width: 991.98px) { .attrs-tray { left: 1rem; right: 1rem; } }
+.attrs-tray-summary { font-size: 0.86rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.attrs-tray-count { font-weight: 700; }
+.attrs-tray-detail { color: #b9b9c6; font-size: 0.8rem; }
+.attrs-tray-actions { margin-left: auto; display: flex; gap: 0.5rem; }
+.attrs-tray .attrs-btn { background: transparent; border-color: #4a4a5e; color: #e6e6ee; }
+.attrs-tray .attrs-btn:hover:not(:disabled) { background: #2c2c40; border-color: #6a6a80; color: #fff; }
+.attrs-tray .attrs-btn--primary { background: var(--ns-crimson); border-color: var(--ns-crimson); color: #fff; }
+.attrs-tray .attrs-btn--primary:hover:not(:disabled) { background: var(--ns-crimson-hover); border-color: var(--ns-crimson-hover); }
+
+/* ---- review dialog --------------------------------------------- */
+.attrs-modal-title { font-size: 1.05rem; font-weight: 700; font-family: var(--ns-font-display); color: var(--ns-ink); }
+.attrs-review-step { border: 1px solid var(--ns-border); border-radius: 8px; margin-bottom: 0.9rem; overflow: hidden; }
+.attrs-review-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: var(--ns-sidebar-bg);
+    border-bottom: 1px solid var(--ns-border);
+    padding: 0.5rem 0.8rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--ns-ink);
+}
+.attrs-review-body { padding: 0.75rem 0.85rem; font-size: 0.85rem; }
+.attrs-counts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
+.attrs-count {
+    font-size: 0.75rem;
+    border: 1px solid var(--ns-border);
+    border-radius: 999px;
+    padding: 0.12rem 0.6rem;
+    color: var(--ns-body);
+    background: var(--ns-bg);
+}
+.attrs-count b { font-family: var(--ns-font-mono); }
+.attrs-count--loud { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); }
+.attrs-blast {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.83rem;
+    border-left: 3px solid var(--ns-crimson);
+    background: var(--ns-crimson-soft);
+    border-radius: 0 6px 6px 0;
+    padding: 0.55rem 0.7rem;
+    margin-bottom: 0.7rem;
+    color: var(--ns-ink);
+}
+.attrs-diff { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.attrs-diff th {
+    text-align: left;
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    font-weight: 700;
+    padding: 0.3rem 0.5rem;
+    border-bottom: 1px solid var(--ns-border);
+}
+.attrs-diff td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--ns-border); vertical-align: top; }
+.attrs-diff tr:last-child td { border-bottom: 0; }
+.attrs-diff code {
+    font-family: var(--ns-font-mono);
+    font-size: 0.75rem;
+    background: var(--ns-bg);
+    border: 1px solid var(--ns-border);
+    border-radius: 4px;
+    padding: 0.02rem 0.3rem;
+    color: var(--ns-body);
+}
+.attrs-diff .to { color: var(--ns-crimson); }
+.attrs-diff-name { font-weight: 600; color: var(--ns-ink); }
+.attrs-errors { margin: 0; padding: 0; list-style: none; }
+.attrs-error {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    border-left: 3px solid var(--ns-crimson);
+    background: var(--ns-crimson-soft);
+    border-radius: 0 6px 6px 0;
+    padding: 0.55rem 0.7rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.84rem;
+    color: var(--ns-ink);
+}
+.attrs-error i { color: var(--ns-crimson); margin-top: 0.1rem; }
+.attrs-error-code {
+    display: block;
+    font-family: var(--ns-font-mono);
+    font-size: 0.7rem;
+    color: var(--ns-muted);
+    margin-top: 0.2rem;
+}
+.attrs-progress { height: 5px; border-radius: 3px; background: var(--ns-border); overflow: hidden; margin-top: 0.5rem; }
+.attrs-progress > div { height: 100%; background: var(--ns-crimson); transition: width 0.3s var(--ns-ease); }
+.attrs-muted { color: var(--ns-muted); font-size: 0.82rem; }
+.attrs-spin { display: inline-block; animation: attrs-spin 0.9s linear infinite; }
+@keyframes attrs-spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
+
 {% block main %}
-<div id="sample_tab" class="easyui-tabs" style="width:auto;height:900px;">
-    <div title="Sample Attributes" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-	<div class="easyui-layout" style="width:auto;height:900px;">
-	    <div id="north_div" data-options="region:'north',border:false" style="height: 200px;">
-		{% include "pages/samples_attributes.embed.html" %}
-	    </div>
-            <div id="center_div" data-options="region:'center',border:false" style="height: 600px;">
-                {% include "pages/samples_atable.embed.html" %}
-	    </div>
-            <div id="center_div" data-options="region:'south',border:false" style="height: 100px;">
-	    </div>
-	</div>
+<div class="attrs-page">
+
+    <header class="ns-page-header">
+        <h1 class="ns-page-title">Sample Attributes</h1>
+        <p class="ns-page-subtitle">
+            Sample types are shared by every project. Adding, renaming or removing an attribute
+            changes the type everywhere, and rewrites the stored metadata on every existing sample
+            of that type. Every change is previewed against the server before it is applied.
+        </p>
+    </header>
+
+    {% if not user.is_superuser %}
+    <div class="attrs-notice attrs-notice--warn">
+        <i class="bi bi-eye"></i>
+        <div>
+            <strong>Read only.</strong>
+            You can browse every sample type here, but changing an attribute requires a
+            NExtSEEK superuser account.
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="attrs-toolbar">
+        <div>
+            <span class="attrs-field-label" id="attrs-picker-label">Sample type</span>
+            <div class="ns-combo" id="attrs-combo">
+                <input type="text"
+                       id="attrs-combo-input"
+                       class="ns-combo-input"
+                       role="combobox"
+                       aria-expanded="false"
+                       aria-autocomplete="list"
+                       aria-controls="attrs-combo-list"
+                       aria-labelledby="attrs-picker-label"
+                       autocomplete="off"
+                       spellcheck="false"
+                       placeholder="Search sample types...">
+                <button type="button" class="ns-combo-caret" id="attrs-combo-caret" tabindex="-1" aria-label="Show all sample types">
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+                <ul class="ns-combo-list" id="attrs-combo-list" role="listbox" aria-labelledby="attrs-picker-label" hidden></ul>
+            </div>
+        </div>
+
+        <div class="attrs-toolbar-actions">
+            <button type="button" class="attrs-btn" id="attrs-reload" disabled>
+                <i class="bi bi-arrow-clockwise"></i> Reload
+            </button>
+            {% if user.is_superuser %}
+            <button type="button" class="attrs-btn attrs-btn--primary" id="attrs-add" disabled>
+                <i class="bi bi-plus-lg"></i> Add attribute
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <div id="attrs-status" class="attrs-status">
+        <i class="bi bi-diagram-3"></i>
+        Choose a sample type to see its attributes.
+    </div>
+
+    <div class="attrs-table-wrap" id="attrs-table-wrap" hidden>
+        <table class="attrs-table" id="attrs-table">
+            <thead>
+                <tr>
+                    <th class="c-expand"><span class="visually-hidden">Expand</span></th>
+                    <th class="c-pos">Pos</th>
+                    <th class="c-name">Name</th>
+                    <th class="c-type">Type</th>
+                    <th class="c-flag">Required</th>
+                    <th class="c-flag">Is title</th>
+                    <th>Definition</th>
+                    <th class="c-badges">Constraints</th>
+                    <th class="c-act"><span class="visually-hidden">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody id="attrs-tbody"></tbody>
+        </table>
     </div>
 </div>
-    
+
+<div class="attrs-tray" id="attrs-tray" hidden>
+    <div class="attrs-tray-summary">
+        <span class="attrs-tray-count" id="attrs-tray-count">0 pending changes</span>
+        <span class="attrs-tray-detail" id="attrs-tray-detail"></span>
+    </div>
+    <div class="attrs-tray-actions">
+        <button type="button" class="attrs-btn" id="attrs-discard">Discard</button>
+        <button type="button" class="attrs-btn attrs-btn--primary" id="attrs-review-open">
+            <i class="bi bi-eye"></i> Review changes
+        </button>
+    </div>
+</div>
+
+<div class="modal fade" id="attrs-review-modal" tabindex="-1" aria-labelledby="attrs-review-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="attrs-modal-title" id="attrs-review-title">Review changes</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="attrs-review-body"></div>
+            <div class="modal-footer">
+                <button type="button" class="attrs-btn" data-bs-dismiss="modal" id="attrs-review-cancel">Cancel</button>
+                <button type="button" class="attrs-btn attrs-btn--primary" id="attrs-apply" disabled>
+                    <i class="bi bi-check2"></i> Apply
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    /* Server-rendered option lists, injected once. `report.type_options` and
+       `report.attribute_types_options` are already JSON strings built by
+       seek.views.samples.sampleAttributes. */
+    window.NS_ATTR_BOOT = {
+        sampleTypes: {{ report.type_options|safe }},
+        valueTypes: {{ report.attribute_types_options|safe }},
+        canWrite: {% if user.is_superuser %}true{% else %}false{% endif %}
+    };
+</script>
+{% verbatim %}
+<script>
+/* ==================================================================
+   Sample Attributes editor.
+
+   Talks only to the nextseek_api attributes API:
+
+     read    POST  /nextseek_api/attributes/search/
+     create  POST  /nextseek_api/attributes/batch-create/
+     patch   PATCH /nextseek_api/attributes/batch-patch/
+     delete  POST  /nextseek_api/attributes/batch-delete/
+
+   The API uses CsrfExemptSessionAuthentication, so the browser session is
+   the whole credential: no CSRF token and no secrets belong on this page.
+   Reads are open to any signed-in SEEK user; writes require a Django
+   superuser and answer 403.
+
+   Every write is previewed with dry_run first and cannot be applied
+   without the operator seeing what the server said it would do. That is
+   load-bearing, not decoration: adding one attribute to a type with gappy
+   positions renumbers every definition below the gap, and creating or
+   deleting one rewrites json_metadata on every existing sample.
+   ================================================================== */
+(function () {
+    'use strict';
+
+    var BOOT = window.NS_ATTR_BOOT || {};
+    var SAMPLE_TYPES = (BOOT.sampleTypes || []).filter(function (t) { return t && t.id; });
+    var VALUE_TYPES = BOOT.valueTypes || [];
+    var CAN_WRITE = !!BOOT.canWrite;
+    var API = '/nextseek_api/attributes/';
+
+    var el = {
+        combo: document.getElementById('attrs-combo'),
+        comboInput: document.getElementById('attrs-combo-input'),
+        comboCaret: document.getElementById('attrs-combo-caret'),
+        comboList: document.getElementById('attrs-combo-list'),
+        reload: document.getElementById('attrs-reload'),
+        add: document.getElementById('attrs-add'),
+        status: document.getElementById('attrs-status'),
+        tableWrap: document.getElementById('attrs-table-wrap'),
+        tbody: document.getElementById('attrs-tbody'),
+        tray: document.getElementById('attrs-tray'),
+        trayCount: document.getElementById('attrs-tray-count'),
+        trayDetail: document.getElementById('attrs-tray-detail'),
+        discard: document.getElementById('attrs-discard'),
+        reviewOpen: document.getElementById('attrs-review-open'),
+        reviewModal: document.getElementById('attrs-review-modal'),
+        reviewBody: document.getElementById('attrs-review-body'),
+        reviewCancel: document.getElementById('attrs-review-cancel'),
+        apply: document.getElementById('attrs-apply')
+    };
+
+    var state = {
+        typeId: null,
+        typeTitle: '',
+        rows: [],
+        uid: 0,
+        loading: false,
+        catalog: null,
+        catalogPending: false,
+        plan: null,
+        applying: false
+    };
+
+    var modal = null;
+
+    /* ---------------- small helpers ---------------- */
+
+    function esc(value) {
+        return String(value === null || value === undefined ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function text(value) { return value === null || value === undefined ? '' : String(value); }
+
+    function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
+
+    /* An identifier field accepts a database id, a numeric string or an exact
+       title. Empty clears it (the API reads an explicit null as "clear"). */
+    function refValue(raw) {
+        var s = text(raw).trim();
+        if (!s) { return null; }
+        return /^\d+$/.test(s) ? parseInt(s, 10) : s;
+    }
+
+    function api(method, path, payload) {
+        return fetch(path, {
+            method: method,
+            credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+            body: payload === undefined ? undefined : JSON.stringify(payload)
+        }).then(function (response) {
+            return response.text().then(function (raw) {
+                var body;
+                try { body = raw ? JSON.parse(raw) : {}; } catch (e) { body = {raw: raw}; }
+                return {status: response.status, body: body};
+            });
+        });
+    }
+
+    /* Errors arrive from two places. Envelope-level failures (an unresolved
+       sample type, a malformed request) are top-level `errors[]`. Per-target
+       failures -- a duplicate title, an unknown value type -- are
+       `outcomes[].errors[]`. Reading only the top level reports a bare
+       "HTTP 409" and throws away the sentence that says what to fix. */
+    function collectErrors(result) {
+        var body = result.body || {};
+        var out = (body.errors || []).slice();
+        (body.outcomes || []).forEach(function (outcome) {
+            (outcome.errors || []).forEach(function (error) { out.push(error); });
+        });
+        if (out.length) { return out; }
+        if (result.status === 403) {
+            return [{code: 'forbidden', message: 'Changing sample attributes requires a NExtSEEK superuser account. You can still browse every sample type.'}];
+        }
+        if (result.status === 401) {
+            return [{code: 'unauthenticated', message: 'Your session has expired. Sign in again and retry.'}];
+        }
+        if (result.status >= 400) {
+            return [{code: 'http_' + result.status, message: 'The server rejected the request with HTTP ' + result.status + ' and gave no further detail.'}];
+        }
+        return [];
+    }
+
+    function errorsHtml(errors) {
+        return '<ul class="attrs-errors">' + errors.map(function (e) {
+            var where = [];
+            if (e.field) { where.push('field ' + e.field); }
+            if (e.submitted_identifier !== null && e.submitted_identifier !== undefined) {
+                where.push('submitted ' + JSON.stringify(e.submitted_identifier));
+            }
+            return '<li class="attrs-error"><i class="bi bi-exclamation-octagon-fill"></i><div>' +
+                esc(e.message || e.code) +
+                '<span class="attrs-error-code">' + esc(e.code || '') +
+                (where.length ? ' &middot; ' + esc(where.join(' &middot; ')) : '') +
+                '</span></div></li>';
+        }).join('') + '</ul>';
+    }
+
+    /* ---------------- sample type combobox ---------------- */
+
+    var combo = {open: false, filtered: [], active: -1};
+
+    function comboOptions(query) {
+        var q = query.trim().toLowerCase();
+        if (!q) { return SAMPLE_TYPES.slice(); }
+        return SAMPLE_TYPES.filter(function (t) {
+            return String(t.title).toLowerCase().indexOf(q) !== -1;
+        });
+    }
+
+    function highlight(title, query) {
+        var q = query.trim();
+        if (!q) { return esc(title); }
+        var at = String(title).toLowerCase().indexOf(q.toLowerCase());
+        if (at === -1) { return esc(title); }
+        return esc(title.slice(0, at)) + '<mark>' + esc(title.slice(at, at + q.length)) +
+            '</mark>' + esc(title.slice(at + q.length));
+    }
+
+    function renderCombo(query) {
+        combo.filtered = comboOptions(query);
+        if (!combo.filtered.length) {
+            el.comboList.innerHTML = '<li class="ns-combo-empty">No sample type matches &ldquo;' + esc(query.trim()) + '&rdquo;</li>';
+            return;
+        }
+        var html = '';
+        var group = null;
+        combo.filtered.forEach(function (t, index) {
+            if (t.group && t.group !== group) {
+                group = t.group;
+                html += '<li class="ns-combo-group" role="presentation">' + esc(group) + '</li>';
+            }
+            html += '<li class="ns-combo-option' + (index === combo.active ? ' is-active' : '') +
+                '" role="option" id="attrs-combo-opt-' + index + '" aria-selected="' +
+                (index === combo.active) + '" data-index="' + index + '">' +
+                highlight(t.title, query) + '</li>';
+        });
+        el.comboList.innerHTML = html;
+    }
+
+    function openCombo(query) {
+        combo.open = true;
+        combo.active = -1;
+        el.comboList.hidden = false;
+        el.comboInput.setAttribute('aria-expanded', 'true');
+        renderCombo(query === undefined ? el.comboInput.value : query);
+    }
+
+    function closeCombo() {
+        combo.open = false;
+        combo.active = -1;
+        el.comboList.hidden = true;
+        el.comboInput.setAttribute('aria-expanded', 'false');
+        el.comboInput.removeAttribute('aria-activedescendant');
+    }
+
+    function moveActive(step) {
+        if (!combo.filtered.length) { return; }
+        combo.active = (combo.active + step + combo.filtered.length + 1) % (combo.filtered.length + 1);
+        if (combo.active === combo.filtered.length) { combo.active = step > 0 ? 0 : combo.filtered.length - 1; }
+        renderCombo(el.comboInput.value);
+        var node = el.comboList.querySelector('.is-active');
+        if (node) {
+            node.scrollIntoView({block: 'nearest'});
+            el.comboInput.setAttribute('aria-activedescendant', node.id);
+        }
+    }
+
+    function chooseType(option) {
+        if (!option) { return; }
+        closeCombo();
+        el.comboInput.value = option.title;
+        if (state.typeId === option.id && !dirtyCount()) { return; }
+        if (!confirmDiscard()) {
+            el.comboInput.value = state.typeTitle;
+            return;
+        }
+        state.typeId = option.id;
+        state.typeTitle = option.title;
+        load();
+    }
+
+    el.comboInput.addEventListener('focus', function () { openCombo(''); this.select(); });
+    el.comboInput.addEventListener('input', function () { openCombo(this.value); });
+    el.comboCaret.addEventListener('click', function () {
+        if (combo.open) { closeCombo(); } else { el.comboInput.focus(); openCombo(''); }
+    });
+    el.comboInput.addEventListener('keydown', function (event) {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (!combo.open) { openCombo(this.value); }
+            moveActive(event.key === 'ArrowDown' ? 1 : -1);
+        } else if (event.key === 'Enter') {
+            if (combo.open) {
+                event.preventDefault();
+                chooseType(combo.filtered[combo.active >= 0 ? combo.active : 0]);
+            }
+        } else if (event.key === 'Escape') {
+            if (combo.open) { event.stopPropagation(); }
+            closeCombo();
+            this.value = state.typeTitle;
+        }
+    });
+    el.comboList.addEventListener('mousedown', function (event) {
+        var option = event.target.closest('.ns-combo-option');
+        if (!option) { return; }
+        event.preventDefault();
+        chooseType(combo.filtered[parseInt(option.dataset.index, 10)]);
+    });
+    document.addEventListener('click', function (event) {
+        if (combo.open && !el.combo.contains(event.target)) {
+            closeCombo();
+            el.comboInput.value = state.typeTitle;
+        }
+    });
+
+    /* ---------------- loading ---------------- */
+
+    function showStatus(html, isError) {
+        el.status.hidden = false;
+        el.status.className = 'attrs-status' + (isError ? ' attrs-status--error' : '');
+        el.status.innerHTML = html;
+        el.tableWrap.hidden = true;
+    }
+
+    function toRow(record) {
+        state.uid += 1;
+        var row = {
+            uid: 'r' + state.uid,
+            id: record ? record.id : null,
+            open: false,
+            remove: false
+        };
+        var seed = record || {
+            pos: nextPosition(), title: '', sample_attribute_type_id: null, required: false,
+            is_title: false, description: '', unit_title: null, sample_controlled_vocab_title: null,
+            linked_sample_type_id: null
+        };
+        row.pos = seed.pos;
+        row.title = text(seed.title);
+        row.typeId = seed.sample_attribute_type_id;
+        row.required = !!seed.required;
+        row.isTitle = !!seed.is_title;
+        row.description = text(seed.description);
+        /* The reference fields round-trip as the exact title the server resolved,
+           which the API accepts back verbatim. An id typed by hand works too. */
+        row.unit = text(seed.unit_title);
+        row.vocab = text(seed.sample_controlled_vocab_title);
+        row.linked = seed.linked_sample_type_id ? String(seed.linked_sample_type_id) : '';
+        row.unitSymbol = record ? text(record.unit_symbol) : '';
+        row.createdAt = record ? record.created_at : null;
+        row.updatedAt = record ? record.updated_at : null;
+        row.orig = record ? {
+            pos: row.pos, title: row.title, typeId: row.typeId, required: row.required,
+            isTitle: row.isTitle, description: row.description, unit: row.unit,
+            vocab: row.vocab, linked: row.linked
+        } : null;
+        return row;
+    }
+
+    function nextPosition() {
+        var top = 0;
+        state.rows.forEach(function (r) { if (r.pos > top) { top = r.pos; } });
+        return top + 1;
+    }
+
+    function load() {
+        if (!state.typeId) { return; }
+        state.loading = true;
+        state.rows = [];
+        renderTray();
+        el.reload.disabled = true;
+        if (el.add) { el.add.disabled = true; }
+        showStatus('<i class="bi bi-arrow-repeat attrs-spin"></i>Loading attributes for <strong>' + esc(state.typeTitle) + '</strong>...');
+
+        var wanted = state.typeId;
+        api('POST', API + 'search/?page_size=5000', {targets: [{sample_type: wanted}]})
+            .then(function (result) {
+                if (state.typeId !== wanted) { return; }
+                state.loading = false;
+                el.reload.disabled = false;
+                if (result.status >= 400) {
+                    showStatus('<i class="bi bi-exclamation-octagon"></i>Could not load <strong>' +
+                        esc(state.typeTitle) + '</strong>.' + errorsHtml(collectErrors(result)), true);
+                    return;
+                }
+                var records = (result.body.attributes || []).slice().sort(function (a, b) {
+                    return (a.pos || 0) - (b.pos || 0);
+                });
+                state.rows = records.map(function (record) { return toRow(record); });
+                if (el.add) { el.add.disabled = false; }
+                var page = result.body.pagination || {};
+                render(page.total_pages > 1 ? page : null);
+            })
+            .catch(function (err) {
+                state.loading = false;
+                el.reload.disabled = false;
+                showStatus('<i class="bi bi-wifi-off"></i>Could not reach the attributes API. ' + esc(String(err)), true);
+            });
+    }
+
+    /* ---------------- rendering ---------------- */
+
+    function valueTypeTitle(id) {
+        var match = VALUE_TYPES.filter(function (t) {
+            return String(t.sample_attribute_type_id) === String(id);
+        })[0];
+        return match ? match.sample_attribute_type_title : '';
+    }
+
+    function typeSelectHtml(row) {
+        var options = ['<option value=""' + (row.typeId ? '' : ' selected') + ' disabled>Choose a type...</option>'];
+        VALUE_TYPES.forEach(function (t) {
+            options.push('<option value="' + esc(t.sample_attribute_type_id) + '"' +
+                (String(t.sample_attribute_type_id) === String(row.typeId) ? ' selected' : '') + '>' +
+                esc(t.sample_attribute_type_title) + '</option>');
+        });
+        return '<select class="attrs-select" data-field="typeId" aria-label="Value type"' +
+            (CAN_WRITE ? '' : ' disabled') + '>' + options.join('') + '</select>';
+    }
+
+    function linkedSelectHtml(row) {
+        var options = ['<option value="">(none)</option>'];
+        SAMPLE_TYPES.forEach(function (t) {
+            options.push('<option value="' + esc(t.id) + '"' +
+                (String(t.id) === String(row.linked) ? ' selected' : '') + '>' + esc(t.title) + '</option>');
+        });
+        return '<select class="attrs-select" data-field="linked" aria-label="Linked sample type"' +
+            (CAN_WRITE ? '' : ' disabled') + '>' + options.join('') + '</select>';
+    }
+
+    /* The row that currently owns the display title. Promoting another does not
+       dirty this one -- the server clears it and reports a `title_cleared`
+       automatic change -- so it is flagged here instead. */
+    function titleLoser(row) {
+        return !!(row.orig && row.orig.isTitle && !row.isTitle && !row.remove);
+    }
+
+    /* UID is protected server-side: enforce_uid_protection (planner.py, Section
+       11.7 / DD-18) refuses to rename it, un-require it, un-title it or delete
+       it, and `uid_is_sole_title` refuses to promote anything else while a UID
+       row exists. Every one of the 104 sample types is titled by UID, so those
+       controls would otherwise sit there looking usable and fail every time.
+       The server stays the authority; this only stops offering the impossible. */
+    function uidProtected(row) {
+        return !!(row.orig && row.orig.title === 'UID');
+    }
+
+    function typeHasUid() {
+        return state.rows.some(uidProtected);
+    }
+
+    function badgesHtml(row) {
+        var badges = [];
+        if (row.unit) { badges.push('<span class="attrs-badge"><b>Unit</b> ' + esc(row.unit) + (row.unitSymbol ? ' (' + esc(row.unitSymbol) + ')' : '') + '</span>'); }
+        if (row.vocab) { badges.push('<span class="attrs-badge"><b>CV</b> ' + esc(row.vocab) + '</span>'); }
+        if (row.linked) {
+            var linked = SAMPLE_TYPES.filter(function (t) { return String(t.id) === String(row.linked); })[0];
+            badges.push('<span class="attrs-badge"><b>Links to</b> ' + esc(linked ? linked.title : row.linked) + '</span>');
+        }
+        if (uidProtected(row)) { badges.push('<span class="attrs-chip attrs-chip--quiet" title="UID cannot be renamed, un-required, un-titled or deleted."><i class="bi bi-lock-fill"></i>protected</span>'); }
+        if (titleLoser(row)) { badges.push('<span class="attrs-chip attrs-chip--quiet">title cleared</span>'); }
+        if (row.remove) { badges.push('<span class="attrs-chip">will be deleted</span>'); }
+        else if (!row.id) { badges.push('<span class="attrs-chip">new</span>'); }
+        else if (Object.keys(changedFields(row)).length) { badges.push('<span class="attrs-chip">edited</span>'); }
+        return '<div class="attrs-badges">' + badges.join('') + '</div>';
+    }
+
+    function rowHtml(row) {
+        var classes = ['attrs-row'];
+        if (row.open) { classes.push('is-open'); }
+        if (row.remove) { classes.push('is-deleted'); }
+        else if (!row.id) { classes.push('is-new'); }
+        else if (Object.keys(changedFields(row)).length) { classes.push('is-dirty'); }
+
+        var ro = CAN_WRITE ? '' : ' disabled';
+        /* UID's own name, required flag and existence are frozen; and while a UID
+           row exists nothing else can take the title. */
+        var roUid = (CAN_WRITE && !uidProtected(row)) ? '' : ' disabled';
+        var roTitle = (CAN_WRITE && !typeHasUid()) ? '' : ' disabled';
+        var html = '<tr class="' + classes.join(' ') + '" data-uid="' + row.uid + '">' +
+            '<td class="c-expand"><button type="button" class="attrs-icon-btn" data-action="toggle" aria-expanded="' + row.open + '" aria-label="More fields"><i class="bi bi-chevron-right attrs-chevron"></i></button></td>' +
+            '<td class="c-pos"><input type="number" min="1" step="1" class="attrs-input attrs-input--pos" data-field="pos" value="' + esc(row.pos) + '" aria-label="Position"' + ro + '></td>' +
+            '<td class="c-name"><input type="text" class="attrs-input" data-field="title" value="' + esc(row.title) + '" placeholder="Attribute name" aria-label="Name"' + roUid + '></td>' +
+            '<td class="c-type">' + typeSelectHtml(row) + '</td>' +
+            '<td class="c-flag"><input type="checkbox" class="attrs-check" data-field="required"' + (row.required ? ' checked' : '') + ' aria-label="Required"' + roUid + '></td>' +
+            '<td class="c-flag"><input type="radio" name="attrs-is-title" class="attrs-check" data-field="isTitle"' + (row.isTitle ? ' checked' : '') + ' aria-label="Supplies the sample title"' + roTitle + '></td>' +
+            '<td><input type="text" class="attrs-input" data-field="description" value="' + esc(row.description) + '" placeholder="—" aria-label="Definition"' + ro + '></td>' +
+            '<td class="c-badges">' + badgesHtml(row) + '</td>' +
+            '<td class="c-act">' + (CAN_WRITE && !uidProtected(row) ?
+                '<button type="button" class="attrs-icon-btn" data-action="' + (row.remove ? 'restore' : 'remove') + '" aria-label="' + (row.remove ? 'Keep this attribute' : 'Delete this attribute') + '"><i class="bi bi-' + (row.remove ? 'arrow-counterclockwise' : 'trash3') + '"></i></button>' : '') +
+            '</td></tr>';
+
+        if (row.open) {
+            html += '<tr class="attrs-detail" data-uid="' + row.uid + '"><td colspan="9"><div class="attrs-detail-inner">' +
+                '<div class="attrs-detail-field"><label>Unit</label>' +
+                '<input type="text" class="attrs-input" data-field="unit" list="attrs-units" value="' + esc(row.unit) + '" placeholder="(none)"' + ro + '>' +
+                '<div class="attrs-detail-hint">Database ID or exact title.</div></div>' +
+                '<div class="attrs-detail-field"><label>Controlled vocabulary</label>' +
+                '<input type="text" class="attrs-input" data-field="vocab" list="attrs-vocabs" value="' + esc(row.vocab) + '" placeholder="(none)"' + ro + '>' +
+                '<div class="attrs-detail-hint">Required by the Controlled Vocabulary value types.</div></div>' +
+                '<div class="attrs-detail-field"><label>Linked sample type</label>' + linkedSelectHtml(row) +
+                '<div class="attrs-detail-hint">Required by the Registered Sample value types.</div></div>' +
+                '<div class="attrs-detail-meta">' + (row.id
+                    ? 'id ' + esc(row.id) + ' &middot; created ' + esc(String(row.createdAt || '').replace('T', ' ').replace('Z', ' UTC')) +
+                      ' &middot; updated ' + esc(String(row.updatedAt || '').replace('T', ' ').replace('Z', ' UTC'))
+                    : 'Not yet created.') +
+                '</div></div></td></tr>';
+        }
+        return html;
+    }
+
+    function render(oversizedPage) {
+        if (!state.typeId) {
+            showStatus('<i class="bi bi-diagram-3"></i>Choose a sample type to see its attributes.');
+            return;
+        }
+        if (!state.rows.length) {
+            showStatus('<i class="bi bi-inbox"></i><strong>' + esc(state.typeTitle) + '</strong> has no attributes yet.' +
+                (CAN_WRITE ? '<div style="margin-top:0.75rem"><button type="button" class="attrs-btn attrs-btn--primary" id="attrs-add-empty"><i class="bi bi-plus-lg"></i> Add the first attribute</button></div>' : ''));
+            var seed = document.getElementById('attrs-add-empty');
+            if (seed) { seed.addEventListener('click', addRow); }
+            renderTray();
+            return;
+        }
+        el.status.hidden = true;
+        el.tableWrap.hidden = false;
+        el.tbody.innerHTML = state.rows.map(rowHtml).join('');
+        if (oversizedPage) {
+            el.status.hidden = false;
+            el.status.className = 'attrs-status attrs-status--error';
+            el.status.innerHTML = '<i class="bi bi-exclamation-triangle"></i>This sample type returned ' +
+                esc(oversizedPage.total_records) + ' attributes across ' + esc(oversizedPage.total_pages) +
+                ' pages. Only the first page is shown; do not save from this view.';
+        }
+        renderTray();
+    }
+
+    /* ---------------- the change set ---------------- */
+
+    /* Only the fields that actually moved. The patch API reads an omitted field
+       as "leave alone" and an explicit null as "clear", so sending the whole row
+       back would overwrite values this page never showed. */
+    function changedFields(row) {
+        var changes = {};
+        var was = row.orig;
+        if (!was) { return changes; }
+        if (row.title !== was.title) { changes.title = row.title; }
+        if (String(row.typeId) !== String(was.typeId)) { changes.sample_attribute_type = refValue(row.typeId); }
+        if (row.required !== was.required) { changes.required = row.required; }
+        /* Only ever PROMOTE. Clearing the previous holder is the server's job
+           (apply_title_transition), and it reports that as a `title_cleared`
+           automatic change in the preview, so sending an explicit false here
+           would just duplicate it. */
+        if (row.isTitle && !was.isTitle) { changes.is_title = true; }
+        if (row.description !== was.description) { changes.description = row.description ? row.description : null; }
+        if (Number(row.pos) !== Number(was.pos)) { changes.pos = Number(row.pos); }
+        if (row.unit !== was.unit) { changes.unit = refValue(row.unit); }
+        if (row.vocab !== was.vocab) { changes.sample_controlled_vocab = refValue(row.vocab); }
+        if (row.linked !== was.linked) { changes.linked_sample_type = refValue(row.linked); }
+        return changes;
+    }
+
+    function createFields(row) {
+        var attribute = {
+            title: row.title,
+            sample_attribute_type: refValue(row.typeId),
+            required: row.required,
+            is_title: row.isTitle
+        };
+        if (Number(row.pos) > 0) { attribute.pos = Number(row.pos); }
+        if (row.description) { attribute.description = row.description; }
+        if (row.unit) { attribute.unit = refValue(row.unit); }
+        if (row.vocab) { attribute.sample_controlled_vocab = refValue(row.vocab); }
+        if (row.linked) { attribute.linked_sample_type = refValue(row.linked); }
+        return attribute;
+    }
+
+    function partition() {
+        var created = [], patched = [], deleted = [];
+        state.rows.forEach(function (row) {
+            if (row.remove) { if (row.id) { deleted.push(row); } return; }
+            if (!row.id) { created.push(row); return; }
+            if (Object.keys(changedFields(row)).length) { patched.push(row); }
+        });
+        return {created: created, patched: patched, deleted: deleted};
+    }
+
+    function dirtyCount() {
+        var parts = partition();
+        return parts.created.length + parts.patched.length + parts.deleted.length;
+    }
+
+    function validationIssues() {
+        var issues = [];
+        state.rows.forEach(function (row) {
+            if (row.remove) { return; }
+            if (!row.title.trim()) { issues.push('Every attribute needs a name.'); }
+            if (!row.typeId) { issues.push('"' + (row.title.trim() || 'The new attribute') + '" needs a value type.'); }
+            if (!(Number(row.pos) > 0)) { issues.push('"' + (row.title.trim() || 'The new attribute') + '" needs a position of 1 or more.'); }
+        });
+        return issues.filter(function (v, i, a) { return a.indexOf(v) === i; });
+    }
+
+    /* Order matters on apply. Renames run first so a freed title can be reused,
+       deletions next so positions settle, creations last. Each call is a separate
+       request, so a later failure leaves the earlier ones applied -- which is why
+       apply stops at the first failure and says exactly how far it got. */
+    function buildSteps() {
+        var parts = partition();
+        var steps = [];
+        if (parts.patched.length) {
+            steps.push({
+                key: 'patch',
+                label: 'Edit ' + plural(parts.patched.length, 'attribute'),
+                icon: 'pencil',
+                method: 'PATCH',
+                path: API + 'batch-patch/',
+                rows: parts.patched,
+                body: function (dry) {
+                    return {targets: [{sample_type: state.typeId, attributes: parts.patched.map(function (row) {
+                        return {attribute: row.id, changes: changedFields(row)};
+                    })}], dry_run: dry};
+                }
+            });
+        }
+        if (parts.deleted.length) {
+            steps.push({
+                key: 'delete',
+                label: 'Delete ' + plural(parts.deleted.length, 'attribute'),
+                icon: 'trash3',
+                method: 'POST',
+                path: API + 'batch-delete/',
+                rows: parts.deleted,
+                body: function (dry) {
+                    return {targets: [{sample_type: state.typeId, attributes: parts.deleted.map(function (row) { return row.id; })}], dry_run: dry};
+                }
+            });
+        }
+        if (parts.created.length) {
+            steps.push({
+                key: 'create',
+                label: 'Add ' + plural(parts.created.length, 'attribute'),
+                icon: 'plus-lg',
+                method: 'POST',
+                path: API + 'batch-create/',
+                rows: parts.created,
+                body: function (dry) {
+                    return {targets: [{sample_type: state.typeId, attributes: parts.created.map(createFields)}], dry_run: dry};
+                }
+            });
+        }
+        return steps;
+    }
+
+    function renderTray() {
+        var parts = partition();
+        var total = parts.created.length + parts.patched.length + parts.deleted.length;
+        if (!CAN_WRITE || !total) { el.tray.hidden = true; return; }
+        el.tray.hidden = false;
+        el.trayCount.textContent = plural(total, 'pending change');
+        var detail = [];
+        if (parts.created.length) { detail.push(parts.created.length + ' to add'); }
+        if (parts.patched.length) { detail.push(parts.patched.length + ' to edit'); }
+        if (parts.deleted.length) { detail.push(parts.deleted.length + ' to delete'); }
+        el.trayDetail.textContent = detail.join(' · ');
+    }
+
+    /* Repaint state without touching the inputs, so typing never loses focus. */
+    function refreshRowChrome() {
+        state.rows.forEach(function (row) {
+            var tr = el.tbody.querySelector('tr.attrs-row[data-uid="' + row.uid + '"]');
+            if (!tr) { return; }
+            tr.classList.toggle('is-open', row.open);
+            tr.classList.toggle('is-deleted', row.remove);
+            tr.classList.toggle('is-new', !row.remove && !row.id);
+            tr.classList.toggle('is-dirty', !row.remove && !!row.id && Object.keys(changedFields(row)).length > 0);
+            var badges = tr.querySelector('.c-badges');
+            if (badges) { badges.innerHTML = badgesHtml(row); }
+        });
+        renderTray();
+    }
+
+    function rowFor(node) {
+        var tr = node.closest('tr[data-uid]');
+        if (!tr) { return null; }
+        var uid = tr.dataset.uid;
+        return state.rows.filter(function (r) { return r.uid === uid; })[0] || null;
+    }
+
+    function addRow() {
+        if (!CAN_WRITE || !state.typeId) { return; }
+        state.rows.push(toRow(null));
+        render();
+        var inputs = el.tbody.querySelectorAll('tr.attrs-row');
+        var last = inputs[inputs.length - 1];
+        if (last) {
+            last.scrollIntoView({block: 'nearest'});
+            var name = last.querySelector('[data-field="title"]');
+            if (name) { name.focus(); }
+        }
+    }
+
+    function confirmDiscard() {
+        if (!dirtyCount()) { return true; }
+        return window.confirm('You have ' + plural(dirtyCount(), 'unsaved change') +
+            '. Leaving this sample type discards them. Continue?');
+    }
+
+    /* ---------------- table events ---------------- */
+
+    function applyFieldEdit(target) {
+        var row = rowFor(target);
+        if (!row) { return; }
+        var field = target.dataset.field;
+        if (!field) { return; }
+        if (field === 'required') {
+            row.required = target.checked;
+        } else if (field === 'isTitle') {
+            /* Native radio semantics already cleared every other input. Only this
+               row is dirtied: SEEK clears the previous title itself and reports it
+               as an automatic change in the preview. */
+            state.rows.forEach(function (other) { other.isTitle = (other.uid === row.uid); });
+        } else if (field === 'pos') {
+            row.pos = target.value === '' ? 0 : parseInt(target.value, 10);
+            if (isNaN(row.pos)) { row.pos = 0; }
+        } else if (field === 'typeId') {
+            row.typeId = target.value ? parseInt(target.value, 10) : null;
+        } else {
+            row[field] = target.value;
+        }
+        refreshRowChrome();
+    }
+
+    el.tbody.addEventListener('input', function (event) {
+        var target = event.target;
+        if (target.matches('.attrs-input')) { applyFieldEdit(target); }
+    });
+    el.tbody.addEventListener('change', function (event) {
+        var target = event.target;
+        if (target.matches('.attrs-select, .attrs-check')) { applyFieldEdit(target); }
+    });
+    el.tbody.addEventListener('click', function (event) {
+        var button = event.target.closest('button[data-action]');
+        if (!button) { return; }
+        var row = rowFor(button);
+        if (!row) { return; }
+        var action = button.dataset.action;
+        if (action === 'toggle') {
+            row.open = !row.open;
+            render();
+            if (row.open) { loadCatalog(); }
+        } else if (action === 'remove') {
+            if (!row.id) {
+                state.rows = state.rows.filter(function (r) { return r.uid !== row.uid; });
+            } else {
+                row.remove = true;
+                row.open = false;
+            }
+            render();
+        } else if (action === 'restore') {
+            row.remove = false;
+            render();
+        }
+    });
+
+    el.reload.addEventListener('click', function () { if (confirmDiscard()) { load(); } });
+    if (el.add) { el.add.addEventListener('click', addRow); }
+    el.discard.addEventListener('click', function () {
+        if (window.confirm('Discard ' + plural(dirtyCount(), 'pending change') + ' and reload from the server?')) { load(); }
+    });
+
+    window.addEventListener('beforeunload', function (event) {
+        if (dirtyCount()) { event.preventDefault(); event.returnValue = ''; }
+    });
+
+    /* Unit and controlled-vocabulary suggestions, gathered once from the
+       attributes already defined across the instance. They are only hints: both
+       fields stay free text, because the API resolves an id or an exact title. */
+    function loadCatalog() {
+        if (state.catalog || state.catalogPending) { return; }
+        state.catalogPending = true;
+        api('GET', API + '?page_size=5000')
+            .then(function (result) {
+                state.catalogPending = false;
+                if (result.status >= 400) { return; }
+                var units = {}, vocabs = {};
+                (result.body.attributes || []).forEach(function (a) {
+                    if (a.unit_title) { units[a.unit_title] = true; }
+                    if (a.sample_controlled_vocab_title) { vocabs[a.sample_controlled_vocab_title] = true; }
+                });
+                state.catalog = {units: Object.keys(units).sort(), vocabs: Object.keys(vocabs).sort()};
+                fillDatalist('attrs-units', state.catalog.units);
+                fillDatalist('attrs-vocabs', state.catalog.vocabs);
+            })
+            .catch(function () { state.catalogPending = false; });
+    }
+
+    function fillDatalist(id, values) {
+        var list = document.getElementById(id);
+        if (!list) {
+            list = document.createElement('datalist');
+            list.id = id;
+            document.body.appendChild(list);
+        }
+        list.innerHTML = values.map(function (v) { return '<option value="' + esc(v) + '"></option>'; }).join('');
+    }
+
+    /* ---------------- preview and apply ---------------- */
+
+    function countsHtml(counts) {
+        var chips = [];
+        [['created', 'created'], ['patched', 'edited'], ['deleted', 'deleted'], ['unchanged', 'unchanged']]
+            .forEach(function (pair) {
+                if (counts[pair[0]]) { chips.push('<span class="attrs-count"><b>' + counts[pair[0]] + '</b> ' + pair[1] + '</span>'); }
+            });
+        if (counts.reordered) {
+            chips.push('<span class="attrs-count attrs-count--loud"><b>' + counts.reordered + '</b> repositioned</span>');
+        }
+        if (!chips.length) { chips.push('<span class="attrs-count">no change</span>'); }
+        return '<div class="attrs-counts">' + chips.join('') + '</div>';
+    }
+
+    function changeValue(value) {
+        if (value === null || value === undefined || value === '') { return '<code>—</code>'; }
+        if (value === true) { return '<code>yes</code>'; }
+        if (value === false) { return '<code>no</code>'; }
+        if (typeof value === 'object') { return '<code>(whole definition)</code>'; }
+        return '<code>' + esc(value) + '</code>';
+    }
+
+    /* `create_preview` is the definition about to be created, not an effect the
+       operator has to weigh: the new row is already on the page behind this
+       dialog. Only genuine side effects -- `position_changed` and
+       `title_cleared` -- are worth listing. */
+    function realAutomatic(changes) {
+        return changes.filter(function (c) { return c.kind !== 'create_preview'; });
+    }
+
+    function automaticHtml(changes) {
+        if (!changes.length) { return ''; }
+        var rows = changes.map(function (c) {
+            return '<tr><td class="attrs-diff-name">' + esc(c.attribute_title) + '</td><td>' + esc(c.field) +
+                '</td><td>' + changeValue(c.previous_value) + ' <span class="to">&rarr;</span> ' +
+                changeValue(c.new_value) + '</td></tr>';
+        });
+        var head = '<table class="attrs-diff"><thead><tr><th>Attribute</th><th>Field</th><th>Change</th></tr></thead><tbody>';
+        if (rows.length <= 8) {
+            return head + rows.join('') + '</tbody></table>';
+        }
+        return head + rows.slice(0, 6).join('') + '</tbody></table>' +
+            '<details style="margin-top:0.4rem"><summary class="attrs-muted" style="cursor:pointer">' +
+            'Show the remaining ' + (rows.length - 6) + ' automatic changes</summary>' +
+            head + rows.slice(6).join('') + '</tbody></table></details>';
+    }
+
+    function stepHtml(step, result) {
+        var body = result.body || {};
+        var counts = body.counts || {};
+        var errors = collectErrors(result);
+        var automatic = [];
+        (body.outcomes || []).forEach(function (outcome) {
+            (outcome.automatic_changes || []).forEach(function (c) { automatic.push(c); });
+        });
+        automatic = realAutomatic(automatic);
+
+        var inner = '';
+        if (errors.length) {
+            inner += '<p class="attrs-muted" style="margin-bottom:0.5rem">The server refused this step. Nothing has been written.</p>' + errorsHtml(errors);
+        } else {
+            inner += countsHtml(counts);
+            if (counts.affected_samples) {
+                inner += '<div class="attrs-blast"><i class="bi bi-database-exclamation"></i><div>' +
+                    '<strong>' + counts.affected_samples.toLocaleString() + '</strong> existing ' +
+                    (counts.affected_samples === 1 ? 'sample has its' : 'samples have their') +
+                    ' stored metadata rewritten by this step.</div></div>';
+            }
+            if (automatic.length) {
+                inner += '<p class="attrs-muted" style="margin:0.2rem 0 0.4rem">' +
+                    plural(automatic.length, 'automatic change') + ' the server will make on its own:</p>' +
+                    automaticHtml(automatic);
+            }
+            if (body.predicted_mode === 'asynchronous') {
+                inner += '<p class="attrs-muted" style="margin-top:0.5rem"><i class="bi bi-hourglass-split"></i> ' +
+                    'Over the ' + esc(body.threshold) + '-row threshold, so this runs as a background job. ' +
+                    'This page will follow it to completion.</p>';
+            }
+        }
+
+        return '<div class="attrs-review-step"><div class="attrs-review-head">' +
+            '<i class="bi bi-' + step.icon + '"></i>' + esc(step.label) +
+            (errors.length ? '<span class="attrs-chip" style="margin-left:auto">blocked</span>' : '') +
+            '</div><div class="attrs-review-body">' + inner + '</div></div>';
+    }
+
+    function openReview() {
+        var issues = validationIssues();
+        if (issues.length) {
+            el.reviewBody.innerHTML = errorsHtml(issues.map(function (m) { return {code: 'incomplete_row', message: m}; }));
+            el.apply.disabled = true;
+            modal.show();
+            return;
+        }
+        var steps = buildSteps();
+        if (!steps.length) { return; }
+
+        state.plan = null;
+        el.apply.disabled = true;
+        el.reviewBody.innerHTML = '<p class="attrs-muted"><i class="bi bi-arrow-repeat attrs-spin"></i> ' +
+            'Asking the server what these changes would do...</p>';
+        modal.show();
+
+        var results = [];
+        var chain = Promise.resolve();
+        steps.forEach(function (step) {
+            chain = chain.then(function () {
+                return api(step.method, step.path, step.body(true)).then(function (result) {
+                    results.push({step: step, result: result});
+                });
+            });
+        });
+
+        chain.then(function () {
+            var blocked = results.some(function (item) {
+                return item.result.status >= 400 || collectErrors(item.result).length > 0;
+            });
+            var html = '';
+            if (steps.length > 1) {
+                html += '<p class="attrs-muted" style="margin-bottom:0.75rem">' +
+                    'These ' + steps.length + ' steps are separate requests, applied in the order shown. ' +
+                    'Each preview is measured against the current state, so positions may shift further as the steps run.</p>';
+            }
+            html += results.map(function (item) { return stepHtml(item.step, item.result); }).join('');
+            if (blocked) {
+                html += '<p class="attrs-muted">Fix the reported problem in the table, then review again.</p>';
+            }
+            el.reviewBody.innerHTML = html;
+            el.apply.disabled = blocked;
+            state.plan = blocked ? null : steps;
+        }).catch(function (err) {
+            el.reviewBody.innerHTML = errorsHtml([{code: 'network_error', message: 'Could not reach the attributes API: ' + String(err)}]);
+            el.apply.disabled = true;
+        });
+    }
+
+    function pollJob(url, onProgress) {
+        return api('GET', url).then(function (result) {
+            if (result.status >= 400) { return result; }
+            var body = result.body || {};
+            if (body.state === 'queued' || body.state === 'running') {
+                onProgress(body);
+                return new Promise(function (resolve) {
+                    window.setTimeout(function () { resolve(pollJob(url, onProgress)); }, 1500);
+                });
+            }
+            onProgress(body);
+            var done = body.result || {};
+            return {status: done.http_status || 200, body: done};
+        });
+    }
+
+    function applyPlan() {
+        var steps = state.plan;
+        if (!steps || !steps.length || state.applying) { return; }
+        state.applying = true;
+        el.apply.disabled = true;
+        el.reviewCancel.disabled = true;
+
+        var done = [];
+        var progressHtml = function (current, note) {
+            return steps.map(function (step, index) {
+                var mark = index < done.length ? 'check2-circle' : (index === done.length ? 'arrow-repeat attrs-spin' : 'circle');
+                return '<div class="attrs-review-step"><div class="attrs-review-head"><i class="bi bi-' + mark + '"></i>' +
+                    esc(step.label) + '</div>' +
+                    (index === done.length && note ? '<div class="attrs-review-body attrs-muted">' + note + '</div>' : '') +
+                    '</div>';
+            }).join('');
+        };
+        el.reviewBody.innerHTML = progressHtml(0, 'Writing...');
+
+        var failure = null;
+        var chain = Promise.resolve();
+        steps.forEach(function (step) {
+            chain = chain.then(function () {
+                if (failure) { return null; }
+                return api(step.method, step.path, step.body(false)).then(function (result) {
+                    /* Over the affected-row threshold the API accepts the work and
+                       hands back a durable job instead of a finished result. */
+                    if (result.status === 202 && result.body && result.body.status_url) {
+                        return pollJob(result.body.status_url, function (job) {
+                            var pct = job.total_samples ? Math.round(100 * job.processed_samples / job.total_samples) : 0;
+                            el.reviewBody.innerHTML = progressHtml(done.length,
+                                'Background job ' + esc(job.state) + ' &middot; ' +
+                                esc(job.processed_samples) + ' of ' + esc(job.total_samples) + ' samples rewritten' +
+                                '<div class="attrs-progress"><div style="width:' + pct + '%"></div></div>');
+                        });
+                    }
+                    return result;
+                }).then(function (result) {
+                    var errors = collectErrors(result);
+                    if (result.status >= 400 || errors.length) {
+                        failure = {step: step, result: result, errors: errors};
+                        return;
+                    }
+                    done.push({step: step, result: result});
+                    el.reviewBody.innerHTML = progressHtml(done.length, 'Writing...');
+                });
+            });
+        });
+
+        chain.then(function () {
+            state.applying = false;
+            el.reviewCancel.disabled = false;
+            var summary = '';
+            if (done.length) {
+                summary += done.map(function (item) {
+                    var counts = (item.result.body || {}).counts || {};
+                    return '<div class="attrs-review-step"><div class="attrs-review-head">' +
+                        '<i class="bi bi-check2-circle"></i>' + esc(item.step.label) + ' &mdash; applied</div>' +
+                        '<div class="attrs-review-body">' + countsHtml(counts) +
+                        (counts.updated_samples ? '<div class="attrs-muted">' +
+                            counts.updated_samples.toLocaleString() +
+                            (counts.updated_samples === 1 ? ' sample record' : ' sample records') +
+                            ' rewritten.</div>' : '') +
+                        '</div></div>';
+                }).join('');
+            }
+            if (failure) {
+                summary += '<div class="attrs-review-step"><div class="attrs-review-head">' +
+                    '<i class="bi bi-exclamation-octagon-fill"></i>' + esc(failure.step.label) + ' &mdash; failed</div>' +
+                    '<div class="attrs-review-body">' + errorsHtml(failure.errors) +
+                    (done.length ? '<p class="attrs-muted">The ' + plural(done.length, 'step') +
+                        ' above did apply and are already saved. The table has been reloaded from the server ' +
+                        'so you can see the real state before retrying.</p>'
+                        : '<p class="attrs-muted">Nothing was written.</p>') +
+                    '</div></div>';
+                el.reviewBody.innerHTML = summary;
+                el.apply.disabled = true;
+                load();
+                return;
+            }
+            el.reviewBody.innerHTML = summary || '<p class="attrs-muted">Nothing to do.</p>';
+            el.apply.disabled = true;
+            load();
+            window.setTimeout(function () { modal.hide(); }, 1200);
+        }).catch(function (err) {
+            state.applying = false;
+            el.reviewCancel.disabled = false;
+            el.reviewBody.innerHTML = errorsHtml([{code: 'network_error', message: 'The write was interrupted: ' + String(err) + '. Reload to see what actually landed.'}]);
+            el.apply.disabled = true;
+        });
+    }
+
+    if (el.reviewOpen) { el.reviewOpen.addEventListener('click', openReview); }
+    if (el.apply) { el.apply.addEventListener('click', applyPlan); }
+
+    /* ---------------- boot ---------------- */
+
+    if (window.bootstrap && el.reviewModal) {
+        modal = new window.bootstrap.Modal(el.reviewModal, {backdrop: 'static'});
+    }
+    fillDatalist('attrs-units', []);
+    fillDatalist('attrs-vocabs', []);
+    el.comboInput.placeholder = 'Search ' + SAMPLE_TYPES.length + ' sample types...';
+    render();
+})();
+</script>
+{% endverbatim %}
 {% endblock %}
