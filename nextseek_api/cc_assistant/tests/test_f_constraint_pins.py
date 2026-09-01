@@ -68,6 +68,9 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0017_paid_run_state.py",
         "nextseek_api/migrations/0018_turn_ledger_attempted_provenance.py",
         "nextseek_api/migrations/0019_merge_attribute_async_turn_ledger.py",
+        # Pin updated for the batch assay-registration endpoint: 0020 creates the
+        # single AssayRegistrationJob table and its one declared index, nothing else.
+        "nextseek_api/migrations/0020_assayregistrationjob.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_chat_log_normalize.py",

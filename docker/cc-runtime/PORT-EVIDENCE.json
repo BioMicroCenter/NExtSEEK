@@ -29,7 +29,7 @@
   ],
   "context_file_inventory": [
     {"path": "build_context/plugins/nextseek/context/capabilities.md", "size_bytes": 11747, "sha256": "fae548efa7c0ac8b768e8f6361728b2249c73d84842aaae3c12bdd7098b970ef"},
-    {"path": "build_context/plugins/nextseek/context/min_api_endpoints.json", "size_bytes": 16901, "sha256": "400a3f2b9f711ff4ad2d7e540f3ac5817083529d4d3c07d486806fde6cd0a020"},
+    {"path": "build_context/plugins/nextseek/context/min_api_endpoints.json", "size_bytes": 18665, "sha256": "ae647d7fc5745e56351f479929e56bc804648ca1e8801647cda6d0c750579e32"},
     {"path": "build_context/plugins/nextseek/context/min_api_endpoints_enriched.json", "size_bytes": 9506, "sha256": "e82ca1962e302ecdca91cb9296f4cdc4f9cbeb6a432844c109a04d00ec3ebf4b"},
     {"path": "build_context/plugins/nextseek/context/min_assays_db.json", "size_bytes": 178403, "sha256": "55d327dfb0039b94a2fb271d9bf74aa5178b80fc0fbc9bf64ed0b7b477b8f678"},
     {"path": "build_context/plugins/nextseek/context/min_graph_schema.json", "size_bytes": 4165, "sha256": "8884fe59a0edfb46acc0374fbd99b881639a67c3c2e611aaa67af9b3affc40c7"},
