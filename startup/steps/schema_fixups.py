@@ -117,6 +117,16 @@ KNOWN_TABLE_FIXUPS: list[MissingTable] = [
         table="sample_attributes_unique",
         ddl_path="startup/seed/sql/sample_attributes_unique.sql",
     ),
+    # Derived upload requirements for the Download Templates picker. Created in
+    # SQL for the same reason as the table above, and likewise absent from
+    # dmac.sql.gz. The table ships empty: `manage.py
+    # derive_sample_type_requirements` fills it, and the page degrades to
+    # showing no requirements until it is run.
+    MissingTable(
+        database="dmac",
+        table="sample_type_requirements",
+        ddl_path="startup/seed/sql/sample_type_requirements.sql",
+    ),
 ]
 
 
