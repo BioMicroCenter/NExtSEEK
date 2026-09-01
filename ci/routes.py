@@ -59,6 +59,11 @@ class Route:
                 self, "profiles",
                 frozenset(p.strip() for p in self.profiles.split(",") if p.strip()),
             )
+        # Same reasoning for methods: one representation, so `"GET" in route.methods`
+        # and `set(methods) - {"GET"}` cannot be defeated by a lowercase entry.
+        object.__setattr__(
+            self, "methods", tuple(m.strip().upper() for m in self.methods)
+        )
         unknown = self.profiles - set(PROFILES)
         if unknown:
             raise ValueError(f"unknown profile(s) {sorted(unknown)} in {self.pattern}")
@@ -80,11 +85,29 @@ class Route:
                 raise ValueError(
                     f"{self.pattern}: prod_allows_non_get needs a non-GET method"
                 )
+        # Compile now rather than on first use. A malformed pattern is a declaration
+        # bug, and a cached_property would only surface it mid-sweep, from inside
+        # whichever consumer happened to call matches() first.
+        try:
+            self.matcher
+        except re.error as exc:
+            raise ValueError(f"{self.pattern}: not a usable regex ({exc})") from exc
 
     @cached_property
     def is_exact(self) -> bool:
         """The pattern pins the whole path rather than matching a prefix of it."""
         return bool(_TAIL_ANCHOR.search(self.pattern))
+
+    @cached_property
+    def literal_length(self) -> int:
+        """How much of the path the pattern spells out, discounting regex groups.
+
+        A viewset's detail route is longer than its own list-level action --
+        '^attributes/(?P<pk>[^/.]+)/$' vs '^attributes/search/$' -- yet the action is
+        the more specific declaration, and the one Django's resolver returns. Ranking
+        on literal characters instead of raw length reproduces that ordering.
+        """
+        return len(re.sub(r"\(.*?\)", "", self.pattern))
 
     @cached_property
     def matcher(self) -> re.Pattern[str]:
@@ -115,13 +138,46 @@ class Route:
 REGISTRY: list[Route] = []
 
 
+def _check_unique_patterns(routes: list[Route]) -> None:
+    """Refuse two entries carrying the same pattern.
+
+    Every route is declared exactly once, so a repeated pattern is a declaration bug:
+    the second entry's profiles, methods and exclusions are silently unreachable
+    through match(). Called on REGISTRY at import, and callable on any list so a test
+    can assert it of the populated registry.
+    """
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for route in routes:
+        if route.pattern in seen:
+            duplicates.add(route.pattern)
+        seen.add(route.pattern)
+    if duplicates:
+        raise ValueError(
+            f"duplicate pattern(s) in the registry: {sorted(duplicates)}"
+        )
+
+
+def _specificity(route: Route) -> tuple[bool, int]:
+    """Rank key for two patterns that both match the same path. Higher wins."""
+    return (route.is_exact, route.literal_length)
+
+
 def match(url: str) -> Route | None:
     """Return the Route for a URL or path, or None when nothing is declared."""
     url_path = urlsplit(url).path or "/"
     hits = [route for route in REGISTRY if route.matches(url_path)]
     if not hits:
         return None
-    # Prefix patterns overlap: '^login' matches '/login/special/' just as surely as
-    # '^login/special/$' does. Take the most specific declaration -- one that pins the
-    # whole path first, then the longest -- so declaration order decides nothing.
-    return max(hits, key=lambda route: (route.is_exact, len(route.pattern)))
+    # Patterns overlap. '^login' matches '/login/special/' as surely as
+    # '^login/special/$' does, and a viewset's detail route '[^/.]+' swallows the path
+    # of its own list-level action. Take the most specific: the pattern that pins the
+    # whole path first, then the one spelling out the most literal characters, which
+    # puts the action above the detail route the way Django's resolver does. Two
+    # OVERLAPPING patterns of EQUAL specificity would fall back on declaration order;
+    # the registry holds none, and identical ones are refused by
+    # _check_unique_patterns.
+    return max(hits, key=_specificity)
+
+
+_check_unique_patterns(REGISTRY)

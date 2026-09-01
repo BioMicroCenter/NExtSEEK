@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from ci.routes import Route, match, EXCLUDE_CODES
+from ci.routes import Route, match, EXCLUDE_CODES, _check_unique_patterns
 
 
 def test_profiles_string_is_normalised_to_a_frozenset():
@@ -42,6 +42,17 @@ def test_exclude_code_accepted():
     assert r.exclude in EXCLUDE_CODES
 
 
+def test_methods_are_normalised_to_upper_case():
+    r = Route(pattern=r"^x/$", path="/x/", methods=("get", " post "), profiles="dev")
+    assert r.methods == ("GET", "POST")
+
+
+def test_a_malformed_pattern_is_refused_at_construction():
+    """A cached matcher would otherwise raise mid-sweep, inside an unrelated caller."""
+    with pytest.raises(ValueError, match="not a usable regex"):
+        Route(pattern=r"^x/(unclosed/$", path="/x/", methods=("GET",), profiles="dev")
+
+
 # --------------------------------------------------------------------------- #
 # resolver / prod_allows_non_get
 # --------------------------------------------------------------------------- #
@@ -69,6 +80,13 @@ def test_prod_allows_non_get_requires_the_prod_profile():
 def test_prod_allows_non_get_requires_a_non_get_method():
     with pytest.raises(ValueError, match="prod_allows_non_get"):
         Route(pattern=r"^login$", path="/login/", methods=("GET",),
+              profiles="local,dev,prod", prod_allows_non_get=True)
+
+
+def test_a_lower_case_get_cannot_pass_as_a_non_get_method():
+    """methods is normalised first, so ("get",) is still GET-only."""
+    with pytest.raises(ValueError, match="prod_allows_non_get"):
+        Route(pattern=r"^login$", path="/login/", methods=("get",),
               profiles="local,dev,prod", prod_allows_non_get=True)
 
 
@@ -144,7 +162,8 @@ def test_match_finds_the_route_for_a_full_url(monkeypatch):
     assert match("http://127.0.0.1:8000/nextseek_api/nope/") is None
 
 
-def test_match_prefers_the_route_that_pins_the_whole_path(monkeypatch):
+def test_match_returns_the_route_whose_pattern_covers_the_path(monkeypatch):
+    """Two non-overlapping exact routes: selection is by pattern, not by position."""
     root = Route(pattern=r"^nextseek_api/^$", path="/nextseek_api/",
                  methods=("GET",), profiles="dev")
     sops = Route(pattern=r"^nextseek_api/^^sops/$", path="/nextseek_api/sops/",
@@ -152,6 +171,29 @@ def test_match_prefers_the_route_that_pins_the_whole_path(monkeypatch):
     monkeypatch.setattr("ci.routes.REGISTRY", [root, sops])
     assert match("/nextseek_api/") is root
     assert match("/nextseek_api/sops/") is sops
+
+
+@pytest.mark.parametrize("reverse", [False, True], ids=["declared-first", "declared-last"])
+def test_match_prefers_a_literal_action_over_the_detail_route_that_swallows_it(
+    monkeypatch, reverse
+):
+    """Django resolves '/attributes/search/' to the action, not the pk detail route.
+
+    Both patterns are exact and both match, and the detail route is the LONGER string,
+    so ranking on raw length would return the wrong one. Ranking on literal characters,
+    with the regex group discounted, reproduces Django's answer in either order.
+    """
+    action = Route(pattern=r"^nextseek_api/^^attributes/search/$",
+                   path="/nextseek_api/attributes/search/",
+                   methods=("GET",), profiles="dev")
+    detail = Route(pattern=r"^nextseek_api/^^attributes/(?P<pk>[^/.]+)/$",
+                   path="/nextseek_api/attributes/{pk}/",
+                   methods=("GET",), profiles="dev")
+    assert len(detail.pattern) > len(action.pattern)
+    registry = [detail, action] if reverse else [action, detail]
+    monkeypatch.setattr("ci.routes.REGISTRY", registry)
+    assert match("/nextseek_api/attributes/search/") is action
+    assert match("/nextseek_api/attributes/17/") is detail
 
 
 def test_match_prefers_an_exact_route_over_an_overlapping_prefix(monkeypatch):
@@ -162,3 +204,25 @@ def test_match_prefers_an_exact_route_over_an_overlapping_prefix(monkeypatch):
     monkeypatch.setattr("ci.routes.REGISTRY", [prefix, exact])
     assert match("/login/special/") is exact
     assert match("/login/") is prefix
+
+
+# --------------------------------------------------------------------------- #
+# _check_unique_patterns
+# --------------------------------------------------------------------------- #
+
+def test_unique_patterns_accepts_distinct_declarations():
+    routes = [
+        Route(pattern=r"^a/$", path="/a/", methods=("GET",), profiles="dev"),
+        Route(pattern=r"^b/$", path="/b/", methods=("GET",), profiles="dev"),
+    ]
+    assert _check_unique_patterns(routes) is None
+
+
+def test_unique_patterns_refuses_a_repeated_pattern():
+    """The second entry would be unreachable through match(); that is a declaration bug."""
+    routes = [
+        Route(pattern=r"^a/$", path="/a/", methods=("GET",), profiles="dev"),
+        Route(pattern=r"^a/$", path="/a/", methods=("GET",), profiles="prod"),
+    ]
+    with pytest.raises(ValueError, match="duplicate pattern"):
+        _check_unique_patterns(routes)
