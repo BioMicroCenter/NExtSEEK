@@ -221,7 +221,7 @@ class TestOverallStatusOfATotalFailure:
         assert result.overall_status == "failed"
         assert result.counts.failed == 2
         assert result.counts.written == 0
-        assert result.written_sample_ids == set()
+        assert result.recompute_sample_ids == set()
 
     def test_a_batch_of_nothing_but_skips_is_failed(self):
         bad = [ResolvedRow(index=i, sample_uid=u,
@@ -239,14 +239,18 @@ class TestOverallStatusOfATotalFailure:
         assert result.counts.skipped == 2
 
 
-class TestWrittenSampleIds:
-    """Mutant: drop `written_sample_ids.add(...)`. It survived; nothing asserted
+class TestRecomputeSampleIds:
+    """Mutant: drop `recompute_sample_ids.add(...)`. It survived; nothing asserted
     the field. It is not decorative -- the graph step consumes it, so a sample
     id in here that the database does not actually hold would push a membership
-    edge into Neo4j for a row that never wrote.
+    edge into Neo4j for a row that never wrote, and a sample id MISSING from it
+    leaves a stale label nothing will ever repair.
+
+    The set is written UNION already_present, not written alone. That is the
+    fix, and the test below is the case the narrow set silently dropped.
     """
 
-    def test_only_rows_the_readback_confirmed_reach_the_set(self):
+    def test_confirmed_and_pre_existing_rows_reach_the_set_and_nothing_else(self):
         good = _ok(0, "A", 100, 351)
         lost = _ok(1, "B", 200, 351)          # insert claimed it; readback did not
         present = _ok(2, "C", 300, 351)       # already there before the request
@@ -261,15 +265,45 @@ class TestWrittenSampleIds:
                    return_value={(351, 100): 900}):
             result = execute(plan, conn)
 
-        assert result.written_sample_ids == {100}, \
-            "only the confirmed row; not the lost one, the pre-existing one, or the skip"
+        assert result.recompute_sample_ids == {100, 300}, \
+            "the confirmed write AND the pre-existing membership; not the row " \
+            "the readback lost, and not the skip"
         statuses = {r.index: r.status for r in result.rows}
         assert statuses == {0: "written", 1: "failed", 2: "already_present", 3: "skipped"}
         assert result.overall_status == "partial"
 
+    def test_a_re_post_of_an_identical_batch_still_feeds_the_recompute(self):
+        """The documented repair path, pinned at its source.
+
+        Re-POSTing an identical batch is what `service._recompute`'s docstring,
+        the spec's Recovery section and the endpoint description all tell an
+        operator to do after a graph failure. Every pair is already present, so
+        `plan.to_write` is EMPTY -- and with a written-only set that produced an
+        empty set, a `skipped` graph outcome, and no repair at all, while
+        reporting that there was nothing to repair.
+        """
+        first = _ok(0, "A", 100, 351)
+        second = _ok(1, "B", 200, 351)
+        plan = _plan(to_write=[], already={0: 900, 1: 901}, total=2)
+        plan.resolved = [first, second]
+        conn = MagicMock()
+        with patch("nextseek_api.assay_registration.executor.batch_insert_assay_assets"
+                   ) as insert, \
+             patch("nextseek_api.assay_registration.executor.existing_membership_ids"
+                   ) as readback:
+            result = execute(plan, conn)
+
+        insert.assert_not_called()
+        readback.assert_not_called()
+        assert [r.status for r in result.rows] == ["already_present", "already_present"]
+        assert result.overall_status == "succeeded"
+        assert result.recompute_sample_ids == {100, 200}, \
+            "a no-op write still invalidated nothing, but the recompute is how " \
+            "a stale label from an EARLIER failure gets repaired"
+
     def test_a_dry_run_tells_the_graph_nothing_wrote(self):
         plan = _plan(to_write=[_ok(0, "A", 100, 351)])
-        assert preview(plan).written_sample_ids == set()
+        assert preview(plan).recompute_sample_ids == set()
 
 
 class TestCollapsedWithinRequestDuplicate:
@@ -298,7 +332,7 @@ class TestCollapsedWithinRequestDuplicate:
         assert result.counts.written == 1
         assert result.counts.already_present == 1
         assert result.counts.submitted == 2
-        assert result.written_sample_ids == {100}
+        assert result.recompute_sample_ids == {100}
         assert result.overall_status == "succeeded"
 
     def test_preview_reports_the_second_copy_too(self):
@@ -425,3 +459,80 @@ class TestNoDeletePathHardened:
             "the only batch_upload helper the executor may reach is the "
             f"idempotent insert; got {sorted(from_batch_upload)}"
         )
+
+
+class TestTheTransactionIsEnforcedNotAssumed:
+    """THE RECEIPT RULE is a claim about atomicity, so the atomicity is checked.
+
+    Both shipped callers open a transaction, so this guard fires for nobody
+    today. That is the point: on an autocommit connection the insert commits
+    before the read-back SELECT, the two become separately visible to every
+    other writer, and "the database handed this row back to me" quietly decays
+    into "somebody has this pair" -- the founding defect, reintroduced by a
+    caller rather than by this module. Enforce, do not advertise; the same move
+    `ERROR_CODES` and `TERMINAL_STATES` already make.
+
+    `MagicMock.in_transaction()` is truthy, which is why every mock-based test
+    above is undisturbed.
+    """
+
+    def test_an_autocommit_connection_is_refused_loudly(self):
+        plan = _plan(to_write=[_ok(0, "A", 100, 351)])
+        conn = MagicMock()
+        conn.in_transaction.return_value = False
+        with patch("nextseek_api.assay_registration.executor.batch_insert_assay_assets"
+                   ) as insert, \
+             patch("nextseek_api.assay_registration.executor.existing_membership_ids"
+                   ) as readback, \
+             pytest.raises(RuntimeError, match="requires an open transaction"):
+            execute(plan, conn)
+        # Refused BEFORE the write, not after it.
+        insert.assert_not_called()
+        readback.assert_not_called()
+
+    def test_the_guard_runs_before_anything_else_even_for_an_empty_plan(self):
+        """A plan with nothing to write still reports statuses, and those
+        statuses are only meaningful under the same transaction."""
+        conn = MagicMock()
+        conn.in_transaction.return_value = False
+        with pytest.raises(RuntimeError, match="requires an open transaction"):
+            execute(_plan(to_write=[], total=0), conn)
+
+    def test_a_dry_run_needs_no_transaction(self):
+        """`preview` touches nothing, so it takes no connection at all -- the
+        guard must not have crept onto the read-only path."""
+        plan = _plan(to_write=[_ok(0, "A", 100, 351)])
+        assert preview(plan).counts.written == 1
+
+    def test_both_shipped_callers_hold_one(self):
+        """The reason this raises for nobody today, asserted rather than
+        assumed: `service.register` and `runner.run_one` are the only callers,
+        and both reach `execute` inside `get_connection()`, which calls
+        `conn.begin()`."""
+        import ast
+        import inspect
+
+        from nextseek_api.assay_registration import runner, service
+
+        for module in (service, runner):
+            tree = ast.parse(inspect.getsource(module))
+            withs = [
+                node for node in ast.walk(tree)
+                if isinstance(node, ast.With)
+                and any(isinstance(item.context_expr, ast.Call)
+                        and isinstance(item.context_expr.func, ast.Name)
+                        and item.context_expr.func.id == "get_connection"
+                        for item in node.items)
+            ]
+            assert withs, f"{module.__name__} does not open a connection context"
+            calls_inside = {
+                node.func.id
+                for with_node in withs
+                for node in ast.walk(with_node)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            assert "execute" in calls_inside, (
+                f"{module.__name__} calls execute() outside get_connection(); "
+                "the receipt rule needs the insert and the read-back in one "
+                "transaction"
+            )

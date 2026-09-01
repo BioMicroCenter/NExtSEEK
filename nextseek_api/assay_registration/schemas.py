@@ -51,6 +51,16 @@ ERROR_CODES = frozenset({
     # is to retry. Emitting the readback code for a connection failure tells a
     # client switching on it to investigate a row that was never touched.
     "job_execution_failed",
+    # Also job execution, and also split by the caller's action rather than by
+    # what went wrong. `job_request_not_executable` says the STORED request for
+    # this job cannot be run at all -- it no longer revalidates against
+    # RegistrationRequest, or it carries dry_run=true -- so nothing was
+    # attempted and, unlike `job_execution_failed`, retrying THIS job fails
+    # identically every time; the batch has to be resubmitted. It is
+    # deliberately not `request_validation_error`: that code answers a live POST
+    # in an error envelope with a 422, and a client switching on it would be
+    # told to fix a request body it never sent.
+    "job_request_not_executable",
     # Envelope-level, emitted by the ViewSet and service rather than per row.
     "request_validation_error",
     "job_not_found",
@@ -150,7 +160,13 @@ class GraphOutcome(BaseModel):
 class RegistrationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["synchronous", "dry_run"]
+    #: How the batch was EXECUTED, which is why "asynchronous" belongs here even
+    #: though this model is never the body of a 202. A job receipt is read back
+    #: from `status_url` as a RegistrationResponse, and the runner stored
+    #: "synchronous" in it -- so a caller who was handed
+    #: ``{"mode": "asynchronous"}`` at 202 polled the very status_url that reply
+    #: gave them and was told the batch had run synchronously.
+    mode: Literal["synchronous", "asynchronous", "dry_run"]
     overall_status: Literal["succeeded", "partial", "failed"]
     counts: RegistrationCounts
     rows: List[RowResult]

@@ -147,8 +147,13 @@ def recompute_for_samples(sample_ids: Set[int], driver, db_name: str) -> int:
     Measured on the reference graph: 7,972 of 522,039 DERIVED_FROM edges are in
     that state, 1.53%.
 
-    Returns the number of edges the database reported writing, which may be
-    fewer than were planned; the shortfall is logged.
+    Returns the number of RELATIONSHIPS the database reported writing. That is
+    not the same unit as "planned": `payload` holds one entry per distinct
+    (child_id, parent_id) PAIR, and a pair can be carried by several
+    DERIVED_FROM relationships (measured: 1,920 pairs, 5,117 relationships), so
+    the return can legitimately exceed the number planned as well as fall short
+    of it. Shortfall is judged on `pairs`, which is the same unit as `payload`,
+    and is logged; see the comment at the comparison below.
     """
     if not sample_ids:
         return 0

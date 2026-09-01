@@ -81,10 +81,16 @@ RESPONSE_EXAMPLE = {
     "graph": {"status": "succeeded", "edges_recomputed": 128},
 }
 
+#: `processed_rows` is 0, and it is the ONLY honest value for a running job.
+#: `runner.run_one` calls `record_progress` once, with the full total, in the
+#: line before `finish` -- so this field is 0 or `total_rows` and never anything
+#: between. The example published 4000 of 25765, which is the one shape in this
+#: schema implying granular progress the worker cannot produce, on an endpoint
+#: whose entire subject is not overstating what happened.
 JOB_EXAMPLE = {
     "job_id": "123e4567-e89b-12d3-a456-426614174000",
     "state": "running",
-    "processed_rows": 4000,
+    "processed_rows": 0,
     "total_rows": 25765,
     "result": None,
 }
@@ -169,7 +175,11 @@ class AssayRegistrationViewSet(viewsets.ViewSet):
         responses={
             200: RegistrationResponse,
             202: RegistrationAcceptedResponse,  # the job path returns a job id, not rows
-            207: RegistrationResponse, 409: RegistrationResponse,
+            207: RegistrationResponse,
+            # 409 is the caller's case: no row was executable. 500 is ours:
+            # rows WERE executable, were inserted, and were absent on read-back.
+            # Both carry the same full per-row body; see service._http_status.
+            409: RegistrationResponse, 500: RegistrationResponse,
             422: ErrorResponse, 401: ErrorResponse, 403: ErrorResponse,
         },
         tags=["AssayRegistrations"],

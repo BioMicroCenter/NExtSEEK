@@ -100,7 +100,7 @@ def _failure_receipt(total_rows: int, code: str, message: str) -> dict:
     either all of it landed or none of it did.
     """
     return RegistrationResponse(
-        mode="synchronous",
+        mode="asynchronous",
         overall_status="failed",
         counts=RegistrationCounts(submitted=total_rows, failed=total_rows),
         rows=[RowResult(index=0, sample_uid="", status="failed",
@@ -144,7 +144,7 @@ def run_one(job, owner: str) -> bool:
         # submitted_request is JSON that has round-tripped through the database.
         # Trusting it would let a schema change turn stored data into a crash
         # inside the transaction, with the job left claimed.
-        return _fail(job, owner, "request_validation_error", str(exc))
+        return _fail(job, owner, "job_request_not_executable", str(exc))
 
     if payload.dry_run:
         # Unreachable through `service.register`, which returns the preview
@@ -152,7 +152,7 @@ def run_one(job, owner: str) -> bool:
         # own terms rather than by a caller's construction: a stored request
         # that says "do not write" must not be executed by whatever puts a row
         # in this table next.
-        return _fail(job, owner, "request_validation_error",
+        return _fail(job, owner, "job_request_not_executable",
                      "job carries dry_run=true; a dry run is answered inline and "
                      "must never be executed as a durable job")
 
@@ -180,14 +180,18 @@ def run_one(job, owner: str) -> bool:
     # with nothing pinning the invariant across the boundary. Belt and braces,
     # cheaply. assay_assets is the source of truth; the graph is derived.
     try:
-        graph: GraphOutcome = _recompute(result.written_sample_ids)
+        graph: GraphOutcome = _recompute(result.recompute_sample_ids)
     except Exception as exc:  # noqa: BLE001
         log.exception("assay-registration job %s: recompute raised", job.job_id)
         graph = GraphOutcome(status="failed", error=str(exc))
 
     jobs.record_progress(job, owner, result.counts.submitted)
     body = RegistrationResponse(
-        mode="synchronous", overall_status=result.overall_status,
+        # "asynchronous", not "synchronous". Everything this module writes is
+        # read back from `status_url` by a caller who was handed
+        # ``{"mode": "asynchronous"}`` at 202; telling them the batch ran
+        # synchronously contradicts the reply that sent them here.
+        mode="asynchronous", overall_status=result.overall_status,
         counts=result.counts, rows=result.rows, graph=graph,
     )
     if not jobs.finish(job, owner, result.overall_status, body.model_dump(mode="json")):

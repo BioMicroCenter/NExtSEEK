@@ -60,7 +60,7 @@ def _result(written=1, overall_status="succeeded"):
         rows=[RowResult(index=0, sample_uid="D.NHP-1", status="written",
                         assay_assets_id=414936)],
         counts=RegistrationCounts(submitted=1, written=written),
-        written_sample_ids={100}, overall_status=overall_status,
+        recompute_sample_ids={100}, overall_status=overall_status,
     )
 
 
@@ -125,7 +125,14 @@ class TestRunOne:
         assert runner.run_one(job, "worker-a") is False
         job.refresh_from_db()
         assert job.state == "failed"
-        assert job.terminal_result["rows"][0]["error"]["code"] == "request_validation_error"
+        assert job.terminal_result["rows"][0]["error"]["code"] == \
+            "job_request_not_executable", (
+            "NOT request_validation_error, which is the ViewSet's 422 envelope "
+            "code for a live POST body. The caller of this receipt never sent a "
+            "bad body -- the STORED request no longer revalidates -- and the "
+            "actions differ: 422 says fix and resubmit, this says the job is "
+            "dead and retrying it will fail identically"
+        )
 
     def test_a_revalidation_failure_never_opens_a_connection(self, actor):
         """The point of revalidating is to fail BEFORE the transaction, not
@@ -304,7 +311,11 @@ class TestTheReceiptIsReadableByTheStatusEndpoint:
         status = self._status(job)
         assert status.state == "succeeded"
         assert status.processed_rows == 1 and status.total_rows == 1
-        assert status.result.mode == "synchronous"
+        assert status.result.mode == "asynchronous", (
+            "the caller was handed mode 'asynchronous' at 202 and sent to this "
+            "very status_url; a receipt saying 'synchronous' contradicts the "
+            "reply that sent them here"
+        )
         assert status.result.counts.written == 1
         assert status.result.rows[0].assay_assets_id == 414936
         assert status.result.graph.edges_recomputed == 3
@@ -333,7 +344,28 @@ class TestTheReceiptIsReadableByTheStatusEndpoint:
         runner.run_one(job, "worker-a")
         status = self._status(job)
         assert status.state == "failed"
-        assert status.result.rows[0].error.code == "request_validation_error"
+        assert status.result.rows[0].error.code == "job_request_not_executable"
+        assert status.result.mode == "asynchronous"
+
+    def test_every_receipt_this_module_writes_says_asynchronous(self, actor):
+        """Both shapes, not just the happy one. `_failure_receipt` is the only
+        failure receipt, and it stored "synchronous" too."""
+        import ast
+        import inspect
+
+        from nextseek_api.assay_registration import runner as runner_module
+
+        modes = {
+            kw.value.value
+            for node in ast.walk(ast.parse(inspect.getsource(runner_module)))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "RegistrationResponse"
+            for kw in node.keywords
+            if kw.arg == "mode" and isinstance(kw.value, ast.Constant)
+        }
+        assert modes == {"asynchronous"}, (
+            f"runner.py builds a RegistrationResponse with mode {sorted(modes)}"
+        )
 
     def test_a_cancellation_stores_no_receipt_and_still_reads_back(self, actor):
         """`overall_status` has no "cancelled" member, so a receipt here could

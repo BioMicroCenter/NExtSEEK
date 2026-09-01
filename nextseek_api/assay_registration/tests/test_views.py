@@ -80,7 +80,7 @@ class TestOutcomes:
             rows=[RowResult(index=0, sample_uid="A", status="written",
                             assay_assets_id=1)],
             counts=RegistrationCounts(submitted=1, written=1),
-            written_sample_ids={100}, overall_status="succeeded")
+            recompute_sample_ids={100}, overall_status="succeeded")
         response = self._run(superuser, result)
         assert response.status_code == 200
         assert response.json()["counts"]["written"] == 1
@@ -96,11 +96,17 @@ class TestOutcomes:
                           error=RowError(code="sample_uid_not_unique", message="2 rows")),
             ],
             counts=RegistrationCounts(submitted=2, written=1, skipped=1),
-            written_sample_ids={100}, overall_status="partial")
+            recompute_sample_ids={100}, overall_status="partial")
         response = self._run(superuser, result)
         assert response.status_code == 207
 
     def test_nothing_executable_is_409(self, superuser):
+        """409 is the CALLER's case: nothing they submitted was executable.
+
+        Every row here was skipped by the resolver -- an unknown uid, an
+        ambiguous title -- which is what the spec means by "no executable rows
+        at all". Contrast the read-back failure below, which is ours.
+        """
         from nextseek_api.assay_registration.executor import ExecutionResult
         from nextseek_api.assay_registration.schemas import (
             RegistrationCounts, RowError, RowResult)
@@ -108,15 +114,62 @@ class TestOutcomes:
             rows=[RowResult(index=0, sample_uid="DUP", status="skipped",
                             error=RowError(code="sample_uid_not_unique", message="2"))],
             counts=RegistrationCounts(submitted=1, skipped=1),
-            written_sample_ids=set(), overall_status="failed")
+            recompute_sample_ids=set(), overall_status="failed")
         response = self._run(superuser, result)
         assert response.status_code == 409
+
+    def test_a_batch_lost_at_readback_is_500_not_409(self, superuser):
+        """A server-side failure must not be attributed to the caller.
+
+        Every row was executable and every insert vanished at read-back. The
+        request was fine; the write was not. 409 told the caller "no executable
+        rows at all" -- the one thing that demonstrably was not the problem --
+        and invited them to go and fix a body that was already correct. The
+        rows carry `write_not_confirmed_by_readback` either way, so this is
+        about the status LINE agreeing with the body it carries.
+        """
+        from nextseek_api.assay_registration.executor import ExecutionResult
+        from nextseek_api.assay_registration.schemas import (
+            RegistrationCounts, RowError, RowResult)
+        result = ExecutionResult(
+            rows=[RowResult(index=0, sample_uid="A", status="failed",
+                            sample_id=100, assay_id=351,
+                            error=RowError(code="write_not_confirmed_by_readback",
+                                           message="not in assay_assets"))],
+            counts=RegistrationCounts(submitted=1, failed=1),
+            recompute_sample_ids=set(), overall_status="failed")
+        response = self._run(superuser, result)
+        assert response.status_code == 500
+        body = response.json()
+        assert body["rows"][0]["error"]["code"] == "write_not_confirmed_by_readback"
+        assert body["counts"]["failed"] == 1
+
+    def test_a_partial_batch_carrying_a_readback_failure_stays_207(self, superuser):
+        """The split is inside `failed` only. Rows DID write here, and 207's
+        meaning -- read the per-row report -- is unchanged by one bad row."""
+        from nextseek_api.assay_registration.executor import ExecutionResult
+        from nextseek_api.assay_registration.schemas import (
+            RegistrationCounts, RowError, RowResult)
+        result = ExecutionResult(
+            rows=[
+                RowResult(index=0, sample_uid="A", status="written",
+                          assay_assets_id=1),
+                RowResult(index=1, sample_uid="B", status="failed",
+                          error=RowError(code="write_not_confirmed_by_readback",
+                                         message="not in assay_assets")),
+            ],
+            counts=RegistrationCounts(submitted=2, written=1, failed=1),
+            recompute_sample_ids={100}, overall_status="partial")
+        assert self._run(superuser, result).status_code == 207
 
     def test_a_graph_failure_does_not_lose_the_mysql_write(self, superuser):
         """The graph is DERIVED from assay_assets, so a failed recompute is a
         stale view, not an inconsistency. Rolling back a correct MySQL write to
         satisfy it would be strictly worse. Re-POSTing the same batch repairs
-        it: every row comes back already_present and the recompute re-runs.
+        it: every row comes back already_present and the recompute re-runs --
+        which is true only because `recompute_sample_ids` is written UNION
+        already_present. `TestTheRePostRepairPath` below pins that leg; without
+        it this docstring described a recovery the code could not perform.
         """
         from nextseek_api.assay_registration.executor import ExecutionResult
         from nextseek_api.assay_registration.schemas import RegistrationCounts, RowResult
@@ -128,7 +181,7 @@ class TestOutcomes:
             rows=[RowResult(index=0, sample_uid="A", status="written",
                             assay_assets_id=414936)],
             counts=RegistrationCounts(submitted=1, written=1),
-            written_sample_ids={100}, overall_status="succeeded")
+            recompute_sample_ids={100}, overall_status="succeeded")
         response = self._run(superuser, result, graph_error=boom)
 
         body = response.json()
@@ -137,6 +190,121 @@ class TestOutcomes:
         assert body["rows"][0]["assay_assets_id"] == 414936
         assert body["graph"]["status"] == "failed"
         assert "bolt" in body["graph"]["error"]
+
+    def test_a_failed_graph_outcome_reports_no_edge_count(self, superuser):
+        """The read pass itself failed, so there is no honest figure to give.
+
+        `edges_recomputed` is 0 here because nothing was counted, not because
+        zero edges were touched. The spec promised an "affected edge count" on
+        this path; it was corrected rather than invented, and this pins that the
+        error string is the whole of what a failed outcome says.
+        """
+        from nextseek_api.assay_registration.executor import ExecutionResult
+        from nextseek_api.assay_registration.schemas import RegistrationCounts, RowResult
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("bolt connection refused")
+
+        result = ExecutionResult(
+            rows=[RowResult(index=0, sample_uid="A", status="written",
+                            assay_assets_id=1)],
+            counts=RegistrationCounts(submitted=1, written=1),
+            recompute_sample_ids={100}, overall_status="succeeded")
+        graph = self._run(superuser, result, graph_error=boom).json()["graph"]
+        assert graph == {"status": "failed", "edges_recomputed": 0,
+                         "error": "bolt connection refused"}
+
+
+@pytest.mark.django_db
+class TestTheRePostRepairPath:
+    """The published recovery instruction, driven end to end through the view.
+
+    `service._recompute`'s docstring, the spec's Recovery section and the
+    endpoint description all tell an operator with a stale graph to re-POST the
+    identical batch. Every pair then answers `already_present`, so nothing is
+    written -- and while the recompute was fed the WRITTEN-only set, that made
+    `recompute_sample_ids` empty, short-circuited `_recompute` to
+    `{"status": "skipped"}`, and repaired nothing while reporting that there was
+    nothing to repair. An operator following the instruction would read
+    `skipped` and conclude the graph was fine.
+
+    These two tests fail against the pre-fix code: the first because the
+    recompute is never called, the second because the graph block says skipped.
+    """
+
+    def _repost(self, superuser):
+        from nextseek_api.assay_registration.executor import ExecutionResult
+        from nextseek_api.assay_registration.schemas import RegistrationCounts, RowResult
+
+        result = ExecutionResult(
+            rows=[
+                RowResult(index=0, sample_uid="A", status="already_present",
+                          sample_id=100, assay_id=351, assay_assets_id=900),
+                RowResult(index=1, sample_uid="B", status="already_present",
+                          sample_id=200, assay_id=351, assay_assets_id=901),
+            ],
+            counts=RegistrationCounts(submitted=2, already_present=2),
+            # written UNION already_present: nothing was written, both rows are
+            # already there, and both still need their derived labels rebuilt.
+            recompute_sample_ids={100, 200}, overall_status="succeeded")
+
+        client = APIClient()
+        client.force_authenticate(user=superuser)
+        with patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
+             patch("nextseek_api.assay_registration.service.execute",
+                   return_value=result), \
+             patch("nextseek_api.assay_registration.service.get_connection"), \
+             patch("nextseek_api.assay_registration.service._neo4j",
+                   return_value=(MagicMock(), "neo4j")), \
+             patch("nextseek_api.assay_registration.service.recompute_for_samples",
+                   return_value=128) as recompute:
+            plan.return_value = MagicMock(
+                total_rows=2, execution_mode=lambda threshold: "synchronous")
+            response = client.post(URL, BODY, format="json")
+        return response, recompute
+
+    def test_the_recompute_runs_on_the_already_present_sample_ids(self, superuser):
+        response, recompute = self._repost(superuser)
+        assert response.status_code == 200
+        recompute.assert_called_once()
+        assert recompute.call_args[0][0] == {100, 200}, (
+            "the rows the caller asked about, not the rows this request "
+            "happened to insert -- which was none of them"
+        )
+
+    def test_the_graph_block_reports_the_repair_rather_than_a_skip(self, superuser):
+        response, _ = self._repost(superuser)
+        assert response.json()["graph"] == {
+            "status": "succeeded", "edges_recomputed": 128, "error": None}
+
+    def test_a_batch_with_nothing_ok_at_all_still_skips(self, superuser):
+        """`skipped` is not deleted, it is narrowed: it now means no row ended
+        written or already_present, so no membership exists for a label to be
+        derived from. Widening the input must not turn that into a pointless
+        Neo4j round trip."""
+        from nextseek_api.assay_registration.executor import ExecutionResult
+        from nextseek_api.assay_registration.schemas import (
+            RegistrationCounts, RowError, RowResult)
+
+        result = ExecutionResult(
+            rows=[RowResult(index=0, sample_uid="DUP", status="skipped",
+                            error=RowError(code="sample_uid_not_found", message="m"))],
+            counts=RegistrationCounts(submitted=1, skipped=1),
+            recompute_sample_ids=set(), overall_status="failed")
+
+        client = APIClient()
+        client.force_authenticate(user=superuser)
+        with patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
+             patch("nextseek_api.assay_registration.service.execute",
+                   return_value=result), \
+             patch("nextseek_api.assay_registration.service.get_connection"), \
+             patch("nextseek_api.assay_registration.service._neo4j") as neo:
+            plan.return_value = MagicMock(
+                total_rows=1, execution_mode=lambda threshold: "synchronous")
+            response = client.post(URL, BODY, format="json")
+
+        neo.assert_not_called()
+        assert response.json()["graph"]["status"] == "skipped"
 
 
 @pytest.mark.django_db
@@ -218,7 +386,7 @@ class TestTransactionOrdering:
             rows=[RowResult(index=0, sample_uid="A", status="written",
                             assay_assets_id=414936)],
             counts=RegistrationCounts(submitted=1, written=1),
-            written_sample_ids={100}, overall_status="succeeded")
+            recompute_sample_ids={100}, overall_status="succeeded")
 
         def _execute(*args, **kwargs):
             events.append("execute")
@@ -251,7 +419,7 @@ class TestTransactionOrdering:
             rows=[RowResult(index=0, sample_uid="A", status="written",
                             assay_assets_id=1)],
             counts=RegistrationCounts(submitted=1, written=1),
-            written_sample_ids={100}, overall_status="succeeded")
+            recompute_sample_ids={100}, overall_status="succeeded")
         with _patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
              _patch("nextseek_api.assay_registration.service.execute",
                     return_value=result), \
@@ -270,7 +438,7 @@ class TestTransactionOrdering:
             rows=[RowResult(index=0, sample_uid="A", status="already_present",
                             assay_assets_id=219104)],
             counts=RegistrationCounts(submitted=1, already_present=1),
-            written_sample_ids=set(), overall_status="succeeded")
+            recompute_sample_ids=set(), overall_status="succeeded")
         with _patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
              _patch("nextseek_api.assay_registration.service.execute",
                     return_value=result), \
@@ -290,7 +458,7 @@ class TestDryRun:
         preview_result = ExecutionResult(
             rows=[RowResult(index=0, sample_uid="A", status="written")],
             counts=RegistrationCounts(submitted=1, written=1),
-            written_sample_ids=set(), overall_status="succeeded")
+            recompute_sample_ids=set(), overall_status="succeeded")
         with _patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
              _patch("nextseek_api.assay_registration.service.preview",
                     return_value=preview_result), \
@@ -313,9 +481,12 @@ class TestAsynchronousPath:
     """A batch over the threshold gets a durable job and a 202.
 
     NOTE, deliberately asserted: the job is created in state `accepted` with
-    zero processed rows, and NOTHING in this branch claims or runs it. The 202
-    is a promise no worker keeps yet. These tests pin the observable facts so
-    the worker task can be written against them rather than around them.
+    zero processed rows, and nothing on the REQUEST path claims or runs it. A
+    worker exists now (`runner.py`, drained by the `assay_registration_worker`
+    service), but it is a separate process reached through the job table, so
+    these remain the observable facts at the moment the 202 is written. What
+    changed is why they matter: the handoff has to be complete and durable in
+    the request, because the process that picks it up shares nothing with it.
     """
 
     def _post(self, superuser, total_rows=6000):
@@ -360,7 +531,12 @@ class TestAsynchronousPath:
         assert RegistrationRequest.model_validate(job.submitted_request)
 
     def test_nothing_has_claimed_or_started_the_job(self, superuser):
-        """Honest, not aspirational: no worker exists on this branch yet."""
+        """The REQUEST does not run the batch, it only records it.
+
+        Not "no worker exists": one does. The claim belongs to `runner.claim`
+        in a separate process, and a request that pre-claimed or pre-advanced
+        the job would hand the worker a lease it does not hold.
+        """
         body = self._post(superuser).json()
         job = AssayRegistrationJob.objects.get(job_id=body["job_id"])
         assert (job.state, job.processed_rows, job.claim_owner) == ("accepted", 0, None)
@@ -562,7 +738,7 @@ class TestResponseFidelity:
             rows=[RowResult(index=0, sample_uid="A", status="written",
                             assay_assets_id=414936)],
             counts=RegistrationCounts(submitted=1, written=1),
-            written_sample_ids={100}, overall_status="succeeded")
+            recompute_sample_ids={100}, overall_status="succeeded")
 
     def test_a_real_write_is_labelled_synchronous_not_dry_run(self, superuser):
         response = TestOutcomes()._run(superuser, self._result())
@@ -617,10 +793,51 @@ class TestThreshold:
 #: Everything else in ERROR_CODES describes a row outcome and therefore has to
 #: appear in the published description, or a caller meets it with no way to look
 #: it up.
+#:
+#: Membership here is an EXEMPTION from documentation, so a code listed wrongly
+#: is undocumented and unguarded at once -- which is exactly what happened to
+#: `request_validation_error`: it sat here while `runner.py` put it inside a
+#: `RowResult.error` in a stored receipt that a caller reads back from
+#: `status_url`. `test_no_row_building_module_takes_the_envelope_exemption`
+#: below is the structural guard that would have caught it, and the runner now
+#: emits its own declared `job_request_not_executable` instead.
 ENVELOPE_ONLY_CODES = frozenset({
     "request_validation_error", "job_not_found", "not_cancellable",
     "authentication_failed", "permission_denied",
 })
+
+#: Modules that construct per-row receipts. Nothing they emit may be exempt.
+ROW_BUILDING_MODULES = ("executor.py", "resolver.py", "runner.py")
+
+
+def _declared_codes_used_in(filename):
+    """Every ERROR_CODES member appearing as a live string literal in a module.
+
+    Literal-based rather than keyword-based on purpose: `runner.py` passes its
+    code POSITIONALLY through `_fail` -> `_failure_receipt`, so a scan for
+    `code=` keyword arguments would have found nothing there and reported the
+    module clean. Docstrings are excluded (several discuss codes at length);
+    `#` comments never reach the AST.
+    """
+    import ast
+    import pathlib
+
+    from nextseek_api.assay_registration import schemas
+    from nextseek_api.assay_registration.schemas import ERROR_CODES
+
+    path = pathlib.Path(schemas.__file__).with_name(filename)
+    tree = ast.parse(path.read_text())
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            first = node.body[0] if node.body else None
+            if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                docstrings.add(id(first.value))
+    return {node.value for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and node.value in ERROR_CODES and id(node) not in docstrings}
 
 
 @pytest.mark.django_db
@@ -629,9 +846,12 @@ class TestTheAcceptedCountsPromiseNothing:
 
     `preview(plan)` labels every row in `plan.to_write` "written", so
     `counts=preview(plan).counts` answered a 25,765-row POST with
-    `{"written": 25700}` before a single row existed -- and, with no worker on
-    this branch, before any ever would. That is the defect this endpoint was
-    built to remove, reproduced on its own new path.
+    `{"written": 25700}` before a single row existed. A worker exists now, so
+    those rows will eventually be written -- which makes the projection worse,
+    not better: it is indistinguishable from a receipt until the moment it
+    stops being true, and on any instance running without
+    `COMPOSE_PROFILES=assay-registration` it never becomes true at all. That is
+    the defect this endpoint was built to remove, reproduced on its own new path.
     """
 
     def _post(self, superuser, total_rows=6000):
@@ -749,12 +969,97 @@ class TestThePublishedErrorCodes:
             if f"`{code}`" not in ASSAY_REGISTRATION_CREATE_DESC)
         assert undocumented == []
 
-    def test_the_envelope_only_split_still_covers_every_declared_code(self):
-        """Guards the guard: if a code is neither documented nor listed as
-        envelope-only, the test above would quietly stop checking it."""
+    def test_no_envelope_only_entry_is_stale(self):
+        """A code retired from ERROR_CODES but left in the exemption list.
+
+        Note what this does NOT do, because its docstring used to claim it: a
+        code that is neither documented nor exempt is caught by the test ABOVE,
+        which iterates `ERROR_CODES - ENVELOPE_ONLY_CODES`. This assertion runs
+        the other way, over entries the exemption list holds that ERROR_CODES no
+        longer declares -- harmless on its own, but a stale name here silently
+        exempts nothing while looking like it exempts something.
+        """
         from nextseek_api.assay_registration.schemas import ERROR_CODES
 
         assert ENVELOPE_ONLY_CODES <= ERROR_CODES
+
+    def test_no_row_building_module_takes_the_envelope_exemption(self):
+        """The structural guard, in the direction the defect actually ran.
+
+        `ENVELOPE_ONLY_CODES` is hand-maintained, and a code listed there is
+        excluded from the documentation check above. So a module that puts an
+        "envelope-only" code inside a `RowResult.error` gets a live row-level
+        code that is undocumented AND unchecked -- which is precisely what
+        `runner.py` did with `request_validation_error`, in a receipt read back
+        from `status_url`. Reading the exemption against what the row-building
+        modules actually construct closes that loop without hand-listing
+        anything.
+        """
+        offenders = {
+            module: sorted(_declared_codes_used_in(module) & ENVELOPE_ONLY_CODES)
+            for module in ROW_BUILDING_MODULES
+        }
+        assert {m: c for m, c in offenders.items() if c} == {}, (
+            "these modules build per-row receipts, so every code they emit is "
+            "row-level and must be documented rather than exempted"
+        )
+
+    def test_the_scan_that_guard_depends_on_actually_finds_codes(self):
+        """Guards the guard: an AST scan that silently returns nothing would
+        make the test above pass over any amount of drift."""
+        found = {m: _declared_codes_used_in(m) for m in ROW_BUILDING_MODULES}
+        assert all(found.values()), found
+        assert "write_not_confirmed_by_readback" in found["executor.py"]
+        assert "job_request_not_executable" in found["runner.py"], (
+            "passed positionally through _fail(), which a `code=` keyword scan "
+            "would have missed entirely"
+        )
+        assert "sample_uid_not_unique" in found["resolver.py"]
+
+
+class TestThePublishedJobExample:
+    """The example is schema, not decoration: drf-spectacular renders it into
+    /schema/ and it is the only thing a client reads before writing a poller."""
+
+    def test_it_does_not_imply_progress_the_worker_cannot_produce(self):
+        """`runner.run_one` calls `record_progress` once, with the full total,
+        in the line before `finish`. So `processed_rows` is 0 or `total_rows`,
+        never anything between -- and the example published 4000 of 25765.
+        """
+        from nextseek_api.assay_registration.views import JOB_EXAMPLE
+
+        assert JOB_EXAMPLE["processed_rows"] in (0, JOB_EXAMPLE["total_rows"])
+        assert JOB_EXAMPLE["state"] == "running"
+        assert JOB_EXAMPLE["processed_rows"] == 0, (
+            "a running job has processed 0 rows: the write is one transaction, "
+            "so there is no honest number in between"
+        )
+
+    def test_the_description_says_so_in_words(self):
+        from nextseek_api.endpoint_descriptions import ASSAY_REGISTRATION_JOB_DESC
+
+        assert "`processed_rows` stays 0 until the batch is terminal" in \
+            ASSAY_REGISTRATION_JOB_DESC
+
+    def test_the_runner_records_progress_exactly_once_with_the_total(self):
+        """The source of the claim above, asserted rather than trusted: a
+        second `record_progress` call, or one with a partial figure, would make
+        the example and the description wrong again."""
+        import ast
+        import inspect
+
+        from nextseek_api.assay_registration import runner as runner_module
+
+        calls = [
+            node for node in ast.walk(ast.parse(inspect.getsource(runner_module)))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "record_progress"
+        ]
+        assert len(calls) == 1, "more than one progress write means granular progress"
+        [processed] = [ast.unparse(a) for a in calls[0].args[2:3]]
+        assert processed == "result.counts.submitted", (
+            f"progress is written as {processed}, not the whole batch"
+        )
 
 
 class TestTheDescriptionDoesNotOverstate:

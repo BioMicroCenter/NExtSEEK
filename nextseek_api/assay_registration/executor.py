@@ -40,7 +40,19 @@ MEMBERSHIP_DIRECTION = 0
 class ExecutionResult:
     rows: List[RowResult]
     counts: RegistrationCounts
-    written_sample_ids: Set[int] = field(default_factory=set)
+    #: Sample ids whose derived graph labels this batch may have invalidated:
+    #: every row that ended `written` OR `already_present`, not just the rows
+    #: this request inserted. The name says what it holds, because the narrower
+    #: written-only set silently disabled the documented repair path -- on a
+    #: re-POST of an identical batch every pair is already_present, so nothing
+    #: is written, so the recompute was skipped and an operator following the
+    #: published recovery instruction was answered `graph: {"status":
+    #: "skipped"}` and concluded the graph was fine.
+    #:
+    #: Widening costs nothing: RECOMPUTE_CYPHER is measured FLAT in batch size
+    #: (0.40s for 3 edges, 0.50s for 20,000; see graph.py), and it is the same
+    #: scope the caller named -- the rows they asked about.
+    recompute_sample_ids: Set[int] = field(default_factory=set)
     overall_status: str = "succeeded"
 
 
@@ -61,11 +73,12 @@ def _overall(counts: RegistrationCounts) -> str:
     return "failed"
 
 
-def _finish(rows: List[RowResult], total: int, written_sample_ids: Set[int]) -> ExecutionResult:
+def _finish(rows: List[RowResult], total: int,
+            recompute_sample_ids: Set[int]) -> ExecutionResult:
     rows.sort(key=lambda r: r.index)
     counts = _tally(rows, total)
     return ExecutionResult(rows=rows, counts=counts,
-                           written_sample_ids=written_sample_ids,
+                           recompute_sample_ids=recompute_sample_ids,
                            overall_status=_overall(counts))
 
 
@@ -93,11 +106,33 @@ def preview(plan: Plan) -> ExecutionResult:
             rows.append(_base_row(resolved, "already_present"))
         else:
             rows.append(_base_row(resolved, "skipped", error=resolved.error))
+    # Empty on purpose: a dry run writes nothing, so it invalidates no derived
+    # label and has nothing to hand a recompute. `service.register` reports the
+    # graph block as `skipped` on this path without consulting this field.
     return _finish(rows, plan.total_rows, set())
 
 
 def execute(plan: Plan, conn) -> ExecutionResult:
-    """Insert, read back, and report from the read-back."""
+    """Insert, read back, and report from the read-back.
+
+    Requires an OPEN TRANSACTION, and enforces it rather than advertising it --
+    the same move `ERROR_CODES` and `TERMINAL_STATES` already make. THE RECEIPT
+    RULE above is a claim about the read-back seeing the insert atomically. On
+    an autocommit connection the insert commits before the SELECT, and the two
+    calls become separately visible to every other writer: the read-back stops
+    being evidence about THIS transaction and degrades into "somebody has this
+    pair", which is exactly the thing `DBtable.storeOneRecord` did wrong. Both
+    current callers open a transaction, so this raises for nobody today; the
+    point is that the property is preserved by construction instead of by
+    caller convention.
+    """
+    if not conn.in_transaction():
+        raise RuntimeError(
+            "execute() requires an open transaction: the read-back that "
+            "licenses every 'written' status is only evidence inside one. "
+            "Call it under nextseek_api.batch_upload.db_engine.get_connection()."
+        )
+
     if plan.to_write:
         records = [
             (row.assay_id, row.sample_id, "Sample", MEMBERSHIP_DIRECTION, None, 1)
@@ -111,13 +146,19 @@ def execute(plan: Plan, conn) -> ExecutionResult:
         confirmed = {}
 
     rows: List[RowResult] = []
-    written_sample_ids: Set[int] = set()
+    recompute_sample_ids: Set[int] = set()
     write_indexes = {r.index for r in plan.to_write}
 
     for resolved in plan.resolved:
         if resolved.index in plan.already_present:
             rows.append(_base_row(resolved, "already_present",
                                   assay_assets_id=plan.already_present[resolved.index]))
+            # Collected, NOT skipped. This is the whole re-POST repair path: on
+            # an identical batch every pair lands here, `plan.to_write` is
+            # empty, and a written-only set would leave the recompute with
+            # nothing to do -- so the documented recovery would answer
+            # `graph: {"status": "skipped"}` and repair nothing.
+            recompute_sample_ids.add(resolved.sample_id)
             continue
         if not resolved.ok:
             rows.append(_base_row(resolved, "skipped", error=resolved.error))
@@ -126,6 +167,8 @@ def execute(plan: Plan, conn) -> ExecutionResult:
         key = (resolved.assay_id, resolved.sample_id)
         row_id = confirmed.get(key)
         if row_id is None:
+            # NOT collected. Nothing is in assay_assets for this pair, so there
+            # is no membership for a recompute to derive a label from.
             rows.append(_base_row(resolved, "failed", error=RowError(
                 code="write_not_confirmed_by_readback",
                 message="the insert reported no error but the row is not in "
@@ -134,12 +177,12 @@ def execute(plan: Plan, conn) -> ExecutionResult:
             )))
             continue
 
+        recompute_sample_ids.add(resolved.sample_id)
         if resolved.index in write_indexes:
             rows.append(_base_row(resolved, "written", assay_assets_id=row_id))
-            written_sample_ids.add(resolved.sample_id)
         else:
             # A duplicate pair inside the same request. It exists now because
             # its twin wrote it, so the honest status is already_present.
             rows.append(_base_row(resolved, "already_present", assay_assets_id=row_id))
 
-    return _finish(rows, plan.total_rows, written_sample_ids)
+    return _finish(rows, plan.total_rows, recompute_sample_ids)

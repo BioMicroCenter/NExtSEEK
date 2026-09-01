@@ -9,12 +9,16 @@ than the code delivers is worse than one that names the exception:
   `claim_owner` plus a state predicate instead, which is what actually matters
   for them: only the lease holder may advance or terminate its own job.
 
-Every writer bumps `state_version` with `models.F("state_version") + 1`, never
-with a Python-side `job.state_version + 1`. The Python-side form reads a value
-that may already be stale and writes a version the row has ALREADY HELD, which
-makes the token non-monotonic and lets a party holding that number pass a later
-compare-and-set it should fail. That is an ABA, and it was live here in the one
-function that terminates the job.
+NOT every writer bumps `state_version`, and the two that do not are the two
+listed above as not being compare-and-set: `heartbeat` and `record_progress`
+touch no state, so bumping the token would invalidate a live handle for no
+reason. What holds without exception is the FORM of the bump: wherever a writer
+does move `state_version`, it moves it with `models.F("state_version") + 1`,
+never with a Python-side `job.state_version + 1`. The Python-side form reads a
+value that may already be stale and writes a version the row has ALREADY HELD,
+which makes the token non-monotonic and lets a party holding that number pass a
+later compare-and-set it should fail. That is an ABA, and it was live here in
+the one function that terminates the job.
 
 Modelled on `nextseek_api/attributes/jobs.py`, which is the pattern rather than
 the class: that store carries per-sample-type partitions this endpoint does not
