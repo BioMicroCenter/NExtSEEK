@@ -34,6 +34,20 @@ from startup.steps.registry_push import (
 TOKEN = "ghp_fake_token_for_tests_only"
 
 
+@pytest.fixture(autouse=True)
+def _stub_the_rebuild_ci_hook(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`rebuild` ends by running the CI smoke suite in a subprocess.
+
+    Nothing in this file is about CI, and no unit test may launch a real pytest
+    run against a real stack, so the hook returns 0 for every test here. The
+    hook's own behaviour (argv, env, --no-ci, the failing-CI exit) is covered in
+    test_cli_commands.py.
+    """
+    from startup.ci import runner as ci_runner
+
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *args, **kwargs: 0)
+
+
 # ---------------------------------------------------------------------------
 # Credential file loading
 # ---------------------------------------------------------------------------

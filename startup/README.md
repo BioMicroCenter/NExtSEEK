@@ -101,6 +101,49 @@ flagging it until a push succeeds. Credential: a classic PAT with
 `~/.config/nextseek/ghcr.env` as `GHCR_USER=…` / `GHCR_TOKEN=…` (mode 600;
 override the path with `NEXTSEEK_GHCR_ENV`). See DEPLOYMENT.md §5.2.
 
+A rebuild ends by running the CI smoke suite against the rebuilt stack, with
+the readiness gate applied. `--no-ci` skips it.
+
+```
+./startup.sh rebuild --no-ci                      # rebuild only; run CI yourself later
+```
+
+**If CI fails after a rebuild** the failure is reported and `rebuild` exits with
+the suite's exit code. The rebuild is *not* rolled back — undoing a deploy is a
+larger and more dangerous action than the one it would be reacting to, so the
+decision stays with the deployer. See DEPLOYMENT.md for the rollback procedure.
+
+### `ci`
+
+Runs the post-deploy smoke suite (`ci/smoke/`) against this instance's running
+stack. The suite is *subprocessed*, never imported: it needs pytest, requests
+and playwright, and `startup/` deliberately depends on none of them.
+
+```
+./startup.sh ci                       # against http://127.0.0.1:<this instance's nextseek port>
+./startup.sh ci --wait-ready          # apply the readiness floor first (what rebuild does)
+./startup.sh ci --profile prod        # narrow: run only what a prod box permits
+./startup.sh ci --force-profile local # widen: prompts, see below
+```
+
+**The box declares its own profile**, as `ci_profile` in
+`startup/.instance.json` (`local`, `dev` or `prod`). It decides which routes in
+the registry the suite may call: a route registered for `local,dev` is not
+called on a box declaring `prod`. **An absent or empty `ci_profile` means
+`prod`**: a machine nobody has configured gets the most restrictive profile,
+never the least.
+
+`--profile` may only *narrow* that declaration; asking for a wider one exits
+non-zero rather than running. `--force-profile` is the deliberate override: it
+asks for confirmation at the terminal, and only an answered `yes` passes the
+acknowledgement the suite requires. Nothing is written back to
+`.instance.json`, so the widening lasts exactly one run.
+
+Credentials come from `~/.config/nextseek/ci.env` (mode 600, never committed);
+environment variables override the file and `NEXTSEEK_CI_ENV` points at a
+different one. See `ci/smoke/README.md` for the file's contents and for what
+each profile covers.
+
 ### `seed-filestore`
 
 Loads `startup/seed/filestore.tar.gz` into the running `seek` container's
@@ -154,7 +197,7 @@ Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
 | `docker/bedrock-proxy/proxy-secret.env` | gitignored | Bedrock proxy runtime token + region |
 | `dmac/local_settings.py` | gitignored | Django settings overlay |
 | `.env` | gitignored | Non-secret compose project + published port vars |
-| `startup/.instance.json` | gitignored | Per-instance state (name, prefix, ports) |
+| `startup/.instance.json` | gitignored | Per-instance state (name, prefix, ports, CI profile) |
 | `logs/` | gitignored | Container runtime logs |
 
 ## Tests & coverage
@@ -170,7 +213,8 @@ Coverage gate (fails under 95%):
 
 ```
 uv run --project startup --group test python -m pytest startup/tests/ \
-  --cov=startup.cli --cov=startup.lib --cov=startup.steps --cov-fail-under=95
+  --cov=startup.cli --cov=startup.lib --cov=startup.steps --cov=startup.ci \
+  --cov-fail-under=95
 ```
 
 Integration lanes: `test_integration_startup.py` chains real git repos, real

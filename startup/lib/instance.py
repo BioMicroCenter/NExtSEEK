@@ -19,6 +19,10 @@ class InstanceState:
     # site_base_host are applied from this, so the two cannot drift apart.
     # Defaulted so .instance.json files written before this field still load.
     seek_public_url: str = ""
+    # Which CI profile this box permits. ABSENT MEANS "prod": a machine nobody has
+    # configured gets the most restrictive profile, never the least. Defaulted so
+    # .instance.json files written before this field still load.
+    ci_profile: str = ""
 
     def compose_env(self) -> dict[str, str]:
         """Return env vars to pass to docker compose for this instance."""

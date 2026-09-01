@@ -502,6 +502,11 @@ def rebuild(
         "--registry-push/--no-registry-push",
         help="Run the non-fatal off-box baseline push after building (default: enabled).",
     ),
+    run_ci_after: bool = typer.Option(
+        True,
+        "--ci/--no-ci",
+        help="Run the CI smoke suite after the rebuild (default: enabled).",
+    ),
 ) -> None:
     """Safely rebuild a first-party component without touching volumes."""
     from startup.lib.docker_ops import compose_build, compose_up
@@ -584,6 +589,63 @@ def rebuild(
                 registry_push_step.render_outcome(outcome)
         except Exception as exc:
             ui.warn(f"off-box baseline push step crashed ({exc}) — deploy unaffected")
+
+    if run_ci_after:
+        from startup.ci import runner
+
+        ui.info("running CI after rebuild (--no-ci to skip)")
+        rc = runner.run_ci(REPO_ROOT, state, wait_ready=True)
+        if rc != 0:
+            # The rebuild already happened and CI does not undo it. Report and exit
+            # non-zero; never auto-roll-back, which is a larger and more dangerous
+            # action than the one it would be reacting to.
+            ui.fail(f"CI failed after rebuild (exit {rc}). "
+                    f"See DEPLOYMENT.md for the rollback procedure.")
+            raise typer.Exit(code=rc)
+        ui.ok("CI passed")
+
+
+@app.command()
+def ci(
+    instance: str | None = typer.Option(None, "--instance"),
+    wait_ready: bool = typer.Option(False, "--wait-ready",
+                                    help="Apply the readiness floor first. Use after a rebuild."),
+    profile: str | None = typer.Option(None, "--profile",
+                                       help="Narrow the profile. Cannot widen."),
+    force_profile: str | None = typer.Option(None, "--force-profile",
+                                             help="Widen past what the box declares. Deliberate only."),
+) -> None:
+    """Run the CI smoke suite against this instance's running stack."""
+    from startup.ci import runner
+
+    state = load_instance(REPO_ROOT)
+    if state is None:
+        ui.fail("no instance found — run 'startup install' first")
+        raise typer.Exit(code=1)
+
+    box_profile = state.ci_profile or "prod"
+    confirm_force = False
+    if force_profile:
+        # Widening is the one thing the box's own declaration cannot authorise, so
+        # a human does it in person. The suite refuses a forced profile without
+        # CI_FORCE_PROFILE_CONFIRM=yes; only this answered prompt sets it, and only
+        # for that one subprocess. Nothing is written back to .instance.json.
+        if not typer.confirm(
+            f"Widen the CI profile to {force_profile!r} on a box declaring "
+            f"{box_profile!r}? Writes may follow.",
+            default=False,
+        ):
+            ui.fail("profile widening declined — nothing run")
+            raise typer.Exit(code=1)
+        confirm_force = True
+
+    rc = runner.run_ci(REPO_ROOT, state, wait_ready=wait_ready,
+                       profile=profile, force_profile=force_profile,
+                       confirm_force=confirm_force)
+    if rc != 0:
+        ui.fail(f"CI failed (exit {rc}). See DEPLOYMENT.md for the rollback procedure.")
+        raise typer.Exit(code=rc)
+    ui.ok("CI passed")
 
 
 @app.command(name="seed-filestore")

@@ -132,3 +132,42 @@ def test_seek_public_url_survives_save_load_roundtrip(tmp_path: Path) -> None:
     )
     save_instance(tmp_path, state)
     assert load_instance(tmp_path).seek_public_url == "https://fairdata-dev.mit.edu"
+
+
+def test_ci_profile_survives_save_load_roundtrip(tmp_path: Path) -> None:
+    state = InstanceState(
+        name="dev",
+        prefix="",
+        ports={"nextseek": 8000, "seek": 3000},
+        compose_project_name="nextseek",
+        created="2026-09-01T00:00:00Z",
+        seek_public_url="https://fairdata-dev.mit.edu",
+        ci_profile="dev",
+    )
+    save_instance(tmp_path, state)
+    assert load_instance(tmp_path).ci_profile == "dev"
+
+
+def test_load_tolerates_instance_json_written_before_ci_profile(tmp_path: Path) -> None:
+    """Every install predates this field, and an absent value must mean "prod".
+
+    load_instance does InstanceState(**data), so a field without a default would
+    raise TypeError on every existing box. The empty string it loads as is what
+    the runner reads as the most restrictive profile, never the least.
+    """
+    (tmp_path / "startup").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "startup" / ".instance.json").write_text(
+        json.dumps(
+            {
+                "name": "legacy",
+                "prefix": "",
+                "ports": {"nextseek": 8000, "seek": 3000},
+                "compose_project_name": "nextseek",
+                "created": "2026-01-01T00:00:00Z",
+                "seek_public_url": "http://localhost:3000",
+            }
+        )
+    )
+    loaded = load_instance(tmp_path)
+    assert loaded is not None
+    assert loaded.ci_profile == ""
