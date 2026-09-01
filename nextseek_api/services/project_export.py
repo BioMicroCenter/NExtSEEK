@@ -36,7 +36,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
 from pydantic import ValidationError
 from rest_framework import status, viewsets
-from rest_framework.authentication import BasicAuthentication, TokenAuthentication
+from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -259,7 +259,6 @@ class ProjectExportViewSet(viewsets.ViewSet):
     authentication_classes = [
         TokenAuthentication,
         CsrfExemptSessionAuthentication,
-        BasicAuthentication,
     ]
     # IsAuthenticated first so anonymous callers get 401 with a WWW-Authenticate
     # challenge rather than a bare 403. IsSuperUser, not DRF's IsAdminUser —

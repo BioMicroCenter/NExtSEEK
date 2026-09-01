@@ -21,7 +21,7 @@ from django.conf import settings
 from django.db.models import Q
 from pydantic import ValidationError
 from rest_framework import status, viewsets
-from rest_framework.authentication import BasicAuthentication, TokenAuthentication
+from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -416,7 +416,6 @@ class EvaluatorViewSet(viewsets.ViewSet):
     authentication_classes = [
         TokenAuthentication,
         CsrfExemptSessionAuthentication,
-        BasicAuthentication,
     ]
     # IsSuperUser, not DRF's IsAdminUser (#75). IsAdminUser checks is_staff, and
     # dmac/views.py:80,97 set is_staff = 1 on every SEEK user at login — so it was

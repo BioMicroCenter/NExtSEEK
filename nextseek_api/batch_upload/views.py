@@ -12,7 +12,7 @@ from django.http import FileResponse
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from pydantic import BaseModel, Field
 from rest_framework import status, viewsets
-from rest_framework.authentication import BasicAuthentication, TokenAuthentication
+from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -97,7 +97,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
     and provides status tracking, cancellation, and result download.
     """
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication]
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 

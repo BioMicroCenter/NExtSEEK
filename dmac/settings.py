@@ -374,10 +374,13 @@ LOGGING = {
 }
 
 REST_FRAMEWORK = {
+    # BasicAuthentication is gone (#16, sub-project 5): it validates the Django
+    # password, and after cutover no user has a usable one, so it could only
+    # ever reject. Machine callers use a per-user DRF token instead --
+    # /nextseek_api/me/api-token/ issues one.
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',

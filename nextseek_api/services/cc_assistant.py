@@ -31,7 +31,6 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.authentication import (
-    BasicAuthentication,
     SessionAuthentication,
     TokenAuthentication,
 )
@@ -446,7 +445,7 @@ def _decide_route(user, req, *, force_cc: bool, session=None, history: list[rout
 class CCAssistantViewSet(viewsets.ViewSet):
     """Router + Container-Claude-Code assistant (additive to AssistantViewSet)."""
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication]
     permission_classes = [IsAuthenticated]
 
     # ------------------------------------------------------------------ auth

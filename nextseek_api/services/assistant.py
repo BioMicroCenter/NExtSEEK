@@ -91,7 +91,6 @@ from nextseek_api.assistant.write_gate import WriteBlockedError, build_gate, loa
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.excel_export import extract_table_artifacts
 from rest_framework.authentication import (
-    BasicAuthentication,
     SessionAuthentication,
     TokenAuthentication,
 )
@@ -418,7 +417,7 @@ def _safe_artifact_path(src) -> Path | None:
 class AssistantViewSet(viewsets.ViewSet):
     """ViewSet for the NExtSEEK Assistant (multi-agent chat)."""
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication]
     permission_classes = [IsAuthenticated, UserInParticipatingProject]
 
     # ------------------------------------------------------------------

@@ -7,7 +7,7 @@ from typing import Literal
 import orjson
 from django.conf import settings
 from django.db import connections
-from rest_framework.authentication import BaseAuthentication, BasicAuthentication, TokenAuthentication
+from rest_framework.authentication import BaseAuthentication, TokenAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import BasePermission
 
@@ -22,7 +22,7 @@ class AuthenticatedSeekPerson:
     person_id: int
     django_user_id: int
     login: str
-    scheme: Literal["basic", "session", "token", "oauth"]
+    scheme: Literal["session", "token", "oauth"]
 
     def to_json(self) -> dict[str, int | str]:
         """Canonical non-secret actor provenance consumed unchanged by T03/T05/T08/T09."""
@@ -34,9 +34,9 @@ class AuthenticatedSeekPerson:
         }
 
 
-def _scheme(authenticator) -> Literal["basic", "session", "token"]:
-    if isinstance(authenticator, BasicAuthentication):
-        return "basic"
+def _scheme(authenticator) -> Literal["session", "token"]:
+    # The "basic" scheme is gone (#16, sub-project 5) along with
+    # BasicAuthentication: it proved a Django password, and no user has one.
     if isinstance(authenticator, TokenAuthentication):
         return "token"
     if isinstance(authenticator, SeekSessionAuthentication):
@@ -46,27 +46,28 @@ def _scheme(authenticator) -> Literal["basic", "session", "token"]:
 
 @dataclass(frozen=True, slots=True)
 class SelectedSeekCredential:
-    scheme: Literal["basic", "session", "token"]
-    authorization: str | None = None
+    # "basic" is gone with BasicAuthentication (#16, sub-project 5). The
+    # `authorization` field went with it: the Basic branch was its only writer,
+    # so it could only ever have been None afterwards.
+    scheme: Literal["session", "token", "oauth"]
     username: str | None = None
     password: str | None = None
 
     def proof_request(self):
         """A minimal request-like object containing only this selected credential."""
-        meta = {"HTTP_AUTHORIZATION": self.authorization} if self.authorization else {}
         session = (
             {"server": settings.SEEK_URL, "username": self.username, "password": self.password}
             if self.scheme == "session"
             else {}
         )
-        return SimpleNamespace(META=meta, COOKIES={}, session=session, method="GET")
+        return SimpleNamespace(META={}, COOKIES={}, session=session, method="GET")
 
 
 def _reject_competing_sources(request, selected_scheme: str) -> None:
     authorization = request.META.get("HTTP_AUTHORIZATION", "")
     header_scheme = authorization.partition(" ")[0].lower() if authorization else None
     sources = set()
-    if header_scheme in {"basic", "token"}:
+    if header_scheme == "token":
         sources.add(header_scheme)
     if request.COOKIES.get(settings.SESSION_COOKIE_NAME):
         sources.add("session")
@@ -91,11 +92,6 @@ def _selected_credential(request, authenticator, local_auth) -> SelectedSeekCred
         # TokenAuthentication has already proved this key against NExtSEEK's local
         # DRF token table. The bytes are secret and are never forwarded to SEEK.
         return SelectedSeekCredential("token")
-    if scheme == "basic":
-        value = request.META.get("HTTP_AUTHORIZATION")
-        if not isinstance(value, str) or not value.startswith("Basic "):
-            raise AuthenticationFailed("Selected Basic credential is unavailable.")
-        return SelectedSeekCredential("basic", authorization=value)
     username, password = request.session.get("username"), request.session.get("password")
     if isinstance(username, str) and isinstance(password, str) and username and password:
         return SelectedSeekCredential("session", username=username, password=password)
@@ -195,7 +191,7 @@ def _prove_seek_person(selected: SelectedSeekCredential, user) -> AuthenticatedS
 class SeekPersonAuthentication(BaseAuthentication):
     """Authenticate locally, then bind the selected scheme to one SEEK person."""
 
-    authenticators = (TokenAuthentication, SeekSessionAuthentication, BasicAuthentication)
+    authenticators = (TokenAuthentication, SeekSessionAuthentication)
 
     def authenticate(self, request):
         for authenticator_type in self.authenticators:

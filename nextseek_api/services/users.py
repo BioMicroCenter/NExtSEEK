@@ -12,7 +12,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from pydantic import ValidationError
 from rest_framework import viewsets
-from rest_framework.authentication import TokenAuthentication, BasicAuthentication
+from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
 
@@ -357,7 +357,7 @@ def _error_response(title: str, status: int, detail: Optional[str] = None) -> Ht
 
 
 class UsersViewSet(viewsets.ViewSet):
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication]
     permission_classes = [IsAuthenticated, IsDjangoSuperuser]
     lookup_field = "uid"
     lookup_url_kwarg = "uid"
