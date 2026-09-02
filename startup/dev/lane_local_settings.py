@@ -9,8 +9,6 @@ ASSISTANT_PARTICIPATING_PROJECTS = set(["1"])
 # Required by seek/views.py and friends — these don't have defaults in
 # dmac/settings.py, so local_settings.py MUST provide them or Django's
 # import-time check fails with AttributeError: 'Settings' has no attribute X.
-SAMPLE_TEMPLATES_FOLDER = "/templates"
-SAMPLE_TEMPLATES_FOLDER_PROJECT = "1"
 PUBLISH_STATS_FILE = "/path/to/published_stats.xlsx"
 SMART_SEARCH_URL = ""
 

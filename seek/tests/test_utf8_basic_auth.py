@@ -7,9 +7,13 @@ socket is ever opened. #52 fixed six sites in ``nextseek_api/seek_api.py`` and
 ``nextseek_api/seek_api_helpers.py``, neither of which has a live caller. The
 same defect survived in ``seek/``, where it does serve traffic:
 
-* ``seek/views.py:1070`` -- ``templatesList()`` hands a real logged-in user's
-  SEEK password from ``getSeekLogin()`` to ``requests.get(auth=...)``. This is
-  a live request path (routed at ``seek/urls.py``).
+* ``seek/views.py`` -- ``templatesList()`` used to hand a real logged-in user's
+  SEEK password to ``requests.get(auth=...)`` when checking project membership.
+  That check was removed with the Download Templates rewrite
+  (docs/superpowers/specs/2026-08-27-download-templates-page-design.md): the
+  page is now login-only and makes no SEEK HTTP call, so the site is gone rather
+  than unguarded. The two ``seek/seekapi.py`` sites below still carry the
+  regression tests for #52.
 * ``seek/seekapi.py:190`` -- ``SeekAPI.getCurrentUser()``. Also live:
   ``SeekDB.__init__`` builds a ``SeekAPI`` (``seek/seekdb.py:28,31``),
   ``SeekDB.getCurrentUser`` delegates to it (``seek/seekdb.py:267-268``), and
@@ -34,7 +38,7 @@ importable surface to regression-test, so those two are consistency edits only.
 
 import base64
 from contextlib import contextmanager
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import requests
 
@@ -69,68 +73,6 @@ def _captured_send(body=b'{"data": []}', content_type="application/json"):
 
 def _auth_header(sent):
     return sent["request"].headers.get("Authorization")
-
-
-# ===========================================================================
-# seek/views.py:1070 -- templatesList(), a live request path
-# ===========================================================================
-
-
-class TestTemplatesListAuth:
-
-    def _request(self):
-        from django.test import RequestFactory
-
-        req = RequestFactory().get("/seek/templates")
-        req.user = MagicMock()
-        return req
-
-    def _seekdb(self):
-        m = MagicMock()
-        m.getSeekLogin.return_value = {
-            "status": True,
-            "server": "https://seek.example",
-            "username": NON_LATIN1_USER,
-            "password": NON_LATIN1_PASSWORD,
-        }
-        return m
-
-    @patch("seek.views.SeekDB")
-    def test_non_latin1_password_does_not_raise(self, mock_seekdb):
-        """Pre-fix this raised UnicodeEncodeError out of HTTPBasicAuth."""
-        from seek.views import templatesList
-
-        mock_seekdb.return_value = self._seekdb()
-        # Project id the user is NOT in, so the view short-circuits before
-        # touching the templates folder or a renderer.
-        with _captured_send(body=b'{"data": [{"id": "999999"}]}'):
-            resp = templatesList(self._request())
-
-        assert resp.status_code == 200
-
-    @patch("seek.views.SeekDB")
-    def test_credentials_travel_as_a_utf8_header(self, mock_seekdb):
-        from seek.views import templatesList
-
-        mock_seekdb.return_value = self._seekdb()
-        with _captured_send(body=b'{"data": [{"id": "999999"}]}') as sent:
-            templatesList(self._request())
-
-        assert _auth_header(sent) == _expected_header(NON_LATIN1_USER, NON_LATIN1_PASSWORD)
-
-    @patch("seek.views.SeekDB")
-    def test_ascii_credentials_still_work(self, mock_seekdb):
-        from seek.views import templatesList
-
-        db = self._seekdb()
-        db.getSeekLogin.return_value["username"] = "demo"
-        db.getSeekLogin.return_value["password"] = "user"
-        mock_seekdb.return_value = db
-
-        with _captured_send(body=b'{"data": [{"id": "999999"}]}') as sent:
-            templatesList(self._request())
-
-        assert _auth_header(sent) == _expected_header("demo", "user")
 
 
 # ===========================================================================

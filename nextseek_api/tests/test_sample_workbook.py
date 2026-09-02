@@ -14,6 +14,7 @@ from nextseek_api.services.sample_workbook import (
     CV_SHEET,
     FLOW_FONT,
     FLOW_HEADING,
+    README_SHEET,
     SUMMARY_HEADER,
     build_readme_blocks,
     load_assay_titles,
@@ -913,3 +914,132 @@ def test_the_variants_block_documents_only_real_vocabularies():
     documented = set(doc["variants"]) - {"_excluded"}
     assert documented <= set(doc["vocabularies"])
     assert set(doc["variants"]["_excluded"]) <= set(doc["vocabularies"])
+
+
+# ---------------------------------------------------------------------------
+# Additive README extensions for the template workbook (Download Templates).
+# The sample-download path passes neither new argument and must be unaffected.
+# ---------------------------------------------------------------------------
+
+
+def test_blocks_without_the_new_arguments_are_byte_identical_to_before():
+    """The regression guard: sample downloads must not change shape."""
+    blocks = build_readme_blocks([("MUS", ["Sex"])], CONTEXT, {("MUS", "Sex"): "Sex at birth."})
+    assert blocks[0]["columns"] == [("Sex", "Sex at birth.")]
+    assert "required" not in blocks[0]
+    assert "relationships" not in blocks[0]
+
+
+def test_required_flags_arrive_as_a_parallel_list_not_wider_tuples():
+    blocks = build_readme_blocks(
+        [("MUS", ["UID", "Sex"])], CONTEXT, {},
+        required_by_pair={("MUS", "UID"): True, ("MUS", "Sex"): False},
+    )
+    assert blocks[0]["columns"] == [("UID", ""), ("Sex", "")]
+    assert blocks[0]["required"] == [True, False]
+
+
+def test_a_column_missing_from_required_by_pair_defaults_to_not_required():
+    blocks = build_readme_blocks(
+        [("MUS", ["UID", "Sex"])], CONTEXT, {},
+        required_by_pair={("MUS", "UID"): True},
+    )
+    assert blocks[0]["required"] == [True, False]
+
+
+def test_relationships_attach_per_code():
+    blocks = build_readme_blocks(
+        [("MUS", ["UID"])], CONTEXT, {},
+        relationships_by_code={"MUS": {"parents": ["AB"], "children": ["TIS"]}},
+    )
+    assert blocks[0]["relationships"] == {"parents": ["AB"], "children": ["TIS"]}
+
+
+def test_a_code_absent_from_relationships_gets_no_key():
+    blocks = build_readme_blocks(
+        [("MUS", ["UID"])], CONTEXT, {}, relationships_by_code={"TIS": {"parents": [], "children": ["DNA"]}},
+    )
+    assert "relationships" not in blocks[0]
+
+
+def test_readme_renders_a_required_column_only_when_flags_are_present():
+    from openpyxl import Workbook
+
+    from nextseek_api.services.sample_workbook import _write_readme
+
+    book = Workbook()
+    blocks = build_readme_blocks(
+        [("MUS", ["UID"])], CONTEXT, {}, required_by_pair={("MUS", "UID"): True},
+    )
+    _write_readme(book, blocks, flow_lines=[])
+    ws = book[README_SHEET]
+
+    # For one block with no flow sheet, the header row is 8 and the data row
+    # is 9 (verified empirically: summary table rows 3-4, blank row 5, section
+    # heading row 6, blank row 7 before the column table).
+    assert [ws["B8"].value, ws["C8"].value, ws["D8"].value] == [
+        "Column", "Required", "Meaning",
+    ]
+    assert [ws["B9"].value, ws["C9"].value, ws["D9"].value] == ["UID", "Yes", ""]
+
+
+def test_readme_without_flags_keeps_the_two_column_table():
+    from openpyxl import Workbook
+
+    from nextseek_api.services.sample_workbook import _write_readme
+
+    book = Workbook()
+    _write_readme(book, build_readme_blocks([("MUS", ["UID"])], CONTEXT, {}), flow_lines=[])
+    ws = book[README_SHEET]
+
+    # Same layout as the with-flags case above: header row 8, data row 9.
+    assert [ws["B8"].value, ws["C8"].value] == ["Column", "Meaning"]
+    assert [ws["B9"].value, ws["C9"].value] == ["UID", ""]
+    # Column D of both rows stays empty -- that is what proves no Required
+    # column was inserted, rather than just that a header wasn't found by a
+    # blind sheet-wide search.
+    assert ws["D8"].value is None
+    assert ws["D9"].value is None
+
+
+def test_readme_column_widths_shift_when_flags_are_present():
+    """The with-flags table shifts Meaning from C to D, so the widths sized
+    for the two-column table (C=100) must not linger once a Required column
+    narrows C to a Yes/blank flag and widens D instead."""
+    from openpyxl import Workbook
+
+    from nextseek_api.services.sample_workbook import _write_readme
+
+    book = Workbook()
+    _write_readme(book, build_readme_blocks([("MUS", ["UID"])], CONTEXT, {}), flow_lines=[])
+    ws = book[README_SHEET]
+    assert ws.column_dimensions["A"].width == 46
+    assert ws.column_dimensions["B"].width == 34
+    assert ws.column_dimensions["C"].width == 100
+
+    book2 = Workbook()
+    blocks = build_readme_blocks(
+        [("MUS", ["UID"])], CONTEXT, {}, required_by_pair={("MUS", "UID"): True},
+    )
+    _write_readme(book2, blocks, flow_lines=[])
+    ws2 = book2[README_SHEET]
+    assert ws2.column_dimensions["C"].width == 10
+    assert ws2.column_dimensions["D"].width == 100
+
+
+def test_readme_renders_the_relationships_line_when_present():
+    from openpyxl import Workbook
+
+    from nextseek_api.services.sample_workbook import _write_readme
+
+    book = Workbook()
+    blocks = build_readme_blocks(
+        [("MUS", ["UID"])], CONTEXT, {},
+        relationships_by_code={"MUS": {"parents": ["AB"], "children": ["TIS"]}},
+    )
+    _write_readme(book, blocks, flow_lines=[])
+    ws = book[README_SHEET]
+
+    text = " ".join(str(c.value) for row in ws.iter_rows() for c in row if c.value)
+    assert "Typically derived from: AB" in text
+    assert "Typically feeds into: TIS" in text

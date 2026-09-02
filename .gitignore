@@ -255,3 +255,8 @@ prod_publication_transfer/all_52_publications.sql
 # CI credentials must never enter git (they live at ~/.config/nextseek/ci.env)
 ci/**/*.env
 ci.env
+
+# Brainstorming visual companion mockups (scratch). The SDD ledger and task
+# reports under .superpowers/sdd/ ARE tracked, deliberately -- see the existing
+# committed ones -- so only the brainstorm subtree is excluded here.
+.superpowers/brainstorm/

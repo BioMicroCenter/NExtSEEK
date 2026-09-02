@@ -97,8 +97,6 @@ def seek_views(settings):
     """
     settings.ASSISTANT_PARTICIPATING_PROJECTS = {"1"}
     settings.TEST_CASES = {}
-    settings.SAMPLE_TEMPLATES_FOLDER = "/templates"
-    settings.SAMPLE_TEMPLATES_FOLDER_PROJECT = "1"
     settings.PUBLISH_URL = "https://fairdomhub.org"
     settings.PUBLISH_STATS_FILE = "/tmp/published_stats.xlsx"
     settings.SMART_SEARCH_URL = "iframe url"

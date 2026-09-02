@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 import pandas as pd
+from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.comments import Comment
 from openpyxl.utils import get_column_letter
@@ -22,6 +23,7 @@ from django.conf import settings
 from neo4j import GraphDatabase
 from openpyxl.styles import Font
 
+from seek.dbtable_sampleattribute import DBtable_sampleattribute
 from seek.models import (
     Assay_assets,
     Assays,
@@ -49,6 +51,10 @@ README_LINK_TEXT = "Sample type definitions: sampletypes_db.json (GitHub)"
 
 
 COLUMN_TABLE_HEADER = ["Column", "Meaning"]
+# The template workbook marks which columns upload validation requires. Sample
+# downloads carry real data whose required-ness is already settled, so they keep
+# the two-column table and this header is unused there.
+REQUIRED_TABLE_HEADER = ["Column", "Required", "Meaning"]
 SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
 FLOW_HEADING = "How this data flowed"
 # The tree's box-drawing characters only line up in a fixed-width font.
@@ -68,6 +74,17 @@ COMMENT_HEIGHT = 130
 
 CV_SHEET = "Controlled Vocabularies"
 CV_PATH = Path(__file__).with_name("controlled_vocabularies.json")
+
+MANIFEST_SHEET = "_NEXTSEEK"
+MANIFEST_HEADER = ["sheet", "code", "attribute", "database_field", "required"]
+# Bumped only when the manifest's shape changes, so the part-2 converter can
+# refuse a workbook it does not understand instead of misreading it.
+TEMPLATE_FORMAT_VERSION = 1
+# Same delimiter the INSTRUCTIONS sheet uses (seek/dbtable_sample.py:168). The
+# manifest stores the finished string so the converter concatenates nothing.
+MANIFEST_DBFIELD_DELIMITER = "::"
+EMPTY_TYPE_NOTE = "This sample type has no attributes defined in SEEK."
+REQUIRED_HEADER_MARK = "*"
 
 # How far a dropdown reaches below the last filled row. A download is a
 # starting point, not a finished sheet: a researcher adding samples must keep
@@ -124,6 +141,8 @@ def build_readme_blocks(
     sheets: Iterable[tuple[str, Iterable[str]]],
     context_by_code: Mapping[str, Mapping[str, str]],
     meaning_by_pair: Mapping[tuple[str, str], str],
+    required_by_pair: Mapping[tuple[str, str], bool] | None = None,
+    relationships_by_code: Mapping[str, Mapping[str, list]] | None = None,
 ) -> list[dict]:
     """One block per sheet, in the order the sheets will be written.
 
@@ -131,19 +150,41 @@ def build_readme_blocks(
     in that order rather than sorted so the README can be read beside the tab.
     An undocumented sample type still gets a block, and a column with no
     definition is still listed, so the README always indexes the whole workbook.
+
+    `required_by_pair` and `relationships_by_code` serve the template workbook
+    and are optional. They add *separate* keys rather than widening `columns`,
+    because the sample-download path and its tests depend on `columns` being
+    (name, meaning) 2-tuples. Omit both and the output is what it has always
+    been.
     """
     blocks = []
     for code, columns in sheets:
         entry = context_by_code.get(code) or {}
-        blocks.append({
+        ordered = list(columns)
+        block = {
             "code": code,
             "name": entry.get("name", "") or "",
             "description": entry.get("description", "") or "",
             "columns": [
                 (column, meaning_by_pair.get((code, column), "") or "")
-                for column in columns
+                for column in ordered
             ],
-        })
+        }
+        # Deliberately different guards, not an inconsistency: an empty dict
+        # still means "the template path is asking for this column" for
+        # required-ness (required_by_pair={} must still switch the README to
+        # the three-column header, with every column marked not-required),
+        # but for relationships an empty dict means "nothing to say" (no
+        # relationships_by_code={} block should render).
+        if required_by_pair is not None:
+            block["required"] = [
+                bool(required_by_pair.get((code, column), False)) for column in ordered
+            ]
+        if relationships_by_code:
+            found = relationships_by_code.get(code)
+            if found:
+                block["relationships"] = found
+        blocks.append(block)
     return blocks
 
 
@@ -365,21 +406,46 @@ def _write_readme(book, blocks: list[dict], *, flow_lines: list[str]) -> None:
     for block in blocks:
         heading = f"{block['code']} — {block['name']}" if block["name"] else block["code"]
         _write_cell(ws, row, 1, heading, bold=True)
-        row += 2  # heading, then a blank line before the column table
+        row += 1
+
+        # Relationships sit under the heading, before the column table: they say
+        # where the sheet belongs in a pipeline, which frames everything below.
+        related = block.get("relationships")
+        if related:
+            if related.get("parents"):
+                _write_cell(ws, row, 2,
+                            "Typically derived from: " + ", ".join(related["parents"]))
+                row += 1
+            if related.get("children"):
+                _write_cell(ws, row, 2,
+                            "Typically feeds into: " + ", ".join(related["children"]))
+                row += 1
+        row += 1  # blank line before the column table
+
         # A block whose columns all dropped out gets no table header: a bare
         # Column/Meaning row with nothing under it reads as a rendering bug.
         if block["columns"]:
-            for column, label in enumerate(COLUMN_TABLE_HEADER, start=2):
+            flags = block.get("required")
+            header = REQUIRED_TABLE_HEADER if flags is not None else COLUMN_TABLE_HEADER
+            for column, label in enumerate(header, start=2):
                 _write_cell(ws, row, column, label, bold=True)
             row += 1
-            for name, meaning in block["columns"]:
+            for index, (name, meaning) in enumerate(block["columns"]):
                 _write_cell(ws, row, 2, name)
-                _write_cell(ws, row, 3, meaning)
+                if flags is not None:
+                    _write_cell(ws, row, 3, "Yes" if flags[index] else "")
+                    _write_cell(ws, row, 4, meaning)
+                else:
+                    _write_cell(ws, row, 3, meaning)
                 row += 1
         row += 1  # blank line between sections
     ws.column_dimensions["A"].width = 46
     ws.column_dimensions["B"].width = 34
     ws.column_dimensions["C"].width = 100
+    if any(b.get("required") is not None for b in blocks):
+        # The meaning moved one column right, so widths shift with it.
+        ws.column_dimensions["C"].width = 10
+        ws.column_dimensions["D"].width = 100
 
 
 def _annotate_header(ws, code: str, columns: list[str], meaning_by_pair) -> None:
@@ -487,3 +553,158 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
             sheet = writer.sheets[code]
             _annotate_header(sheet, code, list(frame.columns), meaning_by_pair)
             _apply_dropdowns(sheet, list(frame.columns), field_map, ranges, len(frame))
+
+
+def load_relationships(codes, known):
+    """Thin re-export so the writer has one patchable seam for relationships.
+
+    Imported lazily: template_catalog imports load_sample_type_context from this
+    module, so a top-level import here would be circular.
+    """
+    from nextseek_api.services.template_catalog import load_relationships as _impl
+
+    return _impl(codes, known)
+
+
+def _write_manifest(book, rows: list[list]) -> None:
+    """The hidden machine-readable map of the workbook, for the part-2 converter.
+
+    Hidden rather than absent so a researcher never has to look at it, and
+    hidden rather than deleted-on-open so renaming a tab cannot orphan the
+    mapping: `sheet` records where each column actually lives.
+    """
+    ws = book.create_sheet(MANIFEST_SHEET)
+    _write_cell(ws, 1, 1, "format_version", bold=True)
+    ws.cell(row=1, column=2, value=TEMPLATE_FORMAT_VERSION)
+    for index, label in enumerate(MANIFEST_HEADER, start=1):
+        _write_cell(ws, 2, index, label, bold=True)
+    for offset, row in enumerate(rows, start=3):
+        for index, value in enumerate(row, start=1):
+            if isinstance(value, int):
+                ws.cell(row=offset, column=index, value=value)
+            else:
+                _write_cell(ws, offset, index, value)
+    ws.sheet_state = "hidden"
+
+
+def write_template_workbook(entries, output_path) -> None:
+    """Write a blank upload template: README, a headers-only sheet per type,
+    then the hidden manifest.
+
+    The same artifact `write_samples_workbook` produces, minus the data rows and
+    the provenance sheet -- which is why it lives here and shares every helper.
+    A blank template has no lineage, so sheets follow the order the user picked
+    rather than derivation depth.
+    """
+    codes = [e.code for e in entries]
+
+    try:
+        specs_by_id = DBtable_sampleattribute().getAttributeSpecsBySampleTypeIds(
+            [e.sample_type_id for e in entries]
+        )
+    except Exception:
+        # Columns are this workbook's whole point, so losing them is not a soft
+        # failure for the affected type -- but it must not cost the other types
+        # their sheets. Every type is skipped only if every lookup failed.
+        logger.exception("attribute lookup failed; affected types are skipped")
+        specs_by_id = {}
+
+    prepared = []
+    for entry in entries:
+        specs = specs_by_id.get(entry.sample_type_id)
+        if specs is None:
+            continue
+        prepared.append((entry, specs))
+
+    sheets = [(e.code, [s["title"] for s in specs]) for e, specs in prepared]
+    pairs = [(code, title) for code, titles in sheets for title in titles]
+    meaning_by_pair = load_sample_field_context(pairs)
+    required_by_pair = {
+        (e.code, s["title"]): s["required"] for e, specs in prepared for s in specs
+    }
+
+    known = set(codes)
+    raw_relationships = load_relationships(codes, known)
+    # A type can name itself as its own parent or child in the source data
+    # (DNA does). The README must never say a type is derived from itself, so
+    # self-references are dropped here, scoped to this writer, rather than in
+    # load_relationships itself, which just reports sample_types_context as-is.
+    relationships = {}
+    for code, rel in raw_relationships.items():
+        parents = [p for p in rel.get("parents", []) if p != code]
+        children = [c for c in rel.get("children", []) if c != code]
+        if parents or children:
+            relationships[code] = {"parents": parents, "children": children}
+
+    context_by_code = {
+        e.code: {"name": e.name, "description": e.description} for e in entries
+    }
+    blocks = build_readme_blocks(
+        sheets, context_by_code, meaning_by_pair,
+        required_by_pair=required_by_pair,
+        relationships_by_code=relationships,
+    )
+
+    book = Workbook()
+    if "Sheet" in book.sheetnames:
+        del book["Sheet"]
+
+    _write_readme(book, blocks, flow_lines=[])  # a blank template has no provenance
+
+    # _write_vocabulary_sheet must run before the type-sheet loop below: it
+    # returns the `ranges` dict _apply_dropdowns needs while writing each type
+    # sheet. But per the design doc the vocabulary sheet belongs AFTER the type
+    # sheets, immediately before the manifest. So it is created here, then
+    # repositioned once the type sheets exist (only when one was actually
+    # created -- with nothing to govern, _write_vocabulary_sheet returns {}
+    # and creates no sheet to move).
+    field_map, vocabularies = _load_vocabularies()
+    needed = sorted({
+        field_map[title]
+        for _, titles in sheets for title in titles
+        if title in field_map and field_map[title] in vocabularies
+    })
+    ranges = _write_vocabulary_sheet(book, needed, vocabularies)
+
+    manifest_rows = []
+    type_sheet_count = 0
+    for entry, specs in prepared:
+        ws = book.create_sheet(entry.code)
+        type_sheet_count += 1
+        if not specs:
+            _write_cell(ws, 1, 1, EMPTY_TYPE_NOTE)
+            ws.column_dimensions["A"].width = 60
+            continue
+
+        titles = [s["title"] for s in specs]
+        for index, spec in enumerate(specs, start=1):
+            label = spec["title"] + (REQUIRED_HEADER_MARK if spec["required"] else "")
+            cell = ws.cell(row=1, column=index, value=_safe_cell_value(label))
+            cell.font = Font(bold=bool(spec["required"]))
+            ws.column_dimensions[get_column_letter(index)].width = max(
+                14, min(len(label) + 4, 40)
+            )
+            manifest_rows.append([
+                entry.code,
+                entry.code,
+                spec["title"],
+                f"{entry.code}{MANIFEST_DBFIELD_DELIMITER}{spec['title']}",
+                1 if spec["required"] else 0,
+            ])
+
+        # The header text now carries the required marker, so notes and
+        # dropdowns are keyed on the bare titles the lookups know, not the
+        # starred labels the cells display.
+        _annotate_header(ws, entry.code, titles, meaning_by_pair)
+        _apply_dropdowns(ws, titles, field_map, ranges, 0)
+
+    if ranges:
+        # Right after creation the book is [README, Controlled Vocabularies,
+        # <type sheets...>]; moving it forward by the number of type sheets
+        # lands it immediately after them (the manifest is appended next).
+        # Dropdown formulas reference the sheet by name, so repositioning it
+        # does not disturb them.
+        book.move_sheet(CV_SHEET, offset=type_sheet_count)
+
+    _write_manifest(book, manifest_rows)
+    book.save(output_path)
