@@ -2600,31 +2600,66 @@ class BatchDeleteResponse(BaseModel):
 class SampleTypeConnectionsRequest(BaseModel):
     """Selector for the sample-type assay-connection graph.
 
-    At least one of ``graph_inv_id`` / ``seek_inv_id`` / ``name`` /
-    ``sample_type`` / ``all_conns`` must be supplied. Without that floor an
-    empty querystring would dump every connection in the graph, which is the
-    one result a caller never asks for by accident.
+    FOUR SCOPES, and at least one is required. Without a floor an empty
+    querystring would dump every connection in the graph, which is the one
+    result nobody asks for by accident.
 
-    The three investigation selectors are AND-ed, not OR-ed: passing two that
-    disagree returns nothing rather than the union. They address the same
-    Investigation node three different ways, so agreement is the norm and
-    disagreement is a caller bug worth surfacing as an empty result.
+      all_conns      the whole graph, explicitly
+      investigation  graph_inv_id / seek_inv_id / investigation_name
+      study          study_id / study_name
+      sample type    sample_type
+
+    ``sample_type`` COMBINES with an investigation or a study, narrowing to the
+    connections that satisfy both. The others combine too, and all filters are
+    AND-ed: passing an investigation and a study it does not contain returns
+    nothing rather than the union. They address overlapping slices of one graph,
+    so agreement is the norm and disagreement is a caller bug worth seeing as an
+    empty result.
     """
 
+    # -- investigation ------------------------------------------------------
     graph_inv_id: Optional[int] = Field(
-        None, description="Investigation.id in the graph (SEEK investigation id)."
+        None, description="Investigation.id in the graph (the SEEK investigation id)."
     )
     seek_inv_id: Optional[int] = Field(
-        None, description="Investigation.project_id in the graph. NOTE: this is a SEEK *project* id."
+        None,
+        description=(
+            "Investigation.project_id in the graph. NOTE this is a SEEK *project* id, "
+            "so it is the wider net: it reaches every investigation in that project."
+        ),
     )
-    name: Optional[str] = Field(
+    investigation_name: Optional[str] = Field(
         None, description="Investigation.title, matched exactly and case-insensitively."
     )
+    name: Optional[str] = Field(
+        None,
+        description="Deprecated alias for investigation_name, kept so existing callers keep working.",
+    )
+
+    # -- study --------------------------------------------------------------
+    study_id: Optional[int] = Field(
+        None,
+        description=(
+            "Study.id. The graph and SEEK agree on study ids, so there is one "
+            "parameter rather than a graph/seek pair. Note the graph holds 56 Study "
+            "nodes against SEEK's 48, so 8 ids resolve only here."
+        ),
+    )
+    study_name: Optional[str] = Field(
+        None,
+        description=(
+            "Study title, exact and case-insensitive. Tries the graph's title first, "
+            "then SEEK's, because the two disagree on 44 of 48 shared studies "
+            "(the graph says 'CSBC Unpublished' where SEEK says the full name)."
+        ),
+    )
+
+    # -- sample type --------------------------------------------------------
     sample_type: Optional[str] = Field(
         None,
         description=(
-            "Sample type code (e.g. 'CEL'). Matches connections where the type is "
-            "EITHER endpoint. Alone, it spans every project."
+            "Sample type code (e.g. 'CEL'). Combines with an investigation or study. "
+            "Alone, it spans every project."
         ),
     )
     direct_connections: bool = Field(
@@ -2637,6 +2672,8 @@ class SampleTypeConnectionsRequest(BaseModel):
             "Has no effect without sample_type, since there is no root to walk from."
         ),
     )
+
+    # -- whole graph --------------------------------------------------------
     all_conns: bool = Field(
         False,
         description=(
@@ -2644,11 +2681,13 @@ class SampleTypeConnectionsRequest(BaseModel):
             "a whole-graph dump is always deliberate and never the result of an empty querystring."
         ),
     )
+
+    # -- rendering ----------------------------------------------------------
     layout: Optional[Literal["radial", "layered"]] = Field(
         None,
         description=(
-            "SVG layout. None (default) picks radial for an investigation or project and "
-            "layered for a sample_type; set it to override that choice."
+            "SVG layout. None (default) picks radial for an investigation, study or "
+            "project and layered for a sample_type; set it to override that choice."
         ),
     )
     output_format: Literal["json", "csv", "svg", "html"] = Field(
@@ -2662,20 +2701,29 @@ class SampleTypeConnectionsRequest(BaseModel):
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
+    @property
+    def effective_investigation_name(self) -> Optional[str]:
+        """investigation_name, falling back to the deprecated `name`."""
+        return self.investigation_name or self.name
+
     @model_validator(mode="after")
     def _require_at_least_one_selector(self):
         if not any(
             [
                 self.graph_inv_id is not None,
                 self.seek_inv_id is not None,
+                bool(self.investigation_name),
                 bool(self.name),
+                self.study_id is not None,
+                bool(self.study_name),
                 bool(self.sample_type),
                 self.all_conns,
             ]
         ):
             raise ValueError(
-                "Supply at least one of: graph_inv_id, seek_inv_id, name, sample_type, "
-                "or all_conns=yes."
+                "Supply at least one of: all_conns, an investigation "
+                "(graph_inv_id / seek_inv_id / investigation_name), a study "
+                "(study_id / study_name), or sample_type."
             )
         return self
 

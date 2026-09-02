@@ -121,10 +121,18 @@ def test_unknown_output_format_is_rejected():
 # Cypher shape
 # ---------------------------------------------------------------------------
 
-def test_investigation_hop_is_an_exists_subquery_not_a_join():
-    """A hard MATCH would inflate n_edges and drop samples with no IN_STUDY edge."""
-    assert "EXISTS {" in CONNECTIONS_CYPHER
-    assert CONNECTIONS_CYPHER.count("MATCH (child)-[:IN_STUDY]") == 1
+def test_scope_hops_are_exists_subqueries_not_joins():
+    """A hard MATCH would inflate n_edges and drop samples with no IN_STUDY edge.
+
+    Both scope predicates -- investigation and study -- reach the graph through
+    IN_STUDY, and each must stay inside its own EXISTS. Two of them now, one per
+    scope, which is what lets them AND together without multiplying rows.
+    """
+    assert CONNECTIONS_CYPHER.count("EXISTS {") == 2
+    assert CONNECTIONS_CYPHER.count("MATCH (child)-[:IN_STUDY]") == 2
+    # neither hop may appear at the top level, where it would be a join
+    top_level = CONNECTIONS_CYPHER.split("EXISTS {")[0]
+    assert "IN_STUDY" not in top_level
 
 
 def test_cypher_short_circuits_when_no_investigation_selector_given():
@@ -308,8 +316,18 @@ class TestConnectionsSchema:
         op = self._schema()["paths"]["/nextseek_api/sample_types/connections/"]["get"]
         names = {p["name"] for p in op.get("parameters", [])}
         assert names == {
-            "graph_inv_id", "seek_inv_id", "name", "sample_type", "all_conns",
-            "direct_connections", "layout", "output_format",
+            # investigation scope
+            "graph_inv_id", "seek_inv_id", "investigation_name",
+            # study scope
+            "study_id", "study_name",
+            # sample type scope
+            "sample_type", "direct_connections",
+            # whole graph
+            "all_conns",
+            # rendering
+            "layout", "output_format",
+            # deprecated alias, still accepted
+            "name",
         }
 
     def test_response_model_lands_in_components(self):
@@ -804,3 +822,94 @@ def test_the_two_modes_do_not_share_a_download_filename():
         {"sample_type": "NHP", "direct_connections": True}), "csv")
     assert tree != direct
     assert tree.endswith("_tree.csv") and direct.endswith("_direct.csv")
+
+
+# ---------------------------------------------------------------------------
+# Study scope
+# ---------------------------------------------------------------------------
+
+class TestStudyScope:
+    """The graph and SEEK agree on study ids but disagree on 44 of 48 titles."""
+
+    @staticmethod
+    def _driver(graph_hits):
+        drv = MagicMock()
+        drv.execute_query.return_value = (
+            [{"id": i} for i in graph_hits], None, None)
+        return drv
+
+    def test_no_study_filter_returns_none_not_empty(self):
+        """None means 'no study filter'. [] would filter everything out."""
+        from nextseek_api.services.sampletype_connections import resolve_study_ids
+        sel = SampleTypeConnectionsRequest.model_validate({"all_conns": True})
+        assert resolve_study_ids(self._driver([]), "neo4j", sel) is None
+
+    def test_study_id_alone_needs_no_lookup(self):
+        from nextseek_api.services.sampletype_connections import resolve_study_ids
+        drv = self._driver([])
+        sel = SampleTypeConnectionsRequest.model_validate({"study_id": 14})
+        assert resolve_study_ids(drv, "neo4j", sel) == [14]
+        drv.execute_query.assert_not_called()
+
+    def test_study_name_resolves_against_the_graph_first(self):
+        from nextseek_api.services.sampletype_connections import resolve_study_ids
+        sel = SampleTypeConnectionsRequest.model_validate({"study_name": "CSBC Unpublished"})
+        with patch(f"{MODULE}._seek_study_ids_by_title") as seek:
+            assert resolve_study_ids(self._driver([13]), "neo4j", sel) == [13]
+            seek.assert_not_called()          # graph matched; SEEK never consulted
+
+    def test_study_name_falls_back_to_seek_when_the_graph_misses(self):
+        """The graph says 'CSBC Unpublished' where SEEK says the full name."""
+        from nextseek_api.services.sampletype_connections import resolve_study_ids
+        sel = SampleTypeConnectionsRequest.model_validate({"study_name": "Collagen Study"})
+        with patch(f"{MODULE}._seek_study_ids_by_title", return_value={14}) as seek:
+            assert resolve_study_ids(self._driver([]), "neo4j", sel) == [14]
+            seek.assert_called_once()
+
+    def test_a_name_matching_nothing_returns_empty_not_none(self):
+        """Empty filters everything out; None would silently widen to the whole graph."""
+        from nextseek_api.services.sampletype_connections import resolve_study_ids
+        sel = SampleTypeConnectionsRequest.model_validate({"study_name": "does not exist"})
+        with patch(f"{MODULE}._seek_study_ids_by_title", return_value=set()):
+            assert resolve_study_ids(self._driver([]), "neo4j", sel) == []
+
+    def test_id_and_name_together_intersect(self):
+        from nextseek_api.services.sampletype_connections import resolve_study_ids
+        sel = SampleTypeConnectionsRequest.model_validate({"study_id": 14, "study_name": "x"})
+        with patch(f"{MODULE}._seek_study_ids_by_title", return_value=set()):
+            assert resolve_study_ids(self._driver([13, 14]), "neo4j", sel) == [14]
+
+    def test_a_seek_lookup_failure_degrades_to_no_match(self):
+        from nextseek_api.services.sampletype_connections import _seek_study_ids_by_title
+        with patch(f"{MODULE}.connections", side_effect=RuntimeError("db down")):
+            assert _seek_study_ids_by_title("anything") == set()
+
+    def test_both_cypher_variants_carry_the_study_predicate(self):
+        for cy in (CONNECTIONS_CYPHER, CONNECTIONS_SUBTREE_CYPHER):
+            assert "$study_ids IS NULL" in cy
+            assert "st.id IN $study_ids" in cy
+
+
+@pytest.mark.parametrize("selector", [
+    {"study_id": 14}, {"study_name": "Collagen Study"},
+    {"study_id": 14, "sample_type": "CEL"},
+])
+def test_study_selectors_satisfy_the_required_scope(selector):
+    assert SampleTypeConnectionsRequest.model_validate(selector) is not None
+
+
+def test_a_study_scope_renders_radial_like_the_other_scopes():
+    sel = SampleTypeConnectionsRequest.model_validate({"study_id": 14, "sample_type": "CEL"})
+    assert choose_layout(sel) == "radial"
+
+
+def test_investigation_name_and_its_deprecated_alias_agree():
+    canonical = SampleTypeConnectionsRequest.model_validate({"investigation_name": "Impactb"})
+    alias = SampleTypeConnectionsRequest.model_validate({"name": "Impactb"})
+    assert canonical.effective_investigation_name == alias.effective_investigation_name == "Impactb"
+
+
+def test_study_selectors_reach_the_download_filename():
+    assert download_name(
+        SampleTypeConnectionsRequest.model_validate({"study_id": 14}), "csv"
+    ) == "sampletype_connections_study14.csv"

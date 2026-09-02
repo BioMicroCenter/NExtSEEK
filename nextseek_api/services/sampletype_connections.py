@@ -74,6 +74,15 @@ WHERE r.internal_assay_title IS NOT NULL
               AND ($seek_inv_id  IS NULL OR i.project_id = $seek_inv_id)
               AND ($name         IS NULL OR toLower(i.title) = toLower($name))
           })
+  // Study scope. One hop shorter than the investigation path above, and a
+  // separate short-circuited predicate so the two AND together naturally when
+  // both are given. study_name is resolved to ids in Python before it gets here
+  // (graph titles first, then SEEK's), so this only ever filters on ids.
+  AND ($study_ids IS NULL
+       OR EXISTS {
+            MATCH (child)-[:IN_STUDY]->(st:Study)
+            WHERE st.id IN $study_ids
+          })
 WITH parent, child, r,
      // #118: the edge kept only the lowest-id shared assay and dropped the rest, so
      // Cell Isolation never appeared anywhere (it loses to Flow Cytometry on 998
@@ -126,6 +135,15 @@ WHERE r.internal_assay_title IS NOT NULL
             WHERE ($graph_inv_id IS NULL OR i.id         = $graph_inv_id)
               AND ($seek_inv_id  IS NULL OR i.project_id = $seek_inv_id)
               AND ($name         IS NULL OR toLower(i.title) = toLower($name))
+          })
+  // Study scope. One hop shorter than the investigation path above, and a
+  // separate short-circuited predicate so the two AND together naturally when
+  // both are given. study_name is resolved to ids in Python before it gets here
+  // (graph titles first, then SEEK's), so this only ever filters on ids.
+  AND ($study_ids IS NULL
+       OR EXISTS {
+            MATCH (child)-[:IN_STUDY]->(st:Study)
+            WHERE st.id IN $study_ids
           })
 WITH parent, child, r,
      // #118: the edge kept only the lowest-id shared assay and dropped the rest, so
@@ -188,22 +206,73 @@ def fetch_clade_map() -> Dict[str, Tuple[str, str]]:
         return {}
 
 
+def resolve_study_ids(driver, db_name, selector) -> Optional[List[int]]:
+    """Study ids for the selector, or None when no study filter was asked for.
+
+    study_name is matched against the GRAPH's title first and SEEK's second,
+    because the two disagree on 44 of 48 shared studies -- the graph carries
+    "CSBC Unpublished" where SEEK carries the full 90-character name -- and a
+    caller may reasonably have read either. Returning [] rather than None on a
+    miss matters: it means "a study was asked for and nothing matched", which
+    filters everything out, instead of "no study filter", which would silently
+    widen the query to the whole graph.
+    """
+    if selector.study_id is None and not selector.study_name:
+        return None
+
+    ids: Optional[set] = None
+    if selector.study_name:
+        wanted = selector.study_name.strip().lower()
+        records, _s, _k = driver.execute_query(
+            "MATCH (st:Study) WHERE toLower(st.title) = $t RETURN st.id AS id",
+            t=wanted, database_=db_name,
+        )
+        ids = {int(r["id"]) for r in records if r["id"] is not None}
+        if not ids:
+            ids = _seek_study_ids_by_title(wanted)
+
+    if selector.study_id is not None:
+        ids = {selector.study_id} if ids is None else (ids & {selector.study_id})
+
+    return sorted(ids or [])
+
+
+def _seek_study_ids_by_title(title_lower: str) -> set:
+    """SEEK's own study titles, used only when the graph's titles do not match.
+
+    Never raises: a SEEK lookup failure degrades to no match, which the caller
+    turns into an empty result rather than an unfiltered one.
+    """
+    seekdb = settings.DATABASES[settings.SEEK_DATABASE]["NAME"]
+    try:
+        with connections[settings.SEEK_DATABASE].cursor() as cursor:
+            cursor.execute(
+                f"SELECT id FROM {seekdb}.studies WHERE LOWER(TRIM(title)) = %s",
+                [title_lower],
+            )
+            return {int(r[0]) for r in cursor.fetchall()}
+    except Exception:
+        logger.exception("SEEK study title lookup failed; treating as no match")
+        return set()
+
+
 def run_connections_query(selector: SampleTypeConnectionsRequest) -> List[Dict[str, Any]]:
     """Run the connection query. Raises Neo4jError to the caller for a 502."""
     neo = settings.NEO4J_DATABASE
-    params = {
-        "sample_type": selector.sample_type or None,
-        "graph_inv_id": selector.graph_inv_id,
-        "seek_inv_id": selector.seek_inv_id,
-        "name": selector.name or None,
-    }
     # The subtree walk needs a root. Without a sample_type there is nothing to walk
     # from, and the subtree query would match no root and return zero rows -- so an
-    # unscoped or investigation-only request always uses the direct form regardless
-    # of the flag. This is why direct_connections defaulting to False is safe.
+    # unscoped, investigation-only or study-only request always uses the direct form
+    # regardless of the flag. This is why direct_connections defaulting to False is safe.
     use_subtree = bool(selector.sample_type) and not selector.direct_connections
     cypher = CONNECTIONS_SUBTREE_CYPHER if use_subtree else CONNECTIONS_CYPHER
     with GraphDatabase.driver(neo["URI"], auth=neo["AUTH"]) as driver:
+        params = {
+            "sample_type": selector.sample_type or None,
+            "graph_inv_id": selector.graph_inv_id,
+            "seek_inv_id": selector.seek_inv_id,
+            "name": selector.effective_investigation_name,
+            "study_ids": resolve_study_ids(driver, neo["NAME"], selector),
+        }
         records, _summary, _keys = driver.execute_query(
             cypher, **params, database_=neo["NAME"]
         )
@@ -237,8 +306,13 @@ def download_name(selector, extension: str) -> str:
         parts.append(f"inv{selector.graph_inv_id}")
     if selector.seek_inv_id is not None:
         parts.append(f"proj{selector.seek_inv_id}")
-    if selector.name:
-        parts.append(re.sub(r"[^A-Za-z0-9]+", "-", selector.name).strip("-").lower())
+    inv_name = selector.effective_investigation_name
+    if inv_name:
+        parts.append(re.sub(r"[^A-Za-z0-9]+", "-", inv_name).strip("-").lower())
+    if selector.study_id is not None:
+        parts.append(f"study{selector.study_id}")
+    if selector.study_name:
+        parts.append(re.sub(r"[^A-Za-z0-9]+", "-", selector.study_name).strip("-").lower())
     if selector.sample_type:
         parts.append(re.sub(r"[^A-Za-z0-9]+", "-", selector.sample_type).strip("-").lower())
         # Without this both modes land as sampletype_connections_nhp.csv while holding
@@ -755,9 +829,14 @@ def choose_layout(selector) -> str:
     """
     if getattr(selector, "layout", None):
         return selector.layout
-    if selector.sample_type and not (
-        selector.graph_inv_id is not None or selector.seek_inv_id is not None or selector.name
-    ):
+    scoped = (
+        selector.graph_inv_id is not None
+        or selector.seek_inv_id is not None
+        or bool(selector.effective_investigation_name)
+        or selector.study_id is not None
+        or bool(selector.study_name)
+    )
+    if selector.sample_type and not scoped:
         return "layered"
     return "radial"
 
@@ -769,27 +848,43 @@ def rows_to_svg(rows, clade_map, layout: str = "radial") -> str:
 
 
 _QUERY_PARAMS = [
+    # --- scope: investigation ---
     OpenApiParameter("graph_inv_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
-                     description="Investigation.id in the graph."),
+                     description="INVESTIGATION SCOPE. Investigation.id in the graph."),
     OpenApiParameter("seek_inv_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
-                     description="Investigation.project_id — a SEEK project id, so it spans "
-                                 "every investigation in that project."),
-    OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.QUERY,
-                     description="Investigation.title, exact and case-insensitive."),
+                     description="INVESTIGATION SCOPE. Investigation.project_id -- a SEEK "
+                                 "PROJECT id, so it reaches every investigation in that project."),
+    OpenApiParameter("investigation_name", OpenApiTypes.STR, OpenApiParameter.QUERY,
+                     description="INVESTIGATION SCOPE. Investigation.title, exact and "
+                                 "case-insensitive."),
+    # --- scope: study ---
+    OpenApiParameter("study_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
+                     description="STUDY SCOPE. Study.id. The graph and SEEK agree on study "
+                                 "ids, so there is no graph/seek pair here."),
+    OpenApiParameter("study_name", OpenApiTypes.STR, OpenApiParameter.QUERY,
+                     description="STUDY SCOPE. Study title, exact and case-insensitive. Tries "
+                                 "the graph's title first, then SEEK's -- they disagree on 44 "
+                                 "of 48 shared studies."),
+    # --- scope: sample type ---
     OpenApiParameter("sample_type", OpenApiTypes.STR, OpenApiParameter.QUERY,
-                     description="Sample type code; matches either endpoint. Alone, spans all projects."),
+                     description="SAMPLE TYPE SCOPE. A sample type code. Combines with an "
+                                 "investigation or a study."),
     OpenApiParameter("direct_connections", OpenApiTypes.BOOL, OpenApiParameter.QUERY,
-                     description="Default FALSE: walks the whole tree rooted at sample_type "
-                                 "(NHP -> PAV -> TIS -> DNA ...). Set true for direct edges only. "
-                                 "No effect without sample_type."),
+                     description="Modifies sample_type. Default FALSE: walks the whole tree "
+                                 "rooted at it (NHP -> PAV -> TIS -> DNA ...). Set true for "
+                                 "direct edges only. No effect without sample_type."),
+    # --- scope: everything ---
     OpenApiParameter("all_conns", OpenApiTypes.BOOL, OpenApiParameter.QUERY,
-                     description="Deliberately return the whole graph unfiltered."),
+                     description="WHOLE GRAPH. Deliberately return everything, unfiltered."),
+    # --- rendering ---
     OpenApiParameter("layout", OpenApiTypes.STR, OpenApiParameter.QUERY,
                      enum=["radial", "layered"],
-                     description="SVG layout. Default is radial for an investigation or project "
-                                 "and layered for a sample_type; this overrides that."),
+                     description="SVG only. Default radial for a scope, layered for a bare "
+                                 "sample_type; this overrides that."),
     OpenApiParameter("output_format", OpenApiTypes.STR, OpenApiParameter.QUERY,
                      enum=["json", "csv", "svg", "html"], description="Default json."),
+    OpenApiParameter("name", OpenApiTypes.STR, OpenApiParameter.QUERY, deprecated=True,
+                     description="Deprecated alias for investigation_name."),
 ]
 
 
@@ -874,7 +969,10 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
         raw = {
             "graph_inv_id": params.get("graph_inv_id") or None,
             "seek_inv_id": params.get("seek_inv_id") or None,
+            "investigation_name": params.get("investigation_name") or None,
             "name": params.get("name") or None,
+            "study_id": params.get("study_id") or None,
+            "study_name": params.get("study_name") or None,
             "sample_type": params.get("sample_type") or None,
             "direct_connections": _truthy(params.get("direct_connections")),
             "all_conns": _truthy(params.get("all_conns")),
@@ -913,10 +1011,12 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
         # it is False: the falsy filter below would otherwise swallow exactly the case
         # worth echoing, and silently report a subtree query as a direct one.
         applied = {k: v for k, v in selector.model_dump().items()
-                   if k not in ("output_format", "direct_connections", "layout")
+                   if k not in ("output_format", "direct_connections", "layout", "name")
                    and v not in (None, False, "")}
         if selector.direct_connections:
             applied["direct_connections"] = True   # non-default; the walk is the default
+        if selector.effective_investigation_name:
+            applied["investigation_name"] = selector.effective_investigation_name
 
         if selector.output_format == "csv":
             response = HttpResponse(rows_to_csv(rows), content_type="text/csv")
