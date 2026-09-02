@@ -95,7 +95,11 @@ def test_a_missing_ddl_file_is_surfaced_not_swallowed(mock_exec: MagicMock) -> N
 def test_tables_are_created_before_columns_are_fixed(mock_exec: MagicMock) -> None:
     """A column fixup on a not-yet-created table reports 'table missing' and
     skips, so the ordering has to put table creation first."""
-    mock_exec.side_effect = _replies("1", "1", "1")
+    # One "table already present" gate reply per registered table fixup, derived
+    # rather than counted: three literals here went stale the moment
+    # KNOWN_TABLE_FIXUPS grew, and the way that presented was an IndexError deep
+    # in _table_exists rather than a wrong assertion.
+    mock_exec.side_effect = _replies(*("1",) * len(sf.KNOWN_TABLE_FIXUPS))
     with patch.object(sf, "apply_column_fixups", return_value=[("c", "already present")]) as cols:
         with patch.object(sf, "managed_indexes_enabled", return_value=False):
             result = sf.apply_all(REPO_ROOT, {})
