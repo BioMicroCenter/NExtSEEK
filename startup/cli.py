@@ -372,6 +372,8 @@ def _install_impl(
     ui.info("  → Read NExtSTEPS.md (top of the repo)")
     ui.info("  → At minimum: rotate demo/demopassword + user/userpassword via SEEK admin UI")
     ui.info(f"  → Log in: http://localhost:{ports['nextseek']}/  (demo/demopassword for admin)")
+    for line in _ci_next_step_lines(ci_profile):
+        ui.info(line)
 
 
 @app.command()
@@ -657,6 +659,54 @@ def rebuild(
             ui.ok(f"CI passed: {outcome}")
 
 
+def _tilde(path: Path) -> str:
+    """A home-relative path written with `~`.
+
+    Operator-facing output only. An absolute /home/<user> path is noise, and on
+    a shared box it is somebody else's username.
+    """
+    shown = str(path)
+    home = str(Path.home())
+    return "~" + shown[len(home):] if shown.startswith(home + "/") else shown
+
+
+def _ci_next_step_lines(ci_profile: str) -> list[str]:
+    """How to run the smoke suite on a box that has just been installed.
+
+    Install deliberately does NOT run it. The suite needs a credential file this
+    box does not have yet, holding accounts that must each have logged in
+    through /login/ at least once, so an unconditional hook here would fail
+    every first install on its own prerequisites. It says what is missing
+    instead, once, while the operator is still reading; `./startup.sh rebuild`
+    runs the suite automatically from then on.
+    """
+    from startup.steps.doctor import ci_env_path
+
+    creds = ci_env_path()
+    lines = [
+        f"  → CI: this box declares profile '{ci_profile}', which decides the routes "
+        f"the smoke suite may call",
+    ]
+    if creds.is_file():
+        lines.append(
+            f"     credentials are in place ({_tilde(creds)}) — run `./startup.sh ci` "
+            f"once to confirm this install"
+        )
+    else:
+        lines.append(
+            f"     first write {_tilde(creds)} with CI_SMOKE_USER/CI_SMOKE_PASS "
+            f"(a NON-superuser) and CI_WRITE_USER/CI_WRITE_PASS,"
+        )
+        lines.append(
+            "     and log both accounts in through /login/ once, or the suite cannot "
+            "authenticate; then run `./startup.sh ci`"
+        )
+    lines.append(
+        "     `./startup.sh rebuild` runs it for you from then on (--no-ci skips)"
+    )
+    return lines
+
+
 def _ci_banner(state: InstanceState, cmd: list[str], *, wait_ready: bool) -> None:
     """What is about to run, before it runs: profile and where it came from, the
     stack, which credential file is in play (path only, never a value), and the
@@ -670,11 +720,7 @@ def _ci_banner(state: InstanceState, cmd: list[str], *, wait_ready: bool) -> Non
     ui.info(f"CI profile: {profile} ({source})")
     ui.info(f"stack: {cmd[cmd.index('--base-url') + 1]}")
     creds = ci_env_path()
-    shown = str(creds)
-    home = str(Path.home())
-    if shown.startswith(home + "/"):
-        shown = "~" + shown[len(home):]
-    ui.info(f"credentials: {shown} ({'present' if creds.is_file() else 'MISSING'})")
+    ui.info(f"credentials: {_tilde(creds)} ({'present' if creds.is_file() else 'MISSING'})")
     if wait_ready:
         ui.info("readiness gate on: the suite prints its floor countdown and every "
                 "probe before the first test runs")

@@ -998,3 +998,57 @@ def test_ci_never_reports_a_stale_report(
     result = runner.invoke(cli.app, ["ci"])
     assert "2passed" not in _squash(result.output)
     assert not stale.exists()
+
+
+# --------------------------------------------------------------------------- #
+# install's CI pointer: the suite cannot run here yet, so say what it needs
+# --------------------------------------------------------------------------- #
+
+
+def test_install_ci_next_steps_name_the_profile_and_both_entry_points(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(tmp_path / "ci.env"))
+    flat = _squash("\n".join(cli._ci_next_step_lines("local")))
+    assert "profile'local'" in flat
+    assert "./startup.shci" in flat
+    assert "./startup.shrebuild" in flat
+
+
+def test_install_ci_next_steps_spell_out_the_prerequisites_when_creds_are_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A fresh install has no credential file and no account that has logged in,
+    which is exactly why install cannot just run the suite itself."""
+    missing = tmp_path / "ci.env"
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(missing))
+    lines = cli._ci_next_step_lines("local")
+    flat = _squash("\n".join(lines))
+    assert str(missing) in "\n".join(lines)
+    assert "CI_SMOKE_USER" in flat and "CI_WRITE_USER" in flat
+    assert "/login/" in flat
+
+
+def test_install_ci_next_steps_shorten_to_a_run_command_once_creds_exist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    present = tmp_path / "ci.env"
+    present.write_text("CI_SMOKE_USER=x\n")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(present))
+    flat = _squash("\n".join(cli._ci_next_step_lines("dev")))
+    assert "CI_SMOKE_USER" not in flat, (
+        "the setup instructions are for a box that still needs them"
+    )
+    assert "./startup.shci" in flat
+
+
+def test_install_ci_next_steps_abbreviate_a_home_relative_credential_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same `~` treatment the CI banner gives it: an absolute /home/<user> path
+    in operator-facing output is noise, and on a shared box it is another
+    person's username."""
+    monkeypatch.delenv("NEXTSEEK_CI_ENV", raising=False)
+    joined = "\n".join(cli._ci_next_step_lines("prod"))
+    assert "~/.config/nextseek/ci.env" in joined
+    assert str(Path.home()) not in joined
