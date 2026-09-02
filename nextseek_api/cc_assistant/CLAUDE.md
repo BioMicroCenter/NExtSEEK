@@ -52,9 +52,11 @@ correctness regression, not a refactor.
   (`nextseek_api/cc_assistant/cc_staging.py:274-276`, enforced at
   `nextseek_api/cc_assistant/cc_staging.py:279`) — never from a staged file's
   name.
-- **BAML imports stay lazy and guarded** — `nextseek_api/cc_assistant/router.py:135`.
-  A vendoring or dependency hiccup must degrade routing, never stop Django from
-  booting.
+- **BAML imports stay lazy and guarded.** `nextseek_api/cc_assistant/router.py:135`
+  defers the loading, and the handler at
+  `nextseek_api/cc_assistant/router.py:228-230` turns a failure into a fallback
+  instead of an exception. A vendoring or dependency hiccup must degrade routing,
+  never stop Django from booting.
 - **`op_registry/__init__.py` must stay stdlib-only.** Attribute access is
   routed through the lazy `__getattr__` at
   `nextseek_api/cc_assistant/op_registry/__init__.py:61` precisely so importing
@@ -71,9 +73,9 @@ correctness regression, not a refactor.
   `nextseek_api/cc_assistant/.vetting/plan-3-phase2-fix-log-iter22.md:1-4`. Do
   not read them for current behaviour and do not cite them.
 - **The 10 `SPEC-*.md` / `PLAN-*.md` files here are superseded** and are
-  scheduled to move to an archive. They announce themselves as live state —
-  `nextseek_api/cc_assistant/PLAN-3-ui-based-io.md:3` claims "TRUE STATE" as of
-  a date months past — which is exactly why they mislead.
+  scheduled to move to an archive. The one cited announces itself as live state:
+  `nextseek_api/cc_assistant/PLAN-3-ui-based-io.md:3` claims "TRUE STATE" as of a
+  date months past. That framing is why they mislead.
 - **`LIVE_EVIDENCE.md` and `DEPLOY.md` are stale and under separate triage.**
   `nextseek_api/cc_assistant/LIVE_EVIDENCE.md:8-10` documents a test-runner
   limitation on one box at one moment, which readers keep mistaking for a

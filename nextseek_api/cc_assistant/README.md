@@ -118,7 +118,7 @@ Three lanes, not interchangeable.
    money on Opus turns through the auth proxy. (not run)
 
 The `host_only` marker declared at `pyproject.toml:148` splits source-tree hygiene tests
-out of the in-container run; 9 test modules here use it.
+out of the in-container run; several test modules here carry it.
 
 ## Depends on / depended on by
 
@@ -160,11 +160,22 @@ this package are omitted.
 - Mutual. `nextseek_api/eval/` both feeds this package and reads from it —
   `nextseek_api/eval/human_grade_fit.py:24`, `nextseek_api/eval/task6_replay.py:175`,
   `nextseek_api/eval/generation_validation.py:125`.
-- Code generation and gates. `build_tools/gen_op_surfaces/route_capabilities.py:38`
-  regenerates the agent's skills, commands and route capabilities from the op registry;
-  `build_tools/plan005_validate_plugins/validate.py:10-14` validates the plugin tree
-  against it; `build_tools/plan005_gate.py:26-27` pins two test modules here as named CI
-  lanes by path string, not by import.
+- Code generation and gates:
+  - `build_tools/gen_op_surfaces/route_capabilities.py:1` — the router's
+    `route_capabilities.json`; registry imports at
+    `build_tools/gen_op_surfaces/route_capabilities.py:8-26`.
+  - `build_tools/gen_op_surfaces/skills.py:1` — the SKILL.md capability matrices;
+    `build_tools/gen_op_surfaces/skills.py:11-13`.
+  - `build_tools/gen_op_surfaces/commands.py:1` — the command-doc surfaces;
+    `build_tools/gen_op_surfaces/commands.py:7-9`.
+  - `build_tools/gen_op_surfaces/claude_md.py:1` — the container `CLAUDE.md` plugin,
+    skill and operation inventories; `build_tools/gen_op_surfaces/claude_md.py:16-21`.
+  - `build_tools/gen_op_surfaces/docker_blocks.py:1` — emits and validates the
+    Dockerfile plugin `COPY`/`PATH` and Compose named-context blocks;
+    `build_tools/gen_op_surfaces/docker_blocks.py:12-17`.
+  - `build_tools/plan005_validate_plugins/validate.py:10-14` validates the plugin tree
+    against the registry; `build_tools/plan005_gate.py:26-27` pins two test modules here
+    as named CI lanes by path string, not by import.
 - Verification scripts, importing or reading this package directly:
   `scripts/plan018_v4_9_functional_e2e.py:31`, `scripts/plan018_v4_5_verifier.py:50`,
   `scripts/plan018_v4_9_task8_deploy.py:1643` and

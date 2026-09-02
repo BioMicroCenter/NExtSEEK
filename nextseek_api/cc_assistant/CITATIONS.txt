@@ -69,6 +69,10 @@ nextseek_api/cc_assistant/evidence/run_1c_claude_md_live_probe.py
 
 # --- consumers of this boundary ---
 build_tools/gen_op_surfaces/route_capabilities.py
+build_tools/gen_op_surfaces/skills.py
+build_tools/gen_op_surfaces/commands.py
+build_tools/gen_op_surfaces/claude_md.py
+build_tools/gen_op_surfaces/docker_blocks.py
 build_tools/plan005_gate.py
 nextseek_api/management/commands/cc_sweep_staging.py
 nextseek_api/eval/human_grade_fit.py
