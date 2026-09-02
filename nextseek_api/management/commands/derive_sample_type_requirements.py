@@ -23,15 +23,30 @@ from seek.models import NEXTSEEK_DATABASE, Sample_type_requirements
 
 logger = logging.getLogger(__name__)
 
-# One row per (child type, parent type, joining assay). internal_assay_title
-# lives on the edge, so the assay that joins the two samples comes back with
-# the pair rather than needing a second lookup.
+# One row per (child type, parent type). The joining assay lives on the edge,
+# so it comes back with the pair rather than needing a second lookup.
+#
+# The type is read from the Sample node rather than joined through OF_TYPE:
+# every one of the 51,374 sample nodes carries `.type`, both projections give
+# byte-identical results (verified: 129 pairs, no differences), and the join
+# form made Neo4j warn about a cartesian product on every run.
 CYPHER = """
 MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
-MATCH (c)-[:OF_TYPE]->(ct:SampleType), (p)-[:OF_TYPE]->(pt:SampleType)
-WHERE ct.title <> pt.title
-RETURN ct.title AS child, pt.title AS parent,
-       r.internal_assay_title AS assay, count(DISTINCT c) AS n
+WHERE c.type IS NOT NULL AND p.type IS NOT NULL AND c.type <> p.type
+WITH c.type AS child, p.type AS parent, c,
+     // #118: an edge used to keep only the lowest-id shared assay and drop the
+     // rest, so an assay that lost the tie never appeared at all -- Cell
+     // Isolation loses to Flow Cytometry on 998 production edges and was
+     // invisible. Edges written or backfilled since that fix carry the whole
+     // set in the plural property; coalesce falls back to the singular winner,
+     // so an un-backfilled edge reports exactly what it did before. Same
+     // handling as nextseek_api/services/sampletype_connections.py.
+     CASE WHEN size(coalesce(r.internal_assay_titles, [])) > 0
+          THEN r.internal_assay_titles
+          ELSE [r.internal_assay_title] END AS titles
+RETURN child, parent,
+       count(DISTINCT c)        AS n,
+       collect(DISTINCT titles) AS title_lists
 """
 
 
@@ -72,26 +87,26 @@ class Command(BaseCommand):
             self.stderr.write("graph unavailable; table left untouched")
             sys.exit(1)
 
-        # (child, parent) may appear several times, once per assay variant.
-        # The suffix must be stripped (_strip_suffix) before dedup, or every
-        # SEEK title variant appended below counts as a distinct assay. Note
-        # that classify() below also de-dupes the titles of the parents it
-        # selects, so this file's own tests cannot detect the wrong order on
-        # their own -- a bug here is silently absorbed downstream.
-        merged = {}
+        # One row per (child, parent), so there is nothing to merge: the count
+        # is already a distinct-sample count for the pair. The previous shape
+        # returned a row per assay variant and summed them, counting a child
+        # once per assay its edge carried and inflating the support the rule
+        # divides by.
+        #
+        # `title_lists` is a list of per-edge title lists. Strip the SEEK
+        # suffix before de-duplicating, or "Patient Visit" and "Patient Visit -
+        # Metadata" survive as two assays. classify() de-dupes again over the
+        # parents it selects, so a wrong order here is absorbed downstream and
+        # this file's own tests cannot see it.
+        pairs = []
         for row in rows:
-            key = (row["child"], row["parent"])
-            count, assays = merged.get(key, (0, []))
-            count += int(row["n"])
-            title = _strip_suffix(row["assay"])
-            if title and title not in assays:
-                assays.append(title)
-            merged[key] = (count, assays)
-
-        pairs = [
-            (child, parent, count, assays)
-            for (child, parent), (count, assays) in merged.items()
-        ]
+            titles = []
+            for edge_titles in row["title_lists"] or []:
+                for raw in edge_titles or []:
+                    title = _strip_suffix(raw)
+                    if title and title not in titles:
+                        titles.append(title)
+            pairs.append((row["child"], row["parent"], int(row["n"]), titles))
         # Same rows, read from both ends. classify() asks which parents a child
         # cannot be uploaded without; classify_companions() asks which child a
         # parent almost always goes on to produce.
