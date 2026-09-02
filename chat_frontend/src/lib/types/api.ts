@@ -149,6 +149,19 @@ export interface Turn {
   ts?: string | null;
   artifacts?: Artifact[] | null;
   cc_traces?: CCTrace[];
+  /**
+   * Search Details for NExtSEEK-engine turns, rebuilt server-side from the
+   * results_history bundle. The Container-CC counterpart is `cc_traces`.
+   * Carries no timestamp: the per-event times were never recorded, so the
+   * hydrate path stamps these with the turn's own `ts`.
+   */
+  debug_entries?: HydratedDebugEntry[];
+}
+
+// A debug entry as it arrives from the server, before the client adds a Date.
+export interface HydratedDebugEntry {
+  agent: string;
+  summary: string;
 }
 
 // GET /assistant/sessions/{id}/?include=turns response

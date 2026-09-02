@@ -138,6 +138,11 @@ class Turn(BaseModel):
     ts: Optional[str] = None
     artifacts: Optional[List[Dict[str, Any]]] = None
     cc_traces: Optional[List[Dict[str, Any]]] = None
+    #: Search Details for NExtSEEK-engine turns, rebuilt from the bundle. The
+    #: Container-CC counterpart is `cc_traces`, which is mirrored at write time;
+    #: the NS progress events are ephemeral, so these are reconstructed on read.
+    #: Entries are {agent, summary}; the frontend supplies the timestamp.
+    debug_entries: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(extra="forbid")
 
