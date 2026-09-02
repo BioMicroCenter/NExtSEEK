@@ -1,5 +1,6 @@
 """The blank-template workbook: README, one headers-only sheet per type, manifest."""
 
+import io
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -252,3 +253,19 @@ def test_a_type_whose_only_relatives_are_itself_gets_no_relationship_lines(
                     for c in row if c.value)
     assert "Typically derived from" not in text
     assert "Typically feeds into" not in text
+
+
+def test_it_writes_to_a_file_like_object_not_only_a_path(_no_lookups):
+    """The templates API streams the workbook straight out of an io.BytesIO
+    (nextseek_api/services/templates.py never touches the filesystem), so a
+    destination-sensitive book.save() would break that endpoint at runtime
+    even though every other test here only exercises a filesystem path."""
+    buffer = io.BytesIO()
+    write_template_workbook([TIS], buffer)
+    buffer.seek(0)
+    book = load_workbook(buffer)
+
+    assert book.sheetnames[0] == README_SHEET
+    ws = book["TIS"]
+    assert ws.max_row == 1
+    assert [c.value for c in ws[1]] == ["UID*", "Name*", "Weight"]
