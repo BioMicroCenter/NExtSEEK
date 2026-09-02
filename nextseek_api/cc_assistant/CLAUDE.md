@@ -5,7 +5,7 @@
 These hold today and are enforced by tests. Breaking one is a security or
 correctness regression, not a refactor.
 
-- **One function builds the agent's environment.** `nextseek_api/cc_assistant/cc_engine.py:282`
+- **One function builds the agent's environment.** `nextseek_api/cc_assistant/cc_engine.py:282-297`
   is the sole constructor, and both the turn driver and the containment canary
   call it, so an inline dict elsewhere cannot smuggle a credential in. The agent
   carries zero AWS credentials and none of the shared backend passwords; it
@@ -25,8 +25,8 @@ correctness regression, not a refactor.
   never by string-stripping a prefix. Interpolating an unvalidated segment into
   a subpath is a cross-user read.
 - **Directory names are validated before interpolation.** Project, user,
-  session and run identifiers all pass the same segment regex in
-  `nextseek_api/cc_assistant/cc_provision.py:99`.
+  session and run identifiers each pass the same segment check —
+  `nextseek_api/cc_assistant/cc_provision.py:116-121`.
 - **The `shared` tree is project-scoped and deliberately carries no user
   segment** — `nextseek_api/cc_assistant/cc_provision.py:130`. That asymmetry is
   the design, not a bug.
@@ -66,8 +66,9 @@ correctness regression, not a refactor.
 ## Landmines
 
 - **`.vetting/` is not documentation.** 65 files of superseded automated
-  review-iteration logs, each recording one hardening pass over a plan document
-  — `nextseek_api/cc_assistant/.vetting/plan-3-phase2-fix-log-iter22.md:1-4`. Do
+  review-iteration logs; the one cited here records a single hardening pass over
+  a plan document —
+  `nextseek_api/cc_assistant/.vetting/plan-3-phase2-fix-log-iter22.md:1-4`. Do
   not read them for current behaviour and do not cite them.
 - **The 10 `SPEC-*.md` / `PLAN-*.md` files here are superseded** and are
   scheduled to move to an archive. They announce themselves as live state —
@@ -90,8 +91,8 @@ correctness regression, not a refactor.
   stops importing.
 - **The hermetic lane printed at `DEPLOYMENT.md:482` cannot collect as written.**
   Its dependency list omits Django while modules here import Django at module
-  scope — `nextseek_api/cc_assistant/posterior_selector.py:6` is the first —
-  so 62 modules error before any test runs. Measured 2026-09-02. Add
+  scope — `nextseek_api/cc_assistant/posterior_selector.py:6` is one — so 62
+  modules error before any test runs. Measured 2026-09-02. Add
   Django to the `--with` list, or pass `--continue-on-collection-errors`.
 - **There is no `conftest.py` anywhere under `tests/`.** The settings module
   named at `pyproject.toml:147` is the real one, not the test one, so a bare

@@ -70,6 +70,10 @@ nextseek_api/cc_assistant/evidence/run_1c_claude_md_live_probe.py
 # --- consumers of this boundary ---
 build_tools/gen_op_surfaces/route_capabilities.py
 build_tools/plan005_gate.py
+nextseek_api/management/commands/cc_sweep_staging.py
+nextseek_api/eval/human_grade_fit.py
+nextseek_api/eval/task6_replay.py
+nessie_tests/sources.py
 
 # --- agent image the registry is exported into ---
 docker/cc-runtime/Dockerfile
