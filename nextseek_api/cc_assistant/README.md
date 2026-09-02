@@ -146,8 +146,9 @@ Depends on, outside this directory:
 Depended on by. Non-test consumers grouped by kind; the many test modules that import
 this package are omitted.
 
-- Production. `nextseek_api/services/cc_assistant.py:351` is the ViewSet and the caller
-  for every chat turn, applying route overrides in the precedence set out at
+- Production. `nextseek_api/services/cc_assistant.py:446` is the ViewSet, and
+  `nextseek_api/services/cc_assistant.py:351` picks the route for a query, applying
+  overrides in the precedence set out at
   `nextseek_api/services/cc_assistant.py:354`.
   `nextseek_api/management/commands/cc_sweep_staging.py:30` is a management command
   calling `cc_staging.sweep_user_staging` at
@@ -173,7 +174,7 @@ this package are omitted.
   - `build_tools/gen_op_surfaces/docker_blocks.py:1` — emits and validates the
     Dockerfile plugin `COPY`/`PATH` and Compose named-context blocks;
     `build_tools/gen_op_surfaces/docker_blocks.py:12-17`.
-  - `build_tools/plan005_validate_plugins/validate.py:10-14` validates the plugin tree
+  - `build_tools/plan005_validate_plugins/validate.py:10-17` validates the plugin tree
     against the registry; `build_tools/plan005_gate.py:26-27` pins two test modules here
     as named CI lanes by path string, not by import.
 - Verification scripts, importing or reading this package directly:
