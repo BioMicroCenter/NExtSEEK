@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Assays - NExtSEEK{% endblock %}
+
+{% block extra_head %}{% include "catalog_styles.html" %}{% endblock %}
+
+{% block main %}
+<div class="cat-page">
+
+  <header class="ns-page-header">
+    <h1 class="ns-page-title">Assays</h1>
+    <p class="ns-page-subtitle">
+      What each internal assay consumes and produces. {{ total }} assays, grouped
+      by the clade they take as input.
+    </p>
+  </header>
+
+  <input type="search" id="cat-search" class="cat-search"
+         placeholder="Search assay name or tag&hellip;" autocomplete="off"
+         aria-label="Search assays">
+
+  {% for group in groups %}
+  <div class="cat-group" data-group>
+    <div class="cat-group-name">{{ group.clade }} <span class="text-muted">{{ group.entries|length }}</span></div>
+    <div class="cat-grid">
+      {% for entry in group.entries %}
+      <a class="cat-item" href="/seek/assays/{{ entry.slug }}/"
+         data-code="{{ entry.slug }}"
+         data-name="{{ entry.name|lower }}"
+         data-tags="{% for r in entry.rows %}{{ r.tags|join:' '|lower }} {% endfor %}">
+        <span>{{ entry.name }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% empty %}
+  <p class="cat-empty">
+    No assays are curated on this instance. The catalog reads
+    <code>dmac.assay_context</code>, which this stack does not have.
+  </p>
+  {% endfor %}
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var box = document.getElementById('cat-search');
+  if (!box) { return; }
+  var items = Array.prototype.slice.call(document.querySelectorAll('.cat-item'));
+  var groups = Array.prototype.slice.call(document.querySelectorAll('[data-group]'));
+
+  box.addEventListener('input', function () {
+    var q = box.value.trim().toLowerCase();
+    items.forEach(function (el) {
+      el.hidden = q !== '' &&
+        el.dataset.code.indexOf(q) === -1 &&
+        el.dataset.name.indexOf(q) === -1 &&
+        el.dataset.tags.indexOf(q) === -1;
+    });
+    groups.forEach(function (g) {
+      g.hidden = !g.querySelector('.cat-item:not([hidden])');
+    });
+  });
+})();
+</script>
+{% endblock %}

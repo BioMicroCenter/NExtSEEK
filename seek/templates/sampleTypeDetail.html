@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.code }} - Sample Types - NExtSEEK{% endblock %}
+
+{% block extra_head %}{% include "catalog_styles.html" %}{% endblock %}
+
+{% block main %}
+<div class="cat-page">
+
+  <a href="/seek/sampletypes/" class="cat-back">
+    <i class="bi bi-arrow-left"></i> All sample types
+  </a>
+
+  <div class="cat-detail-head">
+    <span class="cat-detail-code">{{ entry.code }}</span>
+    <span class="cat-detail-name">{{ entry.name }}</span>
+    <span class="cat-badge">{{ entry.clade }}</span>
+  </div>
+
+  {% if entry.description %}<div class="cat-desc">{{ entry.description }}</div>{% endif %}
+
+  {% if entry.required_metadata %}
+  <div class="cat-section">
+    <span class="cat-section-label">Required metadata</span>
+    <div class="cat-chips">
+      {% for f in entry.required_metadata %}<span class="cat-chip">{{ f }}</span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if entry.standard_metadata %}
+  <div class="cat-section">
+    <span class="cat-section-label">Standard metadata</span>
+    <div class="cat-chips">
+      {% for f in entry.standard_metadata %}<span class="cat-chip">{{ f }}</span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if entry.possible_metadata_fields %}
+  <div class="cat-section">
+    <span class="cat-section-label">Other possible fields</span>
+    <div class="cat-chips">
+      {% for f in entry.possible_metadata_fields %}<span class="cat-chip cat-chip--plain">{{ f }}</span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if entry.parent_types %}
+  <div class="cat-section">
+    <span class="cat-section-label">Derives from</span>
+    <div class="cat-chips">
+      {% for code in entry.parent_types %}
+      <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if entry.child_types %}
+  <div class="cat-section">
+    <span class="cat-section-label">Children</span>
+    <div class="cat-chips">
+      {% for code in entry.child_types %}
+      <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if assay_parents %}
+  <div class="cat-section">
+    <span class="cat-section-label">Produced by</span>
+    <div class="cat-chips">
+      {% for a in assay_parents %}
+      <a class="cat-chip cat-chip--plain" href="/seek/assays/{{ a.slug }}/">{{ a.name }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if assay_children %}
+  <div class="cat-section">
+    <span class="cat-section-label">Consumed by</span>
+    <div class="cat-chips">
+      {% for a in assay_children %}
+      <a class="cat-chip cat-chip--plain" href="/seek/assays/{{ a.slug }}/">{{ a.name }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if entry.tags %}
+  <div class="cat-section">
+    <span class="cat-section-label">Tags</span>
+    <div class="cat-chips">
+      {% for t in entry.tags %}<span class="cat-chip cat-chip--plain">{{ t }}</span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="cat-actions">
+    <form method="post" action="/seek/templates/download/">
+      {% csrf_token %}
+      <input type="hidden" name="codes" value="{{ entry.code }}">
+      <button type="submit" class="btn btn-sm btn-danger">Download template</button>
+    </form>
+    <a class="btn btn-sm btn-outline-secondary" href="/seek/search/">Search samples</a>
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.name }} - Assays - NExtSEEK{% endblock %}
+
+{% block extra_head %}{% include "catalog_styles.html" %}{% endblock %}
+
+{% block main %}
+<div class="cat-page">
+
+  <a href="/seek/assays/" class="cat-back">
+    <i class="bi bi-arrow-left"></i> All assays
+  </a>
+
+  <div class="cat-detail-head">
+    <span class="cat-detail-title">{{ entry.name }}</span>
+  </div>
+
+  {% if is_split %}
+  <div class="cat-notice">
+    This name appears twice in <code>assay_context</code>, from two sources that
+    were never reconciled. Both rows are shown below, unmerged.
+  </div>
+  {% endif %}
+
+  {% for row in entry.rows %}
+  <div class="cat-row-panel">
+
+    {% if row.description %}<div class="cat-desc">{{ row.description }}</div>{% endif %}
+
+    {% if row.required_parents %}
+    <div class="cat-section">
+      <span class="cat-section-label">Required parent sample types</span>
+      <div class="cat-chips">
+        {% for group in row.required_parents %}
+          {% for code in group %}
+            <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
+            {% if not forloop.last %}<span class="cat-or">or</span>{% endif %}
+          {% endfor %}
+          {% if not forloop.last %}<span class="cat-and">,</span>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if row.optional_parents %}
+    <div class="cat-section">
+      <span class="cat-section-label">Optional parent sample types</span>
+      <div class="cat-chips">
+        {% for group in row.optional_parents %}
+          {% for code in group %}
+            <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
+            {% if not forloop.last %}<span class="cat-or">or</span>{% endif %}
+          {% endfor %}
+          {% if not forloop.last %}<span class="cat-and">,</span>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if row.children %}
+    <div class="cat-section">
+      <span class="cat-section-label">Produces</span>
+      <div class="cat-chips">
+        {% for group in row.children %}
+          {% for code in group %}
+            <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
+            {% if not forloop.last %}<span class="cat-or">or</span>{% endif %}
+          {% endfor %}
+          {% if not forloop.last %}<span class="cat-and">,</span>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if row.critical_attributes %}
+    <div class="cat-section">
+      <span class="cat-section-label">Critical attributes</span>
+      <div class="cat-chips">
+        {% for a in row.critical_attributes %}<span class="cat-chip">{{ a }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if row.repository %}
+    <div class="cat-section">
+      <span class="cat-section-label">Associated repository</span>
+      <div class="cat-chips"><span class="cat-chip cat-chip--plain">{{ row.repository }}</span></div>
+    </div>
+    {% endif %}
+
+    {% if row.alternative_names %}
+    <div class="cat-section">
+      <span class="cat-section-label">Also called</span>
+      <div class="cat-chips">
+        {% for n in row.alternative_names %}<span class="cat-chip cat-chip--plain">{{ n }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if row.tags %}
+    <div class="cat-section">
+      <span class="cat-section-label">Tags</span>
+      <div class="cat-chips">
+        {% for t in row.tags %}<span class="cat-chip cat-chip--plain">{{ t }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+  {% if not forloop.last %}<hr style="margin:1.75rem 0;border-color:var(--ns-border);">{% endif %}
+  {% endfor %}
+
+</div>
+{% endblock %}
