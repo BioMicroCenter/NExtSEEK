@@ -1,54 +1,68 @@
-# SDD ledger — plan: docs/superpowers/plans/2026-08-27-download-templates-page.md
+# SDD ledger — plan: docs/superpowers/plans/2026-08-28-sample-type-requirements.md
 
-Spec: docs/superpowers/specs/2026-08-27-download-templates-page-design.md
-Branch: feat/download-templates-page
-Base commit before Task 1: e642b1f9
-Test baseline (pre-existing, unrelated): 41 failed, 1928 passed, 2 skipped, 3 errors
+Spec: docs/superpowers/specs/2026-08-28-sample-type-requirements-design.md
+Branch: feat/sample-type-requirements (stacked on feat/download-templates-page)
+Base commit before Task 1: 37303abe
+Test baseline (pre-existing, unrelated): 41 failed, 2003 passed, 2 skipped, 3 errors
   -> named failures in .superpowers/sdd/baseline-failures.txt
-
-Prior ledger for the completed provenance plan: progress-2026-08-21-provenance.md
+startup/tests baseline (established during Task 2, ALSO pre-existing): 1 failed, 377 passed, 1 skipped, 16 errors
+  -> 16 errors are KeyError: 'ATTRIBUTE_TEST_DB_HOST' (unset env var for a DB-lane fixture)
+  -> 1 failure is test_apply_all_chains_column_fixups_and_managed_indexes: it mocks apply_column_fixups
+     but not compose_exec, so apply_all shells out to a real docker compose in a nonexistent /repo.
+     VERIFIED pre-existing by restoring the base-commit registry and reproducing it identically.
+Prior ledger: progress-2026-08-27-download-templates.md (that plan complete, 20 commits)
 
 | Task | Status | Evidence |
 |---|---|---|
-| 1 Attribute specs + required flag | complete | commits e642b1f9..94d28e16, review clean (spec OK, quality approved). Fix pass deduped the row-validation loop into `_validBulkAttributeRows` and dropped a dead typing import. 58 passed. |
-| 2 Catalog: types + prefix grouping | complete | commit f375b1c6, review clean (spec OK, quality approved). 18 passed. Reviewer independently re-ran the suite and traced the sort test as genuinely discriminating (declared group order E,D,A,M is not alphabetical, so a naive sort fails it). |
-| 3 Catalog: relationships + suggestions | complete | commits 5fbedf49, 9d0d056e; review clean (spec OK). 35 passed. Reviewer independently stress-tested the regex against uncovered edge cases (leading/doubled/trailing separators, mixed-case Or, `D.SEQ.,RNA`) and found no tearing of dotted codes. Important finding: my brief's or-test was near-vacuous ('CORE, DNA' had no real 'or' in it); replaced with 'DNA or CORE or RNA'. Also carried the two T2 docstring/import fixes. |
-| 4 Extend shared README functions | complete | commits 2d6dab67, d9d96386; review clean (spec OK, quality approved). 77 passed. Byte-identical guarantee for sample downloads verified THREE ways: pre-existing untouched positional tests, reviewer's live `write_samples_workbook` run reading real widths (A=46,B=34,C=100, D untouched), and new tests pinning exact cells + widths. Fix pass strengthened 2 near-tautological assertions and added the width lock. |
-| 5 Template workbook writer | complete | commits e15dd812, 23913779; re-review clean (spec OK, quality approved). 97 passed (20 template + 77 sample). CRITICAL found+fixed: vocabulary sheet was landing between README and the type sheets, violating the design doc; my brief caused it by copying write_samples_workbook's ordering. Fixed with move_sheet + a test that actually forces a CV sheet to exist. Reviewer traced openpyxl move_sheet source and stress-tested 0/6/skipped-type cases. write_samples_workbook deliberately untouched. |
-| 6 Smoke test a real workbook | complete | no code changes needed. Generated against the LIVE db for PAT/TIS/DNA/D.SEQ/A.GEX. Sheets: README, DNA, PAT, TIS, D.SEQ, A.GEX, Controlled Vocabularies, _NEXTSEEK (hidden) - spec order confirmed on real data. TIS 92 cols/85 notes/3 bold-required; D.SEQ 88 cols/73 notes/6 dropdowns. Manifest format_version=1 at B1, header row 2, DNA::UID required=1. File handed to user for Excel eyeball. |
-| 7 The two views | complete | commits 2aaad54f, f6ce179b; re-review clean (spec OK after ❌→fix). 10 passed, 1 EXPECTED fail (stale template, Task 8 fixes). CRITICAL found+fixed: dedup guard compared str to SampleTypeEntry so duplicates never collapsed -> openpyxl silently renamed the 2nd sheet TIS1. My plan's bug. Reviewer mutation-tested the fix (reverted it, confirmed the new test fails). Also strengthened the no-project-check test, which previously could not distinguish 'no check' from 'check denying' (old denial path also returned 200). |
-| 8 Picker template | complete (browser check pending) | commits f9e02d5a, 4e5f644a; review spec OK. 12 passed. TWO XSS vectors found and fixed: (1) `{{ ...|safe }}` json.dumps into an inline <script> — json.dumps does not escape < > &, so a name containing </script> breaks out; (2) MISSED BY BOTH implementer and me — `renderSuggestions()` concatenated `meta.name` into innerHTML, a more direct path needing no breakout. Fixed with json_script + createElement/textContent, plus a test rendering a hostile name. Exploit needs curator-level DB write access (no Django write path to those columns). |
-| 9 Retire dead settings + tests | complete | commits b9f07017, 0cfeed7f; 28 passed. Implementer correctly BLOCKED twice on gaps in my brief. Review then found spec ❌: two MORE tracked files defined the settings, incl. `startup/templates/local_settings.py.template` which `render_local_settings()` uses to scaffold EVERY new install — leaving it would have regenerated the dead settings forever under a comment falsely calling them required. Also `scripts/attribute_api_test.sh`. Both fixed; `git grep` now clean (exit 1). Deleted TestTemplatesListAuth (subject removed) with a docstring note so #52 coverage does not look silently regressed; TestSeekAPIAuth intact. |
-| 10 Full suite + docs | complete | commit ccb25e12. ZERO REGRESSIONS: failure set byte-identical to the 44-line baseline (diff empty, exit 0). 41 failed both before and after; passed 1928 -> 2001 (+73 = 35 catalog + 20 workbook + 9 README + 12 views - 3 deleted TestTemplatesListAuth, exact). Doc section appended to docs/sample-download-workflow.md; cited test name verified to exist. |
-
-## FINAL WHOLE-BRANCH REVIEW (opus) — NOT READY -> fixed in 503d91f3
-Verified sound: byte-identity of write_samples_workbook proven EMPIRICALLY (loaded the base-commit module alongside head, ran both, diffed a full semantic dump - sheets, order, state, every cell, bold, styles, hyperlinks, comments, widths, all data validations: identical). End-to-end POST traced. Soft/hard failure contract holds. No third XSS path (every DB-derived sink enumerated). Access-control removal sound.
-Three Importants found and fixed:
- 1. Illegal sheet names were UNGUARDED despite the spec promising an assertion; MAX_SHEET_NAME/ILLEGAL_SHEET_CHARS had ZERO production readers and the test asserted properties of its own literals (unfalsifiable). A curator adding `TIS/FFPE` = HTTP 500, whole download lost. Also `_NEXTSEEK`/`README` type codes would silently shadow the manifest. Now dropped-with-warning in load_catalog + a discriminating test.
- 2. `_annotate_header_titles` was a byte-for-byte duplicate of `_annotate_header`, justified by a docstring that was FACTUALLY WRONG (claimed the shared helper reads cell text; it takes the column list as an argument). MY error in the task brief, propagated in good faith. Exactly the drift sample_workbook.py exists to prevent. Deleted; call site now uses the shared helper.
- 3. Python/JS suggestion rule unpinned: cap duplicated as a bare literal, and `suggest()` has zero production call sites so the "source of truth" comment described code no request runs. MAX_SUGGESTIONS now single-sourced via context + cross-referencing comments.
-Also fixed: the is-not-None/truthiness asymmetry comment, dead `selected` plumbing, self-referencing parent in README relationships.
+| 1 Classification rule | complete | commit 3e0e223e, review clean (spec OK, quality approved). 14 passed. Reviewer mutation-tested the MAX_SET-before-append ordering: the append-then-reject mutant flips test_parents_that_never_reach_the_floor_yield_nothing, so the suite genuinely catches it. Also confirmed `support` is the all-parents denominator (a chosen-only bug would show coverage 1.0 and fail the PAV tolerance). My brief said 13 passed; actual is 14 — plan corrected. |
+| 2 Table + DDL fixup | complete | commit 99054a84, 9 passed (container lane). Implementer correctly BLOCKED on a LATENT DEFECT in startup's own suite: three tests called apply_table_fixups against the REAL KNOWN_TABLE_FIXUPS with mock reply queues sized for exactly one entry, so the first added table breaks them. Scoped them to [TABLE_FIX] via patch.object, matching the pattern already used at line 82 with a fixture left unused at line 19 since it was written. Not caused by this feature; the registry was always going to grow. Table created in the running stack, 8 cols, child_code UNI, empty as expected pre-Task-4. |
+| 3 Unmanaged model | complete | commit 4de7d155, 5 passed. Implementer correctly refused to report a pass on my brief's Step 5, whose criterion ('must NOT propose creating it') was WRONG. Verified independently: makemigrations proposes CreateModel for Sample_attributes_unique, Sample_types_context AND Session_state - every pre-existing unmanaged model. Django emits CreateModel for unmanaged models to track state but migrate no-ops it via Options.can_migrate. Plan corrected; the real invariant is managed=False, which test_is_unmanaged asserts. FIX PASS (commit 95ba0459): reviewer mutation-proved my brief's tests checked field NAMES only — swapping coverage to FloatField, assay_titles to null=False and source to max_length=999 left all 5 passing. Added test_field_shapes_match_the_ddl pinning type/precision/length/nullability against the DDL; mutation now caught. 6 passed. |
+| 4 Management command | complete | commits 7b8c2283, 6a7b9b1d; 9 passed. Review found TWO Importants, both mutation-proven: (a) the Neo4j driver was never closed — 4 other call sites use `with GraphDatabase.driver(...)`; (b) mutating `count +=` to `count =` (last-row-wins instead of summing) left ALL 7 tests passing, because nothing asserted the numeric support of a merged pair. Now asserts D.SEQ support==2055 and PAV support==6027; mutation caught (assert 292 == 2055). Verified myself: delete() at line 106 is outside the try ending at 72, so a graph failure still cannot empty the table. |
+| 5 load_requirements | complete | commit 39a589d9, 41 passed (35 pre-existing untouched, verified from the diff having no '-' lines). Reviewer mutation-tested both risky spots: `<=` -> `&` correctly fails the drop-rule test; the per-row JSON skip -> `return {}` correctly fails the malformed-row test. Two Minors folded into T6. |
+| 6 View wiring | complete | commit 2f98d7f6; 14 passed + 1 EXPECTED fail (tpl-requirements-data belongs to T7's template tag — reviewer confirmed the tag is genuinely absent, not snuck in), and 43 passed in test_template_catalog. ZERO findings. Reviewer independently re-ran both T5 mutations: removing float() fails the new Decimal test (which asserts isinstance, not value — Decimal('0.98') == 0.98 is True, so a value assertion would have been fooled); narrowing the except to ValueError alone fails the parent_codes=None test. Both T5 minors now closed. |
+| 7 Chips + one-of prompt | complete | commits 697cfaf9, bc9f9153, 78f08052; 16 passed. TWO real defects found and fixed: (a) Clear assigned .checked=false without firing change, so the autoAdded cleanup never ran and stale 'required by' badges survived a Clear (implementer found it themselves); (b) IMPORTANT, reviewer reproduced in Node — renderRequirements snapshotted `picked` once, so two selected types sharing one unmet parent re-attributed it to whichever iterated LAST, plus a redundant render. Reachable via 'add all'. Fixed with a live isChecked() read. Reviewer independently proved recursion terminates even for CYCLIC requirement data: check(p,true) only fires when p is unpicked, so the checked set grows monotonically and is bounded by catalog size. |
+| 8 Live run + docs | complete | commit d0217feb. Implementer correctly BLOCKED first: my dispatch claimed the container held this branch's code, but it had been rebuilt from the PREVIOUS branch before Tasks 1-7 existed. They also correctly refused to fix it by switching the other checkout's branch (that checkout holds unrelated work); the right fix was `docker compose up -d --build nextseek` from THIS worktree, since build: . is relative to the invocation dir. I rebuilt and verified, then resumed. Live run: 30 requirements, matching the design's predicted 19 single + 11 disjunctive exactly. Step 1 checkpoint matched the tuned values with ZERO drift (D.SEQ->DNA 100% n=2057, PAV->NHP,PAT 98% n=6027, CEX->NHP 100% n=367). Idempotent (rerun = 30 rows, not 60). Regression diff EMPTY; 2003 -> 2044 passed. |
 
 ## Minor findings rolled up for the final review
-- T9 PRE-EXISTING dead weight, deliberately NOT touched (out of scope, needs a separate issue): `SMART_SEARCH_URL` has ZERO read sites anywhere in the tree. Its only consumer, `seek/views.py`'s `smartSearch` view, was deleted in commit 518179be ("Wire Talk-to-Nessie directly to /seek/assistant/"), long before this branch. It is still defined in the scaffold template, lane settings, test settings and two test fixtures, under a comment claiming it is required. Worth a cleanup issue.
-- T9 Minor: the `requests.adapters.HTTPAdapter.send` patch does trip when an HTTP call is reintroduced, but via a TypeError from requests internals choking on the MagicMock response, not a clean assert_not_called failure. Net effect is the same (test fails) but the failure message would be confusing.
-- T8 Minor: context keys are still named `children_json`/`meta_json` but now hold raw dicts, not JSON strings (json_script serialises them). Names are now slightly misleading.
-- T8 Minor (from brief): `data-group="{{ group.key }}"` on `.tpl-group` is never selected by CSS or JS — dead attribute. `meta_json`'s `group` field is likewise unread by the JS.
-- T8 Gap: the page's JavaScript (chips, suggestion strip, search, add-all) has NO automated coverage. Reviewer ranked the likeliest silent regressions: (1) the JS suggestion tie-break drifting from `template_catalog.suggest()` since nothing pins the two copies together; (2) `add all` reading a stale `dataset.codes` if call order changes; (3) search `hidden` toggling vs the `{% empty %}` zero-types state.
-- T8 Note: `test_types_reach_the_template_grouped_in_display_order` only asserts substring membership, not DOM nesting or order, so 'grouped in display order' is not actually verified by automation.
-- T7 Minor: `import requests` in `seek/views.py:15` is now dead (verified: zero `requests.` calls remain in the file). Its only call site was the removed project check. FOLDED INTO TASK 9 dispatch.
-- T6 Design question for user (NOT a defect): README relationship lines are filtered to the SELECTED codes (`known = set(codes)` in write_template_workbook), so DNA shows "derived from: DNA, TIS" instead of the full CEL/RNA/DNA/TIS/BAC. Self-consistent (every named type has a sheet) but hides real relationships. The Task 8 suggestion strip uses the full catalog, so it is unaffected.
-- T6 Minor cosmetic: DNA lists itself as its own parent. That is real source data in sample_types_context, not a parse bug. Could filter self-references.
-- Controller note: my `.gitignore` edit originally ignored all of `.superpowers/`, which fights this repo's convention of tracking sdd ledgers/reports (7 tracked files). Narrowed to `.superpowers/brainstorm/`.
-- T5 Minor (NOT fixed): `type_sheet_count` in `write_template_workbook` is a manual counter that always equals `len(prepared)`; using that directly would drop the counter. Purely stylistic.
-- T5 Minor (NOT fixed): `test_one_sheet_per_type_named_by_its_code_in_the_given_order` still runs under the empty-vocab fixture, so it remains unfalsifiable for CV ordering. The new `test_the_vocabulary_sheet_sits_after_the_type_sheets_not_before_them` covers that case properly, so this is redundancy not a gap.
-- T5 Minor (NOT fixed): two README tests search whole-sheet text for a substring rather than pinning a cell.
-- T4 Minor (NOT fixed, deliberate): `relationships_by_code` is guarded by truthiness while `required_by_pair` uses `is not None`. Behaviourally equivalent for all reachable inputs, but asymmetric; a one-line comment would stop the next reader assuming it is a bug.
-- T4 Minor (NOT fixed): with-flags column widths (C=10, D=100) are now locked by test, but no production caller exercises that path until Task 5 lands.
-- T2 Minor: `template_catalog.py` module docstring misattributed the buggy grouping rule to `DBtable_sampleattribute.getSampleTypes()`; it is `DBtable_sampletype.getSampleTypes()`. My planning error, copied verbatim. FOLDED INTO TASK 3 dispatch.
-- T2 Minor: `from dataclasses import dataclass, field` imports unused `field`. FOLDED INTO TASK 3 dispatch.
-- T2 Observation: `load_sample_type_context` already catches internally, so `load_catalog`'s outer try/except is unreachable in real failures today. Defense-in-depth, not a defect.
-- T2 Coverage note: no test asserts that a failing `Sample_types` query propagates (the hard dependency). Confirmed correct by reading the source; not test-locked.
-- T1 Minor: `_validBulkAttributeRows` docstring says it drops rows whose sample_type_id is not "positive-ish", but the code only checks int-coercibility. Wording overstates the check.
-- T1 Minor: the `if sid_int not in out: out[sid_int] = []` guard is two identical lines in both public methods. Correctly NOT pushed into the shared generator (it belongs to each accumulator), but worth a comment if the file is touched again.
-- T1 Observation (pre-existing, not caused here): the five `test_services_entity_tree.py` tests patch the whole `DBtable_sampleattribute` class and stub the return value, so they do not exercise the refactored internals at all. The 6 new `test_template_catalog.py` tests are the only real behavioural net on that code.
+- T7 Minor (accepted, pre-existing pattern): none of the picker's JavaScript has automated coverage. Every behaviour was verified by real click() + DOM readback against a throwaway harness. No JS test harness exists in this repo for this template.
+- T7 Minor (noted, not fixed): a chain re-render does wasted work — ticking A.ALN triggers 3 full render() passes, each building a chip list from a snapshot that is stale the moment recursion adds another code. Not a problem at realistic depth.
+- T5 Minor: the Decimal->float conversion has ZERO coverage — reviewer removed `float()` entirely and all 41 still passed, because every test passes plain floats through the mock. Real failure path: a Decimal reaching `json_script` in T6 raises at render. FOLDED INTO TASK 6.
+- T5 Minor: the `TypeError` branch of the JSON except (e.g. `parent_codes=None`) is defensive but unexercised. FOLDED INTO TASK 6.
+- T4 Minor (documented, not fixable in isolation): `test_seek_title_suffixes_collapse_to_one_assay` passes even if the merge loop de-dupes on the RAW title before stripping — `classify()` runs its own dedup over selected parents and absorbs the bug. The command's order is correct; a comment now warns whoever next touches `classify()`.
+- T4 ⚠️ unverified until Task 8: all 9 tests mock the driver entirely, so `count(DISTINCT c)` semantics and the real duplicate-suffix rows are untested against the live graph.
+- T2 Minor: the explanatory comment about registry scoping appears only above the first of the three re-scoped tests; the other two get a bare `patch.object`.
+- Pre-flight (known, deliberate, same pattern the suggestion strip already uses): Task 7 mandates a JS mirror of `type_requirements.classify()`. A reviewer will correctly flag the duplication. The plan documents it and cross-references both sides; the alternative is a server round trip per checkbox tick.
+
+## FINAL WHOLE-BRANCH REVIEW (opus) — NOT READY -> fixed in 7ba358c5 + 9e7c5aa6
+Reviewer ran the REAL inline script under Node against a DOM stub, driving it with the LIVE 30-row
+requirements table. Three Criticals, two Importants, all reproduced:
+ C1 renderRequirements wrote the DOM AFTER a recursion that invalidated its own `needs` array, so the
+    outer stale frame clobbered the inner correct one. Wiped real prompts on 11 of the 19 single-parent
+    requirements (tick D.SEQ -> DNA added, but "DNA needs one of BAC/TIS/RNA" erased), and showed FALSE
+    prompts via add-all. Fixed by collecting auto-adds, applying them, and returning before the DOM write.
+ C2 An auto-added chip could NOT be removed - it snapped straight back. Directly violated the user's
+    "partially enable / removable" decision; the exact user the spec refused to dead-end was dead-ended.
+    Fixed with a per-child declined set.
+ C3 load_requirements 500'd the whole page on a malformed row: the try wrapped only json.loads, leaving
+    float(coverage) and set(parents) outside. Spec reserves source='curator' for HAND-WRITTEN rows, so the
+    first curator row with a NULL coverage would have taken the page down.
+ I1 Recursion termination was contingent, not structural: a requirement naming a code with no checkbox
+    gave RangeError and killed the whole picker IIFE. Guarded only in Python, consumed in JS.
+ I2 autoAdded cleanup was one level deep - untick A.ALN and you were left holding DNA alone, badged
+    "required by D.SEQ", a type never picked credited to one no longer selected.
+Minors also fixed: coverage was dead payload end-to-end (removed, which closed 2 of C3's 3 failure modes);
+a test docstring asserted json_script cannot serialise a Decimal, which is FALSE (DjangoJSONEncoder renders
+it as a string); the COVERAGE_FLOOR boundary was unpinned (>= -> > left all 14 tests green); the table write
+was non-transactional; datetime.now() was naive under USE_TZ.
+
+KEY PROCESS FINDING: manual click-and-read verification missed all three Criticals. A Node harness now lifts
+the inline script out of the template verbatim and runs 16 cases against a DOM stub. It SKIPS in the
+container (no node in the stack image, deliberately per CLAUDE.md) and runs on the host:
+    node seek/tests/js/cases.js
+    python3 -m pytest seek/tests/test_templates_js.py -p no:django -p no:cacheprovider -q -o addopts=""
+Final state: container 237 passed / 18 skipped; host 18 passed; regression diff against baseline EMPTY.
+
+MERGE HAZARD flagged by the reviewer: do NOT squash-merge feat/download-templates-page first. A squash
+drops the ancestry link, after which merging this branch replays all 20 of its commits as new work and
+conflicts against itself. Merge this branch alone (it contains both), or merge the lower one with a real
+merge commit. `git merge-tree dev <head>` is currently clean.
