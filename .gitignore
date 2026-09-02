@@ -192,6 +192,29 @@ CLAUDE.md
 # build_tools.ingest_nextseek_docs`). Carve it out of the bare rule above so
 # clean clones can build the image.
 !docker/cc-runtime/container/CLAUDE.md
+# The 19 subsystem CLAUDE.md files are repo CONTENT, not local agent state:
+# each is the agent-facing half of a documented subsystem boundary, paired with
+# the README.md beside it. The bare rule above still ignores stray local
+# CLAUDE.md files anywhere else in the tree.
+!nextseek_api/CLAUDE.md
+!nextseek_api/cc_assistant/CLAUDE.md
+!nextseek_api/eval/CLAUDE.md
+!nextseek_api/batch_upload/CLAUDE.md
+!nextseek_api/attributes/CLAUDE.md
+!nextseek_api/assistant/CLAUDE.md
+!chat_nextseek/CLAUDE.md
+!seek/CLAUDE.md
+!nessie_tests/CLAUDE.md
+!chat_frontend/CLAUDE.md
+!startup/CLAUDE.md
+!build_tools/CLAUDE.md
+!scripts/CLAUDE.md
+!docker/CLAUDE.md
+!dmac/CLAUDE.md
+!ci/CLAUDE.md
+!api_app/CLAUDE.md
+!dmac_assistant/CLAUDE.md
+!themes/CLAUDE.md
 .python-version
 .serena/
 .venv_uv/data/
