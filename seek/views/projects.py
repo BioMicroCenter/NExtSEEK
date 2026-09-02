@@ -125,12 +125,23 @@ def project_page(request, project_id):
 
         clade_data.sort(key=lambda x: x[0]['order'])
 
+        # Every one of these is independently soft. The graph being down costs
+        # the diagram and the derived bundles; a missing projects_context row
+        # costs the enriched header; neither costs the page.
+        rows = connection_rows(project.id)
+        known_codes = {e.code for e in load_sample_types()}
+
         return render(request, 'projectPage.html', {'id': project.id,
                                                     'title': re.sub("-|_", " ", project.title),
                                                     'description': project.description.replace("\r", "\n"),
                                                     'seek_public_url': settings.SEEK_PUBLIC_URL,
                                                     'avatar_id': project.avatar_id,
-                                                    'clade_data': clade_data,})
+                                                    'clade_data': clade_data,
+                                                    'ctx': load_project_context(project.id),
+                                                    'bundles': project_bundles(project.id, rows, known_codes),
+                                                    'types_in_use': [
+                                                        c for c in types_in_use(rows) if c in known_codes
+                                                    ],})
 
 
 def _may_see_project(request, project_id) -> bool:

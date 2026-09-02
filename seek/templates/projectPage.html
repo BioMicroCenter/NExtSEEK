@@ -96,6 +96,22 @@
 .project-stats-table td:not(:first-child) { text-align: right; }
 .project-stats-table tbody tr:last-child td { border-bottom: none; }
 
+.project-ctx { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; font-size: 0.85rem; margin-top: 0.9rem; }
+.project-ctx dt { color: var(--ns-muted); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding-top: 0.12rem; }
+.project-ctx dd { margin: 0; color: var(--ns-body); }
+.project-ctx a { color: var(--ns-crimson); }
+
+.project-bundles { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.project-bundle button { border: 1px solid var(--ns-border); background: var(--ns-bg); border-radius: 6px; padding: 0.35rem 0.7rem; font-size: 0.82rem; color: var(--ns-ink); cursor: pointer; text-align: left; }
+.project-bundle button:hover { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); }
+.project-bundle .codes { display: block; font-family: var(--ns-font-mono); font-size: 0.68rem; color: var(--ns-muted); margin-top: 0.15rem; }
+
+.project-diagram { width: 100%; height: 520px; border: 1px solid var(--ns-border); border-radius: 8px; background: var(--ns-bg); }
+
+.project-types { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.project-types a { font-family: var(--ns-font-mono); font-size: 0.74rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 11px; border: 1px solid var(--ns-border); background: var(--ns-sidebar-bg); color: var(--ns-ink); text-decoration: none; }
+.project-types a:hover { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); text-decoration: none; }
+
 @media (max-width: 575.98px) {
     .project-detail-header { grid-template-columns: 64px 1fr; gap: 1rem; }
     .project-detail-avatar { width: 64px; height: 64px; }
@@ -126,8 +142,69 @@
             <div class="project-detail-description">
                 {{ description | markdownify }}
             </div>
+
+            {% if ctx %}
+            <dl class="project-ctx">
+              {% if ctx.pi %}<dt>Principal investigator</dt><dd>{{ ctx.pi }}</dd>{% endif %}
+              {% if ctx.research_focus %}<dt>Research focus</dt><dd>{{ ctx.research_focus }}</dd>{% endif %}
+              {% if ctx.parent_project %}<dt>Parent project</dt><dd>{{ ctx.parent_project }}</dd>{% endif %}
+              {% if ctx.key_data_types %}<dt>Key data types</dt><dd>{{ ctx.key_data_types|join:", " }}</dd>{% endif %}
+              {% if ctx.alternative_names %}<dt>Also known as</dt><dd>{{ ctx.alternative_names|join:", " }}</dd>{% endif %}
+              {% if ctx.nih_reporter_link or ctx.fairdomhub_published_link %}
+              <dt>Links</dt>
+              <dd>
+                {% if ctx.nih_reporter_link %}<a href="{{ ctx.nih_reporter_link }}" target="_blank" rel="noopener">NIH Reporter</a>{% endif %}
+                {% if ctx.nih_reporter_link and ctx.fairdomhub_published_link %} &middot; {% endif %}
+                {% if ctx.fairdomhub_published_link %}<a href="{{ ctx.fairdomhub_published_link }}" target="_blank" rel="noopener">FairDOMHub</a>{% endif %}
+              </dd>
+              {% endif %}
+            </dl>
+            {% endif %}
         </div>
     </div>
+
+    {% if bundles %}
+    <div class="project-stats-section">
+        <h2>Templates for this project</h2>
+        <div class="project-bundles">
+            {% for bundle in bundles %}
+            <form class="project-bundle" method="post" action="/seek/templates/download/">
+                {% csrf_token %}
+                {% for code in bundle.codes %}<input type="hidden" name="codes" value="{{ code }}">{% endfor %}
+                <button type="submit">
+                    {{ bundle.label }}
+                    <span class="codes">{{ bundle.codes|join:" &middot; " }}</span>
+                </button>
+            </form>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="project-stats-section">
+        <h2>Sample flow</h2>
+        {% comment %}
+          An iframe, not inlined markup: the connections route returns a complete
+          HTML document that loads cytoscape, dagre and cytoscape-dagre from a
+          CDN. Serving it separately keeps this page small, lets the browser
+          cache the frame, and means a slow graph query cannot slow this page.
+          loading="lazy" so a project page scrolled past the fold costs nothing.
+        {% endcomment %}
+        <iframe class="project-diagram" loading="lazy"
+                src="/seek/projects/{{ id }}/connections/"
+                title="Sample type connections for {{ title }}"></iframe>
+    </div>
+
+    {% if types_in_use %}
+    <div class="project-stats-section">
+        <h2>Sample types in use</h2>
+        <div class="project-types">
+            {% for code in types_in_use %}
+            <a href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     {% if clade_data %}
     <div class="project-stats-section">
