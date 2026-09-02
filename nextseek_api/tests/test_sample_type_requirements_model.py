@@ -16,7 +16,7 @@ def test_lives_on_the_nextseek_database():
 
 def test_carries_every_field_the_command_writes():
     names = {f.name for f in Sample_type_requirements._meta.get_fields()}
-    assert {"child_code", "parent_codes", "coverage", "support",
+    assert {"kind", "trigger_code", "add_codes", "coverage", "support",
             "assay_titles", "source", "computed_at"} <= names
 
 
@@ -26,9 +26,11 @@ def test_is_unmanaged():
     assert Sample_type_requirements._meta.managed is False
 
 
-def test_child_code_is_unique():
-    field = Sample_type_requirements._meta.get_field("child_code")
-    assert field.unique is True
+def test_kind_and_trigger_are_unique_together():
+    """A companion row is keyed by the PARENT it is triggered from, so the same
+    code can legitimately appear once per kind -- DNA requires BAC/TIS/RNA and
+    is also BAC's companion. child_code alone would have collided."""
+    assert Sample_type_requirements._meta.unique_together == (("kind", "trigger_code"),)
 
 
 def test_field_shapes_match_the_ddl():
@@ -47,13 +49,20 @@ def test_field_shapes_match_the_ddl():
     """
     get_field = Sample_type_requirements._meta.get_field
 
-    child_code = get_field("child_code")
-    assert isinstance(child_code, models.CharField)
-    assert child_code.max_length == 32
-    assert child_code.unique is True
+    kind = get_field("kind")
+    assert isinstance(kind, models.CharField)
+    assert kind.max_length == 16
+    assert kind.default == Sample_type_requirements.KIND_REQUIRES
 
-    parent_codes = get_field("parent_codes")
-    assert isinstance(parent_codes, models.TextField)
+    trigger_code = get_field("trigger_code")
+    assert isinstance(trigger_code, models.CharField)
+    assert trigger_code.max_length == 32
+    # Not unique on its own: DNA is a requirement trigger AND BAC's companion
+    # child, so uniqueness is (kind, trigger_code). See the test above.
+    assert trigger_code.unique is False
+
+    add_codes = get_field("add_codes")
+    assert isinstance(add_codes, models.TextField)
 
     coverage = get_field("coverage")
     assert isinstance(coverage, models.DecimalField)

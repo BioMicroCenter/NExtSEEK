@@ -213,5 +213,94 @@ def test_a_parent_nothing_still_needs_is_dropped(results):
 
 
 def test_a_hand_picked_parent_is_never_cleaned_up(results):
-    """Only types the picker added itself are ever removed behind the user."""
-    assert case(results, "i2_a_hand_picked_parent_is_never_removed")["selected"] == ["NHP"]
+    """Only types the picker added itself are ever removed behind the user.
+
+    PAV rides along because NHP is its companion trigger -- what matters here
+    is that NHP, which the user ticked, survives CEX being taken away.
+    """
+    out = case(results, "i2_a_hand_picked_parent_is_never_removed")
+    assert "NHP" in out["selected"]
+    assert "CEX" not in out["selected"]
+
+
+# --- companions: the opposite direction, one hop only ----------------------
+
+def test_picking_a_subject_brings_the_visit(results):
+    """NHP -> PAV at 82%. The case companions were built for: a requirement
+    would never fire here, because a subject can exist without a visit."""
+    out = case(results, "comp_picking_a_subject_brings_the_visit")
+    assert out["selected"] == ["NHP", "PAV"]
+    pav = [c for c in out["chips"] if c["code"] == "PAV"][0]
+    assert pav["title"] == "usually recorded with NHP"
+    assert "is-companion" in pav["classes"]
+    # Weaker claim than a requirement, and it must not borrow that wording.
+    assert "is-required" not in pav["classes"]
+
+
+def test_a_companion_satisfies_the_requirement_it_implies(results):
+    """PAV requires one of NHP/PAT. Arriving as NHP's companion it is already
+    met, so the prompt must not appear asking for what is already there."""
+    out = case(results, "comp_a_companion_satisfies_the_requirement_it_implies")
+    assert out["prompts"]["hidden"] is True
+    assert out["prompts"]["needs"] == []
+
+
+def test_a_companion_stops_after_one_hop(results):
+    """BAC -> DNA is 99% and DNA -> D.SEQ is 98%, but a companion does not
+    trigger its own. Two hops of 80% confidence is 64%."""
+    out = case(results, "comp_stops_after_one_hop")
+    assert out["selected"] == ["BAC", "DNA"]
+    assert "D.SEQ" not in out["selected"]
+
+
+def test_requirements_still_chain(results):
+    """The asymmetry is the point: a requirement is a fact about what an upload
+    may look like, so following it is always right."""
+    out = case(results, "comp_requirements_still_chain_though")
+    assert sorted(out["selected"]) == ["A.ALN", "D.SEQ", "DNA"]
+
+
+def test_a_companion_chip_is_removable_and_stays_removed(results):
+    """The defect found on requirement chips: removed, then snapped back."""
+    out = case(results, "comp_a_companion_chip_is_removable_and_stays_removed")
+    assert out["selected"] == ["NHP"]
+
+
+def test_a_companion_goes_when_its_trigger_does(results):
+    out = case(results, "comp_the_companion_goes_when_its_trigger_does")
+    assert out["selected"] == []
+
+
+def test_a_hand_picked_type_is_never_taken_away(results):
+    """PAV was chosen first; unticking NHP must not remove someone's own pick."""
+    out = case(results, "comp_a_hand_picked_type_is_never_taken_away")
+    assert out["selected"] == ["PAV"]
+
+
+def test_a_trigger_with_no_dominant_child_adds_nothing(results):
+    """TIS derives eleven things, none dominant. This cap is what stops
+    companions becoming 'add half the catalog'."""
+    out = case(results, "comp_a_trigger_with_no_companion_adds_nothing")
+    assert out["selected"] == ["TIS"]
+
+
+def test_a_companion_naming_an_unknown_code_does_not_hang(results):
+    """The catalog guard is enforced in Python and consumed here; termination
+    must not depend on it."""
+    out = case(results, "comp_a_companion_naming_an_unknown_code_is_survivable")
+    assert out["selected"] == ["OOC"]
+
+
+def test_a_requirement_and_a_companion_cannot_prop_each_other_up(results):
+    """CEX requires NHP, NHP's companion is PAV, and PAV requires NHP. Undoing
+    the only real pick must take all three, not leave the pair citing each
+    other -- the fixpoint a local "does anything still want this?" check has."""
+    out = case(results, "comp_a_requirement_and_a_companion_cannot_prop_each_other_up")
+    assert out["selected"] == []
+
+
+def test_ticking_an_added_type_claims_it_as_your_own(results):
+    """PAV is already there as NHP's companion; ticking it yourself must
+    register, or removing NHP silently takes your own pick with it."""
+    out = case(results, "comp_ticking_an_added_type_claims_it_as_your_own")
+    assert out["selected"] == ["PAV"]

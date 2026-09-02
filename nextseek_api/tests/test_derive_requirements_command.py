@@ -56,18 +56,30 @@ def _model():
     """
     with patch(f"{_MOD}.transaction.atomic", lambda *a, **kw: contextlib.nullcontext()), \
          patch(f"{_MOD}.Sample_type_requirements") as model:
+        # The command writes Sample_type_requirements.KIND_*; without real
+        # values here every row's `kind` would be an indistinguishable MagicMock.
+        model.KIND_REQUIRES = "requires"
+        model.KIND_COMPANION = "companion"
         yield model
+
+
+
+def _written(model, kind="requires"):
+    """The rows of one kind the command wrote, keyed by trigger code."""
+    return {c.kwargs["trigger_code"]: c.kwargs
+            for c in model.objects.create.call_args_list
+            if c.kwargs["kind"] == kind}
 
 
 def test_writes_one_row_per_constrained_child(_graph, _model):
     call_command("derive_sample_type_requirements")
-    written = {c.kwargs["child_code"] for c in _model.objects.create.call_args_list}
+    written = set(_written(_model))
     assert written == {"D.SEQ", "PAV", "NUL"}
 
 
 def test_a_child_below_min_support_is_not_written(_graph, _model):
     call_command("derive_sample_type_requirements")
-    written = {c.kwargs["child_code"] for c in _model.objects.create.call_args_list}
+    written = set(_written(_model))
     assert "RARE" not in written
 
 
@@ -75,17 +87,15 @@ def test_parent_codes_are_stored_as_json_in_share_order(_graph, _model):
     import json
 
     call_command("derive_sample_type_requirements")
-    row = next(c.kwargs for c in _model.objects.create.call_args_list
-               if c.kwargs["child_code"] == "PAV")
-    assert json.loads(row["parent_codes"]) == ["NHP", "PAT"]
+    row = _written(_model)["PAV"]
+    assert json.loads(row["add_codes"]) == ["NHP", "PAT"]
 
 
 def test_seek_title_suffixes_collapse_to_one_assay(_graph, _model):
     import json
 
     call_command("derive_sample_type_requirements")
-    row = next(c.kwargs for c in _model.objects.create.call_args_list
-               if c.kwargs["child_code"] == "D.SEQ")
+    row = _written(_model)["D.SEQ"]
     assert json.loads(row["assay_titles"]) == ["Short Read Sequencing"]
 
 
@@ -100,7 +110,7 @@ def test_counts_are_summed_across_assay_variants_not_last_write_wins(_graph, _mo
     bug for the multi-parent path.
     """
     call_command("derive_sample_type_requirements")
-    written = {c.kwargs["child_code"]: c.kwargs for c in _model.objects.create.call_args_list}
+    written = {c.kwargs["trigger_code"]: c.kwargs for c in _model.objects.create.call_args_list}
     assert written["D.SEQ"]["support"] == 2055
     assert written["PAV"]["support"] == 6027
 
@@ -108,7 +118,7 @@ def test_counts_are_summed_across_assay_variants_not_last_write_wins(_graph, _mo
 def test_a_child_with_only_null_assays_writes_null_not_empty_array(_graph, _model):
     call_command("derive_sample_type_requirements")
     row = next(c.kwargs for c in _model.objects.create.call_args_list
-               if c.kwargs["child_code"] == "NUL")
+               if c.kwargs["trigger_code"] == "NUL")
     assert row["assay_titles"] is None
 
 
@@ -144,7 +154,40 @@ def test_a_graph_failure_leaves_the_existing_table_untouched():
     """A stale table beats an empty one: the page keeps working."""
     with patch(f"{_MOD}.GraphDatabase.driver", side_effect=RuntimeError("no graph")), \
          patch(f"{_MOD}.Sample_type_requirements") as model:
+        # The command writes Sample_type_requirements.KIND_*; without real
+        # values here every row's `kind` would be an indistinguishable MagicMock.
+        model.KIND_REQUIRES = "requires"
+        model.KIND_COMPANION = "companion"
         with pytest.raises(SystemExit):
             call_command("derive_sample_type_requirements")
     model.objects.all.return_value.delete.assert_not_called()
     model.objects.create.assert_not_called()
+
+
+def test_companions_are_written_as_their_own_kind(_graph, _model):
+    """Same rows, read from the parent's side. NHP -> PAV is 82% because an NHP
+    also yields CEX; both directions come out of one Cypher pass."""
+    import json as _json
+
+    call_command("derive_sample_type_requirements")
+    comps = _written(_model, "companion")
+    assert "NHP" in comps
+    assert _json.loads(comps["NHP"]["add_codes"]) == ["PAV"]
+
+
+def test_a_companion_names_exactly_one_child(_graph, _model):
+    """classify_companions offers only the single dominant child; a parent with
+    a genuine second outcome stays silent rather than guessing."""
+    import json as _json
+
+    call_command("derive_sample_type_requirements")
+    for row in _written(_model, "companion").values():
+        assert len(_json.loads(row["add_codes"])) == 1
+
+
+def test_the_two_kinds_share_one_transaction(_graph, _model):
+    """Requirements and companions are one rewrite, not two: a page load
+    landing between them would see the picker half-configured."""
+    call_command("derive_sample_type_requirements")
+    assert _model.objects.all.return_value.delete.call_count == 1
+    assert _written(_model, "requires") and _written(_model, "companion")

@@ -96,12 +96,16 @@ def load_catalog() -> list[SampleTypeEntry]:
     malformed input must never surface to the user or raise. It costs that one
     type rather than every type in the download.
     """
-    rows = list(Sample_types.objects.all().values("id", "title"))
+    rows = list(Sample_types.objects.all().values("id", "title", "description"))
 
     entries = []
     for row in rows:
         title = (row.get("title") or "").strip()
         if not title:
+            continue
+        if is_deprecated(row.get("description")):
+            # Retired in SEEK. Offering it produces a nameless row nobody can
+            # use, because nothing curates a context entry for a dead type.
             continue
         if not _is_legal_sheet_name(title):
             logger.warning(
@@ -140,6 +144,25 @@ def load_catalog() -> list[SampleTypeEntry]:
 _RELATED_SPLIT = re.compile(r",|;|\.\s+|\s+or\s+", flags=re.IGNORECASE)
 
 MAX_SUGGESTIONS = 12
+
+# Retired sample types are still rows in SEEK; the only marker is a word in the
+# free-text description, and the repository does not spell it consistently --
+# six say "Depreciated" (itself a misspelling of deprecated) and A.SEQ says
+# "Depcreciated". Matching the exact string would leak that one type through,
+# which is one of the four a user reported as showing no name at all. So match
+# the stem both spellings share, case-insensitively.
+_DEPRECATED = re.compile(r"depr?e?c", re.IGNORECASE)
+
+
+def is_deprecated(description) -> bool:
+    """True when SEEK's own description marks the type as retired.
+
+    All seven types with no `sample_types_context` row are retired ones, which
+    is why they render nameless in the picker. A blank name is the symptom;
+    being offered a retired type at all is the defect.
+    """
+    return bool(description) and bool(_DEPRECATED.search(str(description)))
+
 
 
 def parse_related(raw, known) -> list[str]:
@@ -224,52 +247,60 @@ def suggest(selected, relationships) -> list[str]:
     return [code for code, _ in ranked[:MAX_SUGGESTIONS]]
 
 
-def load_requirements(codes) -> dict[str, dict]:
-    """{child: {"parents": [...], "assays": [...]}}.
+def load_type_links(codes) -> dict[str, dict[str, dict]]:
+    """Everything the picker adds for you, in one read.
 
-    A requirement is dropped unless every parent it names is a code this
-    instance still has -- a chip the user cannot satisfy is worse than no chip.
-    Same rule parse_related() applies to the curator columns.
+    Returns {"requires": {trigger: {...}}, "companions": {trigger: {...}}},
+    each inner value {"add": [...], "assays": [...]}.
 
-    `coverage` and `support` are deliberately not read. They are what the rule
-    was derived from, auditable in the table itself; the page shows a
-    requirement or it does not, and shipping the numbers to the browser only
-    widened the surface a malformed row could break.
+    A row is dropped unless every code it names is one this instance still has
+    -- a chip the user cannot satisfy is worse than no chip. Same rule
+    parse_related() applies to the curator columns.
+
+    `coverage` and `support` are deliberately not read. They are what the rules
+    were derived from, auditable in the table itself; the page shows a link or
+    it does not, and shipping the numbers to the browser only widened the
+    surface a malformed row could break.
 
     Soft, like every other enrichment here: an absent or unreadable table costs
-    requirements and the picker behaves as it did before the feature existed.
+    the links and the picker behaves as it did before the feature existed.
     """
+    empty = {"requires": {}, "companions": {}}
     known = {c for c in (codes or []) if c}
     if not known:
-        return {}
+        return empty
 
     try:
         rows = list(
-            Sample_type_requirements.objects.filter(child_code__in=sorted(known)).values(
-                "child_code", "parent_codes", "assay_titles"
-            )
+            Sample_type_requirements.objects.filter(
+                trigger_code__in=sorted(known)
+            ).values("kind", "trigger_code", "add_codes", "assay_titles")
         )
     except Exception:
-        logger.exception("sample_type_requirements unavailable; no requirements shown")
-        return {}
+        logger.exception("sample_type_requirements unavailable; no links shown")
+        return empty
 
-    out = {}
+    out = {"requires": {}, "companions": {}}
     for row in rows:
         # Everything that touches the row's own data belongs inside the try:
         # `source='curator'` is reserved for hand-written rows, and the whole
-        # point of the failure contract is that the first bad one costs a
-        # requirement rather than the page. set() on a non-list parent_codes
-        # ('5' is valid JSON) raises TypeError just as loudly as a bad parse.
+        # point of the failure contract is that the first bad one costs a link
+        # rather than the page. set() on a non-list add_codes ('5' is valid
+        # JSON) raises TypeError just as loudly as a bad parse.
         try:
-            parents = json.loads(row["parent_codes"])
+            add = json.loads(row["add_codes"])
             assays = json.loads(row["assay_titles"]) if row["assay_titles"] else []
-            if not parents or not set(parents) <= known:
+            if not add or not set(add) <= known:
                 continue
             if not isinstance(assays, list):
                 assays = []
         except (TypeError, ValueError):
-            # A malformed row is one bad requirement, not a broken page.
-            logger.warning("unparseable requirement row for %s", row.get("child_code"))
+            # A malformed row is one bad link, not a broken page.
+            logger.warning("unparseable link row for %s", row.get("trigger_code"))
             continue
-        out[row["child_code"]] = {"parents": parents, "assays": assays}
+
+        bucket = ("companions"
+                  if row["kind"] == Sample_type_requirements.KIND_COMPANION
+                  else "requires")
+        out[bucket][row["trigger_code"]] = {"add": add, "assays": assays}
     return out

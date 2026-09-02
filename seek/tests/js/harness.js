@@ -115,6 +115,7 @@ function buildPage(doc, spec) {
   island('tpl-children-data', spec.children || {});
   island('tpl-meta-data', spec.meta || {});
   island('tpl-requirements-data', spec.requires || {});
+  island('tpl-companions-data', spec.companions || {});
 }
 
 function boxes(doc) {

@@ -130,8 +130,10 @@ class TestPicker:
 
         assert "</script><img" not in body
         assert "<img src=x onerror=alert(1)>" not in body
+        assert "<img src=x onerror=alert(2)>" not in body
+        assert "tpl-companions-data" in body
 
-    @patch("seek.views.load_requirements")
+    @patch("seek.views.load_type_links")
     @patch("seek.views.load_catalog")
     @patch("seek.views.SeekDB")
     def test_a_hostile_assay_title_in_requirements_cannot_break_out_of_the_script_block(
@@ -148,18 +150,24 @@ class TestPicker:
         mock_catalog.return_value = [TIS, SEQ]
         mock_db.return_value = _logged_in()
         mock_req.return_value = {
-            "D.SEQ": {
-                "parents": ["TIS"],
+            "requires": {"D.SEQ": {
+                "add": ["TIS"],
                 "assays": ["</script><img src=x onerror=alert(1)>"],
-            }
+            }},
+            "companions": {"TIS": {
+                "add": ["D.SEQ"],
+                "assays": ["</script><img src=x onerror=alert(2)>"],
+            }},
         }
         resp = templatesList(_get())
         body = resp.content.decode()
 
         assert "</script><img" not in body
         assert "<img src=x onerror=alert(1)>" not in body
+        assert "<img src=x onerror=alert(2)>" not in body
+        assert "tpl-companions-data" in body
 
-    @patch("seek.views.load_requirements")
+    @patch("seek.views.load_type_links")
     @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.views.SeekDB")
     def test_requirements_are_embedded_for_the_page(self, mock_db, _cat, mock_req):
@@ -167,13 +175,16 @@ class TestPicker:
 
         mock_db.return_value = _logged_in()
         mock_req.return_value = {
-            "D.SEQ": {"parents": ["TIS"], "assays": ["Short Read Sequencing"]}
+            "requires": {"D.SEQ": {"add": ["TIS"],
+                                   "assays": ["Short Read Sequencing"]}},
+            "companions": {"TIS": {"add": ["D.SEQ"], "assays": []}},
         }
         body = templatesList(_get()).content.decode()
         assert "tpl-requirements-data" in body
+        assert "tpl-companions-data" in body
         assert "Short Read Sequencing" in body
 
-    @patch("seek.views.load_requirements", return_value={})
+    @patch("seek.views.load_type_links", return_value={"requires": {}, "companions": {}})
     @patch("seek.views.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.views.SeekDB")
     def test_no_requirements_still_renders_the_picker(self, mock_db, _cat, _req):
@@ -191,7 +202,7 @@ class TestPicker:
         from seek.views import templatesList
 
         mock_db.return_value = _logged_in()
-        with patch("seek.views.load_requirements", return_value={}) as mock_req:
+        with patch("seek.views.load_type_links", return_value={"requires": {}, "companions": {}}) as mock_req:
             templatesList(_get())
         assert mock_req.call_args[0][0] == {"TIS", "D.SEQ"}
 

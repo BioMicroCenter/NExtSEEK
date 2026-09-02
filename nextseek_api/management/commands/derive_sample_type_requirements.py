@@ -17,7 +17,7 @@ from django.db import transaction
 from django.utils import timezone
 from neo4j import GraphDatabase
 
-from nextseek_api.services.type_requirements import classify
+from nextseek_api.services.type_requirements import classify, classify_companions
 from nextseek_api.services.sample_workbook import ASSAY_TITLE_SUFFIXES
 from seek.models import NEXTSEEK_DATABASE, Sample_type_requirements
 
@@ -88,23 +88,62 @@ class Command(BaseCommand):
                 assays.append(title)
             merged[key] = (count, assays)
 
-        requirements = classify(
+        pairs = [
             (child, parent, count, assays)
             for (child, parent), (count, assays) in merged.items()
-        )
+        ]
+        # Same rows, read from both ends. classify() asks which parents a child
+        # cannot be uploaded without; classify_companions() asks which child a
+        # parent almost always goes on to produce.
+        requirements = classify(pairs)
+        companions = classify_companions(pairs)
 
         if options["dry_run"]:
             for req in sorted(requirements.values(), key=lambda r: -r.support):
-                kind = "requires" if len(req.parents) == 1 else "requires one of"
+                verb = "requires" if len(req.parents) == 1 else "requires one of"
                 self.stdout.write(
-                    f"{req.child:>9}  {kind} {', '.join(req.parents):<24} "
+                    f"{req.child:>9}  {verb:<16} {', '.join(req.parents):<24} "
                     f"{req.coverage:.0%} n={req.support}"
                 )
-            self.stdout.write(f"{len(requirements)} requirements (dry run, nothing written)")
+            for comp in sorted(companions.values(), key=lambda c: -c.support):
+                self.stdout.write(
+                    f"{comp.parent:>9}  {'usually with':<16} {comp.child:<24} "
+                    f"{comp.share:.0%} n={comp.support}"
+                )
+            self.stdout.write(
+                f"{len(requirements)} requirements, {len(companions)} companions "
+                f"(dry run, nothing written)"
+            )
             return
 
         # USE_TZ is on, so datetime.now() would be a naive datetime.
         now = timezone.now()
+
+        # Both kinds share one row shape: the code the user ticks, and the
+        # codes that brings in. See the model for why the columns are named for
+        # that direction rather than the graph's.
+        write = [
+            {
+                "kind": Sample_type_requirements.KIND_REQUIRES,
+                "trigger_code": req.child,
+                "add_codes": json.dumps(req.parents),
+                "coverage": round(req.coverage, 3),
+                "support": req.support,
+                "assay_titles": json.dumps(req.assays) if req.assays else None,
+            }
+            for req in requirements.values()
+        ] + [
+            {
+                "kind": Sample_type_requirements.KIND_COMPANION,
+                "trigger_code": comp.parent,
+                "add_codes": json.dumps([comp.child]),
+                "coverage": round(comp.share, 3),
+                "support": comp.support,
+                "assay_titles": json.dumps(comp.assays) if comp.assays else None,
+            }
+            for comp in companions.values()
+        ]
+
         # Delete-then-insert is not a rewrite unless it is one transaction: an
         # error part way through the loop otherwise leaves the table half
         # written, and a page load landing between the delete and the last
@@ -112,14 +151,10 @@ class Command(BaseCommand):
         # alias the model is routed to.
         with transaction.atomic(using=NEXTSEEK_DATABASE):
             Sample_type_requirements.objects.all().delete()
-            for req in requirements.values():
+            for row in write:
                 Sample_type_requirements.objects.create(
-                    child_code=req.child,
-                    parent_codes=json.dumps(req.parents),
-                    coverage=round(req.coverage, 3),
-                    support=req.support,
-                    assay_titles=json.dumps(req.assays) if req.assays else None,
-                    source="graph",
-                    computed_at=now,
+                    source="graph", computed_at=now, **row
                 )
-        self.stdout.write(f"wrote {len(requirements)} sample type requirements")
+        self.stdout.write(
+            f"wrote {len(requirements)} requirements and {len(companions)} companions"
+        )

@@ -34,11 +34,11 @@ var TYPES = [
 ];
 
 var REQUIRES = {
-  DNA: { parents: ['BAC', 'TIS', 'RNA'], assays: ['DNA Extraction'] },
-  'D.SEQ': { parents: ['DNA'], assays: ['Short Read Sequencing'] },
-  'A.ALN': { parents: ['D.SEQ'], assays: ['Alignment'] },
-  PAV: { parents: ['NHP', 'PAT'], assays: ['Patient Visit'] },
-  CEX: { parents: ['NHP'], assays: ['Tissue Collection'] },
+  DNA: { add: ['BAC', 'TIS', 'RNA'], assays: ['DNA Extraction'] },
+  'D.SEQ': { add: ['DNA'], assays: ['Short Read Sequencing'] },
+  'A.ALN': { add: ['D.SEQ'], assays: ['Alignment'] },
+  PAV: { add: ['NHP', 'PAT'], assays: ['Patient Visit'] },
+  CEX: { add: ['NHP'], assays: ['Tissue Collection'] },
 };
 
 // Enough of the children map to drive the suggestion strip and "add all".
@@ -54,17 +54,33 @@ function meta() {
   return out;
 }
 
-function picker(extraRequires) {
+// Companions run the other way: the trigger is a PARENT, and add[0] is the one
+// child that dominates what it produces. Real shares from the live instance.
+var COMPANIONS = {
+  NHP: { add: ['PAV'], assays: ['Patient Visit'] },      // 82%
+  PAT: { add: ['PAV'], assays: ['Patient Visit'] },      // 100%
+  BAC: { add: ['DNA'], assays: ['Bacterial Extraction'] }, // 99%
+  DNA: { add: ['D.SEQ'], assays: ['Short Read Sequencing'] }, // 98%
+  MUS: { add: ['TIS'], assays: ['Tissue Collection'] },  // 96%
+};
+
+function picker(extraRequires, extraCompanions) {
   var requires = {};
   Object.keys(REQUIRES).forEach(function (k) { requires[k] = REQUIRES[k]; });
   Object.keys(extraRequires || {}).forEach(function (k) {
     requires[k] = extraRequires[k];
+  });
+  var companions = {};
+  Object.keys(COMPANIONS).forEach(function (k) { companions[k] = COMPANIONS[k]; });
+  Object.keys(extraCompanions || {}).forEach(function (k) {
+    companions[k] = extraCompanions[k];
   });
   return createPicker({
     types: TYPES,
     children: CHILDREN,
     meta: meta(),
     requires: requires,
+    companions: companions,
   });
 }
 
@@ -184,7 +200,7 @@ var CASES = {
   // A requirement naming a code no checkbox carries used to recurse until the
   // stack blew, taking the whole picker IIFE with it.
   i1_a_requirement_naming_an_unknown_code_is_survivable: function () {
-    var p = picker({ 'D.FLOW': { parents: ['NOPE'], assays: [] } });
+    var p = picker({ 'D.FLOW': { add: ['NOPE'], assays: [] } });
     p.tick('D.FLOW');
     var afterTick = {
       selected: p.selected(),
@@ -250,6 +266,97 @@ var CASES = {
     p.untick('CEX');
     return { selected: p.selected() };
   },
+  // ---- companions: the opposite direction, one hop only -------------------
+
+  comp_picking_a_subject_brings_the_visit: function () {
+    // The case that motivated companions. NHP -> PAV is 82%.
+    var p = picker();
+    p.tick('NHP');
+    return { selected: p.selected(), chips: p.chips() };
+  },
+
+  comp_a_companion_satisfies_the_requirement_it_implies: function () {
+    // PAV requires one of NHP/PAT. Arriving as NHP's companion, that is
+    // already met, so the prompt strip must stay silent.
+    var p = picker();
+    p.tick('NHP');
+    return { selected: p.selected(), prompts: p.prompts() };
+  },
+
+  comp_stops_after_one_hop: function () {
+    // BAC -> DNA is a 99% companion and DNA -> D.SEQ is 98%, but a companion
+    // does not trigger its own: two hops of 80% confidence is 64%.
+    var p = picker();
+    p.tick('BAC');
+    return { selected: p.selected() };
+  },
+
+  comp_requirements_still_chain_though: function () {
+    // The asymmetry is deliberate: a requirement is a fact about what an
+    // upload may look like, so following it is always right.
+    var p = picker();
+    p.tick('A.ALN');
+    return { selected: p.selected() };
+  },
+
+  comp_a_companion_chip_is_removable_and_stays_removed: function () {
+    var p = picker();
+    p.tick('NHP');
+    p.removeChip('PAV');
+    return { selected: p.selected() };
+  },
+
+  comp_the_companion_goes_when_its_trigger_does: function () {
+    var p = picker();
+    p.tick('NHP');
+    p.untick('NHP');
+    return { selected: p.selected() };
+  },
+
+  comp_a_hand_picked_type_is_never_taken_away: function () {
+    // PAV was chosen first, so unticking NHP must not remove it.
+    var p = picker();
+    p.tick('PAV');
+    p.tick('NHP');
+    p.untick('NHP');
+    return { selected: p.selected() };
+  },
+
+  comp_a_trigger_with_no_companion_adds_nothing: function () {
+    // TIS derives eleven things, none dominant, so it predicts nothing.
+    var p = picker();
+    p.tick('TIS');
+    return { selected: p.selected() };
+  },
+
+  comp_a_companion_naming_an_unknown_code_is_survivable: function () {
+    // The guard is enforced in Python; the page must not hang without it.
+    var p = picker({}, { OOC: { add: ['NOPE'], assays: [] } });
+    p.tick('OOC');
+    return { selected: p.selected() };
+  },
+
+  comp_a_requirement_and_a_companion_cannot_prop_each_other_up: function () {
+    // CEX requires NHP; NHP's companion is PAV; PAV requires NHP again. Undo
+    // the only real pick and each of NHP and PAV can name the other as its
+    // reason to stay. Reachability from a hand-picked root has no such
+    // fixpoint, which is why prune() marks and sweeps.
+    var p = picker();
+    p.tick('CEX');
+    p.untick('CEX');
+    return { selected: p.selected() };
+  },
+
+  comp_ticking_an_added_type_claims_it_as_your_own: function () {
+    // PAV is already on screen as NHP's companion. Ticking it yourself must
+    // register, or removing NHP would take your own pick with it.
+    var p = picker();
+    p.tick('NHP');
+    p.tick('PAV');
+    p.untick('NHP');
+    return { selected: p.selected() };
+  },
+
 };
 
 function main() {

@@ -411,3 +411,41 @@ Neo4j is never on the request path: the page reads only the materialised table.
 Note that `sample_attributes.linked_sample_type_id` is populated zero times on
 this instance and no `Parent` attribute is marked required, which is why the
 requirement is derived from observed data rather than read from the schema.
+
+## Companion sample types
+
+The picker also runs the relation the other way. A **requirement** says an
+upload cannot omit something (`D.SEQ` needs `DNA`); a **companion** says a
+parent type almost always goes on to produce a particular child, so picking it
+brings that child too. `NHP` yields `PAV` in 93% of everything derived from it,
+and nothing about a subject *requires* a visit -- so only the second relation
+finds it.
+
+Both come from one Cypher pass in `derive_sample_type_requirements` and share
+`dmac.sample_type_requirements`, distinguished by `kind`. The columns are named
+`trigger_code`/`add_codes` rather than child/parent because the two kinds run
+opposite ways: a companion row is keyed by the parent.
+
+`nextseek_api/services/type_requirements.py` holds both rules.
+`classify()` takes parents by descending share to 95% coverage, at least 10
+supporting samples, at most 3 alternatives. `classify_companions()` takes the
+single most-derived child, and only when it is at least 80% of what the parent
+produces -- a parent with a genuine second outcome stays silent rather than
+guessing, which is why `TIS` (eleven outcomes, none dominant) predicts nothing.
+
+**Companions stop after one hop; requirements chain.** Picking `BAC` gives
+`DNA` and stops, though `DNA -> D.SEQ` is a 98% companion. A requirement is a
+fact about what an upload may look like, so following it is always right; a
+companion is a prediction, and two hops of 80% confidence is 64%.
+
+Retired sample types are dropped from the picker. All seven with no
+`sample_types_context` row are deprecated, which is why they rendered nameless.
+The match is deliberately typo-tolerant: the repository spells it `Depreciated`
+six times and `Depcreciated` once, on `A.SEQ`.
+
+The picker's JavaScript has no coverage in the container lane -- `node` is not
+in the stack image -- so it is tested by a harness that lifts the template's own
+script and runs it against a DOM stub. Run it on a host with node:
+
+    node seek/tests/js/cases.js
+    python3 -m pytest seek/tests/test_templates_js.py -p no:django -q -o addopts=""

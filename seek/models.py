@@ -259,12 +259,18 @@ class Sample_attributes_unique(models.Model):
         managed = False
 
 class Sample_type_requirements(models.Model):
-    """Sample types an upload of `child_code` cannot omit.
+    """What the Download Templates picker adds when a sample type is ticked.
 
     Filled by `manage.py derive_sample_type_requirements` from Neo4j's
-    DERIVED_FROM edges. `parent_codes` is a JSON array ordered by descending
-    share: one entry is a hard requirement, two or three are alternatives of
-    which the upload needs one.
+    DERIVED_FROM edges. One row per (kind, trigger_code); `add_codes` is a JSON
+    array. The columns are named for the direction the user experiences,
+    because the two kinds run opposite ways:
+
+    `requires`  -- trigger_code is a child type, add_codes the parents it cannot
+                   be uploaded without. One is a hard requirement, two or three
+                   are alternatives of which the upload needs one.
+    `companion` -- trigger_code is a parent type, add_codes the single child
+                   that dominates what it produces. Not required; predicted.
 
     Unmanaged for the same reason as Sample_attributes_unique above: the table
     is created out-of-band in SQL (startup/seed/sql/sample_type_requirements.sql,
@@ -273,8 +279,12 @@ class Sample_type_requirements(models.Model):
     """
     _DATABASE = NEXTSEEK_DATABASE
 
-    child_code = models.CharField(max_length=32, unique=True)
-    parent_codes = models.TextField()
+    KIND_REQUIRES = "requires"
+    KIND_COMPANION = "companion"
+
+    kind = models.CharField(max_length=16, default=KIND_REQUIRES)
+    trigger_code = models.CharField(max_length=32)
+    add_codes = models.TextField()
     coverage = models.DecimalField(max_digits=4, decimal_places=3)
     support = models.IntegerField()
     assay_titles = models.TextField(default=None, null=True)
@@ -282,9 +292,15 @@ class Sample_type_requirements(models.Model):
     computed_at = models.DateTimeField()
 
     def __str__(self):
-        return self.child_code
+        return f"{self.kind}:{self.trigger_code}"
 
     class Meta:
+        db_table = "sample_type_requirements"
+        managed = False
+        unique_together = ("kind", "trigger_code")
+
+
+class Meta:
         db_table = "sample_type_requirements"
         managed = False
 

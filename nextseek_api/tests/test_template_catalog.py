@@ -1,5 +1,6 @@
 """The template catalog: what types exist, their columns, and what they relate to."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -329,112 +330,159 @@ class TestSuggest:
         assert suggest([], self.REL) == []
 
 
-class TestLoadRequirements:
-    """dmac.sample_type_requirements -> {child: {parents, assays}}."""
+class TestLoadTypeLinks:
+    """dmac.sample_type_requirements -> {"requires": {...}, "companions": {...}}."""
 
     def _model(self, rows):
         m = MagicMock()
         m.objects.filter.return_value.values.return_value = rows
+        m.KIND_COMPANION = "companion"
+        m.KIND_REQUIRES = "requires"
         return m
 
-    def test_parses_the_json_columns(self):
-        from nextseek_api.services.template_catalog import load_requirements
+    def _row(self, trigger, add, kind="requires", assays=None):
+        return {"kind": kind, "trigger_code": trigger,
+                "add_codes": json.dumps(add),
+                "assay_titles": json.dumps(assays) if assays else None}
 
-        rows = [{"child_code": "PAV", "parent_codes": '["NHP", "PAT"]',
-                 "assay_titles": '["Patient Visit"]'}]
+    def test_splits_the_two_kinds_into_their_own_buckets(self):
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [self._row("PAV", ["NHP", "PAT"], assays=["Patient Visit"]),
+                self._row("NHP", ["PAV"], kind="companion", assays=["Patient Visit"])]
         with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
-            out = load_requirements({"PAV", "NHP", "PAT"})
-        assert out == {"PAV": {"parents": ["NHP", "PAT"], "assays": ["Patient Visit"]}}
+            out = load_type_links({"PAV", "NHP", "PAT"})
+        assert out["requires"] == {
+            "PAV": {"add": ["NHP", "PAT"], "assays": ["Patient Visit"]}}
+        assert out["companions"] == {
+            "NHP": {"add": ["PAV"], "assays": ["Patient Visit"]}}
+
+    def test_the_same_code_can_trigger_both_kinds(self):
+        """DNA requires one of BAC/TIS/RNA and is also BAC's companion."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [self._row("DNA", ["BAC"]),
+                self._row("DNA", ["D.SEQ"], kind="companion")]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            out = load_type_links({"DNA", "BAC", "D.SEQ"})
+        assert out["requires"]["DNA"]["add"] == ["BAC"]
+        assert out["companions"]["DNA"]["add"] == ["D.SEQ"]
 
     def test_a_null_assay_column_becomes_an_empty_list(self):
-        from nextseek_api.services.template_catalog import load_requirements
+        from nextseek_api.services.template_catalog import load_type_links
 
-        rows = [{"child_code": "CEX", "parent_codes": '["NHP"]',
-                 "assay_titles": None}]
-        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
-            assert load_requirements({"CEX", "NHP"})["CEX"]["assays"] == []
+        with patch(f"{_MOD}.Sample_type_requirements",
+                   self._model([self._row("CEX", ["NHP"])])):
+            assert load_type_links({"CEX", "NHP"})["requires"]["CEX"]["assays"] == []
 
-    def test_a_requirement_naming_an_unknown_parent_is_dropped(self):
+    def test_a_row_naming_an_unknown_code_is_dropped(self):
         """A chip the user cannot satisfy is worse than no chip."""
-        from nextseek_api.services.template_catalog import load_requirements
+        from nextseek_api.services.template_catalog import load_type_links
 
-        rows = [{"child_code": "PAV", "parent_codes": '["NHP", "GONE"]',
-                 "assay_titles": None}]
-        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
-            assert load_requirements({"PAV", "NHP"}) == {}
+        with patch(f"{_MOD}.Sample_type_requirements",
+                   self._model([self._row("PAV", ["NHP", "GONE"])])):
+            assert load_type_links({"PAV", "NHP"})["requires"] == {}
 
     def test_malformed_json_is_skipped_not_raised(self):
-        from nextseek_api.services.template_catalog import load_requirements
+        from nextseek_api.services.template_catalog import load_type_links
 
-        rows = [{"child_code": "PAV", "parent_codes": "not json",
-                 "assay_titles": None},
-                {"child_code": "CEX", "parent_codes": '["NHP"]',
-                 "assay_titles": None}]
+        rows = [{"kind": "requires", "trigger_code": "PAV",
+                 "add_codes": "not json", "assay_titles": None},
+                self._row("CEX", ["NHP"])]
         with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
-            assert sorted(load_requirements({"PAV", "CEX", "NHP"})) == ["CEX"]
+            assert sorted(load_type_links({"PAV", "CEX", "NHP"})["requires"]) == ["CEX"]
 
-    def test_a_missing_table_costs_requirements_not_the_page(self):
-        from nextseek_api.services.template_catalog import load_requirements
+    def test_a_non_string_in_add_codes_is_skipped(self):
+        """None raises TypeError from json.loads, not ValueError."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [{"kind": "requires", "trigger_code": "PAV",
+                 "add_codes": None, "assay_titles": None},
+                self._row("CEX", ["NHP"])]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            assert sorted(load_type_links({"PAV", "CEX", "NHP"})["requires"]) == ["CEX"]
+
+    def test_add_codes_holding_valid_json_that_is_not_a_list_is_skipped(self):
+        """set('5') raises TypeError; the guard must be inside the try."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [{"kind": "requires", "trigger_code": "PAV",
+                 "add_codes": "5", "assay_titles": None},
+                self._row("CEX", ["NHP"])]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            assert sorted(load_type_links({"PAV", "CEX", "NHP"})["requires"]) == ["CEX"]
+
+    def test_assay_titles_holding_something_other_than_a_list_becomes_empty(self):
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [{"kind": "requires", "trigger_code": "CEX",
+                 "add_codes": json.dumps(["NHP"]), "assay_titles": '"a string"'}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            assert load_type_links({"CEX", "NHP"})["requires"]["CEX"]["assays"] == []
+
+    def test_neither_coverage_nor_support_reaches_the_page(self):
+        """They are auditable in the table; shipping them only widened the
+        surface a malformed row could break."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        with patch(f"{_MOD}.Sample_type_requirements",
+                   self._model([self._row("CEX", ["NHP"])])) as m:
+            out = load_type_links({"CEX", "NHP"})
+        assert set(out["requires"]["CEX"]) == {"add", "assays"}
+        assert "coverage" not in m.objects.filter.return_value.values.call_args[0]
+
+    def test_a_missing_table_costs_the_links_not_the_page(self):
+        from nextseek_api.services.template_catalog import load_type_links
 
         broken = MagicMock()
         broken.objects.filter.side_effect = RuntimeError("no such table")
         with patch(f"{_MOD}.Sample_type_requirements", broken):
-            assert load_requirements({"PAV"}) == {}
+            assert load_type_links({"PAV"}) == {"requires": {}, "companions": {}}
 
     def test_no_codes_short_circuits_without_querying(self):
-        from nextseek_api.services.template_catalog import load_requirements
+        from nextseek_api.services.template_catalog import load_type_links
 
         m = self._model([])
         with patch(f"{_MOD}.Sample_type_requirements", m):
-            assert load_requirements(set()) == {}
+            assert load_type_links(set()) == {"requires": {}, "companions": {}}
         m.objects.filter.assert_not_called()
 
-    def test_a_row_with_a_non_json_type_in_parent_codes_is_skipped(self):
-        """parent_codes=None hits the TypeError branch of the parse, not ValueError."""
-        from nextseek_api.services.template_catalog import load_requirements
 
-        rows = [{"child_code": "PAV", "parent_codes": None,
-                 "assay_titles": None},
-                {"child_code": "CEX", "parent_codes": '["NHP"]',
-                 "assay_titles": None}]
-        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
-            assert sorted(load_requirements({"PAV", "CEX", "NHP"})) == ["CEX"]
+class TestDeprecatedTypes:
+    """Retired sample types are offered by SEEK and render nameless, because
+    nothing curates a context row for a dead type."""
 
-    def test_parent_codes_holding_valid_json_that_is_not_a_list_is_skipped(self):
-        """'5' parses fine and then set() raises TypeError.
+    def test_the_two_real_spellings_are_both_caught(self):
+        """The repository says 'Depreciated' six times and 'Depcreciated' once,
+        on A.SEQ -- one of the types a user reported as nameless. Matching the
+        exact string would leak that one through."""
+        from nextseek_api.services.template_catalog import is_deprecated
 
-        That expression used to sit outside the per-row try, so one such row
-        propagated out of _templates_context() and 500'd /seek/templates/.
-        """
-        from nextseek_api.services.template_catalog import load_requirements
+        assert is_deprecated("Cell Lysis (Depreciated)")
+        assert is_deprecated("Sequencing Analysis (Depcreciated)")
 
-        rows = [{"child_code": "PAV", "parent_codes": "5", "assay_titles": None},
-                {"child_code": "CEX", "parent_codes": '["NHP"]', "assay_titles": None}]
-        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
-            assert sorted(load_requirements({"PAV", "CEX", "NHP"})) == ["CEX"]
+    def test_a_live_description_is_not_flagged(self):
+        from nextseek_api.services.template_catalog import is_deprecated
 
-    def test_assay_titles_holding_something_other_than_a_list_becomes_empty(self):
-        """The browser joins this array; a bare string would break the strip."""
-        from nextseek_api.services.template_catalog import load_requirements
+        for live in ("Tissue Sample", "Sequencing Data", "Patient Visit",
+                     "Data File (used to upload Data Files to SEEK)",
+                     "Depth Profile", "Dependency Map", ""):
+            assert not is_deprecated(live), live
 
-        rows = [{"child_code": "CEX", "parent_codes": '["NHP"]',
-                 "assay_titles": '"Tissue Collection"'}]
-        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
-            assert load_requirements({"CEX", "NHP"})["CEX"]["assays"] == []
+    def test_a_null_description_is_not_flagged(self):
+        from nextseek_api.services.template_catalog import is_deprecated
 
-    def test_coverage_is_neither_read_nor_shipped_to_the_page(self):
-        """The column stays; the read path does not touch it.
+        assert not is_deprecated(None)
 
-        Nothing downstream -- view, template or script -- ever read it, and
-        `float()` on a NULL or an 'n/a' from a hand-written `source='curator'`
-        row was one more way to take the page down. A row with no coverage key
-        at all still parses, which is the proof it is not consulted.
-        """
-        from nextseek_api.services.template_catalog import load_requirements
+    def test_load_catalog_drops_them(self):
+        from nextseek_api.services.template_catalog import load_catalog
 
-        rows = [{"child_code": "CEX", "parent_codes": '["NHP"]', "assay_titles": None}]
-        model = self._model(rows)
-        with patch(f"{_MOD}.Sample_type_requirements", model):
-            out = load_requirements({"CEX", "NHP"})
-        assert out == {"CEX": {"parents": ["NHP"], "assays": []}}
-        assert "coverage" not in model.objects.filter.return_value.values.call_args[0]
+        rows = [{"id": 1, "title": "TIS", "description": "Tissue Sample"},
+                {"id": 2, "title": "A.SEQ",
+                 "description": "Sequencing Analysis (Depcreciated)"},
+                {"id": 3, "title": "LYS", "description": "Cell Lysis (Depreciated)"}]
+        m = MagicMock()
+        m.objects.all.return_value.values.return_value = rows
+        with patch(f"{_MOD}.Sample_types", m), \
+             patch(f"{_MOD}.load_sample_type_context", return_value={}):
+            assert [e.code for e in load_catalog()] == ["TIS"]
