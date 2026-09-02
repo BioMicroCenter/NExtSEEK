@@ -520,6 +520,19 @@ SEEK_DATABASE = "seek"
 # so the attribute always exists on native/env-less hosts (dev's unguarded consumers
 # seek/views.py + seek/dbtable_sample.py read it bare); reassigned to the real value
 # inside the SEEK_HOST guard below, where SEEK_URL is defined.
+# How long a project page's connection diagram is cached, in seconds. The diagram
+# is one Neo4j query (0.93s for 163 rows on the reference stack) plus a render,
+# and a project's shape changes at most weekly, so an hour is already fresher
+# than the data.
+#
+# No CACHES is configured for this project, so Django's default per-process
+# LocMemCache applies and each gunicorn worker warms its own copy. That is N
+# queries per window rather than one; acceptable at this cost, and the fix if it
+# stops being acceptable is a shared CACHES backend, not a longer TTL.
+PROJECT_CONNECTIONS_CACHE_SECONDS = int(
+    os.getenv("PROJECT_CONNECTIONS_CACHE_SECONDS", "3600")
+)
+
 SEEK_PUBLIC_URL = os.getenv("SEEK_PUBLIC_URL", "")
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
 

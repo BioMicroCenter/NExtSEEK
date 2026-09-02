@@ -5,7 +5,7 @@ import logging
 from dmac.dbtable_clades import DBtable_clades
 from ..dbtable_projects import DBtable_projects
 from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtable_stc
-from django.http import HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseForbidden, HttpResponseRedirect
 from ..models import Projects
 from ..seekdb import SeekDB
 from itertools import groupby
@@ -15,6 +15,11 @@ from django.shortcuts import render
 from django.conf import settings
 from ..decorators import requires_seek_login_redirect
 from ..decorators import verifySuperUser
+
+from nextseek_api.services.context_catalog import load_project_context, load_sample_types
+from nextseek_api.services.project_connections import (
+    connection_rows, connections_html, project_bundles, types_in_use,
+)
 
 from .shared import PUBLISH_STATS_FILE
 
@@ -126,3 +131,53 @@ def project_page(request, project_id):
                                                     'seek_public_url': settings.SEEK_PUBLIC_URL,
                                                     'avatar_id': project.avatar_id,
                                                     'clade_data': clade_data,})
+
+
+def _may_see_project(request, project_id) -> bool:
+    """Whether this caller may view this project. Superuser, or a member.
+
+    Mirrors the gate in project_page. is_superuser via verifySuperUser, never
+    is_staff: dmac/views.py:80,97 sets is_staff on every SEEK user at login.
+    """
+    if verifySuperUser(request) == 1:
+        return True
+    try:
+        user_projects = request.seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+    except Exception:
+        logger.exception("could not resolve caller projects; denying project_id=%s", project_id)
+        return False
+    return int(project_id) in [int(p['id']) for p in user_projects]
+
+
+@requires_seek_login_redirect()
+def project_connections(request, project_id):
+    """The connection diagram for one project, as a standalone HTML document.
+
+    Served on its own route and pulled into the project page with an iframe
+    rather than inlined. rows_to_html returns a complete document that loads
+    three CDN scripts, so it is an iframe payload and not a fragment; serving it
+    separately also keeps the page HTML small, lets the browser cache the frame,
+    and means a slow graph query cannot slow the page down.
+
+    The superuser-only connections ENDPOINT is untouched. This runs the same
+    functions in-process, behind the same membership check project_page applies.
+    """
+    if not _may_see_project(request, project_id):
+        return HttpResponseForbidden("You are not in this project")
+
+    project = Projects.objects.filter(id=project_id).first()
+    title = f"{re.sub('-|_', ' ', project.title)} sample flow" if project else "Sample flow"
+
+    html = connections_html(project_id, title=title)
+    if not html:
+        # A 200 with an explanation, not a 404: the route resolved and the
+        # project exists. An iframe showing "no data" is the intended degraded
+        # state, and CI declares 200 for exactly this reason.
+        return HttpResponse(
+            '<!doctype html><meta charset="utf-8">'
+            '<body style="margin:0;font:13px system-ui;color:#6b7280;'
+            'display:flex;align-items:center;justify-content:center;height:100vh">'
+            'No sample-type connections recorded for this project.</body>',
+            content_type="text/html; charset=utf-8",
+        )
+    return HttpResponse(html, content_type="text/html; charset=utf-8")

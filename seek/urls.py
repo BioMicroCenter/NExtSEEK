@@ -76,6 +76,8 @@ urlpatterns = [
     re_path(r'^searchUIDs/', views.searchingUIDs, name='searchingUIDs'),
     re_path(r'^projects/$', views.projects, name='projects'),
     re_path(r'^projects/(?P<project_id>\d+)/$', views.project_page, name='project_page'),
+    re_path(r'^projects/(?P<project_id>\d+)/connections/$', views.project_connections,
+            name='project_connections'),
 
     re_path(r'nhpinfo/(?P<nhp_name>[\w-]+)/$', views.nhp_info, name='nhp_info'),
     re_path(r'nhpdata/(?P<nhp_name>[\w-]+)/$', views.get_nhp_data, name='nhp_data'),

@@ -14,7 +14,7 @@ from .assets import (datafileQuery, document, sopQuery, templatesDownload, templ
 from .catalog import (assayDetail, assaysList, sampleTypeDetail, sampleTypesList)
 from .search import (newSearch, remote, runSampleSearch, sampleSearch, sampleSearching, searchAdvanced, searchingAdvanced, searchingUIDs, smartSearch)
 from .admin import (adminClades, adminRetrieveSamples, assayAssociationSave, cladeDelete, cladeSampleTypesSave, cladeSave, cladesSyncSampleTypes, get_children_uids, internalAssayDelete, internalAssaySave, internalAssays, parse_children_uids, parse_json_metadata, sample_retrieval_data, syncInternalAssays)
-from .projects import (project_page, projects)
+from .projects import (project_connections, project_page, projects)
 from .timeline import (download_nhp_data, fetch_event_data, get_nhp_data, nhp_info)
 from .pages import (getting_started)
 from .shared import report
@@ -54,6 +54,7 @@ __all__ = [
     'nhp_info',
     'parse_children_uids',
     'parse_json_metadata',
+    'project_connections',
     'project_page',
     'projects',
     'remote',
