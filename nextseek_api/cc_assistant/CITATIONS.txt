@@ -1,8 +1,10 @@
 # Files opened while writing README.md and CLAUDE.md for
 # nextseek_api/cc_assistant/. One repo-relative path per line.
 
-# --- Django wiring, outside the boundary ---
+# --- Django wiring and topology, outside the boundary ---
 dmac/settings.py
+docker-compose.yml
+nextseek_api/batch_upload/celery_app.py
 nextseek_api/urls.py
 nextseek_api/services/cc_assistant.py
 pyproject.toml
@@ -43,9 +45,11 @@ nextseek_api/cc_assistant/translate.py
 nextseek_api/cc_assistant/transport_trace.py
 nextseek_api/cc_assistant/turn_ledger.py
 
-# --- boundary: stale docs, read but NOT treated as current ---
+# --- boundary: superseded material, read but NOT treated as current ---
 nextseek_api/cc_assistant/DEPLOY.md
 nextseek_api/cc_assistant/LIVE_EVIDENCE.md
+nextseek_api/cc_assistant/PLAN-3-ui-based-io.md
+nextseek_api/cc_assistant/.vetting/plan-3-phase2-fix-log-iter22.md
 
 # --- boundary: op_registry ---
 nextseek_api/cc_assistant/op_registry/__init__.py

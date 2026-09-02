@@ -12,10 +12,14 @@ correctness regression, not a refactor.
   reaches the model only through the auth proxy and reaches data only through
   the authenticated REST API as the logged-in user.
 - **Network segmentation is the containment control**, not filesystem
-  permissions. The sibling joins the dedicated network named at
-  `nextseek_api/cc_assistant/cc_engine.py:59`, which by construction excludes
-  Neo4j, MySQL, SEEK and Solr. Putting the agent on the default compose network
-  would hand it L3 reach to services whose password is a committed default.
+  permissions. The sibling joins the network named at
+  `nextseek_api/cc_assistant/cc_engine.py:59`, declared at
+  `docker-compose.yml:488` and marked `internal: true` at
+  `docker-compose.yml:495` so it has no gateway at all. `db`, `neo4j`, `seek`
+  and `solr` declare no `networks:` key and so stay on the default network
+  only, which is the stated intent at `docker-compose.yml:74`. Adding the agent
+  to the default network would hand it L3 reach to services whose password is a
+  committed default.
 - **Every mount is a subpath of one named volume.** `nextseek_api/cc_assistant/cc_engine.py:932`
   builds them and takes each subpath value verbatim from the provisioner —
   never by string-stripping a prefix. Interpolating an unvalidated segment into
@@ -27,20 +31,26 @@ correctness regression, not a refactor.
   segment** — `nextseek_api/cc_assistant/cc_provision.py:130`. That asymmetry is
   the design, not a bug.
 - **Scratch mounted into an agent is per-turn, never the user-scoped root.**
-  Two turns must not be able to see, overwrite, or act on each other's files.
+  The mount takes the run-scoped subpath at
+  `nextseek_api/cc_assistant/cc_engine.py:972`, which exists only when a run id
+  was supplied — `nextseek_api/cc_assistant/cc_provision.py:141`. Two turns must
+  not be able to see or overwrite each other's files.
 - **Spawn fails closed when a backing directory is missing**
   (`nextseek_api/cc_assistant/cc_engine.py:988`), because the Docker Engine
-  refuses a subpath mount whose directory does not already exist.
+  refuses a subpath mount whose directory does not already exist. <!-- UNVERIFIED: the Engine behaviour is asserted by the guard's own docstring, not confirmed against Docker here -->
 - **Server-side clamping beats any client value.** The Debug panel's turn-length
   control is bounded at `nextseek_api/cc_assistant/cc_engine.py:103`; the UI can
   never raise the ceiling the deployment set.
 - **A transcript is summarized only if it is watermarked as scrubbed.** The
   Celery beat holds no user credential and so cannot scrub, so it gates on
   `nextseek_api/cc_assistant/cc_engine.py:527` and skips anything unverified.
-  A session that keeps warning every beat is the intended operator signal.
-- **Only the staging sweep writes into another subtree.** The sidecar's own
-  mount cannot reach `{project}/{user}/`; the destination is derived from the
-  current request's validated identity, never from a staged file's name.
+  A session that keeps warning every beat is the intended operator signal. <!-- UNVERIFIED: operator intent, stated in the module docstring at nextseek_api/cc_assistant/cc_sweep.py:12, not observable in code -->
+- **Only the staging sweep writes into a user's own subtree.** The sidecar's
+  volume mount is pinned to the reserved staging subpath at
+  `docker-compose.yml:183`, so it cannot reach `{project}/{user}/` at all, and
+  the sweep derives its destination from the request identity it validates at
+  `nextseek_api/cc_assistant/cc_staging.py:279` — never from a staged file's
+  name.
 - **BAML imports stay lazy and guarded** — `nextseek_api/cc_assistant/router.py:135`.
   A vendoring or dependency hiccup must degrade routing, never stop Django from
   booting.
@@ -55,15 +65,17 @@ correctness regression, not a refactor.
 ## Landmines
 
 - **`.vetting/` is not documentation.** 65 files of superseded automated
-  review-iteration logs from an earlier build. Do not read them for current
-  behaviour and do not cite them.
+  review-iteration logs, each recording one hardening pass over a plan document
+  — `nextseek_api/cc_assistant/.vetting/plan-3-phase2-fix-log-iter22.md:3`. Do
+  not read them for current behaviour and do not cite them.
 - **The 10 `SPEC-*.md` / `PLAN-*.md` files here are superseded** and are
-  scheduled to move to an archive. `PLAN-3-ui-based-io.md` alone is 155 KB.
-  They describe intent at the time of writing, not the tree.
+  scheduled to move to an archive. They announce themselves as live state —
+  `nextseek_api/cc_assistant/PLAN-3-ui-based-io.md:3` claims "TRUE STATE" as of
+  a date months past — which is exactly why they mislead.
 - **`LIVE_EVIDENCE.md` and `DEPLOY.md` are stale and under separate triage.**
-  Their claims are not current. `nextseek_api/cc_assistant/LIVE_EVIDENCE.md:8`
-  documents a test-runner limitation on one box at one moment, which readers
-  keep mistaking for a standing constraint.
+  `nextseek_api/cc_assistant/LIVE_EVIDENCE.md:8-10` documents a test-runner
+  limitation on one box at one moment, which readers keep mistaking for a
+  standing constraint.
 - **`acceptance_evidence/` is read at import time, not at test time.**
   `nextseek_api/cc_assistant/step7_gate_catalog.py:18` binds the catalog
   directory, and `nextseek_api/cc_assistant/step7_gate_catalog.py:25` scans the
@@ -75,23 +87,24 @@ correctness regression, not a refactor.
   (`nextseek_api/cc_assistant/op_registry/ops.py:19`). If
   `nextseek_api/assistant/read_safe_endpoints.json` moves, the whole registry
   stops importing.
-- **The hermetic lane in the deployment runbook is broken as printed.** Its
-  dependency list omits Django, so 62 modules error during collection before
-  any test runs. Measured on 2026-09-02; the fix is to add Django to the
-  `--with` list or pass `--continue-on-collection-errors`.
-- **There is no `conftest.py` anywhere under `tests/`.** The default settings
-  module in `pyproject.toml:147` is the real one, not the test one, so a bare
-  root-level `pytest` invocation over this directory behaves differently from
-  the documented lanes.
-- **`cc_engine.py` is 1,908 lines and holds several distinct concerns.** Read
-  the section you need; do not read it top to bottom expecting a narrative.
+- **The hermetic lane printed at `DEPLOYMENT.md:482` cannot collect as written.**
+  Its dependency list omits Django while modules here read Django settings at
+  import scope — `nextseek_api/cc_assistant/posterior_selector.py:38` is the
+  first — so 62 modules error before any test runs. Measured 2026-09-02. Add
+  Django to the `--with` list, or pass `--continue-on-collection-errors`.
+- **There is no `conftest.py` anywhere under `tests/`.** The settings module
+  named at `pyproject.toml:147` is the real one, not the test one, so a bare
+  root-level `pytest` over this directory behaves unlike any documented lane.
+- **`cc_engine.py` runs to `nextseek_api/cc_assistant/cc_engine.py:1908` and
+  holds several distinct concerns.** Read the section you need; it is not a
+  narrative.
 - **`router.py` opens with a `try/except ImportError` dual import**
   (`nextseek_api/cc_assistant/router.py:16`) so the module also loads outside
   the package. Adding a plain relative import to the top of that file breaks
   the standalone path silently.
-- **Adding an operation is a skill, not an edit.** Follow
-  `.claude/skills/add-cc-op/SKILL.md`; a hand-rolled parallel catalog will pass
-  its own tests and fail the generated-surface gate.
+- **Adding an operation is a skill, not an edit.** A hand-rolled parallel
+  catalog passes its own tests and then fails the generated-surface check at
+  `.claude/skills/add-cc-op/SKILL.md:78`.
 - **`nextseek_api/cc_assistant/tests/test_cc_realstack.py:55` spends real
   money** when its env flag is set. Do not set it casually.
 
@@ -114,12 +127,12 @@ environmental harness errors that are not regressions.
 ## See also
 
 - See `nextseek_api/cc_assistant/README.md` for what each module does, the
-  dependency map, and the three test lanes with the one measured result.
-- See `DEPLOYMENT.md:483` for the lane table and the full deployment runbook.
-- See `nextseek_api/cc_assistant/DEPLOY.md:14` for subsystem-specific deploy
+  dependency map in both directions, and the three test lanes.
+- See `DEPLOYMENT.md:483` for the full lane table and the deployment runbook.
+- See `nextseek_api/cc_assistant/DEPLOY.md:15` for subsystem-specific deploy
   notes — pending review, treat as unverified.
 - See `docker/cc-runtime/Dockerfile:51` for how the agent image and its plugin
-  bin directory are assembled — and note the build-time guard at
+  bin directory are assembled, and the build-time guard at
   `docker/cc-runtime/Dockerfile:60` that refuses to ship an empty catalog.
-- See the repo-root `CLAUDE.md` for the router overrides, sticky-CC rule, and
-  where the ViewSet lives.
+- See the repo-root `CLAUDE.md` for the router overrides, the sticky-CC rule,
+  and where the ViewSet lives.
