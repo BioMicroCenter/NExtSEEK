@@ -10,16 +10,22 @@ _MOD = "nextseek_api.management.commands.derive_sample_type_requirements"
 
 # (child, parent, assay, n) as the Cypher returns them.
 GRAPH_ROWS = [
-    {"child": "D.SEQ", "parent": "DNA", "assay": "Short Read Sequencing", "n": 1763},
-    {"child": "D.SEQ", "parent": "DNA", "assay": "Short Read Sequencing - Data Linked", "n": 292},
-    {"child": "PAV", "parent": "NHP", "assay": "Patient Visit", "n": 3184},
-    {"child": "PAV", "parent": "NHP", "assay": None, "n": 1607},
-    {"child": "PAV", "parent": "PAT", "assay": "Patient Visit", "n": 1113},
-    {"child": "PAV", "parent": "MUS", "assay": "Tissue Collection", "n": 123},
-    {"child": "RARE", "parent": "TIS", "assay": None, "n": 4},
-    # Single parent, every contributing row has assay=None: clears MIN_SUPPORT
-    # on its own and should write assay_titles as SQL NULL, not "[]".
-    {"child": "NUL", "parent": "SRC", "assay": None, "n": 25},
+    # One row per (child, parent). `title_lists` is a list of per-edge title
+    # lists: an edge written since #118 carries several, an older one carries a
+    # single-element list from the coalesce fallback.
+    {"child": "D.SEQ", "parent": "DNA", "n": 2055,
+     "title_lists": [["Short Read Sequencing"],
+                     ["Short Read Sequencing - Data Linked"]]},
+    {"child": "PAV", "parent": "NHP", "n": 4791,
+     "title_lists": [["Patient Visit"], [None]]},
+    {"child": "PAV", "parent": "PAT", "n": 1113, "title_lists": [["Patient Visit"]]},
+    {"child": "PAV", "parent": "MUS", "n": 123, "title_lists": [["Tissue Collection"]]},
+    # #118: one edge, two assays. The pre-fix shape could only ever report the
+    # single winner, so Cell Isolation was invisible.
+    {"child": "CEL", "parent": "TIS", "n": 900,
+     "title_lists": [["Flow Cytometry", "Cell Isolation"]]},
+    {"child": "NUL", "parent": "TIS", "n": 40, "title_lists": [[None], [""]]},
+    {"child": "RARE", "parent": "TIS", "n": 4, "title_lists": [["Tissue Collection"]]},
 ]
 
 
@@ -74,7 +80,7 @@ def _written(model, kind="requires"):
 def test_writes_one_row_per_constrained_child(_graph, _model):
     call_command("derive_sample_type_requirements")
     written = set(_written(_model))
-    assert written == {"D.SEQ", "PAV", "NUL"}
+    assert written == {"D.SEQ", "PAV", "NUL", "CEL"}
 
 
 def test_a_child_below_min_support_is_not_written(_graph, _model):
@@ -191,3 +197,23 @@ def test_the_two_kinds_share_one_transaction(_graph, _model):
     call_command("derive_sample_type_requirements")
     assert _model.objects.all.return_value.delete.call_count == 1
     assert _written(_model, "requires") and _written(_model, "companion")
+
+
+def test_an_edge_carrying_several_assays_reports_all_of_them(_graph, _model):
+    """#118: the edge kept only the lowest-id shared assay and dropped the rest,
+    so an assay that lost the tie never appeared anywhere. Reading the plural
+    property means both survive -- Cell Isolation loses to Flow Cytometry on 998
+    production edges, and was invisible before."""
+    import json as _json
+
+    call_command("derive_sample_type_requirements")
+    row = _written(_model)["CEL"]
+    assert _json.loads(row["assay_titles"]) == ["Flow Cytometry", "Cell Isolation"]
+
+
+def test_the_support_is_not_inflated_by_the_assay_count(_graph, _model):
+    """D.SEQ <- DNA arrives as one row of 2055 carrying two title variants. The
+    previous shape returned a row per variant and summed them, counting each
+    child once per assay its edge held."""
+    call_command("derive_sample_type_requirements")
+    assert _written(_model)["D.SEQ"]["support"] == 2055
