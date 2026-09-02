@@ -6,7 +6,16 @@ SchemaGenerator and product-seam tests mount this module via
 ``DJANGO_SETTINGS_MODULE=dmac.test_settings`` (see OPS-TESTING-HARNESSES.md §3.4a).
 """
 
-from dmac.settings import *  # noqa: F401, F403
+import os
+import tempfile
+
+# dmac.settings creates LOG_DIR at import time and defaults it to /app/logs, the
+# container path. Anywhere else (a GitHub runner, a clean checkout) that is a
+# PermissionError before a single test runs. Point it somewhere writable first;
+# an explicit LOG_DIR in the environment still wins.
+os.environ.setdefault("LOG_DIR", os.path.join(tempfile.gettempdir(), "nextseek-test-logs"))
+
+from dmac.settings import *  # noqa: E402, F401, F403
 
 # Override databases to use SQLite for tests
 DATABASES = {

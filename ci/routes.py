@@ -312,6 +312,11 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^templates/", path="/seek/templates/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="renders zero template links on a stock deployment; T2 pins that"),
+    Route(pattern=r"^seek/^templates/download/$", path="/seek/templates/download/",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
+          note="the Download Templates picker's submit target. A bare GET carries no "
+               "codes and re-renders the picker with a message; the POST that streams "
+               "a workbook is write-lane material on local and dev"),
     Route(pattern=r"^seek/^url/(?P<url>[\w-]+)/$", path="/seek/url/smoke/",
           methods=("GET",), profiles="local,dev", auth="web", expect=200,
           xfail="NameError: getPageRequests is not defined, raised by "

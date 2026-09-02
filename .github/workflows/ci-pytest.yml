@@ -50,6 +50,8 @@ jobs:
           DJANGO_SETTINGS_MODULE: dmac.test_settings
           # This repo has been bitten by stale .pyc producing untrustworthy results.
           PYTHONDONTWRITEBYTECODE: "1"
+          # dmac.settings creates LOG_DIR at import; /app does not exist on a runner.
+          LOG_DIR: ${{ runner.temp }}/logs
         run: |
           set +e
           # Explicit paths are MANDATORY. A bare `pytest` at the repo root hits 6
@@ -79,6 +81,8 @@ jobs:
         env:
           DJANGO_SETTINGS_MODULE: dmac.test_settings
           PYTHONDONTWRITEBYTECODE: "1"
+          # dmac.settings creates LOG_DIR at import; /app does not exist on a runner.
+          LOG_DIR: ${{ runner.temp }}/logs
         run: uv run pytest ci/gate -q
 
       - uses: actions/upload-artifact@v4
