@@ -25,14 +25,16 @@ from ci.routes import PLACEHOLDERS, PROFILES, REGISTRY, _check_unique_patterns, 
 from ci.smoke.conftest import DISCOVERED_KEYS, _guard_context
 from ci.smoke.test_reachability import _callable_routes
 
-# Routes Django's resolver reports and CI therefore owns, measured on
-# 2026-09-01 by scripts/dump_routes.py against docker/dev. When the application
-# gains or loses a route this number moves, and the COMPLETENESS GATE
-# (ci/gate/test_route_registry.py) is the authority on what the right number is:
-# it diffs the registry against the live resolver. This constant only stops the
-# registry drifting silently between gate runs, which happen in a different
-# environment.
-OWNED_ROUTE_COUNT = 152
+# Routes Django's resolver reports and CI therefore owns. Measured on
+# 2026-09-01 by scripts/dump_routes.py against docker/dev, then 152 -> 157 on
+# 2026-09-02 for the five catalog and project-connections routes, confirmed by
+# the completeness gate passing against the live resolver on the branch that
+# added them. When the application gains or loses a route this number moves, and
+# the COMPLETENESS GATE (ci/gate/test_route_registry.py) is the authority on what
+# the right number is: it diffs the registry against the live resolver. This
+# constant only stops the registry drifting silently between gate runs, which
+# happen in a different environment.
+OWNED_ROUTE_COUNT = 157
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset and the Django admin login page.

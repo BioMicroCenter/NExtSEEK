@@ -161,7 +161,11 @@ class Route:
 # proves the route resolves, and it needs no fixture.
 PLACEHOLDERS: dict[str, str] = {
     "assay_id":        "data[0].id of GET /nextseek_api/assays/ (SEEK numeric assay id)",
+    "assay_slug":      "the slug of the first detail link on /seek/assays/ "
+                       "(None where assay_context is absent, which skips the detail route)",
     "attribute_id":    "id of the first item in GET /nextseek_api/attributes/",
+    "sample_type_code": "the code of the first detail link on /seek/sampletypes/ "
+                        "(a NExtSEEK sample type code such as D.FLOW, not a numeric id)",
     "data_file_id":    "data[0].id of GET /nextseek_api/data_files/ (SEEK numeric data-file id)",
     "investigation_id": "data[0].id of GET /nextseek_api/investigations/ (SEEK numeric id)",
     "person_id":       "data[0].id of GET /nextseek_api/people/ (SEEK numeric person id)",
@@ -265,6 +269,15 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
     Route(pattern=r"^seek/^datafile/query/", path="/seek/datafile/query/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
+    Route(pattern=r"^seek/^assays/$", path="/seek/assays/",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
+          note="renders its empty state on any stack without dmac.assay_context, "
+               "which today is every stack but prod and the seeded local one; a "
+               "200 here is NOT evidence the table landed"),
+    Route(pattern=r"^seek/^assays/(?P<slug>[\w-]+)/$", path="/seek/assays/{assay_slug}/",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
+          note="skipped wherever assay_slug is None, i.e. wherever the list page "
+               "rendered no assays to scrape a link from"),
     Route(pattern=r"^seek/^help/$", path="/seek/help/",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200),
     Route(pattern=r"^seek/^newsearch/", path="/seek/newsearch/",
@@ -275,6 +288,12 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^projects/(?P<project_id>\d+)/$",
           path="/seek/projects/{seek_project_id}/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
+    Route(pattern=r"^seek/^projects/(?P<project_id>\d+)/connections/$",
+          path="/seek/projects/{seek_project_id}/connections/",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
+          note="the project page's diagram iframe. 200 with a placeholder body "
+               "when the graph returns nothing, so a dead Neo4j is not a red "
+               "route; seek/tests/test_project_page.py pins that separately"),
     Route(pattern=r"^seek/^remote/", path="/seek/remote/",
           methods=("GET",), profiles="local,dev", auth="web", expect=200,
           xfail="NameError: samples is not defined, raised by "
@@ -288,6 +307,14 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^sample_types/id=(?P<id>\d+)/$",
           path="/seek/sample_types/id={sample_type_id}/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
+    Route(pattern=r"^seek/^sampletypes/$", path="/seek/sampletypes/",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
+    Route(pattern=r"^seek/^sampletypes/(?P<code>[\w.]+)/$",
+          path="/seek/sampletypes/{sample_type_code}/",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
+          note="404s for a code with no sample_types_context row, which is why "
+               "the placeholder is scraped off the list page rather than taken "
+               "from /nextseek_api/sample_types/"),
     Route(pattern=r"^seek/^samples/attributes/", path="/seek/samples/attributes/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
     Route(pattern=r"^seek/^samples/query/", path="/seek/samples/query/",
