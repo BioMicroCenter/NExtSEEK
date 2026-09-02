@@ -48,7 +48,11 @@ def test_the_registered_ddl_exists_and_is_rerunnable():
 @patch(f"{sf.__name__}.compose_exec")
 def test_a_missing_table_is_created_from_its_ddl(mock_exec: MagicMock) -> None:
     mock_exec.side_effect = _replies("0", "1")  # table absent, database present
-    result = sf.apply_table_fixups(REPO_ROOT, {})
+    # Scoped to a single fixup: this test asserts the create/skip/missing-db
+    # behaviour for one MissingTable, and its reply queue is sized for exactly
+    # one -- it must not be coupled to how many entries the real registry holds.
+    with patch.object(sf, "KNOWN_TABLE_FIXUPS", [TABLE_FIX]):
+        result = sf.apply_table_fixups(REPO_ROOT, {})
     assert ("dmac.sample_attributes_unique", "created") in result
     piped = [c for c in mock_exec.call_args_list if c.kwargs.get("stdin")]
     assert len(piped) == 1
@@ -58,7 +62,8 @@ def test_a_missing_table_is_created_from_its_ddl(mock_exec: MagicMock) -> None:
 @patch(f"{sf.__name__}.compose_exec")
 def test_an_existing_table_is_left_alone(mock_exec: MagicMock) -> None:
     mock_exec.side_effect = _replies("1")  # table already there
-    result = sf.apply_table_fixups(REPO_ROOT, {})
+    with patch.object(sf, "KNOWN_TABLE_FIXUPS", [TABLE_FIX]):
+        result = sf.apply_table_fixups(REPO_ROOT, {})
     assert ("dmac.sample_attributes_unique", "already present") in result
     assert not [c for c in mock_exec.call_args_list if c.kwargs.get("stdin")]
 
@@ -69,7 +74,8 @@ def test_a_missing_database_is_skipped_not_raised(mock_exec: MagicMock) -> None:
     query errored. Without the database gate that falls into _create_table,
     whose mysql call raises and aborts the whole install."""
     mock_exec.side_effect = _replies("0", "0")  # table absent, database absent
-    result = sf.apply_table_fixups(REPO_ROOT, {})
+    with patch.object(sf, "KNOWN_TABLE_FIXUPS", [TABLE_FIX]):
+        result = sf.apply_table_fixups(REPO_ROOT, {})
     assert ("dmac.sample_attributes_unique", "database missing") in result
     assert not [c for c in mock_exec.call_args_list if c.kwargs.get("stdin")]
 
@@ -95,3 +101,23 @@ def test_tables_are_created_before_columns_are_fixed(mock_exec: MagicMock) -> No
             result = sf.apply_all(REPO_ROOT, {})
     assert cols.called
     assert result[0][0] == "dmac.sample_attributes_unique"
+
+
+def test_sample_type_requirements_is_a_known_fixup():
+    """A fresh install must get the table, or the picker silently shows no
+    requirements with nothing to indicate why."""
+    import startup.steps.schema_fixups as sf
+
+    fix = next(f for f in sf.KNOWN_TABLE_FIXUPS
+               if f.table == "sample_type_requirements")
+    assert fix.database == "dmac"
+    assert fix.ddl_path == "startup/seed/sql/sample_type_requirements.sql"
+
+
+def test_sample_type_requirements_ddl_file_exists():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    ddl = root / "startup/seed/sql/sample_type_requirements.sql"
+    assert ddl.is_file()
+    assert "CREATE TABLE IF NOT EXISTS sample_type_requirements" in ddl.read_text()

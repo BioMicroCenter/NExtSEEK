@@ -247,3 +247,8 @@ graphify-out/
 # Generated publication-transfer data, regenerable from the documented queries
 sample_publication_attributes/prod_pairs.tsv
 prod_publication_transfer/all_52_publications.sql
+
+# Brainstorming visual companion mockups (scratch). The SDD ledger and task
+# reports under .superpowers/sdd/ ARE tracked, deliberately -- see the existing
+# committed ones -- so only the brainstorm subtree is excluded here.
+.superpowers/brainstorm/

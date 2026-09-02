@@ -477,8 +477,6 @@ lane_local_settings="$evidence_root/.lane-local_settings.py"
 cat >"$lane_local_settings" <<'PY'
 ASSISTANT_PARTICIPATING_PROJECTS = set(["1"])
 TEST_CASES = {}
-SAMPLE_TEMPLATES_FOLDER = "/templates"
-SAMPLE_TEMPLATES_FOLDER_PROJECT = "1"
 PUBLISH_URL = "http://attribute-seek:3000"
 PUBLISH_STATS_FILE = "/path/to/published_stats.xlsx"
 SMART_SEARCH_URL = ""

@@ -3,145 +3,565 @@
 
 {% block extra_head %}
 <style>
-.templates-page { max-width: 760px; }
-
-.ns-page-header { margin-bottom: 2rem; }
-.ns-page-title {
-    font-family: var(--ns-font-display);
-    font-size: 1.8rem;
-    font-weight: 700;
-    color: var(--ns-ink);
-    letter-spacing: -0.02em;
-    margin-bottom: 0.35rem;
-}
+.templates-page { max-width: 1080px; }
+.ns-page-header { margin-bottom: 1rem; display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; }
+.ns-page-title { font-family: var(--ns-font-display); font-size: 1.8rem; font-weight: 700; color: var(--ns-ink); letter-spacing: -0.02em; margin-bottom: 0.35rem; }
 .ns-page-subtitle { font-size: 0.9rem; color: var(--ns-muted); margin: 0; }
 
-.template-folder { margin-bottom: 1.5rem; }
-.template-folder-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.6rem 0;
-    border-bottom: 1px solid var(--ns-border);
-    margin-bottom: 0.5rem;
-}
-.template-folder-name {
-    font-family: var(--ns-font-display);
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--ns-ink);
-    letter-spacing: -0.01em;
-}
-.template-folder-icon { color: var(--ns-crimson); font-size: 0.95rem; }
+/* Sits inside .tpl-selbar rather than in its own box: no border of its own, and
+   it grows to take whatever width the chips leave. min-width keeps a usable
+   field once a long selection wraps the chips onto their own line. */
+.tpl-search { flex: 1 1 8rem; min-width: 8rem; border: 0; outline: none; background: transparent; padding: 0.15rem 0.1rem; font-size: 0.85rem; color: var(--ns-body); }
+.tpl-search::placeholder { color: var(--ns-muted); }
+.tpl-search::-webkit-search-cancel-button { cursor: pointer; }
 
-.template-subfolder { margin: 0.35rem 0 0.35rem 1.25rem; }
-.template-subfolder-name {
-    font-size: 0.82rem;
-    font-weight: 700;
-    color: var(--ns-muted);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    margin-bottom: 0.35rem;
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-}
+.tpl-selbar { position: sticky; top: 0; z-index: 5; background: var(--ns-bg); border: 1px solid var(--ns-border); border-radius: 6px 6px 0 0; padding: 0.5rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; cursor: text; margin: 0; }
+/* The whole bar reads as one input, so it takes the focus ring rather than the
+   bare field inside it. */
+.tpl-selbar:focus-within { border-color: var(--ns-crimson-border, #e8b4bf); box-shadow: 0 0 0 2px rgba(163, 31, 52, 0.12); }
+/* Buttons are inside a <label>, so a click would otherwise focus the input and
+   fire twice; they also must not inherit the label's text cursor. */
+.tpl-actions button { cursor: pointer; }
+.tpl-selbar-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); white-space: nowrap; }
+.tpl-actions { margin-left: auto; display: flex; gap: 0.4rem; }
 
-.template-files { display: flex; flex-direction: column; gap: 0.25rem; margin-left: 1.1rem; }
+.tpl-chip { display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 11px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; font-family: var(--bs-font-monospace, monospace); border: 1px solid; cursor: pointer; }
+.tpl-chip[data-group=""]   { background: #fdf1f3; border-color: #e8b4bf; color: #8d1c2d; }
+.tpl-chip[data-group="D."] { background: #eef5fd; border-color: #a2c8f0; color: #1d4f7d; }
+.tpl-chip[data-group="A."] { background: #eef1fc; border-color: #a9b9e8; color: #26417f; }
+.tpl-chip[data-group="M."] { background: #f3f0fa; border-color: #c0b2e0; color: #4a3a7a; }
 
-.template-file-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.45rem 0.75rem;
-    font-size: 0.875rem;
-    color: var(--ns-body);
-    text-decoration: none;
-    border-radius: 6px;
-    transition: all 0.15s;
-    border: 1px solid transparent;
-}
-.template-file-link:hover {
-    background: var(--ns-crimson-soft);
-    border-color: var(--ns-crimson-border);
-    color: var(--ns-crimson);
-    text-decoration: none;
-}
-.template-file-link i { font-size: 0.85rem; color: var(--ns-muted); flex-shrink: 0; }
-.template-file-link:hover i { color: var(--ns-crimson); }
+.tpl-sugg { border: 1px solid var(--ns-border); border-top: 0; border-radius: 0 0 6px 6px; background: #fafafb; padding: 0.4rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.tpl-sugg[hidden] { display: none; }
+.tpl-sg { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px dashed #c3c6cc; background: #fff; border-radius: 11px; padding: 0.1rem 0.5rem; font-size: 0.72rem; color: #3f4650; cursor: pointer; }
+.tpl-sg code { color: var(--ns-crimson); font-weight: 700; }
 
-.template-root-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.45rem 0.75rem;
-    font-size: 0.875rem;
-    color: var(--ns-muted);
-    text-decoration: none;
-    border-radius: 6px;
-    border: 1px solid var(--ns-border);
-    background: var(--ns-bg);
-    transition: all 0.15s;
-    margin-left: 1.25rem;
-    margin-bottom: 0.25rem;
-}
-.template-root-link:hover {
-    background: var(--ns-crimson-soft);
-    border-color: var(--ns-crimson-border);
-    color: var(--ns-crimson);
-    text-decoration: none;
-}
+/* Same rounded foot as .tpl-sugg above it: the two strips stack under the
+   selection bar, and whichever ends up last has to close the box. */
+.tpl-req { border: 1px solid var(--ns-crimson-border, #e8b4bf); border-top: 0; border-radius: 0 0 6px 6px; background: var(--ns-crimson-soft, #fdf1f3); padding: 0.4rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.tpl-req[hidden] { display: none; }
+.tpl-req-need { font-size: 0.72rem; color: #8d1c2d; }
+.tpl-chip.is-required { border-style: dashed; }
+.tpl-chip.is-companion { border-style: dotted; }
+
+.tpl-group { margin-top: 1rem; }
+.tpl-group[hidden] { display: none; }
+.tpl-group-name { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); padding-bottom: 0.2rem; border-bottom: 1.5px solid var(--ns-border); }
+.tpl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 0.75rem; margin-top: 0.25rem; }
+@media (max-width: 900px) { .tpl-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .tpl-grid { grid-template-columns: 1fr; } }
+.tpl-item { display: flex; align-items: baseline; gap: 0.35rem; padding: 0.15rem 0.25rem; border-radius: 3px; font-size: 0.8rem; }
+.tpl-item[hidden] { display: none; }
+.tpl-item code { font-weight: 700; min-width: 3.4rem; color: var(--ns-ink); }
+.tpl-item span { color: var(--ns-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl-empty { font-size: 0.85rem; color: var(--ns-muted); padding: 1.5rem 0; }
+.tpl-message { background: var(--ns-crimson-soft); border: 1px solid var(--ns-crimson-border); color: var(--ns-crimson); border-radius: 5px; padding: 0.5rem 0.75rem; font-size: 0.85rem; margin-bottom: 0.75rem; }
 </style>
 {% endblock %}
 
 {% block main %}
 <div class="templates-page">
 
-    <div class="ns-page-header">
-        <h1 class="ns-page-title">Download Templates</h1>
-        <p class="ns-page-subtitle">Sample upload templates organized by type. Download and fill out before uploading assay data.</p>
+  <div class="ns-page-header">
+    <div>
+      <h1 class="ns-page-title">Download Templates</h1>
+      <p class="ns-page-subtitle">Pick your sample types. You'll get one workbook: a README defining every attribute, then one sheet per type.</p>
+    </div>
+  </div>
+
+  {% if message %}<div class="tpl-message">{{ message }}</div>{% endif %}
+
+  <form id="tpl-form" method="post" action="/seek/templates/download/">
+    {% csrf_token %}
+
+    {# The chips and the search input share one control: the selection stays #}
+    {# visible and editable while filtering, so a user never has to clear the #}
+    {# search to see or remove what they have already picked. Deliberately a #}
+    {# div, not a label -- a label must not contain buttons or other #}
+    {# interactive controls, and clicking a chip would both remove it and #}
+    {# focus the field. The JS focuses the input on clicks that land on the #}
+    {# bar's own padding instead. #}
+    <div class="tpl-selbar" id="tpl-selbar">
+      <span class="tpl-selbar-label">Selected <span id="tpl-count">0</span></span>
+      <span id="tpl-chips"></span>
+      <input type="search" id="tpl-search" class="tpl-search" placeholder="Search code or name&hellip;" autocomplete="off" aria-label="Search sample types by code or name">
+      <span class="tpl-actions">
+        <button type="button" id="tpl-clear" class="btn btn-sm btn-outline-secondary">Clear</button>
+        <button type="submit" id="tpl-submit" class="btn btn-sm btn-danger" disabled>Download workbook</button>
+      </span>
     </div>
 
-    {% for folder, contents in folders.items %}
-    {% if contents %}
-    <div class="template-folder">
-        <div class="template-folder-header">
-            <i class="bi bi-folder-fill template-folder-icon"></i>
-            <span class="template-folder-name">{{ folder }}</span>
-        </div>
+    <div class="tpl-sugg" id="tpl-sugg" hidden>
+      <span class="tpl-selbar-label">Commonly used with</span>
+      <span id="tpl-sugg-items"></span>
+      <button type="button" id="tpl-add-all" class="btn btn-sm btn-link p-0 ms-auto" style="font-size:0.72rem">add all &rsaquo;</button>
+    </div>
 
-        {% for subitem, subcontents in contents.items %}
-        {% if subcontents %}
-        <div class="template-subfolder">
-            <div class="template-subfolder-name">
-                <i class="bi bi-folder2"></i> {{ subitem }}
-            </div>
-            <div class="template-files">
-                {% for file in subcontents %}
-                <a href="/templates/{{ file }}" class="template-file-link" download>
-                    <i class="bi bi-file-earmark-arrow-down"></i>
-                    {{ file }}
-                </a>
-                {% endfor %}
-            </div>
-        </div>
-        {% else %}
-        <a href="/templates/{{ folder }}/{{ subitem }}" class="template-root-link" download>
-            <i class="bi bi-file-earmark-arrow-down"></i>
-            {{ subitem }}
-        </a>
-        {% endif %}
+    <div class="tpl-req" id="tpl-req" hidden>
+      <span class="tpl-selbar-label">Also needed</span>
+      <span id="tpl-req-items"></span>
+    </div>
+
+    {% for group in groups %}
+    <div class="tpl-group" data-group="{{ group.key }}">
+      <div class="tpl-group-name">{{ group.label }} <span class="text-muted">{{ group.entries|length }}</span></div>
+      <div class="tpl-grid">
+        {% for entry in group.entries %}
+        <label class="tpl-item" data-code="{{ entry.code }}" data-name="{{ entry.name|lower }}">
+          <input type="checkbox" name="codes" value="{{ entry.code }}"
+                 data-group="{{ entry.group }}" data-name="{{ entry.name }}">
+          <code>{{ entry.code }}</code>
+          <span>{{ entry.name|default:entry.description }}</span>
+        </label>
         {% endfor %}
+      </div>
     </div>
-    {% else %}
-    <div class="template-folder">
-        <div class="template-folder-header">
-            <i class="bi bi-file-earmark template-folder-icon"></i>
-            <span class="template-folder-name">{{ folder }}</span>
-        </div>
-    </div>
-    {% endif %}
+    {% empty %}
+    <p class="tpl-empty">No sample types are defined on this instance.</p>
     {% endfor %}
-
+  </form>
 </div>
+
+{{ children_json|json_script:"tpl-children-data" }}
+{{ meta_json|json_script:"tpl-meta-data" }}
+{{ requirements_json|json_script:"tpl-requirements-data" }}
+{{ companions_json|json_script:"tpl-companions-data" }}
+<script>
+(function () {
+  var form = document.getElementById('tpl-form');
+  if (!form) { return; }
+
+  var boxes = Array.prototype.slice.call(form.querySelectorAll('input[name="codes"]'));
+  var chips = document.getElementById('tpl-chips');
+  var count = document.getElementById('tpl-count');
+  var submit = document.getElementById('tpl-submit');
+  var suggBar = document.getElementById('tpl-sugg');
+  var suggItems = document.getElementById('tpl-sugg-items');
+
+  // The server renders no suggestions -- render() below runs on load with
+  // nothing checked, so the strip starts empty. From then on it is driven
+  // from this map so picking a type does not cost a round trip.
+  // {code: [childCode, ...]}
+  var CHILDREN = JSON.parse(document.getElementById('tpl-children-data').textContent);
+  var META = JSON.parse(document.getElementById('tpl-meta-data').textContent);
+  var REQUIRES = JSON.parse(document.getElementById('tpl-requirements-data').textContent);
+  var COMPANIONS = JSON.parse(document.getElementById('tpl-companions-data').textContent);
+  // Mirrors template_catalog.suggest() (children only, one hop, exclude
+  // selected, order by count then code, cap MAX_SUGGESTIONS) -- keep both in
+  // sync. The cap itself has exactly one definition, template_catalog's, and
+  // is passed through by _templates_context in seek/views.py.
+  var MAX_SUGGESTIONS = {{ max_suggestions }};
+
+  function selected() {
+    return boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+  }
+
+  // Live state, not a snapshot -- renderRequirements' loop below can tick a
+  // box mid-iteration (via the recursive check() call), and a later
+  // iteration must see that change, not the `chosen` array as it was when
+  // the loop started.
+  function isChecked(code) {
+    return boxes.some(function (b) { return b.value === code && b.checked; });
+  }
+
+  function chip(code, group, onClick) {
+    var el = document.createElement('span');
+    el.className = 'tpl-chip';
+    el.setAttribute('data-group', group || '');
+    el.textContent = code + ' ✕';
+    el.addEventListener('click', onClick);
+    return el;
+  }
+
+  function renderSuggestions(chosen) {
+    var picked = {};
+    chosen.forEach(function (c) { picked[c] = true; });
+
+    var tally = {};
+    chosen.forEach(function (code) {
+      (CHILDREN[code] || []).forEach(function (child) {
+        if (picked[child]) { return; }
+        tally[child] = (tally[child] || 0) + 1;
+      });
+    });
+
+    var ranked = Object.keys(tally).sort(function (a, b) {
+      return tally[b] - tally[a] || a.localeCompare(b);
+    }).slice(0, MAX_SUGGESTIONS);
+
+    suggItems.innerHTML = '';
+    ranked.forEach(function (code) {
+      var meta = META[code] || {};
+      var el = document.createElement('span');
+      el.className = 'tpl-sg';
+      var codeEl = document.createElement('code');
+      codeEl.textContent = '+ ' + code;
+      el.appendChild(codeEl);
+      el.appendChild(document.createTextNode(' ' + (meta.name || '')));
+      el.addEventListener('click', function () { check(code, true); });
+      suggItems.appendChild(el);
+    });
+    suggBar.hidden = ranked.length === 0;
+    suggBar.dataset.codes = ranked.join(',');
+  }
+
+  // Types auto-added to satisfy a requirement, so unticking the child can take
+  // them away again -- but never one the user ticked themselves.
+  // {parentCode: childCode it is here for}
+  var autoAdded = {};
+
+  // Parents the user has taken back off after they were auto-added.
+  // {childCode: {parentCode: true}}
+  //
+  // The download is never blocked and an auto-added chip is removable: someone
+  // may legitimately upload D.SEQ against DNA that is already in NExtSEEK.
+  // Without this, renderRequirements sees D.SEQ unsatisfied on the very next
+  // pass and puts DNA straight back, so no sequence short of Clear yields
+  // D.SEQ without DNA. A declined requirement still shows in the strip -- the
+  // user should see what they have chosen to omit.
+  var declined = {};
+
+  // The still-selected type that `parent` is here for, or null if nothing
+  // needs it any more. Also the chip's "required by" credit, so a parent that
+  // outlives the child it was added for is re-credited rather than left
+  // pointing at a type that is no longer selected.
+  function requiredBy(parent) {
+    var holder = null;
+    selected().forEach(function (code) {
+      if (holder) { return; }
+      var req = REQUIRES[code];
+      if (req && (req.add || []).indexOf(parent) !== -1) { holder = code; }
+    });
+    return holder;
+  }
+
+  // Drop everything the picker added that no hand-picked type still calls for.
+  //
+  // Mark and sweep from the user's own selections outward, rather than asking
+  // each added type whether anything currently wants it. A local check cannot
+  // see a cycle, and one is reachable: tick CEX, which requires NHP, whose
+  // companion is PAV -- and PAV in turn requires NHP. Untick CEX and each of
+  // NHP and PAV can point at the other as its reason to stay, so both survive
+  // the pick that caused them. Reachability from a real pick has no such
+  // fixpoint.
+  //
+  // Unchecking a box from script fires no 'change' event, so nothing else will
+  // notice; and only types the picker added are ever swept, which is what
+  // keeps a hand-picked one safe.
+  function prune() {
+    var live = {};
+    var queue = [];
+    selected().forEach(function (code) {
+      if (autoAdded[code] || companionAdded[code]) { return; }
+      live[code] = true;
+      queue.push(code);
+    });
+
+    while (queue.length) {
+      var code = queue.shift();
+      var reach = [];
+      var req = REQUIRES[code];
+      if (req) { reach = reach.concat(req.add || []); }
+      var comp = COMPANIONS[code];
+      if (comp) { reach = reach.concat(comp.add || []); }
+      reach.forEach(function (next) {
+        if (!isChecked(next) || live[next]) { return; }
+        live[next] = true;
+        queue.push(next);
+      });
+    }
+
+    selected().forEach(function (code) {
+      if (live[code]) { return; }
+      delete autoAdded[code];
+      delete companionAdded[code];
+      delete declined[code];
+      boxes.forEach(function (b) { if (b.value === code) { b.checked = false; } });
+    });
+
+    // Re-credit what survived. A parent that outlives the type it was added
+    // for is now here for something else, and the chip must say so rather than
+    // pointing at a type no longer selected.
+    Object.keys(autoAdded).forEach(function (parent) {
+      var holder = requiredBy(parent);
+      if (holder) { autoAdded[parent] = holder; } else { delete autoAdded[parent]; }
+    });
+    Object.keys(companionAdded).forEach(function (child) {
+      var from = companionOf(child);
+      if (from) { companionAdded[child] = from; } else { delete companionAdded[child]; }
+    });
+  }
+
+  // `code` has just been deselected by the user, by either route (the chip's
+  // remove or the checkbox itself).
+  function release(code) {
+    if (autoAdded[code]) {
+      var child = autoAdded[code];
+      (declined[child] || (declined[child] = {}))[code] = true;
+      delete autoAdded[code];
+    }
+    if (companionAdded[code]) {
+      var trigger = companionAdded[code];
+      (declined[trigger] || (declined[trigger] = {}))[code] = true;
+      delete companionAdded[code];
+    }
+    // A type's own declines only mean anything while it is selected.
+    delete declined[code];
+    prune();
+  }
+
+  function remove(code) {
+    boxes.forEach(function (b) { if (b.value === code) { b.checked = false; } });
+    release(code);
+    render();
+  }
+
+  // Types pulled in as a companion: not required, but the parent almost
+  // always goes on to produce them. {childCode: triggerCode it came from}
+  //
+  // Held apart from `autoAdded` because the claim is weaker and the chip says
+  // so, and because a companion must not act as a trigger itself -- see
+  // renderCompanions.
+  var companionAdded = {};
+
+  // The still-selected type whose companion `code` is, or null.
+  function companionOf(code) {
+    var holder = null;
+    selected().forEach(function (trigger) {
+      if (holder) { return; }
+      var comp = COMPANIONS[trigger];
+      if (comp && (comp.add || []).indexOf(code) !== -1) { holder = trigger; }
+    });
+    return holder;
+  }
+
+  // Mirrors classify_companions() in type_requirements.py: exactly one child
+  // per trigger, and it is a prediction rather than a rule. Keep in step.
+  function renderCompanions(chosen) {
+    var pending = [];
+    chosen.forEach(function (code) {
+      // ONE HOP. A companion does not trigger its own: picking BAC gives DNA
+      // and stops, though DNA -> D.SEQ is a 98% companion in its own right.
+      // Requirements chain because they are facts about what an upload may
+      // look like; a companion is a prediction, and two hops of 80% confidence
+      // is 64%.
+      if (companionAdded[code]) { return; }
+      var comp = COMPANIONS[code];
+      if (!comp || !comp.add.length) { return; }
+      var child = comp.add[0];
+      if (isChecked(child)) { return; }
+      var refused = declined[code] || {};
+      if (refused[child]) { return; }
+      pending.push({ child: child, trigger: code });
+    });
+
+    // Same collect-apply-return discipline as renderRequirements: check()
+    // re-enters render(), which redoes this pass against the new selection.
+    var added = false;
+    pending.forEach(function (entry) {
+      companionAdded[entry.child] = entry.trigger;
+      if (check(entry.child, true)) { added = true; return; }
+      delete companionAdded[entry.child];
+    });
+    return added;
+  }
+
+  // Mirrors nextseek_api/services/type_requirements.py: one parent is a hard
+  // requirement, two or three are alternatives needing one. Keep in step.
+  function renderRequirements(chosen) {
+    var needs = [];
+    var pending = [];
+    chosen.forEach(function (code) {
+      var req = REQUIRES[code];
+      if (!req || !req.add.length) { return; }
+      var satisfied = req.add.some(isChecked);
+      if (satisfied) { return; }
+      var refused = declined[code] || {};
+      var open = req.add.filter(function (p) { return !refused[p]; });
+      if (req.add.length === 1 && open.length === 1) {
+        pending.push({ parent: req.add[0], child: code, assays: req.assays || [] });
+        return;
+      }
+      needs.push({ child: code, parents: req.add, assays: req.assays || [] });
+    });
+
+    // Collect first, apply second, and then get out of the way. check() below
+    // re-enters render(), which recomputes this whole pass against the new
+    // selection and paints the strip correctly; if this frame carried on to
+    // its own DOM writes it would repaint from a `needs` computed before the
+    // recursion -- wiping a real prompt, or advertising one the same pass had
+    // already satisfied. The last writer must not be the most stale one.
+    if (pending.length) {
+      var added = false;
+      pending.forEach(function (entry) {
+        // Set before check(): the re-entrant render() reads it to badge the
+        // chip it is about to draw.
+        autoAdded[entry.parent] = entry.child;
+        if (check(entry.parent, true)) { added = true; return; }
+        // No checkbox carries that code, so there is nothing to add. Show it
+        // as unmet instead of asking for it again forever.
+        delete autoAdded[entry.parent];
+        needs.push({ child: entry.child, parents: [entry.parent], assays: entry.assays });
+      });
+      if (added) { return; }
+    }
+
+    var box = document.getElementById('tpl-req-items');
+    box.innerHTML = '';
+    needs.forEach(function (need) {
+      var line = document.createElement('span');
+      line.className = 'tpl-req-need';
+      var label = need.child + (need.parents.length === 1 ? ' needs:' : ' needs one of:');
+      if (need.assays.length) { label += ' (' + need.assays.join(', ') + ')'; }
+      line.appendChild(document.createTextNode(label));
+      need.parents.forEach(function (p) {
+        var btn = document.createElement('span');
+        btn.className = 'tpl-sg';
+        btn.textContent = '+ ' + p;
+        btn.addEventListener('click', function () {
+          // Taking the offer withdraws an earlier decline of the same parent.
+          if (declined[need.child]) { delete declined[need.child][p]; }
+          autoAdded[p] = need.child;
+          check(p, true);
+        });
+        line.appendChild(btn);
+      });
+      box.appendChild(line);
+    });
+    document.getElementById('tpl-req').hidden = needs.length === 0;
+  }
+
+  // Picking something clears the query, the way a tag input does: the search
+  // has served its purpose, the pick is now a chip, and the full list comes
+  // back for the next one. Deliberately NOT called when something is
+  // deselected -- yanking the filter away while a user prunes their selection
+  // would lose their place. applyFilter() is called explicitly because setting
+  // .value in script does not fire an 'input' event.
+  function clearSearch() {
+    if (!search.value) { return; }
+    search.value = '';
+    applyFilter();
+  }
+
+  // Returns false when no checkbox carries `code`, having done nothing at all.
+  // That return is what makes renderRequirements' recursion terminate
+  // structurally rather than by luck: load_requirements() drops requirements
+  // naming an out-of-catalog parent, but that guard is Python and this is the
+  // consumer. Without it one such row recurses until the stack blows, taking
+  // the whole picker down with it.
+  function check(code, value) {
+    var matched = false;
+    boxes.forEach(function (b) {
+      if (b.value !== code) { return; }
+      b.checked = value;
+      matched = true;
+    });
+    if (!matched) { return false; }
+    if (value) { clearSearch(); }
+    render();
+    return true;
+  }
+
+  function render() {
+    var chosen = selected();
+    chips.innerHTML = '';
+    chosen.forEach(function (code) {
+      var box = boxes.filter(function (b) { return b.value === code; })[0];
+      var el = chip(code, box.getAttribute('data-group'), function () {
+        remove(code);
+      });
+      if (autoAdded[code]) {
+        el.classList.add('is-required');
+        el.title = 'required by ' + autoAdded[code];
+      } else if (companionAdded[code]) {
+        // A weaker claim than a requirement, and the wording says so.
+        el.classList.add('is-companion');
+        el.title = 'usually recorded with ' + companionAdded[code];
+      }
+      chips.appendChild(el);
+    });
+    count.textContent = chosen.length;
+    submit.disabled = chosen.length === 0;
+    renderSuggestions(chosen);
+    // Companions first: one may satisfy a requirement outright, so the
+    // prompt strip is never drawn asking for something already on its way.
+    if (renderCompanions(chosen)) { return; }
+    renderRequirements(chosen);
+  }
+
+  boxes.forEach(function (b) {
+    b.addEventListener('change', function () {
+      if (b.checked) {
+        // The user has claimed it. If the picker had put it there, it is
+        // theirs now and must outlive whatever brought it in -- otherwise
+        // ticking a box that is already ticked as a companion is invisible,
+        // and removing the trigger silently takes their own pick with it.
+        // Only a real click reaches here; check() assigns .checked from
+        // script, which fires no change event.
+        delete autoAdded[b.value];
+        delete companionAdded[b.value];
+        clearSearch();
+      } else {
+        release(b.value);
+      }
+      render();
+    });
+  });
+
+  document.getElementById('tpl-clear').addEventListener('click', function () {
+    boxes.forEach(function (b) { b.checked = false; });
+    // Assigning .checked in script fires no 'change' event, so the
+    // change-handler cleanup above never runs here -- clear the
+    // auto-added bookkeeping directly, or a later re-tick of a former
+    // child shows a stale "required by" chip on an unrelated parent.
+    // The declines go with it: nothing is selected to decline anything for.
+    autoAdded = {};
+    declined = {};
+    render();
+  });
+
+  // Adds exactly what is on screen, never a hidden tail.
+  document.getElementById('tpl-add-all').addEventListener('click', function () {
+    (suggBar.dataset.codes || '').split(',').filter(Boolean).forEach(function (c) {
+      boxes.forEach(function (b) { if (b.value === c) { b.checked = true; } });
+    });
+    clearSearch();
+    render();
+  });
+
+  var search = document.getElementById('tpl-search');
+
+  // The bar reads as one text field, so a click on its padding should land in
+  // the input. Clicks on a chip, a button or the input itself are left alone --
+  // stealing focus from a chip's remove would fight the user.
+  document.getElementById('tpl-selbar').addEventListener('mousedown', function (event) {
+    if (event.target === this) { search.focus(); }
+  });
+
+  // The input now lives inside the form, so Enter would submit it mid-search.
+  // Filtering is live, so Enter has nothing to do here.
+  search.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') { event.preventDefault(); }
+  });
+
+  function applyFilter() {
+    var q = search.value.trim().toLowerCase();
+    document.querySelectorAll('.tpl-group').forEach(function (group) {
+      var visible = 0;
+      group.querySelectorAll('.tpl-item').forEach(function (item) {
+        var hit = !q
+          || item.getAttribute('data-code').toLowerCase().indexOf(q) !== -1
+          || item.getAttribute('data-name').indexOf(q) !== -1;
+        item.hidden = !hit;
+        if (hit) { visible += 1; }
+      });
+      group.hidden = visible === 0;
+    });
+  }
+
+  search.addEventListener('input', applyFilter);
+
+  render();
+})();
+</script>
 {% endblock %}

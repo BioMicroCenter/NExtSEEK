@@ -19,9 +19,6 @@ TEST_CASES = {
     }
 }
 
-SAMPLE_TEMPLATES_FOLDER = "/templates"
-SAMPLE_TEMPLATES_FOLDER_PROJECT = "1"
-
 PUBLISH_URL = "https://fairdomhub.org"
 PUBLISH_STATS_FILE = "/path/to/published_stats_production.xlsx"
 

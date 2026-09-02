@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import logging
-from typing import Dict, List
 logger = logging.getLogger(__name__)
 
 from .models import Sample_attributes
@@ -118,6 +117,47 @@ class DBtable_sampleattribute(DBtable):
         self.primaryField = "id"
         self.fieldMapping = SAMPLEATTRIBUTE_FILTER_MAPPING
         
+    def _normalizeSampleTypeIds(self, sample_type_ids):
+        """Sorted, deduped, positive ints. Shared by both bulk lookups so the
+        id-coercion rule lives in exactly one place."""
+        ids = []
+        for sid in sample_type_ids or []:
+            try:
+                ids.append(int(sid))
+            except Exception:
+                continue
+        return sorted({i for i in ids if i > 0})
+
+    def _bulkAttributeRows(self, ids, columns):
+        """(sample_type_id, *columns) ordered by (sample_type_id, pos, id)."""
+        return (
+            self.tablemodel.objects.filter(sample_type_id__in=ids)
+            .order_by("sample_type_id", "pos", "id")
+            .values_list("sample_type_id", *columns)
+        )
+
+    def _validBulkAttributeRows(self, ids, columns):
+        """Rows from _bulkAttributeRows(), with the skip/clean rules shared by
+        both bulk lookups applied once: drop rows whose sample_type_id doesn't
+        coerce to a positive-ish int, drop None titles, strip and drop blank
+        titles. Yields (sample_type_id, cleaned_title, *rest) -- `rest` holds
+        whatever extra columns were requested beyond "title", in order -- so
+        each public method can be a thin accumulation over this.
+        """
+        for row in self._bulkAttributeRows(ids, columns):
+            sid, title = row[0], row[1]
+            rest = row[2:]
+            try:
+                sid_int = int(sid)
+            except Exception:
+                continue
+            if title is None:
+                continue
+            t = str(title).strip()
+            if not t:
+                continue
+            yield (sid_int, t) + rest
+
     def getAttributeTitlesBySampleTypeIds(self, sample_type_ids):
         """
         Bulk fetch attribute titles for many sample types.
@@ -129,37 +169,44 @@ class DBtable_sampleattribute(DBtable):
             - Uses Django ORM (no raw SQL).
             - Ordering is stable: (sample_type_id, pos, id).
         """
-        # Normalize ids
-        ids: List[int] = []
-        for sid in sample_type_ids or []:
-            try:
-                ids.append(int(sid))
-            except Exception:
-                continue
-        ids = sorted(set([i for i in ids if i > 0]))
+        ids = self._normalizeSampleTypeIds(sample_type_ids)
         if not ids:
             return {}
 
-        # Bulk query: (sample_type_id, title) ordered by pos
-        rows = (
-            self.tablemodel.objects.filter(sample_type_id__in=ids)
-            .order_by("sample_type_id", "pos", "id")
-            .values_list("sample_type_id", "title")
-        )
-
-        out: Dict[int, List[str]] = {sid: [] for sid in ids}
-        for sid, title in rows:
-            try:
-                sid_int = int(sid)
-            except Exception:
-                continue
+        out = {sid: [] for sid in ids}
+        for sid_int, title in self._validBulkAttributeRows(ids, ["title"]):
             if sid_int not in out:
                 out[sid_int] = []
-            if title is None:
-                continue
-            t = str(title).strip()
-            if t:
-                out[sid_int].append(t)
+            out[sid_int].append(title)
+        return out
+
+    def getAttributeSpecsBySampleTypeIds(self, sample_type_ids):
+        """Same query and ordering as getAttributeTitlesBySampleTypeIds, plus the
+        `required` flag and `pos`.
+
+        A blank-template sheet needs to mark required columns, which the titles
+        method deliberately does not carry. Kept as a sibling rather than a wider
+        return type because that method has a live caller
+        (nextseek_api/services/entity_tree.py) and tests that assert its shape.
+
+        Returns:
+            dict[int, list[dict]] -- {"title": str, "required": bool, "pos": int}
+        """
+        ids = self._normalizeSampleTypeIds(sample_type_ids)
+        if not ids:
+            return {}
+
+        out = {sid: [] for sid in ids}
+        for sid_int, title, required, pos in self._validBulkAttributeRows(
+            ids, ["title", "required", "pos"]
+        ):
+            if sid_int not in out:
+                out[sid_int] = []
+            out[sid_int].append({
+                "title": title,
+                "required": bool(required),
+                "pos": int(pos) if pos is not None else 0,
+            })
         return out
 
     
