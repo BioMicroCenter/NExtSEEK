@@ -2061,6 +2061,89 @@ class ProjectExportResponse(BaseModel):
 
 
 # -----------------------------
+# Download Templates: request/response models
+# -----------------------------
+
+class TemplateCatalogEntry(BaseModel):
+    code: str = Field(
+        ...,
+        description="Sample type code, e.g. 'DNA' or 'D.SEQ'. This is also the "
+                    "sheet name it gets in a generated workbook."
+    )
+    sample_type_id: int = Field(
+        ..., description="seek_production.sample_types.id for this code."
+    )
+    name: str = Field(
+        "",
+        description="Curated display name from sample_types_context; empty when "
+                    "no context row exists for the code."
+    )
+    description: str = Field(
+        "", description="Curated description from sample_types_context; may be empty."
+    )
+    group: str = Field(
+        "",
+        description="Title-prefix group key: '' (Experimental), 'D.' (Data), "
+                    "'A.' (Analysis) or 'M.' (Model)."
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class TemplateCatalogGroup(BaseModel):
+    key: str = Field(..., description="Group key: '', 'D.', 'A.' or 'M.'.")
+    label: str = Field(..., description="Display label, e.g. 'Data types'.")
+    entries: List[TemplateCatalogEntry] = Field(
+        ..., description="Sample types in this group, ordered by code."
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class TemplateTypeLink(BaseModel):
+    add: List[str] = Field(..., description="Sample type codes this rule pulls in.")
+    assays: List[str] = Field(
+        default_factory=list,
+        description="Assay titles carried by the DERIVED_FROM edges the rule was "
+                    "derived from. Empty when the edges recorded no assay."
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class TemplateCatalogResponse(BaseModel):
+    groups: List[TemplateCatalogGroup] = Field(
+        ...,
+        description="Sample types grouped by title prefix in display order. "
+                    "Groups with no entries are omitted. Deprecated types, and "
+                    "codes that cannot be legal Excel sheet names, are excluded."
+    )
+    children: Dict[str, List[str]] = Field(
+        ...,
+        description="Curated child sample types per code, from "
+                    "sample_types_context.child_sampletypes. One hop; this is the "
+                    "input the picker derives its suggestion strip from."
+    )
+    requires: Dict[str, TemplateTypeLink] = Field(
+        ...,
+        description="Derived child->parent rules: what an upload of the keyed type "
+                    "cannot omit. Chains. Empty on an instance where "
+                    "dmac.sample_type_requirements has never been populated."
+    )
+    companions: Dict[str, TemplateTypeLink] = Field(
+        ...,
+        description="Derived parent->child rules: what an upload of the keyed type "
+                    "will almost certainly also record. One hop only, and only the "
+                    "single most dominant child per parent."
+    )
+    max_suggestions: int = Field(
+        ..., description="Cap the picker applies to its suggestion strip."
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# -----------------------------
 # Schema RAG: request/response models
 # -----------------------------
 

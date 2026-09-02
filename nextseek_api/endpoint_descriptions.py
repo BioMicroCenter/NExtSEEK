@@ -1217,3 +1217,28 @@ ASSAY_REGISTRATION_JOB_CANCEL_DESC = (
     "**EXAMPLES:**\n"
     "- 'Cancel that assay registration job'\n"
 )
+
+# =============================================================================
+# TemplatesViewSet (2 endpoints)
+# =============================================================================
+
+TEMPLATE_CATALOG_DESC = (
+    "**SUMMARY:** List every sample type a blank upload template can be generated for, grouped by title prefix, "
+    "together with the derived rules saying which other types a selection implies.\n\n"
+    "**USE WHEN:** The caller is choosing sample types before requesting a template workbook, or wants to know which types "
+    "NExtSEEK treats as required parents or usual companions of a given type.\n\n"
+    "**DO NOT USE WHEN:** The caller wants the attribute columns of a sample type — use `GET attributes/` or `POST attributes/search/`; "
+    "the caller wants sample records rather than type definitions — use a sample endpoint; the caller needs these relations scoped to one "
+    "investigation or SEEK project — use `GET sample_types/connections/`, because the rules returned here are global and a rule that holds "
+    "only inside one large study is indistinguishable from one that holds everywhere.\n\n"
+    "**ACCEPTS:** No parameters.\n\n"
+    "**RETURNS:** A `TemplateCatalogResponse` carrying `groups` in display order (Experimental, Data, Analysis, Model), the curated `children` "
+    "map, the derived `requires` and `companions` rules, and `max_suggestions`. Deprecated sample types and codes that cannot be legal Excel "
+    "sheet names are excluded. `requires` and `companions` are `{}` on an instance where the derived-rules table has never been populated; "
+    "that is the fresh-install state, not an error.\n\n"
+    "**TRIGGER PHRASES:** list template sample types, download templates catalog, which sample types have templates, "
+    "what does this sample type require, companion sample types\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Which sample types can I download a template for?'\n"
+    "- 'What does D.SEQ require me to also upload?'\n"
+)
