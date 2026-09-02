@@ -228,7 +228,7 @@ git merge --ff-only origin/dev
 #    a. Migration check — does the range add migrations?
 git diff --name-only HEAD@{1} HEAD -- '*migrations*'
 #       If yes: mysqldump gate first (§5.3).
-#    b. CI check — `rebuild` runs the smoke suite afterwards and it needs two
+#    b. CI check — `rebuild` runs the smoke suite afterwards and it needs three
 #       things on the box. On an install predating them, add them by hand:
 #         · "ci_profile": "dev"  (or "prod") in startup/.instance.json — an absent
 #           key means prod, the most restrictive, so a dev box silently loses the
@@ -236,7 +236,25 @@ git diff --name-only HEAD@{1} HEAD -- '*migrations*'
 #         · ~/.config/nextseek/ci.env (mode 600) naming CI_SMOKE_USER and
 #           CI_SMOKE_PASS — without it the readiness gate exits 2 and the rebuild
 #           reports failure after having succeeded.
-#       `./startup.sh doctor` reports both, read-only. Or skip CI: rebuild --no-ci.
+#         · DJANGO_CSRF_TRUSTED_ORIGINS in docker/nextseek.env must include the
+#           loopback origins the suite posts from, http://127.0.0.1:<nextseek port>
+#           and http://localhost:<nextseek port>, alongside the public https ones.
+#           nginx forwards Host: localhost on that port, so Django cannot match a
+#           browser's Origin against its own host and falls back to this list;
+#           without them every scripted request passes and the six browser flows
+#           fail with a 403 on the login form (measured on fairdata-dev,
+#           2026-09-02). An env change takes effect on recreate, which rebuild does.
+#       `./startup.sh doctor` reports the first two, read-only. Or skip CI:
+#       rebuild --no-ci.
+#    c. SEEK's config mount — docker/seek-nginx.conf is an untracked host file
+#       that SEEK's entrypoint (uid 33) rewrites on every start. It must exist as
+#       a FILE (chmod 666) before the seek service is ever recreated; if it is
+#       missing, Docker creates a directory there and SEEK crash-loops. Render it
+#       with the image's own template if absent:
+#         docker run --rm fairdom/seek:1.15.1 sh -c 'cd /seek && SEEK_LOCATION= \
+#           SEEK_SUB_URI= envsubst "\${SEEK_LOCATION} \${SEEK_SUB_URI}" \
+#           < docker/nginx.conf.template' > docker/seek-nginx.conf
+#       Never `compose up` a single service without --no-deps on this stack.
 
 # 3. Rebuild exactly what changed. Each verb first creates+verifies local
 #    rollback tags, then builds, recreates long-running targets with
