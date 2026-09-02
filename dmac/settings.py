@@ -395,6 +395,7 @@ REST_FRAMEWORK = {
 # the sections in Swagger UI. Sharing one list keeps them from drifting.
 API_TAG_ORDER = [
     "Assays",
+    "AssayRegistrations",
     "admin",
     "Users (admin)",
     "Assistant",
