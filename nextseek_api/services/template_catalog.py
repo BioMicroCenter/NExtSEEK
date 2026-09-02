@@ -304,3 +304,44 @@ def load_type_links(codes) -> dict[str, dict[str, dict]]:
                   else "requires")
         out[bucket][row["trigger_code"]] = {"add": add, "assays": assays}
     return out
+
+
+def build_catalog() -> dict:
+    """Everything a template picker needs, in one read.
+
+    Both call paths read this: `seek.views.assets._templates_context` renders it,
+    and `nextseek_api.services.templates.TemplatesViewSet.catalog` serialises it.
+    `suggest()` above already records that `templatesList.html` reimplements its
+    rule in JavaScript and that the two must be kept in lockstep by hand; a third
+    copy of the same rule inside the API is that documented failure mode, so
+    neither caller assembles this itself.
+
+    `groups` holds `SampleTypeEntry` objects rather than dicts on purpose. The
+    Django template reads `entry.code` / `entry.name`, and
+    `write_template_workbook` reads `.code` and `.sample_type_id` off the same
+    objects; handing out dicts would work in the template and break the writer.
+    """
+    entries = load_catalog()
+    by_code = {e.code: e for e in entries}
+    relationships = load_relationships(list(by_code), set(by_code))
+    links = load_type_links(set(by_code))
+
+    groups = [
+        {"key": key, "label": label,
+         "entries": [e for e in entries if e.group == key]}
+        for key, label in GROUPS
+    ]
+    return {
+        "groups": [g for g in groups if g["entries"]],
+        # Children only, matching the one-hop rule in suggest(): the page
+        # re-derives its suggestion strip in the browser from this map.
+        "children": {
+            code: rel.get("children", []) for code, rel in relationships.items()
+        },
+        # `requires` runs child -> parent (what an upload cannot omit);
+        # `companions` runs parent -> child (what it will almost certainly also
+        # record). Keyed on the whole catalog, not on any selection.
+        "requires": links["requires"],
+        "companions": links["companions"],
+        "max_suggestions": MAX_SUGGESTIONS,
+    }

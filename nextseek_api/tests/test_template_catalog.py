@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from nextseek_api.services.template_catalog import SampleTypeEntry
+
 
 class TestAttributeSpecs:
     """getAttributeSpecsBySampleTypeIds mirrors the titles method, plus `required`."""
@@ -486,3 +488,102 @@ class TestDeprecatedTypes:
         with patch(f"{_MOD}.Sample_types", m), \
              patch(f"{_MOD}.load_sample_type_context", return_value={}):
             assert [e.code for e in load_catalog()] == ["TIS"]
+
+
+class TestBuildCatalog:
+    """One builder for the picker page and /nextseek_api/templates/catalog/."""
+
+    _TIS = SampleTypeEntry(code="TIS", sample_type_id=2, name="Tissue",
+                           description="A tissue sample.", group="")
+    _SEQ = SampleTypeEntry(code="D.SEQ", sample_type_id=11, name="Sequencing Data",
+                           description="Reads.", group="D.")
+
+    def _patched(self, links=None, relationships=None):
+        from unittest.mock import patch
+        return (
+            patch("nextseek_api.services.template_catalog.load_catalog",
+                  return_value=[self._TIS, self._SEQ]),
+            patch("nextseek_api.services.template_catalog.load_relationships",
+                  return_value=relationships if relationships is not None
+                  else {"TIS": {"parents": [], "children": ["D.SEQ"]}}),
+            patch("nextseek_api.services.template_catalog.load_type_links",
+                  return_value=links if links is not None
+                  else {"requires": {"D.SEQ": {"add": ["TIS"], "assays": ["WGS"]}},
+                        "companions": {"TIS": {"add": ["D.SEQ"], "assays": []}}}),
+        )
+
+    def test_it_returns_every_key_both_callers_need(self):
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched()
+        with cat, rel, links:
+            payload = build_catalog()
+        assert set(payload) == {
+            "groups", "children", "requires", "companions", "max_suggestions"
+        }
+
+    def test_empty_groups_are_omitted(self):
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched()
+        with cat, rel, links:
+            payload = build_catalog()
+        # Four groups are defined; only Experimental and Data have entries here.
+        assert [g["key"] for g in payload["groups"]] == ["", "D."]
+        assert [g["label"] for g in payload["groups"]] == [
+            "Experimental types", "Data types"
+        ]
+
+    def test_entries_are_dataclass_objects_not_dicts(self):
+        # templatesList.html reads entry.code, and write_template_workbook reads
+        # .code/.sample_type_id off these same objects.
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched()
+        with cat, rel, links:
+            payload = build_catalog()
+        entry = payload["groups"][0]["entries"][0]
+        assert entry.code == "TIS"
+        assert entry.sample_type_id == 2
+
+    def test_children_carries_only_the_children_side(self):
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched(
+            relationships={"TIS": {"parents": ["PAT"], "children": ["D.SEQ"]}}
+        )
+        with cat, rel, links:
+            payload = build_catalog()
+        assert payload["children"] == {"TIS": ["D.SEQ"]}
+
+    def test_links_are_passed_through_unchanged(self):
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched()
+        with cat, rel, links:
+            payload = build_catalog()
+        assert payload["requires"] == {"D.SEQ": {"add": ["TIS"], "assays": ["WGS"]}}
+        assert payload["companions"] == {"TIS": {"add": ["D.SEQ"], "assays": []}}
+
+    def test_an_unpopulated_requirements_table_is_not_an_error(self):
+        # The table ships empty; that state means "nothing known".
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched(links={"requires": {}, "companions": {}})
+        with cat, rel, links:
+            payload = build_catalog()
+        assert payload["requires"] == {}
+        assert payload["companions"] == {}
+        assert payload["groups"]
+
+    def test_type_links_are_scoped_to_the_catalog(self):
+        from unittest.mock import patch
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, _ = self._patched()
+        with cat, rel, patch(
+            "nextseek_api.services.template_catalog.load_type_links",
+            return_value={"requires": {}, "companions": {}},
+        ) as mock_links:
+            build_catalog()
+        assert mock_links.call_args[0][0] == {"TIS", "D.SEQ"}

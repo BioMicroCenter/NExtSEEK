@@ -56,7 +56,7 @@ class TestPicker:
         assert "/login/" in resp.url
 
     @patch("requests.adapters.HTTPAdapter.send")
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_a_logged_in_user_gets_the_page_without_any_project_check(
             self, mock_db, _catalog, mock_send):
@@ -92,7 +92,7 @@ class TestPicker:
             parsed = None
         assert not (isinstance(parsed, dict) and parsed.get("status") == 0)
 
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_types_reach_the_template_grouped_in_display_order(self, mock_db, _catalog):
         from seek.views.assets import templatesList
@@ -104,7 +104,7 @@ class TestPicker:
         assert "Data types" in body
         assert "TIS" in body and "D.SEQ" in body
 
-    @patch("seek.views.assets.load_catalog")
+    @patch("nextseek_api.services.template_catalog.load_catalog")
     @patch("seek.decorators.SeekDB")
     def test_a_hostile_sample_type_name_cannot_break_out_of_the_script_block(
             self, mock_db, mock_catalog):
@@ -134,8 +134,8 @@ class TestPicker:
         assert "<img src=x onerror=alert(2)>" not in body
         assert "tpl-companions-data" in body
 
-    @patch("seek.views.assets.load_type_links")
-    @patch("seek.views.assets.load_catalog")
+    @patch("nextseek_api.services.template_catalog.load_type_links")
+    @patch("nextseek_api.services.template_catalog.load_catalog")
     @patch("seek.decorators.SeekDB")
     def test_a_hostile_assay_title_in_requirements_cannot_break_out_of_the_script_block(
             self, mock_db, mock_catalog, mock_req):
@@ -168,8 +168,8 @@ class TestPicker:
         assert "<img src=x onerror=alert(2)>" not in body
         assert "tpl-companions-data" in body
 
-    @patch("seek.views.assets.load_type_links")
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.template_catalog.load_type_links")
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_requirements_are_embedded_for_the_page(self, mock_db, _cat, mock_req):
         from seek.views.assets import templatesList
@@ -185,8 +185,8 @@ class TestPicker:
         assert "tpl-companions-data" in body
         assert "Short Read Sequencing" in body
 
-    @patch("seek.views.assets.load_type_links", return_value={"requires": {}, "companions": {}})
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.template_catalog.load_type_links", return_value={"requires": {}, "companions": {}})
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_no_requirements_still_renders_the_picker(self, mock_db, _cat, _req):
         """The table ships empty; the page must not depend on it."""
@@ -197,13 +197,14 @@ class TestPicker:
         assert resp.status_code == 200
         assert "Experimental types" in resp.content.decode()
 
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_requirements_are_scoped_to_the_catalog(self, mock_db, _cat):
         from seek.views.assets import templatesList
 
         mock_db.return_value = _logged_in()
-        with patch("seek.views.assets.load_type_links", return_value={"requires": {}, "companions": {}}) as mock_req:
+        with patch("nextseek_api.services.template_catalog.load_type_links",
+                   return_value={"requires": {}, "companions": {}}) as mock_req:
             templatesList(_get())
         assert mock_req.call_args[0][0] == {"TIS", "D.SEQ"}
 
@@ -278,11 +279,15 @@ class TestDownload:
         entries = mock_write.call_args[0][0]
         assert [e.code for e in entries] == ["TIS", "D.SEQ"]
 
+    @patch("seek.views.assets.build_catalog", return_value={
+        "groups": [{"key": "", "label": "Experimental types", "entries": [TIS]}],
+        "children": {}, "requires": {}, "companions": {}, "max_suggestions": 12,
+    })
     @patch("seek.views.assets.write_template_workbook")
     @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_an_empty_selection_re_renders_the_page_and_writes_nothing(
-            self, mock_db, _catalog, mock_write):
+            self, mock_db, _catalog, mock_write, mock_build):
         from seek.views.assets import templatesDownload
 
         mock_db.return_value = _logged_in()
@@ -291,14 +296,80 @@ class TestDownload:
         assert "spreadsheetml" not in resp["Content-Type"]
         mock_write.assert_not_called()
 
+    @patch("seek.views.assets.build_catalog", return_value={
+        "groups": [{"key": "", "label": "Experimental types", "entries": [TIS]}],
+        "children": {}, "requires": {}, "companions": {}, "max_suggestions": 12,
+    })
     @patch("seek.views.assets.write_template_workbook")
     @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_every_code_unknown_is_treated_as_an_empty_selection(
-            self, mock_db, _catalog, mock_write):
+            self, mock_db, _catalog, mock_write, mock_build):
         from seek.views.assets import templatesDownload
 
         mock_db.return_value = _logged_in()
         resp = templatesDownload(_post(["NOPE"]))
         assert resp.status_code == 200
         mock_write.assert_not_called()
+
+
+class TestTemplatesContext:
+    """_templates_context must keep handing the template exactly what it reads.
+
+    The payload itself is built in template_catalog now; this function only
+    renames keys and adds the flash message. templatesList.html reads
+    groups, message, children_json, meta_json, requirements_json,
+    companions_json and max_suggestions -- nothing else.
+    """
+
+    _PAYLOAD = {
+        "groups": [
+            {"key": "", "label": "Experimental types", "entries": [TIS]},
+            {"key": "D.", "label": "Data types", "entries": [SEQ]},
+        ],
+        "children": {"TIS": ["D.SEQ"]},
+        "requires": {"D.SEQ": {"add": ["TIS"], "assays": ["WGS"]}},
+        "companions": {"TIS": {"add": ["D.SEQ"], "assays": []}},
+        "max_suggestions": 12,
+    }
+
+    @patch("seek.views.assets.build_catalog")
+    def test_it_carries_every_key_the_template_reads(self, mock_build):
+        from seek.views.assets import _templates_context
+
+        mock_build.return_value = self._PAYLOAD
+        assert set(_templates_context()) == {
+            "groups", "message", "children_json", "meta_json",
+            "requirements_json", "companions_json", "max_suggestions",
+        }
+
+    @patch("seek.views.assets.build_catalog")
+    def test_meta_json_covers_every_entry_in_every_group(self, mock_build):
+        from seek.views.assets import _templates_context
+
+        mock_build.return_value = self._PAYLOAD
+        assert _templates_context()["meta_json"] == {
+            "TIS": {"name": "Tissue", "group": ""},
+            "D.SEQ": {"name": "Sequencing Data", "group": "D."},
+        }
+
+    @patch("seek.views.assets.build_catalog")
+    def test_the_json_keys_are_renamed_not_reshaped(self, mock_build):
+        from seek.views.assets import _templates_context
+
+        mock_build.return_value = self._PAYLOAD
+        context = _templates_context()
+        assert context["children_json"] == {"TIS": ["D.SEQ"]}
+        assert context["requirements_json"] == {
+            "D.SEQ": {"add": ["TIS"], "assays": ["WGS"]}
+        }
+        assert context["companions_json"] == {"TIS": {"add": ["D.SEQ"], "assays": []}}
+        assert context["max_suggestions"] == 12
+
+    @patch("seek.views.assets.build_catalog")
+    def test_the_message_is_passed_through(self, mock_build):
+        from seek.views.assets import _templates_context
+
+        mock_build.return_value = self._PAYLOAD
+        context = _templates_context(message="Select at least one sample type.")
+        assert context["message"] == "Select at least one sample type."
