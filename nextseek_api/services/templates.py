@@ -12,23 +12,36 @@ path -- the derived rules are read from the materialised
 
 from __future__ import annotations
 
+import datetime
+import io
 import logging
 from dataclasses import asdict
 
-from drf_spectacular.utils import OpenApiExample, extend_schema
+from django.http import FileResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from pydantic import ValidationError
 from rest_framework import status, viewsets
 from rest_framework.authentication import BasicAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from nextseek_api.endpoint_descriptions import TEMPLATE_CATALOG_DESC
-from nextseek_api.models import TemplateCatalogResponse
+from nextseek_api.endpoint_descriptions import (
+    TEMPLATE_CATALOG_DESC,
+    TEMPLATE_GENERATE_DESC,
+)
+from nextseek_api.models import TemplateCatalogResponse, TemplateGenerateRequest
 from nextseek_api.permissions import IsSuperUser
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
-from nextseek_api.services.template_catalog import build_catalog
+from nextseek_api.services.sample_workbook import write_template_workbook
+from nextseek_api.services.template_catalog import build_catalog, load_catalog
 
 logger = logging.getLogger(__name__)
+
+XLSX_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
 
 class TemplatesViewSet(viewsets.ViewSet):
@@ -124,3 +137,77 @@ class TemplatesViewSet(viewsets.ViewSet):
             max_suggestions=payload["max_suggestions"],
         )
         return Response(response.model_dump(mode="json"), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        operation_id="Templates: Generate (POST)",
+        description=TEMPLATE_GENERATE_DESC,
+        tags=["templates"],
+        request=TemplateGenerateRequest,
+        responses={
+            (200, XLSX_CONTENT_TYPE): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Blank template workbook: a README, one headers-only "
+                            "sheet per requested type in request order, a "
+                            "controlled-vocabulary sheet, and a hidden _NEXTSEEK "
+                            "manifest.",
+            ),
+        },
+        examples=[
+            OpenApiExample(
+                "Three experimental types",
+                value={"codes": ["PAT", "TIS", "DNA"]},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "One data type",
+                value={"codes": ["D.SEQ"]},
+                request_only=True,
+            ),
+        ],
+    )
+    @action(detail=False, methods=["post"], url_path="generate")
+    def generate(self, request):
+        try:
+            payload = TemplateGenerateRequest.model_validate(request.data or {})
+        except ValidationError as exc:
+            return Response(
+                {"errors": [{"title": "Invalid request", "detail": exc.errors()}]},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        by_code = {entry.code: entry for entry in load_catalog()}
+        unknown = sorted({code for code in payload.codes if code not in by_code})
+        if unknown:
+            # seek.views.assets.templatesDownload drops these silently, so that a
+            # stale bookmark still produces the types it names. An API caller gets
+            # told instead: a workbook quietly missing a sheet is worse than a 422.
+            return Response(
+                {"errors": [{
+                    "title": "Unknown sample type code",
+                    "detail": "not in the catalog: " + ", ".join(unknown),
+                }]},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        chosen = []
+        seen = set()
+        for code in payload.codes:
+            if code not in seen:
+                seen.add(code)
+                chosen.append(by_code[code])
+
+        # Straight to memory. The page writes a NamedTemporaryFile because it
+        # predates this path; openpyxl's Workbook.save takes any file-like object,
+        # and a buffer leaves nothing behind to clean up.
+        buffer = io.BytesIO()
+        write_template_workbook(chosen, buffer)
+        buffer.seek(0)
+
+        stamp = datetime.datetime.now().strftime("%Y%m%d")
+        filename = f"NExtSEEK_templates_{len(chosen)}types_{stamp}.xlsx"
+        return FileResponse(
+            buffer,
+            content_type=XLSX_CONTENT_TYPE,
+            as_attachment=True,
+            filename=filename,
+        )

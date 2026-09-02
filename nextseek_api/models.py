@@ -2143,6 +2143,19 @@ class TemplateCatalogResponse(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
+class TemplateGenerateRequest(BaseModel):
+    codes: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Sample type codes to build sheets for, in the order the sheets "
+                    "should appear. Every code must exist in the catalog; an unknown "
+                    "code is rejected with 422 rather than silently skipped. "
+                    "Repeated codes produce one sheet each."
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
 # -----------------------------
 # Schema RAG: request/response models
 # -----------------------------

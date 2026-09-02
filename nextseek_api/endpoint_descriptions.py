@@ -1242,3 +1242,21 @@ TEMPLATE_CATALOG_DESC = (
     "- 'Which sample types can I download a template for?'\n"
     "- 'What does D.SEQ require me to also upload?'\n"
 )
+
+TEMPLATE_GENERATE_DESC = (
+    "**SUMMARY:** Generate one blank .xlsx upload template covering the named sample types, carrying a README that defines every column, "
+    "a headers-only sheet per type, controlled-vocabulary dropdowns, and a hidden `_NEXTSEEK` manifest.\n\n"
+    "**USE WHEN:** A superuser has settled on the sample types for an upload and wants the workbook to fill in.\n\n"
+    "**DO NOT USE WHEN:** The caller only needs to know which types exist or which columns a type has — use `GET templates/catalog/` or an "
+    "attributes endpoint; the caller wants existing sample records rather than a blank sheet — use `POST admin/project-export/run/`.\n\n"
+    "**ACCEPTS:** A `TemplateGenerateRequest` with a non-empty `codes` list of sample type codes. Sheets are written in the order given, and "
+    "repeated codes yield one sheet each. Every code must appear in the catalog.\n\n"
+    "**RETURNS:** `200` with the workbook as an .xlsx attachment "
+    "(`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).\n\n"
+    "**ERROR CODES:** `401` when unauthenticated; `403` for an authenticated caller who is not a Django superuser; `422` when `codes` is empty, "
+    "carries an unexpected field, or names a code the catalog does not have.\n\n"
+    "**TRIGGER PHRASES:** download a template, generate upload template, blank sample sheet, xlsx for these sample types, template workbook\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Generate a template for PAT, TIS and DNA'\n"
+    "- 'Download the blank upload sheet for D.SEQ'\n"
+)
