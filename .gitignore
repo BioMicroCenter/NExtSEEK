@@ -205,6 +205,7 @@ show
 # Per-instance startup state (per-clone, not shared).
 startup/.instance.json
 startup/.ghcr-push-state.json
+startup/.ci-last-run.xml
 
 # Generated BAML router client (regenerate via baml-cli generate --from dmac_assistant/baml_src)
 dmac_assistant/src/dmac_assistant/router/baml_client/

@@ -483,13 +483,21 @@ def test_dump_db_runs_both_dump_scripts(mock_run: MagicMock, repo: Path) -> None
 # ---------------------------------------------------------------------------
 
 def _record_ci_subprocess(
-    monkeypatch: pytest.MonkeyPatch, returncode: int = 0,
+    monkeypatch: pytest.MonkeyPatch, returncode: int = 0, junit_xml: str | None = None,
 ) -> list[SimpleNamespace]:
-    """Record every subprocess the runner launches; never launch one."""
+    """Record every subprocess the runner launches; never launch one.
+
+    With junit_xml, the fake writes it where the argv's --junitxml= points, the
+    way a real pytest run would, so the shim's summary can be asserted on.
+    """
     calls: list[SimpleNamespace] = []
 
     def fake_run(cmd, cwd=None, env=None, **kwargs):
         calls.append(SimpleNamespace(cmd=list(cmd), cwd=cwd, env=dict(env or {})))
+        if junit_xml is not None:
+            target = next(a[len("--junitxml="):] for a in cmd if a.startswith("--junitxml="))
+            Path(target).parent.mkdir(parents=True, exist_ok=True)
+            Path(target).write_text(junit_xml)
         return SimpleNamespace(returncode=returncode)
 
     monkeypatch.setattr(ci_runner.subprocess, "run", fake_run)
@@ -518,6 +526,7 @@ def test_ci_builds_the_expected_argv_and_env(
         "--with", "pytest", "--with", "requests", "--with", "playwright",
         "pytest", "ci/smoke/",
         "--base-url", "http://127.0.0.1:8000",
+        f"--junitxml={repo / 'startup' / '.ci-last-run.xml'}",
     ]
     assert call.cwd == repo
     assert call.env["CI_BOX_PROFILE"] == "local"
@@ -614,7 +623,7 @@ def test_ci_exits_with_the_suite_return_code(
     result = runner.invoke(cli.app, ["ci"])
 
     assert result.exit_code == 2
-    assert "CI failed (exit 2)" in result.output
+    assert "CI failed: exit 2, no report written" in result.output
     assert "DEPLOYMENT.md" in result.output
 
 
@@ -683,7 +692,7 @@ def test_rebuild_exits_with_the_ci_return_code(
     assert result.exit_code == 3
     # rich wraps long lines at console width — compare whitespace-free
     compact = "".join(result.output.split())
-    assert "CIfailedafterrebuild(exit3)" in compact
+    assert "CIfailedafterrebuild:exit3,noreportwritten" in compact
     assert "Therebuilditselfsucceededandisrunning" in compact
     assert "--no-ciskipsthisstep" in compact
     assert "SeeDEPLOYMENT.mdfortherollbackprocedureifthefailuresareregressions" in compact
@@ -891,3 +900,101 @@ def test_doctor_reports_a_credential_file_missing_a_key(
     result = runner.invoke(cli.app, ["doctor"])
     assert "does not name CI_SMOKE_PASS" in _flat(result.output)
     assert "someone" not in result.output
+
+
+
+# ---------------------------------------------------------------------------
+# ci: what the operator sees before and after the run
+# ---------------------------------------------------------------------------
+
+_JUNIT_GREEN = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites><testsuite name="pytest" errors="0" failures="0" skipped="1" tests="3" time="5.2">
+<properties><property name="readiness_seconds" value="3"/></properties>
+<testcase classname="a" name="p1" time="0.1"/>
+<testcase classname="a" name="p2" time="0.1"/>
+<testcase classname="a" name="x1" time="0.0"><skipped type="pytest.xfail" message="known"/></testcase>
+</testsuite></testsuites>
+"""
+
+_JUNIT_RED = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="2" time="2.0">
+<testcase classname="a" name="p1" time="0.1"/>
+<testcase classname="a" name="f1" time="0.1"><failure message="boom">tb</failure></testcase>
+</testsuite></testsuites>
+"""
+
+
+def _squash(text: str) -> str:
+    """rich wraps at console width; compare with ALL whitespace removed (the
+    older _flat above keeps spaces)."""
+    return "".join(text.split())
+
+
+def test_ci_prints_a_banner_before_running(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    _record_ci_subprocess(monkeypatch)
+    result = runner.invoke(cli.app, ["ci", "--wait-ready"])
+    assert result.exit_code == 0, result.output
+    flat = _squash(result.output)
+    assert "CIprofile:local(startup/.instance.json)" in flat
+    assert "stack:http://127.0.0.1:8000" in flat
+    assert "credentials:" in flat
+    assert "readiness" in flat
+    assert "command:uvrun--no-project" in flat
+    assert "pytestci/smoke/" in flat
+
+
+def test_ci_banner_says_when_the_profile_is_absent(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="")
+    _record_ci_subprocess(monkeypatch)
+    result = runner.invoke(cli.app, ["ci"])
+    assert "CIprofile:prod(absent" in _squash(result.output)
+
+
+def test_ci_summarises_the_junit_file_it_asked_for(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    _record_ci_subprocess(monkeypatch, junit_xml=_JUNIT_GREEN)
+    result = runner.invoke(cli.app, ["ci"])
+    assert result.exit_code == 0, result.output
+    assert "CIpassed:2passed,1xfailedin0:05(readiness0:03)" in _squash(result.output)
+
+
+def test_ci_failure_reports_counts_and_the_report_path(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    _record_ci_subprocess(monkeypatch, returncode=1, junit_xml=_JUNIT_RED)
+    result = runner.invoke(cli.app, ["ci"])
+    assert result.exit_code == 1
+    flat = _squash(result.output)
+    assert "CIfailed:1failed,1passedin0:02" in flat
+    assert ".ci-last-run.xml" in flat
+
+
+def test_ci_without_a_report_falls_back_to_the_exit_code(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    _record_ci_subprocess(monkeypatch, returncode=2)   # e.g. a refused profile: no tests ran
+    result = runner.invoke(cli.app, ["ci"])
+    assert result.exit_code == 2
+    assert "CIfailed:exit2,noreportwritten" in _squash(result.output)
+
+
+def test_ci_never_reports_a_stale_report(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A junit file from an earlier run must not be summarised as this run's."""
+    _saved_state(repo, ci_profile="local")
+    stale = repo / "startup" / ".ci-last-run.xml"
+    stale.write_text(_JUNIT_GREEN)
+    _record_ci_subprocess(monkeypatch, returncode=2)   # this run writes nothing
+    result = runner.invoke(cli.app, ["ci"])
+    assert "2passed" not in _squash(result.output)
+    assert not stale.exists()

@@ -285,6 +285,46 @@ def write_creds() -> tuple[str, str]:
 
 
 # --------------------------------------------------------------------------- #
+# terminal
+# --------------------------------------------------------------------------- #
+
+def report_to_terminal(config, line: str) -> None:
+    """Write one line to the operator's terminal from inside a fixture.
+
+    A fixture runs inside a test's setup or teardown phase, where pytest's output
+    capture is on. On a pipe the terminal reporter's write slips through; on a
+    real terminal it lands in the capture buffer and is thrown away with the
+    passing test, which is how a five-minute readiness floor looked like a hang.
+    Suspending capture around the write is pytest's own idiom for progress output
+    from fixtures.
+    """
+    reporter = config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:
+        return
+    capman = config.pluginmanager.get_plugin("capturemanager")
+    if capman is None:
+        reporter.write_line(line)
+        return
+    with capman.global_and_fixture_disabled():
+        reporter.write_line(line)
+
+
+def wait_out_floor(floor: int, *, say, sleep=time.sleep, step: int = 30) -> None:
+    """Sleep out the readiness floor in steps, saying how much is left after each.
+
+    The total slept is always exactly `floor`; nothing is said after the last
+    step, because the probe lines take over from there.
+    """
+    remaining = floor
+    while remaining > 0:
+        chunk = min(step, remaining)
+        sleep(chunk)
+        remaining -= chunk
+        if remaining > 0:
+            say(f"floor: {remaining}s remaining")
+
+
+# --------------------------------------------------------------------------- #
 # readiness gate
 # --------------------------------------------------------------------------- #
 
@@ -348,7 +388,7 @@ def resolve_readiness_credentials(config) -> tuple[str, str] | None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def stack_ready(pytestconfig, base_url, request):
+def stack_ready(pytestconfig, base_url, request, record_testsuite_property):
     """Block until the stack is sustainably up, or fail saying what was last seen.
 
     A blind sleep fails two ways: it wastes minutes when the stack is up quickly,
@@ -367,15 +407,12 @@ def stack_ready(pytestconfig, base_url, request):
     poll = pytestconfig.getoption("--ready-poll")
     need = pytestconfig.getoption("--ready-confirmations")
 
-    reporter = request.config.pluginmanager.get_plugin("terminalreporter")
-
     def say(msg):
-        if reporter:
-            reporter.write_line(f"[readiness] {msg}")
+        report_to_terminal(request.config, f"[readiness] {msg}")
 
     say(f"floor {floor}s, then polling every {poll}s for {need} consecutive "
         f"successes, ceiling {ceiling}s")
-    time.sleep(floor)
+    wait_out_floor(floor, say=say)
 
     started = time.monotonic()
     streak = 0
@@ -385,7 +422,11 @@ def stack_ready(pytestconfig, base_url, request):
         streak = streak + 1 if ok else 0
         say(f"{'ok ' if ok else 'not ready'} ({streak}/{need}): {last}")
         if streak >= need:
-            say(f"ready after {int(time.monotonic() - started) + floor}s")
+            ready_after = int(time.monotonic() - started) + floor
+            say(f"ready after {ready_after}s")
+            # Into the junit file, so the shim can report it in its summary line.
+            record_testsuite_property("readiness_seconds", str(ready_after))
+            record_testsuite_property("readiness_floor", str(floor))
             return
         time.sleep(poll)
 
@@ -696,10 +737,9 @@ def page(browser, storage_state, profile, base_url, pytestconfig, request):
             ctx.close()
             pytest.fail(f"{len(unexpected)} uncaught console error(s):\n  {report}")
         else:
-            reporter = request.config.pluginmanager.get_plugin("terminalreporter")
-            if reporter:
-                reporter.write_line(
-                    f"[console] {request.node.name}: {len(unexpected)} "
-                    f"non-allowlisted error(s):\n  {report}"
-                )
+            report_to_terminal(
+                request.config,
+                f"[console] {request.node.name}: {len(unexpected)} "
+                f"non-allowlisted error(s):\n  {report}",
+            )
     ctx.close()

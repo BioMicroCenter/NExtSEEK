@@ -122,9 +122,15 @@ flagging it until a push succeeds. Credential: a classic PAT with
 override the path with `NEXTSEEK_GHCR_ENV`). See DEPLOYMENT.md §5.2.
 
 A rebuild ends by running the CI smoke suite against the rebuilt stack, with
-the readiness gate applied. The gate waits out the readiness floor (300 s by
-default) before its first probe and then polls for consecutive successes, so
-expect several quiet minutes; the suite prints `[readiness]` lines throughout.
+the readiness gate applied. Before the run it prints what is about to happen:
+the profile and where it came from, the stack URL, which credential file is in
+play (path only, never a value) and the exact command. The gate then waits out
+the readiness floor (300 s by default) with a `[readiness] floor: N s
+remaining` line every 30 s, prints each probe, and says `ready after N s`
+before the first test runs. The run closes with one line of counts in
+pytest's own words, `CI passed: 207 passed, 6 skipped, 13 xfailed in 5:44
+(readiness 5:04)`, read back from the junit report the suite writes to
+`startup/.ci-last-run.xml` (gitignored, overwritten every run).
 `--no-ci` skips the step, and it is skipped automatically after
 `--no-restart`, where the running containers do not yet carry the new image.
 
@@ -132,8 +138,10 @@ expect several quiet minutes; the suite prints `[readiness]` lines throughout.
 ./startup.sh rebuild --no-ci                      # rebuild only; run CI yourself later
 ```
 
-**If CI fails after a rebuild** the failure is reported and `rebuild` exits with
-the suite's exit code. The rebuild itself succeeded and is still running: it is
+**If CI fails after a rebuild** the counts are reported (`CI failed after
+rebuild: 3 failed, 204 passed ...`), the junit report's path is printed, and
+`rebuild` exits with the suite's exit code. A run that ended before any test
+(a refused profile, a readiness failure) reports `exit N, no report written`. The rebuild itself succeeded and is still running: it is
 *not* rolled back, because undoing a deploy is a larger and more dangerous
 action than the one it would be reacting to, so the decision stays with the
 deployer. See DEPLOYMENT.md for the rollback procedure if the failures are
@@ -149,7 +157,8 @@ proved nothing.
 
 Runs the post-deploy smoke suite (`ci/smoke/`) against this instance's running
 stack. The suite is *subprocessed*, never imported: it needs pytest, requests
-and playwright, and `startup/` deliberately depends on none of them.
+and playwright, and `startup/` deliberately depends on none of them. It prints
+the same banner and closing counts line as the rebuild hook (see `rebuild`).
 
 ```
 ./startup.sh ci                       # against http://127.0.0.1:<this instance's nextseek port>

@@ -14,7 +14,7 @@ DEFAULT_CI_ENV = Path.home() / ".config" / "nextseek" / "ci.env"
 CI_CRED_KEYS = ("CI_SMOKE_USER", "CI_SMOKE_PASS")
 
 
-def _ci_env_path() -> Path:
+def ci_env_path() -> Path:
     override = os.environ.get(CI_ENV_VAR)
     return Path(override) if override else DEFAULT_CI_ENV
 
@@ -48,7 +48,7 @@ def check_ci_credentials() -> tuple[str, bool, str]:
     missing file is exactly what makes `./startup.sh rebuild` stop at the CI step
     with exit 2 rather than at anything to do with the rebuild.
     """
-    path = _ci_env_path()
+    path = ci_env_path()
     if not path.is_file():
         return (
             "CI credentials",

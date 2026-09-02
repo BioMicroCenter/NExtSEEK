@@ -639,17 +639,58 @@ def rebuild(
             from startup.ci import runner
 
             ui.info("running CI after rebuild (--no-ci to skip)")
+            _ci_banner(state, runner.build_command(REPO_ROOT, state, wait_ready=True),
+                       wait_ready=True)
             rc = runner.run_ci(REPO_ROOT, state, wait_ready=True)
+            outcome = _ci_outcome(rc)
             if rc != 0:
                 # The rebuild already happened and CI does not undo it. Report and
                 # exit non-zero; never auto-roll-back, which is a larger and more
                 # dangerous action than the one it would be reacting to.
-                ui.fail(f"CI failed after rebuild (exit {rc}). The rebuild itself "
+                ui.fail(f"CI failed after rebuild: {outcome}. The rebuild itself "
                         f"succeeded and is running; --no-ci skips this step. See "
                         f"DEPLOYMENT.md for the rollback procedure if the failures "
                         f"are regressions.")
+                if runner.junit_path(REPO_ROOT).is_file():
+                    ui.info(f"report: {runner.junit_path(REPO_ROOT)}")
                 raise typer.Exit(code=rc)
-            ui.ok("CI passed")
+            ui.ok(f"CI passed: {outcome}")
+
+
+def _ci_banner(state: InstanceState, cmd: list[str], *, wait_ready: bool) -> None:
+    """What is about to run, before it runs: profile and where it came from, the
+    stack, which credential file is in play (path only, never a value), and the
+    exact command, so a wrong box or a wrong profile is visible before the
+    readiness floor starts counting."""
+    from startup.steps.doctor import ci_env_path
+
+    profile = state.ci_profile or "prod"
+    source = ("startup/.instance.json" if state.ci_profile
+              else "absent from startup/.instance.json, so prod")
+    ui.info(f"CI profile: {profile} ({source})")
+    ui.info(f"stack: {cmd[cmd.index('--base-url') + 1]}")
+    creds = ci_env_path()
+    shown = str(creds)
+    home = str(Path.home())
+    if shown.startswith(home + "/"):
+        shown = "~" + shown[len(home):]
+    ui.info(f"credentials: {shown} ({'present' if creds.is_file() else 'MISSING'})")
+    if wait_ready:
+        ui.info("readiness gate on: the suite prints its floor countdown and every "
+                "probe before the first test runs")
+    ui.info("command: " + " ".join(cmd))
+
+
+def _ci_outcome(rc: int) -> str:
+    """One line of counts from the suite's junit report, or the bare exit code
+    when the run ended before a report was written (a refused profile, a
+    readiness failure)."""
+    from startup.ci import runner
+
+    summary = runner.summarize_junit(runner.junit_path(REPO_ROOT))
+    if summary is None:
+        return f"exit {rc}, no report written"
+    return runner.format_summary(summary)
 
 
 @app.command()
@@ -686,13 +727,19 @@ def ci(
             raise typer.Exit(code=1)
         confirm_force = True
 
+    cmd = runner.build_command(REPO_ROOT, state, wait_ready=wait_ready,
+                               profile=profile, force_profile=force_profile)
+    _ci_banner(state, cmd, wait_ready=wait_ready)
     rc = runner.run_ci(REPO_ROOT, state, wait_ready=wait_ready,
                        profile=profile, force_profile=force_profile,
                        confirm_force=confirm_force)
+    outcome = _ci_outcome(rc)
     if rc != 0:
-        ui.fail(f"CI failed (exit {rc}). See DEPLOYMENT.md for the rollback procedure.")
+        ui.fail(f"CI failed: {outcome}. See DEPLOYMENT.md for the rollback procedure.")
+        if runner.junit_path(REPO_ROOT).is_file():
+            ui.info(f"report: {runner.junit_path(REPO_ROOT)}")
         raise typer.Exit(code=rc)
-    ui.ok("CI passed")
+    ui.ok(f"CI passed: {outcome}")
 
 
 @app.command(name="seed-filestore")
