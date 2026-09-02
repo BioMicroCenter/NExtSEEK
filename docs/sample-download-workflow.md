@@ -477,3 +477,45 @@ script and runs it against a DOM stub. Run it on a host with node:
 
     node seek/tests/js/cases.js
     python3 -m pytest seek/tests/test_templates_js.py -p no:django -q -o addopts=""
+
+### Cross-checking the derived rules
+
+`GET /nextseek_api/sample_types/connections/` answers a neighbouring question
+over the same `DERIVED_FROM` edges — *what connects to what, and by which
+assay* — and is a useful independent read of the relation
+`derive_sample_type_requirements` materialises. It is superuser-only.
+
+**Compare the shape, never the numbers.** Measured against the reference graph:
+
+```
+type pairs   connections 113    the command 129
+in the command but not connections:  16   (CEX->D.LMX, A.SPC->MDL, D.ADCD->A.ADCD, ...)
+in connections but not the command:   0
+```
+
+The 16 are not a discrepancy. `connections` opens with
+`WHERE r.internal_assay_title IS NOT NULL`: an edge whose assay was never
+recorded has no answer to *which assay joins these*, so it is dropped. The
+command counts those edges, because whether an upload can omit a parent does
+not depend on anyone having named the step. One live companion, `CEX -> D.LMX`,
+exists only on unnamed edges and is therefore invisible to `connections`.
+
+So the reverse direction is the signal: **a pair in `connections` that is
+missing from `sample_type_requirements` is worth investigating.** A pair only
+in the table usually just means unnamed assays.
+
+Counts will not line up either, and agreement is coincidence:
+
+```
+DNA -> D.SEQ    connections 2055   command 2055    agree
+NHP -> PAV      connections 3928   command 4791    differ
+```
+
+`connections` counts edges *after* unwinding assay titles, so an edge carrying
+two assays contributes twice; the command counts distinct child samples.
+
+What `connections` offers that the table cannot: **scoping to one investigation
+or SEEK project.** The table is global, so a rule derived from one large project
+looks the same as one that holds everywhere. Running `connections` with a
+project selector is the way to ask whether a requirement is real or an artefact
+of a single study.
