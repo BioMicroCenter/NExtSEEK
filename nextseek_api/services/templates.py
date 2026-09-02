@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import datetime
 import io
-import logging
 from dataclasses import asdict
 
 from django.http import FileResponse
@@ -36,8 +35,6 @@ from nextseek_api.permissions import IsSuperUser
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 from nextseek_api.services.sample_workbook import write_template_workbook
 from nextseek_api.services.template_catalog import build_catalog, load_catalog
-
-logger = logging.getLogger(__name__)
 
 XLSX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

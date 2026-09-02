@@ -1,6 +1,6 @@
 """Tests for /nextseek_api/templates/ -- the Download Templates tool as an API."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -110,6 +110,45 @@ class CatalogEmptyTableTests(TestCase):
         self.assertEqual(resp.json()["requires"], {})
         self.assertEqual(resp.json()["companions"], {})
         self.assertTrue(resp.json()["groups"])
+
+
+class CatalogMalformedRulesRowTests(TestCase):
+    """End-to-end proof for the load_type_links fix: a real malformed row
+    must not 500 the endpoint. Unlike the other Catalog* tests, build_catalog
+    is NOT patched here -- only load_type_links' own data source is stubbed,
+    so build_catalog, the real load_type_links, and the strict pydantic
+    TemplateCatalogResponse all run for real and are genuinely exercised."""
+
+    databases = {"default"}
+
+    def test_a_malformed_rules_row_does_not_500_the_catalog_endpoint(self):
+        tis = SampleTypeEntry(code="TIS", sample_type_id=2, name="Tissue",
+                              description="A tissue sample.", group="")
+
+        # add_codes is a JSON object, not a list: set() of a dict yields its
+        # keys, so `set(add) <= known` would pass this through with "TIS"
+        # known -- and a dict then reaches pydantic's strict List[str].
+        bad_row = {"kind": "requires", "trigger_code": "TIS",
+                   "add_codes": '{"TIS": 1}', "assay_titles": None}
+        rules_model = MagicMock()
+        rules_model.objects.filter.return_value.values.return_value = [bad_row]
+        rules_model.KIND_COMPANION = "companion"
+        rules_model.KIND_REQUIRES = "requires"
+
+        with patch("nextseek_api.services.template_catalog.load_catalog",
+                   return_value=[tis]), \
+             patch("nextseek_api.services.template_catalog.load_relationships",
+                   return_value={"TIS": {"parents": [], "children": []}}), \
+             patch("nextseek_api.services.template_catalog.Sample_type_requirements",
+                   rules_model):
+            client = APIClient()
+            client.force_authenticate(
+                user=User.objects.create_user("plain", password="pw")
+            )
+            resp = client.get(CATALOG_URL)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["requires"], {})
 
 
 class CatalogSchemaTests(TestCase):

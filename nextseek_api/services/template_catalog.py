@@ -290,10 +290,20 @@ def load_type_links(codes) -> dict[str, dict[str, dict]]:
         try:
             add = json.loads(row["add_codes"])
             assays = json.loads(row["assay_titles"]) if row["assay_titles"] else []
+            # add is the rule itself -- it must be trustworthy, so a shape or
+            # element-type problem drops the whole row (isinstance(add, list)
+            # alone would let a dict's keys slip through set(add), and a list
+            # check alone would let a non-string element reach pydantic's
+            # strict List[str]). assays is decorative labelling only, so a
+            # bad element is filtered out instead of costing the row.
+            if not isinstance(add, list) or not all(isinstance(c, str) for c in add):
+                continue
             if not add or not set(add) <= known:
                 continue
             if not isinstance(assays, list):
                 assays = []
+            else:
+                assays = [a for a in assays if isinstance(a, str)]
         except (TypeError, ValueError):
             # A malformed row is one bad link, not a broken page.
             logger.warning("unparseable link row for %s", row.get("trigger_code"))

@@ -2150,7 +2150,7 @@ class TemplateGenerateRequest(BaseModel):
         description="Sample type codes to build sheets for, in the order the sheets "
                     "should appear. Every code must exist in the catalog; an unknown "
                     "code is rejected with 422 rather than silently skipped. "
-                    "Repeated codes produce one sheet each."
+                    "Repeated codes collapse to a single sheet."
     )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)

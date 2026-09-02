@@ -449,6 +449,46 @@ class TestLoadTypeLinks:
             assert load_type_links(set()) == {"requires": {}, "companions": {}}
         m.objects.filter.assert_not_called()
 
+    def test_a_non_string_assay_title_is_dropped_but_the_row_survives(self):
+        """isinstance(assays, list) alone doesn't check element types: assays
+        feeds pydantic's List[str] just like add does, but it is decorative
+        labelling, so a bad element is filtered rather than costing the row."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [{"kind": "requires", "trigger_code": "CEX",
+                 "add_codes": json.dumps(["NHP"]),
+                 "assay_titles": json.dumps(["Assay A", 2024])}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            out = load_type_links({"CEX", "NHP"})
+        assert out["requires"]["CEX"] == {"add": ["NHP"], "assays": ["Assay A"]}
+
+    def test_add_codes_holding_a_json_object_is_dropped_entirely(self):
+        """set() of a dict yields its keys, and those keys can be known codes
+        -- {"TIS": 1} would pass `set(add) <= known` and hand pydantic's
+        strict List[str] a dict instead of a list. add is the rule itself, so
+        the whole row is dropped rather than patched up."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [{"kind": "requires", "trigger_code": "PAV",
+                 "add_codes": json.dumps({"TIS": 1}), "assay_titles": None},
+                self._row("CEX", ["NHP"])]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            out = load_type_links({"PAV", "TIS", "CEX", "NHP"})
+        assert "PAV" not in out["requires"]
+        assert out["requires"] == {"CEX": {"add": ["NHP"], "assays": []}}
+
+    def test_add_codes_containing_a_non_string_element_is_dropped(self):
+        """Membership alone (`set(add) <= known`) doesn't check element types:
+        [1, 2] would satisfy it if `known` happened to hold those same
+        values, so every element of add must be checked to be a string too."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [{"kind": "requires", "trigger_code": "PAV",
+                 "add_codes": json.dumps([1, 2]), "assay_titles": None}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            out = load_type_links({1, 2})
+        assert out["requires"] == {}
+
 
 class TestDeprecatedTypes:
     """Retired sample types are offered by SEEK and render nameless, because

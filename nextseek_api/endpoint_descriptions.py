@@ -1250,7 +1250,7 @@ TEMPLATE_GENERATE_DESC = (
     "**DO NOT USE WHEN:** The caller only needs to know which types exist or which columns a type has — use `GET templates/catalog/` or an "
     "attributes endpoint; the caller wants existing sample records rather than a blank sheet — use `POST admin/project-export/run/`.\n\n"
     "**ACCEPTS:** A `TemplateGenerateRequest` with a non-empty `codes` list of sample type codes. Sheets are written in the order given, and "
-    "repeated codes yield one sheet each. Every code must appear in the catalog.\n\n"
+    "repeated codes collapse to a single sheet. Every code must appear in the catalog.\n\n"
     "**RETURNS:** `200` with the workbook as an .xlsx attachment "
     "(`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).\n\n"
     "**ERROR CODES:** `401` when unauthenticated; `403` for an authenticated caller who is not a Django superuser; `422` when `codes` is empty, "
