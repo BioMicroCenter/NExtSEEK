@@ -9,6 +9,7 @@ and the interactive confirm loop.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -17,6 +18,7 @@ import pytest
 from typer.testing import CliRunner
 
 from startup import cli
+from startup.ci import runner as ci_runner
 from startup.lib.instance import InstanceState, load_instance, save_instance
 from startup.steps.config import InvalidSeekPublicUrl
 from startup.steps.prereqs import PrereqResult
@@ -283,10 +285,14 @@ def _saved_state(repo: Path, **overrides) -> InstanceState:
     state = InstanceState(
         name="nextseek",
         prefix="",
-        ports={"nextseek": 8000, "seek": 3000, "neo4j_http": 7474, "neo4j_bolt": 7687},
+        ports=overrides.pop(
+            "ports",
+            {"nextseek": 8000, "seek": 3000, "neo4j_http": 7474, "neo4j_bolt": 7687},
+        ),
         compose_project_name="nextseek",
         created="2026-08-06T00:00:00",
         seek_public_url=overrides.pop("seek_public_url", "https://seek.example.org"),
+        ci_profile=overrides.pop("ci_profile", ""),
     )
     save_instance(repo, state)
     return state
@@ -390,6 +396,7 @@ def test_rebuild_reports_verified_rollback_tag(
     monkeypatch.setattr(docker_ops, "compose_build", lambda **kwargs: None)
     monkeypatch.setattr(docker_ops, "compose_up", lambda **kwargs: None)
     monkeypatch.setattr(registry_push, "push_baselines", lambda *args, **kwargs: ())
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *args, **kwargs: 0)
 
     result = runner.invoke(cli.app, ["rebuild"])
 
@@ -464,3 +471,423 @@ def test_dump_db_runs_both_dump_scripts(mock_run: MagicMock, repo: Path) -> None
     result = runner.invoke(cli.app, ["dump-db"])
     assert result.exit_code == 0, result.output
     assert mock_run.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# ci (the smoke-suite shim) and the rebuild hook
+#
+# The shim's whole job is the argv and the environment it hands the suite, so
+# every test here asserts those, not merely that something was invoked. The
+# subprocess itself is recorded, never run: startup/ has no pytest-requests-
+# playwright environment and must never grow one.
+# ---------------------------------------------------------------------------
+
+def _record_ci_subprocess(
+    monkeypatch: pytest.MonkeyPatch, returncode: int = 0,
+) -> list[SimpleNamespace]:
+    """Record every subprocess the runner launches; never launch one."""
+    calls: list[SimpleNamespace] = []
+
+    def fake_run(cmd, cwd=None, env=None, **kwargs):
+        calls.append(SimpleNamespace(cmd=list(cmd), cwd=cwd, env=dict(env or {})))
+        return SimpleNamespace(returncode=returncode)
+
+    monkeypatch.setattr(ci_runner.subprocess, "run", fake_run)
+    return calls
+
+
+def test_ci_without_instance_exits_1(repo: Path) -> None:
+    result = runner.invoke(cli.app, ["ci"])
+    assert result.exit_code == 1
+    assert "no instance found" in result.output
+
+
+def test_ci_builds_the_expected_argv_and_env(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    calls = _record_ci_subprocess(monkeypatch)
+
+    result = runner.invoke(cli.app, ["ci"])
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    call = calls[0]
+    assert call.cmd == [
+        "uv", "run", "--no-project",
+        "--with", "pytest", "--with", "requests", "--with", "playwright",
+        "pytest", "ci/smoke/",
+        "--base-url", "http://127.0.0.1:8000",
+    ]
+    assert call.cwd == repo
+    assert call.env["CI_BOX_PROFILE"] == "local"
+    assert call.env["PYTHONDONTWRITEBYTECODE"] == "1"
+    # Never set on the unforced path: its presence is what lets a widening run.
+    assert "CI_FORCE_PROFILE_CONFIRM" not in call.env
+    assert "CI passed" in result.output
+
+
+def test_ci_base_url_follows_the_instance_port(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="local", ports={"nextseek": 8100, "seek": 3100})
+    calls = _record_ci_subprocess(monkeypatch)
+
+    assert runner.invoke(cli.app, ["ci"]).exit_code == 0
+    assert "--base-url" in calls[0].cmd
+    assert calls[0].cmd[calls[0].cmd.index("--base-url") + 1] == "http://127.0.0.1:8100"
+
+
+def test_ci_absent_box_profile_means_prod(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail closed: an unconfigured box gets the most restrictive profile."""
+    _saved_state(repo)  # ci_profile defaults to ""
+    calls = _record_ci_subprocess(monkeypatch)
+
+    assert runner.invoke(cli.app, ["ci"]).exit_code == 0
+    assert calls[0].env["CI_BOX_PROFILE"] == "prod"
+
+
+def test_ci_passes_wait_ready_and_profile_through(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    calls = _record_ci_subprocess(monkeypatch)
+
+    result = runner.invoke(cli.app, ["ci", "--wait-ready", "--profile", "prod"])
+
+    assert result.exit_code == 0, result.output
+    assert "--wait-ready" in calls[0].cmd
+    assert calls[0].cmd[-2:] == ["--profile", "prod"]
+    assert calls[0].env["CI_BOX_PROFILE"] == "dev"
+
+
+def test_ci_inherits_the_ambient_environment(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NEXTSEEK_CI_ENV and the CI_SMOKE_* overrides have to reach the suite."""
+    _saved_state(repo, ci_profile="local")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", "/somewhere/ci.env")
+    calls = _record_ci_subprocess(monkeypatch)
+
+    assert runner.invoke(cli.app, ["ci"]).exit_code == 0
+    assert calls[0].env["NEXTSEEK_CI_ENV"] == "/somewhere/ci.env"
+
+
+def test_ci_force_profile_declined_runs_nothing(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="prod")
+    calls = _record_ci_subprocess(monkeypatch)
+
+    result = runner.invoke(cli.app, ["ci", "--force-profile", "local"], input="n\n")
+
+    assert result.exit_code == 1
+    assert calls == []
+    assert "Widen the CI profile to 'local'" in result.output
+
+
+def test_ci_force_profile_accepted_confirms_for_that_call_only(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="prod")
+    calls = _record_ci_subprocess(monkeypatch)
+
+    result = runner.invoke(cli.app, ["ci", "--force-profile", "local"], input="y\n")
+
+    assert result.exit_code == 0, result.output
+    assert calls[0].cmd[-2:] == ["--force-profile", "local"]
+    assert calls[0].env["CI_FORCE_PROFILE_CONFIRM"] == "yes"
+    # The box's own declaration is untouched by a forced run.
+    assert calls[0].env["CI_BOX_PROFILE"] == "prod"
+    assert load_instance(repo).ci_profile == "prod"
+    assert "CI_FORCE_PROFILE_CONFIRM" not in os.environ
+
+
+def test_ci_exits_with_the_suite_return_code(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    _record_ci_subprocess(monkeypatch, returncode=2)
+
+    result = runner.invoke(cli.app, ["ci"])
+
+    assert result.exit_code == 2
+    assert "CI failed (exit 2)" in result.output
+    assert "DEPLOYMENT.md" in result.output
+
+
+def _mock_rebuild(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Everything a rebuild touches before the CI hook, stubbed out."""
+    from startup.lib import docker_ops
+    from startup.steps import registry_push, rollback_tags
+
+    monkeypatch.setattr(
+        rollback_tags, "create_verified", lambda images, build_root: ()
+    )
+    monkeypatch.setattr(docker_ops, "compose_build", lambda **kwargs: None)
+    monkeypatch.setattr(docker_ops, "compose_up", lambda **kwargs: None)
+    monkeypatch.setattr(registry_push, "push_baselines", lambda *args, **kwargs: ())
+
+
+def test_rebuild_runs_ci_with_the_readiness_gate(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    calls: list[SimpleNamespace] = []
+
+    def fake_run_ci(repo_root, state, **kwargs):
+        calls.append(SimpleNamespace(repo_root=repo_root, state=state, kwargs=kwargs))
+        return 0
+
+    monkeypatch.setattr(ci_runner, "run_ci", fake_run_ci)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    assert calls[0].repo_root == repo
+    assert calls[0].state.ci_profile == "dev"
+    assert calls[0].kwargs == {"wait_ready": True}
+    assert "CI passed" in result.output
+
+
+def test_rebuild_no_ci_skips_the_hook(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    calls = _record_ci_subprocess(monkeypatch)
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == []
+    assert "running CI after rebuild" not in result.output
+
+
+def test_rebuild_exits_with_the_ci_return_code(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing CI is reported and exits non-zero. It never rolls the deploy
+    back: undoing a rebuild is a larger action than the one it reacts to, so the
+    shim points at DEPLOYMENT.md and leaves the decision to the deployer."""
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *args, **kwargs: 3)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 3
+    # rich wraps long lines at console width — compare whitespace-free
+    compact = "".join(result.output.split())
+    assert "CIfailedafterrebuild(exit3)" in compact
+    assert "Therebuilditselfsucceededandisrunning" in compact
+    assert "--no-ciskipsthisstep" in compact
+    assert "SeeDEPLOYMENT.mdfortherollbackprocedureifthefailuresareregressions" in compact
+
+
+def test_rebuild_no_restart_does_not_run_ci_against_the_old_containers(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The suite tests the running stack over HTTP. With the restart deferred
+    those containers still carry the previous image, so a run would be a
+    statement about the old code either way."""
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    calls = _record_ci_subprocess(monkeypatch)
+    ran: list[int] = []
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: ran.append(1) or 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-restart"])
+
+    assert result.exit_code == 0, result.output
+    assert ran == []
+    assert calls == []
+    compact = "".join(result.output.split())
+    assert "CIskipped:runtimerestartwasdeferred" in compact
+    assert "donotcarrythenewimage" in compact
+
+
+def test_rebuild_of_an_image_only_component_still_runs_ci(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """cc-agent has no persistent container, so there is no deferred restart to
+    invalidate the run. The skip must key on a DEFERRED restart, not on the
+    absence of one."""
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    ran: list[dict] = []
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: ran.append(k) or 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--component", "cc-agent"])
+
+    assert result.exit_code == 0, result.output
+    assert ran == [{"wait_ready": True}]
+    assert "CI skipped" not in result.output
+
+
+def test_run_ci_reports_a_missing_uv_instead_of_a_traceback(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    """The runner shells out to uv. If it is not installed the operator gets a
+    sentence, not a FileNotFoundError out of a deploy command."""
+    def explode(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "uv")
+
+    monkeypatch.setattr(ci_runner.subprocess, "run", explode)
+    state = _saved_state(repo, ci_profile="local")
+
+    rc = ci_runner.run_ci(repo, state, wait_ready=False)
+
+    assert rc == 127
+    assert "'uv' is not on PATH" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# --ci-profile (install) and the doctor lines that report it
+# ---------------------------------------------------------------------------
+
+def test_install_defaults_the_ci_profile_to_prod(repo: Path, steps) -> None:
+    """Fail closed. A box nobody told about CI gets the narrowest profile."""
+    assert runner.invoke(cli.app, ["install", "--yes"]).exit_code == 0
+    assert load_instance(repo).ci_profile == "prod"
+
+
+@pytest.mark.parametrize("value", ["local", "dev", "prod"])
+def test_install_round_trips_the_ci_profile_into_instance_json(
+    repo: Path, steps, value: str,
+) -> None:
+    result = runner.invoke(cli.app, ["install", "--yes", "--ci-profile", value])
+    assert result.exit_code == 0, result.output
+    assert load_instance(repo).ci_profile == value
+    # It is shown before anything is written, not only stored.
+    assert f"CI profile          {value}" in result.output
+
+
+def test_install_rejects_an_unknown_ci_profile_with_exit_2(repo: Path, steps) -> None:
+    """And before the banner: nothing is written, no volume is touched."""
+    result = runner.invoke(cli.app, ["install", "--yes", "--ci-profile", "production"])
+    assert result.exit_code == 2
+    assert "unknown ci profile" in result.output
+    assert "local, dev, prod" in result.output
+    assert load_instance(repo) is None
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_carries_the_declared_ci_profile_across_the_wipe(
+    mock_down: MagicMock, repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """.instance.json is deleted by reset, so an unforwarded value would silently
+    re-declare a dev box as prod."""
+    _saved_state(repo, ci_profile="dev")
+    reinstall = MagicMock()
+    monkeypatch.setattr(cli, "install", reinstall)
+
+    assert runner.invoke(cli.app, ["reset", "--yes"]).exit_code == 0
+    assert reinstall.call_args.kwargs["ci_profile"] == "dev"
+
+
+def _flat(output: str) -> str:
+    """Doctor output with its line wrapping collapsed.
+
+    rich wraps a long detail onto the next line at whatever width the captured
+    console guesses, so asserting against a single output LINE tests the wrap
+    point rather than the message.
+    """
+    return " ".join(output.split())
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_reports_the_declared_ci_profile(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(tmp_path / "nothing.env"))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "CI profile: dev (startup/.instance.json)" in _flat(result.output)
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_reports_an_absent_ci_profile_as_prod(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    _saved_state(repo)  # ci_profile defaults to ""
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(tmp_path / "nothing.env"))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    assert "CI profile: absent -> prod" in _flat(result.output)
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_names_the_credential_keys_and_never_their_values(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The whole point of the check: it says the keys are there, not what they say."""
+    secret_user, secret_pass = "ci_smoke_realname", "hunter2-not-in-any-log"
+    env_file = tmp_path / "ci.env"
+    env_file.write_text(
+        f"# comment\nCI_SMOKE_USER={secret_user}\nCI_SMOKE_PASS={secret_pass}\n"
+    )
+    _saved_state(repo, ci_profile="local")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(env_file))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "names CI_SMOKE_USER, CI_SMOKE_PASS" in _flat(result.output)
+    assert secret_user not in result.output, "doctor printed a credential value"
+    assert secret_pass not in result.output, "doctor printed a credential value"
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_says_what_a_missing_credential_file_will_break(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(tmp_path / "absent.env"))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    # Reported, not failed: a box that does not run CI is not broken.
+    assert result.exit_code == 0, result.output
+    flat = _flat(result.output)
+    assert "CI credentials:" in flat
+    assert "absent -- ./startup.sh rebuild will exit 2" in flat
+    assert "--no-ci" in flat
+
+
+@patch("startup.steps.doctor.validate.run_all_health_checks", return_value=[])
+@patch("startup.steps.doctor.prereqs.run_all", return_value=[])
+@patch("startup.steps.doctor.registry_push.check_registry_baseline",
+       return_value=("registry baseline", True, "ok"))
+def test_doctor_reports_a_credential_file_missing_a_key(
+    _push: MagicMock, _pre: MagicMock, _health: MagicMock,
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "ci.env"
+    env_file.write_text("CI_SMOKE_USER=someone\n")
+    _saved_state(repo, ci_profile="local")
+    monkeypatch.setenv("NEXTSEEK_CI_ENV", str(env_file))
+
+    result = runner.invoke(cli.app, ["doctor"])
+    assert "does not name CI_SMOKE_PASS" in _flat(result.output)
+    assert "someone" not in result.output

@@ -228,6 +228,15 @@ git merge --ff-only origin/dev
 #    a. Migration check — does the range add migrations?
 git diff --name-only HEAD@{1} HEAD -- '*migrations*'
 #       If yes: mysqldump gate first (§5.3).
+#    b. CI check — `rebuild` runs the smoke suite afterwards and it needs two
+#       things on the box. On an install predating them, add them by hand:
+#         · "ci_profile": "dev"  (or "prod") in startup/.instance.json — an absent
+#           key means prod, the most restrictive, so a dev box silently loses the
+#           routes only dev may call. A fresh `install --ci-profile dev` sets it.
+#         · ~/.config/nextseek/ci.env (mode 600) naming CI_SMOKE_USER and
+#           CI_SMOKE_PASS — without it the readiness gate exits 2 and the rebuild
+#           reports failure after having succeeded.
+#       `./startup.sh doctor` reports both, read-only. Or skip CI: rebuild --no-ci.
 
 # 3. Rebuild exactly what changed. Each verb first creates+verifies local
 #    rollback tags, then builds, recreates long-running targets with

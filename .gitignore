@@ -220,12 +220,15 @@ docs/superpowers/specs/*
 # Exception: this design spec is deliberately tracked. The repo is PUBLIC, so it carries no
 # environment concretes and no reproduction detail for any unresolved platform issue.
 !docs/superpowers/specs/2026-07-31-hibayes-eval-routing-design.md
+!docs/superpowers/specs/2026-09-01-nextseek-ci-cd-full-spec.md
+!docs/superpowers/specs/2026-09-01-nextseek-ci-comprehensive-coverage-design.md
 !docs/superpowers/plans/
 docs/superpowers/plans/*
 # Exception: the implementation plan for the spec above is tracked alongside it, so the
 # design and the work it implies travel together. Same public-repo review applied: no
 # environment concretes, no credentials, no reproduction detail for any unresolved issue.
 !docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md
+!docs/superpowers/plans/2026-09-01-ci-increment-1-skeleton-and-safety.md
 
 # SEEK filestore — too large for git (raw dir ~500MB; snapshot ~215MB, over
 # GitHub's 100MB/file limit, and forks can't host LFS). The snapshot is hosted
@@ -247,3 +250,7 @@ graphify-out/
 # Generated publication-transfer data, regenerable from the documented queries
 sample_publication_attributes/prod_pairs.tsv
 prod_publication_transfer/all_52_publications.sql
+
+# CI credentials must never enter git (they live at ~/.config/nextseek/ci.env)
+ci/**/*.env
+ci.env

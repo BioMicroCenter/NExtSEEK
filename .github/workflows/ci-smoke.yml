@@ -1,0 +1,121 @@
+name: post-deploy smoke (fairdata-dev)
+
+# The OPERATOR rebuilds; CI then tests. This workflow never restarts anything.
+# fairdata-dev is shared by people and by several Claude sessions at once, so a
+# workflow that bounced the stack would be pulling the rug out from under
+# somebody else's work.
+#
+# Trigger it by hand after ./startup.sh rebuild, or let startup.sh call
+# `gh workflow run ci-smoke.yml` on success if that is enabled.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Stack to test. Must be the nginx front door, not gunicorn."
+        required: true
+        default: "http://127.0.0.1:8000"
+      wait_ready:
+        description: "Run the readiness gate first. Use after a rebuild."
+        type: boolean
+        default: true
+      ready_floor:
+        description: "Seconds to wait before the first probe."
+        default: "300"
+      strict_console:
+        description: "Fail a flow on any non-allowlisted console error."
+        type: boolean
+        default: false
+      write_lane:
+        description: "Also run the opt-in write lane (needs ci_write)."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # One at a time on a shared box.
+  group: ci-smoke-fairdata-dev
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, fairdata-dev]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # The BOX decides which routes may be called here, and it says so in
+      # startup/.instance.json. Read it rather than hard-coding a profile in this
+      # file: a workflow that named its own would be a second, quieter declaration
+      # able to disagree with the one ./startup.sh ci obeys. An absent file, an
+      # absent key or an empty one all mean prod -- the most restrictive -- so an
+      # unconfigured runner is never widened by omission.
+      - name: Resolve the box-declared CI profile
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json, pathlib
+          path = pathlib.Path("startup/.instance.json")
+          value = "prod"
+          if path.is_file():
+              try:
+                  value = json.loads(path.read_text()).get("ci_profile") or "prod"
+              except ValueError:
+                  value = "prod"
+          print(f"CI_BOX_PROFILE={value}")
+          PY
+          echo "resolved CI_BOX_PROFILE"
+
+      # A write lane on a prod box is not a run that mostly passes: EVERY write
+      # raises ProfileViolation before it is sent, so the job would spend its
+      # minutes producing a wall of identical refusals. Say so in one line instead.
+      - name: Refuse the write lane on a box declaring prod
+        if: ${{ inputs.write_lane && env.CI_BOX_PROFILE == 'prod' }}
+        run: |
+          echo "::error::write_lane was requested but this box declares the prod profile; the write lane cannot run here"
+          exit 1
+
+      # Deliberately an isolated environment, NOT the application's. The suite
+      # runs on the runner host rather than inside the container, because the app
+      # image has the playwright package but no browser binaries, and because
+      # testing the deployment from outside is the honest test. It needs none of
+      # the application's 67 dependencies and no C toolchain.
+      #
+      # No credential env is set here on purpose. They live on the box at
+      # ~/.config/nextseek/ci.env (mode 600), never in GitHub, and that is the path
+      # ci/smoke/conftest.py reads by default. Setting NEXTSEEK_CI_ENV from this
+      # workflow's own env context was a self-reference that evaluated to empty and
+      # pointed the suite at nothing.
+      - name: Run the health sweep and the flows
+        run: |
+          set -euo pipefail
+          ARGS=(--base-url "${{ inputs.base_url }}")
+          if [ "${{ inputs.wait_ready }}" = "true" ]; then
+            ARGS+=(--wait-ready --ready-floor "${{ inputs.ready_floor }}")
+          fi
+          if [ "${{ inputs.strict_console }}" = "true" ]; then
+            ARGS+=(--strict-console)
+          fi
+          uv run --no-project \
+            --with pytest --with requests --with playwright \
+            pytest ci/smoke/ "${ARGS[@]}" -q --junitxml=smoke-results.xml
+
+      - name: Run the write lane
+        if: ${{ inputs.write_lane }}
+        run: |
+          uv run --no-project \
+            --with pytest --with requests --with playwright \
+            pytest ci/smoke/ -m write --base-url "${{ inputs.base_url }}" -q
+
+      # Never off a prod box. A JUnit file carries every test id and every failure
+      # message from the run, and a GitHub artifact is a copy of that outside the
+      # box's own controls. Section 7 of the design spec forbids it; on local and
+      # dev it is the most useful thing the job produces.
+      - uses: actions/upload-artifact@v4
+        if: always() && env.CI_BOX_PROFILE != 'prod'
+        with:
+          name: smoke-results
+          path: smoke-results.xml
+          retention-days: 14

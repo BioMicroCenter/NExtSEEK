@@ -37,6 +37,16 @@ DEFAULT_PORTS = {
 }
 
 
+# What --ci-profile accepts, mirroring ci.routes.PROFILES. Restated rather than
+# imported: startup/ is its own uv project and never imports ci/, so that
+# ./startup.sh stays bootstrappable on a host with none of the suite's
+# dependencies. The two lists are three words long and both are pinned by tests.
+CI_PROFILE_CHOICES = ("local", "dev", "prod")
+
+# A box nobody has configured gets the most restrictive profile, never the least.
+DEFAULT_CI_PROFILE = "prod"
+
+
 def _warn_if_proxy_token_empty(proxy_env_path: Path) -> None:
     if not read_env(proxy_env_path).get("AWS_BEARER_TOKEN_BEDROCK"):
         ui.warn(
@@ -78,6 +88,7 @@ def _install_impl(
     port_offset: int | None = None,
     no_seed: bool = False,
     seek_public_url: str | None = None,
+    ci_profile: str = DEFAULT_CI_PROFILE,
     yes: bool = False,
 ) -> None:
     """Install body as plain Python with real defaults.
@@ -87,6 +98,15 @@ def _install_impl(
     so no typer.Option sentinel can ever stand in for an unpassed argument.
     """
     _reject_leaked_option_defaults(dict(locals()))
+    # Before the banner and before anything is written: an unusable value here
+    # would otherwise be discovered only by the first CI run after the install,
+    # as a pytest.exit(2) with no obvious connection to what was typed.
+    if ci_profile not in CI_PROFILE_CHOICES:
+        ui.fail(
+            f"unknown ci profile: {ci_profile!r}. "
+            f"Allowed: {', '.join(CI_PROFILE_CHOICES)}."
+        )
+        raise typer.Exit(code=2)
     ui.banner("NExtSEEK Startup")
     total = 9
 
@@ -145,6 +165,7 @@ def _install_impl(
         compose_project_name=f"nextseek{('-' + name) if prefix else ''}",
         created=datetime.datetime.now().astimezone().isoformat(),
         seek_public_url=resolved_seek_public_url,
+        ci_profile=ci_profile,
     )
 
     # Show the install summary before any destructive action (config writes,
@@ -167,6 +188,7 @@ def _install_impl(
         ui.console.print(f"    demo / demopassword   (admin)")
         ui.console.print(f"    user / userpassword   (regular)")
         ui.console.print(f"    neo4j / demopassword")
+        ui.console.print(f"  CI profile          {ci_profile}  (which routes ./startup.sh ci may call)")
         if no_seed:
             ui.console.print(f"  Seed import         [yellow]SKIPPED (--no-seed)[/yellow]")
         else:
@@ -368,6 +390,16 @@ def install(
             "and SEEK's own site_base_host."
         ),
     ),
+    ci_profile: str = typer.Option(
+        DEFAULT_CI_PROFILE,
+        "--ci-profile",
+        help=(
+            "Which CI profile this box declares: local, dev or prod. It decides "
+            "which routes the post-deploy smoke suite may call here. Defaults to "
+            "prod, the most restrictive, so an unconfigured box is never widened "
+            "by accident. Stored in startup/.instance.json."
+        ),
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts."),
 ) -> None:
     """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
@@ -380,6 +412,7 @@ def install(
         port_offset=port_offset,
         no_seed=no_seed,
         seek_public_url=seek_public_url,
+        ci_profile=ci_profile,
         yes=yes,
     )
 
@@ -466,6 +499,10 @@ def reset(
         port_offset=None,
         no_seed=False,
         seek_public_url=state.seek_public_url or None,
+        # Carried across the wipe for the same reason as the SEEK URL: .instance.json
+        # has just been deleted, so an omitted value would silently re-declare a dev
+        # box as prod -- narrowing, not widening, but still a change nobody asked for.
+        ci_profile=state.ci_profile or DEFAULT_CI_PROFILE,
         yes=True,
     )
 
@@ -501,6 +538,11 @@ def rebuild(
         True,
         "--registry-push/--no-registry-push",
         help="Run the non-fatal off-box baseline push after building (default: enabled).",
+    ),
+    run_ci_after: bool = typer.Option(
+        True,
+        "--ci/--no-ci",
+        help="Run the CI smoke suite after the rebuild (default: enabled).",
     ),
 ) -> None:
     """Safely rebuild a first-party component without touching volumes."""
@@ -584,6 +626,73 @@ def rebuild(
                 registry_push_step.render_outcome(outcome)
         except Exception as exc:
             ui.warn(f"off-box baseline push step crashed ({exc}) — deploy unaffected")
+
+    if run_ci_after:
+        if policy.restart_services and not restart:
+            # The suite tests the RUNNING stack over HTTP. With the restart
+            # deferred those containers still carry the previous image, so a
+            # green run would be a statement about the old code and a red one
+            # would blame the new. Neither is worth the minutes it costs.
+            ui.warn("CI skipped: runtime restart was deferred, so the running "
+                    "containers do not carry the new image")
+        else:
+            from startup.ci import runner
+
+            ui.info("running CI after rebuild (--no-ci to skip)")
+            rc = runner.run_ci(REPO_ROOT, state, wait_ready=True)
+            if rc != 0:
+                # The rebuild already happened and CI does not undo it. Report and
+                # exit non-zero; never auto-roll-back, which is a larger and more
+                # dangerous action than the one it would be reacting to.
+                ui.fail(f"CI failed after rebuild (exit {rc}). The rebuild itself "
+                        f"succeeded and is running; --no-ci skips this step. See "
+                        f"DEPLOYMENT.md for the rollback procedure if the failures "
+                        f"are regressions.")
+                raise typer.Exit(code=rc)
+            ui.ok("CI passed")
+
+
+@app.command()
+def ci(
+    instance: str | None = typer.Option(None, "--instance"),
+    wait_ready: bool = typer.Option(False, "--wait-ready",
+                                    help="Apply the readiness floor first. Use after a rebuild."),
+    profile: str | None = typer.Option(None, "--profile",
+                                       help="Narrow the profile. Cannot widen."),
+    force_profile: str | None = typer.Option(None, "--force-profile",
+                                             help="Widen past what the box declares. Deliberate only."),
+) -> None:
+    """Run the CI smoke suite against this instance's running stack."""
+    from startup.ci import runner
+
+    state = load_instance(REPO_ROOT)
+    if state is None:
+        ui.fail("no instance found — run 'startup install' first")
+        raise typer.Exit(code=1)
+
+    box_profile = state.ci_profile or "prod"
+    confirm_force = False
+    if force_profile:
+        # Widening is the one thing the box's own declaration cannot authorise, so
+        # a human does it in person. The suite refuses a forced profile without
+        # CI_FORCE_PROFILE_CONFIRM=yes; only this answered prompt sets it, and only
+        # for that one subprocess. Nothing is written back to .instance.json.
+        if not typer.confirm(
+            f"Widen the CI profile to {force_profile!r} on a box declaring "
+            f"{box_profile!r}? Writes may follow.",
+            default=False,
+        ):
+            ui.fail("profile widening declined — nothing run")
+            raise typer.Exit(code=1)
+        confirm_force = True
+
+    rc = runner.run_ci(REPO_ROOT, state, wait_ready=wait_ready,
+                       profile=profile, force_profile=force_profile,
+                       confirm_force=confirm_force)
+    if rc != 0:
+        ui.fail(f"CI failed (exit {rc}). See DEPLOYMENT.md for the rollback procedure.")
+        raise typer.Exit(code=rc)
+    ui.ok("CI passed")
 
 
 @app.command(name="seed-filestore")

@@ -15,6 +15,7 @@ volumes, seeds, build, users, validate.
 ./startup.sh install --port-offset 1       # +1 on every port (8001/3001/7475/7688)
 ./startup.sh install --yes                 # skip confirmation prompts
 ./startup.sh install --seek-public-url https://seek.example.com   # real SEEK hostname
+./startup.sh install --ci-profile dev      # what the smoke suite may call here
 ```
 
 Idempotent for prereqs / config / volumes / users / validate. Seed import
@@ -40,6 +41,17 @@ An existing `site_base_host` row in SEEK is treated as an admin decision:
 startup reports a mismatch and **never overwrites it**. `./startup.sh doctor`
 reports drift between the three ("SEEK public URL"). See `NExtSTEPS.md` §1d.
 
+**`--ci-profile`** — which CI profile this box declares: `local`, `dev` or
+`prod`. It decides which routes `./startup.sh ci` may call here (see `ci` below).
+It defaults to **`prod`**, the most restrictive, so a box nobody configured is
+never widened by accident, and it is stored per-instance as `ci_profile` in
+`startup/.instance.json`. An unknown value exits 2 before anything is written.
+
+On a box installed **before** this option existed the key is simply absent,
+which also reads as `prod`. Add it by hand — `"ci_profile": "dev"` — rather than
+re-running install, which re-renders config and rotates the Django secret key.
+`reset` carries the declared value across the wipe.
+
 ### `doctor`
 
 Read-only diagnostic. Runs prereqs + health checks and reports drift.
@@ -49,6 +61,14 @@ Read-only diagnostic. Runs prereqs + health checks and reports drift.
 ```
 
 Exits non-zero if any check fails. **Run this first when something's broken.**
+
+Two of its lines are about CI and neither can fail the run, because a box that
+does not run CI is not broken:
+
+- **CI profile** — what this instance declares, or `absent -> prod`.
+- **CI credentials** — whether `~/.config/nextseek/ci.env` (or `NEXTSEEK_CI_ENV`)
+  exists and **names** `CI_SMOKE_USER` / `CI_SMOKE_PASS`. It never reads or prints
+  a value. Check this first when `./startup.sh rebuild` fails at its CI step.
 
 ### `reset`
 
@@ -100,6 +120,67 @@ flagging it until a push succeeds. Credential: a classic PAT with
 `write:packages` (owner must be a BioMicroCenter org member) in
 `~/.config/nextseek/ghcr.env` as `GHCR_USER=…` / `GHCR_TOKEN=…` (mode 600;
 override the path with `NEXTSEEK_GHCR_ENV`). See DEPLOYMENT.md §5.2.
+
+A rebuild ends by running the CI smoke suite against the rebuilt stack, with
+the readiness gate applied. The gate waits out the readiness floor (300 s by
+default) before its first probe and then polls for consecutive successes, so
+expect several quiet minutes; the suite prints `[readiness]` lines throughout.
+`--no-ci` skips the step, and it is skipped automatically after
+`--no-restart`, where the running containers do not yet carry the new image.
+
+```
+./startup.sh rebuild --no-ci                      # rebuild only; run CI yourself later
+```
+
+**If CI fails after a rebuild** the failure is reported and `rebuild` exits with
+the suite's exit code. The rebuild itself succeeded and is still running: it is
+*not* rolled back, because undoing a deploy is a larger and more dangerous
+action than the one it would be reacting to, so the decision stays with the
+deployer. See DEPLOYMENT.md for the rollback procedure if the failures are
+regressions.
+
+The suite needs `~/.config/nextseek/ci.env` to exist. Under `--wait-ready` a
+missing `CI_SMOKE_USER`/`CI_SMOKE_PASS` is an **exit 2**, not a skip: a
+readiness gate probes an authenticated endpoint, so with no credentials it
+cannot do its job, and a rebuild must never report "CI passed" for a run that
+proved nothing.
+
+### `ci`
+
+Runs the post-deploy smoke suite (`ci/smoke/`) against this instance's running
+stack. The suite is *subprocessed*, never imported: it needs pytest, requests
+and playwright, and `startup/` deliberately depends on none of them.
+
+```
+./startup.sh ci                       # against http://127.0.0.1:<this instance's nextseek port>
+./startup.sh ci --wait-ready          # apply the readiness floor first (what rebuild does)
+./startup.sh ci --profile prod        # narrow: run only what a prod box permits
+./startup.sh ci --force-profile local # widen: prompts, see below
+```
+
+**The box declares its own profile**, as `ci_profile` in
+`startup/.instance.json` (`local`, `dev` or `prod`). It decides which routes in
+the registry the suite may call: a route registered for `local,dev` is not
+called on a box declaring `prod`. **An absent or empty `ci_profile` means
+`prod`**: a machine nobody has configured gets the most restrictive profile,
+never the least.
+
+Set it with `install --ci-profile`, or on an existing install by adding the key
+to `startup/.instance.json` by hand. `./startup.sh doctor` reports which value is
+in force. The profile also gates whole tests, not only routes: a browser flow
+whose shape is a write (`@pytest.mark.profiles("local", "dev")`) is **skipped**
+under `prod` rather than run and refused.
+
+`--profile` may only *narrow* that declaration; asking for a wider one exits
+non-zero rather than running. `--force-profile` is the deliberate override: it
+asks for confirmation at the terminal, and only an answered `yes` passes the
+acknowledgement the suite requires. Nothing is written back to
+`.instance.json`, so the widening lasts exactly one run.
+
+Credentials come from `~/.config/nextseek/ci.env` (mode 600, never committed);
+environment variables override the file and `NEXTSEEK_CI_ENV` points at a
+different one. See `ci/smoke/README.md` for the file's contents and for what
+each profile covers.
 
 ### `seed-filestore`
 
@@ -154,7 +235,7 @@ Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
 | `docker/bedrock-proxy/proxy-secret.env` | gitignored | Bedrock proxy runtime token + region |
 | `dmac/local_settings.py` | gitignored | Django settings overlay |
 | `.env` | gitignored | Non-secret compose project + published port vars |
-| `startup/.instance.json` | gitignored | Per-instance state (name, prefix, ports) |
+| `startup/.instance.json` | gitignored | Per-instance state (name, prefix, ports, CI profile) |
 | `logs/` | gitignored | Container runtime logs |
 
 ## Tests & coverage
@@ -170,7 +251,8 @@ Coverage gate (fails under 95%):
 
 ```
 uv run --project startup --group test python -m pytest startup/tests/ \
-  --cov=startup.cli --cov=startup.lib --cov=startup.steps --cov-fail-under=95
+  --cov=startup.cli --cov=startup.lib --cov=startup.steps --cov=startup.ci \
+  --cov-fail-under=95
 ```
 
 Integration lanes: `test_integration_startup.py` chains real git repos, real
