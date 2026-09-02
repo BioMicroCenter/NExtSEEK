@@ -186,7 +186,13 @@ $(function(){
             <label for="m_keyword">Keyword</label>
             <input type="search" id="m_keyword" placeholder="e.g. mouse" autocomplete="off">
 
-            <label for="m_sampletype">Sample type</label>
+            <label for="m_sampletype">
+              Sample type
+              <a href="/seek/sampletypes/" title="What each sample type means"
+                 style="color:var(--ns-muted);font-size:0.72rem;text-decoration:none;">
+                <i class="bi bi-info-circle"></i>
+              </a>
+            </label>
             <select id="m_sampletype">
                 <option value="0">All types</option>
                 {% for opt in report.type_options %}

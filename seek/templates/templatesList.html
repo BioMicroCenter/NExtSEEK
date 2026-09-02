@@ -54,6 +54,13 @@
 .tpl-item[hidden] { display: none; }
 .tpl-item code { font-weight: 700; min-width: 3.4rem; color: var(--ns-ink); }
 .tpl-item span { color: var(--ns-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* One grid cell per type: the label keeps the layout it had, and the info link
+   rides beside it, revealed on hover or keyboard focus. */
+.tpl-item-wrap { display: flex; align-items: baseline; gap: 0.2rem; }
+.tpl-item-wrap .tpl-item { flex: 1 1 auto; min-width: 0; }
+.tpl-item-info { color: var(--ns-muted); font-size: 0.72rem; text-decoration: none; opacity: 0; }
+.tpl-item-wrap:hover .tpl-item-info, .tpl-item-info:focus { opacity: 1; }
+.tpl-item-info:hover { color: var(--ns-crimson); }
 .tpl-empty { font-size: 0.85rem; color: var(--ns-muted); padding: 1.5rem 0; }
 .tpl-message { background: var(--ns-crimson-soft); border: 1px solid var(--ns-crimson-border); color: var(--ns-crimson); border-radius: 5px; padding: 0.5rem 0.75rem; font-size: 0.85rem; margin-bottom: 0.75rem; }
 </style>
@@ -107,12 +114,20 @@
       <div class="tpl-group-name">{{ group.label }} <span class="text-muted">{{ group.entries|length }}</span></div>
       <div class="tpl-grid">
         {% for entry in group.entries %}
-        <label class="tpl-item" data-code="{{ entry.code }}" data-name="{{ entry.name|lower }}">
-          <input type="checkbox" name="codes" value="{{ entry.code }}"
-                 data-group="{{ entry.group }}" data-name="{{ entry.name }}">
-          <code>{{ entry.code }}</code>
-          <span>{{ entry.name|default:entry.description }}</span>
-        </label>
+        {# The link sits OUTSIDE the label: a label must not contain a second #}
+        {# interactive control, and a click on it would also toggle the box.   #}
+        <span class="tpl-item-wrap">
+          <label class="tpl-item" data-code="{{ entry.code }}" data-name="{{ entry.name|lower }}">
+            <input type="checkbox" name="codes" value="{{ entry.code }}"
+                   data-group="{{ entry.group }}" data-name="{{ entry.name }}">
+            <code>{{ entry.code }}</code>
+            <span>{{ entry.name|default:entry.description }}</span>
+          </label>
+          <a class="tpl-item-info" href="/seek/sampletypes/{{ entry.code }}/"
+             title="What {{ entry.code }} is" aria-label="About {{ entry.code }}">
+            <i class="bi bi-info-circle"></i>
+          </a>
+        </span>
         {% endfor %}
       </div>
     </div>

@@ -127,6 +127,28 @@ KNOWN_TABLE_FIXUPS: list[MissingTable] = [
         table="sample_type_requirements",
         ddl_path="startup/seed/sql/sample_type_requirements.sql",
     ),
+    # Curated assay context. Present on production and on no other stack, so
+    # without this entry the assays catalog page renders its empty state
+    # everywhere except prod and a green CI sweep proves nothing.
+    MissingTable(
+        database="dmac",
+        table="assay_context",
+        ddl_path="startup/seed/sql/assay_context.sql",
+    ),
+    # Curated project context. Ships empty; the project page header falls back
+    # to the SEEK title and description for any project with no row.
+    MissingTable(
+        database="dmac",
+        table="projects_context",
+        ddl_path="startup/seed/sql/projects_context.sql",
+    ),
+    # Named per-project template bundles. Ships empty; a project with no rows
+    # gets bundles derived from its own connection rows instead.
+    MissingTable(
+        database="dmac",
+        table="project_template_bundles",
+        ddl_path="startup/seed/sql/project_template_bundles.sql",
+    ),
 ]
 
 

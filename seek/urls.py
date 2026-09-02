@@ -52,6 +52,16 @@ urlpatterns = [
     re_path(r'^clade/sampleTypes/save/$', views.cladeSampleTypesSave, name='cladeSampleTypesSave'), 
     re_path(r'^operators/$', views.getOperators, name='getOperators'),
     
+    # The read-only schema catalogs. Deliberately `sampletypes`, not
+    # `sample_types`: the underscored prefix below lists SAMPLES OF a type, and
+    # two pages a letter apart, one describing a type and one listing its
+    # members, is a trap.
+    re_path(r'^sampletypes/$', views.sampleTypesList, name='sampleTypesList'),
+    re_path(r'^sampletypes/(?P<code>[\w.]+)/$', views.sampleTypeDetail,
+            name='sampleTypeDetail'),
+    re_path(r'^assays/$', views.assaysList, name='assaysList'),
+    re_path(r'^assays/(?P<slug>[\w-]+)/$', views.assayDetail, name='assayDetail'),
+
     re_path(r'^sample_types/id=(?P<id>\d+)/$', views.sample_type, name='sample_type'),
     re_path(r'^sampleupload/', views.sampleUploadAjax, name='sampleUploadAjax'),
     re_path(r'^samplesvalidate/', views.samplesValidate, name='samplesValidate'),
@@ -66,6 +76,8 @@ urlpatterns = [
     re_path(r'^searchUIDs/', views.searchingUIDs, name='searchingUIDs'),
     re_path(r'^projects/$', views.projects, name='projects'),
     re_path(r'^projects/(?P<project_id>\d+)/$', views.project_page, name='project_page'),
+    re_path(r'^projects/(?P<project_id>\d+)/connections/$', views.project_connections,
+            name='project_connections'),
 
     re_path(r'nhpinfo/(?P<nhp_name>[\w-]+)/$', views.nhp_info, name='nhp_info'),
     re_path(r'nhpdata/(?P<nhp_name>[\w-]+)/$', views.get_nhp_data, name='nhp_data'),

@@ -1,0 +1,54 @@
+{% comment %}
+Shared styling for the four catalog pages. Included from {% block extra_head %}
+by sampleTypesList, sampleTypeDetail, assaysList and assayDetail, so the shape
+has one definition. Scoped under .cat-page so nothing here can reach the rest of
+the app.
+{% endcomment %}
+<style>
+.cat-page { max-width: 1080px; }
+.cat-page .ns-page-header { margin-bottom: 1rem; }
+.cat-page .ns-page-title { font-family: var(--ns-font-display); font-size: 1.8rem; font-weight: 700; color: var(--ns-ink); letter-spacing: -0.02em; margin-bottom: 0.35rem; }
+.cat-page .ns-page-subtitle { font-size: 0.9rem; color: var(--ns-muted); margin: 0; }
+
+.cat-search { width: 100%; max-width: 22rem; border: 1px solid var(--ns-border); border-radius: 6px; padding: 0.4rem 0.65rem; font-size: 0.85rem; color: var(--ns-body); background: var(--ns-bg); margin: 1rem 0 0.5rem; }
+.cat-search:focus { outline: none; border-color: var(--ns-crimson-border); box-shadow: 0 0 0 2px rgba(163, 31, 52, 0.12); }
+
+.cat-group { margin-top: 1.25rem; }
+.cat-group[hidden] { display: none; }
+.cat-group-name { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); padding-bottom: 0.2rem; border-bottom: 1.5px solid var(--ns-border); }
+.cat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 1.25rem; margin-top: 0.35rem; }
+@media (max-width: 800px) { .cat-grid { grid-template-columns: 1fr; } }
+.cat-item { display: flex; align-items: baseline; gap: 0.45rem; padding: 0.2rem 0.25rem; border-radius: 3px; font-size: 0.82rem; text-decoration: none; }
+.cat-item:hover { background: var(--ns-sidebar-hover); text-decoration: none; }
+.cat-item[hidden] { display: none; }
+.cat-item code { font-family: var(--ns-font-mono); font-weight: 700; min-width: 4rem; color: var(--ns-crimson); }
+.cat-item span { color: var(--ns-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cat-back { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; color: var(--ns-muted); text-decoration: none; margin-bottom: 1.25rem; }
+.cat-back:hover { color: var(--ns-crimson); text-decoration: none; }
+
+.cat-detail-head { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; border-bottom: 1px solid var(--ns-border); padding-bottom: 0.9rem; margin-bottom: 1.25rem; }
+.cat-detail-code { font-family: var(--ns-font-mono); font-size: 1.5rem; font-weight: 700; color: var(--ns-ink); }
+.cat-detail-title { font-size: 1.5rem; font-weight: 700; color: var(--ns-ink); font-family: var(--ns-font-display); letter-spacing: -0.02em; }
+.cat-detail-name { font-size: 1.05rem; color: var(--ns-body); }
+.cat-badge { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.1rem 0.5rem; border-radius: 11px; background: var(--ns-crimson-soft); border: 1px solid var(--ns-crimson-border); color: var(--ns-crimson); }
+
+.cat-desc { font-size: 0.9rem; color: var(--ns-body); line-height: 1.7; white-space: pre-line; margin-bottom: 1.5rem; }
+
+.cat-section { margin-bottom: 1.1rem; }
+.cat-section-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); display: block; margin-bottom: 0.3rem; }
+.cat-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+.cat-chip { font-family: var(--ns-font-mono); font-size: 0.74rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 11px; border: 1px solid var(--ns-border); background: var(--ns-sidebar-bg); color: var(--ns-ink); text-decoration: none; }
+a.cat-chip:hover { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); text-decoration: none; }
+.cat-chip--plain { font-family: var(--ns-font-body); font-weight: 400; color: var(--ns-muted); }
+/* The word between alternatives in "MUS or PAV". Not a chip: it is not a code. */
+.cat-or { font-size: 0.74rem; color: var(--ns-muted); font-style: italic; padding: 0 0.1rem; }
+/* Separates one alternation group from the next: "TIS or CEX or CEL, AB or ABP" */
+.cat-and { font-size: 0.74rem; color: var(--ns-muted); padding: 0 0.35rem 0 0; }
+
+/* One assay row's fields. 24 slugs of 193 carry two of these, stacked. */
+.cat-row-panel { margin-bottom: 0.5rem; }
+.cat-empty { font-size: 0.85rem; color: var(--ns-muted); padding: 1.5rem 0; }
+.cat-notice { background: var(--ns-crimson-soft); border: 1px solid var(--ns-crimson-border); color: var(--ns-crimson); border-radius: 5px; padding: 0.5rem 0.75rem; font-size: 0.85rem; margin-bottom: 0.75rem; }
+.cat-actions { display: flex; gap: 0.5rem; margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--ns-border); }
+</style>

@@ -503,10 +503,10 @@ def web(profile, base_url, smoke_creds) -> GuardedSession:
 # run-time discovery of the registry's {placeholders}
 # --------------------------------------------------------------------------- #
 
-# Where each PLACEHOLDERS name comes from. Eight of the eleven are the first id
-# of a JSON:API list, so they are declared as data rather than as eight copies of
-# the same three lines; the other three need their own request and are resolved
-# below. Keyed by placeholder name so ci/smoke/test_registry_contents.py can
+# Where each PLACEHOLDERS name comes from. Eight of the thirteen are the first
+# id of a JSON:API list, so they are declared as data rather than as eight
+# copies of the same three lines; the other five need their own request and are
+# resolved below. Keyed by placeholder name so ci/smoke/test_registry_contents.py can
 # assert, with no stack running, that this covers exactly the vocabulary
 # ci/routes.py declares. The two cannot drift apart silently: an undeclared name
 # is a KeyError mid-sweep and an unresolved one is a route that skips forever.
@@ -527,8 +527,17 @@ _ATTRIBUTE_SOURCE = "/nextseek_api/attributes/"
 # Both sample names come from one request: the query the search page itself makes.
 _SAMPLE_SOURCE = "/seek/searchAdvanced/"
 
+# Both catalog placeholders come from the list page that publishes them. Scraped,
+# not read from an API, for the reason ci.routes.PLACEHOLDERS states: a value
+# taken off the list page is by construction one the detail route can resolve,
+# where a code from /nextseek_api/sample_types/ could name a type with no curated
+# context row and would 404.
+_SAMPLE_TYPE_CATALOG = "/seek/sampletypes/"
+_ASSAY_CATALOG = "/seek/assays/"
+
 DISCOVERED_KEYS = frozenset(_JSONAPI_LIST_SOURCE) | {
     "attribute_id", "sample_id", "sample_uid",
+    "sample_type_code", "assay_slug",
 }
 
 
@@ -567,6 +576,20 @@ def _first_id(client, base_url: str, path: str, key: str) -> str | None:
         return None
     value = items[0].get("id")
     return None if value is None else str(value)
+
+
+def _first_catalog_segment(client, base_url: str, path: str) -> str | None:
+    """The first path segment linked from a catalog list page, or None.
+
+    None for every ordinary reason a catalog can be empty: the context table is
+    absent on this stack, or it is present and holds no rows. Both are declared
+    states, and both should skip the detail route rather than fail the sweep.
+    """
+    r = client.get(base_url + path, timeout=90, allow_redirects=False)
+    if r.status_code != 200:
+        return None
+    match = re.search(r'href="' + re.escape(path) + r'([^"/]+)/"', r.text)
+    return match.group(1) if match else None
 
 
 @pytest.fixture(scope="session")
@@ -618,6 +641,18 @@ def discovered(profile, api, web, base_url) -> dict[str, str | None]:
             found["sample_id"] = str(rows[0]["id"])
             # The grid renders the UID as a link, so the raw field carries markup.
             found["sample_uid"] = re.sub(r"<[^>]+>", "", str(rows[0].get("uid", ""))).strip() or None
+
+    # The two catalog pages publish their own detail links, so the placeholder is
+    # scraped from the page it will be used against. `web`, not `api`: these are
+    # HTML pages behind the session login.
+    found["sample_type_code"] = (
+        _first_catalog_segment(web, base_url, _SAMPLE_TYPE_CATALOG)
+        if _profile_permits(profile, base_url, _SAMPLE_TYPE_CATALOG) else None
+    )
+    found["assay_slug"] = (
+        _first_catalog_segment(web, base_url, _ASSAY_CATALOG)
+        if _profile_permits(profile, base_url, _ASSAY_CATALOG) else None
+    )
 
     assert set(found) == set(PLACEHOLDERS), (
         "this fixture and ci.routes.PLACEHOLDERS have drifted apart.\n"

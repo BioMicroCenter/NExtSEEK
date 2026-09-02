@@ -198,3 +198,27 @@ class Sample_type_requirements(models.Model):
         db_table = "sample_type_requirements"
         managed = False
         unique_together = ("kind", "trigger_code")
+
+
+class Project_template_bundles(models.Model):
+    """A named one-click template download, curated for one SEEK project.
+
+    `codes` is a JSON array as text, e.g. '["NHP", "PAV", "TIS"]'. Unmanaged for
+    the same reason as Sample_attributes_unique and Sample_type_requirements: the
+    table is created out of band from committed SQL, and leaving it managed would
+    make the next unrelated `makemigrations` in this app propose creating it,
+    which CustomRouter.allow_migrate would then apply on two aliases.
+    """
+    _DATABASE = NEXTSEEK_DATABASE
+
+    project_id = models.IntegerField()
+    position = models.IntegerField(default=0)
+    label = models.CharField(max_length=128)
+    codes = models.TextField()
+
+    def __str__(self):
+        return f"{self.project_id}: {self.label}"
+
+    class Meta:
+        db_table = "project_template_bundles"
+        managed = False
