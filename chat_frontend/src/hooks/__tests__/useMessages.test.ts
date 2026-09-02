@@ -93,6 +93,64 @@ describe("useMessages — hydrateFromTurns", () => {
     expect(result.current.messages).toHaveLength(0);
   });
 
+  it("hydrateFromTurns: rebuilds Search Details for NExtSEEK-engine turns", () => {
+    const { result } = renderHook(() => useMessages());
+
+    act(() => {
+      result.current.hydrateFromTurns([
+        {
+          bundle_id: 1,
+          user_query: "Find all NHP samples in IMPAcTb",
+          reply: "A total of 704...",
+          mode: "graph_query",
+          ts: "2026-09-02T13:09:30Z",
+          debug_entries: [
+            { agent: "parser", summary: "graph_query" },
+            { agent: "neo4j", summary: "704 rows" },
+          ],
+        },
+      ]);
+    });
+
+    const assistant = result.current.messages[1];
+    expect(assistant.debugEntries).toHaveLength(2);
+    expect(assistant.debugEntries![0].agent).toBe("parser");
+    expect(assistant.debugEntries![1].summary).toBe("704 rows");
+  });
+
+  it("hydrateFromTurns: stamps rebuilt entries with the turn timestamp", () => {
+    const { result } = renderHook(() => useMessages());
+
+    act(() => {
+      result.current.hydrateFromTurns([
+        {
+          bundle_id: 1,
+          user_query: "q",
+          reply: "r",
+          mode: "graph_query",
+          ts: "2026-09-02T13:09:30Z",
+          debug_entries: [{ agent: "parser", summary: "graph_query" }],
+        },
+      ]);
+    });
+
+    const entry = result.current.messages[1].debugEntries![0];
+    expect(entry.timestamp).toBeInstanceOf(Date);
+    expect(entry.timestamp.toISOString()).toBe("2026-09-02T13:09:30.000Z");
+  });
+
+  it("hydrateFromTurns: a turn with no debug_entries yields an empty panel, not a crash", () => {
+    const { result } = renderHook(() => useMessages());
+
+    act(() => {
+      result.current.hydrateFromTurns([
+        { bundle_id: 1, user_query: "q", reply: "r", mode: "cc" },
+      ]);
+    });
+
+    expect(result.current.messages[1].debugEntries).toEqual([]);
+  });
+
   it("hydrateFromTurns: every message has a unique React key, even with duplicate bundle_ids", () => {
     const { result } = renderHook(() => useMessages());
 

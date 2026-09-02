@@ -85,7 +85,14 @@ export function useMessages(): UseMessagesReturn {
           status: "sent",
           messageType: "text",
           bundleId: turn.bundle_id,
-          debugEntries: [],
+          // NS turns carry reconstructed entries; CC turns carry cc_traces
+          // instead and legitimately have none here. The server records no
+          // per-entry time, so each is stamped with the turn's timestamp.
+          debugEntries: (turn.debug_entries ?? []).map((e) => ({
+            agent: e.agent,
+            summary: e.summary,
+            timestamp: ts,
+          })),
           artifacts: turn.artifacts ?? undefined,
           ccTraces: turn.cc_traces ?? undefined,
           mode: turn.mode ?? undefined,

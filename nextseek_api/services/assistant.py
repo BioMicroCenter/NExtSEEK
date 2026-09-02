@@ -89,6 +89,7 @@ from nextseek_api.assistant.models_api import (
 from nextseek_api.assistant.granular import OpValidationError, run_op
 from nextseek_api.assistant.write_gate import WriteBlockedError, build_gate, load_allowlist
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
+from nextseek_api.assistant.debug_projection import bundle_debug_entries
 from nextseek_api.assistant.excel_export import extract_table_artifacts
 from rest_framework.authentication import (
     BasicAuthentication,
@@ -613,6 +614,7 @@ class AssistantViewSet(viewsets.ViewSet):
                             ts=entry.get("ts"),
                             artifacts=artifacts or None,
                             cc_traces=entry.get("cc_traces"),
+                            debug_entries=bundle_debug_entries(bundle) or None,
                         ).model_dump(mode="json")
                     )
             else:
@@ -624,6 +626,7 @@ class AssistantViewSet(viewsets.ViewSet):
                         mode=b.get("mode", ""),
                         ts=b.get("ts"),
                         artifacts=(extract_table_artifacts(b) or None),
+                        debug_entries=bundle_debug_entries(b) or None,
                     ).model_dump(mode="json")
                     for b in history
                     if (b or {}).get("user_query")
