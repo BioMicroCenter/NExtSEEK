@@ -95,11 +95,18 @@ Long-running targets are recreated with `--no-deps --force-recreate`.
 ```
 
 The default app component rebuilds one shared image and recreates `nextseek`,
-`attribute_mutation_worker`, `attribute_mutation_dispatcher`, and
-`attribute_mutation_recovery_scheduler`. It does not touch nginx, databases,
-SEEK, or Solr. The worker and dispatcher reattach the existing
-`attribute_mutation_broker` SQLite named volume: rebuild never renews or
-deletes it. The explicitly destructive `reset` command does delete volumes.
+which is now the only service running app code: the attribute-mutation worker,
+the outbox dispatcher, the sync-recovery loop and the assay-registration drain
+loop are background processes of that container rather than services of their
+own. It does not touch nginx, databases, SEEK, or Solr. The container reattaches
+the existing `attribute_mutation_broker` SQLite named volume: rebuild never
+renews or deletes it. The explicitly destructive `reset` command does delete
+volumes.
+
+There is no `COMPOSE_PROFILES` to export. Until 2026-09-02 those four workers
+were profile-gated services, and a rebuild without the variable moved the app to
+the new image while leaving them on the old one, running old code under
+`restart: unless-stopped` and reporting healthy.
 `--service` remains an alias for `--component`; arbitrary Compose services are
 rejected.
 

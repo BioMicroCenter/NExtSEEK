@@ -23,14 +23,14 @@ Related docs (each has a distinct job — don't cross-purpose them):
 ## 0. Topology at a glance
 
 One `docker-compose.yml` at the repo root defines the whole stack:
-**14 services, 2 networks, and 9 named volumes**. Seven volumes are external;
+**10 services, 2 networks, and 9 named volumes**. Seven volumes are external;
 two are Compose-managed, including the attribute Celery SQLite broker.
-(The 14th is `assay_registration_worker`, listed below; it is profile-gated, so
-`docker compose ps` will not show it unless the profile is on.)
+No service is profile-gated: `docker compose ps` shows the whole stack, and
+`docker compose up -d` starts the whole stack.
 
 | Service | Image | Host port | Network(s) | Role |
 |---|---|---|---|---|
-| `nextseek` | built from root `Dockerfile` | — (internal :8000) | default | Django app: gunicorn/daphne + Celery worker (queue `batch_upload`) |
+| `nextseek` | built from root `Dockerfile` | — (internal :8000) | default | Django app, and every background runtime that runs app code: web server (daphne, or gunicorn via `NEXTSEEK_SERVER`), Celery worker for `batch_upload`, Celery worker for `attribute_mutations`, the outbox dispatcher, the sync-recovery loop, and the assay-registration drain loop. Six processes under one `wait -n`, so any of them exiting restarts the container. Healthchecked by `docker/scripts/attribute_runtime_healthcheck.py app` |
 | `nextseek_nginx` | `nginx:latest` | `127.0.0.1:${NEXTSEEK_PORT:-8000}` | default **+ dmac-cc-net** | static files + reverse proxy; the **only dual-homed** service |
 | `db` | `mysql:8.0` | `127.0.0.1:3306` | default | two schemas: `dmac` (NExtSEEK) + `seek_production` (SEEK) |
 | `neo4j` | `neo4j` | `127.0.0.1:7474` / `:7687` | default | sample/assay graph |
@@ -39,8 +39,6 @@ two are Compose-managed, including the attribute Celery SQLite broker.
 | `bedrock-proxy` | built from `docker/bedrock-proxy/` | — | dmac-cc-net | holds the Bedrock token; model-allowlist auth proxy (container name `dmac-bedrock-proxy`) |
 | `nextseek-sidecar` | built from `docker/ns-sidecar/` | — | dmac-cc-net | NS sidecar for the CC agent (healthchecked) |
 | `cc-agent` | built from `docker/cc-runtime/` → `dmac-assistant:poc` | — | none | **build-target only** — never runs as a service; per-turn agent containers are spawned from this image by the app via the docker socket |
-| `attribute_mutation_worker` / `attribute_mutation_dispatcher` / `attribute_mutation_recovery_scheduler` | shared `nextseek-nextseek:latest` app image | — | default | durable attribute execution, outbox dispatch, and recovery processes |
-| `assay_registration_worker` | shared `nextseek-nextseek:latest` app image | — | default | drains the batch assay-registration job queue. **Requires `COMPOSE_PROFILES=assay-registration`, and it must be EXPORTED into the environment, not set in the project-root `.env`.** Compose honours both, but `startup/lib/rebuild_policy.py` reads `os.environ` only — so an operator who sets it in `.env` gets a worker Compose starts and `./startup.sh rebuild` never names, which leaves a **stale worker running old code** after a deploy: the same class of failure as no worker at all, arriving by a different route. Without the profile set at all the service never starts, and a `202` from `POST /nextseek_api/assay-registrations/` is accepted and then **never executed** — `status_url` reports `accepted`, 0 of N, indefinitely, with no error anywhere. Any instance that can return that 202 must run this. |
 
 Key facts every operator must internalize:
 
@@ -281,7 +279,7 @@ docker logs -f nextseek        # until gunicorn workers are up; no FAILED marker
 
 | You changed | Required action |
 |---|---|
-| Python / templates / anything baked (`nextseek_api/`, `chat_nextseek/`, `seek/`, `dmac/` except `local_settings.py`) | `./startup.sh rebuild` — rebuild shared app image; recreate web + attribute runtimes, plus the assay-registration worker when `COMPOSE_PROFILES` (exported) names `assay-registration` |
+| Python / templates / anything baked (`nextseek_api/`, `chat_nextseek/`, `seek/`, `dmac/` except `local_settings.py`) | `./startup.sh rebuild` — rebuild the shared app image and recreate `nextseek`, which carries every app-code runtime. No `COMPOSE_PROFILES` to remember: until 2026-09-02 four workers lived in their own profile-gated services, and a rebuild without the variable exported left them running old code under `restart: unless-stopped`, looking healthy |
 | `static/` assets | rebuild + recreate, **then** `docker compose exec nextseek uv run manage.py collectstatic --noinput` |
 | `chat_frontend/` React source | `npm run build:embedded` in `chat_frontend/`, commit the emitted assets, then rebuild + recreate + collectstatic |
 | `docker/cc-runtime/**` (agent plugin/skills/CLAUDE.md/deps) | `./startup.sh rebuild --component cc-agent` — next turn uses it; no service restart |

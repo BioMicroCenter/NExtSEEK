@@ -482,8 +482,9 @@ class TestAsynchronousPath:
 
     NOTE, deliberately asserted: the job is created in state `accepted` with
     zero processed rows, and nothing on the REQUEST path claims or runs it. A
-    worker exists now (`runner.py`, drained by the `assay_registration_worker`
-    service), but it is a separate process reached through the job table, so
+    worker exists now (`runner.py`, drained by the loop the app container runs
+    as `manage.py run_assay_registration_jobs`), but it is a separate process
+    reached through the job table, so
     these remain the observable facts at the moment the 202 is written. What
     changed is why they matter: the handoff has to be complete and durable in
     the request, because the process that picks it up shares nothing with it.
@@ -849,9 +850,12 @@ class TestTheAcceptedCountsPromiseNothing:
     `{"written": 25700}` before a single row existed. A worker exists now, so
     those rows will eventually be written -- which makes the projection worse,
     not better: it is indistinguishable from a receipt until the moment it
-    stops being true, and on any instance running without
-    `COMPOSE_PROFILES=assay-registration` it never becomes true at all. That is
-    the defect this endpoint was built to remove, reproduced on its own new path.
+    stops being true, and on any instance whose drain loop is not running it
+    never becomes true at all. (That used to mean any instance without
+    `COMPOSE_PROFILES=assay-registration` exported; the loop is a process of the
+    app container since 2026-09-02, so it now means an instance whose app
+    container is down, which is a louder failure.) That is the defect this
+    endpoint was built to remove, reproduced on its own new path.
     """
 
     def _post(self, superuser, total_rows=6000):
