@@ -1127,64 +1127,39 @@ def _compose_services():
     return yaml.safe_load(COMPOSE_PATH.read_text())["services"]
 
 
-def test_compose_attribute_mutation_worker_exact_shape():
-    service = _compose_services()["attribute_mutation_worker"]
-    assert service["command"] == [
-        "uv", "run", "--no-sync", "celery", "-A", "nextseek_api.batch_upload.celery_app", "worker",
-        "--loglevel=info", "-Q", "attribute_mutations", "--hostname=attribute_mutations@%h",
-        "--concurrency=${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}",
-    ]
-    assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
-    assert service["healthcheck"] == {
-        "test": ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "worker"],
-        "interval": "30s", "timeout": "5s", "retries": 3, "start_period": "60s",
-    }
-    assert service["deploy"]["resources"]["limits"] == {
-        "cpus": "${ATTRIBUTE_MUTATION_WORKER_CPUS:-1.0}", "memory": "${ATTRIBUTE_MUTATION_WORKER_MEMORY:-1G}",
-    }
-    assert "attribute_mutation_broker:/var/lib/attribute-broker" in service["volumes"]
-    assert service["environment"]["CELERY_BROKER_URL"] == "sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3"
+def test_the_attribute_runtimes_are_not_compose_services_any_more():
+    """They are background processes of the app container since 2026-09-02.
+
+    Three tests here used to pin each retired service's exact compose shape:
+    command, depends_on, healthcheck, resource limits, broker volume and
+    CELERY_BROKER_URL. Every one of those properties still has a test, at the
+    place the processes now live: `nextseek_api/cc_assistant/tests/`
+    `test_entrypoint_attribute_runtimes.py`, which EXECUTES the entrypoint with
+    a stubbed `uv` rather than reading a compose key. Asserting a shape here as
+    well would mean two homes for one contract.
+
+    What stays here is the fact that made those tests move: a compose service by
+    one of these names would run the process a second time, against the same
+    broker and the same lease rows.
+    """
+    services = _compose_services()
+    for name in (
+        "attribute_mutation_worker",
+        "attribute_mutation_dispatcher",
+        "attribute_mutation_recovery_scheduler",
+    ):
+        assert name not in services, name
 
 
-def test_compose_attribute_mutation_dispatcher_exact_shape():
-    service = _compose_services()["attribute_mutation_dispatcher"]
-    assert service["command"] == ["uv", "run", "--no-sync", "python", "manage.py", "dispatch_attribute_outbox"]
-    assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
-    assert service["healthcheck"] == {
-        "test": ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "dispatcher"],
-        "interval": "30s", "timeout": "5s", "retries": 3, "start_period": "60s",
-    }
-    assert service["deploy"]["resources"]["limits"] == {
-        "cpus": "${ATTRIBUTE_MUTATION_DISPATCHER_CPUS:-0.25}", "memory": "${ATTRIBUTE_MUTATION_DISPATCHER_MEMORY:-1G}",
-    }
-    assert "attribute_mutation_broker:/var/lib/attribute-broker" in service["volumes"]
-    assert service["environment"]["CELERY_BROKER_URL"] == "sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3"
-
-
-def test_compose_attribute_mutation_recovery_scheduler_exact_shape_and_no_broker_ability():
-    service = _compose_services()["attribute_mutation_recovery_scheduler"]
-    assert service["command"] == [
-        "uv", "run", "--no-sync", "python", "manage.py", "recover_attribute_sync_jobs", "--loop", "--interval-seconds", "30",
-    ]
-    assert service["depends_on"] == {"seek": {"condition": "service_started"}, "db": {"condition": "service_healthy"}}
-    assert service["healthcheck"] == {
-        "test": ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "recovery"],
-        "interval": "30s", "timeout": "5s", "retries": 3, "start_period": "60s",
-    }
-    assert service["deploy"]["resources"]["limits"] == {
-        "cpus": "${ATTRIBUTE_MUTATION_RECOVERY_CPUS:-0.25}", "memory": "${ATTRIBUTE_MUTATION_RECOVERY_MEMORY:-1G}",
-    }
-    # Section 3/spec Section 7 Edit 2 (Review Blocker 2, "attack #5"): the
-    # recovery scheduler can never consume either Celery queue -- no broker
-    # volume, no broker environment, no Celery command/queue argument
-    # anywhere in its definition.
-    volume_targets = [entry.split(":", 1)[0] for entry in service.get("volumes", [])]
-    assert "attribute_mutation_broker" not in volume_targets
-    assert "environment" not in service
-    full_command_text = " ".join(service["command"]).lower()
-    assert "celery" not in full_command_text
-    for arg in service["command"]:
-        assert arg not in {"-Q", "--queue"}
+def test_the_worker_concurrency_knob_survived_the_fold():
+    """It lived in the retired service's `command:`, where Compose expanded it
+    from the host environment or the project-root `.env`. The entrypoint reads
+    it from the container environment now, so compose has to pass it through or
+    an operator who sets it the documented way silently gets the default."""
+    service = _compose_services()["nextseek"]
+    assert service["environment"]["ATTRIBUTE_MUTATION_WORKER_CONCURRENCY"] == (
+        "${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}"
+    )
 
 
 def test_compose_attribute_mutation_broker_is_named_and_persistent_across_recreate():

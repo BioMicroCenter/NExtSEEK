@@ -82,3 +82,56 @@ def test_heartbeat_probe_refuses_missing_configuration_without_leaking_names():
     ok, detail = health.check_heartbeat("attribute_mutations", environ={})
     assert ok is False
     assert detail == "attribute heartbeat database configuration is incomplete"
+
+
+# --------------------------------------------------------------------------- #
+# `app` mode: the four runtimes folded into the app container on 2026-09-02
+# --------------------------------------------------------------------------- #
+
+
+def _probe(ok, detail):
+    return lambda: (ok, detail)
+
+
+def test_app_probe_is_green_only_when_every_runtime_is():
+    probes = (
+        ("worker", _probe(True, "up")),
+        ("dispatcher", _probe(True, "fresh")),
+        ("recovery", _probe(True, "fresh")),
+    )
+    assert health.check_app(probes)[0] is True
+
+    for index in range(len(probes)):
+        degraded = list(probes)
+        degraded[index] = (probes[index][0], _probe(False, "down"))
+        ok, detail = health.check_app(tuple(degraded))
+        assert ok is False, probes[index][0]
+        assert probes[index][0] in detail
+
+
+def test_app_probe_names_every_failing_runtime_not_just_the_first():
+    """One container, four processes: an operator who fixes the first failure
+    and waits 30s for the next one is debugging by bisection."""
+    ok, detail = health.check_app((
+        ("worker", _probe(False, "process is absent")),
+        ("dispatcher", _probe(True, "fresh")),
+        ("recovery", _probe(False, "heartbeat is stale")),
+    ))
+    assert ok is False
+    assert "worker" in detail and "recovery" in detail
+    assert "process is absent" in detail and "heartbeat is stale" in detail
+
+
+def test_app_probe_defaults_to_the_three_runtimes_that_have_real_probes():
+    """The assay-registration loop is deliberately absent: it writes no
+    heartbeat row and holds no broker, so the only check writable today is one
+    that always passes, and a probe that cannot fail reports green through a
+    crashloop."""
+    names = [name for name, _ in health.APP_PROBES]
+    assert names == ["worker", "dispatcher", "recovery"]
+
+
+def test_app_mode_exits_nonzero_and_reports_on_stderr(capsys):
+    assert health.main(["app"], probes=(("worker", _probe(True, "up")),)) == 0
+    assert health.main(["app"], probes=(("worker", _probe(False, "gone")),)) == 1
+    assert "gone" in capsys.readouterr().err

@@ -69,6 +69,67 @@ uv run celery -A nextseek_api.batch_upload.celery_app worker \
               -Q batch_upload \
               --concurrency=1 &
 
+# ---------------------------------------------------------------------------
+# The attribute-mutation pipeline and the assay-registration drain loop.
+#
+# These were four compose services (attribute_mutation_worker, _dispatcher,
+# _recovery_scheduler, assay_registration_worker) behind two `profiles:` keys
+# until 2026-09-02. Nothing persisted COMPOSE_PROFILES, so `./startup.sh
+# rebuild` moved the app to the new image and left them on the old one under
+# `restart: unless-stopped` -- old code, reported healthy. They run here now,
+# the way the batch_upload worker above always has, so there is nothing left
+# behind to go stale. The arguments below are the retired services' commands
+# carried forward verbatim, `--no-sync` included: it skips uv's environment
+# resolution, which four concurrent `uv run` invocations do not need and would
+# otherwise contend on.
+#
+# WHAT THE FOLD GAVE UP, deliberately (Taisha's DD-29, task-08):
+#   * Container-level isolation. Each of the four carried its own CPU and
+#     memory ceiling (1.0/1G for the worker, 0.25/1G for the rest); inside this
+#     container they inherit the app's, which is uncapped. `--concurrency=1`
+#     still bounds the attribute worker, and a memory limit on THIS container
+#     would risk the web server rather than one worker, so the ceiling is gone
+#     on purpose. An attribute backlog can now cost the app container's memory.
+#   * Independent restart. `wait -n` below means any one of these six processes
+#     exiting takes the whole container down for compose to restart, so a
+#     dispatcher crash now bounces the web server too. That is what the
+#     batch_upload worker has always done here; the fold widens it to four more.
+# What it did NOT give up: the queues stay separate (a backlog on one cannot
+# starve the other's worker), the recovery scheduler still runs no Celery
+# command and holds no broker, and the dispatcher is still the sole publisher.
+#
+# Two brokers in one container, on purpose. The attribute queue keeps the
+# durable volume it had as a service; the batch_upload queue keeps the
+# container-local default it had as a process here. Setting one container-wide
+# CELERY_BROKER_URL would move batch_upload onto a volume that survives a
+# recreate, and a queued upload would re-run after a deploy.
+_ATTRIBUTE_BROKER="sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3"
+
+CELERY_BROKER_URL="$_ATTRIBUTE_BROKER" \
+  uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
+                   --loglevel=info \
+                   -Q attribute_mutations \
+                   --hostname=attribute_mutations@%h \
+                   --concurrency="${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}" &
+
+# The transactional-outbox dispatcher: the sole publisher for
+# `attribute_mutations` messages. Same broker as the worker above, or it
+# publishes where nothing is listening.
+CELERY_BROKER_URL="$_ATTRIBUTE_BROKER" \
+  uv run --no-sync python manage.py dispatch_attribute_outbox &
+
+# Idempotent sync-job recovery. No broker and no Celery command, so it can
+# never consume either queue -- only scan/claim/reconcile via the default
+# database. Keep it that way.
+uv run --no-sync python manage.py recover_attribute_sync_jobs \
+                 --loop --interval-seconds 30 &
+
+# Drains the batch assay-registration queue by MySQL lease. No Celery, no
+# queue. POST /nextseek_api/assay-registrations/ answers 202 with a status_url
+# for any batch above the row threshold, and NOTHING claims those jobs unless
+# this runs -- the URL then reports `accepted`, 0 of N, forever.
+uv run --no-sync python manage.py run_assay_registration_jobs --interval 5 &
+
 wait -n
 
 exit $?

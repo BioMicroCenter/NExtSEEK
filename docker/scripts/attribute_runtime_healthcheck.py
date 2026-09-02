@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Low-overhead health probes for the standalone attribute runtimes.
+"""Low-overhead health probes for the app container's attribute runtimes.
 
 The dispatcher and recovery scheduler already publish durable heartbeats to
 MySQL.  Reading those rows directly avoids starting a second Django process
-inside memory-bounded service containers.  The Celery SQLAlchemy/SQLite
-transport does not provide a reliable remote-control ping, so the worker
-probe verifies both its worker process and read access to the durable broker.
-No credential value is ever printed.
+just to answer a healthcheck.  The Celery SQLAlchemy/SQLite transport does not
+provide a reliable remote-control ping, so the worker probe verifies both its
+worker process and read access to the durable broker.  No credential value is
+ever printed.
+
+The three runtimes were separate compose services with a probe each until
+2026-09-02; they are background processes of the `nextseek` container now, and
+`app` mode is what that container's single healthcheck runs.  The per-runtime
+modes are kept: they still work unchanged from inside the container, which is
+how an operator asks which one is down.
 """
 
 from __future__ import annotations
@@ -107,13 +113,51 @@ def check_heartbeat(
     return True, f"attribute heartbeat {singleton_key!r} is fresh"
 
 
-def main(argv: list[str] | None = None) -> int:
+#: The runtimes the app container carries as background processes, in the order
+#: the entrypoint starts them. `app` mode probes all of these at once, because
+#: since 2026-09-02 there is one container where there were four and Docker
+#: allows it one healthcheck.
+#:
+#: The assay-registration drain loop is deliberately NOT here. It uses no Celery
+#: and no broker and writes no heartbeat row, so the only check writable today
+#: is one that always passes, and a healthcheck that cannot fail is worse than
+#: none: it reports green through a crashloop. Until it grows a heartbeat, the
+#: real check stays `docker logs` for "assay-registration drain pass failed"
+#: plus the `accepted` job count on the endpoint itself.
+APP_PROBES: tuple[tuple[str, Callable[[], tuple[bool, str]]], ...] = (
+    ("worker", check_worker),
+    ("dispatcher", lambda: check_heartbeat(HEARTBEAT_KEYS["dispatcher"])),
+    ("recovery", lambda: check_heartbeat(HEARTBEAT_KEYS["recovery"])),
+)
+
+
+def check_app(probes=None) -> tuple[bool, str]:
+    """Every background runtime of the app container, in one probe.
+
+    Runs all of them rather than stopping at the first failure: one container
+    holds four processes now, and an operator who fixes the first failure and
+    waits another interval to discover the second is debugging by bisection.
+    """
+    probes = APP_PROBES if probes is None else probes
+    failures = []
+    for name, probe in probes:
+        ok, detail = probe()
+        if not ok:
+            failures.append(f"{name}: {detail}")
+    if failures:
+        return False, "; ".join(failures)
+    return True, f"all app-container runtimes are healthy ({len(probes)} probed)"
+
+
+def main(argv: list[str] | None = None, probes=None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("runtime", choices=("worker", "dispatcher", "recovery"))
+    parser.add_argument("runtime", choices=("app", "worker", "dispatcher", "recovery"))
     parser.add_argument("--max-age-seconds", type=int, default=90)
     args = parser.parse_args(argv)
 
-    if args.runtime == "worker":
+    if args.runtime == "app":
+        ok, detail = check_app(probes)
+    elif args.runtime == "worker":
         ok, detail = check_worker()
     else:
         ok, detail = check_heartbeat(

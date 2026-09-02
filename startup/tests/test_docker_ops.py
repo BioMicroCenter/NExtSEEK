@@ -60,7 +60,7 @@ def test_compose_up_force_recreate_preserves_named_volumes(mock_run: MagicMock) 
     """Routine rebuild recreation must never renew or delete attached volumes."""
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     compose_up(
-        services=["attribute_mutation_worker", "attribute_mutation_dispatcher"],
+        services=["nextseek"],
         project_dir="/repo",
         env={},
         force_recreate=True,

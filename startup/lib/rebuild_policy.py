@@ -1,77 +1,38 @@
 """Single source of truth for first-party image rebuild behavior."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 
-ATTRIBUTES_PROFILE = "attributes"
-ASSAY_REGISTRATION_PROFILE = "assay-registration"
-
-#: Always-on services that run the app image.
+#: Every service that runs the app image, and therefore every service a rebuild
+#: must move to the new one.
+#:
+#: There is exactly one. Until 2026-09-02 there were five: the attribute-mutation
+#: worker, dispatcher and recovery scheduler behind an ``attributes`` compose
+#: profile, and the assay-registration worker behind its own. This module read
+#: COMPOSE_PROFILES to decide which of them ``./startup.sh rebuild`` restarted,
+#: nothing persisted that variable, and a rebuild without it moved the app to the
+#: new image while leaving the workers on the old one -- old code, indefinitely,
+#: under ``restart: unless-stopped``, which looks healthy. All four now run as
+#: background processes of the app container (docker/scripts/entrypoint.sh), so
+#: there is no second image to leave behind and no variable to forget.
+#:
+#: Adding an app-image service here is a decision, not a formality: it re-opens
+#: that failure mode unless startup also restarts it.
+#: ``startup/tests/test_rebuild_policy.py`` asserts this set against compose.
 BASE_APP_RUNTIME_SERVICES = ("nextseek",)
-
-#: The async attribute-mutation pipeline. Gated behind the ``attributes`` compose
-#: profile, because it is only useful once native attribute mutation is in use.
-ATTRIBUTE_RUNTIME_SERVICES = (
-    "attribute_mutation_worker",
-    "attribute_mutation_dispatcher",
-    "attribute_mutation_recovery_scheduler",
-)
-
-#: The batch assay-registration worker. Gated behind its own compose profile for
-#: the same reason as the attribute runtimes: it is only useful once the
-#: asynchronous registration path is in use, and a stock bring-up should not gain
-#: an always-on container.
-ASSAY_REGISTRATION_RUNTIME_SERVICES = ("assay_registration_worker",)
-
-
-def _profile_enabled(profile: str) -> bool:
-    """Whether ``profile`` is in COMPOSE_PROFILES.
-
-    One parser, two predicates. Duplicating the split is how two gates come to
-    disagree about whether " attributes " counts.
-    """
-    profiles = os.environ.get("COMPOSE_PROFILES", "")
-    return profile in {p.strip() for p in profiles.split(",") if p.strip()}
-
-
-def attributes_profile_enabled() -> bool:
-    """Whether the operator asked for the attribute-mutation pipeline."""
-    return _profile_enabled(ATTRIBUTES_PROFILE)
-
-
-def assay_registration_profile_enabled() -> bool:
-    """Whether the operator asked for the batch assay-registration worker."""
-    return _profile_enabled(ASSAY_REGISTRATION_PROFILE)
 
 
 def app_runtime_services() -> tuple[str, ...]:
     """Services to start/restart alongside the app image.
 
-    Naming a service explicitly on a ``docker compose`` command line starts it
-    **even when it carries a profile**, so a ``profiles:`` key in the compose
-    file is not enough on its own: startup must also stop naming these unless
-    the profile is on. Otherwise the gate holds for a bare ``docker compose
-    up -d`` and silently does nothing for ``./startup.sh install``, which is the
-    supported entry point.
-
-    The profiles ACCUMULATE rather than choose. An early-return per profile
-    would let whichever branch came first decide the whole list, so an operator
-    running both would silently lose one set -- and the way that failure
-    presents is a worker left on its old container after `./startup.sh rebuild`,
-    running old code under `restart: unless-stopped`, which looks healthy.
+    A function rather than a bare constant because callers were written against
+    one that could vary by environment. It no longer does.
     """
-    services = BASE_APP_RUNTIME_SERVICES
-    if attributes_profile_enabled():
-        services += ATTRIBUTE_RUNTIME_SERVICES
-    if assay_registration_profile_enabled():
-        services += ASSAY_REGISTRATION_RUNTIME_SERVICES
-    return services
+    return BASE_APP_RUNTIME_SERVICES
 
 
-#: Backwards-compatible alias. Prefer ``app_runtime_services()``: this constant is
-#: evaluated at import time and cannot see a profile set later.
+#: Backwards-compatible alias for the constant this function returns.
 APP_RUNTIME_SERVICES = app_runtime_services()
 
 

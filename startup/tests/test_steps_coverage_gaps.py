@@ -267,18 +267,18 @@ def test_build_and_start_nextseek_builds(mock_up: MagicMock, mock_build: MagicMo
 
 @patch("startup.steps.build.compose_build")
 @patch("startup.steps.build.compose_up")
-def test_build_and_start_nextseek_includes_attribute_runtimes_with_the_profile(
+def test_build_and_start_nextseek_ignores_compose_profiles(
     mock_up: MagicMock, mock_build: MagicMock, monkeypatch
 ) -> None:
-    monkeypatch.setenv("COMPOSE_PROFILES", "attributes")
+    """This used to add three attribute services when the profile was on.
+
+    They are processes of the app container now, so the variable that decided
+    whether a rebuild moved them to the new image decides nothing here. A
+    profile that still changed this list would mean a service came back.
+    """
+    monkeypatch.setenv("COMPOSE_PROFILES", "attributes,assay-registration")
     build.build_and_start_nextseek(Path("/r"), {})
-    assert list(mock_up.call_args.kwargs["services"]) == [
-        "nextseek",
-        "attribute_mutation_worker",
-        "attribute_mutation_dispatcher",
-        "attribute_mutation_recovery_scheduler",
-        "nextseek_nginx",
-    ]
+    assert list(mock_up.call_args.kwargs["services"]) == ["nextseek", "nextseek_nginx"]
 
 
 @patch("startup.steps.build.compose_up")
