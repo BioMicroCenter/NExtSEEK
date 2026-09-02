@@ -87,11 +87,36 @@ class TestSlugifyName:
         assert slugify_name("  Imaging  ") == "imaging"
 
 
+def test_every_selected_column_is_a_real_model_field():
+    """The one thing every other loader test mocks away.
+
+    _sample_type_rows is patched in all of them, so a column name the ORM cannot
+    resolve raises FieldError only against a real database -- where the loader's
+    soft-dependency except swallows it and the page renders empty rather than
+    failing. That is exactly what shipped on 2026-09-02: the field is `tags` and
+    its db_column is capital-T Tags, so selecting the db_column raised and the
+    sample type catalog was empty on every request while every unit test here
+    stayed green.
+
+    Needs no database: Django resolves field names from the model meta.
+    """
+    from seek.models import Sample_types_context
+
+    from nextseek_api.services.context_catalog import _SAMPLE_TYPE_COLUMNS
+
+    field_names = {f.name for f in Sample_types_context._meta.get_fields()}
+    unresolvable = set(_SAMPLE_TYPE_COLUMNS) - field_names
+    assert not unresolvable, (
+        f"{sorted(unresolvable)} are not fields on Sample_types_context. "
+        f"Available: {sorted(field_names)}"
+    )
+
+
 class TestLoadSampleTypes:
     ROW = {
         "sample_type": "D.FLOW", "sampletype_id": 13, "name": "Flow Cytometry Data",
         "description": "A flow cytometry file stores fluorescence...",
-        "clade": "Raw", "Tags": "flow cytometry data, FACS data",
+        "clade": "Raw", "tags": "flow cytometry data, FACS data",
         "required_metadata": "UID, File_PrimaryData, Parent",
         "standard_metadata": "Instrument, Protocol",
         "possible_metadata_fields": "Stain, QC_notes",

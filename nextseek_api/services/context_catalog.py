@@ -121,8 +121,12 @@ class SampleTypeContextEntry:
 
 # Every column the page renders. sampletype_file_link is deliberately absent:
 # it is NULL on all 101 rows, so selecting it would only invite rendering it.
+# FIELD names, not db_columns. `tags` is the field; its db_column is capital-T
+# Tags, and selecting the db_column raises FieldError -- which the loader's
+# soft-dependency except then swallowed into an empty catalog on every request.
+# Pinned by test_every_selected_column_is_a_real_model_field.
 _SAMPLE_TYPE_COLUMNS = (
-    "sample_type", "sampletype_id", "name", "description", "clade", "Tags",
+    "sample_type", "sampletype_id", "name", "description", "clade", "tags",
     "required_metadata", "standard_metadata", "possible_metadata_fields",
     "parent_sampletypes", "child_sampletypes",
     "associated_assay_parents", "associated_assay_children",
@@ -162,7 +166,7 @@ def load_sample_types() -> list[SampleTypeContextEntry]:
             name=(row.get("name") or "").strip(),
             description=(row.get("description") or "").strip(),
             clade=(row.get("clade") or UNASSIGNED_CLADE).strip() or UNASSIGNED_CLADE,
-            tags=parse_list(row.get("Tags")),
+            tags=parse_list(row.get("tags")),
             required_metadata=parse_list(row.get("required_metadata")),
             standard_metadata=parse_list(row.get("standard_metadata")),
             possible_metadata_fields=parse_list(row.get("possible_metadata_fields")),
