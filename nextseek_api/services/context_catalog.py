@@ -184,3 +184,191 @@ def load_sample_type(code: str) -> SampleTypeContextEntry | None:
         if entry.code == code:
             return entry
     return None
+
+
+@dataclass
+class AssayRow:
+    row_id: int | None
+    description: str = ""
+    tags: list[str] = field(default_factory=list)
+    alternative_names: list[str] = field(default_factory=list)
+    required_parents: list[list[str]] = field(default_factory=list)
+    optional_parents: list[list[str]] = field(default_factory=list)
+    children: list[list[str]] = field(default_factory=list)
+    parent_clade: str = ""
+    child_clade: str = ""
+    sheet_link: str = ""
+    repository: str = ""
+    critical_attributes: list[str] = field(default_factory=list)
+    internal_assay_id: int | None = None
+
+
+@dataclass
+class AssayEntry:
+    """One page. Usually one row; 24 slugs of 193 carry two.
+
+    Two rows are NOT merged. 22 name pairs in assay_context are one curated row
+    plus one auto-generated row from a different source, and choosing between
+    their descriptions would be a data decision this page has no standing to
+    make. Both are rendered, stacked, and the page says why.
+    """
+    slug: str
+    name: str
+    rows: list[AssayRow] = field(default_factory=list)
+
+
+def _rows_from_cursor(cursor) -> list[dict]:
+    """Rows as dicts keyed by LOWERCASED column name.
+
+    The lowercasing is the whole point. Production spells these columns in mixed
+    case (`Required_Parent_Sample_Types`), and chat_nextseek's own mapper hedges
+    by trying both spellings for every field, which is the evidence that nothing
+    in this repo actually knows which one a given stack has. Lowercasing once
+    here means the rest of the module never has to, and it is why assay_context
+    and projects_context get no Django model: a model must commit to one
+    spelling and would silently read nothing on a stack that uses the other.
+    """
+    columns = [column[0].lower() for column in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def _query(sql: str, params=None) -> list[dict]:
+    """Run one read against the NExtSEEK database. Raises; callers soften it."""
+    with connections[settings.NEXTSEEK_DATABASE].cursor() as cursor:
+        cursor.execute(sql, params or [])
+        return _rows_from_cursor(cursor)
+
+
+def _assay_rows() -> list[dict]:
+    """Raw assay_context rows. Its own function so tests replace the database."""
+    return _query("SELECT * FROM assay_context ORDER BY id")
+
+
+def _known_sample_type_codes() -> set[str]:
+    """Codes parse_alternation validates against. Empty on failure, never raises."""
+    try:
+        return {e.code for e in load_sample_types()}
+    except Exception:
+        logger.exception("sample type codes unavailable; assay relationships will be bare")
+        return set()
+
+
+def load_assays() -> list[AssayEntry]:
+    """Every curated assay, grouped by slug, in name order.
+
+    Grouped by slug rather than by name so that two spellings of one assay land
+    on one page: 217 rows carry 195 distinct names but only 193 distinct slugs,
+    the two extra collapses being a hyphen apart.
+    """
+    try:
+        rows = _assay_rows()
+    except Exception:
+        logger.exception("assay_context unavailable; assay catalog will be empty")
+        return []
+
+    known = _known_sample_type_codes()
+
+    by_slug: dict[str, AssayEntry] = {}
+    for row in rows:
+        name = (row.get("assay_name") or row.get("name") or "").strip()
+        if not name:
+            continue
+        slug = slugify_name(name)
+        if not slug:
+            continue
+        entry = by_slug.get(slug)
+        if entry is None:
+            # First row wins the display name. _assay_rows orders by id, so this
+            # is deterministic rather than whichever the database felt like.
+            entry = by_slug[slug] = AssayEntry(slug=slug, name=name)
+        entry.rows.append(AssayRow(
+            row_id=row.get("id"),
+            description=(row.get("description") or "").strip(),
+            tags=parse_list(row.get("tags")),
+            alternative_names=parse_list(row.get("alternative_assay_names")),
+            required_parents=parse_alternation(row.get("required_parent_sample_types"), known),
+            optional_parents=parse_alternation(row.get("optional_parent_sample_types"), known),
+            children=parse_alternation(row.get("children_sample_types"), known),
+            parent_clade=(row.get("parent_clade_type") or "").strip(),
+            child_clade=(row.get("child_clade_type") or "").strip(),
+            sheet_link=(row.get("assaysheet_link") or "").strip(),
+            repository=(row.get("associatedrepository") or "").strip(),
+            critical_attributes=parse_list(row.get("critical_attributes")),
+            internal_assay_id=row.get("internal_assay_id"),
+        ))
+
+    return sorted(by_slug.values(), key=lambda e: e.name.lower())
+
+
+def load_assay(slug: str) -> AssayEntry | None:
+    """One entry by slug, or None."""
+    for entry in load_assays():
+        if entry.slug == slug:
+            return entry
+    return None
+
+
+def assay_slug_for_name(name) -> str:
+    """The catalog URL segment for an assay named in a curator column.
+
+    A separate name from slugify_name so the cross-link contract is visible at
+    the call site: sample type rows name their assays in prose, and this is the
+    single place that turns such a name into a link target.
+    """
+    return slugify_name(name)
+
+
+def _coerce_json_list(value) -> list[str]:
+    """A JSON array column as a list, falling back to pipe-delimited text.
+
+    Same two-step chat_nextseek's map_project already does, and for the same
+    reason: the column is curated by hand and both forms are in it.
+    """
+    if value in (None, ""):
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    text = str(value).strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return [part.strip() for part in text.split("|") if part.strip()]
+    if isinstance(parsed, list):
+        return [str(item) for item in parsed]
+    return [text]
+
+
+def _project_context_row(project_id: int) -> dict | None:
+    """The projects_context row for a SEEK project id, or None."""
+    rows = _query("SELECT * FROM projects_context WHERE project_id = %s LIMIT 1",
+                  [project_id])
+    return rows[0] if rows else None
+
+
+def load_project_context(project_id: int) -> dict | None:
+    """Curated context for one project, or None when there is none.
+
+    None rather than an empty dict, so the template can test one thing to decide
+    whether to render the enriched header at all. Every stack but production has
+    an empty table today, so None is the common case and must be cheap.
+    """
+    try:
+        row = _project_context_row(int(project_id))
+    except Exception:
+        logger.exception("projects_context unavailable for project_id=%s", project_id)
+        return None
+    if not row:
+        return None
+    return {
+        "name": row.get("name") or "",
+        "alternative_names": _coerce_json_list(row.get("alternative_names")),
+        "key_data_types": _coerce_json_list(row.get("key_data_types")),
+        "parent_project": row.get("parent_project") or "",
+        "pi": row.get("pi") or "",
+        "research_focus": row.get("research_focus") or "",
+        "nih_reporter_link": row.get("nih_reporter_link") or "",
+        "fairdomhub_published_link": row.get("fairdomhub_published_link") or "",
+        "tags": parse_list(row.get("tags")),
+    }

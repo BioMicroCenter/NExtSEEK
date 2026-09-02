@@ -150,3 +150,141 @@ class TestLoadSampleTypes:
         rows.return_value = [self.ROW]
         assert load_sample_type("D.FLOW").name == "Flow Cytometry Data"
         assert load_sample_type("NOPE") is None
+
+
+from nextseek_api.services.context_catalog import (  # noqa: E402
+    AssayEntry, load_assay, load_assays, load_project_context,
+)
+
+ASSAY_ROW = {
+    "id": 30, "assay_name": "Flow Cytometry",
+    "description": "Flow cytometry is a laser-based technique...",
+    "tags": "flow cytometry, FACS", "alternative_assay_names": "",
+    "required_parent_sample_types": "TIS or CEX or CEL, AB or ABP",
+    "optional_parent_sample_types": "D.FCS",
+    "children_sample_types": "D.FLOW",
+    "parent_clade_type": "Processed", "child_clade_type": "Raw",
+    "assaysheet_link": "(insert link here)",
+    "associatedrepository": "Immport (link)",
+    "critical_attributes": "TIS::Type, ABP::Parent",
+    "internal_assay_id": 30,
+}
+
+
+class TestLoadAssays:
+    KNOWN = {"TIS", "CEX", "CEL", "AB", "ABP", "D.FCS", "D.FLOW"}
+
+    @patch("nextseek_api.services.context_catalog._known_sample_type_codes")
+    @patch("nextseek_api.services.context_catalog._assay_rows")
+    def test_a_row_becomes_an_entry_with_the_alternation_intact(self, rows, known):
+        rows.return_value = [ASSAY_ROW]
+        known.return_value = self.KNOWN
+        entry, = load_assays()
+        assert entry.slug == "flow-cytometry"
+        assert entry.name == "Flow Cytometry"
+        assert len(entry.rows) == 1
+        assert entry.rows[0].required_parents == [["TIS", "CEX", "CEL"], ["AB", "ABP"]]
+        assert entry.rows[0].children == [["D.FLOW"]]
+        assert entry.rows[0].critical_attributes == ["TIS::Type", "ABP::Parent"]
+
+    @patch("nextseek_api.services.context_catalog._known_sample_type_codes")
+    @patch("nextseek_api.services.context_catalog._assay_rows")
+    def test_two_rows_with_one_name_become_one_entry_with_two_rows(self, rows, known):
+        """The 22 duplicate pairs. Nothing is merged; both rows are carried."""
+        curated = dict(ASSAY_ROW, id=11, assay_name="Cell Culture",
+                       required_parent_sample_types="CEL",
+                       children_sample_types="CEL", internal_assay_id=None)
+        registry = dict(ASSAY_ROW, id=85, assay_name="Cell Culture",
+                        required_parent_sample_types=None,
+                        children_sample_types=None, internal_assay_id=85)
+        rows.return_value = [curated, registry]
+        known.return_value = {"CEL"}
+        entry, = load_assays()
+        assert entry.slug == "cell-culture"
+        assert [r.row_id for r in entry.rows] == [11, 85]
+
+    @patch("nextseek_api.services.context_catalog._known_sample_type_codes")
+    @patch("nextseek_api.services.context_catalog._assay_rows")
+    def test_names_differing_only_by_a_hyphen_land_on_one_entry(self, rows, known):
+        """Measured on the live table: 217 rows, 195 names, 193 slugs.
+
+        'Long Read Sequencing' and 'Long-Read Sequencing' are one assay spelled
+        two ways, and the slug is what makes a cross-link find both.
+        """
+        rows.return_value = [
+            dict(ASSAY_ROW, id=1, assay_name="Long Read Sequencing"),
+            dict(ASSAY_ROW, id=2, assay_name="Long-Read Sequencing"),
+        ]
+        known.return_value = self.KNOWN
+        entry, = load_assays()
+        assert entry.slug == "long-read-sequencing"
+        assert len(entry.rows) == 2
+
+    @patch("nextseek_api.services.context_catalog._known_sample_type_codes")
+    @patch("nextseek_api.services.context_catalog._assay_rows")
+    def test_the_display_name_is_the_first_row_in_query_order(self, rows, known):
+        """_assay_rows orders by id, so "first" is deterministic in production.
+
+        The mock replaces that ordering, so this pins the rule the loader
+        applies to whatever order it is handed: first row seen wins the name.
+        """
+        rows.return_value = [
+            dict(ASSAY_ROW, id=2, assay_name="Long-Read Sequencing"),
+            dict(ASSAY_ROW, id=1, assay_name="Long Read Sequencing"),
+        ]
+        known.return_value = self.KNOWN
+        entry, = load_assays()
+        assert entry.name == "Long-Read Sequencing"
+        assert [r.row_id for r in entry.rows] == [2, 1]
+
+    @patch("nextseek_api.services.context_catalog._assay_rows")
+    def test_a_missing_table_yields_no_entries_and_does_not_raise(self, rows):
+        rows.side_effect = Exception("Table 'dmac.assay_context' doesn't exist")
+        assert load_assays() == []
+
+    @patch("nextseek_api.services.context_catalog._known_sample_type_codes")
+    @patch("nextseek_api.services.context_catalog._assay_rows")
+    def test_a_row_with_no_name_is_skipped(self, rows, known):
+        rows.return_value = [dict(ASSAY_ROW, assay_name=None), ASSAY_ROW]
+        known.return_value = self.KNOWN
+        assert [e.slug for e in load_assays()] == ["flow-cytometry"]
+
+    @patch("nextseek_api.services.context_catalog._known_sample_type_codes")
+    @patch("nextseek_api.services.context_catalog._assay_rows")
+    def test_load_assay_finds_one_and_returns_none_for_a_stranger(self, rows, known):
+        rows.return_value = [ASSAY_ROW]
+        known.return_value = self.KNOWN
+        assert load_assay("flow-cytometry").name == "Flow Cytometry"
+        assert load_assay("no-such-assay") is None
+
+
+class TestLoadProjectContext:
+    @patch("nextseek_api.services.context_catalog._project_context_row")
+    def test_json_array_columns_are_decoded(self, row):
+        row.return_value = {
+            "name": "IMPAcTb", "pi": "A Person",
+            "alternative_names": '["IMPACT", "IMPAcTb"]',
+            "key_data_types": '["flow", "rnaseq"]',
+            "research_focus": "TB", "parent_project": None,
+            "nih_reporter_link": "https://reporter.nih.gov/x",
+            "fairdomhub_published_link": None, "tags": "tb, nhp",
+        }
+        ctx = load_project_context(2)
+        assert ctx["alternative_names"] == ["IMPACT", "IMPAcTb"]
+        assert ctx["key_data_types"] == ["flow", "rnaseq"]
+
+    @patch("nextseek_api.services.context_catalog._project_context_row")
+    def test_a_pipe_delimited_column_is_accepted_as_a_fallback(self, row):
+        row.return_value = {"name": "X", "alternative_names": "A|B",
+                            "key_data_types": ""}
+        assert load_project_context(2)["alternative_names"] == ["A", "B"]
+
+    @patch("nextseek_api.services.context_catalog._project_context_row")
+    def test_no_row_is_none_not_an_empty_dict(self, row):
+        row.return_value = None
+        assert load_project_context(2) is None
+
+    @patch("nextseek_api.services.context_catalog._project_context_row")
+    def test_a_missing_table_is_none_and_does_not_raise(self, row):
+        row.side_effect = Exception("Table 'dmac.projects_context' doesn't exist")
+        assert load_project_context(2) is None
