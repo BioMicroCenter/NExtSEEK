@@ -1,0 +1,72 @@
+# Files opened while writing README.md and CLAUDE.md for
+# nextseek_api/cc_assistant/. One repo-relative path per line.
+
+# --- Django wiring, outside the boundary ---
+dmac/settings.py
+nextseek_api/urls.py
+nextseek_api/services/cc_assistant.py
+pyproject.toml
+DEPLOYMENT.md
+
+# --- boundary: top level ---
+nextseek_api/cc_assistant/__init__.py
+nextseek_api/cc_assistant/apps.py
+nextseek_api/cc_assistant/attach.py
+nextseek_api/cc_assistant/baml_introspect.py
+nextseek_api/cc_assistant/bin_inventory.py
+nextseek_api/cc_assistant/cc_artifacts.py
+nextseek_api/cc_assistant/cc_config.py
+nextseek_api/cc_assistant/cc_endpoint_guards.py
+nextseek_api/cc_assistant/cc_engine.py
+nextseek_api/cc_assistant/cc_memory.py
+nextseek_api/cc_assistant/cc_memory_io.py
+nextseek_api/cc_assistant/cc_provision.py
+nextseek_api/cc_assistant/cc_session.py
+nextseek_api/cc_assistant/cc_staging.py
+nextseek_api/cc_assistant/cc_summary.py
+nextseek_api/cc_assistant/cc_sweep.py
+nextseek_api/cc_assistant/cc_transcript_store.py
+nextseek_api/cc_assistant/cc_turn_context.py
+nextseek_api/cc_assistant/cc_upload_tasks.py
+nextseek_api/cc_assistant/cc_upload_validate.py
+nextseek_api/cc_assistant/family_labels.py
+nextseek_api/cc_assistant/ns_digest.py
+nextseek_api/cc_assistant/ns_turn_context.py
+nextseek_api/cc_assistant/posterior_selector.py
+nextseek_api/cc_assistant/risk_overlay.py
+nextseek_api/cc_assistant/route_monitoring.py
+nextseek_api/cc_assistant/router.py
+nextseek_api/cc_assistant/step7_gate_catalog.py
+nextseek_api/cc_assistant/step7_llm_cost_ledger.py
+nextseek_api/cc_assistant/step7_per_op_evidence.py
+nextseek_api/cc_assistant/translate.py
+nextseek_api/cc_assistant/transport_trace.py
+nextseek_api/cc_assistant/turn_ledger.py
+
+# --- boundary: stale docs, read but NOT treated as current ---
+nextseek_api/cc_assistant/DEPLOY.md
+nextseek_api/cc_assistant/LIVE_EVIDENCE.md
+
+# --- boundary: op_registry ---
+nextseek_api/cc_assistant/op_registry/__init__.py
+nextseek_api/cc_assistant/op_registry/export.py
+nextseek_api/cc_assistant/op_registry/ops.py
+
+# --- boundary: scripts ---
+nextseek_api/cc_assistant/scripts/full_ui_e2e.py
+nextseek_api/cc_assistant/scripts/verify_prod_readiness_manifest.py
+
+# --- boundary: tests and evidence ---
+nextseek_api/cc_assistant/tests/test_cc_realstack.py
+nextseek_api/cc_assistant/tests/test_cc_scripts_attribution.py
+nextseek_api/cc_assistant/tests/acceptance_evidence/step7/README.md
+nextseek_api/cc_assistant/acceptance_evidence/step7/instance_binding.json
+nextseek_api/cc_assistant/evidence/run_1c_claude_md_live_probe.py
+
+# --- consumers of this boundary ---
+build_tools/gen_op_surfaces/route_capabilities.py
+build_tools/plan005_gate.py
+
+# --- agent image the registry is exported into ---
+docker/cc-runtime/Dockerfile
+.claude/skills/add-cc-op/SKILL.md
