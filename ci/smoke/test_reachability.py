@@ -140,6 +140,11 @@ def test_route_is_reachable(route, base_url, discovered, clients):
     # prints the exception, so an uncaught one writes a real production identifier
     # into the CI log the moment the box has a network hiccup. Only the type is
     # reported, against the template.
+    # pytest.fail is called AFTER the try statement, never inside an except
+    # block: raised inside one, Python chains the original exception and pytest
+    # prints it -- resolved url and all -- above the clean message, and the same
+    # text lands in junitxml. Outside, the chain is empty.
+    failure = None
     try:
         r = client.get(
             base_url + path, timeout=90, allow_redirects=False,
@@ -148,13 +153,15 @@ def test_route_is_reachable(route, base_url, discovered, clients):
     except ProfileViolation as exc:
         # A refusal here is a HARNESS bug, not a product one: T0 only ever requests
         # routes _callable_routes already filtered to this profile, with a GET.
-        pytest.fail(
+        failure = (
             f"{template} was refused by the guard ({type(exc).__name__}). T0 asks "
             f"only for routes the profile enables, so this is a harness bug: the "
             f"registry entry, the profile filter and the client disagree."
         )
     except requests.RequestException as exc:
-        pytest.fail(f"{template} raised {type(exc).__name__}")
+        failure = f"{template} raised {type(exc).__name__}"
+    if failure is not None:
+        pytest.fail(failure)
     # The template, never `path`: under prod the resolved one carries a real
     # production identifier, and a failure message is written to a CI log.
     check_gateway(r, label=template)
