@@ -13,6 +13,8 @@ import pandas as pd
 import re
 from django.shortcuts import render
 from django.conf import settings
+from django.views.decorators.clickjacking import xframe_options_sameorigin
+
 from ..decorators import requires_seek_login_redirect
 from ..decorators import verifySuperUser
 
@@ -160,6 +162,13 @@ def _may_see_project(request, project_id) -> bool:
     return int(project_id) in [int(p['id']) for p in user_projects]
 
 
+# Django's XFrameOptionsMiddleware is enabled with no X_FRAME_OPTIONS setting,
+# so the default DENY applies and blocks this document even in a SAME-ORIGIN
+# frame. Without this decorator the project page shows a broken-document icon
+# where the diagram should be, and nothing is logged: the refusal happens in the
+# browser, so the response is a clean 200 and CI's status sweep sees nothing
+# wrong. sameorigin, not exempt: the frame is only ever ours.
+@xframe_options_sameorigin
 @requires_seek_login_redirect()
 def project_connections(request, project_id):
     """The connection diagram for one project, as a standalone HTML document.

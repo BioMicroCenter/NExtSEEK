@@ -59,6 +59,24 @@ class TestProjectConnections:
         resp = project_connections(_req("/seek/projects/2/connections/", superuser=True), "2")
         assert resp.status_code == 200
 
+    @patch("seek.views.projects.connections_html", return_value="<html>d</html>")
+    @patch("seek.views.projects.Projects")
+    @patch("seek.decorators.SeekDB")
+    def test_the_response_may_be_framed_by_the_project_page(self, db, projects, _html):
+        """Without this the browser refuses the frame and shows a broken-document
+        icon, while the response is a clean 200 that no status sweep can fault.
+
+        XFrameOptionsMiddleware is enabled and dmac/settings.py sets no
+        X_FRAME_OPTIONS, so Django's default DENY applies and blocks even a
+        same-origin frame. Measured in the browser 2026-09-02.
+        """
+        from seek.views.projects import project_connections
+
+        db.return_value = _seekdb([2])
+        projects.objects.filter.return_value.first.return_value = MagicMock(title="IMPAcTb")
+        resp = project_connections(_req("/seek/projects/2/connections/"), "2")
+        assert resp.headers.get("X-Frame-Options") == "SAMEORIGIN"
+
     @patch("seek.views.projects.connections_html", return_value="")
     @patch("seek.views.projects.Projects")
     @patch("seek.decorators.SeekDB")
