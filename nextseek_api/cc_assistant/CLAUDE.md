@@ -17,7 +17,7 @@ correctness regression, not a refactor.
   `docker-compose.yml:488` and marked `internal: true` at
   `docker-compose.yml:495` so it has no gateway at all. `db`, `neo4j`, `seek`
   and `solr` declare no `networks:` key and so stay on the default network
-  only, which is the stated intent at `docker-compose.yml:74`. Adding the agent
+  only, which is the stated intent at `docker-compose.yml:73-74`. Adding the agent
   to the default network would hand it L3 reach to services whose password is a
   committed default.
 - **Every mount is a subpath of one named volume.** `nextseek_api/cc_assistant/cc_engine.py:932`
@@ -48,8 +48,9 @@ correctness regression, not a refactor.
 - **Only the staging sweep writes into a user's own subtree.** The sidecar's
   volume mount is pinned to the reserved staging subpath at
   `docker-compose.yml:183`, so it cannot reach `{project}/{user}/` at all, and
-  the sweep derives its destination from the request identity it validates at
-  `nextseek_api/cc_assistant/cc_staging.py:279` — never from a staged file's
+  the sweep derives its destination only from the validated request identity
+  (`nextseek_api/cc_assistant/cc_staging.py:274-276`, enforced at
+  `nextseek_api/cc_assistant/cc_staging.py:279`) — never from a staged file's
   name.
 - **BAML imports stay lazy and guarded** — `nextseek_api/cc_assistant/router.py:135`.
   A vendoring or dependency hiccup must degrade routing, never stop Django from
@@ -66,7 +67,7 @@ correctness regression, not a refactor.
 
 - **`.vetting/` is not documentation.** 65 files of superseded automated
   review-iteration logs, each recording one hardening pass over a plan document
-  — `nextseek_api/cc_assistant/.vetting/plan-3-phase2-fix-log-iter22.md:3`. Do
+  — `nextseek_api/cc_assistant/.vetting/plan-3-phase2-fix-log-iter22.md:1-4`. Do
   not read them for current behaviour and do not cite them.
 - **The 10 `SPEC-*.md` / `PLAN-*.md` files here are superseded** and are
   scheduled to move to an archive. They announce themselves as live state —
@@ -88,9 +89,9 @@ correctness regression, not a refactor.
   `nextseek_api/assistant/read_safe_endpoints.json` moves, the whole registry
   stops importing.
 - **The hermetic lane printed at `DEPLOYMENT.md:482` cannot collect as written.**
-  Its dependency list omits Django while modules here read Django settings at
-  import scope — `nextseek_api/cc_assistant/posterior_selector.py:38` is the
-  first — so 62 modules error before any test runs. Measured 2026-09-02. Add
+  Its dependency list omits Django while modules here import Django at module
+  scope — `nextseek_api/cc_assistant/posterior_selector.py:6` is the first —
+  so 62 modules error before any test runs. Measured 2026-09-02. Add
   Django to the `--with` list, or pass `--continue-on-collection-errors`.
 - **There is no `conftest.py` anywhere under `tests/`.** The settings module
   named at `pyproject.toml:147` is the real one, not the test one, so a bare
@@ -99,7 +100,7 @@ correctness regression, not a refactor.
   holds several distinct concerns.** Read the section you need; it is not a
   narrative.
 - **`router.py` opens with a `try/except ImportError` dual import**
-  (`nextseek_api/cc_assistant/router.py:16`) so the module also loads outside
+  (`nextseek_api/cc_assistant/router.py:14-17`) so the module also loads outside
   the package. Adding a plain relative import to the top of that file breaks
   the standalone path silently.
 - **Adding an operation is a skill, not an edit.** A hand-rolled parallel
@@ -128,7 +129,8 @@ environmental harness errors that are not regressions.
 
 - See `nextseek_api/cc_assistant/README.md` for what each module does, the
   dependency map in both directions, and the three test lanes.
-- See `DEPLOYMENT.md:483` for the full lane table and the deployment runbook.
+- See `DEPLOYMENT.md:480-486` for the full lane table and the deployment
+  runbook.
 - See `nextseek_api/cc_assistant/DEPLOY.md:15` for subsystem-specific deploy
   notes — pending review, treat as unverified.
 - See `docker/cc-runtime/Dockerfile:51` for how the agent image and its plugin

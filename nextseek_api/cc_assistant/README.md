@@ -11,7 +11,7 @@ at `dmac/settings.py:179` — but an unusual one. It declares **no models and no
 migrations of its own**; the ORM row it writes is created at
 `nextseek_api/cc_assistant/turn_ledger.py:28`, from a model class defined in
 `nextseek_api/assistant/models_db.py`. Its `AppConfig.ready()` hook exists solely
-to arm the LLM cost ledger (`nextseek_api/cc_assistant/apps.py:9`). It registers
+to arm the LLM cost ledger (`nextseek_api/cc_assistant/apps.py:9-11`). It registers
 **no URLs**: the single HTTP surface is a ViewSet registered from outside the
 boundary at `nextseek_api/urls.py:40`.
 
@@ -28,7 +28,7 @@ Three route constants define the whole decision space —
 public entry point. Beneath it sit four strategies in precedence order. A
 comparative-posterior selector goes first when its Django feature flag is on
 (`nextseek_api/cc_assistant/posterior_selector.py:38`); a returned selection
-short-circuits the rest at `nextseek_api/cc_assistant/router.py:285`, so the
+short-circuits the rest at `nextseek_api/cc_assistant/router.py:285-286`, so the
 BAML router is never consulted. Otherwise a BAML classifier assigns a task
 family, a BAML router picks a destination, and a keyword regex
 (`nextseek_api/cc_assistant/router.py:107`) is the last resort when BAML is
@@ -52,12 +52,12 @@ is the turn driver, inside the largest file here
 | Secret-scrub watermark for a stored transcript | `nextseek_api/cc_assistant/cc_engine.py:527` |
 | Agent image and dedicated network defaults | `nextseek_api/cc_assistant/cc_engine.py:49` |
 
-Around it: `nextseek_api/cc_assistant/attach.py:3` demultiplexes Docker's
+Around it: `nextseek_api/cc_assistant/attach.py:1-6` demultiplexes Docker's
 stdcopy framing (copied verbatim from upstream with attribution, because the
 upstream module drags in FastAPI); `nextseek_api/cc_assistant/translate.py:1-7`
 maps Claude Code `stream-json` onto the six progress events the existing React
 frontend already renders; `nextseek_api/cc_assistant/cc_artifacts.py:3` decides
-what becomes a downloadable bundle; `nextseek_api/cc_assistant/cc_transcript_store.py:3`
+what becomes a downloadable bundle; `nextseek_api/cc_assistant/cc_transcript_store.py:3-4`
 zstd-compresses the session `.jsonl` into a DB row.
 
 **Path layout.** `nextseek_api/cc_assistant/cc_config.py:23` names the external
@@ -81,10 +81,11 @@ discovers the executable shims from disk rather than a hardcoded list, rooted at
 `nextseek_api/cc_assistant/bin_inventory.py:19` (20 `nextseek-*` shims today).
 
 **Evidence and gates.** `nextseek_api/cc_assistant/step7_llm_cost_ledger.py:3`
-records real token spend; `nextseek_api/cc_assistant/step7_per_op_evidence.py:3`
-holds the pure evidence logic for forced-CC per-op proofs. Paid orchestration
-lives in `nextseek_api/cc_assistant/scripts/full_ui_e2e.py:2` and
-`nextseek_api/cc_assistant/scripts/verify_prod_readiness_manifest.py:3`.
+records real token spend, and `nextseek_api/cc_assistant/step7_per_op_evidence.py:7-9`
+keeps the per-op proof logic pure so it is testable without spending. The paid
+orchestration is `nextseek_api/cc_assistant/scripts/full_ui_e2e.py:2`; the
+zero-spend re-verifier that trusts no artifact's own PASS is
+`nextseek_api/cc_assistant/scripts/verify_prod_readiness_manifest.py:2-5`.
 
 Three directories here are **load-bearing inputs the package reads**, not
 scratch it writes. `acceptance_evidence/` supplies the gate exercise catalog
@@ -92,7 +93,7 @@ and the instance binding (`nextseek_api/cc_assistant/step7_gate_catalog.py:19`
 and `nextseek_api/cc_assistant/step7_gate_catalog.py:20`).
 `tests/acceptance_evidence/` is the home for generated run bundles, and its
 validator refuses any bundle whose files are only Markdown
-(`nextseek_api/cc_assistant/tests/acceptance_evidence/step7/README.md:13`).
+(`nextseek_api/cc_assistant/tests/acceptance_evidence/step7/README.md:13-15`).
 `evidence/` holds a live probe script
 (`nextseek_api/cc_assistant/evidence/run_1c_claude_md_live_probe.py:2`).
 
@@ -119,19 +120,22 @@ hygiene tests out of the in-container run; 9 test modules here use it.
 Depends on, outside this directory:
 
 - The vendored BAML router in `dmac_assistant/`, imported only inside the
-  deferred loader at `nextseek_api/cc_assistant/router.py:135`.
-- `nextseek_api/assistant/models_db.py` for the ORM model this package writes — `nextseek_api/cc_assistant/turn_ledger.py:28`.
-- `nextseek_api/eval/` for the routing generation store, consulted at
+  deferred loader at `nextseek_api/cc_assistant/router.py:135-139`.
+- `nextseek_api/assistant/models_db.py`, imported at
+  `nextseek_api/cc_assistant/turn_ledger.py:4`, for the ORM model this package
+  writes at `nextseek_api/cc_assistant/turn_ledger.py:28`.
+- `nextseek_api/eval/` for the routing generation store, imported at
+  `nextseek_api/cc_assistant/posterior_selector.py:9` and consulted at
   `nextseek_api/cc_assistant/posterior_selector.py:47`.
 - `nessie_tests/corpus.json` for the classifier label space, resolved at
   `nextseek_api/cc_assistant/family_labels.py:21`.
-- `seek.seekdb`, used host-side only to resolve a project, behind the factory at
-  `nextseek_api/cc_assistant/cc_provision.py:150`.
+- `seek.seekdb`, used host-side only to resolve a project, imported lazily
+  inside the factory at `nextseek_api/cc_assistant/cc_provision.py:150-151`.
 - `docker/cc-runtime/build_context/plugins/nextseek/bin/`, the shim directory
   the registry scans — `nextseek_api/cc_assistant/bin_inventory.py:22`. Deleting
   it silently empties the op inventory.
 - `nextseek_api/assistant/read_safe_endpoints.json`, read eagerly at
-  `nextseek_api/cc_assistant/op_registry/ops.py:19`.
+  `nextseek_api/cc_assistant/op_registry/ops.py:19-23`.
 
 Depended on by:
 
@@ -142,9 +146,9 @@ Depended on by:
 - `build_tools/gen_op_surfaces/`, which regenerates the agent's skills, commands
   and route capabilities from this registry —
   `build_tools/gen_op_surfaces/route_capabilities.py:38`.
-- `build_tools/plan005_gate.py:26`, which pins a test module here as a named CI
-  lane.
+- `build_tools/plan005_gate.py:26-27`, which pins two test modules here as named
+  CI lanes.
 - The Celery beat schedule, which fires the summary sweep every 300 seconds —
-  `nextseek_api/batch_upload/celery_app.py:42`.
+  `nextseek_api/batch_upload/celery_app.py:42-43`.
 
 See `nextseek_api/cc_assistant/CLAUDE.md` for the invariants and traps.
