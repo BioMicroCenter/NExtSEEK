@@ -36,7 +36,9 @@
 .tpl-sg { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px dashed #c3c6cc; background: #fff; border-radius: 11px; padding: 0.1rem 0.5rem; font-size: 0.72rem; color: #3f4650; cursor: pointer; }
 .tpl-sg code { color: var(--ns-crimson); font-weight: 700; }
 
-.tpl-req { border: 1px solid var(--ns-crimson-border, #e8b4bf); border-top: 0; background: var(--ns-crimson-soft, #fdf1f3); padding: 0.4rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+/* Same rounded foot as .tpl-sugg above it: the two strips stack under the
+   selection bar, and whichever ends up last has to close the box. */
+.tpl-req { border: 1px solid var(--ns-crimson-border, #e8b4bf); border-top: 0; border-radius: 0 0 6px 6px; background: var(--ns-crimson-soft, #fdf1f3); padding: 0.4rem 0.65rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .tpl-req[hidden] { display: none; }
 .tpl-req-need { font-size: 0.72rem; color: #8d1c2d; }
 .tpl-chip.is-required { border-style: dashed; }
@@ -202,31 +204,120 @@
 
   // Types auto-added to satisfy a requirement, so unticking the child can take
   // them away again -- but never one the user ticked themselves.
+  // {parentCode: childCode it is here for}
   var autoAdded = {};
+
+  // Parents the user has taken back off after they were auto-added.
+  // {childCode: {parentCode: true}}
+  //
+  // The download is never blocked and an auto-added chip is removable: someone
+  // may legitimately upload D.SEQ against DNA that is already in NExtSEEK.
+  // Without this, renderRequirements sees D.SEQ unsatisfied on the very next
+  // pass and puts DNA straight back, so no sequence short of Clear yields
+  // D.SEQ without DNA. A declined requirement still shows in the strip -- the
+  // user should see what they have chosen to omit.
+  var declined = {};
+
+  // The still-selected type that `parent` is here for, or null if nothing
+  // needs it any more. Also the chip's "required by" credit, so a parent that
+  // outlives the child it was added for is re-credited rather than left
+  // pointing at a type that is no longer selected.
+  function requiredBy(parent) {
+    var holder = null;
+    selected().forEach(function (code) {
+      if (holder) { return; }
+      var req = REQUIRES[code];
+      if (req && (req.parents || []).indexOf(parent) !== -1) { holder = code; }
+    });
+    return holder;
+  }
+
+  // Drop every auto-added parent no still-selected type names, and keep
+  // dropping: removing one can orphan the parent that was added for *it*
+  // (A.ALN -> D.SEQ -> DNA). Unchecking a box from script fires no 'change'
+  // event, so nothing else will notice. Only entries in `autoAdded` are ever
+  // touched, which is what keeps a hand-picked type safe.
+  function prune() {
+    var moved = true;
+    while (moved) {
+      moved = false;
+      Object.keys(autoAdded).forEach(function (parent) {
+        if (!isChecked(parent)) { delete autoAdded[parent]; return; }
+        var holder = requiredBy(parent);
+        if (holder) { autoAdded[parent] = holder; return; }
+        delete autoAdded[parent];
+        delete declined[parent];
+        boxes.forEach(function (b) { if (b.value === parent) { b.checked = false; } });
+        moved = true;
+      });
+    }
+  }
+
+  // `code` has just been deselected by the user, by either route (the chip's
+  // remove or the checkbox itself).
+  function release(code) {
+    if (autoAdded[code]) {
+      var child = autoAdded[code];
+      (declined[child] || (declined[child] = {}))[code] = true;
+      delete autoAdded[code];
+    }
+    // A type's own declines only mean anything while it is selected.
+    delete declined[code];
+    prune();
+  }
+
+  function remove(code) {
+    boxes.forEach(function (b) { if (b.value === code) { b.checked = false; } });
+    release(code);
+    render();
+  }
 
   // Mirrors nextseek_api/services/type_requirements.py: one parent is a hard
   // requirement, two or three are alternatives needing one. Keep in step.
   function renderRequirements(chosen) {
     var needs = [];
+    var pending = [];
     chosen.forEach(function (code) {
       var req = REQUIRES[code];
       if (!req || !req.parents.length) { return; }
       var satisfied = req.parents.some(isChecked);
       if (satisfied) { return; }
-      if (req.parents.length === 1) {
-        autoAdded[req.parents[0]] = code;
-        check(req.parents[0], true);   // re-enters render()
+      var refused = declined[code] || {};
+      var open = req.parents.filter(function (p) { return !refused[p]; });
+      if (req.parents.length === 1 && open.length === 1) {
+        pending.push({ parent: req.parents[0], child: code, assays: req.assays || [] });
         return;
       }
       needs.push({ child: code, parents: req.parents, assays: req.assays || [] });
     });
+
+    // Collect first, apply second, and then get out of the way. check() below
+    // re-enters render(), which recomputes this whole pass against the new
+    // selection and paints the strip correctly; if this frame carried on to
+    // its own DOM writes it would repaint from a `needs` computed before the
+    // recursion -- wiping a real prompt, or advertising one the same pass had
+    // already satisfied. The last writer must not be the most stale one.
+    if (pending.length) {
+      var added = false;
+      pending.forEach(function (entry) {
+        // Set before check(): the re-entrant render() reads it to badge the
+        // chip it is about to draw.
+        autoAdded[entry.parent] = entry.child;
+        if (check(entry.parent, true)) { added = true; return; }
+        // No checkbox carries that code, so there is nothing to add. Show it
+        // as unmet instead of asking for it again forever.
+        delete autoAdded[entry.parent];
+        needs.push({ child: entry.child, parents: [entry.parent], assays: entry.assays });
+      });
+      if (added) { return; }
+    }
 
     var box = document.getElementById('tpl-req-items');
     box.innerHTML = '';
     needs.forEach(function (need) {
       var line = document.createElement('span');
       line.className = 'tpl-req-need';
-      var label = need.child + ' needs one of:';
+      var label = need.child + (need.parents.length === 1 ? ' needs:' : ' needs one of:');
       if (need.assays.length) { label += ' (' + need.assays.join(', ') + ')'; }
       line.appendChild(document.createTextNode(label));
       need.parents.forEach(function (p) {
@@ -234,6 +325,8 @@
         btn.className = 'tpl-sg';
         btn.textContent = '+ ' + p;
         btn.addEventListener('click', function () {
+          // Taking the offer withdraws an earlier decline of the same parent.
+          if (declined[need.child]) { delete declined[need.child][p]; }
           autoAdded[p] = need.child;
           check(p, true);
         });
@@ -256,10 +349,23 @@
     applyFilter();
   }
 
+  // Returns false when no checkbox carries `code`, having done nothing at all.
+  // That return is what makes renderRequirements' recursion terminate
+  // structurally rather than by luck: load_requirements() drops requirements
+  // naming an out-of-catalog parent, but that guard is Python and this is the
+  // consumer. Without it one such row recurses until the stack blows, taking
+  // the whole picker down with it.
   function check(code, value) {
-    boxes.forEach(function (b) { if (b.value === code) { b.checked = value; } });
+    var matched = false;
+    boxes.forEach(function (b) {
+      if (b.value !== code) { return; }
+      b.checked = value;
+      matched = true;
+    });
+    if (!matched) { return false; }
     if (value) { clearSearch(); }
     render();
+    return true;
   }
 
   function render() {
@@ -268,7 +374,7 @@
     chosen.forEach(function (code) {
       var box = boxes.filter(function (b) { return b.value === code; })[0];
       var el = chip(code, box.getAttribute('data-group'), function () {
-        check(code, false);
+        remove(code);
       });
       if (autoAdded[code]) {
         el.classList.add('is-required');
@@ -284,14 +390,7 @@
 
   boxes.forEach(function (b) {
     b.addEventListener('change', function () {
-      if (b.checked) { clearSearch(); }
-      if (!b.checked) {
-        Object.keys(autoAdded).forEach(function (parent) {
-          if (autoAdded[parent] !== b.value) { return; }
-          delete autoAdded[parent];
-          boxes.forEach(function (x) { if (x.value === parent) { x.checked = false; } });
-        });
-      }
+      if (b.checked) { clearSearch(); } else { release(b.value); }
       render();
     });
   });
@@ -302,7 +401,9 @@
     // change-handler cleanup above never runs here -- clear the
     // auto-added bookkeeping directly, or a later re-tick of a former
     // child shows a stale "required by" chip on an unrelated parent.
+    // The declines go with it: nothing is selected to decline anything for.
     autoAdded = {};
+    declined = {};
     render();
   });
 

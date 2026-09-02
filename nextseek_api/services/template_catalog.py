@@ -225,11 +225,16 @@ def suggest(selected, relationships) -> list[str]:
 
 
 def load_requirements(codes) -> dict[str, dict]:
-    """{child: {"parents": [...], "assays": [...], "coverage": float}}.
+    """{child: {"parents": [...], "assays": [...]}}.
 
     A requirement is dropped unless every parent it names is a code this
     instance still has -- a chip the user cannot satisfy is worse than no chip.
     Same rule parse_related() applies to the curator columns.
+
+    `coverage` and `support` are deliberately not read. They are what the rule
+    was derived from, auditable in the table itself; the page shows a
+    requirement or it does not, and shipping the numbers to the browser only
+    widened the surface a malformed row could break.
 
     Soft, like every other enrichment here: an absent or unreadable table costs
     requirements and the picker behaves as it did before the feature existed.
@@ -241,7 +246,7 @@ def load_requirements(codes) -> dict[str, dict]:
     try:
         rows = list(
             Sample_type_requirements.objects.filter(child_code__in=sorted(known)).values(
-                "child_code", "parent_codes", "assay_titles", "coverage"
+                "child_code", "parent_codes", "assay_titles"
             )
         )
     except Exception:
@@ -250,18 +255,21 @@ def load_requirements(codes) -> dict[str, dict]:
 
     out = {}
     for row in rows:
+        # Everything that touches the row's own data belongs inside the try:
+        # `source='curator'` is reserved for hand-written rows, and the whole
+        # point of the failure contract is that the first bad one costs a
+        # requirement rather than the page. set() on a non-list parent_codes
+        # ('5' is valid JSON) raises TypeError just as loudly as a bad parse.
         try:
             parents = json.loads(row["parent_codes"])
             assays = json.loads(row["assay_titles"]) if row["assay_titles"] else []
+            if not parents or not set(parents) <= known:
+                continue
+            if not isinstance(assays, list):
+                assays = []
         except (TypeError, ValueError):
             # A malformed row is one bad requirement, not a broken page.
             logger.warning("unparseable requirement row for %s", row.get("child_code"))
             continue
-        if not parents or not set(parents) <= known:
-            continue
-        out[row["child_code"]] = {
-            "parents": parents,
-            "assays": assays,
-            "coverage": float(row["coverage"]),
-        }
+        out[row["child_code"]] = {"parents": parents, "assays": assays}
     return out

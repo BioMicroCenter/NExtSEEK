@@ -10,15 +10,16 @@ changes when samples are uploaded.
 import json
 import logging
 import sys
-from datetime import datetime
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from django.db import transaction
+from django.utils import timezone
 from neo4j import GraphDatabase
 
 from nextseek_api.services.type_requirements import classify
 from nextseek_api.services.sample_workbook import ASSAY_TITLE_SUFFIXES
-from seek.models import Sample_type_requirements
+from seek.models import NEXTSEEK_DATABASE, Sample_type_requirements
 
 logger = logging.getLogger(__name__)
 
@@ -102,16 +103,23 @@ class Command(BaseCommand):
             self.stdout.write(f"{len(requirements)} requirements (dry run, nothing written)")
             return
 
-        now = datetime.now()
-        Sample_type_requirements.objects.all().delete()
-        for req in requirements.values():
-            Sample_type_requirements.objects.create(
-                child_code=req.child,
-                parent_codes=json.dumps(req.parents),
-                coverage=round(req.coverage, 3),
-                support=req.support,
-                assay_titles=json.dumps(req.assays) if req.assays else None,
-                source="graph",
-                computed_at=now,
-            )
+        # USE_TZ is on, so datetime.now() would be a naive datetime.
+        now = timezone.now()
+        # Delete-then-insert is not a rewrite unless it is one transaction: an
+        # error part way through the loop otherwise leaves the table half
+        # written, and a page load landing between the delete and the last
+        # insert sees a table that is empty or short. NEXTSEEK_DATABASE is the
+        # alias the model is routed to.
+        with transaction.atomic(using=NEXTSEEK_DATABASE):
+            Sample_type_requirements.objects.all().delete()
+            for req in requirements.values():
+                Sample_type_requirements.objects.create(
+                    child_code=req.child,
+                    parent_codes=json.dumps(req.parents),
+                    coverage=round(req.coverage, 3),
+                    support=req.support,
+                    assay_titles=json.dumps(req.assays) if req.assays else None,
+                    source="graph",
+                    computed_at=now,
+                )
         self.stdout.write(f"wrote {len(requirements)} sample type requirements")

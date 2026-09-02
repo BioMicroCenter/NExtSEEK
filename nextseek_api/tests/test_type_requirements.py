@@ -57,6 +57,20 @@ def test_a_set_wider_than_max_set_is_not_a_requirement():
     assert "D.IMG" not in out
 
 
+def test_coverage_exactly_on_the_floor_is_kept():
+    """95 of 100 is 0.95 to the bit, so this pins `>=` rather than `>`.
+
+    Without it the comparison that defines the whole rule is unpinned:
+    mutating it leaves every other case in this file passing, because they
+    all land clear of the boundary on one side or the other. Here the first
+    parent alone is exactly at the floor and must be taken alone -- a `>`
+    would swallow the 5% tail into the requirement as a second alternative.
+    """
+    out = classify([("EXACT", "AAA", 95, []), ("EXACT", "BBB", 5, [])])
+    assert out["EXACT"].parents == ["AAA"]
+    assert out["EXACT"].coverage == COVERAGE_FLOOR
+
+
 def test_support_below_the_floor_makes_no_claim():
     out = classify([("RARE", "TIS", MIN_SUPPORT - 1, [])])
     assert out == {}

@@ -1,6 +1,5 @@
 """The template catalog: what types exist, their columns, and what they relate to."""
 
-from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -331,7 +330,7 @@ class TestSuggest:
 
 
 class TestLoadRequirements:
-    """dmac.sample_type_requirements -> {child: {parents, assays, coverage}}."""
+    """dmac.sample_type_requirements -> {child: {parents, assays}}."""
 
     def _model(self, rows):
         m = MagicMock()
@@ -342,17 +341,16 @@ class TestLoadRequirements:
         from nextseek_api.services.template_catalog import load_requirements
 
         rows = [{"child_code": "PAV", "parent_codes": '["NHP", "PAT"]',
-                 "assay_titles": '["Patient Visit"]', "coverage": 0.98}]
+                 "assay_titles": '["Patient Visit"]'}]
         with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
             out = load_requirements({"PAV", "NHP", "PAT"})
-        assert out == {"PAV": {"parents": ["NHP", "PAT"],
-                               "assays": ["Patient Visit"], "coverage": 0.98}}
+        assert out == {"PAV": {"parents": ["NHP", "PAT"], "assays": ["Patient Visit"]}}
 
     def test_a_null_assay_column_becomes_an_empty_list(self):
         from nextseek_api.services.template_catalog import load_requirements
 
         rows = [{"child_code": "CEX", "parent_codes": '["NHP"]',
-                 "assay_titles": None, "coverage": 1.0}]
+                 "assay_titles": None}]
         with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
             assert load_requirements({"CEX", "NHP"})["CEX"]["assays"] == []
 
@@ -361,7 +359,7 @@ class TestLoadRequirements:
         from nextseek_api.services.template_catalog import load_requirements
 
         rows = [{"child_code": "PAV", "parent_codes": '["NHP", "GONE"]',
-                 "assay_titles": None, "coverage": 0.98}]
+                 "assay_titles": None}]
         with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
             assert load_requirements({"PAV", "NHP"}) == {}
 
@@ -369,9 +367,9 @@ class TestLoadRequirements:
         from nextseek_api.services.template_catalog import load_requirements
 
         rows = [{"child_code": "PAV", "parent_codes": "not json",
-                 "assay_titles": None, "coverage": 0.98},
+                 "assay_titles": None},
                 {"child_code": "CEX", "parent_codes": '["NHP"]',
-                 "assay_titles": None, "coverage": 1.0}]
+                 "assay_titles": None}]
         with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
             assert sorted(load_requirements({"PAV", "CEX", "NHP"})) == ["CEX"]
 
@@ -391,23 +389,52 @@ class TestLoadRequirements:
             assert load_requirements(set()) == {}
         m.objects.filter.assert_not_called()
 
-    def test_coverage_is_converted_to_a_plain_float(self):
-        """coverage is a DecimalField; json_script cannot serialise a Decimal."""
-        from nextseek_api.services.template_catalog import load_requirements
-
-        rows = [{"child_code": "PAV", "parent_codes": '["NHP"]',
-                 "assay_titles": None, "coverage": Decimal("0.980")}]
-        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
-            out = load_requirements({"PAV", "NHP"})
-        assert isinstance(out["PAV"]["coverage"], float)
-
     def test_a_row_with_a_non_json_type_in_parent_codes_is_skipped(self):
         """parent_codes=None hits the TypeError branch of the parse, not ValueError."""
         from nextseek_api.services.template_catalog import load_requirements
 
         rows = [{"child_code": "PAV", "parent_codes": None,
-                 "assay_titles": None, "coverage": 0.98},
+                 "assay_titles": None},
                 {"child_code": "CEX", "parent_codes": '["NHP"]',
-                 "assay_titles": None, "coverage": 1.0}]
+                 "assay_titles": None}]
         with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
             assert sorted(load_requirements({"PAV", "CEX", "NHP"})) == ["CEX"]
+
+    def test_parent_codes_holding_valid_json_that_is_not_a_list_is_skipped(self):
+        """'5' parses fine and then set() raises TypeError.
+
+        That expression used to sit outside the per-row try, so one such row
+        propagated out of _templates_context() and 500'd /seek/templates/.
+        """
+        from nextseek_api.services.template_catalog import load_requirements
+
+        rows = [{"child_code": "PAV", "parent_codes": "5", "assay_titles": None},
+                {"child_code": "CEX", "parent_codes": '["NHP"]', "assay_titles": None}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            assert sorted(load_requirements({"PAV", "CEX", "NHP"})) == ["CEX"]
+
+    def test_assay_titles_holding_something_other_than_a_list_becomes_empty(self):
+        """The browser joins this array; a bare string would break the strip."""
+        from nextseek_api.services.template_catalog import load_requirements
+
+        rows = [{"child_code": "CEX", "parent_codes": '["NHP"]',
+                 "assay_titles": '"Tissue Collection"'}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            assert load_requirements({"CEX", "NHP"})["CEX"]["assays"] == []
+
+    def test_coverage_is_neither_read_nor_shipped_to_the_page(self):
+        """The column stays; the read path does not touch it.
+
+        Nothing downstream -- view, template or script -- ever read it, and
+        `float()` on a NULL or an 'n/a' from a hand-written `source='curator'`
+        row was one more way to take the page down. A row with no coverage key
+        at all still parses, which is the proof it is not consulted.
+        """
+        from nextseek_api.services.template_catalog import load_requirements
+
+        rows = [{"child_code": "CEX", "parent_codes": '["NHP"]', "assay_titles": None}]
+        model = self._model(rows)
+        with patch(f"{_MOD}.Sample_type_requirements", model):
+            out = load_requirements({"CEX", "NHP"})
+        assert out == {"CEX": {"parents": ["NHP"], "assays": []}}
+        assert "coverage" not in model.objects.filter.return_value.values.call_args[0]

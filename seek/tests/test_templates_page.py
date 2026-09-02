@@ -151,7 +151,6 @@ class TestPicker:
             "D.SEQ": {
                 "parents": ["TIS"],
                 "assays": ["</script><img src=x onerror=alert(1)>"],
-                "coverage": 1.0,
             }
         }
         resp = templatesList(_get())
@@ -168,8 +167,7 @@ class TestPicker:
 
         mock_db.return_value = _logged_in()
         mock_req.return_value = {
-            "D.SEQ": {"parents": ["TIS"], "assays": ["Short Read Sequencing"],
-                      "coverage": 1.0}
+            "D.SEQ": {"parents": ["TIS"], "assays": ["Short Read Sequencing"]}
         }
         body = templatesList(_get()).content.decode()
         assert "tpl-requirements-data" in body
