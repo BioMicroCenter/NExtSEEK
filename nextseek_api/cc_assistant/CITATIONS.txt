@@ -74,6 +74,11 @@ nextseek_api/management/commands/cc_sweep_staging.py
 nextseek_api/eval/human_grade_fit.py
 nextseek_api/eval/task6_replay.py
 nessie_tests/sources.py
+build_tools/plan005_validate_plugins/validate.py
+nextseek_api/eval/generation_validation.py
+scripts/plan018_v4_5_verifier.py
+scripts/plan018_v4_9_functional_e2e.py
+scripts/plan018_v4_9_task8_deploy.py
 
 # --- agent image the registry is exported into ---
 docker/cc-runtime/Dockerfile
