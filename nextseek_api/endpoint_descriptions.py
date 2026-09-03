@@ -1217,3 +1217,46 @@ ASSAY_REGISTRATION_JOB_CANCEL_DESC = (
     "**EXAMPLES:**\n"
     "- 'Cancel that assay registration job'\n"
 )
+
+# =============================================================================
+# TemplatesViewSet (2 endpoints)
+# =============================================================================
+
+TEMPLATE_CATALOG_DESC = (
+    "**SUMMARY:** List every sample type a blank upload template can be generated for, grouped by title prefix, "
+    "together with the derived rules saying which other types a selection implies.\n\n"
+    "**USE WHEN:** The caller is choosing sample types before requesting a template workbook, or wants to know which types "
+    "NExtSEEK treats as required parents or usual companions of a given type.\n\n"
+    "**DO NOT USE WHEN:** The caller wants the attribute columns of a sample type — use `GET attributes/` or `POST attributes/search/`; "
+    "the caller wants sample records rather than type definitions — use a sample endpoint; the caller needs these relations scoped to one "
+    "investigation or SEEK project — use `GET sample_types/connections/`, because the rules returned here are global and a rule that holds "
+    "only inside one large study is indistinguishable from one that holds everywhere.\n\n"
+    "**ACCEPTS:** No parameters.\n\n"
+    "**RETURNS:** A `TemplateCatalogResponse` carrying `groups` in display order (Experimental, Data, Analysis, Model), the curated `children` "
+    "map, the derived `requires` and `companions` rules, and `max_suggestions`. Deprecated sample types and codes that cannot be legal Excel "
+    "sheet names are excluded. `requires` and `companions` are `{}` on an instance where the derived-rules table has never been populated; "
+    "that is the fresh-install state, not an error.\n\n"
+    "**TRIGGER PHRASES:** list template sample types, download templates catalog, which sample types have templates, "
+    "what does this sample type require, companion sample types\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Which sample types can I download a template for?'\n"
+    "- 'What does D.SEQ require me to also upload?'\n"
+)
+
+TEMPLATE_GENERATE_DESC = (
+    "**SUMMARY:** Generate one blank .xlsx upload template covering the named sample types, carrying a README that defines every column, "
+    "a headers-only sheet per type, controlled-vocabulary dropdowns, and a hidden `_NEXTSEEK` manifest.\n\n"
+    "**USE WHEN:** A superuser has settled on the sample types for an upload and wants the workbook to fill in.\n\n"
+    "**DO NOT USE WHEN:** The caller only needs to know which types exist or which columns a type has — use `GET templates/catalog/` or an "
+    "attributes endpoint; the caller wants existing sample records rather than a blank sheet — use `POST admin/project-export/run/`.\n\n"
+    "**ACCEPTS:** A `TemplateGenerateRequest` with a non-empty `codes` list of sample type codes. Sheets are written in the order given, and "
+    "repeated codes collapse to a single sheet. Every code must appear in the catalog.\n\n"
+    "**RETURNS:** `200` with the workbook as an .xlsx attachment "
+    "(`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).\n\n"
+    "**ERROR CODES:** `401` when unauthenticated; `403` for an authenticated caller who is not a Django superuser; `422` when `codes` is empty, "
+    "carries an unexpected field, or names a code the catalog does not have.\n\n"
+    "**TRIGGER PHRASES:** download a template, generate upload template, blank sample sheet, xlsx for these sample types, template workbook\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Generate a template for PAT, TIS and DNA'\n"
+    "- 'Download the blank upload sheet for D.SEQ'\n"
+)
