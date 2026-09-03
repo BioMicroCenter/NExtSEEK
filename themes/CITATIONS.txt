@@ -1,0 +1,74 @@
+# Files cited in themes/README.md and themes/CLAUDE.md, plus every file
+# opened while writing them. Grouped by role.
+
+# --- the boundary: themes/NextSeek/templates (all 12) ---
+themes/NextSeek/templates/base.html
+themes/NextSeek/templates/base_auth.html
+themes/NextSeek/templates/index.html
+themes/NextSeek/templates/login.html
+themes/NextSeek/templates/nav.embed.html
+themes/NextSeek/templates/page-footer.embed.html
+themes/NextSeek/templates/content.embed.html
+themes/NextSeek/templates/includes/user_panel.html
+themes/NextSeek/templates/accounts/includes/user_panel.html
+themes/NextSeek/templates/help/getting_started.html
+themes/NextSeek/templates/nextseek/swagger_ui.html
+themes/NextSeek/templates/pages/menus/tree.html
+
+# --- the boundary: package markers and the theme's own assets ---
+themes/__init__.py
+themes/NextSeek/__init__.py
+themes/NextSeek/static/css/nextseek.css
+themes/NextSeek/static/js/nextseek.js
+themes/NextSeek/static/jquery-easyui-1.5.2/demo/tree/basic.html
+
+# --- the boundary: repo-root templates/ (the inert Mezzanine scaffold) ---
+templates/base.html
+templates/index.html
+templates/includes/user_panel.html
+templates/accounts/includes/user_panel.html
+templates/accounts/includes/user_panel_nav.html
+templates/includes/editable_toolbar.html
+templates/pages/menus/tree.html
+templates/pages/page.html
+
+# --- template loader, static and URL configuration ---
+dmac/settings.py
+dmac/test_settings.py
+dmac/local_settings.example.py
+startup/templates/local_settings.py.template
+dmac/urls.py
+dmac/views.py
+
+# --- views and urlconfs that render into this boundary ---
+seek/views/pages.py
+seek/urls.py
+nextseek_api/urls.py
+
+# --- templates in other apps that extend or shadow this boundary ---
+seek/templates/pages/denied.html
+seek/templates/smartSearch.html
+seek/templates/templatesList.html
+seek/templates/content.embed.html
+seek/templates/projectsList.html
+
+# --- what exercises this boundary (no lane of its own) ---
+seek/tests/test_admin_template_gating.py
+seek/tests/test_catalog_crosslinks.py
+seek/tests/test_seek_public_links.py
+seek/tests/test_seek_urls_context.py
+scripts/run_tests.sh
+
+# --- deployment: mounts, image, static serving ---
+docker-compose.yml
+docker-compose.task8.yml
+docker/nginx.conf
+docker/scripts/entrypoint.sh
+.dockerignore
+
+# --- documents checked for staleness or cross-referenced ---
+UI.md
+DEPLOYMENT.md
+CLAUDE.md
+dmac/CLAUDE.md
+chat_frontend/README.md

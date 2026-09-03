@@ -1,0 +1,135 @@
+# Files opened while writing README.md and CLAUDE.md for seek/.
+# One repo-relative path per line.
+
+# --- boundary: top level ---
+seek/__init__.py
+seek/admin.py
+seek/apps.py
+seek/dbrouters.py
+seek/decorators.py
+seek/doi_extract.py
+seek/responses.py
+seek/search.py
+seek/seekapi.py
+seek/seekdb.py
+seek/urls.py
+
+# --- boundary: the table layer ---
+seek/dbtable_assay_assets.py
+seek/dbtable_attributetype.py
+seek/dbtable_content_blobs.py
+seek/dbtable_data_files.py
+seek/dbtable_documents.py
+seek/dbtable_ontology.py
+seek/dbtable_permissions.py
+seek/dbtable_policies.py
+seek/dbtable_projects.py
+seek/dbtable_sample.py
+seek/dbtable_sampleattribute.py
+seek/dbtable_sampletype.py
+seek/dbtable_sops.py
+
+# --- boundary: models and migrations ---
+seek/models/__init__.py
+seek/models/nextseek.py
+seek/models/seek_mirror.py
+seek/migrations/0001_initial.py
+seek/migrations/0002_samples_name_identity.py
+
+# --- boundary: the sample package ---
+seek/sample/__init__.py
+seek/sample/api.py
+seek/sample/constants.py
+seek/sample/core.py
+seek/sample/download.py
+seek/sample/immport.py
+seek/sample/queries.py
+seek/sample/search.py
+seek/sample/table.py
+seek/sample/trees.py
+seek/sample/upload.py
+
+# --- boundary: views package ---
+seek/views/__init__.py
+seek/views/admin.py
+seek/views/assets.py
+seek/views/catalog.py
+seek/views/pages.py
+seek/views/projects.py
+seek/views/samples.py
+seek/views/search.py
+seek/views/shared.py
+seek/views/timeline.py
+seek/views/upload.py
+
+# --- boundary: timeline subtree ---
+seek/timeline/core/database.py
+seek/timeline/services/nhp_cache_cli.py
+seek/timeline/services/nhp_service.py
+seek/timeline/services/timeline_service.py
+seek/timeline/utils/helpers.py
+
+# --- boundary: template tags and one template artifact ---
+seek/templatetags/index.py
+seek/templatetags/vite_assets.py
+seek/templates/pages/dmac.logs
+
+# --- boundary: tests ---
+seek/tests/discovery.py
+seek/tests/js/harness.js
+seek/tests/test_dbtable_sample_lineage.py
+seek/tests/test_dbtables.py
+seek/tests/test_imports.py
+seek/tests/test_relative_imports.py
+seek/tests/test_search_sql_binding.py
+seek/tests/test_ui_search_project_scope.py
+seek/tests/test_urls.py
+seek/tests/test_views_children_uids_sql.py
+
+# --- Django wiring and topology, outside the boundary ---
+dmac/dbconnection.py
+dmac/dbconn_django.py
+dmac/dbtable.py
+dmac/dbtable_clades.py
+dmac/settings.py
+dmac/test_settings.py
+dmac/urls.py
+docker-compose.yml
+docker/scripts/entrypoint.sh
+
+# --- install path and committed seeds ---
+startup/cli.py
+startup/steps/schema_fixups.py
+startup/templates/db.env.template
+startup/seed/dmac.sql.gz
+startup/seed/seek_production.sql.gz
+
+# --- CI lane and baseline ---
+ci/gate/live_routes.py
+ci/pytest-baseline.txt
+
+# --- consumers, checked for the depended-on-by list ---
+api_app/serializers.py
+api_app/views.py
+nextseek_api/cc_assistant/cc_provision.py
+nextseek_api/management/commands/derive_sample_type_requirements.py
+nextseek_api/management/commands/fill_study_publications.py
+nextseek_api/models.py
+nextseek_api/seek_api_helpers.py
+nextseek_api/services/template_catalog.py
+nextseek_api/services/users.py
+nextseek_api/views.py
+
+# --- the shadowed template, and a stale path this package is cited by ---
+themes/NextSeek/templates/content.embed.html
+architecture.md
+
+# --- documents cross-referenced from CLAUDE.md's See also ---
+dmac/README.md
+nextseek_api/README.md
+startup/README.md
+
+# --- the frozen worked example ---
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt
