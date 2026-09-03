@@ -28,6 +28,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ci.smoke.client import GuardedSession
+from ci.smoke.conftest import SMOKE_SEARCH_TERM
 
 pytestmark = pytest.mark.write
 
@@ -90,7 +91,7 @@ def test_assay_registration_dry_run_predicts_without_writing(wapi, base_url, web
     r = web.get(
         f"{base_url}/seek/searchAdvanced/",
         params={"sampletype_id": "", "attribute": "none", "filter_logic": "AND",
-                "filter_searchValue": "", "filter_searchText": "Uterus",
+                "filter_searchValue": "", "filter_searchText": SMOKE_SEARCH_TERM,
                 "filter_matchType": "PARTIAL"},
         timeout=180,
     )

@@ -527,6 +527,24 @@ _ATTRIBUTE_SOURCE = "/nextseek_api/attributes/"
 # Both sample names come from one request: the query the search page itself makes.
 _SAMPLE_SOURCE = "/seek/searchAdvanced/"
 
+# The value every sample-discovery search looks for. It has ONE constraint and
+# it is not "exists in the database": advanced search is project-scoped, so the
+# term must appear in a project CI_SMOKE_USER is a member of. Getting that wrong
+# does not error -- the search returns 0 rows and the failure reads as a broken
+# search rather than as a term nobody can see.
+#
+# Measured 2026-09-03 on the production-seeded local stack: the previous term
+# "Uterus" matches 436 samples, all of them in projects 7, 6 and 4, while
+# CI_SMOKE_USER (charlie-test-3, person 84) is a member of projects 2 and 13
+# only. Zero overlap, so the search correctly returned 0 and
+# test_advanced_search_returns_rendered_results failed while project gating was
+# working exactly as designed. "Lung" appears 627 times in project 2.
+#
+# To re-derive after a reseed: find the projects the smoke account belongs to
+# (group_memberships -> work_groups.project_id in the seek DB), then pick a
+# common json_metadata value from samples in those projects.
+SMOKE_SEARCH_TERM = "Lung"
+
 # Both catalog placeholders come from the list page that publishes them. Scraped,
 # not read from an API, for the reason ci.routes.PLACEHOLDERS states: a value
 # taken off the list page is by construction one the detail route can resolve,
@@ -623,7 +641,7 @@ def discovered(profile, api, web, base_url) -> dict[str, str | None]:
             base_url + _SAMPLE_SOURCE,
             params={
                 "sampletype_id": "", "attribute": "none", "filter_logic": "AND",
-                "filter_searchValue": "", "filter_searchText": "Uterus",
+                "filter_searchValue": "", "filter_searchText": SMOKE_SEARCH_TERM,
                 "filter_matchType": "PARTIAL",
             },
             timeout=180,

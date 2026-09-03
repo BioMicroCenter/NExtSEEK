@@ -14,6 +14,8 @@ import re
 
 import pytest
 
+from ci.smoke.conftest import SMOKE_SEARCH_TERM
+
 pytestmark = pytest.mark.flow
 
 UID_RE = re.compile(r"\A([A-Z]\.)?[A-Z]{2,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?\Z")
@@ -58,9 +60,9 @@ def test_advanced_search_returns_rendered_results(page, base_url):
     )
     page.click('#search_tab .tabs-header span.tabs-title:has-text("Advanced Sample Search")')
 
-    page.fill("#input_searchValue", "Uterus")
+    page.fill("#input_searchValue", SMOKE_SEARCH_TERM)
     page.click('a.easyui-linkbutton[onclick="searchAdd()"]')
-    assert page.evaluate("() => $('#input_searchText').textbox('getText')") == "Uterus"
+    assert page.evaluate("() => $('#input_searchText').textbox('getText')") == SMOKE_SEARCH_TERM
 
     with page.expect_response(
         lambda r: "/seek/searchAdvanced/" in r.url, timeout=180_000
