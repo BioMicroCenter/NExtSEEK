@@ -135,21 +135,26 @@ def _derived_bundles(rows, known_codes) -> list[dict]:
 
     The codes are the parent and child types that appear on THAT assay's edges in
     THIS project, which is what makes the fallback project-specific rather than a
-    restatement of assay_context. Ordered by label so the strip is stable between
-    page loads.
+    restatement of assay_context. Ranked by edge volume (n_edges) descending, so
+    the page can show the busiest few and drop the single-edge long tail; the
+    label breaks ties for a stable strip between page loads.
     """
     by_assay: dict[str, list[str]] = {}
+    edges: dict[str, int] = {}
     for row in rows or []:
         assay = row.get("internal_assay")
         if not assay:
             continue
+        edges[assay] = edges.get(assay, 0) + 1
         bucket = by_assay.setdefault(assay, [])
         for key in ("parent_sample_type", "child_sample_type"):
             code = row.get(key)
             if code and code in known_codes and code not in bucket:
                 bucket.append(code)
-    return [{"label": assay, "codes": codes}
-            for assay, codes in sorted(by_assay.items()) if codes]
+    out = [{"label": assay, "codes": codes, "n_edges": edges.get(assay, 0)}
+           for assay, codes in by_assay.items() if codes]
+    out.sort(key=lambda b: (-b["n_edges"], b["label"]))
+    return out
 
 
 def project_bundles(project_id: int, rows, known_codes) -> list[dict]:
