@@ -191,3 +191,54 @@ function toggleUserMenu(btn) {
         }, 0);
     }
 }
+
+/* ================================================
+   Modal-over-route: click a [data-modal-route] link -> full-screen overlay of
+   its target route, with the URL pushed to history; direct navigation to the
+   route renders the standalone page (server behaviour, unchanged). Add
+   data-modal-iframe for full-document routes (e.g. the connections diagram).
+   ================================================ */
+(function () {
+  function openOverlay(url, asIframe) {
+    var ov = document.createElement('div');
+    ov.className = 'modal-route-overlay';
+    ov.innerHTML = '<div class="modal-route-panel">' +
+      '<button class="modal-route-close" aria-label="Close">&times;</button>' +
+      '<div class="modal-route-body"></div></div>';
+    document.body.appendChild(ov);
+    var bodyEl = ov.querySelector('.modal-route-body');
+    if (asIframe) {
+      bodyEl.innerHTML = '<iframe src="' + url + '" class="modal-route-iframe"></iframe>';
+    } else {
+      fetch(url, { credentials: 'same-origin' }).then(function (r) { return r.text(); })
+        .then(function (html) {
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          var main = doc.querySelector('#content') || doc.querySelector('main') || doc.body;
+          bodyEl.innerHTML = main.innerHTML;
+        }).catch(function () { bodyEl.innerHTML = '<p style="padding:1.5rem">Could not load.</p>'; });
+    }
+    var closed = false;
+    function close() {
+      if (closed) { return; }
+      closed = true;
+      ov.remove();
+      document.removeEventListener('keydown', onKey);
+      if (history.state && history.state.modalRoute) { history.back(); }
+    }
+    function onKey(e) { if (e.key === 'Escape') { close(); } }
+    ov.querySelector('.modal-route-close').addEventListener('click', close);
+    ov.addEventListener('click', function (e) { if (e.target === ov) { close(); } });
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('popstate', function h() {
+      window.removeEventListener('popstate', h);
+      if (!closed) { closed = true; ov.remove(); document.removeEventListener('keydown', onKey); }
+    }, { once: true });
+    history.pushState({ modalRoute: true }, '', url);
+  }
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-modal-route]') : null;
+    if (!el) { return; }
+    e.preventDefault();
+    openOverlay(el.getAttribute('href'), el.hasAttribute('data-modal-iframe'));
+  });
+})();

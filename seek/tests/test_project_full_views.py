@@ -39,3 +39,13 @@ class TestBundleRanking:
         out = _derived_bundles(rows, known)
         assert [b["label"] for b in out] == ["Big", "Small"]      # ranked, not alphabetical
         assert out[0]["n_edges"] == 5 and out[1]["n_edges"] == 1
+
+
+class TestModalRouteAssets:
+    def test_js_defines_the_modal_route_handler(self):
+        js = _js()
+        assert "data-modal-route" in js
+        assert "pushState" in js and "popstate" in js
+
+    def test_css_defines_the_overlay(self):
+        assert ".modal-route-overlay" in _css()
