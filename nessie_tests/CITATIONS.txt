@@ -1,0 +1,97 @@
+# Files opened while documenting nessie_tests (2026-09-03).
+# Every path cited in README.md or CLAUDE.md appears here, plus files that
+# were read to verify a claim but did not end up carrying a citation.
+
+# --- the boundary: package modules ---
+nessie_tests/__init__.py
+nessie_tests/__main__.py
+nessie_tests/bayes_manifest.py
+nessie_tests/bayesian.py
+nessie_tests/bundle.py
+nessie_tests/cli.py
+nessie_tests/collect.py
+nessie_tests/conftest.py
+nessie_tests/consistency.py
+nessie_tests/corpus.py
+nessie_tests/evaluate.py
+nessie_tests/export.py
+nessie_tests/http_driver.py
+nessie_tests/limits.py
+nessie_tests/manifest.py
+nessie_tests/outage.py
+nessie_tests/pathsetup.py
+nessie_tests/preflight.py
+nessie_tests/report.py
+nessie_tests/route_observer.py
+nessie_tests/runner.py
+nessie_tests/sources.py
+nessie_tests/v4_2_verifier.py
+
+# --- the boundary: committed data ---
+nessie_tests/corpus.json
+nessie_tests/FAMILIES.json
+nessie_tests/probes/probe-2026-07-29.json
+nessie_tests/probes/probe-2026-07-29-retest.json
+nessie_tests/probes/probe-cc-2026-07-31.json
+
+# --- the boundary: corpus-maintenance scripts ---
+nessie_tests/scripts/__init__.py
+nessie_tests/scripts/apply_qset.py
+nessie_tests/scripts/atlas_variants.py
+nessie_tests/scripts/build_doc.py
+nessie_tests/scripts/build_qset.py
+nessie_tests/scripts/check_qset.py
+nessie_tests/scripts/delta_selection.py
+nessie_tests/scripts/human_functional_rows.py
+nessie_tests/scripts/qset_data.py
+nessie_tests/scripts/remap_families.py
+nessie_tests/scripts/reverify.sh
+
+# --- the boundary: packaged skills ---
+nessie_tests/output-skill/SKILL.md
+nessie_tests/output-skill/README.md
+nessie_tests/output-skill-bayesian/SKILL.md
+nessie_tests/output-skill-bayesian/scripts/merge_grades.py
+nessie_tests/output_skill_bayesian/__init__.py
+nessie_tests/output_skill_bayesian/merge_grades.py
+
+# --- the boundary: test lanes ---
+nessie_tests/tests/test_catalog_drift.py
+nessie_tests/tests/test_probe_files.py
+nessie_tests/tests/test_v4_2_set3_replay.py
+nessie_tests/tests/test_write_refusal_coverage.py
+nessie_tests/tests_container/test_bundle.py
+nessie_tests/tests_container/test_endpoint_contract.py
+nessie_tests/tests_container/test_management_command.py
+
+# --- inbound: application code that imports the package ---
+build_tools/gen_op_surfaces/route_capabilities.py
+nextseek_api/cc_assistant/family_labels.py
+nextseek_api/cc_assistant/op_registry/paired_evidence.py
+nextseek_api/eval/human_grade_fit.py
+nextseek_api/management/commands/nessie.py
+scripts/plan018_v4_2_verifier.py
+
+# --- inbound: governance tooling keyed on paths ---
+scripts/plan018_v4_9_owned_surface.py
+scripts/plan018_v4_9_task5_mutation.py
+
+# --- inbound: test modules elsewhere in the tree (excluded from the edge list) ---
+nextseek_api/assistant/tests/test_route_capabilities.py
+nextseek_api/cc_assistant/tests/test_paired_evidence.py
+nextseek_api/eval/tests/test_task2_coverage_edges.py
+
+# --- outbound / cross-boundary reads ---
+nextseek_api/services/cc_assistant.py
+nextseek_api/assistant/models_db.py
+nextseek_api/cc_assistant/tests/test_cc_session_metas_columns.py
+chat_nextseek/src/chat_nextseek/orchestrator.py
+chat_nextseek/e2e/catalog.py
+pyproject.toml
+
+# --- referenced documentation ---
+docs/nessie-question-set-2026-08-06.md
+docs/archive/nessie-corpus-additive-2026-08-06.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/README.md
+CLAUDE.md

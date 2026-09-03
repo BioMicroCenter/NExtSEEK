@@ -1,0 +1,79 @@
+# Files opened while writing README.md and CLAUDE.md for
+# nextseek_api/attributes/. One repo-relative path per line.
+
+# --- boundary: production modules ---
+nextseek_api/attributes/__init__.py
+nextseek_api/attributes/auth.py
+nextseek_api/attributes/executor.py
+nextseek_api/attributes/faults.py
+nextseek_api/attributes/jobs.py
+nextseek_api/attributes/metadata.py
+nextseek_api/attributes/models_async.py
+nextseek_api/attributes/models_db.py
+nextseek_api/attributes/openapi.py
+nextseek_api/attributes/pagination.py
+nextseek_api/attributes/planner.py
+nextseek_api/attributes/repository.py
+nextseek_api/attributes/resolver.py
+nextseek_api/attributes/scalars.py
+nextseek_api/attributes/schemas.py
+nextseek_api/attributes/service.py
+nextseek_api/attributes/tasks.py
+nextseek_api/attributes/views.py
+
+# --- boundary: the three long-running processes ---
+nextseek_api/attributes/management/commands/check_attribute_outbox_heartbeat.py
+nextseek_api/attributes/management/commands/dispatch_attribute_outbox.py
+nextseek_api/attributes/management/commands/recover_attribute_sync_jobs.py
+
+# --- boundary: tests read while establishing the lanes ---
+nextseek_api/attributes/tests/attribute_fixtures.py
+nextseek_api/attributes/tests/auth_boundary.py
+nextseek_api/attributes/tests/conftest.py
+nextseek_api/attributes/tests/lane_boundary.py
+nextseek_api/attributes/tests/rails_auth_oracle.rb
+nextseek_api/attributes/tests/real_boundary.py
+nextseek_api/attributes/tests/test_executor.py
+nextseek_api/attributes/tests/test_openapi.py
+nextseek_api/attributes/tests/test_physical_safeguards_db.py
+nextseek_api/attributes/tests/test_runtime_healthcheck.py
+nextseek_api/attributes/tests/test_sync_recovery.py
+nextseek_api/attributes/tests/test_tasks_worker.py
+
+# --- Django wiring outside the boundary ---
+dmac/settings.py
+dmac/attribute_performance_settings.py
+nextseek_api/models.py
+nextseek_api/urls.py
+nextseek_api/views.py
+nextseek_api/permissions.py
+nextseek_api/endpoint_descriptions.py
+nextseek_api/migrations/0010_attribute_mutation_job.py
+nextseek_api/migrations/0011_attribute_async_orchestration.py
+seek/dbrouters.py
+pyproject.toml
+
+# --- consumers of this boundary ---
+nextseek_api/batch_upload/celery_app.py
+nextseek_api/management/commands/check_attribute_outbox_heartbeat.py
+nextseek_api/management/commands/dispatch_attribute_outbox.py
+nextseek_api/management/commands/recover_attribute_sync_jobs.py
+nextseek_api/tests/conftest.py
+scripts/run_attribute_mutants.py
+startup/tests/conftest.py
+
+# --- deployment and bring-up ---
+docker-compose.yml
+DEPLOYMENT.md
+docker/scripts/attribute_runtime_healthcheck.py
+startup/cli.py
+startup/lib/rebuild_policy.py
+scripts/run_tests.sh
+
+# --- false match, checked and excluded ---
+chat_nextseek/src/chat_nextseek/context/min_api_endpoints.json
+
+# --- the frozen worked example, read as the standard ---
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt

@@ -1,0 +1,83 @@
+# Files opened while writing README.md and CLAUDE.md for nextseek_api/services/.
+# One repo-relative path per line.
+
+# --- the boundary itself: every module, plus its one data file ---
+nextseek_api/services/assays.py
+nextseek_api/services/assistant.py
+nextseek_api/services/cc_assistant.py
+nextseek_api/services/content_blobs.py
+nextseek_api/services/context_catalog.py
+nextseek_api/services/controlled_vocabularies.json
+nextseek_api/services/data_files.py
+nextseek_api/services/entity_tree.py
+nextseek_api/services/evaluator.py
+nextseek_api/services/investigations.py
+nextseek_api/services/people.py
+nextseek_api/services/project_connections.py
+nextseek_api/services/project_export.py
+nextseek_api/services/projects.py
+nextseek_api/services/sample_provenance.py
+nextseek_api/services/samples.py
+nextseek_api/services/sample_types.py
+nextseek_api/services/sample_workbook.py
+nextseek_api/services/sampletype_connections.py
+nextseek_api/services/schema_rag.py
+nextseek_api/services/seek_rails_runner.py
+nextseek_api/services/sops.py
+nextseek_api/services/studies.py
+nextseek_api/services/template_catalog.py
+nextseek_api/services/type_requirements.py
+nextseek_api/services/users.py
+
+# --- the pair being written ---
+nextseek_api/services/README.md
+nextseek_api/services/CLAUDE.md
+
+# --- Django wiring and settings, outside the boundary ---
+dmac/settings.py
+dmac/test_settings.py
+dmac/openapi_hooks.py
+nextseek_api/urls.py
+nextseek_api/views.py
+nextseek_api/permissions.py
+nextseek_api/conftest.py
+nextseek_api/models.py
+pyproject.toml
+.coveragerc
+
+# --- the gate, the skill, and the test lanes ---
+scripts/validate_viewset_conventions.py
+scripts/run_tests.sh
+.claude/skills/nextseek-viewset/SKILL.md
+.claude/skills/nextseek-viewset/references/patterns.md
+nextseek_api/tests/test_viewset_conventions.py
+nextseek_api/tests/test_services_assays.py
+nextseek_api/tests/test_services_assistant.py
+nextseek_api/tests/test_services_sampletype_connections.py
+nextseek_api/cc_assistant/tests/test_cc_service_source_guards.py
+nextseek_api/tests.py
+
+# --- consumers of this boundary ---
+seek/sample/download.py
+seek/views/admin.py
+seek/views/assets.py
+seek/views/catalog.py
+seek/views/projects.py
+nextseek_api/assay_registration/views.py
+nextseek_api/attributes/auth.py
+nextseek_api/batch_upload/views.py
+nextseek_api/cc_assistant/cc_sweep.py
+nextseek_api/management/commands/derive_sample_type_requirements.py
+ci/routes.py
+nessie_tests/preflight.py
+nessie_tests/manifest.py
+chat_nextseek/e2e/playwright/poll.py
+
+# --- neighbouring pairs read before writing this one ---
+nextseek_api/README.md
+nextseek_api/CLAUDE.md
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt
+CLAUDE.md
+docs/sample-download-workflow.md

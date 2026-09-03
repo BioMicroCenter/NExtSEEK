@@ -1,0 +1,244 @@
+root-CITATIONS.txt
+==================
+
+Every file opened while refreshing the two repo-root documents, `architecture.md`
+and `UI.md`, on 2026-09-03 (branch docs/repo-wide-refresh @ ad226f1).
+
+"Opened" means the file's contents were read — whole, by line range, or by a
+content-matching grep whose hits were read. Files listed only in a directory
+listing are recorded under "Directory listings and searches" at the end.
+
+Every `path:line` citation in the two documents was audited exhaustively after
+writing: 434 citation instances, 371 unique (path, start, end) triples, each
+dumped with its trailing line and read against its claim. 0 unresolved.
+
+
+DOCUMENTS REFRESHED
+-------------------
+architecture.md
+UI.md
+
+
+BOUNDARY README/CLAUDE PAIRS CONSULTED AS AUTHORITY
+---------------------------------------------------
+themes/README.md                        template loader, the dead repo-root templates/ tree,
+                                        the 12 theme files, base/base_auth blocks, the two
+                                        dmac/views.py renders that resolve to nothing
+seek/README.md                          the views package split, 62 re_paths, 65 templates,
+                                        24 rendered names, the dbtable_sample shim
+docker/README.md                        the six build contexts, nginx, entrypoint, the agent
+                                        image's plugin tree and its 20 shims
+nextseek_api/README.md                  (title line only)
+nextseek_api/assistant/README.md        models_db tables, granular ops (9 handlers), the write
+                                        gate, the WS consumer, session adapter
+nextseek_api/services/README.md         the ViewSet layer, the PEP 420 namespace package, the
+                                        chat pair's line numbers
+nextseek_api/cc_assistant/README.md     router strategies, run_cc_turn, the op registry, 20 shims
+
+First "What this is" line also read from the remaining boundary READMEs, to derive
+the one-line role labels in architecture.md's directory map:
+api_app/README.md, build_tools/README.md, chat_frontend/README.md,
+chat_nextseek/README.md, ci/README.md, dmac/README.md, dmac_assistant/README.md,
+nessie_tests/README.md, nextseek_api/assay_registration/README.md,
+nextseek_api/attributes/README.md, nextseek_api/batch_upload/README.md,
+nextseek_api/eval/README.md, nextseek_api/schema_rag/README.md,
+scripts/README.md, startup/README.md
+
+
+DJANGO PROJECT
+--------------
+dmac/urls.py                            root URLconf, i18n_patterns, the ^seek/ and
+                                        ^nextseek_api/ mounts, home, auth routes, handlers
+dmac/views.py                           login_seek, logout_seek, signup_seek, home,
+                                        login_full (home.html), index (seek_login.html)
+dmac/settings.py                        USE_I18N, TEMPLATES DIRS + loaders, INSTALLED_APPS,
+                                        MIDDLEWARE (CsrfViewMiddleware)
+dmac/asgi.py                            ProtocolTypeRouter + the one WS route
+pyproject.toml                          [tool.uv.sources] editable in-tree packages
+
+
+SEEK APP (pages)
+----------------
+seek/urls.py                            all 62 re_path entries
+seek/views/__init__.py                  the 11-module re-export surface + patching note
+seek/views/admin.py                     adminClades, adminRetrieveSamples, internalAssays
+seek/views/assets.py                    sopQuery, datafileQuery, templatesList, document
+seek/views/catalog.py                   sampleTypesList/Detail, assaysList/Detail
+seek/views/pages.py                     getting_started
+seek/views/projects.py                  projects, project_page, project_connections
+seek/views/samples.py                   sample, sampleTree, sample_type, sampleQuery,
+                                        sampleAttributes, seek (NameError)
+seek/views/search.py                    smartSearch, searchAdvanced, sampleSearch (302),
+                                        newSearch, runSampleSearch
+seek/views/shared.py                    (no defs; checked)
+seek/views/timeline.py                  nhp_info and the three NHP JSON views
+seek/views/upload.py                    batchUpload, datafileUpload
+seek/dbtable_sample.py                  the two-line shim
+seek/templates/smartSearch.html         the React mount, chat-basename meta, vite_assets
+seek/templates/searchAdvanced.html      the include syntax
+
+
+THEME AND TEMPLATES
+-------------------
+themes/NextSeek/templates/base.html         five blocks, CDN links, EasyUI assets, includes
+themes/NextSeek/templates/base_auth.html    four blocks, `body` not `main`
+themes/NextSeek/templates/login.html        extends base_auth, fills `body`
+Every file under seek/templates/*.html      read for `{% include %}` targets and `easyui-`
+Every file under seek/templates/pages/      read for `easyui-` component classes
+dmac/templates/pages/*.embed.html           read for `easyui-` classes and inbound references
+
+
+NEXTSEEK_API
+------------
+nextseek_api/urls.py                        router registrations, the three OpenAPI routes
+nextseek_api/services/assistant.py          AssistantViewSet, UserInParticipatingProject,
+                                            CsrfExemptSessionAuthentication, the SSE query
+                                            endpoint, _run_granular_op
+nextseek_api/services/cc_assistant.py       CCAssistantViewSet, _start_task, the prod
+                                            credential swap, the upload/artifact/transcript
+                                            actions, the upload size cap
+nextseek_api/assistant/granular.py          run_op, the nine handlers, _HANDLERS
+nextseek_api/assistant/write_gate.py        SIDECAR_OPS, READ_CLASS_OPS, build_gate
+nextseek_api/assistant/models_db.py         the four assistant_* db_table declarations
+nextseek_api/assistant/consumers.py         TaskProgressConsumer, POLL_INTERVAL, the auth
+                                            model docstring, the poll loop
+nextseek_api/assistant/routing.py           the single websocket_urlpatterns entry
+nextseek_api/assistant/pipeline_adapter.py  make_db_event_callback and the append/terminal write
+nextseek_api/assistant/session_adapter.py   DictSessionAdapter and its locked save()
+
+
+CONTAINER-CC
+------------
+nextseek_api/cc_assistant/router.py             route constants, decide, the three strategies,
+                                                the heuristic, the sentinel, the canned reply
+nextseek_api/cc_assistant/posterior_selector.py posterior_routing_enabled, select_route
+nextseek_api/cc_assistant/cc_engine.py          caps, _BASE_CMD, gate, env, mounts, preflight,
+                                                watchdog, publish, persist, teardown
+nextseek_api/cc_assistant/cc_provision.py       build_user_dirs, resolve_user_project, the
+                                                lazy SeekDB factory
+nextseek_api/cc_assistant/cc_staging.py         module docstring, sha256 hash, sweep_user_staging
+nextseek_api/cc_assistant/cc_summary.py         summarize_transcript, the BAML Summarize call
+nextseek_api/cc_assistant/cc_memory.py          render_memory
+nextseek_api/cc_assistant/cc_trace.py           CCTrace
+nextseek_api/cc_assistant/cc_transcript_store.py the zstd transcript row
+nextseek_api/cc_assistant/translate.py          CCStreamTranslator and every emitted event
+nextseek_api/cc_assistant/attach.py             the stdcopy demuxer provenance
+nextseek_api/cc_assistant/bin_inventory.py      default_bin_dir
+
+
+VENDORED ENGINE AND ROUTER
+--------------------------
+chat_nextseek/src/chat_nextseek/config.py                       base-URL precedence
+chat_nextseek/src/chat_nextseek/orchestrator.py                 the copy.copy config isolation
+chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py   the REST tool and its timeouts
+chat_nextseek/src/chat_nextseek/helpers/tools/neo4j.py          the read-only regex
+dmac_assistant/baml_src/clients.baml                            GCPReasoner, GCPFlash, retry
+dmac_assistant/build_context/router_model_class_map.json        the opus/sonnet/haiku ids
+dmac_assistant/src/dmac_assistant/router/models.py              resolve_cc_model
+
+
+FRONTEND
+--------
+chat_frontend/package.json                          React/Vite/Tailwind versions, scripts
+chat_frontend/src/lib/services/chatApi.ts           the POST target, POLL_INTERVAL, the WS
+                                                    attempt, the poll endpoint, session calls
+chat_frontend/src/lib/services/sessionAuth.ts       CSRF cookie, API base, WS base
+
+
+DOCKER
+------
+docker-compose.yml                                  every service, network and volume
+docker/scripts/entrypoint.sh                        collectstatic, DB probe, migrate, server
+                                                    toggle, celery worker
+docker/cc-runtime/Dockerfile                        CLI pin, uid-1001 user, CLAUDE.md, WORKDIR,
+                                                    uv sync, CMD
+docker/cc-runtime/pyproject.toml                    the image dependency manifest
+docker/cc-runtime/container/entrypoint.sh           env bridge, settings scrub, plugin symlink,
+                                                    idle mode
+docker/cc-runtime/build_context/plugins/nextseek/bin/_nextseek_runner.py     _DISPATCH, the
+                                                    shim guards, _run_viewset, the four
+                                                    viewset-direct dispatchers
+docker/cc-runtime/build_context/plugins/nextseek/bin/_sidecar_client.py      frame cap, port
+docker/cc-runtime/build_context/plugins/nextseek/bin/_ws_contract.py         SIDECAR_OPS (9)
+docker/cc-runtime/build_context/plugins/nextseek/bin/_batch_upload_runner.py _CMDS (7)
+docker/cc-runtime/build_context/plugins/nextseek/bin/nextseek-query          shim header
+docker/cc-runtime/build_context/plugins/nextseek/bin/nextseek-recall         shim header
+docker/cc-runtime/build_context/plugins/nextseek/bin/nextseek-pipeline       shim header
+docker/cc-runtime/build_context/plugins/nextseek/bin/nextseek-plan           shim header
+docker/cc-runtime/build_context/plugins/nextseek/bin/nextseek-run-ls         shim header
+docker/cc-runtime/build_context/plugins/nextseek/bin/nextseek-build-upload-xlsx shim header
+docker/cc-runtime/build_context/plugins/nextseek/scripts/setup.sh            the L1 allowlist
+docker/ns-sidecar/app/contract.py                   SIDECAR_OPS (9)
+docker/ns-sidecar/app/write_gate.py                 the thin gate
+docker/ns-sidecar/app/ns_client.py                  the 60 s timeout
+docker/ns-sidecar/app/server.py                     the module contract docstring
+docker/ns-sidecar/app/granular_models.py            the vendored-copy declaration
+docker/bedrock-proxy/app/proxy.py                   header drop, token attach, allowlist,
+                                                    path rejection, logger, healthz
+docker/bedrock-proxy/app/config.py                  allowed models, body cap, timeouts,
+                                                    upstream host
+
+
+CI
+--
+ci/routes.py                                        the declared page inventory, expected
+                                                    statuses, the two xfails, the logout exclusion
+
+
+DIRECTORY LISTINGS AND SEARCHES (evidence for absence and for counts)
+--------------------------------------------------------------------
+All run on 2026-09-03 over this worktree, with /usr/bin/grep (not the shell
+wrapper) and with .venv, .superpowers, .git and node_modules excluded, so an
+empty result is a citable absence.
+
+- `git ls-files '*/README.md'` + `git ls-files '*/CLAUDE.md'`, intersected by
+  directory: 22 boundary directories carry both (excluding the repo root).
+- `ls seek/` and `ls seek/views/`: seek/views.py absent; seek/views/ is 11 modules.
+- `find . -name home.html -o -name seek_login.html` over the worktree: no hits.
+  Both are rendered at dmac/views.py:214 and dmac/views.py:255.
+- `find themes/NextSeek/templates -type f`: 12 files; no header.embed.html.
+- `find seek/templates -name '*.html' | wc -l`: 65.
+- `grep -c 're_path(' seek/urls.py`: 62.
+- `ls .../plugins/nextseek/bin/ | grep -c '^nextseek-'`: 20.
+- `grep -rl "easyui-<name>"` for each of the eight component names across
+  seek/templates, dmac/templates and themes/NextSeek/templates: 46 files use at
+  least one; per-component counts 12/16/16/11/31/7/2/1.
+- Every `{% include "..." %}` target extracted from seek/templates/*.html and
+  reverse-mapped: 7 embed files under seek/templates/pages/ are included by
+  nothing, and all three files under dmac/templates/pages/ are referenced by
+  nothing.
+- Every `render(request, "...")` and `template_name="..."` literal extracted from
+  seek/views/, seek/urls.py and seek/sample/: 24 distinct names, 23 of them under
+  seek/templates. batchSearch.html, publish.html, publishAssets.html,
+  sampleDeletion.html, sampleUpload.html, samplesTest.html and both copies of
+  content.embed.html are not among them.
+- `grep -rn "denied.html"` and `grep -rn "pages/404"` across the worktree: the
+  only hits are prose in themes/README.md, themes/CITATIONS.txt and (before this
+  refresh) UI.md itself. Both templates are dead.
+- `grep -rn "content.embed"` across the worktree: only prose in seek/CLAUDE.md,
+  themes/CLAUDE.md, themes/README.md and themes/CITATIONS.txt. No .py renders it
+  and no .html includes it.
+- `grep -rn 'name="index"'` across every tracked .py: no hits, which is why
+  `dmac/views.py:174`'s `reverse('index')` is marked UNVERIFIED rather than
+  asserted (Mezzanine is not installed in this worktree's .venv).
+- `ls nextseek_api/services/__init__.py`: absent, while every sibling package
+  directory under nextseek_api/ has one.
+- Python parse of docker-compose.yml's top-level keys: 14 services, 2 networks,
+  9 volumes.
+
+
+CLAIMS LEFT UNVERIFIED (3)
+--------------------------
+architecture.md  Which web server the deployed dev/prod instances actually run.
+                 The code default is daphne (docker/scripts/entrypoint.sh:61-65);
+                 the previous "gunicorn on the running instance" reading is from
+                 2026-07-12 and was not re-checked, and re-checking it means
+                 touching a live box.
+
+architecture.md  Whether the NS reporter's direct-MySQL read path has any gate.
+                 Asserting the absence would need an exhaustive search of the
+                 reporter tree that this refresh did not run.
+
+UI.md            Whether `reverse('index')` in logout_seek resolves or raises.
+                 No `name="index"` exists in this repository (search above) and
+                 Mezzanine is not importable from this worktree.

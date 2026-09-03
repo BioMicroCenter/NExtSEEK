@@ -1,0 +1,61 @@
+# Files opened while writing README.md and CLAUDE.md for api_app/.
+# One repo-relative path per line.
+
+# --- The boundary itself: every tracked file was read ---
+api_app/__init__.py
+api_app/admin.py
+api_app/api_calls.py
+api_app/api_calls_pride.py
+api_app/api_fileSubmit.py
+api_app/api_sampleParser.py
+api_app/api_sampleSubmit.py
+api_app/apps.py
+api_app/cal_checksum.py
+api_app/db_network_calls.py
+api_app/dbconn_mysql.py
+api_app/migrations/__init__.py
+api_app/models.py
+api_app/remoteJob/dbconn_mysql.py
+api_app/remoteJob/updateTrees.py
+api_app/serializers.py
+api_app/tests.py
+api_app/updateTrees.py
+api_app/urls.py
+api_app/views.py
+
+# --- Django wiring that decides what is routed and what is installed ---
+dmac/urls.py
+dmac/settings.py
+nextseek_api/urls.py
+
+# --- The SEEK code this package imports and calls ---
+seek/dbtable_data_files.py
+seek/dbtable_sample.py
+seek/models/seek_mirror.py
+seek/sample/__init__.py
+seek/sample/api.py
+seek/sample/constants.py
+seek/sample/table.py
+seek/sample/upload.py
+seek/seekdb.py
+
+# --- The fork of api_app/serializers.py, and the tests that pin it ---
+nextseek_api/serializers.py
+nextseek_api/tests/test_serializers.py
+
+# --- Checked as candidate inbound edges, and excluded ---
+docker/cc-runtime/docs/nextseek/09-nextseek.md
+nextseek_api/attributes/tests/test_physical_safeguards_db.py
+
+# --- Test configuration, pins, and deployment topology ---
+pyproject.toml
+uv.lock
+docker-compose.yml
+startup/templates/db.env.template
+.gitignore
+
+# --- Read for cross-checking, not cited ---
+docs/superpowers/specs/2026-09-01-nextseek-ci-cd-full-spec.md
+docker/nginx.conf
+dmac/README.md
+dmac/CLAUDE.md

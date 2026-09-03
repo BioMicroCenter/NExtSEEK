@@ -1,319 +1,264 @@
-# Startup CLI reference
+# `startup/`
 
-`./startup.sh` is the entry point. All subcommands accept `--help`.
+## What this is
 
-## Commands
+The bring-up CLI for the whole Docker stack, plus the data that bring-up installs.
+`./startup.sh` is an 18-line shell wrapper whose last line execs
+`uv run --project startup python -m startup` (`startup.sh:18`), so this directory is
+its **own uv project** with its own lockfile and its own five runtime dependencies:
+typer, rich, neo4j, orjson and PyMySQL (`startup/pyproject.toml:6-23`). The isolation
+is deliberate and is recorded in the root project's own dependency file
+(`pyproject.toml:154-157`).
 
-### `install`
+Measured 2026-09-03 with `find startup -type f` excluding the generated `.venv/` and
+`.pytest_cache/`: 89 files, 60 of them Python, and 28 of those Python files are test
+modules matching `tests/test_*.py`. Two files carry most of the weight —
+`startup/cli.py` is 810 lines and `startup/steps/schema_fixups.py` is 1014.
 
-First-time setup. Runs all 9 phases: prereqs, vendor verify, config,
-volumes, seeds, build, users, validate.
+It is not a library. Nothing in the running Django application imports it; the only
+in-repo importers are test modules and deploy scripts, listed below.
 
-```
-./startup.sh install                       # default: ports 8000/3000/7474/7687
-./startup.sh install --instance test       # named instance with auto-assigned ports
-./startup.sh install --port-offset 1       # +1 on every port (8001/3001/7475/7688)
-./startup.sh install --yes                 # skip confirmation prompts
-./startup.sh install --seek-public-url https://seek.example.com   # real SEEK hostname
-./startup.sh install --ci-profile dev      # what the smoke suite may call here
-```
+## Surface
 
-Idempotent for prereqs / config / volumes / users / validate. Seed import
-is skipped if the target DB already has tables.
+The boundary is a **Typer command tree over a set of ordered phases, plus a committed
+data payload those phases read**. So "the surface" here is the subcommands and the
+phase sequence behind each, not a set of public functions; and "a dependency edge" is
+mostly an external binary, a Compose service name or a repo-relative path, not an
+import. The two directions are worked out separately under *Depends on / depended on
+by*.
 
-**`--seek-public-url`** — the browser-reachable SEEK base URL (host only, no
-path). Omit it on a laptop and it defaults to `http://localhost:<seek port>`.
-It is stored per-instance in `startup/.instance.json` and drives **both** layers
-that need it, so they cannot drift apart:
+**Seven subcommands**, all declared with `@app.command()` in one file.
 
-- `SEEK_PUBLIC_URL` in `docker/nextseek.env` — how NExtSEEK builds links **to** SEEK
-- SEEK's own DB-backed `site_base_host` — how SEEK identifies **itself** (its
-  "SEEK ID", JSON-LD `@id`, sitemap). Applied after the seed and **before SEEK's
-  first boot**, so the boot-time sitemap is correct and no restart is needed.
-
-Resolution order (a hand-set value is never clobbered):
-
-```
---seek-public-url  >  existing docker/nextseek.env  >  .instance.json  >  http://localhost:<seek port>
-```
-
-An existing `site_base_host` row in SEEK is treated as an admin decision:
-startup reports a mismatch and **never overwrites it**. `./startup.sh doctor`
-reports drift between the three ("SEEK public URL"). See `NExtSTEPS.md` §1d.
-
-**`--ci-profile`** — which CI profile this box declares: `local`, `dev` or
-`prod`. It decides which routes `./startup.sh ci` may call here (see `ci` below).
-It defaults to **`prod`**, the most restrictive, so a box nobody configured is
-never widened by accident, and it is stored per-instance as `ci_profile` in
-`startup/.instance.json`. An unknown value exits 2 before anything is written.
-
-On a box installed **before** this option existed the key is simply absent,
-which also reads as `prod`. Add it by hand — `"ci_profile": "dev"` — rather than
-re-running install, which re-renders config and rotates the Django secret key.
-`reset` carries the declared value across the wipe.
-
-### `doctor`
-
-Read-only diagnostic. Runs prereqs + health checks and reports drift.
-
-```
-./startup.sh doctor
-```
-
-Exits non-zero if any check fails. **Run this first when something's broken.**
-
-Two of its lines are about CI and neither can fail the run, because a box that
-does not run CI is not broken:
-
-- **CI profile** — what this instance declares, or `absent -> prod`.
-- **CI credentials** — whether `~/.config/nextseek/ci.env` (or `NEXTSEEK_CI_ENV`)
-  exists and **names** `CI_SMOKE_USER` / `CI_SMOKE_PASS`. It never reads or prints
-  a value. Check this first when `./startup.sh rebuild` fails at its CI step.
-
-### `reset`
-
-Destructive: drops all volumes for the current instance and re-runs install.
-
-```
-./startup.sh reset                # also re-renders config files
-./startup.sh reset --keep-config  # preserves docker/*.env, dmac/local_settings.py
-./startup.sh reset --yes          # skip the confirmation prompt
-```
-
-### `rebuild`
-
-Safely rebuilds one first-party component without touching volumes. Before any
-build it creates and verifies a local rollback tag for every affected image.
-Long-running targets are recreated with `--no-deps --force-recreate`.
-
-```
-./startup.sh rebuild                              # shared app image + all app runtimes
-./startup.sh rebuild --component cc-agent         # build-only; no persistent container
-./startup.sh rebuild --component nextseek-sidecar
-./startup.sh rebuild --component bedrock-proxy
-./startup.sh rebuild --component custom-stack     # all first-party images
-```
-
-The default app component rebuilds one shared image and recreates `nextseek`,
-which is now the only service running app code: the attribute-mutation worker,
-the outbox dispatcher, the sync-recovery loop and the assay-registration drain
-loop are background processes of that container rather than services of their
-own. It does not touch nginx, databases, SEEK, or Solr. The container reattaches
-the existing `attribute_mutation_broker` SQLite named volume: rebuild never
-renews or deletes it. The explicitly destructive `reset` command does delete
-volumes.
-
-There is no `COMPOSE_PROFILES` to export. Until 2026-09-02 those four workers
-were profile-gated services, and a rebuild without the variable moved the app to
-the new image while leaving them on the old one, running old code under
-`restart: unless-stopped` and reporting healthy.
-`--service` remains an alias for `--component`; arbitrary Compose services are
-rejected.
-
-If the installed runtime checkout contains unrelated operator-owned files,
-use `./startup.sh rebuild --source-tree <clean-origin-dev-worktree>`. The CLI
-builds from that verified clean source while recreating from the installed
-instance, preserving its existing bind-mounted output, log, and configuration
-paths. Runtime/source SHAs must match, and dirty deployment-control files are
-refused.
-
-After a rebuild on the canonical instance (compose project `nextseek`), the
-CLI tries to push each rebuilt image to its private GHCR package, gated by the
-DEPLOYMENT.md §5.2 baked-secret check. **This step never fails the rebuild**:
-with no credential (or an expired one) it prints a banner
-telling the deployer how to fix it, records the failure in
-`startup/.ghcr-push-state.json` (gitignored), and `./startup.sh doctor` keeps
-flagging it until a push succeeds. Credential: a classic PAT with
-`write:packages` (owner must be a BioMicroCenter org member) in
-`~/.config/nextseek/ghcr.env` as `GHCR_USER=…` / `GHCR_TOKEN=…` (mode 600;
-override the path with `NEXTSEEK_GHCR_ENV`). See DEPLOYMENT.md §5.2.
-
-A rebuild ends by running the CI smoke suite against the rebuilt stack, with
-the readiness gate applied. Before the run it prints what is about to happen:
-the profile and where it came from, the stack URL, which credential file is in
-play (path only, never a value) and the exact command. The gate then waits out
-the readiness floor (300 s by default) with a `[readiness] floor: N s
-remaining` line every 30 s, prints each probe, and says `ready after N s`
-before the first test runs. The run closes with one line of counts in
-pytest's own words, `CI passed: 207 passed, 6 skipped, 13 xfailed in 5:44
-(readiness 5:04)`, read back from the junit report the suite writes to
-`startup/.ci-last-run.xml` (gitignored, overwritten every run).
-`--no-ci` skips the step, and it is skipped automatically after
-`--no-restart`, where the running containers do not yet carry the new image.
-
-```
-./startup.sh rebuild --no-ci                      # rebuild only; run CI yourself later
-```
-
-**If CI fails after a rebuild** the counts are reported (`CI failed after
-rebuild: 3 failed, 204 passed ...`), the junit report's path is printed, and
-`rebuild` exits with the suite's exit code. A run that ended before any test
-(a refused profile, a readiness failure) reports `exit N, no report written`. The rebuild itself succeeded and is still running: it is
-*not* rolled back, because undoing a deploy is a larger and more dangerous
-action than the one it would be reacting to, so the decision stays with the
-deployer. See DEPLOYMENT.md for the rollback procedure if the failures are
-regressions.
-
-The suite needs `~/.config/nextseek/ci.env` to exist. Under `--wait-ready` a
-missing `CI_SMOKE_USER`/`CI_SMOKE_PASS` is an **exit 2**, not a skip: a
-readiness gate probes an authenticated endpoint, so with no credentials it
-cannot do its job, and a rebuild must never report "CI passed" for a run that
-proved nothing.
-
-### `ci`
-
-Runs the post-deploy smoke suite (`ci/smoke/`) against this instance's running
-stack. The suite is *subprocessed*, never imported: it needs pytest, requests
-and playwright, and `startup/` deliberately depends on none of them. It prints
-the same banner and closing counts line as the rebuild hook (see `rebuild`).
-
-```
-./startup.sh ci                       # against http://127.0.0.1:<this instance's nextseek port>
-./startup.sh ci --wait-ready          # apply the readiness floor first (what rebuild does)
-./startup.sh ci --profile prod        # narrow: run only what a prod box permits
-./startup.sh ci --force-profile local # widen: prompts, see below
-```
-
-**The box declares its own profile**, as `ci_profile` in
-`startup/.instance.json` (`local`, `dev` or `prod`). It decides which routes in
-the registry the suite may call: a route registered for `local,dev` is not
-called on a box declaring `prod`. **An absent or empty `ci_profile` means
-`prod`**: a machine nobody has configured gets the most restrictive profile,
-never the least.
-
-Set it with `install --ci-profile`, or on an existing install by adding the key
-to `startup/.instance.json` by hand. `./startup.sh doctor` reports which value is
-in force. The profile also gates whole tests, not only routes: a browser flow
-whose shape is a write (`@pytest.mark.profiles("local", "dev")`) is **skipped**
-under `prod` rather than run and refused.
-
-`--profile` may only *narrow* that declaration; asking for a wider one exits
-non-zero rather than running. `--force-profile` is the deliberate override: it
-asks for confirmation at the terminal, and only an answered `yes` passes the
-acknowledgement the suite requires. Nothing is written back to
-`.instance.json`, so the widening lasts exactly one run.
-
-Credentials come from `~/.config/nextseek/ci.env` (mode 600, never committed);
-environment variables override the file and `NEXTSEEK_CI_ENV` points at a
-different one. See `ci/smoke/README.md` for the file's contents and for what
-each profile covers.
-
-### `seed-filestore`
-
-Loads `startup/seed/filestore.tar.gz` into the running `seek` container's
-`/seek/filestore` volume — the content blobs (data files, SOPs, avatars, ...)
-that the `seek_production` metadata points at. The ~215MB archive isn't in git;
-if it's not already in `startup/seed/` it's downloaded from S3 (sha256-verified)
-first. `install` does this automatically in phase 7; use this command to
-(re)seed an already-running stack without a full reinstall. Skips if the
-filestore already holds assets unless `--force` is given.
-
-```
-./startup.sh seed-filestore
-./startup.sh seed-filestore --force
-```
-
-### `dump-db`
-
-**Maintainer-only.** Regenerates the gzipped seed dumps from a source DB.
-Requires `startup/seed/regenerate/dump-source.env` (gitignored) with the
-source-DB credentials. Errors gracefully if absent.
-
-```
-./startup.sh dump-db
-```
-
-## Multi-instance / side-by-side installs
-
-To run a second isolated install on the same machine without disrupting
-your existing one:
-
-```bash
-git clone <repo-url> /tmp/NExtSEEK-test
-cd /tmp/NExtSEEK-test
-./startup.sh install --instance test
-```
-
-Startup auto-detects free ports and uses a `test-` volume name prefix.
-Both stacks coexist; `./startup.sh reset` from `/tmp/NExtSEEK-test` nukes
-only the test data.
-
-Compose project namespacing is automatic via `COMPOSE_PROJECT_NAME`
-(set in `startup/.instance.json` and mirrored to the root `.env` for manual
-`docker compose` commands).
-
-## Files written by startup
-
-| Path | Tracked? | Purpose |
+| Command | Defined at | What it drives |
 |---|---|---|
-| `docker/db.env` | gitignored | MySQL credentials |
-| `docker/nextseek.env` | gitignored | Django/Neo4j config + API keys |
-| `docker/bedrock-proxy/proxy-secret.env` | gitignored | Bedrock proxy runtime token + region |
-| `dmac/local_settings.py` | gitignored | Django settings overlay |
-| `.env` | gitignored | Non-secret compose project + published port vars |
-| `startup/.instance.json` | gitignored | Per-instance state (name, prefix, ports, CI profile) |
-| `logs/` | gitignored | Container runtime logs |
+| `install` | `startup/cli.py:378` | 9 numbered phases, body in `_install_impl` (`startup/cli.py:86`) |
+| `doctor` | `startup/cli.py:421` | read-only diagnosis, `startup/steps/doctor.py:75` |
+| `reset` | `startup/cli.py:450` | volume drop then a re-entry into install |
+| `rebuild` | `startup/cli.py:511` | one first-party component, rollback-tagged |
+| `ci` | `startup/cli.py:697` | the smoke suite as a subprocess |
+| `seed-filestore` | `startup/cli.py:746` | the SEEK blob archive into a running stack |
+| `dump-db` | `startup/cli.py:781` | maintainer-only seed regeneration |
 
-## Tests & coverage
+**The nine install phases** are printed by nine `ui.step(n, 9, …)` calls in
+`_install_impl`: prerequisites (`startup/cli.py:114`), vendored-`chat_nextseek`
+verification (`startup/cli.py:125`), instance and port resolution
+(`startup/cli.py:133`), config rendering (`startup/cli.py:221`), volume creation
+(`startup/cli.py:241`), seed import (`startup/cli.py:251`), image build and stack
+start (`startup/cli.py:308`), test-user verification (`startup/cli.py:354`) and health
+checks (`startup/cli.py:362`). Three unnumbered steps run between phases 6 and 7:
+schema fixups (`startup/cli.py:288`), SEEK's `site_base_host`
+(`startup/cli.py:300-302`) and, after phase 7, stale-chat cleanup
+(`startup/cli.py:349`).
 
-The startup CLI is deployment-critical and holds a **95% minimum** coverage
-bar (currently ~99%). Hermetic suite (no docker daemon touched):
+**Three layers.** `cli.py` holds argument parsing and phase ordering and nothing else.
+`steps/` holds one module per phase — 14 of them, each a pure-ish function over
+`(repo_root, compose_env)`. `lib/` holds 7 primitives: subprocess wrappers around
+docker (`startup/lib/docker_ops.py:1`), `.env` read/write that preserves comments and
+key order (`startup/lib/env.py:1`), per-instance state
+(`startup/lib/instance.py:1`), port probing (`startup/lib/ports.py:1`), the rebuild
+component map (`startup/lib/rebuild_policy.py:1`), clean-source verification
+(`startup/lib/deploy_source.py:1`) and the Rich console wrappers
+(`startup/lib/ui.py:1`).
+
+**The data payload.** `startup/seed/` ships three gzipped dumps loaded in phase 6, and
+`startup/seed/sql/` ships eight `CREATE TABLE IF NOT EXISTS` files, five of which are
+registered as table fixups at `startup/steps/schema_fixups.py:109-152`. All five of
+those tables are absent from the committed dump: measured 2026-09-03,
+`zgrep -c 'CREATE TABLE \`<name>\`' startup/seed/dmac.sql.gz` returns 0 for
+`sample_attributes_unique`, `sample_type_requirements`, `assay_context`,
+`projects_context` and `project_template_bundles`, and 1 for `sample_types_context`.
+So those five tables reach an install only through the fixup step, never through the
+seed. `startup/templates/` holds the three files rendered into `docker/db.env`,
+`docker/nextseek.env` and `dmac/local_settings.py`
+(`startup/steps/config.py:149-170`).
+
+**Two managed indexes** on Rails-owned SEEK tables are declared at
+`startup/steps/schema_fixups.py:376-392`, and applying them is opt-in behind an
+environment flag, default off (`startup/steps/schema_fixups.py:976-995`).
+
+**`startup/dev/`** is a separate, hand-run lane, not part of any subcommand:
+`startup/dev/run_full_test_lane.sh:6-14` runs `nextseek_api/tests startup/tests` in one
+pytest invocation inside a pinned app image on a `--internal` docker network, and
+`startup/dev/provision_embedding_model.sh:51` verifies the embedding-model cache the
+lane needs against a committed manifest.
+
+### Per-command behaviour that `--help` does not show
+
+`install` is idempotent for prerequisites, config, volumes, users and validation, and
+each seed is skipped independently when its target already holds tables
+(`startup/cli.py:262-273`). Ports are not merely checked: `allocate_ports` walks forward
+from each default until it finds a free one, up to 200 attempts
+(`startup/lib/ports.py:28-42`), so a busy 8000 produces a working install on a different
+port rather than an error. `--seek-public-url` resolves in a never-clobber order —
+explicit flag, then the value already rendered into `docker/nextseek.env`, then the
+stored instance value, then `http://localhost:<seek port>`
+(`startup/steps/config.py:78-101`) — and one resolved value feeds both the app's link
+building and SEEK's own DB-backed identity (`startup/cli.py:145-156`). That second layer
+is set only when the row is absent; an existing row is reported as an admin decision and
+left alone (`startup/steps/seek_settings.py:171-198`). An unknown `--ci-profile` exits 2
+before anything is written (`startup/cli.py:104-109`).
+
+`doctor` is read-only and reports the two CI lines without ever failing on them, because
+a box that does not run CI is not broken (`startup/steps/doctor.py:23-27`); the
+credential file is opened only to learn which keys it names, never their values
+(`startup/steps/doctor.py:40-44`).
+
+`rebuild` creates and verifies a local rollback tag for every affected image before it
+builds anything (`startup/cli.py:580-590`), then recreates long-running targets with
+`--no-deps --force-recreate` (`startup/cli.py:599-607`). It ends by running the smoke
+suite with the readiness gate on, and skips that step automatically after
+`--no-restart`, where the containers still carry the old image
+(`startup/cli.py:631-637`). A CI failure is reported with its counts and the junit path
+and exits with the suite's own code, and the rebuild is deliberately not undone
+(`startup/cli.py:646-656`).
+
+`ci` prints what is about to run first — profile and where it came from, the stack URL,
+the credential file as a path only, and the exact argv (`startup/cli.py:660-681`).
+Widening past the box's declaration needs an answered terminal prompt, and the
+acknowledgement is set for that one subprocess and never written back
+(`startup/cli.py:716-728`, `startup/ci/runner.py:64-67`).
+
+`seed-filestore` skips when the volume already holds assets unless `--force`
+(`startup/cli.py:772-774`). The ~215MB archive is not in git; it is fetched from a fixed
+S3 URL and sha256-verified (`startup/steps/seed_filestore.py:30-34`), and during install
+a failed download only warns so the rest of the install still completes
+(`startup/cli.py:328-334`).
+
+`dump-db` refuses without `startup/seed/regenerate/dump-source.env`
+(`startup/cli.py:788-792`), and runs the MySQL and Neo4j dump scripts in turn
+(`startup/cli.py:796-805`).
+
+For a second install on one machine, pass `--instance NAME`: that is what produces a
+non-empty volume prefix and a distinct Compose project (`startup/cli.py:144`,
+`startup/cli.py:165`), which are then exported to every docker invocation
+(`startup/lib/instance.py:27-43`). `--port-offset N` shifts every default port
+(`startup/cli.py:139-142`).
+
+**What startup writes** (all gitignored): `docker/db.env`, `docker/nextseek.env`,
+`dmac/local_settings.py` (`startup/steps/config.py:151`,
+`startup/steps/config.py:159`, `startup/steps/config.py:167`),
+`docker/bedrock-proxy/proxy-secret.env` at mode 0600
+(`startup/steps/config.py:188-202`), the repo-root `.env`
+(`startup/steps/config.py:240-247`), `startup/.instance.json`
+(`startup/lib/instance.py:53-60`), and the junit report the CI shim reads back
+(`startup/ci/runner.py:22-27`).
+
+## Running and testing
+
+The CLI has its own hermetic suite: no docker daemon, no database, nothing paid. It
+does need two things blocked, because `startup/tests/conftest.py:7` registers a plugin
+from the main Django project and `startup/tests/test_schema_fixups.py:32` imports
+`MySQLdb` at module scope, and neither loads under this project's isolated
+dependencies.
 
 ```
-uv run --project startup --group test python -m pytest startup/tests/
+cd startup && uv run --project . --group test python -m pytest tests/ -q \
+  -p no:nextseek_api.attributes.tests.attribute_fixtures \
+  --ignore=tests/test_schema_fixups.py
 ```
 
-Coverage gate (fails under 95%):
+Run 2026-09-03 on this host: **2 failed, 425 passed, 1 skipped, 5 errors in 2.59s**.
+The 5 errors are all `fixture 'disposable_attribute_db' not found`, the direct price of
+the `-p no:` block. The 2 failures are host-independent test-side defects, both in the
+managed-index tests, and both are described in the paired CLAUDE.md.
+
+Adding the coverage gate the same day gives 88.89% against a `--cov-fail-under=95`
+bar, because `startup/steps/schema_fixups.py` drops to 53% once its MySQLdb-backed
+module is ignored:
 
 ```
-uv run --project startup --group test python -m pytest startup/tests/ \
-  --cov=startup.cli --cov=startup.lib --cov=startup.steps --cov=startup.ci \
-  --cov-fail-under=95
+cd startup && uv run --project . --group test python -m pytest tests/ -q \
+  -p no:nextseek_api.attributes.tests.attribute_fixtures \
+  --ignore=tests/test_schema_fixups.py --cov=startup.cli --cov=startup.lib \
+  --cov=startup.steps --cov=startup.ci --cov-fail-under=95
 ```
 
-Integration lanes: `test_integration_startup.py` chains real git repos, real
-state files, and multi-command CLI flows (docker mocked); set
-`NEXTSEEK_STARTUP_DOCKER_TESTS=1` to also run the opt-in real-docker tests.
+The full-coverage lane needs mysqlclient and a disposable MySQL server, which is what
+`scripts/attribute_api_test.sh schema` provisions; the lane driven by
+`startup/dev/run_full_test_lane.sh:106-108` additionally needs an exact pinned app
+image and a provisioned embedding-model cache. (not run) — both need infrastructure
+this host does not have: a MySQL server and the pinned
+`ghcr.io/biomicrocenter/nextseek:baseline-20260805` image.
 
-## Known failure modes
+### When bring-up misbehaves
 
-- **Port already in use**: Use `--port-offset N` or one of the per-service
-  `--*-port` flags. `./startup.sh doctor` will tell you which port is busy.
-- **chat_nextseek/ missing**: Re-clone the repo. chat_nextseek is vendored —
-  it must be present at clone time. If you cloned without it, run
-  `startup/scripts/sync_chat_nextseek.sh` from a checkout of the
-  canonical repo.
-- **Seed import "table already exists"**: The target DB has prior data.
-  Run `./startup.sh reset` for a clean install, or load into a fresh
-  `--instance NAME`.
-- **`manage.py check` fails with "DJANGO_SECRET_KEY not set"**: The
-  `docker/nextseek.env` file is missing or empty. Run `./startup.sh install`
-  again — it will regenerate config without dropping volumes.
-- **Chat features don't work**: API keys in `docker/nextseek.env` are
-  placeholders (`SET_IN_LOCAL_ENV`). Fill in real values for
-  `GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, or `FDH_API`, then
-  `./startup.sh rebuild`.
-- **CC Bedrock calls don't work**: `docker/bedrock-proxy/proxy-secret.env`
-  is generated during install. If `AWS_BEARER_TOKEN_BEDROCK` was not exported
-  before install, fill it in there and re-run `./startup.sh rebuild --service
-  bedrock-proxy`.
+`./startup.sh doctor` first: it runs the same prerequisite and health checks install
+does and exits non-zero if any of them fail (`startup/cli.py:438-446`). Then, by
+symptom:
 
-## Maintainer: regenerating seed dumps
+- A missing or empty `docker/nextseek.env` shows up as the containerised
+  `manage.py check` failing (`startup/steps/validate.py:33-42`); re-running `install`
+  regenerates config without dropping volumes.
+- Chat features staying inert usually means the three API keys are still their rendered
+  placeholders (`startup/templates/nextseek.env.template:37-39`), and the Bedrock path
+  additionally warns at install time when its own env file has no token
+  (`startup/cli.py:50-55`).
+- A cloned tree with no `chat_nextseek/` aborts phase 2 with the remediation printed
+  (`startup/cli.py:126-129`).
 
-The shipped seeds in `startup/seed/*.gz` are sanitized snapshots of a
-dev environment. Regenerate them when:
+`startup/pytest.ini:2` sets `pythonpath = ..`, which is what makes both `startup.*` and
+`nextseek_api.*` importable from inside `startup/tests/`.
 
-- New test users / projects are added to the canonical dev DB
-- Schema migrations change the data shape enough that the old dumps
-  fail to load
-- A SEEK upgrade introduces incompatible schema changes
+## Depends on / depended on by
 
-To regenerate:
+Depends on. Not imports: this package imports nothing first-party outside itself. No
+line matching `^\s*(from|import)\s+(dmac|nextseek_api|seek|chat_nextseek|ci)\b` exists
+in any `.py` file under `startup/cli.py`, `startup/lib/`, `startup/steps/` or
+`startup/ci/`; the only first-party imports there are `startup.*`. Its real edges are:
 
-1. Copy `startup/seed/regenerate/dump-source.env.example` to
-   `dump-source.env` (gitignored) and fill in real credentials.
-2. `./startup.sh dump-db`
+- External binaries: `docker`, `docker compose` and `uv` are each probed
+  (`startup/steps/prereqs.py:77-82`) in the first install phase, before anything is
+  written (`startup/cli.py:114-122`), plus `git`, shelled out to for the
+  clean-source check (`startup/lib/deploy_source.py:20-29`) and the rollback tag
+  (`startup/steps/rollback_tags.py:47`).
+- Compose service names as build and restart targets: `nextseek`, `cc-agent`,
+  `nextseek-sidecar` and `bedrock-proxy` are named at
+  `startup/lib/rebuild_policy.py:102-168`.
+- Compose service names as `exec` targets: `db` takes the SQL seeds
+  (`startup/steps/seed.py:85`) and the schema-fixup table probe
+  (`startup/steps/schema_fixups.py:160-161`), `neo4j` takes the graph seed
+  (`startup/steps/seed.py:56`) and `seek` takes the filestore archive on stdin
+  (`startup/steps/seed_filestore.py:94-103`).
+- Seven external named volumes it creates by name (`startup/steps/volumes.py:6-16`);
+  six are declared `external: true` at `docker-compose.yml:503-520` and the seventh at
+  `docker-compose.yml:530-531`, so Compose fails rather than creating them itself.
+- The vendored `chat_nextseek/pyproject.toml`, whose absence aborts install phase 2
+  (`startup/cli.py:126-129`).
+- `ci/smoke/` by path string, launched as a subprocess and never imported, precisely so
+  requests and playwright stay out of this project (`startup/ci/runner.py:1-5` and
+  `startup/ci/runner.py:38`).
+- A MySQL driver chosen at runtime, preferring host mysqlclient and falling back to the
+  declared PyMySQL (`startup/steps/schema_fixups.py:898-912`).
+- `~/.config/nextseek/ci.env` for smoke credentials, read only for the key names
+  (`startup/steps/doctor.py:13` and `startup/steps/doctor.py:59-63`), and
+  `~/.config/nextseek/ghcr.env` for the registry push
+  (`startup/steps/registry_push.py:14-18`).
 
-The MySQL dump script is `startup/seed/regenerate/dump_mysql.sh`; the
-Neo4j export is `startup/seed/regenerate/dump_neo4j.py`. Both are
-deliberately small and self-documenting so you can audit before running.
+Depended on by. Non-test and cross-boundary consumers, derived by grepping the tree for
+`^\s*(from|import)\s+startup(\.|\s|$)` and for the literal strings `startup.sh`,
+`startup/.instance.json` and `startup/seed`. This package's own 28 test modules are
+omitted, and so are the two files under `docs/superpowers/plans/` whose `from startup…`
+lines sit inside quoted code samples in a plan document rather than being imports that
+file performs.
+
+- `.github/workflows/ci-smoke.yml:60` reads `startup/.instance.json` by path to learn
+  the box-declared profile, deliberately rather than naming one itself.
+- `seek/tests/test_context_seed_tables.py:10` binds `startup/seed/sql/` as a directory
+  and reads three DDL files out of it at `seek/tests/test_context_seed_tables.py:19`,
+  then asserts against `KNOWN_TABLE_FIXUPS` at
+  `seek/tests/test_context_seed_tables.py:45`.
+- `nextseek_api/cc_assistant/tests/validate_step7_compose_deploy.py:57` imports
+  `REQUIRED_VOLUMES` as the authoritative volume list, behind a defensive `except
+  ImportError` fallback at
+  `nextseek_api/cc_assistant/tests/validate_step7_compose_deploy.py:58-62`.
+- `scripts/plan018_v4_9_task8_deploy.py:914-915` imports the instance-state and config
+  modules, and `scripts/plan018_v4_9_task8_deploy.py:1104` imports the registry push.
+- `scripts/attribute_api_test.sh:356` is not an import that file performs: it is Python
+  source inside a heredoc opened at `scripts/attribute_api_test.sh:353` and executed
+  inside a container.
+- `chat_nextseek/README.md:172` documents `startup/dev/lane_local_settings.py` as the
+  file that constructs the Django-wide assistant config at settings-import time.
+- `.gitignore:229-231` and `.gitignore:261` reserve the four runtime paths this CLI
+  writes or downloads, so none of them can be committed by accident.
+
+See `startup/CLAUDE.md` for the invariants, the traps and the one command to run.

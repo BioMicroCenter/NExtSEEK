@@ -5,7 +5,7 @@
 Three publications were transferred to production on 2026-08-26. The remaining
 49 were never transferred, and nothing now depends on them: DOI and PMID live on
 the samples themselves as attributes, not on publication records. See
-`../sample_publication_attributes/PROD_ROLLOUT.md`.
+`../sample_publication_attributes/archive/PROD_ROLLOUT.md`.
 
 These files are kept because they are the record of how production's three
 publication records got there, and because `all_52_publications.sql` still works

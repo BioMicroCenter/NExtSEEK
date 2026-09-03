@@ -1,0 +1,142 @@
+# Files opened while rewriting README.md and CLAUDE.md for chat_nextseek/.
+# One repo-relative path per line.
+
+# --- how the vendored copy is produced and installed ---
+startup/scripts/sync_chat_nextseek.sh
+pyproject.toml
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker/cc-runtime/Dockerfile
+docker/cc-runtime/PORT-EVIDENCE.json
+
+# --- boundary: top level ---
+chat_nextseek/README.md
+chat_nextseek/CLAUDE.md
+chat_nextseek/pyproject.toml
+chat_nextseek/conftest.py
+chat_nextseek/.gitignore
+chat_nextseek/.env.example
+chat_nextseek/app.py
+chat_nextseek/cli.py
+chat_nextseek/mcp_server.py
+chat_nextseek/e2e.py
+chat_nextseek/agent_model_catalog.json
+
+# --- boundary: package source ---
+chat_nextseek/src/chat_nextseek/portable.py
+chat_nextseek/src/chat_nextseek/orchestrator.py
+chat_nextseek/src/chat_nextseek/config.py
+chat_nextseek/src/chat_nextseek/chat_memory.py
+chat_nextseek/src/chat_nextseek/session.py
+chat_nextseek/src/chat_nextseek/agents/__init__.py
+chat_nextseek/src/chat_nextseek/agents/system.py
+chat_nextseek/src/chat_nextseek/helpers/__init__.py
+chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py
+chat_nextseek/src/chat_nextseek/luria/ssh.py
+chat_nextseek/src/chat_nextseek/context/capabilities.md
+
+# --- boundary: E2E harness ---
+chat_nextseek/e2e/catalog.json
+chat_nextseek/e2e/catalog.py
+chat_nextseek/e2e/sampler.py
+chat_nextseek/e2e/manifest.py
+chat_nextseek/e2e/import_env.py
+
+# --- boundary: tests ---
+chat_nextseek/tests/test_portable_contract.py
+chat_nextseek/tests/test_pipeline_tool_exposure.py
+chat_nextseek/tests/test_generate_submission_hydration.py
+chat_nextseek/tests/test_shortlist_recall.py
+chat_nextseek/tests/evaluator/conftest.py
+chat_nextseek/tests/evaluator/test_demo_server.py
+chat_nextseek/tests/evaluator/test_frozen_planner_evaluator.py
+chat_nextseek/tests/evaluator/test_normalization_additional.py
+chat_nextseek/tests/e2e/playwright/fixtures/normalize_cases.json
+
+# --- boundary: docs under separate triage; read, NOT treated as current ---
+chat_nextseek/e2e/archive/playwright_current_issue.md
+chat_nextseek/src/chat_nextseek/evaluator/README.md
+chat_nextseek/src/chat_nextseek/evaluator/docs/runbook.md
+
+# --- consumers of this boundary ---
+nextseek_api/services/assistant.py
+nextseek_api/services/cc_assistant.py
+nextseek_api/services/evaluator.py
+nextseek_api/assistant/granular.py
+nextseek_api/cc_assistant/cc_turn_complete.py
+nextseek_api/cc_assistant/step7_llm_cost_ledger.py
+startup/dev/lane_local_settings.py
+startup/tests/test_validate.py
+build_tools/gen_op_surfaces/constants.py
+build_tools/gen_op_surfaces/route_capabilities.py
+build_tools/gen_op_surfaces/docker_blocks.py
+docker/cc-runtime/build_context/plugins/nextseek/context/capabilities.md
+
+# --- Django wiring, deployment and test lanes, outside the boundary ---
+dmac/settings.py
+dmac/local_settings.example.py
+dmac_assistant/src/dmac_assistant/config.py
+dmac_assistant/README.md
+DEPLOYMENT.md
+CLAUDE.md
+ci/pytest-baseline.txt
+.github/workflows/ci-pytest.yml
+docker/nginx.conf
+docker/scripts/entrypoint.sh
+gunicorn.conf.py
+
+# --- cross-referenced sibling documentation ---
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt
+nextseek_api/assistant/README.md
+nextseek_api/assistant/CLAUDE.md
+nextseek_api/schema_rag/README.md
+nextseek_api/schema_rag/CITATIONS.txt
+nessie_tests/README.md
+nessie_tests/FAMILIES.json
+docs/nessie-blocked-capabilities.md
+docs/testing-review/01-chat_nextseek-e2e-harness-review.md
+
+# DROPPED AS STALE:
+# Claims carried by the previous chat_nextseek/README.md and chat_nextseek/CLAUDE.md
+# that are NOT reproduced in this rewrite, and why. Every line below is a comment.
+#
+# 1. "The tests/evaluator/ subdir is Django-stack dependent" (old README Testing
+#    section, old CLAUDE Testing section). FALSE. A case-insensitive grep for
+#    "django" over chat_nextseek/tests/evaluator/ returns nothing. The real
+#    blockers, measured 2026-09-03, are a missing pytest_asyncio and an import of
+#    the removed private symbol _persist_bundle_reply. Replaced by a landmine.
+# 2. The whole "Provider Profiles" flag-to-model table (old README) naming
+#    Sonnet 4.6 / Opus 4.6 / Opus 4.5 / Sonnet 4.5 / gemini 2.5-pro / DeepSeek
+#    V3.2 / Qwen3 80B / GLM-4.7. Not establishable from this tree:
+#    chat_nextseek/agent_model_catalog.json carries gemini-3.5-flash,
+#    gemini-3.1-pro-preview, us.anthropic.claude-opus-4-7 and
+#    us.anthropic.claude-sonnet-4-6, and its "aws" profile keys everything under
+#    a single "__default__" entry, so the per-flag model names are unverifiable.
+# 3. "Open http://localhost:8501 in your browser" and the Quick Start git-clone
+#    block (old README). Not applicable to the vendored copy: no port 8501
+#    appears in docker-compose.yml, and this directory is not cloned separately.
+# 4. "variants whose requires_env aren't satisfied are reported as skipped"
+#    (old README). Contradicted by chat_nextseek/e2e/sampler.py lines 23 to 25,
+#    which filters them out before sampling so they never enter a sampled run.
+#    Replaced by a landmine that says what actually happens.
+# 5. "Branches: feat/<topic> (latest: feat/pipeline-params-resources, merged to
+#    dev)" (old CLAUDE). Dropped: a branch fact cannot be verified in this pass,
+#    which runs no git commands.
+# 6. The three-surface "Logs (debugging failures)" section (old CLAUDE) covering
+#    docker logs, logs/ and outputs/. Dropped as out of boundary: it documents
+#    the outer stack and is already carried by the repo-root CLAUDE.md.
+# 7. "chat_nextseek is also consumed as a library by external tools - currently
+#    dmac_assistant's nextseek plugin" (old CLAUDE Portability Contract).
+#    Dropped as an assertion about this repo: no file under dmac_assistant/
+#    imports chat_nextseek here, and the agent image does not install it. The
+#    contract itself is kept, restated against its real in-repo consumer.
+# 8. "Stale context catalogs - delete JSON files in src/chat_nextseek/context/ to
+#    force a refresh" (old README troubleshooting table, old CLAUDE conventions).
+#    Dropped as unverified: the refresh path was not exercised in this pass.
+# 9. "The old smart_test.py / test.py / testing.json harness was retired" (old
+#    CLAUDE). True and re-verified by find, but dropped as no longer useful: the
+#    files are gone, so the note only tells a reader about a state they cannot
+#    encounter.

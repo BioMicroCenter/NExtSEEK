@@ -1,0 +1,147 @@
+# Files opened while writing README.md and CLAUDE.md for startup/.
+# One repo-relative path per line.
+
+# --- boundary: entry point and command tree ---
+startup.sh
+startup/__init__.py
+startup/__main__.py
+startup/cli.py
+startup/pyproject.toml
+startup/pytest.ini
+
+# --- boundary: lib/ primitives ---
+startup/lib/__init__.py
+startup/lib/deploy_source.py
+startup/lib/docker_ops.py
+startup/lib/env.py
+startup/lib/instance.py
+startup/lib/ports.py
+startup/lib/rebuild_policy.py
+startup/lib/ui.py
+
+# --- boundary: steps/ phases ---
+startup/steps/__init__.py
+startup/steps/build.py
+startup/steps/config.py
+startup/steps/doctor.py
+startup/steps/prereqs.py
+startup/steps/registry_push.py
+startup/steps/rollback_tags.py
+startup/steps/schema_fixups.py
+startup/steps/seed.py
+startup/steps/seed_cleanup.py
+startup/steps/seed_filestore.py
+startup/steps/seek_settings.py
+startup/steps/users.py
+startup/steps/validate.py
+startup/steps/volumes.py
+
+# --- boundary: ci shim ---
+startup/ci/__init__.py
+startup/ci/runner.py
+
+# --- boundary: templates rendered into the working tree ---
+startup/templates/db.env.template
+startup/templates/local_settings.py.template
+startup/templates/nextseek.env.template
+
+# --- boundary: committed data payload ---
+startup/seed/README.md
+startup/seed/dmac.sql.gz
+startup/seed/sql/assay_context.sql
+startup/seed/sql/projects_context.sql
+startup/seed/sql/project_template_bundles.sql
+startup/seed/sql/ROLLBACK_sample_attributes_description.sql
+startup/seed/sql/sample_attributes_description.sql
+startup/seed/sql/sample_attributes_unique.sql
+startup/seed/sql/sample_attributes_unique_data.sql
+startup/seed/sql/sample_type_requirements.sql
+
+# --- boundary: hand-run lanes and maintainer scripts ---
+startup/dev/lane_local_settings.py
+startup/dev/provision_embedding_model.sh
+startup/dev/run_full_test_lane.sh
+startup/scripts/sync_chat_nextseek.sh
+
+# --- boundary: tests ---
+startup/tests/conftest.py
+startup/tests/test_registry_push.py
+startup/tests/test_schema_fixups.py
+startup/tests/test_schema_fixups_coverage.py
+startup/tests/test_schema_fixups_tables.py
+startup/tests/test_seed_charset.py
+
+# --- boundary: stale, read but NOT treated as current (triaged separately) ---
+startup/ATTRIBUTE-INDEX-FIXUPS.md
+
+# --- outside the boundary: what this CLI drives or is constrained by ---
+.dockerignore
+.github/workflows/ci-smoke.yml
+.gitignore
+Dockerfile
+docker-compose.yml
+pyproject.toml
+ci/smoke/conftest.py
+
+# --- outside the boundary: consumers of this package ---
+chat_nextseek/README.md
+nextseek_api/attributes/tests/attribute_fixtures.py
+nextseek_api/attributes/tests/real_boundary.py
+nextseek_api/cc_assistant/tests/validate_step7_compose_deploy.py
+nextseek_api/tests/test_sample_type_requirements_model.py
+scripts/attribute_api_test.sh
+scripts/plan018_v4_9_task8_deploy.py
+seek/tests/test_context_seed_tables.py
+
+# --- the frozen worked example, read as the shape to match ---
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt
+
+# DROPPED AS STALE: what the previous startup/README.md asserted and this pair
+# does not carry forward. Every line here is a comment; none is a path.
+#
+# 1. "The default app component rebuilds one shared image and recreates nextseek,
+#    attribute_mutation_worker, attribute_mutation_dispatcher, and
+#    attribute_mutation_recovery_scheduler." FALSE unconditionally on this branch:
+#    app_runtime_services() returns only ("nextseek",) unless COMPOSE_PROFILES
+#    contains "attributes" (startup/lib/rebuild_policy.py:65-70), and the old text
+#    also omitted assay_registration_worker, which the same function adds behind its
+#    own profile. The claim about the attribute_mutation_broker volume surviving a
+#    rebuild is true but is a docker-compose.yml fact, not a startup/ one, and is
+#    already stated at docker-compose.yml:538-543.
+#
+# 2. "The startup CLI is deployment-critical and holds a 95% minimum coverage bar
+#    (currently ~99%)." Not reproducible: the printed hermetic command
+#    `uv run --project startup --group test python -m pytest startup/tests/`
+#    cannot collect at all on a host without mysqlclient, and the working
+#    invocation measures 88.89% on 2026-09-03 because the MySQLdb-backed module is
+#    ignored. The bar itself is still a real intent; the parenthetical number is
+#    not currently observable, so it is dropped rather than restated.
+#
+# 3. "Runs all 9 phases: prereqs, vendor verify, config, volumes, seeds, build,
+#    users, validate." Eight names for nine numbered steps; the instance/port
+#    resolution phase (startup/cli.py:133) was missing. Replaced with the full nine.
+#
+# 4. "Seed import 'table already exists': The target DB has prior data." Superseded
+#    behaviour: each seed is gated on a populated check and reports "already
+#    populated; skipping" instead (startup/cli.py:262-273).
+#
+# 5. "Port already in use: Use --port-offset N or one of the per-service --*-port
+#    flags." Two problems. allocate_ports already walks forward to the next free
+#    port, so a busy default is not an error; and no per-service --*-port option
+#    exists on any command in startup/cli.py -- the only port control is
+#    --port-offset.
+#
+# 6. The prose restatement of NExtSTEPS.md and DEPLOYMENT.md sections (the GHCR PAT
+#    scope and org-membership requirement, the DEPLOYMENT.md 5.2 baked-secret gate,
+#    the readiness floor's 300 s default and its countdown lines, the ci.env
+#    contents, and the exit-2-under---wait-ready rule). All of it is owned outside
+#    this boundary -- startup/steps/registry_push.py's own docstring, ci/smoke/, and
+#    the two root runbooks -- and the pair now cross-references those instead of
+#    holding a second copy that can drift.
+#
+# 7. "Both stacks coexist; ./startup.sh reset from /tmp/NExtSEEK-test nukes only the
+#    test data." True only when --instance was passed. Dropped as written and
+#    replaced by the landmine in startup/CLAUDE.md that states what happens when it
+#    is not.

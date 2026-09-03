@@ -1,0 +1,125 @@
+# Files read while documenting chat_frontend/, grouped by role.
+# Every path cited in README.md or CLAUDE.md appears here; so do files that
+# were opened and did not end up cited.
+
+# --- Build, tooling and package config (this boundary) ---
+chat_frontend/package.json
+chat_frontend/package-lock.json
+chat_frontend/vite.config.ts
+chat_frontend/vite.config.embedded.ts
+chat_frontend/vitest.config.ts
+chat_frontend/playwright.config.ts
+chat_frontend/eslint.config.js
+chat_frontend/tailwind.config.js
+chat_frontend/components.json
+chat_frontend/tsconfig.json
+chat_frontend/tsconfig.app.json
+chat_frontend/tsconfig.node.json
+chat_frontend/.prettierrc
+chat_frontend/.gitignore
+chat_frontend/.env.example
+chat_frontend/Makefile
+chat_frontend/index.html
+
+# --- Entry points and shells ---
+chat_frontend/src/main.tsx
+chat_frontend/src/main.embedded.tsx
+chat_frontend/src/App.tsx
+chat_frontend/src/AppLayout.tsx
+chat_frontend/src/EmbeddedApp.tsx
+chat_frontend/src/index.css
+chat_frontend/src/index.embedded.css
+chat_frontend/src/vite-env.d.ts
+chat_frontend/src/test/setup.ts
+
+# --- Services, hooks, library code ---
+chat_frontend/src/lib/services/chatApi.ts
+chat_frontend/src/lib/services/auth.ts
+chat_frontend/src/lib/services/authTypes.ts
+chat_frontend/src/lib/services/sessionAuth.ts
+chat_frontend/src/lib/services/index.ts
+chat_frontend/src/lib/types/api.ts
+chat_frontend/src/lib/types/chat.ts
+chat_frontend/src/lib/types/index.ts
+chat_frontend/src/lib/forceRoute.ts
+chat_frontend/src/lib/useProd.ts
+chat_frontend/src/lib/maxTurnLength.ts
+chat_frontend/src/lib/sessionAdoption.ts
+chat_frontend/src/lib/debugEntries.ts
+chat_frontend/src/lib/remark-uid-links.ts
+chat_frontend/src/lib/utils/index.ts
+chat_frontend/src/hooks/index.ts
+chat_frontend/src/hooks/useAuth.ts
+chat_frontend/src/hooks/useChatApi.ts
+chat_frontend/src/hooks/useChatRoute.ts
+chat_frontend/src/hooks/useMessages.ts
+chat_frontend/src/hooks/useProcessingState.ts
+chat_frontend/src/hooks/useSessions.ts
+
+# --- Components ---
+chat_frontend/src/components/ChatPanel/ChatPanel.tsx
+chat_frontend/src/components/ChatPanel/MessageInput.tsx
+chat_frontend/src/components/ChatPanel/MarkdownContent.tsx
+chat_frontend/src/components/ChatPanel/ReportArtifacts.tsx
+chat_frontend/src/components/ChatPanel/UploadControl.tsx
+chat_frontend/src/components/ChatPanel/CCActivityPanel.tsx
+chat_frontend/src/components/ChatPanel/index.ts
+chat_frontend/src/components/Layout/CompactToolbar.tsx
+chat_frontend/src/components/Layout/RightSidebar.tsx
+chat_frontend/src/components/Layout/RouteOverrideSelect.tsx
+chat_frontend/src/components/Layout/ProdToggle.tsx
+chat_frontend/src/components/Layout/MaxTurnLengthInput.tsx
+chat_frontend/src/components/Layout/index.ts
+chat_frontend/src/components/Sessions/SessionSidebar.tsx
+chat_frontend/src/components/Sessions/index.ts
+chat_frontend/src/components/DebugPanel/DebugPanel.tsx
+chat_frontend/src/components/DebugPanel/index.ts
+chat_frontend/src/components/TestRunner/TestCaseList.tsx
+chat_frontend/src/components/TestRunner/index.ts
+
+# --- Tests and harnesses inside this boundary ---
+chat_frontend/src/lib/__tests__/remark-uid-links.test.ts
+chat_frontend/src/lib/services/__tests__/chatApi.sessions.test.ts
+chat_frontend/e2e/fixtures/ws-mock.ts
+chat_frontend/e2e/real-backend/test-case-1-embedded.spec.ts
+chat_frontend/e2e/real-backend/artifact-downloads-embedded.spec.ts
+chat_frontend/test-artifact-e2e.mjs
+chat_frontend/verify.mjs
+chat_frontend/reports/test-report.html
+
+# --- The committed build artifact and its serving path ---
+static/js/chat_assistant/.vite/manifest.json
+static/js/chat_assistant/assets/main.embedded-D3eOUQH_.js
+static/js/chat_assistant/assets/main-DZzotaXO.css
+static/js/chat_assistant/assets/xlsx-CNerDvZX.js
+seek/templatetags/vite_assets.py
+seek/templates/smartSearch.html
+seek/urls.py
+seek/views/search.py
+dmac/urls.py
+dmac/settings.py
+Dockerfile
+.dockerignore
+.gitignore
+docker/scripts/entrypoint.sh
+
+# --- Backend counterparts and consumers of the running UI ---
+nextseek_api/services/cc_assistant.py
+nextseek_api/cc_assistant/tests/test_build_context_env_guard.py
+ci/smoke/test_flows.py
+scripts/test_plan018_v4_9_owned_surface.py
+pyproject.toml
+
+# --- Path-only references, excluded from the dependency list ---
+evidence/plan018-v4-9-owned-surface.json
+nessie_tests/FAMILIES.json
+scripts/plan018_v4_9_owned_surface.py
+
+# --- Prose documentation about this boundary ---
+UI.md
+architecture.md
+DEPLOYMENT.md
+README.md
+CLAUDE.md
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md

@@ -1,0 +1,136 @@
+# Files opened while writing README.md and CLAUDE.md for
+# nextseek_api/assistant/. One repo-relative path per line.
+
+# --- the worked example this pair was measured against ---
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt
+
+# --- boundary: interface specification, read and linked, not restated ---
+nextseek_api/assistant/CONTRACT.md
+
+# --- boundary: source ---
+nextseek_api/assistant/__init__.py
+nextseek_api/assistant/consumers.py
+nextseek_api/assistant/debug_projection.py
+nextseek_api/assistant/descriptions.py
+nextseek_api/assistant/descriptions_cc.py
+nextseek_api/assistant/descriptions_evaluator.py
+nextseek_api/assistant/excel_export.py
+nextseek_api/assistant/granular.py
+nextseek_api/assistant/models_api.py
+nextseek_api/assistant/models_db.py
+nextseek_api/assistant/models_evaluator.py
+nextseek_api/assistant/pipeline_adapter.py
+nextseek_api/assistant/read_safe_endpoints.json
+nextseek_api/assistant/reingest_qa.py
+nextseek_api/assistant/routing.py
+nextseek_api/assistant/session_adapter.py
+nextseek_api/assistant/task6_app.py
+nextseek_api/assistant/upload_workbook.py
+nextseek_api/assistant/write_gate.py
+
+# --- boundary: tests ---
+nextseek_api/assistant/tests/__init__.py
+nextseek_api/assistant/tests/test_artifact_endpoint.py
+nextseek_api/assistant/tests/test_artifact_models.py
+nextseek_api/assistant/tests/test_build_upload_xlsx_op.py
+nextseek_api/assistant/tests/test_consumers.py
+nextseek_api/assistant/tests/test_debug_projection.py
+nextseek_api/assistant/tests/test_excel_export.py
+nextseek_api/assistant/tests/test_excel_export_coverage.py
+nextseek_api/assistant/tests/test_excel_flatten.py
+nextseek_api/assistant/tests/test_granular_artifacts.py
+nextseek_api/assistant/tests/test_granular_dispatch.py
+nextseek_api/assistant/tests/test_granular_endpoints.py
+nextseek_api/assistant/tests/test_granular_models.py
+nextseek_api/assistant/tests/test_granular_realstack.py
+nextseek_api/assistant/tests/test_granular_write_gate.py
+nextseek_api/assistant/tests/test_pipeline_artifacts.py
+nextseek_api/assistant/tests/test_query_async_pipeline_mode.py
+nextseek_api/assistant/tests/test_query_force_new.py
+nextseek_api/assistant/tests/test_reingest_qa.py
+nextseek_api/assistant/tests/test_route_capabilities.py
+nextseek_api/assistant/tests/test_routing_coverage.py
+nextseek_api/assistant/tests/test_run_ls_op.py
+nextseek_api/assistant/tests/test_session_adapter_merge.py
+nextseek_api/assistant/tests/test_sessions_endpoints.py
+nextseek_api/assistant/tests/test_upload_workbook.py
+
+# --- boundary: committed acceptance evidence (input for a reader, not scratch) ---
+nextseek_api/assistant/tests/acceptance_evidence/README.md
+nextseek_api/assistant/tests/acceptance_evidence/realstack_ledger.jsonl
+nextseek_api/assistant/tests/acceptance_evidence/realstack_run.txt
+nextseek_api/assistant/tests/acceptance_evidence/2026-06-25-post-merge/README.md
+nextseek_api/assistant/tests/acceptance_evidence/2026-06-25-post-merge/realstack_ledger.jsonl
+nextseek_api/assistant/tests/acceptance_evidence/2026-06-25-post-merge/realstack_run.txt
+
+# --- Django wiring and settings, outside the boundary ---
+dmac/settings.py
+dmac/test_settings.py
+dmac/asgi.py
+dmac/openapi_hooks.py
+nextseek_api/apps.py
+nextseek_api/models.py
+nextseek_api/conftest.py
+nextseek_api/urls.py
+pyproject.toml
+
+# --- migrations that own this package's tables ---
+nextseek_api/migrations/0001_initial.py
+nextseek_api/migrations/0002_querytask.py
+nextseek_api/migrations/0005_chatsession_extra_state_column.py
+nextseek_api/migrations/0007_ccsessiontranscript.py
+nextseek_api/migrations/0010_turn_ledger.py
+
+# --- consumers of this boundary ---
+nextseek_api/services/assistant.py
+nextseek_api/services/cc_assistant.py
+nextseek_api/services/evaluator.py
+nextseek_api/services/project_export.py
+nextseek_api/cc_assistant/turn_ledger.py
+nextseek_api/cc_assistant/risk_overlay.py
+nextseek_api/cc_assistant/cc_transcript_store.py
+nextseek_api/cc_assistant/cc_endpoint_guards.py
+nextseek_api/cc_assistant/op_registry/ops.py
+nextseek_api/cc_assistant/op_registry/derive.py
+nextseek_api/cc_assistant/tests/test_step7_sidecar_port.py
+nextseek_api/eval/export.py
+nextseek_api/eval/judge_cache.py
+nextseek_api/eval/paid_run_state.py
+nextseek_api/eval/run_authorization.py
+nextseek_api/eval/spend_conservation.py
+nextseek_api/eval/generation_store.py
+nextseek_api/eval/generation_validation.py
+nextseek_api/eval/task6_settings.py
+chat_nextseek/src/chat_nextseek/orchestrator.py
+nessie_tests/bundle.py
+nessie_tests/sources.py
+scripts/plan018_v4_9_task8_deploy.py
+scripts/validate_viewset_conventions.py
+build_tools/plan005_gate.py
+ci/routes.py
+
+# --- what this boundary depends on, outside it ---
+nextseek_api/batch_upload/helpers.py
+
+# --- the ns-sidecar container that calls this boundary over HTTP ---
+docker/ns-sidecar/app/write_gate.py
+docker/ns-sidecar/app/ns_client.py
+docker/ns-sidecar/app/granular_models.py
+docker/ns-sidecar/app/healthcheck.py
+
+# --- serving, deployment and lanes ---
+DEPLOYMENT.md
+docker/scripts/entrypoint.sh
+docker/nginx.conf
+ci/gate/live_routes.py
+scripts/run_tests.sh
+startup/dev/lane_local_settings.py
+startup/dev/run_full_test_lane.sh
+
+# --- the capabilities drift that fails five of this package's tests ---
+build_tools/gen_op_surfaces/route_capabilities.py
+chat_nextseek/src/chat_nextseek/context/capabilities.md
+docker/cc-runtime/build_context/plugins/nextseek/context/capabilities.md
+docker/cc-runtime/build_context/plugins/nextseek/context/read_safe_endpoints.json

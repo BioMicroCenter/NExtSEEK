@@ -1,0 +1,70 @@
+# Files opened while writing README.md and CLAUDE.md for
+# nextseek_api/schema_rag/. One repo-relative path per line.
+
+# --- the boundary itself (all nine Python files) ---
+nextseek_api/schema_rag/__init__.py
+nextseek_api/schema_rag/db.py
+nextseek_api/schema_rag/errors.py
+nextseek_api/schema_rag/models.py
+nextseek_api/schema_rag/schema_processor.py
+nextseek_api/schema_rag/service.py
+nextseek_api/schema_rag/session.py
+nextseek_api/schema_rag/tests/__init__.py
+nextseek_api/schema_rag/tests/test_schema_rag_live.py
+
+# --- the parent package: the model this package repairs, and the URL surface ---
+nextseek_api/models.py
+nextseek_api/urls.py
+nextseek_api/views.py
+nextseek_api/services/schema_rag.py
+nextseek_api/services/assistant.py
+nextseek_api/README.md
+nextseek_api/CLAUDE.md
+
+# --- Django, container and dependency wiring ---
+dmac/settings.py
+dmac/urls.py
+docker-compose.yml
+Dockerfile
+.dockerignore
+.gitignore
+pyproject.toml
+startup/templates/nextseek.env.template
+
+# --- the hermetic test lane that actually exercises this code ---
+nextseek_api/tests/test_schema_rag_unit.py
+nextseek_api/tests/test_schema_rag_errors.py
+nextseek_api/tests/test_schema_rag_integration.py
+nextseek_api/tests/test_schema_rag_self_ingest.py
+nextseek_api/tests/test_schema_rag_ingest_coverage.py
+nextseek_api/tests/test_schema_rag_retrieve_coverage.py
+nextseek_api/tests/test_schema_rag_service_coverage.py
+nextseek_api/tests/test_schema_rag_session_coverage.py
+nextseek_api/tests/test_schema_processor.py
+nextseek_api/tests/test_schema_processor_coverage.py
+nextseek_api/tests/test_services_schema_rag_coverage.py
+nextseek_api/tests/test_models_coverage.py
+
+# --- lanes, provisioning and CI that touch this package's directories ---
+startup/dev/run_full_test_lane.sh
+startup/dev/provision_embedding_model.sh
+scripts/attribute_api_test.sh
+ci/routes.py
+ci/gate/live_routes.py
+ci/smoke/README.md
+
+# --- cross-boundary constraints and rulings ---
+nextseek_api/cc_assistant/tests/test_cc_context_drift_guard.py
+nextseek_api/assistant/read_safe_endpoints.json
+docs/endpoint-authorization-register.md
+DEPLOYMENT.md
+UI.md
+
+# --- hits examined and excluded as non-edges ---
+chat_nextseek/cli.py
+chat_nextseek/src/chat_nextseek/config.py
+chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml
+chat_nextseek/src/chat_nextseek/context/min_api_endpoints.json
+docker/cc-runtime/build_context/plugins/nextseek/context/min_api_endpoints.json
+nessie_tests/FAMILIES.json
+build_tools/plan005_baseline.py

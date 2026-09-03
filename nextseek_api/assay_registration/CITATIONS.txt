@@ -1,0 +1,87 @@
+# Files opened while writing README.md and CLAUDE.md for
+# nextseek_api/assay_registration/. One repo-relative path per line.
+
+# --- the boundary: non-test modules ---
+nextseek_api/assay_registration/__init__.py
+nextseek_api/assay_registration/executor.py
+nextseek_api/assay_registration/graph.py
+nextseek_api/assay_registration/jobs.py
+nextseek_api/assay_registration/models_db.py
+nextseek_api/assay_registration/planner.py
+nextseek_api/assay_registration/resolver.py
+nextseek_api/assay_registration/runner.py
+nextseek_api/assay_registration/schemas.py
+nextseek_api/assay_registration/service.py
+nextseek_api/assay_registration/views.py
+nextseek_api/assay_registration/management/__init__.py
+nextseek_api/assay_registration/management/commands/__init__.py
+nextseek_api/assay_registration/management/commands/run_assay_registration_jobs.py
+
+# --- the boundary: its own test suite ---
+nextseek_api/assay_registration/tests/__init__.py
+nextseek_api/assay_registration/tests/test_executor.py
+nextseek_api/assay_registration/tests/test_graph.py
+nextseek_api/assay_registration/tests/test_jobs.py
+nextseek_api/assay_registration/tests/test_planner.py
+nextseek_api/assay_registration/tests/test_resolver.py
+nextseek_api/assay_registration/tests/test_runner.py
+nextseek_api/assay_registration/tests/test_schemas.py
+nextseek_api/assay_registration/tests/test_views.py
+
+# --- Django wiring in the parent app ---
+nextseek_api/urls.py
+nextseek_api/views.py
+nextseek_api/models.py
+nextseek_api/permissions.py
+nextseek_api/conftest.py
+nextseek_api/endpoint_descriptions.py
+nextseek_api/services/assistant.py
+nextseek_api/migrations/0020_assayregistrationjob.py
+nextseek_api/management/commands/run_assay_registration_jobs.py
+
+# --- settings, project config and test config ---
+dmac/settings.py
+dmac/test_settings.py
+dmac/local_settings.example.py
+pyproject.toml
+scripts/run_tests.sh
+scripts/validate_viewset_conventions.py
+
+# --- what this package depends on, outside itself ---
+nextseek_api/batch_upload/db_engine.py
+nextseek_api/batch_upload/config.py
+nextseek_api/batch_upload/associations.py
+nextseek_api/batch_upload/errors.py
+
+# --- what depends on this package, or names it as data ---
+nextseek_api/batch_upload/scripts/backfill_shared_assays.py
+nextseek_api/batch_upload/README.md
+ci/routes.py
+ci/smoke/test_write_lane.py
+ci/smoke/test_health.py
+nextseek_api/cc_assistant/tests/test_cc_context_drift_guard.py
+nextseek_api/cc_assistant/tests/test_f_constraint_pins.py
+nextseek_api/tests/test_endpoint_descriptions_safety.py
+startup/lib/rebuild_policy.py
+startup/tests/test_rebuild_policy.py
+docker-compose.yml
+DEPLOYMENT.md
+docker/cc-runtime/build_context/plugins/nextseek/context/min_api_endpoints.json
+docker/cc-runtime/build_context/plugins/nextseek/context/read_safe_endpoints.json
+chat_nextseek/src/chat_nextseek/context/min_api_endpoints.json
+nextseek_api/assistant/read_safe_endpoints.json
+
+# --- checked while ruling out or comparing, not consumers ---
+nextseek_api/services/cc_assistant.py
+nextseek_api/services/project_export.py
+nextseek_api/attributes/management/commands/recover_attribute_sync_jobs.py
+docker/scripts/attribute_runtime_healthcheck.py
+
+# --- neighbouring documentation pairs, read for shape and cross-reference ---
+nextseek_api/README.md
+nextseek_api/CLAUDE.md
+nextseek_api/attributes/CLAUDE.md
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt
+.claude/skills/nextseek-viewset/SKILL.md

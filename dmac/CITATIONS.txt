@@ -1,0 +1,105 @@
+# Files opened while writing README.md and CLAUDE.md for dmac/.
+# One repo-relative path per line.
+
+# --- the boundary itself ---
+dmac/__init__.py
+dmac/__init__.pyc
+dmac/asgi.py
+dmac/attribute_performance_settings.py
+dmac/context_processors.py
+dmac/conversion.py
+dmac/conversion.pyc
+dmac/csv_excel.py
+dmac/datagrid_custom.py
+dmac/dbconn_django.py
+dmac/dbconn_mysql.py
+dmac/dbconnection.py
+dmac/dbtable.py
+dmac/dbtable_assaysinternalassays.py
+dmac/dbtable_clades.py
+dmac/dbtable_internalassays.py
+dmac/dbtable_sampletypesclades.py
+dmac/iocsv.py
+dmac/local_settings.example.py
+dmac/openapi_hooks.py
+dmac/settings.py
+dmac/test_settings.py
+dmac/test_settings_realstack.py
+dmac/urls.py
+dmac/views.py
+dmac/wsgi.py
+dmac/templates/pages/datagrid_custom_table.embed.html
+dmac/templates/pages/dialog_custom_upload.embed.html
+dmac/templates/pages/login.embed.html
+
+# --- project root: entry points, packaging, ignore rules ---
+manage.py
+gunicorn.conf.py
+pyproject.toml
+uv.lock
+docker-compose.yml
+Dockerfile
+.gitignore
+CLAUDE.md
+README.md
+
+# --- how the container starts the entry points ---
+docker/scripts/entrypoint.sh
+
+# --- what selects a settings module, and what renders the overlay ---
+.github/workflows/ci-pytest.yml
+ci/gate/live_routes.py
+scripts/attribute_api_test.sh
+scripts/dump_routes.py
+scripts/run_tests.sh
+scripts/validate_viewset_conventions.py
+startup/dev/lane_local_settings.py
+startup/dev/run_full_test_lane.sh
+startup/steps/config.py
+startup/steps/validate.py
+startup/templates/local_settings.py.template
+startup/cli.py
+nessie_tests/sources.py
+nextseek_api/batch_upload/celery_app.py
+nextseek_api/eval/task6_settings.py
+
+# --- consumers of this package, and the settings names they read bare ---
+api_app/dbconn_mysql.py
+chat_nextseek/tests/test_e2e_playwright_trio.py
+nextseek_api/batch_upload/config.py
+nextseek_api/permissions.py
+nextseek_api/services/assistant.py
+nextseek_api/services/entity_tree.py
+seek/dbrouters.py
+seek/dbtable_projects.py
+seek/sample/download.py
+seek/views/admin.py
+seek/views/projects.py
+themes/NextSeek/templates/accounts/includes/user_panel.html
+themes/NextSeek/templates/login.html
+
+# --- the tests that exercise this boundary from elsewhere ---
+ci/pytest-baseline.txt
+nextseek_api/batch_upload/tests/test_identity_drift_integration.py
+nextseek_api/batch_upload/tests/test_neo4j_integration.py
+nextseek_api/tests/test_search_filters_sql_binding.py
+seek/tests/test_clade_counts_group_by.py
+seek/tests/test_datagrid_sql_binding.py
+seek/tests/test_dbtables.py
+seek/tests/test_seek_public_links.py
+seek/tests/test_seek_urls_context.py
+seek/tests/test_views_children_uids_sql.py
+
+# --- neighbouring boundary docs read so as not to contradict them ---
+ci/CLAUDE.md
+ci/README.md
+chat_nextseek/CLAUDE.md
+chat_nextseek/README.md
+nextseek_api/CLAUDE.md
+nextseek_api/README.md
+nextseek_api/attributes/CLAUDE.md
+nextseek_api/batch_upload/CLAUDE.md
+nextseek_api/eval/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CITATIONS.txt
