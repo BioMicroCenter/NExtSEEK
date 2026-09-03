@@ -185,3 +185,25 @@ class TestProjectPage:
         resp = self._render()
         assert resp.status_code == 200
         assert "IMPAcTb" in resp.content.decode()
+
+    def test_flow_has_a_fullscreen_modal_route_to_connections(self):
+        body = self._render().content.decode()
+        assert "data-modal-route" in body
+        assert "/seek/projects/2/connections/" in body
+
+    def test_a_tile_links_to_the_samples_full_view(self):
+        body = self._render().content.decode()
+        assert "/seek/projects/2/samples/" in body
+
+    def test_the_abstract_is_collapsible(self):
+        body = self._render().content.decode()
+        assert "project-about-toggle" in body
+
+    def test_the_inline_stats_table_moved_to_the_samples_route(self):
+        body = self._render().content.decode()
+        assert "project-stats-table" not in body   # the full table lives at /samples/ now
+
+    def test_bundles_are_capped_at_eight(self):
+        many = [{"label": "A%d" % i, "codes": ["NHP"], "n_edges": i} for i in range(20)]
+        body = self._render({"bundles": many}).content.decode()
+        assert body.count('class="project-bundle"') <= 8

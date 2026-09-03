@@ -242,3 +242,14 @@ function toggleUserMenu(btn) {
     openOverlay(el.getAttribute('href'), el.hasAttribute('data-modal-iframe'));
   });
 })();
+
+/* Collapsible "About this project" toggle (and any [data-about-toggle]). */
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest ? e.target.closest('[data-about-toggle]') : null;
+  if (!btn) { return; }
+  var panel = document.getElementById(btn.getAttribute('aria-controls'));
+  if (!panel) { return; }
+  var open = panel.hidden;
+  panel.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+});

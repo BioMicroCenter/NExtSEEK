@@ -4,119 +4,48 @@
 
 {% block extra_head %}
 <style>
-.project-detail { max-width: 900px; }
-
-.project-detail-back {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.82rem;
-    color: var(--ns-muted);
-    text-decoration: none;
-    margin-bottom: 1.5rem;
-    transition: color 0.15s;
-}
+.project-detail { max-width: 980px; }
+.project-detail-back { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; color: var(--ns-muted); text-decoration: none; margin-bottom: 1.5rem; transition: color 0.15s; }
 .project-detail-back:hover { color: var(--ns-crimson); text-decoration: none; }
 
-.project-detail-header {
-    display: grid;
-    grid-template-columns: 96px 1fr;
-    gap: 1.5rem;
-    align-items: start;
-    margin-bottom: 2rem;
-    padding-bottom: 1.75rem;
-    border-bottom: 1px solid var(--ns-border);
-}
-.project-detail-avatar {
-    width: 96px;
-    height: 96px;
-    border-radius: 10px;
-    overflow: hidden;
-    background: var(--ns-sidebar-bg);
-    border: 1px solid var(--ns-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
+.project-detail-header { display: grid; grid-template-columns: 72px 1fr; gap: 1.25rem; align-items: start; margin-bottom: 1.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--ns-border); }
+.project-detail-avatar { width: 72px; height: 72px; border-radius: 10px; overflow: hidden; background: var(--ns-sidebar-bg); border: 1px solid var(--ns-border); display: flex; align-items: center; justify-content: center; }
 .project-detail-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.project-detail-avatar-fallback { font-size: 2.2rem; color: var(--ns-muted); }
+.project-detail-avatar-fallback { font-size: 1.8rem; color: var(--ns-muted); }
+.project-detail-info h1 { font-family: var(--ns-font-display); font-size: 1.6rem; font-weight: 700; color: var(--ns-ink); letter-spacing: -0.02em; margin-bottom: 0.6rem; }
 
-.project-detail-info h1 {
-    font-family: var(--ns-font-display);
-    font-size: 1.7rem;
-    font-weight: 700;
-    color: var(--ns-ink);
-    letter-spacing: -0.02em;
-    margin-bottom: 0.75rem;
-}
-.project-detail-description {
-    font-size: 0.9rem;
-    color: var(--ns-body);
-    line-height: 1.7;
-    margin: 0;
-}
-.project-detail-description p { margin-bottom: 0.5rem; }
-
-.project-stats-section { margin-bottom: 2rem; }
-.project-stats-section h2 {
-    font-family: var(--ns-font-display);
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: var(--ns-ink);
-    letter-spacing: -0.01em;
-    margin-bottom: 1rem;
-}
-
-.project-stats-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-    font-family: var(--ns-font-body);
-    border: 1px solid var(--ns-border);
-    border-radius: 8px;
-    overflow: hidden;
-}
-.project-stats-table thead th {
-    background: var(--ns-sidebar-bg);
-    padding: 0.6rem 0.85rem;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--ns-muted);
-    border-bottom: 1px solid var(--ns-border);
-    text-align: left;
-}
-.project-stats-table thead th:not(:first-child) { text-align: right; }
-.project-stats-table td {
-    padding: 0.45rem 0.85rem;
-    border-bottom: 1px solid rgba(0,0,0,0.04);
-    color: var(--ns-ink);
-}
-.project-stats-table td:not(:first-child) { text-align: right; }
-.project-stats-table tbody tr:last-child td { border-bottom: none; }
-
-.project-ctx { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; font-size: 0.85rem; margin-top: 0.9rem; }
-.project-ctx dt { color: var(--ns-muted); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding-top: 0.12rem; }
+.project-ctx { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; font-size: 0.85rem; margin: 0.5rem 0; }
+.project-ctx dt { color: var(--ns-muted); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding-top: 0.12rem; }
 .project-ctx dd { margin: 0; color: var(--ns-body); }
 .project-ctx a { color: var(--ns-crimson); }
+
+.project-about-toggle { background: none; border: 0; padding: 0; margin-top: 0.35rem; color: var(--ns-crimson); font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+.project-about-toggle::before { content: "\25B8 "; }
+.project-about-toggle[aria-expanded="true"]::before { content: "\25BE "; }
+.project-about { font-size: 0.9rem; color: var(--ns-body); line-height: 1.7; margin-top: 0.5rem; max-width: 70ch; }
+.project-about p { margin-bottom: 0.5rem; }
+
+.project-stats-section { margin-bottom: 2rem; }
+.project-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.project-stats-section h2 { font-family: var(--ns-font-display); font-size: 1.15rem; font-weight: 700; color: var(--ns-ink); letter-spacing: -0.01em; margin: 0 0 1rem; }
+.project-section-head h2 { margin: 0; }
+.project-fullscreen { font-size: 0.82rem; color: var(--ns-crimson); text-decoration: none; border: 1px solid var(--ns-crimson-border); border-radius: 6px; padding: 0.25rem 0.6rem; }
+.project-fullscreen:hover { background: var(--ns-crimson-soft); }
 
 .project-bundles { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .project-bundle button { border: 1px solid var(--ns-border); background: var(--ns-bg); border-radius: 6px; padding: 0.35rem 0.7rem; font-size: 0.82rem; color: var(--ns-ink); cursor: pointer; text-align: left; }
 .project-bundle button:hover { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); }
 .project-bundle .codes { display: block; font-family: var(--ns-font-mono); font-size: 0.68rem; color: var(--ns-muted); margin-top: 0.15rem; }
 
-.project-diagram { width: 100%; height: 520px; border: 1px solid var(--ns-border); border-radius: 8px; background: var(--ns-bg); }
+.project-diagram { width: 100%; height: 460px; border: 1px solid var(--ns-border); border-radius: 8px; background: var(--ns-bg); }
 
 .project-types { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .project-types a { font-family: var(--ns-font-mono); font-size: 0.74rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 11px; border: 1px solid var(--ns-border); background: var(--ns-sidebar-bg); color: var(--ns-ink); text-decoration: none; }
 .project-types a:hover { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); text-decoration: none; }
 
 @media (max-width: 575.98px) {
-    .project-detail-header { grid-template-columns: 64px 1fr; gap: 1rem; }
-    .project-detail-avatar { width: 64px; height: 64px; }
-    .project-stats-table { font-size: 0.78rem; }
-    .project-stats-table td, .project-stats-table th { padding: 0.4rem 0.5rem; }
+    .project-detail-header { grid-template-columns: 56px 1fr; gap: 1rem; }
+    .project-detail-avatar { width: 56px; height: 56px; }
 }
 </style>
 {% endblock %}
@@ -139,9 +68,6 @@
         </div>
         <div class="project-detail-info">
             <h1>{{ title }}</h1>
-            <div class="project-detail-description">
-                {{ description | markdownify }}
-            </div>
 
             {% if ctx %}
             <dl class="project-ctx">
@@ -160,7 +86,39 @@
               {% endif %}
             </dl>
             {% endif %}
+
+            {% if description %}
+            <button type="button" class="project-about-toggle" data-about-toggle
+                    aria-expanded="false" aria-controls="projectAbout">About this project</button>
+            <div class="project-about" id="projectAbout" hidden>{{ description | markdownify }}</div>
+            {% endif %}
         </div>
+    </div>
+
+    <div class="dash-tiles">
+        <a class="dash-tile" href="/seek/projects/{{ id }}/samples/" data-modal-route>
+            <div class="t-label">Total samples</div>
+            <div class="t-num">{{ kpis.samples }}</div>
+        </a>
+        <a class="dash-tile" href="/seek/datafile/query/">
+            <div class="t-label">Data files</div>
+            <div class="t-num">{{ kpis.data_files|default_if_none:"—" }}</div>
+        </a>
+        <a class="dash-tile" href="/seek/projects/{{ id }}/samples/" data-modal-route>
+            <div class="t-label">Sample types in use</div>
+            <div class="t-num">{{ kpis.types }}</div>
+        </a>
+    </div>
+
+    <div class="project-stats-section">
+        <div class="project-section-head">
+            <h2>Sample flow</h2>
+            <a class="project-fullscreen" href="/seek/projects/{{ id }}/connections/"
+               data-modal-route data-modal-iframe>&#9974; Fullscreen</a>
+        </div>
+        <iframe class="project-diagram" loading="lazy"
+                src="/seek/projects/{{ id }}/connections/"
+                title="Sample type connections for {{ title }}"></iframe>
     </div>
 
     {% if bundles %}
@@ -181,85 +139,12 @@
     </div>
     {% endif %}
 
-    <div class="project-stats-section">
-        <h2>Sample flow</h2>
-        {% comment %}
-          An iframe, not inlined markup: the connections route returns a complete
-          HTML document that loads cytoscape, dagre and cytoscape-dagre from a
-          CDN. Serving it separately keeps this page small, lets the browser
-          cache the frame, and means a slow graph query cannot slow this page.
-          loading="lazy" so a project page scrolled past the fold costs nothing.
-        {% endcomment %}
-        <iframe class="project-diagram" loading="lazy"
-                src="/seek/projects/{{ id }}/connections/"
-                title="Sample type connections for {{ title }}"></iframe>
-    </div>
-
     {% if types_in_use %}
     <div class="project-stats-section">
         <h2>Sample types in use</h2>
         <div class="project-types">
             {% for code in types_in_use %}
             <a href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    {% if clade_data %}
-    <div class="project-stats-section">
-        <h2>Project Statistics</h2>
-
-        <div class="d-only">
-            <table class="project-stats-table">
-                <thead>
-                    <tr>
-                        <th>Group</th>
-                        <th>Data Type</th>
-                        <th>Local</th>
-                        <th>Published</th>
-                        <th>Local Total</th>
-                        <th>Published Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for clade_list in clade_data %}
-                        {% for clade in clade_list %}
-                        <tr style="background-color: {{ clade.color }};">
-                            {% if forloop.first %}
-                            <td rowspan="{{ clade_list|length }}" style="font-weight:600;">{{ clade.title }}</td>
-                            {% endif %}
-                            <td>{{ clade.st_group }}</td>
-                            <td>{{ clade.count }}</td>
-                            <td>{{ clade.published }}</td>
-                            {% if forloop.first %}
-                            <td rowspan="{{ clade_list|length }}">{{ clade.total }}</td>
-                            <td rowspan="{{ clade_list|length }}">{{ clade.published_total }}</td>
-                            {% endif %}
-                        </tr>
-                        {% endfor %}
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="m-only m-stats-cards">
-            {% for clade_list in clade_data %}
-                {% with first=clade_list|first %}
-                <div class="m-stat-card" style="background-color: {{ first.color }};">
-                    <div class="group">{{ first.title }}</div>
-                    {% for clade in clade_list %}
-                    <div class="row">
-                        <span class="label">{{ clade.st_group }}</span>
-                        <span class="val">{{ clade.count }} local · {{ clade.published }} published</span>
-                    </div>
-                    {% endfor %}
-                    <div class="row">
-                        <span class="label">Total</span>
-                        <span class="val">{{ first.total }} local · {{ first.published_total }} published</span>
-                    </div>
-                </div>
-                {% endwith %}
             {% endfor %}
         </div>
     </div>

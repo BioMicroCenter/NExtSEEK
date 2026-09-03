@@ -96,54 +96,38 @@ def project_page(request, project_id):
 
         project = Projects.objects.get(id=project_id)
 
-        cladedb = DBtable_clades()
-        
-        clade_data = cladedb.getCladeProjectStats(project_id)
-        values = set(map(lambda x: x['title'], clade_data))
-        clade_data = [[y for y in clade_data if y['title']==x] for x in values]
-
-        try:
-            published_stats = pd.read_excel(PUBLISH_STATS_FILE, sheet_name=None)
-            published_stats = published_stats[project.title]
-            published_stats = published_stats.fillna(0)
-            published_stats['Published'] = published_stats['Published'].astype(int)
-            type_published_counts = dict(zip(published_stats['Data Types'],
-                                             published_stats['Published']))
-            for clade_list in clade_data:
-                for clade in clade_list:
-                    data_type = clade['st_group']
-                    published_count = type_published_counts.get(data_type, 0)
-                    clade['published'] = published_count
-                    
-        except Exception:
-            for clade_list in clade_data:
-                for clade in clade_list:
-                    clade['published'] = 0
-
-        for group in clade_data:
-            for item in group:
-                item['total'] = sum(i['count'] for i in group)
-                item['published_total'] = sum(i['published'] for i in group)
-
-        clade_data.sort(key=lambda x: x[0]['order'])
+        # The full per-type counts table now lives at /seek/projects/<id>/samples/;
+        # the page keeps clade_data only to compute the "Total samples" KPI.
+        clade_data = _project_clade_data(project.id, project.title)
 
         # Every one of these is independently soft. The graph being down costs
         # the diagram and the derived bundles; a missing projects_context row
         # costs the enriched header; neither costs the page.
         rows = connection_rows(project.id)
         known_codes = {e.code for e in load_sample_types()}
+        used = [c for c in types_in_use(rows) if c in known_codes]
+        bundles_all = project_bundles(project.id, rows, known_codes)
+
+        try:
+            files_total = DBtable_projects().files_count(project.id)
+        except Exception:
+            files_total = None
+        kpis = {
+            "samples": sum(i['count'] for g in clade_data for i in g),
+            "data_files": files_total,
+            "types": len(used),
+        }
 
         return render(request, 'projectPage.html', {'id': project.id,
                                                     'title': re.sub("-|_", " ", project.title),
                                                     'description': project.description.replace("\r", "\n"),
                                                     'seek_public_url': settings.SEEK_PUBLIC_URL,
                                                     'avatar_id': project.avatar_id,
-                                                    'clade_data': clade_data,
                                                     'ctx': load_project_context(project.id),
-                                                    'bundles': project_bundles(project.id, rows, known_codes),
-                                                    'types_in_use': [
-                                                        c for c in types_in_use(rows) if c in known_codes
-                                                    ],})
+                                                    'kpis': kpis,
+                                                    'bundles': bundles_all[:8],
+                                                    'bundles_all': bundles_all,
+                                                    'types_in_use': used,})
 
 
 def _project_clade_data(project_id, project_title):
