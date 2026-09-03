@@ -132,13 +132,13 @@ Breaking one is a regression, not a refactor.
   startup/templates/local_settings.py.template`, which reported no difference; no test
   compares them. Edit one and the lane silently exercises a different settings shape
   from the one every install produces.
-- **`startup/ATTRIBUTE-INDEX-FIXUPS.md` is stale and is being triaged separately.** Its
-  claim at `startup/ATTRIBUTE-INDEX-FIXUPS.md:73-76` that the production call always
-  passes the frozen index list is contradicted by the gate at
-  `startup/steps/schema_fixups.py:1004-1012`, which skips every index and says so in the
-  status string unless an environment flag is set. It also points readers at an evidence
-  directory under one person's home (`startup/ATTRIBUTE-INDEX-FIXUPS.md:106-108`). Do not
-  cite it as current.
+- **A skipped managed index prints as a normal green line.** `startup/cli.py:289`
+  selects the warning style only for `applied` and `constraints reset`, so the `skipped`
+  status every index returns when `NEXTSEEK_APPLY_MANAGED_INDEXES` is unset
+  (`startup/steps/schema_fixups.py:1004-1012`) is rendered with the ok style. An operator
+  watching an install sees green and concludes the indexes were created. The flag is
+  read at `startup/steps/schema_fixups.py:995` and is true only for `1/true/yes/on`;
+  its own docstring calls it opt-in, default off (`startup/steps/schema_fixups.py:979-994`).
 - **Three of the eight DDL files in `startup/seed/sql/` are wired to nothing.** A
   recursive grep of the worktree for the three basenames
   `sample_attributes_description.sql`, `sample_attributes_unique_data.sql` and
@@ -194,4 +194,6 @@ two remaining suppression-free lanes need.
 - See `DEPLOYMENT.md` for the deploy runbook the rebuild and registry-push steps
   implement.
 - See the repo-root `CLAUDE.md` for the stack layout and the supported entry points.
-- See `startup/ATTRIBUTE-INDEX-FIXUPS.md` only for history, per the landmine above.
+- See `startup/ATTRIBUTE-INDEX-FIXUPS.md` for the managed-index reference. It was
+  refreshed on 2026-09-03 against source; the inversion this file previously warned
+  about was corrected in five places, so it is now citable as current.

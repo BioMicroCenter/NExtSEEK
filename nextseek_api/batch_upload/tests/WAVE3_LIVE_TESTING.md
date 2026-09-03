@@ -37,10 +37,20 @@ export SPIKE_DB_PORT=3306
 export WAVE3_NEO4J_DB_READY_TIMEOUT_S=60
 ```
 
+## Where these commands run
+
+Both commands below run **inside the `nextseek` container**, whose WORKDIR is
+`/app` (`Dockerfile:6`). The interpreter there is `/app/.venv/bin/python` — the
+path `scripts/run_tests.sh:47` runs pytest with and the path the compose
+healthcheck at `docker-compose.yml:354` invokes. Checked on 2026-09-03 in a
+throwaway `nextseek-nextseek:latest` container: `ls -d /app/.venv/bin/python`
+resolved and reported Python 3.14.7, while `ls /opt/NExtSEEK` returned "No such
+file or directory".
+
 ## Preflight check
 
 ```bash
-/opt/NExtSEEK/.venv/bin/python - <<'PY'
+docker exec -i nextseek /app/.venv/bin/python - <<'PY'
 import os
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
 import django
@@ -54,11 +64,27 @@ PY
 ## Run the live module
 
 ```bash
-WAVE3_ALLOW_NEO4J_TEST_DB=1 \
-  PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
-  /opt/NExtSEEK/.venv/bin/python -m pytest -p pytest_cov --noconftest \
-  nextseek_api/batch_upload/tests/test_identity_drift_integration.py -q -rs
+docker exec \
+  -e WAVE3_ALLOW_NEO4J_TEST_DB=1 \
+  -e PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  nextseek sh -c 'cd /app && /app/.venv/bin/python -m pytest --noconftest \
+  nextseek_api/batch_upload/tests/test_identity_drift_integration.py -q -rs'
 ```
+
+`-p pytest_cov` is gone from that command: the plugin is not installed in the
+image, and under `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` pytest aborts with
+`ImportError: Error importing plugin "pytest_cov"` before collecting anything.
+Reproduced 2026-09-03 in a throwaway `nextseek-nextseek:latest` container. It is
+not a dependency either: a `/usr/bin/grep` for `pytest` over `pyproject.toml`
+matches only `pytest-django` at `pyproject.toml:122` and the config table header
+at `pyproject.toml:146`, and a `/usr/bin/grep` for `name = "pytest-cov"` over
+`uv.lock` returns nothing. The same container, running the corrected command
+against its own baked `/app`, reported `1 passed, 2 skipped` — both skips being
+the missing-MariaDB case documented below.
+
+`--noconftest` is deliberate: the module calls `django.setup()` itself at
+`nextseek_api/batch_upload/tests/test_identity_drift_integration.py:43-44`, so
+it does not need pytest-django.
 
 ## Expected skip behavior (no env or partial env)
 
