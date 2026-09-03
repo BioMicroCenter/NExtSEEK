@@ -1,6 +1,41 @@
 {% load static i18n %}
 <nav class="sidebar-nav-inner" aria-label="{% trans 'Main navigation' %}">
 
+  {% include "includes/nessie_button.html" %}
+
+  <!-- Useful Info ------------------------------- -->
+  <div class="sidebar-section">
+    <a class="sidebar-section-label sidebar-section-toggle" data-bs-toggle="collapse"
+       href="#usefulInfoSubmenu" role="button" aria-expanded="true" aria-controls="usefulInfoSubmenu">
+      <span>USEFUL INFO</span>
+      <i class="bi bi-chevron-down" aria-hidden="true"></i>
+    </a>
+    <ul class="nav flex-column collapse show" id="usefulInfoSubmenu">
+      <li class="nav-item">
+        <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
+           class="nav-link" target="_blank" rel="noopener">
+          <i class="bi bi-book" aria-hidden="true"></i><span>{% trans "Documentation" %}</span>
+          <i class="bi bi-box-arrow-up-right ms-auto" aria-hidden="true" style="font-size:0.65rem;opacity:0.5;"></i>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/seek/templates/" class="nav-link">
+          <i class="bi bi-download" aria-hidden="true"></i><span>{% trans "Templates" %}</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/seek/sampletypes/" class="nav-link">
+          <i class="bi bi-diagram-2" aria-hidden="true"></i><span>{% trans "Sample Types" %}</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/seek/assays/" class="nav-link">
+          <i class="bi bi-clipboard-data" aria-hidden="true"></i><span>{% trans "Assays" %}</span>
+        </a>
+      </li>
+    </ul>
+  </div>
+
   <!-- Data ------------------------------------- -->
   <div class="sidebar-section">
     <span class="sidebar-section-label">{% trans "Data" %}</span>
@@ -26,7 +61,6 @@
         <ul class="collapse submenu" id="dataEntrySubmenu">
           <li><a href="/seek/samples/upload/" class="nav-link"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i>{% trans "Assay Sheet Upload" %}</a></li>
           <li><a href="/seek/data/upload/" class="nav-link"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i>{% trans "Data & Protocol Upload" %}</a></li>
-          <li><a href="/seek/templates/" class="nav-link"><i class="bi bi-download" aria-hidden="true"></i>{% trans "Download Templates" %}</a></li>
         </ul>
       </li>
 
@@ -47,24 +81,6 @@
         </a>
       </li>
 
-      {% comment %}
-        The schema catalogs. In Data, NOT Admin: the Admin section below is
-        gated on is_superuser, and these two pages are open to any logged-in
-        user, so a link there would hide the feature from almost everyone who
-        can use it. Stated without the literal template tag, because the test
-        that pins this locates the real gate by searching for it.
-      {% endcomment %}
-      <li class="nav-item">
-        <a href="/seek/sampletypes/" class="nav-link">
-          <i class="bi bi-diagram-2" aria-hidden="true"></i><span>{% trans "Sample Types" %}</span>
-        </a>
-      </li>
-
-      <li class="nav-item">
-        <a href="/seek/assays/" class="nav-link">
-          <i class="bi bi-clipboard-data" aria-hidden="true"></i><span>{% trans "Assays" %}</span>
-        </a>
-      </li>
     </ul>
   </div>
 
@@ -79,20 +95,9 @@
              aria-label="{% trans 'Search by sample UID' %}">
     </div>
 
-    <div class="qa-input">
-      <i class="bi bi-chat-dots qa-ico" aria-hidden="true"></i>
-      <input id="ask-nessie" type="text"
-             placeholder="{% trans 'Ask Nessie…' %}"
-             aria-label="{% trans 'Ask the NExtSEEK assistant' %}">
-    </div>
-
     <a class="qa-cta" href="/seek/samples/upload/">
       <span class="qa-plus" aria-hidden="true">+</span> {% trans "New sample" %}
     </a>
-
-    <div class="qa-placeholder">
-      <i>{% trans "Bookmarks · none yet" %}</i>
-    </div>
   </div>
 
   <!-- Admin (superusers only) ------------------- -->
@@ -140,13 +145,6 @@
       <li class="nav-item">
         <a href="/seek/help/" class="nav-link">
           <i class="bi bi-lightbulb" aria-hidden="true"></i><span>{% trans "Getting Started" %}</span>
-        </a>
-      </li>
-      <li class="nav-item">
-        <a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
-           class="nav-link" target="_blank" rel="noopener">
-          <i class="bi bi-book" aria-hidden="true"></i><span>{% trans "Documentation" %}</span>
-          <i class="bi bi-box-arrow-up-right ms-auto" aria-hidden="true" style="font-size:0.65rem;opacity:0.5;"></i>
         </a>
       </li>
       <li class="nav-item">
