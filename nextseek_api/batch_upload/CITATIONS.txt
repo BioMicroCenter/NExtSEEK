@@ -1,0 +1,96 @@
+# Files opened while writing README.md and CLAUDE.md for
+# nextseek_api/batch_upload/. One repo-relative path per line.
+# Includes files read but not cited.
+
+# --- boundary: pipeline modules ---
+nextseek_api/batch_upload/__init__.py
+nextseek_api/batch_upload/associations.py
+nextseek_api/batch_upload/celery_app.py
+nextseek_api/batch_upload/checkpoint.py
+nextseek_api/batch_upload/config.py
+nextseek_api/batch_upload/convert.py
+nextseek_api/batch_upload/dag.py
+nextseek_api/batch_upload/db_engine.py
+nextseek_api/batch_upload/errors.py
+nextseek_api/batch_upload/extract.py
+nextseek_api/batch_upload/helpers.py
+nextseek_api/batch_upload/identity.py
+nextseek_api/batch_upload/insert.py
+nextseek_api/batch_upload/insert_strategies.py
+nextseek_api/batch_upload/job_index.py
+nextseek_api/batch_upload/levels.py
+nextseek_api/batch_upload/models.py
+nextseek_api/batch_upload/neo4j_sync.py
+nextseek_api/batch_upload/ontology.py
+nextseek_api/batch_upload/orchestrator.py
+nextseek_api/batch_upload/orphan_resolution.py
+nextseek_api/batch_upload/parallel.py
+nextseek_api/batch_upload/permissions.py
+nextseek_api/batch_upload/policies.py
+nextseek_api/batch_upload/prefetch.py
+nextseek_api/batch_upload/report.py
+nextseek_api/batch_upload/tasks.py
+nextseek_api/batch_upload/transform.py
+nextseek_api/batch_upload/uid_gen.py
+nextseek_api/batch_upload/update.py
+nextseek_api/batch_upload/validation.py
+nextseek_api/batch_upload/views.py
+
+# --- boundary: one-time backfill scripts ---
+nextseek_api/batch_upload/scripts/__init__.py
+nextseek_api/batch_upload/scripts/backfill_parent_title_hashes.py
+nextseek_api/batch_upload/scripts/backfill_parent_titles.py
+nextseek_api/batch_upload/scripts/backfill_shared_assays.py
+
+# --- boundary: tests and fixtures ---
+nextseek_api/batch_upload/tests/fixtures/_generate_wave3_fixtures.py
+nextseek_api/batch_upload/tests/test_identity_drift_integration.py
+nextseek_api/batch_upload/tests/test_migration_name_identity.py
+nextseek_api/batch_upload/tests/test_neo4j_integration.py
+nextseek_api/batch_upload/tests/test_neo4j_sync.py
+nextseek_api/batch_upload/tests/test_views.py
+
+# --- boundary: stale document, read but NOT treated as current ---
+nextseek_api/batch_upload/tests/WAVE3_LIVE_TESTING.md
+
+# --- Django wiring and settings, outside the boundary ---
+dmac/settings.py
+dmac/test_settings.py
+gunicorn.conf.py
+nextseek_api/conftest.py
+nextseek_api/endpoint_descriptions.py
+nextseek_api/urls.py
+nextseek_api/views.py
+pyproject.toml
+
+# --- what this package depends on ---
+nextseek_api/helpers.py
+nextseek_api/services/assistant.py
+seek/models/seek_mirror.py
+seek/seekdb.py
+
+# --- consumers of this boundary ---
+ci/routes.py
+ci/smoke/test_flows.py
+nextseek_api/assay_registration/executor.py
+nextseek_api/assay_registration/runner.py
+nextseek_api/assay_registration/service.py
+nextseek_api/assistant/reingest_qa.py
+nextseek_api/attributes/tasks.py
+nextseek_api/cc_assistant/cc_upload_tasks.py
+nextseek_api/services/cc_assistant.py
+nextseek_api/services/samples.py
+scripts/test_batch_upload_e2e.py
+seek/templates/pages/batch_upload.embed.html
+
+# --- deployment topology and the container agent's look-alike modules ---
+# (root Dockerfile read for WORKDIR; not cited — a bare filename citation is ambiguous)
+docker-compose.yml
+docker/scripts/entrypoint.sh
+docker/cc-runtime/build_context/plugins/nextseek/bin/_batch_upload_client.py
+docker/cc-runtime/build_context/plugins/nextseek/bin/_batch_upload_runner.py
+dmac_assistant/build_context/route_capabilities.json
+
+# --- cross-referenced documents ---
+docs/endpoint-authorization-register.md
+scripts/run_tests.sh
