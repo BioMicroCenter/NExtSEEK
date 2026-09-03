@@ -121,7 +121,8 @@ def project_page(request, project_id):
         bundles_all = project_bundles(project.id, rows, known_codes)
 
         try:
-            files_total = DBtable_projects().files_count(project.id)
+            # files_count returns {'sop_count': N, 'df_count': N}; the tile wants data files.
+            files_total = DBtable_projects().files_count(project.id).get('df_count')
         except Exception:
             files_total = None
         kpis = {
