@@ -1015,7 +1015,7 @@ a.dash-tile { text-decoration: none; color: inherit; display: block; transition:
 a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 .dash-row-head { color: var(--ns-muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .dash-row-head:hover { background: none; }
-.dp-name { font-weight: 600; color: var(--ns-body); }
+.dp-name { font-weight: 600; color: var(--ns-body); overflow-wrap: anywhere; }
 .dash-projects-head { display: flex; align-items: center; justify-content: space-between; }
 
 /* ================================================
@@ -1180,48 +1180,40 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 0.75rem;
-    align-items: center;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.6rem;
 }
 .dp-logo a {
     display: flex;
     align-items: center;
-    justify-content: center;
-    height: 56px;
-    padding: 0.35rem 0.5rem;
-    border-radius: 6px;
-    transition: filter 0.2s var(--ns-ease),
-                opacity 0.2s var(--ns-ease),
-                transform 0.2s var(--ns-ease),
-                background-color 0.2s var(--ns-ease);
-    filter: grayscale(0.85);
-    opacity: 0.72;
+    justify-content: flex-start;
+    min-height: 48px;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--ns-border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--ns-body);
+    transition: background var(--ns-transition),
+                border-color var(--ns-transition);
 }
 .dp-logo a:hover,
 .dp-logo a:focus-visible {
-    filter: grayscale(0);
-    opacity: 1;
-    transform: translateY(-1px);
-    background-color: var(--ns-white);
+    background: var(--ns-sidebar-hover);
+    border-color: var(--ns-crimson-border);
     outline: none;
 }
 .dp-logo a:focus-visible {
     box-shadow: 0 0 0 2px var(--ns-crimson-border);
 }
 .dp-logo img {
-    max-height: 100%;
+    max-height: 40px;
     max-width: 100%;
     width: auto;
     height: auto;
     object-fit: contain;
 }
 @media (max-width: 900px) {
-    .dp-grid { grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
-    .dp-logo a { height: 48px; }
-}
-@media (max-width: 400px) {
-    .dp-grid { grid-template-columns: repeat(2, 1fr); }
+    .dp-grid { gap: 0.5rem; }
 }
 
 .dash-row {
