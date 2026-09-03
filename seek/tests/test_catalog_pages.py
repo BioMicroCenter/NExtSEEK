@@ -192,6 +192,17 @@ class TestAssaysList:
         assert "/seek/assays/flow-cytometry/" in body
         assert "/seek/assays/cell-culture/" in body
 
+    @patch("seek.views.catalog.load_assays", return_value=[FLOW_ASSAY])
+    @patch("seek.decorators.SeekDB")
+    def test_assay_row_shows_name_and_produced_code_anchor(self, db, _load):
+        from seek.views.catalog import assaysList
+        db.return_value = _logged_in()
+        html = assaysList(_get("/seek/assays/")).content.decode()
+        assert "Flow Cytometry" in html
+        assert 'href="/seek/assays/flow-cytometry/"' in html
+        assert ">D.FLOW<" in html                 # produced-code anchor
+        assert 'class="cat-chip"' not in html
+
     @patch("seek.views.catalog.load_assays", return_value=[])
     @patch("seek.decorators.SeekDB")
     def test_a_stack_without_the_table_renders_the_empty_state(self, db, _load):

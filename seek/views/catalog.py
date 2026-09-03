@@ -120,17 +120,46 @@ def _assay_group_key(entry):
     return UNASSIGNED_CLADE
 
 
+def _first_code(groups):
+    """First code across a list of alternation groups ([[a, b], [c]] -> a)."""
+    for grp in groups or []:
+        for code in grp:
+            return code
+    return ""
+
+
 @requires_seek_login_redirect('/seek/assays/')
 def assaysList(request):
-    """Every curated assay, grouped by the clade it consumes."""
+    """Every curated assay as a table, grouped by the clade it consumes.
+
+    Left anchor is the produced sample-type code; UNASSIGNED renders collapsed.
+    """
     entries = load_assays()
     buckets = {}
     for entry in entries:
         buckets.setdefault(_assay_group_key(entry), []).append(entry)
+    groups = []
+    for name in _ordered_clades(buckets):
+        if not buckets.get(name):
+            continue
+        rows = []
+        for e in buckets[name]:
+            first = e.rows[0]
+            produced = _first_code(first.children)
+            rows.append({
+                "href": f"/seek/assays/{e.slug}/",
+                "code": produced or "—",
+                "cells": [e.name, name, produced],
+                "filter_text": (e.name + " " + " ".join(r.description or "" for r in e.rows)).lower(),
+            })
+        groups.append({
+            "clade": name, "clade_slug": _clade_slug(name),
+            "rows": rows, "collapsed": name == UNASSIGNED_CLADE,
+        })
     return render(request, 'assaysList.html', {
-        'groups': [{'clade': name, 'entries': buckets[name]}
-                   for name in _ordered_clades(buckets) if buckets.get(name)],
-        'total': len(entries),
+        "groups": groups,
+        "columns": ["Assay", "Consumes", "Produces"],
+        "total": len(entries),
     })
 
 
