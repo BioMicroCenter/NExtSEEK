@@ -10,19 +10,8 @@ the app.
 .cat-page .ns-page-title { font-family: var(--ns-font-display); font-size: 1.8rem; font-weight: 700; color: var(--ns-ink); letter-spacing: -0.02em; margin-bottom: 0.35rem; }
 .cat-page .ns-page-subtitle { font-size: 0.9rem; color: var(--ns-muted); margin: 0; }
 
-.cat-search { width: 100%; max-width: 22rem; border: 1px solid var(--ns-border); border-radius: 6px; padding: 0.4rem 0.65rem; font-size: 0.85rem; color: var(--ns-body); background: var(--ns-bg); margin: 1rem 0 0.5rem; }
-.cat-search:focus { outline: none; border-color: var(--ns-crimson-border); box-shadow: 0 0 0 2px rgba(163, 31, 52, 0.12); }
-
-.cat-group { margin-top: 1.25rem; }
-.cat-group[hidden] { display: none; }
-.cat-group-name { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); padding-bottom: 0.2rem; border-bottom: 1.5px solid var(--ns-border); }
-.cat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 1.25rem; margin-top: 0.35rem; }
-@media (max-width: 800px) { .cat-grid { grid-template-columns: 1fr; } }
-.cat-item { display: flex; align-items: baseline; gap: 0.45rem; padding: 0.2rem 0.25rem; border-radius: 3px; font-size: 0.82rem; text-decoration: none; }
-.cat-item:hover { background: var(--ns-sidebar-hover); text-decoration: none; }
-.cat-item[hidden] { display: none; }
-.cat-item code { font-family: var(--ns-font-mono); font-weight: 700; min-width: 4rem; color: var(--ns-crimson); }
-.cat-item span { color: var(--ns-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Old list-grid + search styles removed; the shared catalog_table partial and
+   nextseek.css own the table and its search box now. .cat-chip stays (assay detail). */
 
 .cat-back { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; color: var(--ns-muted); text-decoration: none; margin-bottom: 1.25rem; }
 .cat-back:hover { color: var(--ns-crimson); text-decoration: none; }
