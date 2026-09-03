@@ -124,13 +124,13 @@
 }
 .clade-tables-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
 .clade-table-wrap {
-    max-height: 320px;
-    overflow-y: auto;
+    flex: 0 1 240px;
     border: 1px solid var(--ns-border);
+    border-left: 3px solid var(--ns-border);
     border-radius: 8px;
-    scrollbar-width: thin;
+    overflow: hidden;
 }
-.clade-table { border-collapse: collapse; font-size: 0.82rem; font-family: var(--ns-font-body); min-width: 160px; }
+.clade-table { border-collapse: collapse; font-size: 0.82rem; font-family: var(--ns-font-body); width: 100%; }
 .clade-table thead tr { background: var(--ns-sidebar-bg); position: sticky; top: 0; z-index: 1; }
 .clade-table thead th {
     padding: 0.45rem 0.75rem;
@@ -207,7 +207,7 @@
         <h2 class="clade-section-title">Sample Type Summary</h2>
         <div class="clade-tables-row">
             {% for clade, clade_list in clade_data.items %}
-            <div class="clade-table-wrap">
+            <div class="clade-table-wrap" style="border-left-color: {{ clade_list.0.color }};">
                 <table class="clade-table">
                     <thead>
                         <tr>
@@ -217,7 +217,7 @@
                     </thead>
                     <tbody>
                         {% for sample_type in clade_list %}
-                        <tr style="background-color: {{ sample_type.color }};">
+                        <tr>
                             <td>{{ sample_type.st_group }}</td>
                             <td style="text-align:right;">{{ sample_type.count }}</td>
                         </tr>

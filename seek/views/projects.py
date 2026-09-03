@@ -18,7 +18,9 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from ..decorators import requires_seek_login_redirect
 from ..decorators import verifySuperUser
 
-from nextseek_api.services.context_catalog import load_project_context, load_sample_types
+from nextseek_api.services.context_catalog import (
+    CLADE_ORDER, UNASSIGNED_CLADE, load_project_context, load_sample_types,
+)
 from nextseek_api.services.project_connections import (
     connection_rows, connections_html, project_bundles, types_in_use,
 )
@@ -68,7 +70,17 @@ def projects(request):
         total = sum((item.get('count') or 0) for item in group)
         for item in group:
             item['total'] = total
-           
+
+    # Order the clade summary by pipeline order (Source, Processed, Raw, Analyzed),
+    # not alphabetically; unknown clades follow, Unassigned/Uncategorized last.
+    def _clade_rank(name):
+        if name in CLADE_ORDER:
+            return (0, CLADE_ORDER.index(name), name)
+        if name in (UNASSIGNED_CLADE, 'Uncategorized'):
+            return (2, 0, name)
+        return (1, 0, name)
+    clade_data = {k: clade_data[k] for k in sorted(clade_data, key=_clade_rank)}
+
     return render(request, 'projectsList.html', {'projects': projects,
                                                  'clade_data': clade_data,
                                                  'seek_public_url': settings.SEEK_PUBLIC_URL})

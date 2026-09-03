@@ -207,3 +207,28 @@ class TestProjectPage:
         many = [{"label": "A%d" % i, "codes": ["NHP"], "n_edges": i} for i in range(20)]
         body = self._render({"bundles": many}).content.decode()
         assert body.count('class="project-bundle"') <= 8
+
+
+class TestProjectsListClades:
+    def test_clade_wrap_does_not_hard_clip_at_320px(self):
+        from pathlib import Path
+        from django.conf import settings
+        tpl = (Path(settings.BASE_DIR) / "seek" / "templates" / "projectsList.html").read_text()
+        # The fixed 320px max-height that hid Totals must be gone.
+        assert "max-height: 320px" not in tpl
+
+    @patch("seek.views.projects.DBtable_stc")
+    @patch("seek.views.projects.DBtable_projects")
+    @patch("seek.views.projects.Projects")
+    @patch("seek.decorators.SeekDB")
+    def test_clade_summary_is_ordered_by_pipeline(self, db, projects, dbproj, dbstc):
+        from seek.views.projects import projects as projects_view
+        db.return_value = _seekdb([])
+        projects.objects.all.return_value.values.return_value = []
+        dbstc.return_value.getAllCounts.return_value = [
+            {"title": "Raw", "st_group": "D.SEQ", "count": 3},
+            {"title": "Source", "st_group": "NHP", "count": 5},
+            {"title": "Processed", "st_group": "TIS", "count": 4},
+        ]
+        body = projects_view(_req("/seek/projects/", superuser=True)).content.decode()
+        assert body.index("Source") < body.index("Processed") < body.index("Raw")
