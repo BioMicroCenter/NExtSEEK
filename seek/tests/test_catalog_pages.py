@@ -257,6 +257,23 @@ class TestAssayDetail:
         assert "This assay captures standardized metadata." in body
         assert "twice in" in body  # the notice naming assay_context
 
+    @patch("seek.views.catalog.load_assay", return_value=CULTURE)
+    @patch("seek.decorators.SeekDB")
+    def test_two_rows_render_side_by_side_not_stacked(self, db, _load):
+        from seek.views.catalog import assayDetail
+        db.return_value = _logged_in()
+        html = assayDetail(_get("/seek/assays/cell-culture/"), "cell-culture").content.decode()
+        assert 'class="assay-compare"' in html
+        assert html.count('class="assay-compare-col"') == 2
+
+    @patch("seek.views.catalog.load_assay", return_value=FLOW_ASSAY)
+    @patch("seek.decorators.SeekDB")
+    def test_parent_pills_have_no_floating_comma(self, db, _load):
+        from seek.views.catalog import assayDetail
+        db.return_value = _logged_in()
+        html = assayDetail(_get("/seek/assays/flow-cytometry/"), "flow-cytometry").content.decode()
+        assert '<span class="cat-and">,</span>' not in html
+
     @patch("seek.views.catalog.load_assay", return_value=FLOW_ASSAY)
     @patch("seek.decorators.SeekDB")
     def test_a_single_row_entry_shows_no_duplication_notice(self, db, _load):

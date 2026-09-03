@@ -17,12 +17,13 @@
   {% if is_split %}
   <div class="cat-notice">
     This name appears twice in <code>assay_context</code>, from two sources that
-    were never reconciled. Both rows are shown below, unmerged.
+    were never reconciled. Both are shown side by side, unmerged.
   </div>
   {% endif %}
 
+  {% if is_split %}<div class="assay-compare">{% endif %}
   {% for row in entry.rows %}
-  <div class="cat-row-panel">
+  <div class="{% if is_split %}assay-compare-col{% else %}cat-row-panel{% endif %}">
 
     {% if row.description %}<div class="cat-desc">{{ row.description }}</div>{% endif %}
 
@@ -35,7 +36,7 @@
             <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
             {% if not forloop.last %}<span class="cat-or">or</span>{% endif %}
           {% endfor %}
-          {% if not forloop.last %}<span class="cat-and">,</span>{% endif %}
+          {% if not forloop.last %}<span class="cat-and">and</span>{% endif %}
         {% endfor %}
       </div>
     </div>
@@ -50,7 +51,7 @@
             <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
             {% if not forloop.last %}<span class="cat-or">or</span>{% endif %}
           {% endfor %}
-          {% if not forloop.last %}<span class="cat-and">,</span>{% endif %}
+          {% if not forloop.last %}<span class="cat-and">and</span>{% endif %}
         {% endfor %}
       </div>
     </div>
@@ -65,7 +66,7 @@
             <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
             {% if not forloop.last %}<span class="cat-or">or</span>{% endif %}
           {% endfor %}
-          {% if not forloop.last %}<span class="cat-and">,</span>{% endif %}
+          {% if not forloop.last %}<span class="cat-and">and</span>{% endif %}
         {% endfor %}
       </div>
     </div>
@@ -106,8 +107,8 @@
     {% endif %}
 
   </div>
-  {% if not forloop.last %}<hr style="margin:1.75rem 0;border-color:var(--ns-border);">{% endif %}
   {% endfor %}
+  {% if is_split %}</div>{% endif %}
 
 </div>
 {% endblock %}

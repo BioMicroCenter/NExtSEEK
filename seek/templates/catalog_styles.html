@@ -44,7 +44,10 @@ a.cat-chip:hover { border-color: var(--ns-crimson-border); background: var(--ns-
 /* The word between alternatives in "MUS or PAV". Not a chip: it is not a code. */
 .cat-or { font-size: 0.74rem; color: var(--ns-muted); font-style: italic; padding: 0 0.1rem; }
 /* Separates one alternation group from the next: "TIS or CEX or CEL, AB or ABP" */
-.cat-and { font-size: 0.74rem; color: var(--ns-muted); padding: 0 0.35rem 0 0; }
+.cat-and { font-size: 0.74rem; color: var(--ns-muted); padding: 0 0.35rem; }
+.assay-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 767.98px) { .assay-compare { grid-template-columns: 1fr; } }
+.assay-compare-col { border: 1px solid var(--ns-border); border-radius: 8px; padding: 0.75rem 1rem; }
 
 /* One assay row's fields. 24 slugs of 193 carry two of these, stacked. */
 .cat-row-panel { margin-bottom: 0.5rem; }
