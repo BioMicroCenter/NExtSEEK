@@ -1545,9 +1545,13 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 
 /* ---------- Project Detail mobile stats ---------- */
 .m-stats-cards {
-    display: flex;
+    /* The flex layout is turned on only in the mobile media query below, so this
+       stack does not render on desktop alongside the .d-only table (the duplicate). */
     flex-direction: column;
     gap: 10px;
+}
+@media (max-width: 767.98px) {
+    .m-stats-cards { display: flex; }
 }
 .m-stat-card {
     border: 1px solid var(--ns-border);
