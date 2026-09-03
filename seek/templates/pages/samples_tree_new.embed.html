@@ -1,6 +1,8 @@
 {% load static %}
-<div style="height:100%;" id="tree_container">
+<div style="height:100%;position:relative;" id="tree_container">
     {% csrf_token %}
+    <button type="button" id="tree-fullscreen-btn" class="tree-fullscreen-btn"
+            title="Toggle fullscreen" aria-label="Toggle fullscreen graph">&#9974;</button>
     <div id="loading-spinner">Loading...</div>
     <svg id="svg">
         <g id="graphGroup">
@@ -10,3 +12,21 @@
     </svg>
 </div>
 <script type="module" src="{% static 'js/dag/dag.js' %}"></script>
+<script>
+/* Fullscreen the sample tree v2. The SVG is width/height:100% over a fixed
+   viewBox, so growing the container auto-scales the graph — no d3 redraw. */
+(function () {
+  var box = document.getElementById('tree_container');
+  var btn = document.getElementById('tree-fullscreen-btn');
+  if (!box || !btn) { return; }
+  function toggle() {
+    var on = box.classList.toggle('tree-fullscreen');
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    document.body.style.overflow = on ? 'hidden' : '';
+  }
+  btn.addEventListener('click', toggle);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && box.classList.contains('tree-fullscreen')) { toggle(); }
+  });
+})();
+</script>

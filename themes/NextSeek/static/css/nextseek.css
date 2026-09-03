@@ -1114,6 +1114,22 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 .project-samples-table td.num, .project-samples-table th.num { text-align: right; white-space: nowrap; }
 .project-samples-table .cat-total-row td { font-weight: 700; border-top: 1.5px solid var(--ns-border); }
 
+/* ---------- Sample tree v2 fullscreen ---------- */
+.tree-fullscreen-btn {
+    position: absolute; top: 8px; right: 8px; z-index: 5;
+    width: 32px; height: 32px; line-height: 1;
+    border: 1px solid var(--ns-border); border-radius: 6px;
+    background: var(--ns-white); color: var(--ns-body);
+    font-size: 1rem; cursor: pointer;
+}
+.tree-fullscreen-btn:hover { border-color: var(--ns-crimson-border); color: var(--ns-crimson); background: var(--ns-crimson-soft); }
+#tree_container.tree-fullscreen {
+    position: fixed; inset: 0; z-index: 2000;
+    background: var(--ns-white); padding: 8px;
+    height: 100vh !important; width: 100vw;
+}
+#tree_container.tree-fullscreen #svg { height: 100% !important; }
+
 /* ================================================
    Sidebar header with BMC lockup
    ================================================ */

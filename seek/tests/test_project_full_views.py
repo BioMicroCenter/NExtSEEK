@@ -93,3 +93,16 @@ class TestProjectSamplesRoute:
         resp = project_samples(_req("/seek/projects/2/samples/"), "2")
         assert resp.status_code == 200
         assert b"project-samples" in resp.content
+
+
+class TestSampleTreeFullscreen:
+    def test_tree_partial_has_a_fullscreen_button(self):
+        tpl = (Path(settings.BASE_DIR) / "seek" / "templates" / "pages"
+               / "samples_tree_new.embed.html").read_text()
+        assert "tree-fullscreen-btn" in tpl
+        assert "tree-fullscreen" in tpl        # the toggle class
+
+    def test_css_defines_the_fullscreen_state(self):
+        css = _css()
+        assert ".tree-fullscreen-btn" in css
+        assert "#tree_container.tree-fullscreen" in css
