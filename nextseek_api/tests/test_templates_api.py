@@ -217,7 +217,7 @@ class GenerateValidationTests(TestCase):
             user=User.objects.create_user("su", password="pw",
                                           is_staff=True, is_superuser=True)
         )
-        patcher = patch("nextseek_api.services.templates.load_catalog",
+        patcher = patch("nextseek_api.services.template_catalog.load_catalog",
                         return_value=[_DNA, _TIS, _SEQ])
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -256,13 +256,13 @@ class GenerateWorkbookTests(TestCase):
             user=User.objects.create_user("su", password="pw",
                                           is_staff=True, is_superuser=True)
         )
-        patcher = patch("nextseek_api.services.templates.load_catalog",
+        patcher = patch("nextseek_api.services.template_catalog.load_catalog",
                         return_value=[_DNA, _TIS, _SEQ])
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def test_the_writer_receives_the_requested_entries_in_request_order(self):
-        with patch("nextseek_api.services.templates.write_template_workbook") as writer:
+        with patch("nextseek_api.services.sample_workbook.write_template_workbook") as writer:
             resp = self.client.post(GENERATE_URL, {"codes": ["D.SEQ", "TIS"]},
                                     format="json")
         self.assertEqual(resp.status_code, 200)
@@ -270,7 +270,7 @@ class GenerateWorkbookTests(TestCase):
         self.assertEqual([e.code for e in chosen], ["D.SEQ", "TIS"])
 
     def test_repeated_codes_produce_one_entry_each(self):
-        with patch("nextseek_api.services.templates.write_template_workbook") as writer:
+        with patch("nextseek_api.services.sample_workbook.write_template_workbook") as writer:
             self.client.post(GENERATE_URL, {"codes": ["TIS", "TIS", "DNA"]},
                              format="json")
         chosen = writer.call_args[0][0]
@@ -291,7 +291,7 @@ class GenerateWorkbookTests(TestCase):
             manifest.sheet_state = "hidden"
             book.save(destination)
 
-        with patch("nextseek_api.services.templates.write_template_workbook",
+        with patch("nextseek_api.services.sample_workbook.write_template_workbook",
                    side_effect=_fake_writer):
             resp = self.client.post(GENERATE_URL, {"codes": ["TIS", "D.SEQ"]},
                                     format="json")

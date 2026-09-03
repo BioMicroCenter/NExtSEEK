@@ -2,20 +2,17 @@
 
 from ..dbtable_documents import DBtable_documents
 from ..responses import json_response
-import os
 from django.shortcuts import render
 import requests
 from ..decorators import requires_seek_login
 from ..decorators import requires_seek_login_redirect
 from django.conf import settings
-import datetime
 import json
 import logging
-import tempfile
 from django.http import HttpResponse
 
-from nextseek_api.services.sample_workbook import write_template_workbook
-from nextseek_api.services.template_catalog import build_catalog, load_catalog
+from nextseek_api.services.sample_workbook import render_template_workbook
+from nextseek_api.services.template_catalog import build_catalog, select_entries
 
 logger = logging.getLogger(__name__)
 
@@ -92,40 +89,22 @@ def templatesDownload(request):
     The bytes are returned directly rather than written under outputs/ and
     linked: a template is cheap to regenerate, so a persistent link buys little
     and would leave a file per download behind with nothing to clean it up.
+
+    Which entries and what they become are both decided in
+    nextseek_api.services, so this page and /nextseek_api/templates/generate/
+    cannot hand out different workbooks. The one thing this view still decides
+    for itself is what an unknown code costs: it is dropped, so a stale bookmark
+    still produces the types it names. The API 422s instead.
     """
-    requested = request.POST.getlist('codes')
-    entries = load_catalog()
-    by_code = {e.code: e for e in entries}
-    # Selection order, not catalog order: the sheets should come out in the
-    # order the user built them. Unknown codes are dropped rather than 400ing --
-    # a stale bookmark should still produce the types it names.
-    chosen = []
-    seen = set()
-    for code in requested:
-        if code in by_code and code not in seen:
-            seen.add(code)
-            chosen.append(by_code[code])
+    chosen, _unknown = select_entries(request.POST.getlist('codes'))
 
     if not chosen:
         context = _templates_context(message="Select at least one sample type.")
         return render(request, 'templatesList.html', context)
 
-    with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as handle:
-        temp_path = handle.name
-    try:
-        write_template_workbook(chosen, temp_path)
-        with open(temp_path, 'rb') as fh:
-            payload = fh.read()
-    finally:
-        try:
-            os.remove(temp_path)
-        except OSError:
-            logger.warning("could not remove temp workbook %s", temp_path)
-
-    stamp = datetime.datetime.now().strftime('%Y%m%d')
-    filename = f"NExtSEEK_templates_{len(chosen)}types_{stamp}.xlsx"
+    buffer, filename = render_template_workbook(chosen)
     response = HttpResponse(
-        payload,
+        buffer.getvalue(),
         content_type=(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),

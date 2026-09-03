@@ -7,6 +7,8 @@ docs/sample-download-workflow.md for how the call paths converge on this module.
 
 from __future__ import annotations
 
+import datetime
+import io
 import json
 import logging
 import math
@@ -708,3 +710,27 @@ def write_template_workbook(entries, output_path) -> None:
 
     _write_manifest(book, manifest_rows)
     book.save(output_path)
+
+
+def render_template_workbook(entries) -> tuple[io.BytesIO, str]:
+    """A blank template workbook in memory, with the filename to serve it under.
+
+    The one place both download paths turn chosen entries into bytes, so the
+    browser form POST at `/seek/templates/download/` and the API call at
+    `/nextseek_api/templates/generate/` cannot hand out differently-named or
+    differently-built workbooks. `template_catalog.select_entries` is the other
+    half of that pairing: it decides WHICH entries, this decides what they
+    become.
+
+    Straight to memory rather than through a NamedTemporaryFile, which is what
+    the page did before this existed: openpyxl's `Workbook.save` takes any
+    file-like object, and a buffer leaves nothing on disk to clean up -- and so
+    no temp file to leak when the writer raises.
+    """
+    buffer = io.BytesIO()
+    write_template_workbook(entries, buffer)
+    buffer.seek(0)
+
+    stamp = datetime.datetime.now().strftime("%Y%m%d")
+    filename = f"NExtSEEK_templates_{len(entries)}types_{stamp}.xlsx"
+    return buffer, filename

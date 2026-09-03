@@ -218,8 +218,8 @@ class TestDownload:
         resp = templatesDownload(_post(["TIS"]))
         assert resp.status_code == 302
 
-    @patch("seek.views.assets.write_template_workbook")
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.sample_workbook.write_template_workbook")
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_returns_an_xlsx_attachment(self, mock_db, _catalog, mock_write):
         from seek.views.assets import templatesDownload
@@ -233,8 +233,8 @@ class TestDownload:
         assert resp["Content-Disposition"].startswith("attachment; filename=")
         assert resp["Content-Disposition"].endswith(".xlsx")
 
-    @patch("seek.views.assets.write_template_workbook")
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.sample_workbook.write_template_workbook")
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_only_the_selected_types_are_written(self, mock_db, _catalog, mock_write):
         from seek.views.assets import templatesDownload
@@ -244,8 +244,8 @@ class TestDownload:
         entries = mock_write.call_args[0][0]
         assert [e.code for e in entries] == ["D.SEQ"]
 
-    @patch("seek.views.assets.write_template_workbook")
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.sample_workbook.write_template_workbook")
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_selection_order_is_preserved(self, mock_db, _catalog, mock_write):
         from seek.views.assets import templatesDownload
@@ -255,8 +255,8 @@ class TestDownload:
         entries = mock_write.call_args[0][0]
         assert [e.code for e in entries] == ["D.SEQ", "TIS"]
 
-    @patch("seek.views.assets.write_template_workbook")
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.sample_workbook.write_template_workbook")
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_an_unknown_code_is_dropped_and_the_rest_are_written(
             self, mock_db, _catalog, mock_write):
@@ -267,8 +267,8 @@ class TestDownload:
         entries = mock_write.call_args[0][0]
         assert [e.code for e in entries] == ["TIS"]
 
-    @patch("seek.views.assets.write_template_workbook")
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.sample_workbook.write_template_workbook")
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_a_duplicated_code_is_written_only_once(
             self, mock_db, _catalog, mock_write):
@@ -283,8 +283,8 @@ class TestDownload:
         "groups": [{"key": "", "label": "Experimental types", "entries": [TIS]}],
         "children": {}, "requires": {}, "companions": {}, "max_suggestions": 12,
     })
-    @patch("seek.views.assets.write_template_workbook")
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.sample_workbook.write_template_workbook")
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_an_empty_selection_re_renders_the_page_and_writes_nothing(
             self, mock_db, _catalog, mock_write, mock_build):
@@ -300,8 +300,8 @@ class TestDownload:
         "groups": [{"key": "", "label": "Experimental types", "entries": [TIS]}],
         "children": {}, "requires": {}, "companions": {}, "max_suggestions": 12,
     })
-    @patch("seek.views.assets.write_template_workbook")
-    @patch("seek.views.assets.load_catalog", return_value=[TIS, SEQ])
+    @patch("nextseek_api.services.sample_workbook.write_template_workbook")
+    @patch("nextseek_api.services.template_catalog.load_catalog", return_value=[TIS, SEQ])
     @patch("seek.decorators.SeekDB")
     def test_every_code_unknown_is_treated_as_an_empty_selection(
             self, mock_db, _catalog, mock_write, mock_build):

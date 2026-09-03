@@ -355,3 +355,55 @@ def build_catalog() -> dict:
         "companions": links["companions"],
         "max_suggestions": MAX_SUGGESTIONS,
     }
+
+
+def select_entries(codes) -> tuple[list[SampleTypeEntry], list[str]]:
+    """The catalog entries named by `codes`, and the codes that name nothing.
+
+    Both download paths resolve a selection here -- `seek.views.assets
+    .templatesDownload` for the picker's form POST, and
+    `nextseek_api.services.templates.TemplatesViewSet.generate` for the API --
+    so neither can drift from the other's idea of what is downloadable. That is
+    the same reason `build_catalog()` above exists for the read side.
+
+    Selection order, not catalog order: the sheets come out in the order the
+    user built them. A repeated code is taken once, at its first position.
+
+    Unknown codes are RETURNED rather than acted on, because the two callers
+    disagree about them on purpose: the page drops them so a stale bookmark
+    still produces the types it names, and the API answers 422 so a workbook is
+    never quietly missing a sheet.
+    """
+    by_code = {entry.code: entry for entry in load_catalog()}
+
+    chosen: list[SampleTypeEntry] = []
+    unknown: set[str] = set()
+    seen: set[str] = set()
+    for code in codes or []:
+        if code in by_code:
+            if code not in seen:
+                seen.add(code)
+                chosen.append(by_code[code])
+        else:
+            unknown.add(code)
+    return chosen, sorted(unknown)
+
+
+def downloadable_codes() -> set[str]:
+    """Codes a template download will actually produce a sheet for.
+
+    The catalog pages read `context_catalog.load_sample_types()`, whose set is
+    the curated `sample_types_context` rows; this one is SEEK's own sample
+    types minus the retired and the unusable-as-a-sheet-name. The two sets are
+    close but not equal, so anything that OFFERS a download has to gate on this
+    one -- gating on the other is how a button gets rendered that resolves to
+    nothing and dumps the user back on the picker.
+
+    Soft, like every other read here: an unreadable catalog costs the offer,
+    never the page that was going to make it.
+    """
+    try:
+        return {entry.code for entry in load_catalog()}
+    except Exception:
+        logger.exception("catalog unavailable; nothing is offered for download")
+        return set()
