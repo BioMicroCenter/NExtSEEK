@@ -45,3 +45,12 @@ class TestCatalogTablePartial:
     def test_group_header_carries_a_clade_accent(self):
         html = render_to_string("includes/catalog_table.html", _table_ctx())
         assert "clade-accent--source" in html or "clade-dot--source" in html
+
+
+class TestAttributeTablePartial:
+    def test_renders_a_readonly_shell_scoped_to_the_type(self):
+        html = render_to_string("includes/attribute_definitions_table.html", {"sample_type_id": 13})
+        assert 'data-sample-type-id="13"' in html
+        assert "attrs-ro-table" in html
+        for banned in ("Add attribute", "attrs-tray", "batch-create", 'type="checkbox"'):
+            assert banned not in html

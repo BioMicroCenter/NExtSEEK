@@ -1,0 +1,61 @@
+{% comment %}
+Read-only attribute-definitions table for one sample type. Populates client-side
+from POST /nextseek_api/attributes/search/ (login-only permission), the same
+endpoint the attributes SPA uses. No write controls, no CSRF (custom auth).
+Context: sample_type_id
+{% endcomment %}
+<div class="attrs-ro" data-sample-type-id="{{ sample_type_id }}">
+  <table class="attrs-ro-table">
+    <thead><tr>
+      <th class="ar-pos">Pos</th><th>Name</th><th>Type</th>
+      <th class="ar-flag">Req</th><th class="ar-flag">Title</th>
+      <th>Definition</th><th>Constraints</th>
+    </tr></thead>
+    <tbody data-attrs-body>
+      <tr><td colspan="7" class="attrs-ro-msg">Loading attributes&hellip;</td></tr>
+    </tbody>
+  </table>
+</div>
+<script>
+(function () {
+  var host = document.querySelector('.attrs-ro[data-sample-type-id]');
+  if (!host) { return; }
+  var id = host.getAttribute('data-sample-type-id');
+  var body = host.querySelector('[data-attrs-body]');
+  function esc(s) { var d = document.createElement('div'); d.textContent = (s == null ? '' : String(s)); return d.innerHTML; }
+  function badges(r) {
+    var out = [];
+    if (r.unit_title) { out.push('<span class="ar-badge">Unit: ' + esc(r.unit_title) + (r.unit_symbol ? ' (' + esc(r.unit_symbol) + ')' : '') + '</span>'); }
+    if (r.sample_controlled_vocab_title) { out.push('<span class="ar-badge">CV: ' + esc(r.sample_controlled_vocab_title) + '</span>'); }
+    var linked = r.linked_sample_type_title || r.linked_sample_type_id;
+    if (linked) { out.push('<span class="ar-badge">Links to ' + esc(linked) + '</span>'); }
+    return out.join(' ');
+  }
+  fetch('/nextseek_api/attributes/search/?page_size=5000', {
+    method: 'POST', credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+    body: JSON.stringify({targets: [{sample_type: /^\d+$/.test(id) ? parseInt(id, 10) : id}]})
+  }).then(function (resp) { return resp.text(); }).then(function (raw) {
+    var data; try { data = raw ? JSON.parse(raw) : {}; } catch (e) { data = {}; }
+    var recs = (data.attributes || []).slice().sort(function (a, b) { return (a.pos || 0) - (b.pos || 0); });
+    if (!recs.length) {
+      body.innerHTML = '<tr><td colspan="7" class="attrs-ro-msg">No attribute definitions recorded for this sample type.</td></tr>';
+      return;
+    }
+    body.innerHTML = recs.map(function (r) {
+      var type = r.sample_attribute_type_title || r.sample_attribute_type_id || '';
+      return '<tr>' +
+        '<td class="ar-pos">' + esc(r.pos) + '</td>' +
+        '<td class="ar-name">' + esc(r.title) + '</td>' +
+        '<td>' + esc(type) + '</td>' +
+        '<td class="ar-flag">' + (r.required ? '&#10003;' : '') + '</td>' +
+        '<td class="ar-flag">' + (r.is_title ? '&#9733;' : '') + '</td>' +
+        '<td class="ar-def">' + (r.description ? esc(r.description) : '<span class="ar-muted">&mdash;</span>') + '</td>' +
+        '<td class="ar-badges">' + badges(r) + '</td>' +
+      '</tr>';
+    }).join('');
+  }).catch(function () {
+    body.innerHTML = '<tr><td colspan="7" class="attrs-ro-msg">Could not load attribute definitions.</td></tr>';
+  });
+})();
+</script>

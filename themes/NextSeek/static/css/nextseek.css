@@ -1070,6 +1070,25 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 .cat-table tbody.is-collapsed .cat-row { display: none; }
 .cat-empty { color: var(--ns-muted); padding: 1rem 0; }
 
+/* ---------- Read-only attribute-definitions table (sample type detail) ---------- */
+.attrs-ro-table { width: 100%; max-width: 1100px; border-collapse: separate; border-spacing: 0; font-size: 0.85rem; }
+.attrs-ro-table thead th {
+    position: sticky; top: 0; z-index: 1; background: var(--ns-sidebar-bg);
+    text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.06em;
+    color: var(--ns-muted); text-align: left; padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--ns-border);
+}
+.attrs-ro-table td { padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--ns-border); color: var(--ns-body); vertical-align: top; }
+.attrs-ro-table .ar-pos { font-family: var(--ns-font-mono); color: var(--ns-muted); width: 2.5rem; }
+.attrs-ro-table .ar-name { font-weight: 600; }
+.attrs-ro-table .ar-flag { text-align: center; width: 3rem; color: var(--ns-crimson); }
+.attrs-ro-table .ar-muted { color: var(--ns-muted); }
+.ar-badge {
+    display: inline-block; font-size: 0.72rem; padding: 0.1rem 0.45rem; margin: 0.1rem 0.15rem 0.1rem 0;
+    border-radius: 10px; border: 1px solid var(--ns-border); background: var(--ns-sidebar-bg); color: var(--ns-muted);
+}
+.attrs-ro-msg { color: var(--ns-muted); padding: 1rem 0.6rem; }
+
 /* ================================================
    Sidebar header with BMC lockup
    ================================================ */
