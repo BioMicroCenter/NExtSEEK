@@ -5,7 +5,7 @@ written by many people over several years, so every rule here is derived from a
 string that actually appears in seek_production.studies rather than from what a
 well-formed citation ought to look like.
 
-See docs/2026-08-21-publication-links-design.md, "Backfill".
+See docs/archive/2026-08/2026-08-21-publication-links-design.md, "Backfill".
 """
 
 from __future__ import annotations

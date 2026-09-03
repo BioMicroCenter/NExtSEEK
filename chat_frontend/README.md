@@ -232,7 +232,7 @@ this directory's example env file at
 superseded plan and review documents under `nextseek_api/cc_assistant/`.
 
 Prose descriptions of this boundary live at `UI.md:37-78`,
-`architecture.md:60-64` and `DEPLOYMENT.md:286`.
+`architecture.md:61-65` and `DEPLOYMENT.md:286`.
 
 See `chat_frontend/CLAUDE.md` for the invariants this arrangement rests on and
 the traps in it.

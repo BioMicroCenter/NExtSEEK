@@ -46,7 +46,7 @@ appear if the work succeeded.
 ## 2. Per-family targets, and why
 
 The distribution is weighted by **observed user traffic**, not by family symmetry.
-`docs/nessie-adhoc-question-inventory.md` records 101 distinct questions really asked
+`docs/archive/nessie-adhoc-question-inventory.md` records 101 distinct questions really asked
 against the dev box. Their themes:
 
 | theme in the ad-hoc log | share | families in the old selection |

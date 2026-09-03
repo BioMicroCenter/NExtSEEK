@@ -2,7 +2,7 @@
 
 Every "Download samples" control in NExtSEEK. Written while unifying them onto
 one API and adding a README sheet to the workbook — see
-`docs/2026-08-06-unified-sample-download-readme-design.md` for the design and
+`docs/archive/2026-08/2026-08-06-unified-sample-download-readme-design.md` for the design and
 `...-plan.md` for the implementation steps.
 
 **Line numbers under "Before" refer to commit `a8fc358`**, the branch base.
@@ -144,7 +144,7 @@ stale, not the code being wrong. (`build_provenance_rows`, the flat-chain-cover
 function this diagram used to cite, was replaced by `build_provenance_tree`
 when the flow sheet became an indented tree, and the tree then moved off its
 own sheet onto the README — see
-[`2026-08-25-provenance-tree-sheet-design.md`](2026-08-25-provenance-tree-sheet-design.md).)
+[`archive/2026-08/2026-08-25-provenance-tree-sheet-design.md`](archive/2026-08/2026-08-25-provenance-tree-sheet-design.md).)
 
 `DBtable_sample.sampleRetrievalData` (`seek/sample/download.py`) and
 `seek.views.sample_retrieval_data` (`seek/views/admin.py`) both delegate to
@@ -227,7 +227,7 @@ rightward across empty neighbours, and the README writes nothing past column C
 on the tree's rows, so a tree line runs on through D, E, F … unimpeded; there
 is no 46-wide ceiling. It matters that this is unbounded rather than merely
 generous: the widest line the production graph produces is 330 characters. See
-[`2026-08-25-provenance-tree-sheet-design.md`](2026-08-25-provenance-tree-sheet-design.md)
+[`archive/2026-08/2026-08-25-provenance-tree-sheet-design.md`](archive/2026-08/2026-08-25-provenance-tree-sheet-design.md)
 for the flat-chains-to-tree change, and its §3/§3b for the later move off its
 own sheet onto the README.
 

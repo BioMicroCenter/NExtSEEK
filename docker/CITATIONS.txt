@@ -121,4 +121,4 @@ chat_nextseek/CLAUDE.md
 dmac_assistant/CLAUDE.md
 docs/neo4j-programmatic-access.md
 docs/testing-review/02-cc-dmac_assistant-testing-review.md
-docs/nessie-bayesian-mode-design.md
+docs/archive/nessie-bayesian-mode-design.md

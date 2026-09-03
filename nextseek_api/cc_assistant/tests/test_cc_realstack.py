@@ -60,7 +60,7 @@ BUDGET_CAP = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "2.0"))
 EVID_ROOT = Path(settings.BASE_DIR) / "outputs" / "cc_acceptance"
 
 # Task 15 (G7-11) capability-gate evidence bundle root -- the SPEC-7 section 8
-# convention (PLAN-7-compose-native-prod-deploy.md): "acceptance_evidence/step7/<run_id>/".
+# convention (nextseek_api/cc_assistant/archive/PLAN-7-compose-native-prod-deploy.md): "acceptance_evidence/step7/<run_id>/".
 STEP7_EVID_ROOT = (
     Path(settings.BASE_DIR) / "nextseek_api" / "cc_assistant" / "tests" / "acceptance_evidence" / "step7"
 )

@@ -185,7 +185,7 @@ the two build scripts, which each begin with a project-references compile
 - See `seek/templatetags/vite_assets.py:1-9` for the tag's own usage note.
 - See `DEPLOYMENT.md:286` for where this fits in the deploy runbook, and
   `DEPLOYMENT.md:285` for the static-asset step it depends on.
-- See `architecture.md:56-75` for the whole turn, from page load to progress
+- See `architecture.md:57-76` for the whole turn, from page load to progress
   transport.
 - See `UI.md:37-78` for how this sits beside the server-rendered pages.
 - See the repository root `CLAUDE.md` for the router, the two engines and the

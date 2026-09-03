@@ -187,7 +187,7 @@ What the other matches are NOT:
 
 - `nessie_tests/FAMILIES.json:6114-6115` and `nessie_tests/FAMILIES.json:3899` name files here as provenance strings in a corpus record, not as imports.
 - `build_tools/plan005_baseline.py:323-327` names boundary paths as container bind-mount sources for a mutation-testing subject tree, and `build_tools/plan005_closeout_control.py:956` hashes `baml_src` into a manifest; neither imports the package.
-- `nextseek_api/cc_assistant/PLAN-2-multi-user-provisioning.md:969` shows an import of the copier inside a superseded plan document, which is prose, not code.
+- `nextseek_api/cc_assistant/archive/PLAN-2-multi-user-provisioning.md:969` shows an import of the copier inside a superseded plan document, which is prose, not code.
 - `docker/cc-runtime/baml_src/` is a byte-identical mirror rather than a consumer: it is copied into the agent image and generated there against its own path (`docker/cc-runtime/Dockerfile:113-117`), so the agent never imports anything from this directory.
 
 See `dmac_assistant/CLAUDE.md` for the invariants that hold these edges together.

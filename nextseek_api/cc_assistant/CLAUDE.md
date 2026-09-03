@@ -70,14 +70,14 @@ correctness regression, not a refactor.
 - **`.vetting/` is not documentation.** 65 files of superseded automated
   review-iteration logs; the one cited here records a single hardening pass over
   a plan document —
-  `nextseek_api/cc_assistant/.vetting/plan-3-phase2-fix-log-iter22.md:1-4`. Do
+  `nextseek_api/cc_assistant/archive/.vetting/plan-3-phase2-fix-log-iter22.md:1-4`. Do
   not read them for current behaviour and do not cite them.
 - **The 10 `SPEC-*.md` / `PLAN-*.md` files here are superseded** and are
   scheduled to move to an archive. The one cited announces itself as live state:
-  `nextseek_api/cc_assistant/PLAN-3-ui-based-io.md:3` claims "TRUE STATE" as of a
+  `nextseek_api/cc_assistant/archive/PLAN-3-ui-based-io.md:3` claims "TRUE STATE" as of a
   date months past. That framing is why they mislead.
-- **`LIVE_EVIDENCE.md` and `DEPLOY.md` are stale and under separate triage.**
-  `nextseek_api/cc_assistant/LIVE_EVIDENCE.md:8-10` documents a test-runner
+- **`archive/LIVE_EVIDENCE.md` and `DEPLOY.md` are stale and under separate triage.**
+  `nextseek_api/cc_assistant/archive/LIVE_EVIDENCE.md:8-10` documents a test-runner
   limitation on one box at one moment, which readers keep mistaking for a
   standing constraint.
 - **`acceptance_evidence/` is read at import time, not at test time.**

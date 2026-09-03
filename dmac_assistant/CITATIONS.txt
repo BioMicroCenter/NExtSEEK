@@ -73,11 +73,11 @@ nextseek_api/cc_assistant/tests/step7_preflight_collector.py
 
 # --- read for context, and matches that are NOT imports ---
 nextseek_api/cc_assistant/translate.py
-nextseek_api/cc_assistant/PLAN-2-multi-user-provisioning.md
+nextseek_api/cc_assistant/archive/PLAN-2-multi-user-provisioning.md
 nextseek_api/cc_assistant/acceptance_evidence/step7/catalog_provenance.json
 nessie_tests/FAMILIES.json
-docs/2026-08-03-nessie-hardening-design.md
-docs/2026-08-03-nessie-hardening-plan-2-resilience-routing.md
+docs/archive/2026-08/2026-08-03-nessie-hardening-design.md
+docs/archive/2026-08/2026-08-03-nessie-hardening-plan-2-resilience-routing.md
 docs/testing-review/02-cc-dmac_assistant-testing-review.md
 architecture.md
 docker/nextseek.env.example

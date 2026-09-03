@@ -118,7 +118,7 @@
   44 files across the tree still spell it, measured 2026-09-03 by
   `grep -rl 'seek/views\.py'` excluding `.superpowers/`, `.git/` and this
   directory's own two documents; some of those are deliberate history, but
-  `architecture.md:60` is a live pointer at a line number in a file that is
+  `architecture.md:61` is a live pointer at a line number in a file that is
   gone.
 - **Credentials go into a shell command line, and TLS verification is off.**
   `seek/seekapi.py:21` interpolates the SEEK username and password into a `curl`

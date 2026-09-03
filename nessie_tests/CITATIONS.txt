@@ -91,7 +91,7 @@ pyproject.toml
 
 # --- referenced documentation ---
 docs/nessie-question-set-2026-08-06.md
-docs/nessie-corpus-additive-2026-08-06.md
+docs/archive/nessie-corpus-additive-2026-08-06.md
 nextseek_api/cc_assistant/CLAUDE.md
 nextseek_api/cc_assistant/README.md
 CLAUDE.md

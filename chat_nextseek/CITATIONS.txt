@@ -55,7 +55,7 @@ chat_nextseek/tests/evaluator/test_normalization_additional.py
 chat_nextseek/tests/e2e/playwright/fixtures/normalize_cases.json
 
 # --- boundary: docs under separate triage; read, NOT treated as current ---
-chat_nextseek/e2e/playwright_current_issue.md
+chat_nextseek/e2e/archive/playwright_current_issue.md
 chat_nextseek/src/chat_nextseek/evaluator/README.md
 chat_nextseek/src/chat_nextseek/evaluator/docs/runbook.md
 

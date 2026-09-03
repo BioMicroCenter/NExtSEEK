@@ -47,9 +47,9 @@ nextseek_api/cc_assistant/turn_ledger.py
 
 # --- boundary: superseded material, read but NOT treated as current ---
 nextseek_api/cc_assistant/DEPLOY.md
-nextseek_api/cc_assistant/LIVE_EVIDENCE.md
-nextseek_api/cc_assistant/PLAN-3-ui-based-io.md
-nextseek_api/cc_assistant/.vetting/plan-3-phase2-fix-log-iter22.md
+nextseek_api/cc_assistant/archive/LIVE_EVIDENCE.md
+nextseek_api/cc_assistant/archive/PLAN-3-ui-based-io.md
+nextseek_api/cc_assistant/archive/.vetting/plan-3-phase2-fix-log-iter22.md
 
 # --- boundary: op_registry ---
 nextseek_api/cc_assistant/op_registry/__init__.py
