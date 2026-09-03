@@ -143,6 +143,36 @@ class TestSampleTypeDetail:
         assert "/seek/assays/flow-cytometry/" in body
         assert "/seek/assays/flow-cytometry-analysis/" in body
 
+    @patch("seek.views.catalog.downloadable_codes", return_value={"D.FLOW"})
+    @patch("seek.views.catalog.load_sample_type", return_value=FLOW)
+    @patch("seek.decorators.SeekDB")
+    def test_a_downloadable_type_offers_its_template(self, db, _load, _dl):
+        from seek.views.catalog import sampleTypeDetail
+
+        db.return_value = _logged_in()
+        body = sampleTypeDetail(_get("/seek/sampletypes/D.FLOW/"), "D.FLOW").content.decode()
+        assert 'action="/seek/templates/download/"' in body
+        assert 'value="D.FLOW"' in body
+
+    @patch("seek.views.catalog.downloadable_codes", return_value=set())
+    @patch("seek.views.catalog.load_sample_type", return_value=FLOW)
+    @patch("seek.decorators.SeekDB")
+    def test_a_type_the_download_cannot_generate_offers_no_button(self, db, _load, _dl):
+        """Curated here, not downloadable there: the offer has to go.
+
+        /seek/templates/download/ resolves codes against SEEK's own sample
+        types, not the curated context table this page reads. A button for a
+        code that set does not carry generates nothing and bounces the user to
+        the picker with a flash message, which reads as a broken page.
+        """
+        from seek.views.catalog import sampleTypeDetail
+
+        db.return_value = _logged_in()
+        body = sampleTypeDetail(_get("/seek/sampletypes/D.FLOW/"), "D.FLOW").content.decode()
+        assert 'action="/seek/templates/download/"' not in body
+        # The rest of the page is untouched.
+        assert "Flow Cytometry Data" in body
+
     @patch("seek.views.catalog.load_sample_type", return_value=None)
     @patch("seek.decorators.SeekDB")
     def test_an_unknown_code_is_a_404_not_a_500(self, db, _load):

@@ -24,6 +24,7 @@ from nextseek_api.services.context_catalog import (
 from nextseek_api.services.project_connections import (
     connection_rows, connections_html, project_bundles, types_in_use,
 )
+from nextseek_api.services.template_catalog import downloadable_codes
 
 from .shared import PUBLISH_STATS_FILE
 
@@ -112,9 +113,14 @@ def project_page(request, project_id):
         # the diagram and the derived bundles; a missing projects_context row
         # costs the enriched header; neither costs the page.
         rows = connection_rows(project.id)
+        # Two different sets on purpose. The chips are a link into the catalog
+        # pages, so they read what those pages know (sample_types_context); the
+        # bundles are a DOWNLOAD offer, so they read what
+        # /seek/templates/download/ will actually generate. Gating the offer on
+        # the catalog set is how a button renders that resolves to nothing.
         known_codes = {e.code for e in load_sample_types()}
         used = [c for c in types_in_use(rows) if c in known_codes]
-        bundles_all = project_bundles(project.id, rows, known_codes)
+        bundles_all = project_bundles(project.id, rows, downloadable_codes())
 
         # KPI counts are cheap COUNT()s. The full per-type breakdown (a heavy
         # aggregation over every sample) is deferred to /seek/projects/<id>/samples/.

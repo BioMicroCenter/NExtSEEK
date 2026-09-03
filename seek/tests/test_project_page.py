@@ -107,6 +107,7 @@ class TestProjectPage:
         "types": "seek.views.projects.types_in_use",
         "ctx": "seek.views.projects.load_project_context",
         "codes": "seek.views.projects.load_sample_types",
+        "downloadable": "seek.views.projects.downloadable_codes",
     }
 
     def _render(self, overrides=None, superuser=False):
@@ -124,6 +125,7 @@ class TestProjectPage:
             m["types"].return_value = []
             m["ctx"].return_value = None
             m["codes"].return_value = []
+            m["downloadable"].return_value = set()
             for name, value in (overrides or {}).items():
                 m[name].return_value = value
             from seek.views.projects import project_page
@@ -179,6 +181,61 @@ class TestProjectPage:
                             ).content.decode()
         assert "/seek/sampletypes/NHP/" in body
         assert "/seek/sampletypes/TIS/" in body
+
+    def test_bundles_are_gated_on_what_can_actually_be_downloaded(self):
+        """The offer and the download must agree about the catalog.
+
+        The chips read `sample_types_context` (what the catalog pages know);
+        /seek/templates/download/ resolves codes against SEEK's own sample
+        types. They are close but not equal, so gating the bundles on the
+        first set is how a button gets rendered that generates nothing and
+        dumps the user back on the picker with a flash message.
+        """
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            m = {name: stack.enter_context(patch(target))
+                 for name, target in self.PATCHES.items()}
+            m["seekdb"].return_value = _seekdb([2])
+            m["projects"].objects.get.return_value = MagicMock(
+                id=2, title="IMPAcTb", description="A study.", avatar_id=9)
+            m["clades"].return_value.getCladeProjectStats.return_value = []
+            m["rows"].return_value = []
+            m["bundles"].return_value = []
+            m["ctx"].return_value = None
+            m["types"].return_value = ["NHP", "TIS"]
+            m["codes"].return_value = [MagicMock(code="NHP"), MagicMock(code="TIS")]
+            m["downloadable"].return_value = {"TIS"}
+
+            from seek.views.projects import project_page
+            project_page(_req("/seek/projects/2/"), "2")
+
+        # project_bundles(project_id, rows, known_codes)
+        assert m["bundles"].call_args[0][2] == {"TIS"}
+
+    def test_the_types_in_use_chips_still_read_the_curated_catalog(self):
+        """The other half of the same claim: only the OFFER moved."""
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            m = {name: stack.enter_context(patch(target))
+                 for name, target in self.PATCHES.items()}
+            m["seekdb"].return_value = _seekdb([2])
+            m["projects"].objects.get.return_value = MagicMock(
+                id=2, title="IMPAcTb", description="A study.", avatar_id=9)
+            m["clades"].return_value.getCladeProjectStats.return_value = []
+            m["rows"].return_value = []
+            m["bundles"].return_value = []
+            m["ctx"].return_value = None
+            m["types"].return_value = ["NHP", "TIS"]
+            m["codes"].return_value = [MagicMock(code="NHP"), MagicMock(code="TIS")]
+            m["downloadable"].return_value = {"TIS"}
+
+            from seek.views.projects import project_page
+            body = project_page(_req("/seek/projects/2/"), "2").content.decode()
+
+        # NHP is curated but not downloadable: it keeps its catalog chip.
+        assert "/seek/sampletypes/NHP/" in body
 
     def test_a_dead_graph_costs_the_diagram_and_the_bundles_only(self):
         """connection_rows returns [] when Neo4j is unreachable. The page stands."""

@@ -26,6 +26,7 @@ from nextseek_api.services.catalog_counts import (
     attribute_counts_by_type_id,
     sample_counts_by_type_id,
 )
+from nextseek_api.services.template_catalog import downloadable_codes
 
 _CLADE_SLUG = {"Source": "source", "Processed": "processed", "Raw": "raw",
                "Analyzed": "analyzed", UNASSIGNED_CLADE: "unassigned"}
@@ -99,6 +100,11 @@ def sampleTypeDetail(request, code):
     return render(request, 'sampleTypeDetail.html', {
         'entry': entry,
         'clade_slug': _clade_slug(entry.clade),
+        # This page reads sample_types_context; /seek/templates/download/
+        # resolves codes against SEEK's own sample types. Offering a download
+        # for a code that second set does not carry generates nothing and
+        # bounces the user to the picker, so the offer is gated on it.
+        'downloadable': entry.code in downloadable_codes(),
         # Assay names are prose in the curator column; the slug is the link
         # target and also folds the two hyphenation variants onto one page.
         'assay_parents': [{'name': n, 'slug': assay_slug_for_name(n)}
