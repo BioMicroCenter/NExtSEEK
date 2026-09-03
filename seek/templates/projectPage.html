@@ -104,10 +104,10 @@
             <div class="t-label">Data files</div>
             <div class="t-num">{{ kpis.data_files|default_if_none:"—" }}</div>
         </a>
-        <a class="dash-tile" href="/seek/projects/{{ id }}/samples/" data-modal-route>
+        <div class="dash-tile dash-tile--static">
             <div class="t-label">Sample types in use</div>
             <div class="t-num">{{ kpis.types }}</div>
-        </a>
+        </div>
     </div>
 
     <div class="project-stats-section">

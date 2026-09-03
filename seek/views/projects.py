@@ -6,7 +6,7 @@ from dmac.dbtable_clades import DBtable_clades
 from ..dbtable_projects import DBtable_projects
 from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtable_stc
 from django.http import HttpResponse, HttpResponseForbidden, HttpResponseRedirect
-from ..models import Projects
+from ..models import Projects, Projects_samples
 from ..seekdb import SeekDB
 from itertools import groupby
 import pandas as pd
@@ -108,10 +108,6 @@ def project_page(request, project_id):
 
         project = Projects.objects.get(id=project_id)
 
-        # The full per-type counts table now lives at /seek/projects/<id>/samples/;
-        # the page keeps clade_data only to compute the "Total samples" KPI.
-        clade_data = _project_clade_data(project.id, project.title)
-
         # Every one of these is independently soft. The graph being down costs
         # the diagram and the derived bundles; a missing projects_context row
         # costs the enriched header; neither costs the page.
@@ -120,13 +116,19 @@ def project_page(request, project_id):
         used = [c for c in types_in_use(rows) if c in known_codes]
         bundles_all = project_bundles(project.id, rows, known_codes)
 
+        # KPI counts are cheap COUNT()s. The full per-type breakdown (a heavy
+        # aggregation over every sample) is deferred to /seek/projects/<id>/samples/.
+        try:
+            samples_total = Projects_samples.objects.filter(project_id=project.id).count()
+        except Exception:
+            samples_total = 0
         try:
             # files_count returns {'sop_count': N, 'df_count': N}; the tile wants data files.
             files_total = DBtable_projects().files_count(project.id).get('df_count')
         except Exception:
             files_total = None
         kpis = {
-            "samples": sum(i['count'] for g in clade_data for i in g),
+            "samples": samples_total,
             "data_files": files_total,
             "types": len(used),
         }
@@ -150,7 +152,16 @@ def _project_clade_data(project_id, project_title):
     Returns a list of groups; each group is a list of per-type dicts carrying
     'title' (clade), 'st_group' (type), 'count', 'published', 'total',
     'published_total', 'order'.
+
+    Cached per project (1h): the underlying query aggregates every sample in the
+    project (tens of thousands), so the /samples/ modal must not re-run it on
+    every open. Counts change on upload, a weekly event at most.
     """
+    from django.core.cache import cache
+    cache_key = "projclade:%s" % project_id
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     try:
         clade_data = DBtable_clades().getCladeProjectStats(project_id)
         titles = set(x['title'] for x in clade_data)
@@ -171,6 +182,7 @@ def _project_clade_data(project_id, project_title):
                 item['total'] = sum(i['count'] for i in group)
                 item['published_total'] = sum(i['published'] for i in group)
         clade_data.sort(key=lambda x: x[0]['order'])
+        cache.set(cache_key, clade_data, 3600)
         return clade_data
     except Exception:
         logger.exception("clade data failed for project %s", project_id)
