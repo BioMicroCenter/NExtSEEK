@@ -119,6 +119,56 @@ def test_assay_registration_dry_run_predicts_without_writing(wapi, base_url, web
     )
 
 
+def test_template_generate_returns_a_real_workbook_and_writes_nothing(wapi, base_url):
+    """/nextseek_api/templates/generate/ is superuser-gated but side-effect free.
+
+    It lives in this lane only because of the permission class: the endpoint
+    reads the catalog and streams bytes, so there is nothing to undo and no
+    CI_WRITE_DESTRUCTIVE gate. What is worth pinning is that a superuser
+    actually gets a workbook rather than a 403 or an HTML error page, and that
+    the codes it is asked for are ones the catalog endpoint just offered --
+    the two halves of the tool have to agree about what exists.
+    """
+    catalog = wapi.get(f"{base_url}/nextseek_api/templates/catalog/", timeout=60)
+    assert catalog.status_code == 200, f"{catalog.status_code}: {catalog.text[:200]}"
+    groups = catalog.json().get("groups") or []
+    codes = [e["code"] for g in groups for e in (g.get("entries") or [])][:2]
+    if not codes:
+        pytest.skip("the catalog offers no sample types on this instance")
+
+    resp = wapi.post(f"{base_url}/nextseek_api/templates/generate/",
+                     json={"codes": codes}, timeout=120)
+    assert resp.status_code == 200, f"{resp.status_code}: {resp.text[:300]}"
+    assert resp.headers.get("Content-Type") == (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ), f"not an xlsx: {resp.headers.get('Content-Type')!r}"
+    # PK\x03\x04 -- a real zip container, not an HTML error page served with the
+    # right content type, which is what a 500 behind a proxy usually looks like.
+    assert resp.content[:2] == b"PK", "response body is not a zip container"
+
+
+def test_template_generate_refuses_an_unknown_code(wapi, base_url):
+    """The one behaviour the API keeps that the picker page does not.
+
+    /seek/templates/download/ drops an unknown code so a stale bookmark still
+    produces the types it names; the API answers 422, because a workbook quietly
+    missing a sheet is worse than a refusal. Both resolve through the same
+    template_catalog.select_entries, so this is the only place they differ.
+    """
+    resp = wapi.post(f"{base_url}/nextseek_api/templates/generate/",
+                     json={"codes": ["NO_SUCH_SAMPLE_TYPE"]}, timeout=60)
+    assert resp.status_code == 422, f"{resp.status_code}: {resp.text[:300]}"
+
+
+def test_the_read_account_cannot_generate_a_template(api, base_url):
+    """generate is superuser-only; catalog is not. Prove the split is real."""
+    resp = api.post(f"{base_url}/nextseek_api/templates/generate/",
+                    json={"codes": []}, timeout=60)
+    assert resp.status_code in (401, 403), (
+        f"a non-superuser got {resp.status_code} from templates/generate/"
+    )
+
+
 def test_attribute_batch_create_dry_run_changes_no_sample_rows(wapi, base_url):
     """The attributes preview contract.
 

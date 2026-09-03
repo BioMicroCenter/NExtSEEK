@@ -716,6 +716,13 @@ REGISTRY: list[Route] = [
           path="/nextseek_api/studies/{study_id}/",
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
           shape="data", note="also accepts PATCH, which the write lane sends on local and dev"),
+    Route(pattern=r"^nextseek_api/^^templates/catalog/$",
+          path="/nextseek_api/templates/catalog/",
+          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
+          shape="groups",
+          note="the headless twin of the /seek/templates/ picker; both read "
+               "template_catalog.build_catalog(), so a drift between them is a "
+               "shape change here"),
     Route(pattern=r"^nextseek_api/^^users/$", path="/nextseek_api/users/",
           methods=("GET",), profiles="local,dev", auth="write", expect=200,
           note="superuser only, so the expectation is by inspection. Also accepts POST"),
@@ -837,6 +844,12 @@ REGISTRY: list[Route] = [
                "body['debug']['error_code']"),
     Route(pattern=r"^nextseek_api/^^sops/download/$", path="/nextseek_api/sops/download/",
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200),
+    Route(pattern=r"^nextseek_api/^^templates/generate/$",
+          path="/nextseek_api/templates/generate/",
+          methods=("POST",), profiles="local,dev", auth="write", expect=200,
+          note="superuser only, and it builds a workbook, so it stays off prod -- "
+               "the same rule /nextseek_api/admin/samples/retrieve/ follows. "
+               "Writes nothing: ci/smoke/test_write_lane.py drives it"),
 
     # ----------------------------------------------------------------- #
     # nextseek_api: excluded
