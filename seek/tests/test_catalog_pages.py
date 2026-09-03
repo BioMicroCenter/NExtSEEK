@@ -71,6 +71,20 @@ class TestSampleTypesList:
         from nextseek_api.services.context_catalog import CLADE_ORDER
         assert CLADE_ORDER == ["Source", "Processed", "Raw", "Analyzed"]
 
+    @patch("seek.views.catalog.attribute_counts_by_type_id", return_value={13: 18})
+    @patch("seek.views.catalog.sample_counts_by_type_id", return_value={13: 10350})
+    @patch("seek.views.catalog.load_sample_types", return_value=[FLOW])
+    @patch("seek.decorators.SeekDB")
+    def test_row_shows_code_name_and_counts(self, db, _load, _sc, _ac):
+        from seek.views.catalog import sampleTypesList
+        db.return_value = _logged_in()
+        html = sampleTypesList(_get("/seek/sampletypes/")).content.decode()
+        assert ">D.FLOW<" in html
+        assert "Flow Cytometry Data" in html
+        assert "10350" in html      # sample count
+        assert "18" in html         # attribute count
+        assert 'class="cat-chip"' not in html   # chips retired from the list
+
     @patch("seek.views.catalog.load_sample_types", return_value=[FLOW])
     @patch("seek.decorators.SeekDB")
     def test_every_code_links_to_its_detail_page(self, db, _load):

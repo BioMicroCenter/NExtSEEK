@@ -9,62 +9,23 @@
   <header class="ns-page-header">
     <h1 class="ns-page-title">Sample Types</h1>
     <p class="ns-page-subtitle">
-      What each sample type means, what metadata it carries, and what it derives
+      What each sample type means, the metadata it carries, and what it derives
       from. {{ total }} types, grouped by clade in pipeline order.
     </p>
   </header>
 
-  <input type="search" id="cat-search" class="cat-search"
-         placeholder="Search code, name or tag&hellip;" autocomplete="off"
-         aria-label="Search sample types">
-
-  {% for group in groups %}
-  <div class="cat-group" data-group>
-    <div class="cat-group-name">{{ group.clade }} <span class="text-muted">{{ group.entries|length }}</span></div>
-    <div class="cat-grid">
-      {% for entry in group.entries %}
-      <a class="cat-item" href="/seek/sampletypes/{{ entry.code }}/"
-         data-code="{{ entry.code|lower }}"
-         data-name="{{ entry.name|lower }}"
-         data-tags="{{ entry.tags|join:' '|lower }}">
-        <code>{{ entry.code }}</code>
-        <span>{{ entry.name }}</span>
-      </a>
-      {% endfor %}
-    </div>
-  </div>
-  {% empty %}
-  <p class="cat-empty">
-    No sample types are curated on this instance. The catalog reads
-    <code>dmac.sample_types_context</code>, which this stack does not have.
-  </p>
-  {% endfor %}
+  {% if groups %}
+    {% include "includes/catalog_table.html" %}
+  {% else %}
+    <p class="cat-empty">
+      No sample types are curated on this instance. The catalog reads
+      <code>dmac.sample_types_context</code>, which this stack does not have.
+    </p>
+  {% endif %}
 
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script>
-(function () {
-  var box = document.getElementById('cat-search');
-  if (!box) { return; }
-  var items = Array.prototype.slice.call(document.querySelectorAll('.cat-item'));
-  var groups = Array.prototype.slice.call(document.querySelectorAll('[data-group]'));
-
-  box.addEventListener('input', function () {
-    var q = box.value.trim().toLowerCase();
-    items.forEach(function (el) {
-      el.hidden = q !== '' &&
-        el.dataset.code.indexOf(q) === -1 &&
-        el.dataset.name.indexOf(q) === -1 &&
-        el.dataset.tags.indexOf(q) === -1;
-    });
-    // A clade whose every entry is filtered out hides its heading too, so the
-    // page does not end up a column of empty section titles.
-    groups.forEach(function (g) {
-      g.hidden = !g.querySelector('.cat-item:not([hidden])');
-    });
-  });
-})();
-</script>
+<script>{% include "includes/catalog_table_filter.js" %}</script>
 {% endblock %}

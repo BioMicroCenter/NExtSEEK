@@ -22,6 +22,17 @@ from nextseek_api.services.context_catalog import (
     load_sample_type,
     load_sample_types,
 )
+from nextseek_api.services.catalog_counts import (
+    attribute_counts_by_type_id,
+    sample_counts_by_type_id,
+)
+
+_CLADE_SLUG = {"Source": "source", "Processed": "processed", "Raw": "raw",
+               "Analyzed": "analyzed", UNASSIGNED_CLADE: "unassigned"}
+
+
+def _clade_slug(clade):
+    return _CLADE_SLUG.get(clade, "unassigned")
 
 from ..decorators import requires_seek_login_redirect
 
@@ -52,11 +63,30 @@ def _group_by_clade(entries):
 
 @requires_seek_login_redirect('/seek/sampletypes/')
 def sampleTypesList(request):
-    """Every curated sample type, grouped by clade."""
+    """Every curated sample type as a scannable table, grouped by clade.
+
+    Columns: Code, Name, # attributes, Sample count, Description. Counts come
+    from single grouped queries (catalog_counts), never one per row.
+    """
     entries = load_sample_types()
+    samp = sample_counts_by_type_id()
+    attr = attribute_counts_by_type_id()
+    groups = []
+    for g in _group_by_clade(entries):
+        rows = []
+        for e in g["entries"]:
+            rows.append({
+                "href": f"/seek/sampletypes/{e.code}/",
+                "code": e.code,
+                "cells": [e.name, attr.get(e.sample_type_id, ""),
+                          samp.get(e.sample_type_id, ""), (e.description or "")[:90]],
+                "filter_text": f"{e.code} {e.name} {' '.join(e.tags or [])}".lower(),
+            })
+        groups.append({"clade": g["clade"], "clade_slug": _clade_slug(g["clade"]), "rows": rows})
     return render(request, 'sampleTypesList.html', {
-        'groups': _group_by_clade(entries),
-        'total': len(entries),
+        "groups": groups,
+        "columns": ["Name", "# attrs", "Samples", "Description"],
+        "total": len(entries),
     })
 
 
