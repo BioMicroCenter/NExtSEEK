@@ -1115,6 +1115,7 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 .project-samples-table .cat-total-row td { font-weight: 700; border-top: 1.5px solid var(--ns-border); }
 
 /* ---------- Sample tree v2 fullscreen ---------- */
+#tree_container { position: relative; }   /* anchors the button; overridden by .tree-fullscreen */
 .tree-fullscreen-btn {
     position: absolute; top: 8px; right: 8px; z-index: 5;
     width: 32px; height: 32px; line-height: 1;
