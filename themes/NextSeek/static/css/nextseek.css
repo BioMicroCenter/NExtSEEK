@@ -994,6 +994,25 @@ body.sidebar-open .sidebar-scrim { display: block; }
     font-style: italic;
 }
 
+/* ---------- Nessie promoted button (navbar + home) ---------- */
+.nessie-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0.5rem;
+    padding: 0.6rem 0.85rem;
+    border-radius: 9px;
+    background: var(--ns-crimson);
+    color: var(--ns-white);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: background var(--ns-transition);
+}
+.nessie-btn:hover { background: var(--ns-crimson-hover); color: var(--ns-white); }
+.nessie-btn__logo { width: 24px; height: 24px; flex: 0 0 auto; border-radius: 50%; }
+.nessie-btn__label { line-height: 1; }
+
 /* ================================================
    Sidebar header with BMC lockup
    ================================================ */
