@@ -1,287 +1,186 @@
-# NExtSEEK Chat Assistant
+# `chat_nextseek/`
 
-A conversational AI interface for querying the NExtSEEK biological sample database. Turns natural language into API calls and graph queries using a multi-agent architecture with flexible per-agent model routing.
+## What this is
 
-## Quick Start
+The deterministic NExtSEEK query engine: a multi-agent pipeline that turns a
+natural-language question into REST calls against this repo's own API, Cypher
+against Neo4j, report exports, and nf-core pipeline launches. Django runs it
+in process for the non-sandboxed half of the chat endpoint, described at
+`nextseek_api/services/cc_assistant.py:15-18`.
 
-```bash
-# Clone and install
-git clone <repository-url>
-cd chat_nextseek
-cp .env.example .env   # Edit with your credentials
-uv sync                # Or: pip install .
+It is also a **vendored snapshot of a separate repository**. The canonical
+source is an independent private repo, and this directory is a copy of it
+refreshed wholesale by `startup/scripts/sync_chat_nextseek.sh:2-7`. The refresh
+is an `rsync -a --delete` with a short exclude list
+(`startup/scripts/sync_chat_nextseek.sh:36-45`), so it is a replace, never a
+line-merge, and the script refuses to run against a dirty source checkout
+(`startup/scripts/sync_chat_nextseek.sh:28-31`). The outer project consumes the
+result as an editable local path dependency rather than a pinned git revision
+(`pyproject.toml:136`), with the git+revision form kept as a commented
+alternative for when the package goes public (`pyproject.toml:140-141`).
 
-# Run the chat interface (default: GCP flash-lite + Anthropic Opus for parser/report_writer)
-uv run cli.py -s
+Because it is vendored from a standalone application, much of the tree is
+carried along rather than exercised here. Measured 2026-09-03 by `find` over
+this directory excluding `__pycache__`: 298 files, 219 of them Python, 104 of
+those under `tests/` and 94 under `src/`. The package is a `src/` layout
+(`chat_nextseek/pyproject.toml:32-33`) whose importable half is what Django
+touches; the Streamlit app, the CLI, the MCP server and the E2E runner at the
+directory root are the standalone half.
 
-# Specific provider profiles
-uv run cli.py -s -m gcp       # Pure GCP (flash-lite + pro-preview for parser/report_writer)
-uv run cli.py -s -m anth      # Anthropic via AWS Bedrock (Sonnet 4.6 + Opus 4.6)
-uv run cli.py -s -m aws:opus  # Claude Opus 4.6 for all agents
+## Surface
 
-# Or run a standalone query
-uv run cli.py -q "Find me mice treated with NDMA"
-```
+This boundary has **three different surfaces**, and they are worth separating
+because only one of them is an import edge.
 
-Open http://localhost:8501 in your browser.
+### 1. The importable package — the only surface Django uses
 
-## Configuration
+`portable.py` is the declared stable API: twelve symbols as of 2026-09-03, each
+an agent or a tool with a contract stated in its module docstring
+(`chat_nextseek/src/chat_nextseek/portable.py:1-14`), listed at
+`chat_nextseek/src/chat_nextseek/portable.py:27-43` and pinned against drift by
+`chat_nextseek/tests/test_portable_contract.py:13-26`.
 
-Create a `.env` file with:
-
-```bash
-# NExtSEEK API (required)
-NEXTSEEK_BASE_URL=https://nextseek-dev.mit.edu
-API_USER=your_username
-API_PASS=your_password
-# Agent model catalog -- choose one:
-CATALOG_FILE=agent_model_catalog.json   # path to catalog JSON file
-# or inline as JSON string:
-# AGENT_MODEL_CATALOG='{"default": {...}, "gcp": {...}}'
-
-# At least one LLM provider (required)
-GCP_API_KEY=...
-# and/or AWS credentials for Bedrock
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_BEARER_TOKEN_BEDROCK=...
-# and/or
-OPENAI_API_KEY=sk-...
-```
-
-Per-agent model routing is configured via either `CATALOG_FILE` (path to `agent_model_catalog.json`) or `AGENT_MODEL_CATALOG` (the catalog JSON inlined as a string). `AGENT_MODEL_CATALOG` takes precedence if both are set. See [CLAUDE.md](CLAUDE.md) for full configuration options.
-
-## Provider Profiles
-
-| Flag | Profile | Parser / Report Writer | Everything Else |
-|------|---------|------------------------|-----------------|
-| *(none)* | `default` (mixed) | Anthropic Opus 4.6 + extended thinking | GCP Gemini flash-lite |
-| `-m gcp` | `gcp:current` | GCP Gemini pro-preview + thinking | GCP Gemini flash-lite |
-| `-m gcp:lite` | `gcp:lite` | GCP Gemini 2.5-pro + thinking | GCP Gemini 2.5-flash |
-| `-m anth` | `anth:current` | Anthropic Opus 4.6 + thinking | Anthropic Sonnet 4.6 |
-| `-m anth:lite` | `anth:lite` | Anthropic Opus 4.5 + thinking | Anthropic Sonnet 4.5 |
-| `-m aws:son` | `aws` | Claude Sonnet 4.6 | Claude Sonnet 4.6 |
-| `-m aws:opus` | `aws` | Claude Opus 4.6 | Claude Opus 4.6 |
-| `-m aws:ds` | `aws` | DeepSeek V3.2 | DeepSeek V3.2 |
-| `-m aws:qwen-nxt` | `aws` | Qwen3 80B | Qwen3 80B |
-| `-m aws:glm` | `aws` | GLM-4.7 | GLM-4.7 |
-| `-m oai` | -- | GPT (LLM_MODEL) | GPT (LLM_MODEL) |
-
-## Usage
-
-### CLI Reference
-
-```
-uv run cli.py -s                            # Streamlit UI, default mixed profile
-uv run cli.py -s -m gcp                     # Streamlit UI, pure GCP
-uv run cli.py -s -m anth                    # Streamlit UI, Anthropic Bedrock
-uv run cli.py -q "Find me mice treated with NDMA."          # Standalone query
-uv run cli.py -m oai -q "Find me mice treated with NDMA."   # Standalone, OpenAI
-uv run cli.py -q "Find mice" -prod                          # Standalone, production credentials
-uv run cli.py -st                           # E2E test suite (default ratio 0.33; routes via e2e.py)
-uv run cli.py -ft                           # E2E full run (all variants; ratio=1.0)
-```
-
-For advanced E2E flags (`--seed`, `--family`, `--variant`, `--rerun`, `--list`, etc.) use `e2e.py` directly — see the [Testing](#testing) section.
-
-### Python Package
-
-```python
-from chat_nextseek.orchestrator import run_query
-from chat_nextseek.session import SQLiteSessionState
-from chat_nextseek.config import ChatConfig
-
-config = ChatConfig({})
-session = SQLiteSessionState(config.SESSION_DB_PATH, "user-id")
-session["results_history"] = []
-
-result = run_query(session, config, "Find me mice treated with NDMA")
-print(result["reply"])
-
-# Follow-ups use the same session
-result = run_query(session, config, "Which are from 2024?")
-```
-
-## Testing
-
-Two complementary surfaces:
-
-### Unit tests — `pytest tests/`
-
-Module-level tests covering pydantic schemas, catalog matching, lineage extraction, pipeline-agent step-functions, etc. Fast (~0.5s). The `tests/evaluator/` subdir is excluded by default (Django-stack dependent):
-
-```bash
-uv run --with pytest --with pytest-asyncio pytest tests/ --ignore=tests/evaluator -q
-```
-
-### E2E tests — `e2e.py`
-
-End-to-end variants exercising every active agent via `chat_nextseek.orchestrator.run_query`. Catalog at [`e2e/catalog.json`](e2e/catalog.json): **11 task families** (each one assays / NExtSEEK-endpoint combination). The per-family variant counts drift as cases are added, so they are deliberately not frozen here; `uv run e2e.py --list` prints each family with its live count.
-
-| Family | What it covers |
+| Entry point | Where |
 |---|---|
-| `search_advanced` | `/samples/advanced_search/` — keyword + sampletype + attribute filters |
-| `search_tree` | `/sample-tree/{uid}/tree/` — lineage / derivation |
-| `search_parents_by_child` | `/sample_types/get_parents/parents_by_child_types/` — find parents by descendant assay |
-| `search_retrieve` | `/admin/samples/retrieve/` and `/samples/{uid}/` — UID lookup |
-| `refine_and_recall` | Multi-turn refine + ask-about-last-results (uses `chat_log` + `results_history`) |
-| `graph_query` | Neo4j Cypher via graph_agent — counts, multi-hop, project/study scope |
-| `reporting` | Reporter SQL summaries + GEO / SRA / PRIDE artifact emission |
-| `pipeline_nfcore` | full-agentic nf-core flow: resolve_samples → write_samplesheet → configure_run → submit_to_luria |
-| `system_question` | Catalog / capability / definition lookups |
-| `unsupported` | Out-of-scope (weather, charts, statistical analysis) |
-| `writes_unsupported` | Destructive admin (create investigation, register sample, update field) — must route to unsupported |
+| Single-turn chat pipeline | `chat_nextseek/src/chat_nextseek/orchestrator.py:596` |
+| Planner pipeline | `chat_nextseek/src/chat_nextseek/orchestrator.py:1387` |
+| Direct pipeline-launch entry | `chat_nextseek/src/chat_nextseek/orchestrator.py:268` |
+| Caller-identity binding for a turn | `chat_nextseek/src/chat_nextseek/orchestrator.py:175-194` |
+| Per-agent model, provider and thinking resolution | `chat_nextseek/src/chat_nextseek/config.py:1321-1343` |
+| Chat-log helpers shared with Django | `chat_nextseek/src/chat_nextseek/chat_memory.py:201-248` |
+| Session state over SQLite or MySQL | `chat_nextseek/src/chat_nextseek/session.py:19-26` |
 
-```bash
-uv run e2e.py                                    # default: sample at ratio 0.33
-uv run e2e.py --ratio full                       # every variant in the catalog
-uv run e2e.py --ratio 0.1 --seed 42              # ~11 variants (one per family, reproducible)
-uv run e2e.py --family pipeline_nfcore           # one family only
-uv run e2e.py --variant advanced.basic_ndma      # one variant (the cheapest smoke)
-uv run e2e.py --list                             # enumerate every variant
-uv run e2e.py --rerun outputs/e2e_<ts>/manifest.json [--failed-only]
-uv run e2e.py --report outputs/e2e_<ts>/         # regenerate HTML from a prior run dir
-uv run e2e.py --init-env [--force]               # generate chat_nextseek/.env from sibling NExtSEEK docker + dmac sources
-```
+Beneath those sit the agent modules (`chat_nextseek/src/chat_nextseek/agents/__init__.py:15-29`),
+the shared helpers and I/O tools (`chat_nextseek/src/chat_nextseek/helpers/__init__.py:10-40`),
+the nf-core tool loop (`chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:211-225`),
+the Luria launch backend, whose cluster host is hardcoded and whose three
+required environment variables are checked together
+(`chat_nextseek/src/chat_nextseek/config.py:46-59`), and
+18 prompt files plus 15 cached catalog files, counted 2026-09-03 by listing
+`chat_nextseek/src/chat_nextseek/prompts/` and
+`chat_nextseek/src/chat_nextseek/context/`.
 
-`cli.py -st` and `cli.py -ft` are thin shims over `e2e.py`. Every run writes:
+The two monolith modules the package was refactored out of, `agents.py` and
+`helpers.py`, are gone: a `find` for files of either name anywhere under
+`chat_nextseek/` outside `tests/` returns nothing. Their package `__init__`
+files now carry the re-exports instead
+(`chat_nextseek/src/chat_nextseek/agents/__init__.py:1-7`).
 
-- `outputs/e2e_<ts>/manifest.json` — sampled variants + pass/fail + seed + ratio
-- `outputs/e2e_<ts>/report.html` — single-page family-grouped report
-- `outputs/e2e_<ts>/<variant_id>/turns/<label>/` — per-turn query, reply, debug.json, orchestrator run-root
+### 2. Standalone entry points — carried, not run by this repo
 
-Sampler enforces `max(1, round(N × ratio))` per family so every family gets at least one variant per run (variants whose `requires_env` aren't satisfied are reported as `skipped`, e.g. `pipeline.tower_submit` still declares `requires_env: TOWER_ACCESS_TOKEN, TOWER_WORKSPACE_ID`, so with Tower retired it reports `skipped`).
+`app.py` is a Streamlit UI (`chat_nextseek/app.py:7-10`), `cli.py` an argparse
+front end whose provider-profile flag
+enumerated nine routing profiles on 2026-09-03 (`chat_nextseek/cli.py:394`), `mcp_server.py` an MCP server exposing
+resources, prompts and tools (`chat_nextseek/mcp_server.py:2-8`), and `e2e.py`
+a catalog-driven E2E runner (`chat_nextseek/e2e.py:1-13`). Nothing in this
+repository executes any of them: a grep for the regex matching
+`chat_nextseek/` followed by `app`, `cli`, `e2e` or `mcp_server` and `.py`,
+run over the whole worktree and filtered to paths that do not start with
+`chat_nextseek/`, returned 14 lines on 2026-09-03, and every one is prose or a
+coverage record — `docs/nessie-blocked-capabilities.md:391`,
+`docs/testing-review/01-chat_nextseek-e2e-harness-review.md:3`,
+`nessie_tests/FAMILIES.json:2779-2780`, `nextseek_api/schema_rag/README.md:170`
+and that boundary's own `nextseek_api/schema_rag/CITATIONS.txt:64`. A grep for
+`streamlit` over `docker-compose.yml` likewise returns nothing.
 
-### Browser E2E (Phase E)
+The E2E catalog holds 11 task families and 366 variants, of which 4 are tagged
+for the Playwright browser tier, counted 2026-09-03 by parsing
+`chat_nextseek/e2e/catalog.json:3`.
 
-A subset of catalog variants are tagged for browser-driven testing via Playwright,
-in addition to the in-process CLI run. The browser tier runs against the
-docker UI at `localhost:8000` and asserts the full UI ↔ console.txt ↔ MySQL
-chat_log trio for memory variants.
+### 3. Data other build steps read
 
-**Run modes:**
-```bash
-uv run e2e.py                          # CLI tier + browser tier on tagged variants
-uv run e2e.py --no-playwright          # CLI only
-uv run e2e.py --playwright             # browser tier only (no CLI)
-uv run e2e.py --playwright --spot advanced.basic_ndma   # one browser variant
-uv run e2e.py --playwright --headed    # open Chromium with a visible window
-uv run e2e.py --playwright --video     # record video.webm per variant
-```
+`chat_nextseek/src/chat_nextseek/context/capabilities.md` is named as the
+canonical capabilities document by `build_tools/gen_op_surfaces/constants.py:8-10`,
+and the agent image copies it in from a named build context declared at
+`docker-compose.yml:124-125` and consumed at `docker/cc-runtime/Dockerfile:54`.
+That COPY deliberately lands after the broad plugin copy at
+`docker/cc-runtime/Dockerfile:51`, and a generator check enforces that ordering
+(`build_tools/gen_op_surfaces/docker_blocks.py:154-159`).
 
-**Prerequisites:**
-- Docker container running (`docker compose up nextseek`)
-- Container image rebuilt after the frontend testid commit (`docker compose build nextseek`) — required so the served `chat_frontend` dist carries the `data-testid` selectors that `e2e/playwright/pages.py` relies on
-- `chat_nextseek/.env` populated (`uv run e2e.py --init-env`)
-- Chromium installed for Playwright (`uv run playwright install chromium` — one-time)
+## Running and testing
 
-**Output:** Each browser run produces `outputs/e2e_<ts>/playwright/<vid>/`
-containing `trace.zip` (Playwright trace, openable via `npx playwright show-trace`),
-`screenshot.png`, `ws_frames.jsonl` (every WebSocket frame received),
-`ui_text.json`, `mysql_chat_log.json`, and `trio_diff.txt` (only on trio_match failure).
+The package's own suite is `chat_nextseek/tests/`: 83 top-level modules plus 21
+under `tests/evaluator/`, counted 2026-09-03. There is no pytest configuration
+in `chat_nextseek/pyproject.toml`, so the root project's block applies
+(`pyproject.toml:146-147`); `chat_nextseek/conftest.py:1-6` explains the
+consequence and puts the directory on `sys.path`
+(`chat_nextseek/conftest.py:13-15`).
 
-**Tagging more variants:** Add `"playwright"` to a variant's `tags` array in
-`e2e/catalog.json`. The runner picks it up on the next run with no other
-config changes. See `docs/superpowers/specs/2026-05-21-e2e-playwright-design.md`
-for the full design.
-
-## Architecture
-
-**Pipeline** (`-q`):
-```
-User Query
-    |
-[Entity Agent]   -- extract sampletypes, assays, keywords, projects
-    |
-[Parser Agent]   -- route intent, select endpoint, build filters
-    |
-    |-> [API Agent]      -- construct HTTP request -> NExtSEEK REST API
-    |-> [Reporter Agent] -- SQL/Neo4j project reports (samples/protocols/published/RPPR)
-    |       +-> [Report Writer Agent] -- GEO / SRA / PRIDE submission exports
-    |-> [Graph Agent]    -- generate Cypher -> Neo4j graph DB
-    |-> [Memory Agent]   -- answer follow-ups from cached results
-    |       +-> [Memory Coder] -- structured code generation for deterministic computation
-    |-> [Pipeline Agent] -- full-agentic nf-core flow, Luria SLURM launch (one tool-loop: resolve → samplesheet → configure → submit)
-    +-> [System Agent]   -- answer capabilities / catalog entity questions
-    |
-[Chatter Agent]  -- summarize results for the user
-    |
-Response
-```
-
-Each agent can be independently routed to a different LLM provider via the catalog defined by `CATALOG_FILE` or `AGENT_MODEL_CATALOG`. The default profile uses GCP Gemini flash-lite for most agents, Anthropic Sonnet for entity/memory, and Anthropic Opus with extended thinking for the parser and report writer.
-
-### Package layout (`src/chat_nextseek/`)
+**Lane actually run, 2026-09-03**: a throwaway container from the stack image
+with a writable scratch copy of this directory bind-mounted over
+`/app/chat_nextseek`, so the editable install
+(`pyproject.toml:136`) resolves to the worktree source:
 
 ```
-agents/              entity, parser, api, reporter, chatter, memory, system, graph, seqera, planner/
-helpers/             generic utilities (dates, lineage, lab_code, results, text, json_io) + tools/ (nextseek_api, neo4j, catalog_match, memory_code)
-pipeline/            full-agentic nf-core agent: agent.py (tool loop) + agent_tools.py (resolve_samples, write_samplesheet, configure_run, submit_to_luria, conclude, handoff)
-luria/               Luria SLURM launch backend: ssh.py, submitter.py, run_script.py, fetchngs_helpers.py, templates/, pipelines/scrnaseq_2_7_1_star/ (provision.sh clones and patches the nf-core/scrnaseq 2.7.1 tree on Luria for the whitelist-less STARsolo path, run_star_validation.sh is the SLURM batch script that runs a validation job against that clone; see `LURIA_VENDORED_PIPELINES` in run_script.py)
-reports/             runners, metadata, protocols, nfcore, outputs, templates_meta + exporters/ + templates/ (incl. nfcore/<key>.json curated params + reference_bundles.json)
-schemas/             Pydantic models
-prompts/             *.txt prompt files
-seqera/              ENA + samplesheet/launch emitter + pipeline_params (curated params + species→reference bundles); also the dormant Tower client + Datasets v2
-context/             cached catalogs (API spec, sampletypes, assays, Neo4j)
-evaluator/           BAML eval harness + dashboard
-portable.py          stable public surface for external consumers (dmac_assistant plugin)
-orchestrator.py      multi-agent dispatcher
-config.py            ChatConfig: env + catalog loading
-session.py           SQLite + MySQL session state
+docker run --rm --network none -v <scratch-copy>:/app/chat_nextseek:z \
+  -w /app/chat_nextseek -e PYTHONDONTWRITEBYTECODE=1 nextseek-nextseek:latest \
+  /app/.venv/bin/python -m pytest tests/ --ignore=tests/evaluator -q
 ```
 
-`agents.py` and `helpers.py` were previously monolith modules and now exist only as their respective folder packages. External consumers should import via `chat_nextseek.portable`; legacy `chat_nextseek.agents.<name>` / `chat_nextseek.helpers.<name>` import paths remain pinned by `tests/test_portable_contract.py`.
+Result: **849 passed, 4 failed, 2 xfailed, 18 errors in 35.08s**. All 22 non-passing
+outcomes are already recorded as known failures in `ci/pytest-baseline.txt:48-73`,
+and they fall into three groups:
 
-## nf-core pipeline integration (Luria launch)
+- The 18 errors all come from two module-scoped fixtures in one test module
+  (`chat_nextseek/tests/test_shortlist_recall.py:44-55`) that build a config
+  object with no provider key set, which raises at
+  `chat_nextseek/src/chat_nextseek/config.py:490-493`.
+- Three failures need the gitignored `docker/db.env` and `dmac/local_settings.py`
+  that `chat_nextseek/e2e/import_env.py:21-23` walks up to find; both are kept
+  out of the image at `.dockerignore:43-45`.
+- See `chat_nextseek/CLAUDE.md` for the fourth failure, a stub gone stale.
 
-> **Seqera Tower is retired.** MIT's Luria SLURM cluster is the only launch target exposed to the model: `build_pipeline_tool_schemas` (`pipeline/agent_tools.py`) never appends `submit_to_tower`. The Tower code path (`tool_submit_to_tower`, its schema, `seqera/tower_client.py`, `seqera/tower_datasets.py`, `emitter.emit_launch_artifacts`) is left in place, **dormant**, for a future re-enable. Do not delete it as dead code.
+`tests/evaluator/` aborts collection in that same lane unless two modules are
+excluded. The reason older copies of this file gave for skipping it — that the
+subdirectory is Django-stack dependent — is false: a case-insensitive grep for
+`django` over `chat_nextseek/tests/evaluator/` returns nothing at all. See
+`chat_nextseek/CLAUDE.md` for the two real blockers and the flags that get past
+them.
 
-When a query asks for an nf-core samplesheet (e.g. *"make me an nf-core samplesheet for NHP-220630FLY-1-PUB"*), the **pipeline agent** runs a single full-agentic tool loop (`pipeline/agent.py`, one Bedrock conversation per session). The LLM picks the pipeline, judges data-type fit, groups samples into cohorts, and steers run params with the user. Six tools are exposed (five when Luria is unconfigured): four do the deterministic I/O, two are terminal and intercepted by the loop rather than dispatched.
+The catalog-driven E2E lane and its Playwright tier
+(`chat_nextseek/e2e.py:10-13`) are **(not run)** here: they drive real agents
+end to end, so they need a seeded running instance, live LLM provider
+credentials, and a Chromium install for the browser tier.
 
-1. **`resolve_samples`** — resolves UIDs to their leaf accessions (SRR/SRX/ERR/PRJ) and on to ENA HTTPS FASTQ URLs (no FASTQ download — Nextflow stages HTTPS URLs directly), surfaces per-leaf grouping fields the LLM uses to form cohorts, and detects the samples' species plus the chosen pipeline's curated param menu.
-2. **`write_samplesheet`** — emits **one** `samplesheet.csv` (CSV only) with a `cohort` column when grouped (not per-cohort files), plus biology enrichment columns pulled from lineage parents. It rejects any accession the agent didn't first resolve (a guardrail against hallucinated refs).
-3. **`configure_run`** — calls `emitter.emit_luria_launch_artifacts` to write `params.yml` + a minimal `launch.yml` (no Tower env, no bucket staging) from a curated per-pipeline param menu (`reports/templates/nfcore/<key>.json`) plus a species-defaulted reference genome (`seqera/pipeline_params.py` + `reference_bundles.json`). It infers the organism from metadata when there's no clean organism field (e.g. `Strain` C57BL6 → mouse → `GRCm39`), validates params against the curated subset, and lets the user steer (aligner, genome, skip steps). With no curated reference store configured it falls back to the iGenomes `genome` key and says so.
-4. **`submit_to_luria`** — exposed only when `config.LURIA_ENV_COMPLETE`. Ssh's to `luria.mit.edu` and `sbatch`es a generated `run.sh` wrapping `nextflow run` (`luria/submitter.py`, `luria/run_script.py`, `luria/ssh.py`); the submitter rebuilds `params.yml` on-cluster. Accepts optional SLURM overrides (`job_name`, `partition`, `time`, `cpus`, `mem`); invalid values fall back to defaults. If Luria is not configured it returns the local samplesheet/launch path instead of failing.
-5. **`conclude`** — ends the loop with the final reply and an `outcome` of `submitted` / `rejected` / `cancelled` / `answered`.
-6. **`handoff`** — always exposed, never gated. The agent calls it when the user's message is not about building, configuring or launching a pipeline (a sample search, a lineage question, a report). `pipeline/agent.py` clears the build state and returns `action="passthrough"` so the orchestrator's normal parser handles that turn. This is what stops an open build from trapping the conversation; the build state is discarded, so it is a genuine abandon rather than a pause.
+The repository-level lane that does include this directory is the GitHub
+workflow at `.github/workflows/ci-pytest.yml:62-64`, whose baseline was measured
+2026-09-01 (`ci/pytest-baseline.txt:19-21`).
 
-Supported pipelines: `rnaseq, scrnaseq, atacseq, chipseq, sarek, methylseq, ampliseq, fetchngs`.
+## Depends on / depended on by
 
-Required env vars for the Luria launch path (`config.build_luria_env`; the host is hardcoded to `luria.mit.edu`):
+Depends on, outside this directory:
 
-```bash
-LURIA_USER=...                          # cluster username
-LURIAKEY=/path/to/private_key           # host path to the ssh private key
-LURIA_WORKING_PATH=...                  # cluster-side run root
-PIPELINE_LAUNCH_MODE=luria              # optional; 'luria' is the default (invalid values fall back to it)
-```
+- The host's `openssh-client` binaries, which the Luria launch path shells out to as subprocesses (`chat_nextseek/src/chat_nextseek/luria/ssh.py:1` and `chat_nextseek/src/chat_nextseek/luria/ssh.py:36-37`).
+- `docker/db.env`, `docker/nextseek.env` and `dmac/local_settings.py`, read by file path from the parent repo at `chat_nextseek/e2e/import_env.py:29-32`.
+- `nextseek_api/assistant/granular.py`, loaded by absolute file path from a test in this tree at `chat_nextseek/tests/test_generate_submission_hydration.py:27-28`.
+- The NExtSEEK REST API, whose base URL and Basic-auth pair are read from the environment at `chat_nextseek/src/chat_nextseek/config.py:561-563` and then overridden per turn with the caller's own identity at `chat_nextseek/src/chat_nextseek/orchestrator.py:195-199`.
+- Neo4j, whose URI defaults to a localhost bolt endpoint at `chat_nextseek/src/chat_nextseek/config.py:600`.
 
-All three of `LURIA_USER` / `LURIAKEY` / `LURIA_WORKING_PATH` must be set: `config.luria_env_complete` gates whether `submit_to_luria` is offered to the model at all.
+Depended on by. Non-test importers only; the many test modules under
+`nextseek_api/` that import this package are omitted. So is the import at
+`startup/tests/test_validate.py:67`, which is not an import that file performs:
+it is fixture source inside the string literal opened at
+`startup/tests/test_validate.py:65`.
 
-## Logging
+- The stack image itself copies this directory in whole (`.dockerignore:1-3`) and installs it editable, so the container imports this source rather than a divergent site-packages copy (`pyproject.toml:134-136`) and the code is baked in rather than mounted (`DEPLOYMENT.md:47-48`).
+- `nextseek_api/services/assistant.py:102-103` is the classic assistant ViewSet path, importing both orchestrator entry points and the config class.
+- `nextseek_api/services/cc_assistant.py:56` imports the same two entry points for the router-dispatched endpoint, plus the nf-core agent at `nextseek_api/services/cc_assistant.py:75` and a chat-log helper at `nextseek_api/services/cc_assistant.py:77`.
+- `nextseek_api/assistant/granular.py:62` and the other lazy call-time imports through `nextseek_api/assistant/granular.py:208` are the granular per-agent ops; they are deferred deliberately, for the reason given at `nextseek_api/assistant/granular.py:3-7`.
+- `nextseek_api/cc_assistant/cc_turn_complete.py:11` shares this package's chat-log derivation so the two writers cannot diverge, argued at `nextseek_api/cc_assistant/cc_turn_complete.py:7-10`.
+- `nextseek_api/cc_assistant/step7_llm_cost_ledger.py:88` reads provider token usage out of this package's LLM clients.
+- `nextseek_api/services/evaluator.py:395` imports the orchestrator inside a function body.
+- `startup/dev/lane_local_settings.py:19` constructs the Django-wide config singleton at settings-import time, and `startup/dev/lane_local_settings.py:69` optionally builds a second one for the production toggle.
+- `build_tools/gen_op_surfaces/route_capabilities.py:32-34` reads the capabilities document as generator input, not as an import.
+- See `chat_nextseek/CLAUDE.md` for what breaks when any of these edges moves.
 
-Each run creates a timestamped directory under `NEXTSEEK_OUTPUTS_DIR` (standalone) or `LOG_DIR` (Streamlit) containing `console.txt`, `prompts.json`, `chat.txt`, and API logs. Use the Debug panel in the Streamlit sidebar to inspect per-agent outputs inline.
+Not a dependency, despite appearances: `dmac_assistant/` does **not** import this
+package. A grep for `chat_nextseek` over every file under `dmac_assistant/`
+returned 9 lines on 2026-09-03, all of them comments, README prose, or the path
+constant at
+`dmac_assistant/src/dmac_assistant/config.py:32-34`, which points at a
+`vendor/chat_nextseek/` directory that does not exist in this repo. The
+sandboxed agent image does not carry the package either, stated at
+`docker/cc-runtime/Dockerfile:102-104`; its plugin reaches these agents over the
+network through Django.
 
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| Wrong provider at startup | Check `NEXTSEEK_MODE` in `.env` -- remove it to use the default mixed profile |
-| Connection errors | Verify `NEXTSEEK_BASE_URL` and credentials |
-| Empty results | Check entity extraction in Debug panel; try broader terms |
-| Stale context catalogs | Delete JSON files in `src/chat_nextseek/context/` to force a refresh |
-| 5xx / service unavailable | Provider fallback is automatic; check `console.txt` for details |
-
-## Development
-
-See [CLAUDE.md](CLAUDE.md) for architecture details, coding patterns, adding agents, and contribution guidelines.
-
-```bash
-uv add package-name              # Add dependencies
-uv run -- python your_script.py  # Run scripts
-nix develop                      # Reproducible dev shell (uv + Python 3.14)
-```
-
-## License
-
-See [LICENSE](LICENSE) for details.
+See `chat_nextseek/CLAUDE.md` for the invariants, the traps, and the one command.

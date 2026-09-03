@@ -1,0 +1,89 @@
+# Files opened while writing README.md and CLAUDE.md for dmac_assistant/.
+# One repo-relative path per line. Includes files read but not cited.
+
+# --- boundary: the vendored package ---
+dmac_assistant/pyproject.toml
+dmac_assistant/src/dmac_assistant/__init__.py
+dmac_assistant/src/dmac_assistant/config.py
+dmac_assistant/src/dmac_assistant/copier.py
+dmac_assistant/src/dmac_assistant/run_tracker.py
+dmac_assistant/src/dmac_assistant/streamjson.py
+dmac_assistant/src/dmac_assistant/router/__init__.py
+dmac_assistant/src/dmac_assistant/router/agent.py
+dmac_assistant/src/dmac_assistant/router/capabilities.py
+dmac_assistant/src/dmac_assistant/router/models.py
+
+# --- boundary: BAML sources ---
+dmac_assistant/baml_src/classifier.baml
+dmac_assistant/baml_src/clients.baml
+dmac_assistant/baml_src/functional_evaluator.baml
+dmac_assistant/baml_src/generators.baml
+dmac_assistant/baml_src/judge_router.baml
+dmac_assistant/baml_src/judge_ui.baml
+dmac_assistant/baml_src/router.baml
+dmac_assistant/baml_src/summarize.baml
+
+# --- boundary: runtime registries ---
+dmac_assistant/build_context/route_capabilities.json
+dmac_assistant/build_context/router_model_class_map.json
+
+# --- packaging, build and ignore rules ---
+.github/workflows/ci-pytest.yml
+DEPLOYMENT.md
+pyproject.toml
+uv.lock
+Dockerfile
+.gitignore
+chat_nextseek/pyproject.toml
+chat_nextseek/src/chat_nextseek/evaluator/baml_src/generators.baml
+
+# --- the mirror BAML tree and the agent image that generates from it ---
+docker/cc-runtime/Dockerfile
+docker/cc-runtime/baml_src/router.baml
+docker/cc-runtime/baml_src/classifier.baml
+docker/cc-runtime/baml_src/judge_router.baml
+docker/bedrock-proxy/app/config.py
+docker/cc-runtime/tools/e2e/judge_runner.py
+
+# --- non-test consumers of this boundary ---
+nextseek_api/cc_assistant/router.py
+nextseek_api/cc_assistant/cc_engine.py
+nextseek_api/cc_assistant/cc_summary.py
+nextseek_api/cc_assistant/family_labels.py
+nextseek_api/eval/judge_human_compare.py
+build_tools/gen_op_surfaces/route_capabilities.py
+
+# --- generated-surface machinery around route_capabilities.json ---
+build_tools/gen_op_surfaces/constants.py
+build_tools/gen_op_surfaces/emit.py
+scripts/plan018_v4_6_verifier.py
+build_tools/plan005_baseline.py
+build_tools/plan005_closeout_control.py
+
+# --- test modules that import the boundary, plus the lane's conftest ---
+nextseek_api/conftest.py
+nextseek_api/assistant/tests/test_route_capabilities.py
+nextseek_api/cc_assistant/tests/test_agent_history_conversion.py
+nextseek_api/cc_assistant/tests/test_posterior_selector.py
+nextseek_api/cc_assistant/tests/test_router_history_plumbing.py
+nextseek_api/cc_assistant/tests/test_router_v46_calltable.py
+nextseek_api/cc_assistant/tests/test_runtime_p0.py
+nextseek_api/cc_assistant/tests/test_task12_remaining_holes.py
+nextseek_api/cc_assistant/tests/step7_preflight_collector.py
+
+# --- read for context, and matches that are NOT imports ---
+nextseek_api/cc_assistant/translate.py
+nextseek_api/cc_assistant/PLAN-2-multi-user-provisioning.md
+nextseek_api/cc_assistant/acceptance_evidence/step7/catalog_provenance.json
+nessie_tests/FAMILIES.json
+docs/2026-08-03-nessie-hardening-design.md
+docs/2026-08-03-nessie-hardening-plan-2-resilience-routing.md
+docs/testing-review/02-cc-dmac_assistant-testing-review.md
+architecture.md
+docker/nextseek.env.example
+startup/templates/nextseek.env.template
+
+# --- the frozen pilot pair this one extends ---
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt
