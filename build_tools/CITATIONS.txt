@@ -1,0 +1,132 @@
+# Sources for build_tools/README.md and build_tools/CLAUDE.md.
+# Every path below was opened during this pass; the ones carrying a line
+# citation in either document are marked by section.
+
+# --- gen_op_surfaces: the live surface generator ---
+build_tools/__init__.py
+build_tools/gen_op_surfaces/__init__.py
+build_tools/gen_op_surfaces/__main__.py
+build_tools/gen_op_surfaces/blocks.py
+build_tools/gen_op_surfaces/claude_md.py
+build_tools/gen_op_surfaces/commands.py
+build_tools/gen_op_surfaces/constants.py
+build_tools/gen_op_surfaces/docker_blocks.py
+build_tools/gen_op_surfaces/emit.py
+build_tools/gen_op_surfaces/paths.py
+build_tools/gen_op_surfaces/route_capabilities.py
+build_tools/gen_op_surfaces/skills.py
+
+# --- ingest_nextseek_docs: the GitBook docs snapshot generator ---
+build_tools/ingest_nextseek_docs/__init__.py
+build_tools/ingest_nextseek_docs/__main__.py
+build_tools/ingest_nextseek_docs/constants.py
+build_tools/ingest_nextseek_docs/fetch.py
+build_tools/ingest_nextseek_docs/hashing.py
+build_tools/ingest_nextseek_docs/split.py
+build_tools/ingest_nextseek_docs/toc.py
+
+# --- the Plan 005 evidence protocol ---
+build_tools/plan005_baseline.py
+build_tools/plan005_closeout.py
+build_tools/plan005_closeout_control.py
+build_tools/plan005_gate.py
+build_tools/plan005_record.py
+build_tools/plan005_validate_plugins/__init__.py
+build_tools/plan005_validate_plugins/__main__.py
+build_tools/plan005_validate_plugins/docker_runner.py
+build_tools/plan005_validate_plugins/validate.py
+build_tools/schemas/plan005-closeout.schema.json
+build_tools/plan005_signoffs/task-07-plugin.json
+build_tools/plan005_signoffs/task-08-skills.json
+build_tools/plan005_signoffs/task-09-compose-dockerfile.json
+build_tools/plan005_signoffs/task-10-container-claude.json
+build_tools/plan005_signoffs/task-11-route-capabilities.json
+
+# --- the test lane ---
+build_tools/tests/conftest.py
+build_tools/tests/integration/test_markdown_source_contract.py
+build_tools/tests/integration/test_end_to_end.py
+build_tools/tests/test_plan005_baseline.py
+build_tools/tests/test_plan005_closeout.py
+build_tools/tests/test_plan005_contract.py
+build_tools/tests/test_plan005_gate.py
+build_tools/tests/test_plan005_record.py
+build_tools/tests/unit/test_constants.py
+build_tools/tests/unit/test_fetch.py
+build_tools/tests/unit/test_gen_op_surfaces.py
+build_tools/tests/unit/test_gen_op_surfaces_claude_md.py
+build_tools/tests/unit/test_gen_op_surfaces_commands.py
+build_tools/tests/unit/test_gen_op_surfaces_dockerfile.py
+build_tools/tests/unit/test_gen_op_surfaces_skills.py
+build_tools/tests/unit/test_plan005_validate_plugins.py
+
+# --- what the generators read and write, outside this boundary ---
+chat_nextseek/src/chat_nextseek/context/capabilities.md
+chat_nextseek/src/chat_nextseek/context/min_graph_schema.json
+chat_nextseek/src/chat_nextseek/context/neo4j_schema.json
+docker/cc-runtime/build_context/plugins/nextseek/context/capabilities.md
+docker/cc-runtime/build_context/plugins/nextseek/context/min_graph_schema.json
+docker/cc-runtime/build_context/plugins/nextseek/context/neo4j_schema.json
+docker/cc-runtime/Dockerfile
+docker/cc-runtime/PORT-EVIDENCE.json
+docker/cc-runtime/pyproject.toml
+docker/cc-runtime/docs/nextseek/README.md
+docker/cc-runtime/docs/nextseek/.content-hash
+docker-compose.yml
+dmac_assistant/pyproject.toml
+
+# --- consumers, CI and the surrounding contract ---
+.claude/skills/add-cc-op/SKILL.md
+.github/workflows/ci-pytest.yml
+.gitignore
+ci/pytest-baseline.txt
+DEPLOYMENT.md
+evidence/plan018-v4-9-owned-surface.json
+nextseek_api/assistant/tests/test_route_capabilities.py
+nextseek_api/README.md
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt
+pyproject.toml
+uv.lock
+
+# DROPPED AS STALE: claims from the previous build_tools/README.md (39 days old)
+# that this pass did not carry forward. Every line here is a comment.
+#
+# 1. "Nothing here runs inside `docker build` -- images COPY the committed
+#    outputs." Dropped as FALSE for the capabilities document. The cc-runtime
+#    Dockerfile pulls the canonical file from a named `chat_nextseek` build
+#    context at build time (docker/cc-runtime/Dockerfile:53-55), so what the
+#    image receives is not the committed baked copy. It remains true for the
+#    docs snapshot and the container CLAUDE.md, which is now stated as an
+#    invariant against docker/cc-runtime/Dockerfile:63-64 instead.
+#
+# 2. "Tests (hermetic, no network/django): python -m pytest build_tools/tests/"
+#    The no-network and no-Django halves were both re-verified and kept in the
+#    new README. The word "hermetic" was dropped: the lane shells out to `git`
+#    and to `python -m build_tools.gen_op_surfaces`, and 13 of its 250 tests
+#    fail on a clean checkout of this branch.
+#
+# 3. "any python with `httpx`". Kept in substance as the httpx dependency
+#    bullet, but not repeated as a run instruction: it is true of the ingest
+#    entry point alone and false of the test lane, which additionally needs
+#    nextseek_api and nessie_tests importable.
+#
+# 4. The previous README documented only ingest_nextseek_docs. gen_op_surfaces
+#    and the five plan005 modules -- 48 of the 59 files here -- were absent.
+#    That is an omission rather than a stale claim, and it is why this pass
+#    replaced the file wholesale.
+#
+# 5. "with two NExtSEEK changes: retargeted default paths and tolerance for
+#    GitBook's 2026-07 markdown-export format". The three artifacts are all
+#    present and are cited in the new README, but the claim that they are
+#    CHANGES relative to upstream cannot be checked from this repository: no
+#    copy of dmac-assistant at a429f137 is in this tree. The new README states
+#    what the local copy carries, not what was altered.
+#
+# KEPT AND RE-CITED from the previous README, so nothing true was lost:
+# the port provenance at commit a429f137 and its two GitBook format changes;
+# the retargeted default output paths; the ingest output set (section files,
+# README, .content-hash, the marked CLAUDE.md block); the 0 / 2 / 1 exit
+# codes; and "commit whatever it rewrites", promoted to an invariant with its
+# consequence.

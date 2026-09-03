@@ -1,0 +1,124 @@
+# Files opened while writing README.md and CLAUDE.md for docker/.
+# One repo-relative path per line.
+
+# --- boundary: cc-runtime build context ---
+docker/cc-runtime/Dockerfile
+docker/cc-runtime/.dockerignore
+docker/cc-runtime/PORT-EVIDENCE.json
+docker/cc-runtime/pyproject.toml
+docker/cc-runtime/baml_src/generators.baml
+docker/cc-runtime/container/CLAUDE.md
+docker/cc-runtime/container/entrypoint.sh
+docker/cc-runtime/container/runner_ns.py
+docker/cc-runtime/docs/nextseek/README.md
+docker/cc-runtime/docs/nextseek/.content-hash
+docker/cc-runtime/docs/nextseek/08-seek.md
+docker/cc-runtime/tools/e2e/judge_runner.py
+docker/cc-runtime/tests/unit/test_batch_upload_shims.py
+
+# --- boundary: the baked nextseek plugin ---
+docker/cc-runtime/build_context/plugins/nextseek/.claude-plugin/plugin.json
+docker/cc-runtime/build_context/plugins/nextseek/commands/nextseek.md
+docker/cc-runtime/build_context/plugins/nextseek/context/capabilities.md
+docker/cc-runtime/build_context/plugins/nextseek/context/MANIFEST.md
+docker/cc-runtime/build_context/plugins/nextseek/context/min_api_endpoints.json
+docker/cc-runtime/build_context/plugins/nextseek/hooks/hooks.json
+docker/cc-runtime/build_context/plugins/nextseek/hooks/entity_preamble.sh
+docker/cc-runtime/build_context/plugins/nextseek/scripts/setup.sh
+docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek/SKILL.md
+docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek-batch-upload/SKILL.md
+docker/cc-runtime/build_context/plugins/nextseek/bin/_ws_contract.py
+docker/cc-runtime/build_context/plugins/nextseek/bin/tests/test_dispatch_pipeline.py
+
+# --- boundary: bedrock-proxy build context ---
+docker/bedrock-proxy/Dockerfile
+docker/bedrock-proxy/.dockerignore
+docker/bedrock-proxy/PORT-EVIDENCE.json
+docker/bedrock-proxy/app/config.py
+docker/bedrock-proxy/app/proxy.py
+
+# --- boundary: ns-sidecar build context ---
+docker/ns-sidecar/Dockerfile
+docker/ns-sidecar/.dockerignore
+docker/ns-sidecar/PORT-EVIDENCE.json
+docker/ns-sidecar/app/config.py
+docker/ns-sidecar/app/contract.py
+docker/ns-sidecar/app/exceptions.py
+docker/ns-sidecar/app/granular_models.py
+docker/ns-sidecar/app/healthcheck.py
+docker/ns-sidecar/app/ns_client.py
+docker/ns-sidecar/app/ops.py
+docker/ns-sidecar/app/server.py
+docker/ns-sidecar/app/staging.py
+docker/ns-sidecar/app/write_gate.py
+
+# --- boundary: unwired and explicitly built contexts ---
+docker/cc-runner/Dockerfile
+docker/eval/Dockerfile
+docker/eval-task6/Dockerfile
+
+# --- boundary: nginx config and app-image scripts ---
+docker/nginx.conf
+docker/nginx-optional/.gitignore
+docker/nginx-optional/neo4j.conf.example
+docker/nextseek.env.example
+docker/scripts/entrypoint.sh
+docker/scripts/attribute_runtime_healthcheck.py
+docker/scripts/db/01-ensure-nextseek-db.sh
+
+# --- repo-root topology and build rules ---
+Dockerfile
+docker-compose.yml
+docker-compose.task8.yml
+.dockerignore
+.gitignore
+pyproject.toml
+DEPLOYMENT.md
+CLAUDE.md
+
+# --- consumers: the op registry, port guards and topology guards ---
+nextseek_api/cc_assistant/bin_inventory.py
+nextseek_api/cc_assistant/cc_staging.py
+nextseek_api/cc_assistant/op_registry/derive.py
+nextseek_api/cc_assistant/tests/test_op_registry_audit.py
+nextseek_api/cc_assistant/tests/test_step7_cc_runtime_port.py
+nextseek_api/cc_assistant/tests/test_step7_compose_deploy.py
+nextseek_api/cc_assistant/tests/test_step7_proxy_port.py
+nextseek_api/cc_assistant/tests/test_step7_sidecar_port.py
+nextseek_api/assistant/tests/test_route_capabilities.py
+
+# --- consumers: surface generation and CI baseline ---
+build_tools/gen_op_surfaces/constants.py
+build_tools/gen_op_surfaces/docker_blocks.py
+build_tools/gen_op_surfaces/emit.py
+build_tools/gen_op_surfaces/route_capabilities.py
+ci/pytest-baseline.txt
+
+# --- consumers: startup CLI, env rendering and harnesses ---
+startup/cli.py
+startup/lib/docker_ops.py
+startup/steps/config.py
+startup/steps/registry_push.py
+startup/steps/validate.py
+startup/templates/db.env.template
+startup/templates/nextseek.env.template
+chat_nextseek/e2e/import_env.py
+nessie_tests/FAMILIES.json
+
+# --- Django settings and canonical source read for cross-checks ---
+dmac/settings.py
+chat_nextseek/src/chat_nextseek/context/capabilities.md
+dmac_assistant/baml_src/generators.baml
+
+# --- sibling boundary documents read for the shared defect and the pair contract ---
+nextseek_api/cc_assistant/README.md
+nextseek_api/cc_assistant/CLAUDE.md
+nextseek_api/cc_assistant/CITATIONS.txt
+nextseek_api/assistant/CLAUDE.md
+nextseek_api/eval/CLAUDE.md
+chat_nextseek/README.md
+chat_nextseek/CLAUDE.md
+dmac_assistant/CLAUDE.md
+docs/neo4j-programmatic-access.md
+docs/testing-review/02-cc-dmac_assistant-testing-review.md
+docs/nessie-bayesian-mode-design.md

@@ -1,0 +1,48 @@
+# Every file in this boundary
+ci/__init__.py
+ci/diff_baseline.py
+ci/pytest-baseline.txt
+ci/routes.py
+ci/gate/__init__.py
+ci/gate/live_routes.py
+ci/gate/test_live_routes_unit.py
+ci/gate/test_route_registry.py
+ci/smoke/README.md
+ci/smoke/assertions.py
+ci/smoke/client.py
+ci/smoke/conftest.py
+ci/smoke/pytest.ini
+ci/smoke/test_assertions_unit.py
+ci/smoke/test_flows.py
+ci/smoke/test_guard_unit.py
+ci/smoke/test_health.py
+ci/smoke/test_profile_unit.py
+ci/smoke/test_reachability.py
+ci/smoke/test_readiness_unit.py
+ci/smoke/test_registry_contents.py
+ci/smoke/test_registry_unit.py
+ci/smoke/test_terminal_unit.py
+ci/smoke/test_write_lane.py
+
+# The two workflows that invoke the lanes
+.github/workflows/ci-pytest.yml
+.github/workflows/ci-smoke.yml
+
+# The consumers outside the boundary
+scripts/dump_routes.py
+scripts/run_tests.sh
+startup/README.md
+startup/ci/runner.py
+startup/cli.py
+startup/lib/instance.py
+startup/steps/doctor.py
+
+# Settings and packaging the lanes depend on
+dmac/settings.py
+dmac/test_settings.py
+pyproject.toml
+uv.lock
+
+# Read for context; not cited by line
+CLAUDE.md
+DEPLOYMENT.md
