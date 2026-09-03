@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from nextseek_api.services.template_catalog import SampleTypeEntry
+
 
 class TestAttributeSpecs:
     """getAttributeSpecsBySampleTypeIds mirrors the titles method, plus `required`."""
@@ -447,6 +449,46 @@ class TestLoadTypeLinks:
             assert load_type_links(set()) == {"requires": {}, "companions": {}}
         m.objects.filter.assert_not_called()
 
+    def test_a_non_string_assay_title_is_dropped_but_the_row_survives(self):
+        """isinstance(assays, list) alone doesn't check element types: assays
+        feeds pydantic's List[str] just like add does, but it is decorative
+        labelling, so a bad element is filtered rather than costing the row."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [{"kind": "requires", "trigger_code": "CEX",
+                 "add_codes": json.dumps(["NHP"]),
+                 "assay_titles": json.dumps(["Assay A", 2024])}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            out = load_type_links({"CEX", "NHP"})
+        assert out["requires"]["CEX"] == {"add": ["NHP"], "assays": ["Assay A"]}
+
+    def test_add_codes_holding_a_json_object_is_dropped_entirely(self):
+        """set() of a dict yields its keys, and those keys can be known codes
+        -- {"TIS": 1} would pass `set(add) <= known` and hand pydantic's
+        strict List[str] a dict instead of a list. add is the rule itself, so
+        the whole row is dropped rather than patched up."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [{"kind": "requires", "trigger_code": "PAV",
+                 "add_codes": json.dumps({"TIS": 1}), "assay_titles": None},
+                self._row("CEX", ["NHP"])]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            out = load_type_links({"PAV", "TIS", "CEX", "NHP"})
+        assert "PAV" not in out["requires"]
+        assert out["requires"] == {"CEX": {"add": ["NHP"], "assays": []}}
+
+    def test_add_codes_containing_a_non_string_element_is_dropped(self):
+        """Membership alone (`set(add) <= known`) doesn't check element types:
+        [1, 2] would satisfy it if `known` happened to hold those same
+        values, so every element of add must be checked to be a string too."""
+        from nextseek_api.services.template_catalog import load_type_links
+
+        rows = [{"kind": "requires", "trigger_code": "PAV",
+                 "add_codes": json.dumps([1, 2]), "assay_titles": None}]
+        with patch(f"{_MOD}.Sample_type_requirements", self._model(rows)):
+            out = load_type_links({1, 2})
+        assert out["requires"] == {}
+
 
 class TestDeprecatedTypes:
     """Retired sample types are offered by SEEK and render nameless, because
@@ -486,3 +528,102 @@ class TestDeprecatedTypes:
         with patch(f"{_MOD}.Sample_types", m), \
              patch(f"{_MOD}.load_sample_type_context", return_value={}):
             assert [e.code for e in load_catalog()] == ["TIS"]
+
+
+class TestBuildCatalog:
+    """One builder for the picker page and /nextseek_api/templates/catalog/."""
+
+    _TIS = SampleTypeEntry(code="TIS", sample_type_id=2, name="Tissue",
+                           description="A tissue sample.", group="")
+    _SEQ = SampleTypeEntry(code="D.SEQ", sample_type_id=11, name="Sequencing Data",
+                           description="Reads.", group="D.")
+
+    def _patched(self, links=None, relationships=None):
+        from unittest.mock import patch
+        return (
+            patch("nextseek_api.services.template_catalog.load_catalog",
+                  return_value=[self._TIS, self._SEQ]),
+            patch("nextseek_api.services.template_catalog.load_relationships",
+                  return_value=relationships if relationships is not None
+                  else {"TIS": {"parents": [], "children": ["D.SEQ"]}}),
+            patch("nextseek_api.services.template_catalog.load_type_links",
+                  return_value=links if links is not None
+                  else {"requires": {"D.SEQ": {"add": ["TIS"], "assays": ["WGS"]}},
+                        "companions": {"TIS": {"add": ["D.SEQ"], "assays": []}}}),
+        )
+
+    def test_it_returns_every_key_both_callers_need(self):
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched()
+        with cat, rel, links:
+            payload = build_catalog()
+        assert set(payload) == {
+            "groups", "children", "requires", "companions", "max_suggestions"
+        }
+
+    def test_empty_groups_are_omitted(self):
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched()
+        with cat, rel, links:
+            payload = build_catalog()
+        # Four groups are defined; only Experimental and Data have entries here.
+        assert [g["key"] for g in payload["groups"]] == ["", "D."]
+        assert [g["label"] for g in payload["groups"]] == [
+            "Experimental types", "Data types"
+        ]
+
+    def test_entries_are_dataclass_objects_not_dicts(self):
+        # templatesList.html reads entry.code, and write_template_workbook reads
+        # .code/.sample_type_id off these same objects.
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched()
+        with cat, rel, links:
+            payload = build_catalog()
+        entry = payload["groups"][0]["entries"][0]
+        assert entry.code == "TIS"
+        assert entry.sample_type_id == 2
+
+    def test_children_carries_only_the_children_side(self):
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched(
+            relationships={"TIS": {"parents": ["PAT"], "children": ["D.SEQ"]}}
+        )
+        with cat, rel, links:
+            payload = build_catalog()
+        assert payload["children"] == {"TIS": ["D.SEQ"]}
+
+    def test_links_are_passed_through_unchanged(self):
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched()
+        with cat, rel, links:
+            payload = build_catalog()
+        assert payload["requires"] == {"D.SEQ": {"add": ["TIS"], "assays": ["WGS"]}}
+        assert payload["companions"] == {"TIS": {"add": ["D.SEQ"], "assays": []}}
+
+    def test_an_unpopulated_requirements_table_is_not_an_error(self):
+        # The table ships empty; that state means "nothing known".
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, links = self._patched(links={"requires": {}, "companions": {}})
+        with cat, rel, links:
+            payload = build_catalog()
+        assert payload["requires"] == {}
+        assert payload["companions"] == {}
+        assert payload["groups"]
+
+    def test_type_links_are_scoped_to_the_catalog(self):
+        from unittest.mock import patch
+        from nextseek_api.services.template_catalog import build_catalog
+
+        cat, rel, _ = self._patched()
+        with cat, rel, patch(
+            "nextseek_api.services.template_catalog.load_type_links",
+            return_value={"requires": {}, "companions": {}},
+        ) as mock_links:
+            build_catalog()
+        assert mock_links.call_args[0][0] == {"TIS", "D.SEQ"}

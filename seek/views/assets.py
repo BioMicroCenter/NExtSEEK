@@ -15,13 +15,7 @@ import tempfile
 from django.http import HttpResponse
 
 from nextseek_api.services.sample_workbook import write_template_workbook
-from nextseek_api.services.template_catalog import (
-    GROUPS,
-    MAX_SUGGESTIONS,
-    load_catalog,
-    load_relationships,
-    load_type_links,
-)
+from nextseek_api.services.template_catalog import build_catalog, load_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -60,46 +54,24 @@ def datafileQuery(request):
     return render(request, "dataFilesPage.html", {"report" : report})
 
 def _templates_context(message=""):
-    """Everything the picker template needs.
+    """Adapt build_catalog() to the names templatesList.html reads.
 
-    Grouping and relationships come from template_catalog, so the view stays
-    HTTP-only and the same data can be reused by the download path when it has
-    to re-render.
+    The payload is assembled in nextseek_api.services.template_catalog so that
+    this page and /nextseek_api/templates/catalog/ cannot drift apart. All this
+    function does is rename keys and add the flash message.
     """
-    entries = load_catalog()
-    by_code = {e.code: e for e in entries}
-    relationships = load_relationships(list(by_code), set(by_code))
-    _links = load_type_links(set(by_code))
-
-    groups = [
-        {"key": key, "label": label,
-         "entries": [e for e in entries if e.group == key]}
-        for key, label in GROUPS
-    ]
+    payload = build_catalog()
+    entries = [entry for group in payload["groups"] for entry in group["entries"]]
     return {
-        "groups": [g for g in groups if g["entries"]],
+        "groups": payload["groups"],
         "message": message,
-        # The strip is re-derived in the browser as boxes are ticked, so no
-        # selection is ever rendered server-side -- see render() in
-        # templatesList.html. Same one-hop children-only rule as
-        # template_catalog.suggest(), which this mirrors; keep both in sync.
-        "children_json": {
-            code: rel.get("children", []) for code, rel in relationships.items()
-        },
+        "children_json": payload["children"],
         "meta_json": {
             e.code: {"name": e.name, "group": e.group} for e in entries
         },
-        # Requirements are keyed on the whole catalog, not the selection: the
-        # page needs the rule for every type a user might tick, and the strip
-        # is derived in the browser with no round trip.
-        # Both directions in one read. `requires` runs child -> parent (what
-        # an upload cannot omit); `companions` runs parent -> child (what it
-        # will almost certainly also record). Keyed on the whole catalog, not
-        # the selection: the page needs the rule for every type a user might
-        # tick, and the strip is derived in the browser with no round trip.
-        "requirements_json": _links["requires"],
-        "companions_json": _links["companions"],
-        "max_suggestions": MAX_SUGGESTIONS,
+        "requirements_json": payload["requires"],
+        "companions_json": payload["companions"],
+        "max_suggestions": payload["max_suggestions"],
     }
 
 
