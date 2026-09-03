@@ -393,11 +393,34 @@ there is no window in which downloads break.
 
 ## Blank templates
 
-`/seek/templates/` (`seek/views.py:templatesList`) is a second entry point into
-the same writer module. `write_template_workbook` produces the same artifact as
-`write_samples_workbook` minus the data rows and the provenance sheet: README
+`/seek/templates/` (`seek/views/assets.py:templatesList`) is a second entry point
+into the same writer module. `write_template_workbook` produces the same artifact
+as `write_samples_workbook` minus the data rows and the provenance sheet: README
 first, then one headers-only sheet per sample type, then a hidden `_NEXTSEEK`
 manifest.
+
+There are now two ways to ask for one -- the picker's form POST to
+`/seek/templates/download/` and the API call to
+`/nextseek_api/templates/generate/` -- and they converge before they do any work:
+
+| Step | Where it lives |
+|---|---|
+| what the catalog offers | `template_catalog.build_catalog()` |
+| which codes a request selects | `template_catalog.select_entries()` |
+| what those become | `sample_workbook.render_template_workbook()` |
+
+Only one thing is decided per caller, and on purpose: an **unknown code**. The
+page drops it, so a stale bookmark still produces the types it names; the API
+answers 422, because a workbook quietly missing a sheet is worse than a refusal.
+
+Anything that *offers* a download gates on `template_catalog.downloadable_codes()`
+rather than on the curated `sample_types_context` rows the catalog pages read
+(`context_catalog.load_sample_types()`). The two sets are close but not equal --
+`downloadable_codes()` is SEEK's own sample types minus the retired and the
+unusable-as-a-sheet-name -- and gating an offer on the wrong one renders a button
+that generates nothing and bounces the user back to the picker. The project
+page's template bundles and the sample-type detail page's Download button both
+gate on it.
 
 It lives beside `write_samples_workbook` rather than in its own module for the
 reason this document records above — two writers meant a change to the workbook
