@@ -414,6 +414,9 @@ API_TAG_ORDER = [
     "Schema RAG",
     "SOPs",
     "Studies",
+    # The Download Templates API. Any tag missing from this list sorts silently
+    # to the end of the Swagger page, so a new tags=[...] must be added here.
+    "templates",
     "Timeline",
     "schema",
 ]
