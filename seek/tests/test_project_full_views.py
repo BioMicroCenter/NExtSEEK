@@ -49,3 +49,47 @@ class TestModalRouteAssets:
 
     def test_css_defines_the_overlay(self):
         assert ".modal-route-overlay" in _css()
+
+
+# --- /seek/projects/<id>/samples/ route (mirrors test_project_page.py helpers) ---
+from unittest.mock import MagicMock, patch  # noqa: E402
+from django.test import RequestFactory  # noqa: E402
+import seek.views.projects  # noqa: F401,E402
+
+
+def _seekdb(project_ids):
+    db = MagicMock()
+    db.getSeekLogin.return_value = {"status": True, "server": "https://seek.example",
+                                    "username": "demo", "password": "demopassword"}
+    db.getCurrentUser.return_value = {
+        "data": {"relationships": {"projects": {"data": [{"id": str(i)} for i in project_ids]}}}
+    }
+    return db
+
+
+def _req(path, superuser=False):
+    req = RequestFactory().get(path)
+    req.user = MagicMock(is_authenticated=True, is_superuser=superuser)
+    return req
+
+
+class TestProjectSamplesRoute:
+    @patch("seek.views.projects.Projects")
+    @patch("seek.decorators.SeekDB")
+    def test_a_non_member_is_forbidden(self, db, projects):
+        from seek.views.projects import project_samples
+        db.return_value = _seekdb([7])
+        projects.objects.filter.return_value.first.return_value = MagicMock(title="IMPAcTb")
+        resp = project_samples(_req("/seek/projects/2/samples/"), "2")
+        assert resp.status_code == 403
+
+    @patch("seek.views.projects._project_clade_data", return_value=[])
+    @patch("seek.views.projects.Projects")
+    @patch("seek.decorators.SeekDB")
+    def test_a_member_sees_a_counts_table(self, db, projects, _clade):
+        from seek.views.projects import project_samples
+        db.return_value = _seekdb([2])
+        projects.objects.filter.return_value.first.return_value = MagicMock(title="IMPAcTb")
+        resp = project_samples(_req("/seek/projects/2/samples/"), "2")
+        assert resp.status_code == 200
+        assert b"project-samples" in resp.content

@@ -34,7 +34,7 @@ from ci.smoke.test_reachability import _callable_routes
 # the right number is: it diffs the registry against the live resolver. This
 # constant only stops the registry drifting silently between gate runs, which
 # happen in a different environment.
-OWNED_ROUTE_COUNT = 157
+OWNED_ROUTE_COUNT = 158
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset and the Django admin login page.

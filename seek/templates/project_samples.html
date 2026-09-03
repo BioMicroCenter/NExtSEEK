@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} sample counts - NExtSEEK{% endblock %}
+
+{% block extra_head %}{% include "catalog_styles.html" %}{% endblock %}
+
+{% block main %}
+<div class="cat-page project-samples">
+
+  <header class="ns-page-header">
+    <h1 class="ns-page-title">{{ title }}</h1>
+    <p class="ns-page-subtitle">Sample counts by type, grouped by clade in pipeline order.</p>
+  </header>
+
+  {% if clade_data %}
+  <table class="cat-table project-samples-table">
+    {% for group in clade_data %}
+    <tbody>
+      <tr class="cat-group-row">
+        <th colspan="{% if has_published %}3{% else %}2{% endif %}">{{ group.0.title }}</th>
+      </tr>
+      <tr class="cat-head-row">
+        <th>Sample type</th>
+        <th class="num">Local</th>
+        {% if has_published %}<th class="num">Published</th>{% endif %}
+      </tr>
+      {% for item in group %}
+      <tr class="cat-row">
+        <td>{{ item.st_group }}</td>
+        <td class="num">{{ item.count }}</td>
+        {% if has_published %}<td class="num">{{ item.published }}</td>{% endif %}
+      </tr>
+      {% endfor %}
+      <tr class="cat-total-row">
+        <td>Total</td>
+        <td class="num">{{ group.0.total }}</td>
+        {% if has_published %}<td class="num">{{ group.0.published_total }}</td>{% endif %}
+      </tr>
+    </tbody>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="cat-empty">No sample counts are available for this project.</p>
+  {% endif %}
+
+</div>
+{% endblock %}

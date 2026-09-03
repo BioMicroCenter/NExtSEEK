@@ -146,6 +146,60 @@ def project_page(request, project_id):
                                                     ],})
 
 
+def _project_clade_data(project_id, project_title):
+    """Per-clade, per-type sample counts for one project, grouped and sorted by
+    clade order. Fail-soft to [] so a stats failure never blanks the page.
+
+    Returns a list of groups; each group is a list of per-type dicts carrying
+    'title' (clade), 'st_group' (type), 'count', 'published', 'total',
+    'published_total', 'order'.
+    """
+    try:
+        clade_data = DBtable_clades().getCladeProjectStats(project_id)
+        titles = set(x['title'] for x in clade_data)
+        clade_data = [[y for y in clade_data if y['title'] == t] for t in titles]
+        try:
+            published_stats = pd.read_excel(PUBLISH_STATS_FILE, sheet_name=None)[project_title].fillna(0)
+            published_stats['Published'] = published_stats['Published'].astype(int)
+            pub = dict(zip(published_stats['Data Types'], published_stats['Published']))
+            for group in clade_data:
+                for item in group:
+                    item['published'] = pub.get(item['st_group'], 0)
+        except Exception:
+            for group in clade_data:
+                for item in group:
+                    item['published'] = 0
+        for group in clade_data:
+            for item in group:
+                item['total'] = sum(i['count'] for i in group)
+                item['published_total'] = sum(i['published'] for i in group)
+        clade_data.sort(key=lambda x: x[0]['order'])
+        return clade_data
+    except Exception:
+        logger.exception("clade data failed for project %s", project_id)
+        return []
+
+
+@requires_seek_login_redirect()
+def project_samples(request, project_id):
+    """The per-type sample counts for one project, as a standalone full-view page
+    (opened as a modal from the project page, or visited directly). Membership
+    gated exactly like project_connections; the counts table is rebuilt clean so
+    the first row of each clade group left-aligns and the all-zero Published
+    column is dropped.
+    """
+    if not _may_see_project(request, project_id):
+        return HttpResponseForbidden("You are not in this project")
+    project = Projects.objects.filter(id=project_id).first()
+    title = re.sub("-|_", " ", str(project.title)) if project else "Project"
+    clade_data = _project_clade_data(project_id, project.title if project else "")
+    has_published = any(item.get('published') for group in clade_data for item in group)
+    return render(request, "project_samples.html", {
+        "id": project_id, "title": title,
+        "clade_data": clade_data, "has_published": has_published,
+    })
+
+
 def _may_see_project(request, project_id) -> bool:
     """Whether this caller may view this project. Superuser, or a member.
 

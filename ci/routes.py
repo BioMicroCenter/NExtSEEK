@@ -294,6 +294,11 @@ REGISTRY: list[Route] = [
           note="the project page's diagram iframe. 200 with a placeholder body "
                "when the graph returns nothing, so a dead Neo4j is not a red "
                "route; seek/tests/test_project_page.py pins that separately"),
+    Route(pattern=r"^seek/^projects/(?P<project_id>\d+)/samples/$",
+          path="/seek/projects/{seek_project_id}/samples/",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
+          note="the project page's sample-counts full view, opened as a modal "
+               "or visited directly; membership-gated like connections"),
     Route(pattern=r"^seek/^remote/", path="/seek/remote/",
           methods=("GET",), profiles="local,dev", auth="web", expect=200,
           xfail="NameError: samples is not defined, raised by "
