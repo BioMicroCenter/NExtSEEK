@@ -11,11 +11,11 @@
     --ns-crimson-soft:     #fdf0f2;
     --ns-crimson-border:   #f3c6ce;
 
-    /* Clade accents — one muted language, catalogs + project pages */
-    --ns-clade-source:     #4a7c59;   --ns-clade-source-tint:    #eef4f0;
-    --ns-clade-processed:  #b5793a;   --ns-clade-processed-tint: #f7efe7;
-    --ns-clade-raw:        #3f6d9e;   --ns-clade-raw-tint:       #eaf0f6;
-    --ns-clade-analyzed:   #6b5b95;   --ns-clade-analyzed-tint:  #f0edf5;
+    /* Clade accents — the dmac.clades colours, one language across catalogs + project pages */
+    --ns-clade-source:     #A3D46F;   --ns-clade-source-tint:    #edf7e0;
+    --ns-clade-processed:  #F4A45E;   --ns-clade-processed-tint: #fdefe1;
+    --ns-clade-raw:        #A2C8F0;   --ns-clade-raw-tint:       #e9f2fc;
+    --ns-clade-analyzed:   #6B8FDD;   --ns-clade-analyzed-tint:  #edf1fb;
 
     /* Neutrals — direction C: cool off-whites, no warm beige */
     --ns-bg:               #ffffff;
@@ -1050,7 +1050,14 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 .cat-search:focus { outline: none; border-color: var(--ns-crimson-border); box-shadow: 0 0 0 3px var(--ns-crimson-soft); }
 .cat-count { color: var(--ns-muted); font-size: 0.8rem; }
 .cat-table { width: 100%; max-width: 1100px; border-collapse: separate; border-spacing: 0; font-size: 0.85rem; }
-.cat-table .cat-group-row th { text-align: left; padding: 0.9rem 0 0.3rem; }
+.cat-table .cat-group-row th { text-align: left; padding: 0.4rem 0.6rem; }
+.cat-table .cat-group-row th .cat-group-toggle { border-radius: 6px; }
+/* Each clade section is banded in its dmac.clades colour (as it was before). */
+.cat-table tbody.clade-accent--source    .cat-group-row th { background: var(--ns-clade-source-tint);    border-left: 4px solid var(--ns-clade-source); }
+.cat-table tbody.clade-accent--processed .cat-group-row th { background: var(--ns-clade-processed-tint); border-left: 4px solid var(--ns-clade-processed); }
+.cat-table tbody.clade-accent--raw       .cat-group-row th { background: var(--ns-clade-raw-tint);       border-left: 4px solid var(--ns-clade-raw); }
+.cat-table tbody.clade-accent--analyzed  .cat-group-row th { background: var(--ns-clade-analyzed-tint);  border-left: 4px solid var(--ns-clade-analyzed); }
+.cat-table tbody.clade-accent--unassigned .cat-group-row th { background: var(--ns-sidebar-bg); border-left: 4px solid var(--ns-border); }
 .cat-group-toggle {
     background: none; border: 0; cursor: pointer; padding: 0.15rem 0.35rem 0.15rem 0.5rem;
     font-size: 0.8rem; font-weight: 700; color: var(--ns-ink); border-radius: 6px;
