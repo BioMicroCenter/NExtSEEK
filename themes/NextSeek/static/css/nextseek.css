@@ -145,17 +145,21 @@ h1, h2, h3, h4, h5, h6 {
 }
 .sidebar-nav .nav-item { margin: 0; }
 
-/* Section labels */
-.nav-section-label {
-    display: block;
-    font-size: 0.67rem;
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--ns-muted);
-    padding: 1rem 1.25rem 0.3rem;
-    margin: 0;
+/* Collapsible section label (USEFUL INFO). A clickable variant of
+   .sidebar-section-label; the chevron flips when the section collapses. */
+.sidebar-section-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: calc(100% - 2rem);
+    margin: 0 1rem;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    text-decoration: none;
 }
+.sidebar-section-toggle .bi-chevron-down { transition: transform var(--ns-transition); font-size: 0.7rem; opacity: 0.6; }
+.sidebar-section-toggle[aria-expanded="false"] .bi-chevron-down { transform: rotate(-90deg); }
 
 /* Nav links */
 .sidebar-nav .nav-link {
@@ -986,13 +990,6 @@ body.sidebar-open .sidebar-scrim { display: block; }
     color: var(--ns-crimson-hover);
 }
 .qa-cta .qa-plus { font-weight: 700; line-height: 1; }
-
-.qa-placeholder {
-    padding: 0.3rem 1rem 0.5rem;
-    font-size: 0.72rem;
-    color: var(--ns-muted);
-    font-style: italic;
-}
 
 /* ---------- Nessie promoted button (navbar + home) ---------- */
 .nessie-btn {

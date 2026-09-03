@@ -132,29 +132,14 @@ function navUID() {
     }
 }
 
-// Talk to Nessie — navigate to /seek/assistant/?q=<query>; the embedded
-// chat React app reads ?q= on mount and pre-fills its MessageInput.
-function navNessie() {
-    var el = document.getElementById("ask-nessie");
-    if (!el) return;
-    var v = el.value.trim();
-    if (v) {
-        window.location.href = "/seek/assistant/?q=" + encodeURIComponent(v);
-    }
-}
-
-// Wire Enter-key submission on both inputs once the DOM is ready.
+// Wire Enter-key submission on the UID input once the DOM is ready.
+// (Ask Nessie is now the promoted button in includes/nessie_button.html,
+// a plain link to /seek/assistant/, so it needs no handler.)
 document.addEventListener("DOMContentLoaded", function () {
     var uid = document.getElementById("search-uid");
     if (uid) {
         uid.addEventListener("keypress", function (e) {
             if (e.key === "Enter") { e.preventDefault(); navUID(); }
-        });
-    }
-    var nessie = document.getElementById("ask-nessie");
-    if (nessie) {
-        nessie.addEventListener("keypress", function (e) {
-            if (e.key === "Enter") { e.preventDefault(); navNessie(); }
         });
     }
 });
