@@ -1089,6 +1089,18 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 }
 .attrs-ro-msg { color: var(--ns-muted); padding: 1rem 0.6rem; }
 
+/* ---------- Sample type detail: lineage strip + tags ---------- */
+.cat-lineage { display: flex; flex-direction: column; gap: 0.5rem; margin: 1rem 0 0.5rem; }
+.lin-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; }
+.lin-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); min-width: 6.5rem; }
+.lin-code { font-family: var(--ns-font-mono); font-size: 0.8rem; color: var(--ns-crimson); text-decoration: none; padding: 0.05rem 0.4rem; border: 1px solid var(--ns-border); border-radius: 6px; }
+.lin-code:hover { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); }
+.lin-assay { font-size: 0.82rem; color: var(--ns-body); text-decoration: none; padding: 0.05rem 0.4rem; border-bottom: 1px dotted var(--ns-muted); }
+.lin-assay:hover { color: var(--ns-crimson); }
+.cat-tags { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; margin: 0.5rem 0 1rem; }
+.cat-tag { font-size: 0.76rem; color: var(--ns-muted); padding: 0.05rem 0.45rem; border-radius: 10px; background: var(--ns-sidebar-bg); border: 1px solid var(--ns-border); }
+.cat-subhead { font-size: 1rem; font-weight: 700; color: var(--ns-ink); margin: 1.5rem 0 0.6rem; }
+
 /* ================================================
    Sidebar header with BMC lockup
    ================================================ */

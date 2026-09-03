@@ -13,90 +13,49 @@
   <div class="cat-detail-head">
     <span class="cat-detail-code">{{ entry.code }}</span>
     <span class="cat-detail-name">{{ entry.name }}</span>
-    <span class="cat-badge">{{ entry.clade }}</span>
+    <span class="cat-badge clade-accent--{{ clade_slug }}">{{ entry.clade }}</span>
   </div>
 
   {% if entry.description %}<div class="cat-desc">{{ entry.description }}</div>{% endif %}
 
-  {% if entry.required_metadata %}
-  <div class="cat-section">
-    <span class="cat-section-label">Required metadata</span>
-    <div class="cat-chips">
-      {% for f in entry.required_metadata %}<span class="cat-chip">{{ f }}</span>{% endfor %}
+  {% if entry.parent_types or entry.child_types or assay_parents or assay_children %}
+  <div class="cat-lineage">
+    {% if entry.parent_types %}
+    <div class="lin-group">
+      <span class="lin-label">Derives from</span>
+      {% for code in entry.parent_types %}<a class="lin-code" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>{% endfor %}
     </div>
-  </div>
-  {% endif %}
-
-  {% if entry.standard_metadata %}
-  <div class="cat-section">
-    <span class="cat-section-label">Standard metadata</span>
-    <div class="cat-chips">
-      {% for f in entry.standard_metadata %}<span class="cat-chip">{{ f }}</span>{% endfor %}
+    {% endif %}
+    {% if entry.child_types %}
+    <div class="lin-group">
+      <span class="lin-label">Children</span>
+      {% for code in entry.child_types %}<a class="lin-code" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>{% endfor %}
     </div>
-  </div>
-  {% endif %}
-
-  {% if entry.possible_metadata_fields %}
-  <div class="cat-section">
-    <span class="cat-section-label">Other possible fields</span>
-    <div class="cat-chips">
-      {% for f in entry.possible_metadata_fields %}<span class="cat-chip cat-chip--plain">{{ f }}</span>{% endfor %}
+    {% endif %}
+    {% if assay_parents %}
+    <div class="lin-group">
+      <span class="lin-label">Produced by</span>
+      {% for a in assay_parents %}<a class="lin-assay" href="/seek/assays/{{ a.slug }}/">{{ a.name }}</a>{% endfor %}
     </div>
-  </div>
-  {% endif %}
-
-  {% if entry.parent_types %}
-  <div class="cat-section">
-    <span class="cat-section-label">Derives from</span>
-    <div class="cat-chips">
-      {% for code in entry.parent_types %}
-      <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
-      {% endfor %}
+    {% endif %}
+    {% if assay_children %}
+    <div class="lin-group">
+      <span class="lin-label">Consumed by</span>
+      {% for a in assay_children %}<a class="lin-assay" href="/seek/assays/{{ a.slug }}/">{{ a.name }}</a>{% endfor %}
     </div>
-  </div>
-  {% endif %}
-
-  {% if entry.child_types %}
-  <div class="cat-section">
-    <span class="cat-section-label">Children</span>
-    <div class="cat-chips">
-      {% for code in entry.child_types %}
-      <a class="cat-chip" href="/seek/sampletypes/{{ code }}/">{{ code }}</a>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
-  {% if assay_parents %}
-  <div class="cat-section">
-    <span class="cat-section-label">Produced by</span>
-    <div class="cat-chips">
-      {% for a in assay_parents %}
-      <a class="cat-chip cat-chip--plain" href="/seek/assays/{{ a.slug }}/">{{ a.name }}</a>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
-  {% if assay_children %}
-  <div class="cat-section">
-    <span class="cat-section-label">Consumed by</span>
-    <div class="cat-chips">
-      {% for a in assay_children %}
-      <a class="cat-chip cat-chip--plain" href="/seek/assays/{{ a.slug }}/">{{ a.name }}</a>
-      {% endfor %}
-    </div>
+    {% endif %}
   </div>
   {% endif %}
 
   {% if entry.tags %}
-  <div class="cat-section">
-    <span class="cat-section-label">Tags</span>
-    <div class="cat-chips">
-      {% for t in entry.tags %}<span class="cat-chip cat-chip--plain">{{ t }}</span>{% endfor %}
-    </div>
+  <div class="cat-tags">
+    <span class="lin-label">Tags</span>
+    {% for t in entry.tags %}<span class="cat-tag">{{ t }}</span>{% endfor %}
   </div>
   {% endif %}
+
+  <h2 class="cat-subhead">Attributes</h2>
+  {% include "includes/attribute_definitions_table.html" with sample_type_id=entry.sample_type_id %}
 
   <div class="cat-actions">
     <form method="post" action="/seek/templates/download/">

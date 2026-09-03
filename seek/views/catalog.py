@@ -98,6 +98,7 @@ def sampleTypeDetail(request, code):
         raise Http404(f"No curated context for sample type {code!r}")
     return render(request, 'sampleTypeDetail.html', {
         'entry': entry,
+        'clade_slug': _clade_slug(entry.clade),
         # Assay names are prose in the curator column; the slug is the link
         # target and also folds the two hyphenation variants onto one page.
         'assay_parents': [{'name': n, 'slug': assay_slug_for_name(n)}

@@ -109,13 +109,27 @@ class TestSampleTypesList:
 class TestSampleTypeDetail:
     @patch("seek.views.catalog.load_sample_type", return_value=FLOW)
     @patch("seek.decorators.SeekDB")
-    def test_every_populated_field_is_rendered(self, db, _load):
+    def test_context_header_and_tags_are_rendered(self, db, _load):
         from seek.views.catalog import sampleTypeDetail
 
         db.return_value = _logged_in()
         body = sampleTypeDetail(_get("/seek/sampletypes/D.FLOW/"), "D.FLOW").content.decode()
-        for expected in ("Flow Cytometry Data", "UID", "Instrument", "Stain", "FACS data"):
+        # Name + tags come from the curated context (server-rendered). The per-field
+        # metadata (UID, Instrument, Stain) now lives in the real attribute table,
+        # which is fetched client-side and so is not in the server HTML.
+        for expected in ("Flow Cytometry Data", "FACS data"):
             assert expected in body
+
+    @patch("seek.views.catalog.load_sample_type", return_value=FLOW)
+    @patch("seek.decorators.SeekDB")
+    def test_detail_has_context_header_and_attribute_table_scoped_to_type(self, db, _load):
+        from seek.views.catalog import sampleTypeDetail
+
+        db.return_value = _logged_in()
+        body = sampleTypeDetail(_get("/seek/sampletypes/D.FLOW/"), "D.FLOW").content.decode()
+        assert "Flow Cytometry Data" in body          # context header
+        assert 'data-sample-type-id="13"' in body      # attribute table scoped to FLOW
+        assert 'class="cat-chip"' not in body          # lineage is a strip, not chip walls
 
     @patch("seek.views.catalog.load_sample_type", return_value=FLOW)
     @patch("seek.decorators.SeekDB")
