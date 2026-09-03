@@ -67,6 +67,9 @@ class TestSampleTypesList:
         body = resp.content.decode()
         assert body.index("Source") < body.index("Raw")
         assert "D.FLOW" in body and "NHP" in body
+        # Pipeline order is Source, Processed, Raw, Analyzed (one source of truth).
+        from nextseek_api.services.context_catalog import CLADE_ORDER
+        assert CLADE_ORDER == ["Source", "Processed", "Raw", "Analyzed"]
 
     @patch("seek.views.catalog.load_sample_types", return_value=[FLOW])
     @patch("seek.decorators.SeekDB")

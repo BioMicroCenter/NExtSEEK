@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Clade display order. Anything unmapped sorts last rather than being dropped,
 # so an incomplete clade column degrades visibly. Mirrors CLADE_ORDER in
 # sampletype_connections.py, which uses the same four names for the same reason.
-CLADE_ORDER = ["Source", "Raw", "Processed", "Analyzed"]
+CLADE_ORDER = ["Source", "Processed", "Raw", "Analyzed"]
 _CLADE_RANK = {name: index for index, name in enumerate(CLADE_ORDER)}
 UNASSIGNED_CLADE = "Unassigned"
 

@@ -168,7 +168,8 @@ class TestLoadSampleTypes:
             dict(self.ROW, sample_type="NHP", clade="Source"),
             dict(self.ROW, sample_type="D.SEQ", clade="Raw"),
         ]
-        assert [e.code for e in load_sample_types()] == ["NHP", "D.SEQ", "TIS"]
+        # Pipeline order Source, Processed, Raw, Analyzed: Processed before Raw.
+        assert [e.code for e in load_sample_types()] == ["NHP", "TIS", "D.SEQ"]
 
     @patch("nextseek_api.services.context_catalog._sample_type_rows")
     def test_load_sample_type_finds_one_and_returns_none_for_a_stranger(self, rows):
