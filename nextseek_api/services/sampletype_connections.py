@@ -56,10 +56,9 @@ from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 logger = logging.getLogger(__name__)
 
-# Clade order is the pipeline order, and doubles as the SVG's column order.
 # Anything unmapped lands in a trailing "Unassigned" column rather than being
-# dropped, so an incomplete sample_types_clades table degrades visibly.
-CLADE_ORDER = ["Source", "Raw", "Processed", "Analyzed"]
+# dropped, so an incomplete sample_types_clades table degrades visibly. The
+# pipeline clade order itself is CLADE_PIPELINE, defined lower in this module.
 UNASSIGNED_CLADE = "Unassigned"
 UNASSIGNED_COLOR = "#D9D9D9"
 

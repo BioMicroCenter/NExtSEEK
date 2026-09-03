@@ -129,6 +129,21 @@ def _first_code(groups):
     return ""
 
 
+def _all_codes(groups):
+    """Distinct codes across alternation groups, joined for a cell.
+
+    [["TIS", "CEX"], ["AB"]] -> "TIS · CEX · AB". Used for the assay
+    table's Consumes column, which shows the real parent sample types rather
+    than the clade (that is already the group heading).
+    """
+    seen = []
+    for grp in groups or []:
+        for code in grp:
+            if code not in seen:
+                seen.append(code)
+    return " · ".join(seen)
+
+
 @requires_seek_login_redirect('/seek/assays/')
 def assaysList(request):
     """Every curated assay as a table, grouped by the clade it consumes.
@@ -150,7 +165,9 @@ def assaysList(request):
             rows.append({
                 "href": f"/seek/assays/{e.slug}/",
                 "code": produced or "—",
-                "cells": [e.name, name, produced],
+                # Consumes = the real parent sample types. Produces is not a
+                # column: the Code anchor already carries the produced code.
+                "cells": [e.name, _all_codes(first.required_parents)],
                 "filter_text": (e.name + " " + " ".join(r.description or "" for r in e.rows)).lower(),
             })
         groups.append({
@@ -159,7 +176,7 @@ def assaysList(request):
         })
     return render(request, 'assaysList.html', {
         "groups": groups,
-        "columns": ["Assay", "Consumes", "Produces"],
+        "columns": ["Assay", "Consumes"],
         "total": len(entries),
     })
 

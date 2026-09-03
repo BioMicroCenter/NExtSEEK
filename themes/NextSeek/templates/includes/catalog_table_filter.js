@@ -7,7 +7,13 @@
 
   function refreshCount() {
     if (!count) { return; }
-    var visible = rows.filter(function (r) { return !r.hidden; }).length;
+    // A row counts only when it is neither filtered out (hidden) nor inside a
+    // collapsed group, so the tally matches what is actually on screen.
+    var visible = rows.filter(function (r) {
+      if (r.hidden) { return false; }
+      var g = r.closest('[data-group]');
+      return !(g && g.classList.contains('is-collapsed'));
+    }).length;
     count.textContent = visible + (visible === 1 ? ' result' : ' results');
   }
 
@@ -30,7 +36,7 @@
   document.querySelectorAll('[data-group-toggle]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var tb = btn.closest('[data-group]');
-      if (tb) { tb.classList.toggle('is-collapsed'); }
+      if (tb) { tb.classList.toggle('is-collapsed'); refreshCount(); }
     });
   });
 })();

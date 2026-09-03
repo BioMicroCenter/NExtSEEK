@@ -1022,6 +1022,8 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 .dash-row-head { color: var(--ns-muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .dash-row-head:hover { background: none; }
 .dp-name { font-weight: 600; color: var(--ns-body); overflow-wrap: anywhere; }
+.dp-avatar { width: 24px; height: 24px; border-radius: 5px; object-fit: cover; margin-right: 0.5rem; flex: 0 0 auto; }
+.dp-logo a { gap: 0; }
 .dash-projects-head { display: flex; align-items: center; justify-content: space-between; }
 
 /* ---------- Clade accent helpers (one language, catalogs + project pages) ---------- */

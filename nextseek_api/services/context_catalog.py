@@ -27,8 +27,8 @@ from nextseek_api.services.template_catalog import is_deprecated
 logger = logging.getLogger(__name__)
 
 # Clade display order. Anything unmapped sorts last rather than being dropped,
-# so an incomplete clade column degrades visibly. Mirrors CLADE_ORDER in
-# sampletype_connections.py, which uses the same four names for the same reason.
+# so an incomplete clade column degrades visibly. Same pipeline order as
+# CLADE_PIPELINE in sampletype_connections.py (the connection diagram's columns).
 CLADE_ORDER = ["Source", "Processed", "Raw", "Analyzed"]
 _CLADE_RANK = {name: index for index, name in enumerate(CLADE_ORDER)}
 UNASSIGNED_CLADE = "Unassigned"

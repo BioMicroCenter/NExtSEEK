@@ -283,15 +283,46 @@ def signup_seek(request):
 
 
 def _home_projects(request, limit=8):
-    """Up to `limit` projects for the dashboard's project-card strip.
+    """Up to `limit` projects the caller may see, for the dashboard's project
+    strip.
 
-    Fails soft to [] so the dashboard never 500s on a model/DB error, matching
-    the per-block try/except discipline the home view already uses.
+    Scoped to membership exactly like the projects list (seek/views/projects.py):
+    a superuser sees all projects, a member sees only their own, and anyone the
+    scoping can't resolve (anonymous, a SEEK-login failure) sees none. Without
+    this the home page would surface project titles the projects page hides.
+
+    Each card carries the project's SEEK avatar as its logo when one exists.
+    Fails soft to [] so the dashboard never 500s, matching the home view's
+    per-block try/except discipline.
     """
     try:
+        from django.conf import settings as _settings
+        from seek.decorators import verifySuperUser
         from seek.models import Projects
-        rows = Projects.objects.order_by("id").values("id", "title")[:limit]
-        return [{"id": r["id"], "title": r["title"], "logo": None} for r in rows]
+        from seek.seekdb import SeekDB
+
+        if verifySuperUser(request) == 1:
+            qs = Projects.objects.order_by("id").values("id", "title", "avatar_id")
+        else:
+            seekdb = SeekDB(None, None, None)
+            if not seekdb.getSeekLogin(request, False).get("status"):
+                return []
+            data = seekdb.getCurrentUser() or {}
+            ids = [int(p["id"]) for p in
+                   data.get("data", {}).get("relationships", {})
+                       .get("projects", {}).get("data", []) if p.get("id")]
+            if not ids:
+                return []
+            qs = Projects.objects.filter(id__in=ids).order_by("id").values(
+                "id", "title", "avatar_id")
+
+        base = getattr(_settings, "SEEK_PUBLIC_URL", "") or ""
+        out = []
+        for r in list(qs)[:limit]:
+            avatar = r.get("avatar_id")
+            logo = f"{base}/assets/avatar-images/{avatar}-500.png" if avatar and base else None
+            out.append({"id": r["id"], "title": r["title"], "logo": logo})
+        return out
     except Exception:
         return []
 

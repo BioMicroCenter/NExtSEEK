@@ -98,11 +98,8 @@
       {% for p in home_projects %}
         <li class="dp-logo">
           <a href="/seek/projects/{{ p.id }}/" aria-label="{{ p.title }}">
-            {% if p.logo %}
-              <img src="{{ p.logo }}" alt="{{ p.title }}">
-            {% else %}
-              <span class="dp-name">{{ p.title }}</span>
-            {% endif %}
+            {% if p.logo %}<img class="dp-avatar" src="{{ p.logo }}" alt="" onerror="this.style.display='none'">{% endif %}
+            <span class="dp-name">{{ p.title }}</span>
           </a>
         </li>
       {% empty %}
