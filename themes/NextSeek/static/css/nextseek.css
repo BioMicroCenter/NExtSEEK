@@ -11,6 +11,12 @@
     --ns-crimson-soft:     #fdf0f2;
     --ns-crimson-border:   #f3c6ce;
 
+    /* Clade accents — one muted language, catalogs + project pages */
+    --ns-clade-source:     #4a7c59;   --ns-clade-source-tint:    #eef4f0;
+    --ns-clade-processed:  #b5793a;   --ns-clade-processed-tint: #f7efe7;
+    --ns-clade-raw:        #3f6d9e;   --ns-clade-raw-tint:       #eaf0f6;
+    --ns-clade-analyzed:   #6b5b95;   --ns-clade-analyzed-tint:  #f0edf5;
+
     /* Neutrals — direction C: cool off-whites, no warm beige */
     --ns-bg:               #ffffff;
     --ns-white:            #ffffff;
@@ -1017,6 +1023,19 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 .dash-row-head:hover { background: none; }
 .dp-name { font-weight: 600; color: var(--ns-body); overflow-wrap: anywhere; }
 .dash-projects-head { display: flex; align-items: center; justify-content: space-between; }
+
+/* ---------- Clade accent helpers (one language, catalogs + project pages) ---------- */
+.clade-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.4rem; vertical-align: middle; }
+.clade-accent--source    { border-left: 3px solid var(--ns-clade-source); }
+.clade-accent--processed { border-left: 3px solid var(--ns-clade-processed); }
+.clade-accent--raw       { border-left: 3px solid var(--ns-clade-raw); }
+.clade-accent--analyzed  { border-left: 3px solid var(--ns-clade-analyzed); }
+.clade-accent--unassigned { border-left: 3px solid var(--ns-border); }
+.clade-dot--source    { background: var(--ns-clade-source); }
+.clade-dot--processed { background: var(--ns-clade-processed); }
+.clade-dot--raw       { background: var(--ns-clade-raw); }
+.clade-dot--analyzed  { background: var(--ns-clade-analyzed); }
+.clade-dot--unassigned { background: var(--ns-muted); }
 
 /* ================================================
    Sidebar header with BMC lockup
