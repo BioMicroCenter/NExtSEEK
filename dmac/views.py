@@ -282,6 +282,20 @@ def signup_seek(request):
 
 
 
+def _home_projects(request, limit=8):
+    """Up to `limit` projects for the dashboard's project-card strip.
+
+    Fails soft to [] so the dashboard never 500s on a model/DB error, matching
+    the per-block try/except discipline the home view already uses.
+    """
+    try:
+        from seek.models import Projects
+        rows = Projects.objects.order_by("id").values("id", "title")[:limit]
+        return [{"id": r["id"], "title": r["title"], "logo": None} for r in rows]
+    except Exception:
+        return []
+
+
 def home(request):
     """
     Home dashboard. Passes counts + a 'recent samples' list to
@@ -299,6 +313,7 @@ def home(request):
         "data_files_delta_week": 0,
         "projects_user_count": 0,  # v1: not yet wired — needs User<->People<->Projects bridge
         "recent_samples": [],
+        "home_projects": _home_projects(request),
     }
 
     week_ago = timezone.now() - timedelta(days=7)

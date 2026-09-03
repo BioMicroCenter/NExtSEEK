@@ -1010,6 +1010,14 @@ body.sidebar-open .sidebar-scrim { display: block; }
 .nessie-btn__logo { width: 24px; height: 24px; flex: 0 0 auto; border-radius: 50%; }
 .nessie-btn__label { line-height: 1; }
 
+/* ---------- Home dashboard: clickable tiles, list header, project cards ---------- */
+a.dash-tile { text-decoration: none; color: inherit; display: block; transition: background var(--ns-transition); }
+a.dash-tile:hover { background: var(--ns-sidebar-hover); }
+.dash-row-head { color: var(--ns-muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.dash-row-head:hover { background: none; }
+.dp-name { font-weight: 600; color: var(--ns-body); }
+.dash-projects-head { display: flex; align-items: center; justify-content: space-between; }
+
 /* ================================================
    Sidebar header with BMC lockup
    ================================================ */
