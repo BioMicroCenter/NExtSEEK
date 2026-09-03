@@ -1,0 +1,104 @@
+# Every file in the boundary (all 50 were opened)
+scripts/attribute_api_test.sh
+scripts/attribute_pytest_reporter.py
+scripts/dump_routes.py
+scripts/freeze_attribute_baseline.py
+scripts/generate_assay_context_seed.py
+scripts/nessie
+scripts/plan018_lane_m_mysql.sh
+scripts/plan018_v4_2_verifier.py
+scripts/plan018_v4_3_verifier.py
+scripts/plan018_v4_4_verifier.py
+scripts/plan018_v4_5_verifier.py
+scripts/plan018_v4_6_verifier.py
+scripts/plan018_v4_7_verifier.py
+scripts/plan018_v4_8_verifier.py
+scripts/plan018_v4_9_functional_e2e.py
+scripts/plan018_v4_9_global_coverage.py
+scripts/plan018_v4_9_owned_surface.py
+scripts/plan018_v4_9_task2_coverage.py
+scripts/plan018_v4_9_task3_coverage.py
+scripts/plan018_v4_9_task4_coverage.py
+scripts/plan018_v4_9_task5_mutation.py
+scripts/plan018_v4_9_task6_replay.py
+scripts/plan018_v4_9_task7_recovery.py
+scripts/plan018_v4_9_task8_coverage.py
+scripts/plan018_v4_9_task8_deploy.py
+scripts/plan018_v4_9_task9_verifier.py
+scripts/plan018_verifier_support.py
+scripts/post_uv_sync.sh
+scripts/run_attribute_coverage.py
+scripts/run_attribute_mutants.py
+scripts/run_tests.sh
+scripts/seed_issue_labels.sh
+scripts/select_attribute_chunk_defaults.py
+scripts/select_attribute_evidence.py
+scripts/test_batch_upload_e2e.py
+scripts/test_plan018_v4_9_global_coverage.py
+scripts/test_plan018_v4_9_owned_surface.py
+scripts/test_plan018_v4_9_task2_coverage.py
+scripts/test_plan018_v4_9_task3_coverage.py
+scripts/test_plan018_v4_9_task4_coverage.py
+scripts/test_plan018_v4_9_task5_mutation.py
+scripts/test_plan018_v4_9_task6_replay.py
+scripts/test_plan018_v4_9_task7_recovery.py
+scripts/test_plan018_v4_9_task8_coverage.py
+scripts/test_plan018_v4_9_task8_deploy.py
+scripts/test_plan018_v4_9_task9_verifier.py
+scripts/test_plan018_verifier_support.py
+scripts/validate_attribute_api_evidence.py
+scripts/validate_issue.py
+scripts/validate_viewset_conventions.py
+
+# Repo configuration and packaging read while establishing what runs
+pyproject.toml
+Dockerfile
+.dockerignore
+.gitignore
+docker-compose.yml
+
+# The lane that collects this directory, and its baseline
+.github/workflows/ci-pytest.yml
+.github/workflows/ci-smoke.yml
+ci/pytest-baseline.txt
+ci/README.md
+ci/gate/live_routes.py
+
+# Settings imported by the container lane
+dmac/settings.py
+
+# Consumers outside the boundary
+nextseek_api/tests/test_attribute_api_harness.py
+nextseek_api/tests/test_attribute_api_db_lane.py
+nextseek_api/tests/test_viewset_conventions.py
+nextseek_api/tests/test_viewset_conventions_schema.py
+nextseek_api/assay_registration/tests/test_views.py
+nextseek_api/cc_assistant/tests/test_issue_conventions_guard.py
+nextseek_api/cc_assistant/tests/test_validate_issue.py
+nextseek_api/batch_upload/README.md
+.claude/skills/nextseek-viewset/SKILL.md
+docs/ISSUE-CONVENTIONS.md
+docs/superpowers/plans/2026-09-01-ci-increment-1-skeleton-and-safety.md
+
+# Committed state these programs read and write
+evidence/plan018-migration-leaf.json
+evidence/plan018-v4-9-owned-surface.json
+evidence/plan018-v4-5-realstore.sidecar.json
+startup/seed/sql/assay_context.sql
+startup/dev/lane_local_settings.py
+startup/dev/run_full_test_lane.sh
+
+# Migration graph the verifiers pin
+nextseek_api/migrations/0019_merge_attribute_async_turn_ledger.py
+nextseek_api/migrations/0020_assayregistrationjob.py
+
+# Other directories called scripts, checked for name collisions
+docker/scripts/entrypoint.sh
+docker/README.md
+nessie_tests/README.md
+
+# Prose-only consumer of the Plan 018 family
+nextseek_api/eval/README.md
+
+# Prose consumer naming the test wrapper
+nextseek_api/README.md
