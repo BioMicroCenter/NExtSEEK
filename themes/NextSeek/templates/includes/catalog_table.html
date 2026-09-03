@@ -1,0 +1,36 @@
+{% comment %}
+Shared read-only catalog list table. Consumed by sampleTypesList.html and
+assaysList.html. Context:
+  columns  : list of column header strings (after the leading Code column)
+  groups   : [{clade, clade_slug, rows, collapsed?}]
+             row = {href, code, cells (list, same length as columns), filter_text}
+Hooks for the page's filter JS: [data-cat-filter], [data-cat-count], [data-filter].
+{% endcomment %}
+<div class="cat-toolbar">
+  <input type="search" class="cat-search" data-cat-filter
+         placeholder="Search&hellip;" autocomplete="off" aria-label="Filter">
+  <span class="cat-count" data-cat-count></span>
+</div>
+<table class="cat-table">
+  {% for group in groups %}
+  <tbody data-group class="clade-accent--{{ group.clade_slug }}{% if group.collapsed %} is-collapsed{% endif %}">
+    <tr class="cat-group-row">
+      <th colspan="{{ columns|length|add:1 }}">
+        <button type="button" class="cat-group-toggle" data-group-toggle>
+          <span class="clade-dot clade-dot--{{ group.clade_slug }}"></span>{{ group.clade }}
+          <span class="cat-group-n">{{ group.rows|length }}</span>
+        </button>
+      </th>
+    </tr>
+    <tr class="cat-head-row">
+      <th>Code</th>{% for c in columns %}<th>{{ c }}</th>{% endfor %}
+    </tr>
+    {% for row in group.rows %}
+    <tr class="cat-row" data-filter="{{ row.filter_text }}">
+      <td class="cat-code"><a href="{{ row.href }}"><code>{{ row.code }}</code></a></td>
+      {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% endfor %}
+</table>

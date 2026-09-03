@@ -20,3 +20,28 @@ class TestCladeTokens:
         css = _css()
         assert ".clade-dot" in css
         assert ".clade-accent--source" in css
+
+
+def _table_ctx():
+    return {
+        "columns": ["Name", "# attrs", "Samples"],
+        "groups": [{
+            "clade": "Source", "clade_slug": "source",
+            "rows": [{"href": "/seek/sampletypes/NHP/", "code": "NHP",
+                      "cells": ["Non-Human Primate", "18", "706"],
+                      "filter_text": "nhp non-human primate"}],
+        }],
+    }
+
+
+class TestCatalogTablePartial:
+    def test_renders_a_table_with_the_code_anchor_and_no_chips(self):
+        html = render_to_string("includes/catalog_table.html", _table_ctx())
+        assert "cat-table" in html
+        assert ">NHP<" in html
+        assert 'href="/seek/sampletypes/NHP/"' in html
+        assert "cat-chip" not in html          # chips retired
+
+    def test_group_header_carries_a_clade_accent(self):
+        html = render_to_string("includes/catalog_table.html", _table_ctx())
+        assert "clade-accent--source" in html or "clade-dot--source" in html
