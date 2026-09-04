@@ -804,8 +804,29 @@ var cy=cytoscape({{container:document.getElementById('cy'),elements:els,
     'line-color':'#A31F34','target-arrow-color':'#A31F34'}}}}
  ],
  layout:{{name:'dagre',rankDir:'TB',rankSep:85,nodeSep:45,edgeSep:18,padding:30,animate:false}},
- minZoom:0.2,maxZoom:3,wheelSensitivity:0.3}});
+ minZoom:0.2,maxZoom:3,wheelSensitivity:0.3,
+ // Cytoscape draws to a <canvas>, so the diagram is a RASTER however vector the
+ // data is. pixelRatio is read once at construction and defaults to the
+ // devicePixelRatio at that moment, which is why the graph goes soft the moment
+ // anything magnifies it. Rendering at 2x and letting the browser downsample
+ // costs a little memory on a graph this size and nothing else.
+ pixelRatio:2}});
 var dp=document.getElementById('dp');
+// Browser zoom (ctrl +) changes devicePixelRatio, and Cytoscape does not watch
+// for it -- the existing canvas is simply magnified, which is the blur. There is
+// no devicePixelRatio event, so the idiom is a matchMedia query on the CURRENT
+// ratio: it stops matching the instant the ratio changes, fires once, and has to
+// be re-armed at the new value. cy.resize() re-rasterises at that new ratio.
+(function(){{
+  function watchRatio(){{
+    var mq=window.matchMedia('(resolution: '+window.devicePixelRatio+'dppx)');
+    function onChange(){{ cy.resize(); watchRatio(); }}
+    if(mq.addEventListener){{ mq.addEventListener('change',onChange,{{once:true}}); }}
+    else if(mq.addListener){{ mq.addListener(onChange); }}
+  }}
+  try{{ watchRatio(); }}catch(e){{ /* no matchMedia: the diagram still works */ }}
+  window.addEventListener('resize',function(){{ cy.resize(); }});
+}})();
 function esc(s){{return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
 cy.on('tap','node',function(e){{var d=e.target.data();
   dp.innerHTML='<b>'+esc(d.id)+'</b>clade: '+esc(d.clade)
