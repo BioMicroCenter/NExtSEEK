@@ -90,7 +90,7 @@ from nextseek_api.assistant.granular import OpValidationError, run_op
 from nextseek_api.assistant.write_gate import WriteBlockedError, build_gate, load_allowlist
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.debug_projection import bundle_debug_entries
-from nextseek_api.assistant.excel_export import extract_table_artifacts
+from nextseek_api.assistant.excel_export import build_artifacts
 from rest_framework.authentication import (
     BasicAuthentication,
     SessionAuthentication,
@@ -603,7 +603,7 @@ class AssistantViewSet(viewsets.ViewSet):
                         or (bundle.get("terminal_reply") or bundle.get("reply") if bundle else None)
                         or entry.get("assistant_reply_preview", "")
                     ) or ""
-                    artifacts = entry.get("artifacts") or (extract_table_artifacts(bundle) if bundle else None)
+                    artifacts = entry.get("artifacts") or (build_artifacts(bundle) if bundle else None)
                     turns.append(
                         Turn(
                             bundle_id=bid if bid is not None else 0,
@@ -625,7 +625,7 @@ class AssistantViewSet(viewsets.ViewSet):
                         reply=b.get("terminal_reply") or b.get("reply") or "",
                         mode=b.get("mode", ""),
                         ts=b.get("ts"),
-                        artifacts=(extract_table_artifacts(b) or None),
+                        artifacts=(build_artifacts(b) or None),
                         debug_entries=bundle_debug_entries(b) or None,
                     ).model_dump(mode="json")
                     for b in history
@@ -1072,6 +1072,34 @@ class AssistantViewSet(viewsets.ViewSet):
             return _error_response("Not found", f"Bundle {bundle_id} not found.", status.HTTP_404_NOT_FOUND)
 
         xlsx_content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+        # --- Serve any file the run registered, whatever route produced it ---
+        # ``files`` is the normalized manifest every orchestrator route writes
+        # (chat_nextseek.artifacts.build_file_manifest_entry), carrying the path,
+        # the display filename and the mime. Resolving it here is what makes the
+        # non-reporter routes downloadable at all: ``report_saved_files`` below
+        # is populated only by the reporter and generate-submission routes, so
+        # without this branch a search's "Full API result JSON" has no address.
+        for entry in bundle.get("files") or []:
+            if not isinstance(entry, dict) or entry.get("key") != artifact_key:
+                continue
+            filepath = _safe_artifact_path(entry.get("path"))
+            if filepath is None:
+                return _error_response(
+                    "Forbidden", "File path not within allowed artifact directory.",
+                    status.HTTP_403_FORBIDDEN,
+                )
+            if not filepath.is_file():
+                return _error_response(
+                    "Not found", f"File for artifact '{artifact_key}' is no longer on disk.",
+                    status.HTTP_404_NOT_FOUND,
+                )
+            return FileResponse(
+                filepath.open("rb"),
+                content_type=entry.get("mime") or "application/octet-stream",
+                as_attachment=True,
+                filename=entry.get("filename") or filepath.name,
+            )
 
         # --- Serve GEO workbook from disk ---
         if artifact_key == "geo_seq_workbooks":

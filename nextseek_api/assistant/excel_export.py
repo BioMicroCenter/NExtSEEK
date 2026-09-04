@@ -340,28 +340,61 @@ def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
                     artifact["rows_returned"] = rows_returned
                 artifacts.append(artifact)
 
-    # File artifacts from saved files
-    saved = bundle.get("report_saved_files") or {}
-    if "geo_seq_workbooks" in saved:
-        workbooks = saved["geo_seq_workbooks"]
-        if isinstance(workbooks, list) and len(workbooks) > 0:
-            artifacts.append({
-                "artifact_type": "file",
-                "key": "geo_seq_workbooks",
-                "label": "GEO Submission Workbook",
-                "file_format": "xlsx",
-            })
+    return artifacts
 
-    # PRIDE submission files (submission.px manifest + optional SDRF tsv). Both
-    # are served from disk by the download endpoint; PRIDE has no fillable
-    # spreadsheet, so these are the canonical uploadable artifacts.
-    pride_file_artifacts = [
-        ("pride_submission_px", "PRIDE submission.px", "px"),
-        ("pride_sdrf", "PRIDE SDRF (experimental design)", "tsv"),
-    ]
-    for key, label, fmt in pride_file_artifacts:
+
+#: File kinds that exist to explain a run, not to be handed to the user.
+#: Deliberately a denylist: the defect this module is fixing is files that were
+#: written and never surfaced, so an output kind nobody thought to register here
+#: must default to *visible*. A needless button is a smaller failure than a file
+#: the user never learns exists.
+_INTERNAL_FILE_KINDS = frozenset({"graph", "memory"})
+
+#: Legacy fallback for bundles written before every route populated ``files``
+#: (and for `generate-submission`, which still only fills report_saved_files).
+_LEGACY_FILE_ARTIFACTS: tuple[tuple[str, str, str], ...] = (
+    ("geo_seq_workbooks", "GEO Submission Workbook", "xlsx"),
+    ("pride_submission_px", "PRIDE submission.px", "px"),
+    ("pride_sdrf", "PRIDE SDRF (experimental design)", "tsv"),
+)
+
+
+def build_file_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    """One download entry per user-facing file the run registered, any mode.
+
+    Reads ``bundle["files"]``, the normalized manifest that
+    ``chat_nextseek.artifacts.build_file_manifest_entry`` writes for every
+    route (and only writes when the path exists on disk). Before this, file
+    artifacts came from ``report_saved_files``, which only the reporter and
+    generate-submission routes populate, so a search's 510 KB "Full API result
+    JSON" and every other route's outputs were unreachable.
+
+    The returned dicts carry exactly the four keys ``ArtifactFile`` allows.
+    That model is ``extra="forbid"`` here *and* in the Container-CC shim, where
+    an unexpected key fails the client with exit 4.
+    """
+    artifacts: list[dict[str, Any]] = []
+
+    for entry in bundle.get("files") or []:
+        if not isinstance(entry, dict) or entry.get("kind") in _INTERNAL_FILE_KINDS:
+            continue
+        key = entry.get("key")
+        if not key:
+            continue
+        artifacts.append({
+            "artifact_type": "file",
+            "key": key,
+            "label": entry.get("label") or key.replace("_", " "),
+            "file_format": Path(entry.get("filename") or "").suffix.lstrip(".") or "bin",
+        })
+
+    if artifacts:
+        return artifacts
+
+    saved = bundle.get("report_saved_files") or {}
+    for key, label, fmt in _LEGACY_FILE_ARTIFACTS:
         files = saved.get(key)
-        if isinstance(files, list) and len(files) > 0:
+        if isinstance(files, list) and files:
             artifacts.append({
                 "artifact_type": "file",
                 "key": key,
@@ -370,6 +403,14 @@ def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
             })
 
     return artifacts
+
+
+def build_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    """Everything a turn should show: inline tables plus downloadable files.
+
+    The single entry point the orchestrator calls on every route.
+    """
+    return extract_table_artifacts(bundle) + build_file_artifacts(bundle)
 
 
 def generate_table_xlsx(tables: list[dict[str, Any]]) -> bytes:

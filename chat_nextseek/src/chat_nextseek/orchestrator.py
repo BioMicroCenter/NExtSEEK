@@ -241,6 +241,26 @@ def _identity_gate(
     return config, None
 
 
+def _artifacts_for(bundle: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    """Tables and downloadable files for a finished turn, or None.
+
+    Every route registers its outputs in ``bundle["files"]`` but only the
+    reporter branch ever passed artifacts to the UI, so a search's "Full API
+    result JSON" was written to disk and never offered. The import is lazy and
+    guarded because ``nextseek_api`` is the host application: this package is
+    vendored and also runs standalone, where a missing artifact list is a
+    degraded turn rather than a failed one.
+    """
+    if not bundle:
+        return None
+    try:
+        from nextseek_api.assistant.excel_export import build_artifacts
+
+        return build_artifacts(bundle) or None
+    except Exception:
+        return None
+
+
 def _emit_query_complete(
     send_event: SendEvent | None,
     reply: str,
@@ -511,7 +531,10 @@ def _execute_graph_turn(
         result_payload=graph_result, assistant_reply=reply, bundle_id=bundle_id,
     )
     print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
-    return _emit_query_complete(send_event, reply, debug_payload, bundle_id, files=result_files or None)
+    return _emit_query_complete(
+        send_event, reply, debug_payload, bundle_id,
+        artifacts=_artifacts_for(bundle), files=result_files or None,
+    )
 
 
 BUNDLE_SEQ_KEY = "bundle_seq"
@@ -1009,9 +1032,9 @@ def run_query(
 
             artifacts: list[dict[str, Any]] | None = None
             try:
-                from nextseek_api.assistant.excel_export import extract_table_artifacts
+                from nextseek_api.assistant.excel_export import build_artifacts
 
-                artifacts = extract_table_artifacts(bundle)
+                artifacts = build_artifacts(bundle)
             except Exception:
                 artifacts = None
 
@@ -1338,7 +1361,10 @@ def run_query(
                 bundle_id=bundle_id,
             )
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
-            return _emit_query_complete(send_event, answer, debug_payload, bundle_id, files=result_files or None)
+            return _emit_query_complete(
+                send_event, answer, debug_payload, bundle_id,
+                artifacts=_artifacts_for(bundle), files=result_files or None,
+            )
 
         reply = (
             f"The parser returned an unexpected mode={mode!r}. "
@@ -1835,7 +1861,10 @@ def run_query_plan(
         )
 
         print(f"[TIMING][TOTAL][PLAN] {time.perf_counter() - _t_total_start:.2f}s")
-        return _emit_query_complete(send_event, reply, debug_payload, bundle_id, files=result_files or None)
+        return _emit_query_complete(
+            send_event, reply, debug_payload, bundle_id,
+            artifacts=_artifacts_for(bundle), files=result_files or None,
+        )
 
     except LLMFatalError as fatal:
         agent = getattr(fatal, "agent", None) or "unknown"

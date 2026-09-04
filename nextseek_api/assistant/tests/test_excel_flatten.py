@@ -12,6 +12,7 @@ import openpyxl
 
 from nextseek_api.assistant.excel_export import (
     _flatten_cell,
+    build_artifacts,
     extract_table_artifacts,
     generate_table_xlsx,
 )
@@ -76,6 +77,6 @@ def test_extract_artifacts_includes_pride_file_downloads():
             "pride_sdrf": ["/tmp/x/PRIDE.sdrf.tsv"],
         },
     }
-    by_key = {a.get("key"): a for a in extract_table_artifacts(bundle)}
+    by_key = {a.get("key"): a for a in build_artifacts(bundle)}
     assert by_key.get("pride_submission_px", {}).get("artifact_type") == "file"
     assert by_key.get("pride_sdrf", {}).get("artifact_type") == "file"

@@ -5,6 +5,7 @@ import openpyxl
 from django.test import SimpleTestCase
 
 from nextseek_api.assistant.excel_export import (
+    build_artifacts,
     extract_table_artifacts,
     generate_table_xlsx,
     generate_search_xlsx,
@@ -69,7 +70,7 @@ class ExtractTableArtifactsTests(SimpleTestCase):
             },
             "report_saved_files": {"geo_seq_workbooks": ["/tmp/geo_workbook.xlsx"]},
         }
-        artifacts = extract_table_artifacts(bundle)
+        artifacts = build_artifacts(bundle)
         file_artifacts = [a for a in artifacts if a["artifact_type"] == "file"]
         self.assertEqual(len(file_artifacts), 1)
         self.assertEqual(file_artifacts[0]["key"], "geo_seq_workbooks")
