@@ -4,10 +4,12 @@ summary it reads back from the suite's junit file. No subprocess, no stack.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from startup.ci import runner
+from startup.ci import runner as ci_runner
 from startup.lib.instance import InstanceState
 
 
@@ -100,3 +102,81 @@ def test_format_summary_leads_with_failures_and_omits_zero_counts() -> None:
     s = runner.Summary(passed=200, failed=3, errors=1, skipped=0, xfailed=0,
                        seconds=61.0, readiness_seconds=None)
     assert runner.format_summary(s) == "3 failed, 1 error, 200 passed in 1:01"
+
+
+# --------------------------------------------------------------------------- #
+# the markdown run record
+# --------------------------------------------------------------------------- #
+
+_JUNIT_ONE_OF_EACH = """<testsuites><testsuite name="p" time="12.5">
+  <testcase name="test_ok"/>
+  <testcase name="test_bad"><failure message="AssertionError: nope"/></testcase>
+  <testcase name="test_skip"><skipped message="needs a stack"/></testcase>
+  <testcase name="test_known"><skipped type="pytest.xfail" message="known defect"/></testcase>
+</testsuite></testsuites>"""
+
+
+def _junit(tmp_path, xml=_JUNIT_ONE_OF_EACH):
+    path = ci_runner.junit_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(xml)
+    return path
+
+
+def test_report_is_named_for_the_label_with_the_colon_made_safe(tmp_path):
+    """A rollback tag is the natural key and is not a legal-looking filename."""
+    _junit(tmp_path)
+    p = ci_runner.write_report(tmp_path, label="nextseek-nextseek:pre-20260904T091653-614b9ac1")
+    assert p is not None
+    assert p.name == "nextseek-nextseek-pre-20260904T091653-614b9ac1.md"
+    assert p.parent == ci_runner.reports_dir(tmp_path)
+
+
+def test_report_records_every_outcome_class_and_the_identity(tmp_path):
+    _junit(tmp_path)
+    p = ci_runner.write_report(tmp_path, label="run", image_ref="img:tag",
+                               image_id="sha256:abc", profile="dev")
+    body = p.read_text()
+    assert "img:tag" in body and "sha256:abc" in body and "`dev`" in body
+    assert "test_bad" in body and "AssertionError: nope" in body
+    assert "test_skip" in body and "test_known" in body
+    # Counts come from the junit, not from prose.
+    assert "| passed | 1 |" in body
+    assert "| failed | 1 |" in body
+    assert "| xfailed | 1 |" in body
+
+
+def test_no_junit_means_no_report_rather_than_an_empty_one(tmp_path):
+    """A run that never produced a report has nothing to record."""
+    assert ci_runner.write_report(tmp_path, label="run") is None
+    assert not ci_runner.reports_dir(tmp_path).exists()
+
+
+def test_records_accumulate_rather_than_overwrite(tmp_path):
+    """The junit file is one slot; these are the history it does not keep."""
+    _junit(tmp_path)
+    ci_runner.write_report(tmp_path, label="first")
+    ci_runner.write_report(tmp_path, label="second")
+    names = sorted(p.name for p in ci_runner.reports_dir(tmp_path).glob("*.md"))
+    assert names == ["first.md", "second.md"]
+
+
+def test_a_missing_label_falls_back_to_the_image_and_a_timestamp(tmp_path):
+    _junit(tmp_path)
+    p = ci_runner.write_report(tmp_path, image_ref="nextseek-nextseek:latest")
+    assert p.name.startswith("nextseek-nextseek-latest-")
+    assert p.name.endswith(".md")
+
+
+def test_running_image_survives_a_stub_without_stdout(tmp_path, monkeypatch):
+    """Identity is decoration; it must never raise out of a finished CI run."""
+    monkeypatch.setattr(ci_runner.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(returncode=0))
+    assert ci_runner.running_image() == (None, None)
+
+
+def test_running_image_survives_no_docker_at_all(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("no docker here")
+    monkeypatch.setattr(ci_runner.subprocess, "run", boom)
+    assert ci_runner.running_image() == (None, None)

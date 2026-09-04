@@ -482,6 +482,18 @@ def test_dump_db_runs_both_dump_scripts(mock_run: MagicMock, repo: Path) -> None
 # playwright environment and must never grow one.
 # ---------------------------------------------------------------------------
 
+def _suite_call(calls: list[SimpleNamespace]) -> SimpleNamespace:
+    """The one call that invoked the suite. Fails loudly if there is not exactly one.
+
+    The shim makes other subprocess calls now (`docker inspect`, to name its CI
+    record), so indexing calls[0] would pin the test to their ORDER. What matters
+    is that the suite is invoked once, with the right argv.
+    """
+    suite = [c for c in calls if "pytest" in c.cmd]
+    assert len(suite) == 1, f"expected one suite invocation, got {len(suite)}: {calls}"
+    return suite[0]
+
+
 def _record_ci_subprocess(
     monkeypatch: pytest.MonkeyPatch, returncode: int = 0, junit_xml: str | None = None,
 ) -> list[SimpleNamespace]:
@@ -494,8 +506,13 @@ def _record_ci_subprocess(
 
     def fake_run(cmd, cwd=None, env=None, **kwargs):
         calls.append(SimpleNamespace(cmd=list(cmd), cwd=cwd, env=dict(env or {})))
-        if junit_xml is not None:
-            target = next(a[len("--junitxml="):] for a in cmd if a.startswith("--junitxml="))
+        # Only the suite invocation carries --junitxml. The shim also asks docker
+        # for the running image so it can name its markdown record, and that call
+        # writes no report -- so look for the flag rather than assume every
+        # subprocess is the suite.
+        target = next((a[len("--junitxml="):] for a in cmd
+                       if str(a).startswith("--junitxml=")), None)
+        if junit_xml is not None and target is not None:
             Path(target).parent.mkdir(parents=True, exist_ok=True)
             Path(target).write_text(junit_xml)
         return SimpleNamespace(returncode=returncode)
@@ -519,8 +536,7 @@ def test_ci_builds_the_expected_argv_and_env(
     result = runner.invoke(cli.app, ["ci"])
 
     assert result.exit_code == 0, result.output
-    assert len(calls) == 1
-    call = calls[0]
+    call = _suite_call(calls)
     assert call.cmd == [
         "uv", "run", "--no-project",
         "--with", "pytest", "--with", "requests", "--with", "playwright",

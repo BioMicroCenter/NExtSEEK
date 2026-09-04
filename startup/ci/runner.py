@@ -6,7 +6,9 @@ importing the suite would drag requests and playwright into it.
 """
 from __future__ import annotations
 
+import datetime
 import os
+import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -17,6 +19,12 @@ from startup.lib.instance import InstanceState
 
 
 JUNIT_NAME = ".ci-last-run.xml"
+
+# Markdown run records, one file per run, keyed on the image identity. Unlike
+# the junit file above -- which is a single slot overwritten every run -- these
+# accumulate, so "what did CI say the last time we shipped this image" has an
+# answer after the next run has already happened.
+REPORTS_DIRNAME = "ci-reports"
 
 
 def junit_path(repo_root: Path) -> Path:
@@ -79,6 +87,138 @@ def run_ci(repo_root: Path, state: InstanceState, *, wait_ready: bool,
         print("cannot run CI: 'uv' is not on PATH. Install it (see DEPLOYMENT.md) "
               "or rerun with --no-ci.", file=sys.stderr)
         return 127
+
+
+def reports_dir(repo_root: Path) -> Path:
+    return repo_root / "startup" / REPORTS_DIRNAME
+
+
+def _safe_name(text: str) -> str:
+    """A tag as a filename. `:` and `/` are legal on Linux but hostile in a path."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", text).strip("-") or "ci-run"
+
+
+def running_image(container: str = "nextseek") -> tuple[str | None, str | None]:
+    """(image ref, image id) of a running container, or (None, None).
+
+    Soft on every failure: no docker, no container, or a malformed answer costs
+    the report its identity line, never the CI run's exit code.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.Config.Image}}\t{{.Image}}", container],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+    # getattr, not attribute access: this module's own tests stub subprocess.run
+    # with a namespace carrying only `returncode`, and more to the point an
+    # identity line is decoration -- it must never be the thing that raises out
+    # of a CI run that has already finished.
+    if getattr(result, "returncode", 1) != 0:
+        return None, None
+    parts = str(getattr(result, "stdout", "") or "").strip().split("\t")
+    if len(parts) != 2 or not parts[0]:
+        return None, None
+    return parts[0], parts[1]
+
+
+def _outcomes(path: Path) -> list[tuple[str, str, str]]:
+    """(kind, test id, first line of the message) for everything that is not a pass."""
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return []
+    suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+    out: list[tuple[str, str, str]] = []
+    for suite in suites:
+        for case in suite.iter("testcase"):
+            name = case.get("name") or "?"
+            for kind, tag in (("FAILED", "failure"), ("ERROR", "error")):
+                node = case.find(tag)
+                if node is not None:
+                    msg = (node.get("message") or "").strip().splitlines()
+                    out.append((kind, name, msg[0] if msg else ""))
+                    break
+            else:
+                skip = case.find("skipped")
+                if skip is not None:
+                    kind = "XFAIL" if skip.get("type") == "pytest.xfail" else "SKIPPED"
+                    msg = (skip.get("message") or "").strip().splitlines()
+                    out.append((kind, name, msg[0] if msg else ""))
+    return out
+
+
+def write_report(repo_root: Path, *, label: str | None = None,
+                 image_ref: str | None = None, image_id: str | None = None,
+                 profile: str | None = None, command: list[str] | None = None,
+                 now: datetime.datetime | None = None) -> Path | None:
+    """Write one markdown record of the run the junit file describes.
+
+    `label` names the file. A rebuild passes its rollback tag, which ties the
+    record to the deploy that produced it; a standalone `startup ci` has no tag,
+    so the running image's ref plus a timestamp is used instead.
+
+    Returns the path written, or None when there is no usable junit report --
+    a run that never produced one (an unreachable stack, a refused profile) has
+    nothing to record, and inventing a file for it would be worse than silence.
+
+    Soft throughout: this is a record of the run, never a gate on it. Any failure
+    to write returns None rather than changing what CI decided.
+    """
+    summary = summarize_junit(junit_path(repo_root))
+    if summary is None:
+        return None
+
+    stamp = now or datetime.datetime.now()
+    if not label:
+        base = image_ref or "nextseek"
+        label = f"{base}-{stamp.strftime('%Y%m%dT%H%M%S')}"
+
+    lines = [
+        f"# CI run — {label}",
+        "",
+        f"- **When:** {stamp.strftime('%Y-%m-%d %H:%M:%S')}",
+    ]
+    if image_ref:
+        lines.append(f"- **Image:** `{image_ref}`")
+    if image_id:
+        lines.append(f"- **Image ID:** `{image_id}`")
+    if profile:
+        lines.append(f"- **Profile:** `{profile}`")
+    lines += [
+        f"- **Result:** {format_summary(summary)}",
+        "",
+        "| | count |",
+        "|---|---|",
+        f"| passed | {summary.passed} |",
+        f"| failed | {summary.failed} |",
+        f"| errors | {summary.errors} |",
+        f"| skipped | {summary.skipped} |",
+        f"| xfailed | {summary.xfailed} |",
+        "",
+    ]
+
+    outcomes = _outcomes(junit_path(repo_root))
+    for kind, heading in (("FAILED", "Failures"), ("ERROR", "Errors"),
+                          ("SKIPPED", "Skipped"), ("XFAIL", "Expected failures")):
+        rows = [(n, m) for k, n, m in outcomes if k == kind]
+        if not rows:
+            continue
+        lines += [f"## {heading}", ""]
+        lines += [f"- `{n}`" + (f" — {m}" if m else "") for n, m in rows]
+        lines.append("")
+
+    if command:
+        lines += ["## Command", "", "```", " ".join(command), "```", ""]
+
+    path = reports_dir(repo_root) / f"{_safe_name(label)}.md"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(lines), encoding="utf-8")
+    except OSError:
+        return None
+    return path
 
 
 @dataclass(frozen=True)

@@ -645,6 +645,18 @@ def rebuild(
                        wait_ready=True)
             rc = runner.run_ci(REPO_ROOT, state, wait_ready=True)
             outcome = _ci_outcome(rc)
+            # One markdown record per run, named for the rollback tag this deploy
+            # created, so a CI result can be tied back to the exact deploy that
+            # produced it after the next run has overwritten the junit slot.
+            image_ref, image_id = runner.running_image()
+            record = runner.write_report(
+                REPO_ROOT,
+                label=prepared[0].tag if prepared else None,
+                image_ref=image_ref, image_id=image_id,
+                profile=state.ci_profile,
+            )
+            if record is not None:
+                ui.info(f"CI record: {record}")
             if rc != 0:
                 # The rebuild already happened and CI does not undo it. Report and
                 # exit non-zero; never auto-roll-back, which is a larger and more
@@ -780,6 +792,13 @@ def ci(
                        profile=profile, force_profile=force_profile,
                        confirm_force=confirm_force)
     outcome = _ci_outcome(rc)
+    # No rollback tag here: this command does not build anything, so the record
+    # is keyed on the image actually under test plus the time it was tested.
+    image_ref, image_id = runner.running_image()
+    record = runner.write_report(REPO_ROOT, image_ref=image_ref, image_id=image_id,
+                                 profile=state.ci_profile, command=cmd)
+    if record is not None:
+        ui.info(f"CI record: {record}")
     if rc != 0:
         ui.fail(f"CI failed: {outcome}. See DEPLOYMENT.md for the rollback procedure.")
         if runner.junit_path(REPO_ROOT).is_file():

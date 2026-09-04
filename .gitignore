@@ -229,6 +229,9 @@ show
 startup/.instance.json
 startup/.ghcr-push-state.json
 startup/.ci-last-run.xml
+# Per-run CI records. Local to the box that ran them: dev and prod each write
+# their own, so committing them would collide across boxes for no gain.
+startup/ci-reports/
 
 # Generated BAML router client (regenerate via baml-cli generate --from dmac_assistant/baml_src)
 dmac_assistant/src/dmac_assistant/router/baml_client/
