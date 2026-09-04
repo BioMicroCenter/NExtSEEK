@@ -66,3 +66,15 @@ SEEK_DATAFILE_ROOT_WEBLINK = "/uploads/"
 SEEK_DATAFILE_SERVER = "http://localhost"
 PUBLISH_STATS_FILE = "/path/to/published_stats.xlsx"
 SMART_SEARCH_URL = ""
+
+# Static files are never collected in a test run, so there is no manifest and no
+# hashed copies on disk. Any manifest-backed storage therefore raises on the
+# first {% static %} a template renders -- 49 of the rendering tests, measured
+# 2026-09-04. Hashing is a deployment concern (see dmac/storage.py); tests want
+# the plain name.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+    },
+}

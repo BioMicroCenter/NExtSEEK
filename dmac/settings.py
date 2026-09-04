@@ -286,13 +286,20 @@ STORAGES = {
 		"BACKEND": "django.core.files.storage.FileSystemStorage",
 	},
 	"staticfiles": {
-		# Reverted from ManifestStaticFilesStorage on 2026-05-12 because the
-		# vendored jquery-easyui-1.5.2/ tree isn't reachable by collectstatic
-		# in this layout, and the manifest backend raises ValueError on any
-		# {% static %} reference missing from the manifest. See v2 spec
-		# section 2.1 — proper fix is to either ship a curated STATICFILES_DIRS
-		# that includes easyui, or use a manifest_strict=False subclass.
-		"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+		# Content-hashed names, so a theme change is visible immediately rather
+		# than up to 30 days later. nginx serves /static/ with `expires 30d`
+		# (docker/nginx.conf:43) and {% static %} emitted a FIXED url, so the
+		# browser kept a stale stylesheet against new HTML -- an unstyled page,
+		# and the reason a hard refresh was needed after every theme deploy.
+		#
+		# This was reverted to plain StaticFilesStorage on 2026-05-12 because
+		# the vendored jquery-easyui-1.5.2/ tree isn't reachable by
+		# collectstatic in this layout and the manifest backend raises
+		# ValueError on any {% static %} reference missing from the manifest.
+		# That revert named its own fix, a manifest_strict=False subclass, and
+		# this is it: an unmapped reference falls back to the plain URL, which
+		# is precisely the behaviour it has today, so nothing regresses.
+		"BACKEND": "dmac.storage.ForgivingManifestStaticFilesStorage",
 	},
 }
 
