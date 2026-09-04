@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient, APIRequestFactory
 
@@ -81,6 +82,14 @@ class UserInParticipatingProjectTests(TestCase):
     """Test UserInParticipatingProject permission class."""
 
     def setUp(self):
+        # These tests pass a MagicMock request, so the permission class caches
+        # its positive result under a key containing the mock's *CPython id*
+        # (":1:assistant_participating:<MagicMock name='mock.user.pk' id='1398...'>").
+        # CPython reuses freed addresses, so whenever the mock in the
+        # "user_in_project" test and the one here land on the same address, this
+        # test reads that cached True and fails. Real users have integer pks, so
+        # this is test isolation only, but it makes the suite order-dependent.
+        cache.clear()
         self.user = User.objects.create_user(username="permuser", password="pass1234")
 
     @patch("nextseek_api.services.assistant.SeekAPIClient")
