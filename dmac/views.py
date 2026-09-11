@@ -111,7 +111,12 @@ def login_seek(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request)
 
-    logger.debug(f"User trying to log in: {user_seek}")
+    # Never log user_seek itself: it carries the plaintext SEEK password, and this
+    # line put every user's password into `docker logs` on production.
+    logger.debug(
+        f"User trying to log in: username={user_seek.get('username')!r} "
+        f"storage={user_seek.get('storage')!r} status={user_seek.get('status')}"
+    )
     logger.debug(f"User request: {request}")
     status = user_seek['status']
     err = user_seek['err']
