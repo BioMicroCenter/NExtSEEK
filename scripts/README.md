@@ -27,7 +27,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is six purpose
+The surface is not a set of entry points behind a package boundary. It is seven purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -38,6 +38,7 @@ groups, each defined by what it reads and what it writes.
 | D. Attribute-API verification lane | `attribute_api_test.sh`, `attribute_pytest_reporter.py`, `freeze_attribute_baseline.py`, `run_attribute_coverage.py`, `run_attribute_mutants.py`, `select_attribute_chunk_defaults.py`, `select_attribute_evidence.py`, `validate_attribute_api_evidence.py` | an out-of-repo state root | an out-of-repo evidence root |
 | E. Live batch-upload E2E | `test_batch_upload_e2e.py` | the SEEK database, a deployed host | Neo4j, the upload API |
 | F. NessieAI codemod | `nessieai_codemod.py` | every tracked `*.py` outside `NessieAI/history/` | those files, in place |
+| G. graph_search lane | `graph_search/` (see [its README](graph_search/README.md)) | the scratch MySQL, a throwaway Neo4j, seeds outside the repository | throwaway `gs-*` containers, reports outside the repository |
 
 **A. Repo-convention validators.** `scripts/validate_issue.py:4-6` and
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of
@@ -82,6 +83,12 @@ reports every reference it keeps, finds archived or cannot resolve, and lists wh
 never rewrites at `scripts/nessieai_codemod.py:33-66`. Run it with `uv run`, which reads
 its PEP 723 header to fetch `libcst` (`scripts/nessieai_codemod.py:2-5`).
 
+**G. graph_search lane.** `scripts/graph_search/lane.sh` runs the graph_search proof of
+concept's throwaway lane: the scratch MySQL, a memory-capped Neo4j and the app image over
+a read-only mount of this checkout, with secrets and memory caps read from a work
+directory outside the repository. The folder's other scripts (the TCGA merge, graph
+load and dump, parity, the benchmark) run through it. Its README is the reference.
+
 ## Running and testing
 
 This directory has no test lane of its own. The repo-wide pytest lane still names
@@ -96,7 +103,7 @@ from outside, and CLAUDE.md gives the one command that runs those tests:
 - `scripts/dump_routes.py`, by nothing directly: it shares its resolver walk with the
   blocking route gate (`ci/gate/live_routes.py:3-6`).
 
-Groups B, C, E and F are run by hand. `scripts/validate_viewset_conventions.py` with no
+Groups B, C, E, F and G are run by hand. `scripts/validate_viewset_conventions.py` with no
 arguments exits 0 and prints its clean-run line when the tree has no violations.
 `scripts/run_tests.sh` refuses to start from a fresh worktree, for two separate reasons;
 see CLAUDE.md.

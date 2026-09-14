@@ -91,6 +91,8 @@ where it decides: `nextseek_api/views.py:268-274` for the tree, and
 | `batch_delete/` | pydantic models for delete eligibility; no views, no ORM | this row |
 | `batch_upload/` | bulk sample ingest from a workbook or JSON rows, stages 0 to 7; owns the shared Celery app | `nextseek_api/batch_upload/README.md` |
 | `cc_assistant/` | Django shell for Container-CC; engine at `NessieAI/cc/`. Never rename the app label or the Celery tasks `cc_assistant.upload` and `cc_assistant.sweep_cc_summaries` | `NessieAI/cc/README.md` |
+| `graph_search/` | the engine behind `POST /nextseek_api/samples/graph_search/`: scope from MySQL membership, a Cypher query builder, the catalog cache and page hydration | `nextseek_api/graph_search/README.md` |
+| `graph_sync/` | the MySQL-to-Neo4j writer for graph schema v1.1 (sample metadata, the SampleType and Attribute catalog, people and projects) and its `graph_sync` command | `nextseek_api/graph_sync/README.md` |
 | `management/` | management commands, including the three loops the app entrypoint starts by name (`dispatch_attribute_outbox`, `recover_attribute_sync_jobs`, `run_assay_registration_jobs`), the harness entry point `nessie` and the staging-sweep recovery `cc_sweep_staging`; deleting a loop's shim removes a command the entrypoint calls | this row |
 | `migrations/` | the one migration chain for the app and every subpackage; it forks, so check the heads first | `nextseek_api/CLAUDE.md` |
 | `services/` | the ViewSet and service layer; a new ViewSet module goes here | `nextseek_api/services/README.md` |

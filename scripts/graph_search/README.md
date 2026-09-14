@@ -1,0 +1,111 @@
+# `scripts/graph_search/`
+
+## What this is
+
+Operational scripts for the graph_search proof of concept
+([design](../../docs/superpowers/specs/2026-09-14-graph-search-poc-design.md),
+[plan](../../docs/superpowers/plans/2026-09-14-graph-search-poc.md), graph schema
+[`docs/neo4j-schema.md`](../../docs/neo4j-schema.md) section "v1.1"). They build and prove the merged dataset, the v1.1
+graph and the new endpoint in throwaway, memory-capped containers on the operator's workstation. None of them touches
+a container of the live `nextseek` compose project.
+
+| File | Does |
+|---|---|
+| `lane.sh` | the throwaway lane: the scratch MySQL, a throwaway Neo4j, and the app image over a read-only mount of this checkout |
+| `merge_tcga.sh`, `merge_tcga.sql`, `verify_merge.sql` | the merged MySQL and its gate M report |
+| `load_graph_backup.py`, `dump_graph.sh` | load the local graph backup into the lane's Neo4j; dump the built v1.1 graph |
+| `parity.py`, `queries.json` | graph_search against advanced_search, per query and scope (gate E) |
+| `bench.py`, `bench_report.py` | the benchmark harness and its report |
+
+Files other than `lane.sh` land with their tasks in the plan; `git ls-files scripts/graph_search` lists what exists.
+
+## Setup
+
+Everything reads one work directory outside the repository, named by `GS_WORK`:
+
+```bash
+export GS_WORK=<the graph-search work directory>
+```
+
+It holds the seeds (`$GS_WORK/seeds/`), run reports (`$GS_WORK/runs/<task>/`) and `$GS_WORK/lane.env`, a shell file of
+`KEY=value` lines that is never tracked and never printed. `lane.sh` reads these keys:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `GS_MYSQL_CONTAINER` | `gs-scratch-devbox-mysql` | the scratch MySQL container |
+| `GS_MYSQL_ROOT_PASSWORD` | required | its root password |
+| `GS_NEO4J_PASSWORD` | required | the throwaway Neo4j's password (8 characters or more) |
+| `GS_NEO4J_IMAGE` | `neo4j:latest` | the Neo4j image; set it to the live stack's image id so both run the same version |
+| `GS_NEO4J_MEMORY` | `4g` | the Neo4j container's memory cap (swap is capped to the same value) |
+| `GS_NEO4J_HEAP` | `1500m` | Neo4j heap, initial and maximum |
+| `GS_NEO4J_PAGECACHE` | `1500m` | Neo4j page cache |
+| `GS_NEO4J_TX_MAX` | `1g` | `db.memory.transaction.max`; keep it below the heap |
+| `GS_APP_MEMORY` | `4g` | the app container's memory cap |
+| `GS_APP_IMAGE` | `nextseek-nextseek:latest` | the app image |
+
+Secrets never appear on a command line: `lane.sh` exports them and passes bare `-e NAME` flags, which docker fills
+from its own environment (`MYSQL_PWD` for the `mysql` client, `NEO4J_PASSWORD` for `cypher-shell`).
+
+## `lane.sh`
+
+```bash
+scripts/graph_search/lane.sh <subcommand> [args]
+```
+
+| Subcommand | Does |
+|---|---|
+| `net` | creates the Docker network `gs-net` and attaches the scratch MySQL to it |
+| `neo4j-up` | runs `gs-v11-neo4j` (memory-capped, data in the volume `gs-v11-neo4j-data`) and waits until it answers; a no-op when it is already up |
+| `neo4j-down` | removes the `gs-v11-neo4j` container and keeps its volume; `docker volume rm gs-v11-neo4j-data` drops the data |
+| `neo4j-cypher '<statement>'` | runs one statement through `cypher-shell --format plain`; with no statement (or `-`) it reads statements from stdin |
+| `mysql '<sql>' [client options]` | runs SQL as root in the scratch MySQL (`utf8mb4`); with no SQL (or `-`) it reads stdin; options such as `-N` go to the client |
+| `app <manage.py args>` | runs `manage.py` in the app image against the lane databases |
+| `python <script> [args]` | runs a script in the app image the same way |
+| `free-check` | prints `MemAvailable` and exits 3 when less than 2 GiB is free |
+
+`neo4j-up`, `app` and `python` run `free-check` first. The app container is `gs-app-<pid>`, removed on exit.
+
+### What the app container gets
+
+The checkout is mounted read-only at `/src` and `$GS_WORK` read-write at `/gswork`; `GS_RUN_DIR` is `/gswork/runs`.
+The databases come from the environment: `MYSQL_HOST` is the scratch container, `MYSQL_USER` root,
+`MYSQL_DATABASE=seek_production`, `NEXTSEEK_MYSQL_DATABASE=dmac`, `NEXTSEEK_NEO4J_HOST=gs-v11-neo4j`.
+
+Two more things are needed because the stack's rendered `dmac/local_settings.py` is not in a checkout:
+
+- **A settings shim.** `DJANGO_SETTINGS_MODULE` is `gs_lane_settings`, which `lane.sh` writes to `$GS_WORK/lane/` on
+  every run. It imports `dmac.settings` and adds the names the URLconf reads at import and that only
+  `startup/templates/local_settings.py.template` supplies: `PUBLISH_URL`, `ASSISTANT_PARTICIPATING_PROJECTS` (empty),
+  `PUBLISH_STATS_FILE` (a path that does not exist), `SMART_SEARCH_URL` and `TEST_CASES` (empty).
+- **Inert environment values**, each needed for `manage.py check` to pass:
+
+| Variable | Value | Why |
+|---|---|---|
+| `SEEK_HOST`, `SEEK_HOSTNAME`, `NEXTSEEK_HOSTNAME` | `gs-no-seek`, `http://gs-no-seek:3000`, `127.0.0.1:8000` | `dmac.settings` defines `SEEK_URL` and `SEEK_DATAFILE_ROOT` only when `SEEK_HOST` is set, and `seek/views/shared.py` reads them at import. No SEEK runs on `gs-net`, so any SEEK call fails fast |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | `http://127.0.0.1:8000` | an unset value becomes `[""]`, which fails check `4_0.E001` |
+| `DJANGO_SECRET_KEY` | `gs-lane-inert` | keeps an empty `SECRET_KEY` from failing any command that signs; nothing in the lane serves HTTP |
+| `PYTHONPATH` | `/src:/gswork/lane` | makes the checkout win over the image's baked copy for `python` scripts, and finds the shim |
+
+`scripts/graph_search/lane.sh app check` passes with only the `models.W042` warnings the stack already carries.
+
+### Dynamic labels on this Neo4j image
+
+The writer sets and removes type labels by name under `CYPHER 25`. On Neo4j Community 2026.07.1 (the live stack's
+image), both forms work:
+
+```bash
+scripts/graph_search/lane.sh neo4j-cypher 'CYPHER 25 CREATE (n:Probe) SET n:$("T_X") RETURN labels(n)'
+# ["Probe", "T_X"]
+scripts/graph_search/lane.sh neo4j-cypher 'CYPHER 25 CREATE (n:Probe) SET n:$("T_X") WITH n REMOVE n:$(["T_X"]) RETURN labels(n)'
+# ["Probe"]
+scripts/graph_search/lane.sh neo4j-cypher 'CYPHER 25 MATCH (n:Probe) REMOVE n:$(["T_X"]) DETACH DELETE n'
+```
+
+Rerun them after any change of `GS_NEO4J_IMAGE`.
+
+## Rules
+
+- Every container this folder starts is named `gs-*`, joins `gs-net` and carries `--memory`.
+- Never write to, restart, recreate or stop a container of the live `nextseek` compose project; read-only
+  `docker ps` and `docker inspect` are fine. Loading into the live stack is the operator's step (plan task L1).
+- Seed and merged dumps hold real personal data: they stay under `$GS_WORK`, never in the repository.
