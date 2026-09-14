@@ -65,6 +65,12 @@ Key facts every operator must internalize:
   `NEXTSEEK_SERVER=gunicorn` explicitly in `docker/nextseek.env` on every
   deployment unless you have decided otherwise; under gunicorn the chat UI
   uses HTTP polling for progress (no WebSocket).
+- The `nextseek` container is capped at `${NEXTSEEK_MEMORY:-16G}` of RAM, with
+  no swap beyond it (`deploy.resources.limits.memory` and `memswap_limit` in
+  `docker-compose.yml`). A request that outgrows the cap has its process killed
+  inside the container instead of exhausting the host. At rest the container
+  holds about 6 GiB, so set `NEXTSEEK_MEMORY` in the project-root `.env` well
+  above that. A changed cap takes effect when `nextseek` is recreated.
 - Asynchronous attribute mutations use Celery's SQLAlchemy transport over
   SQLite at `/var/lib/attribute-broker/broker.sqlite3`. The worker and outbox
   dispatcher share the named `attribute_mutation_broker` volume. Routine

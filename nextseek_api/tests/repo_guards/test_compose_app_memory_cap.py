@@ -1,0 +1,33 @@
+"""The app container carries a memory cap, and may not swap past it.
+
+On 2026-09-11, 09-12 and 09-14 one gunicorn worker serving a broad search grew
+to 6-11 GB with no limit on the `nextseek` service, filled the host's RAM and
+swap, and took sshd and every other container on fairdata-dev down with it. A
+cap on this container makes the kernel kill the runaway process inside it
+instead; gunicorn respawns the worker, and `restart: always` covers the rest.
+
+`memswap_limit` equal to the cap matters as much as the cap: without it Docker
+lets the container swap as much again, and swap thrash is what locked the box.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+COMPOSE = REPO_ROOT / "docker-compose.yml"
+CAP = "${NEXTSEEK_MEMORY:-16G}"
+
+
+def _nextseek():
+    return yaml.safe_load(COMPOSE.read_text())["services"]["nextseek"]
+
+
+def test_nextseek_has_a_memory_cap_an_operator_can_tune():
+    limits = _nextseek().get("deploy", {}).get("resources", {}).get("limits", {})
+    assert limits.get("memory") == CAP
+
+
+def test_nextseek_cannot_swap_past_its_cap():
+    assert _nextseek().get("memswap_limit") == CAP

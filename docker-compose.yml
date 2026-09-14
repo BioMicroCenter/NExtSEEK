@@ -82,6 +82,19 @@ services:
       timeout: 10s
       retries: 3
       start_period: 120s
+    # With no cap, one gunicorn worker serving a broad search grew to 6-11 GB,
+    # filled the host's RAM and swap, and took every container and sshd down
+    # with it. Capped, the kernel kills that process inside this container
+    # instead: gunicorn respawns the worker, and `restart: always` covers the
+    # rest. memswap_limit equal to the cap means no swap on top of it. At rest
+    # this container holds about 6 GiB (a dozen Python processes), so keep the
+    # cap well above that; tune it per box with NEXTSEEK_MEMORY in the
+    # project-root .env (pinned by nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
+    deploy:
+      resources:
+        limits:
+          memory: "${NEXTSEEK_MEMORY:-16G}"
+    memswap_limit: "${NEXTSEEK_MEMORY:-16G}"
 
   nextseek_nginx:
     image: nginx:latest
