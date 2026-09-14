@@ -2,9 +2,11 @@
 import json
 from pathlib import Path
 
+from NessieAI.paths import CHAT_NEXTSEEK_DIR
+
 from chat_nextseek.seqera.nfcore_atlas import ATLAS_PATH, load_atlas
 
-CASES_PATH = Path(__file__).parent.parent / "evals" / "rna_selection_cases.json"
+CASES_PATH = CHAT_NEXTSEEK_DIR / "evals" / "rna_selection_cases.json"
 KNOWN = set(load_atlas(ATLAS_PATH)["pipelines"])
 
 
