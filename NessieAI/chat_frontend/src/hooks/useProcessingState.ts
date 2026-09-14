@@ -1,6 +1,13 @@
 import { useState, useCallback } from "react";
 import type { Step, ProcessingState } from "@/lib/types/chat";
-import type { SearchStartedData, SearchCompleteData, RouteDecidedData } from "@/lib/types/api";
+import type {
+  SearchStartedData,
+  SearchCompleteData,
+  RouteDecidedData,
+  SelectionStartedData,
+  SelectionEvidenceData,
+  SelectionDoneData,
+} from "@/lib/types/api";
 
 // Container-CC turns don't map onto a fixed pipeline — they run an open-ended
 // sequence of tool calls. So CC uses a dynamic "trace" mode (one step appended
@@ -78,7 +85,42 @@ interface UseProcessingStateReturn {
   handleAgentComplete: (agent: string) => void;
   handleSearchStarted: (data: SearchStartedData) => void;
   handleSearchComplete: (data: SearchCompleteData) => void;
+  handleSelectionEvent: (event: string, data: unknown) => void;
   resetProcessing: () => void;
+}
+
+/** The agentName owning the pipeline-selection step, so it updates in place. */
+const SELECTION_AGENT = "select_pipeline";
+
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  return String(n);
+}
+
+/**
+ * Selection's four verdicts, as a line the person waiting can act on.
+ *
+ * `out_of_scope` deliberately does not read as a failure. It means the selector
+ * stepped aside and the agent chooses from the catalog itself, which is what it
+ * did before this step existed — most often because the question is not about
+ * an RNA pipeline, the only family the atlas covers.
+ */
+function formatSelectionDoneDetail(d: SelectionDoneData): string {
+  const picks = Array.isArray(d.pipelines) ? d.pipelines.filter(Boolean) : [];
+  switch (d.verdict) {
+    case "chosen":
+      return picks.length ? `Using nf-core/${picks[0]}` : "Pipeline chosen";
+    case "fork":
+      return picks.length
+        ? `${picks.map((p) => `nf-core/${p}`).join(" or ")} — asking which`
+        : "More than one pipeline fits — asking which";
+    case "refused":
+      return "These samples cannot answer that question";
+    case "out_of_scope":
+      return "Choosing from the catalog";
+    default:
+      return String(d.verdict);
+  }
 }
 
 /** One-line summary of an in-flight side-effect, surfaced as Step.detail. */
@@ -255,6 +297,70 @@ export function useProcessingState(): UseProcessingStateReturn {
     });
   }, []);
 
+  /**
+   * The three `selection_*` events, folded into one step that appears when
+   * selection starts and closes with its verdict.
+   *
+   * One handler rather than three because they are one step's lifecycle, and
+   * because every consumer has to wire each case into its own event switch —
+   * three handlers would triple that wiring for no gain.
+   *
+   * Unlike search, this never special-cases CC mode: selection only runs on the
+   * NS pipeline route, so a CC turn cannot emit these at all. The step is
+   * appended rather than matched against STEP_CONFIGS because "pipeline" has no
+   * step config — a pipeline turn's stepper is built from what actually happens.
+   */
+  const handleSelectionEvent = useCallback((event: string, data: unknown) => {
+    setState((prev) => {
+      const idx = prev.steps.findIndex((s) => s.agentName === SELECTION_AGENT);
+
+      if (event === "selection_started") {
+        const d = (data ?? {}) as SelectionStartedData;
+        const n = typeof d.n_uids === "number" ? d.n_uids : 0;
+        // n_uids is 0 on the accession path, where there is nothing to profile.
+        const detail = n > 0 ? `Reading ${n} sample${n === 1 ? "" : "s"}…` : "Reading the request…";
+        if (idx >= 0) {
+          const steps = prev.steps.map((s, i) =>
+            i === idx ? { ...s, status: "active" as const, detail } : s,
+          );
+          return { ...prev, isProcessing: true, steps };
+        }
+        const step: Step = {
+          index: prev.steps.length,
+          label: "Choosing a pipeline",
+          agentName: SELECTION_AGENT,
+          status: "active",
+          detail,
+        };
+        return { ...prev, isProcessing: true, steps: [...prev.steps, step] };
+      }
+
+      if (idx < 0) return prev;
+
+      if (event === "selection_evidence_ready") {
+        const d = (data ?? {}) as SelectionEvidenceData;
+        const detail =
+          typeof d.est_tokens === "number"
+            ? `Weighing the evidence · ~${formatTokens(d.est_tokens)} tokens`
+            : "Weighing the evidence…";
+        const steps = prev.steps.map((s, i) => (i === idx ? { ...s, detail } : s));
+        return { ...prev, steps };
+      }
+
+      if (event === "selection_done") {
+        const d = (data ?? {}) as SelectionDoneData;
+        const steps = prev.steps.map((s, i) =>
+          i === idx
+            ? { ...s, status: "complete" as const, detail: formatSelectionDoneDetail(d) }
+            : s,
+        );
+        return { ...prev, steps };
+      }
+
+      return prev;
+    });
+  }, []);
+
   const handleSearchStarted = useCallback((data: SearchStartedData) => {
     setState((prev) => {
       if (prev.mode === CC_MODE) {
@@ -325,6 +431,7 @@ export function useProcessingState(): UseProcessingStateReturn {
     handleAgentComplete,
     handleSearchStarted,
     handleSearchComplete,
+    handleSelectionEvent,
     resetProcessing,
   };
 }
