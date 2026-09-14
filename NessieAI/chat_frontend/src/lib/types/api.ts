@@ -80,6 +80,40 @@ export interface SearchCompleteData {
   [extra: string]: unknown;
 }
 
+/**
+ * The nf-core pipeline agent's `select_pipeline` step, which profiles the cohort
+ * and makes its own model call before any tool runs. It is the one step in a
+ * pipeline turn long enough to need progress of its own — a digest build plus an
+ * ~84k-token model call — so all three events exist to fill that silence.
+ *
+ * Emitted in order: `selection_started` → `selection_evidence_ready` →
+ * `selection_done`. A malformed tool call emits none of them; every other path,
+ * including each way selection can decline, reaches `selection_done`.
+ */
+export interface SelectionStartedData {
+  n_uids: number;
+  [extra: string]: unknown;
+}
+
+/** The assembled evidence payload's size report, straight from the backend. */
+export interface SelectionEvidenceData {
+  est_tokens?: number;
+  total_chars?: number;
+  sections?: string[];
+  [extra: string]: unknown;
+}
+
+/**
+ * `verdict` is the selector's four-way outcome. `out_of_scope` is not a failure:
+ * it means the agent chooses from the catalog itself, exactly as it did before
+ * this step existed.
+ */
+export interface SelectionDoneData {
+  verdict: "chosen" | "fork" | "refused" | "out_of_scope" | string;
+  pipelines?: string[];
+  [extra: string]: unknown;
+}
+
 import type { Artifact, CCTrace } from "./chat";
 
 export interface QueryCompleteData {

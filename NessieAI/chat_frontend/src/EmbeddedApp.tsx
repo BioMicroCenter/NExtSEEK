@@ -48,6 +48,7 @@ export function EmbeddedApp() {
     handleAgentComplete,
     handleSearchStarted,
     handleSearchComplete,
+    handleSelectionEvent,
     resetProcessing,
   } = useProcessingState();
 
@@ -141,6 +142,15 @@ export function EmbeddedApp() {
           handleSearchComplete(event.data as SearchCompleteData);
           break;
         }
+        // The nf-core pipeline agent's select_pipeline step: a digest build plus
+        // its own ~84k-token model call, and the one part of a pipeline turn long
+        // enough that dropping these would leave the user watching nothing.
+        case "selection_started":
+        case "selection_evidence_ready":
+        case "selection_done": {
+          handleSelectionEvent(event.event, event.data);
+          break;
+        }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
@@ -179,7 +189,7 @@ export function EmbeddedApp() {
         }
       }
     },
-    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
+    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, handleSelectionEvent, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
   );
 
   const handleQueryError = useCallback(
