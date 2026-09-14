@@ -918,21 +918,29 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     return json.dumps({"ok": True, "luria_runs": runs})
 
 
-#: A cohort larger than this is not profiled. This caps the *queried* UIDs
-#: passed into select_pipeline, not the *expanded leaf set* that
-#: MAX_RESOLVE_LEAVES (75) caps after lineage walking — the two are different
-#: quantities and share only a number by coincidence, not a bound: a handful
-#: of root UIDs can expand well past MAX_RESOLVE_LEAVES leaves and still pass
-#: this cap, and a cohort of accepted-plus-rejected-type UIDs can trip this
-#: cap while the accepted-type subset alone would have resolved fine. Neither
-#: number has been measured against the other; do not read one as validating
-#: the other. The team-questions run supplied 663 UIDs, which is why this cap
-#: exists at all.
-MAX_SELECTION_UIDS = 75
+#: A sanity guard against a pathological request, NOT a cost control.
+#:
+#: Measured 2026-09-14 over seven real cohorts (1-176 UIDs, from
+#: evals/groundtruth_cohorts.json): digest cost tracks PROTOCOL-DOCUMENT
+#: FETCHES, not cohort size. The slowest cohort had ONE UID and took 27.4s;
+#: the largest, 176 UIDs, took 1.5s because it references no protocols. A UID
+#: cap therefore does not bound what it was introduced to bound, and at 75 it
+#: was inverted: it refused the 1.5s cohort and waved the 27.4s one through.
+#: DIGEST_TIMEOUT_SECONDS is the real bound. This only stops an absurd request
+#: before any work begins — the team-questions run supplied 663 UIDs, which is
+#: why some ceiling exists at all.
+#:
+#: Not comparable to MAX_RESOLVE_LEAVES (75), which counts the EXPANDED leaf
+#: set after lineage walking. The same measurement put expansion at 3.2-23.0
+#: records per queried UID, so the two differ by up to an order of magnitude
+#: and share a number only by coincidence.
+MAX_SELECTION_UIDS = 500
 
-#: Wall-clock ceiling on the digest build. The digest downloads and text-extracts
-#: every SOP attached to the cohort with token_limit=None, which is unbounded on
-#: paper. On timeout the build continues without selection.
+#: Wall-clock ceiling on the digest build, and — per the measurement above —
+#: the only bound here doing real work. The digest downloads and text-extracts
+#: every SOP attached to the cohort with token_limit=None, which is unbounded
+#: on paper; worst observed was 27.4s, leaving roughly 3x headroom. On timeout
+#: the build continues without selection.
 DIGEST_TIMEOUT_SECONDS = 90.0
 
 #: Wall-clock ceiling on the selection model call. The payload is ~84k tokens and
