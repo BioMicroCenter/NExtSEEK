@@ -11,11 +11,13 @@ four pipelines audited on that basis turned out to be wrong.
 import json
 from pathlib import Path
 
+from NessieAI.paths import CHAT_NEXTSEEK_DIR
+
 import pytest
 
 from chat_nextseek.seqera.pipeline_params import build_run_params
 
-TEMPLATES = Path(__file__).resolve().parent.parent / "src/chat_nextseek/reports/templates/nfcore"
+TEMPLATES = CHAT_NEXTSEEK_DIR / "src/chat_nextseek/reports/templates/nfcore"
 
 
 def curated(key):

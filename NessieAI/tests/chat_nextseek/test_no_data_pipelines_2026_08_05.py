@@ -14,13 +14,15 @@ import csv
 import json
 from pathlib import Path
 
+from NessieAI.paths import CHAT_NEXTSEEK_DIR
+
 import pytest
 
 from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG, get_pipeline_entry
 from chat_nextseek.seqera.emitter import emit_nfcore_artifacts
 from chat_nextseek.seqera.user_params import missing_user_params, validate_user_params
 
-TEMPLATES = Path(__file__).resolve().parent.parent / "src/chat_nextseek/reports/templates/nfcore"
+TEMPLATES = CHAT_NEXTSEEK_DIR / "src/chat_nextseek/reports/templates/nfcore"
 
 # key: (revision, reference_cli_flags, required_columns, samplesheet_input_kind)
 CENSUS_BATCH = {

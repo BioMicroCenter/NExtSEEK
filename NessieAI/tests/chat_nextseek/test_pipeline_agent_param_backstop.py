@@ -1,5 +1,6 @@
 """Wiring: resolve_samples surfaces seq_type evidence; write_samplesheet enforces it."""
 import json
+from NessieAI.paths import CHAT_NEXTSEEK_DIR
 
 import chat_nextseek.pipeline.agent_tools as at
 
@@ -85,7 +86,7 @@ from pathlib import Path as _P
 
 
 def test_prompt_mentions_data_driven_params():
-    txt = (_P(__file__).resolve().parent.parent
+    txt = (CHAT_NEXTSEEK_DIR
            / "src" / "chat_nextseek" / "prompts" / "pipeline_agent.txt").read_text()
     assert "data_driven_params" in txt
     assert "conflict" in txt and "absent" in txt
@@ -198,7 +199,7 @@ def test_resolve_injects_protocol_text_when_an_entry_needs_it(monkeypatch):
 
 def test_prompt_warns_that_umi_discard_read_is_paired_end_only():
     """umi_discard_read on single-end data discards the only read — the agent must be told."""
-    txt = (_P(__file__).resolve().parent.parent
+    txt = (CHAT_NEXTSEEK_DIR
            / "src" / "chat_nextseek" / "prompts" / "pipeline_agent.txt").read_text()
     assert "umi_discard_read" in txt
     assert "single-end" in txt
