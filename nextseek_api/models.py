@@ -1901,6 +1901,67 @@ class SampleAdvancedSearchResult(BaseModel):
 
 
 # -----------------------------
+# Samples: graph_search models
+# -----------------------------
+# graph_search takes advanced_search's body unchanged plus one optional `extensions` block.
+# These models check shape only; whether an attribute exists on a sample type is checked
+# against the graph catalog by the query builder (nextseek_api/graph_search/query.py).
+
+
+class GraphSearchWhere(BaseModel):
+    sample_type: str = Field(..., description='Sample type title the attribute belongs to, for example "TIS"')
+    attribute: str = Field(..., description='Attribute title on that sample type, exact and case-sensitive')
+    op: Literal["=", "<>", "<", "<=", ">", ">=", "IN", "CONTAINS", "STARTS WITH"] = Field(
+        ..., description='Comparison operator; IN takes a list, every other operator a single value'
+    )
+    value: Union[str, int, float, List[Union[str, int, float]]] = Field(
+        ..., description="Value to compare with, cast by the attribute's value_type"
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _value_shape_matches_op(self) -> "GraphSearchWhere":
+        is_list = isinstance(self.value, list)
+        if self.op == "IN" and not is_list:
+            raise ValueError("op 'IN' requires a list value")
+        if self.op != "IN" and is_list:
+            raise ValueError(f"op '{self.op}' requires a scalar value, not a list")
+        return self
+
+
+class GraphSearchLineage(BaseModel):
+    direction: Literal["ancestor", "descendant"] = Field(
+        ..., description='Keep a sample when a sample of sample_type is its ancestor or its descendant'
+    )
+    sample_type: str = Field(..., description='Sample type title of the related sample')
+    max_hops: int = Field(default=4, ge=1, le=4, description='Most DERIVED_FROM hops to follow, 1 to 4')
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GraphSearchExtensions(BaseModel):
+    where: List[GraphSearchWhere] = Field(
+        default_factory=list, description='Attribute conditions, ANDed, all on one sample type'
+    )
+    lineage: Optional[GraphSearchLineage] = Field(default=None, description='One lineage condition')
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _where_on_one_sample_type(self) -> "GraphSearchExtensions":
+        if len({item.sample_type for item in self.where}) > 1:
+            raise ValueError("every where item must name the same sample_type")
+        return self
+
+
+class GraphSearchRequest(SampleAdvancedSearchRequest):
+    extensions: Optional[GraphSearchExtensions] = Field(
+        default=None, description='graph_search only: exact attribute conditions and a lineage condition'
+    )
+
+
+# -----------------------------
 # Additional request/response models
 # -----------------------------
 
