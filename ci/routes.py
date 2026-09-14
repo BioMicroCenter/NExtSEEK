@@ -867,6 +867,10 @@ REGISTRY: list[Route] = [
                "proxy passes SEEK's own status through "
                "(nextseek_api/services/samples.py::SampleProxyViewSet.create), so "
                "either is correct. By inspection; unprobed"),
+    Route(pattern=r"^nextseek_api/^^samples/graph_search/$",
+          path="/nextseek_api/samples/graph_search/",
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
+          note="a search expressed as a POST, so the prod guard refuses it"),
     Route(pattern=r"^nextseek_api/^^samples/advanced_search/$",
           path="/nextseek_api/samples/advanced_search/",
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200,

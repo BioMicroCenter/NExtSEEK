@@ -823,6 +823,46 @@ ADVANCED_SEARCH_DESC = (
 )
 
 # =============================================================================
+# GraphSearchViewSet (1 endpoint)
+# =============================================================================
+
+GRAPH_SEARCH_DESC = (
+    "**SUMMARY:** Search samples from the Neo4j sample graph. Takes advanced_search's request and returns its "
+    "envelope, pages inside the database, and adds optional exact attribute conditions and a lineage condition. "
+    "Visibility is advanced_search's: a non-superuser sees only the samples of the projects they belong to.\n\n"
+    "**USE WHEN:** The user wants to search, filter or count samples by sample type, attribute values or keywords, "
+    "and especially when the search is broad (a keyword across every sample type, several terms ORed), needs "
+    "paired conditions on one sample type (Organ is Lung and CellCount is at least 10 million), a numeric or date "
+    "range, or a lineage condition (samples with a D.SEQ descendant within 4 hops).\n\n"
+    "**DO NOT USE WHEN:** The user already knows specific sample UIDs/IDs and wants to bulk-export their metadata: "
+    "use `POST admin/samples/retrieve` instead. PubMed syntax inside one string (parentheses, `NOT`, `term[TYPE]`) "
+    "is not parsed here; the string is one term.\n\n"
+    "**ACCEPTS:** advanced_search's body unchanged: `sampletype` (title or id, one or a list), `filter_searchText` "
+    "(one string or a list; may be empty when `extensions.where` is given), `searchText_logic` (`AND`/`OR`), "
+    "`attribute`, `attribute_logic`, `filter_matchType` (`PARTIAL`/`EXACT`). Plus an optional `extensions` object: "
+    "`where`, a list of `{sample_type, attribute, op, value}` ANDed on one sample type, `op` one of `=`, `<>`, `<`, "
+    "`<=`, `>`, `>=`, `IN` (a list value), `CONTAINS`, `STARTS WITH`, exact and case-sensitive, the value cast by the "
+    "attribute's type; and `lineage`, `{direction: ancestor or descendant, sample_type, max_hops: 1 to 4}`. Query "
+    "parameters: `page` (1-based), `page_size` (default 100, max 1000), `debug_meta=1`.\n\n"
+    "**RETURNS:** advanced_search's envelope: `total` (every match), `rows` (one page in ascending sample id order, "
+    "each with `json_metadata`, `sample_type`, `uuid` and `assays`), `sampleTypes` and `noSampleTypes` (over every "
+    "match), `msg`, `status` and `footer`. With `debug_meta=1` the footer carries `cypher_ms`, `count_ms`, "
+    "`hydrate_ms` and `total_ms`. A page past the end returns empty `rows` and the real `total`.\n\n"
+    "**ERROR CODES:** 401 without credentials; 403 when the caller maps to no SEEK person; 422 for a body the model "
+    "rejects, a condition the graph catalog rejects (an unknown sample type or attribute in `extensions`), or a "
+    "search with nothing to search on; 502 when the graph or MySQL fails; 504 when a graph statement runs past "
+    "60 seconds.\n\n"
+    "**TRIGGER PHRASES:** graph search, search samples, find samples, filter samples, count samples, samples where, "
+    "samples with attribute, samples between, samples derived from, samples with a descendant, samples with an "
+    "ancestor\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Find TIS samples whose Organ is Lung and CellCount is at least 10 million'\n"
+    "- 'Which TIS samples have a D.SEQ descendant?'\n"
+    "- 'How many samples mention granuloma?'\n"
+    "- 'Show lung TIS samples such as TIS-230324BOO-39-PUB'\n"
+)
+
+# =============================================================================
 # SchemaRAGViewSet (2 endpoints)
 # =============================================================================
 

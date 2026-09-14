@@ -28,6 +28,7 @@ router.register(r"assay-registrations", views.AssayRegistrationViewSet,
 router.register(r"assays", views.AssayViewSet, basename="assays")
 router.register(r"sample_types/connections", views.SampleTypeConnectionsViewSet, basename="sampletype-connections")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
+router.register(r"samples/graph_search", views.GraphSearchViewSet, basename="samples-graph-search")
 router.register(r"samples/advanced_search", views.SampleAdvancedSearchViewSet, basename="samples-advanced-search")
 router.register(r"sample_types/get_parents", views.SamplesByChildTypesViewSet,basename="get-parents-by-childtype")
 router.register(r"templates", views.TemplatesViewSet, basename="templates")

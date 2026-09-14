@@ -58,6 +58,7 @@ from .services.sampletype_connections import SampleTypeConnectionsViewSet as Sam
 from .services.samples import SampleProxyViewSet as SampleViewSet
 from .services.samples import _resolve_uid_to_seek_id
 from .services.samples import SampleAdvancedSearchViewSet as SampleAdvancedSearchViewSet
+from .services.graph_search import GraphSearchViewSet as GraphSearchViewSet
 from .services.schema_rag import SchemaRAGViewSet
 from .services.assistant import AssistantViewSet
 # Additive dmac_assistant integration (router + Container-Claude-Code).
