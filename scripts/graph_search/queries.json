@@ -64,11 +64,11 @@
     "name": "or_retry_three_terms",
     "kind": "compat",
     "body": {
-      "filter_searchText": ["granuloma", "tuberculosis", "macaque"],
+      "filter_searchText": "granuloma OR tuberculosis OR macaque",
       "searchText_logic": "OR",
       "filter_matchType": "PARTIAL"
     },
-    "note": "Nessie's OR retry (_retry_advanced_search_if_empty in NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py), the other breaking shape. Nessie sends 'granuloma OR tuberculosis OR macaque' as one string; advanced_search's view builds the same nested OR from this list, and graph_search does not parse PubMed syntax inside one string (declared difference 2), so the list is the shared body. Each term is a case-insensitive substring of any value. advanced_search's SQL stage matches 7,924 rows. MySQL: 7,480 by the value rule (1 TCGA)."
+    "note": "Nessie's OR retry exactly as sent, the other breaking shape: _advanced_search_retry_attempts (NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py) joins the retry terms with ' OR ' into one string. advanced_search's PubMed parser takes one operator per level, so it rejects three operands, scans every sample with a LIKE on the whole string and keeps a row only when one value contains all of it; graph_search keeps the string as one term (declared difference 2). Both answer 0 here. Changed from the list ['granuloma', 'tuberculosis', 'macaque'] by E6: the view nests a list of three or more terms as (granuloma) OR ((tuberculosis) OR (macaque)), and seek/search.py's designSearchPubmed raises IndexError on any such nesting, so advanced_search answers 502 to the list in every scope (graph_search: 7,480), and a shape one side cannot answer cannot prove parity. MySQL: 0."
   },
   {
     "name": "multi_type_text",
