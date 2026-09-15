@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
+from . import graph_catalog
 from .llm_clients import BaseLLMClient, build_llm_client
 
 
@@ -339,9 +340,15 @@ class ChatConfig:
                 f"(luria env complete: {self.LURIA_ENV_COMPLETE})"
             )
 
-        self.NEO4J_SCHEMA = self._ensure_neo4j_schema()
-        self.PROTOCOL_SCHEMA = self._ensure_protocol_schema()
-        self.ASSAY_SAMPLE_CONNECTIONS = self._ensure_assay_sample_connections()
+        # The committed graph snapshots, read only (plan task T1, spec D6 and D7). The graph agent
+        # reads the live v1.1 catalog through graph_catalog.py, lazily and cached per process; these
+        # files are its fallback when the catalog is unavailable, and the parser and the old
+        # type-blind property guard keep reading them. Nothing here touches Neo4j or writes a file.
+        self.NEO4J_SCHEMA = self._load_json("neo4j_schema.json", "Neo4j schema (committed)") or {}
+        self.PROTOCOL_SCHEMA = self._load_json("neo4j_protocol_schema.json", "protocol titles (committed)") or {}
+        self.ASSAY_SAMPLE_CONNECTIONS = (
+            self._load_json("neo4j_assay-sample-conn.json", "assay-sample connections (committed)") or {}
+        )
 
     def _load_config_map(self, config_map):
         """Assign each config_map entry directly onto the config object."""
@@ -1665,298 +1672,6 @@ class ChatConfig:
         except Exception:
             pass
 
-    def _fetch_neo4j_schema(self) -> dict:
-        """
-        Introspect the connected Neo4j instance and return its schema as a dict.
-        Saves to CONTEXT_DIR/neo4j_schema.json (overwritten on each fetch).
-        Returns an empty dict when Neo4j is unavailable.
-        """
-        driver = self._connect_neo4j()
-        if driver is None:
-            return {}
-
-        schema: dict = {
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "node_labels": [],
-            "relationship_types": [],
-            "node_properties": {},
-            "node_property_types": {},
-            "relationship_properties": {},
-            "relationship_property_types": {},
-            "relationship_patterns": [],
-            # Vocabulary: actual values for key lookup fields (used by graph agent for value mapping)
-            "vocabulary": {
-                "study_titles": [],
-                "investigation_titles": [],
-                "internal_assay_titles": [],
-                "sampletype_titles": [],
-            },
-        }
-
-        try:
-            with driver.session(database=self.NEO4J_DATABASE) as db_session:
-                result = db_session.run("CALL db.labels()")
-                schema["node_labels"] = [r["label"] for r in result]
-
-                result = db_session.run("CALL db.relationshipTypes()")
-                schema["relationship_types"] = [r["relationshipType"] for r in result]
-
-                for label in schema["node_labels"]:
-                    try:
-                        result = db_session.run(
-                            f"MATCH (n:`{label}`) UNWIND keys(n) AS k RETURN DISTINCT k LIMIT 200"
-                        )
-                        schema["node_properties"][label] = [r["k"] for r in result]
-                    except Exception as e:
-                        print(f"[CONFIG][GRAPHDB] Props for label {label!r} failed: {e!r}")
-
-                for rel in schema["relationship_types"]:
-                    try:
-                        result = db_session.run(
-                            f"MATCH ()-[r:`{rel}`]-() UNWIND keys(r) AS k RETURN DISTINCT k LIMIT 200"
-                        )
-                        schema["relationship_properties"][rel] = [r["k"] for r in result]
-                    except Exception as e:
-                        print(f"[CONFIG][GRAPHDB] Props for rel {rel!r} failed: {e!r}")
-
-                try:
-                    result = db_session.run(
-                        "CALL db.schema.visualization() YIELD nodes, relationships "
-                        "RETURN nodes, relationships"
-                    )
-                    for record in result:
-                        for rel in (record.get("relationships") or []):
-                            try:
-                                pattern = {
-                                    "start": list(rel.start_node.labels)[0] if rel.start_node.labels else None,
-                                    "type": rel.type,
-                                    "end": list(rel.end_node.labels)[0] if rel.end_node.labels else None,
-                                }
-                                schema["relationship_patterns"].append(pattern)
-                            except Exception:
-                                pass
-                except Exception as e:
-                    print(f"[CONFIG][GRAPHDB] Schema visualization failed (non-fatal): {e!r}")
-
-                # Property types per node label (e.g. {Investigation: {project_id: Long, title: String}})
-                try:
-                    result = db_session.run(
-                        "CALL db.schema.nodeTypeProperties() YIELD nodeLabels, propertyName, propertyTypes "
-                        "RETURN nodeLabels, propertyName, propertyTypes"
-                    )
-                    node_prop_types: dict = {}
-                    for r in result:
-                        for label in (r["nodeLabels"] or []):
-                            node_prop_types.setdefault(label, {})[r["propertyName"]] = r["propertyTypes"]
-                    schema["node_property_types"] = node_prop_types
-                    print(f"[CONFIG][GRAPHDB] Fetched node property types for {len(node_prop_types)} labels")
-                except Exception as e:
-                    print(f"[CONFIG][GRAPHDB] nodeTypeProperties failed (non-fatal): {e!r}")
-
-                # Property types per relationship type
-                try:
-                    result = db_session.run(
-                        "CALL db.schema.relTypeProperties() YIELD relType, propertyName, propertyTypes "
-                        "RETURN relType, propertyName, propertyTypes"
-                    )
-                    rel_prop_types: dict = {}
-                    for r in result:
-                        rel = (r["relType"] or "").strip("`")
-                        if r["propertyName"]:
-                            rel_prop_types.setdefault(rel, {})[r["propertyName"]] = r["propertyTypes"]
-                    schema["relationship_property_types"] = rel_prop_types
-                    print(f"[CONFIG][GRAPHDB] Fetched rel property types for {len(rel_prop_types)} rel types")
-                except Exception as e:
-                    print(f"[CONFIG][GRAPHDB] relTypeProperties failed (non-fatal): {e!r}")
-
-                # Vocabulary: Study titles
-                try:
-                    result = db_session.run(
-                        "MATCH (s:Study) WHERE s.title IS NOT NULL "
-                        "RETURN DISTINCT s.title AS title ORDER BY s.title"
-                    )
-                    schema["vocabulary"]["study_titles"] = [r["title"] for r in result]
-                    print(f"[CONFIG][GRAPHDB] Fetched {len(schema['vocabulary']['study_titles'])} study titles")
-                except Exception as e:
-                    print(f"[CONFIG][GRAPHDB] Study title fetch failed: {e!r}")
-
-                # Vocabulary: published studies, so the graph agent can map a
-                # phrase like "the SureQuant paper" onto a real node. Emptiness is
-                # tested with coalesce(...) <> '' because the unset value on these
-                # instances is an empty string, not null — IS NOT NULL would match
-                # every study.
-                try:
-                    result = db_session.run(
-                        "MATCH (s:Study) "
-                        "WHERE coalesce(s.DOI, '') <> '' OR coalesce(s.PMID, '') <> '' "
-                        "RETURN s.title AS title, s.DOI AS doi, s.PMID AS pmid "
-                        "ORDER BY s.title"
-                    )
-                    schema["vocabulary"]["published_studies"] = [
-                        {"title": r["title"], "doi": r["doi"], "pmid": r["pmid"]}
-                        for r in result
-                    ]
-                    print(f"[CONFIG][GRAPHDB] Fetched {len(schema['vocabulary']['published_studies'])} published studies")
-                except Exception as e:
-                    print(f"[CONFIG][GRAPHDB] Published-study vocabulary fetch failed: {e!r}")
-
-                # Vocabulary: Investigation titles
-                try:
-                    result = db_session.run(
-                        "MATCH (i:Investigation) WHERE i.title IS NOT NULL "
-                        "RETURN DISTINCT i.title AS title ORDER BY i.title"
-                    )
-                    schema["vocabulary"]["investigation_titles"] = [r["title"] for r in result]
-                    print(f"[CONFIG][GRAPHDB] Fetched {len(schema['vocabulary']['investigation_titles'])} investigation titles")
-                except Exception as e:
-                    print(f"[CONFIG][GRAPHDB] Investigation title fetch failed: {e!r}")
-
-                # Vocabulary: DERIVED_FROM.internal_assay_title (assay in user language)
-                try:
-                    result = db_session.run(
-                        "MATCH ()-[r:DERIVED_FROM]-() WHERE r.internal_assay_title IS NOT NULL "
-                        "RETURN DISTINCT r.internal_assay_title AS title ORDER BY title"
-                    )
-                    schema["vocabulary"]["internal_assay_titles"] = [r["title"] for r in result]
-                    print(f"[CONFIG][GRAPHDB] Fetched {len(schema['vocabulary']['internal_assay_titles'])} internal assay titles")
-                except Exception as e:
-                    print(f"[CONFIG][GRAPHDB] Internal assay title fetch failed: {e!r}")
-
-
-        except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Schema introspection failed: {e!r}")
-        finally:
-            self._close_neo4j_driver(driver)
-
-        # Derive a human-readable topology from relationship_patterns for the graph agent
-        schema["graph_topology"] = [
-            f"{p['start']} -[:{p['type']}]-> {p['end']}"
-            for p in schema["relationship_patterns"]
-            if p.get("start") and p.get("type") and p.get("end")
-        ]
-
-        schema_path = Path(self.CONTEXT_DIR) / "neo4j_schema.json"
-        try:
-            schema_path.parent.mkdir(parents=True, exist_ok=True)
-            schema_path.write_text(json.dumps(schema, indent=2), encoding="utf-8")
-            print(f"[CONFIG][GRAPHDB] Neo4j schema saved to {schema_path} "
-                  f"({len(schema['node_labels'])} labels, {len(schema['relationship_types'])} rel types)")
-        except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Failed to save neo4j schema: {e!r}")
-
-        return schema
-
-    def _ensure_schema_file(self, filename: str, fetch_fn, label: str) -> dict:
-        """Load a daily-cached schema JSON; fall back to fetch_fn() when stale or missing."""
-        schema_path = Path(self.CONTEXT_DIR) / filename
-        if self._is_today(schema_path):
-            try:
-                data = json.loads(schema_path.read_text(encoding="utf-8"))
-                print(f"[CONFIG][GRAPHDB] {label} is fresh; loaded from {schema_path}")
-                return data
-            except Exception as e:
-                print(f"[CONFIG][GRAPHDB] Failed to load {schema_path}: {e!r}")
-        print(f"[CONFIG][GRAPHDB] {label} stale or missing; fetching from Neo4j.")
-        return fetch_fn()
-
-    def _ensure_neo4j_schema(self) -> dict:
-        """Load the cached Neo4j schema when fresh, otherwise fetch and persist a new copy."""
-        return self._ensure_schema_file("neo4j_schema.json", self._fetch_neo4j_schema, "Neo4j schema")
-
-    def _fetch_assay_sample_connections(self) -> dict:
-        """
-        Fetch distinct (assay, parent_type, child_type) tuples from DERIVED_FROM relationships.
-        Saves to CONTEXT_DIR/neo4j_assay-sample-conn.json.
-        Kept separate from neo4j_schema.json — injected into the graph agent only when needed.
-        Returns an empty dict when Neo4j is unavailable.
-        """
-        driver = self._connect_neo4j()
-        if driver is None:
-            return {}
-
-        connections: list[dict] = []
-        try:
-            with driver.session(database=self.NEO4J_DATABASE) as db_session:
-                result = db_session.run(
-                    "MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample) "
-                    "WHERE r.internal_assay_title IS NOT NULL "
-                    "RETURN DISTINCT r.internal_assay_title AS assay, p.type AS parent_type, c.type AS child_type "
-                    "ORDER BY assay LIMIT 300"
-                )
-                connections = [
-                    {"assay": r["assay"], "parent_type": r["parent_type"], "child_type": r["child_type"]}
-                    for r in result
-                ]
-                print(f"[CONFIG][GRAPHDB] Fetched {len(connections)} assay-sample connections")
-        except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Assay-sample connections fetch failed: {e!r}")
-            return {}
-        finally:
-            self._close_neo4j_driver(driver)
-
-        payload = {
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "connections": connections,
-        }
-        schema_path = Path(self.CONTEXT_DIR) / "neo4j_assay-sample-conn.json"
-        try:
-            schema_path.parent.mkdir(parents=True, exist_ok=True)
-            schema_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            print(f"[CONFIG][GRAPHDB] Assay-sample connections saved to {schema_path}")
-        except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Failed to save assay-sample connections: {e!r}")
-
-        return payload
-
-    def _ensure_assay_sample_connections(self) -> dict:
-        """Load or refresh the cached assay-to-sample connection lookup used by graph prompts."""
-        return self._ensure_schema_file("neo4j_assay-sample-conn.json", self._fetch_assay_sample_connections, "Assay-sample connections")
-
-    def _fetch_protocol_schema(self) -> dict:
-        """
-        Fetch distinct DERIVED_FROM.protocol_title values from Neo4j.
-        Saves to CONTEXT_DIR/neo4j_protocol_schema.json (overwritten on each fetch).
-        Kept separate from neo4j_schema.json because protocol context is only injected
-        into the graph agent prompt when the user query is protocol-related.
-        Returns an empty dict when Neo4j is unavailable.
-        """
-        driver = self._connect_neo4j()
-        if driver is None:
-            return {}
-
-        titles: list[str] = []
-        try:
-            with driver.session(database=self.NEO4J_DATABASE) as db_session:
-                result = db_session.run(
-                    "MATCH ()-[r:DERIVED_FROM]-() WHERE r.protocol_title IS NOT NULL "
-                    "RETURN DISTINCT r.protocol_title AS title ORDER BY title"
-                )
-                titles = [r["title"] for r in result]
-                print(f"[CONFIG][GRAPHDB] Fetched {len(titles)} protocol titles")
-        except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Protocol title fetch failed: {e!r}")
-            return {}
-        finally:
-            self._close_neo4j_driver(driver)
-
-        payload = {
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "protocol_titles": titles,
-        }
-        schema_path = Path(self.CONTEXT_DIR) / "neo4j_protocol_schema.json"
-        try:
-            schema_path.parent.mkdir(parents=True, exist_ok=True)
-            schema_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            print(f"[CONFIG][GRAPHDB] Protocol schema saved to {schema_path}")
-        except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Failed to save protocol schema: {e!r}")
-
-        return payload
-
-    def _ensure_protocol_schema(self) -> dict:
-        """Load or refresh the cached protocol-title vocabulary for protocol-oriented graph queries."""
-        return self._ensure_schema_file("neo4j_protocol_schema.json", self._fetch_protocol_schema, "Protocol schema")
-
     def get_config_snapshot(self) -> dict[str, object]:
         """
         Return a sanitized snapshot of key configuration values for logging.
@@ -2025,4 +1740,6 @@ class ChatConfig:
                 "schema_rel_types": len(self.NEO4J_SCHEMA.get("relationship_types", [])) if self.NEO4J_SCHEMA else 0,
             },
             "context_json_paths": {k: str(v) for k, v in self.CONTEXT_JSON_PATHS.items()},
+            # The live catalog's cache state, from memory only: no Neo4j call (plan task T1).
+            "graph_catalog": graph_catalog.cache_state(self),
         }
