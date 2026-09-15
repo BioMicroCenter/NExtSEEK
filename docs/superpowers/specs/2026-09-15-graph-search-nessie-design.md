@@ -2,8 +2,14 @@
 
 - Date: 2026-09-15, revised four times the same day to the operator's rulings (section 3.1)
 - Branch: `feat/graph-search-nessie`, cut from `feat/graph-search` at `4b3e087a`
-- Status: draft for operator approval. **Nothing is built.** The branch holds only this spec and its plan. The first
-  version of both said increment 1 (A0 to A4) was built; it was not.
+- Status (2026-09-15): approved. **Stage B is built** on this branch (plan tasks T1 to T8 and gate B, 11 commits from
+  `8c35832e` to `20f8054f`): the live catalog reader (A2), the rendered context (A3), READ transactions (D3), the graph
+  agent's wiring, per-label and whole-node guards and prompt lines (A3, A4, A7 subset), the evaluation switch (E2), the
+  forced arms in the harness (E1, E3), the truth tooling and the scorer (E4 to E8), and the venue script (section 6).
+  **Not built or not run:** stage G (ground truth), stage P (the paid runs), stage R (the result) and stage S (A1).
+  One correction to E8: there is no per-run `llm_calls.jsonl`. The ledger is one global file under the process's
+  `LOG_DIR`, so the scorer (`engine_compare.py`) attributes its lines to a turn by time, which can count a call at the
+  start of the next turn on both turns. Earlier versions of this spec said increment 1 was built before it was.
 - Tracking: none yet. File an issue per `docs/ISSUE-CONVENTIONS.md` after approval.
 - Builds on: the POC spec `docs/superpowers/specs/2026-09-14-graph-search-poc-design.md` (sections 3 to 7 are the graph
   and endpoint this uses; section 11.1 was this follow-up's first scope) and `docs/neo4j-schema.md` ("v1.1").

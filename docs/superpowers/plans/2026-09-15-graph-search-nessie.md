@@ -3,9 +3,16 @@
 > **For agentic workers:** stages B and G are executed by a Workflow over the task graph below. Each task is one agent
 > with its own tests and a disjoint set of files; a reviewer may reject one task and approve its neighbour. Use
 > superpowers:test-driven-development inside a task: write the failing tests, run them, make them pass, run the area
-> again. Steps use checkbox (`- [ ]`) syntax. **Nothing is built yet.** **No agent and no workflow step ever starts a
-> paid Nessie turn:** stage P is the operator's runbook, run by hand. Revised four times on 2026-09-15 to the operator's
-> rulings (spec section 3.1).
+> again. Steps use checkbox (`- [ ]`) syntax. **No agent and no workflow step ever starts a paid Nessie turn:** stage P
+> is the operator's runbook, run by hand. Revised four times on 2026-09-15 to the operator's rulings (spec section 3.1).
+>
+> **Status (2026-09-15): stage B is built** on `feat/graph-search-nessie` (tasks T1 to T8, reviewed, and gate B).
+> **Not built or not run:** stage G (ground truth), stage P (the paid runs), stage R (the result) and stage S (A1,
+> server-injected scope); gate V waits for the operator's `nessie_venue.sh up` and `check`. Where the code and this plan
+> differ, the code wins: T8's skeleton passes the live env files with a raw `--env-file`, while `nessie_venue.sh`
+> renders them as compose reads them and runs as the image's root user (its header says why). Command 2 leaves
+> root-owned `outputs/` directories in its copy, so remove the copy through a throwaway container. The checkboxes below
+> were not ticked; git and the review are the record.
 
 **Goal:** two answers. Group A, the contest: with the metadata in the graph, do Cypher queries outperform JSON
 advanced searches when an LLM turns the user's question into the query (the graph agent against the API agent, 105

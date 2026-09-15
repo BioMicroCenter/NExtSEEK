@@ -29,12 +29,12 @@ without an error at the point of the change.
 - **A construction-time raise inside the config object stops Django booting.**
   The settings overlay builds one at module scope
   (`startup/dev/lane_local_settings.py:19`), so the missing-provider-key raise at
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:490-493` takes the whole site down,
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:497-500` takes the whole site down,
   not just the chat panel.
 - **The chat-log cap is duplicated across the boundary and must stay in step.**
   `NessieAI/chat_nextseek/src/chat_nextseek/chat_memory.py:25` sets the FIFO limit applied
   at `NessieAI/chat_nextseek/src/chat_nextseek/chat_memory.py:246-247`, and
-  `NessieAI/cc/turn.py:54` hardcodes the same number with a
+  `NessieAI/cc/turn.py:57` hardcodes the same number with a
   comment naming this module; changing one truncates the two writers differently.
 - **Seqera Tower is retired, not deleted.** The schema builder never offers it
   (`NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:218-221`) and a test
@@ -48,7 +48,7 @@ without an error at the point of the change.
   an open pipeline build traps the conversation, because it is the only way out
   that discards build state.
 - **The Luria submit tool is offered only when all three env vars are set.**
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:57-59` requires user, key and
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:58-60` requires user, key and
   working path together, and `NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:220-221`
   keys tool exposure off that; a partially configured box silently hands the
   model a build it cannot submit.
@@ -74,6 +74,26 @@ without an error at the point of the change.
 - **Two graph snapshots are not baked from here.** The plugin tree keeps its own
   `min_graph_schema.json` and `neo4j_schema.json`, which differ from the ones here and do
   reach the agent (`NessieAI/docker/CLAUDE.md`).
+- **The graph schema is no longer written into `context/`.** `neo4j_schema.json`,
+  `neo4j_protocol_schema.json` and `neo4j_assay-sample-conn.json` are committed files the
+  config only reads (`ChatConfig.NEO4J_SCHEMA`, `PROTOCOL_SCHEMA` and
+  `ASSAY_SAMPLE_CONNECTIONS`); nothing refreshes them from Neo4j any more, so a hand edit
+  is the only way they change. The graph agent reads the live v1.1 catalog through
+  `graph_catalog.get_snapshot`, cached per process on `GraphMeta.catalog_hash`, and falls
+  back to those committed files on any catalog failure (`live_catalog_context` in
+  `NessieAI/chat_nextseek/src/chat_nextseek/agents/graph.py`). A graph turn records which
+  one it read in `debug.graph_context` (`catalog` or `fallback`). The parser and the older
+  property guard read the committed files either way. `_ensure_context_files` still
+  rewrites the database exports of the bullet above once a day: only the Neo4j-derived
+  files stopped changing.
+- **The evaluation switch is off unless the process sets `NEXTSEEK_EVAL_PARSER_FORCE=1`.**
+  The chat request's `force_parser_mode` (`graph` or `api`) is honoured only for a
+  superuser on a process with that flag (`_with_parser_force` in `NessieAI/cc/turn.py`)
+  and dropped without a word otherwise. No compose file or env template sets it; only
+  the evaluation venue does (`scripts/graph_search/nessie_venue.sh`). When it lands,
+  `_force_parser_mode` in `agents/parser.py` overrides the parser's choice last and says
+  so in `parser_plan.notes`. Set the flag on a served instance and any superuser's
+  request can overrule the parser.
 - **This directory's own `.gitignore` still governs it inside the monorepo.**
   `NessieAI/chat_nextseek/.gitignore:25` ignores any `docs/` directory and
   `NessieAI/chat_nextseek/.gitignore:33` ignores `.claude`, so a design note or a skill
@@ -100,20 +120,20 @@ without an error at the point of the change.
   Dockerfile) targets only `NessieAI/dmac_assistant/baml_src`, so every module importing
   it fails on `ModuleNotFoundError`. Do not read that as a move regression.
 - **An unregistered agent key degrades silently rather than raising.**
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:1331-1334` falls back through the
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:1338-1341` falls back through the
   `default` profile and then to the globally configured model at
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:1340`, so a new agent left out of a
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:1347`, so a new agent left out of a
   profile quietly runs on the wrong model. Only a duplicate assignment raises
-  (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:1317`).
+  (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:1324`).
 - **A missing capabilities document also degrades silently.**
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:435-441` prints a note and returns an
-  empty string, and `NessieAI/chat_nextseek/src/chat_nextseek/agents/system.py:55`
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:442-448` prints a note and returns an
+  empty string, and `NessieAI/chat_nextseek/src/chat_nextseek/agents/system.py:56`
   substitutes placeholder prose, so the system agent answers catalog questions
   from nothing instead of failing loudly.
 - **An in-source comment contradicts the code about the launch default.**
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:329-332` claims the mode defaults to
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:330-333` claims the mode defaults to
   Tower; the function it describes defaults to Luria
-  (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:36-43`). Believing the comment
+  (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:37-44`). Believing the comment
   mispredicts which submit tool the model is handed.
 - **Two tests read a source file by path and both are stale against it.** One
   reaches out of the boundary:
