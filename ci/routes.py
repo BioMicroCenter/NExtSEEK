@@ -368,6 +368,13 @@ REGISTRY: list[Route] = [
     # ----------------------------------------------------------------- #
     # seek: JSON helpers behind the pages
     # ----------------------------------------------------------------- #
+    Route(pattern=r"^seek/^admin/internal_assays/suggestions$",
+          path="/seek/admin/internal_assays/suggestions",
+          methods=("GET",), profiles="local,dev", auth="write", expect=200,
+          shape="suggestions",
+          note="tiered vocabulary suggestions for the association workbench. "
+               "Read-only and fail-soft: any data-layer error still returns 200 "
+               "with status:0 and an empty suggestions object"),
     Route(pattern=r"^seek/^attributes/id=(?P<id>[\w.-]{0,256})/$",
           path="/seek/attributes/id={sample_type_id}/",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,

@@ -1796,3 +1796,208 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 /* Tighten the search-criteria panel so there is less blank space around it. */
 #search_tab .well { padding: 12px 16px !important; margin-bottom: 10px !important; }
 #search_tab .well .table { margin-bottom: 8px !important; }
+
+/* --- Association workbench (see docs/superpowers/specs/2026-09-10-…-design.md) --- */
+
+.ns-wb-count { font-weight: 700; margin-right: 1em; }
+
+.ns-wb-group { display: inline-block; width: 100%; font-weight: 700; cursor: pointer; }
+.ns-wb-accept-tier { margin-left: 1em; font-weight: 400; }
+
+.ns-tier {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1.6;
+  padding: 0 6px;
+  border: 1px solid;
+  border-radius: 9px;
+  vertical-align: middle;
+}
+.ns-tier-exact     { color: #1a7f4b; border-color: #1a7f4b; }
+.ns-tier-precedent { color: #8a6100; border-color: #8a6100; }
+.ns-tier-fuzzy     { color: #8a4b00; border-color: #8a4b00; }
+.ns-tier-conflict  { color: #a11;    border-color: #a11; }
+.ns-tier-none      { color: #a11;    border-color: #a11; }
+.ns-tier-unavailable { color: var(--ns-muted); border-color: var(--ns-muted); }
+/* "Already mapped" group header badge. Muted on purpose: it counts work that
+   is already done, so it must not compete with the actionable tiers. Without a
+   rule here it inherits `border: 1px solid` from .ns-tier with no colour. */
+.ns-tier-mapped      { color: var(--ns-muted); border-color: var(--ns-muted); }
+
+.ns-wb-evidence { padding: 8px 12px 10px 26px; background: rgba(0, 0, 0, .03); }
+.ns-wb-evidence dt {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  opacity: .6;
+  margin-top: 6px;
+}
+.ns-wb-evidence dd { margin: 2px 0 0; }
+
+.ns-wb-vs { font-size: 0.85em; color: var(--ns-muted); margin: 0 0.35em; }
+
+/* --- Workbench grid geometry ------------------------------------------------
+   Vendored easyui (static/jquery-easyui-1.5.2/themes/default/easyui.css, frozen)
+   gives every .datagrid-cell `height:18px; line-height:18px; white-space:nowrap;
+   overflow:hidden`. The .datagrid-cell rule further up this file already raises
+   the font to 0.875rem (14px) but leaves all four of those alone, so each cell
+   is a fixed 18px non-wrapping box holding 14px text, and anything longer is cut
+   off with no ellipsis. Long titles and the multi-candidate conflict rendering
+   are the visible casualties.
+
+   Scoped to .ns-workbench deliberately: every other datagrid in the app (search,
+   samples, sops, datafiles, batch search, publish) keeps today's geometry
+   exactly. The scoping works because easyui builds the grid *in the original
+   <table>'s position* — jquery.easyui.min.js does
+   `$('<div class="datagrid-wrap">…</div>').insertAfter(table)` and then
+   `panel({cls:'datagrid'})`, whose own wrapper is
+   `$('<div class="panel"></div>').insertBefore(target)` — so the generated
+   panel is the table's sibling and stays inside this wrapper div. easyui also
+   *moves* the element named by the grid's `toolbar:` option into that panel, so
+   the toolbar is covered by the same scope.
+
+   Horizontal padding is inherited unchanged from the .datagrid-cell rule above
+   (10px), so column widths and header/body alignment are untouched; only the
+   vertical box changes. Header cells use .datagrid-cell too, which is what keeps
+   the header row on the same rhythm as the body rows.
+
+   No `height` is declared here on purpose. Both workbench grids now set
+   `nowrap:false, autoRowHeight:true` (seek/templates/internal_assays.html), so
+   easyui writes `white-space:normal;height:auto;` *inline* on every body cell
+   div itself — jquery.easyui.min.js's stock view renderRow and the vendored
+   themes/NextSeek/static/js/easyui/datagrid-detailview.js:99-103 share that
+   branch. Header cells already get `height:auto` from the vendored
+   static/jquery-easyui-1.5.2/themes/default/easyui.css
+   (`.datagrid-header .datagrid-cell{height:auto}`), as does an open editor
+   (`.datagrid-row-editing .datagrid-cell{height:auto}`). An `!important` height
+   here would sit on top of a property easyui now owns and writes during row
+   equalisation, so it is gone; `min-height` is kept because it only raises the
+   floor above the vendored 18px and cannot stop a row growing. */
+.ns-workbench .datagrid-cell,
+.ns-workbench .datagrid-cell-group {
+  min-height: 22px !important;
+  line-height: 1.45 !important;
+  white-space: normal !important;
+  /* Not `hidden`: with height:auto nothing would in fact be clipped, but making
+     the no-silent-clipping property structural rather than a side effect of the
+     height is the whole point of the change. The two wrap properties below are
+     what stop a single unbreakable token spilling into the next column now that
+     the overflow is visible — the column width itself is set by easyui on a
+     generated .datagrid-cell-c…-<field> class and is not affected here. */
+  overflow: visible !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+}
+/* The detailview expander column holds a 16px caret, not text, and — unlike
+   every other column in this section — the plugin always frozen-columns it
+   (datagrid-detailview.js's onBeforeRender injects `_expander` into
+   opts.frozenColumns whether or not the page asked for frozen columns), so
+   it renders into a separate <table> from the wrapping content columns.
+
+   That table is kept in step with the content table by easyui itself, not by
+   anything here: `datagrid('fixRowHeight')` (jquery.easyui.min.js `_670`, inner
+   loop `_674`) clears the inline height on the frozen <tr> and the unfrozen
+   <tr> for each datagrid-row-index, measures both, and writes Math.max back to
+   both. Both grids now declare `nowrap:false, autoRowHeight:true` so that
+   equalisation is gated on options this page states rather than on a vendored
+   default, and so the wrap is in the markup easyui emits and re-emits on every
+   updateRow/refreshRow.
+
+   Consequently this rule must add no height pressure of its own, or the frozen
+   row measures larger than the caret really needs and `_674` pins the pair too
+   tall. `height:auto` only defeats the `height:16px` datagrid-detailview.js
+   hardcodes inline on this one cell div (renderRow, the `col.expander` branch),
+   which would otherwise clip the 22px caret below. Vertical centring is done by
+   the table cell's own `vertical-align` rather than by a percentage height on
+   the div: a percentage resolved against a <tr> whose height easyui clears and
+   re-sets is both browser-dependent and exactly the kind of forced height that
+   fights the measurement above. Horizontal centring already comes from the
+   `text-align:center` the plugin sets inline. */
+.ns-workbench td[field="_expander"] {
+  vertical-align: middle;
+}
+.ns-workbench td[field="_expander"] .datagrid-cell {
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+/* --- Row expander: rotating caret ------------------------------------------
+   Replaces the vendored plus/minus sprite (frozen —
+   static/jquery-easyui-1.5.2/themes/default/datagrid.css:
+   .datagrid-row-expand / .datagrid-row-collapse each paint a different
+   offset of images/datagrid_icons.png) with one triangle that rotates 90deg
+   on expand, matching the triangle language already used for the tier-group
+   header rows (.ns-wb-group's own &#9654;/&#9660; glyphs, rendered by
+   titleFormatter in static/js/custom/ns-vocab-workbench.js) instead of a
+   stock 2010 toolbar icon.
+
+   Scoped to .ns-workbench: every other datagrid in the app (search, samples,
+   sops, datafiles, batch search, publish) keeps the stock sprite untouched —
+   see the scoping note above this block for why that selector cannot leak
+   (.ns-workbench appears only on the wrapper divs in
+   seek/templates/internal_assays.html and seek/templates/clades.html).
+
+   The span itself (datagrid-detailview.js:118, frozen) carries an inline
+   `style="display:inline-block;width:16px;height:16px;cursor:pointer;"`,
+   which only `!important` can beat, so every property that must move off
+   that baseline is declared `!important` below. */
+.ns-workbench .datagrid-row-expander {
+  background: none !important;   /* suppress the sprite in both states */
+  display: inline-block !important;
+  /* The vendored plugin pins this column at 24px (datagrid-detailview.js,
+     `{field:'_expander',expander:true,width:24,...}`) and sets width/height
+     inline on the span, hence the !important. 22px is the largest box that
+     still clears the column: widening the column itself would desync the
+     frozen and unfrozen column tables easyui keeps in step. */
+  width: 22px !important;
+  height: 22px !important;
+  line-height: 22px;
+  text-align: center;
+  cursor: pointer;
+}
+.ns-workbench .datagrid-row-expander::before {
+  /* Same glyph both states (collapsed default); .datagrid-row-collapse below
+     only rotates it, so the motion reads as a turn, not a character swap. */
+  content: '\25B8';
+  display: inline-block;
+  color: var(--ns-muted);
+  /* Sized to sit just above the 14px body text rather than below it: at 11px
+     the caret read as debris next to the row content it controls. */
+  font-size: 15px;
+  transform: rotate(0deg);
+  transition: transform 150ms ease, color 150ms ease;
+}
+.ns-workbench .datagrid-row-expander:hover::before {
+  color: var(--ns-body);   /* darker on hover; reuses the theme's body-text token */
+}
+.ns-workbench .datagrid-row-collapse::before {
+  transform: rotate(90deg);   /* expanded: same ▸, turned to point down */
+}
+
+/* Tier group-header rows (row._nsHeader — see ns-vocab-workbench.js's
+   layout()) open nothing when "expanded": there is no detail row content for
+   a synthetic row. The rowStyler in both consumer templates puts this class
+   on the row's <tr> in every one of the plugin's synchronized row instances,
+   so hide the now-inert control rather than leave a control that visibly
+   does nothing. visibility:hidden, not display:none: the plugin measures and
+   moves these spans directly (getExpander(), and the footer masking a few
+   lines below in datagrid-detailview.js uses this exact same
+   `.css('visibility','hidden')` for the same "should not appear" case), and
+   removing the element from layout could shift the column alignment the
+   frozen/unfrozen split maintains. visibility:hidden also removes it from
+   hit-testing, so the routing above (nsWbClickCell already returns early for
+   row._nsHeader before this control would even be reached) is not relied on
+   to keep it unclickable. */
+.ns-workbench tr.ns-wb-header-row .datagrid-row-expander {
+  visibility: hidden;
+}
+
+/* Per-row selection column, rendered by ns-vocab-workbench.js's
+   selectFormatter() rather than by easyui's `checkbox: true` column (which
+   cannot be suppressed for individual rows, so every synthetic tier-header row
+   would grow one). */
+.ns-wb-check { margin: 0; vertical-align: middle; cursor: pointer; }
+/* Stands in for the checkbox on rows that must not be bulk-accepted: already
+   mapped, conflicting candidates, or no candidate at all. A disabled checkbox
+   would still read as "selectable, currently off". */
+.ns-wb-nocheck { color: var(--ns-muted); cursor: default; }
