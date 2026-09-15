@@ -44,6 +44,7 @@ def _quiet_stdout():
     finally:
         sys.stdout = old
 
+from chat_nextseek import graph_catalog, graph_context
 from chat_nextseek.config import ChatConfig
 from chat_nextseek.session import SessionState
 from chat_nextseek.agents import entity_agent as _entity_agent
@@ -152,6 +153,19 @@ _CONTEXT_MAP = {
 }
 
 
+def _live_neo4j_schema() -> str | None:
+    """The v1.1 structure and sample type index when the graph catalog is live, else None.
+
+    The same text the graph agent reads, without the per-question sections. None means the committed
+    neo4j_schema.json is served (a graph that is down, or not synced to v1.1).
+    """
+    try:
+        snapshot = graph_catalog.get_snapshot(_cfg())
+    except Exception:  # noqa: BLE001 (any failure serves the committed file)
+        return None
+    return graph_context.load_structure() + "\n\n" + graph_context.render_type_index(snapshot.index) + "\n"
+
+
 @mcp.resource("nextseek://context/{name}")
 def context_resource(name: str) -> str:
     """
@@ -159,6 +173,9 @@ def context_resource(name: str) -> str:
 
     Available names: capabilities, endpoints, graph-schema, neo4j-schema,
     assay-connections, protocol-schema, sampletypes, assays.
+
+    neo4j-schema is the live v1.1 structure and sample type index when the graph
+    catalog is reachable, and the committed neo4j_schema.json otherwise.
     """
     filename = _CONTEXT_MAP.get(name)
     if not filename:
@@ -166,6 +183,10 @@ def context_resource(name: str) -> str:
             f"Unknown context resource '{name}'. "
             f"Available: {', '.join(_CONTEXT_MAP)}"
         )
+    if name == "neo4j-schema":
+        live = _live_neo4j_schema()
+        if live is not None:
+            return live
     path = Path(_cfg().CONTEXT_DIR) / filename
     return path.read_text()
 

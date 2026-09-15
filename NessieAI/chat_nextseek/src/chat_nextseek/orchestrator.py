@@ -433,6 +433,7 @@ def _execute_graph_turn(
     _t0 = time.perf_counter()
     print("\n[GRAPH] Running graph agent...")
     graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=refine_context)
+    debug_payload["graph_context"] = graph_plan.context_mode
     print(f"[DEBUG][GRAPH] Explanation: {graph_plan.explanation}")
     print(f"[DEBUG][GRAPH] Cypher:\n{graph_plan.cypher}")
 

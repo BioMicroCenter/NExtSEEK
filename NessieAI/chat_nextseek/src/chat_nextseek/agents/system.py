@@ -10,6 +10,7 @@ from ..schemas import (
     ParserPlan,
     SystemAgentOutput,
 )
+from .graph import live_catalog_context
 
 
 def system_agent(
@@ -54,7 +55,13 @@ def system_agent(
 
     caps_doc = config.CAPABILITIES_DOC or "(No capabilities document loaded — describe general NExtSEEK capabilities.)"
     endpoints_json = json.dumps(config.MIN_API_ENDPOINTS, indent=2)
-    schema_json = json.dumps(config.NEO4J_SCHEMA, indent=2) if config.NEO4J_SCHEMA else "{}"
+    # The graph agent's own rendering when the v1.1 catalog is live (structure, type index, the resolved types and
+    # the question's vocabulary blocks); the committed JSON schema otherwise.
+    catalog = live_catalog_context(config, user_query, entity_dict, plan_dict)
+    if catalog is not None:
+        schema_json = catalog.schema + (f"\n{catalog.vocabulary}\n" if catalog.vocabulary else "")
+    else:
+        schema_json = json.dumps(config.NEO4J_SCHEMA, indent=2) if config.NEO4J_SCHEMA else "{}"
     entity_details_json = json.dumps(entity_details, indent=2) if entity_details else "{}"
 
     messages = [

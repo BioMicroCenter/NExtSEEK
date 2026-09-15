@@ -21,8 +21,20 @@ the model does it anyway.
 """
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from chat_nextseek import graph_catalog
 from chat_nextseek.agents.graph import graph_agent, canonicalize_sample_uid_property
 from chat_nextseek.schemas import GraphAgentPlan
+
+
+@pytest.fixture(autouse=True)
+def _catalog_unavailable(monkeypatch):
+    """The end-to-end test pins the fallback path (the committed JSON and the type-blind guard)."""
+    def unavailable(*args, **kwargs):
+        raise graph_catalog.CatalogUnavailable("no graph in this test")
+
+    monkeypatch.setattr(graph_catalog, "get_snapshot", unavailable)
 
 # Mirrors the real cached schema, which advertises BOTH spellings on Sample.
 SCHEMA = {"node_properties": {
