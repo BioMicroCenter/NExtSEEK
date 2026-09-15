@@ -12,7 +12,7 @@ from .samples import (editSample, getAssaysOptions, getAttributes, getInstituion
 from .upload import (batchUpload, datafileUpload, sampleUploadAjax, samplesValidate)
 from .assets import (datafileQuery, document, sopQuery, templatesDownload, templatesList)
 from .catalog import (assayDetail, assaysList, sampleTypeDetail, sampleTypesList)
-from .search import (newSearch, remote, runSampleSearch, sampleSearch, sampleSearching, searchAdvanced, searchingAdvanced, searchingUIDs, smartSearch)
+from .search import (graphSearch, newSearch, remote, runSampleSearch, sampleSearch, sampleSearching, searchAdvanced, searchingAdvanced, searchingUIDs, smartSearch)
 from .admin import (adminClades, adminRetrieveSamples, assayAssociationSave, cladeDelete, cladeSampleTypesSave, cladeSave, cladesSyncSampleTypes, get_children_uids, internalAssayDelete, internalAssaySave, internalAssays, parse_children_uids, parse_json_metadata, sample_retrieval_data, syncInternalAssays)
 from .projects import (project_connections, project_page, project_samples, projects)
 from .timeline import (download_nhp_data, fetch_event_data, get_nhp_data, nhp_info)
@@ -46,6 +46,7 @@ __all__ = [
     'get_children_uids',
     'get_nhp_data',
     'getting_started',
+    'graphSearch',
     'internalAssayDelete',
     'internalAssaySave',
     'internalAssays',

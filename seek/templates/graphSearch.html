@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block main %}
+<script type="text/javascript" src="{{STATIC_URL}}js/ns_sample_download.js"></script>
+{% include "pages/graphSearch_core.embed.html" %}
+
+<style type="text/css">
+  .datagrid-row-alt { background: #e6f2ff; }
+  .gs-intro { margin: 2px 0 14px; color: var(--ns-muted); max-width: 72ch; }
+  .gs-status { margin: 12px 0 6px; font-family: "IBM Plex Mono", monospace; font-size: 0.85rem; min-height: 1.3em; }
+  .gs-form td { padding: 4px 8px 4px 0; vertical-align: middle; }
+</style>
+
+<script type="text/javascript">
+var type_options = {{report.type_options|safe}};
+
+/* A grid built inside a hidden tab measures zero height; resizing it once the tab
+   is visible lays it out (the same fix the Sample Search page applies). */
+function gsResizeGridsIn(container) {
+  if (!container || !container.length) { return; }
+  container.find('.datagrid-f').each(function () {
+    try { $(this).datagrid('resize'); } catch (e) {}
+  });
+}
+
+function gsCsrfToken() {
+  var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+function gsPageSize(gridId) {
+  return $('#' + gridId).datagrid('options').pageSize || 100;
+}
+
+/* The body of each grid's last search, so the pager can ask for another page of it. */
+var gsLastBody = {};
+
+/* One page of results from graph_search into a grid, with the timing line under the form.
+   graph_search pages in the database, so each page is its own request. */
+function gsRun(gridId, statusId, built, page, size) {
+  if (built.error) {
+    $.messager.alert('Graph Search', built.error, 'warning');
+    return;
+  }
+  gsLastBody[gridId] = built.body;
+  var dg = $('#' + gridId);
+  var started = performance.now();
+  $.messager.progress({ title: 'Please wait', msg: 'Searching the graph...' });
+  fetch(GraphSearchCore.searchUrl(page, size), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': gsCsrfToken() },
+    body: JSON.stringify(built.body)
+  }).then(function (resp) {
+    return resp.json().catch(function () { return null; }).then(function (payload) {
+      return { resp: resp, payload: payload };
+    });
+  }).then(function (r) {
+    $.messager.progress('close');
+    if (!r.resp.ok || !r.payload) {
+      $('#' + statusId).text('');
+      $.messager.alert('Graph Search', GraphSearchCore.errorText(r.resp.status, r.payload), 'error');
+      return;
+    }
+    var data = r.payload;
+    var opts = dg.datagrid('options');
+    opts.pageNumber = page;
+    opts.pageSize = size;
+    dg.datagrid('loadData', { total: data.total, rows: data.rows || [] });
+    dg.datagrid('getPager').pagination({ total: data.total, pageNumber: page, pageSize: size });
+    $('#' + statusId).text(GraphSearchCore.timingText(data.total, performance.now() - started, data.footer));
+  }).catch(function (err) {
+    $.messager.progress('close');
+    $.messager.alert('Graph Search', 'The request failed: ' + err, 'error');
+  });
+}
+
+function gsInitGrid(gridId, statusId) {
+  var dg = $('#' + gridId);
+  dg.datagrid({
+    onLoadSuccess: function () { $(this).datagrid('resize'); },
+    onCheck: function (index, row) { row.ck = true; },
+    onUncheck: function (index, row) { row.ck = false; },
+    onCheckAll: function () { $(this).datagrid('getRows').forEach(function (row) { row.ck = true; }); },
+    onUncheckAll: function () { $(this).datagrid('getRows').forEach(function (row) { row.ck = false; }); }
+  });
+  dg.datagrid('getPager').pagination({
+    showRefresh: false,
+    onSelectPage: function (pageNumber, pageSize) {
+      if (gsLastBody[gridId]) {
+        gsRun(gridId, statusId, { body: gsLastBody[gridId] }, pageNumber, pageSize);
+      }
+    }
+  });
+}
+
+function gsClearGrid(gridId, statusId) {
+  delete gsLastBody[gridId];
+  $('#' + gridId).datagrid('loadData', { total: 0, rows: [] });
+  $('#' + statusId).text('');
+}
+
+/* Downloads the checked rows of the current page with their full DERIVED_FROM tree. */
+function gsDownload(dg) {
+  return nsDownloadSamples(nsCollectSelectedUids(dg), { includeTree: true });
+}
+
+$(function () {
+  $('#search_tab').tabs({
+    onSelect: function (title, index) { gsResizeGridsIn($('#search_tab').tabs('getTab', index)); }
+  });
+  var tab = new URLSearchParams(window.location.search).get('tab');
+  $('#search_tab').tabs('select', tab === 'advanced' ? 1 : 0);
+  gsInitGrid('gs_simple_dgtable', 'gs_simple_status');
+  gsInitGrid('gs_advanced_dgtable', 'gs_advanced_status');
+});
+</script>
+
+<h1 class="h4" style="margin: 6px 0 2px;">Graph Search</h1>
+<p class="gs-intro">The same searches as <a href="/seek/search/">Sample Search</a>, answered from the metadata graph
+by <code>POST /nextseek_api/samples/graph_search/</code>. Results arrive a page at a time, and the line under each
+form says how long the search took.</p>
+
+<div id="search_tab" class="easyui-tabs" style="width:auto;height:1100px;">
+  <div title="Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;">
+    {% include "pages/graphSearch_simple.embed.html" %}
+  </div>
+  <div title="Advanced Sample Search" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
+    {% include "pages/graphSearch_advanced.embed.html" %}
+  </div>
+</div>
+{% endblock %}

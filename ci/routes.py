@@ -289,6 +289,10 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="skipped wherever assay_slug is None, i.e. wherever the list page "
                "rendered no assays to scrape a link from"),
+    Route(pattern=r"^seek/^graph/search/", path="/seek/graph/search/",
+          methods=("GET",), profiles="local,dev", auth="web", expect=200,
+          note="Sample Search whose results come from POST /nextseek_api/samples/graph_search/, "
+               "which is local,dev only, so the page is too"),
     Route(pattern=r"^seek/^help/$", path="/seek/help/",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200),
     Route(pattern=r"^seek/^newsearch/", path="/seek/newsearch/",

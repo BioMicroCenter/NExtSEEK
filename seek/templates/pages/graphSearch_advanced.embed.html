@@ -1,0 +1,81 @@
+<script type="text/javascript">
+/* The Advanced tab: search terms one per line, matched against every attribute value,
+   combined with one AND or OR, optionally within one sample type. graph_search has no NOT,
+   and one search cannot mix AND with OR, so those two options are not here. */
+function gsAdvancedSearch() {
+  var built = GraphSearchCore.advancedBody({
+    terms: $('#gs_terms').val(),
+    logic: $('input[name=gs_logic]:checked').val(),
+    matchType: $('input[name=gs_match]:checked').val(),
+    sampletype: $('#gs_advanced_sample_type').combobox('getText')
+  });
+  gsRun('gs_advanced_dgtable', 'gs_advanced_status', built, 1, gsPageSize('gs_advanced_dgtable'));
+}
+
+function gsAdvancedReset() {
+  $('#gs_advanced_sample_type').combobox('clear');
+  $('#gs_terms').val('');
+  $('#gs_logic_and').prop('checked', true);
+  $('#gs_match_partial').prop('checked', true);
+  gsClearGrid('gs_advanced_dgtable', 'gs_advanced_status');
+}
+</script>
+
+<form onsubmit="event.preventDefault(); gsAdvancedSearch();">
+  <table class="gs-form">
+    <tr>
+      <td style="vertical-align:top;"><b>Search terms</b><br><span style="color:var(--ns-muted);font-size:0.85rem;">one per line</span></td>
+      <td><textarea id="gs_terms" rows="4" style="width:360px;" placeholder="lung&#10;granuloma"></textarea></td>
+    </tr>
+    <tr>
+      <td><b>Combine terms</b></td>
+      <td>
+        <input type="radio" id="gs_logic_and" name="gs_logic" value="AND" checked> <label for="gs_logic_and">every term (AND)</label>
+        &nbsp;&nbsp;
+        <input type="radio" id="gs_logic_or" name="gs_logic" value="OR"> <label for="gs_logic_or">any term (OR)</label>
+      </td>
+    </tr>
+    <tr>
+      <td><b>Sample Type</b> <a href="/seek/sampletypes/" title="What each sample type means" style="color:var(--ns-muted);text-decoration:none;"><i class="bi bi-info-circle"></i></a> (optional)</td>
+      <td><input id="gs_advanced_sample_type" class="easyui-combobox" style="width:250px;" data-options="data: type_options, valueField:'id', textField:'title', groupField:'group', editable: true, panelHeight:'auto', panelMaxHeight: 360, filter: function(q, row) { return row.title.toUpperCase().indexOf(q.toUpperCase()) >= 0; }"></td>
+    </tr>
+    <tr>
+      <td><b>Match to attribute value</b> <a href="/seek/samples/attributes/" title="What each attribute means" style="color:var(--ns-muted);text-decoration:none;"><i class="bi bi-info-circle"></i></a></td>
+      <td>
+        <input type="radio" id="gs_match_partial" name="gs_match" value="PARTIAL" checked> <label for="gs_match_partial">Partial</label>
+        &nbsp;&nbsp;
+        <input type="radio" id="gs_match_exact" name="gs_match" value="EXACT"> <label for="gs_match_exact">Exact</label>
+      </td>
+    </tr>
+    <tr>
+      <td></td>
+      <td>
+        <span class="ns-search-actions">
+          <a href="javascript:void(0)" class="ns-btn-reset" onclick="gsAdvancedReset()">Reset</a>
+          <a href="javascript:void(0)" class="ns-btn-search" onclick="gsAdvancedSearch()"><span class="glyphicon glyphicon-search"></span> Search</a>
+        </span>
+      </td>
+    </tr>
+  </table>
+</form>
+
+<div id="gs_advanced_status" class="gs-status"></div>
+
+<table id="gs_advanced_dgtable" class="easyui-datagrid" style="width:100%;height:560px;" data-options="
+    singleSelect: true, selectOnCheck: false, striped: true, toolbar: '#gs_advanced_toolbar',
+    pagination: true, pageSize: 100, pageList: [20, 50, 100, 500, 1000]">
+  <thead>
+    <tr>
+      <th data-options="field:'ck', checkbox:true"></th>
+      <th data-options="field:'id', width:70"><b>ID</b></th>
+      <th data-options="field:'uuid', width:210, formatter: GraphSearchCore.uidLink"><b>UID</b></th>
+      <th data-options="field:'sample_type', width:100, formatter: GraphSearchCore.textCell"><b>Sample Type</b></th>
+      <th data-options="field:'title', width:240, formatter: GraphSearchCore.textCell"><b>Title</b></th>
+      <th data-options="field:'assays', width:240, formatter: GraphSearchCore.textCell"><b>Assays</b></th>
+      <th data-options="field:'first_name', width:120, formatter: GraphSearchCore.textCell"><b>Contributor</b></th>
+    </tr>
+  </thead>
+</table>
+<div id="gs_advanced_toolbar" style="height:auto">
+  <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="gsDownload($('#gs_advanced_dgtable'))">Download samples</a>
+</div>
