@@ -85,6 +85,18 @@ def test_the_tab_container_keeps_the_id_the_layout_css_is_scoped_to():
     assert 'id="search_tab"' in body
 
 
+def test_the_simple_tab_never_calls_a_combobox_before_easyui_has_built_it():
+    """EasyUI auto-selects an item in the sample type box while it parses the page, which
+    fires its onSelect before the attribute and rule boxes below it exist. A handler that
+    calls .combobox('clear') on one of those throws, and the throw aborts EasyUI's parse, so
+    no tab and no grid on the page is ever built (seen live on 2026-09-15). Every reset goes
+    through gsComboReset, which checks the box exists first."""
+    simple = (ROOT / "seek/templates/pages/graphSearch_simple.embed.html").read_text()
+    assert "function gsComboReset(" in simple
+    assert "data('combobox')" in simple
+    assert simple.count(".combobox('clear')") == 1, "call combobox('clear') only inside gsComboReset"
+
+
 def test_the_sidebar_links_the_page_next_to_sample_search_for_every_user():
     nav = (ROOT / "themes/NextSeek/templates/nav.embed.html").read_text()
     admin_gate = nav.index("{% if request.user.is_superuser %}")

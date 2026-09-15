@@ -8,9 +8,20 @@ function gsParse(data) {
   return typeof data === 'string' ? jQuery.parseJSON(data) : data;
 }
 
+/* Clears a combobox, and empties its list unless keepData, but only once EasyUI has built it.
+   EasyUI auto-selects an item in the sample type box while it is still parsing the page, so
+   that box's onSelect runs before the attribute and rule boxes below it exist; a call on an
+   unbuilt box throws, and the throw stops EasyUI building anything else on the page. */
+function gsComboReset(id, keepData) {
+  var box = $('#' + id);
+  if (!box.data('combobox')) { return; }
+  box.combobox('clear');
+  if (!keepData) { box.combobox('loadData', []); }
+}
+
 function gsSimpleLoadAttributes(rec) {
-  $('#gs_simple_attribute').combobox('clear').combobox('loadData', []);
-  $('#gs_filter_rule').combobox('clear').combobox('loadData', []);
+  gsComboReset('gs_simple_attribute');
+  gsComboReset('gs_filter_rule');
   gsSimpleFilterType = '';
   if (!rec || !rec.id) { return; }
   $.get('/seek/attributes/id=' + rec.id + '/', {}, function (data) {
@@ -26,7 +37,7 @@ function gsSimpleLoadAttributes(rec) {
 }
 
 function gsSimpleLoadRules(rec) {
-  $('#gs_filter_rule').combobox('clear').combobox('loadData', []);
+  gsComboReset('gs_filter_rule');
   if (!rec || rec.attribute === 'none') { return; }
   $.get('/seek/operators/', {
     sampletype_id: $('#gs_simple_sample_type').combobox('getValue'),
@@ -62,9 +73,9 @@ function gsSimpleSearch() {
 }
 
 function gsSimpleReset() {
-  $('#gs_simple_sample_type').combobox('clear');
-  $('#gs_simple_attribute').combobox('clear').combobox('loadData', []);
-  $('#gs_filter_rule').combobox('clear').combobox('loadData', []);
+  gsComboReset('gs_simple_sample_type', true);
+  gsComboReset('gs_simple_attribute');
+  gsComboReset('gs_filter_rule');
   $('#gs_value_from').val('');
   $('#gs_value_to').val('');
   gsSimpleFilterType = '';
