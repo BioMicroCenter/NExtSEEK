@@ -8,92 +8,83 @@ the server that enforces it.
 Everything here is read-only. Nothing in this module writes to SEEK, to the
 sample-type catalog, or to Neo4j.
 
-The catalog behind ``known_sample_types``/``attributes_for`` is the bundled
-export ``sampletypes_db.json`` (see ``_CATALOG_PATH``), not a live query
-against ``sample_types_context``. Two reasons: the export is what
-``chat_nextseek`` already ships and keeps refreshed from that same table
-(NessieAI/chat_nextseek/src/chat_nextseek/config.py), and unlike a live query it
-does not depend on a per-instance database actually being reachable and
-populated -- which the standard Django test lane's in-memory database is not.
-The export spells its metadata-field columns as COMMA-SEPARATED STRINGS under
-"Required Metadata", "Standard Metadata" and "Possible Metadata Fields" (not as
-JSON lists), which is what ``_split`` is for.
+The catalog behind ``known_sample_types``/``attributes_for`` is
+``nextseek_api.services.context_catalog``, the same loader the sample type
+catalog pages use -- not the ``chat_nextseek`` bundled export this module used
+to read directly. That export lives under ``NessieAI/``, which is AI-owned
+territory (see the repo root ``CLAUDE.md``: "the API surface stays in
+``nextseek_api/``"), so ``nextseek_api`` must not depend on it. Going through
+``context_catalog.load_sample_type``/``load_sample_types`` also means this
+module inherits that loader's house rule for free: a missing table or row
+costs the caller an empty catalog, never an exception.
 """
 from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
+
+from nextseek_api.services.context_catalog import load_sample_type, load_sample_types
 
 log = logging.getLogger(__name__)
-
-# NessieAI/chat_nextseek/src/chat_nextseek/context/sampletypes_db.json, relative
-# to this file's own location, so this works the same whether the caller's
-# cwd is the repo root, a container's /app, or a test runner's tmp dir. See the
-# module docstring for why this is the export and not a live catalog query.
-_CATALOG_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "NessieAI" / "chat_nextseek" / "src" / "chat_nextseek" / "context"
-    / "sampletypes_db.json"
-)
-
-# The catalog spells these as comma-separated strings, not lists.
-_REQUIRED_KEY = "Required Metadata"
-_STANDARD_KEY = "Standard Metadata"
-_POSSIBLE_KEY = "Possible Metadata Fields"
-_CODE_KEY = "SampleType"
-
-
-def _catalog() -> list[dict]:
-    """The sampletypes export, or [] when it cannot be read.
-
-    Same house rule as context_catalog.py: a missing or unreadable file costs
-    the caller an empty catalog, never an exception.
-    """
-    try:
-        raw = _CATALOG_PATH.read_text()
-    except OSError:
-        log.exception("reingest_lookups: cannot read %s", _CATALOG_PATH)
-        return []
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        log.exception("reingest_lookups: %s is not valid JSON", _CATALOG_PATH)
-        return []
-    return data if isinstance(data, list) else []
-
-
-def _split(value) -> list[str]:
-    return [part.strip() for part in str(value or "").split(",") if part.strip()]
 
 
 def known_sample_types() -> set[str]:
     """Every SampleType code in the catalog."""
-    return {str(row.get(_CODE_KEY) or "").strip()
-            for row in _catalog() if row.get(_CODE_KEY)}
+    return {entry.code for entry in load_sample_types()}
 
 
 def attributes_for(sample_type: str) -> list[dict]:
     """[{"title", "required"}] for one sample type; [] when it is unknown.
 
-    Required comes from the catalog's "Required Metadata"; standard and possible
+    Required comes from the catalog's required metadata; standard and possible
     fields are returned too, flagged not-required, so a caller can ask both
     "does this attribute exist?" and "must it be filled?" from one call.
     """
-    for row in _catalog():
-        if str(row.get(_CODE_KEY) or "").strip() != sample_type:
+    entry = load_sample_type(str(sample_type or "").strip())
+    if entry is None:
+        return []
+    required = entry.required_metadata
+    others = entry.standard_metadata + entry.possible_metadata_fields
+    seen: set[str] = set()
+    out: list[dict] = []
+    for title in required + others:
+        if title in seen:
             continue
-        required = _split(row.get(_REQUIRED_KEY))
-        others = _split(row.get(_STANDARD_KEY)) + _split(row.get(_POSSIBLE_KEY))
-        seen: set[str] = set()
-        out: list[dict] = []
-        for title in required + others:
-            if title in seen:
-                continue
-            seen.add(title)
-            out.append({"title": title, "required": title in required})
-        return out
-    return []
+        seen.add(title)
+        out.append({"title": title, "required": title in required})
+    return out
+
+
+def _matches_path(value, path: str) -> bool:
+    """True if ``path`` appears in ``value`` as a whole path segment.
+
+    A plain ``path in value`` substring test also matches "a.fastq.gz" inside
+    "aa.fastq.gz", which would silently fold two different files' UIDs
+    together. This requires a boundary (start/end of string, or one of
+    ``/,; ``) on both sides of the match, so a shorter filename can never match
+    merely because it is a suffix/prefix of a longer one.
+
+    Contract this exists to protect: ``uids_by_primary_data`` returns every
+    UID that genuinely matches and the caller must never auto-pick among them
+    -- this function only rules out matches that were never real to begin
+    with, it does not change that multiple real matches can still come back.
+    """
+    value = str(value or "")
+    if not path:
+        return False
+    start = 0
+    length = len(path)
+    boundary = "/,; "
+    while True:
+        idx = value.find(path, start)
+        if idx == -1:
+            return False
+        before_ok = idx == 0 or value[idx - 1] in boundary
+        after = idx + length
+        after_ok = after == len(value) or value[after] in boundary
+        if before_ok and after_ok:
+            return True
+        start = idx + 1
 
 
 def uids_by_primary_data(path: str) -> list[str]:
@@ -133,8 +124,8 @@ def uids_by_primary_data(path: str) -> list[str]:
                 continue
             if not isinstance(meta, dict):
                 continue
-            if path in str(meta.get("File_PrimaryData") or "") or \
-                    path in str(meta.get("Link_PrimaryData") or ""):
+            if _matches_path(meta.get("File_PrimaryData"), path) or \
+                    _matches_path(meta.get("Link_PrimaryData"), path):
                 matches.add(str(uid))
         return sorted(matches)
     except Exception:
