@@ -17,8 +17,10 @@ TIER_FUZZY = "fuzzy"
 TIER_CONFLICT = "conflict"
 TIER_NONE = "none"
 
-# Overlap needed before a guess is worth showing at all. Fuzzy is the lowest
-# actionable tier: a curator must approve it, so mild permissiveness is fine.
+# Balance needed before a guess is worth showing at all -- see _token_match for
+# what balance measures. Fuzzy is the lowest actionable tier: a curator must
+# approve it, so mild permissiveness is fine. A wholly contained title is
+# admitted below this, and ranked by balance like everything else.
 FUZZY_THRESHOLD = 0.6
 
 # Unicode dash variants seen in real titles, normalized to ASCII hyphen before
@@ -205,14 +207,49 @@ def _words(count: int) -> str:
     return "1 word" if count == 1 else f"{count} words"
 
 
-def _overlap(left: str, right: str) -> float:
-    """Shared tokens over the smaller token set. 0.0 when either side is empty."""
+@dataclass(frozen=True)
+class _Match:
+    """How two token sets relate: how balanced, whether one contains the other."""
+
+    balance: float
+    contained: bool
+    shared: Tuple[str, ...]
+
+
+def _token_match(left: str, right: str) -> _Match:
+    """Compare two normalized titles by their word sets.
+
+    ``balance`` is shared over the LARGER set, which is the smaller of the two
+    coverage ratios: it asks how much of each side the other accounts for, and
+    only scores high when both are well covered.
+
+    This replaces shared-over-the-smaller-set, which was the larger coverage
+    ratio and therefore carried no ranking information at all -- any vocabulary
+    term whose every word appeared in the title scored exactly 1.00, however
+    long the title was. Measured against dev's vocabulary, "Real Time RT-PCR"
+    scored 1.00 for both "PCR" and "Real Time PCR", so which one a curator was
+    offered came down to the id tie-break. By balance those are 0.25 and 0.75,
+    and the complete term wins.
+
+    ``contained`` is that discarded ratio's one real use: every word of the
+    shorter title appearing in the longer is the qualified/shortened/prefixed
+    variant pattern ("Cytokine Luminex" -> "Luminex"), which is a weak signal
+    but a real one, and is why admission below is not balance alone. Empty
+    intersections are excluded explicitly -- two titles sharing no words are not
+    "contained" just because one of them has no words to fail on.
+    """
     left_tokens = set(left.split())
     right_tokens = set(right.split())
     if not left_tokens or not right_tokens:
-        return 0.0
+        return _Match(0.0, False, ())
     shared = left_tokens & right_tokens
-    return len(shared) / min(len(left_tokens), len(right_tokens))
+    if not shared:
+        return _Match(0.0, False, ())
+    return _Match(
+        balance=len(shared) / max(len(left_tokens), len(right_tokens)),
+        contained=len(shared) == min(len(left_tokens), len(right_tokens)),
+        shared=tuple(sorted(shared)),
+    )
 
 
 def suggest(
@@ -287,37 +324,51 @@ def suggest(
             )
         ]
 
+    # Admit on balance, or on the containment pattern balance alone would lose.
+    # Rank on balance either way, so a short generic term can still be offered
+    # when it is all there is, but never outranks a fuller match.
     scored = []
     for vocab_id, vocab_title in vocabulary:
-        score = _overlap(key, normalize(vocab_title))
-        if score >= FUZZY_THRESHOLD:
-            scored.append((score, -vocab_id, vocab_id, vocab_title))
+        match = _token_match(key, normalize(vocab_title))
+        if match.balance >= FUZZY_THRESHOLD or match.contained:
+            scored.append((match, vocab_id, vocab_title))
     if scored:
-        scored.sort(reverse=True)
-        score, _, vocab_id, vocab_title = scored[0]
-        shared = sorted(set(key.split()) & set(normalize(vocab_title).split()))
+        # Ties still break on vocabulary id, ascending, as the module docstring
+        # promises -- an explicit key rather than reverse=True on a tuple,
+        # because a _Match does not order and would raise the day two
+        # vocabulary rows shared an id.
+        scored.sort(key=lambda entry: (-entry[0].balance, entry[1]))
+        match, vocab_id, vocab_title = scored[0]
         evidence = _comparison_evidence(title, key) + (
-            "Shared {n} of {d}: {words}.".format(
-                n=len(shared),
-                d=_words(min(len(set(key.split())),
-                             len(set(normalize(vocab_title).split())))),
-                words=", ".join(_quote(w) for w in shared),
+            "Shared {n}: {words}.".format(
+                n=_words(len(match.shared)),
+                words=", ".join(_quote(w) for w in match.shared),
             ),
-            # The score is the whole decision -- it is the only reason this is a
-            # suggestion rather than nothing -- and the threshold is what makes
-            # the number mean anything, so neither is useful without the other.
-            f"Overlap {score:.2f}, at or above the {FUZZY_THRESHOLD:.2f} threshold.",
         )
+        # Say which of the two doors it came in by. A 0.33 match presented with
+        # no explanation reads as the resolver being bad at arithmetic; the same
+        # number with "every word of the shorter title appears in the longer"
+        # beside it reads as what it is -- a weak but deliberate suggestion.
+        if match.balance >= FUZZY_THRESHOLD:
+            evidence += (
+                f"Match {match.balance:.2f}, at or above the "
+                f"{FUZZY_THRESHOLD:.2f} threshold.",
+            )
+        else:
+            evidence += (
+                f"Match {match.balance:.2f}, below the {FUZZY_THRESHOLD:.2f} "
+                f"threshold, but every word of the shorter title appears in "
+                f"the longer.",
+            )
         # A curator overruling a fuzzy guess needs to know what else was close,
         # or the only way to find the runner-up is to reopen the combobox and
-        # read the whole vocabulary.
-        others = [t for _, _, _, t in scored[1:EVIDENCE_LIMIT]]
+        # read the whole vocabulary. Ordered by balance, like the winner.
+        others = [
+            f"{_quote(other_title)} ({other.balance:.2f})"
+            for other, _, other_title in scored[1:EVIDENCE_LIMIT]
+        ]
         if others:
-            evidence += (
-                "Also above the threshold: "
-                + ", ".join(_quote(t) for t in others)
-                + ".",
-            )
+            evidence += ("Also considered: " + ", ".join(others) + ".",)
         return [
             Candidate(
                 vocabulary_id=vocab_id,

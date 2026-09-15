@@ -337,3 +337,67 @@ def test_split_disposition_returns_the_suffix_as_written():
 def test_strip_disposition_still_agrees_with_the_split():
     for raw in ("Tissue Collection - Metadata", "All Metadata", "", None):
         assert strip_disposition(raw) == split_disposition(raw)[0]
+
+
+# --- fuzzy ranking: balance, not containment ---------------------------------
+# Shared-over-the-SMALLER-set scored 1.00 for any term whose every word appeared
+# in the title, however long the title was, so it could not rank at all and
+# which candidate surfaced came down to the id tie-break. These pin the fix.
+
+VOCAB_PCR = VOCAB3 + [(91, "Real Time PCR")]
+
+
+def test_a_fuller_term_outranks_a_short_contained_one():
+    """The reported defect: "Real Time RT-PCR" was offered "PCR"."""
+    cands = suggest("Real Time RT-PCR - Data Linked", VOCAB_PCR, [])
+    assert cands[0].tier == TIER_FUZZY
+    assert cands[0].vocabulary_title == "Real Time PCR"
+
+
+def test_the_short_term_is_still_offered_as_a_runner_up():
+    """Demoted, not hidden -- a curator overruling the winner needs the rest."""
+    cand = suggest("Real Time RT-PCR - Data Linked", VOCAB_PCR, [])[0]
+    considered = [line for line in cand.evidence if line.startswith("Also considered")]
+    assert len(considered) == 1
+    assert "\u201cPCR\u201d (0.25)" in considered[0]
+
+
+def test_ranking_does_not_depend_on_vocabulary_id_order():
+    """The old metric tied at 1.00, so the id tie-break silently decided."""
+    forward = suggest("Real Time RT-PCR", VOCAB_PCR, [])[0]
+    reversed_ids = [(1000 - i, t) for i, t in VOCAB_PCR]
+    backward = suggest("Real Time RT-PCR", reversed_ids, [])[0]
+    assert forward.vocabulary_title == backward.vocabulary_title == "Real Time PCR"
+
+
+def test_a_short_generic_term_still_wins_when_it_is_all_there_is():
+    """Containment is a weak signal, but weak is not the same as absent."""
+    cand = suggest("Cytokine Luminex - Data Linked", VOCAB3, [])[0]
+    assert cand.tier == TIER_FUZZY
+    assert cand.vocabulary_id == 42
+
+
+def test_a_below_threshold_containment_says_why_it_was_admitted():
+    cand = suggest("Cytokine Luminex - Data Linked", VOCAB3, [])[0]
+    assert any(
+        "below the 0.60 threshold" in line
+        and "every word of the shorter title appears in the longer" in line
+        for line in cand.evidence
+    )
+
+
+def test_sharing_no_words_is_not_containment():
+    """min() over an empty intersection must not read as "wholly contained"."""
+    assert suggest("RaDR", VOCAB3, [])[0].tier == TIER_NONE
+    assert suggest("Zzz", [(1, "")], [])[0].tier == TIER_NONE
+
+
+def test_equal_balance_still_breaks_on_vocabulary_id():
+    """Determinism is the module's contract; only the primary sort key changed.
+
+    Neither term is an exact match for the title, and both share exactly two of
+    its three words, so balance cannot separate them and the id must.
+    """
+    vocab = [(9, "Alpha Beta"), (3, "Beta Gamma")]
+    assert suggest("Alpha Beta Gamma", vocab, [])[0].vocabulary_id == 3
+    assert suggest("Alpha Beta Gamma", list(reversed(vocab)), [])[0].vocabulary_id == 3
