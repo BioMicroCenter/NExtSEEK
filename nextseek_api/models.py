@@ -1,6 +1,6 @@
 from django.db import models
 
-from .assistant.models_db import ChatSession, QueryTask  # noqa: F401
+from .assistant.models_db import ChatSession, PipelineRun, QueryTask  # noqa: F401
 from .attributes.models_async import AttributeOutboxDispatcherHeartbeat  # noqa: F401
 from .attributes.models_db import (  # noqa: F401
     AttributeMutationJob,
