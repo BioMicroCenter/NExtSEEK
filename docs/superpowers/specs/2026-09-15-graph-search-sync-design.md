@@ -1,7 +1,9 @@
 # graph_search follow-up 2: every writer keeps graph 2.0 in sync (discovery spec)
 
 - Date: 2026-09-15
-- Branch: `feat/graph-search-sync`, cut from `feat/graph-search` at `4b3e087a`, merged with `aa9706d9`
+- Branch: `feat/graph-search-sync`, based on `dev-graph` at `367b9217` (the branch formerly named `feat/graph-search`)
+  and merged back into `dev-graph`. Rebased onto it on 2026-09-15 from its earlier base `aa9706d9`; section 19.1 says
+  what `dev-graph` holds and how the two meet
 - Status: discovery spec, revised the same day for the operator: refocused on wiring the current writers, and every
   question decided (section 18). Nothing here is built. The POC already ships `manage.py graph_sync --full`,
   `--catalog` and `--verify`; the two dmac tables exist only as an uncommitted draft model and migration, which the
@@ -12,7 +14,7 @@
   `docs/superpowers/plans/2026-09-15-graph-search-sync.md`.
 - Parent design: `docs/superpowers/specs/2026-09-14-graph-search-poc-design.md` (section 6 is the writer this work
   wires in). Graph schema: `docs/neo4j-schema.md` "v1.1" ("graph 2.0" below).
-- This supersedes the first draft of the same file (commit `9c082ac7`).
+- This supersedes the first draft of the same file (commit `ad721b25` on the rebased branch, `9c082ac7` before).
 
 ## 1. Goal
 
@@ -25,28 +27,48 @@ Concretely:
 2. What no NExtSEEK function sees (the SEEK Rails UI and REST API, Rails jobs, hand SQL, operator scripts) is caught
    by a nightly targeted sync, and a weekly full sync is the backstop.
 3. CI proves it: a registry that fails when a writer or a route has no hook, a drift check after every rebuild,
-   hook tests, and CI for what the POC already built (graph_search, graph_sync) that runs nothing today.
+   hook tests, and blocking CI for what `dev-graph` already built (graph_search, graph_sync and the Graph Search page
+   at `/seek/graph/search/`), whose tests today can never fail a job.
 
 The engine is the POC's `nextseek_api/graph_sync/`, reused, not redesigned: it gains by-id entry points, the
 labels it does not write yet, a loop and a few properties it needs to find changes (section 6). Nessie is
 follow-up 1's.
 
-### 1.1 The key finding: TCGA's assay labels are missing from the local graph
+### 1.1 The key finding: graph_sync writes no lineage labels (TCGA's were missing from the local graph)
 
 - **On the dev box, all 1,213,093 TCGA DERIVED_FROM edges carry assay labels** (`assay_id`, `internal_assay_id`,
   `internal_assay_title`, `internal_assay_ids`, `internal_assay_titles`, for example "Patient Visit"), and none
   carries a protocol label. Measured 2026-09-15 by streaming the dev-box graph dump: 1,213,093 edges between TCGA
-  samples (sample ids 389,935 to 1,308,453), each of the five keys present on all of them.
-- **The POC did not copy those edges.** It rebuilt lineage from MySQL's parent tokens instead of copying the dev graph
-  (whose Sample nodes carried 720 raw metadata keys), and graph_sync's `WRITE_MISSING_LINEAGE` sets only `child_id`
-  and `parent_id` on an edge it creates. So in the local graph the TCGA edges have no assay labels. The 802k
-  production edges kept theirs, because a declared edge that already exists keeps its properties.
+  samples (sample ids 389,935 to 1,308,453), each of the five keys present on all of them. The singular fields are
+  all correct; the plural lists are not: 974,499 are empty, 227,166 hold the SEEK assay id and 11,428 the internal
+  id. Likely cause (inferred, not proven): an upload used the SEEK-assay fallback before a mapping row existed, and a
+  later relabel fixed only the singular fields (the curation relabel writes three properties).
+- **The code: graph_sync writes no label.** `cypher.py::WRITE_MISSING_LINEAGE` sets only `child_id` and `parent_id`
+  on an edge it creates, and nothing in graph_sync computes labels. The POC rebuilt lineage from MySQL's parent
+  tokens instead of copying the dev graph (whose Sample nodes carried 720 raw metadata keys), so every TCGA edge it
+  created was unlabelled, and a full sync onto an empty graph would recreate every lineage edge unlabelled.
+  Production was fine only because its 801,206 edges already existed and kept their properties: 785,037 of them are
+  labelled, and the other 16,169 were never measured against the rule.
+- **No gate saw it.** Gate G and the parity check (gate E) look only at samples; no check reads an edge property. The
+  gap got past both; gate G check 9 closes it (CI-9).
+- **The live local graph since 2026-09-15: relabelled by a one-off script, not by graph_sync.** Its 1,213,093 TCGA
+  edges got the dev box's labels, with ids renumbered through `gs_remap`, and batch upload's plural lists (`[internal
+  id]`, `[title]`) in place of the dev box's. Cross-check: batch upload's rule on the merged MySQL agreed on 1,213,093
+  of 1,213,093 edges, and every TCGA pair shares exactly one assay. Only edges with no label were written; all five
+  properties were verified equal on every edge afterwards; production edges are unchanged. Record, scripts, logs and
+  undo: `$GS_WORK/runs/relabel/README.md`. So this section still describes the code, and no longer the live graph:
+  the code still creates unlabelled edges, and the label step (7.3) is still needed.
 - **The data to recompute them was merged.** Gate M: TCGA's internal-assay links 529 of 529, and
   `dmac.assays_internal_assays` 970 rows (441 local plus 529) with 0 orphans; the merge maps internal assays by
-  title and records every renumbering in `dmac.gs_remap`.
+  title and records every renumbering in `dmac.gs_remap`. That table is not in the live `dmac`: it exists only in
+  `$GS_WORK/seeds/merged-2026-09-14/dmac.sql.gz` and the scratch MySQL volume (kind `assay` 529 rows, kind
+  `internal_assay` 16, for example dev 33 is local 99 and dev 77 is local 190). The 143 internal-assay titles are
+  unique locally, so a title can key the comparison instead.
+- **Protocol labels were not part of the relabel**: TCGA has none on either side, and production's 653,081 protocol
+  labels were left as they were. The protocol half of the rule stays this work's.
 - **So the label step is not new scope.** It replaces batch upload's label computation, which this rewiring removes
-  from batch upload, and it fills this gap. It is verified against the dev box's TCGA labels and the local
-  production labels before it writes any live graph (section 17).
+  from batch upload, and it closes this gap: it labels every edge it creates. It is verified against the dev box's
+  TCGA labels and the local production labels before it writes any live graph (section 17).
 
 ## 2. Two facts the first draft got wrong
 
@@ -55,7 +77,9 @@ follow-up 1's.
 2. **CI never calls graph_search.** The route registry accepts it (`ci/routes.py`) and the API-root test lists it
    (`ci/smoke/test_health.py`), but nothing sends it a POST: the T0 sweep keeps only routes whose methods include
    GET (`ci/smoke/test_reachability.py::_callable_routes`), so the POST-only entry is dropped at collection with no
-   skip line. It is in neither `read_safe_endpoints.json` copy nor in `_READ_POST_PATHS`.
+   skip line. It is in neither `read_safe_endpoints.json` copy nor in `_READ_POST_PATHS`. The Graph Search page
+   `dev-graph` added (`GET /seek/graph/search/`, `local` and `dev`) is swept by T0, but that GET only renders the
+   page; the POST is sent by the browser, never by CI.
 
 ## 3. The operator's decisions this spec builds on
 
@@ -96,7 +120,7 @@ writer registry gate (section 14, CI-1), which fails when a writer of its source
 | E5 | `IN_PROJECT` edges and `project_ids` | `projects_samples` (no timestamp, no primary key, no index leading with `sample_id`); `projects` | WR-01, WR-02, WR-07, WR-12 (`_updateSampleProject`), WR-13 (delete), WR-22 (project admin, sharing), WR-18 | create, delete | H: as E1. N: the source hash includes the sample's sorted project ids. F | gate G checks 2 and 6; drift `2.scope.*` (CI-4) |
 | E6 | `parent_titles`, `parent_title_hashes` (graph-only lists; orphan discovery reads them) | derived: each parent token of `samples.json_metadata`, a UID token resolved to the parent's identity in its stored metadata | the E2 writers; today computed only by batch upload's stage 6 (`neo4j_sync.py::enrich_parent_titles`) and WR-17 | update | projection-owned (section 18): written by every graph_sync path with the node. H, N, F as E2 | projection unit tests; a gate G check over the sampled nodes (CI-9) |
 | E7 | `DERIVED_FROM` between Sample nodes (which pairs exist) | parent tokens of the child's `samples.json_metadata` (`collect_parent_tokens`, UIDs only), resolved through `samples.uuid` | the E2 writers (the child side); any create, delete or uuid change of the parent (E1 writers); graph writers today: stage 6, orphan resolution, the legacy upload, graph_sync | create, delete | H: `sync_samples` writes the declared pairs of its samples as children and archives and deletes their undeclared ones. N: a changed child is re-synced; a new uuid triggers a bounded scan for old children that name it (section 10). F: the full lineage rule | gate G check 1 (declared pairs equal the graph's, lane and live) |
-| E8 | DERIVED_FROM assay labels `assay_id`, `internal_assay_id`, `internal_assay_title`, `internal_assay_ids`, `internal_assay_titles` | `assay_assets` (Sample rows) of both ends; `assays` (id, title: the fallback); `dmac.assays_internal_assays`, `dmac.internal_assays` | assay links: WR-01, WR-02, WR-07, WR-11 (R `assay-registrations`, C job runner), WR-12, WR-13, WR-22; `assays`: WR-09 (R assay proxy), WR-22; the map: WR-15 (R internal-assay admin); graph-only today: stage 6, WR-11's recompute, orphan resolution, WR-12, WR-24 (curation relabel) | update | **no owner in graph_sync today, and missing on every TCGA edge of the local graph (section 1.1).** New: the label step (section 7.3). H: the sample hooks relabel both directions of the touched samples' edges; the internal-assay admin views and the assay proxy enqueue `assay_map`. N: the source hash includes the sample's sorted assay ids; a hash of the resolved map on GraphMeta catches map changes. F: every edge against the rule | the label verification (plan task V1: TCGA against the dev box, production against the local graph); new gate G check 9 `lineage.labels` and its drift twin (CI-9, CI-4) |
+| E8 | DERIVED_FROM assay labels `assay_id`, `internal_assay_id`, `internal_assay_title`, `internal_assay_ids`, `internal_assay_titles` | `assay_assets` (Sample rows) of both ends; `assays` (id, title: the fallback); `dmac.assays_internal_assays`, `dmac.internal_assays` | assay links: WR-01, WR-02, WR-07, WR-11 (R `assay-registrations`, C job runner), WR-12, WR-13, WR-22; `assays`: WR-09 (R assay proxy), WR-22; the map: WR-15 (R internal-assay admin); graph-only today: stage 6, WR-11's recompute, orphan resolution, WR-12, WR-24 (curation relabel) | update | **no owner in graph_sync today: an edge it creates carries no label (section 1.1; the live local graph's TCGA edges were labelled once, by a one-off script, on 2026-09-15).** New: the label step (section 7.3), which labels every edge it creates and writes only new labels unless the operator approves more (R14). H: the sample hooks label both directions of the touched samples' edges; the internal-assay admin views and the assay proxy enqueue `assay_map`. N: the source hash includes the sample's sorted assay ids; a hash of the resolved map on GraphMeta catches map changes. F: every edge against the rule | the label verification (plan task V1: TCGA's singular fields against the dev box, production against the local graph); new gate G check 9 `lineage.labels` (fails on a declared edge whose endpoints share an assay and that has no label) and its drift twin (CI-9, CI-4) |
 | E9 | DERIVED_FROM protocol labels `protocol_id`, `protocol_title` | the child's `json_metadata.Protocol` (the house three-format rule in `nextseek_api/batch_upload/helpers.py`); `sops` (id, title) | the E2 writers; `sops`: WR-09 (R SOP proxy), WR-22; graph-only today: an upload sheet's `sop_id` (stage 6) | update | as E8, with `protocol_map` enqueued by the SOP proxy hook | as E8 |
 | E10 | `SampleType` (id, title, label, uuid, description, deprecated, context fields, clade, counts) | `sample_types`; `dmac.sample_types_context`; `dmac.sample_types_clades` joined to `clades` | WR-08, WR-14 (R clade admin), WR-21 (hand edits; the coming context apply step), WR-22, WR-18, WR-19 | create, update, delete | H: the sample-type proxy and the clade admin views enqueue `catalog`. N: the whole catalog (about 6,000 rows) is rebuilt nightly. F | gate G check 8; drift `drift.catalog.sample_types`, `drift.catalog.hash` (CI-4) |
 | E11 | `Attribute` and `HAS_ATTRIBUTE` (declared and `declared: false`, `sample_count`) | `sample_attributes`; `sample_attribute_types`; `dmac.sample_attributes_unique` (meanings); undeclared keys observed in `samples.json_metadata` | WR-05, WR-06, WR-08, WR-20 (hand SQL: descriptions, meanings, the publication attributes), WR-22, WR-19 | create, update, delete | H: `record_commit` (WR-05), the legacy editor views (WR-06), the sample-type proxy (WR-08) enqueue `catalog`; a sample sync adds a `declared: false` Attribute for a key its type does not declare. N: catalog rebuild. F: `sample_count` | gate G checks 3 and 5; drift `drift.catalog.types_with_attribute_set_diff` (CI-4) |
@@ -118,7 +142,8 @@ commit with the writer's `SCHEMA_VERSION`:
 - **`Sample.source_hash`**, a system property: a digest of everything the node is projected from (section 10.3).
 - **`parent_titles` and `parent_title_hashes`**, projection-owned (today graph_sync only preserves what batch upload
   wrote).
-- **DERIVED_FROM labels** written by graph_sync (section 7.3); the legacy `assay_title` property goes.
+- **DERIVED_FROM labels** written by graph_sync (section 7.3) on every edge it creates and every unlabelled edge; the
+  legacy `assay_title` property goes from every edge graph_sync labels.
 - **`GraphMeta.label_maps_hash`**: a digest of the resolved assay map and of `sops` (id, title).
 - **The deletion rule** of section 9.
 
@@ -135,7 +160,7 @@ meaning.
 
 | Function | Does | Called by |
 |---|---|---|
-| `sync_samples(driver, db, ids, *, run_dir)` | refuses unless `GraphMeta.schema_version` is the writer's; takes the graph-write lock (7.4); reads those rows by id, their projects, assay ids and parent tokens; builds the catalog, running `catalog_sync` first when a row's type has no SampleType node; projects each row (`projection.project_sample`, with `source_hash` and the parent lists); `writer.write_samples`; the declared lineage of these samples as children (create missing, archive and delete undeclared); the labels of every edge incident to them, both directions (7.3); `IN_STUDY` for them; `declared: false` Attribute nodes for keys their type does not declare; `SampleType.sample_count`; an id MySQL no longer returns is retired (section 9). Returns a counts dict | the drain (`samples`), batch upload stage 6, `neo4j_only`, the nightly targeted sync, `graph_sync --samples` |
+| `sync_samples(driver, db, ids, *, run_dir)` | refuses unless `GraphMeta.schema_version` is the writer's; takes the graph-write lock (7.4); reads those rows by id, their projects, assay ids and parent tokens; builds the catalog, running `catalog_sync` first when a row's type has no SampleType node; projects each row (`projection.project_sample`, with `source_hash` and the parent lists); `writer.write_samples`; the declared lineage of these samples as children (create missing, archive and delete undeclared); the labels of every edge incident to them, both directions, the edges it just created included (7.3); `IN_STUDY` for them; `declared: false` Attribute nodes for keys their type does not declare; `SampleType.sample_count`; an id MySQL no longer returns is retired (section 9). Returns a counts dict | the drain (`samples`), batch upload stage 6, `neo4j_only`, the nightly targeted sync, `graph_sync --samples` |
 | `sync_samples_of_type(driver, db, type_id)` | streams the type's ids and calls `sync_samples` in chunks | the drain (`samples_of_type`) |
 | `retire_samples(driver, db, ids, *, run_dir)` | the deletion rule (section 9) | the drain (`retire`), `sync_samples`, the nightly and weekly syncs |
 | `relabel_for_maps(driver, db)` | recomputes the resolved assay map and `sops`, compares them with `GraphMeta.label_maps_hash`, and relabels the edges between members of the changed assays and the edges whose child's protocol resolution changed | the drain (`assay_map`, `protocol_map`), the nightly targeted sync |
@@ -155,16 +180,36 @@ Batch upload's rule, moved into graph_sync and fed from MySQL:
 sets all nine properties coherently, and the one the curation relabel already mirrors): the assays both endpoints
 share in `assay_assets`, resolved through `dmac.assays_internal_assays` to `dmac.internal_assays` with the smallest
 internal id winning and the SEEK assay as the fallback; the protocol from the child's stored `Protocol` through
-`helpers.parse_protocol_value` and `lookup_sop_ids_by_title`. Every property is set explicitly, nulls and empty lists
-included; `assay_title`, which only the legacy upload writes, is removed.
+`helpers.parse_protocol_value` and `lookup_sop_ids_by_title`.
 
-**The labels graph_sync computes must equal what batch upload computes today from MySQL.** Where an edge's stored
-label differs (a label an upload sheet supplied and MySQL never stored, a label left stale by an internal-assay
-rename), the difference is reported, never changed silently: by the verification before any live write (plan task
-V1), and by the per-property change counts every full sync reports.
+**The labels graph_sync computes must equal what batch upload computes today from MySQL.** What it writes, and when:
+1. **Label on create** (R15). Every edge graph_sync creates (the full sync's lineage step, `sync_samples`, the nightly
+   targeted sync) is labelled in the same run, so a rebuild from an empty graph stays labelled.
+2. **All five assay properties together, every time**: `assay_id`, `internal_assay_id`, `internal_assay_title`,
+   `internal_assay_ids`, `internal_assay_titles`, nulls and empty lists included, with the protocol pair
+   `protocol_id`, `protocol_title` from the same rule. Never a subset: the dev box's TCGA plural lists show what a
+   partial write leaves behind (section 1.1). `assay_title`, which only the legacy upload writes, is removed from
+   every edge graph_sync labels.
+3. **Only new labels without the operator's approval** (R5, R14). The default write goes only to an edge whose three
+   singular assay fields are all null, and the Cypher itself guards it (`WHERE` those three are null), so a label
+   written between the read and the write is never overwritten. Every other difference is classified per edge
+   (`new`, `equal`, `plural_missing`, `changed`, `cleared`) and reported per property: a changed value, a label the
+   rule would clear (a label an upload sheet supplied and MySQL never stored, a label left stale by an internal-assay
+   rename). Those are written only with the operator's explicit opt-in (`--apply-label-changes` for one command run,
+   `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply` for the loop), and then only where the stored values still equal those
+   read.
+4. **A missing plural list is not a difference to write** (R14). On an edge whose singular fields match the rule,
+   absent `internal_assay_ids` and `internal_assay_titles` are reported as `plural_missing`, not written, without the
+   operator's approval. None of production's 785,037 labelled edges carries the plural lists: counting them as
+   differences would make the first full sync rewrite about 785k edges.
 
-Called three ways: over every edge by the full sync (setting only the edges that differ), over the edges incident to
-touched samples (both directions), and over the members of changed assays or protocols (`relabel_for_maps`). It
+The differences are reported, never changed silently: by the verification before any live write (plan task V1), by
+the per-property counts every full sync reports, and in each run record.
+
+Called three ways: over every edge by the full sync (labelling the edges it created and every unlabelled edge,
+reporting the rest), over the edges incident to touched samples (both directions), and over the members of changed
+assays or protocols (`relabel_for_maps`; with label changes off, a renamed title is reported until the operator
+applies it). It
 replaces `assay_registration/graph.py::recompute_for_samples`, the label half of stage 6, orphan resolution's label
 SET, the legacy upload's `getConnectingRelationships` and `backfill_shared_assays.py`.
 
@@ -274,7 +319,8 @@ The watermark is not used for correctness; the run records the highest `samples.
 ## 11. The weekly full sync
 
 `run.full_sync` keeps its signature and order and gains: the `source_hash` and the parent lists on every node, the
-label step over every edge (with per-property change counts in its report), the deletion rule in place of
+label step over every edge after the lineage steps (new labels written, the edges the run created included; changed,
+cleared and plural-missing edges counted per property in its report and written only with `apply_label_changes`), the deletion rule in place of
 `relabel_orphans` for graph-only `:Sample` ids, the graph-write lock for the whole run, a `graph_sync_run` row,
 `GraphMeta.label_maps_hash`, and, on success, every outbox row enqueued before its start marked done. On a graph
 whose Study nodes key SEEK studies on `id` (the dev box), the first 1.2 run moves them to `seek_study_id`.
@@ -338,7 +384,8 @@ freshness per job, the outbox (pending and dead by kind, oldest pending and its 
 with the JSON:API error envelope when the tables cannot be read. Router prefix `admin/graph-sync` with one `status`
 action and no list route, so the API root does not list it. Declared in `ci/routes.py` for **`local` and `dev`
 only**: production runs a v1.0 graph without migration 0021, so a production smoke call would fail.
-`OWNED_ROUTE_COUNT` moves from 169 to 170.
+`OWNED_ROUTE_COUNT` moves from 170 to 171 (`dev-graph`'s Graph Search page took it from 169 to 170; a later merge of
+`dev-graph` that adds routes moves both numbers, section 19.1).
 
 ## 14. CI/CD
 
@@ -346,16 +393,16 @@ only**: production runs a v1.0 graph without migration 0021, so a production smo
 
 | # | Gap today | Change | Rows |
 |---|---|---|---|
-| CI-2 | the graph_sync and graph_search unit tests (10 files, about 319 tests) are collected by `ci-pytest.yml` but can never fail it: only `pytest ci/gate` blocks | `ci/blocking_lanes.py` (stdlib globs of test paths), run by a second blocking step in `ci-pytest.yml`, with a gate test that every glob matches; `makemigrations --check` in the same step (no migration check runs in CI today) | all |
-| CI-3 | no CI job sends graph_search a request | `ci/smoke/test_graph_search.py`: a minimal POST as the smoke account on `local` and `dev`, asserting 200 and advanced_search's envelope; a parity-lite check (the same body to advanced_search, equal `total`) when the status endpoint reports a graph at the writer's version | E1 to E5 |
+| CI-2 | the graph_sync and graph_search unit tests (10 files under `nextseek_api/tests/`, 319 test functions) and the Graph Search page's two modules (`seek/tests/test_graph_search_page.py`, `test_graph_search_js.py`, 24 more) are collected by `ci-pytest.yml` but can never fail it: only `pytest ci/gate` blocks | `ci/blocking_lanes.py` (stdlib globs of test paths, `seek/tests/test_graph_search_*.py` included), run by a second blocking step in `ci-pytest.yml`, with a gate test that every glob matches; `makemigrations --check` in the same step (no migration check runs in CI today). The page's JavaScript module skips where `node` is missing (the stack image has none), so the blocking step fails when the runner has no `node` instead of letting it skip | all |
+| CI-3 | no CI job sends graph_search a request | `ci/smoke/test_graph_search.py`: a minimal POST as the smoke account on `local` and `dev`, asserting 200 and advanced_search's envelope; a parity-lite check (the same body to advanced_search, equal `total`) when the status endpoint reports a graph at the writer's version. The page's GET is already in T0; one browser flow (`ci/smoke/test_flows.py`, `local` and `dev`) runs a search on the page, so `--strict-console` catches a script error that a 200 cannot | E1 to E5 |
 | CI-8 | graph_search is in neither `read_safe_endpoints.json` copy nor `_READ_POST_PATHS` | every file is under `NessieAI/`: **follow-up 1's change** | Nessie |
-| CI-9 | gate G cannot see labels, `T_` labels on non-`:Sample` nodes or the parent lists | new checks in `verify.py`: `9.lineage.labels`, `10.samples.no_t_label_without_sample`, `11.samples.parent_lists` | E6, E8, E9, E17 |
+| CI-9 | gate G cannot see labels, `T_` labels on non-`:Sample` nodes or the parent lists: gates G and E check samples only, which is how TCGA's unlabelled edges got past both (section 1.1) | new checks in `verify.py`: `9.lineage.labels` (fails when a declared edge whose endpoints share an assay has no label; reports, without failing, labels that differ from the rule and missing plural lists), `10.samples.no_t_label_without_sample`, `11.samples.parent_lists`; the drift check runs them under the same names (CI-4) | E6, E8, E9, E17 |
 
 ### 14.2 New gates for the sync
 
 | # | Gate | Where | Blocks |
 |---|---|---|---|
-| CI-1 | **The writer registry, driven by `ci/routes.py`.** `Route` gains a required `effect` (`reads`, `writes`, `external`, `n/a`) and `writers` (ids of `ci/writers.py` entries); the route gate's paste-ready skeleton emits `effect="UNCLASSIFIED"`, which `Route` refuses, so a new route or page (the graph-search UI pages being added on `feat/graph-search` included) fails until someone says what it writes. `ci/writers.py` (stdlib) declares every writer site with its tables, how it writes and either the hook it calls (with the function that must contain the call) or a category code (`RECONCILE_RAILS`, `RECONCILE_OPERATOR`, `RECONCILE_INSTALL`, `RECONCILE_DEAD`, `NO_GRAPH_EFFECT`, `GRAPH_SYNC_OWNER`). `ci/gate/writer_scan.py` finds the sites (the inventory's scan, made a gate). `ci/gate/test_writer_registry.py`: scan and declarations agree in both directions; every declared hook call is present in its function (AST); every `writes` route names its writers; a report-only tripwire lists `reads` routes whose view reaches a writer site through statically resolvable calls | `ci/gate`, Django lane | yes (the tripwire later) |
+| CI-1 | **The writer registry, driven by `ci/routes.py`.** `Route` gains a required `effect` (`reads`, `writes`, `external`, `n/a`) and `writers` (ids of `ci/writers.py` entries); the route gate's paste-ready skeleton emits `effect="UNCLASSIFIED"`, which `Route` refuses, so a new route or page (the Graph Search page already on `dev-graph`, and every route a later merge of `dev-graph` brings, included) fails until someone says what it writes. `ci/writers.py` (stdlib) declares every writer site with its tables, how it writes and either the hook it calls (with the function that must contain the call) or a category code (`RECONCILE_RAILS`, `RECONCILE_OPERATOR`, `RECONCILE_INSTALL`, `RECONCILE_DEAD`, `NO_GRAPH_EFFECT`, `GRAPH_SYNC_OWNER`). `ci/gate/writer_scan.py` finds the sites (the inventory's scan, made a gate). `ci/gate/test_writer_registry.py`: scan and declarations agree in both directions; every declared hook call is present in its function (AST); every `writes` route names its writers; a report-only tripwire lists `reads` routes whose view reaches a writer site through statically resolvable calls | `ci/gate`, Django lane | yes (the tripwire later) |
 | CI-4 | **Drift after every rebuild.** `startup/steps/validate.py::check_graph_drift` runs `graph_sync --drift --json` in the app container with empty stdin (not through `compose_exec`, which raises on exit 1 and drops the JSON), skips with a printed line on a graph not at the writer's version, writes a `## Graph drift` section into the CI record, and makes `rebuild` exit non-zero at the end without stopping the smoke suite. Called from `startup/cli.py::rebuild` (app rebuilds on `local` and `dev`) and `startup/cli.py::ci` | startup | the rebuild's exit code |
 | CI-5 | **Freshness.** `ci/smoke/test_graph_sync_status.py` reads the status endpoint with the superuser client (no `write` marker; it fails, not skips, when the credentials are missing) and fails on a stale full sync, a stale reconcile or an outbox row older than an hour. `local` and `dev` only | smoke | the smoke run |
 | CI-6 | **Hook tests.** One unit test per hook site: the writer's success path enqueues the right row after its commit; its failure path enqueues nothing; a failing enqueue never raises into the writer | Django lane, in CI-2's globs | yes |
@@ -369,7 +416,7 @@ only**: production runs a v1.0 graph without migration 0021, so a production smo
 | C-02 | outbox, run records, the lock, `hooks.enqueue` (never raises) | all |
 | C-03 | projection: `source_hash`, the parent lists, `SYSTEM_KEYS`; schema 1.2 | E1 to E6 |
 | C-04 | by-id readers and ordered streams in `sources` | E1 to E15 |
-| C-05 | writer: `retire_samples`, per-child undeclared-edge archive, label SET, `(id, source_hash)` stream, `GraphMeta.label_maps_hash`, `_retry` moved in | E1, E7 to E9, E16, E17 |
+| C-05 | writer: `retire_samples`, per-child undeclared-edge archive, the guarded label SET (all five assay properties together), `(id, source_hash)` stream, `GraphMeta.label_maps_hash`, `_retry` moved in | E1, E7 to E9, E16, E17 |
 | C-06 | `labels.py`, batch upload's label rule fed from MySQL, and its verification against the dev box and the local graph | E8, E9 |
 | C-07 | `targeted.py` (section 7.1) | E1 to E15, E17 |
 | C-08 | `run.full_sync` and `catalog_sync` changes (section 11) | all |
@@ -402,14 +449,22 @@ managed `idx_updated_id` and `idx_samples_sample_type_id` (section 10 does not n
 1. Run the plan's four Workflow runs, with a review point after each.
 2. **The only operator checkpoint: the label verification numbers.** Plan task V1 computes every label with the one
    rule from the merged MySQL, in the throwaway lane, and compares it (a) with the dev box's TCGA edge labels from
-   the dev-box graph dump, expecting all 1,213,093 to match, and (b) with the labels on the local production edges
-   from the local graph dump, reporting per-property matches and mismatches (this also shows how many labels an
-   upload sheet supplied that MySQL never stored). Nothing writes labels to any live graph until (a) passes and the
-   operator has seen both.
+   the dev-box graph dump on the three singular fields, expecting all 1,213,093 to match after renumbering, the
+   plural lists reported apart (they mix two id spaces, section 1.1), and (b) with the labels on the local production
+   edges from the local graph dump, every edge classified (`new`, `equal`, `plural_missing`, `changed`, `cleared`)
+   per property: how many of the 16,169 unlabelled production edges would gain a label, how many labelled ones lack
+   only the plural lists, and how many labels an upload sheet supplied that MySQL never stored. Nothing writes labels
+   to any live graph until (a) passes and the operator has seen both.
 3. Per box, local first, then the dev box: deploy, then `graph_sync --full --i-mean-the-live-graph` at 1.2 (the loop
-   refuses to write until then; uploads meanwhile leave their rows pending and report `graph: pending`). The dev box
-   follows once follow-up 1's scope work (A1) is live there. A known-good dev commit is the rollback.
+   refuses to write until then; uploads meanwhile leave their rows pending and report `graph: pending`). That run
+   writes new labels only (R14); changes wait for the operator's approval. The live local graph's TCGA labels already
+   exist (section 1.1) and are kept unless they differ from the rule. The dev box follows once follow-up 1's scope
+   work (A1) is live there. A known-good dev commit is the rollback.
 4. The loop is on by default; `NEXTSEEK_GRAPH_SYNC_LOOP=0` turns it off.
+5. **Every live full sync or relabel is announced to the operator for the Nessie chat before it runs.** That chat
+   freezes the live local graph from its truth sign-off to the end of its paid runs. No plan task runs a live sync or
+   relabel itself: steps 3 and 4 are the operator's. A deploy with the loop on starts live syncs by itself after the
+   first 1.2 full sync, so during the freeze a deploy carries `NEXTSEEK_GRAPH_SYNC_LOOP=0`.
 
 ## 18. Decisions made
 
@@ -419,7 +474,7 @@ managed `idx_updated_id` and `idx_samples_sample_type_id` (section 10 does not n
 | R2 | The loop | **on by default** (the operator's ruling: local first, then the dev box, with a known-good dev commit to roll back to). `NEXTSEEK_GRAPH_SYNC_LOOP=0` is the off switch; no per-box opt-in |
 | R3 | Deletion | the rule of section 9 |
 | R4 | `parent_titles`, `parent_title_hashes` | projection-owned, computed with batch upload's `enrich_parent_titles` rule, so orphan discovery keeps finding new uploads |
-| R5 | DERIVED_FROM labels | graph_sync's labels equal what batch upload computes today from MySQL; any difference is reported by the verification (V1) and the full sync's counts, never changed silently |
+| R5 | DERIVED_FROM labels | graph_sync's labels equal what batch upload computes today from MySQL; any difference is reported by the verification (V1) and the full sync's counts, never changed silently (R14) |
 | R6 | A SEEK assay with no internal-assay mapping | keep batch upload's fallback (the SEEK assay id and title) |
 | R7 | The legacy attribute editor | kept, and hooked like every other current function: its two views enqueue after they write |
 | R8 | Dev-box Study nodes keyed by SEEK `id` | the first 1.2 full sync moves them to `seek_study_id` |
@@ -428,25 +483,70 @@ managed `idx_updated_id` and `idx_samples_sample_type_id` (section 10 does not n
 | R11 | Pinning other lineage readers to `:Sample` | deferred, out of scope |
 | R12 | Findings made in passing | security findings are kept private and fixed in Run 1; the other defects are listed in section 20 |
 | R13 | Schema version | 1.2, per the schema doc's versioning rule |
+| R14 | Which labels are written | without the operator's approval, only new labels: an edge whose three singular assay fields are null, guarded in the Cypher. Changed and cleared labels, and a missing plural list on an edge whose singular fields match the rule, are reported per property and written only with `--apply-label-changes` or `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`. Otherwise the first full sync would rewrite about 785k production edges, none of which carries the plural lists |
+| R15 | Label on create | every edge graph_sync creates is labelled in the same run, all five assay properties together, so a rebuild from an empty graph stays labelled |
+| R16 | Live graph writes | the operator's steps only, each announced for the Nessie chat's freeze of the live local graph before it runs; no plan task runs one (section 17, step 5) |
 
 No question is left open. The one operator checkpoint is section 17, step 2.
 
-## 19. What follow-up 1 and the POC need to know
+## 19. What follow-up 1 and `dev-graph` need to know
 
 - **Schema 1.2**: `SYSTEM_KEYS` gains `source_hash`; `GraphMeta` gains `label_maps_hash`; `schema_version` reads
   `"1.2"`. **Follow-up 1's design (its D7 and plan) uses the catalog context only when `schema_version` is exactly
   `"1.1"`. It must accept "1.1 or higher", or a 1.2 graph silently sends Nessie back to its old context.**
   `catalog_hash` is unchanged, so a catalog reader cached on it needs nothing else.
-- **Until the label step lands, Nessie questions grouped by assay will not see TCGA in the local graph** (section
-  1.1).
+- **The live local graph's TCGA edges carry labels since 2026-09-15**, written by a one-off relabel, not by graph_sync
+  (section 1.1), so Nessie questions grouped by assay see TCGA there. Rebuilding that graph from an empty Neo4j before
+  the label step lands would lose them again; the rows and the undo are in `$GS_WORK/runs/relabel/README.md`.
+- **Announce any live full sync or relabel** to the operator before it runs: the Nessie chat freezes the live local
+  graph from its truth sign-off to the end of its paid runs (section 17, step 5).
 - The orphan `T_` label defect is latent (section 9); graph_search's results are unaffected today. Adding `:Sample`
-  to graph_search's `MATCH (s:T_X)` source (`nextseek_api/graph_search/query.py`, the POC's file) would be a second
-  guard.
+  to graph_search's `MATCH (s:T_X)` source (`nextseek_api/graph_search/query.py`, `dev-graph`'s file) would be a
+  second guard.
 - CI-8 (graph_search in both read-safe lists and `_READ_POST_PATHS`) is follow-up 1's: every file is under
   `NessieAI/`.
 - `graph_sync --verify` and `--drift` stop requiring `--i-mean-the-live-graph`; `run.full_sync`, `run.catalog_sync`,
   `verify.gate_g` and every existing flag keep their meaning.
 - Once 0021 lands, a migration on another branch depends on `0021_graph_sync_outbox_and_run`.
+
+### 19.1 How this branch merges back into dev-graph
+
+**Where it stands.** The branch is `dev-graph` (`367b9217`) plus docs. `dev-graph`'s five commits since `aa9706d9`
+add the Graph Search page: one `Route` in `ci/routes.py` (`^seek/^graph/search/`, GET, `local,dev`, `auth="web"`;
+`OWNED_ROUTE_COUNT` 169 to 170), the view `seek/views/search.py::graphSearch` with its import in
+`seek/views/__init__.py` and its URL in `seek/urls.py`, four templates, two test modules under `seek/tests/`, a
+`docs/UI.md` row and the sidebar group in `themes/NextSeek/templates/nav.embed.html`. They change no writer and no
+file under `nextseek_api/`, and add no migration: the writer scan over the rebased tree finds the same 137 sites, and
+`0020_assayregistrationjob` is still the only leaf. The route reads only (companion section 3).
+
+**Every run starts by merging `origin/dev-graph`** (the plan's run-start checks), because a parallel chat still works
+on it; once the branch is published it is never rebased again. The files both sides edit, and how a merge resolves
+them:
+
+| File | `dev-graph` | This branch | Resolution |
+|---|---|---|---|
+| `ci/routes.py` | a `Route` per new page or endpoint | T15 adds one (Run 3); T18b adds `effect` and `writers` to every entry (Run 4) | keep both sides' entries; after T18b, the merge commit classifies each `Route` it brings in, because `Route` refuses one without an effect |
+| `ci/smoke/test_registry_contents.py` | moves `OWNED_ROUTE_COUNT` and extends its history comment | T15 moves it by one; T18b adds the every-entry-has-an-effect check | recount, never take one side: `dev-graph`'s count plus the routes this branch adds (T15's one), both history lines kept; the completeness gate (`ci/gate/test_route_registry.py`) is the authority |
+| `seek/views/search.py`, `seek/views/__init__.py`, `seek/urls.py` | the Graph Search view, its import, its URL | S1 may edit a legacy sample view module (Run 1); H3 owns `seek/views/samples.py` and H5 `seek/views/admin.py` (Run 3); no task edits `seek/urls.py` | no overlap today (`graphSearch` is appended at the end of `search.py`); a file both sides edited is merged by hand and `seek/tests/test_graph_search_page.py` is rerun |
+| `nextseek_api/graph_search/`, the page's templates and tests | the endpoint and the page; the parallel chat may change them | owns nothing there | none; a change to what graph_search reads (the `T_` labels, `search_text`, `project_ids`, the catalog) is checked against schema 1.2 (section 6). graph_search reads no `schema_version`, so a 1.2 graph serves it unchanged |
+| `nextseek_api/migrations/` | none since `aa9706d9` | `0021_graph_sync_outbox_and_run` (T1) | re-check the leaves at every merge; a second 0021 is renumbered or merged per `nextseek_api/CLAUDE.md` |
+| `docs/INDEX.md`, `.gitignore` | may add rows | three rows, three negations | keep both |
+
+**The final merge.** After Run 4's gate: a last merge of `origin/dev-graph`, the gates again on the merged tree (the
+blocking globs, `pytest ci/gate` with the completeness gate, the smoke registry unit tests), then this branch into
+`dev-graph`, the operator's call. Because every run merged `dev-graph` first, that merge brings only this branch's
+commits, and T18b's `Route` validation covers whatever routes `dev-graph` holds by then.
+
+**Where the page meets the sync.** The page lists a type's attributes from MySQL (`GET /seek/attributes/id=<type
+id>/`, `seek/views/samples.py::getAttributes`), while graph_search checks every attribute against the graph's catalog
+(`nextseek_api/graph_search/catalog_cache.py`) and answers 422 for one the catalog lacks. So an attribute added
+through WR-05 or WR-06 is offered by the page and refused by graph_search until the next catalog sync: today until
+someone runs `graph_sync --catalog`, after this work within the drain's delay (the `catalog` hooks of H2 and H3). Read
+in code, not run.
+
+**Publishing.** The rebased branch is not pushed. Publishing it replaces `origin/feat/graph-search-sync`, which still
+holds the history based on `aa9706d9`, so it needs one force-push; that is the operator's decision and comes before
+Run 1's first push. After it, the branch only moves forward.
 
 ## 20. Found in passing
 
@@ -463,8 +563,9 @@ Other defects, left for issues:
 - **Memory.** The nightly and weekly syncs run as children inside the app container's 16 GiB cap beside the web
   server; the nightly one streams with bounded memory, the full sync holds one entry per sample in four indexes.
 - **The inline sync lengthens batch-upload jobs** on a queue CC uploads share.
-- **Labels may differ** from what is stored on edges that carried sheet-supplied labels; V1 reports it before any
-  live write.
+- **Labels may differ** from what is stored on edges that carried sheet-supplied labels, and production's 785,037
+  labelled edges carry no plural lists; V1 reports both before any live write, and R14 keeps either from being
+  rewritten without the operator.
 - **The scan is a heuristic.** It finds today's shapes; the routes-driven classification and the two-way diff make
   every listed site and every route answer for itself.
 - **Staleness is bounded, not zero,** for Rails and hand SQL: up to a night, and a week for what only the graph held.

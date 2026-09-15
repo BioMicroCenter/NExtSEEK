@@ -3,20 +3,24 @@
 - Date: 2026-09-15
 - Companion to `docs/superpowers/specs/2026-09-15-graph-search-sync-design.md` (the entry point). The design's
   section 5 table cites the writer ids `WR-01` to `WR-28` defined here.
-- Tree: `feat/graph-search-sync` at `5d697c89` (feat/graph-search `aa9706d9` plus the docs). Everything below is
-  read in code on that tree; nothing was run against a database. Where a claim comes from SEEK Rails conventions
-  rather than code in this repository, it says so.
+- Tree: read on `feat/graph-search-sync` at `5d697c89` (`aa9706d9` plus the docs, before the branch was rebased).
+  Re-checked on 2026-09-15 against `dev-graph` at `367b9217` (formerly `feat/graph-search`), the branch's base and
+  merge target: its five commits since `aa9706d9` add the Graph Search page (one read-only route, section 3) and
+  change no writer; the code scan over the rebased tree finds the same 137 sites. Everything below is read in code;
+  nothing was run against a database. Where a claim comes from SEEK Rails conventions rather than code in this
+  repository, it says so.
 
 ## 1. How the inventory was built
 
 Two independent inventories, then a cross-check in both directions.
 
-**Inventory 1, from the routes.** Every entry of `ci/routes.py` `REGISTRY` (171 entries, 169 owned by the resolver)
-was traced from its URL to its view, through every HTTP method the view actually handles, down to the functions
+**Inventory 1, from the routes.** Every entry of `ci/routes.py` `REGISTRY` (171 entries, 169 owned by the resolver,
+on `aa9706d9`; `dev-graph` adds the Graph Search page, for 172 and 170) was traced from its URL to its view, through every HTTP method the view actually handles, down to the functions
 that issue writes. The routes were split into five slices (the `nextseek_api` resources, the proxies, the
 assistant routes, the legacy sample pages, the admin and project-level pages), each traced by a separate reader.
-Result: 110 routes read only, 20 write only tables the graph does not read (sessions, jobs, `auth_user`, files),
-and 41 write a graph source table.
+Result on `dev-graph`: 111 routes read only (the 110 traced on `aa9706d9` plus the Graph Search page), 20 write only
+tables the graph does not read (sessions, jobs, `auth_user`, files), and 41 write a graph source table: 172 in all.
+The plan's status endpoint (task T15) adds a 112th read-only route (173 entries, 171 owned).
 
 **Inventory 2, from the code.** A standard-library AST scan (the prototype of the planned
 `ci/gate/writer_scan.py`, design section 14) walked every non-test Python module under `nextseek_api`, `seek`,
@@ -99,8 +103,19 @@ repaired only by the weekly full sync (WR-17, WR-24), 1 is the owner (WR-26), 1 
 
 ## 3. Inventory 1: the routes that write
 
-Every `REGISTRY` pattern not listed here reads only (110 patterns). The raw per-route trace (view, every method, every
-writer site, confidence) is kept with the handoff, outside the repository.
+Every `REGISTRY` pattern not listed here reads only (111 patterns on `dev-graph`: the 110 traced on `aa9706d9` and the
+Graph Search page). The raw per-route trace (view, every method, every writer site, confidence) is kept with the
+handoff, outside the repository.
+
+**The Graph Search page** (`^seek/^graph/search/`, added on `dev-graph` in `6177f57e`): `seek/views/search.py::graphSearch`,
+GET only, `local,dev`, `auth="web"`. The view reads `sample_types` once (`DBtable_sampletype.getSampleTypes`, a
+SELECT through `dmac/dbtable.py::DBtable.getComboboxOptions`) and renders the template; it calls no legacy write
+method, ORM write or SEEK client write. Everything the page then asks for from the browser is a route of its own,
+each traced read only: `POST /nextseek_api/samples/graph_search/` (a read-access Neo4j session and SELECTs), `GET
+/seek/attributes/id=<id>/` and `/seek/operators/` (the Simple tab's boxes) and `/nextseek_api/admin/samples/retrieve/`
+(Download, through `static/js/ns_sample_download.js`). Its links (`/seek/sampletypes/`, `/seek/samples/attributes/`,
+`/seek/sample/id=<id>/`) are read-only pages. Plan task T18b declares it `effect="reads"` with no writers; it adds no
+row to the table above and no writer to section 2.
 
 | Pattern | Writers |
 |---|---|
@@ -202,7 +217,7 @@ and the weekly full sync can see them.
 15. **Missed writers**: `backfill_publication_attributes --apply` (no `updated_at` bump), `SopProxyViewSet`,
     `_upsert_people_mirror`, `load_mysql_dump`, `graph_sync` itself, `load_live.sh`, `load_graph_backup.py`,
     `merge_tcga`.
-16. **The first sync draft** (`9c082ac7`): its hook table omitted the four internal-assay admin views, and its delta
+16. **The first sync draft** (`9c082ac7`, `ad721b25` on the rebased branch): its hook table omitted the four internal-assay admin views, and its delta
     relabelled edges from the child side only, where an assay-set change moves the labels of a sample's edges in
     both directions.
 
