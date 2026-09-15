@@ -17,6 +17,7 @@ a container of the live `nextseek` compose project.
 | `parity.py`, `queries.json` | graph_search against advanced_search, per query and scope (gate E) |
 | `bench.py`, `bench_report.py` | the benchmark harness and its report |
 | `load_live.sh` | OPERATOR-RUN (plan task L1): snapshot the live stack's data, load the merged MySQL and the v1.1 graph into it, verify, and restore the snapshot afterwards |
+| `verify_labels.py` | read-only (sync plan task V1): the DERIVED_FROM label rule on the merged MySQL against the dev box's TCGA labels (singular fields, ids through `gs_remap`) and the local graph's production labels (every property, per `labels.classify` class), both from their dumps; `--local-host` adds a host the protocol rule reads as local; writes `$GS_RUN_DIR/labels/report.json` and `report.md`, exits 1 unless (a) matches every edge |
 
 Files other than `lane.sh` land with their tasks in the plan; `git ls-files scripts/graph_search` lists what exists.
 
