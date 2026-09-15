@@ -234,6 +234,7 @@ docs/superpowers/specs/*
 !docs/superpowers/specs/2026-09-11-nessie-ci-lane-design.md
 !docs/superpowers/specs/2026-09-14-graph-search-poc-design.md
 !docs/superpowers/specs/2026-09-15-graph-search-sync-design.md
+!docs/superpowers/specs/2026-09-15-graph-search-sync-inventory.md
 !docs/superpowers/plans/
 docs/superpowers/plans/*
 # Exception: the implementation plan for the Nessie lane spec is tracked alongside it, so the
