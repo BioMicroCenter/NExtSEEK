@@ -18,7 +18,6 @@ set -euo pipefail
 : "${GS_WORK:?set GS_WORK to the graph-search work directory}"
 # shellcheck disable=SC1091
 source "$GS_WORK/lane.env"
-HERE="$(cd "$(dirname "$0")" && pwd)"
 NEO4J_C=gs-v11-neo4j
 NEO4J_VOLUME=gs-v11-neo4j-data
 NEO4J_IMAGE="${GS_NEO4J_IMAGE:-neo4j:latest}"
@@ -67,7 +66,7 @@ admin=(docker run --rm -i --network none --memory "$DUMP_MEMORY" --memory-swap "
 
 if running; then
   was_running=true
-  "$HERE/lane.sh" neo4j-cypher "MATCH (n) UNWIND labels(n) AS name RETURN 'node' AS kind, name, count(*) AS n
+  cypher "MATCH (n) UNWIND labels(n) AS name RETURN 'node' AS kind, name, count(*) AS n
 UNION ALL MATCH ()-[r]->() RETURN 'relationship' AS kind, type(r) AS name, count(r) AS n" >"$DEST/counts.txt"
   echo "stopping $NEO4J_C"
   docker stop -t 300 "$NEO4J_C" >/dev/null
