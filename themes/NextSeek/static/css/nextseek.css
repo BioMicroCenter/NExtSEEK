@@ -1098,6 +1098,122 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 }
 .attrs-ro-msg { color: var(--ns-muted); padding: 1rem 0.6rem; }
 
+/* ---------- attrs-* shared components -------------------------------------
+   Extracted verbatim from the inline <style> block of
+   seek/templates/sampleAttributes.html so the sample-attributes editor and the
+   association workbench (seek/templates/internal_assays.html,
+   seek/templates/clades.html, static/js/custom/ns-vocab-workbench.js) share one
+   definition instead of two drifting copies. The .attrs-ro-table family above
+   is the precedent.
+
+   Rules here are byte-identical to the ones deleted from that template (modulo
+   the single added `.ns-wb-evidence dt` selector noted below). Only genuinely
+   reusable component rules moved: anything bound to the attributes page's own
+   table/tray/modal structure (.attrs-row*, .attrs-table*, .attrs-tray*,
+   .attrs-detail-inner, .attrs-review-*, .attrs-diff*) stayed inline.
+
+   CASCADE NOTE. This stylesheet is loaded from base.html and therefore comes
+   BEFORE that page's inline <style>, so a moved rule now loses to any inline
+   rule of EQUAL specificity that survived. Checked one by one; the only inline
+   rules that touch these components are higher-specificity and so were already
+   winning on specificity alone, order irrelevant:
+     .attrs-tray .attrs-btn / --primary (0,2,0) > .attrs-btn (0,1,0)
+     .attrs-row.is-open .attrs-chevron  (0,3,0) > .attrs-chevron (0,1,0)
+     .attrs-detail-field .attrs-input   (0,2,0) — different property set
+   No equal-specificity inline rule targets any moved selector, and nothing
+   later in this stylesheet matches an .attrs-* class.
+   -------------------------------------------------------------------------- */
+
+.attrs-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.83rem;
+    font-weight: 600;
+    font-family: var(--ns-font-body);
+    border-radius: 6px;
+    border: 1px solid var(--ns-border);
+    background: var(--ns-white);
+    color: var(--ns-body);
+    padding: 0.42rem 0.85rem;
+    cursor: pointer;
+    transition: all 0.15s var(--ns-ease);
+    white-space: nowrap;
+}
+.attrs-btn:hover:not(:disabled) { border-color: var(--ns-crimson-border); color: var(--ns-crimson); }
+.attrs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.attrs-btn--primary {
+    background: var(--ns-crimson);
+    border-color: var(--ns-crimson);
+    color: #fff;
+}
+.attrs-btn--primary:hover:not(:disabled) {
+    background: var(--ns-crimson-hover);
+    border-color: var(--ns-crimson-hover);
+    color: #fff;
+}
+.attrs-btn--ghost { border-color: transparent; background: transparent; color: var(--ns-muted); }
+.attrs-btn--ghost:hover:not(:disabled) { background: var(--ns-sidebar-hover); color: var(--ns-body); }
+.attrs-chevron { transition: transform 0.15s var(--ns-ease); display: inline-block; }
+.attrs-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 0.08rem 0.45rem;
+    border: 1px solid var(--ns-crimson-border);
+    color: var(--ns-crimson);
+    background: var(--ns-white);
+    white-space: nowrap;
+}
+.attrs-chip--quiet { border-color: var(--ns-border); color: var(--ns-muted); }
+.attrs-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.attrs-badge {
+    font-size: 0.7rem;
+    color: var(--ns-muted);
+    background: var(--ns-bg);
+    border: 1px solid var(--ns-border);
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.attrs-badge b { color: var(--ns-body); font-weight: 600; }
+/* The one moved rule that is not byte-identical: `.ns-wb-evidence dt` is added
+   to the selector list so the workbench's evidence panel wears the same field
+   label as the attributes page's detail row instead of a second copy of these
+   six declarations. The declarations are untouched, and the added selector has
+   the same specificity (0,1,1) and cannot match anything on sampleAttributes.html
+   (no .ns-wb-evidence there), so .attrs-detail-field label behaves exactly as
+   before. */
+.attrs-detail-field label,
+.ns-wb-evidence dt {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    margin-bottom: 0.25rem;
+}
+.attrs-count {
+    font-size: 0.75rem;
+    border: 1px solid var(--ns-border);
+    border-radius: 999px;
+    padding: 0.12rem 0.6rem;
+    color: var(--ns-body);
+    background: var(--ns-bg);
+}
+.attrs-count b { font-family: var(--ns-font-mono); }
+.attrs-count--loud { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); }
+.attrs-muted { color: var(--ns-muted); font-size: 0.82rem; }
+
 /* ---------- Sample type detail: lineage strip + tags ---------- */
 .cat-lineage { display: flex; flex-direction: column; gap: 0.5rem; margin: 1rem 0 0.5rem; }
 .lin-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; }
@@ -1797,44 +1913,113 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 #search_tab .well { padding: 12px 16px !important; margin-bottom: 10px !important; }
 #search_tab .well .table { margin-bottom: 8px !important; }
 
-/* --- Association workbench (see docs/superpowers/specs/2026-09-10-…-design.md) --- */
+/* --- Association workbench (see docs/superpowers/specs/2026-09-10-…-design.md)
+   Dressed in the shared attrs-* components defined near the top of this file
+   (.attrs-btn, .attrs-chip, .attrs-count, .attrs-chevron, .attrs-muted, and the
+   `.attrs-detail-field label, .ns-wb-evidence dt` field label), so this page and
+   seek/templates/sampleAttributes.html read as one design system rather than two.
+   What remains below is only what those components cannot say: the tier
+   semantics, and what the markup needs because it lives inside an easyui grid.
+   ------------------------------------------------------------------------- */
 
+/* Toolbar "N unmapped" readout. On seek/templates/internal_assays.html the span
+   also carries .attrs-count, which supplies the bordered pill; these two
+   declarations are the weight and the gap to the buttons that follow.
+   seek/templates/clades.html has not been given .attrs-count yet, so its
+   readout keeps exactly the plain bold text this rule produced on its own —
+   i.e. adding the shared class there is the only change that page needs. */
 .ns-wb-count { font-weight: 700; margin-right: 1em; }
+/* updateCount() does not run until render(), which on a page with a
+   suggestionsUrl waits for that fetch; without this the toolbar would show an
+   empty .attrs-count pill for the length of the round trip. */
+.ns-wb-count:empty { display: none; }
 
-.ns-wb-group { display: inline-block; width: 100%; font-weight: 700; cursor: pointer; }
-.ns-wb-accept-tier { margin-left: 1em; font-weight: 400; }
-
-.ns-tier {
-  display: inline-block;
-  font-size: 10px;
-  line-height: 1.6;
-  padding: 0 6px;
-  border: 1px solid;
-  border-radius: 9px;
-  vertical-align: middle;
-}
-.ns-tier-exact     { color: #1a7f4b; border-color: #1a7f4b; }
-.ns-tier-precedent { color: #8a6100; border-color: #8a6100; }
-.ns-tier-fuzzy     { color: #8a4b00; border-color: #8a4b00; }
-.ns-tier-conflict  { color: #a11;    border-color: #a11; }
-.ns-tier-none      { color: #a11;    border-color: #a11; }
-.ns-tier-unavailable { color: var(--ns-muted); border-color: var(--ns-muted); }
-/* "Already mapped" group header badge. Muted on purpose: it counts work that
-   is already done, so it must not compete with the actionable tiers. Without a
-   rule here it inherits `border: 1px solid` from .ns-tier with no colour. */
-.ns-tier-mapped      { color: var(--ns-muted); border-color: var(--ns-muted); }
-
-.ns-wb-evidence { padding: 8px 12px 10px 26px; background: rgba(0, 0, 0, .03); }
-.ns-wb-evidence dt {
-  font-size: 10px;
+/* Tier group-header row: one flex line — caret, label, count pill, and the
+   bulk-accept button pushed out to the right edge of the title column. */
+.ns-wb-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  letter-spacing: .05em;
-  opacity: .6;
-  margin-top: 6px;
+  color: var(--ns-ink);
+  cursor: pointer;
 }
-.ns-wb-evidence dd { margin: 2px 0 0; }
+/* The caret itself is .attrs-chevron (shared: inline-block + the 0.15s
+   transform transition). Only the turned state is workbench-specific, because
+   the attributes page hangs its `is-open` off the table ROW
+   (.attrs-row.is-open .attrs-chevron) and there is no such row here. Same
+   glyph and same 90deg turn as .ns-workbench .datagrid-row-expander below, so
+   the two expanders in this grid move alike. */
+.ns-wb-caret { color: var(--ns-muted); font-size: 15px; line-height: 1; }
+.ns-wb-caret.is-open { transform: rotate(90deg); }
 
-.ns-wb-vs { font-size: 0.85em; color: var(--ns-muted); margin: 0 0.35em; }
+/* Bulk accept. .attrs-btn supplies the whole shape; these four declarations are
+   what an <a> inside a datagrid cell needs on top of it — Bootstrap's reboot
+   underlines every bare anchor, the uppercase/letter-spacing inherited from
+   .ns-wb-group has to be unwound for sentence-case button text, and
+   margin-left:auto is what parks it at the far end of the flex line. */
+.ns-wb-accept-tier {
+  margin-left: auto;
+  text-decoration: none;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* --- Tier semantics ---------------------------------------------------------
+   The SHAPE comes from a shared component — .attrs-chip for the candidate
+   badges in the suggestion column, .attrs-count for the counts in a group
+   header — and these variants carry nothing but colour. Splitting it that way
+   is what stops a tier drifting into a differently-shaped pill later.
+
+   Exact = green, precedent/fuzzy = amber, conflict/none = the theme crimson
+   (already this design language's error colour: see .attrs-status--error and
+   .attrs-error in sampleAttributes.html), unavailable/mapped = the neutral grey
+   pair .attrs-chip--quiet uses. Semantics unchanged from the workbench's first
+   release; the green and amber hex values are literally the ones it shipped.
+
+   Those two hues get no --ns-* token on purpose: the theme palette is crimson
+   plus neutrals, and minting :root tokens for two workbench-only colours would
+   push them at the whole app for the sake of three rules.
+
+   These must stay AFTER the .attrs-chip / .attrs-count definitions above — same
+   specificity (0,1,0), so source order is what lets a variant repaint the
+   component's border-color and background. */
+.ns-tier-exact       { color: #1a7f4b; border-color: #1a7f4b; background: rgba(26,127,75,0.07); }
+.ns-tier-precedent   { color: #8a6100; border-color: #8a6100; background: rgba(138,97,0,0.07); }
+.ns-tier-fuzzy       { color: #8a4b00; border-color: #8a4b00; background: rgba(138,75,0,0.07); }
+.ns-tier-conflict,
+.ns-tier-none        { color: var(--ns-crimson); border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); }
+/* "Suggestions unavailable" and the "Already mapped" group header. Muted on
+   purpose, and for two different reasons: one reports that the resolver was
+   never reached, the other counts work already done, and neither must compete
+   with the actionable tiers. Same two values as .attrs-chip--quiet. */
+.ns-tier-unavailable,
+.ns-tier-mapped      { color: var(--ns-muted); border-color: var(--ns-border); background: var(--ns-bg); }
+
+/* Evidence panel under an expanded row. The geometry deliberately repeats
+   .attrs-detail-inner's padding and .attrs-detail > td's background from
+   sampleAttributes.html, so an expanded row here and an expanded row there are
+   recognisably the same object. The <dt>s take their label typography from the
+   shared `.attrs-detail-field label, .ns-wb-evidence dt` rule near the top of
+   this file; only the spacing between successive pairs is set here. */
+.ns-wb-evidence {
+  padding: 0.9rem 1.1rem 1rem 3rem;
+  background: var(--ns-sidebar-bg);
+  font-size: 0.85rem;
+  color: var(--ns-body);
+}
+.ns-wb-evidence dl { margin: 0; }
+.ns-wb-evidence dt { margin-top: 0.6rem; }
+.ns-wb-evidence dt:first-child { margin-top: 0; }
+.ns-wb-evidence dd { margin: 0.15rem 0 0; color: var(--ns-body); }
+
+/* Separator between the candidates of a conflict row. The span also carries
+   .attrs-muted, which supplies the colour and size; this is the gap. */
+.ns-wb-vs { margin: 0 0.35em; }
 
 /* --- Workbench grid geometry ------------------------------------------------
    Vendored easyui (static/jquery-easyui-1.5.2/themes/default/easyui.css, frozen)
@@ -1926,10 +2111,12 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
    static/jquery-easyui-1.5.2/themes/default/datagrid.css:
    .datagrid-row-expand / .datagrid-row-collapse each paint a different
    offset of images/datagrid_icons.png) with one triangle that rotates 90deg
-   on expand, matching the triangle language already used for the tier-group
-   header rows (.ns-wb-group's own &#9654;/&#9660; glyphs, rendered by
-   titleFormatter in static/js/custom/ns-vocab-workbench.js) instead of a
-   stock 2010 toolbar icon.
+   on expand, matching the caret the tier-group header rows now use
+   (.ns-wb-caret, an .attrs-chevron carrying the same &#9656; that
+   titleFormatter in static/js/custom/ns-vocab-workbench.js renders, turned
+   90deg by .ns-wb-caret.is-open) instead of a stock 2010 toolbar icon. Both
+   expanders in this grid therefore show one glyph in two rotations; the
+   earlier &#9654;/&#9660; character swap on the header rows is gone.
 
    Scoped to .ns-workbench: every other datagrid in the app (search, samples,
    sops, datafiles, batch search, publish) keeps the stock sprite untouched —

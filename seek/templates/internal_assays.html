@@ -191,7 +191,11 @@
         		</thead>
         	</table>
         	<div id="internal_assay_toolbar" style="height:auto">
-            <span id="ns-wb-count" class="ns-wb-count"></span>
+            <!-- attrs-count is the shared pill from
+                 themes/NextSeek/static/css/nextseek.css (same component the
+                 sample attributes review dialog counts changes with);
+                 ns-wb-count keeps the weight and the gap to the buttons. -->
+            <span id="ns-wb-count" class="ns-wb-count attrs-count"></span>
             <!-- The count span is rewritten in place by the workbench; easyui's
                  linkbutton preserves the <a>'s inner HTML when it rebuilds it. -->
             <a href="javascript:void(0)" id="ns-wb-accept-selected" class="easyui-linkbutton" data-options="iconCls:'icon-ok',plain:true" onclick="nsWbAcceptSelected(this, event)">Accept selected (<span id="ns-wb-selected-count">0</span>)</a>

@@ -9,6 +9,16 @@
    No EasyUI on this page. The table is plain markup driven by the
    nextseek_api attributes API; Bootstrap 5 and the NExtSEEK theme
    tokens (--ns-*) come from base.html.
+
+   SHARED COMPONENTS LIVE IN THE THEME, NOT HERE. .attrs-btn (+ --primary,
+   --ghost), .attrs-chip (+ --quiet), .attrs-badge(s), .attrs-count
+   (+ --loud), .attrs-chevron, .attrs-muted and .attrs-detail-field label are
+   defined once in themes/NextSeek/static/css/nextseek.css, beside the
+   .attrs-ro-table family, because the association workbench
+   (seek/templates/internal_assays.html, seek/templates/clades.html) now uses
+   the same vocabulary. Edit them there. Everything below is the structure of
+   THIS page only. Note the ordering: the theme stylesheet loads before this
+   block, so a rule added here silently beats its shared twin.
    ================================================================ */
 
 .attrs-page { max-width: 1500px; }
@@ -70,36 +80,6 @@
     margin-bottom: 0.3rem;
 }
 
-.attrs-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.83rem;
-    font-weight: 600;
-    font-family: var(--ns-font-body);
-    border-radius: 6px;
-    border: 1px solid var(--ns-border);
-    background: var(--ns-white);
-    color: var(--ns-body);
-    padding: 0.42rem 0.85rem;
-    cursor: pointer;
-    transition: all 0.15s var(--ns-ease);
-    white-space: nowrap;
-}
-.attrs-btn:hover:not(:disabled) { border-color: var(--ns-crimson-border); color: var(--ns-crimson); }
-.attrs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.attrs-btn--primary {
-    background: var(--ns-crimson);
-    border-color: var(--ns-crimson);
-    color: #fff;
-}
-.attrs-btn--primary:hover:not(:disabled) {
-    background: var(--ns-crimson-hover);
-    border-color: var(--ns-crimson-hover);
-    color: #fff;
-}
-.attrs-btn--ghost { border-color: transparent; background: transparent; color: var(--ns-muted); }
-.attrs-btn--ghost:hover:not(:disabled) { background: var(--ns-sidebar-hover); color: var(--ns-body); }
 
 /* ---- sample type combobox -------------------------------------- */
 .ns-combo { position: relative; width: 340px; max-width: 100%; }
@@ -260,7 +240,6 @@
 }
 .attrs-icon-btn:hover { color: var(--ns-crimson); background: var(--ns-crimson-soft); }
 .attrs-row:hover .attrs-icon-btn { color: var(--ns-muted); }
-.attrs-chevron { transition: transform 0.15s var(--ns-ease); display: inline-block; }
 .attrs-row.is-open .attrs-chevron { transform: rotate(90deg); }
 
 /* row states */
@@ -272,36 +251,6 @@
 .attrs-row.is-deleted > td:first-child { box-shadow: inset 3px 0 0 var(--ns-crimson); }
 .attrs-row.is-deleted .attrs-input, .attrs-row.is-deleted .attrs-select { text-decoration: line-through; color: var(--ns-muted); }
 
-.attrs-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.66rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    border-radius: 999px;
-    padding: 0.08rem 0.45rem;
-    border: 1px solid var(--ns-crimson-border);
-    color: var(--ns-crimson);
-    background: var(--ns-white);
-    white-space: nowrap;
-}
-.attrs-chip--quiet { border-color: var(--ns-border); color: var(--ns-muted); }
-.attrs-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-.attrs-badge {
-    font-size: 0.7rem;
-    color: var(--ns-muted);
-    background: var(--ns-bg);
-    border: 1px solid var(--ns-border);
-    border-radius: 999px;
-    padding: 0.1rem 0.5rem;
-    white-space: nowrap;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.attrs-badge b { color: var(--ns-body); font-weight: 600; }
 
 /* detail row */
 .attrs-detail > td { padding: 0 !important; border-bottom: 1px solid var(--ns-border) !important; background: var(--ns-sidebar-bg); }
@@ -310,15 +259,6 @@
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 0.9rem 1.25rem;
     padding: 0.9rem 1.1rem 1rem 3rem;
-}
-.attrs-detail-field label {
-    display: block;
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--ns-muted);
-    margin-bottom: 0.25rem;
 }
 .attrs-detail-field .attrs-input, .attrs-detail-field .attrs-select {
     border-color: var(--ns-border);
@@ -389,16 +329,6 @@
 }
 .attrs-review-body { padding: 0.75rem 0.85rem; font-size: 0.85rem; }
 .attrs-counts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
-.attrs-count {
-    font-size: 0.75rem;
-    border: 1px solid var(--ns-border);
-    border-radius: 999px;
-    padding: 0.12rem 0.6rem;
-    color: var(--ns-body);
-    background: var(--ns-bg);
-}
-.attrs-count b { font-family: var(--ns-font-mono); }
-.attrs-count--loud { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); }
 .attrs-blast {
     display: flex;
     align-items: flex-start;
@@ -458,7 +388,6 @@
 }
 .attrs-progress { height: 5px; border-radius: 3px; background: var(--ns-border); overflow: hidden; margin-top: 0.5rem; }
 .attrs-progress > div { height: 100%; background: var(--ns-crimson); transition: width 0.3s var(--ns-ease); }
-.attrs-muted { color: var(--ns-muted); font-size: 0.82rem; }
 .attrs-spin { display: inline-block; animation: attrs-spin 0.9s linear infinite; }
 @keyframes attrs-spin { to { transform: rotate(360deg); } }
 </style>

@@ -625,7 +625,13 @@ function nsVocabWorkbench(config) {
 
   function titleFormatter(value, row) {
     if (row._nsHeader) {
-      var arrow = collapsed[row._nsTier] ? '&#9654;' : '&#9660;';
+      // One glyph in two rotations, not two glyphs: .attrs-chevron (the shared
+      // component in themes/NextSeek/static/css/nextseek.css) owns the
+      // transition, .ns-wb-caret.is-open owns the 90deg turn. Same motion as
+      // the per-row detailview expander a few rules below it there.
+      var arrow = '<span class="attrs-chevron ns-wb-caret' +
+                  (collapsed[row._nsTier] ? '' : ' is-open') +
+                  '" aria-hidden="true">&#9656;</span>';
       var label = NS_TIER_LABEL[row._nsTier] || 'Already mapped';
       // Tier strings reach here from the server (candidate.tier), so escape
       // them even though tierOf() only ever returns a known key — the
@@ -652,15 +658,18 @@ function nsVocabWorkbench(config) {
       // render-time sibling of this one and not counted separately.
       if (row._nsTier !== 'none' && row._nsTier !== 'conflict' && row._nsTier !== 'mapped' &&
           acceptableCount > 0) {
-        btn = '<a href="javascript:void(0)" class="ns-wb-accept-tier" ' +
+        btn = '<a href="javascript:void(0)" class="attrs-btn ns-wb-accept-tier" ' +
               'data-wb="' + wbAttr + '" data-tier="' + tierAttr + '" ' +
               'onclick="nsWbAcceptTier(this, event)">Accept all ' +
               nsEscapeHtml(String(acceptableCount)) + '</a>';
       }
+      // Shape from the shared components (.attrs-count for the group's row
+      // count, with <b> so it picks up that component's mono numerals);
+      // .ns-tier-<tier> adds nothing but the semantic colour.
       return '<span class="ns-wb-group" data-wb="' + wbAttr + '" data-tier="' + tierAttr +
              '" onclick="nsWbToggleGroup(this, event)">' + arrow +
-             ' ' + nsEscapeHtml(label) + ' <span class="ns-tier ns-tier-' +
-             tierAttr + '">' + countText + '</span> ' + btn + '</span>';
+             '<span>' + nsEscapeHtml(label) + '</span><span class="attrs-count ns-tier-' +
+             tierAttr + '"><b>' + countText + '</b></span>' + btn + '</span>';
     }
     return nsEscapeHtml(value == null ? '' : String(value));
   }
@@ -702,13 +711,13 @@ function nsVocabWorkbench(config) {
     if (suggestionsFailed) {
       // Distinct from "no candidate": the resolver was never reached, so
       // saying "no candidate" would positively assert the opposite of the
-      // truth. Visually distinct class (ns-tier-unavailable) from
-      // ns-tier-none.
-      return '<span class="ns-tier ns-tier-unavailable">suggestions unavailable</span>';
+      // truth. Visually distinct class (ns-tier-unavailable, the neutral
+      // grey variant) from ns-tier-none, which is crimson.
+      return '<span class="attrs-chip ns-tier-unavailable">suggestions unavailable</span>';
     }
     var candidates = candidatesOf(row);
     if (!candidates.length) {
-      return '<span class="ns-tier ns-tier-none">no candidate</span>';
+      return '<span class="attrs-chip ns-tier-none">no candidate</span>';
     }
     if (candidates.length > 1 || candidates[0].tier === 'conflict') {
       // Conflict tier: the resolver returned multiple candidates because
@@ -720,15 +729,16 @@ function nsVocabWorkbench(config) {
       // singled out — showing candidates[0] alone here would silently pick
       // a winner.
       return candidates.map(function (c) {
-        return '<span class="ns-tier ns-tier-' + nsEscapeHtml(c.tier) + '">' + nsEscapeHtml(c.tier) +
+        return '<span class="attrs-chip ns-tier-' + nsEscapeHtml(c.tier) + '">' + nsEscapeHtml(c.tier) +
                '</span> ' + nsEscapeHtml(c.vocabulary_title || '');
-      }).join(' <span class="ns-wb-vs">vs</span> ');
+      }).join(' <span class="attrs-muted ns-wb-vs">vs</span> ');
     }
     var candidate = candidates[0];
     if (!candidate.vocabulary_title) {
-      return '<span class="ns-tier ns-tier-none">no candidate</span>';
+      return '<span class="attrs-chip ns-tier-none">no candidate</span>';
     }
-    return '<span class="ns-tier ns-tier-' + nsEscapeHtml(candidate.tier) + '">' +
+    // Shape from .attrs-chip (shared); .ns-tier-<tier> adds only the colour.
+    return '<span class="attrs-chip ns-tier-' + nsEscapeHtml(candidate.tier) + '">' +
            nsEscapeHtml(candidate.tier) + '</span> ' +
            nsEscapeHtml(candidate.vocabulary_title);
   }
@@ -770,9 +780,17 @@ function nsVocabWorkbench(config) {
     // Conflict tier: list every candidate on equal footing, each with its
     // own basis and support count, so the disagreement is visible rather
     // than collapsed into a single suggestion.
+    //
+    // The candidate's title moved out of the <dt> and into the <dd>: <dt> now
+    // wears the shared field-label treatment (uppercase, see the
+    // `.attrs-detail-field label, .ns-wb-evidence dt` rule in
+    // themes/NextSeek/static/css/nextseek.css), and a controlled-vocabulary
+    // term must be shown in the case it is actually stored in. Same three
+    // facts per candidate as before, same order.
     var items = candidates.map(function (c, i) {
-      return '<dt>Candidate ' + (i + 1) + ': ' + nsEscapeHtml(c.vocabulary_title || '—') + '</dt>' +
-             '<dd>' + nsEscapeHtml(c.basis || '') +
+      return '<dt>Candidate ' + (i + 1) + '</dt>' +
+             '<dd><b>' + nsEscapeHtml(c.vocabulary_title || '—') + '</b> — ' +
+             nsEscapeHtml(c.basis || '') +
              (c.support != null ? ' (support: ' + nsEscapeHtml(String(c.support)) + ')' : '') +
              '</dd>';
     }).join('');
