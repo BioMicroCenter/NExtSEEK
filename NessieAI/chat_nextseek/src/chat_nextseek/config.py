@@ -261,7 +261,23 @@ class ChatConfig:
         self.MIN_GRAPH_SCHEMA = self._load_json("min_graph_schema.json", "min graph schema") or {}
         if not getattr(self, "AGENT_MODEL_CATALOG", None):
             if getattr(self, "CATALOG_FILE", None):
-                self.AGENT_MODEL_CATALOG = json.loads(Path(self.CATALOG_FILE).read_text(encoding="utf-8"))
+                catalog_path = Path(self.CATALOG_FILE)
+                try:
+                    self.AGENT_MODEL_CATALOG = json.loads(catalog_path.read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    derived_default = str(self.REPO_ROOT / "agent_model_catalog.json")
+                    if str(catalog_path) == derived_default:
+                        source_note = "derived from REPO_ROOT (layout default)"
+                    else:
+                        source_note = (
+                            "set via the CATALOG_FILE environment variable — likely a "
+                            "stale value left over from a different branch's directory "
+                            "layout; unset CATALOG_FILE to fall back to the derived path "
+                            f"({derived_default})"
+                        )
+                    raise RuntimeError(
+                        f"Agent model catalog not found at {catalog_path} ({source_note})."
+                    ) from None
             else:
                 raise RuntimeError("Neither AGENT_MODEL_CATALOG nor CATALOG_FILE is set.")
         self.AGENT_MODEL_CATALOG = self._normalize_agent_model_catalog(self.AGENT_MODEL_CATALOG)
@@ -455,7 +471,9 @@ class ChatConfig:
         env_config_map["PROMPTS_DIR"] = os.getenv("PROMPTS_DIR", str(env_config_map["BASE_DIR"]) + "/prompts")
         env_config_map["CONTEXT_DIR"] = os.getenv("CONTEXT_DIR", str(env_config_map["BASE_DIR"]) + "/context")
         env_config_map["SEQ_TEMPLATE_PATH"] = os.getenv("SEQ_TEMPLATE_PATH", str(env_config_map["BASE_DIR"]) + "/reports/templates/GEO_template.xlsx")
-        env_config_map["CATALOG_FILE"] = os.getenv("CATALOG_FILE")
+        env_config_map["CATALOG_FILE"] = os.getenv(
+            "CATALOG_FILE", str(env_config_map["REPO_ROOT"]) + "/agent_model_catalog.json"
+        )
         raw_catalog = os.getenv("AGENT_MODEL_CATALOG")
         env_config_map["AGENT_MODEL_CATALOG"] = json.loads(raw_catalog) if raw_catalog else None
 
