@@ -579,16 +579,72 @@ def _note_refine_without_bundle(
     })
 
 
+# The evaluation switch (graph_search Nessie POC, spec 4.6 and E2). The harness pins
+# the same marker phrase to prove a forced turn really was forced.
+FORCE_NOTE_MARKER = "by the evaluation switch"
+FORCE_MODES = ("graph", "api")
+ADVANCED_SEARCH_PATH = "/nextseek_api/samples/advanced_search/"
+_REST_ENDPOINT_PREFIX = "/nextseek_api/"
+_FORCEABLE_MODES = ("new_search", "graph_query")
+
+
+def _first_rest_candidate(plan: ParserPlan) -> str | None:
+    """The first of the parser's endpoint candidates that is a NExtSEEK REST path."""
+    for candidate in plan.endpoint_candidates or []:
+        endpoint = candidate if isinstance(candidate, str) else getattr(candidate, "endpoint", None)
+        if isinstance(endpoint, str) and endpoint.startswith(_REST_ENDPOINT_PREFIX):
+            return endpoint
+    return None
+
+
+def _force_parser_mode(plan: ParserPlan, force_mode: str | None) -> ParserPlan:
+    """Evaluation only: force a single-turn retrieval question to the graph or the API path, deterministically.
+
+    Runs LAST in _apply_parser_guardrails, after the LLM call, so the parser's own choice is kept in the note.
+    graph: new_search -> graph_query.
+    api:   graph_query -> new_search on the first REST endpoint candidate, else advanced_search.
+    Every other mode, and force_mode None, returns the plan unchanged (the same object).
+
+    "The parser's choice" is the mode as it reaches this function, after the product's
+    own guardrails: what the unforced product would have run. A retrieval plan whose
+    mode already matches the arm keeps its mode and still gets the note, so every
+    forced retrieval turn shows that the switch landed. Filters are kept either way.
+    The switch is set only on a per-request config copy (``FORCE_PARSER_MODE``, see
+    ``NessieAI/cc/turn.py::_with_parser_force``); the planner's multi-parser path
+    ignores it.
+    """
+    if force_mode not in FORCE_MODES or plan.mode not in _FORCEABLE_MODES:
+        return plan
+    chosen = plan.mode
+    updates: dict[str, Any] = {}
+    if force_mode == "graph" and chosen == "new_search":
+        updates = {"mode": "graph_query", "target_endpoint": None}
+    elif force_mode == "api" and chosen == "graph_query":
+        updates = {
+            "mode": "new_search",
+            "target_endpoint": _first_rest_candidate(plan) or ADVANCED_SEARCH_PATH,
+        }
+    note = f"forced to {force_mode} {FORCE_NOTE_MARKER} (parser chose {chosen})"
+    updates["notes"] = ((plan.notes + " | ") if plan.notes else "") + note
+    print(f"[DEBUG][PARSER] {note}")
+    return plan.model_copy(update=updates)
+
+
 def _apply_parser_guardrails(
     user_query: str,
     plan: ParserPlan,
     session: "SessionState | SessionStateProxy | None" = None,
+    force_mode: str | None = None,
 ) -> ParserPlan:
-    """Apply narrow deterministic safety checks after LLM routing."""
+    """Apply narrow deterministic safety checks after LLM routing.
+
+    ``force_mode`` is the evaluation switch (``_force_parser_mode``); it runs last,
+    after every product guardrail, and is None outside an evaluation run.
+    """
     plan = _note_refine_without_bundle(session, plan)
     plan = _force_graph_for_uid_lineage(user_query, plan)
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
-        return ParserPlan(
+        plan = ParserPlan(
             mode="unsupported",
             target_endpoint=None,
             intent_summary=plan.intent_summary or user_query,
@@ -605,7 +661,7 @@ def _apply_parser_guardrails(
             report_mode=None,
             report_type=None,
         )
-    return plan
+    return _force_parser_mode(plan, force_mode)
 
 
 def _apply_multi_parser_guardrails(user_query: str, plan: MultiParserPlan) -> MultiParserPlan:
@@ -721,7 +777,10 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
         )
 
     print("[DEBUG][PARSER] Parsed plan:", json.dumps(plan_model.model_dump(), indent=2))
-    plan_model = _apply_parser_guardrails(user_query, plan_model, session=session)
+    plan_model = _apply_parser_guardrails(
+        user_query, plan_model, session=session,
+        force_mode=getattr(config, "FORCE_PARSER_MODE", None),
+    )
     if plan_model.mode == "unsupported":
         print("[DEBUG][PARSER] Guardrailed plan:", json.dumps(plan_model.model_dump(), indent=2))
     return plan_model
