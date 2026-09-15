@@ -399,6 +399,49 @@ def test_failure_raises_and_is_remembered_for_the_failure_window(harness, clock,
     assert snap.catalog_hash == "h1"
 
 
+# --- schema versions ------------------------------------------------------------------------------------------------
+# The sync work bumps the graph to 1.2 (Sample.source_hash, GraphMeta.label_maps_hash; the catalog is unchanged), so
+# the reader accepts 1.1 or any later version. An exact match would send a 1.2 graph back to the committed fallback.
+
+
+@pytest.mark.parametrize("version", ["1.1", "1.2", "1.10", " 1.2 ", "2.0"])
+def test_schema_version_at_or_above_the_minimum_is_supported(version):
+    assert gc.schema_version_supported(version)
+
+
+@pytest.mark.parametrize("version", ["1.0", "0.9", "1", "1.x", "", "abc", None])
+def test_schema_version_below_the_minimum_or_malformed_is_not(version):
+    assert not gc.schema_version_supported(version)
+
+
+def test_a_1_2_graph_is_read_live_and_its_version_recorded(harness):
+    harness.graph.meta["schema_version"] = "1.2"
+
+    snap = gc.get_snapshot(cfg())
+
+    assert snap.catalog_hash == "h1"
+    assert snap.schema_version == "1.2"
+    assert gc.cache_state(cfg())["graph_schema_version"] == "1.2"
+
+
+def test_a_version_bump_with_the_same_hash_reads_meta_only_and_updates_the_version(harness, clock):
+    gc.get_snapshot(cfg())
+    harness.graph.meta["schema_version"] = "1.2"  # the catalog, and so its hash, is unchanged
+    clock[0] += gc.HASH_RECHECK_S
+
+    snap = gc.get_snapshot(cfg())
+
+    assert harness.graph.names() == ["META", "INDEX", "GUARD", "META"]
+    assert snap.schema_version == "1.2"
+
+
+def test_a_1_0_graph_names_the_minimum_in_its_refusal(harness):
+    harness.graph.meta["schema_version"] = "1.0"
+
+    with pytest.raises(gc.CatalogUnavailable, match="1.1"):
+        gc.get_snapshot(cfg())
+
+
 def test_a_driver_error_closes_and_forgets_the_driver(harness, clock):
     gc.get_snapshot(cfg())
     first_driver = harness.drivers[0]

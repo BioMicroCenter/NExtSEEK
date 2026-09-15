@@ -14,9 +14,10 @@ one driver per key:
   ``catalog_hash`` has changed (a new hash also drops the cached type details);
 - a type detail lives ``DETAIL_TTL_S`` per (hash, title), because statistics can change without the hash;
 - the vocabulary lives ``VOCAB_TTL_S``; a source that failed is left empty and read again after ``FAILURE_MEMORY_S``;
-- no ``GraphMeta``, a ``schema_version`` other than ``SCHEMA_VERSION``, or a failed read raises
+- no ``GraphMeta``, a ``schema_version`` below ``SCHEMA_VERSION`` (or not a version at all), or a failed read raises
   ``CatalogUnavailable``, remembered for ``FAILURE_MEMORY_S`` so an outage costs one timeout a minute. A failed read
-  also closes and forgets the driver. The caller then uses the committed ``context/neo4j_schema.json``.
+  also closes and forgets the driver. The caller then uses the committed ``context/neo4j_schema.json``. A later
+  version is read as it is: the snapshot records it in ``schema_version``.
 
 This is the admin form (node-level statistics over every project). A non-admin form needs per-project usage and the
 caller's scope (spec D10, stage A1).
@@ -35,8 +36,23 @@ from typing import Any, Iterable, Mapping
 
 log = logging.getLogger(__name__)
 
+# The minimum GraphMeta.schema_version this reader accepts. Later versions are read as they are: 1.2 (the sync work)
+# adds Sample.source_hash and GraphMeta.label_maps_hash and leaves the catalog as v1.1 defines it.
 SCHEMA_VERSION = "1.1"
 HASH_RECHECK_S, DETAIL_TTL_S, VOCAB_TTL_S, FAILURE_MEMORY_S, QUERY_TIMEOUT_S = 60, 600, 3600, 60, 10
+
+_VERSION_RE = re.compile(r"^(\d+)\.(\d+)$")
+
+
+def _version_tuple(value) -> tuple[int, int] | None:
+    match = _VERSION_RE.match(str(value).strip()) if value is not None else None
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def schema_version_supported(value) -> bool:
+    """True when ``value`` is a ``major.minor`` version at or above ``SCHEMA_VERSION`` ("1.2" and "1.10" are)."""
+    version = _version_tuple(value)
+    return version is not None and version >= _version_tuple(SCHEMA_VERSION)
 
 # The catalog keeps at most ten top values per attribute; TYPES_ADMIN never reads more.
 TOP_VALUES_MAX = 10
@@ -202,6 +218,7 @@ class CatalogSnapshot:
     has_usage: bool
     index: tuple[TypeIndexRow, ...]
     guard: Mapping[str, frozenset[str]]  # T_ label -> attribute titles with values; every known type has a key
+    schema_version: str = SCHEMA_VERSION  # the graph's own GraphMeta.schema_version, at or above SCHEMA_VERSION
 
 
 # --- the cache ------------------------------------------------------------------------------------------------------
@@ -323,18 +340,20 @@ def _snapshot_locked(entry: _Entry, key: tuple[str, str], config) -> CatalogSnap
             raise CatalogUnavailable("the graph has no GraphMeta node, so it was never synced to v1.1")
         meta = rows[0]
         version = meta.get("schema_version")
-        if str(version) != SCHEMA_VERSION:
-            raise CatalogUnavailable(f"GraphMeta.schema_version is {version!r}, not {SCHEMA_VERSION!r}")
+        if not schema_version_supported(version):
+            raise CatalogUnavailable(
+                f"GraphMeta.schema_version is {version!r}; this reader needs {SCHEMA_VERSION} or later")
+        version = str(version).strip()
         catalog_hash = meta.get("catalog_hash")
         if not catalog_hash:
             raise CatalogUnavailable("GraphMeta has no catalog_hash")
         synced_at, has_usage = _opt_str(meta.get("synced_at")), bool(meta.get("has_usage"))
         if entry.snapshot is not None and entry.snapshot.catalog_hash == catalog_hash:
-            snapshot = replace(entry.snapshot, synced_at=synced_at, has_usage=has_usage)
+            snapshot = replace(entry.snapshot, synced_at=synced_at, has_usage=has_usage, schema_version=version)
         else:
             index = tuple(_index_row(r) for r in _read(driver, key[1], INDEX) if r.get("title") is not None)
             guard = _guard_map(index, _read(driver, key[1], GUARD))
-            snapshot = CatalogSnapshot(str(catalog_hash), synced_at, has_usage, index, guard)
+            snapshot = CatalogSnapshot(str(catalog_hash), synced_at, has_usage, index, guard, version)
             entry.details.clear()
             log.info("graph catalog read: %d sample types, catalog_hash %s", len(index), str(catalog_hash)[:12])
     except CatalogUnavailable as exc:
@@ -452,8 +471,8 @@ def cache_state(config) -> dict:
     ``live`` or ``unavailable``.
     """
     state: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION, "state": "unconfigured", "database": None, "catalog_hash": None,
-        "synced_at": None, "has_usage": None, "types": 0, "checked_age_s": None, "failure": None,
+        "schema_version": SCHEMA_VERSION, "graph_schema_version": None, "state": "unconfigured", "database": None,
+        "catalog_hash": None, "synced_at": None, "has_usage": None, "types": 0, "checked_age_s": None, "failure": None,
         "failure_age_s": None, "cached_type_details": 0, "vocabulary_age_s": None, "vocabulary_failed": [],
     }
     uri = getattr(config, "NEO4J_URI", None)
@@ -468,8 +487,9 @@ def cache_state(config) -> dict:
     now = _now()
     snapshot, checked_at, failed_at = entry.snapshot, entry.checked_at, entry.failed_at
     if snapshot is not None:
-        state.update(state="live", catalog_hash=snapshot.catalog_hash, synced_at=snapshot.synced_at,
-                     has_usage=snapshot.has_usage, types=len(snapshot.index), checked_age_s=_age(now, checked_at))
+        state.update(state="live", graph_schema_version=snapshot.schema_version, catalog_hash=snapshot.catalog_hash,
+                     synced_at=snapshot.synced_at, has_usage=snapshot.has_usage, types=len(snapshot.index),
+                     checked_age_s=_age(now, checked_at))
     elif failed_at is not None:
         state.update(state="unavailable", failure=entry.failure, failure_age_s=_age(now, failed_at))
     state["cached_type_details"] = len(entry.details)

@@ -835,12 +835,15 @@ def _check_catalog(report: _Report, config, graph_catalog):
     seconds = round(time.monotonic() - started, 3)
     state = graph_catalog.cache_state(config)
     report.measurements["catalog"] = {
-        "state": state.get("state"), "schema_version": graph_catalog.SCHEMA_VERSION,
+        "state": state.get("state"),
+        "schema_version": getattr(snapshot, "schema_version", graph_catalog.SCHEMA_VERSION),
+        "min_schema_version": graph_catalog.SCHEMA_VERSION,
         "catalog_hash": snapshot.catalog_hash, "synced_at": snapshot.synced_at, "has_usage": snapshot.has_usage,
         "types": len(snapshot.index), "types_deprecated": sum(1 for r in snapshot.index if r.deprecated),
         "seconds_cold": seconds}
     report.add("catalog_live", state.get("state") == "live",
-               f"schema {graph_catalog.SCHEMA_VERSION}, hash {snapshot.catalog_hash[:12]}, "
+               f"schema {getattr(snapshot, 'schema_version', graph_catalog.SCHEMA_VERSION)} "
+               f"(reader accepts {graph_catalog.SCHEMA_VERSION} or later), hash {snapshot.catalog_hash[:12]}, "
                f"{len(snapshot.index)} types, read in {seconds} s")
     return snapshot
 

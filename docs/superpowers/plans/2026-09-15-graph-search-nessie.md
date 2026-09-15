@@ -182,7 +182,7 @@ each caller.
 **Interfaces (produced; T2, T4 and T8 consume them by these names):**
 
 ```python
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.1"          # the minimum; schema_version_supported(v) accepts 1.1 or later (major.minor)
 HASH_RECHECK_S, DETAIL_TTL_S, VOCAB_TTL_S, FAILURE_MEMORY_S, QUERY_TIMEOUT_S = 60, 600, 3600, 60, 10
 
 class CatalogUnavailable(RuntimeError): ...
@@ -235,7 +235,7 @@ One driver per `(NEO4J_URI, NEO4J_DATABASE)`, closed and forgotten after a failu
   - `get_snapshot` reads META, INDEX and GUARD once; a second call inside 60 s reads nothing; after 60 s with the same
     hash it reads META only; with a new hash it re-reads INDEX and GUARD and drops cached details.
   - two configs with different `NEO4J_URI` get separate snapshots.
-  - no `GraphMeta`, `schema_version` other than `"1.1"`, a driver error, or an unset URI raise `CatalogUnavailable`;
+  - no `GraphMeta`, a `schema_version` below `"1.1"` or not a `major.minor` version (a later one such as `"1.2"` is read live and recorded on the snapshot), a driver error, or an unset URI raise `CatalogUnavailable`;
     the failure is remembered for 60 s (the driver factory is not called again).
   - `get_type_details` queries only the requested known titles, once per (hash, title), and again after 10 minutes.
   - every statement ran through `execute_read` with a timeout; `session.run` was never called outside a transaction
@@ -742,7 +742,7 @@ esac
 ```
 
 `nessie_venue_check.py` (runs inside the venue, prints only counts, sizes, timings and pass flags): Django setup; the
-chat config builds; `graph_catalog.get_snapshot` succeeds with schema version 1.1 (prints the hash and type count);
+chat config builds; `graph_catalog.get_snapshot` succeeds with schema version 1.1 or later (prints the graph's version, the hash and type count);
 `get_type_details` and `render_graph_context` for TIS, D.SEQ and A.VCF, and for PAT and PAV, each within 32,768 bytes;
 `tool_neo4j_query(config, "MATCH (s:T_TIS) RETURN count(s) AS n")` answers; META, INDEX, GUARD and vocabulary timings;
 worker memory at rest (`/proc/<pid>/status` of the gunicorn workers); the image id and the snapshot sha. It writes
