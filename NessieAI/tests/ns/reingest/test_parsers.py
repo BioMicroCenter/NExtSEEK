@@ -100,3 +100,48 @@ def test_parse_execution_trace_counts_failures():
     assert trace["processes"] > 0
     assert trace["failed"] == 0
     assert trace["non_terminal"] == 0
+
+
+@needs_fixture
+def test_parse_general_stats_keys_by_sample_and_keeps_column_names_verbatim():
+    # The data directory is multiqc_report_data (MultiQC names it after the
+    # report file), and columns are spelled <module>-<metric>. The sample
+    # row itself carries no fastqc_raw-* columns -- those are populated only
+    # on the per-read rows (see the next test) -- so verbatim spelling is
+    # checked here against columns the real header actually puts on a
+    # biological sample's own row.
+    stats = parsers.parse_general_stats(
+        (FIXTURE / "multiqc" / "star_salmon" / "multiqc_report_data"
+         / "multiqc_general_stats.txt").read_text())
+    assert "CONTROL_REP1" in stats
+    row = stats["CONTROL_REP1"]
+    assert "star-uniquely_mapped_percent" in row
+    assert "qualimap_rnaseq-5_3_bias" in row
+    assert isinstance(row["star-uniquely_mapped_percent"], float)
+    assert "fastqc_raw-total_sequences" not in row
+
+
+@needs_fixture
+def test_parse_general_stats_keeps_per_read_rows_distinct_from_samples():
+    # MultiQC emits <sample>_1 / <sample>_2 rows carrying only FastQC columns
+    # (populated) and every other column blank/omitted. They are real rows
+    # and must not be silently merged into the sample. Checking both the
+    # presence of a fastqc column AND the absence of a star column on the
+    # same row is what actually distinguishes the two kinds of row, rather
+    # than just checking that both keys exist in the result.
+    stats = parsers.parse_general_stats(
+        (FIXTURE / "multiqc" / "star_salmon" / "multiqc_report_data"
+         / "multiqc_general_stats.txt").read_text())
+    assert "CONTROL_REP1_1" in stats
+    per_read_row = stats["CONTROL_REP1_1"]
+    assert "fastqc_raw-total_sequences" in per_read_row
+    assert "star-uniquely_mapped_percent" not in per_read_row
+    assert "star-uniquely_mapped_percent" in stats["CONTROL_REP1"]
+    assert "fastqc_raw-total_sequences" not in stats["CONTROL_REP1"]
+
+
+def test_parse_general_stats_tolerates_blank_cells():
+    text = "Sample\tA_x\tB_y\nS1\t1.5\t\nS2\t\t3\n"
+    stats = parsers.parse_general_stats(text)
+    assert stats["S1"] == {"A_x": 1.5}
+    assert stats["S2"] == {"B_y": 3.0}

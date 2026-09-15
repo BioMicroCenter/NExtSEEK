@@ -98,6 +98,42 @@ def parse_samplesheet(text: str) -> list[dict[str, str]]:
     return [dict(row) for row in csv.DictReader(io.StringIO(text))]
 
 
+def parse_general_stats(text: str) -> dict[str, dict[str, float | str]]:
+    """multiqc_general_stats.txt -> {sample: {column: value}}.
+
+    Column names are kept EXACTLY as MultiQC spelled them. They vary by which
+    modules ran and by MultiQC version, and normalising them here would be
+    meaning-assignment -- the mapper's job, not this one's. A blank cell is
+    omitted rather than stored as an empty string, so "the tool did not run"
+    and "the tool reported nothing" stay distinguishable downstream.
+
+    Rows are keyed by whatever MultiQC put in the Sample column, including
+    the per-read FastQC rows (`<sample>_1`, `<sample>_2`) that sit alongside
+    a biological sample's own row and populate only the fastqc columns --
+    those are real rows and are returned as-is; deciding what to do with them
+    is a later stage's job.
+    """
+    rows = csv.DictReader(io.StringIO(text), delimiter="\t")
+    out: dict[str, dict[str, float | str]] = {}
+    for row in rows:
+        sample = (row.get("Sample") or "").strip()
+        if not sample:
+            continue
+        values: dict[str, float | str] = {}
+        for column, cell in row.items():
+            if column == "Sample" or cell is None:
+                continue
+            cell = cell.strip()
+            if not cell:
+                continue
+            try:
+                values[column] = float(cell)
+            except ValueError:
+                values[column] = cell
+        out[sample] = values
+    return out
+
+
 def parse_execution_trace(text: str) -> dict:
     """execution_trace.txt -> {processes, failed, non_terminal}.
 
