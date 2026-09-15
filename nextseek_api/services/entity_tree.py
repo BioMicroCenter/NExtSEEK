@@ -309,7 +309,9 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                         r.internal_assay_title AS annotation
                     ORDER BY source, target, annotation
                 """
-                records, summary, keys = driver.execute_query(cypher, database_=NEO4J_DATABASE["NAME"])
+                records, summary, keys = driver.execute_query(
+                    cypher, database_=NEO4J_DATABASE["NAME"], routing_=neo4j.RoutingControl.READ
+                )
         except Neo4jError as e:
             return Response(
                 {"errors": [{"title": "Neo4j error", "detail": str(e)}]},
@@ -395,7 +397,9 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                         r.internal_assay_id AS internal_assay_id
                     ORDER BY source, target, annotation
                 """
-                records, summary, keys = driver.execute_query(cypher, database_=NEO4J_DATABASE["NAME"])
+                records, summary, keys = driver.execute_query(
+                    cypher, database_=NEO4J_DATABASE["NAME"], routing_=neo4j.RoutingControl.READ
+                )
         except Neo4jError as e:
             return Response(
                 {"errors": [{"title": "Neo4j error", "detail": str(e)}]},
@@ -612,6 +616,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                 id=int(sample_id),
                 result_transformer_=neo4j.Result.graph,
                 database_=db_name,
+                routing_=neo4j.RoutingControl.READ,
                 timeout=timeout,
             )
 
