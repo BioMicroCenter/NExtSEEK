@@ -22,7 +22,7 @@ from django.core.management.base import CommandError
 from neo4j import RoutingControl
 from neo4j.time import Date as Neo4jDate
 
-from nextseek_api.graph_sync import catalog, run, sources, verify, writer
+from nextseek_api.graph_sync import catalog, run, sources, state as sync_state, verify, writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.projection import project_sample
 
@@ -106,6 +106,12 @@ def world(monkeypatch):
             index.setdefault(row["uuid"], []).append(row["id"])
         return index
 
+    def iter_digest_rows(chunk=5000):
+        rows = [dict(r, project_ids=sorted(set(PROJECT_LINKS.get(r["id"], ()))), assay_ids=[], updated_at=None)
+                for r in ordered()]
+        for start in range(0, len(rows), chunk):
+            yield rows[start:start + chunk]
+
     patches = {
         "sample_types": lambda: copy.deepcopy(state["types"]),
         "sample_attributes": lambda: copy.deepcopy(state["attrs"]),
@@ -113,15 +119,23 @@ def world(monkeypatch):
         "type_context": lambda: {}, "type_clades": lambda: {}, "deprecated_titles": lambda: set(),
         "attribute_meanings": lambda: {},
         "iter_samples": iter_samples, "uuid_to_ids": uuid_to_ids,
+        "iter_digest_rows": iter_digest_rows, "parent_identities": lambda uuids: {},
+        "resolved_assay_map": lambda: {}, "sops_map": lambda: {}, "studies": lambda: [],
         "sample_projects": lambda: {k: sorted(set(v)) for k, v in PROJECT_LINKS.items()},
         "projects": lambda: [{"id": 2, "title": "Local"}, {"id": 16, "title": "TCGA"}],
         "memberships": lambda: copy.deepcopy(MEMBERSHIPS),
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
         "seek_study_links": lambda: [{"sample_id": 11, "study_id": 7, "study_title": "S", "investigation_id": 3}],
+        # gate G check 9: no assay links in this world (the maps and parent identities are stubbed above)
+        "sample_assay_ids_for": lambda ids: {},
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
+    # The run records and the outbox are tested in test_graph_sync_full.py; here they record nothing.
+    monkeypatch.setattr(sync_state, "start_run",
+                        lambda kind, *, trigger, now=None: sync_state.RunHandle(None, kind, trigger, now))
+    monkeypatch.setattr(sync_state, "mark_done_before", lambda ts, *, kinds=None, now=None: 0)
     monkeypatch.delenv("GS_RUN_DIR", raising=False)
     return state
 
@@ -135,6 +149,9 @@ class WriterRecorder:
         fakes = {
             "find_ghosts": lambda d, db, ids, uuids: copy.deepcopy(self.ghosts),
             "delete_ghosts": lambda d, db, element_ids: {"ghosts_deleted": len(element_ids)},
+            "retire_samples": lambda d, db, ids, archive_path: {
+                "retire_requested": len(ids), "retired_deleted": 0, "retired_orphaned": len(ids),
+                "retire_not_found": 0, "retired_archive_path": None},
             "relabel_orphans": lambda d, db, ids, element_ids=(): {"orphans_relabeled": len(ids) + len(element_ids)},
             "archive_and_drop_child_of": lambda d, db, path, declared: {
                 "child_of_pairs": 0, "child_of_undeclared": 0, "child_of_deleted": 0, "archive_path": None},
@@ -158,7 +175,8 @@ class WriterRecorder:
             "ensure_index_budget": lambda d, db, census, bench_keys=frozenset(): ["gs_T_TIS_0123456789"],
             "ensure_fulltext": lambda d, db: {"fulltext_index": "sample_search_text"},
             "await_indexes": lambda d, db: {"indexes_online": 20},
-            "write_graphmeta": lambda d, db, catalog_hash: {"schema_version": "1.1", "catalog_hash": catalog_hash},
+            "write_graphmeta": lambda d, db, catalog_hash, label_maps_hash=None: {
+                "schema_version": "1.2", "catalog_hash": catalog_hash},
         }
         for name, fn in fakes.items():
             monkeypatch.setattr(writer, name, self._recording(name, fn))
@@ -221,7 +239,8 @@ def test_full_sync_writes_in_the_design_order(world, monkeypatch, tmp_path):
     report = run.full_sync(FakeDriver(), "neo4j", chunk=2, run_dir=str(tmp_path))
 
     assert rec.names() == [
-        "find_ghosts", "delete_ghosts", "relabel_orphans", "archive_and_drop_child_of", "ensure_constraints_v11",
+        "find_ghosts", "delete_ghosts", "retire_samples", "relabel_orphans", "archive_and_drop_child_of",
+        "ensure_constraints_v11",
         "write_sample_types", "write_attributes", "write_projects", "write_people_and_memberships",
         "write_investigation_projects", "write_samples", "write_samples", "write_missing_lineage",
         "archive_and_drop_undeclared_derived_from", "write_seek_studies", "write_attributes",
@@ -288,8 +307,10 @@ def test_full_sync_hands_the_preflight_findings_to_the_writer(world, monkeypatch
     (find,) = rec.of("find_ghosts")
     assert find.args[2] == {10, 11, 12} and U_T1 in find.args[3]
     assert rec.of("delete_ghosts")[0].args[2] == ["4:g:1"]
+    (retire,) = rec.of("retire_samples")
+    assert retire.args[2] == [99] and retire.args[3] == str(tmp_path / run.RETIRED_FILE)
     (relabel,) = rec.of("relabel_orphans")
-    assert relabel.args[2] == [99] and relabel.kwargs["element_ids"] == ["4:x:2"]
+    assert relabel.args[2] == [] and relabel.kwargs["element_ids"] == ["4:x:2"]
     (archive,) = rec.of("archive_and_drop_child_of")
     path, declared = archive.args[2], archive.args[3]
     assert path == str(tmp_path / run.ARCHIVE_FILE)
@@ -428,6 +449,8 @@ def test_dry_run_reads_but_writes_nothing(world, monkeypatch, tmp_path):
 # --- catalog_sync --------------------------------------------------------------------------------
 
 def _attribute_state(query, params):
+    if query == q.READ_GRAPHMETA:
+        return [{"props": {"schema_version": writer.SCHEMA_VERSION}}]
     if query != run.ATTRIBUTE_STATE:
         return []
     return [{"key": "26:Organ", "declared": True, "sample_type_id": 26, "title": "Organ", "sample_count": 7},
@@ -465,7 +488,7 @@ def _graph_nodes():
     for row in SAMPLES:
         type_id = row["sample_type_id"]
         proj = project_sample(row, cat.type_titles[type_id], cat.value_types.get(type_id, {}),
-                              PROJECT_LINKS[row["id"]])
+                              PROJECT_LINKS[row["id"]], parent_lists=([], []))
         props = {k: Neo4jDate(v.year, v.month, v.day) if isinstance(v, date) else v for k, v in proj.props.items()}
         props["synced_at"] = "2026-09-14T00:00:00Z"
         nodes[row["id"]] = {"props": props, "label": proj.label}
@@ -483,12 +506,14 @@ class GraphWorld:
         self.constraints = list(verify.EXPECTED_CONSTRAINTS)
         self.indexes = [{"name": n, "state": "ONLINE", "populationPercent": 100.0}
                         for n in verify.EXPECTED_INDEXES + verify.EXPECTED_CONSTRAINTS]
-        self.graphmeta = [{"schema_version": "1.1"}]
+        self.graphmeta = [{"schema_version": "1.2"}]
 
     def __call__(self, query, params):
         nodes = self.nodes
         if query == verify.LINEAGE_PAIRS:
             return [{"child": c, "parent": p} for c, p in self.edges]
+        if query == verify.LINEAGE_LABELS:
+            return [{"child": c, "parent": p, "stored": {k: None for k in q.EDGE_LABEL_KEYS}} for c, p in self.edges]
         if query == verify.LINEAGE_ON_ORPHANS:
             return [{"n": 0}]
         if query == verify.PROJECT_ID_GROUPS:
@@ -521,6 +546,8 @@ class GraphWorld:
             return [{"n": 0}]
         if query == verify.GRAPHMETA:
             return self.graphmeta
+        if query == verify.T_LABEL_WITHOUT_SAMPLE:
+            return [{"n": 0}]
         raise AssertionError(f"unexpected statement: {query}")
 
 
@@ -550,7 +577,7 @@ def test_gate_g_passes_on_the_graph_a_correct_sync_writes(world, mysql_scope):
     result = _gate(GraphWorld(_graph_nodes()))
     assert [c for c in result["checks"] if not c["pass"]] == []
     assert result["pass"] is True
-    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 9)}
+    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 12)}
     assert all({"name", "expected", "actual", "pass"} <= set(c) for c in result["checks"])
     assert result["stats"]["seed"] == 7 and result["stats"]["sampled_ids"] == [10, 11, 12]
     assert result["stats"]["metadata_hash_mysql"] == result["stats"]["metadata_hash_graph"]
