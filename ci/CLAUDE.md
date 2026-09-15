@@ -18,6 +18,20 @@
   no-stack smoke lane stops collecting, because
   `ci/smoke/test_registry_contents.py:23` imports `suggest_path` from that module
   in an environment that has no Django at all.
+- `ci/blocking_lanes.py` may import the standard library and nothing else. The
+  "Blocking unit tests (ci/blocking_lanes.py)" step of
+  `.github/workflows/ci-pytest.yml` runs it with the runner's bare `python`,
+  outside the application's environment, so a third-party import fails that step
+  before a single test runs. Its gate test, `ci/gate/test_blocking_lanes.py`,
+  keeps to the same rule.
+- Every glob in `BLOCKING_GLOBS` matches at least one file, and `main()` exits 1
+  with nothing on stdout when one does not (`ci/gate/test_blocking_lanes.py`).
+  Pytest given no path walks the whole tree, so an empty list must stop the
+  step, never reach pytest.
+- A module a blocking glob matches blocks every run from the commit that adds
+  it, so it must pass in the no-stack lane: SQLite in memory, no network, no
+  MySQL, no Neo4j. A graph test that needs a live service either skips itself
+  without that service or takes a name outside the globs.
 - A route's `expect` records the status the route returns when it works, never
   the status it returns while broken (`ci/routes.py:44-49`). Declare today's
   broken status instead and the `xfail` reports green while the defect stands and
@@ -86,8 +100,25 @@
 - `ci/diff_baseline.py` always exits 0, by decision (`ci/diff_baseline.py:8-9`,
   `ci/diff_baseline.py:131-132`). A wrapper that treats its exit code as a
   verdict will call every run a pass, including one that reports new failures.
-  Only the gate step, and a lanes step whose pytest did not run at all, can fail
-  that job (the comment above the gate step in `.github/workflows/ci-pytest.yml`).
+  Only the gate step, the blocking unit tests step, and a lanes step whose
+  pytest did not run at all can fail that job (the comment above the gate step
+  in `.github/workflows/ci-pytest.yml`).
+- `seek/tests/test_graph_search_js.py` skips every test where `node` is missing,
+  and the application image has no node, so the gate lane reports them skipped,
+  never failed or passed. The blocking unit tests step fails on a runner without
+  node for that reason. To run them, use a host with node:
+  `node seek/tests/js/graph_search_cases.js`, or that module under
+  `uv run --no-project --with pytest pytest`, which needs no Django.
+- No step runs `makemigrations --check`. Under `dmac.test_settings`,
+  `manage.py makemigrations --check --dry-run` stops on system check
+  `4_0.E001`: `dmac/settings.py` splits an unset `DJANGO_CSRF_TRUSTED_ORIGINS`
+  into one empty origin. With `--skip-checks` it runs, and reports changes the
+  tree has not migrated: in Mezzanine's own apps (its installed migrations lag
+  the installed Django), in `seek`, and in `nextseek_api`, whose TurnLedger index
+  keeps the migrated name that `nextseek_api/migrations/_turn_ledger_heal.py`
+  converges live databases to, not the name the model now generates. Run it in
+  the gate lane with `--skip-checks` for the current list. Adding it to the
+  blocking step turns the job red on every run until those are settled.
 - `OWNED_ROUTE_COUNT` in `ci/smoke/test_registry_contents.py` is a
   second, hand-maintained declaration of the route count, and its own comment
   names the completeness gate as the authority. Add a route and this constant

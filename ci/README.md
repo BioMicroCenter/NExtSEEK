@@ -41,6 +41,8 @@ mechanically rather than recalled:
 | `ci/gate/test_live_routes_unit.py` | pure-string tests for `suggest_path` |
 | `ci/docs_map.py` | the docs map check: `run()`, `main()`, rules R1 to R10 |
 | `ci/gate/test_docs_map.py` | runs the docs map check in the blocking gate step |
+| `ci/blocking_lanes.py` | `BLOCKING_GLOBS`, `expand()`, `unmatched()`, `main()`: the unit tests whose failure fails `ci-pytest.yml` |
+| `ci/gate/test_blocking_lanes.py` | every blocking glob matches a file, and the expansion is never empty |
 | `ci/diff_baseline.py` | `extract()`, `load_baseline()`, `main()`, and `--emit-baseline` |
 | `ci/pytest-baseline.txt` | known-failing test ids, plus the command that produced them |
 | `ci/smoke/` | the post-deploy suite. See `ci/smoke/README.md`, which documents it in full |
@@ -99,6 +101,20 @@ no fenced command uses a retired form, and no doc carries an email or a
 personal home path. Each failure prints the row or fix to apply. Its module
 docstring lists the rules and what each skips.
 
+### The blocking lanes
+
+`ci/blocking_lanes.py` names, as globs in `BLOCKING_GLOBS`, the unit tests
+whose failure fails `ci-pytest.yml`: the graph_sync and graph_search tests
+under `nextseek_api/tests/`, and the Graph Search page's view and JavaScript
+tests under `seek/tests/`. It needs only the standard library. It prints the
+matched test paths, one per line, and exits 1 with nothing on stdout when a glob
+matches no file, because pytest given no path walks the whole tree;
+`ci/gate/test_blocking_lanes.py` holds the same rule in the gate. A new module
+joins by its name alone, so it has to pass where the workflow runs it: SQLite in
+memory, no network, no MySQL, no Neo4j. `seek/tests/test_graph_search_js.py`
+runs `seek/tests/js/graph_search_cases.js` under `node` and skips where node is
+missing, which is why the workflow step checks for node before it runs pytest.
+
 ### The baseline differ
 
 `extract()` scopes its parse to pytest's "short test summary info" block, because
@@ -119,10 +135,11 @@ different thing depending on which one ran.
 **`.github/workflows/ci-pytest.yml`** runs on every push to `dev` or `main` and
 on every pull request (`.github/workflows/ci-pytest.yml:13-17`). It runs the
 *application's* pytest suite over the lane paths the workflow names, scores that output
-against the committed baseline, and finishes with `uv run pytest ci/gate -q`
-(its "Run the no-stack lanes", "Diff against the baseline" and "Blocking gates"
-steps). It never runs `ci/smoke/`. Its own
-name is the summary: `pytest (informational)`
+against the committed baseline, and finishes with two blocking steps:
+`uv run pytest ci/gate -q`, then pytest over the unit tests that
+`ci/blocking_lanes.py` names (its "Run the no-stack lanes", "Diff against the
+baseline", "Blocking gates" and "Blocking unit tests" steps). It never runs
+`ci/smoke/`. Its own name is the summary of the lanes: `pytest (informational)`
 (`.github/workflows/ci-pytest.yml:1`).
 
 **`.github/workflows/ci-smoke.yml`** runs by hand only (`workflow_dispatch` is
@@ -175,15 +192,21 @@ prerequisites, how to extend it and how to read a failure.
 
 ### What can fail a job, and what is only a report
 
-In `ci-pytest.yml` failing tests never fail the job. The lanes step fails only
-when pytest did not run at all (an exit code above 1, such as 4 for a lane path
-that no longer exists), and the differ always exits 0 by decision
-(`ci/diff_baseline.py:8-9`). So two steps can fail that job, as the comment above
-the gate step says: the lanes step when the lanes did not run, and
-`uv run pytest ci/gate -q`. The gate step holds two checks: the route registry
-completeness gate and the docs map. A red pytest lane is a report about
-known-failing tests; lanes that did not run, an undeclared route or a docs-map
-failure is a stop.
+In `ci-pytest.yml` a failing test in the lanes never fails the job. The lanes
+step fails only when pytest did not run at all (an exit code above 1, such as 4
+for a lane path that no longer exists), and the differ always exits 0 by
+decision (`ci/diff_baseline.py:8-9`). So three steps can fail that job, as the
+comment above the gate step says: the lanes step when the lanes did not run,
+`uv run pytest ci/gate -q`, and the blocking unit tests step. The gate step
+holds three checks: the route registry completeness gate, the docs map, and the
+check that every blocking glob matches a file (`ci/gate/test_blocking_lanes.py`).
+The blocking unit tests step fails when the runner has no `node`, when a
+blocking glob matches no file, and when any test `ci/blocking_lanes.py` names
+fails: the graph_sync and graph_search unit tests and the Graph Search page's
+tests. A red pytest lane is a report about known-failing tests; lanes that did
+not run, an undeclared route, a docs-map failure or a failing blocking unit test
+is a stop. Neither step checks for missing migrations; `ci/CLAUDE.md`
+"Landmines" says why.
 
 The two smoke callers are the other way round. Every test in `ci/smoke/` counts,
 and a non-zero run makes `./startup.sh rebuild` exit with the suite's own code
@@ -210,8 +233,9 @@ names something that is declared but not yet built, it says so.
 
 ## Running and testing
 
-Five lanes touch this boundary: the gate, the docs map, the no-stack part of the
-smoke suite, the rest of the smoke suite, and the baseline lane.
+Six lanes touch this boundary: the gate, the blocking unit tests, the docs map,
+the no-stack part of the smoke suite, the rest of the smoke suite, and the
+baseline lane.
 
 **The gate.** Run it in a throwaway container over a read-only mount of the
 worktree, as its own docstring prescribes at `ci/gate/live_routes.py:11-25`:
@@ -228,6 +252,21 @@ The `mkdir` on the first line is load-bearing; see `ci/CLAUDE.md` for what
 happens without it. The `-e LOG_DIR` is belt-and-braces under this settings
 module, which already points `LOG_DIR` at a writable temporary directory before
 importing the real settings (`dmac/test_settings.py:12-16`).
+
+**The blocking unit tests.** The same container, given the paths
+`ci/blocking_lanes.py` prints. Take them on the host first and stop if it
+fails, because a glob that matches nothing prints no path at all:
+
+```bash
+paths=$(python3 ci/blocking_lanes.py) || exit 1
+docker run --rm -i --network none -e LOG_DIR=/tmp/nextseek-logs \
+  -e DJANGO_SETTINGS_MODULE=dmac.test_settings -e PYTHONDONTWRITEBYTECODE=1 \
+  -v "$PWD":/src:ro -w /src nextseek-nextseek:latest \
+  /app/.venv/bin/python -m pytest $paths -q -p no:cacheprovider
+```
+
+The image has no `node`, so `seek/tests/test_graph_search_js.py` skips there;
+`ci/CLAUDE.md` "Landmines" says where to run it.
 
 **The docs map.** On the host, from the repo root, with only python3 and git:
 
@@ -304,8 +343,11 @@ grepping every `.py` file in the tree for `ci.routes`, `ci.gate`, `ci.smoke`,
 - `startup/cli.py:630-644`, the rebuild hook that runs the suite after a
   successful rebuild unless `--no-ci` is passed.
 - The "Diff against the baseline" step of `.github/workflows/ci-pytest.yml` runs
-  the differ, and its "Blocking gates (route registry, docs map)" step runs the
-  gate, one of the two steps whose exit code can fail that job.
+  the differ, its "Blocking gates (route registry, docs map)" step runs the
+  gate, and its "Blocking unit tests (ci/blocking_lanes.py)" step runs
+  `ci/blocking_lanes.py` with the runner's bare `python` and hands the paths to
+  pytest. Those two blocking steps and the lanes step are the three whose exit
+  code can fail that job.
 - `.github/workflows/ci-smoke.yml:112-114` runs the smoke suite on a self-hosted
   runner in a deliberately isolated environment.
 - Not a consumer: `startup/cli.py:40-44` restates `("local", "dev", "prod")` as
