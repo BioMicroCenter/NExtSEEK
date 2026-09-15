@@ -1,13 +1,14 @@
 # graph_search follow-up 1: Nessie on the metadata graph (evidence POC)
 
-- Date: 2026-09-15, revised three times the same day to the operator's rulings (section 3.1)
+- Date: 2026-09-15, revised four times the same day to the operator's rulings (section 3.1)
 - Branch: `feat/graph-search-nessie`, cut from `feat/graph-search` at `4b3e087a`
 - Status: draft for operator approval. **Nothing is built.** The branch holds only this spec and its plan. The first
   version of both said increment 1 (A0 to A4) was built; it was not.
 - Tracking: none yet. File an issue per `docs/ISSUE-CONVENTIONS.md` after approval.
 - Builds on: the POC spec `docs/superpowers/specs/2026-09-14-graph-search-poc-design.md` (sections 3 to 7 are the graph
   and endpoint this uses; section 11.1 was this follow-up's first scope) and `docs/neo4j-schema.md` ("v1.1").
-- Plan: `docs/superpowers/plans/2026-09-15-graph-search-nessie.md`.
+- Plan: `docs/superpowers/plans/2026-09-15-graph-search-nessie.md` (its stage P is the operator's runbook for the paid
+  runs).
 - The recon behind it (two stages, 2026-09-14) stays outside the repository because it cites local data. Numbers below
   are dated measurements from it or from the POC's runs; re-measure before relying on one.
 
@@ -20,9 +21,9 @@ Two questions, in the operator's words:
   agent (the LLM writes Cypher) give better and faster answers than its API agent (the LLM writes an `advanced_search`
   JSON body)? If it does, the API agent can be retired for metadata questions.
 - **Group B, the check:** "does it still work for what we want?" On everything that normally routes to the graph
-  (studies and investigations, traversal, lineage, the IMPACT and project questions, assays, protocols, publications),
-  is the graph agent with its new v1.1 context still right? `advanced_search` cannot answer these, so they are not part
-  of the contest.
+  (studies and investigations, traversal, lineage trees, the IMPACT and project questions, assays, protocols,
+  publications), is the graph agent with its new v1.1 context right? Group B is an absolute pass rate against ground
+  truth, per family; there is no comparison with the previous schema.
 
 The POC produces two things:
 
@@ -30,13 +31,13 @@ The POC produces two things:
    compact text instead of a `keys(n) LIMIT 200` scan, and its property guard checks names per label.
 2. **Evidence.** Single-turn questions go through the arms on the same code and the same data, every stage of every
    turn is checked against ground truth re-derived on the merged data, and pass rules fixed before any paid turn decide
-   both answers.
+   both answers. The operator launches every paid run by hand from the plan's runbook.
 
 The emphasis is the testing and the evidence, not routing.
 
 Not the goal:
-- Follow-ups, refinements and every multi-turn conversation; lineage questions that route to REST endpoints today;
-  catalog and reporter questions. They move to section 8.2 with A8.
+- Follow-ups, refinements and every multi-turn conversation; catalog, system and reporter questions; a comparison
+  with the previous schema or with today's Nessie. They move to section 8.2 with A8.
 - Merging into `dev` or any other branch, or running anywhere but the operator's workstation.
 - Scoping graph reads for non-admins (A1). The POC runs only as the superuser `demo`. A1 is its own stage after the
   POC, built with the merge work (section 8.1).
@@ -55,7 +56,7 @@ Not the goal:
 | `known_node_properties` is a type-blind union and ignores backticked names | check names per label against the catalog (A4) |
 | `graph_agent.txt` says Samples have "exactly three properties" and the graph "does NOT store metadata"; `min_graph_schema.json` says descriptive metadata is not on the node | the lines the graph agent needs change in the POC (A7 subset) |
 | Every NS list answer is one `advanced_search` call with `page_size=1000`; the server materializes every match first (about 21.5 KB of worker memory per matched row) | the API arm can exhaust a capped worker on broad questions; the venue records that as an API-arm failure (section 6) |
-| The corpus holds 66 single-turn metadata and search questions and 79 single-turn graph-routed questions (E4); the POC's ladder and benchmark add 35 more. The corpus's numeric oracles were set on the unmerged data | ground truth is re-derived on the merged data (1,084,754 samples) |
+| The corpus holds 71 single-turn metadata and search questions and 110 single-turn graph-routed or lineage questions (E4); the POC's ladder and benchmark add 35 more. The corpus's numeric oracles were set on the unmerged data | ground truth is re-derived on the merged data (1,084,754 samples) |
 | The entity step's vocabulary is three committed JSON files: 17 of 118 merged types can never be emitted, and there is no TCGA project row. The local export fails with MySQL 1045 | a shared confound for every arm, flagged per question; A0 would not fix it (section 3.3, D11) |
 
 ## 3. Decisions
@@ -72,7 +73,7 @@ First round:
 | R4 | Routing, minimal effort: force `nextseek_query` with the existing admin `force_route`; the only new routing code exposes it for a normal run; inside NS one switch-gated deterministic guardrail forces the parser mode; no hand-written routing tables | E1 to E3 |
 | R5 | In scope: A2, A3, A4, the A7 lines the graph agent needs, A0 only if the POC needs it, and the evidence harness. Out of scope: merging, the BAML router, retiring advanced_search, A9, and A5, A6, A8, A10 except a piece the harness needs | section 4; A0 is not needed (D11); no piece of A5, A6, A8 or A10 is needed |
 
-Second round, with the operator's two corrections of the same day:
+Second round, with its two corrections:
 
 | # | Ruling | Where it lands |
 |---|---|---|
@@ -82,7 +83,17 @@ Second round, with the operator's two corrections of the same day:
 | R9 | Forcing is simplified to single-turn retrieval questions; the admin request field behind the environment flag stays | E2 |
 | R10 | Four recommendations adopted as decided, revisitable later: the switch is the admin request field behind the environment flag (E2); the API arm is forced (E3); the truth's default reading (E5); the API arm's REST self-calls run inside the venue (section 6) | E2, E3, E5, section 6 |
 | R11 | Stage B stays under 10 agents: the truth tooling joins the scorer in one task, and the docs are part of the gate B step | plan |
-| R12 | **Group B is a "does it still work" check, not a second contest.** Its main result is the new graph agent's correctness on every graph-routed question against ground truth, per family, with every failure traced to its stage. An arm running the graph agent with today's context (the D7 fallback, forced by the evaluation switch) is **optional**, priced both ways | E1, E7, E10, section 7 |
+| R12 | Group B is a "does it still work" check, not a second contest (the optional today's-context arm it allowed was dropped by R13) | E7 |
+
+Third round:
+
+| # | Ruling | Where it lands |
+|---|---|---|
+| R13 | **No comparison with the previous schema.** No today's-context arm, no legacy switch value, no legacy prompt or context mode. Group B's rule is the absolute STILL WORKS rule. `debug.graph_context` stays (catalog or fallback) as a check that the catalog path ran. A reference comparison against today's Nessie on the dev box, run by the operator, goes to section 8.2 | E1, E7, D15, section 8.2 |
+| R14 | **The operator launches every paid Nessie run by hand**, from a runbook of copy-paste commands (plan stage P). No agent and no workflow step ever starts a paid turn. The build and the ground truth (read-only, free) stay agent work | section 7; plan stage P |
+| R15 | Group A's thresholds as written in E7 | E7 |
+| R16 | The 31 lineage questions that route to REST today join Group B; the 5 single-turn `vocabulary_resolution` metadata questions join Group A; the default-reading rule stands as written | E4, E5 |
+| R17 | Stage B at most 9 agents; it has 8 | plan |
 
 ### 3.2 The recon's questions for this follow-up
 
@@ -115,22 +126,21 @@ Marked POC (built by this plan) or A1 stage (built after the POC, section 8.1).
 | D12 | A1 stage | The CLI and the MCP server supply no scope, so for non-admin use they are refused until an explicit operator scope exists. In the POC they run as today (admin) | fail closed; single-operator tools |
 | D13 | POC | Whole-node returns are forbidden: the prompt says so, and the guard sends a query that returns or collects a bare Sample variable back for one repair, then refuses it (the same path as an unknown property) | otherwise the chatter, `results_history` and downloads ship every attribute to the model and into sessions |
 | D14 | POC | In `min_graph_schema.json` the false claims change (metadata is on the node in v1.1); its routing preferences do not. Routing is out of scope, the switch overrides the parser's mode in every arm, and the parser's own choice is recorded on every turn (E2) | a factual fix without a routing change |
-| D15 | POC | Every graph turn records which context the graph agent used, `catalog`, `legacy` or `fallback`, in `debug.graph_context` | the scorer checks that each arm ran the context it claims, and the pilot's stop rule can see the fallback |
+| D15 | POC | Every graph turn records which context the graph agent used, `catalog` or `fallback`, in `debug.graph_context` | the scorer checks that the catalog path really ran, and the pilot's stop rule can see the fallback |
 
 ### 3.4 Evidence decisions
 
 | # | Decision | Why |
 |---|---|---|
-| E1 | **Arms.** Group A: G, the graph agent with the new context, against A, the API agent. Group B: G alone, or G against L, the graph agent with today's context (E10), when the operator chooses the optional arm. Every arm forces `nextseek_query` with `force_route: "ns"` (admin) and runs in the same venue container on the same snapshot of this branch against the same data, one question at a time, the arms of a question back to back; which arm goes first alternates by question index | interleaving removes time as a confounder (graph re-syncs, provider load); alternation cancels order effects |
-| E2 | **The switch** (operator ruling R10). A new admin-only field on the chat request, `force_parser_mode` (`"graph"`, `"graph_legacy"` or `"api"`), is honoured only when the caller is a superuser **and** the process has `NEXTSEEK_EVAL_PARSER_FORCE=1` (the venue sets it; no compose file or env template does). The CC turn then hands the NS engine a shallow config copy carrying `FORCE_PARSER_MODE`, and `_apply_parser_guardrails` applies `_force_parser_mode` last, modelled on `_force_graph_for_uid_lineage`. Every question is a single turn in a fresh session, so the rule has two lines. **graph and graph_legacy:** `new_search` becomes `graph_query`. **api:** `graph_query` becomes `new_search` on the parser's first REST endpoint candidate, else `advanced_search`. (A `refine_last_search` on a fresh session is already turned into `new_search` by the existing refine guard, which runs first.) Any other mode is left as the parser chose; the scorer lists such questions. The note `forced to <mode> by the evaluation switch (parser chose <mode>)` is appended to `plan.notes`. `graph_legacy` also tells the graph agent to use today's context (E10) | minimal product code, off everywhere but the venue; the note records the unforced parser's choice (the status quo) on every turn |
+| E1 | **Arms.** Group A: G, the graph agent with the new context, against A, the API agent. Group B: G alone. Every arm forces `nextseek_query` with `force_route: "ns"` (admin) and runs in the same venue container on the same snapshot of this branch against the same data, one question at a time; in Group A the two arms of a question run back to back and the first arm alternates by question index | interleaving removes time as a confounder (graph re-syncs, provider load); alternation cancels order effects |
+| E2 | **The switch** (operator ruling R10). A new admin-only field on the chat request, `force_parser_mode` (`"graph"` or `"api"`), is honoured only when the caller is a superuser **and** the process has `NEXTSEEK_EVAL_PARSER_FORCE=1` (the venue sets it; no compose file or env template does). The CC turn then hands the NS engine a shallow config copy carrying `FORCE_PARSER_MODE`, and `_apply_parser_guardrails` applies `_force_parser_mode` last, modelled on `_force_graph_for_uid_lineage`. Every question is a single turn in a fresh session, so the rule has two lines. **graph:** `new_search` becomes `graph_query`. **api:** `graph_query` becomes `new_search` on the parser's first REST endpoint candidate, else `advanced_search`. (A `refine_last_search` on a fresh session is already turned into `new_search` by the existing refine guard, which runs first.) Any other mode is left as the parser chose; the scorer lists such questions. The note `forced to <mode> by the evaluation switch (parser chose <mode>)` is appended to `plan.notes` | minimal product code, off everywhere but the venue; the note records the unforced parser's choice (the status quo) on every turn |
 | E3 | **The API arm is forced** (operator ruling R10). Unforced, the parser sends some Group A questions to the graph agent, which on this branch reads the v1.1 catalog, so arm A would answer part of the set with the graph agent and blur the comparison. The notes of E2 still say what the unforced parser would have done, at no extra cost | the claim compares the two agents, not two routers |
-| E4 | **The questions: 180 single-turn questions in two groups.** The per-variant kept and excluded lists, with reasons, and the ladder and B2 questions live under `$GS_WORK/nessie/` (`selection.json`), never in the repository (one ladder value and several corpus variants name real people). Variant text is reused verbatim; the corpus's criteria are not (their oracles predate the merge). **Group A, 100 questions:** 66 from the corpus (57 of 66 `sample_search` variants, all 8 `harmonization`, 1 of 6 `retrieval_path_selection`), answerable from the sample type, metadata values, keywords, UIDs or lab codes; the 25 compat rungs of the external latency ladder; 9 of the 12 B2 shapes (the lineage shape goes to Group B, and two shapes whose bodies equal a ladder rung are merged into it). **Group B, 80 questions:** 79 corpus variants and the B2 lineage shape. A single-turn variant outside Group A joins Group B when (a) its criteria expect the graph path (parser mode `graph_query`, engine `graph_query`, `graph_cypher`, `neo4j_ok`, `graph_result.*`), (b) its family is `graph_traversal`, whose description names the graph, or (c) its question names what today's routing rules send to `graph_query` (a named study, investigation or project scope, a publication, an assay or protocol traversal, lineage structure) and its criteria expect no REST endpoint and no non-retrieval mode. Per family: `graph_traversal` 60, `lineage_tree` 7, `sample_search` 5 (the study, investigation and project-scoped ones), `project_summary_report` 4 (investigation inventories, not upload reports), `retrieval_path_selection` 1, `vocabulary_resolution` 1, `engine_routing` 1. **Excluded from both:** writes, launches, uploads and submissions; Container-CC variants; reporter-path questions (uploads over time, published-sample reports); catalog and system questions; questions with no referent in a single turn; exact duplicate texts; and the 31 lineage questions that route to REST endpoints today (13 single-UID trees through sample-tree, 18 parents-by-child-types), which are in section 8.2 | Group A is where both agents answer from the same metadata, the contest; Group B is where the graph agent is the path today, the check |
-| E5 | **Ground truth**, re-derived on the merged data. Per question: the intended reading, the accepted answer (and any defensible alternate reading, marked as such), and the oracle that computes it: a graph_search body, a Cypher statement or a SQL SELECT, whichever is clearest, run read-only as the superuser against the same live stack the arms query, after the UID-fix re-sync. Every count flagged changed or interpretive, and at least one in five of the rest, is re-derived by a second engine where MySQL holds the same fact (samples, metadata, `projects_samples`, parent tokens); a graph-only fact (a paper-level Study, a DERIVED_FROM assay label) has one oracle, marked. A disagreement is resolved or the question is marked interpretive. Each truth file records a data fingerprint (sample count, `GraphMeta.catalog_hash`, `synced_at`). The ladder and B2 reuse their measured totals (the ladder after its UID rerun), re-checked by the same runner. A question whose answer cannot be established is excluded with a reason. **Default reading** (operator ruling R10): the question's own words decide; where a question leaves the spelling or case of a value open, the primary reading is case-insensitive on that attribute's value (what a user means by "lung"), and an exact-spelling answer is a marked alternate. Other alternates are declared per question, never by blanket rule. Alternates count as correct and are tallied separately, so every verdict can be read with and without them. Stored under `$GS_WORK/nessie/truth/`. The operator reviews the selection, changed oracles, alternates and exclusions before any paid turn (gate T) | the corpus's numbers were set on 166k samples; TCGA shifts some; interpretive questions (Organ Lung: 16,841 exact, 22,734 ignoring case, 46,981 by `LIKE`) need a declared reading |
+| E4 | **The questions: 216 single-turn questions in two groups.** The per-variant kept and excluded lists, with reasons, and the ladder and B2 questions live under `$GS_WORK/nessie/` (`selection.json`), never in the repository (one ladder value and several corpus variants name real people). Variant text is reused verbatim; the corpus's criteria are not (their oracles predate the merge). **Group A, 105 questions:** 71 from the corpus, answerable from the sample type, metadata values, keywords, UIDs, lab codes or the type and attribute catalog: 57 of 66 `sample_search` variants, all 8 `harmonization`, 5 of 9 `vocabulary_resolution` (a PBMC count, PBMCs sequenced with single-cell methods, the 4wk cohort counts, the attributes the mouse type needs, D.SEQ against A.SCXP), 1 of 6 `retrieval_path_selection`; the 25 compat rungs of the external latency ladder; 9 of the 12 B2 shapes (the lineage shape goes to Group B, and two shapes whose bodies equal a ladder rung are merged into it). **Group B, 111 questions:** 110 corpus variants and the B2 lineage shape. A single-turn variant outside Group A joins Group B when (a) its criteria expect the graph path (parser mode `graph_query`, engine `graph_query`, `graph_cypher`, `neo4j_ok`, `graph_result.*`), (b) its family is `graph_traversal`, whose description names the graph, (c) its question names what today's routing rules send to `graph_query` (a named study, investigation or project scope, a publication, an assay or protocol traversal, lineage structure) and its criteria expect no REST endpoint and no non-retrieval mode, or (d) its family is `lineage_tree` (operator ruling R16: the 31 that route to REST endpoints today, 13 single-UID trees through sample-tree and 18 parents-by-child-types, are answered by the forced graph agent). Per family: `graph_traversal` 60, `lineage_tree` 38, `sample_search` 5 (the study, investigation and project-scoped ones), `project_summary_report` 4 (investigation inventories, not upload reports), `retrieval_path_selection` 1, `vocabulary_resolution` 1, `engine_routing` 1. **Excluded from both:** writes, launches, uploads and submissions; Container-CC variants; reporter-path questions (uploads over time, published-sample reports); catalog and system questions answered by the system agent; questions with no referent in a single turn; exact duplicate texts | Group A is where both agents answer from the same metadata, the contest; Group B is everything the graph agent should be able to answer, the check |
+| E5 | **Ground truth**, re-derived on the merged data. Per question: the intended reading, the accepted answer (and any defensible alternate reading, marked as such), and the oracle that computes it: a graph_search body, a Cypher statement or a SQL SELECT, whichever is clearest, run read-only as the superuser against the same live stack the arms query, after the UID-fix re-sync. Every count flagged changed or interpretive, and at least one in five of the rest, is re-derived by a second engine where MySQL holds the same fact (samples, metadata, `projects_samples`, parent tokens); a graph-only fact (a paper-level Study, a DERIVED_FROM assay label) has one oracle, marked. A disagreement is resolved or the question is marked interpretive. Each truth file records a data fingerprint (sample count, `GraphMeta.catalog_hash`, `synced_at`). The ladder and B2 reuse their measured totals (the ladder after its UID rerun), re-checked by the same runner. A question whose answer cannot be established is excluded with a reason. **Default reading** (operator rulings R10, R16): the question's own words decide; where a question leaves the spelling or case of a value open, the primary reading is case-insensitive on that attribute's value (what a user means by "lung"), and an exact-spelling answer is a marked alternate. Other alternates are declared per question, never by blanket rule. Alternates count as correct and are tallied separately, so every verdict can be read with and without them. Stored under `$GS_WORK/nessie/truth/`. The operator reviews the selection, changed oracles, alternates and exclusions before any paid turn (gate T) | the corpus's numbers were set on 166k samples; TCGA shifts some; interpretive questions (Organ Lung: 16,841 exact, 22,734 ignoring case, 46,981 by `LIKE`) need a declared reading |
 | E6 | **Every stage is asserted** (table below). The first failing stage is the question's attribution; only the reply decides correctness | a wrong answer is traced to the step that produced it |
-| E7 | **The pass rules** (below), for the operator to accept or change before P3 | "better" and "still works" are defined before the money is spent |
-| E8 | **Cost.** NS turns report no cost today. chat_nextseek writes a per-call token ledger, `llm_calls.jsonl`, into every run root (one per chat session, hence one per question) and into `LOG_DIR`. The scorer prices it with an operator price table (`$GS_WORK/nessie/prices.json`: per model, input and output per million tokens, Bedrock rates for the Anthropic models). The run is strictly sequential, so attribution is exact | cost is one of Group A's scores |
-| E9 | Nothing else about any arm changes. G: the graph agent with the rendered catalog, its standard-mode LIMIT and total probe. A: the API agent, `advanced_search` with `page_size=1000` and the OR-retry ladder. L: E10 | the comparison is the product as it would ship, with only the agent or its context switched |
-| E10 | **Today's context, for the optional arm L.** `graph_legacy` runs the graph agent exactly as it was before this branch, on the same v1.1 graph: the committed `context/neo4j_schema.json`, protocol and assay JSON (the D7 fallback), the pre-branch prompt kept verbatim as `prompts/graph_agent_legacy.txt`, and the old type-blind guard (no whole-node guard). Both arms read in READ transactions, which changes no answer. It is not today's Nessie on today's graph: today's live schema fetch breaks on a metadata graph (section 2), and the v1.0 structure it describes is all still present in v1.1 except `CHILD_OF` | the closest runnable "today" on the same data |
+| E7 | **The pass rules** (below), set by the operator (R13, R15) | "better" and "still works" are defined before the money is spent |
+| E8 | **Cost.** NS turns report no cost today. chat_nextseek writes a per-call token ledger, `llm_calls.jsonl`, into every run root (one per chat session, hence one per question) and into `LOG_DIR`. The scorer prices it with the operator's price table (`$GS_WORK/nessie/prices.json`: per model, input and output per million tokens, Bedrock rates for the Anthropic models). The run is strictly sequential, so attribution is exact | cost is one of Group A's scores |
+| E9 | Nothing else about either arm changes. G: the graph agent with the rendered catalog, its standard-mode LIMIT and total probe. A: the API agent, `advanced_search` with `page_size=1000` and the OR-retry ladder | the comparison is the product as it would ship, with only the agent switched |
 
 **Stage assertions (E6):**
 
@@ -138,14 +148,14 @@ Marked POC (built by this plan) or A1 stage (built after the POC, section 8.1).
 |---|---|---|
 | Route (precondition) | `route_decided` | `nextseek_query`, source `forced`. A question whose force did not land is void, not scored |
 | Switch (precondition) | `debug.parser_plan.notes` | the force note is present and the forced mode is the arm's; a question whose parser chose a non-retrieval mode is listed and scored as the product behaved |
-| Context (precondition, graph arms) | `debug.graph_context` (D15) | `catalog` for G, `legacy` for L. A `fallback` voids the question for that arm |
+| Context (precondition, arm G) | `debug.graph_context` (D15) | `catalog`. A `fallback` voids the question for arm G |
 | Entities | `debug.entity_result` | the sample types the truth names are among the resolved codes |
 | Parser | `debug.parser_plan` | the original mode (recorded), `filters.sampletype_code` and keywords |
-| Engine request | graph arms: `debug.graph_plan.cypher`; A: `debug.api_plan` (`endpoint`, `requestBody`) | graph arms: a `T_` label or type filter per expected type, the expected attribute names or relationships, no whole-node return (G). A: the endpoint, `sampletype`, `attribute`, `filter_searchText` |
-| Engine value | graph arms: the graph debug JSON the turn lists in `files` (`neo4j_output`, `data_preview`); A: the saved API result (`debug.raw_json_path`) | the engine's own total or aggregate |
+| Engine request | G: `debug.graph_plan.cypher`; A: `debug.api_plan` (`endpoint`, `requestBody`) | G: a `T_` label or type filter per expected type, the expected attribute names or relationships, no whole-node return. A: the endpoint, `sampletype`, `attribute`, `filter_searchText` |
+| Engine value | G: the graph debug JSON the turn lists in `files` (`neo4j_output`, `data_preview`); A: the saved API result (`debug.raw_json_path`) | the engine's own total or aggregate |
 | Reply | `query_complete.reply` | every required number (thousands separators tolerated) or every required item, and no contradicting total for the same quantity |
 
-**Pass rules (E7), proposed:**
+**Pass rules (E7), as ruled:**
 
 For every arm, a question is **correct** when its final reply states the ground-truth answer, by the primary reading or
 a marked alternate (alternates tallied separately), and **failed** on an error, a timeout, an OOM-killed worker, a
@@ -157,13 +167,10 @@ rerun. Every verdict is also shown without alternates, and the stage attribution
   Guards: G's median wall time per turn is at most 1.25 times A's, and G's median cost per question at most 1.5 times
   A's. Verdict: SUPPORTED when the main rule and both guards hold; SUPPORTED WITH COSTS when the main rule holds and a
   guard fails; NOT SUPPORTED otherwise.
-- **Group B, option 1 (G alone): an absolute pass rate.** STILL WORKS when G is correct on at least 80% of the scorable
-  questions, no family with at least 5 questions falls below 60%, and at most 5% of questions fail outright. It tells
-  how well the new graph agent answers graph questions; it cannot say whether the new context helped or hurt.
-- **Group B, option 2 (G against L): no worse than today.** NO WORSE when G's correct rate is at least L's minus 5
-  points and the discordant pairs do not favour L significantly (an exact two-sided McNemar test with L ahead at
-  p < 0.05 fails the rule); option 1's figures are reported beside it. It attributes any change to the context, at the
-  price of one more turn per question.
+- **Group B (G alone): STILL WORKS** when G is correct on at least 80% of the scorable questions, no family with at
+  least 5 questions falls below 60%, and at most 5% of questions fail outright; otherwise NOT YET, with the failing
+  families and their first failing stages named. It tells how well the new graph agent answers graph questions; it
+  does not say whether the new context is better or worse than today's (section 8.2 has the reference comparison).
 
 ## 4. The POC build (product code)
 
@@ -184,9 +191,9 @@ New module `graph_catalog.py`. Read-only queries, each in `execute_read` with a 
 `ChatConfig` loses `_fetch_neo4j_schema`, `_ensure_neo4j_schema`, `_ensure_schema_file`,
 `_fetch_assay_sample_connections`, `_ensure_assay_sample_connections`, `_fetch_protocol_schema` and
 `_ensure_protocol_schema`. `NEO4J_SCHEMA`, `PROTOCOL_SCHEMA` and `ASSAY_SAMPLE_CONNECTIONS` become the committed JSON,
-read only, as the fallback and as today's context for arm L (the parser and the old guard keep reading them
-unchanged). `get_config_snapshot` reports the catalog cache state without a network call.
-`NessieAI/chat_nextseek/mcp_server.py` serves `neo4j-schema` as the rendering when the catalog is live.
+read only, as the fallback (the parser and the old guard keep reading them unchanged). `get_config_snapshot` reports
+the catalog cache state without a network call. `NessieAI/chat_nextseek/mcp_server.py` serves `neo4j-schema` as the
+rendering when the catalog is live.
 
 Accept: constructing a `ChatConfig` and running a graph turn writes nothing under `context/`; a config whose
 `NEO4J_URI` differs reads its own graph; a graph that is down or v1.0 yields the committed JSON.
@@ -213,7 +220,7 @@ assay words, protocol titles on the existing protocol words.
 Accept: the three largest merged-shape types render in at most 32,768 bytes; no attribute appears that the catalog
 does not list for that type; the rendering works with no `USED_IN`, no `top_values` and no meanings.
 
-### 4.3 A4: the property guard, whole-node returns, and the context modes
+### 4.3 A4: the property guard, whole-node returns, and the context record
 
 `agents/graph.py` gains a catalog guard. A variable's labels come from its patterns (`(s:Sample:T_TIS)`) and label
 predicates (`WHERE s:T_TIS`). A `T_X` variable may read the Sample system properties and the attributes of X with
@@ -222,29 +229,23 @@ sets; a variable of unknown label is checked against everything. Backticked name
 projections (`s {.Organ}`) and unknown `T_` labels are checked; function and procedure names are not properties.
 `RETURN s` or `collect(s)` over a Sample variable is a whole-node return (D13). The existing repair loop reports each
 problem once (`TIS.Sequencer`, `whole node s`), then the turn gets the empty plan. With the catalog unavailable, the
-old `known_node_properties` union from the committed JSON applies.
-
-`graph_agent` runs in one of three context modes and records it (D15): `catalog` (the rendering, the catalog guard),
-`fallback` (D7, when the catalog is unavailable), and `legacy` (E10, only when the switch asks for `graph_legacy`: the
-committed JSON, `prompts/graph_agent_legacy.txt`, the old guard).
+old `known_node_properties` union from the committed JSON applies. Every graph turn records `catalog` or `fallback` in
+`debug.graph_context` (D15).
 
 Accept: `MATCH (s:T_TIS) WHERE s.Sequencer = 'x'` is rejected when TIS has no `Sequencer` and passes on `s:T_D_SEQ`
-when D.SEQ has it; `MATCH (s:T_TIS) RETURN s LIMIT 5` is repaired once, then refused; a `graph_legacy` turn sends the
-legacy prompt and JSON even when the catalog is live, and records `legacy`.
+when D.SEQ has it; `MATCH (s:T_TIS) RETURN s LIMIT 5` is repaired once, then refused.
 
 ### 4.4 A7 subset: the prompt lines
 
 `prompts/graph_agent.txt`: the section "What the graph stores" (Samples carry "exactly three properties"; the graph
 "does NOT store" metadata) is rewritten to v1.1 (metadata on the node, per-type labels, exact matching, the rendered
 structure is the schema); the two lines that send names to "the REST API" are corrected; a rule forbids whole-node
-returns (return `s.id`, `s.uuid`, `s.type` and named properties; count with `count(*)`). The pre-branch text is kept
-verbatim as `prompts/graph_agent_legacy.txt`, read only in legacy mode. `context/min_graph_schema.json`: the Sample
-description and the reason clause of the descriptive-attribute rule stop claiming metadata is absent (D14). Neither
-file gains routing text.
+returns (return `s.id`, `s.uuid`, `s.type` and named properties; count with `count(*)`). `context/min_graph_schema.json`:
+the Sample description and the reason clause of the descriptive-attribute rule stop claiming metadata is absent (D14).
+Neither file gains routing text.
 
-Accept: no line in either live file says Samples carry no metadata; the legacy file equals the base commit's
-`graph_agent.txt` byte for byte; the parser file still parses; the Container-CC context drift guard stays green (the
-plugin keeps its own copy of `min_graph_schema.json`, out of scope with A9).
+Accept: no line in either file says Samples carry no metadata; the parser file still parses; the Container-CC context
+drift guard stays green (the plugin keeps its own copy of `min_graph_schema.json`, out of scope with A9).
 
 ### 4.5 Read-only on every Nessie graph path (D3)
 
@@ -263,14 +264,14 @@ transaction; a fulltext call and a literal `'Data Set'` pass the check.
 `agents/parser.py`: `_force_parser_mode(plan, force_mode)` runs last inside `_apply_parser_guardrails`;
 `parser_agent` passes `getattr(config, "FORCE_PARSER_MODE", None)`. The planner's multi-parser path ignores the switch
 (the harness drives standard mode). `nextseek_api/assistant/models_api.py::QueryRequest` gains
-`force_parser_mode: Optional[Literal["graph", "graph_legacy", "api"]]`, documented as admin-only and evaluation-only.
+`force_parser_mode: Optional[Literal["graph", "api"]]`, documented as admin-only and evaluation-only.
 `NessieAI/cc/turn.py::start_task` wraps the chosen config with `_with_parser_force(chat_config, request.user, req)`,
 which returns the same object unless the caller is a superuser, `NEXTSEEK_EVAL_PARSER_FORCE` is `1` and the value is
 valid, and otherwise a shallow copy carrying `FORCE_PARSER_MODE` (the shared singleton is never mutated, and the PROD
-identity check still compares the singleton). `graph_agent` reads the same attribute to choose legacy mode.
+identity check still compares the singleton).
 
 Accept: with the switch off the parser's plan is returned unchanged, object for object; a non-superuser's value is
-ignored; every arm's mapping matches E2.
+ignored; both arms' mappings match E2.
 
 ## 5. The evidence harness
 
@@ -278,19 +279,20 @@ Reuse, not a new harness: the `nessie_tests` corpus and `--cases` files, `runner
 `force_route` and strips the route criteria under forcing), `http_driver.drive`, the preflight, `route_observer`,
 `evaluate` with the e2e criteria DSL, `report.generate_html`, the manifests, and the `nessie-run-review` output skill
 for triage. HiBayes is not used for scoring: its paired export is built around the NS and CC routes; every arm here is
-NS. The new code is small and listed in the plan (tasks T6 to T8).
+NS. The new code is small and listed in the plan (tasks T5 to T7).
 
 | Piece | Where | What |
 |---|---|---|
-| Force a normal run | `cli.py`, `manage.py nessie`, `runner.run_suite` | `--force-route {ns,cc}` and `--force-parser-mode {graph,graph_legacy,api}` for a normal run (today only `--bayesian` forces) |
-| Arms | `runner.run_arms`, `manage.py nessie --arms graph,api` (Group A), `--arms graph` or `--arms graph,graph_legacy` (Group B) | per question, every arm back to back (alternating first arm), one manifest and HTML report per arm, `arms.json`, every turn's full `query_complete` payload saved, `--resume`, `--max-turns` |
-| Preflight | `preflight.assert_parser_force_works` | one forced turn per arm proves the switch landed (the force note, the mode, the graph context), after the existing `assert_force_route_works` |
+| Force a normal run | `cli.py`, `manage.py nessie`, `runner.run_suite` | `--force-route {ns,cc}` and `--force-parser-mode {graph,api}` for a normal run (today only `--bayesian` forces) |
+| Arms | `runner.run_arms`, `manage.py nessie --arms graph,api` (Group A), `--arms graph` (Group B) | per question, every arm back to back (alternating first arm), one manifest and HTML report per arm, `arms.json`, every turn's full `query_complete` payload saved, `--resume`, `--max-turns` |
+| Preflight | `preflight.assert_parser_force_works` | one forced turn per arm proves the switch landed (the force note, the mode, the catalog context), after the existing `assert_force_route_works` |
 | Ground truth | `engine_truth.py` (models), `scripts/derive_truth.py` (oracle runner, read-only, inside the venue) | E5; truth files under `$GS_WORK/nessie/truth/` |
-| Cases | `scripts/build_engine_cases.py` | one catalog-shaped `--cases` file per group from the truth files: one inline variant per question, engine-neutral criteria only (reply numbers, entity codes, `outcome_observed`), so every arm is judged by the same criteria; the arm-specific stages are the scorer's |
+| Cases | `scripts/build_engine_cases.py` | one catalog-shaped `--cases` file per group from the truth files: one inline variant per question, engine-neutral criteria only (reply numbers, entity codes, `outcome_observed`), so both arms are judged by the same criteria; the arm-specific stages are the scorer's |
 | Scoring | `engine_compare.py` | reads the arm manifests, the saved payloads, the venue outputs (graph debug JSON, API results, `llm_calls.jsonl`) and the truth; writes per-stage verdicts, per-arm scores per family, the group's pass-rule verdict, `compare.json`, `compare.md` and `questions.csv` |
 
-Flow: build (gate B), venue up and checked (gate V), truth derived and signed (gate T), preflight, pilot (gate P),
-full runs in blocks, scoring, triage, the operator's verdicts.
+Flow: build (gate B, agents), the operator starts the venue (gate V), truth derived by agents and signed by the
+operator (gate T), then the operator's runbook: preflight, pilots (gate P), full runs in blocks, scoring; triage by an
+agent; the operator's verdicts.
 
 ## 6. The test venue
 
@@ -298,31 +300,34 @@ A throwaway app container on the workstation, never a merge into the live stack.
 
 | Aspect | Choice |
 |---|---|
-| Image | `nextseek-nextseek:latest`, the image the live stack runs (rebuilt on 2026-09-15; V1 records its id). The venue runs this branch's snapshot on it, so the image only supplies the virtualenv |
-| Code | a snapshot of this branch's HEAD (`git archive`) under `$GS_WORK/nessie/venue/src`, mounted read-only at `/src`, with `PYTHONPATH=/src:/src/NessieAI/chat_nextseek/src:/src/NessieAI/dmac_assistant/src` ahead of the image's editable installs; working directory `/src`. A snapshot, so an edit during a run cannot change the code under test, and its sha is recorded |
+| Image | `nextseek-nextseek:latest`, the image the live stack runs (rebuilt on 2026-09-15; the venue check records its id). The venue runs this branch's snapshot on it, so the image only supplies the virtualenv |
+| Code | a snapshot of this branch's HEAD (`git archive`) under `$GS_WORK/nessie/venue/src`, mounted read-only at `/src`, with `PYTHONPATH=/src:/src/NessieAI/chat_nextseek/src:/src/NessieAI/dmac_assistant/src` ahead of the image's editable installs; working directory `/src`. A snapshot, so an edit during a run cannot change the code under test; its sha is written into the snapshot (`SNAPSHOT`) and recorded by every run |
 | Settings | `dmac/local_settings.py` rendered into the snapshot from `startup/templates/local_settings.py.template` (the chat config comes from the environment; no PROD config), with only `ASSISTANT_PARTICIPATING_PROJECTS` taken from the operator's settings. The operator's own `local_settings.py` is never copied |
-| Environment | `--env-file` for `docker/db.env` and `docker/nextseek.env` of the live checkout (credentials, never printed), then overrides: `DJANGO_ALLOWED_HOSTS="127.0.0.1 localhost"`; `NEXTSEEK_INTERNAL_BASE_URL` and `NEXTSEEK_BASE_URL` set to `http://127.0.0.1:8000`, so the API agent's REST self-calls stay in the venue (operator ruling R10: every arm in one container); `LOG_DIR=/venue/logs`; `NEXTSEEK_OUTPUTS_DIR=/venue/outputs`; `NEXTSEEK_EVAL_PARSER_FORCE=1`; `NEXTSEEK_POSTERIOR_ROUTING_ENABLED=0`; `PYTHONDONTWRITEBYTECODE=1`. The check step asserts each override by comparison, never by printing |
+| Environment | `--env-file` for `docker/db.env` and `docker/nextseek.env` of the live checkout (credentials, never printed), then overrides: `DJANGO_ALLOWED_HOSTS="127.0.0.1 localhost"`; `NEXTSEEK_INTERNAL_BASE_URL` and `NEXTSEEK_BASE_URL` set to `http://127.0.0.1:8000`, so the API agent's REST self-calls stay in the venue (operator ruling R10: both arms in one container); `LOG_DIR=/venue/logs`; `NEXTSEEK_OUTPUTS_DIR=/venue/outputs`; `NEXTSEEK_EVAL_PARSER_FORCE=1`; `NEXTSEEK_POSTERIOR_ROUTING_ENABLED=0`; `PYTHONDONTWRITEBYTECODE=1`. The check step asserts each override by comparison, never by printing |
 | Network | `nextseek_default` (reaches the stack's MySQL and Neo4j by service name, and the internet for the model providers); published on `127.0.0.1:8010`. No Docker socket (no CC container can start), no Luria key, no Celery, no `migrate`, no `collectstatic` |
 | Process | `/app/.venv/bin/gunicorn dmac.wsgi --bind 0.0.0.0:8000 --workers 2 --threads 4 --worker-class gthread --timeout 1200`. WSGI: the harness polls, no websocket is needed |
 | Memory | `--memory 6g --memory-swap 6g`; the up step refuses while `MemAvailable` is under 8 GiB or the benchmark flag exists. A broad `advanced_search` grows a worker by about 21.5 KB per matched row: an OOM-killed worker is an A-arm failure (read from the gunicorn log and `docker inspect`), and the broadest questions run in the last block |
 | Models | the NS engine calls Gemini (entity, api, graph, chatter, system agents) with `GCP_API_KEY`, and the Anthropic models through Bedrock directly with `AWS_BEARER_TOKEN_BEDROCK` and `AWS_REGION` (parser: Opus 4.7 with high thinking), per `agent_model_catalog.json`'s default profile. The CC route is never used |
 | What it writes | chat, session, task and routing-ledger rows into the live `dmac` database (`ChatSession`, `QueryTask` and the related assistant tables), and files under `$GS_WORK/nessie/venue/` (`outputs/`, `logs/`) and `$GS_WORK/nessie/runs/`. Nothing else: no SEEK write, no graph write, no migration |
 | Harness | runs inside the venue (`manage.py nessie`), because the full tier needs the same Django process and database (`NessieAI/tests/nessie_tests/README.md` "Two entry points") |
+| Who starts it | the operator, from the runbook (plan stage P, step 1); the ground-truth agents use a running venue and never start or stop it |
 | Bench window | the venue starts only while `$GS_WORK/.gs-bench-running` is absent, and a paid block starts only then |
 
-## 7. Paid runs (operator)
+## 7. Paid runs: the operator's runbook
 
-Every paid step is run or approved by the operator, one approval per step. One turn per question per arm: Group A is
-200 NS turns (100 questions, two arms); Group B is 80 NS turns without the optional arm L, 160 with it.
+The operator launches every paid Nessie run by hand (R14), from the copy-paste runbook in the plan's stage P: the
+environment, the venue up and check, P1, P2 and P3 (and the optional P4), where to look after each step, the stop
+rules, and the scorer. No agent and no workflow step starts a paid turn. One turn per question per arm: Group A is 210
+NS turns (105 questions, two arms), Group B 111 (111 questions, one arm).
 
-| Step | What | NS turns (B without L / with L) | Estimate | Stop rule |
-|---|---|---:|---:|---|
-| P1 preflight | `assert_force_route_works` plus one parser-force probe per arm | 3 / 4 | under $1 | any probe refused |
-| P2 pilot | Group A: 10 questions (5 corpus search, 2 harmonization, 2 ladder, 1 B2), two arms; Group B: 6 questions (3 `graph_traversal`, 1 `lineage_tree`, 1 study-scoped, 1 investigation inventory) | 26 / 32 | about $4 / $5 | more than 2 infrastructure errors, any OOM, any `fallback` context, a stage the scorer cannot observe, or more than $0.30 per turn |
-| P3 full | the other 90 Group A and 74 Group B questions, in blocks of about 60 turns, the broadest last | 254 / 328 | about $38 / $49, cap $60 / $75 | per block: more than 10% infrastructure errors, a provider outage, the data fingerprint changed, the benchmark flag present, or the cap reached |
-| P4 repeats (optional, Group A) | 40 Group A questions, two more runs per arm, for within-arm variance | 160 | about $24, cap $35 | as P3 |
+| Step | What | NS turns | Estimate | Cap | Stop rule |
+|---|---|---:|---:|---:|---|
+| P1 preflight | `assert_force_route_works` plus one parser-force probe per arm | 3 | under $1 | | any probe refused |
+| P2 pilots | Group A: 10 questions (5 corpus search, 1 harmonization, 1 vocabulary, 2 ladder, 1 B2), two arms; Group B: 8 questions (3 `graph_traversal`, 1 graph-native lineage, 2 REST-routed lineage, 1 study-scoped search, 1 investigation inventory) | 28 | about $4 | | more than 2 infrastructure errors, any OOM, any `fallback` context, a stage the scorer cannot observe, or more than $0.30 per turn |
+| P3 full | the other 95 Group A and 103 Group B questions, in blocks of about 60 turns, the broadest last | 293 | about $44 | $65 | per block: more than 10% infrastructure errors, a provider outage, the data fingerprint changed, the benchmark flag present, or the cap reached |
+| P4 repeats (optional, Group A) | 40 Group A questions, two more runs per arm, for within-arm variance | 160 | about $24 | $35 | as P3 |
 
-Totals for P1 to P3: about $43 without arm L, about $55 with it; about $67 and $79 with P4.
+Totals: about $49 for P1 to P3, about $73 with P4.
 
 Basis: the local token ledger (`llm_calls.jsonl`, 45 NS turns, 2026-09-11 to 15) averages, per call, 15.5k input and
 311 output tokens for the parser (Opus 4.7), 34.2k input for the entity agent, 3.1k for the API agent and 7.8k for the
@@ -360,8 +365,8 @@ model are refused; the server binds them.
 **The proof.** An adversarial suite runs against a throwaway Neo4j holding a two-project fixture graph with orphans.
 For every shape above (and each new one found), the scoped result must equal the same query run as an admin over a
 copy of the graph from which the caller's invisible Samples were removed (a differential oracle), and an admin's result
-must be unchanged. A refused query passes only when its shape is on the allowed-refusal list. Group B's questions are
-a ready source of real graph-agent Cypher for the suite.
+must be unchanged. A refused query passes only when its shape is on the allowed-refusal list. Group B's recorded
+Cypher is a ready source of real graph-agent queries for the suite.
 
 **Also in the stage:** the host seam (`nextseek_api/assistant/graph_scope.py`, attached in `AssistantViewSet.query`,
 `query_async` and `_granular_chat_config`, `CCAssistantViewSet._start_task` through `start_task`, and the evaluator
@@ -369,18 +374,19 @@ retry), `run_scoped_read` for the reporter's two fixed reads, the lineage scope 
 the CLI and MCP refusal (D12). Gate: the suite passes, and a non-member sees zero foreign rows on every Nessie graph
 path.
 
-### 8.2 Later: the rest of the corpus, and A8
+### 8.2 Later: the rest of the corpus, a reference comparison, and A8
 
-Moved out of this POC by ruling R6, to be taken up together:
+Moved out of this POC by rulings R6 and R13, to be taken up together:
 
 - **Follow-ups and refinements:** `followup_over_results` (33 variants) and `search_refinement` (17 variants), with
   **A8** (follow-ups re-query the stored predicate when `total` exceeds the rows held, and disclose partial coverage;
   a graph bundle holds a 20-row preview today) and Q21.
 - **Every multi-turn variant**, including `path.actually_hang_on_find_me_the_mic`.
-- **Lineage that routes to REST today:** 13 single-UID tree questions (sample-tree) and 18 parents-by-child-types
-  questions. They compare the graph agent with REST endpoints other than `advanced_search`, a different claim; 31 more
-  questions at about $5 per arm if the operator wants them in Group B.
 - **Catalog, system and reporter questions** that touch the graph only through fixed queries or not at all.
+- **A reference comparison against today's Nessie on the dev box** (fairdata-dev), run by the operator: the same
+  single-turn questions through the dev box's current Nessie, for a "before" picture. The dev box holds different data
+  (the seed, TCGA and the published copies), so its ground truth is re-derived there and the comparison is per
+  question, not a pooled pass rate.
 - The POC's harness, truth tooling and scorer carry over unchanged: a later run adds questions, groups and multi-turn
   truth.
 
@@ -415,15 +421,15 @@ Moved out of this POC by ruling R6, to be taken up together:
 ## 10. Testing
 
 - Build tasks: the Django lane in a throwaway container over a read-only mount with the checkout's engine source first
-  on `PYTHONPATH` (catalog, renderer, guard, context modes, prompts, read-only, switch; fake drivers, no network); the
-  ns/api variant over a writable copy for the request model and the CC turn gate; the host lane for the harness, truth
-  tooling, builder and scorer; the Container-CC hermetic lane for the context drift guard; `ci/docs_map.py` and the
-  ViewSet conventions validator.
-- The venue check (free): the catalog is live (not the fallback), the renderings fit the budget, graph reads run READ,
-  the overrides took effect.
-- Ground truth (free, read-only reads of the live stack): every oracle runs; counts are cross-checked by a second
-  engine as E5 says.
-- Paid: P1 to P4, each approved.
+  on `PYTHONPATH` (catalog, renderer, guard, prompts, read-only, switch; fake drivers, no network); the ns/api variant
+  over a writable copy for the request model and the CC turn gate; the host lane for the harness, truth tooling,
+  builder and scorer; the Container-CC hermetic lane for the context drift guard; `ci/docs_map.py` and the ViewSet
+  conventions validator. No build test ever makes a model call.
+- The venue check (free, operator-started): the catalog is live (not the fallback), the renderings fit the budget,
+  graph reads run READ, the overrides took effect.
+- Ground truth (free, read-only reads of the live stack by agents through the running venue): every oracle runs;
+  counts are cross-checked by a second engine as E5 says.
+- Paid: P1 to P4, each launched by the operator.
 - Not verified before the venue runs: the catalog queries' cost on the live graph (the assay-title and connection
   reads scan about 2M DERIVED_FROM edges, lazily, once an hour); `-e` overriding `--env-file`; per-worker memory at
   rest; running the image's virtualenv under a non-root user.
@@ -434,16 +440,17 @@ Moved out of this POC by ruling R6, to be taken up together:
   serves `demo` only.
 - **Ground truth decides the verdicts.** Interpretive questions (exact against case-insensitive against `LIKE`) need
   declared readings, and several Group B facts live only in the graph (one oracle); gate T exists for this.
-- **Sample size.** 100 paired Group A questions: a 15-point margin is detectable only when the discordant pairs are
+- **Sample size.** 105 paired Group A questions: a 15-point margin is detectable only when the discordant pairs are
   lopsided; the report gives the discordant counts and the McNemar p-value, and P4 measures within-arm variance.
-  Group B's per-family floors apply only to families with at least 5 questions.
+  Group B's per-family floor applies only to families with at least 5 questions.
+- **Forced graph on REST-routed lineage.** 31 Group B lineage questions go to REST endpoints in today's product; the
+  forced graph agent answers them, so a Group B failure there says the graph agent cannot yet replace those endpoints,
+  not that today's product is broken.
 - **Memory.** `advanced_search` on broad questions can OOM a capped worker; the host has about 7 GiB free and swap is
   full.
 - **Shared confound.** The stale entity vocabulary (17 unreachable types, no TCGA project row) affects every arm; it is
   flagged per question, not hidden.
 - **The live graph moves.** A re-sync mid-run changes answers; the fingerprint check voids the block.
-- **Arm L is an approximation of today.** It is today's graph agent on the new graph, not today's Nessie on today's
-  graph (E10).
 - **Writes into the live `dmac` database.** Chat, session, task and ledger rows accumulate for `demo`; they are
   harmless and listed in section 6.
 - **Cost estimate.** Bedrock and Gemini prices are the operator's to confirm; the caps stop a run, not a single turn.
@@ -456,29 +463,24 @@ Taken by the operator on 2026-09-15 (revisitable later):
 
 1. The scope: single-turn questions in two groups, Group A the contest and Group B the check (R6, R12); the rest is in
    section 8.2.
-2. Group A's pass rule has one stratum: the main rule plus the latency and cost guards (R7); the thresholds are still
-   open (item 10 below).
-3. Ground truth as designed; a graph-sync error is not treated as a risk (R8).
-4. The switch: the admin request field behind `NEXTSEEK_EVAL_PARSER_FORCE=1` (E2, R10).
-5. The API arm is forced (E3, R10).
-6. The truth's default reading (E5, R10).
-7. The API arm's REST self-calls run inside the venue (section 6, R10).
-8. Group B's arm L (today's context) is optional (R12).
+2. Group A's pass rule with its thresholds as written (R7, R15); Group B's absolute STILL WORKS rule, with no
+   comparison arm (R13).
+3. Ground truth as designed; a graph-sync error is not treated as a risk (R8); the default reading as written (R10,
+   R16).
+4. The switch: the admin request field behind `NEXTSEEK_EVAL_PARSER_FORCE=1`, values `graph` and `api` (E2, R9, R10).
+5. The API arm is forced (E3, R10), and its REST self-calls run inside the venue (section 6, R10).
+6. The 31 REST-routed lineage questions are in Group B; the 5 `vocabulary_resolution` metadata questions are in
+   Group A (R16).
+7. The operator launches every paid run by hand from the runbook; build and ground truth stay agent work (R14).
+8. Stage B has 8 agents (R11, R17).
 9. A1 is clause injection, after the POC (R2); READ transactions and the masked write check stay in the POC (R3).
 
 Still open:
 
-10. Group A's thresholds (E7): 15 points, p < 0.05, failure rate plus 2 points, latency 1.25 times, cost 1.5 times;
-    accept or change before P3.
-11. Group B: run arm L or not (option 2 costs about $12 more and buys "no worse than today"), and the chosen option's
-    thresholds (option 1: 80% overall, 60% per family of 5 or more, at most 5% outright failures; option 2: within 5
-    points of L and no significant L advantage).
-12. The selection (E4): the kept and excluded lists, the exclusions found while deriving the truth, and whether the 31
-    REST-routed lineage questions join Group B; reviewed at gate T.
-13. The venue's memory cap (6 GiB) and memory floor (8 GiB), and whether other workloads stop during P3.
-14. The price table and the caps (P3 $60 without arm L or $75 with it; P4 $35).
-15. Each paid step, P1 to P4, approved separately.
-16. No live-graph re-sync from gate T to the end of P3, or a truth re-derivation after one.
-17. Q13 to Q16 and Q20 as recommended; A0 deferred (D11).
-18. When stage A1 runs (with the merge), and whether follow-up 2's `USED_IN` statistics come first.
-19. Q17 (point the local `MYSQL_PROD_PASSWORD` at local credentials): not needed by the POC.
+10. The venue's memory cap (6 GiB) and memory floor (8 GiB), and whether other workloads stop during P3.
+11. The price table and the caps (P3 $65, P4 $35), and whether to run P4.
+12. No live-graph re-sync from gate T to the end of P3, or a truth re-derivation after one.
+13. The exclusions found while deriving the truth, reviewed at gate T.
+14. Q13 to Q16 and Q20 as recommended; A0 deferred (D11).
+15. When stage A1 runs (with the merge), and whether follow-up 2's `USED_IN` statistics come first.
+16. Q17 (point the local `MYSQL_PROD_PASSWORD` at local credentials): not needed by the POC.
