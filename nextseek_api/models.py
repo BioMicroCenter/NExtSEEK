@@ -2922,3 +2922,6 @@ class SampleTypeConnectionsResponse(BaseModel):
 # Durable job record for batch assay registration. Defined in its own module to
 # keep this file from growing further; imported here so Django discovers it.
 from nextseek_api.assay_registration.models_db import AssayRegistrationJob  # noqa: E402,F401
+
+# The graph_sync outbox and run record (nextseek_api/graph_sync/models_db.py); imported here so Django discovers them.
+from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun  # noqa: E402,F401
