@@ -149,6 +149,9 @@ class WriterRecorder:
             "write_samples": self._write_samples,
             "write_missing_lineage": lambda d, db, pairs, chunk=10_000: {
                 "lineage_pairs": len(pairs), "lineage_created": len(pairs), "lineage_dropped": 0},
+            "archive_and_drop_undeclared_derived_from": lambda d, db, path, declared: {
+                "derived_from_between_samples": 2, "derived_from_undeclared": 1, "derived_from_deleted": 1,
+                "derived_from_archive_path": path},
             "write_seek_studies": lambda d, db, links: {"in_study_written": len(links), "in_study_dropped": 0},
             "write_attribute_counts": lambda d, db, counts: {"attribute_counts_set": len(counts)},
             "write_sample_type_counts": lambda d, db: {"sample_type_counts_set": 2},
@@ -197,6 +200,20 @@ def test_declared_uuid_pairs_resolve_through_duplicate_uuids():
     assert ("C", "missing") not in pairs
 
 
+def test_declared_id_pairs_answer_from_the_sorted_codes():
+    codes = sorted(run.encode_pair(c, p) for c, p in [(11, 10), (243066, 133774), (5, 5), (0, 1)])
+    pairs = run.DeclaredIdPairs(codes)
+    assert len(pairs) == 4
+    for pair in [(11, 10), (243066, 133774), (5, 5), (0, 1)]:
+        assert pair in pairs
+    for pair in [(10, 11), (243066, 154002), (70, 70), (0, 0), (1 << 40, 1)]:
+        assert pair not in pairs
+    # an id the graph holds in another form is never declared
+    for pair in [("11", 10), (11, None), (True, 10), (11.0, 10), (-1, 10)]:
+        assert pair not in pairs
+    assert (11, 10) not in run.DeclaredIdPairs([])
+
+
 # --- full_sync -----------------------------------------------------------------------------------
 
 def test_full_sync_writes_in_the_design_order(world, monkeypatch, tmp_path):
@@ -207,14 +224,61 @@ def test_full_sync_writes_in_the_design_order(world, monkeypatch, tmp_path):
         "find_ghosts", "delete_ghosts", "relabel_orphans", "archive_and_drop_child_of", "ensure_constraints_v11",
         "write_sample_types", "write_attributes", "write_projects", "write_people_and_memberships",
         "write_investigation_projects", "write_samples", "write_samples", "write_missing_lineage",
-        "write_seek_studies", "write_attributes", "write_attribute_counts", "write_sample_type_counts",
-        "ensure_index_budget", "ensure_fulltext", "await_indexes", "write_graphmeta"]
+        "archive_and_drop_undeclared_derived_from", "write_seek_studies", "write_attributes",
+        "write_attribute_counts", "write_sample_type_counts", "ensure_index_budget", "ensure_fulltext",
+        "await_indexes", "write_graphmeta"]
     assert [len(c.args[2]) for c in rec.of("write_samples")] == [2, 1]
     assert report["status"] == "ok"
     assert report["samples_projected"] == 3 and report["samples_written"] == 3
     assert report["untyped"] == 0 and report["in_project_missing"] == 0 and report["cast_failures"] == 1
     saved = json.loads((tmp_path / run.REPORT_FILE).read_text())
     assert saved["status"] == "ok" and saved["samples_written"] == 3 and saved["label_collisions"] == 0
+
+
+def test_full_sync_reports_the_undeclared_derived_from_step(world, monkeypatch, tmp_path):
+    WriterRecorder(monkeypatch)
+    run.full_sync(FakeDriver(), "neo4j", run_dir=str(tmp_path))
+
+    saved = json.loads((tmp_path / run.REPORT_FILE).read_text())
+    archive = str(tmp_path / run.DERIVED_FROM_ARCHIVE_FILE)
+    expected = {"derived_from_between_samples": 2, "derived_from_undeclared": 1, "derived_from_deleted": 1,
+                "derived_from_archive_path": archive}
+    assert saved["steps"]["lineage_undeclared"] == expected
+    assert {k: saved[k] for k in expected} == expected
+    assert "lineage_undeclared" in saved["timings_s"]
+    # CHILD_OF's archive path is not overwritten by the DERIVED_FROM step's
+    assert saved["archive_path"] is None
+
+
+def test_full_sync_archives_and_deletes_undeclared_derived_from_with_the_real_writer(world, monkeypatch, tmp_path):
+    real = writer.archive_and_drop_undeclared_derived_from
+    WriterRecorder(monkeypatch)
+    monkeypatch.setattr(writer, "archive_and_drop_undeclared_derived_from", real)
+    edges = [{"child_id": 11, "parent_id": 10, "child_uuid": U_D1, "parent_uuid": U_T1, "props": {},
+              "element_id": "e-declared"},
+             {"child_id": 12, "parent_id": 10, "child_uuid": U_T2, "parent_uuid": U_T1,
+              "props": {"child_id": 12}, "element_id": "e-stale"},
+             {"child_id": 10, "parent_id": 11, "child_uuid": U_T1, "parent_uuid": U_D1, "props": {},
+              "element_id": "e-reversed"}]
+    order = []
+
+    def graph(query, params):
+        if query == q.DERIVED_FROM_BETWEEN_SAMPLES:
+            order.append("stream")
+            return edges
+        if query == q.DELETE_UNDECLARED_DERIVED_FROM:
+            order.append(("delete", sorted(params["element_ids"]),
+                          (tmp_path / run.DERIVED_FROM_ARCHIVE_FILE).exists()))
+            return [{"deleted": len(params["element_ids"])}]
+        return []
+
+    report = run.full_sync(FakeDriver(graph), "neo4j", run_dir=str(tmp_path))
+
+    assert order == ["stream", ("delete", ["e-reversed", "e-stale"], True)]
+    rows = (tmp_path / run.DERIVED_FROM_ARCHIVE_FILE).read_text(encoding="utf-8").splitlines()
+    assert rows[1:] == [f"12\t10\t{U_T2}\t{U_T1}\t" + '{"child_id": 12}', f"10\t11\t{U_T1}\t{U_D1}\t{{}}"]
+    assert report["derived_from_undeclared"] == 2 and report["derived_from_deleted"] == 2
+    assert json.loads((tmp_path / run.REPORT_FILE).read_text())["derived_from_between_samples"] == 3
 
 
 def test_full_sync_hands_the_preflight_findings_to_the_writer(world, monkeypatch, tmp_path):
@@ -232,6 +296,11 @@ def test_full_sync_hands_the_preflight_findings_to_the_writer(world, monkeypatch
     assert (U_D1, U_T1) in declared
     assert (U_T1, U_D1) not in declared and (U_T2, U_T1) not in declared
     assert rec.of("write_missing_lineage")[0].args[2] == [(11, 10)]
+    (undeclared,) = rec.of("archive_and_drop_undeclared_derived_from")
+    df_path, df_declared = undeclared.args[2], undeclared.args[3]
+    assert df_path == str(tmp_path / run.DERIVED_FROM_ARCHIVE_FILE)
+    assert (11, 10) in df_declared
+    assert (10, 11) not in df_declared and (12, 10) not in df_declared and (11, 11) not in df_declared
     assert rec.of("write_seek_studies")[0].args[2][0]["sample_id"] == 11
 
 

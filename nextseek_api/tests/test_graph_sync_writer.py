@@ -3,7 +3,9 @@
 A fake driver records every ``execute_query`` call; no Neo4j is needed.
 """
 import hashlib
+import json
 import os
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -290,6 +292,188 @@ def test_archive_refuses_to_delete_when_the_file_cannot_be_written(tmp_path):
     with pytest.raises(OSError):
         w.archive_and_drop_child_of(driver, "neo4j", str(blocker / "sub" / "a.tsv"), set())
     assert q.DELETE_CHILD_OF_BATCH not in driver.queries()
+
+
+# --- undeclared DERIVED_FROM ---------------------------------------------------------------------
+
+NBSP_UUID = "MUS-240910LAU-68 "
+
+
+class LineageGraph:
+    """A small graph for the undeclared DERIVED_FROM step.
+
+    Answers the stream statement with the edges whose endpoints are both Sample nodes (what its pattern matches),
+    and applies the delete statement to the named edges whose endpoints are both Sample nodes. ``on_delete`` runs
+    before each delete is applied.
+    """
+
+    def __init__(self, on_delete=None):
+        self.nodes = {"n10": ({"Sample"}, 10, "TIS-10"), "n11": ({"Sample"}, 11, "D.SEQ-11"),
+                      "n12": ({"Sample"}, 12, "TIS-12"), "n70": ({"Sample"}, 70, "TIS-70"),
+                      "n13": ({"Sample"}, 13, NBSP_UUID), "n99": ({"OrphanSample"}, 99, "OLD-99")}
+        self.edges = {
+            "e1": ("n11", "n10", {"child_id": 11, "parent_id": 10}),                   # declared
+            "e2": ("n12", "n10", {"parent_id": 10, "child_id": 12, "note": "stale"}),  # stale after a Parent edit
+            "e3": ("n70", "n70", {}),                                                  # self-loop
+            "e4": ("n11", "n99", {"child_id": 11}),                                    # to an orphan
+            "e5": ("n99", "n10", {}),                                                  # from an orphan
+            "e6": ("n11", "n13", {"child_id": 11, "parent_id": 13}),                   # nbsp uuid
+            "e7": ("n12", "n11", {"child_id": 12, "parent_id": 11}),                   # declared
+        }
+        self.deleted = []
+        self.on_delete = on_delete
+
+    def _between_samples(self, eid):
+        child, parent, _ = self.edges[eid]
+        return "Sample" in self.nodes[child][0] and "Sample" in self.nodes[parent][0]
+
+    def __call__(self, query, params):
+        if query == q.DERIVED_FROM_BETWEEN_SAMPLES:
+            rows = []
+            for eid in sorted(self.edges):
+                if not self._between_samples(eid):
+                    continue
+                child, parent, props = self.edges[eid]
+                rows.append({"child_id": self.nodes[child][1], "parent_id": self.nodes[parent][1],
+                             "child_uuid": self.nodes[child][2], "parent_uuid": self.nodes[parent][2],
+                             "props": dict(props), "element_id": eid})
+            return rows
+        if query == q.DELETE_UNDECLARED_DERIVED_FROM:
+            if self.on_delete:
+                self.on_delete(params)
+            n = 0
+            for eid in params["element_ids"]:
+                if eid in self.edges and self._between_samples(eid):
+                    del self.edges[eid]
+                    self.deleted.append(eid)
+                    n += 1
+            return [{"deleted": n}]
+        raise AssertionError(f"unexpected statement: {query}")
+
+
+DECLARED = {(11, 10), (12, 11)}
+
+
+def test_undeclared_derived_from_statements_touch_only_edges_between_samples():
+    assert "MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)" in q.DERIVED_FROM_BETWEEN_SAMPLES
+    for key in ("child_id", "parent_id", "child_uuid", "parent_uuid", "props", "element_id"):
+        assert f" AS {key}" in q.DERIVED_FROM_BETWEEN_SAMPLES
+    assert "properties(e) AS props" in q.DERIVED_FROM_BETWEEN_SAMPLES
+    assert "MATCH (:Sample)-[e:DERIVED_FROM]->(:Sample)" in q.DELETE_UNDECLARED_DERIVED_FROM
+    assert "elementId(e) = eid" in q.DELETE_UNDECLARED_DERIVED_FROM
+    assert "OrphanSample" not in q.DERIVED_FROM_BETWEEN_SAMPLES + q.DELETE_UNDECLARED_DERIVED_FROM
+
+
+def test_undeclared_derived_from_archive_is_written_before_any_delete(tmp_path):
+    out = tmp_path / "runs" / "derived_from_undeclared_archive.tsv"
+    seen_at_delete = []
+
+    def on_delete(params):
+        partial = out.with_name(out.name + ".partial")
+        seen_at_delete.append((out.exists() and out.read_text(encoding="utf-8").count("\n"), partial.exists()))
+
+    graph = LineageGraph(on_delete)
+    driver = FakeDriver(graph)
+    w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out), DECLARED)
+
+    queries = driver.queries()
+    assert queries.index(q.DERIVED_FROM_BETWEEN_SAMPLES) < queries.index(q.DELETE_UNDECLARED_DERIVED_FROM)
+    assert seen_at_delete == [(4, False)]  # header plus three rows, renamed into place before the first delete
+
+
+def test_undeclared_derived_from_never_deletes_declared_or_orphan_edges(tmp_path):
+    graph = LineageGraph()
+    driver = FakeDriver(graph)
+    w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(tmp_path / "a.tsv"), DECLARED)
+
+    sent = [eid for c in driver.calls_of(q.DELETE_UNDECLARED_DERIVED_FROM) for eid in c.params["element_ids"]]
+    assert sorted(sent) == ["e2", "e3", "e6"]
+    assert sorted(graph.deleted) == ["e2", "e3", "e6"]
+    assert sorted(graph.edges) == ["e1", "e4", "e5", "e7"]  # the declared pairs and both orphan edges
+
+
+def test_undeclared_derived_from_returns_its_counts_and_archives_each_edge(tmp_path):
+    out = tmp_path / "derived_from_undeclared_archive.tsv"
+    counts = w.archive_and_drop_undeclared_derived_from(FakeDriver(LineageGraph()), "neo4j", str(out), DECLARED)
+
+    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 3, "derived_from_deleted": 3,
+                      "derived_from_archive_path": str(out)}
+    lines = out.read_text(encoding="utf-8").split("\n")
+    assert lines == [  # one row per undeclared edge, in stream order (e2, e3, e6)
+        "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops",
+        '12\t10\tTIS-12\tTIS-10\t{"child_id": 12, "note": "stale", "parent_id": 10}',
+        "70\t70\tTIS-70\tTIS-70\t{}",
+        '11\t13\tD.SEQ-11\tMUS-240910LAU-68 \t{"child_id": 11, "parent_id": 13}',
+        "",
+    ]
+    assert not os.path.exists(str(out) + ".partial")
+
+
+def test_undeclared_derived_from_keeps_each_row_on_one_line(tmp_path):
+    out = tmp_path / "a.tsv"
+    record = {"child_id": 5, "parent_id": 6, "child_uuid": "a\tb\\c", "parent_uuid": "d\ne\rf",
+              "props": {"when": date(2024, 1, 31), "text": "x\ty z"}, "element_id": "e"}
+    driver = FakeDriver(lambda query, params: [record] if query == q.DERIVED_FROM_BETWEEN_SAMPLES
+                        else [{"deleted": 1}])
+    w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out), set())
+
+    header, row = out.read_text(encoding="utf-8").splitlines()
+    fields = row.split("\t")
+    assert fields[:4] == ["5", "6", "a\\tb\\\\c", "d\\ne\\rf"]
+    assert json.loads(fields[4]) == {"when": "2024-01-31", "text": "x\ty z"}
+
+
+def test_undeclared_derived_from_with_nothing_undeclared_keeps_an_earlier_archive(tmp_path):
+    out = tmp_path / "derived_from_undeclared_archive.tsv"
+    out.write_text("child_id\tparent_id\tchild_uuid\tparent_uuid\tprops\n12\t10\tTIS-12\tTIS-10\t{}\n")
+    graph = LineageGraph()
+    driver = FakeDriver(graph)
+    counts = w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out),
+                                                        DECLARED | {(12, 10), (70, 70), (11, 13)})
+
+    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 0, "derived_from_deleted": 0,
+                      "derived_from_archive_path": None}
+    assert out.read_text().count("\n") == 2
+    assert not os.path.exists(str(out) + ".partial")
+    assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
+
+
+def test_undeclared_derived_from_refuses_to_delete_when_the_file_cannot_be_written(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+    driver = FakeDriver(LineageGraph())
+    with pytest.raises(OSError):
+        w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(blocker / "sub" / "a.tsv"), DECLARED)
+    assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
+
+
+def test_undeclared_derived_from_leaves_no_partial_when_the_stream_fails(tmp_path):
+    out = tmp_path / "a.tsv"
+    broken = {"child_id": 5, "parent_id": 6, "child_uuid": "a", "parent_uuid": "b", "element_id": "e"}  # no props
+    driver = FakeDriver(lambda query, params: [broken] if query == q.DERIVED_FROM_BETWEEN_SAMPLES else [])
+    with pytest.raises(KeyError):
+        w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out), set())
+    assert not out.exists() and not os.path.exists(str(out) + ".partial")
+    assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
+
+
+def test_undeclared_derived_from_deletes_in_batches(tmp_path, monkeypatch):
+    monkeypatch.setattr(w, "DERIVED_FROM_DELETE_BATCH", 2)
+    driver = FakeDriver(LineageGraph())
+    counts = w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(tmp_path / "a.tsv"), DECLARED)
+    assert [len(c.params["element_ids"]) for c in driver.calls_of(q.DELETE_UNDECLARED_DERIVED_FROM)] == [2, 1]
+    assert counts["derived_from_deleted"] == 3
+
+
+def test_undeclared_derived_from_reads_as_a_read_and_deletes_as_a_write(tmp_path):
+    from neo4j import RoutingControl
+
+    driver = FakeDriver(LineageGraph())
+    w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(tmp_path / "a.tsv"), DECLARED)
+    (stream,) = driver.calls_of(q.DERIVED_FROM_BETWEEN_SAMPLES)
+    assert stream.kwargs.get("routing_") == RoutingControl.READ
+    assert all("routing_" not in c.kwargs for c in driver.calls_of(q.DELETE_UNDECLARED_DERIVED_FROM))
+    assert all(c.database == "neo4j" for c in driver.calls)
 
 
 # --- ghosts and orphans --------------------------------------------------------------------------

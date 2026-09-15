@@ -7,9 +7,9 @@ calls these in the design's order:
 
     find_ghosts > delete_ghosts > relabel_orphans > archive_and_drop_child_of > ensure_constraints_v11 >
     write_sample_types > write_attributes > write_projects > write_people_and_memberships >
-    write_investigation_projects > write_samples (per chunk) > write_missing_lineage > write_seek_studies >
-    write_attribute_counts > write_sample_type_counts > ensure_index_budget > ensure_fulltext > await_indexes >
-    write_graphmeta
+    write_investigation_projects > write_samples (per chunk) > write_missing_lineage >
+    archive_and_drop_undeclared_derived_from > write_seek_studies > write_attribute_counts >
+    write_sample_type_counts > ensure_index_budget > ensure_fulltext > await_indexes > write_graphmeta
 
 Writes fail loudly: a schema statement that Neo4j refuses raises, and so does a catalog that would clash with the
 graph. Shortfalls the graph can explain (a type, project or endpoint node that is missing) are counted, not raised,
@@ -17,6 +17,7 @@ so the caller can decide; gate G checks the result.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -38,6 +39,8 @@ SCHEMA_VERSION = "1.1"
 SAMPLE_CHUNK = 5_000          # samples per write transaction (the design's default)
 REL_CHUNK = 10_000            # relationship rows per write transaction
 CHILD_OF_DELETE_BATCH = 50_000
+DERIVED_FROM_DELETE_BATCH = 10_000
+DERIVED_FROM_ARCHIVE_HEADER = "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops\n"
 
 # The index budget (design, "Technical defaults").
 INDEX_MIN_SAMPLES = 1_000
@@ -428,6 +431,77 @@ def write_missing_lineage(driver, db, pairs: Iterable[tuple[int, int]], chunk: i
         created += _counter(result, "relationships_created")
     return {"lineage_pairs": sent, "lineage_matched": matched, "lineage_created": created,
             "lineage_dropped": sent - matched}
+
+
+def _tsv_field(value) -> str:
+    """One archive field on one line: None is empty; backslash, tab, CR and LF are escaped as ``\\\\ \\t \\r \\n``."""
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    return text.replace("\\", "\\\\").replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _props_json(props) -> str:
+    """An edge's properties as JSON with sorted keys; non-ASCII escaped, temporal values as ISO strings."""
+    return json.dumps(dict(props or {}), sort_keys=True, ensure_ascii=True, default=str)
+
+
+def _is_declared(declared_pairs, child, parent) -> bool:
+    try:
+        return (child, parent) in declared_pairs
+    except TypeError:  # an unhashable legacy id is never a declared pair
+        return False
+
+
+def archive_and_drop_undeclared_derived_from(driver, db, out_path: str, declared_pairs) -> dict:
+    """Archive to a TSV, then delete, every DERIVED_FROM between two Sample nodes that MySQL does not declare.
+
+    ``declared_pairs`` answers ``(child id, parent id) in declared_pairs`` for the pairs MySQL's parent tokens
+    declare (``run.DeclaredIdPairs``, or a set of tuples). Every DERIVED_FROM between two Sample nodes is streamed
+    once; an undeclared edge (a pair a later Parent edit left stale, a self-loop, a token that no longer resolves)
+    becomes one row: ``child_id``, ``parent_id``, ``child_uuid``, ``parent_uuid`` and ``props``, the edge's
+    properties as JSON (uuids escaped by ``_tsv_field``). The file is written to a ``.partial`` path and renamed
+    into place before the first delete, so a failed write deletes nothing. The edges are then deleted by element id
+    in batches, each delete matching only an edge between two Sample nodes, so an edge touching an OrphanSample is
+    never deleted. With nothing undeclared no file is written (an earlier archive is kept) and nothing is deleted.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    partial = out_path + ".partial"
+
+    def archive(result):
+        edges, undeclared = 0, []  # built here, so a retried read starts clean
+        with open(partial, "w", encoding="utf-8", newline="") as fh:
+            fh.write(DERIVED_FROM_ARCHIVE_HEADER)
+            for record in result:
+                edges += 1
+                child, parent = record["child_id"], record["parent_id"]
+                if _is_declared(declared_pairs, child, parent):
+                    continue
+                fh.write("\t".join((_tsv_field(child), _tsv_field(parent), _tsv_field(record["child_uuid"]),
+                                    _tsv_field(record["parent_uuid"]), _props_json(record["props"]))) + "\n")
+                undeclared.append(record["element_id"])
+        return edges, undeclared
+
+    try:
+        edges, element_ids = _run(driver, db, q.DERIVED_FROM_BETWEEN_SAMPLES, read=True, transformer=archive)
+    except BaseException:
+        if os.path.exists(partial):
+            os.remove(partial)
+        raise
+    if not element_ids:
+        os.remove(partial)
+        return {"derived_from_between_samples": edges, "derived_from_undeclared": 0, "derived_from_deleted": 0,
+                "derived_from_archive_path": None}
+    os.replace(partial, out_path)
+    log.info("DERIVED_FROM: archived %d undeclared of %d edges between samples to %s", len(element_ids), edges,
+             out_path)
+    deleted = 0
+    for batch in _batches(element_ids, DERIVED_FROM_DELETE_BATCH):
+        deleted += _one(_run(driver, db, q.DELETE_UNDECLARED_DERIVED_FROM, {"element_ids": batch}), "deleted")
+    if deleted != len(element_ids):
+        log.warning("DERIVED_FROM: %d undeclared edges archived but %d deleted", len(element_ids), deleted)
+    return {"derived_from_between_samples": edges, "derived_from_undeclared": len(element_ids),
+            "derived_from_deleted": deleted, "derived_from_archive_path": out_path}
 
 
 def write_seek_studies(driver, db, links: list[dict]) -> dict:

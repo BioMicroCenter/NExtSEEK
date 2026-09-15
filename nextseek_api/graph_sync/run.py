@@ -4,8 +4,14 @@
 
     preflight > delete ghosts > relabel orphans > archive and delete CHILD_OF > constraints > SampleType >
     Attribute (declared) > Project, Person, MEMBER_OF > Investigation IN_PROJECT > samples (per chunk, with the
-    census) > missing lineage > SEEK studies and IN_STUDY > Attribute (declared plus undeclared) > attribute and
-    sample type counts > the index budget > the fulltext index > await indexes > GraphMeta
+    census) > missing lineage > archive and delete undeclared DERIVED_FROM > SEEK studies and IN_STUDY >
+    Attribute (declared plus undeclared) > attribute and sample type counts > the index budget > the fulltext
+    index > await indexes > GraphMeta
+
+The lineage steps leave DERIVED_FROM between Sample nodes equal to what MySQL's parent tokens declare: a declared
+pair the graph lacks is created (declared edges keep their properties), then every edge between two Sample nodes
+that is not declared is archived to ``derived_from_undeclared_archive.tsv`` and deleted. Edges touching an
+OrphanSample are left alone.
 
 The preflight writes nothing. It builds the catalog (which enforces the label rule), scans every MySQL sample once
 (projecting it, collecting ids and the declared lineage), reads the ghost list and checks SampleType titles against
@@ -29,6 +35,7 @@ import json
 import logging
 import os
 import time
+from bisect import bisect_left
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -43,6 +50,7 @@ log = logging.getLogger(__name__)
 REPORT_FILE = "full_sync.json"
 CENSUS_FILE = "census.json"
 ARCHIVE_FILE = "child_of_archive.tsv"
+DERIVED_FROM_ARCHIVE_FILE = "derived_from_undeclared_archive.tsv"
 LIST_CAP = 1_000        # longest id list copied into a report
 EXAMPLES = 20           # examples kept per problem
 PROGRESS_EVERY = 20     # sample pages between progress lines
@@ -129,6 +137,31 @@ class DeclaredUuidPairs:
                 if encode_pair(child, parent) in self.codes:
                     return True
         return False
+
+
+class DeclaredIdPairs:
+    """``(child id, parent id) in pairs`` for the undeclared DERIVED_FROM archive.
+
+    Answered by bisecting the sorted ``encode_pair`` codes the lineage step already holds, so no second copy of the
+    declared pairs is built. An id that is not a non-negative int below 2**31 is never declared.
+    """
+
+    def __init__(self, sorted_codes: list[int]):
+        self.codes = sorted_codes
+
+    def __len__(self) -> int:
+        return len(self.codes)
+
+    def __contains__(self, pair) -> bool:
+        child, parent = pair
+        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (child, parent)):
+            return False
+        try:
+            code = encode_pair(child, parent)
+        except ValueError:
+            return False
+        i = bisect_left(self.codes, code)
+        return i < len(self.codes) and self.codes[i] == code
 
 
 # --- the sample scan -----------------------------------------------------------------------------
@@ -280,8 +313,8 @@ def _resolve_run_dir(run_dir: str | None) -> str:
     base = os.environ.get("GS_RUN_DIR")
     if base:
         return os.path.join(base, "graph_sync-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
-    raise PreflightError(["a full sync needs a run directory (--run-dir or GS_RUN_DIR) for its CHILD_OF archive "
-                          "and its report"], {"mode": "full"})
+    raise PreflightError(["a full sync needs a run directory (--run-dir or GS_RUN_DIR) for its archives and its "
+                          "report"], {"mode": "full"})
 
 
 def _title_conflicts(driver, db, cat: Catalog) -> list[dict]:
@@ -405,6 +438,8 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state: _Preflight, 
     state.uuid_index = state.projects = None  # free the per-sample indexes before the study links load
     state.scan.lineage = set()
     _step(report, "lineage", writer.write_missing_lineage, driver, db, (decode_pair(code) for code in lineage))
+    _step(report, "lineage_undeclared", writer.archive_and_drop_undeclared_derived_from, driver, db,
+          os.path.join(run_dir, DERIVED_FROM_ARCHIVE_FILE), DeclaredIdPairs(lineage))
     del lineage
     _step(report, "seek_studies", writer.write_seek_studies, driver, db, sources.seek_study_links())
 
@@ -429,10 +464,12 @@ def full_sync(driver, db, chunk: int = writer.SAMPLE_CHUNK, dry_run: bool = Fals
               bench_keys=frozenset()) -> dict:
     """Rebuild graph schema v1.1 from MySQL, in the design's order (module docstring). Returns the report.
 
-    ``run_dir`` receives ``full_sync.json`` (written even when the run fails or is refused), ``census.json`` and
-    ``child_of_archive.tsv``; without one, a new directory under ``$GS_RUN_DIR`` is used, and a run with neither is
-    refused. ``bench_keys`` holds attribute keys or (sample type title, attribute title) pairs the index budget
-    must cover. ``dry_run`` reads MySQL and the graph, writes nothing and touches no file.
+    ``run_dir`` receives ``full_sync.json`` (written even when the run fails or is refused), ``census.json``,
+    ``child_of_archive.tsv`` (when the graph had CHILD_OF) and ``derived_from_undeclared_archive.tsv`` (when it had
+    an undeclared DERIVED_FROM between two Sample nodes); without one, a new directory under ``$GS_RUN_DIR`` is
+    used, and a run with neither is refused. ``bench_keys`` holds attribute keys or (sample type title, attribute
+    title) pairs the index budget must cover. ``dry_run`` reads MySQL and the graph, writes nothing and touches no
+    file.
 
     Raises PreflightError, before any write, when the preflight finds a problem (``problems`` in the report).
     """

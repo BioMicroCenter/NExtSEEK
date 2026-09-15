@@ -251,6 +251,20 @@ ON CREATE SET e.child_id = CASE WHEN $by_uuid THEN c.uuid ELSE c.id END,
               e.parent_id = CASE WHEN $by_uuid THEN p.uuid ELSE p.id END
 RETURN count(e) AS matched
 """
+# Every DERIVED_FROM between two Sample nodes (gate G check 1 reads the same pattern). An OrphanSample no longer
+# carries Sample, so an edge touching one is neither read nor deleted here.
+DERIVED_FROM_BETWEEN_SAMPLES = """
+MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)
+RETURN c.id AS child_id, p.id AS parent_id, c.uuid AS child_uuid, p.uuid AS parent_uuid,
+       properties(e) AS props, elementId(e) AS element_id
+"""
+DELETE_UNDECLARED_DERIVED_FROM = """
+UNWIND $element_ids AS eid
+MATCH (:Sample)-[e:DERIVED_FROM]->(:Sample)
+WHERE elementId(e) = eid
+DELETE e
+RETURN count(*) AS deleted
+"""
 # Samples already placed in a paper-level Study (one with no seek_study_id); SEEK studies are not added to them.
 SAMPLES_IN_PAPER_STUDIES = """
 MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.seek_study_id IS NULL
