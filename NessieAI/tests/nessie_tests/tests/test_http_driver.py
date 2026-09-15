@@ -162,3 +162,23 @@ def test_blips_interspersed_with_successes_reset_the_budget():
                    sleep=lambda s: None, clock=lambda: 0.0)
     assert res.status == "completed"
     assert res.poll_errors == 3
+
+
+# ── the evaluation switch (graph_search Nessie POC, spec E2) ──────────────
+
+def test_force_parser_mode_is_not_sent_unless_set():
+    """Omitted, not sent as null: an unforced body stays the body an ordinary
+    client sends, force_route or not."""
+    p = _post()
+    hd.drive("q", tier="route", post_query=p, get_progress=_seq_get_progress([ROUTED]),
+             force_route="ns", sleep=lambda s: None, clock=lambda: 0.0)
+    assert "force_parser_mode" not in p.body
+
+
+def test_force_parser_mode_is_sent_when_set():
+    p = _post()
+    hd.drive("q", tier="route", post_query=p, get_progress=_seq_get_progress([ROUTED]),
+             force_route="ns", force_parser_mode="graph",
+             sleep=lambda s: None, clock=lambda: 0.0)
+    assert p.body["force_parser_mode"] == "graph"
+    assert p.body["force_route"] == "ns"

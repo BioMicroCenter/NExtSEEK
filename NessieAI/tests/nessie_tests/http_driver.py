@@ -59,6 +59,7 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           force_new: bool = False,
           fresh_session: bool = True,
           force_route: str | None = None,
+          force_parser_mode: str | None = None,
           mode: str = "standard", poll_interval_s: float = 2.0,
           route_timeout_s: float = 60.0, full_timeout_s: float = 600.0,
           max_consecutive_poll_errors: int = MAX_CONSECUTIVE_POLL_ERRORS,
@@ -105,6 +106,12 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
         # the router (cc_assistant.py:245-251). `preflight.assert_force_route_works`
         # is what stops that turning into a whole run of meaningless data.
         body["force_route"] = force_route
+    if force_parser_mode:
+        # The evaluation switch (graph_search Nessie POC, spec E2). Honoured only for
+        # a superuser on a server process with NEXTSEEK_EVAL_PARSER_FORCE=1, and
+        # dropped silently otherwise; `preflight.assert_parser_force_works` proves it
+        # landed before a paid run. Omitted when unset, like force_route.
+        body["force_parser_mode"] = force_parser_mode
     if session_id:
         body["session_id"] = session_id
     elif force_new:

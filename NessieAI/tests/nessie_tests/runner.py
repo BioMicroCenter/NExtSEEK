@@ -1,13 +1,18 @@
 from __future__ import annotations
+import contextlib
+import dataclasses
+import json
 import os
+import re
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from NessieAI.tests.nessie_tests import corpus, evaluate, http_driver, report
 from NessieAI.tests.nessie_tests import route_observer as ro
 from NessieAI.tests.nessie_tests.manifest import (
     CriterionObservation, NessieManifest, NessieManifestEntry, cost_summary,
-    write_manifest,
+    load_manifest, write_manifest,
 )
 
 
@@ -67,17 +72,35 @@ def corpus_fingerprint(corpus_path=None) -> str:
         return "<unreadable>"
 
 
+# The evaluation venue runs a `git archive` snapshot of the branch, which has no
+# .git; its prepare step writes the snapshot's sha into this file at the snapshot
+# root (scripts/graph_search/nessie_venue.sh). It is the repository root here.
+SNAPSHOT_FILE = Path(__file__).resolve().parents[3] / "SNAPSHOT"
+
+
 def git_sha() -> str | None:
-    """Short HEAD sha, or None outside a checkout (the deployed image has no .git)."""
+    """Short HEAD sha; else the sha in SNAPSHOT_FILE; else None.
+
+    The deployed image and the venue's snapshot have no .git, so without the
+    fallback every venue run would record `None` and a resumed arms run could
+    never tell that its code had not changed.
+    """
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=Path(__file__).resolve().parents[1],
             capture_output=True, text=True, timeout=5,
         )
-        return out.stdout.strip() or None
+        sha = out.stdout.strip() if out.returncode == 0 else ""
+        if sha:
+            return sha
     except Exception:
+        pass
+    try:
+        text = SNAPSHOT_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
         return None
+    return text.split()[0] if text else None
 
 
 _MAX_OBSERVED_CHARS = 600
@@ -117,7 +140,8 @@ def _criterion_field(c):
 
 
 def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
-             pace_s=0.0, force_route=None, strip_route_criteria=False,
+             pace_s=0.0, force_route=None, force_parser_mode=None,
+             strip_route_criteria=False, payload_dir=None,
              full_timeout_s=600.0, sleep=time.sleep, clock=time.monotonic
              ) -> NessieManifestEntry:
     """Drive one variant to an entry. The body `run_suite` used to inline.
@@ -136,8 +160,18 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
     additionally skips NS-pipeline-internal criteria on an arm that really ran
     container_cc — see the ENGINE_NEUTRAL_FIELDS comment in `evaluate.py` for why
     that is sound only under forcing, and why the router-decided path is untouched.
-    The name is kept: `run_suite` never passes it, so no router-decided run can
-    reach either behaviour.
+    The name is kept. `run_suite` passes it only on a forced run (`force_route`
+    set), so no router-decided run can reach either behaviour.
+
+    `force_parser_mode` rides on every turn beside `force_route`: the evaluation
+    switch of the graph_search Nessie POC (spec E2), which `run_arms` sets per arm.
+
+    `payload_dir`, when given, receives each driven turn's final payload as
+    `<payload_dir>/<variant id>/<turn label>.json`: the query, the task and session
+    ids, the status, the route observation, the whole `query_complete` data (reply,
+    debug, files, artifacts) and the turn's wall time. It is written as soon as the
+    turn returns, so a failure later in the case cannot lose a paid turn's evidence.
+    The arms scorer reads these files. Nothing is written without it.
     """
     expected_fail = "known_fail" in v.tags
     is_gate = "route_gate" in v.tags
@@ -217,16 +251,23 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
     evaluated_any = False
     t0 = clock()
     extra = default_route_criterion(v)
+    # Payload file names already used in this case (a repeated turn label).
+    payload_names: set[str] = set()
     try:
         for i, turn in enumerate(v.turns):
             if pace_s and i > 0:
                 sleep(pace_s)
+            # Read only when payloads are written: some callers hand in a clock
+            # that yields a fixed number of ticks.
+            t_turn = clock() if payload_dir is not None else None
             # force_new ONLY on a case's first turn: isolate the case, but
             # keep its own follow-ups in the session its seed opened.
             res = http_driver.drive(turn.query, tier=case_tier, post_query=post_query,
                                     get_progress=get_progress, session_id=session_id,
                                     force_new=(session_id is None),
-                                    force_route=force_route, full_timeout_s=full_timeout_s,
+                                    force_route=force_route,
+                                    force_parser_mode=force_parser_mode,
+                                    full_timeout_s=full_timeout_s,
                                     sleep=sleep, clock=clock)
             session_id = res.session_id
             if res.task_id:
@@ -253,6 +294,13 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
                 v_route_sources.append(res.route_obs.source)
             qc = next((e["data"] for e in reversed(res.payload.get("progress") or [])
                        if e.get("event") == "query_complete"), {})
+            if payload_dir is not None:
+                # Before anything below can raise: a paid turn keeps its evidence
+                # even when scoring it fails.
+                _write_turn_payload(
+                    payload_dir, v.id, turn, res, qc, payload_names,
+                    force_route=force_route, force_parser_mode=force_parser_mode,
+                    elapsed_s=round(clock() - t_turn, 3))
             v_cost = qc.get("total_cost_usd", v_cost)
             bundle_summary = None
             if case_tier == "full" and bundle_reader is not None and session_id is not None:
@@ -361,7 +409,17 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
 def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, variant_id=None,
               corpus_path, out_dir, post_query=None, get_progress=None, bundle_reader=None,
               pace_s=0.0, run_consistency: bool = False, sample: float = 1.0, seed: int = 0,
-              cases_path=None, sleep=time.sleep, clock=time.monotonic) -> NessieManifest:
+              cases_path=None, force_route=None, force_parser_mode=None,
+              sleep=time.sleep, clock=time.monotonic) -> NessieManifest:
+    """One whole run.
+
+    `force_route` forces every turn, the consistency groups' included (a normal run
+    made forced, as `--force-route` asks), and therefore strips the route criteria
+    exactly as `run_paired` does. `force_parser_mode` adds the evaluation switch and
+    needs the ns route. Neither is set by default, so a router-decided run is
+    unchanged.
+    """
+    _check_force(force_route, force_parser_mode)
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
     if cases_path:
@@ -395,7 +453,9 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     for v in variants:
         entries.append(run_case(
             v, tier=tier, post_query=post_query, get_progress=get_progress,
-            bundle_reader=bundle_reader, pace_s=pace_s, sleep=sleep, clock=clock))
+            bundle_reader=bundle_reader, pace_s=pace_s, force_route=force_route,
+            force_parser_mode=force_parser_mode,
+            strip_route_criteria=force_route is not None, sleep=sleep, clock=clock))
     if run_consistency:
         from NessieAI.tests.nessie_tests import consistency
         for g in corpus.load_consistency_groups(corpus_path):
@@ -408,7 +468,8 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                 # third, unrelated turn's results_history.
                 r = http_driver.drive(q, tier="full" if tier == "full" else "route",
                                       post_query=post_query, get_progress=get_progress,
-                                      force_new=True,
+                                      force_new=True, force_route=force_route,
+                                      force_parser_mode=force_parser_mode,
                                       sleep=sleep, clock=clock)
                 # `reply` is what lets run_group see a provider outage. Without it
                 # the group only ever saw {route, count}, so an outage surfaced as
@@ -610,3 +671,314 @@ def gate_failed(manifest: NessieManifest) -> int:
     drift apart again.
     """
     return sum(1 for e in manifest.entries if _is_real_failure(e))
+
+
+# ── forced arms (graph_search Nessie POC, spec E1 to E3) ─────────────────────
+#
+# Each arm forces the NS route and then the NS parser (the evaluation switch,
+# `force_parser_mode`), so the comparison is between two agents, not two routers.
+# The keys are the names `manage.py nessie --arms` takes.
+ARM_PRESETS = {
+    "graph": {"force_route": "ns", "force_parser_mode": "graph"},
+    "api": {"force_route": "ns", "force_parser_mode": "api"},
+}
+
+ARMS_FILE = "arms.json"
+PAYLOADS_DIR = "payloads"
+
+# The evidence can name real people (spec E4): directories 700 and files 600,
+# whatever the process umask (a `docker exec` runs with the image's default).
+_PRIVATE_DIR_MODE = 0o700
+_PRIVATE_FILE_MODE = 0o600
+_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+class UnknownArm(ValueError):
+    """An arm name outside ARM_PRESETS."""
+
+
+class ArmsRunRefused(RuntimeError):
+    """Refused before any turn was sent, so nothing was billed."""
+
+
+class NoArmsRunToResume(ArmsRunRefused):
+    """`resume` was asked for, but the output directory holds no arms.json."""
+
+
+class PriorArmsRunWouldBeOverwritten(ArmsRunRefused):
+    """A fresh run was pointed at a directory that already holds an arms run."""
+
+
+class CasesChanged(ArmsRunRefused):
+    """The questions are not provably the ones the run being resumed asked."""
+
+
+class ArmsChanged(ArmsRunRefused):
+    """The arm list differs from the run being resumed; the rotation depends on it."""
+
+
+def _check_force(force_route, force_parser_mode) -> None:
+    if force_parser_mode is not None and force_route != "ns":
+        raise ValueError(
+            f"force_parser_mode={force_parser_mode!r} needs force_route='ns' (got "
+            f"{force_route!r}): the switch lives in the NS parser, and an unforced turn "
+            f"may be routed to Container-CC, where the field is ignored without a word.")
+
+
+def _safe_name(text) -> str:
+    name = _UNSAFE_NAME.sub("_", str(text)).strip()
+    return name if name not in ("", ".", "..") else "_"
+
+
+def _private_dir(path) -> Path:
+    path = Path(path)
+    if not path.is_dir():
+        path.mkdir(mode=_PRIVATE_DIR_MODE, parents=True, exist_ok=True)
+        os.chmod(path, _PRIVATE_DIR_MODE)  # mkdir's mode is masked by the umask
+    return path
+
+
+def _private_write(path, text: str) -> None:
+    """Atomic and mode 600: an interrupted write never leaves half a JSON file."""
+    path = Path(path)
+    tmp = path.with_name(f".{path.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _PRIVATE_FILE_MODE)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(tmp, _PRIVATE_FILE_MODE)  # O_CREAT keeps an existing file's mode
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _write_turn_payload(payload_dir, variant_id, turn, res, qc, used, *, force_route,
+                        force_parser_mode, elapsed_s) -> None:
+    """One driven turn's final payload, for `run_case`'s `payload_dir`."""
+    case_dir = _private_dir(_private_dir(payload_dir) / _safe_name(variant_id))
+    name = _safe_name(turn.label)
+    if name in used:
+        name = f"{name}-{len(used)}"
+    used.add(name)
+    doc = {
+        "variant_id": variant_id, "turn": turn.label, "query": turn.query,
+        "task_id": res.task_id, "session_id": res.session_id, "status": res.status,
+        "force_route": force_route, "force_parser_mode": force_parser_mode,
+        "route_obs": dataclasses.asdict(res.route_obs),
+        "query_complete": qc, "elapsed_s": elapsed_s,
+    }
+    _private_write(case_dir / f"{name}.json", json.dumps(doc, indent=2, default=str))
+
+
+def _validate_arms(arms) -> list[str]:
+    arms = list(arms or [])
+    unknown = [a for a in arms if a not in ARM_PRESETS]
+    if unknown:
+        raise UnknownArm(f"unknown arm(s) {unknown}; the arms are {sorted(ARM_PRESETS)}")
+    if not arms:
+        raise ValueError(f"no arms given; name one or more of {sorted(ARM_PRESETS)}")
+    if len(set(arms)) != len(arms):
+        raise ValueError(f"an arm is named twice in {arms}; each arm runs once per question")
+    return arms
+
+
+def _arm_done(entry) -> bool:
+    """A recorded entry is done, except a provider outage: it tested nothing, so
+    the next resume drives it again and its new entry replaces the old one."""
+    return entry is not None and not getattr(entry, "outage", False)
+
+
+def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
+             resume=False, max_turns=None, full_timeout_s=600.0, skip_preflight=False,
+             post_query=None, get_progress=None, bundle_reader=None,
+             sleep=time.sleep, clock=time.monotonic) -> dict:
+    """Every question of a cases file through each forced NS arm (spec E1).
+
+    Per question, every arm back to back, the first arm rotating with the
+    question's index in the cases file, so time and order are not confounded with
+    the arm. Each turn is `run_case` with that arm's forces, so the poll loop, the
+    outage rule and the cost rule stay the ones every run uses.
+
+    On disk under `out_dir`, rewritten after every (question, arm):
+    `<arm>/manifest.json` (a NessieManifest), `<arm>/payloads/<id>/<turn>.json`,
+    and `arms.json`: `run_meta` (git_sha, corpus_fingerprint, cases_sha256,
+    cases_file, arms, base_url, preflight {passed_at, git_sha}, resumed),
+    `progress` (state running | complete | max_turns | interrupted, turns_driven
+    by this invocation, max_turns, questions, updated_at) and `questions`, one per
+    cases-file question in file order: {id, family, first_arm, arms: {arm:
+    {status, outage, task_ids, elapsed_s, git_sha}}}. `<arm>/report.html` is
+    written at the end and whenever the run stops, an interrupt included.
+
+    `resume` continues the run in `out_dir` and is refused without its arms.json,
+    for a changed cases file, a changed arm list, or (when the cases file names
+    corpus ids) a changed corpus; a fresh run onto an existing arms.json is
+    refused too. A resume skips every (id, arm) its manifests hold except a
+    provider outage, and skips the preflight when arms.json records a pass for
+    this same git sha. `max_turns` caps the turns THIS invocation drives: it stops
+    before a question whose pending arms would exceed it, and 0 runs the preflight
+    and no question. Unless `skip_preflight`, the preflight runs first:
+    `assert_force_route_works`, then `assert_parser_force_works(arms)`, and a
+    refusal stops the run before any question and before arms.json is written.
+
+    Returns the arms.json document plus `manifests` ({arm: NessieManifest}) and
+    `arms_file`.
+    """
+    # Lazy, to keep the import graph one-way: preflight reads ARM_PRESETS from here.
+    from NessieAI.tests.nessie_tests import preflight
+
+    arms = _validate_arms(arms)
+    if max_turns is not None and max_turns < 0:
+        raise ValueError(f"max_turns must be 0 or more; got {max_turns}")
+    out_dir = Path(out_dir)
+    arms_path = out_dir / ARMS_FILE
+
+    prior = (json.loads(arms_path.read_text(encoding="utf-8"))
+             if arms_path.exists() else None)
+    if prior is None and resume:
+        raise NoArmsRunToResume(
+            f"resume was asked for but {out_dir} holds no {ARMS_FILE}, so there is "
+            f"nothing to continue; this would start a fresh paid run instead. Point "
+            f"--out at the run's directory, or drop --resume for a fresh run.")
+    if prior is not None and not resume:
+        raise PriorArmsRunWouldBeOverwritten(
+            f"{out_dir} already holds an arms run ({ARMS_FILE}); a fresh run would "
+            f"rewrite its paid results. Continue it with --resume, or give a new --out.")
+
+    include_ids, inline = corpus.load_case_file(cases_path)
+    variants = corpus.select_cases(corpus.merged(corpus_path), include_ids, inline)
+    cases_sha = corpus.sha256_of(cases_path)
+    fingerprint = corpus_fingerprint(corpus_path)
+    sha = git_sha()
+
+    prior_meta = (prior or {}).get("run_meta") or {}
+    if prior is not None:
+        if prior_meta.get("arms") != arms:
+            raise ArmsChanged(
+                f"the arms {arms} differ from the run being resumed "
+                f"({prior_meta.get('arms')}); each question's first arm depends on the "
+                f"list and its order. Resume with the same --arms, or give a new --out.")
+        if prior_meta.get("cases_sha256") != cases_sha:
+            raise CasesChanged(
+                f"the cases file {cases_path} is not the one this run was started with "
+                f"(sha256 {prior_meta.get('cases_sha256')!r}, now {cases_sha!r}); "
+                f"resuming would mix two question sets. Restore it, or give a new --out.")
+        if include_ids and prior_meta.get("corpus_fingerprint") != fingerprint:
+            raise CasesChanged(
+                f"the cases file names corpus ids and the corpus changed since this run "
+                f"started (fingerprint {prior_meta.get('corpus_fingerprint')!r}, now "
+                f"{fingerprint!r}), so those questions may have changed. Restore the "
+                f"corpus, or give a new --out.")
+
+    if post_query is None or get_progress is None:
+        post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
+
+    recorded = prior_meta.get("preflight")
+    if skip_preflight or (recorded and recorded.get("git_sha")
+                          and recorded.get("git_sha") == sha):
+        preflight_record = recorded
+    else:
+        preflight.assert_force_route_works(post_query, get_progress, sleep=sleep,
+                                           clock=clock, ns_run_root_timeout_s=full_timeout_s)
+        preflight.assert_parser_force_works(post_query, get_progress, arms, sleep=sleep,
+                                            clock=clock, timeout_s=full_timeout_s)
+        preflight_record = {"passed_at": _utc_now(), "git_sha": sha}
+
+    _private_dir(out_dir)
+    entries: dict[str, dict[str, NessieManifestEntry]] = {}
+    started: dict[str, str] = {}
+    for arm in arms:
+        _private_dir(out_dir / arm)
+        _private_dir(out_dir / arm / PAYLOADS_DIR)
+        manifest_path = out_dir / arm / "manifest.json"
+        if prior is not None and manifest_path.exists():
+            m = load_manifest(manifest_path)
+            entries[arm] = {e.id: e for e in m.entries}
+            started[arm] = m.started_at
+        else:
+            entries[arm] = {}
+            started[arm] = _utc_now()
+
+    prior_questions = {q["id"]: q for q in (prior or {}).get("questions", [])}
+    questions = [prior_questions.get(v.id) or {"id": v.id, "family": v.family,
+                                               "first_arm": arms[i % len(arms)], "arms": {}}
+                 for i, v in enumerate(variants)]
+    selected_ids = [v.id for v in variants]
+    position = {vid: k for k, vid in enumerate(selected_ids)}
+    progress = {"state": "running", "turns_driven": 0, "max_turns": max_turns,
+                "questions": len(variants), "updated_at": _utc_now()}
+    doc = {
+        "run_meta": {
+            "git_sha": sha, "corpus_fingerprint": fingerprint, "cases_sha256": cases_sha,
+            "cases_file": str(cases_path), "arms": arms, "base_url": base_url,
+            "preflight": preflight_record, "full_timeout_s": full_timeout_s,
+            "resumed": prior is not None,
+        },
+        "progress": progress,
+        "questions": questions,
+    }
+    manifests: dict[str, NessieManifest] = {}
+
+    def persist(arm_names) -> None:
+        for a in arm_names:
+            manifests[a] = NessieManifest(
+                started_at=started[a], ended_at=_utc_now(), tier="full", scope=f"arm:{a}",
+                cases_file=str(cases_path), selected_ids=selected_ids,
+                corpus_fingerprint=fingerprint, base_url=base_url, git_sha=sha,
+                entries=sorted(entries[a].values(),
+                               key=lambda e: position.get(e.id, len(position))))
+            _private_write(out_dir / a / "manifest.json", manifests[a].model_dump_json(indent=2))
+        progress["updated_at"] = _utc_now()
+        _private_write(arms_path, json.dumps(doc, indent=2))
+
+    # The preflight's pass is on disk before the first question is sent.
+    persist(arms)
+    driven = 0
+    state = "running"
+    try:
+        for i, v in enumerate(variants):
+            rec = questions[i]
+            first = arms.index(rec["first_arm"]) if rec.get("first_arm") in arms else i % len(arms)
+            pending = [a for a in arms[first:] + arms[:first]
+                       if not _arm_done(entries[a].get(v.id))]
+            if not pending:
+                continue
+            if max_turns is not None and driven + len(v.turns) * len(pending) > max_turns:
+                state = "max_turns"
+                break
+            for arm in pending:
+                preset = ARM_PRESETS[arm]
+                entry = run_case(
+                    v, tier="full", post_query=post_query, get_progress=get_progress,
+                    bundle_reader=bundle_reader, force_route=preset["force_route"],
+                    force_parser_mode=preset["force_parser_mode"],
+                    strip_route_criteria=True, payload_dir=out_dir / arm / PAYLOADS_DIR,
+                    full_timeout_s=full_timeout_s, sleep=sleep, clock=clock)
+                driven += len(v.turns)
+                entries[arm][v.id] = entry
+                rec["arms"][arm] = {"status": entry.status, "outage": entry.outage,
+                                    "task_ids": list(entry.task_ids),
+                                    "elapsed_s": entry.elapsed_s, "git_sha": sha}
+                progress["turns_driven"] = driven
+                persist([arm])
+        else:
+            state = "complete"
+    except BaseException:
+        state = "interrupted"
+        raise
+    finally:
+        progress["state"] = state
+        progress["turns_driven"] = driven
+        persist(arms)
+        for arm in arms:
+            os.chmod(report.generate_html(manifests[arm], out_dir / arm), _PRIVATE_FILE_MODE)
+
+    result = dict(doc)
+    result["manifests"] = manifests
+    result["arms_file"] = str(arms_path)
+    return result

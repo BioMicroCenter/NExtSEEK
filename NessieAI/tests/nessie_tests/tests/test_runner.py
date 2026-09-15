@@ -1,4 +1,7 @@
 from pathlib import Path
+
+import pytest
+
 from NessieAI.tests.nessie_tests import runner
 
 CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
@@ -1072,3 +1075,130 @@ def test_an_unrelated_gate_is_unmeasured_rather_than_free(tmp_path, monkeypatch)
     s = runner.classify_entries(m)
     assert s["cost_unmeasured"] == 1, "an `unrelated` turn still paid for the router call"
     assert s["total_cost"] is None
+
+
+# ── forcing a normal run (graph_search Nessie POC) ──────────────────────────
+
+_FORCED_DONE = {"status": "completed", "progress": [
+    {"event": "route_decided", "data": {"route": "nextseek_query", "model_class": None,
+                                        "source": "forced", "reasoning": ""}},
+    {"event": "query_complete", "data": {"reply": "ok",
+                                         "debug": {"parser_plan": {"mode": "graph_query"}}}}]}
+
+
+def _routed_variant(vid):
+    from NessieAI.tests.e2e.catalog import Variant, Turn
+    return Variant(family="f", id=vid, name="n", tags=["nessie", "full"], turns=[
+        Turn(label="m", query="q", pass_criteria=[
+            {"field": "route", "op": "eq", "value": "container_cc"},
+            {"field": "engine", "op": "eq", "value": "container_cc"},
+            {"field": "route_source", "op": "eq", "value": "baml"},
+            {"field": "last_reply", "op": "nonempty"}])])
+
+
+def _recording_post():
+    def post_query(body):
+        post_query.bodies.append(body)
+        return {"task_id": "t", "session_id": "s"}
+    post_query.bodies = []
+    return post_query
+
+
+def test_run_suite_forces_every_case_and_strips_the_route_criteria(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.corpus, "select",
+                        lambda *a, **k: [_routed_variant("f.one"), _routed_variant("f.two")])
+    post_query = _recording_post()
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=post_query,
+        get_progress=lambda tid: _FORCED_DONE, force_route="ns", force_parser_mode="graph",
+        sleep=lambda s: None, clock=lambda: 0.0)
+    assert len(post_query.bodies) == 2
+    assert all(b["force_route"] == "ns" and b["force_parser_mode"] == "graph"
+               for b in post_query.bodies)
+    for e in m.entries:
+        assert not ({o.field for o in e.observations} & {"route", "engine", "route_source"})
+        assert "stripped 3 route criteria (forced route)" in e.reason
+        assert e.status == "passed"
+
+
+def test_run_suite_forces_nothing_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_routed_variant("f.one")])
+    post_query = _recording_post()
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=post_query,
+        get_progress=lambda tid: NS_DONE, sleep=lambda s: None, clock=lambda: 0.0)
+    assert all("force_route" not in b and "force_parser_mode" not in b
+               for b in post_query.bodies)
+    assert "route" in {o.field for o in m.entries[0].observations}
+
+
+@pytest.mark.parametrize("route", [None, "cc"])
+def test_run_suite_refuses_a_parser_force_off_the_ns_route(route, tmp_path):
+    post_query = _recording_post()
+    with pytest.raises(ValueError, match="force_route"):
+        runner.run_suite(
+            base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+            corpus_path=CORPUS, out_dir=tmp_path, post_query=post_query,
+            get_progress=lambda tid: NS_DONE, force_route=route, force_parser_mode="api",
+            sleep=lambda s: None, clock=lambda: 0.0)
+    assert post_query.bodies == []
+
+
+def test_arm_presets_force_ns_and_name_their_parser_mode():
+    assert runner.ARM_PRESETS == {
+        "graph": {"force_route": "ns", "force_parser_mode": "graph"},
+        "api": {"force_route": "ns", "force_parser_mode": "api"},
+    }
+
+
+# ── git_sha: the venue's snapshot has no .git ──────────────────────────────
+
+_SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def test_git_sha_prefers_git_when_it_answers(tmp_path, monkeypatch):
+    import subprocess
+    snap = tmp_path / "SNAPSHOT"
+    snap.write_text(_SHA + "\n")
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", snap)
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a, 0, stdout="abc1234\n", stderr=""))
+    assert runner.git_sha() == "abc1234"
+
+
+def test_git_sha_reads_the_snapshot_file_when_git_is_unavailable(tmp_path, monkeypatch):
+    def no_git(*a, **k):
+        raise FileNotFoundError("git")
+
+    snap = tmp_path / "SNAPSHOT"
+    snap.write_text(_SHA + "\n")
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", snap)
+    monkeypatch.setattr(runner.subprocess, "run", no_git)
+    assert runner.git_sha() == _SHA
+
+
+def test_git_sha_reads_the_snapshot_file_outside_a_checkout(tmp_path, monkeypatch):
+    import subprocess
+    snap = tmp_path / "SNAPSHOT"
+    snap.write_text(_SHA + "\n")
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", snap)
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a, 128, stdout="", stderr="fatal: not a git repository"))
+    assert runner.git_sha() == _SHA
+
+
+def test_git_sha_is_none_with_neither(tmp_path, monkeypatch):
+    def no_git(*a, **k):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", tmp_path / "SNAPSHOT")
+    monkeypatch.setattr(runner.subprocess, "run", no_git)
+    assert runner.git_sha() is None
+
+
+def test_the_snapshot_file_is_at_the_repository_root():
+    assert runner.SNAPSHOT_FILE.name == "SNAPSHOT"
+    assert (runner.SNAPSHOT_FILE.parent / "manage.py").exists()
+    assert (runner.SNAPSHOT_FILE.parent / "NessieAI").is_dir()
