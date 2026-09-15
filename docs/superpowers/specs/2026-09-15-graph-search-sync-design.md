@@ -544,9 +544,9 @@ through WR-05 or WR-06 is offered by the page and refused by graph_search until 
 someone runs `graph_sync --catalog`, after this work within the drain's delay (the `catalog` hooks of H2 and H3). Read
 in code, not run.
 
-**Publishing.** The rebased branch is not pushed. Publishing it replaces `origin/feat/graph-search-sync`, which still
-holds the history based on `aa9706d9`, so it needs one force-push; that is the operator's decision and comes before
-Run 1's first push. After it, the branch only moves forward.
+**Publishing.** The rebased branch was published on 2026-09-15: one force-push with lease, on the operator's approval,
+replaced `origin/feat/graph-search-sync` (the history based on `aa9706d9`) with `b154ae4b`. From then on the branch
+only moves forward, by merges and normal pushes.
 
 ## 20. Found in passing
 

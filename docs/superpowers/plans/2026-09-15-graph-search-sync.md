@@ -22,9 +22,9 @@ Typer project, pytest.
 
 - Work in the worktree of branch `feat/graph-search-sync`. Its base and merge target is `dev-graph` (formerly
   `feat/graph-search`). Push only that branch, at the end of each run, after the run's gate and a scan of the diff
-  for emails, home paths and tokens. The branch was rebased onto `origin/dev-graph` on 2026-09-15 and is not
-  published yet: publishing it replaces `origin/feat/graph-search-sync` and needs one force-push, which is the
-  operator's decision and comes before Run 1's first push. Never force-push otherwise.
+  for emails, home paths and tokens. The branch was rebased onto `origin/dev-graph` on 2026-09-15 and published the
+  same day: one force-push with lease, on the operator's approval, set `origin/feat/graph-search-sync` to `b154ae4b`.
+  From now on it moves only by merges and normal fast-forward pushes; never force-push.
 - **At the start of every run, merge `origin/dev-graph` into this branch** (`git fetch origin`, then `git merge
   origin/dev-graph`; never rebase the published branch) and do the run-start checks below. `dev-graph` keeps moving:
   a parallel chat still works on it. Resolve a conflict in `ci/routes.py` or `ci/smoke/test_registry_contents.py` by
