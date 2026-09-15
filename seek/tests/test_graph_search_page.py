@@ -97,6 +97,17 @@ def test_the_simple_tab_never_calls_a_combobox_before_easyui_has_built_it():
     assert simple.count(".combobox('clear')") == 1, "call combobox('clear') only inside gsComboReset"
 
 
+def test_the_sidebar_groups_both_searches_under_sample_search():
+    """Sample Search is a group with two entries: JSON (the existing page, which searches each sample's
+    json_metadata) and Graph Search. Both links live inside the group's collapsible submenu."""
+    nav = (ROOT / "themes/NextSeek/templates/nav.embed.html").read_text()
+    start = nav.index('id="sampleSearchSubmenu"')
+    submenu = nav[start:nav.index("</ul>", start)]
+    assert 'href="#sampleSearchSubmenu"' in nav
+    assert 'href="/seek/search/"' in submenu and "JSON" in submenu
+    assert 'href="/seek/graph/search/"' in submenu and "Graph Search" in submenu
+
+
 def test_the_sidebar_links_the_page_next_to_sample_search_for_every_user():
     nav = (ROOT / "themes/NextSeek/templates/nav.embed.html").read_text()
     admin_gate = nav.index("{% if request.user.is_superuser %}")
