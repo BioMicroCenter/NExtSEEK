@@ -3,7 +3,7 @@
   "node_types": [
     {
       "label": "Sample",
-      "description": "A biological sample. Property 'type' holds the sample type code (e.g. TIS, CEL, DNA, D.SEQ, NHP, MUS); 'UID' and 'uuid' hold the sample identifier. Samples link to each other via DERIVED_FROM and to studies via IN_STUDY. The node carries ONLY identity, protocol and lineage properties: id, uuid, UID, type, Protocol, parent_titles, parent_title_hashes, and the lineage family Parent, AntibodyParent, BacteriaParent, CompensationFCSParent, ParentF, ParentM and Treatment1Parent..Treatment5Parent. Every key containing 'Parent' names an ancestor. Descriptive sample metadata (Scientist, Notes, storage, treatment, concentration, shipping, imaging, etc.) is NOT on the graph node; it lives in the REST API / json_metadata and must be fetched there."
+      "description": "A biological sample. Property 'type' holds the sample type code (e.g. TIS, CEL, DNA, D.SEQ, NHP, MUS) and 'uuid' holds the sample identifier (the UID). Samples link to each other via DERIVED_FROM and to studies via IN_STUDY. Every non-empty metadata attribute of a sample is a property on its node, named exactly as the attribute title: descriptive fields (Scientist, Notes, storage, treatment, concentration, shipping, imaging, etc.), Protocol, and the lineage family Parent, AntibodyParent, BacteriaParent, CompensationFCSParent, ParentF, ParentM and Treatment1Parent..Treatment5Parent. Every key containing 'Parent' names an ancestor. Each sample also carries a type label, T_ plus its code (T_TIS, T_D_SEQ)."
     },
     {
       "label": "Study",
@@ -58,7 +58,7 @@
     "If the query asks for samples 'associated with', 'that underwent', or 'processed via' a named assay or protocol \u2192 graph_query (assay metadata lives on DERIVED_FROM relationships, not on sample records; REST endpoints cannot filter on it)",
     "If the query asks for parent samples that have children of multiple types \u2192 check API catalog for parents_by_child_types endpoint first; if it exists, prefer API",
     "If the query involves project-level upload counts or statistics over time \u2192 reporter (not graph_query)",
-    "If the query filters or reports on a descriptive sample attribute (Scientist, Notes, Name, storage, treatment, concentration, dates, shipping, imaging fields) \u2192 API. Those properties do not exist on graph nodes; Cypher referencing them can only match nothing.",
+    "If the query filters or reports on a descriptive sample attribute (Scientist, Notes, Name, storage, treatment, concentration, dates, shipping, imaging fields) \u2192 API. The advanced_search endpoint filters and reports sample attributes directly.",
     "If the query concerns lineage structure (parents, children, ancestry, derivation chains, any 'Parent' property) \u2192 graph_query, even when a specific UID is present.",
     "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet",
     "If the query mentions a DOI, a PMID, a paper, or a publication \u2192 graph_query (DOI/PMID live on Study nodes and no REST endpoint filters samples by them)"
