@@ -73,6 +73,12 @@ class RunManifest(BaseModel):
     pipeline: PipelineInfo = Field(default_factory=PipelineInfo)
     params: dict = Field(default_factory=dict)
     software_versions: dict[str, str] = Field(default_factory=dict)
+    # Full fidelity for software_versions: {process: {tool: version}}, so a
+    # tool reported at two different versions under two different processes
+    # (see parsers.parse_software_versions_by_process) is never collapsed to
+    # whichever `software_versions` happened to keep last. This is the
+    # source of truth; `software_versions` above is the flat convenience view.
+    software_versions_by_process: dict[str, dict[str, str]] = Field(default_factory=dict)
     samples: list[SampleRecord] = Field(default_factory=list)
     outputs: list[OutputRecord] = Field(default_factory=list)
     execution: ExecutionInfo = Field(default_factory=ExecutionInfo)
