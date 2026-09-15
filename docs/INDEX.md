@@ -19,6 +19,8 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`superpowers/plans/2026-09-11-nessie-ci-lane.md`](superpowers/plans/2026-09-11-nessie-ci-lane.md) | plan | reading how the Nessie lane was built, task by task, and what changed on the way | |
 | [`superpowers/specs/2026-09-14-graph-search-poc-design.md`](superpowers/specs/2026-09-14-graph-search-poc-design.md) | draft spec | changing the graph_search proof of concept: metadata in the graph, the catalog, membership scope, the endpoint and its benchmark | |
 | [`superpowers/plans/2026-09-14-graph-search-poc.md`](superpowers/plans/2026-09-14-graph-search-poc.md) | plan | executing or reviewing the graph_search proof of concept, task by task | |
+| [`superpowers/specs/2026-09-15-graph-search-nessie-design.md`](superpowers/specs/2026-09-15-graph-search-nessie-design.md) | draft spec | changing how Nessie reads the metadata graph: caller scope on every graph path, the live catalog reader, the rendered graph context and the per-label property guard | |
+| [`superpowers/plans/2026-09-15-graph-search-nessie.md`](superpowers/plans/2026-09-15-graph-search-nessie.md) | plan | executing or reviewing Nessie on the metadata graph (graph_search follow-up 1), increment by increment | |
 
 `docs/superpowers/` is gitignored by default; only files named by a negation in `.gitignore` are tracked.
 
