@@ -142,10 +142,12 @@ it is the module follow-up 2 schedules, so it is built once, here.
   node. Labels: the current `T_` label is set and any other `T_` label removed.
 - **Order of a full run:** preflight (the label rule, duplicate checks, the ghost list) > delete ghosts > relabel
   orphans > archive and delete CHILD_OF > constraints > catalog (SampleType, Attribute, HAS_ATTRIBUTE) > Project,
-  Person, MEMBER_OF, Investigation IN_PROJECT > samples (properties, label, OF_TYPE, IN_PROJECT) > missing lineage
-  (DERIVED_FROM pairs declared by `collect_parent_tokens` and absent from the graph; existing edges and their
-  properties are kept) > TCGA Study nodes (MERGE on `seek_study_id`) and IN_STUDY > the index budget > the fulltext
-  index > GraphMeta.
+  Person, MEMBER_OF, Investigation IN_PROJECT > samples (properties, label, OF_TYPE, IN_PROJECT) > lineage
+  (DERIVED_FROM pairs declared by `collect_parent_tokens` and absent from the graph are created; declared edges keep
+  their properties; a DERIVED_FROM edge between two `:Sample` nodes that MySQL does not declare is archived to a file
+  and deleted, as CHILD_OF is. The first build found 9: 7 left stale by a later Parent edit, 1 self-loop, 1 to a
+  uuid ending in a no-break space) > TCGA Study nodes (MERGE on `seek_study_id`) and IN_STUDY > the index budget >
+  the fulltext index > GraphMeta.
 - **Command:** `manage.py graph_sync --full | --catalog | --verify [--json] [--dry-run] [--chunk N]`. `--verify` is
   read-only and runs gate G. `--dry-run` projects without writing and prints counts.
 - **Safety:** every write is chunked; `db.memory.transaction.max` is set on the throwaway Neo4j; the command refuses

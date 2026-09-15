@@ -89,7 +89,8 @@ the ghost nodes, and adds metadata, a catalog, people and projects.
 | `(:Investigation)-[:IN_PROJECT]->(:Project)` | `investigations_projects` |
 | `(:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation)` | unchanged |
 
-Removed: `CHILD_OF` (archived before deletion).
+Removed: `CHILD_OF`, and any DERIVED_FROM edge between two `Sample` nodes that MySQL's parent tokens do not declare
+(both archived to a file before deletion).
 
 ### Rules
 
