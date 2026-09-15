@@ -96,8 +96,19 @@ SMART_SEARCH_URL = ""
 TEST_CASES = {}
 PY
     export MYSQL_PASSWORD="$GS_MYSQL_ROOT_PASSWORD" NEXTSEEK_NEO4J_PASSWORD="$GS_NEO4J_PASSWORD"
-    run=(docker run --rm -i --name "gs-app-$$" --network gs-net
+    # The image runs as root (its venv and /root are unreadable to other uids), so anything the
+    # command writes under /gswork is root-owned. This wrapper runs the command, then hands every
+    # root-owned path under /gswork to the invoking host user and exits with the command's code.
+    # tini (--init) delivers a stop signal to the whole process group; the wrapper traps it, so
+    # the command stops and the hand-back still runs. Only SIGKILL skips it; the next run heals.
+    # shellcheck disable=SC2016 # expanded by the container's shell, not here
+    handback='trap : INT TERM HUP; "$@"; rc=$?
+find /gswork -xdev -uid 0 -exec chown -h "$GS_HOST_UID:$GS_HOST_GID" {} + ||
+  echo "lane.sh: could not hand files under /gswork back to uid $GS_HOST_UID" >&2
+exit "$rc"'
+    run=(docker run --rm -i --init --name "gs-app-$$" --network gs-net
       --memory "$APP_MEMORY" --memory-swap "$APP_MEMORY"
+      -e TINI_KILL_PROCESS_GROUP=1 -e GS_HOST_UID="$(id -u)" -e GS_HOST_GID="$(id -g)"
       -v "$REPO":/src:ro -v "$GS_WORK":/gswork -w /src
       -e DJANGO_SETTINGS_MODULE=gs_lane_settings -e LOG_DIR=/tmp/nextseek-logs -e PYTHONDONTWRITEBYTECODE=1
       -e PYTHONPATH=/src:/gswork/lane
@@ -107,8 +118,8 @@ PY
       -e MYSQL_DATABASE=seek_production -e NEXTSEEK_MYSQL_DATABASE=dmac
       -e NEXTSEEK_NEO4J_HOST="$NEO4J_C" -e NEXTSEEK_NEO4J_PASSWORD
       -e GS_RUN_DIR=/gswork/runs "$APP_IMAGE")
-    if [[ "$1" == app ]]; then "${run[@]}" /app/.venv/bin/python manage.py "${@:2}"
-    else "${run[@]}" /app/.venv/bin/python "${@:2}"; fi ;;
+    if [[ "$1" == app ]]; then "${run[@]}" sh -c "$handback" gs-lane /app/.venv/bin/python manage.py "${@:2}"
+    else "${run[@]}" sh -c "$handback" gs-lane /app/.venv/bin/python "${@:2}"; fi ;;
   free-check) free_check ;;
   *) echo "usage: lane.sh net|neo4j-up|neo4j-down|neo4j-cypher|mysql|app|python|free-check" >&2; exit 2 ;;
 esac

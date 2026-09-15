@@ -65,6 +65,22 @@ scripts/graph_search/lane.sh <subcommand> [args]
 
 `neo4j-up`, `app` and `python` run `free-check` first. The app container is `gs-app-<pid>`, removed on exit.
 
+### Files the app container writes are host-owned
+
+The app image runs as root (its venv and `/root` are unreadable to other uids), so a file the command writes under
+`/gswork` starts out root-owned. `lane.sh` therefore runs the command inside a small `sh` wrapper. When the command
+ends, the wrapper runs `find /gswork -xdev -uid 0 -exec chown -h` to give every root-owned path under `/gswork` to the
+invoking host user (`GS_HOST_UID` and `GS_HOST_GID`, taken from `id -u` and `id -g`), then exits with the command's own
+exit code. The container runs with `--init` and `TINI_KILL_PROCESS_GROUP=1`, so a stop signal (`docker kill -s TERM`,
+or Ctrl-C through the docker client) reaches the command. The wrapper traps the signal and still does the hand-back.
+Only SIGKILL skips it, and the next `app` or `python` run then hands the leftovers back. To fix leftovers without a
+lane run:
+
+```bash
+docker run --rm --network none --memory 256m -v "$GS_WORK":/gswork nextseek-nextseek:latest \
+  find /gswork -xdev -uid 0 -exec chown -h "$(id -u):$(id -g)" {} +
+```
+
 ### What the app container gets
 
 The checkout is mounted read-only at `/src` and `$GS_WORK` read-write at `/gswork`; `GS_RUN_DIR` is `/gswork/runs`.
