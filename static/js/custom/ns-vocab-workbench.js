@@ -766,6 +766,28 @@ function nsVocabWorkbench(config) {
   }
 
   // easyui's native detailview: evidence expands in place under the row.
+  // The resolver's per-candidate reasoning, as a list under the one-line basis.
+  //
+  // `evidence` is an array of finished phrases produced by dmac/vocab_resolver.py
+  // -- the titles of the mapped entities behind a precedent, the shared words
+  // and score behind a fuzzy overlap, the suffix and comparison key behind an
+  // exact match. It is rendered rather than summarised here because the
+  // resolver is the only thing that knows why it decided what it decided, and a
+  // second opinion formed in the browser would drift from it.
+  //
+  // Absent on an older cached response, and absent by construction from any
+  // Candidate built without it, so this returns nothing rather than an empty
+  // list: a "Based on" heading over no items reads as missing data.
+  function evidenceList(candidate) {
+    var items = (candidate && candidate.evidence) || [];
+    if (!items.length) { return ''; }
+    return '<dt>Based on</dt><dd><ul class="ns-wb-basis">' +
+           items.map(function (line) {
+             return '<li>' + nsEscapeHtml(String(line)) + '</li>';
+           }).join('') +
+           '</ul></dd>';
+  }
+
   function detailFormatter(index, row) {
     if (row._nsHeader) { return ''; }
     // Mirrors suggestedFormatter()'s ordering: an already-mapped row needs no
@@ -797,7 +819,9 @@ function nsVocabWorkbench(config) {
              '<dt>Suggested</dt><dd>' + nsEscapeHtml(only.vocabulary_title || '—') + '</dd>' +
              '<dt>Why</dt><dd>' + nsEscapeHtml(only.basis || '') +
              (only.support != null ? ' (support: ' + nsEscapeHtml(String(only.support)) + ')' : '') +
-             '</dd></dl></div>';
+             '</dd>' +
+             evidenceList(only) +
+             '</dl></div>';
     }
     // Conflict tier: list every candidate on equal footing, each with its
     // own basis and support count, so the disagreement is visible rather
@@ -810,10 +834,20 @@ function nsVocabWorkbench(config) {
     // term must be shown in the case it is actually stored in. Same three
     // facts per candidate as before, same order.
     var items = candidates.map(function (c, i) {
+      // The evidence goes INSIDE this candidate's own <dd>, not after it as a
+      // sibling "Based on" pair: with several candidates listed the whole point
+      // is that each disagreeing suggestion carries its own support, and a
+      // flat <dl> would leave the reader guessing which list belonged to which.
+      var support = (c.support != null)
+        ? ' (support: ' + nsEscapeHtml(String(c.support)) + ')' : '';
+      var basis = (c.evidence && c.evidence.length)
+        ? '<ul class="ns-wb-basis">' + c.evidence.map(function (line) {
+            return '<li>' + nsEscapeHtml(String(line)) + '</li>';
+          }).join('') + '</ul>'
+        : '';
       return '<dt>Candidate ' + (i + 1) + '</dt>' +
              '<dd><b>' + nsEscapeHtml(c.vocabulary_title || '—') + '</b> — ' +
-             nsEscapeHtml(c.basis || '') +
-             (c.support != null ? ' (support: ' + nsEscapeHtml(String(c.support)) + ')' : '') +
+             nsEscapeHtml(c.basis || '') + support + basis +
              '</dd>';
     }).join('');
     return '<div class="ns-wb-evidence"><dl>' + items + '</dl></div>';

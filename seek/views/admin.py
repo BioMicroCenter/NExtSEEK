@@ -381,7 +381,11 @@ def internalAssaySuggestions(request):
             candidates = vocab_suggest(row.get('assay_title'), vocabulary, precedents)
             suggestions[str(row['assay_id'])] = [
                 {'vocabulary_id': c.vocabulary_id, 'vocabulary_title': c.vocabulary_title,
-                 'tier': c.tier, 'basis': c.basis, 'support': c.support}
+                 'tier': c.tier, 'basis': c.basis, 'support': c.support,
+                 # list(), not the tuple: JsonResponse serialises both to a JSON
+                 # array, but the explicit conversion is what keeps that true if
+                 # a non-default encoder is ever configured.
+                 'evidence': list(c.evidence)}
                 for c in candidates
             ]
     except Exception:

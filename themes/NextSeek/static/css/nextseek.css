@@ -2017,6 +2017,31 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 .ns-wb-evidence dt:first-child { margin-top: 0; }
 .ns-wb-evidence dd { margin: 0.15rem 0 0; color: var(--ns-body); }
 
+/* The resolver's per-candidate reasoning: the mapped entities behind a
+   precedent, the shared words and overlap score behind a fuzzy guess, the
+   suffix and comparison key behind an exact match. A list, not prose, because
+   the items are independent facts a curator scans rather than reads, and one
+   of them is routinely a list of titles that would otherwise run together.
+
+   No bullet glyph: these sit under a <dd> that is already indented under a
+   field label, and a disc at this size read as noise against the rest of the
+   pane. The hanging indent does the grouping instead. Entity titles come
+   through in the curator's own spelling, so they are left in the body face --
+   only the counts and scores around them are the resolver's words. */
+.ns-wb-basis {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0 0 0 0.9rem;
+  border-left: 2px solid var(--ns-border);
+}
+.ns-wb-basis li {
+  margin: 0.15rem 0 0;
+  color: var(--ns-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.ns-wb-basis li:first-child { margin-top: 0; }
+
 /* Separator between the candidates of a conflict row. The span also carries
    .attrs-muted, which supplies the colour and size; this is the gap. */
 .ns-wb-vs { margin: 0 0.35em; }

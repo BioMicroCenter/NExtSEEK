@@ -35,6 +35,12 @@ DISPOSITION_SUFFIXES = (
 )
 
 
+# How many supporting entities to name before summarising the rest. A precedent
+# with 40 supporters is not made clearer by 40 lines, and the count in `support`
+# is never truncated -- only this list is.
+EVIDENCE_LIMIT = 6
+
+
 @dataclass(frozen=True)
 class Candidate:
     vocabulary_id: Optional[int]
@@ -42,6 +48,16 @@ class Candidate:
     tier: str
     basis: str
     support: int
+    # The specific things this candidate leans on, each a finished sentence or
+    # phrase for the curator's evidence pane: the titles of the mapped entities
+    # behind a precedent, the words behind a fuzzy overlap, the normalisation
+    # behind an exact match. `basis` says what KIND of reason this is and stays
+    # one sentence; this says WHICH facts produced it, so a curator can check
+    # the suggestion instead of taking a tier badge on trust.
+    #
+    # Defaulted so that constructing a Candidate without it stays valid, and
+    # ordered deterministically like everything else here.
+    evidence: Tuple[str, ...] = ()
 
 
 def _dash_normalize(text: str) -> str:
@@ -50,16 +66,29 @@ def _dash_normalize(text: str) -> str:
     return text
 
 
-def strip_disposition(title: Optional[str]) -> str:
-    """Remove a trailing disposition suffix. Case- and dash-insensitive."""
+def split_disposition(title: Optional[str]) -> Tuple[str, Optional[str]]:
+    """``(stem, suffix)`` -- the suffix as it was actually written, or None.
+
+    strip_disposition() is this without the second half, and stays the public
+    name everything already calls. The suffix is returned because the evidence
+    pane names what was set aside, and it must name the curator's own spelling:
+    the match is dash- and case-insensitive, so the title may carry an en dash
+    or a lowercase "metadata" where DISPOSITION_SUFFIXES carries neither.
+    """
     if not title:
-        return ""
+        return "", None
     text = _dash_normalize(str(title)).strip()
     lowered = text.casefold()
     for suffix in DISPOSITION_SUFFIXES:
         if lowered.endswith(suffix.casefold()):
-            return text[: len(text) - len(suffix)].strip()
-    return text
+            cut = len(text) - len(suffix)
+            return text[:cut].strip(), text[cut:]
+    return text, None
+
+
+def strip_disposition(title: Optional[str]) -> str:
+    """Remove a trailing disposition suffix. Case- and dash-insensitive."""
+    return split_disposition(title)[0]
 
 
 def normalize(title: Optional[str]) -> str:
@@ -71,27 +100,94 @@ def normalize(title: Optional[str]) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 
-def _none_candidate() -> Candidate:
+def _none_candidate(title: Optional[str] = None, key: str = "") -> Candidate:
+    """The no-candidate tier, which still owes the curator a reason.
+
+    "No suggestion" is the row a curator has to do by hand, so it is the row
+    where the resolver's silence is least affordable: without the comparison key
+    there is no way to tell a title nothing resembles from a title whose
+    punctuation or suffix reduced it to something unrecognisable.
+    """
+    evidence: Tuple[str, ...] = ()
+    if key:
+        evidence = _comparison_evidence(title, key) + (
+            "No vocabulary term matched, and no already-mapped entity shares "
+            "this title.",
+        )
     return Candidate(
         vocabulary_id=None,
         vocabulary_title=None,
         tier=TIER_NONE,
         basis="No vocabulary term matched this title.",
         support=0,
+        evidence=evidence,
     )
 
 
 def _precedent_index(precedents: Iterable[Tuple[str, int, str]]) -> dict:
-    """Map normalized stripped entity title -> {vocab_id: (title, count)}."""
+    """Map normalized stripped entity title -> {vocab_id: (title, count, sources)}.
+
+    ``sources`` is ``{raw entity title: how many entities carried it}``. The
+    grouping key is the NORMALIZED, disposition-stripped title, so a bucket can
+    hold several different spellings -- "Cell Extraction" and "Cell Extraction:
+    Validation Data" land together -- and which spellings they were is exactly
+    what the evidence pane needs in order to name the precedent rather than
+    just count it. Keeping the raw title also keeps the pane honest when the
+    supporters are literal duplicates: two entities titled the same thing then
+    read as one line with a count, not as two lines that look like variants.
+    """
     index: dict = {}
     for entity_title, vocab_id, vocab_title in precedents:
         key = normalize(strip_disposition(entity_title))
         if not key or vocab_id is None:
             continue
         bucket = index.setdefault(key, {})
-        title, count = bucket.get(vocab_id, (vocab_title, 0))
-        bucket[vocab_id] = (title, count + 1)
+        title, count, sources = bucket.get(vocab_id, (vocab_title, 0, {}))
+        raw = (str(entity_title) if entity_title is not None else "").strip()
+        if raw:
+            sources[raw] = sources.get(raw, 0) + 1
+        bucket[vocab_id] = (title, count + 1, sources)
     return index
+
+
+def _quote(text: str) -> str:
+    return "\u201c" + text + "\u201d"
+
+
+def _source_evidence(sources: dict) -> Tuple[str, ...]:
+    """Name the mapped entities behind a precedent, most numerous first.
+
+    Ordered by (-count, title) so the output is a function of the input alone,
+    which is the guarantee the module docstring makes. Truncated at
+    EVIDENCE_LIMIT with the remainder counted rather than dropped silently --
+    a pane that quietly shows 6 of 40 would misrepresent the precedent's size,
+    which is the opposite of the point.
+    """
+    ordered = sorted(sources.items(), key=lambda kv: (-kv[1], kv[0]))
+    lines = [
+        _quote(title) + (f" \u00d7{count}" if count > 1 else "")
+        for title, count in ordered[:EVIDENCE_LIMIT]
+    ]
+    hidden = sum(count for _, count in ordered[EVIDENCE_LIMIT:])
+    if hidden:
+        lines.append(f"\u2026and {hidden} more.")
+    return tuple(lines)
+
+
+def _comparison_evidence(title: Optional[str], key: str) -> Tuple[str, ...]:
+    """How the raw title was reduced before anything was compared to it.
+
+    Both reductions are invisible in the result and routinely surprising: a
+    curator looking at "PET-CT Scan - Data Linked" matched to "PET/CT Scan" can
+    otherwise only guess whether the slash, the dash or the suffix was what the
+    resolver forgave.
+    """
+    lines = []
+    _, suffix = split_disposition(title)
+    if suffix:
+        lines.append(f"Set aside the disposition suffix {_quote(suffix.strip())}.")
+    lines.append(f"Compared as {_quote(key)}.")
+    return tuple(lines)
 
 
 # Both bases below surface verbatim in the curator-facing evidence pane, and
@@ -103,6 +199,10 @@ def _entities(count: int) -> str:
 
 def _map_verb(count: int) -> str:
     return "maps" if count == 1 else "map"
+
+
+def _words(count: int) -> str:
+    return "1 word" if count == 1 else f"{count} words"
 
 
 def _overlap(left: str, right: str) -> float:
@@ -138,6 +238,7 @@ def suggest(
                     tier=TIER_EXACT,
                     basis="Title matches the vocabulary term exactly.",
                     support=0,
+                    evidence=_comparison_evidence(title, key),
                 )
             ]
 
@@ -155,10 +256,11 @@ def suggest(
                         f"{_map_verb(count)} to {vocab_title}, but others disagree."
                     ),
                     support=count,
+                    evidence=_source_evidence(sources),
                 )
-                for vocab_id, (vocab_title, count) in ordered
+                for vocab_id, (vocab_title, count, sources) in ordered
             ]
-        vocab_id, (vocab_title, count) = ordered[0]
+        vocab_id, (vocab_title, count, sources) = ordered[0]
         # A single prior mapping is an anecdote, not a convention. Demoting it
         # is what stops one bad mapping propagating with a confident badge.
         tier = TIER_PRECEDENT if count >= 2 else TIER_FUZZY
@@ -172,6 +274,16 @@ def suggest(
                     f"{_map_verb(count)} to {vocab_title}."
                 ),
                 support=count,
+                # The demotion is a judgement the resolver makes, not something
+                # the data says, so it is stated rather than left for the
+                # curator to infer from a fuzzy badge over a precedent-shaped
+                # sentence.
+                evidence=_source_evidence(sources) + (
+                    ()
+                    if tier == TIER_PRECEDENT
+                    else ("Only one prior mapping, so this is offered as a guess, "
+                          "not as an established convention.",)
+                ),
             )
         ]
 
@@ -182,7 +294,30 @@ def suggest(
             scored.append((score, -vocab_id, vocab_id, vocab_title))
     if scored:
         scored.sort(reverse=True)
-        _, _, vocab_id, vocab_title = scored[0]
+        score, _, vocab_id, vocab_title = scored[0]
+        shared = sorted(set(key.split()) & set(normalize(vocab_title).split()))
+        evidence = _comparison_evidence(title, key) + (
+            "Shared {n} of {d}: {words}.".format(
+                n=len(shared),
+                d=_words(min(len(set(key.split())),
+                             len(set(normalize(vocab_title).split())))),
+                words=", ".join(_quote(w) for w in shared),
+            ),
+            # The score is the whole decision -- it is the only reason this is a
+            # suggestion rather than nothing -- and the threshold is what makes
+            # the number mean anything, so neither is useful without the other.
+            f"Overlap {score:.2f}, at or above the {FUZZY_THRESHOLD:.2f} threshold.",
+        )
+        # A curator overruling a fuzzy guess needs to know what else was close,
+        # or the only way to find the runner-up is to reopen the combobox and
+        # read the whole vocabulary.
+        others = [t for _, _, _, t in scored[1:EVIDENCE_LIMIT]]
+        if others:
+            evidence += (
+                "Also above the threshold: "
+                + ", ".join(_quote(t) for t in others)
+                + ".",
+            )
         return [
             Candidate(
                 vocabulary_id=vocab_id,
@@ -190,7 +325,8 @@ def suggest(
                 tier=TIER_FUZZY,
                 basis=f"Title overlaps the vocabulary term {vocab_title}.",
                 support=0,
+                evidence=evidence,
             )
         ]
 
-    return [_none_candidate()]
+    return [_none_candidate(title, key)]
