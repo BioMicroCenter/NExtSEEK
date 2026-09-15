@@ -50,6 +50,12 @@ def test_intergenic_pct_uses_widest_window_only_not_sum_of_nested_windows():
     # wider window CONTAINS the narrower one's reads. Summing every group
     # whose name starts with TSS_up_/TES_down_ (the naive rule) triple-counts
     # the innermost reads. Only the widest window per side is real.
+    #
+    # No "Total Assigned Tags" header here, so the denominator falls back to
+    # summing the six NON-NESTED groups (CDS_Exons, 5'UTR_Exons, 3'UTR_Exons,
+    # Introns, TSS_up_10kb, TES_down_10kb) -- not every Group row, which
+    # would double/triple-count the narrower nested windows into the
+    # denominator too.
     text = (
         "Total Reads                   1000000\n"
         "Group               Total_bases   Tag_count   Tags/Kb\n"
@@ -66,8 +72,7 @@ def test_intergenic_pct_uses_widest_window_only_not_sum_of_nested_windows():
     )
     dist = derived.parse_read_distribution(text)
 
-    total = (600000 + 50000 + 50000 + 100000
-              + 39621 + 125048 + 198592 + 116078 + 243536 + 333881)
+    total = 600000 + 50000 + 50000 + 100000 + 198592 + 333881
     sum_everything = 39621 + 125048 + 198592 + 116078 + 243536 + 333881
     widest_only = 198592 + 333881
 
@@ -78,6 +83,45 @@ def test_intergenic_pct_uses_widest_window_only_not_sum_of_nested_windows():
     assert dist["intergenic_pct"] != buggy_pct
 
 
+def test_total_assigned_tags_header_overrides_naive_group_sum():
+    # No @needs_fixture: this is inline text, so it runs in CI. It pins that
+    # the "Total Assigned Tags" header value is used verbatim as the
+    # denominator, even though it disagrees with both the naive sum of every
+    # Group row (which double/triple-counts the nested TSS_up_*/TES_down_*
+    # windows) and the six-non-nested-groups fallback sum (which the header
+    # normally equals by construction -- deliberately violated here to prove
+    # it is the header that wins, not either sum).
+    text = (
+        "Total Reads                   900000\n"
+        "Total Tags                    900000\n"
+        "Total Assigned Tags           500000\n"
+        "=====================================\n"
+        "Group               Total_bases   Tag_count   Tags/Kb\n"
+        "CDS_Exons           100           300000      1.0\n"
+        "5'UTR_Exons         10            20000       1.0\n"
+        "3'UTR_Exons         10            20000       1.0\n"
+        "Introns             50            40000       1.0\n"
+        "TSS_up_1kb          10            5000        1.0\n"
+        "TSS_up_5kb          10            15000       1.0\n"
+        "TSS_up_10kb         10            20000       1.0\n"
+        "TES_down_1kb        10            8000        1.0\n"
+        "TES_down_5kb        10            18000       1.0\n"
+        "TES_down_10kb       10            20000       1.0\n"
+    )
+    dist = derived.parse_read_distribution(text)
+
+    header_total = 500000
+    six_group_total = 300000 + 20000 + 20000 + 40000 + 20000 + 20000  # 420000
+    all_rows_total = (300000 + 20000 + 20000 + 40000
+                       + 5000 + 15000 + 20000 + 8000 + 18000 + 20000)  # 466000
+    assert header_total != six_group_total
+    assert header_total != all_rows_total
+
+    assert dist["cds_pct"] == round(300000 / header_total * 100, 4)
+    assert dist["cds_pct"] != round(300000 / six_group_total * 100, 4)
+    assert dist["cds_pct"] != round(300000 / all_rows_total * 100, 4)
+
+
 @needs_fixture
 def test_parse_read_distribution_reads_the_real_fixture():
     text = (FIXTURE / "star_salmon" / "rseqc" / "read_distribution"
@@ -86,13 +130,46 @@ def test_parse_read_distribution_reads_the_real_fixture():
 
     # Hand-tallied straight from the file's own Tag_count column, so this
     # cross-checks the parser against the real numbers rather than a
-    # separately-guessed expectation.
-    total = (33590473 + 649712 + 9042771 + 3551566
-             + 39621 + 125048 + 198592 + 116078 + 243536 + 333881)
+    # separately-guessed expectation. The denominator is the file's own
+    # "Total Assigned Tags" header (47366995), NOT sum(tags.values()) --
+    # see the _TOTAL_ASSIGNED_TAGS_LINE comment in derived.py. The six
+    # non-nested groups below sum to exactly the header value, confirming
+    # the header and the fallback agree on this real fixture.
+    total = (33590473 + 649712 + 9042771 + 3551566 + 198592 + 333881)
+    assert total == 47366995
     assert dist["cds_pct"] == round(33590473 / total * 100, 4)
     assert dist["utr_pct"] == round((649712 + 9042771) / total * 100, 4)
     assert dist["intron_pct"] == round(3551566 / total * 100, 4)
     assert dist["intergenic_pct"] == round((198592 + 333881) / total * 100, 4)
+
+
+@needs_fixture
+def test_read_distribution_percentages_sum_to_100_on_real_fixture():
+    # Regression test for the denominator bug: the numerator fix (widest
+    # intergenic window only) landed while the denominator still summed
+    # every Group row, including the narrower nested TSS_up_1kb/5kb and
+    # TES_down_1kb/5kb rows that are CONTAINED within the 10kb windows. That
+    # double/triple-counted denominator deflates all four percentages, not
+    # just intergenic_pct -- under it the four sum to roughly 98.9, not 100.
+    # This test pins the correct denominator (the real fixture's own
+    # "Total Assigned Tags" header, 47366995) and must fail before the
+    # fix and pass after it.
+    text = (FIXTURE / "star_salmon" / "rseqc" / "read_distribution"
+            / "CONTROL_REP1.read_distribution.txt").read_text()
+    dist = derived.parse_read_distribution(text)
+
+    denominator = 47366995
+    expected = {
+        "cds_pct": round(33590473 / denominator * 100, 4),
+        "utr_pct": round((649712 + 9042771) / denominator * 100, 4),
+        "intron_pct": round(3551566 / denominator * 100, 4),
+        "intergenic_pct": round((198592 + 333881) / denominator * 100, 4),
+    }
+    for key, value in expected.items():
+        assert dist[key] == value
+
+    total_pct = sum(dist[key] for key in expected)
+    assert abs(total_pct - 100.0) < 0.01
 
 
 def test_parse_infer_experiment_maps_strand_patterns_to_forward_reverse():

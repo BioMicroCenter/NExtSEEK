@@ -46,6 +46,26 @@ _GROUP_ROW = re.compile(r"^(\S+)\s+\d+\s+(\d+)\s")
 # test_intergenic_pct_uses_widest_window_only_not_sum_of_nested_windows.
 _INTERGENIC_GROUPS = ("TSS_up_10kb", "TES_down_10kb")
 
+# The denominator must NOT be sum(tags.values()): that sums every Group row,
+# including the narrower TSS_up_1kb/TSS_up_5kb/TES_down_1kb/TES_down_5kb rows
+# that are nested INSIDE TSS_up_10kb/TES_down_10kb (see _INTERGENIC_GROUPS
+# above). Those narrower windows' reads are already counted once inside the
+# 10kb window, so summing every row double- and triple-counts them and
+# deflates all four percentages, not just intergenic_pct. RSeQC's own header
+# line "Total Assigned Tags" is the authoritative total (confirmed against
+# the real CONTROL_REP1 fixture: the six NON-NESTED groups -- CDS_Exons,
+# 5'UTR_Exons, 3'UTR_Exons, Introns, TSS_up_10kb, TES_down_10kb -- sum to
+# exactly that header value). Fall back to summing those six groups only
+# when the header line is missing; they equal "Total Assigned Tags" by
+# construction, so the fallback is not a separate policy, just the same
+# number computed a different way.
+# Do NOT "simplify" this back to sum(tags.values()) -- see
+# test_total_assigned_tags_header_overrides_naive_group_sum in
+# test_derived.py.
+_TOTAL_ASSIGNED_TAGS_LINE = re.compile(r"^Total Assigned Tags\s+(\d+)")
+_NON_NESTED_GROUPS = ("CDS_Exons", "5'UTR_Exons", "3'UTR_Exons", "Introns",
+                      "TSS_up_10kb", "TES_down_10kb")
+
 # infer_experiment.txt's two "explained by" lines are labelled with RSeQC's
 # strand-pattern strings, not the words "forward"/"reverse".
 _FORWARD_PATTERN = "1++,1--,2+-,2-+"
@@ -61,13 +81,24 @@ def parse_read_distribution(text: str) -> dict[str, float]:
     Intergenic is TSS_up_10kb + TES_down_10kb, the widest window on each
     side -- see the _INTERGENIC_GROUPS comment above for why the narrower
     nested windows are excluded.
+    The denominator is the "Total Assigned Tags" header value, not a sum of
+    every Group row -- see the _TOTAL_ASSIGNED_TAGS_LINE comment above.
     """
     tags: dict[str, int] = {}
+    total_assigned_tags: int | None = None
     for line in text.splitlines():
-        match = _GROUP_ROW.match(line.strip())
+        stripped = line.strip()
+        header_match = _TOTAL_ASSIGNED_TAGS_LINE.match(stripped)
+        if header_match:
+            total_assigned_tags = int(header_match.group(1))
+            continue
+        match = _GROUP_ROW.match(stripped)
         if match:
             tags[match.group(1)] = int(match.group(2))
-    total = sum(tags.values())
+
+    if total_assigned_tags is None:
+        total_assigned_tags = sum(tags.get(group, 0) for group in _NON_NESTED_GROUPS)
+    total = total_assigned_tags
     if not total:
         return {}
 
