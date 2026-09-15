@@ -342,3 +342,42 @@ class CCSessionTranscript(models.Model):
         app_label = "nextseek_api"
         unique_together = (("chat_session", "cc_session_id", "turn_id"),)
         ordering = ["-created_at"]
+
+
+class PipelineRun(models.Model):
+    """What Nessie launched, and which D.SEQ samples went into it.
+
+    Reingest's primary source for sample -> UID. Without this the only way back
+    is matching fastq paths against D.SEQ records, which cannot distinguish a
+    sample that was never registered from one whose path was stored differently.
+
+    `cohort` is a list of {d_seq_uid, nfcore_sample, fastq_1, fastq_2}. It is
+    JSON rather than a related table because it is written once at launch and
+    only ever read whole.
+    """
+
+    run_dir = models.CharField(max_length=1024, unique=True)
+    run_name = models.CharField(max_length=255)
+    slurm_job_id = models.CharField(max_length=64, blank=True, default="")
+    pipeline = models.CharField(max_length=255)
+    revision = models.CharField(max_length=64, blank=True, default="")
+    params_digest = models.CharField(max_length=64, blank=True, default="")
+    launched_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+        related_name="pipeline_runs",
+    )
+    launched_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=32, default="submitted")
+    cohort = models.JSONField(default=list)
+
+    class Meta:
+        db_table = "assistant_pipeline_run"
+        app_label = "nextseek_api"
+        ordering = ["-launched_at"]
+
+    def uid_for(self, nfcore_sample: str) -> str | None:
+        """The D.SEQ UID this run's samplesheet row came from, or None."""
+        for entry in self.cohort or []:
+            if entry.get("nfcore_sample") == nfcore_sample:
+                return entry.get("d_seq_uid") or None
+        return None
