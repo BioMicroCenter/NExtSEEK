@@ -1,15 +1,20 @@
-"""Write graph schema v1.1 to Neo4j (docs/neo4j-schema.md, section "v1.1"; the design, section 6).
+"""Write graph schema v1.2 to Neo4j (docs/neo4j-schema.md, sections "v1.1" and "v1.2"; the POC design, section 6;
+the sync design, sections 6, 7.3 and 9).
 
 Every function takes ``(driver, db, ...)``, sends statements from ``cypher.py`` through ``driver.execute_query`` with
-bound parameters, retries transient errors with batch upload's ``_retry``, and returns a counts dict (the index budget
-returns the names of its indexes). Nothing here reads MySQL: ``run.py`` (G5) reads the sources, projects the rows and
-calls these in the design's order:
+bound parameters, retries transient errors with ``_retry``, and returns a counts dict (the index budget returns the
+names of its indexes). Nothing here reads MySQL: ``run.py`` (G5) reads the sources, projects the rows and calls these
+in the design's order:
 
     find_ghosts > delete_ghosts > relabel_orphans > archive_and_drop_child_of > ensure_constraints_v11 >
     write_sample_types > write_attributes > write_projects > write_people_and_memberships >
     write_investigation_projects > write_samples (per chunk) > write_missing_lineage >
     archive_and_drop_undeclared_derived_from > write_seek_studies > write_attribute_counts >
     write_sample_type_counts > ensure_index_budget > ensure_fulltext > await_indexes > write_graphmeta
+
+Schema 1.2 adds what the by-id syncs need: ``retire_samples`` (the deletion rule), ``edges_incident`` and
+``write_edge_labels`` (DERIVED_FROM labels, new ones only unless the operator approves changes),
+``archive_and_drop_undeclared_for_children``, ``sample_hashes`` (the ``(id, source_hash)`` stream) and ``graphmeta``.
 
 Writes fail loudly: a schema statement that Neo4j refuses raises, and so does a catalog that would clash with the
 graph. Shortfalls the graph can explain (a type, project or endpoint node that is missing) are counted, not raised,
@@ -20,13 +25,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import time
 from collections import Counter, defaultdict
-from typing import Iterable, Iterator
+from typing import Callable, Iterable, Iterator
 
 from neo4j import RoutingControl
+from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 
-from nextseek_api.batch_upload.neo4j_sync import _retry
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.catalog import role_for
 from nextseek_api.graph_sync.projection import SampleProjection, label_for
@@ -34,13 +40,23 @@ from nextseek_api.graph_sync.projection import SampleProjection, label_for
 log = logging.getLogger(__name__)
 
 # Written to GraphMeta.schema_version; bumped with docs/neo4j-schema.md in the same commit.
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
 SAMPLE_CHUNK = 5_000          # samples per write transaction (the design's default)
 REL_CHUNK = 10_000            # relationship rows per write transaction
+HASH_PAGE = 100_000           # (id, source_hash) rows per read page
 CHILD_OF_DELETE_BATCH = 50_000
 DERIVED_FROM_DELETE_BATCH = 10_000
 DERIVED_FROM_ARCHIVE_HEADER = "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops\n"
+RETIRED_ARCHIVE_HEADER = "id\tuuid\ttype\tincident_edges\n"
+
+# The seven DERIVED_FROM label properties, always written together (cypher.EDGE_LABEL_KEYS).
+EDGE_LABEL_KEYS = q.EDGE_LABEL_KEYS
+PLURAL_LABEL_KEYS = ("internal_assay_ids", "internal_assay_titles")
+GRAPHMETA_KEYS = ("schema_version", "catalog_hash", "label_maps_hash", "synced_at")
+
+_INT64_MIN = -(2 ** 63)  # below every Sample id, the first keyset bound
+_TRANSIENT_ERRORS = (TransientError, ServiceUnavailable, SessionExpired)
 
 # The index budget (design, "Technical defaults").
 INDEX_MIN_SAMPLES = 1_000
@@ -50,6 +66,22 @@ NEVER_INDEXED_ROLES = frozenset({"lineage", "file"})
 
 
 # --- plumbing ------------------------------------------------------------------------------------
+
+def _retry(fn: Callable, attempts: int = 3, backoff_base: float = 0.5):
+    """Call ``fn``, retrying a transient Neo4j error (a deadlock, a lost connection) with exponential backoff and
+    jitter. Any other error, and the last attempt's, is raised."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except _TRANSIENT_ERRORS as exc:
+            if attempt == attempts:
+                raise
+            delay = backoff_base * (2 ** (attempt - 1))
+            delay += random.uniform(0, delay * 0.3)
+            log.warning("Neo4j transient error (attempt %d/%d), retrying in %.1f s: %s", attempt, attempts, delay,
+                        exc)
+            time.sleep(delay)
+
 
 def _run(driver, db, query, params=None, *, read=False, transformer=None):
     kwargs = {"database_": db}
@@ -91,9 +123,26 @@ def _batches(items: Iterable, size: int) -> Iterator[list]:
         yield batch
 
 
+def _id_key(value) -> tuple:
+    """A sort key for ids that legacy nodes may mix with other types, or leave null."""
+    return (type(value).__name__, "" if value is None else value)
+
+
 def _sorted_ids(ids) -> list:
     """Ids sorted even when legacy nodes mix ints with other types."""
-    return sorted(ids, key=lambda v: (type(v).__name__, v))
+    return sorted(ids, key=_id_key)
+
+
+def _append_rows(path: str, header: str, lines: list[str]) -> None:
+    """Append ``lines`` to the TSV at ``path``, the header first when the file is new or empty, and flush them to
+    disk, so an archive is complete before the delete it precedes. Raises OSError when it cannot be written."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "a", encoding="utf-8", newline="") as fh:
+        if fh.tell() == 0:
+            fh.write(header)
+        fh.writelines(lines)
+        fh.flush()
+        os.fsync(fh.fileno())
 
 
 # --- ghosts, orphans and CHILD_OF ----------------------------------------------------------------
@@ -147,9 +196,12 @@ def delete_ghosts(driver, db, element_ids) -> dict:
 
 
 def relabel_orphans(driver, db, ids, element_ids=()) -> dict:
-    """Swap ``:Sample`` for ``:OrphanSample`` on graph-only nodes, keeping their properties and edges.
+    """Turn graph-only nodes graph_sync never wrote into ``:OrphanSample`` (``cypher.ORPHAN_SWAP``, the deletion
+    rule's second half): ``:Sample``, every ``T_`` label, OF_TYPE and IN_PROJECT go, ``orphaned_at`` is set, the
+    properties and DERIVED_FROM stay.
 
-    ``ids`` are Sample ids not in MySQL; ``element_ids`` are Sample nodes with no id at all.
+    ``ids`` are Sample ids not in MySQL; ``element_ids`` are Sample nodes with no id at all. A node carrying
+    ``synced_at`` is left as it is: it mirrors a deleted row, and ``retire_samples`` archives and deletes it.
     """
     relabeled = 0
     for batch in _batches(ids, REL_CHUNK):
@@ -157,6 +209,45 @@ def relabel_orphans(driver, db, ids, element_ids=()) -> dict:
     for batch in _batches(element_ids, REL_CHUNK):
         relabeled += _one(_run(driver, db, q.RELABEL_ORPHANS_BY_ELEMENT_ID, {"element_ids": batch}), "n")
     return {"orphans_relabeled": relabeled}
+
+
+def retire_samples(driver, db, ids, archive_path) -> dict:
+    """Apply the deletion rule (the sync design, section 9) to Sample ids MySQL no longer holds.
+
+    - A ``:Sample`` graph_sync wrote (it carries ``synced_at``) mirrors a row that is gone: its id, uuid, type and
+      incident-edge count are appended to ``archive_path`` (the run's ``retired.tsv``, header
+      ``RETIRED_ARCHIVE_HEADER``, fields escaped as in the lineage archive) and flushed, and only then is it DETACH
+      DELETEd.
+    - A ``:Sample`` graph_sync never wrote becomes an ``:OrphanSample`` through the statement ``relabel_orphans``
+      uses (``cypher.ORPHAN_SWAP``).
+    - An id with no ``:Sample`` node (retired already, or an existing ``:OrphanSample``, which stays as it is) is
+      counted in ``retire_not_found``.
+
+    The caller passes only ids MySQL lacks; nothing here reads MySQL. ``archive_path`` may be None only when no node
+    has to be deleted: a delete with nowhere to archive raises ValueError, and an archive that cannot be written
+    raises OSError, both before anything is written to the graph.
+    """
+    wanted = list(dict.fromkeys(ids))
+    found = []
+    for batch in _batches(wanted, REL_CHUNK):
+        found.extend(_records(_run(driver, db, q.RETIRE_CANDIDATES, {"ids": batch}, read=True)))
+    synced = [r for r in found if r["synced"]]
+    never_synced = [r["element_id"] for r in found if not r["synced"]]
+    deleted = orphaned = 0
+    if synced:
+        if not archive_path:
+            raise ValueError(f"{len(synced)} synced samples to retire and no archive path to record them in")
+        _append_rows(archive_path, RETIRED_ARCHIVE_HEADER,
+                     ["\t".join(_tsv_field(r[k]) for k in ("id", "uuid", "type", "incident_edges")) + "\n"
+                      for r in synced])
+        for batch in _batches([r["element_id"] for r in synced], REL_CHUNK):
+            deleted += _one(_run(driver, db, q.DELETE_RETIRED, {"element_ids": batch}), "n")
+        log.info("retire: archived and deleted %d synced samples (%s)", deleted, archive_path)
+    for batch in _batches(never_synced, REL_CHUNK):
+        orphaned += _one(_run(driver, db, q.RELABEL_ORPHANS_BY_ELEMENT_ID, {"element_ids": batch}), "n")
+    return {"retire_requested": len(wanted), "retired_deleted": deleted, "retired_orphaned": orphaned,
+            "retire_not_found": len(wanted) - len({r["id"] for r in found}),
+            "retired_archive_path": archive_path if synced else None}
 
 
 def archive_and_drop_child_of(driver, db, out_path: str, declared_pairs: set[tuple[str, str]]) -> dict:
@@ -453,6 +544,13 @@ def _is_declared(declared_pairs, child, parent) -> bool:
         return False
 
 
+def _archive_line(record) -> str:
+    """One lineage archive row (``DERIVED_FROM_ARCHIVE_HEADER``) for a streamed edge record."""
+    return "\t".join((_tsv_field(record["child_id"]), _tsv_field(record["parent_id"]),
+                      _tsv_field(record["child_uuid"]), _tsv_field(record["parent_uuid"]),
+                      _props_json(record["props"]))) + "\n"
+
+
 def archive_and_drop_undeclared_derived_from(driver, db, out_path: str, declared_pairs) -> dict:
     """Archive to a TSV, then delete, every DERIVED_FROM between two Sample nodes that MySQL does not declare.
 
@@ -477,8 +575,7 @@ def archive_and_drop_undeclared_derived_from(driver, db, out_path: str, declared
                 child, parent = record["child_id"], record["parent_id"]
                 if _is_declared(declared_pairs, child, parent):
                     continue
-                fh.write("\t".join((_tsv_field(child), _tsv_field(parent), _tsv_field(record["child_uuid"]),
-                                    _tsv_field(record["parent_uuid"]), _props_json(record["props"]))) + "\n")
+                fh.write(_archive_line(record))
                 undeclared.append(record["element_id"])
         return edges, undeclared
 
@@ -502,6 +599,144 @@ def archive_and_drop_undeclared_derived_from(driver, db, out_path: str, declared
         log.warning("DERIVED_FROM: %d undeclared edges archived but %d deleted", len(element_ids), deleted)
     return {"derived_from_between_samples": edges, "derived_from_undeclared": len(element_ids),
             "derived_from_deleted": deleted, "derived_from_archive_path": out_path}
+
+
+def archive_and_drop_undeclared_for_children(driver, db, child_ids, declared_pairs, archive_path) -> dict:
+    """The lineage step of a by-id sync: archive, then delete, every DERIVED_FROM from one of ``child_ids`` to a
+    Sample parent that MySQL does not declare.
+
+    ``declared_pairs`` answers ``(child id, parent id) in declared_pairs`` as for
+    ``archive_and_drop_undeclared_derived_from``, whose row format this shares. Rows are collected per chunk of
+    children and appended to ``archive_path`` (header on a new file) and flushed before the first delete, so a run
+    that calls this once per chunk keeps one archive. An edge to an OrphanSample is never read or deleted. With
+    nothing undeclared no file is touched; with something undeclared and no ``archive_path`` it raises ValueError,
+    and an archive that cannot be written raises OSError, both before any delete.
+    """
+    def collect(result):
+        edges, lines, element_ids = 0, [], []  # built here, so a retried read starts clean
+        for record in result:
+            edges += 1
+            if _is_declared(declared_pairs, record["child_id"], record["parent_id"]):
+                continue
+            lines.append(_archive_line(record))
+            element_ids.append(record["element_id"])
+        return edges, lines, element_ids
+
+    edges, lines, element_ids = 0, [], []
+    for batch in _batches(dict.fromkeys(child_ids), REL_CHUNK):
+        n, batch_lines, batch_ids = _run(driver, db, q.DERIVED_FROM_OF_CHILDREN, {"ids": batch}, read=True,
+                                         transformer=collect)
+        edges += n
+        lines.extend(batch_lines)
+        element_ids.extend(batch_ids)
+    if not element_ids:
+        return {"derived_from_of_children": edges, "derived_from_undeclared": 0, "derived_from_deleted": 0,
+                "derived_from_archive_path": None}
+    if not archive_path:
+        raise ValueError(f"{len(element_ids)} undeclared DERIVED_FROM edges and no archive path to record them in")
+    _append_rows(archive_path, DERIVED_FROM_ARCHIVE_HEADER, lines)
+    deleted = 0
+    for batch in _batches(element_ids, DERIVED_FROM_DELETE_BATCH):
+        deleted += _one(_run(driver, db, q.DELETE_UNDECLARED_DERIVED_FROM, {"element_ids": batch}), "deleted")
+    if deleted != len(element_ids):
+        log.warning("DERIVED_FROM: %d undeclared edges of children archived but %d deleted", len(element_ids),
+                    deleted)
+    return {"derived_from_of_children": edges, "derived_from_undeclared": len(element_ids),
+            "derived_from_deleted": deleted, "derived_from_archive_path": archive_path}
+
+
+# --- DERIVED_FROM labels (schema 1.2) -------------------------------------------------------------
+
+def edges_incident(driver, db, ids) -> list[dict]:
+    """Every DERIVED_FROM between two Sample nodes with an end among ``ids``, both directions, once each. Read-only.
+
+    Each edge is ``{"child_id", "parent_id", "element_id", "stored"}``, where ``stored`` holds all seven
+    ``EDGE_LABEL_KEYS`` (None when absent): what ``labels.classify`` compares, and what an approved
+    ``write_edge_labels`` row carries back as ``stored``. Sorted by child id, parent id, element id.
+    """
+    edges: dict[str, dict] = {}
+    for batch in _batches(dict.fromkeys(ids), REL_CHUNK):
+        for record in _records(_run(driver, db, q.EDGES_INCIDENT, {"ids": batch}, read=True)):
+            stored = record["stored"] or {}
+            edges.setdefault(record["element_id"], {
+                "child_id": record["child_id"], "parent_id": record["parent_id"], "element_id": record["element_id"],
+                "stored": {key: stored.get(key) for key in EDGE_LABEL_KEYS}})
+    return sorted(edges.values(), key=lambda e: (_id_key(e["child_id"]), _id_key(e["parent_id"]), e["element_id"]))
+
+
+def _label_row(row: dict, apply_label_changes: bool) -> dict:
+    pair = (row["child_id"], row["parent_id"])
+    labels = row.get("labels") or {}
+    missing = [key for key in EDGE_LABEL_KEYS if key not in labels]
+    if missing:
+        raise ValueError(f"DERIVED_FROM {pair}: labels lack {', '.join(missing)}; all seven are written together")
+    clean = {key: labels[key] for key in EDGE_LABEL_KEYS}
+    for key in PLURAL_LABEL_KEYS:
+        if not isinstance(clean[key], (list, tuple)):
+            raise ValueError(f"DERIVED_FROM {pair}: {key} must be a list, got {clean[key]!r}")
+        clean[key] = list(clean[key])
+    out = {"child_id": row["child_id"], "parent_id": row["parent_id"], "labels": clean}
+    if apply_label_changes:
+        stored = row.get("stored")
+        if not isinstance(stored, dict) or any(key not in stored for key in EDGE_LABEL_KEYS):
+            raise ValueError(f"DERIVED_FROM {pair}: an approved label change needs the stored values read, "
+                             f"all seven keys")
+        out["stored"] = {key: stored[key] for key in EDGE_LABEL_KEYS}
+    return out
+
+
+def write_edge_labels(driver, db, rows, *, apply_label_changes: bool = False) -> dict:
+    """Write DERIVED_FROM labels: all seven ``EDGE_LABEL_KEYS`` together on each edge, never a subset, and drop the
+    legacy ``assay_title`` from each edge written.
+
+    ``rows`` are ``{"child_id", "parent_id", "labels"}``, ``labels`` holding every key of ``EDGE_LABEL_KEYS`` (None
+    for a null, lists for the two plural keys; ``labels.edge_labels`` produces them), plus ``stored`` (as
+    ``edges_incident`` returns it) when ``apply_label_changes`` is set. Every row is checked before anything is sent:
+    a missing key raises ValueError. A pair is sent once (the first row wins).
+
+    By default only new labels are written: the statement's own WHERE passes an edge only when its three singular
+    assay fields are all null, so a label written between the caller's read and this write is kept (R14). With
+    ``apply_label_changes`` (the operator's approval) any label is written, but only where all seven stored values
+    still equal ``stored``. Returns ``labels_rows`` (pairs sent), ``labels_written`` (edges written),
+    ``labels_skipped_labelled`` (default mode: edges already labelled), ``labels_skipped_changed`` (approved mode:
+    edges changed since the read) and ``labels_edges_missing`` (pairs with no edge between two Sample nodes).
+    """
+    payload: dict[tuple, dict] = {}
+    for row in rows:
+        checked = _label_row(row, apply_label_changes)
+        payload.setdefault((row["child_id"], row["parent_id"]), checked)
+    statement = q.WRITE_EDGE_LABELS_CHANGED if apply_label_changes else q.WRITE_EDGE_LABELS_NEW
+    matched = written = pairs = 0
+    for batch in _batches(payload.values(), REL_CHUNK):
+        result = _run(driver, db, statement, {"rows": batch})
+        matched += _one(result, "matched")
+        written += _one(result, "written")
+        pairs += _one(result, "pairs")
+    skipped = matched - written
+    return {"labels_rows": len(payload), "labels_written": written,
+            "labels_skipped_labelled": 0 if apply_label_changes else skipped,
+            "labels_skipped_changed": skipped if apply_label_changes else 0,
+            "labels_edges_missing": len(payload) - pairs}
+
+
+# --- source hashes -------------------------------------------------------------------------------
+
+def sample_hashes(driver, db) -> Iterator[tuple]:
+    """Yield ``(id, source_hash)`` for every Sample node, ordered by id; ``source_hash`` is None on a node written
+    before schema 1.2 or by anything but graph_sync. Read-only.
+
+    A generator over keyset pages of ``HASH_PAGE`` rows (``WHERE s.id > $after``), so memory holds one page however
+    large the graph; the nightly targeted sync merges it with MySQL's own ordered stream. Only numeric ids are
+    streamed: a legacy node with any other id is the full sync's.
+    """
+    limit, after = HASH_PAGE, _INT64_MIN
+    while True:
+        rows = _records(_run(driver, db, q.SAMPLE_HASHES_PAGE, {"after": after, "limit": limit}, read=True))
+        for row in rows:
+            yield row["id"], row["source_hash"]
+        if len(rows) < limit:
+            return
+        after = rows[-1]["id"]
 
 
 def write_seek_studies(driver, db, links: list[dict]) -> dict:
@@ -536,7 +771,27 @@ def write_seek_studies(driver, db, links: list[dict]) -> dict:
 
 # --- GraphMeta -----------------------------------------------------------------------------------
 
-def write_graphmeta(driver, db, catalog_hash: str) -> dict:
-    """Stamp the single GraphMeta node with the schema version, the catalog hash and ``synced_at``."""
-    _run(driver, db, q.WRITE_GRAPHMETA, {"schema_version": SCHEMA_VERSION, "catalog_hash": catalog_hash})
-    return {"schema_version": SCHEMA_VERSION, "catalog_hash": catalog_hash}
+def write_graphmeta(driver, db, catalog_hash: str, label_maps_hash: str | None = None) -> dict:
+    """Stamp the single GraphMeta node with the schema version, the catalog hash and ``synced_at``, and with
+    ``label_maps_hash`` (a digest of the resolved assay map and ``sops``) when one is given. Without it the node keeps
+    the ``label_maps_hash`` it has."""
+    if label_maps_hash is None:
+        _run(driver, db, q.WRITE_GRAPHMETA, {"schema_version": SCHEMA_VERSION, "catalog_hash": catalog_hash})
+        return {"schema_version": SCHEMA_VERSION, "catalog_hash": catalog_hash}
+    params = {"schema_version": SCHEMA_VERSION, "catalog_hash": catalog_hash, "label_maps_hash": label_maps_hash}
+    _run(driver, db, q.WRITE_GRAPHMETA_WITH_LABEL_MAPS, params)
+    return dict(params)
+
+
+def graphmeta(driver, db) -> dict:
+    """Read the GraphMeta node: ``nodes`` (how many there are) and each of ``GRAPHMETA_KEYS``, None when absent
+    (``synced_at`` as ISO text). A graph with no GraphMeta node, or with several, reads as having no values, so a
+    caller that compares ``schema_version`` with ``SCHEMA_VERSION`` refuses it. Read-only."""
+    records = _records(_run(driver, db, q.READ_GRAPHMETA, read=True))
+    props = dict(records[0]["props"] or {}) if len(records) == 1 else {}
+    meta = {"nodes": len(records)}
+    for key in GRAPHMETA_KEYS:
+        value = props.get(key)
+        iso_format = getattr(value, "iso_format", None)
+        meta[key] = iso_format() if callable(iso_format) else value
+    return meta

@@ -1,10 +1,13 @@
-"""The Neo4j writer for graph schema v1.1 (nextseek_api/graph_sync/writer.py, cypher.py).
+"""The Neo4j writer for graph schema v1.2 (nextseek_api/graph_sync/writer.py, cypher.py).
 
 A fake driver records every ``execute_query`` call; no Neo4j is needed.
 """
+import ast
 import hashlib
+import inspect
 import json
 import os
+import re
 from datetime import date
 from types import SimpleNamespace
 
@@ -59,6 +62,15 @@ def test_write_samples_statement_replaces_properties_and_labels():
     assert "SET s:$(r.label)" in q.WRITE_SAMPLES
     assert "REMOVE s:$(stale)" in q.WRITE_SAMPLES
     assert "MATCH (s)-[o:OF_TYPE|IN_PROJECT]->() DELETE o" in q.WRITE_SAMPLES
+
+
+def test_write_samples_takes_the_parent_lists_from_the_props_when_present():
+    # Schema 1.2: the projection owns the parent lists; a node written without them keeps the node's own
+    for key, alias in (("parent_titles", "pt"), ("parent_title_hashes", "pth")):
+        pattern = rf"CASE WHEN '{key}' IN keys\(r\.props\) THEN r\.props\.{key}\s+ELSE s\.{key} END AS {alias}\b"
+        assert re.search(pattern, q.WRITE_SAMPLES), key
+    # the lists are read before the replace, so the node's own values are still there to keep
+    assert q.WRITE_SAMPLES.index("AS pth") < q.WRITE_SAMPLES.index("SET s = r.props")
 
 
 def test_constraints_are_the_v11_set():
@@ -682,12 +694,67 @@ def test_write_sample_type_counts():
     assert driver.queries() == [q.SET_SAMPLE_TYPE_COUNTS]
 
 
+def test_the_schema_version_is_1_2():
+    assert w.SCHEMA_VERSION == "1.2"
+
+
 def test_write_graphmeta_stamps_the_schema_version():
     driver = FakeDriver()
-    assert w.write_graphmeta(driver, "neo4j", "abc") == {"schema_version": "1.1", "catalog_hash": "abc"}
+    assert w.write_graphmeta(driver, "neo4j", "abc") == {"schema_version": "1.2", "catalog_hash": "abc"}
     (call,) = driver.calls
     assert call.query == q.WRITE_GRAPHMETA
-    assert call.params == {"schema_version": "1.1", "catalog_hash": "abc"}
+    assert call.params == {"schema_version": "1.2", "catalog_hash": "abc"}
+
+
+def test_write_graphmeta_without_label_maps_hash_keeps_the_stored_one():
+    # SET of named properties, never a replace of the map, so a label_maps_hash written earlier survives a catalog sync
+    assert "label_maps_hash" not in q.WRITE_GRAPHMETA
+    assert "SET m =" not in q.WRITE_GRAPHMETA and "SET m +=" not in q.WRITE_GRAPHMETA
+
+
+def test_write_graphmeta_with_label_maps_hash():
+    driver = FakeDriver()
+    counts = w.write_graphmeta(driver, "neo4j", "abc", label_maps_hash="def")
+    assert counts == {"schema_version": "1.2", "catalog_hash": "abc", "label_maps_hash": "def"}
+    (call,) = driver.calls
+    assert call.query == q.WRITE_GRAPHMETA_WITH_LABEL_MAPS
+    assert call.params == {"schema_version": "1.2", "catalog_hash": "abc", "label_maps_hash": "def"}
+    assert "m.label_maps_hash = $label_maps_hash" in q.WRITE_GRAPHMETA_WITH_LABEL_MAPS
+    assert "m.schema_version = $schema_version, m.catalog_hash = $catalog_hash" in q.WRITE_GRAPHMETA_WITH_LABEL_MAPS
+
+
+def test_graphmeta_reads_the_single_node():
+    from neo4j import RoutingControl
+
+    props = {"schema_version": "1.2", "catalog_hash": "abc", "label_maps_hash": "def", "synced_at": "t"}
+    driver = FakeDriver(lambda query, params: [{"props": props}] if query == q.READ_GRAPHMETA else [])
+    meta = w.graphmeta(driver, "neo4j")
+    assert meta == {"nodes": 1, "schema_version": "1.2", "catalog_hash": "abc", "label_maps_hash": "def",
+                    "synced_at": "t"}
+    (call,) = driver.calls
+    assert call.kwargs.get("routing_") == RoutingControl.READ
+
+
+def test_graphmeta_of_a_v11_graph_has_no_label_maps_hash():
+    driver = FakeDriver(lambda query, params: [{"props": {"schema_version": "1.1", "catalog_hash": "abc"}}])
+    meta = w.graphmeta(driver, "neo4j")
+    assert meta["schema_version"] == "1.1" and meta["label_maps_hash"] is None and meta["synced_at"] is None
+
+
+@pytest.mark.parametrize("records", [[], [{"props": {"schema_version": "1.2"}}, {"props": {"schema_version": "1.2"}}]])
+def test_graphmeta_with_no_or_several_nodes_reads_as_no_version(records):
+    meta = w.graphmeta(FakeDriver(lambda query, params: records), "neo4j")
+    assert meta == {"nodes": len(records), "schema_version": None, "catalog_hash": None, "label_maps_hash": None,
+                    "synced_at": None}
+
+
+def test_graphmeta_turns_a_temporal_synced_at_into_iso_text():
+    class Stamp:
+        def iso_format(self):
+            return "2026-09-15T02:00:00Z"
+
+    driver = FakeDriver(lambda query, params: [{"props": {"schema_version": "1.2", "synced_at": Stamp()}}])
+    assert w.graphmeta(driver, "neo4j")["synced_at"] == "2026-09-15T02:00:00Z"
 
 
 # --- retries -------------------------------------------------------------------------------------
@@ -695,9 +762,7 @@ def test_write_graphmeta_stamps_the_schema_version():
 def test_a_transient_error_is_retried(monkeypatch):
     from neo4j.exceptions import TransientError
 
-    from nextseek_api.batch_upload import neo4j_sync
-
-    monkeypatch.setattr(neo4j_sync.time, "sleep", lambda s: None)
+    monkeypatch.setattr(w.time, "sleep", lambda s: None)
     attempts = []
 
     def responder(query, params):
@@ -711,9 +776,590 @@ def test_a_transient_error_is_retried(monkeypatch):
     assert len(attempts) == 2
 
 
+def test_retry_gives_up_after_three_transient_errors(monkeypatch):
+    from neo4j.exceptions import ServiceUnavailable
+
+    slept = []
+    monkeypatch.setattr(w.time, "sleep", slept.append)
+    attempts = []
+
+    def fn():
+        attempts.append(1)
+        raise ServiceUnavailable("down")
+
+    with pytest.raises(ServiceUnavailable):
+        w._retry(fn)
+    assert len(attempts) == 3 and len(slept) == 2
+
+
+def test_retry_does_not_retry_a_permanent_error(monkeypatch):
+    monkeypatch.setattr(w.time, "sleep", lambda s: pytest.fail("slept on a permanent error"))
+    attempts = []
+
+    def fn():
+        attempts.append(1)
+        raise ValueError("syntax")
+
+    with pytest.raises(ValueError):
+        w._retry(fn)
+    assert attempts == [1]
+
+
+def test_the_writer_imports_nothing_from_batch_upload():
+    tree = ast.parse(inspect.getsource(w))
+    imported = [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
+    imported += [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
+    assert not [m for m in imported if m and "batch_upload" in m]
+    assert "_retry" in vars(w) and w._retry.__module__ == w.__name__
+
+
 def test_reads_are_routed_as_reads():
     driver = FakeDriver(lambda query, params: [{"n": 0}])
     w.archive_and_drop_child_of(driver, "neo4j", os.devnull, set())
     (call,) = driver.calls
     from neo4j import RoutingControl
     assert call.kwargs.get("routing_") == RoutingControl.READ
+
+
+# --- the deletion rule (schema 1.2; the sync design, section 9) -----------------------------------
+
+class RetireGraph:
+    """Sample nodes for the retire rule.
+
+    Answers the candidate read for ``:Sample`` nodes only, and applies the delete and the orphan swap as their
+    guards say: the delete only to a node carrying ``synced_at``, the swap only to one without. ``on_delete`` runs
+    before each delete is applied.
+    """
+
+    def __init__(self, on_delete=None):
+        self.nodes = {
+            "n1": {"labels": {"Sample", "T_TIS"}, "rels": {"OF_TYPE", "IN_PROJECT", "DERIVED_FROM"},
+                   "props": {"id": 1, "uuid": "TIS-1", "type": "TIS", "synced_at": "t"}, "edges": 3},
+            "n2": {"labels": {"Sample", "T_TIS", "T_OLD"},
+                   "rels": {"OF_TYPE", "IN_PROJECT", "DERIVED_FROM", "IN_STUDY"},
+                   "props": {"id": 2, "uuid": "OLD-2", "type": "TIS", "Organ": "Lung"}, "edges": 4},
+            "n4": {"labels": {"OrphanSample"}, "rels": {"DERIVED_FROM"}, "props": {"id": 4, "uuid": "OLD-4"},
+                   "edges": 1},
+            "n5": {"labels": {"Sample", "T_D_SEQ"}, "rels": set(),
+                   "props": {"id": 5, "uuid": "SEQ\t5", "type": "D.SEQ", "synced_at": "t"}, "edges": 0},
+        }
+        self.on_delete = on_delete
+        self.deleted = []
+
+    def __call__(self, query, params):
+        if query == q.RETIRE_CANDIDATES:
+            rows = []
+            for sid in params["ids"]:
+                for eid, node in sorted(self.nodes.items()):
+                    if "Sample" in node["labels"] and node["props"]["id"] == sid:
+                        rows.append({"element_id": eid, "id": sid, "uuid": node["props"]["uuid"],
+                                     "type": node["props"].get("type"), "synced": "synced_at" in node["props"],
+                                     "incident_edges": node["edges"]})
+            return rows
+        if query == q.DELETE_RETIRED:
+            if self.on_delete:
+                self.on_delete(params)
+            n = 0
+            for eid in params["element_ids"]:
+                node = self.nodes.get(eid)
+                if node and "Sample" in node["labels"] and "synced_at" in node["props"]:
+                    del self.nodes[eid]
+                    self.deleted.append(eid)
+                    n += 1
+            return [{"n": n}]
+        if query == q.RELABEL_ORPHANS_BY_ELEMENT_ID:
+            n = 0
+            for eid in params["element_ids"]:
+                node = self.nodes.get(eid)
+                if node and "Sample" in node["labels"] and "synced_at" not in node["props"]:
+                    node["labels"] = {"OrphanSample"} | {l for l in node["labels"]
+                                                        if l != "Sample" and not l.startswith("T_")}
+                    node["rels"] -= {"OF_TYPE", "IN_PROJECT"}
+                    node["props"]["orphaned_at"] = "now"
+                    n += 1
+            return [{"n": n}]
+        raise AssertionError(f"unexpected statement: {query}")
+
+
+def test_retire_statements_delete_a_synced_node_and_orphan_a_never_synced_one():
+    # the read sees only live Sample nodes; an OrphanSample is left as it is
+    assert "MATCH (s:Sample {id: id})" in q.RETIRE_CANDIDATES
+    assert "s.synced_at IS NOT NULL AS synced" in q.RETIRE_CANDIDATES
+    assert "COUNT { (s)--() } AS incident_edges" in q.RETIRE_CANDIDATES
+    # a node graph_sync wrote mirrors a row that is gone: deleted with its edges
+    assert "s.synced_at IS NOT NULL" in q.DELETE_RETIRED
+    assert "DETACH DELETE s" in q.DELETE_RETIRED
+    # a node graph_sync never wrote becomes an OrphanSample, by id or by element id, through one body
+    for statement in (q.RELABEL_ORPHANS, q.RELABEL_ORPHANS_BY_ELEMENT_ID):
+        assert statement.lstrip().startswith("CYPHER 25")
+        assert statement.rstrip().endswith(q.ORPHAN_SWAP.strip())
+        assert "s.synced_at IS NULL" in statement
+    assert "MATCH (s)-[o:OF_TYPE|IN_PROJECT]->() DELETE o" in q.ORPHAN_SWAP
+    assert "[l IN labels(s) WHERE l STARTS WITH 'T_']" in q.ORPHAN_SWAP
+    assert "REMOVE s:Sample" in q.ORPHAN_SWAP and "REMOVE s:$(types)" in q.ORPHAN_SWAP
+    assert "SET s:OrphanSample, s.orphaned_at = datetime()" in q.ORPHAN_SWAP
+    # properties and DERIVED_FROM stay on an orphan
+    assert "DERIVED_FROM" not in q.ORPHAN_SWAP and "DETACH" not in q.ORPHAN_SWAP and "SET s =" not in q.ORPHAN_SWAP
+
+
+def test_retire_deletes_the_synced_node_and_orphans_the_never_synced_one(tmp_path):
+    graph = RetireGraph()
+    archive = tmp_path / "runs" / "retired.tsv"
+    counts = w.retire_samples(FakeDriver(graph), "neo4j", [1, 2, 3, 4], str(archive))
+
+    assert graph.deleted == ["n1"]
+    assert graph.nodes["n2"]["labels"] == {"OrphanSample"}  # no Sample and no T_ label left
+    assert graph.nodes["n2"]["rels"] == {"DERIVED_FROM", "IN_STUDY"}
+    assert graph.nodes["n2"]["props"]["Organ"] == "Lung" and "orphaned_at" in graph.nodes["n2"]["props"]
+    assert graph.nodes["n4"]["labels"] == {"OrphanSample"} and "orphaned_at" not in graph.nodes["n4"]["props"]
+    assert counts == {"retire_requested": 4, "retired_deleted": 1, "retired_orphaned": 1, "retire_not_found": 2,
+                      "retired_archive_path": str(archive)}
+    assert archive.read_text(encoding="utf-8").splitlines() == ["id\tuuid\ttype\tincident_edges", "1\tTIS-1\tTIS\t3"]
+
+
+def test_retire_writes_the_archive_before_the_delete(tmp_path):
+    archive = tmp_path / "retired.tsv"
+    seen = []
+    graph = RetireGraph(on_delete=lambda params: seen.append(archive.exists() and archive.read_text()))
+    driver = FakeDriver(graph)
+    w.retire_samples(driver, "neo4j", [1, 5], str(archive))
+
+    queries = driver.queries()
+    assert queries.index(q.RETIRE_CANDIDATES) < queries.index(q.DELETE_RETIRED)
+    assert seen == ["id\tuuid\ttype\tincident_edges\n1\tTIS-1\tTIS\t3\n5\tSEQ\\t5\tD.SEQ\t0\n"]
+    assert sorted(graph.deleted) == ["n1", "n5"]
+
+
+def test_retire_appends_to_the_runs_archive(tmp_path):
+    archive = tmp_path / "retired.tsv"
+    w.retire_samples(FakeDriver(RetireGraph()), "neo4j", [1], str(archive))
+    w.retire_samples(FakeDriver(RetireGraph()), "neo4j", [5], str(archive))
+    assert archive.read_text().splitlines() == ["id\tuuid\ttype\tincident_edges", "1\tTIS-1\tTIS\t3",
+                                                "5\tSEQ\\t5\tD.SEQ\t0"]
+
+
+def test_retire_refuses_to_delete_when_the_archive_cannot_be_written(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+    graph = RetireGraph()
+    driver = FakeDriver(graph)
+    with pytest.raises(OSError):
+        w.retire_samples(driver, "neo4j", [1, 2], str(blocker / "sub" / "retired.tsv"))
+    assert q.DELETE_RETIRED not in driver.queries()
+    assert q.RELABEL_ORPHANS_BY_ELEMENT_ID not in driver.queries()
+    assert "n1" in graph.nodes
+
+
+def test_retire_refuses_to_delete_without_an_archive_path():
+    driver = FakeDriver(RetireGraph())
+    with pytest.raises(ValueError, match="archive"):
+        w.retire_samples(driver, "neo4j", [1], None)
+    assert q.DELETE_RETIRED not in driver.queries()
+
+
+def test_retire_of_never_synced_nodes_only_needs_no_archive():
+    graph = RetireGraph()
+    counts = w.retire_samples(FakeDriver(graph), "neo4j", [2], None)
+    assert counts["retired_orphaned"] == 1 and counts["retired_deleted"] == 0
+    assert counts["retired_archive_path"] is None
+
+
+def test_retire_with_nothing_sends_nothing(tmp_path):
+    driver = FakeDriver()
+    counts = w.retire_samples(driver, "neo4j", [], str(tmp_path / "retired.tsv"))
+    assert driver.calls == []
+    assert counts == {"retire_requested": 0, "retired_deleted": 0, "retired_orphaned": 0, "retire_not_found": 0,
+                      "retired_archive_path": None}
+    assert not (tmp_path / "retired.tsv").exists()
+
+
+def test_retire_reads_as_a_read_in_chunks(monkeypatch, tmp_path):
+    from neo4j import RoutingControl
+
+    monkeypatch.setattr(w, "REL_CHUNK", 2)
+    driver = FakeDriver(RetireGraph())
+    w.retire_samples(driver, "neo4j", [1, 2, 3, 2, 5], str(tmp_path / "retired.tsv"))
+    reads = driver.calls_of(q.RETIRE_CANDIDATES)
+    assert [c.params["ids"] for c in reads] == [[1, 2], [3, 5]]  # a repeated id is sent once
+    assert all(c.kwargs.get("routing_") == RoutingControl.READ for c in reads)
+    assert all("routing_" not in c.kwargs for c in driver.calls_of(q.DELETE_RETIRED))
+
+
+# --- undeclared DERIVED_FROM of given children -----------------------------------------------------
+
+class ChildLineageGraph(LineageGraph):
+    """``LineageGraph`` that also answers the per-child stream: each child's DERIVED_FROM to a Sample parent."""
+
+    def __call__(self, query, params):
+        if query == q.DERIVED_FROM_OF_CHILDREN:
+            rows = []
+            for eid in sorted(self.edges):
+                child, parent, props = self.edges[eid]
+                if not self._between_samples(eid) or self.nodes[child][1] not in params["ids"]:
+                    continue
+                rows.append({"child_id": self.nodes[child][1], "parent_id": self.nodes[parent][1],
+                             "child_uuid": self.nodes[child][2], "parent_uuid": self.nodes[parent][2],
+                             "props": dict(props), "element_id": eid})
+            return rows
+        return super().__call__(query, params)
+
+
+def test_children_statement_streams_only_their_edges_to_samples():
+    assert "UNWIND $ids AS id" in q.DERIVED_FROM_OF_CHILDREN
+    assert "MATCH (c:Sample {id: id})-[e:DERIVED_FROM]->(p:Sample)" in q.DERIVED_FROM_OF_CHILDREN
+    for key in ("child_id", "parent_id", "child_uuid", "parent_uuid", "props", "element_id"):
+        assert f" AS {key}" in q.DERIVED_FROM_OF_CHILDREN
+
+
+def test_children_archive_and_drop_only_their_undeclared_edges(tmp_path):
+    graph = ChildLineageGraph()
+    out = tmp_path / "runs" / "derived_from_undeclared_archive.tsv"
+    counts = w.archive_and_drop_undeclared_for_children(FakeDriver(graph), "neo4j", [11, 12], DECLARED, str(out))
+
+    assert sorted(graph.deleted) == ["e2", "e6"]  # e3 (child 70) is not theirs; e4 points at an orphan
+    assert sorted(graph.edges) == ["e1", "e3", "e4", "e5", "e7"]
+    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 2, "derived_from_deleted": 2,
+                      "derived_from_archive_path": str(out)}
+    assert out.read_text(encoding="utf-8").splitlines() == [
+        "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops",
+        '12\t10\tTIS-12\tTIS-10\t{"child_id": 12, "note": "stale", "parent_id": 10}',
+        f'11\t13\tD.SEQ-11\t{NBSP_UUID}\t{{"child_id": 11, "parent_id": 13}}',
+    ]
+
+
+def test_children_archive_is_written_before_any_delete(tmp_path):
+    out = tmp_path / "a.tsv"
+    seen = []
+    graph = ChildLineageGraph(on_delete=lambda params: seen.append(out.exists() and out.read_text().count("\n")))
+    driver = FakeDriver(graph)
+    w.archive_and_drop_undeclared_for_children(driver, "neo4j", [11, 12], DECLARED, str(out))
+    queries = driver.queries()
+    assert queries.index(q.DERIVED_FROM_OF_CHILDREN) < queries.index(q.DELETE_UNDECLARED_DERIVED_FROM)
+    assert seen == [3]  # header plus both rows, before the first delete
+
+
+def test_children_archive_appends_across_calls(tmp_path):
+    out = tmp_path / "a.tsv"
+    w.archive_and_drop_undeclared_for_children(FakeDriver(ChildLineageGraph()), "neo4j", [12], DECLARED, str(out))
+    w.archive_and_drop_undeclared_for_children(FakeDriver(ChildLineageGraph()), "neo4j", [11], DECLARED, str(out))
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops"
+    assert [line.split("\t")[:2] for line in lines[1:]] == [["12", "10"], ["11", "13"]]
+
+
+def test_children_with_nothing_undeclared_write_no_file_and_delete_nothing(tmp_path):
+    out = tmp_path / "a.tsv"
+    driver = FakeDriver(ChildLineageGraph())
+    counts = w.archive_and_drop_undeclared_for_children(driver, "neo4j", [11, 12],
+                                                        DECLARED | {(12, 10), (11, 13)}, str(out))
+    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 0, "derived_from_deleted": 0,
+                      "derived_from_archive_path": None}
+    assert not out.exists()
+    assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
+
+
+def test_children_refuse_to_delete_when_the_archive_cannot_be_written(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+    driver = FakeDriver(ChildLineageGraph())
+    with pytest.raises(OSError):
+        w.archive_and_drop_undeclared_for_children(driver, "neo4j", [11, 12], DECLARED,
+                                                   str(blocker / "sub" / "a.tsv"))
+    assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
+
+
+def test_children_refuse_to_delete_without_an_archive_path():
+    driver = FakeDriver(ChildLineageGraph())
+    with pytest.raises(ValueError, match="archive"):
+        w.archive_and_drop_undeclared_for_children(driver, "neo4j", [11, 12], DECLARED, None)
+    assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
+
+
+def test_children_are_streamed_in_chunks(monkeypatch, tmp_path):
+    from neo4j import RoutingControl
+
+    monkeypatch.setattr(w, "REL_CHUNK", 1)
+    driver = FakeDriver(ChildLineageGraph())
+    counts = w.archive_and_drop_undeclared_for_children(driver, "neo4j", [11, 12, 11], DECLARED,
+                                                        str(tmp_path / "a.tsv"))
+    reads = driver.calls_of(q.DERIVED_FROM_OF_CHILDREN)
+    assert [c.params["ids"] for c in reads] == [[11], [12]]
+    assert all(c.kwargs.get("routing_") == RoutingControl.READ for c in reads)
+    assert counts["derived_from_deleted"] == 2
+
+
+# --- DERIVED_FROM labels (schema 1.2; the sync design, section 7.3) -----------------------------
+
+LABEL_KEYS = ("assay_id", "internal_assay_id", "internal_assay_title", "internal_assay_ids", "internal_assay_titles",
+              "protocol_id", "protocol_title")
+SINGULAR = ("assay_id", "internal_assay_id", "internal_assay_title")
+
+
+def _labels(assay_id=None, ia_id=None, ia_title=None, protocol_id=None, protocol_title=None):
+    return {"assay_id": assay_id, "internal_assay_id": ia_id, "internal_assay_title": ia_title,
+            "internal_assay_ids": [ia_id] if ia_id is not None else [],
+            "internal_assay_titles": [ia_title] if ia_title is not None else [],
+            "protocol_id": protocol_id, "protocol_title": protocol_title}
+
+
+class EdgeGraph:
+    """DERIVED_FROM edges between Sample nodes, keyed by (child id, parent id), for the label statements.
+
+    Answers the incident-edge read and applies both label writes as their guards say: the default write only to an
+    edge whose three singular assay fields are all absent; the approved write only to an edge whose seven label
+    properties still equal the row's ``stored``. A write sets all seven (None removes one) and drops ``assay_title``.
+    """
+
+    def __init__(self, edges):
+        self.edges = {pair: dict(props) for pair, props in edges.items()}
+
+    def _apply(self, props, labels):
+        for key in LABEL_KEYS:
+            if labels[key] is None:
+                props.pop(key, None)
+            else:
+                props[key] = labels[key]
+        props.pop("assay_title", None)
+
+    def __call__(self, query, params):
+        if query == q.EDGES_INCIDENT:
+            ids = set(params["ids"])
+            return [{"child_id": c, "parent_id": p, "element_id": f"e{c}-{p}",
+                     "stored": {k: props.get(k) for k in LABEL_KEYS}}
+                    for (c, p), props in sorted(self.edges.items()) if c in ids or p in ids]
+        if query in (q.WRITE_EDGE_LABELS_NEW, q.WRITE_EDGE_LABELS_CHANGED):
+            matched = written = 0
+            pairs = set()
+            for row in params["rows"]:
+                pair = (row["child_id"], row["parent_id"])
+                props = self.edges.get(pair)
+                if props is None:
+                    continue
+                matched += 1
+                pairs.add(pair)
+                if query == q.WRITE_EDGE_LABELS_NEW:
+                    ok = all(props.get(k) is None for k in SINGULAR)
+                else:
+                    ok = all(props.get(k) == row["stored"][k] for k in LABEL_KEYS)
+                if ok:
+                    self._apply(props, row["labels"])
+                    written += 1
+            return [{"matched": matched, "written": written, "pairs": len(pairs)}]
+        raise AssertionError(f"unexpected statement: {query}")
+
+
+def _assignments(statement):
+    return dict(re.findall(r"e\.(\w+) = r\.labels\.(\w+)", statement))
+
+
+def test_the_label_keys_are_the_five_assay_properties_and_the_protocol_pair():
+    assert q.EDGE_LABEL_KEYS == LABEL_KEYS
+    assert q.EDGE_SINGULAR_ASSAY_KEYS == SINGULAR
+
+
+@pytest.mark.parametrize("statement", ["WRITE_EDGE_LABELS_NEW", "WRITE_EDGE_LABELS_CHANGED"])
+def test_each_label_write_sets_all_seven_properties_and_removes_assay_title(statement):
+    text = getattr(q, statement)
+    assert _assignments(text) == {k: k for k in LABEL_KEYS}  # never a subset
+    assert "REMOVE e.assay_title" in text
+    assert "MATCH (:Sample {id: r.child_id})-[e:DERIVED_FROM]->(:Sample {id: r.parent_id})" in text
+    assert text.index("WHERE") < text.index("SET e.assay_id")  # the guard is in the statement, before the SET
+
+
+def test_the_default_label_write_is_guarded_on_the_three_singular_fields():
+    text = q.WRITE_EDGE_LABELS_NEW
+    assert "WHERE e.assay_id IS NULL AND e.internal_assay_id IS NULL AND e.internal_assay_title IS NULL" in text
+    assert "r.stored" not in text
+
+
+def test_the_approved_label_write_is_guarded_on_the_values_read():
+    text = q.WRITE_EDGE_LABELS_CHANGED
+    for key in LABEL_KEYS:
+        assert f"'{key}'" in text
+    assert "(e[k] IS NULL AND r.stored[k] IS NULL) OR coalesce(e[k] = r.stored[k], false)" in text
+    assert "e.assay_id IS NULL AND e.internal_assay_id IS NULL" not in text
+
+
+def test_the_default_write_labels_new_edges_and_leaves_every_labelled_one():
+    graph = EdgeGraph({
+        (11, 10): {"child_id": 11, "parent_id": 10, "assay_title": "legacy"},   # new
+        (12, 10): {"protocol_id": 4, "protocol_title": "old SOP"},               # new: no singular assay field
+        (13, 10): {"internal_assay_title": "Patient Visit"},                    # any singular field set: kept
+        (14, 10): {"assay_id": 7, "internal_assay_id": 99, "internal_assay_title": "Old", "protocol_id": 1},
+    })
+    rows = [{"child_id": c, "parent_id": 10, "labels": _labels(5, 33, "Flow Cytometry", 9, "SOP 9")}
+            for c in (11, 12, 13, 14, 15)]
+    counts = w.write_edge_labels(FakeDriver(graph), "neo4j", rows)
+
+    expected = {"assay_id": 5, "internal_assay_id": 33, "internal_assay_title": "Flow Cytometry",
+                "internal_assay_ids": [33], "internal_assay_titles": ["Flow Cytometry"], "protocol_id": 9,
+                "protocol_title": "SOP 9"}
+    assert graph.edges[(11, 10)] == {"child_id": 11, "parent_id": 10, **expected}  # assay_title gone
+    assert graph.edges[(12, 10)] == expected
+    assert graph.edges[(13, 10)] == {"internal_assay_title": "Patient Visit"}
+    assert graph.edges[(14, 10)] == {"assay_id": 7, "internal_assay_id": 99, "internal_assay_title": "Old",
+                                     "protocol_id": 1}
+    assert counts == {"labels_rows": 5, "labels_written": 2, "labels_skipped_labelled": 2,
+                      "labels_skipped_changed": 0, "labels_edges_missing": 1}
+
+
+def test_a_label_that_clears_writes_nulls_and_empty_lists_together():
+    graph = EdgeGraph({(11, 10): {"protocol_id": 4}})
+    w.write_edge_labels(FakeDriver(graph), "neo4j", [{"child_id": 11, "parent_id": 10, "labels": _labels()}])
+    assert graph.edges[(11, 10)] == {"internal_assay_ids": [], "internal_assay_titles": []}
+
+
+def test_with_label_changes_an_edge_changed_since_the_read_is_left_alone():
+    graph = EdgeGraph({
+        (11, 10): {"assay_id": 7, "internal_assay_id": 99, "internal_assay_title": "Old"},
+        (12, 10): {"assay_id": 7, "internal_assay_id": 99, "internal_assay_title": "Old"},
+        (13, 10): {"internal_assay_id": 33, "internal_assay_title": "Flow Cytometry", "assay_id": 5},
+    })
+    driver = FakeDriver(graph)
+    read = w.edges_incident(driver, "neo4j", [10])
+    graph.edges[(12, 10)]["internal_assay_title"] = "Renamed meanwhile"  # a writer between the read and the write
+    new = _labels(5, 33, "Flow Cytometry")
+    rows = [{"child_id": e["child_id"], "parent_id": e["parent_id"], "labels": new, "stored": e["stored"]}
+            for e in read]
+    counts = w.write_edge_labels(driver, "neo4j", rows, apply_label_changes=True)
+
+    assert graph.edges[(11, 10)] == {k: v for k, v in new.items() if v is not None}
+    assert graph.edges[(12, 10)] == {"assay_id": 7, "internal_assay_id": 99,
+                                     "internal_assay_title": "Renamed meanwhile"}
+    assert graph.edges[(13, 10)]["internal_assay_ids"] == [33]  # a missing plural list, written on approval
+    assert counts == {"labels_rows": 3, "labels_written": 2, "labels_skipped_labelled": 0,
+                      "labels_skipped_changed": 1, "labels_edges_missing": 0}
+    assert driver.calls_of(q.WRITE_EDGE_LABELS_CHANGED) and not driver.calls_of(q.WRITE_EDGE_LABELS_NEW)
+    sent = driver.calls_of(q.WRITE_EDGE_LABELS_CHANGED)[0].params["rows"][0]
+    assert set(sent) == {"child_id", "parent_id", "labels", "stored"}
+    assert set(sent["stored"]) == set(LABEL_KEYS)
+
+
+@pytest.mark.parametrize("missing", LABEL_KEYS)
+def test_a_row_missing_any_label_key_is_refused_before_anything_is_sent(missing):
+    labels = _labels(5, 33, "Flow Cytometry")
+    del labels[missing]
+    rows = [{"child_id": 11, "parent_id": 10, "labels": _labels()},
+            {"child_id": 12, "parent_id": 10, "labels": labels}]
+    driver = FakeDriver()
+    with pytest.raises(ValueError, match=missing):
+        w.write_edge_labels(driver, "neo4j", rows)
+    assert driver.calls == []
+
+
+@pytest.mark.parametrize("value", [None, "33"])
+def test_a_plural_label_that_is_not_a_list_is_refused(value):
+    labels = _labels(5, 33, "Flow Cytometry")
+    labels["internal_assay_ids"] = value
+    with pytest.raises(ValueError, match="internal_assay_ids"):
+        w.write_edge_labels(FakeDriver(), "neo4j", [{"child_id": 11, "parent_id": 10, "labels": labels}])
+
+
+def test_plural_tuples_are_sent_as_lists_and_extra_keys_are_dropped():
+    labels = _labels(5, 33, "Flow Cytometry") | {"internal_assay_ids": (33,), "assay_title": "x"}
+    driver = FakeDriver(lambda query, params: [{"matched": 1, "written": 1, "pairs": 1}])
+    w.write_edge_labels(driver, "neo4j", [{"child_id": 11, "parent_id": 10, "labels": labels}])
+    (sent,) = driver.calls[0].params["rows"]
+    assert sent == {"child_id": 11, "parent_id": 10, "labels": _labels(5, 33, "Flow Cytometry")}
+
+
+@pytest.mark.parametrize("stored", [None, {k: None for k in LABEL_KEYS if k != "protocol_title"}])
+def test_approved_changes_need_the_values_read(stored):
+    row = {"child_id": 11, "parent_id": 10, "labels": _labels(5, 33, "Flow Cytometry")}
+    if stored is not None:
+        row["stored"] = stored
+    driver = FakeDriver()
+    with pytest.raises(ValueError, match="stored"):
+        w.write_edge_labels(driver, "neo4j", [row], apply_label_changes=True)
+    assert driver.calls == []
+
+
+def test_label_rows_are_sent_once_per_pair_in_chunks(monkeypatch):
+    monkeypatch.setattr(w, "REL_CHUNK", 2)
+    driver = FakeDriver(lambda query, params: [{"matched": len(params["rows"]), "written": len(params["rows"]),
+                                                "pairs": len(params["rows"])}])
+    rows = [{"child_id": c, "parent_id": 10, "labels": _labels()} for c in (11, 12, 11, 13)]
+    counts = w.write_edge_labels(driver, "neo4j", rows)
+    assert [[r["child_id"] for r in c.params["rows"]] for c in driver.calls] == [[11, 12], [13]]
+    assert all(c.query == q.WRITE_EDGE_LABELS_NEW and "routing_" not in c.kwargs for c in driver.calls)
+    assert counts["labels_rows"] == 3 and counts["labels_written"] == 3
+
+
+def test_label_write_with_nothing_sends_nothing():
+    driver = FakeDriver()
+    assert w.write_edge_labels(driver, "neo4j", []) == {
+        "labels_rows": 0, "labels_written": 0, "labels_skipped_labelled": 0, "labels_skipped_changed": 0,
+        "labels_edges_missing": 0}
+    assert driver.calls == []
+
+
+# --- the edges incident to samples ---------------------------------------------------------------
+
+def test_incident_statement_reads_both_directions_between_samples():
+    text = q.EDGES_INCIDENT
+    assert "MATCH (c:Sample {id: id})-[e:DERIVED_FROM]->(p:Sample)" in text
+    assert "MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample {id: id})" in text
+    assert "\nUNION\n" in text and "UNION ALL" not in text
+    assert "e {" + ", ".join(f".{k}" for k in LABEL_KEYS) + "} AS stored" in text
+
+
+def test_edges_incident_returns_each_edge_once_with_every_label_key(monkeypatch):
+    from neo4j import RoutingControl
+
+    monkeypatch.setattr(w, "REL_CHUNK", 1)
+    both = {"child_id": 11, "parent_id": 10, "element_id": "e1", "stored": {"assay_id": 5}}
+    other = {"child_id": 12, "parent_id": 11, "element_id": "e2", "stored": None}
+
+    def responder(query, params):
+        return {10: [both], 11: [both, other]}[params["ids"][0]]
+
+    driver = FakeDriver(responder)
+    edges = w.edges_incident(driver, "neo4j", [11, 10, 11])
+    assert [c.params["ids"] for c in driver.calls] == [[11], [10]]
+    assert all(c.query == q.EDGES_INCIDENT and c.kwargs.get("routing_") == RoutingControl.READ for c in driver.calls)
+    assert edges == [
+        {"child_id": 11, "parent_id": 10, "element_id": "e1", "stored": {k: 5 if k == "assay_id" else None
+                                                                          for k in LABEL_KEYS}},
+        {"child_id": 12, "parent_id": 11, "element_id": "e2", "stored": {k: None for k in LABEL_KEYS}},
+    ]
+
+
+def test_edges_incident_with_nothing_sends_nothing():
+    driver = FakeDriver()
+    assert w.edges_incident(driver, "neo4j", []) == []
+    assert driver.calls == []
+
+
+# --- source hashes -------------------------------------------------------------------------------
+
+def test_sample_hashes_statement_pages_by_id():
+    text = q.SAMPLE_HASHES_PAGE
+    assert "WHERE s.id > $after" in text
+    assert "RETURN s.id AS id, s.source_hash AS source_hash" in text
+    assert "ORDER BY s.id" in text and "LIMIT $limit" in text
+
+
+def test_sample_hashes_streams_every_node_in_id_order(monkeypatch):
+    from neo4j import RoutingControl
+
+    monkeypatch.setattr(w, "HASH_PAGE", 2)
+    nodes = [(3, "h3"), (5, None), (8, "h8"), (9, "h9"), (12, "h12")]
+
+    def responder(query, params):
+        assert query == q.SAMPLE_HASHES_PAGE
+        rows = [{"id": i, "source_hash": h} for i, h in nodes if i > params["after"]]
+        return rows[:params["limit"]]
+
+    driver = FakeDriver(responder)
+    stream = w.sample_hashes(driver, "neo4j")
+    assert driver.calls == []  # a generator: nothing is read until it is iterated
+    assert list(stream) == nodes
+    assert [c.params["after"] for c in driver.calls] == [-(2 ** 63), 5, 9]
+    assert all(c.params["limit"] == 2 for c in driver.calls)
+    assert all(c.kwargs.get("routing_") == RoutingControl.READ for c in driver.calls)
+
+
+def test_sample_hashes_of_an_empty_graph():
+    driver = FakeDriver()
+    assert list(w.sample_hashes(driver, "neo4j")) == []
+    assert len(driver.calls) == 1

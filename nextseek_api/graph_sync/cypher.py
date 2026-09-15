@@ -1,4 +1,4 @@
-"""Every Cypher statement the graph schema v1.1 writer sends (docs/neo4j-schema.md, section "v1.1").
+"""Every Cypher statement the graph schema v1.2 writer sends (docs/neo4j-schema.md, sections "v1.1" and "v1.2").
 
 Module constants, so tests assert on the text and a reader sees the whole write surface in one place. Values always
 travel as parameters. The only text built from data is a budget index, whose label must match the ``T_`` rule and
@@ -90,18 +90,39 @@ MATCH (s:Sample) WHERE elementId(s) = eid
 DETACH DELETE s
 RETURN count(*) AS n
 """
-RELABEL_ORPHANS = """
-MATCH (s:Sample) WHERE s.id IN $ids
-SET s:OrphanSample
+# The deletion rule (the sync design, section 9). A node graph_sync never wrote (no synced_at: a v1.0 graph-only
+# node, which may carry lineage MySQL never had) becomes an OrphanSample: Sample, every T_ label, OF_TYPE and
+# IN_PROJECT go, orphaned_at is set, its properties and DERIVED_FROM stay. One body, matched by id or by element id;
+# a node carrying synced_at is never matched here (retire_samples deletes it instead).
+ORPHAN_SWAP = """
+CALL (s) { MATCH (s)-[o:OF_TYPE|IN_PROJECT]->() DELETE o }
+WITH s, [l IN labels(s) WHERE l STARTS WITH 'T_'] AS types
+SET s:OrphanSample, s.orphaned_at = datetime()
 REMOVE s:Sample
+REMOVE s:$(types)
 RETURN count(s) AS n
 """
+RELABEL_ORPHANS = """
+CYPHER 25
+MATCH (s:Sample) WHERE s.id IN $ids AND s.synced_at IS NULL""" + ORPHAN_SWAP
 RELABEL_ORPHANS_BY_ELEMENT_ID = """
+CYPHER 25
 UNWIND $element_ids AS eid
-MATCH (s:Sample) WHERE elementId(s) = eid
-SET s:OrphanSample
-REMOVE s:Sample
-RETURN count(s) AS n
+MATCH (s:Sample) WHERE elementId(s) = eid AND s.synced_at IS NULL""" + ORPHAN_SWAP
+# The live Sample nodes of ids MySQL no longer holds: what the retire archive records, and which rule applies. An
+# existing OrphanSample carries no Sample label, so it is not read and stays as it is.
+RETIRE_CANDIDATES = """
+UNWIND $ids AS id
+MATCH (s:Sample {id: id})
+RETURN elementId(s) AS element_id, s.id AS id, s.uuid AS uuid, s.type AS type,
+       s.synced_at IS NOT NULL AS synced, COUNT { (s)--() } AS incident_edges
+"""
+# A node graph_sync wrote mirrors a row that is gone; it is deleted with its edges once the archive holds it.
+DELETE_RETIRED = """
+UNWIND $element_ids AS eid
+MATCH (s:Sample) WHERE elementId(s) = eid AND s.synced_at IS NOT NULL
+DETACH DELETE s
+RETURN count(*) AS n
 """
 
 # --- CHILD_OF ------------------------------------------------------------------------------------
@@ -204,14 +225,18 @@ RETURN count(*) AS linked
 # --- samples -------------------------------------------------------------------------------------
 
 # One row per sample: {id, label, sample_type_id, props}. The property map is replaced whole (a key deleted from
-# MySQL leaves the node), except batch upload's parent_titles and parent_title_hashes, which MySQL does not hold.
-# OF_TYPE and IN_PROJECT are rebuilt from the row. The two counting subqueries always return one row, so a sample
-# whose type or project node is missing is still written and shows up as a shortfall in the counts.
+# MySQL leaves the node). parent_titles and parent_title_hashes come from the props when the projection supplies them
+# (schema 1.2: projection-owned); a row without them keeps the node's own. OF_TYPE and IN_PROJECT are rebuilt from
+# the row. The two counting subqueries always return one row, so a sample whose type or project node is missing is
+# still written and shows up as a shortfall in the counts.
 WRITE_SAMPLES = """
 CYPHER 25
 UNWIND $rows AS r
 MERGE (s:Sample {id: r.id})
-WITH s, r, s.parent_titles AS pt, s.parent_title_hashes AS pth
+WITH s, r,
+     CASE WHEN 'parent_titles' IN keys(r.props) THEN r.props.parent_titles ELSE s.parent_titles END AS pt,
+     CASE WHEN 'parent_title_hashes' IN keys(r.props) THEN r.props.parent_title_hashes
+          ELSE s.parent_title_hashes END AS pth
 SET s = r.props
 SET s.parent_titles = pt, s.parent_title_hashes = pth, s.synced_at = datetime()
 SET s:$(r.label)
@@ -265,6 +290,83 @@ WHERE elementId(e) = eid
 DELETE e
 RETURN count(*) AS deleted
 """
+# The DERIVED_FROM edges of the children $ids to Sample parents, in the stream form above; a targeted sync archives
+# and deletes the ones MySQL no longer declares, with DELETE_UNDECLARED_DERIVED_FROM.
+DERIVED_FROM_OF_CHILDREN = """
+UNWIND $ids AS id
+MATCH (c:Sample {id: id})-[e:DERIVED_FROM]->(p:Sample)
+RETURN c.id AS child_id, p.id AS parent_id, c.uuid AS child_uuid, p.uuid AS parent_uuid,
+       properties(e) AS props, elementId(e) AS element_id
+"""
+
+# --- DERIVED_FROM labels (schema 1.2) -------------------------------------------------------------
+
+# What graph_sync writes on a DERIVED_FROM edge, always all seven together (the sync design, section 7.3): the five
+# assay properties and the protocol pair. The three singular assay fields decide whether an edge is labelled.
+EDGE_SINGULAR_ASSAY_KEYS = ("assay_id", "internal_assay_id", "internal_assay_title")
+EDGE_LABEL_KEYS = EDGE_SINGULAR_ASSAY_KEYS + ("internal_assay_ids", "internal_assay_titles", "protocol_id",
+                                              "protocol_title")
+_EDGE_LABEL_MAP = "e {" + ", ".join("." + key for key in EDGE_LABEL_KEYS) + "}"
+_EDGE_LABEL_LIST = "[" + ", ".join(f"'{key}'" for key in EDGE_LABEL_KEYS) + "]"
+
+# Every DERIVED_FROM between two Sample nodes with an end among $ids, either direction, and its seven label
+# properties (null when absent) as `stored`. UNION, not UNION ALL, returns an edge between two of the ids once.
+EDGES_INCIDENT = """
+UNWIND $ids AS id
+MATCH (c:Sample {id: id})-[e:DERIVED_FROM]->(p:Sample)
+RETURN c.id AS child_id, p.id AS parent_id, elementId(e) AS element_id,
+       {stored} AS stored
+UNION
+UNWIND $ids AS id
+MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample {id: id})
+RETURN c.id AS child_id, p.id AS parent_id, elementId(e) AS element_id,
+       {stored} AS stored
+""".replace("{stored}", _EDGE_LABEL_MAP)
+
+# Rows are {child_id, parent_id, labels} (and `stored` for the approved write). Each edge between the two Sample
+# nodes passes its guard or is left alone; the guard is a WHERE inside the statement, so a label another writer set
+# after the caller's read is never overwritten. A written edge gets all seven label properties (a null removes one)
+# and loses the legacy assay_title. `matched` counts edges found, `written` those past the guard, `pairs` the rows
+# that found an edge at all.
+_EDGE_LABEL_HEAD = """
+CYPHER 25
+UNWIND $rows AS r
+MATCH (:Sample {id: r.child_id})-[e:DERIVED_FROM]->(:Sample {id: r.parent_id})
+CALL (e, r) {"""
+_EDGE_LABEL_SET = """
+  SET e.assay_id = r.labels.assay_id,
+      e.internal_assay_id = r.labels.internal_assay_id,
+      e.internal_assay_title = r.labels.internal_assay_title,
+      e.internal_assay_ids = r.labels.internal_assay_ids,
+      e.internal_assay_titles = r.labels.internal_assay_titles,
+      e.protocol_id = r.labels.protocol_id,
+      e.protocol_title = r.labels.protocol_title
+  REMOVE e.assay_title
+  RETURN count(*) AS w
+}
+RETURN count(e) AS matched, sum(w) AS written, count(DISTINCT [r.child_id, r.parent_id]) AS pairs
+"""
+# The default: a new label only, on an edge whose three singular assay fields are all null (R14).
+WRITE_EDGE_LABELS_NEW = _EDGE_LABEL_HEAD + """
+  WITH e, r WHERE e.assay_id IS NULL AND e.internal_assay_id IS NULL AND e.internal_assay_title IS NULL""" + \
+    _EDGE_LABEL_SET
+# With the operator's approval: any label, but only where all seven stored values still equal those the caller read
+# (`r.stored`), a null equal only to a null.
+WRITE_EDGE_LABELS_CHANGED = _EDGE_LABEL_HEAD + """
+  WITH e, r WHERE all(k IN {keys}
+                      WHERE (e[k] IS NULL AND r.stored[k] IS NULL) OR coalesce(e[k] = r.stored[k], false))""" \
+    .replace("{keys}", _EDGE_LABEL_LIST) + _EDGE_LABEL_SET
+
+# --- source hashes -------------------------------------------------------------------------------
+
+# One keyset page of (id, source_hash), ordered by id over the Sample.id index. Only numeric ids compare with
+# $after, so a legacy node with any other id is left to the full sync.
+SAMPLE_HASHES_PAGE = """
+MATCH (s:Sample) WHERE s.id > $after
+RETURN s.id AS id, s.source_hash AS source_hash
+ORDER BY s.id LIMIT $limit
+"""
+
 # Samples already placed in a paper-level Study (one with no seek_study_id); SEEK studies are not added to them.
 SAMPLES_IN_PAPER_STUDIES = """
 MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.seek_study_id IS NULL
@@ -288,7 +390,14 @@ RETURN count(*) AS linked
 
 # --- GraphMeta -----------------------------------------------------------------------------------
 
+# Named properties, never a replace, so a value a statement does not name (label_maps_hash here) is kept.
 WRITE_GRAPHMETA = """
 MERGE (m:GraphMeta)
 SET m.schema_version = $schema_version, m.catalog_hash = $catalog_hash, m.synced_at = datetime()
 """
+WRITE_GRAPHMETA_WITH_LABEL_MAPS = """
+MERGE (m:GraphMeta)
+SET m.schema_version = $schema_version, m.catalog_hash = $catalog_hash, m.label_maps_hash = $label_maps_hash,
+    m.synced_at = datetime()
+"""
+READ_GRAPHMETA = "MATCH (m:GraphMeta) RETURN properties(m) AS props"
