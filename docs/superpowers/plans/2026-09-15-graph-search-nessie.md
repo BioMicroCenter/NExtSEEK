@@ -4,19 +4,22 @@
 > its own tests and a disjoint set of files; a reviewer may reject one task and approve its neighbour. Use
 > superpowers:test-driven-development inside a task: write the failing tests, run them, make them pass, run the area
 > again. Steps use checkbox (`- [ ]`) syntax. **Nothing is built yet.** Steps marked **OPERATOR** are run or approved
-> by the operator; every paid step needs the operator's approval for that step.
+> by the operator; every paid step needs the operator's approval for that step. Revised three times on 2026-09-15 to
+> the operator's rulings (spec section 3.1).
 
-**Goal:** test the claim that, with metadata in the graph, Nessie answers metadata and advanced-search questions
-substantially better through its graph agent than through its API agent. Deliver (a) the graph agent reading the v1.1
-catalog as compact text with a per-label guard, and (b) paired, stage-by-stage evidence from the `nessie_tests`
-questions, the external latency ladder and the B2 shapes, scored against re-derived ground truth.
+**Goal:** two answers. Group A, the contest: with the metadata in the graph, do Cypher queries outperform JSON
+advanced searches when an LLM turns the user's question into the query (the graph agent against the API agent, 100
+single-turn metadata and advanced-search questions)? Group B, the check: does the graph agent with its new context
+still work for everything that normally routes to the graph (80 single-turn questions)? Deliver (a) the graph agent
+reading the v1.1 catalog as compact text with a per-label guard, and (b) stage-by-stage evidence scored against
+re-derived ground truth.
 
 **Architecture:** a lazy, process-level catalog reader (`graph_catalog.py`) replaces the `keys(n) LIMIT 200` file
 cache; a pure renderer (`graph_context.py`) turns it into variant (b); the guard in `agents/graph.py` reads the same
 snapshot; every graph read runs in a READ transaction. An evaluation switch (admin request field behind an environment
-flag) forces the NS parser to the graph or the API path. The harness drives both arms per question inside a throwaway
-venue container that runs this branch's code against the live data; a scorer compares both arms with ground truth
-derived by read-only oracles.
+flag) forces the NS parser to the graph path, the graph path with today's context, or the API path. The harness drives
+the arms per question inside a throwaway venue container that runs this branch's code against the live data; a scorer
+compares the arms with ground truth derived by read-only oracles.
 
 **Tech stack:** Django 5 and DRF, pydantic v2, the `neo4j` Python driver (Neo4j Community 2026.07.1), the
 `nessie_tests` harness and its e2e criteria DSL, bash and Docker for the venue.
@@ -29,7 +32,7 @@ derived by read-only oracles.
 
 - Worktree `wt-gs-nessie`, branch `feat/graph-search-nessie`, from `feat/graph-search` at `4b3e087a`. Push only this
   branch, after a scan of the diff against `origin/feat/graph-search` for emails, home paths and tokens. Never merge or
-  push another branch.
+  push another branch, and never force-push.
 - Never edit `nextseek_api/graph_sync/*`, `nextseek_api/graph_search/*`, `nextseek_api/services/graph_search.py`,
   `ci/routes.py`, `nextseek_api/urls.py` or `docker/scripts/entrypoint.sh` (follow-up 2 and the POC own them). Read the
   catalog through Cypher only.
@@ -41,8 +44,9 @@ derived by read-only oracles.
   host is memory-starved: run commands in the foreground with timeouts.
 - `$GS_WORK` is the operator's graph-search work directory and `$NEXTSEEK_LIVE_CHECKOUT` the checkout the live stack
   runs from, both outside this repository. Nessie evidence lives under `$GS_WORK/nessie/` (directories mode 700, files
-  mode 600): the venue snapshot, ladder and B2 questions, truth files, cases files, run outputs, the price table. None
-  of it is ever tracked.
+  mode 600): the question selection (`selection.json`), the venue snapshot, ladder and B2 questions, truth files, cases
+  files, run outputs, the price table. None of it is ever tracked (one ladder value and several corpus variants name
+  real people).
 - Public repository: no credentials, emails, personal names or home paths in tracked files. No em-dashes. Never print
   an environment value; check one by comparison.
 - Stage files by name, never `git add -A`. Conventional commits with a module scope, each ending with exactly one
@@ -52,8 +56,11 @@ derived by read-only oracles.
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 ```
 
-- Numbers, verbatim: merged samples 1,084,754; 229 variants and 269 turns in the seven families; ladder 25 rungs; B2
-  12 shapes; render budget 32,768 bytes; K 25, then 15, 10, names only; at most 3 resolved types; meaning at most 120
+- Numbers, verbatim: merged samples 1,084,754; Group A 100 single-turn questions (66 corpus: 57 `sample_search`, 8
+  `harmonization`, 1 `retrieval_path_selection`; 25 ladder rungs; 9 B2 shapes); Group B 80 (79 corpus: 60
+  `graph_traversal`, 7 `lineage_tree`, 5 `sample_search`, 4 `project_summary_report`, 1 `retrieval_path_selection`, 1
+  `vocabulary_resolution`, 1 `engine_routing`; 1 B2 shape); NS turns: Group A 200, Group B 80 without arm L or 160 with
+  it; render budget 32,768 bytes; K 25, then 15, 10, names only; at most 3 resolved types; meaning at most 120
   characters; a value over 60 characters is not rendered; catalog hash re-check 60 s; type details 10 minutes;
   vocabulary 1 hour; failure memory 60 s; catalog query timeout 10 s; tool query timeout 60 s; venue port
   `127.0.0.1:8010`; venue memory 6g; memory floor 8 GiB.
@@ -98,51 +105,51 @@ PYTHONPATH="$PWD:$PWD/NessieAI/dmac_assistant/src" uv run --no-project --with py
 python3 ci/docs_map.py
 python3 scripts/validate_viewset_conventions.py
 
-# 6. The venue (task T10 writes the script)
+# 6. The venue (task T9 writes the script)
 scripts/graph_search/nessie_venue.sh prepare | up | check | exec <python args> | logs | down
 
-# 7. The paired harness, inside the venue (task T7); the password comes from the environment, never a file
+# 7. The harness inside the venue (task T7); the password comes from the environment, never a file.
+#    Group A: --arms graph,api. Group B: --arms graph, or --arms graph,graph_legacy with the optional arm L.
 scripts/graph_search/nessie_venue.sh exec manage.py nessie --tier full \
-  --cases /venue/cases/<file>.json --force-route ns --pair-parser-modes graph,api \
+  --cases /venue/cases/<file>.json --force-route ns --arms <arms> \
   --user demo --password-env GS_DEMO_PASSWORD --out /venue/runs/<run-id> [--resume] [--max-turns N]
 
 # 8. The scorer, on the host (task T8)
 uv run --no-project --with pydantic python -m NessieAI.tests.nessie_tests.engine_compare \
-  --run "$GS_WORK/nessie/runs/<run-id>" --truth "$GS_WORK/nessie/truth" \
+  --run "$GS_WORK/nessie/runs/<run-id>" --group a|b --truth "$GS_WORK/nessie/truth" \
   --outputs "$GS_WORK/nessie/venue/outputs" --prices "$GS_WORK/nessie/prices.json"
 ```
 
 ## Task graph
 
 ```
-Stage B, build (free; agents)
+Stage B, build (free; 9 agents)
   T1 catalog reader (A2) -------------+
-  T2 renderer (A3, pure) -------------+-- T4 graph agent wiring, guard, MCP (A3, A4) --+
-  T3 read-only (D3) ------------------+                                               |
-  T5 prompt lines (A7 subset) --------------------------------------------------------+
-  T6 evaluation switch (product side) -- T7 harness: forced runs, arm pairs, preflight -+
-  T9 truth models, oracle runner, cases builder -- T8 scorer ---------------------------+
-  T10 venue script (after T1, T2) ----------------------------------------------------+
-                                                                        T11 docs (last)
-  == gate B ==
+  T2 renderer (A3, pure) -------------+-- T4 graph agent wiring, guard, context modes, MCP (A3, A4)
+  T3 read-only (D3) ------------------+
+  T5 prompt lines and the legacy prompt (A7 subset)
+  T6 evaluation switch (product side) -- T7 harness: forced runs, arms, preflight -- T8 truth tooling and scorer
+  T9 venue script (after T1, T2)
+  == gate B: docs, lanes, push ==
 Stage V, venue (free; reads the live databases; OPERATOR approves the first read)
   V1 prepare, up, check
   == gate V ==
-Stage G, ground truth (free; read-only oracles through the venue; agents in parallel)
-  G1 sample_search | G2 search_refinement + followup_over_results | G3 harmonization + retrieval_path_selection
-  G4 graph_traversal | G5 lineage_tree | G6 ladder + B2 as questions
-  G7 build the cases, the pilot and the truth summary
-  == gate T: OPERATOR signs the truth ==
+Stage G, ground truth (free; read-only oracles through the venue; 6 agents in parallel, then 1)
+  Group A: G1 sample_search, first half | G2 sample_search, second half | G3 harmonization, retrieval, ladder, B2
+  Group B: G4 graph_traversal, first half | G5 graph_traversal, second half | G6 the other graph-routed questions
+  G7 build the cases, the pilots and the truth summary
+  == gate T: OPERATOR signs the truth and the selection ==
 Stage P, paid (OPERATOR)
-  P1 preflight -- P2 pilot -- (gate P) -- P3 full, in blocks -- P4 repeats (optional)
+  P1 preflight -- P2 pilots -- (gate P) -- P3 full runs, in blocks -- P4 Group A repeats (optional)
 Stage R, result (free)
-  R1 score -- R2 triage per arm -- R3 OPERATOR verdict
-Stage S, after the POC, with the merge work (separate approval; section 8.1 of the spec)
+  R1 score both groups -- R2 triage per arm -- R3 OPERATOR verdicts
+Stage S, after the POC, with the merge work (separate approval; spec section 8.1)
   S1 scope carrier and host seam | S2 injector | S3 adversarial suite (after S2) | S4 fixed reads, lineage, rendering
 ```
 
-T1, T2, T3, T5, T6 and T9 run in parallel once this plan is approved. T4 waits for T1, T2 and T3; T7 for T6; T8 for
-T7 and T9; T10 for T1 and T2; T11 for all.
+T1, T2, T3, T5 and T6 run in parallel once this plan is approved. T4 waits for T1, T2 and T3 (and reads T5's legacy
+prompt file by name); T7 for T6; T8 for T7; T9 for T1 and T2. The truth half of T8 does not depend on T7 and may start
+first.
 
 ## File ownership
 
@@ -154,14 +161,13 @@ are written `tests/cn/`.
 | `graph_catalog.py` (new), `config.py`, `tests/cn/test_graph_catalog.py` (new), any test that calls a removed `config.py` method | T1 |
 | `graph_context.py` (new), `prompts/graph_schema_structure.txt` (new), `tests/cn/test_graph_context.py` (new) | T2 |
 | `cypher_text.py` (new), `helpers/tools/neo4j.py`, `nextseek_api/services/entity_tree.py`, `tests/cn/test_cypher_write_check.py` (new), `tests/cn/test_neo4j_read_mode.py` (new), `nextseek_api/tests/test_entity_tree_read_routing.py` (new), `tests/cn/test_neo4j_total_probe.py` (it fakes `session.run`), run but not edited: `nextseek_api/tests/test_services_entity_tree.py` | T3 |
-| `agents/graph.py`, `agents/system.py`, `NessieAI/chat_nextseek/mcp_server.py`, `tests/cn/test_graph_catalog_guard.py` (new), `tests/cn/test_graph_agent_context.py` (new), `tests/cn/test_graph_property_guard.py`, `tests/cn/test_graph_canonical_uid.py`, `tests/cn/test_graph_refine.py` | T4 |
-| `prompts/graph_agent.txt`, `context/min_graph_schema.json`, `tests/cn/test_graph_prompt_claims.py` (new) | T5 |
+| `agents/graph.py`, `agents/system.py`, `schemas/graph.py` (`GraphAgentPlan.context_mode`), `orchestrator.py` (one line in `_execute_graph_turn`), `NessieAI/chat_nextseek/mcp_server.py`, `tests/cn/test_graph_catalog_guard.py` (new), `tests/cn/test_graph_agent_context.py` (new), `tests/cn/test_graph_property_guard.py`, `tests/cn/test_graph_canonical_uid.py`, `tests/cn/test_graph_refine.py` | T4 |
+| `prompts/graph_agent.txt`, `prompts/graph_agent_legacy.txt` (new, a verbatim copy of the base commit's `graph_agent.txt`), `context/min_graph_schema.json`, `tests/cn/test_graph_prompt_claims.py` (new) | T5 |
 | `agents/parser.py`, `nextseek_api/assistant/models_api.py`, `NessieAI/cc/turn.py`, `tests/cn/test_parser_force_mode.py` (new), `NessieAI/tests/api/test_eval_parser_force_gate.py` (new) | T6 |
-| `NessieAI/tests/nessie_tests/{http_driver,runner,cli,preflight}.py`, `nextseek_api/management/commands/nessie.py`, `NessieAI/tests/nessie_tests/tests/{test_http_driver,test_run_case,test_runner,test_cli,test_preflight}.py`, `NessieAI/tests/nessie_tests/tests/test_arm_pairs.py` (new), `NessieAI/tests/api/test_nessie_command_flags.py` (new) | T7 |
-| `NessieAI/tests/nessie_tests/engine_compare.py` (new), `NessieAI/tests/nessie_tests/tests/test_engine_compare.py` (new) | T8 |
-| `NessieAI/tests/nessie_tests/engine_truth.py` (new), `NessieAI/tests/nessie_tests/scripts/derive_truth.py` (new), `NessieAI/tests/nessie_tests/scripts/build_engine_cases.py` (new), `NessieAI/tests/nessie_tests/tests/{test_engine_truth,test_build_engine_cases}.py` (new) | T9 |
-| `scripts/graph_search/nessie_venue.sh` (new), `scripts/graph_search/nessie_venue_check.py` (new), `scripts/graph_search/README.md` (one row) | T10 |
-| `NessieAI/tests/nessie_tests/README.md` (one section), `NessieAI/tests/README.md` (one lane row), `NessieAI/chat_nextseek/CLAUDE.md` (the context-write landmine), the spec's and this plan's status lines | T11 |
+| `NessieAI/tests/nessie_tests/{http_driver,runner,cli,preflight}.py`, `nextseek_api/management/commands/nessie.py`, `NessieAI/tests/nessie_tests/tests/{test_http_driver,test_run_case,test_runner,test_cli,test_preflight}.py`, `NessieAI/tests/nessie_tests/tests/test_run_arms.py` (new), `NessieAI/tests/api/test_nessie_command_flags.py` (new) | T7 |
+| `NessieAI/tests/nessie_tests/engine_truth.py` (new), `NessieAI/tests/nessie_tests/engine_compare.py` (new), `NessieAI/tests/nessie_tests/scripts/derive_truth.py` (new), `NessieAI/tests/nessie_tests/scripts/build_engine_cases.py` (new), `NessieAI/tests/nessie_tests/tests/{test_engine_truth,test_build_engine_cases,test_engine_compare}.py` (new) | T8 |
+| `scripts/graph_search/nessie_venue.sh` (new), `scripts/graph_search/nessie_venue_check.py` (new), `scripts/graph_search/README.md` (one row) | T9 |
+| `NessieAI/tests/nessie_tests/README.md` (one section), `NessieAI/tests/README.md` (one lane row), `NessieAI/chat_nextseek/CLAUDE.md` (the context-write landmine), the spec's and this plan's status lines | gate B |
 
 ---
 
@@ -176,7 +182,7 @@ are written `tests/cn/`.
 `graph_catalog`). Keep `_is_today` (the context export uses it). Grep the tests for the removed names first and update
 each caller.
 
-**Interfaces (produced; T2, T4 and T10 consume them by these names):**
+**Interfaces (produced; T2, T4 and T9 consume them by these names):**
 
 ```python
 SCHEMA_VERSION = "1.1"
@@ -297,8 +303,7 @@ of the other names, and `N declared attributes hold no value`. The structure fil
 
 **Files:** create `cypher_text.py`, `tests/cn/test_cypher_write_check.py`, `tests/cn/test_neo4j_read_mode.py`,
 `nextseek_api/tests/test_entity_tree_read_routing.py`; modify `helpers/tools/neo4j.py`,
-`nextseek_api/services/entity_tree.py`; update the existing tests of `tool_neo4j_query` (grep for it under
-`NessieAI/tests/chat_nextseek/`) where they fake `session.run`.
+`nextseek_api/services/entity_tree.py`, `tests/cn/test_neo4j_total_probe.py`.
 
 **Interfaces:**
 
@@ -324,37 +329,51 @@ def write_clause(text: str) -> str | None: ... # the offending clause, or None; 
 - [ ] **Step 2: Run them to see them fail** (Django lane: `tests/cn/test_cypher_write_check.py`,
   `tests/cn/test_neo4j_read_mode.py`, `nextseek_api/tests/test_entity_tree_read_routing.py`).
 - [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `NessieAI/tests/chat_nextseek`, `NessieAI/tests/ns` (ns/api variant) and the existing entity_tree
-  tests (grep `entity_tree` under `nextseek_api/tests/`). Expected: pass as on the base commit plus the new tests.
+- [ ] **Step 4: Run** `NessieAI/tests/chat_nextseek`, `NessieAI/tests/ns` (ns/api variant) and
+  `nextseek_api/tests/test_services_entity_tree.py`. Expected: pass as on the base commit plus the new tests.
 - [ ] **Step 5: Commit** twice: `feat(chat_nextseek): run Nessie's Cypher in READ transactions behind a masked write
   check` (the chat_nextseek files) and `feat(nextseek_api): read the entity_tree graph with READ routing`.
 
 **Acceptance:** spec section 4.5.
 
-### Task T4: A3 wiring, the A4 guard and the MCP resource
+### Task T4: A3 wiring, the A4 guard, the context modes and the MCP resource
 
-**Files:** modify `agents/graph.py`, `agents/system.py`, `NessieAI/chat_nextseek/mcp_server.py`; create
-`tests/cn/test_graph_catalog_guard.py`, `tests/cn/test_graph_agent_context.py`; keep
-`tests/cn/test_graph_property_guard.py`, `test_graph_canonical_uid.py` and `test_graph_refine.py` green (they run with
-the catalog unavailable, so the fallback path applies; patch `graph_catalog.get_snapshot` to raise where needed).
+**Files:** modify `agents/graph.py`, `agents/system.py`, `schemas/graph.py`, `orchestrator.py` (one line),
+`NessieAI/chat_nextseek/mcp_server.py`; create `tests/cn/test_graph_catalog_guard.py`,
+`tests/cn/test_graph_agent_context.py`; keep `tests/cn/test_graph_property_guard.py`, `test_graph_canonical_uid.py`
+and `test_graph_refine.py` green (they run with the catalog unavailable, so the fallback path applies; patch
+`graph_catalog.get_snapshot` to raise where needed).
 
-**Interfaces (consumes T1, T2, T3):**
+**Interfaces (consumes T1, T2, T3, and T5's `prompts/graph_agent_legacy.txt` by name):**
 
 ```python
 # agents/graph.py
 _mask_cypher = cypher_text.mask_cypher
 V11_SYSTEM_PROPERTIES = frozenset({"id", "uuid", "type", "title", "project_ids", "search_text", "synced_at"})
 V11_RELATIONSHIP_PROPERTIES: dict[str, frozenset[str]]   # from docs/neo4j-schema.md v1.1 and v1.0 DERIVED_FROM
+CONTEXT_CATALOG, CONTEXT_FALLBACK, CONTEXT_LEGACY = "catalog", "fallback", "legacy"
+LEGACY_PROMPT = "graph_agent_legacy.txt"
 def catalog_unknown_properties(cypher: str, snapshot) -> list[str]: ...   # ["TIS.Sequencer", ...]
 def whole_node_returns(cypher: str) -> list[str]: ...                      # ["s", ...]
+
+# schemas/graph.py
+class GraphAgentPlan(BaseModel):
+    ...                                   # existing fields unchanged
+    context_mode: str | None = None       # catalog | fallback | legacy (spec D15)
+
+# orchestrator.py, _execute_graph_turn, next to debug_payload["graph_plan"]:
+#   debug_payload["graph_context"] = graph_plan.context_mode
 ```
 
-`graph_agent`: when `get_snapshot` succeeds, the schema block is `render_graph_context(snapshot,
-get_type_details(config, codes))` with `codes = resolved_type_codes(plan, entity, {r.title for r in snapshot.index})`,
-and the protocol and assay JSON blocks become `render_vocabulary(get_vocabulary(config), user_query)`; on
-`CatalogUnavailable` everything is as today. The guard runs before execution in the existing repair loop (one repair,
-then the empty plan naming each problem). `system_agent` sends the same rendering for its schema block.
-`mcp_server.py`'s `neo4j-schema` resource returns the structure and index when the catalog is live, else the file.
+`graph_agent`: when `getattr(config, "FORCE_PARSER_MODE", None) == "graph_legacy"`, it runs the legacy mode (spec E10:
+the committed JSON blocks, the legacy prompt via `config._load_prompt(LEGACY_PROMPT)`, the old guard, no whole-node
+guard) whatever the catalog's state. Otherwise, when `get_snapshot` succeeds, the schema block is
+`render_graph_context(snapshot, get_type_details(config, codes))` with `codes = resolved_type_codes(plan, entity,
+{r.title for r in snapshot.index})`, the protocol and assay JSON blocks become `render_vocabulary(get_vocabulary(config),
+user_query)`, and the catalog guard and the whole-node guard run in the existing repair loop (one repair, then the empty
+plan naming each problem); on `CatalogUnavailable` everything is as today and the mode is `fallback`. Every returned
+plan carries `context_mode`. `system_agent` sends the same rendering for its schema block. `mcp_server.py`'s
+`neo4j-schema` resource returns the structure and index when the catalog is live, else the file.
 
 - [ ] **Step 1: Write the failing tests:** `(s:T_TIS) WHERE s.Sequencer = 'x'` rejected when TIS lacks it, accepted on
   `(s:T_D_SEQ)` when D.SEQ has it; `WHERE s:T_TIS` labels the variable; a plain `Sample` variable uses the union;
@@ -362,31 +381,36 @@ then the empty plan naming each problem). `system_agent` sends the same renderin
   unknown `T_` label reported; `db.index.fulltext.queryNodes(` and `date.truncate(` are not properties; literals and
   parameters ignored; `RETURN s`, `RETURN s LIMIT 5` and `collect(s)` over a Sample variable are whole-node returns,
   `RETURN s.id, s.Organ` and `count(s)` are not; `graph_agent` repairs once and then returns the empty plan naming
-  `TIS.Sequencer` (fake LLM client); `graph_agent` sends the rendering when the catalog is live and the JSON when it is
-  not (captured prompt); codes come from the plan first; vocabulary blocks gated as in T2; the MCP resource in both
+  `TIS.Sequencer` (fake LLM client); `graph_agent` sends the rendering when the catalog is live (mode `catalog`), the
+  JSON when it is not (mode `fallback`), and the legacy prompt and JSON under `graph_legacy` even when the catalog is
+  live (mode `legacy`, no whole-node refusal); codes come from the plan first; vocabulary blocks gated as in T2;
+  `_execute_graph_turn` puts `graph_context` on the debug payload (fake agent and tool); the MCP resource in both
   states.
 - [ ] **Step 2: Run them to see them fail.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** `NessieAI/tests/chat_nextseek`. Expected: pass as on the base commit plus the new tests.
-- [ ] **Step 5: Commit** `feat(chat_nextseek): give the graph agent the rendered catalog and a per-label guard (A3, A4)`.
+- [ ] **Step 5: Commit** `feat(chat_nextseek): give the graph agent the rendered catalog, a per-label guard and a
+  legacy mode (A3, A4)`.
 
 **Acceptance:** spec sections 4.2 (wiring) and 4.3.
 
-### Task T5: A7 subset, the prompt lines
+### Task T5: A7 subset, the prompt lines and the legacy prompt
 
-**Files:** modify `prompts/graph_agent.txt`, `context/min_graph_schema.json`; create
+**Files:** modify `prompts/graph_agent.txt`, `context/min_graph_schema.json`; create `prompts/graph_agent_legacy.txt`,
 `tests/cn/test_graph_prompt_claims.py`.
 
-- [ ] **Step 1: Write the failing tests:** `graph_agent.txt` contains no "exactly three properties", no "does NOT store"
-  and no claim that names or attributes live only in the REST API; it contains a rule that forbids returning a whole
-  Sample node and names the alternative (`s.id`, `s.uuid`, `s.type`, named properties, `count(*)`);
+- [ ] **Step 1: Write the failing tests:** `graph_agent_legacy.txt` exists and equals `git show
+  4b3e087a:NessieAI/chat_nextseek/src/chat_nextseek/prompts/graph_agent.txt` byte for byte (the test holds the
+  base file's sha256 as a constant, so it runs without git); `graph_agent.txt` contains no "exactly three properties",
+  no "does NOT store" and no claim that names or attributes live only in the REST API; it contains a rule that forbids
+  returning a whole Sample node and names the alternative (`s.id`, `s.uuid`, `s.type`, named properties, `count(*)`);
   `min_graph_schema.json` still parses, its Sample description no longer says descriptive metadata is not on the node,
   and no disambiguation rule gives "do not exist on graph nodes" as a reason; its other routing rules are unchanged
   (the test compares them with a frozen copy of the base commit's list).
 - [ ] **Step 2: Run them to see them fail.**
-- [ ] **Step 3: Edit** the two files per spec section 4.4 and D14. Keep the rest of `graph_agent.txt`'s three-step
-  structure; replace "SampleType nodes have no code property (only title and id)" with the v1.1 fact that `Sample.type`
-  and the `T_` label both identify the type.
+- [ ] **Step 3: Copy** the base prompt to `graph_agent_legacy.txt` first, then **edit** the two live files per spec
+  section 4.4 and D14. Keep the rest of `graph_agent.txt`'s three-step structure; replace "SampleType nodes have no
+  code property (only title and id)" with the v1.1 fact that `Sample.type` and the `T_` label both identify the type.
 - [ ] **Step 4: Run** `tests/cn/test_graph_prompt_claims.py`, the graph tests, and the hermetic drift guard (command 4).
   Expected: all pass.
 - [ ] **Step 5: Commit** `feat(chat_nextseek): stop telling the graph agent that samples carry no metadata (A7 subset)`.
@@ -403,15 +427,15 @@ then the empty plan naming each problem). `system_agent` sends the same renderin
 ```python
 # agents/parser.py
 FORCE_NOTE_MARKER = "by the evaluation switch"          # the harness pins the same phrase (T7)
+FORCE_MODES = ("graph", "graph_legacy", "api")
 ADVANCED_SEARCH_PATH = "/nextseek_api/samples/advanced_search/"
 
-def _force_parser_mode(plan: ParserPlan, force_mode: str | None, session=None) -> ParserPlan:
-    """Evaluation only: force a retrieval turn to the graph or the API path, deterministically.
+def _force_parser_mode(plan: ParserPlan, force_mode: str | None) -> ParserPlan:
+    """Evaluation only: force a single-turn retrieval question to the graph or the API path, deterministically.
 
     Runs LAST in _apply_parser_guardrails, after the LLM call, so the parser's own choice is kept in the note.
-    graph: new_search -> graph_query; refine_last_search -> graph_query unless the last bundle is a graph bundle.
-    api:   graph_query -> new_search on the first REST endpoint candidate, else advanced_search;
-           refine_last_search over a graph bundle -> the same.
+    graph, graph_legacy: new_search -> graph_query (graph_legacy also names the legacy context in the note).
+    api: graph_query -> new_search on the first REST endpoint candidate, else advanced_search.
     Every other mode, and force_mode None, returns the plan unchanged (the same object).
     """
 
@@ -421,9 +445,10 @@ def _apply_parser_guardrails(user_query, plan, session=None, force_mode=None) ->
 
 ```python
 # nextseek_api/assistant/models_api.py, QueryRequest
-force_parser_mode: Optional[Literal["graph", "api"]] = Field(None, description=(
-    "Admin-only and evaluation-only: force the NExtSEEK parser to the graph or the API path for retrieval turns. "
-    "Ignored unless the caller is a superuser and the server process sets NEXTSEEK_EVAL_PARSER_FORCE=1."))
+force_parser_mode: Optional[Literal["graph", "graph_legacy", "api"]] = Field(None, description=(
+    "Admin-only and evaluation-only: force the NExtSEEK parser to the graph path, the graph path with the pre-catalog "
+    "context, or the API path for a retrieval question. Ignored unless the caller is a superuser and the server "
+    "process sets NEXTSEEK_EVAL_PARSER_FORCE=1."))
 ```
 
 ```python
@@ -432,7 +457,7 @@ EVAL_PARSER_FORCE_ENV = "NEXTSEEK_EVAL_PARSER_FORCE"
 
 def _with_parser_force(chat_config, user, req):
     mode = getattr(req, "force_parser_mode", None)
-    if (mode not in ("graph", "api") or os.environ.get(EVAL_PARSER_FORCE_ENV) != "1"
+    if (mode not in ("graph", "graph_legacy", "api") or os.environ.get(EVAL_PARSER_FORCE_ENV) != "1"
             or not bool(getattr(user, "is_superuser", False))):
         return chat_config
     forced = copy.copy(chat_config)
@@ -442,20 +467,20 @@ def _with_parser_force(chat_config, user, req):
 # the PROD identity check above it still sees the singleton.
 ```
 
-The note appended to `plan.notes` reads `forced to <mode> by the evaluation switch (parser chose <mode>)`.
+The note appended to `plan.notes` reads `forced to <mode> by the evaluation switch (parser chose <mode>)`, with
+`, legacy context` added for `graph_legacy`.
 
 - [ ] **Step 1: Write the failing tests:**
-  - parser (Django lane): graph arm: `new_search` becomes `graph_query` with `target_endpoint` None and the filters
-    kept; `refine_last_search` with a graph last bundle is unchanged; with a REST last bundle it becomes `graph_query`;
-    `ask_about_last_results`, `system_question`, `reporter` and `unsupported` are unchanged. API arm: `graph_query`
-    becomes `new_search` on the first REST candidate, or `advanced_search` with no candidate; a multi-UID lineage
-    question that `_force_graph_for_uid_lineage` forced to graph ends on the REST path with both notes. With
-    `force_mode` None the returned plan `is` the input plan; an unknown value leaves it unchanged. The note contains
-    `FORCE_NOTE_MARKER` and the parser's original mode.
+  - parser (Django lane): graph and graph_legacy: `new_search` becomes `graph_query` with `target_endpoint` None and
+    the filters kept. api: `graph_query` becomes `new_search` on the first REST candidate, or `advanced_search` with no
+    candidate; a multi-UID lineage question that `_force_graph_for_uid_lineage` forced to graph ends on the REST path
+    with both notes. `ask_about_last_results`, `system_question`, `reporter` and `unsupported` are unchanged in every
+    arm. With `force_mode` None the returned plan `is` the input plan; an unknown value leaves it unchanged. The note
+    contains `FORCE_NOTE_MARKER` and the parser's original mode.
   - gate (ns/api variant): `_with_parser_force` returns the same object for a non-superuser (including `is_staff`
     True), without the environment flag, and for a missing or invalid value; otherwise a copy carrying
     `FORCE_PARSER_MODE`, the original untouched.
-  - `QueryRequest` accepts `graph` and `api`, rejects `cypher`, defaults to None; the ViewSet conventions tests
+  - `QueryRequest` accepts the three values, rejects `cypher`, defaults to None; the ViewSet conventions tests
     (`nextseek_api/tests/test_viewset_conventions.py`, `test_viewset_conventions_schema.py`) still pass.
 - [ ] **Step 2: Run them to see them fail.**
 - [ ] **Step 3: Implement.**
@@ -467,10 +492,10 @@ The note appended to `plan.notes` reads `forced to <mode> by the evaluation swit
 
 **Acceptance:** spec sections 4.6 and E2.
 
-### Task T7: the harness, forced runs and arm pairs
+### Task T7: the harness, forced runs and arms
 
 **Files:** modify `NessieAI/tests/nessie_tests/http_driver.py`, `runner.py`, `cli.py`, `preflight.py`,
-`nextseek_api/management/commands/nessie.py`, and their tests; create `NessieAI/tests/nessie_tests/tests/test_arm_pairs.py`,
+`nextseek_api/management/commands/nessie.py`, and their tests; create `NessieAI/tests/nessie_tests/tests/test_run_arms.py`,
 `NessieAI/tests/api/test_nessie_command_flags.py`.
 
 **Interfaces:**
@@ -480,25 +505,29 @@ The note appended to `plan.notes` reads `forced to <mode> by the evaluation swit
 def drive(..., force_route=None, force_parser_mode: str | None = None, ...) -> DriveResult  # body["force_parser_mode"]
 
 # runner.py
+ARM_PRESETS = {
+    "graph":        {"force_route": "ns", "force_parser_mode": "graph"},
+    "graph_legacy": {"force_route": "ns", "force_parser_mode": "graph_legacy"},
+    "api":          {"force_route": "ns", "force_parser_mode": "api"},
+}
 def run_case(v, *, ..., force_route=None, force_parser_mode=None, strip_route_criteria=False,
              payload_dir: Path | None = None, ...) -> NessieManifestEntry
     # payload_dir: each turn's final payload is written to <payload_dir>/<variant id>/<turn label>.json:
     # {query, task_id, session_id, status, route_obs, query_complete (reply, debug, files, artifacts), elapsed_s}
 def run_suite(*, ..., force_route=None, force_parser_mode=None) -> NessieManifest
     # force_route set => strip_route_criteria=True, as run_paired does
-def run_arm_pairs(*, base_url, auth_header, corpus_path, cases_path, out_dir,
-                  arms: dict[str, dict], resume=False, max_turns=None, full_timeout_s=600.0,
-                  skip_preflight=False, post_query=None, get_progress=None,
-                  sleep=time.sleep, clock=time.monotonic) -> dict
-    # arms = {"graph": {"force_route": "ns", "force_parser_mode": "graph"},
-    #         "api":   {"force_route": "ns", "force_parser_mode": "api"}}
-    # Per question, both arms back to back; the first arm alternates with the question index.
+def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms: list[str],
+             resume=False, max_turns=None, full_timeout_s=600.0, skip_preflight=False,
+             post_query=None, get_progress=None, sleep=time.sleep, clock=time.monotonic) -> dict
+    # arms: one or more ARM_PRESETS names, e.g. ["graph", "api"] (Group A) or ["graph"] / ["graph", "graph_legacy"]
+    # (Group B). Per question, every arm back to back; the first arm rotates with the question index.
+    # The POC's questions are single turns in fresh sessions; run_case keeps multi-turn support for later runs.
     # After every (question, arm): <out>/<arm>/manifest.json rewritten (NessieManifest), payloads under
-    # <out>/<arm>/payloads/, <out>/pairs.json {run_meta: {git_sha, corpus_fingerprint, cases_sha256, arms, base_url},
-    # pairs: [{id, family, first_arm, arms: {arm: {status, task_ids, elapsed_s}}}]}.
+    # <out>/<arm>/payloads/, <out>/arms.json {run_meta: {git_sha, corpus_fingerprint, cases_sha256, arms, base_url},
+    # questions: [{id, family, first_arm, arms: {arm: {status, task_ids, elapsed_s}}}]}.
     # report.generate_html per arm at the end and whenever the run stops.
     # resume: skip (id, arm) already in that arm's manifest; refuse when cases_sha256 differs.
-    # max_turns: stop before a question whose two arms would exceed it; 0 runs the preflight and no question.
+    # max_turns: stop before a question whose arms would exceed it; 0 runs the preflight and no question.
     # Preflight unless skipped: preflight.assert_force_route_works, then assert_parser_force_works(arms).
 
 # preflight.py
@@ -507,47 +536,49 @@ FORCE_NOTE_MARKER = "by the evaluation switch"
 class ParserForceRejected(PreflightRefused): ...
 def assert_parser_force_works(post_query, get_progress, arms, *, sleep, clock, timeout_s=600.0) -> None
     # one full forced turn per arm: route_source forced, parser_plan.notes contains the marker,
-    # parser_plan.mode is graph_query for the graph arm and not graph_query for the api arm.
+    # parser_plan.mode is graph_query for graph and graph_legacy and not graph_query for api,
+    # and debug.graph_context is catalog for graph and legacy for graph_legacy.
     # The remedies name the environment flag, the superuser account and the snapshot the venue serves.
 ```
 
-Flags: `cli.py` gains `--force-route {ns,cc}` and `--force-parser-mode {graph,api}` for a normal run (the operator's
-"expose force_route for a normal run"). `manage.py nessie` gains the same two plus `--pair-parser-modes graph,api`
-(requires `--cases` and `--force-route ns`; exclusive with `--force-parser-mode`), `--resume` and `--max-turns`
-(paired only), and `--password-env NAME` (read the password from that environment variable). Under the paired mode
-`manage.py nessie` calls `run_arm_pairs` and prints each arm's summary line and the pairs file.
+Flags: `cli.py` gains `--force-route {ns,cc}` and `--force-parser-mode {graph,graph_legacy,api}` for a normal run (the
+operator's "expose force_route for a normal run"). `manage.py nessie` gains the same two plus `--arms <names>`
+(requires `--cases` and `--force-route ns`; exclusive with `--force-parser-mode`), `--resume` and `--max-turns` (with
+`--arms` only), and `--password-env NAME` (read the password from that environment variable). With `--arms`,
+`manage.py nessie` calls `run_arms` and prints each arm's summary line and the arms file.
 
 - [ ] **Step 1: Write the failing tests** (host lane, fake `post_query`/`get_progress` as in the existing tests):
   - `drive` sends `force_parser_mode` only when set.
   - `run_case` writes one payload file per turn when `payload_dir` is given, and none otherwise.
   - `run_suite(force_route="ns")` passes `force_route` to every case and strips `route`, `engine` and `route_source`.
-  - `run_arm_pairs`: both arms per question, first arm alternating; manifests and `pairs.json` rewritten after each
-    arm (a raise inside the second arm leaves the first arm's entry on disk); `resume` skips completed (id, arm) and
-    refuses a changed cases file; `max_turns` stops before exceeding; the preflight runs once and its refusal stops the
-    run before any case.
-  - `assert_parser_force_works`: passes on a landed force; raises on a missing marker, on the wrong mode, and on a
-    dropped `force_route`, each with its own remedy.
+  - `run_arms`: one, two and three arms per question, the first arm rotating; manifests and `arms.json` rewritten
+    after each arm (a raise inside the second arm leaves the first arm's entry on disk); `resume` skips completed
+    (id, arm) and refuses a changed cases file; `max_turns` stops before exceeding, and 0 runs only the preflight; the
+    preflight runs once and its refusal stops the run before any case; an unknown arm name is refused.
+  - `assert_parser_force_works`: passes on a landed force; raises on a missing marker, on the wrong mode, on the wrong
+    graph context, and on a dropped `force_route`, each with its own remedy.
   - `cli.py`: the two new flags reach `run_suite`; `--force-parser-mode` without `--force-route ns` is refused; the
     existing mutual-exclusion tests still hold.
-  - `manage.py nessie` (ns/api variant, `call_command` with `run_suite` and `run_arm_pairs` patched): the paired flags
-    reach `run_arm_pairs`; `--pair-parser-modes` without `--cases` is an error; `--password-env` reads the variable and
-    never prints it.
+  - `manage.py nessie` (ns/api variant, `call_command` with `run_suite` and `run_arms` patched): `--arms` reaches
+    `run_arms`; `--arms` without `--cases` is an error; `--password-env` reads the variable and never prints it.
 - [ ] **Step 2: Run them to see them fail.**
 - [ ] **Step 3: Implement.** Reuse `run_case` for every turn; add no second poll loop, outage rule or cost rule.
 - [ ] **Step 4: Run** the host lane (command 3) and `NessieAI/tests/api/test_nessie_command_flags.py` (ns/api
   variant). Expected: all pass except the five machine-bound failures.
-- [ ] **Step 5: Commit** `feat(nessie_tests): run each question through both NS agents with forced routes`.
+- [ ] **Step 5: Commit** `feat(nessie_tests): run each question through forced NS arms`.
 
-**Acceptance:** a paired run over a two-question cases file against fakes produces two manifests, two reports, the
-payloads and `pairs.json`; a normal run can force a route.
+**Acceptance:** a two-arm run over a two-question cases file against fakes produces two manifests, two reports, the
+payloads and `arms.json`; a one-arm run produces one of each; a normal run can force a route.
 
-### Task T9: ground-truth files, the oracle runner and the cases builder
+### Task T8: ground-truth tooling and the scorer
 
-**Files:** create `NessieAI/tests/nessie_tests/engine_truth.py`, `scripts/derive_truth.py`,
-`scripts/build_engine_cases.py`, `tests/test_engine_truth.py`, `tests/test_build_engine_cases.py` (all under
-`NessieAI/tests/nessie_tests/`).
+One agent, two parts: the truth part first (it does not depend on T7), then the scorer (it reads T7's run layout).
 
-**Interfaces:**
+**Files:** create, under `NessieAI/tests/nessie_tests/`: `engine_truth.py`, `engine_compare.py`,
+`scripts/derive_truth.py`, `scripts/build_engine_cases.py`, `tests/test_engine_truth.py`,
+`tests/test_build_engine_cases.py`, `tests/test_engine_compare.py`.
+
+**Interfaces, truth part:**
 
 ```python
 # engine_truth.py (pydantic, host-safe: no Django import at module scope)
@@ -561,93 +592,101 @@ class Expected(BaseModel):
     value: int | float | str | list | None = None
     required_numbers: list[float] = []; required_items: list[str] = []
     alternates: list[Alternate] = []
-    sampletypes: list[str] = []; attributes: list[str] = []
+    sampletypes: list[str] = []; attributes: list[str] = []; relationships: list[str] = []
 class TruthTurn(BaseModel):
-    label: str; query: str; reading: str; oracle: Oracle | None; expected: Expected; derived_at: str | None = None
+    label: str; query: str; reading: str; oracle: Oracle | None; expected: Expected
+    second_oracle: Oracle | None = None; single_source: bool = False   # a graph-only fact, one oracle
+    derived_at: str | None = None
 class TruthQuestion(BaseModel):
-    id: str; family: str; stratum: Literal["S1", "S2"]; source: Literal["corpus", "ladder", "b2"]
-    turns: list[TruthTurn]; scorable: bool = True; exclusion: str | None = None
+    id: str; family: str; group: Literal["A", "B"]; source: Literal["corpus", "ladder", "b2"]
+    turns: list[TruthTurn]                     # one turn in this POC
+    scorable: bool = True; exclusion: str | None = None
     flags: list[str] = []   # changed_by_merge, interpretive, entity_vocabulary_gap, broad_match
     corpus_numbers: list[float] = []   # numbers in the corpus's old reply regexes, for the summary
+    merged_into: str | None = None     # a ladder or B2 question that duplicates another question
 class Fingerprint(BaseModel):
     sample_count: int; catalog_hash: str; synced_at: str | None; derived_at: str
 class TruthFile(BaseModel):
-    family: str; fingerprint: Fingerprint | None = None; questions: list[TruthQuestion]
+    name: str; group: Literal["A", "B"]; fingerprint: Fingerprint | None = None; questions: list[TruthQuestion]
 
 def number_patterns(n: float) -> re.Pattern: ...   # 107412 matches "107,412", "107412", "107 412"; not "1,107,412"
-def reply_satisfies(reply: str, expected: Expected) -> tuple[bool, str]: ...  # primary or an alternate
+def reply_satisfies(reply: str, expected: Expected) -> tuple[bool, str]: ...  # primary or an alternate, and which
 ```
 
 - `derive_truth.py` runs inside the venue (`nessie_venue.sh exec NessieAI/tests/nessie_tests/scripts/derive_truth.py
-  --truth /venue/truth/<family>.json [--only ids] | --summary | --fingerprint-only`). Oracles: `graph_search` by POST
-  to `http://127.0.0.1:8000/nextseek_api/samples/graph_search/` as `demo` (password from `GS_DEMO_PASSWORD`), `total`
-  taken from the response; `cypher` through `session.execute_read` with the settings' Neo4j; `sql` through
-  `connections["seek"]` inside `START TRANSACTION READ ONLY`, refused unless it is one statement starting with
-  `SELECT` or `WITH`; `measured` copies a number from a named results file. It fills `expected.value` and, for counts,
-  `required_numbers`, stamps `derived_at` and the file's fingerprint, and never writes anything but the truth file.
-- `build_engine_cases.py`: `--skeleton --family <f>` writes a truth skeleton from `corpus.json` (every active variant
-  of the family, turns verbatim, oracle None, `corpus_numbers` from the old regexes); `--questions <file>` does the same
-  for ladder or B2 question files; `--cases --truth <dir> --out <file> [--pilot N --pilot-out <file>]` writes the
-  `--cases` file: one block per original family, one inline variant per scorable question (id kept, tags
-  `engine_compare` and `stratum:S1` or `stratum:S2`), criteria engine-neutral only (`last_reply matches_re` per
-  required number, `entity_sampletype_codes contains` per expected type on the turn that names it,
-  `outcome_observed true` on the last turn). The pilot takes a deterministic stratified sample of N questions.
+  --truth /venue/truth/<file>.json [--only ids] | --summary | --fingerprint-only`). Oracles: `graph_search` by POST to
+  `http://127.0.0.1:8000/nextseek_api/samples/graph_search/` as `demo` (password from `GS_DEMO_PASSWORD`), `total`
+  from the response; `cypher` through `session.execute_read` with the settings' Neo4j; `sql` through
+  `connections["seek"]` inside `START TRANSACTION READ ONLY`, refused unless it is one statement starting with `SELECT`
+  or `WITH`; `measured` copies a number from a named results file. It fills `expected.value` and, for counts,
+  `required_numbers`, runs `second_oracle` when present and records any disagreement, stamps `derived_at` and the
+  file's fingerprint, and never writes anything but the truth file.
+- `build_engine_cases.py`:
+  - `--skeleton --selection <selection.json> --group a|b --family <f> [--part a|b] --out <file>`: a truth skeleton from
+    `corpus.json` for the family's kept variants in the selection file's group (turns verbatim, oracle None,
+    `corpus_numbers` from the old regexes); `--part` splits a family's kept list in file order (first half, second
+    half); `--family other` takes Group B's kept variants outside `graph_traversal`.
+  - `--questions <file> --source ladder|b2 --group a|b --out <file>`: the same for the ladder or B2 question files.
+  - `--cases --group a|b --truth <dir> --out <file> [--pilot N --pilot-out <file>]`: the group's `--cases` file, one
+    block per original family, one inline variant per scorable question that is not `merged_into` another (id kept,
+    tags `engine_compare` and `group:A` or `group:B`), criteria engine-neutral only (`last_reply matches_re` per
+    required number, `entity_sampletype_codes contains` per expected type, `outcome_observed true`). Pilots, taken
+    deterministically: Group A 10 (5 corpus `sample_search`, 2 `harmonization`, 2 ladder, 1 B2); Group B 6 (3
+    `graph_traversal`, 1 `lineage_tree`, 1 study-scoped `sample_search`, 1 investigation inventory).
 
-- [ ] **Step 1: Write the failing tests:** models round-trip; `number_patterns` matches the three spellings and
-  rejects a longer number, a decimal continuation and a year inside a date; `reply_satisfies` accepts an alternate and
-  says which; the SQL guard refuses `UPDATE`, two statements, and `SELECT ... INTO OUTFILE`; `derive_truth`'s fill
-  logic with fake executors (no Django) fills counts and fingerprints; the skeleton keeps every turn of a multi-turn
-  variant; the cases file loads with `corpus.load_case_file` and `select_cases` and carries no retired id and no
-  inline criterion outside the engine-neutral set; the pilot is stable for a fixed seed and covers both strata.
-- [ ] **Step 2: Run them to see them fail** (host lane).
-- [ ] **Step 3: Implement.** Keep Django imports inside `derive_truth.py`'s functions that need them.
-- [ ] **Step 4: Run** the host lane.
-- [ ] **Step 5: Commit** `feat(nessie_tests): add ground-truth files, an oracle runner and the engine-comparison case builder`.
-
-**Acceptance:** a skeleton, a filled truth file (fake executors) and a cases file round-trip through the harness's
-own loaders.
-
-### Task T8: the scorer
-
-**Files:** create `NessieAI/tests/nessie_tests/engine_compare.py`, `NessieAI/tests/nessie_tests/tests/test_engine_compare.py`.
-
-**Interfaces (consumes T7's run layout and T9's models):**
+**Interfaces, scorer part:**
 
 ```python
-DEFAULT_RULE = {"primary_margin_points": 15, "primary_p": 0.05, "failure_margin_points": 2,
-                "s2_floor_points": -5, "latency_ratio": 1.25, "cost_ratio": 1.5}
+RULE_A = {"margin_points": 15, "p": 0.05, "failure_margin_points": 2, "latency_ratio": 1.25, "cost_ratio": 1.5}
+RULE_B1 = {"overall": 0.80, "family_floor": 0.60, "family_min_questions": 5, "max_failed": 0.05}
+RULE_B2 = {"margin_points": -5, "p": 0.05}   # G within 5 points of L, and no significant L advantage
 
 def load_run(run_dir: Path) -> Run: ...
 def stage_verdicts(payload: dict, turn: TruthTurn, arm: str, outputs_root: Path) -> dict[str, str]:
-    # stages: route, switch, entities, parser, request, engine_value, reply; verdict pass | fail | unobserved | n/a
+    # stages: route, switch, context (graph arms), entities, parser, request, engine_value, reply;
+    # verdict pass | fail | unobserved | n/a
 def engine_value(payload: dict, arm: str, outputs_root: Path) -> float | None:
-    # graph: the graph debug JSON listed in query_complete.files; a single-row, single-number data_preview is the
-    #        aggregate, else neo4j_output.total / count. api: the saved result at debug.raw_json_path, its total.
+    # graph arms: the graph debug JSON listed in query_complete.files; a single-row, single-number data_preview is
+    #   the aggregate, else neo4j_output.total / count. api: the saved result at debug.raw_json_path, its total.
     # Container paths under /venue/outputs map onto outputs_root.
-def case_cost(payloads: list[dict], outputs_root: Path, prices: dict) -> float | None:
+def question_cost(payload: dict, outputs_root: Path, prices: dict) -> float | None:
     # the run root's llm_calls.jsonl (the parent of the files/ directory the payload paths name), priced per model.
 def mcnemar_exact(b: int, c: int) -> float: ...   # two-sided; (10, 2) -> 0.0386
-def verdict(scores: dict, rule: dict = DEFAULT_RULE) -> dict: ...
-def main(argv=None) -> int: ...   # writes compare.json, compare.md, questions.csv next to the run
+def verdict_a(scores: dict, rule=RULE_A) -> dict: ...   # SUPPORTED | SUPPORTED WITH COSTS | NOT SUPPORTED
+def verdict_b(scores: dict, with_legacy: bool) -> dict: ...  # STILL WORKS or NOT (option 1); NO WORSE or WORSE (2)
+def main(argv=None) -> int: ...   # --group a|b; writes compare.json, compare.md, questions.csv next to the run
 ```
 
-Void pairs (route or switch precondition failed) are listed and excluded. A pair with a provider outage on either arm
-is listed for rerun and excluded. A reply scored correct that also contains another number phrased as a total is
-flagged `contradiction_suspect` for the triage step (R2), which may overturn it.
+Void questions (the route force did not land, or a graph arm ran `fallback` or the wrong context) are listed and
+excluded for that arm. A question whose parser chose a non-retrieval mode is scored as the product behaved and listed.
+A question with a provider outage on any arm is listed for rerun and excluded. A reply scored correct that also
+contains another number phrased as a total is flagged `contradiction_suspect` for triage (R2), which may overturn it.
+Every verdict is computed with and without alternates, and Group B's scores are reported per family.
 
-- [ ] **Step 1: Write the failing tests** with synthetic payloads, truth and outputs: each stage passes and fails on
-  its own evidence; a missing file makes the stage `unobserved`, not `fail`; `engine_value` reads an aggregate and a
-  total; the path mapping; `case_cost` prices a two-model ledger; `mcnemar_exact(10, 2)` is 0.0386 to four places and
-  `(0, 0)` is 1.0; `verdict` returns each of the three outcomes on constructed scores; void and outage pairs are
-  excluded and listed; `compare.md` names the first failing stage per question.
-- [ ] **Step 2: Run them to see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** the host lane.
-- [ ] **Step 5: Commit** `feat(nessie_tests): score the graph and API arms against ground truth`.
+- [ ] **Step 1: Write the failing tests (truth part):** models round-trip; `number_patterns` matches the three
+  spellings and rejects a longer number, a decimal continuation and a year inside a date; `reply_satisfies` accepts an
+  alternate and says which; the SQL guard refuses `UPDATE`, two statements, and `SELECT ... INTO OUTFILE`;
+  `derive_truth`'s fill logic with fake executors (no Django) fills counts, records a second-oracle disagreement, keeps
+  a `single_source` question without complaint, and stamps the fingerprint; the skeleton takes exactly the selection's
+  kept ids for the group and splits halves stably; each group's cases file loads with `corpus.load_case_file` and
+  `select_cases`, skips `merged_into` questions, and carries no inline criterion outside the engine-neutral set; the
+  pilot quotas and their stability for a fixed input.
+- [ ] **Step 2: Run them to see them fail** (host lane), **implement the truth part**, run again.
+- [ ] **Step 3: Commit** `feat(nessie_tests): add ground-truth files, an oracle runner and the case builder`.
+- [ ] **Step 4: Write the failing tests (scorer part)** with synthetic payloads, truth and outputs: each stage passes
+  and fails on its own evidence; a missing file makes a stage `unobserved`, not `fail`; the context precondition voids
+  a `fallback` turn; `engine_value` reads an aggregate and a total; the path mapping; `question_cost` prices a
+  two-model ledger; `mcnemar_exact(10, 2)` is 0.0386 to four places and `(0, 0)` is 1.0; `verdict_a` returns each of
+  its three outcomes and `verdict_b` both outcomes of each option on constructed scores; the with-and-without
+  alternates split; void, non-retrieval and outage questions handled as above; `compare.md` names the first failing
+  stage per question and shows Group B per family.
+- [ ] **Step 5: Run them to see them fail, implement, run the host lane.**
+- [ ] **Step 6: Commit** `feat(nessie_tests): score the arms against ground truth`.
 
-**Acceptance:** spec E6, E7 and E8, on synthetic data.
+**Acceptance:** a skeleton, a filled truth file (fake executors) and each group's cases file round-trip through the
+harness's own loaders; spec E6, E7 and E8 hold on synthetic data.
 
-### Task T10: the venue script
+### Task T9: the venue script
 
 **Files:** create `scripts/graph_search/nessie_venue.sh`, `scripts/graph_search/nessie_venue_check.py`; add one row to
 `scripts/graph_search/README.md` (the only line this task writes in that file; the POC owns the rest).
@@ -715,19 +754,15 @@ through the `/venue/runs` mount.
 
 **Acceptance:** spec section 6, short of running against the live databases (that is V1).
 
-### Task T11: docs
+### Gate B (before stage V; run by the workflow's gate step, not a task agent)
 
-- [ ] `NessieAI/tests/nessie_tests/README.md`: a section "Comparing the graph and API agents" (the two flags, the
-  paired mode, the payloads, the scorer, where truth and outputs live, that paid runs need approval).
-- [ ] `NessieAI/tests/README.md`: one row in the lane table for the paired engine run (PAID, approval per run).
-- [ ] `NessieAI/chat_nextseek/CLAUDE.md`: the graph schema is no longer written into `context/`; the committed
-  `neo4j_schema.json` is the fallback; the evaluation switch exists and is off unless the environment flag is set.
-- [ ] The spec's and this plan's status lines say what is built.
-- [ ] `python3 ci/docs_map.py` clean.
-- [ ] Commit `docs(nessie_tests): document the graph and API agent comparison`.
-
-### Gate B (before stage V)
-
+- [ ] **Docs.** `NessieAI/tests/nessie_tests/README.md` gains a section "Comparing the graph and API agents" (the
+  flags, the arms, the payloads, the scorer, where truth and outputs live, that paid runs need approval);
+  `NessieAI/tests/README.md` gains one lane-table row for the forced-arm run (PAID, approval per run);
+  `NessieAI/chat_nextseek/CLAUDE.md` says the graph schema is no longer written into `context/`, the committed
+  `neo4j_schema.json` is the fallback and arm L's context, and the evaluation switch is off unless the environment flag
+  is set; the spec's and this plan's status lines say what is built. Commit `docs(nessie_tests): document the graph
+  and API agent comparison`.
 - [ ] Every touched area passes in its lane: `NessieAI/tests/chat_nextseek`, `NessieAI/tests/ns` and
   `NessieAI/tests/api` (ns/api variant), the harness host lane, the hermetic drift guard, the entity_tree tests.
   Compare failures with a run of the same paths on `origin/feat/graph-search`; any difference is explained.
@@ -753,98 +788,114 @@ through the `/venue/runs` mount.
 
 ## Stage G: ground truth
 
-Each task owns one or two truth files under `$GS_WORK/nessie/truth/` and never writes a tracked file. Oracles run only
-through `derive_truth.py` inside the venue (read-only by construction).
+Each task owns its truth files under `$GS_WORK/nessie/truth/` and never writes a tracked file. Oracles run only
+through `derive_truth.py` inside the venue (read-only by construction). The question selection is
+`$GS_WORK/nessie/selection.json` (both groups' kept and excluded variants with reasons, written at planning time; gate
+T reviews it).
 
-### Tasks G1 to G5: corpus families
+| Task | Group | Truth files | Questions |
+|---|---|---|---:|
+| G1 | A | `a_sample_search_1.json` (first half of the kept list) | 29 |
+| G2 | A | `a_sample_search_2.json` (second half) | 28 |
+| G3 | A | `a_harmonization.json`, `a_retrieval.json`, `a_ladder.json`, `a_b2.json` | 8 + 1 + 25 + 9 |
+| G4 | B | `b_graph_traversal_1.json` (first half) | 30 |
+| G5 | B | `b_graph_traversal_2.json` (second half) | 30 |
+| G6 | B | `b_other.json` (7 `lineage_tree`, 5 `sample_search`, 4 `project_summary_report`, 1 each of `retrieval_path_selection`, `vocabulary_resolution`, `engine_routing`), `b_b2.json` (the lineage shape) | 19 + 1 |
 
-| Task | Truth files | Variants |
-|---|---|---:|
-| G1 | `sample_search.json` | 66 |
-| G2 | `search_refinement.json`, `followup_over_results.json` | 17 + 33 |
-| G3 | `harmonization.json`, `retrieval_path_selection.json` | 8 + 6 |
-| G4 | `graph_traversal.json` | 60 |
-| G5 | `lineage_tree.json` | 39 |
+### Tasks G1, G2, G4, G5, G6 and G3's corpus part
 
-- [ ] `build_engine_cases.py --skeleton --family <f> --out /venue/truth/<f>.json` (through `nessie_venue.sh exec`).
-- [ ] For every turn: write the reading (what a careful curator would count or list), the oracle (a graph_search body
-  for search shapes, Cypher for structure, lineage and aggregates, SQL where `json_metadata` is the clearest source),
-  `expected.kind`, the types and attribute names the question names, and flags: `changed_by_merge` (the answer differs
-  from the corpus's old number), `interpretive` (with the alternate readings), `entity_vocabulary_gap` (a type or
-  project the entity step cannot resolve), `broad_match` (more than 50,000 matches, run in the last block).
-- [ ] Follow-up turns: the oracle computes the answer over the seed turn's full result, not over what an engine kept.
-- [ ] Exclude with a reason any question with no establishable answer (for example the samplesheet-first turn of
-  `path.actually_hang_on_find_me_the_mic`, or a question about the harness itself).
-- [ ] Run `derive_truth.py --truth /venue/truth/<f>.json`; re-run a second oracle in another engine for every count
-  question flagged `changed_by_merge` or `interpretive` and for at least one in five of the rest; a disagreement is
-  resolved or the question is marked `interpretive`.
-- [ ] Report back: counts of scorable, excluded, changed and interpretive questions, and every disagreement.
+- [ ] `build_engine_cases.py --skeleton --selection "$GS_WORK/nessie/selection.json" --group a|b --family <f> [--part
+  a|b] --out "$GS_WORK/nessie/truth/<file>.json"` (host lane dependencies; the venue sees the same directory at
+  `/venue/truth`).
+- [ ] For every question: write the reading (per spec E5's default reading), the oracle (a graph_search body for
+  search shapes; Cypher for aggregates, value discovery, studies, investigations, lineage, assays and protocols; SQL
+  where `json_metadata`, `projects_samples` or parent tokens are the clearest source), `expected.kind`, the types,
+  attribute names and relationships the question names, and flags: `changed_by_merge` (the answer differs from the
+  corpus's old number), `interpretive` (with the alternate readings), `entity_vocabulary_gap` (a type or project the
+  entity step cannot resolve), `broad_match` (more than 50,000 matches, run in the last block). Mark `single_source`
+  where only the graph holds the fact (a paper-level Study, a DERIVED_FROM assay or protocol label).
+- [ ] Exclude with a reason any question with no establishable answer.
+- [ ] Run `derive_truth.py --truth /venue/truth/<file>.json`; give a `second_oracle` in another engine to every count
+  flagged `changed_by_merge` or `interpretive` and to at least one in five of the rest, where MySQL holds the fact; a
+  disagreement is resolved or the question is marked `interpretive`.
+- [ ] Report back: counts of scorable, excluded, changed, interpretive and single-source questions, and every
+  disagreement.
 
-### Task G6: the ladder and B2 as questions
+### G3's ladder and B2 part, and G6's B2 shape
 
-- [ ] Write `$GS_WORK/nessie/questions/ladder.json` (25 rungs) and `b2.json` (12 shapes, minus those identical to a
-  rung) as natural-language questions a user would ask for the same body (for example a type-only rung becomes "How
-  many tissue samples are there?"). Mode 600. One ladder value is a real person's name: it stays in these files only.
+- [ ] Write `$GS_WORK/nessie/questions/ladder.json` (the 25 compat rungs of `$GS_WORK/runs/ladder/queries_ladder.json`)
+  and `b2.json` (the 9 Group A shapes and the lineage shape in `selection.json`) as natural-language questions a user
+  would ask for the same body (for example `attr_organ_exact` becomes "How many tissue samples have Organ equal to
+  Lung?"). Mode 600. One ladder value is a real person's name: it stays in these files only.
 - [ ] Skeletons with `--questions`; oracles `measured` from `$GS_WORK/runs/ladder/results.json` (after the UID rerun)
   and `$GS_WORK/runs/B2/results.json` (the `demo` totals), each re-run as a graph_search oracle.
+- [ ] A question whose meaning equals a kept corpus question gets `merged_into` that id (for example the rung
+  `err_empty_text`, a type-only TIS search, and the corpus question "Find all tissue samples in the database"); its
+  number stays as a cross-check on the other question's truth.
 
-### Task G7: cases, pilot and the truth summary
+### Task G7: cases, pilots and the truth summary
 
-- [ ] `build_engine_cases.py --cases --truth /venue/truth --out /venue/cases/engine-compare.json --pilot 12
-  --pilot-out /venue/cases/pilot.json` (the cases mount is read-only in the venue: write through a host-side run of
-  the builder, host lane dependencies, into `$GS_WORK/nessie/cases/`).
-- [ ] `derive_truth.py --summary` over every file: totals per stratum, changed, interpretive, excluded, the
-  fingerprint, and the list of `broad_match` questions.
+- [ ] On the host: `build_engine_cases.py --cases --group a --truth "$GS_WORK/nessie/truth" --out
+  "$GS_WORK/nessie/cases/group-a.json" --pilot 10 --pilot-out "$GS_WORK/nessie/cases/pilot-a.json"`, and the same with
+  `--group b ... --pilot 6` into `group-b.json` and `pilot-b.json`.
+- [ ] `derive_truth.py --summary` over every file: totals per group, source and family, changed, interpretive,
+  single-source, excluded, merged, the fingerprint, and the `broad_match` list.
 
-**Gate T (OPERATOR):** the operator reads the summary, every exclusion, every interpretive question and a sample of
-the rest, and decides the readings (spec decision 6). Truth files are frozen from here to the end of P3; a live-graph
-re-sync before then means re-deriving.
+**Gate T (OPERATOR):** the operator reads the summary, the selection (both groups, kept and excluded with reasons, and
+the 31 REST-routed lineage questions left out of Group B), every exclusion, every interpretive question and a sample
+of the rest, and chooses Group B's option (arm L or not). Truth files are frozen from here to the end of P3; a
+live-graph re-sync before then means re-deriving.
 
 ## Stage P: paid runs (OPERATOR, each step approved separately)
 
 Before every paid step: the benchmark flag is absent; the venue is up; `derive_truth.py --fingerprint-only` matches
-the truth; `$GS_WORK/nessie/prices.json` exists.
+the truth; `$GS_WORK/nessie/prices.json` exists. `<b-arms>` is `graph` or `graph,graph_legacy` per the operator's
+choice at gate T.
 
-### P1: preflight (3 NS turns, under $1)
+### P1: preflight (3 NS turns, 4 with arm L; under $1)
 
-- [ ] The paired command (command 7) with `--cases /venue/cases/pilot.json --max-turns 0`, which runs the preflight
-  and no case. Stop rule: any refusal. The remedy is in the message (account, environment flag, snapshot).
+- [ ] Command 7 with `--cases /venue/cases/pilot-a.json --arms graph,api --max-turns 0`, then with
+  `--cases /venue/cases/pilot-b.json --arms <b-arms> --max-turns 0` only when arm L is chosen (it adds the legacy
+  probe). Stop rule: any refusal. The remedy is in the message (account, environment flag, snapshot, context).
 
-### P2: pilot (about 30 NS turns, about $6)
+### P2: pilots (26 NS turns, 32 with arm L; about $4 or $5)
 
-- [ ] Command 7 with `--cases /venue/cases/pilot.json --out /venue/runs/pilot`. Then the scorer (command 8).
-- [ ] Stop rule: more than 2 infrastructure errors, any OOM-killed worker (`docker inspect` and the gunicorn log), the
-  catalog fallback in any G turn's payload, any stage the scorer reports `unobserved` for a reason other than the
-  question, or more than $0.30 per turn.
+- [ ] Command 7 with `--cases /venue/cases/pilot-a.json --arms graph,api --out /venue/runs/pilot-a`, and with
+  `--cases /venue/cases/pilot-b.json --arms <b-arms> --out /venue/runs/pilot-b`. Then the scorer (command 8) on both.
+- [ ] Stop rule: more than 2 infrastructure errors, any OOM-killed worker (`docker inspect` and the gunicorn log), any
+  `fallback` graph context, any stage the scorer reports `unobserved` for a reason other than the question, or more
+  than $0.30 per turn.
 
-**Gate P (OPERATOR):** the pilot's `compare.md` reviewed; the pass rule (spec E7) accepted or changed; P3 approved with
-its cap.
+**Gate P (OPERATOR):** both pilots' `compare.md` reviewed; the pass rules (spec E7) accepted or changed; P3 approved
+with its cap.
 
-### P3: the full run (about 580 NS turns, about $90, cap $150)
+### P3: the full runs (254 NS turns, 328 with arm L; about $38 or $49; cap $60 or $75)
 
-- [ ] Command 7 with `--cases /venue/cases/engine-compare.json --out /venue/runs/full --max-turns <block end>`,
-  repeated with `--resume` in blocks of about 100 turns. Long blocks run detached inside the venue
-  (`docker exec -d gs-nessie-venue sh -c '... > /venue/runs/full/console.log 2>&1'`) and are watched through
-  `pairs.json`; stopping one is `docker exec gs-nessie-venue pkill -f "manage.py nessie"` (a turn in flight finishes
-  server-side).
+- [ ] Group A: command 7 with `--cases /venue/cases/group-a.json --arms graph,api --out /venue/runs/full-a
+  --max-turns <block end>`, repeated with `--resume` in blocks of about 60 turns (the pilot's questions are skipped by
+  id). Group B: the same with `group-b.json`, `--arms <b-arms>` and `--out /venue/runs/full-b`. A block runs detached
+  inside the venue (`docker exec -d gs-nessie-venue sh -c '... > /venue/runs/<run>/console.log 2>&1'`) and is watched
+  through `arms.json`; stopping one is `docker exec gs-nessie-venue pkill -f "manage.py nessie"` (a turn in flight
+  finishes server-side).
 - [ ] Between blocks: the fingerprint check, the benchmark flag, and spend so far (the scorer's cost table).
-- [ ] The `broad_match` questions form the last block, run only after the operator confirms the memory floor.
+- [ ] The `broad_match` questions form the last Group A block, run only after the operator confirms the memory floor.
 - [ ] Stop rule per block: more than 10% infrastructure errors, a provider outage, a changed fingerprint (void the
   block), the benchmark flag present, or the cap reached.
 
-### P4: repeats (optional; 160 NS turns, about $25, cap $40)
+### P4: Group A repeats (optional; 40 questions, two more runs per arm, 160 NS turns, about $24, cap $35)
 
-- [ ] 40 S1 questions from the full run (stratified), two more runs per arm, into their own `--out`; the scorer
-  reports within-arm agreement.
+- [ ] 40 Group A questions from the full run (a stratified sample by source and family), two more runs per arm, into
+  their own `--out`; the scorer reports within-arm agreement.
 
 ## Stage R: the result
 
-- [ ] **R1:** the scorer (command 8) over `runs/full` (and `runs/p4` when run).
+- [ ] **R1:** the scorer (command 8) with `--group a` over `runs/pilot-a` plus `runs/full-a` (and the P4 run when
+  there is one), and with `--group b` over `runs/pilot-b` plus `runs/full-b`.
 - [ ] **R2:** triage per arm with the `nessie-run-review` output skill (`NessieAI/tests/nessie_tests/output-skill/SKILL.md`)
   for every failed or `contradiction_suspect` question, recording overturned verdicts in `triage.json` beside the run;
   re-run the scorer with the triage applied.
-- [ ] **R3 (OPERATOR):** the verdict against the pass rule, and what follows (A6 and retiring the API agent for
-  metadata questions, more evidence, or neither).
+- [ ] **R3 (OPERATOR):** Group A's verdict and Group B's, and what follows (A6 and retiring the API agent for metadata
+  questions, fixes to the graph agent's context, more evidence, the later question sets of spec section 8.2, or none).
 
 ---
 
@@ -856,19 +907,22 @@ Designed in spec section 8.1. Not executed by this plan's POC workflow; listed s
 |---|---|---|
 | S1 carrier and host seam | `chat_nextseek/graph_scope.py` (new: `GraphScope`, `scope_of`, `with_graph_scope`), `nextseek_api/assistant/graph_scope.py` (new: `graph_scope_for`, `attach_graph_scope`), `nextseek_api/services/assistant.py`, `nextseek_api/services/cc_assistant.py`, `nextseek_api/services/evaluator.py`, `NessieAI/cc/turn.py`, `NessieAI/ns/retry.py` | superuser to admin, a member to their projects, `ScopeUnavailable` to None; every seam puts a scope on the copy the engine receives and never on the singleton; no new back-edge (`test_nessie_boundaries.py`) |
 | S2 the injector | `chat_nextseek/cypher_scope.py` (new), `helpers/tools/neo4j.py` (non-admin queries go through it; `__scope*` parameters from the model refused) | text-level tests for every row of the spec's shape table, including the refusal fallback |
-| S3 the adversarial suite | `NessieAI/tests/chat_nextseek/test_cypher_scope_adversarial.py` (new) and a lane script that starts a throwaway, memory-capped Neo4j with a two-project fixture graph plus orphans | the differential oracle: each query's scoped result equals the admin result over the graph with the caller's invisible Samples removed; admin results unchanged; refusals only on the allowed list |
+| S3 the adversarial suite | `NessieAI/tests/chat_nextseek/test_cypher_scope_adversarial.py` (new) and a lane script that starts a throwaway, memory-capped Neo4j with a two-project fixture graph plus orphans; Group B's recorded Cypher is a source of real queries | the differential oracle: each query's scoped result equals the admin result over the graph with the caller's invisible Samples removed; admin results unchanged; refusals only on the allowed list |
 | S4 fixed reads, lineage, rendering | `reports/runners.py` (`run_scoped_read`), `nextseek_api/services/entity_tree.py` (lineage scoped after the query), `graph_catalog.py` and `graph_context.py` (scoped Q2 and structure-only forms), the CLI and `mcp_server.py` (refusal without a scope) | a non-member sees zero foreign rows on every path; the renderer shows no foreign counts or values |
 
 **Gate S:** the suite passes; then the merge work may begin.
 
 ## Self-review
 
-- Every spec decision maps to a task: R1 (stages G to R), R2 (stage S), R3 (T3), R4 (T6, T7), R5 (the task list);
-  D3 (T3), D6 to D9 (T1, T2, T4), D11 (no task), D13 (T4, T5), D14 (T5); E1 to E3 (T6, T7), E4 and E5 (T9, G1 to G7),
-  E6 to E8 (T8), E9 (no change by design); the venue (T10, V1); paid runs (P1 to P4).
+- Every spec decision maps to a task: R1 (stages G to R), R2 (stage S), R3 (T3), R4 and R9 (T6, T7), R5 (the task
+  list), R6 (the selection, stage G), R7 (T8's Group A rule), R8 (T8's truth part, stage G), R10 (T6, T8, T9), R11
+  (nine stage B agents, docs in gate B), R12 (T4's legacy mode, T5's legacy prompt, T8's Group B rules, the optional
+  arm in stage P); D3 (T3), D6 to D9 (T1, T2, T4), D11 (no task), D13 (T4, T5), D14 (T5), D15 (T4); E1 to E3 (T6,
+  T7), E4 and E5 (T8, stage G), E6 to E8 (T8), E9 (no change by design), E10 (T4, T5); the venue (T9, V1); paid runs
+  (P1 to P4).
 - No task edits a file owned by follow-up 2 or the POC; `scripts/graph_search/README.md` gets one row only.
 - Names used across tasks are defined once in the task that owns their file: `CatalogSnapshot`, `TypeDetail`,
   `get_snapshot`, `get_type_details`, `render_graph_context`, `resolved_type_codes`, `mask_cypher`, `write_clause`,
-  `FORCE_NOTE_MARKER`, `_force_parser_mode`, `_with_parser_force`, `run_arm_pairs`, `assert_parser_force_works`,
-  `TruthFile`, `reply_satisfies`, `engine_value`, `verdict`.
+  `GraphAgentPlan.context_mode`, `FORCE_NOTE_MARKER`, `_force_parser_mode`, `_with_parser_force`, `ARM_PRESETS`,
+  `run_arms`, `assert_parser_force_works`, `TruthFile`, `reply_satisfies`, `engine_value`, `verdict_a`, `verdict_b`.
 - Every paid step has a turn count, an estimate, a cap or a stop rule, and its own approval.
