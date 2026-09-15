@@ -75,6 +75,14 @@ def test_simple_with_no_filter_or_no_attribute_asks_for_the_whole_sample_type(r)
     assert r["simple_no_attribute"] == type_only
 
 
+def test_simple_with_a_value_but_no_attribute_searches_every_value_of_the_type(r):
+    """No attribute (or No Filter) plus a value in From is a keyword search of that type's metadata values."""
+    assert r["simple_no_attribute_with_value"] == {"body": {
+        "sampletype": "TIS", "filter_searchText": "Lung", "filter_matchType": "PARTIAL"}}
+    assert r["simple_no_filter_with_value"] == {"body": {
+        "sampletype": "TIS", "filter_searchText": "lung", "filter_matchType": "PARTIAL"}}
+
+
 def test_simple_refuses_what_graph_search_cannot_express_or_is_incomplete(r):
     assert r["simple_not_contain"] == {"error": "“Not Contain” has no graph_search operator."}
     assert r["simple_no_type"] == {"error": "Choose a sample type."}

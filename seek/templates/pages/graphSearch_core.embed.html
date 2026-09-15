@@ -59,7 +59,8 @@ var GraphSearchCore = (function () {
   }
 
   /* The Simple tab: one sample type, one attribute, one rule, as graph_search typed conditions.
-     No attribute or "No Filter" asks for every sample of the type. */
+     With no attribute (or "No Filter"), a value in From is searched across every attribute value of
+     the type's samples, and no value asks for every sample of the type. */
   function simpleBody(state) {
     var type = trim(state.sampletype);
     if (!type) {
@@ -68,7 +69,10 @@ var GraphSearchCore = (function () {
     var attribute = trim(state.attribute);
     var rule = trim(state.rule);
     if (!attribute || attribute === 'none' || !rule || rule === 'No Filter') {
-      return { body: { sampletype: type, filter_searchText: '' } };
+      var keyword = trim(state.from);
+      return { body: keyword
+        ? { sampletype: type, filter_searchText: keyword, filter_matchType: 'PARTIAL' }
+        : { sampletype: type, filter_searchText: '' } };
     }
     if (!Object.prototype.hasOwnProperty.call(RULES, rule)) {
       return { error: '“' + rule + '” has no graph_search operator.' };

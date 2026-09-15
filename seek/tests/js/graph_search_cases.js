@@ -66,6 +66,12 @@ var cases = {
   simple_no_attribute: function () {
     return C.simpleBody({ sampletype: 'TIS', attribute: '', rule: '', from: '', to: '', filterType: '' });
   },
+  simple_no_attribute_with_value: function () {
+    return C.simpleBody({ sampletype: 'TIS', attribute: '', rule: '', from: '  Lung ', to: '', filterType: '' });
+  },
+  simple_no_filter_with_value: function () {
+    return C.simpleBody({ sampletype: 'TIS', attribute: 'Organ', rule: 'No Filter', from: 'lung', to: '', filterType: 'string' });
+  },
   simple_not_contain: function () {
     return C.simpleBody({ sampletype: 'TIS', attribute: 'Organ', rule: 'Not Contain', from: 'Lung', to: '', filterType: 'string' });
   },
