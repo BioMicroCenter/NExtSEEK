@@ -1,9 +1,23 @@
-"""Neo4j read-only query tool. Moved from helpers.py during the Phase 2 src/ restructure."""
+"""
+Neo4j read-only query tool. Moved from helpers.py during the Phase 2 src/ restructure.
+
+Read-only twice over (spec D3): the text check (`cypher_text.write_clause`, on masked
+text) refuses a write before a driver opens, and every statement runs in a READ
+transaction (`session.execute_read`) with a timeout, so the server refuses a write the
+check misses. Never call `session.run` here: it is an auto-commit transaction in the
+default WRITE access mode.
+"""
 from __future__ import annotations
 
 import re
 
 from ...config import ChatConfig
+from ...cypher_text import write_clause
+
+# Server-side transaction timeout, seconds, for the query and for its total probe.
+QUERY_TIMEOUT_S = 60
+
+_WRITE_REFUSED = "Write operations are not permitted; only read (MATCH/RETURN) queries are allowed."
 
 
 # A trailing `[SKIP n] LIMIT n`, which is the shape the graph prompt asks for.
@@ -37,7 +51,27 @@ def split_trailing_limit(cypher: str, parameters: dict | None = None) -> "tuple[
     return cypher[: m.start()], limit
 
 
-def _probe_total(db_session, body: str, params: dict) -> int | None:
+def _read_rows(tx, cypher: str, params: dict) -> "tuple[list[dict], dict]":
+    """Transaction function: the rows and the counters, read before the transaction closes."""
+    result = tx.run(cypher, params)
+    records = [dict(record) for record in result]
+    summary = result.consume()
+    counters = {}
+    if summary and summary.counters:
+        try:
+            counters = dict(vars(summary.counters))
+        except Exception:
+            pass
+    return records, counters
+
+
+def _read_total(tx, probe: str, params: dict) -> int | None:
+    """Transaction function: the probe's single `__total`."""
+    record = tx.run(probe, params).single()
+    return int(record["__total"]) if record and record.get("__total") is not None else None
+
+
+def _probe_total(db_session, body: str, params: dict, work=None) -> int | None:
     """
     Count the rows the query WOULD have returned without its LIMIT.
 
@@ -47,36 +81,36 @@ def _probe_total(db_session, body: str, params: dict) -> int | None:
 
     The ``CALL () { }`` wrap preserves DISTINCT and ORDER BY without having to parse
     the projection. The body is a prefix of an already write-checked query, so this
-    introduces no new write surface.
+    introduces no new write surface. It runs in its own READ transaction; ``work``
+    is ``_read_total`` wrapped with the timeout.
     """
     probe = f"CALL () {{\n{body}\n}}\nRETURN count(*) AS __total"
-    record = db_session.run(probe, params).single()
-    return int(record["__total"]) if record and record.get("__total") is not None else None
+    return db_session.execute_read(work or _read_total, probe, params)
 
 
 def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = None) -> dict:
     """
     Execute a read-only Cypher query against the configured Neo4j instance.
-    Returns a structured dict: {ok, data, count, cypher, parameters, counters} on success,
-    or {ok: False, error, cypher} on failure. Opens and closes a driver per call.
+    Returns a structured dict: {ok, data, count, total, truncated, limit, cypher, parameters,
+    counters} on success, or {ok: False, error, data, cypher} on failure. Opens and closes a
+    driver per call. The query and its total probe each run in a READ transaction with a
+    QUERY_TIMEOUT_S timeout.
     """
+    # Refuse writes before anything else: a refused statement never opens a driver.
+    clause = write_clause(cypher)
+    if clause is not None:
+        print(f"[DEBUG][GRAPHDB] Blocked write query ({clause}): {cypher!r}")
+        return {"ok": False, "error": f"{_WRITE_REFUSED} Refused: {clause}.", "data": None, "cypher": cypher}
+
     try:
-        from neo4j import GraphDatabase  # type: ignore
+        from neo4j import GraphDatabase, unit_of_work  # type: ignore
     except ImportError:
         return {"ok": False, "error": "neo4j driver not installed; run 'uv add neo4j'", "data": None, "cypher": cypher}
 
     if not getattr(config, "NEO4J_PASSWORD", None):
         return {"ok": False, "error": "NEO4J_PASSWORD not configured", "data": None, "cypher": cypher}
 
-    # Block any write/mutating Cypher clauses — allow read-only queries only.
-    _WRITE_KEYWORDS = re.compile(
-        r"\b(CREATE|MERGE|SET|DELETE|DETACH\s+DELETE|REMOVE|DROP|CALL\s+db\.|CALL\s+apoc\.schema\.|CALL\s+apoc\.periodic\.|LOAD\s+CSV)\b",
-        re.IGNORECASE,
-    )
-    if _WRITE_KEYWORDS.search(cypher):
-        print(f"[DEBUG][GRAPHDB] Blocked write query: {cypher!r}")
-        return {"ok": False, "error": "Write operations are not permitted; only read (MATCH/RETURN) queries are allowed.", "data": None, "cypher": cypher}
-
+    timed = unit_of_work(timeout=QUERY_TIMEOUT_S)
     params = parameters or {}
     driver = None
     try:
@@ -92,15 +126,7 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                 auth=(config.NEO4J_USER, config.NEO4J_PASSWORD),
             )
         with driver.session(database=getattr(config, "NEO4J_DATABASE", "neo4j")) as db_session:
-            result = db_session.run(cypher, params)
-            records = [dict(record) for record in result]
-            summary = result.consume()
-            counters = {}
-            if summary and summary.counters:
-                try:
-                    counters = dict(vars(summary.counters))
-                except Exception:
-                    pass
+            records, counters = db_session.execute_read(timed(_read_rows), cypher, params)
             print(f"[DEBUG][GRAPHDB] Query returned {len(records)} records")
 
             # `count` is len(records) and always has been, so a query that hit its
@@ -113,7 +139,7 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                 truncated = True
                 total = None
                 try:
-                    total = _probe_total(db_session, body, params)
+                    total = _probe_total(db_session, body, params, timed(_read_total))
                     print(f"[DEBUG][GRAPHDB] Result hit LIMIT {effective_limit}; true total = {total}")
                 except Exception as probe_err:
                     # Best effort: an unknown total is still more information than a

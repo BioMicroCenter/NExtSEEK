@@ -88,6 +88,8 @@ def test_the_probe_body_is_a_prefix_of_the_original():
 import sys
 import types as _types
 
+import neo4j as _real_neo4j
+
 from chat_nextseek.helpers.tools.neo4j import tool_neo4j_query
 
 
@@ -105,6 +107,16 @@ class _FakeResult:
         return _types.SimpleNamespace(counters=None)
 
 
+class _FakeTx:
+    """The transaction a READ transaction function receives (test_neo4j_read_mode.py checks the mode)."""
+
+    def __init__(self, session):
+        self._session = session
+
+    def run(self, cypher, params=None):
+        return self._session._run(cypher, params)
+
+
 class _FakeSession:
     def __init__(self, rows, total, fail_probe=False):
         self._rows = rows
@@ -112,7 +124,13 @@ class _FakeSession:
         self._fail_probe = fail_probe
         self.queries: list[str] = []
 
+    def execute_read(self, fn, *args, **kwargs):
+        return fn(_FakeTx(self), *args, **kwargs)
+
     def run(self, cypher, params=None):
+        raise AssertionError("session.run called outside a READ transaction")
+
+    def _run(self, cypher, params=None):
         self.queries.append(cypher)
         if "__total" in cypher:
             if self._fail_probe:
@@ -134,6 +152,7 @@ def _install_fake_driver(monkeypatch, session):
     )
     fake_neo4j = _types.ModuleType("neo4j")
     fake_neo4j.GraphDatabase = _types.SimpleNamespace(driver=lambda *a, **k: driver)
+    fake_neo4j.unit_of_work = _real_neo4j.unit_of_work
     monkeypatch.setitem(sys.modules, "neo4j", fake_neo4j)
     return session
 
