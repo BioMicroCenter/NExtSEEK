@@ -16,6 +16,7 @@ a container of the live `nextseek` compose project.
 | `load_graph_backup.py`, `dump_graph.sh` | load the local graph backup into the lane's Neo4j; dump the built v1.1 graph |
 | `parity.py`, `queries.json` | graph_search against advanced_search, per query and scope (gate E) |
 | `bench.py`, `bench_report.py` | the benchmark harness and its report |
+| `load_live.sh` | OPERATOR-RUN (plan task L1): snapshot the live stack's data, load the merged MySQL and the v1.1 graph into it, verify, and restore the snapshot afterwards |
 
 Files other than `lane.sh` land with their tasks in the plan; `git ls-files scripts/graph_search` lists what exists.
 
@@ -123,5 +124,6 @@ Rerun them after any change of `GS_NEO4J_IMAGE`.
 
 - Every container this folder starts is named `gs-*`, joins `gs-net` and carries `--memory`.
 - Never write to, restart, recreate or stop a container of the live `nextseek` compose project; read-only
-  `docker ps` and `docker inspect` are fine. Loading into the live stack is the operator's step (plan task L1).
+  `docker ps` and `docker inspect` are fine. Loading into the live stack is the operator's step (plan task L1):
+  `load_live.sh`, whose changing steps refuse to run without `--yes`.
 - Seed and merged dumps hold real personal data: they stay under `$GS_WORK`, never in the repository.
