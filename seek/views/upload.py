@@ -18,6 +18,7 @@ from django.conf import settings
 import simplejson
 from ..decorators import verifySuperUser
 
+from .samples import LOGIN_REQUIRED
 from .shared import DOWNLOAD_DIRECTORY, DOWNLOAD_DIRECTORY_LINK, SEEK_DATABASE, UPLOAD_DIRECTORY, report
 
 logger = logging.getLogger(__name__)
@@ -52,10 +53,14 @@ def batchUpload(request):
     return render(request,"batchUpload.html", {'report': report})
 
 def sampleUploadAjax(request):
+    """Upload a sample sheet; the view requires a login."""
     logger.debug('sampleUploadAjax')
     username = str(request.user)  # noqa: F841 (kept: resolves the lazy request.user)
+    if not request.user.is_authenticated:
+        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
     seekdb = SeekDB(None, None, None)
-    seekdb.getSeekLogin(request)
+    if not seekdb.getSeekLogin(request)['status']:
+        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
     msg = "Error: File not valid"
     message = ''
     status = 0

@@ -6,10 +6,12 @@ from ..dbtable_sampleattribute import DBtable_sampleattribute
 from ..dbtable_sampletype import DBtable_sampletype
 from django.http import HttpResponse
 from django.http import HttpResponseRedirect
+from django.views.decorators.http import require_POST
 from ..seekdb import SeekDB
 from dmac.conversion import convertDicToOptions
 import datetime
 import json
+from ..responses import json_response
 from ..responses import plain_text
 from django.shortcuts import render
 from ..decorators import requires_seek_login
@@ -21,6 +23,9 @@ import zipfile
 from django.conf import settings
 
 from .shared import DOWNLOAD_DIRECTORY, DOWNLOAD_DIRECTORY_LINK
+
+# The envelope message a view that requires a login answers with when there is none.
+LOGIN_REQUIRED = 'Error: Please log in first.'
 
 def seek(request, url):
     report = {}
@@ -131,8 +136,13 @@ def getOperators(request):
     return HttpResponse(simplejson.dumps(data, default=str))
 
 def retrieveSamples(request):
+    """The rows behind the sample-type grid; the view requires a login."""
+    if not request.user.is_authenticated:
+        return json_response(LOGIN_REQUIRED, 0)
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        return json_response(LOGIN_REQUIRED, 0)
     dbsample = DBtable_sample()
     reportData = dbsample.processRecords(request, user_seek, "retrieve")
     return HttpResponse(reportData) 
@@ -242,12 +252,24 @@ def sampleFindAjax(request):
                 
     return HttpResponse(simplejson.dumps(data, default=str))   
 
+@require_POST
 def sampleDelete(request):
-    ret = request.GET
-        
+    """Delete samples given by id (``allids``) or by UID (``alluids``).
+
+    POST only, so the CSRF middleware checks the token. The view requires a login,
+    and the SEEK identity the deletion runs under is the logged-in account's own. A
+    sample is deleted for its contributor or for a superuser
+    (``DBtable_sample._deleteSampleList``).
+    """
+    ret = request.POST
+    if not request.user.is_authenticated:
+        return json_response(LOGIN_REQUIRED, 0)
+
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request)
-    
+    if not user_seek['status'] or user_seek.get('username') != request.user.username:
+        return json_response(LOGIN_REQUIRED, 0)
+
     datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     filename = 'samples-deletion' + datenow + '.xls'
     downloadfile = DOWNLOAD_DIRECTORY + filename
@@ -261,7 +283,8 @@ def sampleDelete(request):
         sample_uids = json.loads(ret['alluids'])
         sample_ids = list(map(dbsample.getSampleID, sample_uids))
 
-    sdata = dbsample.deleteSamples(user_seek, downloadfile, link, sample_ids)
+    sdata = dbsample.deleteSamples(user_seek, downloadfile, link, sample_ids,
+                                   is_superuser=verifySuperUser(request) == 1)
     return HttpResponse(sdata)
 
 def getStudiesOptions(request, id):

@@ -518,7 +518,7 @@ REGISTRY: list[Route] = [
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
           note="internal-assay editor, save action"),
     Route(pattern=r"^seek/^retrieve/samples/", path=None,
-          methods=(), profiles="", auth="anon", exclude="EXCLUDE_UNSAFE_METHOD",
+          methods=(), profiles="", auth="web", exclude="EXCLUDE_UNSAFE_METHOD",
           note="sample retrieval endpoint behind the retrieval page"),
     Route(pattern=r"^seek/^samples/delete/", path=None,
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
