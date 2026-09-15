@@ -73,96 +73,119 @@
   }
 </script>
 
-<div id="clade_tab" class="easyui-tabs" style="width:auto;height:900px;">
-  <div title="Clades" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-  	<div class="easyui-layout" style="width:auto;height:900px;">
-      <div id="center_div" data-options="region:'center',border:false" style="display:flex;flex-direction:column;gap:2em;height: 600px;">
-        <!-- ns-workbench scopes the roomier, wrapping cell geometry in
-             themes/NextSeek/static/css/nextseek.css to this page's grids only;
-             every other datagrid in the app keeps easyui's stock 18px rows. -->
-        <div id="clades_table_div" class="ns-workbench" style="height:auto">
-        	<div style="margin:20px 0;"></div>
-          <h1>Clades</h1>
-        	<table id="dg_clade" class="easyui-datagrid" title="" style="width:auto; height:fit-content;"
-        			data-options="
-        				iconCls: 'icon-edit',
-        				singleSelect: true,
-        				selectOnCheck: false,
-        				url:'',
-        				method:'get',
-        				toolbar: '#tb_toolbar',
-        				striped: true,
-        				pagination : false,
-                onClickCell: onClickCell,
-                onEndEdit: onEndEdit,
-        				showFooter: false,
-        				remoteFilter: false
-        			">
-        		<thead>
-        			<tr>
-        				<th data-options="field:'id',width:60"><B>ID</B></th>
-        				<th data-options="field:'title',width:60,editor:'text'"><B>Title</B></th>
-        				<th data-options="field:'color',width:200,editor:'text'"><B>Color</B></th>
-        				<th data-options="field:'order',width:200,editor:'text'"><B>Order</B></th>
-        			</tr>
-        		</thead>
-        	</table>
-        	<div id="tb_toolbar" style="height:auto">
-        		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="append($('#dg_clade'))">Add a clade</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="nsRemovePost($('#dg_clade'), '/seek/clade/delete/', '{{ csrf_token }}')">Remove a clade</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#dg_clade'), '/seek/clade/save/', '{{ csrf_token }}')">Save a clade</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#dg_clade'))">Cancel</a>
-          </div>
-        </div>
-        <div id="stc_table_div" class="ns-workbench">
-          <h1>Sample Types Clade Association</h1>
-        	<table id="stc_dg" class="easyui-datagrid" title="" style="width:auto; height:fit-content;"
-        			data-options="
-        				iconCls: 'icon-edit',
-        				singleSelect: true,
-        				selectOnCheck: false,
-        				toolbar: '#stc_tb_toolbar',
-        				striped: true,
-        				pagination : false,
-                onClickCell: nsWbClickCell,
-                onEndEdit: nsCladeAssociationEndEdit,
-        				showFooter: false,
-        				remoteFilter: false
-        			">
-        		<thead>
-        			<tr>
-                <th data-options="field:'sample_type_id', width:60">
-                  <B>Sample Type ID</B>
-                </th>
-        				<th data-options="field:'sample_type_title',width:420, formatter: function(v,r){ return nsWorkbench.titleFormatter(v,r); }">
-                  <B>Sample Type</B>
-                </th>
-        				<th data-options='field:"clade_id",width:300,
-                    formatter: function(v,r){ return nsWorkbench.suggestedFormatter(v,r); },
-        						editor:{
-        							type:"combobox",
-        							options:{
-        								valueField: "id",
-        								textField: "title",
-        								data: clades,
-        								required: true
-        							}
-        						}'>
-                  <B>Clade</B>
-                </th>
-        			</tr>
-        		</thead>
-        	</table>
-        	<div id="stc_tb_toolbar" style="height:auto">
-            <span id="ns-wb-count" class="ns-wb-count attrs-count"></span>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-reload',plain:true" onclick="cladesSyncSampleTypes()">Sync Sample Types</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#stc_dg'), '/seek/clade/sampleTypes/save/', '{{ csrf_token }}')">Save</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#stc_dg'))">Cancel</a>
-          </div>
-        </div>
-      </div>
+<!-- Page structure follows seek/templates/sampleAttributes.html, the same way
+     seek/templates/internal_assays.html does; see the longer note there for what
+     the easyui-tabs / easyui-layout wrappers were doing and why they are gone. -->
+<div class="ns-workbench">
+
+  <header class="ns-page-header">
+    <h1 class="ns-page-title">Clades</h1>
+    <p class="ns-page-subtitle">
+      A clade is the broad stage a sample type sits at in the pipeline, and it is what colours
+      the sample graph. Every sample type is associated with exactly one.
+    </p>
+  </header>
+
+  <section class="ns-wb-section">
+    <h2 class="ns-wb-section-title">Clade vocabulary</h2>
+    <p class="ns-wb-section-note">
+      The controlled list itself. Colour and order decide how the clade is drawn in the graph.
+    </p>
+    <table id="dg_clade" class="easyui-datagrid" title="" style="width:auto; height:300px;"
+        data-options="
+          iconCls: 'icon-edit',
+          singleSelect: true,
+          selectOnCheck: false,
+          url:'',
+          method:'get',
+          toolbar: '#tb_toolbar',
+          striped: false,
+          pagination : false,
+          onClickCell: onClickCell,
+          onEndEdit: onEndEdit,
+          showFooter: false,
+          remoteFilter: false,
+          nowrap: false,
+          autoRowHeight: true
+        ">
+      <thead>
+        <tr>
+          <th data-options="field:'id',width:60"><B>ID</B></th>
+          <th data-options="field:'title',width:160,editor:'text'"><B>Title</B></th>
+          <th data-options="field:'color',width:200,editor:'text'"><B>Color</B></th>
+          <th data-options="field:'order',width:200,editor:'text'"><B>Order</B></th>
+        </tr>
+      </thead>
+    </table>
+    <div id="tb_toolbar" style="height:auto">
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="append($('#dg_clade'))">Add a clade</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="nsRemovePost($('#dg_clade'), '/seek/clade/delete/', '{{ csrf_token }}')">Remove a clade</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#dg_clade'), '/seek/clade/save/', '{{ csrf_token }}')">Save a clade</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#dg_clade'))">Cancel</a>
     </div>
-  </div>
+  </section>
+
+  <section class="ns-wb-section">
+    <h2 class="ns-wb-section-title">Sample type association</h2>
+    <table id="stc_dg" class="easyui-datagrid" title="" style="width:auto; height:560px;"
+        data-options="
+          iconCls: 'icon-edit',
+          singleSelect: true,
+          selectOnCheck: false,
+          toolbar: '#stc_tb_toolbar',
+          striped: false,
+          pagination : false,
+          onClickCell: nsWbClickCell,
+          onEndEdit: nsCladeAssociationEndEdit,
+          showFooter: false,
+          remoteFilter: false,
+          nowrap: false,
+          autoRowHeight: true
+        ">
+      <thead>
+        <tr>
+          <!-- Declared here, not left to datagrid-detailview.js to inject as a
+               FROZEN column; see the long note on the same column in
+               seek/templates/internal_assays.html for the alignment this buys.
+               This grid reached the same end by a different route: it was left
+               on easyui's `nowrap: true` default, so every row was one line tall
+               and the frozen caret table happened to stay level with the content
+               table. It now wraps like the other workbench grid -- which is what
+               makes a long sample type readable -- and that coincidence would
+               not have survived the change. -->
+          <th data-options="field:'_expander', width:32, expander:true">
+            <B>&nbsp;</B>
+          </th>
+          <th data-options="field:'sample_type_id', width:60">
+            <B>ID</B>
+          </th>
+          <th data-options="field:'sample_type_title',width:420, formatter: function(v,r){ return nsWorkbench.titleFormatter(v,r); }">
+            <B>Sample Type</B>
+          </th>
+          <th data-options='field:"clade_id",width:300,
+              formatter: function(v,r){ return nsWorkbench.suggestedFormatter(v,r); },
+              editor:{
+                type:"combobox",
+                options:{
+                  valueField: "id",
+                  textField: "title",
+                  data: clades,
+                  required: true
+                }
+              }'>
+            <B>Clade</B>
+          </th>
+        </tr>
+      </thead>
+    </table>
+    <div id="stc_tb_toolbar" style="height:auto">
+      <span id="ns-wb-count" class="ns-wb-count attrs-count"></span>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-reload',plain:true" onclick="cladesSyncSampleTypes()">Sync Sample Types</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#stc_dg'), '/seek/clade/sampleTypes/save/', '{{ csrf_token }}')">Save</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#stc_dg'))">Cancel</a>
+    </div>
+  </section>
+
 </div>
-    
+
 {% endblock %}

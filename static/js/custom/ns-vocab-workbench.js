@@ -21,6 +21,18 @@ var NS_UNREADABLE = -1;
 // carries its own click handling that would fight this module's.
 var NS_WB_SELECT_FIELD = '_nsSelect';
 
+// Field name of the detailview expander column. Both consumer templates now
+// declare this column themselves, in the ordinary (unfrozen) <thead>, which is
+// the whole reason the caret lines up with the row it belongs to:
+// datagrid-detailview.js's onBeforeRender only injects its own expander -- into
+// opts.frozenColumns, forcing a SECOND <table> whose row heights easyui has to
+// keep in step by hand -- when no column already declares `expander: true`.
+// Declaring one here means frozenColumns stays empty, the plugin's render()
+// returns early for the frozen half, and caret and text end up in the same
+// <tr>. Renaming this string without renaming it in both templates silently
+// restores the split grid.
+var NS_WB_EXPANDER_FIELD = '_expander';
+
 // The consumer page's "Accept selected (N)" toolbar button, and the count span
 // inside it. Addressed by id, the same convention updateCount() uses for
 // '#ns-wb-count': one workbench instance per page.
@@ -168,6 +180,14 @@ function nsWbClickCell(index, field) {
   // OUR code — easyui's own click handling still runs afterwards and selects
   // the row regardless, per the configured selection mode.
   if (field === NS_WB_SELECT_FIELD) { return; }
+  // Same for the expander column. The caret glyph itself never reaches this
+  // handler -- datagrid-detailview.js's bindEvents intercepts a click on
+  // .datagrid-row-expander and returns before calling easyui's own click
+  // handler -- but the cell is 32px wide and the glyph is 22px, so the padding
+  // either side of it does reach here. Before this column was declared in the
+  // templates it was frozen into a separate table and easyui routed its clicks
+  // through a different path, which is why the guard is new.
+  if (field === NS_WB_EXPANDER_FIELD) { return; }
   var dg = $(this);
   var rows = dg.datagrid('getRows') || [];
   var row = rows[index];
@@ -207,9 +227,11 @@ function nsWbClickCell(index, field) {
 // grid's row. easyui's own finder is used because its "editing" branch is
 // scoped with child combinators —
 // `(body1|body2).find(">table>tbody>tr.datagrid-row-editing")` — so a nested
-// grid inside a row detail could never be mistaken for this one. With frozen
-// columns present (detailview injects an expander column) the same logical row
-// appears in both bodies carrying the same datagrid-row-index, hence first().
+// grid inside a row detail could never be mistaken for this one. first() is
+// belt and braces: these grids declare their own expander column so easyui
+// builds no frozen half and each row appears once (see NS_WB_EXPANDER_FIELD),
+// but a frozen column added later would put the same datagrid-row-index in
+// both bodies and this line should not be what breaks.
 function nsOpenEditIndex(dg) {
   try {
     var tr = dg.datagrid('options').finder.getTr(dg[0], '', 'editing');

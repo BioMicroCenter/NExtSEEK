@@ -79,134 +79,154 @@
 
 </script>
 
-<div id="internal_assays_tab" class="easyui-tabs" style="width:auto;height:900px;">
-  <div title="Internal Assays" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-  	<div class="easyui-layout" style="width:auto;height:900px;">
-      <!-- north: the vocabulary grid (compact, secondary). 400px; see the
-           center region below for the arithmetic against the 900px layout. -->
-      <div id="north_div" data-options="region:'north',border:false" style="height: 400px;">
-        <!-- ns-workbench scopes the roomier, wrapping cell geometry in
-             themes/NextSeek/static/css/nextseek.css to this page's grids only;
-             every other datagrid in the app keeps easyui's stock 18px rows. -->
-        <div id="internal_assays_table_div" class="ns-workbench" style="height:auto">
-          <!-- span12 > well: the panel markup the sample attributes page
-               (seek/templates/pages/samples_attributes.embed.html) puts its north
-               content in. The .well rule in nextseek.css:613 — the theme's own, not
-               Bootstrap's, which dropped .well in v4 — gives the inset grey rounded
-               panel separating this secondary section from the association table.
-               The wrapper sits *inside* .ns-workbench so the grid easyui builds in
-               the <table>'s position stays in scope.
+<!-- Page structure, headings and table chrome follow
+     seek/templates/sampleAttributes.html: one capped-width page column, an
+     .ns-page-header, and sections that are just a heading and a bordered table.
+     The easyui-tabs wrapper (a tab bar with exactly one tab), the easyui-layout
+     with its hard-coded 900/400/500px regions, and the Bootstrap .well that used
+     to sit around the vocabulary grid are all gone: they were the chrome that
+     kept this page reading as a 2010 admin console next to that one, and the
+     fixed region heights are what made the grids small. The grids keep their own
+     pixel heights and scroll internally, which is the one thing easyui needs and
+     a max-height wrapper cannot give it.
 
-               Deliberately NOT wrapped in the sibling page's `row show-grid`: the
-               theme loads Bootstrap 5, where .row is display:flex with negative
-               gutter margins. That page earns it by holding three col-* children
-               side by side; here there is a single full-width easyui grid, and
-               easyui sizes its panel in JS, so a flex parent with negative margins
-               is a misalignment risk for no layout gain. -->
-          <div class="span12">
-            <div class="well">
-                <h3>Internal Assays</h3>
-        	<table id="dg_internal_assays" class="easyui-datagrid" title="" style="width:auto; height:315px;"
-        			data-options="
-        				iconCls: 'icon-edit',
-        				singleSelect: true,
-        				selectOnCheck: false,
-        				url:'',
-        				method:'get',
-        				toolbar: '#tb_toolbar',
-        				striped: true,
-        				pagination : false,
-                onClickCell: onClickCell,
-                onEndEdit: onEndEdit,
-        				showFooter: false,
-        				remoteFilter: false,
-                nowrap: false,
-                autoRowHeight: true
-        			">
-        		<thead>
-        			<tr>
-        				<th data-options="field:'id',width:120"><B>ID</B></th>
-        				<th data-options="field:'internal_assay_title',width:120,editor:'text'"><B>Internal Title</B></th>
-        			</tr>
-        		</thead>
-        	</table>
-        	<div id="tb_toolbar" style="height:auto">
-        		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="append($('#dg_internal_assays'))">Add an internal assay</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="nsRemovePost($('#dg_internal_assays'), '/seek/internal_assays/delete', '{{ csrf_token }}')">Remove an internal assay</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#dg_internal_assays'), '/seek/internal_assays/save', '{{ csrf_token }}')">Save an internal assay</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#dg_internal_assays'))">Cancel</a>
-          </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <!-- center: the assay association grid the curator actually works in;
-           fills the region and scrolls internally, the way sampleAttributes.html's
-           #dg_atype does at a real pixel height instead of fit-content. -->
-      <div id="center_div" data-options="region:'center',border:false" style="height: 500px;">
-        <div id="internal_assay_association_table_div" class="ns-workbench" style="height:auto">
-          <h3>Assay Association</h3>
-        	<table id="internal_assay_association_dg" class="easyui-datagrid" title="" style="width:auto; height:450px;"
-        			data-options="
-        				iconCls: 'icon-edit',
-        				singleSelect: true,
-        				selectOnCheck: false,
-        				toolbar: '#internal_assay_toolbar',
-        				striped: true,
-        				pagination : false,
-                onClickCell: nsWbClickCell,
-                onEndEdit: nsAssociationEndEdit,
-        				showFooter: false,
-        				remoteFilter: false,
-                nowrap: false,
-                autoRowHeight: true
-        			">
-        		<thead>
-        			<tr>
-                <!-- Per-row selection. No `editor:` here on purpose: the
-                     checkbox is markup the formatter emits, so the grid still
-                     has exactly ONE editable column (see closeOpenEditor()'s
-                     PRECONDITION in ns-vocab-workbench.js). Not easyui's
-                     `checkbox:true`, which cannot be suppressed per row. -->
-                <th data-options="field:'_nsSelect', width:34, align:'center', formatter: function(v,r){ return nsWorkbench.selectFormatter(v,r); }">
-                  <B>&nbsp;</B>
-                </th>
-                <th data-options="field:'assay_title', width:420, formatter: function(v,r){ return nsWorkbench.titleFormatter(v,r); }">
-                  <B>Assay</B>
-                </th>
-        				<th data-options='field:"internal_assay_id",width:300,
-                    formatter: function(v,r){ return nsWorkbench.suggestedFormatter(v,r); },
-        						editor:{
-        							type:"combobox",
-        							options:{
-        								valueField: "id",
-        								textField: "internal_assay_title",
-        								data: internal_assays,
-        								required: true
-        							}
-        						}'>
-                  <B>Internal Assay</B>
-                </th>
-        			</tr>
-        		</thead>
-        	</table>
-        	<div id="internal_assay_toolbar" style="height:auto">
-            <!-- attrs-count is the shared pill from
-                 themes/NextSeek/static/css/nextseek.css (same component the
-                 sample attributes review dialog counts changes with);
-                 ns-wb-count keeps the weight and the gap to the buttons. -->
-            <span id="ns-wb-count" class="ns-wb-count attrs-count"></span>
-            <!-- The count span is rewritten in place by the workbench; easyui's
-                 linkbutton preserves the <a>'s inner HTML when it rebuilds it. -->
-            <a href="javascript:void(0)" id="ns-wb-accept-selected" class="easyui-linkbutton" data-options="iconCls:'icon-ok',plain:true" onclick="nsWbAcceptSelected(this, event)">Accept selected (<span id="ns-wb-selected-count">0</span>)</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-reload',plain:true" onclick="syncInternalAssays()">Sync Assays</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#internal_assay_association_dg'), '/seek/internal_assays/assayAssociation/save', '{{ csrf_token }}')">Save associations</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#internal_assay_association_dg'))">Cancel</a>
-          </div>
-        </div>
-      </div>
+     .ns-workbench is on this single outer div rather than on a wrapper per grid.
+     It scopes the workbench skin and geometry in
+     themes/NextSeek/static/css/nextseek.css to this page, and it still contains
+     every generated element: easyui builds each grid in its <table>'s own
+     position and *moves* the element named by `toolbar:` into that grid's panel,
+     so both stay inside this div. -->
+<div class="ns-workbench">
+
+  <header class="ns-page-header">
+    <h1 class="ns-page-title">Internal Assays</h1>
+    <p class="ns-page-subtitle">
+      Every SEEK assay is associated with one internal assay &mdash; the controlled vocabulary
+      the sample graph and the search facets are built from. The association table proposes a
+      match for each unassociated assay and groups those proposals by how much evidence stands
+      behind them. Open a row to read that evidence before accepting it.
+    </p>
+  </header>
+
+  <section class="ns-wb-section">
+    <h2 class="ns-wb-section-title">Internal assay vocabulary</h2>
+    <p class="ns-wb-section-note">
+      The controlled list itself. Renaming an entry renames it everywhere it is already associated.
+    </p>
+    <table id="dg_internal_assays" class="easyui-datagrid" title="" style="width:auto; height:340px;"
+        data-options="
+          iconCls: 'icon-edit',
+          singleSelect: true,
+          selectOnCheck: false,
+          url:'',
+          method:'get',
+          toolbar: '#tb_toolbar',
+          striped: false,
+          pagination : false,
+          onClickCell: onClickCell,
+          onEndEdit: onEndEdit,
+          showFooter: false,
+          remoteFilter: false,
+          nowrap: false,
+          autoRowHeight: true
+        ">
+      <thead>
+        <tr>
+          <th data-options="field:'id',width:120"><B>ID</B></th>
+          <th data-options="field:'internal_assay_title',width:320,editor:'text'"><B>Internal Title</B></th>
+        </tr>
+      </thead>
+    </table>
+    <div id="tb_toolbar" style="height:auto">
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="append($('#dg_internal_assays'))">Add an internal assay</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="nsRemovePost($('#dg_internal_assays'), '/seek/internal_assays/delete', '{{ csrf_token }}')">Remove an internal assay</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#dg_internal_assays'), '/seek/internal_assays/save', '{{ csrf_token }}')">Save an internal assay</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#dg_internal_assays'))">Cancel</a>
     </div>
-  </div>
+  </section>
+
+  <section class="ns-wb-section">
+    <h2 class="ns-wb-section-title">Assay association</h2>
+    <table id="internal_assay_association_dg" class="easyui-datagrid" title="" style="width:auto; height:560px;"
+        data-options="
+          iconCls: 'icon-edit',
+          singleSelect: true,
+          selectOnCheck: false,
+          toolbar: '#internal_assay_toolbar',
+          striped: false,
+          pagination : false,
+          onClickCell: nsWbClickCell,
+          onEndEdit: nsAssociationEndEdit,
+          showFooter: false,
+          remoteFilter: false,
+          nowrap: false,
+          autoRowHeight: true
+        ">
+      <thead>
+        <tr>
+          <!-- The detailview expander, declared HERE rather than left to the
+               plugin. datagrid-detailview.js's onBeforeRender injects its own
+               `_expander` column into opts.frozenColumns -- creating one when the
+               page asked for none -- but only if no column already declares
+               `expander: true`. A frozen column means the caret renders into a
+               SEPARATE <table> from the row it belongs to, and the two tables
+               only stay level for as long as easyui's row-height equalisation
+               holds: `fixRowHeight` measures both <tr>s once and writes the max
+               back to each, but a <tr>'s height is a minimum, so any later
+               re-wrap of the text (column resize, a refreshRow, a font arriving)
+               lets the content row outgrow the pinned caret row and the caret
+               drifts off its line. Declaring the column here keeps
+               opts.frozenColumns empty, so the plugin's render() returns early
+               for the frozen half, easyui skips equalisation altogether (both
+               paths are guarded on `!dc.body1.is(":empty")`), and caret and text
+               share one <tr> -- alignment becomes structural rather than
+               maintained. The field name is NS_WB_EXPANDER_FIELD in
+               static/js/custom/ns-vocab-workbench.js; keep the two in step. -->
+          <th data-options="field:'_expander', width:32, expander:true">
+            <B>&nbsp;</B>
+          </th>
+          <!-- Per-row selection. No `editor:` here on purpose: the
+               checkbox is markup the formatter emits, so the grid still
+               has exactly ONE editable column (see closeOpenEditor()'s
+               PRECONDITION in ns-vocab-workbench.js). Not easyui's
+               `checkbox:true`, which cannot be suppressed per row. -->
+          <th data-options="field:'_nsSelect', width:34, align:'center', formatter: function(v,r){ return nsWorkbench.selectFormatter(v,r); }">
+            <B>&nbsp;</B>
+          </th>
+          <th data-options="field:'assay_title', width:420, formatter: function(v,r){ return nsWorkbench.titleFormatter(v,r); }">
+            <B>Assay</B>
+          </th>
+          <th data-options='field:"internal_assay_id",width:300,
+              formatter: function(v,r){ return nsWorkbench.suggestedFormatter(v,r); },
+              editor:{
+                type:"combobox",
+                options:{
+                  valueField: "id",
+                  textField: "internal_assay_title",
+                  data: internal_assays,
+                  required: true
+                }
+              }'>
+            <B>Internal Assay</B>
+          </th>
+        </tr>
+      </thead>
+    </table>
+    <div id="internal_assay_toolbar" style="height:auto">
+      <!-- attrs-count is the shared pill from
+           themes/NextSeek/static/css/nextseek.css (same component the
+           sample attributes review dialog counts changes with);
+           ns-wb-count keeps the weight and the gap to the buttons. -->
+      <span id="ns-wb-count" class="ns-wb-count attrs-count"></span>
+      <!-- The count span is rewritten in place by the workbench; easyui's
+           linkbutton preserves the <a>'s inner HTML when it rebuilds it. -->
+      <a href="javascript:void(0)" id="ns-wb-accept-selected" class="easyui-linkbutton" data-options="iconCls:'icon-ok',plain:true" onclick="nsWbAcceptSelected(this, event)">Accept selected (<span id="ns-wb-selected-count">0</span>)</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-reload',plain:true" onclick="syncInternalAssays()">Sync Assays</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#internal_assay_association_dg'), '/seek/internal_assays/assayAssociation/save', '{{ csrf_token }}')">Save associations</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#internal_assay_association_dg'))">Cancel</a>
+    </div>
+  </section>
+
 </div>
-    
+
 {% endblock %}
