@@ -136,9 +136,16 @@ def test_search_text_holds_the_raw_value_not_the_cast_one():
     assert proj.props["search_text"] == "1/31/2024"
 
 
-def test_uid_is_never_written_and_not_searchable():
+def test_uid_is_not_a_property_but_is_searchable():
+    # advanced_search's LIKE over json_metadata matches a term found only in the UID ("TIS-" finds every TIS
+    # sample, measured on the merged data), so the keyword text carries the UID value even though uuid holds it.
     proj = p.project_sample(_row({"UID": "TIS-X-1", "Organ": "Lung"}), "TIS", {}, [])
     assert "UID" not in proj.props
+    assert proj.props["search_text"].split("\n") == ["TIS-X-1", "Lung"]
+
+
+def test_an_empty_uid_adds_nothing_to_search_text():
+    proj = p.project_sample(_row({"UID": "", "Organ": "Lung"}), "TIS", {}, [])
     assert proj.props["search_text"] == "Lung"
 
 

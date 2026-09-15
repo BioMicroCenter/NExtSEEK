@@ -154,7 +154,13 @@ def project_sample(row: dict, sample_type_title: str, value_types: dict[str, str
         props["title"] = row["title"]
     values, failures = [], []
     for key, raw in meta.items():
-        if key in SKIPPED_METADATA_KEYS or is_empty(raw):
+        if is_empty(raw):
+            continue
+        if key in SKIPPED_METADATA_KEYS:
+            # Not a property (``uuid`` already holds it), but still a value: advanced_search's LIKE over
+            # json_metadata matches a term found only in the UID ("TIS-" finds every TIS sample), so keyword
+            # search must see it too.
+            values.append(str(raw))
             continue
         if key in SYSTEM_KEYS:
             raise ValueError(f"sample {sample_id}: metadata key {key!r} is a system property name")
