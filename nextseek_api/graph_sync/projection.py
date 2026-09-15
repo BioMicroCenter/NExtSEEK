@@ -1,12 +1,19 @@
-"""Project one SEEK sample row onto its graph schema v1.1 node (docs/neo4j-schema.md, v1.1).
+"""Project one SEEK sample row onto its graph schema node (docs/neo4j-schema.md, v1.1 and v1.2).
 
 Pure: no database, no Django. The rules it implements are the schema doc's v1.1 "Rules" 1 to 4 and 6: metadata
 property names are attribute titles verbatim (``UID`` excepted), empty values are absent, values are cast by the
 attribute's ``value_type`` and keep their raw form when the cast fails, every sample gets one ``T_`` label, and
 ``search_text`` holds every non-empty raw value, one per line, never a key name.
+
+Schema 1.2 adds two system properties the sync needs (spec section 6): ``source_hash``, a digest of everything the
+node is projected from, which the nightly targeted sync recomputes from MySQL to find changed samples (spec 10.3);
+and the parent lists ``parent_titles`` and ``parent_title_hashes``, computed by batch upload's rule
+(``nextseek_api/batch_upload/neo4j_sync.py::enrich_parent_titles``) so orphan discovery keeps finding new uploads
+(R4). The identity hash and the UID pattern are batch upload's own, imported rather than copied.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -14,7 +21,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
-SYSTEM_KEYS = frozenset({"id", "uuid", "type", "title", "project_ids", "search_text", "synced_at",
+from nextseek_api.batch_upload.helpers import UID_RE
+from nextseek_api.batch_upload.identity import hash_identity
+
+SYSTEM_KEYS = frozenset({"id", "uuid", "type", "title", "project_ids", "search_text", "synced_at", "source_hash",
                          "parent_titles", "parent_title_hashes"})
 SKIPPED_METADATA_KEYS = frozenset({"UID"})
 
@@ -25,6 +35,7 @@ _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 # Neo4j integers are signed 64-bit; a larger Python int fails the whole write transaction.
 _INT64_MIN, _INT64_MAX = -(2 ** 63), 2 ** 63 - 1
 _VALUE_TYPES = {"Float": "float", "Integer": "integer", "Date": "date", "DateTime": "date"}
+_SEP = b"\x1f"
 
 
 def label_for(title: str) -> str:
@@ -122,6 +133,68 @@ def cast_value(value, value_type: str) -> tuple[object, bool]:
     return value, True
 
 
+def _field(value) -> bytes:
+    """One field of the source hash: ``<byte length>\\x1f<bytes>``, or ``N`` for None.
+
+    The length prefix makes every field self-delimiting, so no value can run into its neighbour whatever bytes it
+    holds (a ``\\x1f`` inside a title included). Text is its UTF-8 bytes; bytes are taken as they are.
+    """
+    if value is None:
+        return b"N"
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        data = bytes(value)
+    else:
+        data = (value if isinstance(value, str) else str(value)).encode("utf-8")
+    return str(len(data)).encode("ascii") + _SEP + data
+
+
+def _id_fields(ids) -> list[bytes]:
+    """A count, then each distinct id in ascending order: order and repeats in the link tables never matter."""
+    distinct = sorted({int(x) for x in ids})
+    return [_field(str(len(distinct)))] + [_field(str(i)) for i in distinct]
+
+
+def source_hash(row: dict, type_title: str, value_types: dict[str, str], project_ids, assay_ids) -> str:
+    """The digest of everything a sample's node is projected from (spec 10.3), as sha256 hex.
+
+    Covers, in this order: ``row["uuid"]``, ``row["title"]``, the type title, the type's ``(title, value_type)``
+    pairs sorted, the raw ``json_metadata`` bytes (not the parsed object), the sorted distinct project ids and the
+    sorted distinct assay ids. Each value is a length-prefixed field (``_field``), each list a count followed by its
+    fields, all joined with ``\\x1f``. Byte-exact: a trailing space in any title or value type changes it.
+
+    The node stores this digest and the nightly targeted sync recomputes it from MySQL, so the encoding is pinned by
+    a test; changing it makes every sample mismatch and resync.
+    """
+    pairs = sorted(value_types.items())
+    parts = [_field(row["uuid"]), _field(row.get("title")), _field(type_title), _field(str(len(pairs)))]
+    for title, value_type in pairs:
+        parts += [_field(title), _field(value_type)]
+    parts.append(_field(row["json_metadata"]))
+    parts += _id_fields(project_ids)
+    parts += _id_fields(assay_ids)
+    return hashlib.sha256(_SEP.join(parts)).hexdigest()
+
+
+def parent_lists(tokens, identity_by_uuid: dict) -> tuple[list[str], list[str]]:
+    """``parent_titles`` and ``parent_title_hashes`` for one sample, by batch upload's rule (R4).
+
+    ``tokens`` are the sample's parent tokens in order (``batch_upload.helpers.collect_parent_tokens`` over its
+    metadata); ``identity_by_uuid`` maps a parent UID to its identity (``batch_upload.identity.extract_identity``
+    over the parent's stored metadata). A UID token becomes its parent's identity and is dropped when it has none; any
+    other token is its own identity. Each hash is ``hash_identity`` of the title beside it, which is what orphan
+    discovery matches against. Both lists are empty when nothing resolves.
+    """
+    titles: list[str] = []
+    for token in tokens:
+        if UID_RE.match(token):
+            resolved = identity_by_uuid.get(token)
+            if resolved:
+                titles.append(resolved)
+        else:
+            titles.append(token)
+    return titles, [h for h in (hash_identity(t) for t in titles) if h]
+
+
 @dataclass
 class SampleProjection:
     id: int
@@ -131,13 +204,19 @@ class SampleProjection:
     cast_failures: list[str] = field(default_factory=list)
 
 
-def project_sample(row: dict, sample_type_title: str, value_types: dict[str, str],
-                   project_ids: list[int]) -> SampleProjection:
+def project_sample(row: dict, sample_type_title: str, value_types: dict[str, str], project_ids, *,
+                   assay_ids=(), parent_lists: tuple[list[str], list[str]] | None = None) -> SampleProjection:
     """Project a ``samples`` row onto its node.
 
     ``row`` has ``id``, ``uuid``, ``title``, ``sample_type_id`` and ``json_metadata`` (a JSON object as text);
     ``value_types`` maps attribute title to value_type for this sample's type (missing titles are ``string``);
-    ``project_ids`` are the sample's ``projects_samples`` projects, duplicates allowed.
+    ``project_ids`` are the sample's ``projects_samples`` projects and ``assay_ids`` its ``assay_assets`` assays,
+    duplicates allowed in both.
+
+    ``source_hash`` (``source_hash()`` over the same inputs) is always set. ``parent_lists`` is the pair
+    ``parent_lists()`` returns: when given, ``parent_titles`` and ``parent_title_hashes`` are always set, as empty
+    lists when nothing resolved, so the writer can tell "computed, none" from "not computed" and clear a node's stale
+    lists; when omitted, neither key is set.
 
     Raises ValueError when ``json_metadata`` is not a JSON object, or when a metadata key is exactly a system
     property name, which would overwrite the node's own key (case variants such as ``Type`` and ``ID`` are fine).
@@ -148,8 +227,8 @@ def project_sample(row: dict, sample_type_title: str, value_types: dict[str, str
         meta = {}
     if not isinstance(meta, dict):
         raise ValueError(f"sample {sample_id}: json_metadata is a {type(meta).__name__}, not a JSON object")
-    props = {"id": sample_id, "uuid": row["uuid"], "type": sample_type_title,
-             "project_ids": sorted({int(x) for x in project_ids})}
+    projects = sorted({int(x) for x in project_ids})
+    props = {"id": sample_id, "uuid": row["uuid"], "type": sample_type_title, "project_ids": projects}
     if not is_empty(row.get("title")):
         props["title"] = row["title"]
     values, failures = [], []
@@ -172,4 +251,9 @@ def project_sample(row: dict, sample_type_title: str, value_types: dict[str, str
         props[key] = typed
         values.append(str(raw))
     props["search_text"] = "\n".join(values)
+    props["source_hash"] = source_hash(row, sample_type_title, value_types, projects, assay_ids)
+    if parent_lists is not None:
+        titles, hashes = parent_lists
+        props["parent_titles"] = list(titles)
+        props["parent_title_hashes"] = list(hashes)
     return SampleProjection(sample_id, int(row["sample_type_id"]), label_for(sample_type_title), props, failures)
