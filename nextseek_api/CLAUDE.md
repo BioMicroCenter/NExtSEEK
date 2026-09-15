@@ -7,10 +7,11 @@ from this file.
 ## Invariants
 
 - **Router registrations that share a prefix must stay ordered longest-first.**
-  `nextseek_api/urls.py:31` puts the advanced-search prefix ahead of the bare samples
-  prefix at `nextseek_api/urls.py:34`, whose detail lookup accepts any segment containing
-  no slash (`nextseek_api/services/samples.py:79`). Swap those two lines and the search
-  URL resolves into the sample-detail action with the literal word as its lookup value:
+  `nextseek_api/urls.py:31-32` put the graph-search and advanced-search prefixes ahead of
+  the bare samples prefix at `nextseek_api/urls.py:36`, whose detail lookup accepts any
+  segment containing no slash (`nextseek_api/services/samples.py:79`). Move either search
+  line below it and that search URL resolves into the sample-detail action with the
+  literal word as its lookup value:
   the same swallowing that a bare prefix already demonstrates today for a registration
   publishing no list route, measured with Django's resolver on 2026-09-03.
 - **The three documentation routes must each keep an explicit `permission_classes`.**

@@ -58,7 +58,9 @@ as a detail lookup (`nextseek_api/services/assays.py:41`).
 `nextseek_api/services/entity_tree.py:75`, `nextseek_api/services/sampletype_connections.py:796`,
 `nextseek_api/services/sample_types.py:270`, `nextseek_api/services/sample_types.py:383`,
 `nextseek_api/services/samples.py:357`, `nextseek_api/services/schema_rag.py:43`,
-`nextseek_api/services/users.py:359` and `nextseek_api/services/project_export.py:256`.
+`nextseek_api/services/users.py:359`, `nextseek_api/services/project_export.py:256` and
+`nextseek_api/services/graph_search.py:138`. The last, `samples/graph_search`, was registered
+on 2026-09-14, after the count above; it reads Neo4j for ids and MySQL for the rows.
 
 *The chat pair*: `nextseek_api/services/assistant.py:276` with 18 actions, and
 `nextseek_api/services/cc_assistant.py:86` with 8. Their query endpoints share a shape

@@ -173,7 +173,7 @@ Note that a cross-project export path already exists and is correctly gated:
 
 ## Register
 
-55 routed read endpoints. `permission_classes` values are the declared class list; several
+56 routed read endpoints. `permission_classes` values are the declared class list; several
 endpoints add a second inline auth gate inside the handler, which is noted where it matters.
 
 | Path | Viewset / action | permission_classes | Project predicate applied? (file:line) | Proposed bucket |
@@ -183,6 +183,7 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/redoc/` | `SpectacularRedocView` | `IsAuthenticated` at the route (`nextseek_api/urls.py:63`, #77) | n/a, no data | public-to-authenticated |
 | `GET /nextseek_api/sample-tree/{uid}/tree/` | `SampleTreeViewSet.get_tree` | `IsAuthenticated` (`views.py:109`) | **Yes, added in this branch** (`665a103`): root gate + lineage pruning against `projects_samples`, admin bypass on `is_superuser` alone. Pre-fix: none | project-scoped (done) |
 | `POST /nextseek_api/samples/advanced_search/` | `SampleAdvancedSearchViewSet.create` | `IsAuthenticated` (`services/samples.py:357`) | **None. Deliberately NOT changed** in this branch, see note A | project-scoped (open, blocked) |
+| `POST /nextseek_api/samples/graph_search/` | `GraphSearchViewSet.create` | `IsAuthenticated` (`services/graph_search.py:140`) | **Yes, since it was added (2026-09-14)**: project-scoped through `group_memberships` x `work_groups` over `projects_samples` (`graph_search/scope.py:22-26`, resolved at `services/graph_search.py:270`); superuser unscoped on `is_superuser` alone (`graph_search/scope.py:53-54`) | project-scoped (done) |
 | `POST /nextseek_api/admin/samples/retrieve/` | `AdminSampleViewSet.admin_retrieve_samples` | `IsAuthenticated` (`views.py:537`) | Yes but bypassed for staff: `views.py:686` -> `getChildrenUIDs` in `seek/sample/trees.py`; bypass at `views.py:642`. See note B | project-scoped |
 | `GET /nextseek_api/samples/{uid}/` | `SampleProxyViewSet.retrieve` | `IsAuthenticated` (`services/samples.py:74`) | Delegated to SEEK under the caller's creds (`services/samples.py:129` -> `helpers.py:135-148`) | project-scoped (already, upstream) |
 | `GET /nextseek_api/sample_types/` | `SampleTypeProxyViewSet.list` | `IsAuthenticated` (`services/sample_types.py:58`) | Delegated to SEEK (`services/sample_types.py:89`) | public-to-authenticated |
