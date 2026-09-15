@@ -94,11 +94,11 @@ function gsSimpleReset() {
       <th></th>
     </tr>
     <tr>
-      <td><input id="gs_simple_sample_type" class="easyui-combobox" style="width:220px;" data-options="data: type_options, valueField:'id', textField:'title', groupField:'group', editable: true, panelHeight:'auto', panelMaxHeight: 360, filter: function(q, row) { return row.title.toUpperCase().indexOf(q.toUpperCase()) >= 0; }, onSelect: function(rec) { gsSimpleLoadAttributes(rec); }"></td>
-      <td><input id="gs_simple_attribute" class="easyui-combobox" style="width:220px;" data-options="valueField:'attribute', textField:'name', editable: true, panelHeight:'auto', panelMaxHeight: 360, filter: function(q, row) { return row.name.toUpperCase().indexOf(q.toUpperCase()) >= 0; }, onSelect: function(rec) { gsSimpleLoadRules(rec); }"></td>
-      <td><input id="gs_filter_rule" class="easyui-combobox" style="width:140px;" data-options="valueField:'name', textField:'operator', editable: false, panelHeight:'auto'"></td>
-      <td><input id="gs_value_from" type="text" placeholder="value" style="width:150px;height:30px"></td>
-      <td><input id="gs_value_to" type="text" placeholder="Between only" style="width:150px;height:30px"></td>
+      <td><input id="gs_simple_sample_type" class="easyui-combobox" style="width:180px;" data-options="data: type_options, valueField:'id', textField:'title', groupField:'group', editable: true, panelHeight:'auto', panelMaxHeight: 360, filter: function(q, row) { return row.title.toUpperCase().indexOf(q.toUpperCase()) >= 0; }, onSelect: function(rec) { gsSimpleLoadAttributes(rec); }"></td>
+      <td><input id="gs_simple_attribute" class="easyui-combobox" style="width:180px;" data-options="valueField:'attribute', textField:'name', editable: true, panelHeight:'auto', panelMaxHeight: 360, filter: function(q, row) { return row.name.toUpperCase().indexOf(q.toUpperCase()) >= 0; }, onSelect: function(rec) { gsSimpleLoadRules(rec); }"></td>
+      <td><input id="gs_filter_rule" class="easyui-combobox" style="width:120px;" data-options="valueField:'name', textField:'operator', editable: false, panelHeight:'auto'"></td>
+      <td><input id="gs_value_from" type="text" placeholder="value" style="width:120px;height:30px"></td>
+      <td><input id="gs_value_to" type="text" placeholder="Between only" style="width:120px;height:30px"></td>
       <td style="white-space:nowrap;">
         <span class="ns-search-actions">
           <a href="javascript:void(0)" class="ns-btn-reset" onclick="gsSimpleReset()">Reset</a>
