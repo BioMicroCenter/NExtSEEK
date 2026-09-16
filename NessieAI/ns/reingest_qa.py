@@ -293,17 +293,31 @@ def qa_rows(
                 continue                          # rows never carry one
             # A falsy-but-present value (0, False) is a real measurement --
             # a 0% mapping rate is data, not a missing attribute. Only
-            # "absent" (key missing, i.e. None) or "blank string" count as
-            # missing; `meta.get(req) or ""` would collapse 0/False into ""
-            # and wrongly hard-reject a legitimate zero.
+            # "absent" (key missing, i.e. None) or a blank/whitespace-only
+            # STRING count as missing; `meta.get(req) or ""` would collapse
+            # 0/False into "" and wrongly hard-reject a legitimate zero.
+            # `str(raw).strip()` is exactly as wrong in the other direction:
+            # it stringifies an empty list/dict into "[]"/"{}", a non-blank
+            # string, so an empty collection would wrongly count as
+            # present. So: only a string is blank-checked; an empty
+            # collection is judged by its own truthiness (missing, like a
+            # blank string); anything else non-None (numbers, bools) is
+            # never missing, however falsy -- 0 and False stay present.
             raw = meta.get(req)
-            value = "" if raw is None else str(raw).strip()
+            if raw is None:
+                missing = True
+            elif isinstance(raw, str):
+                missing = not raw.strip()
+            elif isinstance(raw, (list, dict, set, tuple)):
+                missing = not raw
+            else:
+                missing = False
             if mode == "new":
-                if not value:
+                if missing:
                     report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
                                         sample_type=sample_type, attribute=req,
                                         row_index=i))
-            elif req in meta and not value:
+            elif req in meta and missing:
                 report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
                                     sample_type=sample_type, attribute=req,
                                     row_index=i))

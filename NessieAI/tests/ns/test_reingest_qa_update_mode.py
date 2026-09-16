@@ -156,6 +156,50 @@ def test_update_mode_a_falsy_false_required_value_is_not_missing_required():
     assert not any(f.code == qa.MISSING_REQUIRED for f in report.findings)
 
 
+def test_new_mode_an_empty_list_required_value_is_missing_required():
+    # `str([]).strip()` is "[]" -- a non-blank string -- so a naive
+    # str-and-strip fix would wrongly treat an empty collection as
+    # present. An empty collection carries no measurement, unlike 0 or
+    # False, so it is judged missing like a blank string would be.
+    report = qa.qa_rows(
+        [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-0", "QcFlags": []}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["QcFlags"],
+        existing_parent_uids={"D.SEQ-EXAMPLE-0"}, mode="new")
+    assert report.disposition == qa.HARD_REJECT
+    assert any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
+def test_new_mode_an_empty_dict_required_value_is_missing_required():
+    report = qa.qa_rows(
+        [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-0", "QcDetail": {}}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["QcDetail"],
+        existing_parent_uids={"D.SEQ-EXAMPLE-0"}, mode="new")
+    assert report.disposition == qa.HARD_REJECT
+    assert any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
+def test_update_mode_an_empty_list_required_value_is_missing_required():
+    report = qa.qa_rows(
+        [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1", "QcFlags": []}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["QcFlags"], mode="update",
+        existing_notes={"D.SEQ-EXAMPLE-1": ""})
+    assert report.disposition == qa.HARD_REJECT
+    assert any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
+def test_update_mode_an_empty_dict_required_value_is_missing_required():
+    report = qa.qa_rows(
+        [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1", "QcDetail": {}}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["QcDetail"], mode="update",
+        existing_notes={"D.SEQ-EXAMPLE-1": ""})
+    assert report.disposition == qa.HARD_REJECT
+    assert any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
 def test_critical_curator_line_immediately_under_the_hint_is_not_silently_lost():
     # Round-3 regression. The guard now compares against
     # notes.strip_block(prior, run_name) instead of raw prior, which is
