@@ -119,6 +119,66 @@ class TestValidate:
             validate(**{**OK, "name": "Flow-Cytometry"})
 
 
+class TestValidateRoundTrips:
+    """A stored assay is only as good as the read that gets it back.
+
+    `validate` allowlists codes against `template_catalog.downloadable_codes()`
+    -- SEEK's own `Sample_types.title` values -- while the page that reads the
+    assay back re-parses the stored string with
+    `context_catalog.parse_alternation`. Both modules' docstrings say those two
+    sets are close but not equal, and only the read direction was written to
+    cope. A title carrying a separator (`,` `;` `. ` ` and ` ` or `) is legal in
+    SEEK, legal as an Excel sheet name, and offered in the create dropdown, but
+    is shredded by the reader into tokens that match nothing -- leaving an assay
+    page with no components and no UI that can repair it.
+    """
+
+    def test_a_code_containing_a_comma_is_rejected(self):
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "children": [["Cells, Frozen"]]})
+        assert "Cells, Frozen" in exc.value.message
+
+    def test_a_code_containing_and_is_rejected(self):
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "children": [["Blood and Plasma"]]})
+        assert "Blood and Plasma" in exc.value.message
+
+    def test_a_code_containing_or_is_rejected(self):
+        """` or ` is the alternation separator: the group would gain members."""
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "children": [["Serum or Plasma"]]})
+        assert "Serum or Plasma" in exc.value.message
+
+    def test_a_code_containing_a_semicolon_is_rejected(self):
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "children": [["Cells; Fixed"]]})
+        assert "Cells; Fixed" in exc.value.message
+
+    def test_a_parent_role_is_checked_too(self):
+        """Every role is serialised into the same grammar, so every role is read
+        back through the same parser."""
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "required_parents": [["Cells, Frozen"]]})
+        assert "Cells, Frozen" in exc.value.message
+
+    def test_the_message_says_the_name_cannot_be_stored(self):
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "children": [["Cells, Frozen"]]})
+        assert "cannot be stored" in exc.value.message
+
+    def test_ordinary_codes_still_pass_unchanged(self):
+        got = validate(**OK)
+        assert got["required_parents"] == "TIS or CEX, AB"
+        assert got["children"] == "D.FLOW"
+
+    def test_a_dotted_code_is_not_mistaken_for_a_separator(self):
+        """`D.FLOW` carries a period, but the reader only splits on a period
+        FOLLOWED BY whitespace, so a dotted code must still pass."""
+        got = validate(**{**OK, "children": [["D.FLOW", "A.SEQ"]]})
+        assert got["children"] == "D.FLOW or A.SEQ"
+
+
+
 from unittest.mock import MagicMock, patch
 
 
@@ -187,19 +247,81 @@ class TestInsertContext:
             connections.__getitem__.return_value.cursor.return_value = cursor
             return _insert_context(self.ROW, internal_assay_id=42)
 
+    # RuntimeError and the guard's own words, not a bare Exception: a KeyError
+    # from a mis-wired mock, or an AttributeError from a renamed helper, would
+    # satisfy `pytest.raises(Exception)` just as happily as the refusal these
+    # tests exist to pin, and the test would stay green while the guard was
+    # gone.
     def test_it_raises_if_assay_name_is_missing_from_introspection(self):
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError,
+                           match="assay_context has no 'assay_name' column"):
             self._run_with_columns([
                 ("Internal_Assay_Id",),
                 ("Required_Parent_Sample_Types",),
             ])
 
     def test_it_raises_if_internal_assay_id_is_missing_from_introspection(self):
-        with pytest.raises(Exception):
+        with pytest.raises(
+            RuntimeError,
+            match="assay_context has no 'internal_assay_id' column",
+        ):
             self._run_with_columns([
                 ("assay_name",),
                 ("Required_Parent_Sample_Types",),
             ])
+
+    def _executed_insert(self, rows):
+        """The (sql, params) pair of the INSERT, given introspected `rows`."""
+        from nextseek_api.services.assay_authoring import _insert_context
+
+        cursor = FakeCursor(rows)
+        cursor.lastrowid = 7
+        with patch("nextseek_api.services.assay_authoring.connections") as connections:
+            connections.__getitem__.return_value.cursor.return_value = cursor
+            _insert_context(self.ROW, internal_assay_id=42)
+        # [0] is the information_schema read; the INSERT is the last statement.
+        return cursor.executed[-1]
+
+    FULL_COLUMNS = [
+        ("assay_name",),
+        ("Description",),
+        ("Required_Parent_Sample_Types",),
+        ("Optional_Parent_Sample_Types",),
+        ("Children_Sample_Types",),
+        ("Internal_Assay_Id",),
+    ]
+
+    def test_every_value_is_bound_rather_than_interpolated(self):
+        """A repo-wide invariant (seek/CLAUDE.md, "Values in that SQL are bound,
+        never interpolated"; issue #78). An assay name is user input, and this
+        is the only writer of assay_context: interpolating it would put a
+        superuser's typed string into the statement text."""
+        sql, params = self._executed_insert(self.FULL_COLUMNS)
+        assert params == [
+            "Spectral Flow Cytometry",
+            "Full-spectrum single-cell analysis.",
+            "TIS or CEX",
+            "",
+            "D.FLOW",
+            42,
+        ]
+        for value in ("Spectral Flow Cytometry",
+                      "Full-spectrum single-cell analysis.",
+                      "TIS or CEX", "D.FLOW", "42"):
+            assert value not in sql
+        assert sql.count("%s") == len(params)
+
+    def test_the_statement_names_the_spellings_introspection_reported(self):
+        """assay_context has no Django model because stacks disagree on case,
+        so an INSERT can only name the columns this stack actually has."""
+        sql, _params = self._executed_insert(self.FULL_COLUMNS)
+        for spelling in ("`assay_name`", "`Description`",
+                         "`Required_Parent_Sample_Types`",
+                         "`Optional_Parent_Sample_Types`",
+                         "`Children_Sample_Types`", "`Internal_Assay_Id`"):
+            assert spelling in sql
+        assert "`description`" not in sql
+        assert "`internal_assay_id`" not in sql
 
     def test_it_still_tolerates_a_missing_optional_column(self):
         """The other columns stay best-effort; only the name and the link are required."""

@@ -6,7 +6,10 @@ and `serialise_groups` are pure; `create_assay` (Task 3) does the writing.
 Codes are written back in exactly the grammar `context_catalog.parse_alternation`
 reads -- groups joined by ", ", alternatives within a group by " or " -- so a
 created assay round-trips through the same parser that reads curated ones. The
-round trip is pinned by a test rather than left to inspection.
+round trip is pinned by a test rather than left to inspection, and `validate`
+also performs it on the proposal in hand: a sample type whose own NAME carries
+one of that parser's separators cannot be stored unambiguously, so it is
+refused at the form rather than written and silently dropped on read.
 """
 
 from __future__ import annotations
@@ -17,7 +20,9 @@ from django.conf import settings
 from django.db import connections, transaction
 
 from seek.models import Internal_assays
-from nextseek_api.services.context_catalog import load_assays, slugify_name
+from nextseek_api.services.context_catalog import (load_assays,
+                                                   parse_alternation,
+                                                   slugify_name)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +65,49 @@ def serialise_groups(groups) -> str:
     return ", ".join(parts)
 
 
+# Roles in the order the page shows them, and the prose each is called by in an
+# error message. Iterated by `validate`'s round-trip check, so a new role gets
+# checked by adding one line here.
+_ROLE_LABELS = (
+    ("required parent", "required_parents"),
+    ("optional parent", "optional_parents"),
+    ("produced", "children"),
+)
+
+
+def _unstorable_code(groups) -> str:
+    """The first code in `groups` that cannot be written and read back, or "".
+
+    The write side allowlists codes against
+    `template_catalog.downloadable_codes()` -- SEEK's own `Sample_types.title`
+    values, where only `[]:*?/\\` and a length over 31 are illegal. The read
+    side re-parses the stored string with `context_catalog.parse_alternation`,
+    whose separators are `,` `;` a period followed by whitespace, ` and ` and
+    ` or `. A title carrying one of those is offered in the create dropdown,
+    serialises verbatim, and is then shredded on read into tokens that match
+    nothing -- leaving an assay page with no components, no download, and no UI
+    that can repair it.
+
+    So the serialisation is read straight back here, against exactly the codes
+    it was built from: if the structure does not survive, the write must not
+    happen. `parse_alternation` is pure, so this stays a pure check -- no query,
+    no request, nothing this function has to be told by a caller.
+    """
+    cleaned = _clean_groups(groups)
+    if not cleaned:
+        return ""
+    codes = {code for group in cleaned for code in group}
+    if parse_alternation(serialise_groups(cleaned), codes) == cleaned:
+        return ""
+    # Name the culprit rather than the whole role: a code that does not even
+    # survive alone is the one the user has to remove.
+    for group in cleaned:
+        for code in group:
+            if parse_alternation(code, {code}) != [[code]]:
+                return code
+    return cleaned[0][0]
+
+
 def validate(name, description, required_parents, optional_parents, children,
              existing_slugs) -> dict:
     """The row `create_assay` will write, or raise ValidationError.
@@ -89,6 +137,20 @@ def validate(name, description, required_parents, optional_parents, children,
             "Open it rather than creating a second one."
         )
 
+    roles = {"required_parents": required_parents,
+             "optional_parents": optional_parents,
+             "children": children}
+    for label, field in _ROLE_LABELS:
+        offender = _unstorable_code(roles[field])
+        if offender:
+            raise ValidationError(
+                f"The {label} sample type \u201c{offender}\u201d cannot be "
+                "stored unambiguously: its name contains a comma, a semicolon, "
+                "a period, \u201c and \u201d or \u201c or \u201d, and those "
+                "are what separate sample types when the assay is read back. "
+                "Leave it out, or have the sample type renamed."
+            )
+
     return {
         "name": name,
         "description": description,
@@ -99,9 +161,11 @@ def validate(name, description, required_parents, optional_parents, children,
     }
 
 
-# Every column create_assay writes, keyed by its LOWERCASED name. The value is
-# the key in validate()'s result, or None for a column filled in from the
-# vocabulary write rather than from the form.
+# Every column create_assay writes that comes from the FORM, keyed by its
+# LOWERCASED name; the value is the key in validate()'s result.
+# `internal_assay_id` is deliberately absent: it is filled in from the
+# vocabulary write rather than from the form, so _insert_context appends it
+# itself.
 _WRITTEN = {
     "assay_name": "name",
     "description": "description",
@@ -157,9 +221,10 @@ def _insert_context(row: dict, internal_assay_id: int) -> int:
             if lowered in columns:
                 names.append(columns[lowered])
                 values.append(row[key])
-        if "internal_assay_id" in columns:
-            names.append(columns["internal_assay_id"])
-            values.append(internal_assay_id)
+        # Unconditional: the guard above has already raised if this column is
+        # absent, so testing for it again could only ever be true.
+        names.append(columns["internal_assay_id"])
+        values.append(internal_assay_id)
 
         placeholders = ", ".join(["%s"] * len(values))
         joined = ", ".join(f"`{name}`" for name in names)
