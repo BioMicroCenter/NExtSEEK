@@ -447,6 +447,127 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
             "manifest": run_manifest.model_dump(), "skipped": skipped}
 
 
+_CHECKSUM_MAX_FILES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_FILES", 200))
+
+# The remote-side half of run-checksum: unlike run-harvest's GENERIC_GLOBS
+# matches, ``--paths`` is CALLER-supplied -- an explicit request, not an
+# incidental glob hit. So every one of the guards below is surfaced as an
+# "escaped" entry that _run_checksum turns into a hard OpValidationError,
+# never folded silently into "skipped" (see the module docstring and
+# test_run_checksum_op.py's docstring for why that distinction matters).
+#
+# The guards mirror _STAGE_SCRIPT's exactly, and for the same reason: the
+# read already happens on the cluster side, before any byte reaches this
+# process, so confinement can only be enforced there.
+# 1. Symlinks. A path inside run_dir can be a symlink pointing anywhere on
+#    the shared cluster account; is_symlink() is checked before anything
+#    else touches the path.
+# 2. Escape via a symlinked ancestor directory (or any other resolution
+#    mismatch): resolve() must still land inside the resolved run_dir.
+# 3. Hardlinks. `os.link(outside, run_dir/x)` makes `x` a directory entry
+#    INSIDE run_dir sharing an inode with a file elsewhere -- it is not a
+#    symlink and has no separate target path to resolve away from, so only
+#    `st_nlink > 1` catches it. Deliberately blunt (also rejects a benign
+#    multiply-linked file), same trade-off as run-harvest's staging guard.
+# A missing file or a non-regular-file match (a directory, a fifo, ...) is
+# NOT an escape -- those are ordinary misses, reported in "skipped".
+_CHECKSUM_SCRIPT = """\
+import hashlib, json, pathlib, sys
+run_dir = pathlib.Path(sys.argv[1])
+resolved_run_dir = run_dir.resolve()
+rels = sys.argv[2:]
+checksums = {}
+skipped = []
+escaped = []
+for rel in rels:
+    path = run_dir / rel
+    if path.is_symlink():
+        escaped.append({"path": rel, "reason": "symlink (run_dir confinement cannot follow it safely)"})
+        continue
+    if not path.exists():
+        skipped.append({"path": rel, "reason": "does not exist"})
+        continue
+    if not path.is_file():
+        skipped.append({"path": rel, "reason": "not a regular file"})
+        continue
+    try:
+        path.resolve().relative_to(resolved_run_dir)
+    except ValueError:
+        escaped.append({"path": rel, "reason": "resolves outside run_dir"})
+        continue
+    st = path.stat()
+    if st.st_nlink > 1:
+        escaped.append({"path": rel, "reason": "hardlinked; cannot confirm no other path reaches it"})
+        continue
+    h = hashlib.md5()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    checksums[rel] = h.hexdigest()
+print(json.dumps({"checksums": checksums, "skipped": skipped, "escaped": escaped}))
+"""
+
+
+def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
+    """Reingest step 2 — md5 a settled set of primary-data files on the cluster.
+
+    Separate from run-harvest on purpose: which files become File_PrimaryData is
+    only known after sample types are assigned, and hashing multi-GB BAMs would
+    put the harvest outside the CC turn's wall clock. Read-only; like run-ls and
+    run-harvest it never calls the write gate (see
+    nextseek_api/assistant/CONTRACT.md).
+
+    ``paths`` is caller-supplied, not a glob match, so every containment guard
+    below (traversal, symlink, hardlink, ancestor escape) is a hard
+    OpValidationError rather than a silent "skipped" entry -- an explicit
+    request to read outside run_dir is adversarial, not incidental. Only a
+    genuinely missing/non-regular-file match is a reported skip.
+    """
+    import shlex
+
+    run_dir, luria_env = _validate_run_dir(args, config)
+    rels = [p.strip() for p in str(args.get("paths") or "").split(",") if p.strip()]
+    if not rels:
+        raise OpValidationError("paths must name at least one file")
+    if len(rels) > _CHECKSUM_MAX_FILES:
+        raise OpValidationError(
+            f"too many files: {len(rels)} > {_CHECKSUM_MAX_FILES}; narrow the set")
+    for rel in rels:
+        joined = os.path.normpath(os.path.join(run_dir, rel))
+        if joined != run_dir and not joined.startswith(run_dir + "/"):
+            raise OpValidationError(f"path outside the run dir: {rel!r}")
+
+    from chat_nextseek.luria.ssh import prepare_key, ssh_run
+    key_path = prepare_key(luria_env["key"])
+    try:
+        remote_cmd = " ".join([
+            "python3", "-c", shlex.quote(_CHECKSUM_SCRIPT), shlex.quote(run_dir),
+            *(shlex.quote(rel) for rel in rels),
+        ])
+        out = ssh_run(luria_env, remote_cmd, key_path=key_path)
+    finally:
+        try:
+            os.remove(key_path)
+        except OSError:
+            pass
+
+    try:
+        payload = json.loads(out)
+    except ValueError as exc:
+        raise OpValidationError(f"checksum script produced no parseable output: {exc}") from exc
+
+    # A refusal is reported, never a silent omission: every escaped path is
+    # named, with its reason, in the raised message -- not dropped, and not
+    # quietly merged into "skipped" (see the module note above _CHECKSUM_SCRIPT).
+    escaped = payload.get("escaped") or []
+    if escaped:
+        detail = "; ".join(f"{item['path']!r}: {item['reason']}" for item in escaped)
+        raise OpValidationError(f"path outside the run dir or unsafe: {detail}")
+
+    return {"run_dir": run_dir, "checksums": payload.get("checksums") or {},
+            "skipped": payload.get("skipped") or []}
+
+
 def _d_seq_by_fastq(path: str) -> list[str]:
     """D.SEQ UIDs whose File_PrimaryData / Link_PrimaryData mentions ``path``."""
     from nextseek_api.services.reingest_lookups import uids_by_primary_data
@@ -511,4 +632,5 @@ _HANDLERS: dict[str, Callable] = {
     "run-ls": _run_ls,
     "build-upload-xlsx": _build_upload_xlsx,
     "run-harvest": _run_harvest,
+    "run-checksum": _run_checksum,
 }

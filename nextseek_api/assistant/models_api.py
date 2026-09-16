@@ -331,6 +331,18 @@ class RunHarvestRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class RunChecksumRequest(BaseModel):
+    """POST /assistant/run-checksum/ body — md5 a caller-named set of settled
+    primary-data files under a finished Luria run. Separate from run-harvest:
+    which files become File_PrimaryData is only known after sample types are
+    assigned, and hashing multi-GB BAMs during harvest would blow the harvest
+    step's wall clock."""
+    run_dir: str = Field(..., description="Absolute path under <LURIA working_path>/runs.")
+    paths: str = Field(..., description="Comma-separated relative paths under run_dir.")
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
 class SubmissionRequest(BaseModel):
     """POST /assistant/generate-submission/ body."""
     type: str = Field(..., description="One of: GEO | SRA | NFCORE_RNASEQ | NFCORE_SCRNASEQ | PRIDE")

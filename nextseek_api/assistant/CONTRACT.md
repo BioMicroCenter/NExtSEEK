@@ -28,13 +28,13 @@ All endpoints are **additive** to the existing `AssistantViewSet`; existing endp
 
 ## Op table
 
-The dispatcher is `_HANDLERS` in `NessieAI/ns/granular.py`, and it holds **ten** handlers: the
+The dispatcher is `_HANDLERS` in `NessieAI/ns/granular.py`, and it holds **eleven** handlers: the
 seven ops ported from the sidecar, plus `run-ls` (`_run_ls`), `build-upload-xlsx`
-(`_build_upload_xlsx`) and `run-harvest` (`_run_harvest`), the NExtSEEK-only reingest trio added
-afterwards. `run_op` refuses any label absent from that table. The sidecar's own table
-(`_HANDLERS` in `NessieAI/docker/ns-sidecar/app/ops.py`) matches it handler for handler. The last
-two rows below are not dispatched here at all: they are the pre-existing chat endpoints, listed so
-the whole surface is in one place.
+(`_build_upload_xlsx`), `run-harvest` (`_run_harvest`) and `run-checksum` (`_run_checksum`), the
+NExtSEEK-only reingest quartet added afterwards. `run_op` refuses any label absent from that table.
+The sidecar's own table (`_HANDLERS` in `NessieAI/docker/ns-sidecar/app/ops.py`) matches it handler
+for handler. The last two rows below are not dispatched here at all: they are the pre-existing
+chat endpoints, listed so the whole surface is in one place.
 
 | Op | Method + URL | Request model | Response model | chat_nextseek call (as in `NessieAI/docker/ns-sidecar/app/ops.py`) |
 |----|--------------|---------------|----------------|------------------------------------------------------------|
@@ -48,6 +48,7 @@ the whole surface is in one place.
 | **run-ls** | POST `/assistant/run-ls/` | `RunLsRequest{run_dir}` | none declared; the `run_ls` action pins only the error envelope | no agent and **no LLM**: `_run_ls` validates that `run_dir` is at or under `<LURIA working_path>/runs`, then calls `ssh_run` with the path shell-quoted. Result = `{run_dir, truncated, tree}`. Never writes to Luria. |
 | **build-upload-xlsx** | POST `/assistant/build-upload-xlsx/` | `BuildUploadXlsxRequest{rows, existing_parent_uids, session_id?}` | none declared; the `build_upload_xlsx` action pins only the error envelope | no agent and **no LLM**: `_build_upload_xlsx` runs `qa_rows` per sample type, skips a HARD_REJECT type while still returning its report, then runs `render_upload_workbook` per surviving type. Result = `{saved_files, qa}`. **No NExtSEEK write.** |
 | **run-harvest** | POST `/assistant/run-harvest/` | `RunHarvestRequest{run_dir, allow_failed_run?}` | none declared; the `run_harvest` action pins only the error envelope | no agent and **no LLM**: `_run_harvest` validates `run_dir` exactly as `_run_ls` does (shared `_validate_run_dir`), stages every `harvest.GENERIC_GLOBS` match off Luria into a temp dir, and calls `harvest.harvest_local` on it. Refuses (VALIDATION) a run with a failed process unless `allow_failed_run` is set. Result = `{run_dir, manifest_id, manifest}`. Never writes to Luria or to NExtSEEK. |
+| **run-checksum** | POST `/assistant/run-checksum/` | `RunChecksumRequest{run_dir, paths}` | none declared; the `run_checksum` action pins only the error envelope | no agent and **no LLM**: `_run_checksum` validates `run_dir` exactly as `_run_ls` does (shared `_validate_run_dir`), then runs a remote Python script over SSH that md5s each caller-named relative path under `run_dir`. Unlike `run-harvest`'s glob matches, `paths` is caller-supplied, so a symlink, hardlink, traversal, or any other resolve-outside-`run_dir` escape is a hard VALIDATION error naming every offending path, never a silent skip; only a genuinely missing/non-regular-file path is reported in `skipped`. Result = `{run_dir, checksums, skipped}`. Never writes to Luria or to NExtSEEK. Separate op from `run-harvest` because which files become `File_PrimaryData` is only known after sample types are assigned, and hashing multi-GB BAMs during harvest would blow the harvest step's wall clock. |
 | **query** | POST `/assistant/query/` (SSE) | `QueryRequest{query, mode, session_id?, force_new?, use_prod?}` | (SSE stream) | **already exposed**: `run_query(...)`. No change. |
 | **plan** | POST `/assistant/query/` with `mode="plan"` (or `/query/async/`) | `QueryRequest{query, mode:"plan", …}` | (SSE / task) | **already exposed**: `run_query_plan(...)` via the `mode` switch. No separate endpoint needed. |
 
@@ -63,10 +64,11 @@ the whole surface is in one place.
 | run-ls | `run_dir` | `use_prod?` |
 | build-upload-xlsx | `rows` (JSON string), `existing_parent_uids` (comma-sep, defaults `""`) | `use_prod?`, `session_id?` |
 | run-harvest | `run_dir`, `allow_failed_run` (bool, defaults `false`) | `use_prod?` |
+| run-checksum | `run_dir`, `paths` (comma-sep relative paths) | `use_prod?` |
 
-A caller can ignore the `use_prod`/`session_id` additions; they default safely. All three reingest
-models (`RunLsRequest`, `BuildUploadXlsxRequest`, `RunHarvestRequest`) set `extra="forbid"`, so an
-unknown body field is a 422, not a silent drop.
+A caller can ignore the `use_prod`/`session_id` additions; they default safely. All four reingest
+models (`RunLsRequest`, `BuildUploadXlsxRequest`, `RunHarvestRequest`, `RunChecksumRequest`) set
+`extra="forbid"`, so an unknown body field is a 422, not a silent drop.
 
 ## Downloading report / generate-submission / build-upload-xlsx outputs (the HTTP delivery path)
 
@@ -109,18 +111,26 @@ cannot reach the database. `api-read` is allowlist-gated against
 `NessieAI/ns/read_safe_endpoints.json`. Source: `build_gate` in `NessieAI/ns/write_gate.py`.
 
 Only two handlers call the gate at all: the `api-read` and `api-write` handlers in
-`NessieAI/ns/granular.py`. The other eight, `run-ls`, `build-upload-xlsx` and `run-harvest` among
-them, never reach it, which is why the gate's own `SIDECAR_OPS` frozenset still holds the
-**seven** ported labels while the dispatcher holds ten. That set is not a second op catalog: it is
-the gate's known-label list, and anything outside it is default-denied. A handler added later that
-*does* call the gate with its own label is refused with `WRITE_BLOCKED` until the label is added
-there.
+`NessieAI/ns/granular.py`. The other nine, `run-ls`, `build-upload-xlsx`, `run-harvest` and
+`run-checksum` among them, never reach it, which is why the gate's own `SIDECAR_OPS` frozenset
+still holds the **seven** ported labels while the dispatcher holds eleven. That set is not a
+second op catalog: it is the gate's known-label list, and anything outside it is default-denied.
+A handler added later that *does* call the gate with its own label is refused with
+`WRITE_BLOCKED` until the label is added there.
 
 `run-harvest` is read-only for the same reason `run-ls` is: it only stages files off Luria (SSH)
 and parses them locally, and never calls `write_gate`, `_run_granular_op`'s own gate check, or
 NExtSEEK's write API. It is intentionally absent from `write_gate.SIDECAR_OPS` — adding it there
 would not make it safer, since nothing in its handler ever calls the gate to begin with, and it
 would make the count-mismatch above harder to explain to the next reader.
+
+`run-checksum` is read-only for the same reason: it only SSHes Luria to md5 files and returns the
+digests, never calling `write_gate` or NExtSEEK's write API, and is likewise absent from
+`write_gate.SIDECAR_OPS`. Because `paths` is caller-supplied rather than a glob match, its
+containment/symlink/hardlink checks raise `OpValidationError` directly (VALIDATION) instead of
+degrading to a silent "skipped" entry — the safety response to an out-of-bounds request is a hard
+refusal, not a softer omission, precisely because nothing here ever reaches `write_gate` to catch
+it a second way.
 
 ## Artifact serving (output-type coverage)
 
@@ -138,9 +148,9 @@ dropped: no chart generator exists anywhere in the pipeline.)
 ## Tests
 
 - Free, no LLM: `NessieAI/tests/ns/` for the ops (the `test_granular_*.py` modules,
-  `test_run_ls_op.py`, `test_build_upload_xlsx_op.py`, `reingest/test_run_harvest_op.py`) and
-  `NessieAI/tests/api/` for the HTTP surface. Both run under the in-memory SQLite
-  `dmac.test_settings`.
+  `test_run_ls_op.py`, `test_build_upload_xlsx_op.py`, `reingest/test_run_harvest_op.py`,
+  `reingest/test_run_checksum_op.py`) and `NessieAI/tests/api/` for the HTTP surface. Both run
+  under the in-memory SQLite `dmac.test_settings`.
 - Paid real-stack acceptance: `NessieAI/tests/ns/test_granular_realstack.py`, skipped unless
   `RUN_REALSTACK=1` and held under a hard spend cap. It needs a running stack, a SEEK login valid
   on it and real provider keys, and uses the MySQL-backed `dmac.test_settings_realstack`. The

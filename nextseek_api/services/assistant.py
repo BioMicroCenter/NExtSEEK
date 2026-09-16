@@ -79,6 +79,7 @@ from nextseek_api.assistant.models_api import (
     ParseOpResponse,
     ReportOpRequest,
     ReportOpResponse,
+    RunChecksumRequest,
     RunHarvestRequest,
     RunLsRequest,
     BuildUploadXlsxRequest,
@@ -214,6 +215,7 @@ _GRANULAR_REQUEST_MODELS = {
     "run-ls": RunLsRequest,
     "build-upload-xlsx": BuildUploadXlsxRequest,
     "run-harvest": RunHarvestRequest,
+    "run-checksum": RunChecksumRequest,
 }
 
 
@@ -1332,3 +1334,14 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="run-harvest")
     def run_harvest(self, request):
         return self._run_granular_op(request, "run-harvest")
+
+    @extend_schema(
+        operation_id="Assistant: Run Checksum",
+        description="md5 a caller-named set of settled primary-data files under a finished "
+                    "Luria run (reingest step 2). Never writes to Luria or to NExtSEEK.",
+        request=RunChecksumRequest,
+        responses={401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="run-checksum")
+    def run_checksum(self, request):
+        return self._run_granular_op(request, "run-checksum")

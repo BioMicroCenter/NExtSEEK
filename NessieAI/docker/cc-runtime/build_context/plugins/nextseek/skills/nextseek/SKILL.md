@@ -262,6 +262,7 @@ plan	nextseek-plan	Multi-step planner advisor (read-only).	viewset	unrouted	true
 query	nextseek-query	Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present.	viewset	unrouted	true	false
 recall	nextseek-recall	Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned.	viewset	unrouted	true	false
 report	nextseek-report	Project summary report.	sidecar	read	true	true
+run-checksum	nextseek-run-checksum	**Reingest step 2** — md5 a caller-named set of settled primary-data files on the cluster.	sidecar	read	true	true
 run-harvest	nextseek-run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.	sidecar	read	true	true
 run-ls	nextseek-run-ls	**Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory.	sidecar	read	true	true
 <!-- END PLAN005-GEN:skill-ops -->

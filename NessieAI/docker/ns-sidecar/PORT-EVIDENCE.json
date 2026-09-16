@@ -49,8 +49,8 @@
   },
   {
    "path": "app/contract.py",
-   "size_bytes": 5480,
-   "sha256": "d4f10ca5b2daaff2c02a94d05df31ffb150a85ee601b188c7d0d3c09a8e48291"
+   "size_bytes": 5649,
+   "sha256": "78f62fabf1bad7b7acb72d3bb7a1edcfe801a532743bbef7d7ae31080b5bee2b"
   },
   {
    "path": "app/exceptions.py",
@@ -59,8 +59,8 @@
   },
   {
    "path": "app/granular_models.py",
-   "size_bytes": 9392,
-   "sha256": "43a4271473645a81dabef3980c26bc68310af661d362c712229df38a49cd95a3"
+   "size_bytes": 9819,
+   "sha256": "9ee38ba2d8ced85a52025af5621d63cae280f06c90e1db8b637e991fca44218c"
   },
   {
    "path": "app/healthcheck.py",
@@ -74,8 +74,8 @@
   },
   {
    "path": "app/ops.py",
-   "size_bytes": 8499,
-   "sha256": "3311207818170496a66e17423e0990cae3a6a2ea918f4f16812bc6c5c88e4f6a"
+   "size_bytes": 8850,
+   "sha256": "54348d88984489d699c989623474dafe7f65297df76f51d21bbaf7483b35741f"
   },
   {
    "path": "app/server.py",
@@ -183,16 +183,16 @@
  "local_additions_beyond_port_source": [
   {
    "path": "app/contract.py",
-   "addition": "Registered the reingest ops run-ls + build-upload-xlsx + run-harvest (SIDECAR_OPS set, _RunLsArgs / _BuildUploadXlsxArgs / _RunHarvestArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature."
+   "addition": "Registered the reingest ops run-ls + build-upload-xlsx + run-harvest + run-checksum (SIDECAR_OPS set, _RunLsArgs / _BuildUploadXlsxArgs / _RunHarvestArgs / _RunChecksumArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature."
   },
   {
    "path": "app/ops.py",
-   "addition": "Added the run-ls + build-upload-xlsx + run-harvest forwarders (_run_ls, _build_upload_xlsx, _run_harvest) that proxy to the NExtSEEK /assistant/run-ls/, /build-upload-xlsx/ and /run-harvest/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature."
+   "addition": "Added the run-ls + build-upload-xlsx + run-harvest + run-checksum forwarders (_run_ls, _build_upload_xlsx, _run_harvest, _run_checksum) that proxy to the NExtSEEK /assistant/run-ls/, /build-upload-xlsx/, /run-harvest/ and /run-checksum/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature."
   },
   {
    "path": "app/granular_models.py",
-   "addition": "Added RunHarvestRequest (mirrors nextseek_api/assistant/models_api.py's model of the same name). NOT present in port_source_commit a429f137; added locally for the reingest feature. This is a documentation-only local copy -- nothing under docker/ns-sidecar/app/ imports granular_models.py at runtime."
+   "addition": "Added RunHarvestRequest and RunChecksumRequest (mirror nextseek_api/assistant/models_api.py's models of the same names). NOT present in port_source_commit a429f137; added locally for the reingest feature. This is a documentation-only local copy -- nothing under docker/ns-sidecar/app/ imports granular_models.py at runtime."
   }
  ],
- "notes": "2026-07-22 (dev/v3 reconciliation Wave 5): contract.py + ops.py are NO LONGER byte-identical to port_source_commit a429f137 -- the reingest ops run-ls + build-upload-xlsx were added directly to this NExtSEEK copy rather than upstream-first. Pins + inventory updated consciously per the test_step7_sidecar_port drift-guard contract. 2026-09-16 (Task 9, run-harvest op): contract.py, ops.py AND granular_models.py gained the run-harvest reingest op (SIDECAR_OPS/_RunHarvestArgs, the _run_harvest forwarder, and RunHarvestRequest respectively) -- granular_models.py is consequently removed from byte_identical_files too. Pins + inventory updated consciously again, same contract. TODO(taisha): fold the reingest sidecar ops into dmac-assistant upstream, then re-port and restore byte-identity."
+ "notes": "2026-07-22 (dev/v3 reconciliation Wave 5): contract.py + ops.py are NO LONGER byte-identical to port_source_commit a429f137 -- the reingest ops run-ls + build-upload-xlsx were added directly to this NExtSEEK copy rather than upstream-first. Pins + inventory updated consciously per the test_step7_sidecar_port drift-guard contract. 2026-09-16 (Task 9, run-harvest op): contract.py, ops.py AND granular_models.py gained the run-harvest reingest op (SIDECAR_OPS/_RunHarvestArgs, the _run_harvest forwarder, and RunHarvestRequest respectively) -- granular_models.py is consequently removed from byte_identical_files too. Pins + inventory updated consciously again, same contract. 2026-09-16 (Task 10, run-checksum op): contract.py, ops.py AND granular_models.py gained the run-checksum reingest op (SIDECAR_OPS/_RunChecksumArgs, the _run_checksum forwarder, and RunChecksumRequest respectively). Pins + inventory updated consciously again, same contract. TODO(taisha): fold the reingest sidecar ops into dmac-assistant upstream, then re-port and restore byte-identity."
 }

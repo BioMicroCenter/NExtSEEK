@@ -1,0 +1,34 @@
+#!/bin/sh
+# nextseek-run-checksum — reingest step 2: md5 a caller-named set of settled
+# primary-data files under a finished Luria run (server-side SSH). Read-only
+# w.r.t. Luria and NExtSEEK; separate from run-harvest because which files
+# become File_PrimaryData is only known after sample types are assigned, and
+# hashing multi-GB BAMs during harvest would blow the harvest step's wall clock.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+RUN_DIR=""
+PATHS=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --run-dir) RUN_DIR="$2"; shift 2 ;;
+    --run-dir=*) RUN_DIR="${1#--run-dir=}"; shift ;;
+    --paths) PATHS="$2"; shift 2 ;;
+    --paths=*) PATHS="${1#--paths=}"; shift ;;
+    --help)
+      echo "Usage: nextseek-run-checksum --run-dir <abs path under the Luria runs root> --paths <comma-separated relative paths>"
+      echo ""
+      echo "md5s a caller-named set of settled files under a finished run. Every"
+      echo "path must resolve inside run_dir; a symlink, hardlink, or escape is a"
+      echo "hard validation error, not a silent skip. A genuinely missing file is"
+      echo "reported in the result's skipped list instead."
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$RUN_DIR" ] || nextseek_die 3 "missing --run-dir"
+[ -n "$PATHS" ] || nextseek_die 3 "missing --paths"
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent run-checksum --run-dir "$RUN_DIR" --paths "$PATHS"
