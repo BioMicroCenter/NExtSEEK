@@ -41,13 +41,16 @@ from ci.smoke.test_reachability import _callable_routes
 # runs, which happen in a different environment. 168 -> 171 on 2026-09-16,
 # confirmed by the completeness gate -- but the jump is not one route's worth,
 # it is three, and only the last of them is this branch's own download route.
-# `git show <sha>:ci/routes.py | grep -c '^    Route('` gives 168 owned routes
-# at 7775680a, 169 at 1e32bc5a (the assay-association commit, which added a
-# route without bumping this constant), 170 at 871cdc37 (this plan's own Task
-# 4, the assay-setup page's GET route, same miss), and 171 at the commit that
-# added /seek/assay-setup/download/ and finally moved this constant -- crediting
-# the whole three-route jump to the one route it happened to notice.
-# 171 -> 172 on 2026-09-16: /seek/assay-setup/create/, this plan's Task 6.
+# `git show <sha>:ci/routes.py | grep -c '^    Route('` counts EVERY declared
+# entry, the two `resolver=False` ones included, so the owned count is that
+# number minus NON_RESOLVER_COUNT below: 170 declared and so 168 owned at
+# 7775680a, 171 -> 169 at 1e32bc5a (the assay-association commit, which added a
+# route without bumping this constant), 172 -> 170 at 871cdc37 (this plan's own
+# Task 4, the assay-setup page's GET route, same miss), and 173 -> 171 at the
+# commit that added /seek/assay-setup/download/ and finally moved this constant
+# -- crediting the whole three-route jump to the one route it happened to
+# notice. 171 -> 172 on 2026-09-16: /seek/assay-setup/create/, this plan's Task
+# 6, at 174 declared.
 OWNED_ROUTE_COUNT = 172
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
