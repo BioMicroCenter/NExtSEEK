@@ -263,7 +263,7 @@ modules.
 - `seek/` is the overwhelming consumer: 24 of the 25 non-test importer files.
   `seek/dbtable_projects.py:7` is representative of the twelve subclass modules, seven
   modules under `seek/sample/` take the Excel and CSV helpers
-  (`seek/sample/download.py:3-15`), `seek/views/admin.py:5-8` takes all four
+  (`seek/sample/download.py:3-15`), `seek/views/admin.py:11-14` takes all four
   raw-MySQLdb table classes, and `seek/views/projects.py:5-7` takes two of them.
 - `nextseek_api/services/entity_tree.py:153` is the only non-`seek` non-test importer, and
   it is a lazy in-function import inside an `except` fallback that runs only when a direct

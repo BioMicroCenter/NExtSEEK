@@ -4,22 +4,48 @@
 
 - `ci/routes.py` may import the standard library and nothing else. An AST walk of
   the file returns exactly five import statements, all stdlib
-  (`ci/routes.py:15-20`), and the module docstring says why
-  (`ci/routes.py:1-14`). Add a third-party import and the smoke lane stops
+  (`ci/routes.py:20-25`), and the module docstring says why
+  (`ci/routes.py:1-19`). Add a third-party import and the smoke lane stops
   collecting: it runs under `uv run --no-project` with pytest, requests and
   playwright and nothing else (`.github/workflows/ci-smoke.yml:112-114`). The
   gate lane will not warn you, because it runs in the application's own
   environment, whose dependency list includes requests (`pyproject.toml:92`).
-- Django is imported inside `_walk()` and `live_patterns()`, never at module
-  scope. A recursive grep for `django` over `ci/`, ignoring this document,
-  returns four lines, and the only two that are executable code are those
-  function-scope imports (`ci/gate/live_routes.py:93`,
-  `ci/gate/live_routes.py:113`). Hoist either to module scope and the whole
+- Django is imported inside `_walk()` and `_owned_leaves()`, never at module
+  scope: `grep -rn "import django\|from django" ci/ --include=*.py` returns those
+  two lines and nothing else (`ci/gate/live_routes.py:99`,
+  `ci/gate/live_routes.py:119`). Hoist either to module scope and the whole
   no-stack smoke lane stops collecting, because
-  `ci/smoke/test_registry_contents.py:23` imports `suggest_path` from that module
-  in an environment that has no Django at all.
+  `ci/smoke/test_registry_contents.py:25` imports `suggest_path` from that module
+  in an environment that has no Django at all. `live_views()` reads each view off
+  the same walk, so it is bound by the same rule.
+- Every entry says what a request there writes: `effect`, and for `writes` the
+  `ci/writers.py` ids that do it (`ci/routes.py:77-78`, validated at
+  `ci/routes.py:126-152`). The field DEFAULTS to `reads`, because a dataclass
+  cannot tell an author who means it from one who said nothing; what forces a new
+  route to be classified is the gate's paste-ready skeleton, which emits
+  `effect="UNCLASSIFIED"` for `Route` to refuse
+  (`ci/gate/test_route_registry.py`). Make that default anything else valid and a
+  route nobody read starts claiming an effect nobody checked.
+- `effect="n/a"` means the route is not this application's surface, and
+  `ci/smoke/test_registry_contents.py` pins it to exactly the `resolver=False`
+  entries: the nginx-served asset and the Django admin's own login. Classify a
+  route of ours `n/a` and the writer registry stops asking it anything.
+- `ci/blocking_lanes.py` may import the standard library and nothing else. The
+  "Blocking unit tests (ci/blocking_lanes.py)" step of
+  `.github/workflows/ci-pytest.yml` runs it with the runner's bare `python`,
+  outside the application's environment, so a third-party import fails that step
+  before a single test runs. Its gate test, `ci/gate/test_blocking_lanes.py`,
+  keeps to the same rule.
+- Every glob in `BLOCKING_GLOBS` matches at least one file, and `main()` exits 1
+  with nothing on stdout when one does not (`ci/gate/test_blocking_lanes.py`).
+  Pytest given no path walks the whole tree, so an empty list must stop the
+  step, never reach pytest.
+- A module a blocking glob matches blocks every run from the commit that adds
+  it, so it must pass in the no-stack lane: SQLite in memory, no network, no
+  MySQL, no Neo4j. A graph test that needs a live service either skips itself
+  without that service or takes a name outside the globs.
 - A route's `expect` records the status the route returns when it works, never
-  the status it returns while broken (`ci/routes.py:44-49`). Declare today's
+  the status it returns while broken (`ci/routes.py:79-84`). Declare today's
   broken status instead and the `xfail` reports green while the defect stands and
   red on the day somebody fixes it, both signals inverted.
 - An absent `CI_BOX_PROFILE` resolves to `prod`, the most restrictive profile,
@@ -27,7 +53,7 @@
   `ci/smoke/conftest.py:168-177`). Change that default to anything else and an
   unconfigured box silently gains the right to issue writes.
 - Every pattern in `REGISTRY` appears exactly once, enforced at import time
-  (`ci/routes.py:882-899`, `ci/routes.py:924`). A duplicate makes the second
+  (`ci/routes.py:1191-1208`, `ci/routes.py:1238`). A duplicate makes the second
   entry's profiles, methods and exclusions unreachable through `match()`, which
   reads as a route being permitted when the author thought it was excluded.
 - Regenerate the baseline with `ci/diff_baseline.py --emit-baseline`, never with
@@ -86,14 +112,45 @@
 - `ci/diff_baseline.py` always exits 0, by decision (`ci/diff_baseline.py:8-9`,
   `ci/diff_baseline.py:131-132`). A wrapper that treats its exit code as a
   verdict will call every run a pass, including one that reports new failures.
-  Only the gate step, and a lanes step whose pytest did not run at all, can fail
-  that job (the comment above the gate step in `.github/workflows/ci-pytest.yml`).
+  Only the gate step, the blocking unit tests step, and a lanes step whose
+  pytest did not run at all can fail that job (the comment above the gate step
+  in `.github/workflows/ci-pytest.yml`).
+- `seek/tests/test_graph_search_js.py` skips every test where `node` is missing,
+  and the application image has no node, so the gate lane reports them skipped,
+  never failed or passed. The blocking unit tests step fails on a runner without
+  node for that reason. To run them, use a host with node:
+  `node seek/tests/js/graph_search_cases.js`, or that module under
+  `uv run --no-project --with pytest pytest`, which needs no Django.
+- No step runs `makemigrations --check`. Under `dmac.test_settings`,
+  `manage.py makemigrations --check --dry-run` stops on system check
+  `4_0.E001`: `dmac/settings.py` splits an unset `DJANGO_CSRF_TRUSTED_ORIGINS`
+  into one empty origin. With `--skip-checks` it runs, and reports changes the
+  tree has not migrated: in Mezzanine's own apps (its installed migrations lag
+  the installed Django), in `seek`, and in `nextseek_api`, whose TurnLedger index
+  keeps the migrated name that `nextseek_api/migrations/_turn_ledger_heal.py`
+  converges live databases to, not the name the model now generates. Run it in
+  the gate lane with `--skip-checks` for the current list. Adding it to the
+  blocking step turns the job red on every run until those are settled.
 - `OWNED_ROUTE_COUNT` in `ci/smoke/test_registry_contents.py` is a
   second, hand-maintained declaration of the route count, and its own comment
   names the completeness gate as the authority. Add a route and this constant
   goes red in a lane that cannot tell you whether the number is right, because
   that lane has no resolver to ask.
-- `EXCLUDE_DEAD` and `EXCLUDE_ADMIN` are declared at `ci/routes.py:24-30` but no
+- The tripwire in `ci/gate/test_route_effects.py` REPORTS; it does not fail. It
+  walks from a route's view to the writer sites by NAME, three calls deep, and
+  both of its bounds are load-bearing and measured. It follows a call only where
+  exactly ONE function of that name exists in the scanned tree: at twelve, it
+  reported almost every `/seek/` page as reaching WR-14 and WR-15, because the
+  legacy table classes spell their writes `new`, `update` and `delete`. And it
+  drops a name more than 20 sites call: 158 sites call something `.execute(...)`,
+  almost always a database cursor, while the tree holds exactly one function
+  named `execute`, so following it connected every read-only SQL view to batch
+  upload's inserts. Raise either bound and the report becomes noise a reader
+  learns to skip. It under-reaches by design -- an overloaded name, a variable, a
+  string dispatch, a decorator that does not set `__wrapped__` -- so read its
+  output as routes worth re-reading, never as a verdict. Its one assertion is
+  that the Graph Search page is not in the list, which catches a walk gone loose.
+- `EXCLUDE_DEAD` and `EXCLUDE_ADMIN` are declared at `ci/routes.py:29-35` but no
   entry uses either: counting the `exclude` values across `REGISTRY` on
   2026-09-03 gives `EXCLUDE_UNSAFE_METHOD` 13, `EXCLUDE_COST` 12 and
   `EXCLUDE_EXTERNAL` 1, totalling all 26 excluded entries. Reading the code list

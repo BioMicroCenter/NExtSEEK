@@ -248,6 +248,7 @@ def write_report(repo_root: Path, *, label: str | None = None,
                  image_ref: str | None = None, image_id: str | None = None,
                  profile: str | None = None, command: list[str] | None = None,
                  health: list[tuple[str, bool, str]] | None = None,
+                 graph_drift: tuple[str, bool, str] | None = None,
                  now: datetime.datetime | None = None,
                  nessie_summary: dict | None = None,
                  nessie_ran: bool = False) -> Path | None:
@@ -259,6 +260,8 @@ def write_report(repo_root: Path, *, label: str | None = None,
 
     `health` is the stack-health step that ran before the suite, as plain
     (name, ok, detail) tuples so this module stays free of startup.steps.
+    `graph_drift` is the post-rebuild drift check in the same shape, or None on a
+    run that did not ask (a prod box, a component rebuild, a stack that was down).
 
     `nessie_ran` says the Nessie lane was on for this run, and `nessie_summary` is
     what read_nessie_summary returned (a summary implies the lane ran). Whenever
@@ -328,6 +331,13 @@ def write_report(repo_root: Path, *, label: str | None = None,
         lines += ["## Stack health", ""]
         lines += [f"- {'✓' if ok else '✗'} **{name}:** {detail}" for name, ok, detail in health]
         lines.append("")
+
+    if graph_drift:
+        # Next to stack health because it is the same kind of statement: what was
+        # true of this box before the suite was asked anything.
+        drift_name, drift_ok, drift_detail = graph_drift
+        lines += ["## Graph drift", "",
+                  f"- {'✓' if drift_ok else '✗'} **{drift_name}:** {drift_detail}", ""]
 
     if nessie_summary:
         lines += render_nessie_section(nessie_summary)

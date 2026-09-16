@@ -1,13 +1,26 @@
 """Endpoint behaviour: auth, gating, status codes, schema."""
 
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth.models import User
+from django.db import OperationalError
 from rest_framework.test import APIClient
+
+from nextseek_api.graph_sync.models_db import GraphSyncOutbox
 
 URL = "/nextseek_api/assay-registrations/"
 BODY = {"registrations": [{"sample_uid": "D.NHP-240115MIT-001", "assay_id": 351}]}
+
+#: What `hooks.enqueue` calls. A test injects a database failure here rather than at the hook, because the contract
+#: being exercised is that the hook swallows it and the view never sees one.
+_STATE_ENQUEUE = "nextseek_api.graph_sync.state.enqueue"
+
+
+def _queued():
+    """The outbox rows this request wrote: the whole of what the endpoint now asks of the graph."""
+    return sorted(GraphSyncOutbox.objects.values_list("kind", "key"))
 
 
 @pytest.fixture
@@ -58,17 +71,20 @@ class TestRequestValidation:
 
 @pytest.mark.django_db
 class TestOutcomes:
-    def _run(self, superuser, execution_result, graph_edges=0, graph_error=None):
+    def _run(self, superuser, execution_result, enqueue_error=None):
+        """Only the MySQL half is mocked out: the hook writes real outbox rows."""
         client = APIClient()
         client.force_authenticate(user=superuser)
-        with patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
-             patch("nextseek_api.assay_registration.service.execute",
-                   return_value=execution_result), \
-             patch("nextseek_api.assay_registration.service.get_connection"), \
-             patch("nextseek_api.assay_registration.service._neo4j",
-                   return_value=(MagicMock(), "neo4j")), \
-             patch("nextseek_api.assay_registration.service.recompute_for_samples",
-                   side_effect=graph_error or (lambda *a, **k: graph_edges)):
+        with ExitStack() as stack:
+            plan = stack.enter_context(
+                patch("nextseek_api.assay_registration.service.plan_batch"))
+            stack.enter_context(
+                patch("nextseek_api.assay_registration.service.execute",
+                      return_value=execution_result))
+            stack.enter_context(
+                patch("nextseek_api.assay_registration.service.get_connection"))
+            if enqueue_error is not None:
+                stack.enter_context(patch(_STATE_ENQUEUE, side_effect=enqueue_error))
             plan.return_value = MagicMock(total_rows=1,
                                           execution_mode=lambda threshold: "synchronous")
             return client.post(URL, BODY, format="json")
@@ -162,74 +178,70 @@ class TestOutcomes:
             recompute_sample_ids={100}, overall_status="partial")
         assert self._run(superuser, result).status_code == 207
 
-    def test_a_graph_failure_does_not_lose_the_mysql_write(self, superuser):
-        """The graph is DERIVED from assay_assets, so a failed recompute is a
-        stale view, not an inconsistency. Rolling back a correct MySQL write to
-        satisfy it would be strictly worse. Re-POSTing the same batch repairs
-        it: every row comes back already_present and the recompute re-runs --
-        which is true only because `recompute_sample_ids` is written UNION
-        already_present. `TestTheRePostRepairPath` below pins that leg; without
-        it this docstring described a recovery the code could not perform.
+    def test_a_lost_outbox_row_does_not_lose_the_mysql_write(self, superuser):
+        """The graph is DERIVED from assay_assets, so a row that could not be
+        queued is a stale view, not an inconsistency. Rolling back a correct
+        MySQL write to satisfy it would be strictly worse, and the loss is
+        bounded: the nightly targeted sync compares each sample's source hash,
+        which covers its assay links, against what its node was written from.
         """
         from nextseek_api.assay_registration.executor import ExecutionResult
         from nextseek_api.assay_registration.schemas import RegistrationCounts, RowResult
-
-        def boom(*args, **kwargs):
-            raise RuntimeError("bolt connection refused")
 
         result = ExecutionResult(
             rows=[RowResult(index=0, sample_uid="A", status="written",
                             assay_assets_id=414936)],
             counts=RegistrationCounts(submitted=1, written=1),
             recompute_sample_ids={100}, overall_status="succeeded")
-        response = self._run(superuser, result, graph_error=boom)
+        response = self._run(superuser, result, enqueue_error=OperationalError(
+            "(2006, 'MySQL server has gone away')"))
 
         body = response.json()
         assert response.status_code == 200
         assert body["rows"][0]["status"] == "written"
         assert body["rows"][0]["assay_assets_id"] == 414936
         assert body["graph"]["status"] == "failed"
-        assert "bolt" in body["graph"]["error"]
+        assert _queued() == []
 
     def test_a_failed_graph_outcome_reports_no_edge_count(self, superuser):
-        """The read pass itself failed, so there is no honest figure to give.
+        """There is no edge count to give from a request any more.
 
-        `edges_recomputed` is 0 here because nothing was counted, not because
-        zero edges were touched. The spec promised an "affected edge count" on
-        this path; it was corrected rather than invented, and this pins that the
-        error string is the whole of what a failed outcome says.
+        `edges_recomputed` stays on the response because the shape is published,
+        and it is 0 on every path now: the request queues the samples and
+        returns, and the drain is what relabels their edges. So the error string
+        is the whole of what a failed outcome says, and it says how much was
+        lost rather than reaching for a number nothing counted.
         """
         from nextseek_api.assay_registration.executor import ExecutionResult
         from nextseek_api.assay_registration.schemas import RegistrationCounts, RowResult
-
-        def boom(*args, **kwargs):
-            raise RuntimeError("bolt connection refused")
 
         result = ExecutionResult(
             rows=[RowResult(index=0, sample_uid="A", status="written",
                             assay_assets_id=1)],
             counts=RegistrationCounts(submitted=1, written=1),
             recompute_sample_ids={100}, overall_status="succeeded")
-        graph = self._run(superuser, result, graph_error=boom).json()["graph"]
-        assert graph == {"status": "failed", "edges_recomputed": 0,
-                         "error": "bolt connection refused"}
+        graph = self._run(superuser, result, enqueue_error=OperationalError(
+            "(2006, 'MySQL server has gone away')")).json()["graph"]
+        assert graph == {
+            "status": "failed", "edges_recomputed": 0,
+            "error": "1 of 1 samples could not be queued for a graph sync; "
+                     "the nightly targeted sync will find them",
+        }
 
 
 @pytest.mark.django_db
 class TestTheRePostRepairPath:
     """The published recovery instruction, driven end to end through the view.
 
-    `service._recompute`'s docstring, the spec's Recovery section and the
-    endpoint description all tell an operator with a stale graph to re-POST the
-    identical batch. Every pair then answers `already_present`, so nothing is
-    written -- and while the recompute was fed the WRITTEN-only set, that made
-    `recompute_sample_ids` empty, short-circuited `_recompute` to
-    `{"status": "skipped"}`, and repaired nothing while reporting that there was
+    An operator with a stale graph is told to re-POST the identical batch. Every
+    pair then answers `already_present`, so nothing is written -- and fed the
+    WRITTEN-only set, the graph step would be handed an empty set, report
+    `{"status": "skipped"}`, and repair nothing while reporting that there was
     nothing to repair. An operator following the instruction would read
     `skipped` and conclude the graph was fine.
 
-    These two tests fail against the pre-fix code: the first because the
-    recompute is never called, the second because the graph block says skipped.
+    `recompute_sample_ids` is written UNION already_present, so the re-POST
+    queues exactly the samples the caller asked about.
     """
 
     def _repost(self, superuser):
@@ -253,35 +265,30 @@ class TestTheRePostRepairPath:
         with patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
              patch("nextseek_api.assay_registration.service.execute",
                    return_value=result), \
-             patch("nextseek_api.assay_registration.service.get_connection"), \
-             patch("nextseek_api.assay_registration.service._neo4j",
-                   return_value=(MagicMock(), "neo4j")), \
-             patch("nextseek_api.assay_registration.service.recompute_for_samples",
-                   return_value=128) as recompute:
+             patch("nextseek_api.assay_registration.service.get_connection"):
             plan.return_value = MagicMock(
                 total_rows=2, execution_mode=lambda threshold: "synchronous")
             response = client.post(URL, BODY, format="json")
-        return response, recompute
+        return response
 
-    def test_the_recompute_runs_on_the_already_present_sample_ids(self, superuser):
-        response, recompute = self._repost(superuser)
+    def test_the_already_present_sample_ids_are_queued(self, superuser):
+        response = self._repost(superuser)
         assert response.status_code == 200
-        recompute.assert_called_once()
-        assert recompute.call_args[0][0] == {100, 200}, (
+        assert _queued() == [("samples", "sample:100"), ("samples", "sample:200")], (
             "the rows the caller asked about, not the rows this request "
             "happened to insert -- which was none of them"
         )
 
     def test_the_graph_block_reports_the_repair_rather_than_a_skip(self, superuser):
-        response, _ = self._repost(superuser)
+        response = self._repost(superuser)
         assert response.json()["graph"] == {
-            "status": "succeeded", "edges_recomputed": 128, "error": None}
+            "status": "queued", "edges_recomputed": 0, "error": None}
 
     def test_a_batch_with_nothing_ok_at_all_still_skips(self, superuser):
         """`skipped` is not deleted, it is narrowed: it now means no row ended
         written or already_present, so no membership exists for a label to be
-        derived from. Widening the input must not turn that into a pointless
-        Neo4j round trip."""
+        derived from. Widening the input must not turn that into outbox rows
+        the drain would sync for nothing."""
         from nextseek_api.assay_registration.executor import ExecutionResult
         from nextseek_api.assay_registration.schemas import (
             RegistrationCounts, RowError, RowResult)
@@ -297,13 +304,12 @@ class TestTheRePostRepairPath:
         with patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
              patch("nextseek_api.assay_registration.service.execute",
                    return_value=result), \
-             patch("nextseek_api.assay_registration.service.get_connection"), \
-             patch("nextseek_api.assay_registration.service._neo4j") as neo:
+             patch("nextseek_api.assay_registration.service.get_connection"):
             plan.return_value = MagicMock(
                 total_rows=1, execution_mode=lambda threshold: "synchronous")
             response = client.post(URL, BODY, format="json")
 
-        neo.assert_not_called()
+        assert _queued() == []
         assert response.json()["graph"]["status"] == "skipped"
 
 
@@ -361,17 +367,18 @@ def _client(user):
 
 @pytest.mark.django_db
 class TestTransactionOrdering:
-    """The graph-failure case only holds if the MySQL transaction closed first.
+    """The hook goes after the writer's own commit, never inside its transaction.
 
-    `test_a_graph_failure_does_not_lose_the_mysql_write` asserts the response
-    body, which it would also do if the recompute ran INSIDE the `with
-    get_connection()` block -- there the raised RuntimeError would roll the
-    write back, and the response would still say "written", because the rows
-    are built from the read-back the executor already returned. The body proves
-    what we reported; only the ordering proves what we kept.
+    `test_a_lost_outbox_row_does_not_lose_the_mysql_write` asserts the response
+    body, which it would also do if the enqueue ran INSIDE the `with
+    get_connection()` block -- and there an outbox row would ride a transaction
+    that a later failure could still roll back, while the response still said
+    "written", because the rows are built from the read-back the executor
+    already returned. The body proves what we reported; only the ordering proves
+    that the row outlives the write.
     """
 
-    def test_the_recompute_runs_after_the_write_transaction_closes(self, superuser):
+    def test_the_enqueue_runs_after_the_write_transaction_closes(self, superuser):
         events = []
 
         @contextmanager
@@ -392,46 +399,20 @@ class TestTransactionOrdering:
             events.append("execute")
             return result
 
-        def _recompute(*args, **kwargs):
-            events.append("recompute")
-            raise RuntimeError("bolt connection refused")
-
         with _patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
              _patch("nextseek_api.assay_registration.service.execute",
                     side_effect=_execute), \
              _patch("nextseek_api.assay_registration.service.get_connection",
                     side_effect=connection), \
-             _patch("nextseek_api.assay_registration.service._neo4j",
-                    return_value=(MagicMock(), "neo4j")), \
-             _patch("nextseek_api.assay_registration.service.recompute_for_samples",
-                    side_effect=_recompute):
+             _patch(_STATE_ENQUEUE,
+                    side_effect=lambda *a, **k: events.append("enqueue")):
             plan.return_value = MagicMock(
                 total_rows=1, execution_mode=lambda threshold: "synchronous")
             response = _client(superuser).post(URL, BODY, format="json")
 
-        assert events == ["conn_enter", "execute", "conn_exit", "recompute"], events
+        assert events == ["conn_enter", "execute", "conn_exit", "enqueue"], events
         assert response.status_code == 200
-        assert response.json()["graph"]["status"] == "failed"
-
-    def test_the_driver_is_closed_even_when_the_recompute_raises(self, superuser):
-        driver = MagicMock()
-        result = ExecutionResult(
-            rows=[RowResult(index=0, sample_uid="A", status="written",
-                            assay_assets_id=1)],
-            counts=RegistrationCounts(submitted=1, written=1),
-            recompute_sample_ids={100}, overall_status="succeeded")
-        with _patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
-             _patch("nextseek_api.assay_registration.service.execute",
-                    return_value=result), \
-             _patch("nextseek_api.assay_registration.service.get_connection"), \
-             _patch("nextseek_api.assay_registration.service._neo4j",
-                    return_value=(driver, "neo4j")), \
-             _patch("nextseek_api.assay_registration.service.recompute_for_samples",
-                    side_effect=RuntimeError("boom")):
-            plan.return_value = MagicMock(
-                total_rows=1, execution_mode=lambda threshold: "synchronous")
-            _client(superuser).post(URL, BODY, format="json")
-        driver.close.assert_called_once()
+        assert response.json()["graph"]["status"] == "queued"
 
     def test_no_written_samples_skips_the_graph_entirely(self, superuser):
         result = ExecutionResult(
@@ -442,14 +423,13 @@ class TestTransactionOrdering:
         with _patch("nextseek_api.assay_registration.service.plan_batch") as plan, \
              _patch("nextseek_api.assay_registration.service.execute",
                     return_value=result), \
-             _patch("nextseek_api.assay_registration.service.get_connection"), \
-             _patch("nextseek_api.assay_registration.service._neo4j") as neo:
+             _patch("nextseek_api.assay_registration.service.get_connection"):
             plan.return_value = MagicMock(
                 total_rows=1, execution_mode=lambda threshold: "synchronous")
             response = _client(superuser).post(URL, BODY, format="json")
         assert response.json()["graph"] == {"status": "skipped", "edges_recomputed": 0,
                                             "error": None}
-        neo.assert_not_called()
+        assert _queued() == []
 
 
 @pytest.mark.django_db
@@ -463,8 +443,7 @@ class TestDryRun:
              _patch("nextseek_api.assay_registration.service.preview",
                     return_value=preview_result), \
              _patch("nextseek_api.assay_registration.service.execute") as execute, \
-             _patch("nextseek_api.assay_registration.service.get_connection"), \
-             _patch("nextseek_api.assay_registration.service._neo4j") as neo:
+             _patch("nextseek_api.assay_registration.service.get_connection"):
             plan.return_value = MagicMock(
                 total_rows=1, execution_mode=lambda threshold: "synchronous")
             body = dict(BODY, dry_run=True)
@@ -473,7 +452,7 @@ class TestDryRun:
         assert response.json()["mode"] == "dry_run"
         assert response.json()["graph"]["status"] == "skipped"
         execute.assert_not_called()
-        neo.assert_not_called()
+        assert _queued() == [], "a dry run asks the graph for nothing"
 
 
 @pytest.mark.django_db
@@ -729,9 +708,8 @@ class TestConventions:
 class TestResponseFidelity:
     """Fields the outcome tests above never look at.
 
-    Each of these was found by mutation: `mode="synchronous"` could be changed
-    to `"dry_run"`, and `edges_recomputed=written` to `edges_recomputed=0`,
-    with the whole file still green. Both are on the API surface.
+    Found by mutation: `mode="synchronous"` could be changed to `"dry_run"` with
+    the whole file still green, and it is on the API surface.
     """
 
     def _result(self):
@@ -745,34 +723,14 @@ class TestResponseFidelity:
         response = TestOutcomes()._run(superuser, self._result())
         assert response.json()["mode"] == "synchronous"
 
-    def test_the_recomputed_relationship_count_reaches_the_response(self, superuser):
-        """A count, not a reconciliation figure: one edge pair can be carried by
-        several DERIVED_FROM relationships, so this may legitimately exceed the
-        number of rows written. It is reported verbatim, never compared."""
-        response = TestOutcomes()._run(superuser, self._result(), graph_edges=128)
-        assert response.json()["graph"] == {"status": "succeeded",
-                                            "edges_recomputed": 128, "error": None}
-
-
-class TestNeo4jWiring:
-    """`_neo4j` is patched out of every other test in this file, so nothing else
-    would notice it reading settings that do not exist. The task brief's draft
-    read NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD / NEO4J_DATABASE as four flat
-    settings; this project has exactly one, a dict."""
-
-    def test_it_reads_the_one_settings_dict_the_rest_of_the_repo_reads(self, settings):
-        import neo4j
-
-        settings.NEO4J_DATABASE = {"NAME": "graph-db", "URI": "neo4j://example:7687",
-                                   "AUTH": ("neo4j", "secret")}
-        with _patch.object(neo4j.GraphDatabase, "driver") as driver:
-            from nextseek_api.assay_registration.service import _neo4j
-
-            made, db_name = _neo4j()
-        driver.assert_called_once_with("neo4j://example:7687",
-                                       auth=("neo4j", "secret"))
-        assert made is driver.return_value
-        assert db_name == "graph-db"
+    def test_a_queued_sync_reports_no_edge_count(self, superuser):
+        """`edges_recomputed` stays because the response shape is published, and
+        it is 0 because this request counted nothing. Filling it with something
+        else at hand -- the number of samples queued, say -- would publish a
+        count of edges that nothing has touched yet."""
+        response = TestOutcomes()._run(superuser, self._result())
+        assert response.json()["graph"] == {"status": "queued",
+                                            "edges_recomputed": 0, "error": None}
 
 
 class TestThreshold:

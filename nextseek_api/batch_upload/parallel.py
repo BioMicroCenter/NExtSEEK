@@ -68,6 +68,7 @@ def _worker_process_chunk(
     should_stop: Optional[Callable[[], bool]] = None,
     existing_samples: Optional[Dict[str, int]] = None,
     update_existing: bool = False,
+    batch_key_prefix: str = "",
 ) -> BatchResult:
     """Process a chunk of rows in a worker thread."""
     log_prefix = f"[Worker-{worker_id}]"
@@ -91,6 +92,7 @@ def _worker_process_chunk(
         should_stop=should_stop,
         existing_samples=existing_samples,
         update_existing=update_existing,
+        batch_key_prefix=batch_key_prefix,
     )
 
     # Merge outcomes
@@ -115,10 +117,15 @@ def process_batches_parallel(
     should_stop: Optional[Callable[[], bool]] = None,
     existing_samples: Optional[Dict[str, int]] = None,
     update_existing: bool = False,
+    batch_key_prefix: str = "",
 ) -> BatchResult:
     """Parallel batch processing for large datasets.
 
     Pre-warms caches in main thread, then splits work across workers.
+
+    Each worker gets its own ``batch_key_prefix``: the outbox key is unique per
+    ``(kind, key)``, and two workers numbering their batches from zero would
+    otherwise write the same one.
     """
     if error_collector is None:
         error_collector = ErrorCollector()
@@ -167,6 +174,7 @@ def process_batches_parallel(
                 should_stop=should_stop,
                 existing_samples=existing_samples,
                 update_existing=update_existing,
+                batch_key_prefix=f"{batch_key_prefix}:w{i}" if batch_key_prefix else "",
             )
             futures.append(future)
 

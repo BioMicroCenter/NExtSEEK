@@ -1,4 +1,4 @@
-"""The four functional flows, driven through a real browser.
+"""The five functional flows, driven through a real browser.
 
 A status code cannot tell you a page is working. These drive the actual UI and,
 with --strict-console, fail on uncaught console errors. That check is the only
@@ -209,12 +209,12 @@ def test_upload_validate_reports_a_result(page, base_url, request):
     contend briefly with somebody's live upload.
 
     Not run under prod, and the reason is the SHAPE of the request rather than its
-    effect. This is the one flow that makes the browser issue a POST, and the prod
-    guard aborts every non-GET at the network layer -- correctly. The abort is
-    silent to the page, so `expect_response` below would sit out its own five-minute
-    timeout and report red for a rule the suite had just enforced. `profiles` is
-    honoured by pytest_collection_modifyitems in the conftest; the other five flows
-    are GET-only and stay on prod.
+    effect. This is one of the two flows whose page issues a POST (Flow E, Graph
+    Search, is the other), and the prod guard aborts every non-GET at the network
+    layer -- correctly. The abort is silent to the page, so `expect_response` below
+    would sit out its own five-minute timeout and report red for a rule the suite
+    had just enforced. `profiles` is honoured by pytest_collection_modifyitems in
+    the conftest; the other flows are GET-only and stay on prod.
 
     NEVER click button[form="sample_upload"]. That is /batch-upload/start/, a real
     Celery job that writes to MySQL and neo4j.
@@ -252,4 +252,62 @@ def test_upload_validate_reports_a_result(page, base_url, request):
     assert re.search(r"^(PASSED|FAILED) - ", log, re.M), f"no verdict rendered:\n{log[:500]}"
     assert ("PASSED" in log) == bool(body["valid"]), (
         "the rendered verdict disagrees with the response body"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Flow E: Graph Search
+# --------------------------------------------------------------------------- #
+
+GRAPH_SEARCH_PATH = "/nextseek_api/samples/graph_search/"
+# GraphSearchCore.timingText (graphSearch_core.embed.html): "12,345 samples in 900 ms",
+# then the server's own timings, which the page asks for with debug_meta=1.
+TIMING_RE = re.compile(r"\A([\d,]+) samples? in \d+ ms")
+
+
+@pytest.mark.profiles("local", "dev")
+def test_graph_search_page_searches_through_graph_search(page, base_url):
+    """The Graph Search page's Advanced tab runs one search through graph_search.
+
+    T0 already GETs the page, which proves a status and no bounce to /login/. A 200
+    cannot say whether the page's script works: 904f6f0f fixed a throw during
+    EasyUI's parse that stopped the tabs and grids being built, so the page
+    rendered and could not search. With --strict-console a script error fails this.
+
+    Local and dev only, like the page's Route: the search is a POST, which the prod
+    guard aborts at the network layer (see test_upload_validate_reports_a_result).
+
+    #gs_terms is a plain <textarea>, not an EasyUI textbox, so fill() works on it.
+    The timing line is written only after a 200 with a body, and the error path
+    clears it, so its text is the proof the grid took that response. No count is
+    asserted: a graph that holds none of the term is a working search.
+    """
+    page.goto(f"{base_url}/seek/graph/search/?tab=advanced", wait_until="domcontentloaded",
+              timeout=120_000)
+    page.wait_for_function(
+        "() => window.jQuery && !!jQuery('#gs_advanced_dgtable').data('datagrid')",
+        timeout=60_000,
+    )
+    # ?tab=advanced is the page's own switch; a hidden textarea would mean it failed.
+    page.wait_for_selector("#gs_terms", state="visible", timeout=60_000)
+    page.fill("#gs_terms", SMOKE_SEARCH_TERM)
+
+    with page.expect_response(
+        lambda r: r.url.split("?", 1)[0].endswith(GRAPH_SEARCH_PATH)
+        and r.request.method == "POST",
+        timeout=180_000,
+    ) as got:
+        # Scope by onclick: the Simple tab has its own a.ns-btn-search.
+        page.click('a.ns-btn-search[onclick="gsAdvancedSearch()"]')
+    resp = got.value
+    assert resp.status == 200, f"graph_search answered {resp.status}"
+
+    page.wait_for_function("() => $('#gs_advanced_status').text().trim().length > 0",
+                           timeout=60_000)
+    timing = page.inner_text("#gs_advanced_status").strip()
+    shown = TIMING_RE.match(timing)
+    assert shown, f"the timing line reads {timing!r}"
+    total = resp.json()["total"]
+    assert int(shown.group(1).replace(",", "")) == total, (
+        f"the timing line reports {shown.group(1)} samples; graph_search answered {total}"
     )

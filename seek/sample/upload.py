@@ -1,20 +1,45 @@
-"""Batch sample upload: parsing, validation and the feedback sheet."""
+"""Batch sample upload: parsing, validation and the feedback sheet.
+
+The rows land in MySQL here and nothing else. Every path that writes one enqueues an outbox row afterwards, and the
+graph sync loop turns that into the sample's node, metadata, projects and lineage
+(``nextseek_api/graph_sync/hooks.py``; the design's sections 5 and 7). The lineage used to be written inline, from
+``_storeSample``, in a second step the uploader's request waited on and a bare ``except`` hid.
+"""
 
 from ..dbtable_assay_assets import DBtable_assay_assets
 from ..dbtable_ontology import DBtable_ontology
 from ..dbtable_sampleattribute import DBtable_sampleattribute
 from ..dbtable_sampletype import DBtable_sampletype
-from neo4j import GraphDatabase
 from itertools import chain
 from dmac.conversion import cleanString
-import json
 from dmac.csv_excel import load_excelfile_asdic
-from django.conf import settings
 from dmac.conversion import toString
 from dmac.conversion import verifyValueType
+from nextseek_api.graph_sync import hooks
 import xlwt
 
-from .constants import DELIMITER_DBFIELD, NEO4J_DATABASE, NEXTSEEK_DATABASE, SAMPLE_CONTRIBUTOR_ACCESSOR_NAME, SAMPLE_ERRORCODE, SAMPLE_SHEET_NAMES, SEEK_DATABASE, logger
+from .constants import DELIMITER_DBFIELD, SAMPLE_CONTRIBUTOR_ACCESSOR_NAME, SAMPLE_ERRORCODE, SAMPLE_SHEET_NAMES, logger
+
+
+def enqueueSampleSync(kind, sample_id):
+    """Ask the graph sync loop for one sample, after the write above it has committed.
+
+    ``kind`` is ``samples`` for a row that was written and ``retire`` for one that was deleted. An id that is not a
+    positive integer names no sample -- ``getSampleID`` answers ``None`` for a UID it cannot find, and
+    ``storeOneRecord`` answers ``-1`` when it stored nothing -- so nothing is enqueued for it.
+
+    ``hooks.enqueue`` never raises: the MySQL write stands whatever the outbox does, and the nightly targeted sync
+    finds a change whose row was lost. Returns whether the row was written, which only the tests read.
+    """
+    try:
+        sample_id = int(sample_id)
+    except (TypeError, ValueError):
+        return False
+
+    if sample_id <= 0:
+        return False
+
+    return hooks.enqueue(kind, 'sample:%d' % sample_id)
 
 
 class SampleUploadMixin:
@@ -93,12 +118,11 @@ class SampleUploadMixin:
         return sample_sheets
 
     def _storeSample(self, user_seek, sampleType, record, attributeInfo, diclist_assay, creator):
-        """Store one sample row, then its lineage.
+        """Store one sample row, then ask for its graph sync.
 
-        Returns ``(msg, status, uid, lineage_failed)``. ``lineage_failed`` is the
-        fourth element added so the caller can COUNT graph-write failures: the
-        row lands in MySQL either way (``status`` stays 1), but a batch that lost
-        lineage must not be reported to the uploader as a clean success.
+        Returns ``(msg, status, uid)``. The row lands in MySQL here; its node, metadata, projects and lineage are
+        written later by the graph sync loop, from the outbox row enqueued after the commit (the design's section 5,
+        elements E1, E2, E5 and E7).
         """
         username = user_seek['username']
         contributor_id = user_seek['user_id']
@@ -106,22 +130,20 @@ class SampleUploadMixin:
         creator_id = creator['user_id']
         project_id = creator['projectid']
 
-        lineage_failed = False
-
         if not self._notEmptyLine(record):
             msg = SAMPLE_ERRORCODE['501']
-            return msg, 0, None, lineage_failed
+            return msg, 0, None
 
         headers_required = attributeInfo['headers_required']
 
         msg_required, meetRequired = self._verifyRequiredFields(record, headers_required)
         if not meetRequired:
             msg = SAMPLE_ERRORCODE['502'] + msg_required
-            return msg, 0, None, lineage_failed
+            return msg, 0, None
 
         if 'UID' not in record.keys():
             msg = SAMPLE_ERRORCODE['503']
-            return msg, 0, None, lineage_failed
+            return msg, 0, None
 
         record_new, newSample = self._getRecord(creator, record, attributeInfo, contributor_id)
         uid = record_new['uuid']
@@ -138,22 +160,21 @@ class SampleUploadMixin:
                         msg += ';' + msgj
                 else:
                     msg = 'Info: Assay info not available for updating array-sample relationship for sample id: ' + str(sample_id)
-
-                lineage_ok, msgn = self._storeSampleNeo4jGuarded(sampleType, record_new, uid)
-                if not lineage_ok:
-                    lineage_failed = True
-                    msg += ';' + msgn
             else:
                 msg = 'Info: No update on array-sample relationship for old sample id: ' + str(sample_id)
-                    
+
             msgdf, statusdf = self._setSampleDatafileAssociation(creator, sampleType, record, attributeInfo, diclist_assay)
             if not statusdf:
                 msgdf = SAMPLE_ERRORCODE['602'] + msgdf
                 msg += ';' + msgdf
+
+            # After the row is committed, never inside its write. Both branches enqueue: an existing sample was
+            # rewritten by storeOneRecord, so its metadata and lineage in the graph are behind it too.
+            enqueueSampleSync('samples', sample_id)
         else:
             msg = SAMPLE_ERRORCODE['504'] + msg
 
-        return msg, status, uid, lineage_failed
+        return msg, status, uid
 
     def _updateSampleErrorMsg(self, sampledic_feeback, primaryField, msg, sampleType):
         header = sampleType + "::UID"
@@ -170,77 +191,6 @@ class SampleUploadMixin:
             
         return sampledic_feeback
 
-    def getConnectingRelationships(self, child_id, parent_id):
-        db = settings.DATABASES[SEEK_DATABASE]
-        nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
-        relationships = {
-            "child_id": child_id,
-            "parent_id": parent_id,
-        }
-        connecting_assay_query = f"""
-            SELECT aa.assay_id, a.title
-            FROM {db["NAME"]}.assay_assets aa
-            JOIN {db["NAME"]}.assays a ON a.id = aa.assay_id
-            WHERE
-                aa.asset_type = 'Sample' AND
-                (aa.asset_id = {child_id} OR aa.asset_id = {parent_id})
-            GROUP BY aa.assay_id
-            HAVING COUNT(aa.assay_id) = 2
-        """
-        connecting_assay_results = self._runQuery(connecting_assay_query)
-
-        if len(connecting_assay_results) != 0:
-            connecting_assay_id, connecting_assay_title = connecting_assay_results[0]
-
-            relationships["assay_id"] = connecting_assay_id
-            relationships["assay_title"] = connecting_assay_title
-
-            internal_assay_query = f"""
-                SELECT ia.internal_assay_title
-                FROM {nextseekdb["NAME"]}.internal_assays ia
-                JOIN {nextseekdb["NAME"]}.assays_internal_assays aia ON aia.internal_assay_id = ia.id
-                WHERE aia.assay_id = {connecting_assay_id}
-            """
-
-            internal_assay_results = self._runQuery(internal_assay_query)
-
-            if len(internal_assay_results) != 0:
-                internal_assay_title = internal_assay_results[0][0]
-
-                db = settings.DATABASES[SEEK_DATABASE]
-                relationships["internal_assay_title"] = internal_assay_title
-
-        protocol_id_substring = """
-            SUBSTRING_INDEX(
-                REPLACE(
-                    JSON_EXTRACT(s.json_metadata, '$.Protocol'),
-                    '"',
-                    ''
-                ),
-                '/',
-                -1
-            )
-        """
-        
-        connecting_sop_query = f"""
-            SELECT
-                sop.id AS sop_id,
-                sop.title AS sop_title
-            FROM {db["NAME"]}.samples s
-            JOIN {db["NAME"]}.sops sop ON sop.id = {protocol_id_substring}
-            WHERE s.id = {child_id}
-        """
-
-        connecting_sop_results = self._runQuery(connecting_sop_query)
-        
-        if len(connecting_sop_results) != 0:
-            sop_id, sop_title = connecting_sop_results[0]
-
-            relationships["protocol_id"] = sop_id
-            relationships["protocol_title"] = sop_title
-            
-        return relationships
-
     def extractParents(self, json_metadata):
         """Collect parent tokens from every metadata key containing "Parent".
 
@@ -256,18 +206,19 @@ class SampleUploadMixin:
         ``*Parent`` attribute ships a blank value on every row -- ``' '`` via
         ``toString(None)``, or ``''`` when the header is absent. The old code
         turned that into an ``''`` token; ``getSampleID('')`` matched no record
-        and returned ``None``; ``getConnectingRelationships`` interpolated it
-        into SQL as ``aa.asset_id = None``; MySQL rejected that; ``_runQuery``
-        swallowed the error and returned ``None``; and ``len(None)`` raised
-        ``TypeError``. Because ``storeSampleNeo4j`` merges parents in a loop,
-        the bare ``except`` upstream then abandoned every parent token ORDERED
-        AFTER the blank one, leaving silent, partial lineage.
+        and returned ``None``; the SQL built from that ``None`` was rejected by
+        MySQL, the error was swallowed and ``None`` returned in its place; and
+        ``len(None)`` raised ``TypeError``. Because the graph write this route
+        used to make merged parents in a loop, the bare ``except`` upstream then
+        abandoned every parent token ORDERED AFTER the blank one, leaving
+        silent, partial lineage. That write is gone: the row is enqueued instead
+        and the graph sync loop reads MySQL's parent tokens itself.
 
         The ``isinstance`` guard is defence-in-depth, not a fix for a path
         reachable from this route: values reaching here via ``_storeSample``
         have already been through ``toString``, so an integer from an Excel
-        cell arrives as ``"12345"``. It matters because ``storeSampleNeo4j`` is
-        public and ``extractParents`` is reachable with a raw dict.
+        cell arrives as ``"12345"``. It matters because ``extractParents`` is
+        public and reachable with a raw dict.
 
         Key matching is deliberately NOT aligned with the modern helper. This
         stays the case-sensitive substring test ``"Parent" in k``, which is
@@ -288,85 +239,6 @@ class SampleUploadMixin:
         parents = [p.strip() for p in parents if p.strip()]
         return parents
 
-    def _reportLineageFailure(self, sampleType, uid, exc):
-        """Log a graph-write failure and build its user-facing S603 warning.
-
-        Single definition of both, so the two call sites that can report a
-        genuine lineage failure cannot drift apart. Must be called from inside
-        an ``except`` block: ``logger.exception`` reads the exception currently
-        being handled to attach the traceback.
-        """
-        logger.exception(
-            "Neo4j lineage write failed for sample UID %s (sample type %s); "
-            "the sample is in MySQL WITHOUT its parent relationships",
-            uid, sampleType,
-        )
-        return (SAMPLE_ERRORCODE['603'] + str(uid)
-                + ' (' + type(exc).__name__ + ': ' + str(exc) + ')')
-
-    def _storeSampleNeo4jGuarded(self, sampleType, record, uid):
-        """Write one sample's lineage to the graph without losing the failure.
-
-        Returns ``(ok, msg)``. On failure ``ok`` is False and ``msg`` is a
-        ``SAMPLE_ERRORCODE['603']`` warning naming the UID and the cause, for
-        the caller to fold into that sample's feedback message.
-
-        Never re-raises. By the time this runs the sample row is already
-        committed to MySQL, so aborting the batch here would strand the rest of
-        the sheet -- but the caller MUST surface ``msg``, because the failure
-        mode this replaces (``try: ... except: None``) told the uploader
-        "Batch sample uploading successful" while the sample sat in MySQL with
-        no parent edges at all.
-        """
-        try:
-            self.storeSampleNeo4j(sampleType, record)
-        except Exception as exc:
-            return False, self._reportLineageFailure(sampleType, uid, exc)
-
-        return True, ''
-
-    def storeSampleNeo4j(self, sampleType, record):
-        logger.debug(f"Storing sample into neo4j with info: {record}")
-        sample_id = self.getSampleID(record['uuid'])
-        json_metadata = json.loads(record['json_metadata'])
-        parents = self.extractParents(json_metadata)
-        
-        with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
-            
-            # Create the sample node
-            driver.execute_query(
-                    "MERGE (s:Sample {id: $sample_id, uuid: $sample_uuid, type: $sample_type})",
-                    sample_id=sample_id,
-                    sample_type=sampleType,
-                    sample_uuid=record['uuid'],
-                    database_=NEO4J_DATABASE['NAME'])
-
-            # Assign it a sample type
-            driver.execute_query(
-                """
-                    MATCH (s:Sample {id: $sample_id})
-                    MATCH (st:SampleType {title: $sample_type})
-                    MERGE (s)-[:OF_TYPE]->(st)
-                """,
-                sample_id=sample_id,
-                sample_type=sampleType,
-                database_=NEO4J_DATABASE['NAME'])
-
-            # Create relationships between sample nodes
-            if len(parents) > 0:
-                for parent in parents:
-                    parent_id = self.getSampleID(parent)
-                    relationships = self.getConnectingRelationships(sample_id, parent_id)
-                    driver.execute_query("""
-                                MATCH (child:Sample {id: $child_id})
-                                MATCH (parent:Sample {id: $parent_id})
-                                MERGE (child)-[r:DERIVED_FROM]->(parent)
-                                SET r+= $rels""",
-                                child_id=sample_id,
-                                parent_id=parent_id,
-                                rels=relationships,
-                                database_=NEO4J_DATABASE['NAME'])
-
     def _batchUploadTest(self, seekdb, sampleType, diclist, diclist_feedback, attributeInfo, attributeMapping, diclist_assay, uploadEnforced=False):
         user_seek = seekdb.user_seek
         user_id = user_seek['user_id']
@@ -380,14 +252,6 @@ class SampleUploadMixin:
         diclist_new = []
         ndici = len(diclist)
         uids_predefined = {}
-
-        # Samples that reached MySQL but lost their parent edges. Surfaced to
-        # the uploader below; used to be discarded by a bare ``except: None``.
-        nlineage_failed = 0
-        # The second (structurally dead) graph call -- see the comment at its
-        # call site. Counted and logged once per batch, operator-facing only.
-        nfeedback_graph_failed = 0
-        feedback_graph_error = None
 
         for index in range(ndici):
             dici = diclist[index]
@@ -500,21 +364,7 @@ class SampleUploadMixin:
                         diclist_new.append(dici_feedback)
                         continue
             
-            msgi, statusi, uid, lineage_failed = self._storeSample(user_seek, sampleType, dici, attributeInfo, diclist_assay, creator)
-
-            if lineage_failed:
-                # The row is in MySQL but its parent edges are not in the graph.
-                # Deny the batch its "successful" headline: ``statusTest`` is what
-                # seek.views.sampleUploadAjax turns into "Batch sample uploading
-                # successful". ``msgi`` already carries the per-sample S603 warning.
-                #
-                # DELIBERATE divergence from the sibling warnings 601 and 602,
-                # which leave statusTest alone: those degrade an association that
-                # can be repaired by re-uploading, whereas lost lineage cannot be
-                # (see the summary message below) and is invisible in the data.
-                # Do not "normalize" this to match them.
-                nlineage_failed += 1
-                statusTest = False
+            msgi, statusi, uid = self._storeSample(user_seek, sampleType, dici, attributeInfo, diclist_assay, creator)
 
             nrow += 1
             if statusi:
@@ -537,69 +387,9 @@ class SampleUploadMixin:
             else:
                 dici_feedback[header] = msgi
                 
-            # NOTE: this call is structurally dead and always has been.
-            # ``dici_feedback`` is keyed by the INSTRUCTIONS-sheet column names
-            # plus "<sampleType>::UID"; it carries no 'uuid' and no
-            # 'json_metadata', so storeSampleNeo4j raises KeyError('uuid') on its
-            # very first statement for EVERY row and has never written anything
-            # to the graph. The effective lineage write is the guarded one in
-            # _storeSample above.
-            #
-            # So: no longer swallowed, but counted and logged once per batch
-            # (below, at WARNING) rather than once per row, and deliberately
-            # kept out of the uploader-facing count -- folding an always-failing
-            # call into it would report lost lineage for every sample of every
-            # upload while the real write succeeded, which is a louder lie than
-            # the silence it replaced. Removing the call outright is a behaviour
-            # change beyond this fix.
-            #
-            # Only the KeyError is treated as the known-dead shape. Suppressing
-            # by LOCATION rather than by cause is exactly what the original bare
-            # except did: if a sheet ever declares a 'uuid' Field, or this dict
-            # changes shape, a genuine graph failure here must be as loud as one
-            # from _storeSample -- so anything else takes the S603 path.
-            try:
-                self.storeSampleNeo4j(sampleType, dici_feedback)
-            except KeyError as exc:
-                nfeedback_graph_failed += 1
-                if feedback_graph_error is None:
-                    feedback_graph_error = exc
-            except Exception as exc:
-                msgn = self._reportLineageFailure(sampleType, uid, exc)
-                nlineage_failed += 1
-                statusTest = False
-                msg0 += str(samplename) + ": " + msgn + '<br/>'
-
             diclist_new.append(dici_feedback)
 
-        if nfeedback_graph_failed>0:
-            # WARNING, not ERROR: this fires on every legacy upload, and ERROR is
-            # the level that now carries genuine lineage loss. Putting a known
-            # no-op there would teach operators to ignore the one signal this
-            # code exists to raise.
-            logger.warning(
-                "storeSampleNeo4j(feedback dict) failed for %d of %d '%s' rows; "
-                "first error %s: %s. This call is handed the feedback dict, which has no "
-                "'uuid'/'json_metadata' key, so it cannot write lineage; the effective "
-                "write is the guarded one in _storeSample",
-                nfeedback_graph_failed, ndici, sampleType,
-                type(feedback_graph_error).__name__, feedback_graph_error,
-                exc_info=feedback_graph_error,
-            )
-
         msg = 'The number of samples uploaded for ' + sampleType + ': ' + str(nright) + ' out of in total ' + str(ndici) + ' samples.'
-        if nlineage_failed>0:
-            # Do NOT tell the uploader to re-upload: it cannot restore lineage.
-            # Re-uploading the original sheet is rejected by _verifySampleUID
-            # with error 401 (the name now exists with a UID); re-uploading the
-            # feedback sheet supplies that UID, so _getRecord sets
-            # newSample=False and the lineage write -- which lives inside
-            # `if newSample:` -- never runs. These rows need a lineage backfill.
-            msg += ('<br/>Warning: lineage (parent relationships) was NOT saved to the graph database for '
-                    + str(nlineage_failed) + ' of them. Those samples are in the database WITHOUT their '
-                    'parent links, and re-uploading will NOT restore them; the lineage has to be '
-                    'backfilled. Please send the feedback file and the sample UIDs listed below to an '
-                    'administrator.')
         if not statusTest:
             msg = msg + '<br/>' + msg0
         else:
@@ -789,6 +579,9 @@ class SampleUploadMixin:
                 msg0 += str(nrow) + ": " + msgi +  '<br/>'
                 nright += 1
                 dici_feedback['feedback'] = 'successful'
+                # The row's metadata changed, so its properties, search_text and lineage in the graph are behind
+                # it. updateSingleSample keeps no id, so the UID it has already resolved is read again here.
+                enqueueSampleSync('samples', self.getSampleID(dici.get('UID', dici.get('uid'))))
             else:
                 logger.debug(msgi)
                 statusTest = False
@@ -861,6 +654,8 @@ class SampleUploadMixin:
                 msg0 += uid + ": " + msgi +  '<br/>'
                 nright += 1
                 dici_feedback['Feedback'] = 'successful: ' + msgi
+                # The sample's assay links changed, so every DERIVED_FROM edge it touches is relabelled (E8).
+                enqueueSampleSync('samples', sample_id)
             else:
                 statusTest = False
                 msg0 += msgi +  '<br/>'

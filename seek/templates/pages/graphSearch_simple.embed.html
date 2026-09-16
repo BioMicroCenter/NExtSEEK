@@ -1,0 +1,132 @@
+<script type="text/javascript">
+/* The Simple tab: one sample type, one attribute, one rule. Attributes and rules come from
+   the same endpoints the Sample Search page uses; only the rules graph_search can express
+   are offered (GraphSearchCore.offeredRules). */
+var gsSimpleFilterType = '';
+
+function gsParse(data) {
+  return typeof data === 'string' ? jQuery.parseJSON(data) : data;
+}
+
+/* Clears a combobox, and empties its list unless keepData, but only once EasyUI has built it.
+   EasyUI auto-selects an item in the sample type box while it is still parsing the page, so
+   that box's onSelect runs before the attribute and rule boxes below it exist; a call on an
+   unbuilt box throws, and the throw stops EasyUI building anything else on the page. */
+function gsComboReset(id, keepData) {
+  var box = $('#' + id);
+  if (!box.data('combobox')) { return; }
+  box.combobox('clear');
+  if (!keepData) { box.combobox('loadData', []); }
+}
+
+function gsSimpleLoadAttributes(rec) {
+  gsComboReset('gs_simple_attribute');
+  gsComboReset('gs_filter_rule');
+  gsSimpleFilterType = '';
+  if (!rec || !rec.id) { return; }
+  $.get('/seek/attributes/id=' + rec.id + '/', {}, function (data) {
+    var obj = gsParse(data);
+    if (obj.status == 1) {
+      $('#gs_simple_attribute').combobox('loadData', (obj.attrOptions || []).filter(function (o) {
+        return o.attribute !== 'none';
+      }));
+    } else {
+      $.messager.alert('Graph Search', obj.msg, 'warning');
+    }
+  });
+}
+
+function gsSimpleLoadRules(rec) {
+  gsComboReset('gs_filter_rule');
+  if (!rec || rec.attribute === 'none') { return; }
+  $.get('/seek/operators/', {
+    sampletype_id: $('#gs_simple_sample_type').combobox('getValue'),
+    attribute: rec.attribute
+  }, function (data) {
+    var obj = gsParse(data);
+    if (obj.status != 1) {
+      $.messager.alert('Graph Search', obj.msg, 'warning');
+      return;
+    }
+    gsSimpleFilterType = obj.filter_type || '';
+    var names = (obj.filter_rule || []).map(function (r) { return r.name; });
+    var offered = GraphSearchCore.offeredRules(gsSimpleFilterType, names);
+    $('#gs_filter_rule').combobox('loadData', offered.map(function (name) {
+      return { name: name, operator: name };
+    }));
+    if (offered.length) { $('#gs_filter_rule').combobox('setValue', offered[0]); }
+    $('#gs_value_from').attr('placeholder', obj.placeholder_start || '');
+    $('#gs_value_to').attr('placeholder', obj.placeholder_end || '');
+  });
+}
+
+function gsSimpleSearch() {
+  var built = GraphSearchCore.simpleBody({
+    sampletype: $('#gs_simple_sample_type').combobox('getText'),
+    attribute: $('#gs_simple_attribute').combobox('getValue'),
+    rule: $('#gs_filter_rule').combobox('getValue'),
+    from: $('#gs_value_from').val(),
+    to: $('#gs_value_to').val(),
+    filterType: gsSimpleFilterType
+  });
+  gsRun('gs_simple_dgtable', 'gs_simple_status', built, 1, gsPageSize('gs_simple_dgtable'));
+}
+
+function gsSimpleReset() {
+  gsComboReset('gs_simple_sample_type', true);
+  gsComboReset('gs_simple_attribute');
+  gsComboReset('gs_filter_rule');
+  $('#gs_value_from').val('');
+  $('#gs_value_to').val('');
+  gsSimpleFilterType = '';
+  gsClearGrid('gs_simple_dgtable', 'gs_simple_status');
+}
+</script>
+
+<form onsubmit="event.preventDefault(); gsSimpleSearch();">
+  <table class="gs-form">
+    <tr>
+      <th>Sample Type <a href="/seek/sampletypes/" title="What each sample type means" style="color:var(--ns-muted);text-decoration:none;"><i class="bi bi-info-circle"></i></a></th>
+      <th>Sample Attribute <a href="/seek/samples/attributes/" title="What each attribute means" style="color:var(--ns-muted);text-decoration:none;"><i class="bi bi-info-circle"></i></a></th>
+      <th>Operator</th>
+      <th>From</th>
+      <th>To</th>
+      <th></th>
+    </tr>
+    <tr>
+      <td><input id="gs_simple_sample_type" class="easyui-combobox" style="width:180px;" data-options="data: type_options, valueField:'id', textField:'title', groupField:'group', editable: true, panelHeight:'auto', panelMaxHeight: 360, filter: function(q, row) { return row.title.toUpperCase().indexOf(q.toUpperCase()) >= 0; }, onSelect: function(rec) { gsSimpleLoadAttributes(rec); }"></td>
+      <td><input id="gs_simple_attribute" class="easyui-combobox" style="width:180px;" data-options="valueField:'attribute', textField:'name', editable: true, panelHeight:'auto', panelMaxHeight: 360, filter: function(q, row) { return row.name.toUpperCase().indexOf(q.toUpperCase()) >= 0; }, onSelect: function(rec) { gsSimpleLoadRules(rec); }"></td>
+      <td><input id="gs_filter_rule" class="easyui-combobox" style="width:120px;" data-options="valueField:'name', textField:'operator', editable: false, panelHeight:'auto'"></td>
+      <td><input id="gs_value_from" type="text" placeholder="value" style="width:120px;height:30px"></td>
+      <td><input id="gs_value_to" type="text" placeholder="Between only" style="width:120px;height:30px"></td>
+      <td style="white-space:nowrap;">
+        <span class="ns-search-actions">
+          <a href="javascript:void(0)" class="ns-btn-reset" onclick="gsSimpleReset()">Reset</a>
+          <a href="javascript:void(0)" class="ns-btn-search" onclick="gsSimpleSearch()"><span class="glyphicon glyphicon-search"></span> Search</a>
+        </span>
+      </td>
+    </tr>
+  </table>
+  <button type="submit" hidden></button>
+</form>
+
+<div id="gs_simple_status" class="gs-status"></div>
+
+<table id="gs_simple_dgtable" class="easyui-datagrid" style="width:100%;height:560px;" data-options="
+    singleSelect: true, selectOnCheck: false, striped: true, toolbar: '#gs_simple_toolbar',
+    pagination: true, pageSize: 100, pageList: [20, 50, 100, 500, 1000]">
+  <thead>
+    <tr>
+      <th data-options="field:'ck', checkbox:true"></th>
+      <th data-options="field:'id', width:70"><b>ID</b></th>
+      <th data-options="field:'uuid', width:210, formatter: GraphSearchCore.uidLink"><b>UID</b></th>
+      <th data-options="field:'sample_type', width:100, formatter: GraphSearchCore.textCell"><b>Sample Type</b></th>
+      <th data-options="field:'title', width:240, formatter: GraphSearchCore.textCell"><b>Title</b></th>
+      <th data-options="field:'assays', width:240, formatter: GraphSearchCore.textCell"><b>Assays</b></th>
+      <th data-options="field:'first_name', width:120, formatter: GraphSearchCore.textCell"><b>Contributor</b></th>
+    </tr>
+  </thead>
+</table>
+<div id="gs_simple_toolbar" style="height:auto">
+  <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="gsDownload($('#gs_simple_dgtable'))">Download samples</a>
+</div>

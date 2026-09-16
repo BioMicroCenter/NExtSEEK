@@ -3,7 +3,7 @@
 ## What this is
 
 Batch registration of samples as members of SEEK assays: three HTTP routes, a durable job
-row, a drain worker, and a Neo4j label recompute. It is a plain subpackage of the
+row, a drain worker, and a graph sync it queues rather than writes. It is a plain subpackage of the
 `nextseek_api` app rather than a Django app of its own: its single ORM model declares
 `app_label = "nextseek_api"` (`nextseek_api/assay_registration/models_db.py:45-46`) and its
 table is created by a migration in the parent
@@ -90,19 +90,18 @@ other.
   explicit direction of 0 rather than the writer's own default
   (`nextseek_api/assay_registration/executor.py:31-36`). `preview()` produces the same report
   shape while touching nothing (`nextseek_api/assay_registration/executor.py:94-95`).
-- `graph.py` repairs the plural assay label lists on `DERIVED_FROM` edges incident to the
-  affected samples (`nextseek_api/assay_registration/graph.py:133-135`). One Cypher statement
-  does it in a single pass with a server-side map lookup, because this database carries no
-  property indexes and the obvious `UNWIND`-then-`MATCH` form is a full edge scan per row
-  (`nextseek_api/assay_registration/graph.py:39-46`); measured flat in batch size at 0.40s
-  for 3 edges and 0.50s for 20,000 (`nextseek_api/assay_registration/graph.py:48-50`), which
-  is why it can run inline. It writes only the plural fields and never the singular ones
-  (`nextseek_api/assay_registration/graph.py:9-13`).
+- `graph.py` is SQL only. It reads the assays a sample carries from `assay_assets`
+  (`nextseek_api/assay_registration/graph.py:51`) and resolves each to an internal assay,
+  junction table first with an id fallback behind it
+  (`nextseek_api/assay_registration/graph.py:70`). It used to recompute the plural assay
+  label lists on `DERIVED_FROM` edges and write them itself; one rule owns those labels
+  now, and the module docstring carries the argument
+  (`nextseek_api/assay_registration/graph.py:1-21`).
 - `service.py` composes those four for the ViewSet
-  (`nextseek_api/assay_registration/service.py:116-160`), maps an execution outcome onto a
-  status code (`nextseek_api/assay_registration/service.py:29`), and runs the recompute
-  outside the MySQL transaction on purpose
-  (`nextseek_api/assay_registration/service.py:153-154`).
+  (`nextseek_api/assay_registration/service.py:101`), maps an execution outcome onto a
+  status code (`nextseek_api/assay_registration/service.py:29`), and enqueues the graph
+  sync after the MySQL transaction closes, never inside it
+  (`nextseek_api/assay_registration/service.py:139-140`).
 - `schemas.py` holds every request and response contract, plus the error vocabulary: 16
   codes, counted by importing `ERROR_CODES` on 2026-09-03 and taking its length
   (`nextseek_api/assay_registration/schemas.py:31-70`).
@@ -208,11 +207,6 @@ which constrains the prose constants that live in the parent rather than anythin
 - Django wiring. `nextseek_api/views.py:51` re-exports the ViewSet, `nextseek_api/urls.py:26`
   registers it, and `nextseek_api/models.py:2708` re-exports the ORM model so the app
   registry loads the class the parent's migration manages.
-- The graph helpers run in the reverse direction from everything else here. The backfill
-  script this module was lifted from now imports the lifted code back
-  (`nextseek_api/batch_upload/scripts/backfill_shared_assays.py:56-60`), aliasing the Cypher
-  as `_WRITE`, and `nextseek_api/batch_upload/README.md:216-218` calls it the only place that
-  dependency runs that way.
 - CI, by path string and over HTTP, never by import. `ci/routes.py:746-750`,
   `ci/routes.py:519-523` and `ci/routes.py:751-755` declare the three routes, all three
   scoped `profiles="local,dev"` so none is exercised against production, and

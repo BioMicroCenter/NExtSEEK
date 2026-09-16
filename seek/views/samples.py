@@ -1,4 +1,10 @@
-"""Sample pages, queries, downloads and attribute editing."""
+"""Sample pages, queries, downloads and attribute editing.
+
+The legacy attribute editor changes what the graph holds: the Attribute nodes and their ``HAS_ATTRIBUTE`` edges, and
+the stored metadata and value casts of every sample of the type. Its two views therefore enqueue an outbox row after
+they write, and the graph sync loop applies it later (``nextseek_api/graph_sync/hooks.py``; the design's section 5,
+elements E2 and E11). No request waits on Neo4j.
+"""
 
 from ..dbtable_attributetype import DBtable_attributetype
 from ..dbtable_sample import DBtable_sample
@@ -6,10 +12,12 @@ from ..dbtable_sampleattribute import DBtable_sampleattribute
 from ..dbtable_sampletype import DBtable_sampletype
 from django.http import HttpResponse
 from django.http import HttpResponseRedirect
+from django.views.decorators.http import require_POST
 from ..seekdb import SeekDB
 from dmac.conversion import convertDicToOptions
 import datetime
 import json
+from ..responses import json_response
 from ..responses import plain_text
 from django.shortcuts import render
 from ..decorators import requires_seek_login
@@ -19,8 +27,56 @@ import simplejson
 from ..decorators import verifySuperUser
 import zipfile
 from django.conf import settings
+from nextseek_api.graph_sync import hooks
 
 from .shared import DOWNLOAD_DIRECTORY, DOWNLOAD_DIRECTORY_LINK
+
+# The envelope message a view that requires a login answers with when there is none.
+LOGIN_REQUIRED = 'Error: Please log in first.'
+
+
+def _sampleTypeIdsInRequest(request):
+    """The sample type ids an attribute-editor request names: its ``sampletype_id`` parameter and the
+    ``sample_type_id`` of each record it carries. Sorted, deduplicated, positive.
+
+    The save path names the type outright; the delete path names it only in the records it deleted. A record that
+    names no type still changed the Attribute catalog, which is why the caller enqueues ``catalog`` whatever this
+    returns.
+    """
+    ret = request.GET
+    values = [ret.get('sampletype_id')]
+    try:
+        records = json.loads(ret.get('records') or '[]')
+    except ValueError:
+        records = []
+
+    if isinstance(records, list):
+        values += [record.get('sample_type_id') for record in records if isinstance(record, dict)]
+
+    sampletype_ids = set()
+    for value in values:
+        try:
+            sampletype_id = int(value)
+        except (TypeError, ValueError):
+            continue
+
+        if sampletype_id > 0:
+            sampletype_ids.add(sampletype_id)
+
+    return sorted(sampletype_ids)
+
+
+def _enqueueAttributeGraphSync(request):
+    """Ask the graph sync loop for the catalog and for the samples of every type this request named.
+
+    Called at the end of the two editor views, after their own write: an attribute edit changes the Attribute nodes
+    and their ``HAS_ATTRIBUTE`` edges (E11) and the stored metadata and value casts of every sample of the type
+    (E2). ``hooks.enqueue`` never raises, so the SEEK rows stand whatever the outbox does, and the nightly targeted
+    sync finds what a lost row would have carried.
+    """
+    hooks.enqueue('catalog', '*')
+    for sampletype_id in _sampleTypeIdsInRequest(request):
+        hooks.enqueue('samples_of_type', 'type:%d' % sampletype_id)
 
 def seek(request, url):
     report = {}
@@ -131,8 +187,13 @@ def getOperators(request):
     return HttpResponse(simplejson.dumps(data, default=str))
 
 def retrieveSamples(request):
+    """The rows behind the sample-type grid; the view requires a login."""
+    if not request.user.is_authenticated:
+        return json_response(LOGIN_REQUIRED, 0)
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
+    if not user_seek['status']:
+        return json_response(LOGIN_REQUIRED, 0)
     dbsample = DBtable_sample()
     reportData = dbsample.processRecords(request, user_seek, "retrieve")
     return HttpResponse(reportData) 
@@ -242,12 +303,24 @@ def sampleFindAjax(request):
                 
     return HttpResponse(simplejson.dumps(data, default=str))   
 
+@require_POST
 def sampleDelete(request):
-    ret = request.GET
-        
+    """Delete samples given by id (``allids``) or by UID (``alluids``).
+
+    POST only, so the CSRF middleware checks the token. The view requires a login,
+    and the SEEK identity the deletion runs under is the logged-in account's own. A
+    sample is deleted for its contributor or for a superuser
+    (``DBtable_sample._deleteSampleList``).
+    """
+    ret = request.POST
+    if not request.user.is_authenticated:
+        return json_response(LOGIN_REQUIRED, 0)
+
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request)
-    
+    if not user_seek['status'] or user_seek.get('username') != request.user.username:
+        return json_response(LOGIN_REQUIRED, 0)
+
     datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     filename = 'samples-deletion' + datenow + '.xls'
     downloadfile = DOWNLOAD_DIRECTORY + filename
@@ -261,7 +334,8 @@ def sampleDelete(request):
         sample_uids = json.loads(ret['alluids'])
         sample_ids = list(map(dbsample.getSampleID, sample_uids))
 
-    sdata = dbsample.deleteSamples(user_seek, downloadfile, link, sample_ids)
+    sdata = dbsample.deleteSamples(user_seek, downloadfile, link, sample_ids,
+                                   is_superuser=verifySuperUser(request) == 1)
     return HttpResponse(sdata)
 
 def getStudiesOptions(request, id):
@@ -324,7 +398,9 @@ def sampleAttributeSave(request):
     if data['status']==1:
         dbsample = DBtable_sample()
         reportData = dbsample.updateSampleType(user_seek, sampletype_id, attri_renamed)
-    
+
+    _enqueueAttributeGraphSync(request)
+
     return HttpResponse(reportData)
 
 @requires_seek_login(log_failure=True)
@@ -334,6 +410,11 @@ def sampleAttributeDelete(request):
 
     sampleattr = DBtable_sampleattribute()
     reportData = sampleattr.processRecords(request, user_seek, "delete")
+
+    # ``processRecords`` deletes only the records the request carried; with none, nothing was written.
+    if 'records' in request.GET:
+        _enqueueAttributeGraphSync(request)
+
     return HttpResponse(reportData)
 
 def getInstituionUsers(request, id):

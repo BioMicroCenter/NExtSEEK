@@ -58,15 +58,14 @@ not fail locally; it fails somewhere else.
   explains itself; anything that imports `dmac.settings` directly must set `LOG_DIR`
   itself, as `.github/workflows/ci-pytest.yml:53` does.
 - **`dmac/test_settings.py:51-55` supplies a Neo4j that is complete but fictional,** so a
-  test gating on "configured" rather than "reachable" runs instead of skipping. Exactly
-  one module in the tree gates that way: `nextseek_api/batch_upload/tests/test_neo4j_integration.py:29-31`
-  builds its flag from `Neo4jConfig.from_django_settings`, which reads the same dict at
-  `nextseek_api/batch_upload/config.py:87`. Measured 2026-09-03 with `--network none` and
-  `-x`: one test, 1 error in 61.60s, spent in the driver's retry ladder. Grepping every
-  `*.py` for `skipif` and then narrowing to the files that also mention Neo4j returns six
-  modules, and that is the only one whose flag comes from the Django setting;
-  `nextseek_api/batch_upload/tests/test_identity_drift_integration.py:250-251` looks
-  similar but adds an opt-in env gate and does skip.
+  test gating on "configured" rather than "reachable" runs instead of skipping and then
+  sits in the driver's retry ladder until it gives up. The one module that gated that way
+  went with batch upload's inline graph write, so nothing in the tree gates that way
+  today, but `Neo4jConfig.from_django_settings` still reads the same dict at
+  `nextseek_api/batch_upload/config.py:87`: build a new test's flag from the Django
+  setting and the trap is back.
+  `nextseek_api/batch_upload/tests/test_identity_drift_integration.py:250-251` is the
+  shape to copy instead, adding an opt-in env gate so it does skip.
 - **Neither the example overlay nor the test settings defines `NEXTSEEK_CHAT_CONFIG`,
   and the assistant reads it bare.** `NessieAI/ns/turn.py:85` (`_select_chat_config`) returns
   `settings.NEXTSEEK_CHAT_CONFIG` with no `getattr` default; grepping

@@ -147,8 +147,9 @@
 				msg: 'Deleting samples ...'
 			});
 
-			$.get(url_delete, {
-				'allids': allids
+			$.post(url_delete, {
+				'allids': allids,
+				'csrfmiddlewaretoken': '{{ csrf_token }}'
 			}, function (data) {
 				$.messager.progress('close');
 				var obj = jQuery.parseJSON(data);

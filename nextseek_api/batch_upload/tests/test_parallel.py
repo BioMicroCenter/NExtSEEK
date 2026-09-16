@@ -208,5 +208,70 @@ class TestProcessBatchesParallel:
         assert isinstance(result, BatchResult)
         assert result.inserted_count > 0
 
+    @patch("nextseek_api.batch_upload.parallel.get_connection")
+    @patch("nextseek_api.batch_upload.parallel.get_engine")
+    @patch("nextseek_api.batch_upload.parallel.process_batches")
+    @patch("nextseek_api.batch_upload.parallel.prefetch_assay_ids")
+    def test_each_worker_gets_its_own_outbox_prefix(
+        self, mock_prefetch, mock_process, mock_engine, mock_get_conn
+    ):
+        """The outbox key is unique per (kind, key), so two workers numbering their batches from zero would
+        collide on the job's prefix alone."""
+        engine_mock = MagicMock()
+        engine_mock.pool = MagicMock()
+        engine_mock.pool.size.return_value = 20
+        mock_engine.return_value = engine_mock
+        mock_process.return_value = BatchResult()
+
+        rows = [
+            InsertableSample(uuid=f"UID-{i:03d}", title=f"S{i}", sample_type_id=1, json_metadata="{}")
+            for i in range(10)
+        ]
+        direction = DirectionComputation(
+            direction_by_pair={}, parents_of={}, assays_by_uid={},
+            child_uids_by_assay={}, conflicts_by_assay={},
+        )
+
+        process_batches_parallel(
+            rows=rows,
+            project_id=1,
+            contributor_id=1,
+            config=MagicMock(),
+            direction_computation=direction,
+            batch_key_prefix="batch:job-1:L0",
+        )
+
+        prefixes = [c.kwargs["batch_key_prefix"] for c in mock_process.call_args_list]
+        assert prefixes, "no worker ran"
+        assert len(set(prefixes)) == len(prefixes)
+        assert all(p.startswith("batch:job-1:L0:w") for p in prefixes)
+
+    @patch("nextseek_api.batch_upload.parallel.get_connection")
+    @patch("nextseek_api.batch_upload.parallel.get_engine")
+    @patch("nextseek_api.batch_upload.parallel.process_batches")
+    @patch("nextseek_api.batch_upload.parallel.prefetch_assay_ids")
+    def test_without_a_prefix_no_worker_gets_one(
+        self, mock_prefetch, mock_process, mock_engine, mock_get_conn
+    ):
+        engine_mock = MagicMock()
+        engine_mock.pool = MagicMock()
+        engine_mock.pool.size.return_value = 20
+        mock_engine.return_value = engine_mock
+        mock_process.return_value = BatchResult()
+
+        rows = [InsertableSample(uuid="UID-001", title="S", sample_type_id=1, json_metadata="{}")]
+        process_batches_parallel(
+            rows=rows,
+            project_id=1,
+            contributor_id=1,
+            config=MagicMock(),
+            direction_computation=DirectionComputation(
+                direction_by_pair={}, parents_of={}, assays_by_uid={},
+                child_uids_by_assay={}, conflicts_by_assay={},
+            ),
+        )
+
+        assert {c.kwargs["batch_key_prefix"] for c in mock_process.call_args_list} == {""}
+
     def test_parallel_threshold_constant(self):
         assert PARALLEL_THRESHOLD == 5000

@@ -1,7 +1,8 @@
 # Neo4j graph schema
 
-The document of record for the NExtSEEK sample graph: what it holds (v1.0), and what the graph_search work builds
-(v1.1). Querying Neo4j over HTTP, Browser or bolt is in [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md).
+The document of record for the NExtSEEK sample graph: what it holds (v1.0), what the graph_search work builds
+(v1.1), and what keeping it in sync adds (v1.2). Querying Neo4j over HTTP, Browser or bolt is in
+[`neo4j-programmatic-access.md`](neo4j-programmatic-access.md).
 The auto-generated `neo4j_schema.json` files Nessie reads are caches, not this document.
 
 Counts are dated measurements (2026-09-14) on the local production snapshot unless a row says otherwise; re-measure
@@ -130,3 +131,78 @@ Removed: `CHILD_OF`, and any DERIVED_FROM edge between two `Sample` nodes that M
 
 `GraphMeta.schema_version` names the version a graph was written to. A change to any table above bumps the version
 here and in the writer in the same commit.
+
+## v1.2: what the sync adds
+
+Built by the graph_sync follow-up (`docs/superpowers/specs/2026-09-15-graph-search-sync-design.md`, sections 6, 7.3
+and 9; tracked on the `feat/graph-search-sync` branch until it merges), so that graph_sync can keep the graph equal
+to MySQL by itself. Everything in v1.1 holds unless this section changes it. A graph becomes 1.2 only through a full
+sync at 1.2; the sync's by-id paths write nothing to a graph at any other version.
+
+### Nodes
+
+| Label | Change from v1.1 |
+|---|---|
+| `Sample` | new system property `source_hash`: a sha256 hex digest of everything the node is projected from (the uuid, the title, the type's title and its attribute value types, the raw `json_metadata` bytes, the sorted project ids and the sorted assay ids). A node whose hash differs from the one computed from MySQL is synced again; a node written by anything else simply mismatches |
+| `Sample` | `parent_titles` and `parent_title_hashes` are projection-owned: every graph_sync write computes them from the parent tokens with batch upload's rule (`enrich_parent_titles`), so orphan discovery keeps finding new uploads. A write that does not carry them keeps the node's own |
+| `GraphMeta` | `schema_version` is `"1.2"`; new `label_maps_hash`, a digest of the resolved assay map and of `sops` (id, title), so a change to either is found without reading every edge. A write that does not name it keeps it |
+| `OrphanSample` | never carries a `T_` label, `OF_TYPE` or `IN_PROJECT` (see "The deletion rule"); `orphaned_at` records when it became one |
+
+### DERIVED_FROM labels
+
+graph_sync labels every DERIVED_FROM edge between two Sample nodes with seven properties:
+
+| Property | Holds |
+|---|---|
+| `assay_id` | the SEEK assay of the winning shared assay |
+| `internal_assay_id`, `internal_assay_title` | the winner: among the assays both endpoints share in `assay_assets`, resolved through `dmac.assays_internal_assays` to `dmac.internal_assays`, the smallest internal id; a SEEK assay with no mapping falls back to its own id and title |
+| `internal_assay_ids`, `internal_assay_titles` | the plural lists, beside the singular fields |
+| `protocol_id`, `protocol_title` | the child's stored `Protocol` value through the house three-format rule (`nextseek_api/batch_upload/helpers.py`), resolved to `sops`; a title that names several SOPs gives null |
+
+Rules:
+
+1. **Batch upload's rule, fed from MySQL.** The labels equal what batch upload computes from MySQL for the same
+   edge; any difference is reported, never changed silently.
+2. **All seven together, every time.** A write sets every property, nulls and empty lists included, never a subset.
+   The legacy `assay_title` is removed from every edge graph_sync labels.
+3. **Label on create.** Every edge graph_sync creates is labelled in the same run, so a graph rebuilt from an empty
+   Neo4j stays labelled.
+4. **Only new labels without the operator's approval.** By default a label is written only on an edge whose three
+   singular assay fields (`assay_id`, `internal_assay_id`, `internal_assay_title`) are all null, and the write
+   statement itself checks that, so a label written between a read and the write is kept. Every other difference is
+   classified per edge (`new`, `equal`, `plural_missing`, `changed`, `cleared`) and reported per property; it is
+   written only with the operator's opt-in (`--apply-label-changes` for one command run,
+   `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply` for the loop), and then only where all seven stored values still equal
+   those read.
+5. **A missing plural list is not a difference to write.** On an edge whose singular fields match the rule, absent
+   `internal_assay_ids` and `internal_assay_titles` are reported as `plural_missing` and written only with the same
+   opt-in.
+
+A sync by sample id also applies the lineage rule of v1.1 to those samples as children: a declared pair missing
+from the graph is created, and an undeclared DERIVED_FROM from one of them to a Sample parent is archived to the
+run's `derived_from_undeclared_archive.tsv` (appended) before it is deleted.
+
+### The deletion rule
+
+A sample that left MySQL ends in one state, whichever path removes it (the legacy delete, the SEEK proxy delete, a
+by-id sync, the nightly or the weekly sync):
+
+- a `Sample` that graph_sync wrote (it carries `synced_at`) mirrors a row that is gone: its id, uuid, type and
+  incident-edge count are appended to the run's `retired.tsv`, then it is `DETACH DELETE`d;
+- a `Sample` that graph_sync never wrote (no `synced_at`: a v1.0 graph-only node, which may carry lineage MySQL never
+  had) becomes an `OrphanSample`: `Sample`, every `T_` label, `OF_TYPE` and `IN_PROJECT` are removed, `orphaned_at`
+  is set, its properties and DERIVED_FROM are kept;
+- an existing `OrphanSample` is left as it is. A ghost (a second node of a live id) is still deleted by the full
+  sync.
+
+The line is exact because only graph_sync sets `synced_at`. With no `T_` label left on an orphan, a reader that
+starts from `MATCH (s:T_X)` never sees one.
+
+### Constraints and indexes
+
+Unchanged from v1.1.
+
+### Versioning
+
+`GraphMeta.schema_version` reads `"1.2"`. `catalog_hash` is computed as in v1.1, so a reader that needs the v1.1
+catalog should accept any version from 1.1 up rather than exactly `"1.1"`.

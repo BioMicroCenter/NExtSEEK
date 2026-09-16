@@ -23,7 +23,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ci.gate.live_routes import suggest_path
-from ci.routes import PLACEHOLDERS, PROFILES, REGISTRY, _check_unique_patterns, match
+from ci.routes import EFFECTS, PLACEHOLDERS, PROFILES, REGISTRY, _check_unique_patterns, match
 from ci.smoke.conftest import DISCOVERED_KEYS, _guard_context
 from ci.smoke.test_reachability import _callable_routes
 
@@ -33,14 +33,17 @@ from ci.smoke.test_reachability import _callable_routes
 # the project samples full view, and 158 -> 160 on 2026-09-03 for the two
 # /nextseek_api/templates/ actions (catalog and generate; TemplatesViewSet
 # defines no list method, so the router emits no bare list route), then 168 -> 169
-# on 2026-09-14 for /nextseek_api/samples/graph_search/. Each step was
+# on 2026-09-14 for /nextseek_api/samples/graph_search/, then 169 -> 170 on
+# 2026-09-15 for the /seek/graph/search/ page, then 170 -> 171 the same day for
+# /nextseek_api/admin/graph-sync/status/ (GraphSyncStatusViewSet likewise defines
+# no list method, so that registration adds one route, not two). Each step was
 # confirmed by the completeness gate passing against the live resolver on the
 # branch that added them. When the application gains or loses a route this number
 # moves, and the COMPLETENESS GATE (ci/gate/test_route_registry.py) is the
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
 # runs, which happen in a different environment.
-OWNED_ROUTE_COUNT = 169
+OWNED_ROUTE_COUNT = 171
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset and the Django admin login page.
@@ -125,6 +128,48 @@ def test_every_route_declares_an_auth_the_suite_can_supply():
         f"routes declare auth value(s) no client implements: {offenders}. "
         f"Allowed: {sorted(AUTH_VOCABULARY)}."
     )
+
+
+def test_every_entry_says_what_it_writes():
+    """`effect` is the registry's answer to the question the graph sync asks of
+    every route: does a request here leave the graph behind?"""
+    offenders = sorted({r.effect for r in REGISTRY} - EFFECTS)
+    assert not offenders, (
+        f"routes declare effect value(s) outside the vocabulary: {offenders}. "
+        f"Allowed: {sorted(EFFECTS)}."
+    )
+
+
+def test_only_a_writes_route_names_writers_and_it_names_at_least_one():
+    """A `writes` route with no writer says a table moves and nobody owns it; a
+    `reads` route with one says the opposite of what its effect says."""
+    for route in REGISTRY:
+        if route.effect == "writes":
+            assert route.writers, f"{route.pattern} writes a graph source but names no writer"
+        else:
+            assert not route.writers, (
+                f"{route.pattern} is {route.effect!r} but names writers {list(route.writers)}"
+            )
+
+
+def test_every_writer_id_has_the_inventory_form():
+    """The gate checks these against ci/writers.py, where Django is importable;
+    here, without it, the shape is what can be checked."""
+    for route in REGISTRY:
+        for writer_id in route.writers:
+            assert len(writer_id) == 5 and writer_id.startswith("WR-") and writer_id[3:].isdigit(), (
+                f"{route.pattern}: {writer_id!r} is not an inventory writer id"
+            )
+
+
+def test_only_a_route_this_application_does_not_serve_is_classified_n_a():
+    """'n/a' says the question belongs to somebody else's code -- the nginx-served
+    asset and the Django admin's own login -- and those are exactly the entries
+    Django's resolver does not report for us."""
+    for route in REGISTRY:
+        assert (route.effect == "n/a") == (not route.resolver), (
+            f"{route.pattern}: effect={route.effect!r} with resolver={route.resolver}"
+        )
 
 
 BROKEN_STATUSES = (500, 502)

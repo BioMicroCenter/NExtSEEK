@@ -16,7 +16,9 @@ Rules the readers keep:
 - **`sample_types_context` is read through the ORM**, selecting the field `tags`, whose db_column
   is capital-T `Tags`; `CONTEXT_FIELDS` is pinned against the model by a unit test.
 - **Bounded memory.** Samples are read in keyset pages; the large pair lists are fetched in
-  batches.
+  batches. The digest stream (`iter_digest_rows`) groups one page's links at a time.
+- **By id, in chunks.** A by-id reader binds at most `IN_CHUNK` values per `IN` list and splits
+  a longer list over several statements.
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ from django.conf import settings
 from django.db import connections
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
+from nextseek_api.batch_upload.identity import extract_identity
 from nextseek_api.services.template_catalog import is_deprecated
 from seek.models import Sample_types_context
 
@@ -35,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 # Rows pulled from a cursor per fetchmany() on the large pair reads.
 FETCH_BATCH = 10_000
+
+# Values bound per `IN (...)` list on the by-id reads.
+IN_CHUNK = 1000
 
 # FIELD names on Sample_types_context, not db_columns: `tags` maps to the `Tags` column.
 CONTEXT_FIELDS = ("sample_type", "sampletype_id", "name", "description", "tags",
@@ -150,6 +156,275 @@ def declared_lineage(sample_rows: Iterable[dict], uuid_index) -> Iterator[tuple[
             for parent in uuid_index.get(token, ()):
                 if parent != child:
                     yield child, int(parent)
+
+
+# --- samples by id -----------------------------------------------------------------------------
+
+def _placeholders(count: int) -> str:
+    return ", ".join(["%s"] * count)
+
+
+def _chunks(values: list) -> Iterator[list]:
+    for start in range(0, len(values), IN_CHUNK):
+        yield values[start:start + IN_CHUNK]
+
+
+def _id_chunks(ids: Iterable) -> Iterator[list[int]]:
+    """The distinct ids as ints, ascending, in lists of at most `IN_CHUNK`."""
+    return _chunks(sorted({int(i) for i in ids}))
+
+
+def _wanted_tokens(tokens: Iterable) -> set[str]:
+    return {t for t in tokens if isinstance(t, str) and t}
+
+
+def _sample_row(sid, uuid, title, type_id, meta) -> dict:
+    return {"id": int(sid), "uuid": _text(uuid), "title": _text(title),
+            "sample_type_id": int(type_id) if type_id is not None else None,
+            "json_metadata": _text(meta)}
+
+
+def samples_by_ids(ids: Iterable[int]) -> list[dict]:
+    """The `samples` rows with these ids, in `iter_samples`' shape, ordered by id.
+
+    An id MySQL no longer holds is simply absent: the caller retires it.
+    """
+    rows: list[dict] = []
+    for chunk in _id_chunks(ids):
+        sql = ("SELECT id, uuid, title, sample_type_id, json_metadata FROM samples "
+               f"WHERE id IN ({_placeholders(len(chunk))}) ORDER BY id")
+        rows.extend(_sample_row(*row) for row in _rows(_seek(), sql, chunk))
+    return rows
+
+
+def _links_for(sql_head: str, ids: Iterable[int], lead: list) -> dict[int, list[int]]:
+    """Sample id to its sorted distinct linked ids, for `sql_head ... IN (ids)` in chunks."""
+    pairs: dict[int, set[int]] = {}
+    for chunk in _id_chunks(ids):
+        sql = f"{sql_head} IN ({_placeholders(len(chunk))})"
+        for sample_id, other_id in _rows(_seek(), sql, [*lead, *chunk]):
+            pairs.setdefault(int(sample_id), set()).add(int(other_id))
+    return {sid: sorted(others) for sid, others in sorted(pairs.items())}
+
+
+def sample_projects_for(ids: Iterable[int]) -> dict[int, list[int]]:
+    """`sample_projects` for these sample ids only; an id with no project link is absent."""
+    return _links_for("SELECT sample_id, project_id FROM projects_samples "
+                      "WHERE project_id IS NOT NULL AND sample_id", ids, [])
+
+
+def sample_assay_ids_for(ids: Iterable[int]) -> dict[int, list[int]]:
+    """Sample id to its sorted distinct SEEK assay ids (`assay_assets` Sample rows).
+
+    An id with no assay link is absent.
+    """
+    return _links_for("SELECT asset_id, assay_id FROM assay_assets "
+                      "WHERE asset_type = %s AND assay_id IS NOT NULL AND asset_id", ids, ["Sample"])
+
+
+def uuid_to_ids_for(tokens: Iterable[str]) -> dict[str, list[int]]:
+    """`uuid_to_ids` for these tokens only: a stored uuid equal to a token, byte for byte.
+
+    MySQL's `IN` also returns a stored uuid differing in case or trailing spaces; those rows
+    are dropped here, as `uuid_to_ids` would key them apart. Blank tokens are ignored.
+    """
+    wanted = _wanted_tokens(tokens)
+    index: dict[str, set[int]] = {}
+    for chunk in _chunks(sorted(wanted)):
+        sql = f"SELECT uuid, id FROM samples WHERE uuid IN ({_placeholders(len(chunk))}) ORDER BY id"
+        for uuid, sid in _rows(_seek(), sql, chunk):
+            uuid = _text(uuid)
+            if uuid in wanted:
+                index.setdefault(uuid, set()).add(int(sid))
+    return {uuid: sorted(ids) for uuid, ids in index.items()}
+
+
+def _metadata_object(raw) -> dict:
+    """`json_metadata` as a dict; unreadable or non-object metadata reads as empty."""
+    if not raw:
+        return {}
+    try:
+        meta = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def parent_identities(uuids: Iterable[str]) -> dict[str, str | None]:
+    """Stored uuid to the identity a child's `parent_titles` names it by.
+
+    The external-UID lookup of `batch_upload/neo4j_sync.py::enrich_parent_titles`:
+    `extract_identity(meta, uid=uuid)` over the row's metadata, unreadable or non-object
+    metadata reading as empty (the identity is then None). Only stored uuids equal to a
+    requested one byte for byte are kept. Rows are read in id order and a later row replaces an
+    earlier one, as in that loop, so on a duplicated uuid the highest id wins. A uuid MySQL does
+    not hold is absent.
+    """
+    wanted = _wanted_tokens(uuids)
+    identities: dict[str, str | None] = {}
+    for chunk in _chunks(sorted(wanted)):
+        sql = ("SELECT uuid, json_metadata FROM samples "
+               f"WHERE uuid IN ({_placeholders(len(chunk))}) ORDER BY id")
+        for uuid, raw in _rows(_seek(), sql, chunk):
+            uuid = _text(uuid)
+            if uuid in wanted:
+                identities[uuid] = extract_identity(_metadata_object(_text(raw)), uid=uuid)
+    return identities
+
+
+# --- keyed streams -----------------------------------------------------------------------------
+
+def _check_chunk(chunk: int) -> None:
+    if chunk <= 0:
+        raise ValueError(f"chunk must be positive, got {chunk}")
+
+
+def ids_of_type(type_id: int, chunk: int = 5000) -> Iterator[list[int]]:
+    """Keyset pages of the ids of one sample type, ascending, each at most `chunk` ids."""
+    _check_chunk(chunk)
+    last = 0
+    while True:
+        with _seek().cursor() as cursor:
+            cursor.execute("SELECT id FROM samples WHERE sample_type_id = %s AND id > %s "
+                           "ORDER BY id LIMIT %s", [int(type_id), last, chunk])
+            ids = [int(row[0]) for row in cursor.fetchall()]
+        if not ids:
+            return
+        yield ids
+        last = ids[-1]
+        if len(ids) < chunk:
+            return
+
+
+def _names_any(raw, own_uuid, wanted: set[str]) -> bool:
+    """Whether the metadata declares a parent token in `wanted`, `declared_lineage`'s rule."""
+    for token in collect_parent_tokens(_metadata_object(raw)):
+        if token in wanted and token != own_uuid and UID_RE.match(token):
+            return True
+    return False
+
+
+def samples_naming(uuids: Iterable[str], chunk: int = 5000) -> list[int]:
+    """Ids of the samples whose parent tokens name one of these uuids, ascending.
+
+    One keyset pass over `samples.json_metadata` (spec 10.3, step 4), tokens read by the
+    `declared_lineage` rule: keys containing "parent", split on `;`, `UID_RE` tokens only, a
+    sample naming its own uuid skipped, compared byte for byte. No uuid, no read.
+    """
+    _check_chunk(chunk)
+    wanted = _wanted_tokens(uuids)
+    if not wanted:
+        return []
+    found: list[int] = []
+    last = 0
+    while True:
+        with _seek().cursor() as cursor:
+            cursor.execute("SELECT id, uuid, json_metadata FROM samples WHERE id > %s "
+                           "ORDER BY id LIMIT %s", [last, chunk])
+            fetched = cursor.fetchall()
+        if not fetched:
+            return found
+        for sid, uuid, raw in fetched:
+            if _names_any(_text(raw), _text(uuid), wanted):
+                found.append(int(sid))
+        last = int(fetched[-1][0])
+        if len(fetched) < chunk:
+            return found
+
+
+_DIGEST_PAGE_SQL = (
+    "SELECT id, uuid, title, sample_type_id, json_metadata, updated_at FROM samples "
+    "WHERE id > %s ORDER BY id LIMIT %s"
+)
+_PROJECT_LINK_STREAM_SQL = (
+    "SELECT sample_id, project_id FROM projects_samples "
+    "WHERE sample_id IS NOT NULL AND project_id IS NOT NULL ORDER BY sample_id"
+)
+_ASSAY_LINK_STREAM_SQL = (
+    "SELECT asset_id, assay_id FROM assay_assets "
+    "WHERE asset_type = %s AND asset_id IS NOT NULL AND assay_id IS NOT NULL ORDER BY asset_id"
+)
+
+
+class _LinkStream:
+    """(sample id, linked id) rows in sample-id order, taken one sample page at a time."""
+
+    def __init__(self, table: str, rows: Iterator[tuple]):
+        self.table, self._rows = table, rows
+        self._pending: tuple | None = None
+        self._last: int | None = None
+
+    def take_through(self, last_id: int) -> dict[int, set[int]]:
+        """Every link not yet taken whose sample id is at most `last_id`, by sample id.
+
+        Links to ids the caller's page does not hold are returned too, and dropped there. A
+        row out of sample-id order raises: the merge would silently lose links otherwise.
+        """
+        links: dict[int, set[int]] = {}
+        while True:
+            row, self._pending = self._pending, None
+            if row is None:
+                row = next(self._rows, None)
+                if row is None:
+                    return links
+                if self._last is not None and int(row[0]) < self._last:
+                    raise RuntimeError(
+                        f"{self.table} came back out of sample-id order ({int(row[0])} after "
+                        f"{self._last}); the digest merge would drop links")
+                self._last = int(row[0])
+            sample_id = int(row[0])
+            if sample_id > last_id:
+                self._pending = row
+                return links
+            links.setdefault(sample_id, set()).add(int(row[1]))
+
+    def close(self) -> None:
+        close = getattr(self._rows, "close", None)
+        if close is not None:
+            close()
+
+
+def iter_digest_rows(chunk: int = 5000) -> Iterator[list[dict]]:
+    """Keyset pages of every sample, each row carrying its `project_ids` and `assay_ids`.
+
+    The MySQL half of the nightly targeted sync's merge (spec 10.3): `samples` by primary-key
+    keyset, merged by id with `projects_samples` ordered by `sample_id` and the `assay_assets`
+    Sample rows ordered by `asset_id`, each read by one statement. A row is `iter_samples`'
+    plus `updated_at` (for the run record's watermark) and the two sorted distinct id lists,
+    empty when the sample has no link. A link naming an id `samples` does not hold is dropped.
+
+    Memory: Python holds one page and that page's links. mysqlclient's default cursor still
+    buffers each link statement's whole result on the client as tuples, so the peak is the two
+    link tables' rows, never a dict of every sample's links.
+    """
+    _check_chunk(chunk)
+    projects = _LinkStream("projects_samples", _rows(_seek(), _PROJECT_LINK_STREAM_SQL))
+    assays = _LinkStream("assay_assets", _rows(_seek(), _ASSAY_LINK_STREAM_SQL, ["Sample"]))
+    try:
+        last = 0
+        while True:
+            with _seek().cursor() as cursor:
+                cursor.execute(_DIGEST_PAGE_SQL, [last, chunk])
+                fetched = cursor.fetchall()
+            if not fetched:
+                return
+            page = []
+            for sid, uuid, title, type_id, meta, updated_at in fetched:
+                row = _sample_row(sid, uuid, title, type_id, meta)
+                row["updated_at"] = updated_at
+                page.append(row)
+            last = page[-1]["id"]
+            project_links = projects.take_through(last)
+            assay_links = assays.take_through(last)
+            for row in page:
+                row["project_ids"] = sorted(project_links.get(row["id"], ()))
+                row["assay_ids"] = sorted(assay_links.get(row["id"], ()))
+            yield page
+            if len(page) < chunk:
+                return
+    finally:
+        projects.close()
+        assays.close()
 
 
 # --- the catalog -------------------------------------------------------------------------------
@@ -325,3 +600,75 @@ def seek_study_links() -> list[dict]:
         links.append({"sample_id": int(sample_id), "study_id": int(study_id), "study_title": title,
                       "investigation_id": int(inv_id) if inv_id is not None else None})
     return links
+
+
+def seek_study_links_for(ids: Iterable[int]) -> list[dict]:
+    """`seek_study_links` for these sample ids only, ordered by sample id, then study id."""
+    links = []
+    for chunk in _id_chunks(ids):
+        sql = ("SELECT DISTINCT aa.asset_id, s.id, s.title, s.investigation_id "
+               "FROM assay_assets aa "
+               "JOIN assays a ON a.id = aa.assay_id "
+               "JOIN studies s ON s.id = a.study_id "
+               f"WHERE aa.asset_type = %s AND aa.asset_id IN ({_placeholders(len(chunk))}) "
+               "ORDER BY aa.asset_id, s.id")
+        for sample_id, study_id, title, inv_id in _rows(_seek(), sql, ["Sample", *chunk]):
+            links.append({"sample_id": int(sample_id), "study_id": int(study_id),
+                          "study_title": _text(title),
+                          "investigation_id": int(inv_id) if inv_id is not None else None})
+    return links
+
+
+def studies() -> list[dict]:
+    """Every SEEK study: `id`, `title`, `investigation_id`."""
+    return [{"id": int(sid), "title": _text(title),
+             "investigation_id": int(inv_id) if inv_id is not None else None}
+            for sid, title, inv_id in _rows(
+                _seek(), "SELECT id, title, investigation_id FROM studies ORDER BY id")]
+
+
+# --- the label maps (spec 7.3) -----------------------------------------------------------------
+
+def internal_assay_links() -> dict[int, tuple[int, str | None]]:
+    """SEEK assay id to its internal assay `(id, title)`, the smallest internal id on 1:N.
+
+    `dmac.assays_internal_assays` joined to `dmac.internal_assays`, the lookup of batch
+    upload's `neo4j_sync.py::_resolve_internal_assays`; the title is kept as stored, None
+    included. Empty when either table is absent.
+    """
+    alias = settings.NEXTSEEK_DATABASE
+    if not (table_exists(alias, "assays_internal_assays") and table_exists(alias, "internal_assays")):
+        logger.warning("assays_internal_assays or internal_assays is absent; every assay label "
+                       "falls back to its SEEK assay")
+        return {}
+    sql = ("SELECT ia.id, aia.assay_id, ia.internal_assay_title FROM assays_internal_assays aia "
+           "JOIN internal_assays ia ON ia.id = aia.internal_assay_id "
+           "WHERE aia.assay_id IS NOT NULL ORDER BY aia.assay_id, ia.id")
+    links: dict[int, tuple[int, str | None]] = {}
+    for ia_id, assay_id, title in _rows(_dmac(), sql):
+        assay_id, ia_id = int(assay_id), int(ia_id)
+        current = links.get(assay_id)
+        if current is None or ia_id < current[0]:
+            links[assay_id] = (ia_id, _text(title))
+    return links
+
+
+def resolved_assay_map() -> dict[int, tuple[int | None, str | None]]:
+    """SEEK assay id to `(internal assay id or None, title)`, the label rule's assay map.
+
+    Batch upload's resolution (`neo4j_sync.py::build_derived_from_payloads_from_db`, step 3):
+    a mapped assay resolves to `internal_assay_links`' pair; every other SEEK assay falls back
+    to `(None, its own title or "")`, the label rule then using the SEEK assay id itself (R6).
+    An assay id mapped in dmac but absent from SEEK's `assays` keeps its mapping, as there.
+    """
+    resolved: dict[int, tuple[int | None, str | None]] = {
+        int(assay_id): (None, _text(title) or "")
+        for assay_id, title in _rows(_seek(), "SELECT id, title FROM assays ORDER BY id")}
+    resolved.update(internal_assay_links())
+    return dict(sorted(resolved.items()))
+
+
+def sops_map() -> dict[int, str | None]:
+    """SEEK SOP id to its title as stored: the protocol half of the label rule."""
+    return {int(sop_id): _text(title)
+            for sop_id, title in _rows(_seek(), "SELECT id, title FROM sops ORDER BY id")}

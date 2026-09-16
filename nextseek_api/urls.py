@@ -15,6 +15,8 @@ router.register(r"sample-tree", views.SampleTreeViewSet, basename="sample-tree")
 # router.register(r"nhp", views.NHPViewSet, basename="nhp")
 # router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
 router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samples")
+# Publishes one `status` action and no list route, so the API root does not advertise it.
+router.register(r"admin/graph-sync", views.GraphSyncStatusViewSet, basename="admin-graph-sync")
 router.register(r"sops", views.SopViewSet, basename="sops")
 router.register(r"data_files", views.DataFileViewSet, basename="data_files")
 router.register(r"projects", views.ProjectViewSet, basename="projects")

@@ -21,6 +21,9 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`superpowers/plans/2026-09-14-graph-search-poc.md`](superpowers/plans/2026-09-14-graph-search-poc.md) | plan | executing or reviewing the graph_search proof of concept, task by task | |
 | [`superpowers/specs/2026-09-15-graph-search-nessie-design.md`](superpowers/specs/2026-09-15-graph-search-nessie-design.md) | draft spec | changing how Nessie reads the metadata graph (the live catalog reader, the rendered context, the per-label guard), or the evidence POC that compares its graph agent with its API agent; stage A1 (server-injected scope) is designed here | |
 | [`superpowers/plans/2026-09-15-graph-search-nessie.md`](superpowers/plans/2026-09-15-graph-search-nessie.md) | plan | executing or reviewing graph_search follow-up 1: the build, the venue, ground truth, the paid runs and the A1 stage, task by task | |
+| [`superpowers/specs/2026-09-15-graph-search-sync-design.md`](superpowers/specs/2026-09-15-graph-search-sync-design.md) | draft spec | changing how graph 2.0 stays in sync with every writer: the hooks, the nightly targeted sync, the weekly full sync, batch upload's graph stage, the deletion rule, the loop and its CI gates | |
+| [`superpowers/specs/2026-09-15-graph-search-sync-inventory.md`](superpowers/specs/2026-09-15-graph-search-sync-inventory.md) | inventory | finding who writes a table the graph reads: every writer, route and code-scan site, cross-checked, with the recon's corrections | |
+| [`superpowers/plans/2026-09-15-graph-search-sync.md`](superpowers/plans/2026-09-15-graph-search-sync.md) | plan | executing or reviewing the graph sync work as four Workflow runs, task by task | |
 
 `docs/superpowers/` is gitignored by default; only files named by a negation in `.gitignore` are tracked.
 

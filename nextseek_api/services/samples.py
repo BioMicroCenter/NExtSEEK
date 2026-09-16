@@ -15,6 +15,7 @@ from seek.seekdb import SeekDB
 from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id, resolve_seek_auth
 from nextseek_api.helpers import paginate_rows_in_envelope
 from nextseek_api.batch_upload.helpers import UID_RE
+from nextseek_api.graph_sync import hooks
 from nextseek_api.endpoint_descriptions import (
     SAMPLE_FETCH_DESC,
     SAMPLE_CREATE_DESC,
@@ -69,6 +70,18 @@ def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
         return str(sid) if sid > 0 else None
     except Exception:
         return None
+
+
+def _graph_sync_sample_id(data, fallback: Optional[str] = None) -> Optional[str]:
+    """The sample id a graph_sync hook enqueues: the one SEEK returned, else the one the request resolved to."""
+    try:
+        seek_id = str(((data or {}).get("data") or {}).get("id") or "")
+    except Exception:
+        seek_id = ""
+    if seek_id.isdigit():
+        return seek_id
+    fallback = str(fallback or "")
+    return fallback if fallback.isdigit() else None
 
 
 class SampleProxyViewSet(viewsets.ViewSet):
@@ -227,6 +240,12 @@ class SampleProxyViewSet(viewsets.ViewSet):
             log.warning("samples_proxy.validation_exception action=create error=%s", str(e))
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
+        if 200 <= code < 300:
+            # Rails committed the row: the graph follows it through one outbox row (spec 5 E1).
+            sample_id = _graph_sync_sample_id(data)
+            if sample_id is not None:
+                hooks.enqueue("samples", f"sample:{sample_id}")
+
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
@@ -327,6 +346,12 @@ class SampleProxyViewSet(viewsets.ViewSet):
             log.warning("samples_proxy.validation_exception action=partial_update error=%s", str(e))
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
+        if 200 <= code < 300:
+            # Rails committed the update: the graph follows it through one outbox row (spec 5 E1, E2).
+            sample_id = _graph_sync_sample_id(data, seek_id)
+            if sample_id is not None:
+                hooks.enqueue("samples", f"sample:{sample_id}")
+
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
@@ -349,6 +374,11 @@ class SampleProxyViewSet(viewsets.ViewSet):
         body, code, headers, resp = self.client.delete_sample(request, str(seek_id))
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+
+        if 200 <= code < 300 and str(seek_id).isdigit():
+            # The row left MySQL: the deletion rule takes its node down (spec 9, E17).
+            hooks.enqueue("retire", f"sample:{seek_id}")
+
         # Pass through upstream response on success; SEEK returns okResponse JSON
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)

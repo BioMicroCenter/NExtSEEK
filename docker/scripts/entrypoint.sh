@@ -130,6 +130,28 @@ uv run --no-sync python manage.py recover_attribute_sync_jobs \
 # this runs -- the URL then reports `accepted`, 0 of N, forever.
 uv run --no-sync python manage.py run_assay_registration_jobs --interval 5 &
 
+# --- graph sync loop (BEGIN) -----------------------------------------------
+# Graph 2.0's own sync: the schedule (nightly reconcile, nightly drift, weekly
+# full sync), the outbox drain, and the heavy runs as its own child processes.
+# On by default; NEXTSEEK_GRAPH_SYNC_LOOP=0 is the off switch for a box whose
+# graph is not ready for it. The loop writes nothing to a graph that is not at
+# the writer's schema version, so it is safe here before a box's first full
+# sync: it reports pending and waits.
+#
+# An `if` block around a backgrounded restart loop, and never a backgrounded
+# test (`[ ... ] && ( ... ) &`, which creates the job whatever the switch
+# says): `wait -n` below returns as soon as ANY background job exits and takes
+# the whole container down, so the loop gets a `while` that never returns, and
+# with the switch off there is no job for `wait -n` to see at all. This is the
+# one runtime of this container that has to survive its own crash instead of
+# bouncing the web server with it, which is why it restarts itself after a
+# delay rather than leaving that to compose. The contract is executed, block
+# and all, by nextseek_api/tests/test_graph_sync_entrypoint.py.
+if [ "${NEXTSEEK_GRAPH_SYNC_LOOP:-1}" = "1" ]; then
+  ( while :; do uv run --no-sync python manage.py graph_sync --loop; sleep "${GRAPH_SYNC_RESTART_DELAY:-60}"; done ) &
+fi
+# --- graph sync loop (END) -------------------------------------------------
+
 wait -n
 
 exit $?

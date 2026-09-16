@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 import gc
+import json
 import logging
+import re
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import psutil
+from django.conf import settings
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
+
+from nextseek_api.graph_sync import hooks
 
 from .associations import batch_insert_assay_assets, batch_insert_projects_samples
 from .checkpoint import determine_resume_uid, write_checkpoint
@@ -29,6 +35,55 @@ from .prefetch import clear_caches
 from .report import ProgressReporter
 
 log = logging.getLogger(__name__)
+
+OUTBOX_KIND_SAMPLES = "samples"       # the outbox kind a batch writes (the sync design, section 12)
+OUTBOX_TABLE = "graph_sync_outbox"
+_SCHEMA_RE = re.compile(r"[A-Za-z0-9_$]+")
+
+
+def graph_sync_outbox_table() -> str:
+    """``graph_sync_outbox`` qualified by the dmac schema's name.
+
+    A batch's connection is SEEK's schema (``config.get_sqlalchemy_url``) and the outbox lives in the dmac one, so
+    the insert names it in full. The installed grant covers it: both Django aliases use the same ``MYSQL_USER``
+    (``dmac/settings.py``) and ``docker/scripts/db/01-ensure-nextseek-db.sh`` grants that user every privilege on
+    both schemas. A name that is not a bare identifier (SQLite's ``:memory:`` in the unit lane) falls back to the
+    installed default, and a schema this connection cannot reach makes the insert fail into the hook instead.
+    """
+    alias = getattr(settings, "NEXTSEEK_DATABASE", "default")
+    name = str(((getattr(settings, "DATABASES", None) or {}).get(alias) or {}).get("NAME") or "")
+    return f"{name if _SCHEMA_RE.fullmatch(name) else 'dmac'}.{OUTBOX_TABLE}"
+
+
+def enqueue_samples_outbox(conn: Connection, key: str, sample_ids, *, now=None) -> bool:
+    """Write this batch's ``samples`` outbox row on the batch's own connection, inside its transaction (the sync
+    design, section 8; its kinds and keys in section 12).
+
+    The row commits with the batch and rolls back with it, so the graph is never asked to read samples MySQL does
+    not hold. It goes to its own savepoint: a refusal (no grant, no table, a schema this connection cannot reach,
+    or the key of a run that already wrote one) must not take the samples the batch just wrote with it, so it is
+    logged and reported False and the caller enqueues through ``hooks.enqueue`` after the commit instead.
+
+    True when the row was written, and when there was nothing to write.
+    """
+    ids = sorted({int(i) for i in sample_ids})
+    if not ids:
+        return True
+    # MySQL DATETIME columns hold naive UTC, which is what Django writes and reads back.
+    stamp = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    statement = text(
+        f"INSERT INTO {graph_sync_outbox_table()} (kind, `key`, payload, enqueued_at, attempts) "
+        "VALUES (:kind, :key, :payload, :enqueued_at, 0)"
+    )
+    try:
+        with conn.begin_nested():
+            conn.execute(statement, {"kind": OUTBOX_KIND_SAMPLES, "key": key,
+                                     "payload": json.dumps(ids), "enqueued_at": stamp})
+        return True
+    except Exception:  # noqa: BLE001 - the batch's own write stands; the caller enqueues after the commit
+        log.warning("INSERT: could not write the graph_sync outbox row %s on this connection; "
+                    "enqueueing it after the commit instead", key, exc_info=True)
+        return False
 
 
 class AdaptiveBatchSizer:
@@ -128,10 +183,11 @@ def process_batches(
     should_stop: Optional[Callable[[], bool]] = None,
     existing_samples: Optional[Dict[str, int]] = None,
     update_existing: bool = False,
+    batch_key_prefix: str = "",
 ) -> BatchResult:
     """Main batch processing loop.
 
-    7-step transaction flow per batch:
+    8-step transaction flow per batch:
     1. Insert policies
     2. Insert samples (RETURNING or fallback)
     3. Link projects to samples
@@ -139,6 +195,14 @@ def process_batches(
     5. Insert permissions (if enabled)
     6. Cleanup failed policies
     7. Write checkpoint
+    8. Write the graph_sync outbox row
+
+    ``batch_key_prefix`` is the job's outbox key for this call
+    (``orchestrator.outbox_key``); each batch appends its own index to it. Given
+    one, every batch records its committed ids for the graph inside its own
+    transaction, so a cancel, a crash or a Neo4j outage between here and stage 6
+    leaves the work queued rather than lost (the sync design, section 8). Given
+    none, no row is written and nothing about this call changes.
     """
     if error_collector is None:
         error_collector = ErrorCollector()
@@ -238,6 +302,8 @@ def process_batches(
             attempted_uids.update(batch_uids)
             batch_start = time.perf_counter()
             uuid_to_id: Dict[str, int] = {}
+            outbox_key = f"{batch_key_prefix}:{batch_idx}" if batch_key_prefix else ""
+            outbox_written = True
 
             try:
                 with conn_factory() as conn:
@@ -305,6 +371,16 @@ def process_batches(
                     # Step 7: Checkpoint
                     if batch_uids:
                         write_checkpoint(checkpoint_dir, checkpoint_name, batch_uids[-1])
+
+                    # Step 8: this batch's graph_sync outbox row, inside this batch's
+                    # own transaction, so the graph hears about exactly what committed.
+                    if outbox_key:
+                        outbox_written = enqueue_samples_outbox(conn, outbox_key, sample_ids)
+
+                # The row is the record, so a batch whose insert was refused writes it
+                # here instead, after the commit, through the hook that never raises.
+                if outbox_key and not outbox_written:
+                    hooks.enqueue(OUTBOX_KIND_SAMPLES, outbox_key, sorted(uuid_to_id.values()))
 
                 # Record outcomes
                 for sample in batch:
@@ -376,6 +452,9 @@ def process_batches(
     if rows_to_update:
         from .update import bulk_update_samples, load_existing_sample_details
 
+        update_key = f"{batch_key_prefix}:update" if batch_key_prefix else ""
+        update_written = True
+        updated_ids: List[int] = []
         try:
             with conn_factory() as conn:
                 update_uuids = [s.uuid for s in rows_to_update]
@@ -394,6 +473,17 @@ def process_batches(
                 total_updated = sum(
                     1 for o in update_outcomes.values() if o.status == "success"
                 )
+
+                # Step 8 for the upsert path: an updated sample's metadata, projects
+                # and assays all moved, so the graph reads it again.
+                updated_ids = sorted({
+                    o.sample_id for o in update_outcomes.values() if o.sample_id is not None
+                })
+                if update_key and updated_ids:
+                    update_written = enqueue_samples_outbox(conn, update_key, updated_ids)
+
+            if update_key and updated_ids and not update_written:
+                hooks.enqueue(OUTBOX_KIND_SAMPLES, update_key, updated_ids)
         except Exception as exc:
             log.exception("Bulk update failed: %s", exc)
             for sample in rows_to_update:

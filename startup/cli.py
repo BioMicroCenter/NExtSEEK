@@ -47,6 +47,12 @@ CI_PROFILE_CHOICES = ("local", "dev", "prod")
 # A box nobody has configured gets the most restrictive profile, never the least.
 DEFAULT_CI_PROFILE = "prod"
 
+# Where the post-rebuild drift check runs (the sync design, CI-4). Restated, like
+# CI_PROFILE_CHOICES and NESSIE_PROFILES, because startup/ never imports ci/.
+# Production is left out on purpose: it runs an older graph without the sync's
+# own tables, so the command there reports a refusal on every single deploy.
+GRAPH_DRIFT_PROFILES = ("local", "dev")
+
 
 def _warn_if_proxy_token_empty(proxy_env_path: Path) -> None:
     if not read_env(proxy_env_path).get("AWS_BEARER_TOKEN_BEDROCK"):
@@ -762,6 +768,14 @@ def rebuild(
                                    state.compose_project_name)
     _report_health(health)
 
+    # Does the graph the site searches still equal MySQL (CI-4)? Advisory, like
+    # the CC checks above: the suite still runs and its result still stands, and
+    # a drifted graph is exited on at the end, where nothing is thrown away.
+    graph_drift = _graph_drift(state, app_rebuild=_is_app_rebuild(policy),
+                               stack_is_up=health.testable)
+    if graph_drift is not None:
+        _print_health_results([graph_drift])
+
     # Off-box rollback baselines (DEPLOYMENT.md §5.2). Non-fatal by contract,
     # and belt-and-braces guarded: the deploy is never hostage to the registry.
     if registry_push:
@@ -816,6 +830,7 @@ def rebuild(
                 image_ref=image_ref, image_id=image_id,
                 profile=state.ci_profile,
                 health=_health_rows(health),
+                graph_drift=_graph_drift_row(graph_drift),
                 # nessie_ran as well as the summary: a lane that died before its
                 # summary still left evidence for the record to file.
                 nessie_ran=nessie_on,
@@ -836,9 +851,10 @@ def rebuild(
                 raise typer.Exit(code=rc)
             ui.ok(f"CI passed: {outcome}")
 
-    if not health.ok:
+    if not health.ok or (graph_drift is not None and not graph_drift.ok):
         # The build itself succeeded; the box is nonetheless short an image, a
-        # service, or the front door, which only a user would otherwise report.
+        # service, or the front door, which only a user would otherwise report,
+        # or its graph no longer matches MySQL, which nobody would report at all.
         raise typer.Exit(code=1)
 
 
@@ -850,6 +866,27 @@ def _report_health(health: "validate.StackHealth") -> None:
 def _health_rows(health: "validate.StackHealth") -> list[tuple[str, bool, str]]:
     """The health step as the plain tuples the CI record takes."""
     return [(r.name, r.ok, r.detail) for r in health.results]
+
+
+def _graph_drift(state: InstanceState, *, app_rebuild: bool = True,
+                 stack_is_up: bool = True) -> "validate.HealthResult | None":
+    """Ask the app container whether the graph still equals MySQL (CI-4), or None.
+
+    None means the question was not asked, and then nothing is printed or
+    recorded: a box outside GRAPH_DRIFT_PROFILES, a component whose image says
+    nothing about the graph, or a stack whose app container is down, which the
+    health report has already said in its own words.
+    """
+    if not app_rebuild or not stack_is_up:
+        return None
+    if (state.ci_profile or DEFAULT_CI_PROFILE) not in GRAPH_DRIFT_PROFILES:
+        return None
+    return validate.check_graph_drift(REPO_ROOT, state.compose_env())
+
+
+def _graph_drift_row(result) -> tuple[str, bool, str] | None:
+    """The drift check as the plain tuple the CI record takes."""
+    return None if result is None else (result.name, result.ok, result.detail)
 
 
 # The profiles the Nessie lane may run under. It writes (a chat) and pays for model
@@ -1026,6 +1063,13 @@ def ci(
                 "what is down, then run this again.")
         raise typer.Exit(code=1)
 
+    # Step 1b: does the graph still equal MySQL (CI-4)? Printed and recorded here
+    # and no more than that. `ci` answers one question, what the suite says;
+    # `rebuild` is the command that exits red on drift.
+    graph_drift = _graph_drift(state)
+    if graph_drift is not None:
+        _print_health_results([graph_drift])
+
     # Step 2, with the Nessie lane on: its own prerequisites, which unlike the
     # advisory CC checks above do stop the run (spec decision 6).
     nessie_on = _nessie_active(state, nessie, profile=profile)
@@ -1046,6 +1090,7 @@ def ci(
     record = runner.write_report(REPO_ROOT, image_ref=image_ref, image_id=image_id,
                                  profile=state.ci_profile, command=cmd,
                                  health=_health_rows(health),
+                                 graph_drift=_graph_drift_row(graph_drift),
                                  nessie_ran=nessie_on,
                                  nessie_summary=(runner.read_nessie_summary(REPO_ROOT)
                                                  if nessie_on else None))

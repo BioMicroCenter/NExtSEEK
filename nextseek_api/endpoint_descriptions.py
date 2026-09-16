@@ -1325,3 +1325,34 @@ NESSIE_SESSION_DEBUG_DESC = (
     "- 'Show me every file this chat session wrote and whether it still exists'\n"
     "- 'How big did this session's results_history get?'\n"
 )
+
+# =============================================================================
+# GraphSyncStatusViewSet (1 endpoint)
+# =============================================================================
+
+GRAPH_SYNC_STATUS_DESC = (
+    "**SUMMARY:** Report what state this instance's graph sync is in: the latest run of each kind, whether each "
+    "scheduled job is running often enough, what work is waiting in the outbox, and what the last drift check "
+    "found.\n\n"
+    "**USE WHEN:** Answering whether the Neo4j sample graph is up to date with MySQL, why a newly uploaded sample "
+    "is not in the graph yet, or whether the nightly reconcile and the weekly full sync are still running.\n\n"
+    "**DO NOT USE WHEN:** The caller wants to compare the graph against MySQL right now, which is "
+    "`manage.py graph_sync --drift` and reads Neo4j; the caller wants to start a sync, which no endpoint does; the "
+    "caller wants sample records, which is a sample endpoint.\n\n"
+    "**ACCEPTS:** No parameters.\n\n"
+    "**RETURNS:** `200` with `generated_at`, `schema_version` (the version this instance's writer produces), `runs` "
+    "(the latest run of each kind, keyed by kind), `freshness` (`full`, `reconcile` and `outbox`, each `ok`, "
+    "`stale`, or `never` before a first successful run), `outbox` (open rows counted by kind as `pending`, `dead` "
+    "and `claimed`, plus the oldest row still waiting and its age) and `drift` (what the latest drift run "
+    "recorded). It reads two database tables only: no Neo4j connection and no SEEK call, so it still answers while "
+    "the graph itself is down.\n\n"
+    "**ERROR CODES:** `401` when unauthenticated; `403` for an authenticated caller who is not a Django superuser, "
+    "including a user with `is_staff` set, which every SEEK login sets; `503` when the two tables cannot be read, "
+    "which is what an instance that has not applied migration 0021 reports.\n\n"
+    "**TRIGGER PHRASES:** graph sync status, is the graph up to date, when did the last full sync run, graph sync "
+    "outbox, is the graph stale, graph drift\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Is the sample graph up to date?'\n"
+    "- 'When did the last full graph sync finish, and did it succeed?'\n"
+    "- 'How many samples are waiting to be written to the graph?'\n"
+)

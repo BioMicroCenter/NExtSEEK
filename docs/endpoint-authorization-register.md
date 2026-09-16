@@ -173,7 +173,7 @@ Note that a cross-project export path already exists and is correctly gated:
 
 ## Register
 
-56 routed read endpoints. `permission_classes` values are the declared class list; several
+57 routed read endpoints. `permission_classes` values are the declared class list; several
 endpoints add a second inline auth gate inside the handler, which is noted where it matters.
 
 | Path | Viewset / action | permission_classes | Project predicate applied? (file:line) | Proposed bucket |
@@ -234,15 +234,16 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/batch-upload/status/{job_id}/` | `BatchUploadViewSet.job_status` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:538` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/batch-upload/summary/{job_id}/` | `BatchUploadViewSet.summary` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:589` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/admin/project-export/{pk}/` | `ProjectExportViewSet.retrieve` | `IsAuthenticated, IsSuperUser` (`services/project_export.py:267`) | **None on the caller's own membership**: `project_id` comes from the URL (`services/project_export.py:316` -> `:197`). Superuser gate is the whole control. See note J | admin-only |
+| `GET /nextseek_api/admin/graph-sync/status/` | `GraphSyncStatusViewSet.status` | `IsAuthenticated, IsDjangoSuperuser` (`services/graph_sync_status.py:85`) | n/a, no sample data: it reads `graph_sync_outbox` and `graph_sync_run` on the dmac connection and nothing else (`services/graph_sync_status.py:54`), and answers 503 in the JSON:API envelope when they cannot be read. Declared for `local` and `dev` only in `ci/routes.py`, because an instance without migration 0021 does not have those tables | admin-only |
 
 ### Bucket totals
 
 | Bucket | Count |
 |---|---|
-| public-to-authenticated | 42 (of which 14 are owner-scoped) |
-| project-scoped | 7 |
-| admin-only | 6 |
-| **Total** | **55** |
+| public-to-authenticated | 42 (of which 13 are owner-scoped) |
+| project-scoped | 8 |
+| admin-only | 7 |
+| **Total** | **57** |
 
 ### NOT ROUTED
 
