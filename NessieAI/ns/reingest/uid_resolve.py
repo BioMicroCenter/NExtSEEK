@@ -38,6 +38,9 @@ def resolve(
     from nextseek_api.assistant.models_db import PipelineRun
 
     record = PipelineRun.objects.filter(run_dir=run_dir).first()
+    # Assumes every row carries a `sample` key, as a real samplesheet always
+    # does -- two rows both missing it would collapse to the same "" key and
+    # be flagged multi-run together.
     multi = {s for s, n in Counter(
         str(r.get("sample") or "") for r in samplesheet_rows).items() if n > 1}
 
