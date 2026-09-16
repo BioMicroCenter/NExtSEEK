@@ -335,6 +335,24 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
 #    over-cap tree fails fast and is never transferred. Cap hits are
 #    reported the same way as skipped symlinks. See Important 2 of the
 #    2026-09-16 review.
+#
+# 3. The inventory (nfcore-reingest addendum). The same script also walks
+#    `harvest.INVENTORY_GLOBS` -- the candidate OUTPUT files (BAMs, merged
+#    matrices, h5ad/mtx/rds objects, VCFs, the MultiQC html report,
+#    contaminant reports) -- and emits one `{"path", "bytes"}` entry per
+#    match into the trailing report, alongside `skipped`. This is a LISTING
+#    only: nothing here is added to the tar, nothing is read, nothing is
+#    transferred beyond the path string and the integer from `stat()`.
+#    Listing a file's name and size is a smaller disclosure than shipping
+#    its content, but the account is shared all the same, so every
+#    inventory candidate passes through the EXACT SAME containment checks as
+#    a staged one -- reject a symlink, reject anything that resolves outside
+#    `resolved_runs_root`, reject `st_nlink > 1` -- before it is ever listed.
+#    A candidate that fails any of those, or that arrives after
+#    `max_inventory_files` matches have already been listed, is skipped and
+#    reported exactly like a staging skip, never dropped silently. See
+#    `harvest.INVENTORY_GLOBS` and `manifest.RunManifest.outputs` /
+#    `.named_outputs` for the two different consumers this feeds.
 _STAGE_REPORT_NAME = "__nextseek_stage_report__.json"
 
 _STAGE_SCRIPT = """\
@@ -346,9 +364,11 @@ resolved_run_dir = run_dir.resolve()
 max_file_bytes = int(sys.argv[3])
 max_total_bytes = int(sys.argv[4])
 max_files = int(sys.argv[5])
-report_name = sys.argv[6]
-patterns = sys.argv[7:]
-seen = set()
+max_inventory_files = int(sys.argv[6])
+report_name = sys.argv[7]
+n_patterns = int(sys.argv[8])
+patterns = sys.argv[9:9 + n_patterns]
+inventory_patterns = sys.argv[9 + n_patterns:]
 skipped = []
 total_bytes = 0
 files_added = 0
@@ -358,31 +378,48 @@ try:
     resolved_run_dir.relative_to(resolved_runs_root)
 except ValueError:
     run_dir_escapes_runs_root = True
+
+
+def confined_stat(path, rel):
+    # The SAME containment guard, shared by staging and the inventory
+    # listing below: not a symlink, resolves inside the runs root, and no
+    # extra hardlink alias. Returns None (already recorded in `skipped`) if
+    # rejected, else the path's stat() result. A non-regular-file match (a
+    # directory, a fifo, ...) returns None WITHOUT being reported -- that is
+    # an ordinary glob miss, not an adversarial one.
+    if path.is_symlink():
+        skipped.append({"path": rel, "reason": "symlink (run_dir confinement cannot follow it safely)"})
+        return None
+    if not path.is_file():
+        return None
+    try:
+        path.resolve().relative_to(resolved_runs_root)
+    except ValueError:
+        skipped.append({"path": rel, "reason": "resolves outside run_dir"})
+        return None
+    st = path.stat()
+    if st.st_nlink > 1:
+        # Hardlink: a directory entry inside run_dir sharing an inode with
+        # a file elsewhere. No separate target path exists to resolve
+        # away from (unlike a symlink), so this can only be caught by the
+        # link count itself. Fail closed -- see the "1b. Hardlinks" note
+        # above _STAGE_SCRIPT for why false positives here should be rare.
+        skipped.append({"path": rel, "reason": "hardlinked; cannot confirm no other path reaches it"})
+        return None
+    return st
+
+
+inventory = []
 if not run_dir_escapes_runs_root:
+    seen = set()
     for pattern in patterns:
         for path in sorted(run_dir.glob(pattern)):
             rel = str(path.relative_to(run_dir))
             if rel in seen:
                 continue
             seen.add(rel)
-            if path.is_symlink():
-                skipped.append({"path": rel, "reason": "symlink (run_dir confinement cannot follow it safely)"})
-                continue
-            if not path.is_file():
-                continue
-            try:
-                path.resolve().relative_to(resolved_runs_root)
-            except ValueError:
-                skipped.append({"path": rel, "reason": "resolves outside run_dir"})
-                continue
-            st = path.stat()
-            if st.st_nlink > 1:
-                # Hardlink: a directory entry inside run_dir sharing an inode with
-                # a file elsewhere. No separate target path exists to resolve
-                # away from (unlike a symlink), so this can only be caught by the
-                # link count itself. Fail closed -- see the "1b. Hardlinks" note
-                # above _STAGE_SCRIPT for why false positives here should be rare.
-                skipped.append({"path": rel, "reason": "hardlinked; cannot confirm no other path reaches it"})
+            st = confined_stat(path, rel)
+            if st is None:
                 continue
             size = st.st_size
             if size > max_file_bytes:
@@ -405,7 +442,27 @@ if not run_dir_escapes_runs_root:
             tar.add(str(path), arcname=rel)
             total_bytes += size
             files_added += 1
-report = json.dumps({"skipped": skipped, "run_dir_escapes_runs_root": run_dir_escapes_runs_root}).encode()
+
+    seen_inventory = set()
+    for pattern in inventory_patterns:
+        for path in sorted(run_dir.glob(pattern)):
+            rel = str(path.relative_to(run_dir))
+            if rel in seen_inventory:
+                continue
+            seen_inventory.add(rel)
+            st = confined_stat(path, rel)
+            if st is None:
+                continue
+            if len(inventory) >= max_inventory_files:
+                skipped.append({"path": rel, "reason": "exceeds max inventory file count (%d)" % max_inventory_files})
+                continue
+            inventory.append({"path": rel, "bytes": st.st_size})
+
+report = json.dumps({
+    "skipped": skipped,
+    "run_dir_escapes_runs_root": run_dir_escapes_runs_root,
+    "inventory": inventory,
+}).encode()
 info = tarfile.TarInfo(name=report_name)
 info.size = len(report)
 tar.addfile(info, fileobj=io.BytesIO(report))
@@ -413,13 +470,15 @@ tar.close()
 """
 
 
-def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: str, key_path: str) -> list[dict]:
+def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: str,
+                    key_path: str) -> tuple[list[dict], list[dict]]:
     """Stage every ``harvest.GENERIC_GLOBS`` match from ``run_dir`` on Luria
-    into ``staged_dir``, ready for ``harvest.harvest_local``. See
+    into ``staged_dir``, ready for ``harvest.harvest_local``, and separately
+    LIST (never stage) every ``harvest.INVENTORY_GLOBS`` match. See
     ``_STAGE_SCRIPT`` above for why this runs the glob matching remotely, in
-    Python, and packs the matches into a single tar stream rather than an
-    `ls` + per-file `cat`, and for the symlink/cap enforcement it does before
-    ever adding a match to that stream.
+    Python, and packs the staged matches into a single tar stream rather than
+    an `ls` + per-file `cat`, and for the symlink/cap enforcement it does
+    before ever adding a match to that stream or the inventory listing.
 
     ``runs_root`` (not ``run_dir``) is the confinement anchor the remote
     script resolves against -- see "1c. run_dir ITSELF as a symlink" above
@@ -428,28 +487,35 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
     skip: ``run_dir`` is a caller-named top-level path, not an incidental
     glob hit.
 
-    Returns the list of ``{"path", "reason"}`` entries the remote script
-    skipped (symlinks, escapes, or cap hits) so the caller can surface them
-    rather than let the omission pass silently.
+    Returns ``(skipped, inventory)``: ``skipped`` is the list of
+    ``{"path", "reason"}`` entries the remote script skipped (symlinks,
+    escapes, hardlinks, or cap hits -- from either half) so the caller can
+    surface them rather than let the omission pass silently; ``inventory``
+    is the list of ``{"path", "bytes"}`` entries for ``harvest_local``'s
+    ``inventory`` parameter.
     """
     import io
     import shlex
     import tarfile
 
     from chat_nextseek.luria.ssh import ssh_run_bytes
-    from NessieAI.ns.reingest.harvest import GENERIC_GLOBS, MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_BYTES
+    from NessieAI.ns.reingest.harvest import (
+        GENERIC_GLOBS, INVENTORY_GLOBS, MAX_FILE_BYTES, MAX_FILES, MAX_INVENTORY_FILES, MAX_TOTAL_BYTES,
+    )
 
     remote_cmd = " ".join([
         "python3", "-c", shlex.quote(_STAGE_SCRIPT), shlex.quote(run_dir), shlex.quote(runs_root),
         shlex.quote(str(MAX_FILE_BYTES)), shlex.quote(str(MAX_TOTAL_BYTES)), shlex.quote(str(MAX_FILES)),
-        shlex.quote(_STAGE_REPORT_NAME),
+        shlex.quote(str(MAX_INVENTORY_FILES)), shlex.quote(_STAGE_REPORT_NAME), shlex.quote(str(len(GENERIC_GLOBS))),
         *(shlex.quote(pattern) for pattern in GENERIC_GLOBS),
+        *(shlex.quote(pattern) for pattern in INVENTORY_GLOBS),
     ])
     # Bounded, not indefinite: see _HARVEST_SSH_TIMEOUT_S below for why this
     # backstops a stalled shared filesystem rather than an oversized
     # request (the size/count caps enforced remotely, above, are that).
     tar_bytes = ssh_run_bytes(luria_env, remote_cmd, key_path=key_path, timeout=_HARVEST_SSH_TIMEOUT_S)
     skipped: list[dict] = []
+    inventory: list[dict] = []
     run_dir_escapes_runs_root = False
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r|") as tar:
         for member in tar:
@@ -457,6 +523,7 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
                 report_fileobj = tar.extractfile(member)
                 report = json.loads(report_fileobj.read()) if report_fileobj else {}
                 skipped = report.get("skipped", [])
+                inventory = report.get("inventory", [])
                 run_dir_escapes_runs_root = report.get("run_dir_escapes_runs_root", False)
                 continue
             if not member.isfile():
@@ -467,7 +534,7 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
             tar.extract(member, path=staged_dir)
     if run_dir_escapes_runs_root:
         raise OpValidationError(f"run_dir resolves outside the runs root: {run_dir!r}")
-    return skipped
+    return skipped, inventory
 
 
 # Wall-clock backstop for the run-harvest staging SSH call, mirroring
@@ -501,14 +568,17 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
     key_path = prepare_key(luria_env["key"])
     try:
         with tempfile.TemporaryDirectory() as staged:
-            skipped = _stage_run_dir(luria_env, run_dir, runs_root, staged, key_path)
+            skipped, inventory = _stage_run_dir(luria_env, run_dir, runs_root, staged, key_path)
             # run_dir (the cluster path) is passed through as harvest_local's
             # provenance/lookup label -- `staged` is only the local read root.
             # Without this, the manifest and PipelineRun lookup are both keyed
             # off the temp staging path, which never matches the launch
-            # record's run_dir (see harvest_local's docstring).
+            # record's run_dir (see harvest_local's docstring). `inventory` is
+            # the remote INVENTORY_GLOBS listing -- harvest_local never sees
+            # `run_dir` (the real cluster directory) itself, only `staged`, so
+            # it cannot gather that listing on its own.
             run_manifest = harvest.harvest_local(
-                staged, run_dir=run_dir, lookup_by_fastq=_d_seq_by_fastq)
+                staged, run_dir=run_dir, lookup_by_fastq=_d_seq_by_fastq, inventory=inventory)
     finally:
         try:
             os.remove(key_path)

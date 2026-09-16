@@ -303,17 +303,93 @@ def test_general_stats_fallback_keeps_a_failed_alignment_sample(tmp_path):
     assert any("FAILED_REP1_2" in w for w in got.warnings)
 
 
-def test_extra_globs_are_read_and_recorded_as_outputs(tmp_path):
-    root = tmp_path / "run"
+def _minimal_run(root):
     (root / "pipeline_info").mkdir(parents=True)
     (root / "pipeline_info" / "nf_core_rnaseq_software_mqc_versions.yml").write_text(
         "Workflow:\n  nf-core/rnaseq: v3.22.2\n  Nextflow: 25.10.2\n")
     (root / "pipeline_info" / "execution_trace.txt").write_text(
         "task_id\tstatus\n1\tCOMPLETED\n")
-    (root / "extra_thing.txt").write_text("hello")
+
+
+def test_a_purely_local_caller_without_an_inventory_still_works(tmp_path):
+    # harvest_local stays local-only and cannot gather the inventory itself
+    # (it never sees the real run directory, only a staged temp copy) -- a
+    # caller that never passes one (an existing local-directory caller, or a
+    # test) must keep working, with an empty inventory rather than an error.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+    assert got.outputs == []
+    assert got.named_outputs == {}
+
+
+def test_inventory_entry_carries_the_real_file_size_not_a_decoded_text_length():
+    # The dead extra_globs writer this replaces set `bytes=len(text.encode())`
+    # -- the length of a DECODED TEXT read, not the file's real st_size. The
+    # inventory never reads file content at all: its `bytes` must be exactly
+    # whatever the caller (the remote listing) reports, unrelated to any
+    # local text decoding.
+    got = harvest.harvest_local(
+        "/nonexistent-root-never-read",
+        inventory=[{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 4823019283}],
+        lookup_by_fastq=lambda p: [])
+    assert len(got.outputs) == 1
+    assert got.outputs[0].path == "star_salmon/CONTROL_REP1.markdup.sorted.bam"
+    assert got.outputs[0].bytes == 4823019283
+
+
+def test_inventory_entries_are_attributed_to_a_sample_when_derivable(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    stats_dir = root / "multiqc" / "star_salmon" / "multiqc_report_data"
+    stats_dir.mkdir(parents=True)
+    (stats_dir / "multiqc_general_stats.txt").write_text(
+        "Sample\tstar-uniquely_mapped_percent\n"
+        "CONTROL_REP1\t89.16\n")
 
     got = harvest.harvest_local(
-        str(root), extra_globs=["*.txt"], lookup_by_fastq=lambda p: [])
+        str(root),
+        inventory=[
+            {"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 100},
+            {"path": "star_salmon/salmon.merged.gene_counts.tsv", "bytes": 200},
+        ],
+        lookup_by_fastq=lambda p: [])
 
-    assert [o.path for o in got.outputs] == ["extra_thing.txt"]
-    assert got.outputs[0].bytes == len(b"hello")
+    by_path = {o.path: o for o in got.outputs}
+    assert by_path["star_salmon/CONTROL_REP1.markdup.sorted.bam"].sample == "CONTROL_REP1"
+    # A per-run matrix names no single sample -- nothing to derive, and
+    # nothing invented.
+    assert by_path["star_salmon/salmon.merged.gene_counts.tsv"].sample is None
+
+
+def test_named_outputs_resolves_the_three_well_known_keys_from_a_synthetic_tree(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+
+    got = harvest.harvest_local(
+        str(root),
+        inventory=[
+            {"path": "multiqc/star_salmon/multiqc_data/multiqc_report.html", "bytes": 111},
+            {"path": "star_salmon/contaminants/kraken2/kraken_reports/CONTROL_REP1.kraken2.report.txt",
+             "bytes": 222},
+            {"path": "deseq2_qc/deseq2.dds.RData", "bytes": 333},
+            # a decoy that must NOT be picked for any named key.
+            {"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 444},
+        ],
+        lookup_by_fastq=lambda p: [])
+
+    assert got.named_outputs == {
+        "multiqc_report_html": "multiqc/star_salmon/multiqc_data/multiqc_report.html",
+        "kraken2_report": "star_salmon/contaminants/kraken2/kraken_reports/CONTROL_REP1.kraken2.report.txt",
+        "deseq2_dds_rdata": "deseq2_qc/deseq2.dds.RData",
+    }
+
+
+def test_named_outputs_omits_a_key_with_no_matching_inventory_entry(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    got = harvest.harvest_local(
+        str(root),
+        inventory=[{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 1}],
+        lookup_by_fastq=lambda p: [])
+    assert got.named_outputs == {}
