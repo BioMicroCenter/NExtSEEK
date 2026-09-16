@@ -44,6 +44,8 @@ from django.conf import settings
 from django.db import connections, transaction
 from django.utils import timezone
 
+from nextseek_api.graph_sync import hooks
+
 from .faults import attribute_fault
 from .metadata import RewriteSpec, rewrite_type_metadata
 from .planner import (
@@ -550,6 +552,12 @@ class DjangoExecutionServices:
             outcome=outcome,
             reconciliation={"state": "verified", "verified_at": timezone.now().isoformat()},
         )
+        # The commit is recorded, so the graph is now behind on this sample type's declared attributes and on the
+        # stored metadata of every sample of it (graph-sync spec 5, E2 and E11). The hook writes one outbox row per
+        # kind and never raises: this recorded commit stands whatever the outbox does, and a recovery that never
+        # reaches here enqueues nothing, leaving that change to the nightly targeted sync.
+        hooks.enqueue("catalog", "*")
+        hooks.enqueue("samples_of_type", f"type:{plan.sample_type_id}")
         attribute_fault("executor.after_default_progress_before_terminal")
         if self.synchronous:
             terminal_state = "succeeded" if outcome["status"] in {"succeeded", "unchanged"} else outcome["status"]
