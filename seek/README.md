@@ -82,7 +82,7 @@ test records and pins with a strict xfail (`seek/tests/test_dbtables.py:44-47`).
 
 ### Pages, search and export
 
-`seek/urls.py` declares 62 `re_path` entries, mounted under `^seek/` by
+`seek/urls.py` declares 68 `re_path` entries, mounted under `^seek/` by
 `dmac/urls.py:27`. The views are a **package of 11 modules**, not a single file:
 `seek/views/__init__.py:1-8` re-exports every name the URL conf uses and states
 the consequence for patching. `seek/search.py:16-35` holds the identifier
@@ -191,7 +191,8 @@ importer grep cannot see.
 - `nextseek_api.services`, mutually and at module scope, for the catalog and
   workbook logic the pages render: `seek/views/catalog.py:16`,
   `seek/views/projects.py:19-22`, `seek/views/assets.py:17-18`,
-  `seek/views/admin.py:25`, `seek/sample/download.py:17`.
+  `seek/views/admin.py:25`, `seek/views/assay_setup.py:26-31`,
+  `seek/sample/download.py:17`.
 
 **Depended on by.** Generated 2026-09-03 by grepping every `.py` file in the
 worktree for a line beginning with an import of `seek` or of any `seek.`

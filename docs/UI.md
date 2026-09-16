@@ -98,6 +98,9 @@ Every URL below is unprefixed: `USE_I18N = False` (`dmac/settings.py:56`), so th
 | Batch Upload (Assay Sheets) | `/seek/samples/upload/` | `views.batchUpload` (`seek/views/upload.py:26`) | `seek/templates/batchUpload.html` (`seek/views/upload.py:52`) | `pages/batch_upload.embed.html` |
 | Data/Protocol File Upload | `/seek/data/upload/` | `views.datafileUpload` (`seek/views/upload.py:300`) | `seek/templates/dataFileUpload.html` (`seek/views/upload.py:327`) | none: the template includes nothing |
 | Download Templates | `/seek/templates/` | `views.templatesList` (`seek/views/assets.py:107`) | `seek/templates/templatesList.html` (`seek/views/assets.py:113`) | - |
+| Assay Setup | `/seek/assay-setup/` | `views.assaySetup` (`seek/views/assay_setup.py:107`) | `seek/templates/assaySetup.html` (`seek/views/assay_setup.py:109`) | `assaySetupGroups.html` |
+| Assay Setup download | `/seek/assay-setup/download/` | `views.assaySetupDownload` (`seek/views/assay_setup.py:132`) | none: streams an xlsx | - |
+| Assay Setup create | `/seek/assay-setup/create/` | `views.assaySetupCreate` (`seek/views/assay_setup.py:191`) | `seek/templates/assaySetup.html` on error (`seek/views/assay_setup.py:207`) | `assaySetupGroups.html` |
 
 `pages/datafile_upload.embed.html` is orphaned: no template includes it (searched every `.html` under `seek/templates`, `themes/NextSeek/templates` and `dmac/templates` for its name on 2026-09-03; zero hits).
 
