@@ -1,8 +1,19 @@
-"""Orphan parent resolution -- discover and resolve orphaned parent references."""
+"""Orphan parent resolution -- discover and resolve orphaned parent references.
+
+A sample whose Parent field named a sample nobody had uploaded yet keeps that name in its metadata, and its graph
+node keeps it in ``parent_titles`` and ``parent_title_hashes`` (both projection-owned now: the sync design, section 5
+E6, R4). When the parent finally arrives, ``discover_orphans`` finds those children through the hash list and
+``resolve_orphans`` replaces the name with the parent's UID in MariaDB.
+
+The DERIVED_FROM edge is no longer written here. ``resolve_orphans`` reports the children it rewrote, its caller
+enqueues one ``samples`` outbox row for each once the rewrite has committed
+(``tasks.py::resolve_orphans_task``), and the graph sync writes the edge and its labels from MySQL: one code path for
+every graph write (the sync design, sections 7 and 8; C-14).
+"""
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List
 
 from sqlalchemy import text
 
@@ -24,12 +35,7 @@ except ImportError:
         return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-from .helpers import (
-    collect_parent_tokens,
-    lookup_sop_ids_by_title,
-    parse_protocol_value,
-    split_parent_field,
-)
+from .helpers import collect_parent_tokens
 from .identity import hash_identity
 
 log = logging.getLogger(__name__)
@@ -104,10 +110,8 @@ def discover_orphans(
 
 
 # ---------------------------------------------------------------------------
-# Resolve helpers & constants
+# The rewrite
 # ---------------------------------------------------------------------------
-
-_SOP_TITLE_SQL = text("SELECT title FROM sops WHERE id = :id")
 
 _FETCH_METADATA_SQL = text(
     "SELECT json_metadata FROM samples WHERE id = :sample_id"
@@ -117,92 +121,26 @@ _UPDATE_METADATA_SQL = text(
     "UPDATE samples SET json_metadata = :meta, updated_at = NOW() WHERE id = :sample_id"
 )
 
-_DERIVED_FROM_CYPHER = """
-UNWIND $rows AS row
-MATCH (c:Sample {uuid: row.child_uuid})
-MATCH (p:Sample {uuid: row.parent_uuid})
-MERGE (c)-[r:DERIVED_FROM]->(p)
-SET r.protocol_id = row.protocol_id,
-    r.protocol_title = row.protocol_title,
-    r.internal_assay_id = row.internal_assay_id,
-    r.internal_assay_title = row.internal_assay_title,
-    r.child_id = row.child_id,
-    r.parent_id = row.parent_id
-"""
-
-
-def _extract_protocol(
-    meta: dict, sql_conn: Any
-) -> Tuple[Optional[int], Optional[str], Optional[str]]:
-    """Extract protocol_id and protocol_title from sample metadata.
-
-    Returns ``(protocol_id, protocol_title, unresolved_value)``. The third
-    element is the raw Protocol string when the sample recorded one but it
-    named no SOP — a null protocol on a resolved orphan's edge is otherwise
-    indistinguishable from a sample that genuinely has no protocol.
-
-    Uses the same rule as the ingest path (see
-    ``helpers.parse_protocol_value``): production stores the SOP *title* in
-    Protocol far more often than a ``/sops/<id>`` URL, and this function
-    understood only the URL. A Protocol linking to a SOP on another instance is
-    likewise not a failure — there is simply no local id — so it costs no query
-    and is not reported.
-    """
-    protocol_str = meta.get("Protocol") or meta.get("protocol") or ""
-    ref = parse_protocol_value(protocol_str)
-    protocol_id, title = ref.sop_id, ref.title
-
-    if ref.external_url is not None:
-        log.info(
-            "Orphan resolution: Protocol %r links to an external SOP; the "
-            "DERIVED_FROM edge records no local protocol",
-            ref.external_url,
-        )
-        return None, None, None
-
-    if protocol_id is None and title is not None:
-        resolved, ambiguous = lookup_sop_ids_by_title([title], sql_conn)
-        protocol_id = resolved.get(title)
-        if protocol_id is None:
-            log.warning(
-                "Orphan resolution: Protocol %r matches %s; the DERIVED_FROM edge "
-                "carries no protocol",
-                str(protocol_str),
-                f"{ambiguous[title]} SOPs" if title in ambiguous else "no SOP",
-            )
-            return None, None, str(protocol_str)
-
-    if protocol_id is None:
-        return None, None, None
-
-    row = sql_conn.execute(_SOP_TITLE_SQL, {"id": protocol_id}).fetchone()
-    return protocol_id, (row[0] if row else None), None
-
 
 def resolve_orphans(
     orphans: List[dict],
-    parent_info: Dict[str, dict],
     sql_conn: Any,
-    neo4j_driver: Any,
-    neo4j_database: str,
 ) -> dict:
-    """Resolve orphan parent references: update MariaDB Parent field + create DERIVED_FROM edges.
+    """Resolve orphan parent references: replace the matched identity token with the parent's UID in MariaDB.
 
     For each candidate orphan, checks if the matched identity token is still present
     in the Parent field. If already resolved (token replaced with UID), skips silently.
 
-    Does NOT modify parent_titles — it is permanent metadata.
+    Does NOT modify parent_titles -- it is permanent metadata -- and writes nothing to Neo4j.
 
     Returns:
-        {"resolved": int, "edges_created": int, "protocols_unresolved": int}
+        ``{"resolved": int, "sample_ids": [...]}``. The ids are the children this call rewrote, in the order it
+        rewrote them: the caller enqueues them for the graph sync once the transaction has committed.
     """
-    resolved = 0
-    protocols_unresolved = 0
-    edge_rows: List[dict] = []
+    resolved_ids: List[int] = []
 
     for orphan in orphans:
         sample_id = orphan["id"]
-        child_uuid = orphan["uuid"]
         matched_tokens: Dict[str, str] = orphan.get("matched_tokens", {})
 
         if not matched_tokens:
@@ -225,24 +163,6 @@ def resolve_orphans(
                 parent_parts = [uid if p == token else p for p in parent_parts]
                 any_replaced = True
 
-                # Build DERIVED_FROM edge payload
-                p_info = parent_info.get(uid, {})
-                protocol_id, protocol_title, unresolved_protocol = _extract_protocol(
-                    meta, sql_conn
-                )
-                if unresolved_protocol is not None:
-                    protocols_unresolved += 1
-                edge_rows.append({
-                    "child_uuid": child_uuid,
-                    "parent_uuid": p_info.get("uuid", uid),
-                    "protocol_id": protocol_id,
-                    "protocol_title": protocol_title,
-                    "internal_assay_id": None,
-                    "internal_assay_title": None,
-                    "child_id": sample_id,
-                    "parent_id": p_info.get("sample_id"),
-                })
-
         if any_replaced:
             # Update Parent field in json_metadata
             parent_key = "Parent" if "Parent" in meta else "parent"
@@ -258,27 +178,10 @@ def resolve_orphans(
                 _UPDATE_METADATA_SQL,
                 {"meta": _json_dumps(meta), "sample_id": sample_id},
             )
-            resolved += 1
-
-    # Batch-create DERIVED_FROM edges in Neo4j
-    edges_created = 0
-    if edge_rows:
-        neo4j_driver.execute_query(
-            _DERIVED_FROM_CYPHER,
-            {"rows": edge_rows},
-            database_=neo4j_database,
-        )
-        edges_created = len(edge_rows)
+            resolved_ids.append(sample_id)
 
     log.info(
-        "Orphan resolution: %d samples resolved, %d edges created, "
-        "%d edge(s) with an unresolvable Protocol",
-        resolved,
-        edges_created,
-        protocols_unresolved,
+        "Orphan resolution: %d samples resolved; their lineage is the graph sync's to write",
+        len(resolved_ids),
     )
-    return {
-        "resolved": resolved,
-        "edges_created": edges_created,
-        "protocols_unresolved": protocols_unresolved,
-    }
+    return {"resolved": len(resolved_ids), "sample_ids": resolved_ids}
