@@ -470,13 +470,19 @@ def test_stage_run_dir_skips_an_inventory_candidate_reached_through_an_escaping_
     """The escape guard (ancestor-symlink / resolves-outside-run_dir) applies
     to inventory candidates too, not only staged ones. This uses a
     non-"**" pattern ("aligner_out/*.bam", not one of the real
-    INVENTORY_GLOBS): pathlib.Path.glob's "**" no longer recurses through a
-    symlinked directory by default (Python >= 3.13), so a "**"-based
-    INVENTORY_GLOBS entry can never even reach this file to begin with --
-    which is a fine outcome, but means the STAT-LEVEL guard inside
-    confined_stat (shared with staging) needs its own exercise with a
-    pattern that does reach through the symlink, the same way GENERIC_GLOBS'
-    own ancestor-symlink test relies on _PARAMS_GLOB (also non-"**")."""
+    INVENTORY_GLOBS): on current interpreters, confirmed directly against a
+    symlinked ancestor, pathlib.Path.glob's "**" component does not recurse
+    through it (the exact Python version this became the default is not
+    authoritative here -- see
+    test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_symlinked_dir
+    below for why the guard does not depend on it either way). A leading
+    literal or wildcard glob SEGMENT (like "aligner_out" here, or "multiqc*"
+    in the one real INVENTORY_GLOBS entry with a non-"**" leading segment)
+    still follows a symlink there normally, so this pattern -- like that
+    real one -- does reach the symlinked file, exercising the STAT-LEVEL
+    guard inside confined_stat (shared with staging) directly, the same way
+    GENERIC_GLOBS' own ancestor-symlink test relies on _PARAMS_GLOB (also
+    non-"**")."""
     run_dir = tmp_path / "runs" / "a_run"
     run_dir.mkdir(parents=True)
     outside_dir = tmp_path / "outside_dir"
@@ -498,6 +504,47 @@ def test_stage_run_dir_skips_an_inventory_candidate_reached_through_an_escaping_
     assert inventory == []
     assert any(
         item["path"] == "aligner_out/leak.bam" and "outside run_dir" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_symlinked_dir(tmp_path, monkeypatch):
+    """The ONE production INVENTORY_GLOBS entry an ancestor-symlink escape
+    can actually reach: "multiqc*/**/multiqc_report.html" is the only
+    pattern in the tuple whose leading segment is a literal/wildcard
+    ("multiqc*") rather than "**" -- and, per the synthetic-pattern test
+    above, only the "**" component declines to follow a symlink; a leading
+    wildcard segment still follows one normally. Every other INVENTORY_GLOBS
+    entry starts with "**" and so never reaches a file behind a symlinked
+    ancestor to begin with, which is why the synthetic "aligner_out/*.bam"
+    test above is needed to exercise confined_stat's escape check at all --
+    but that leaves the actually-exposed production path itself unverified.
+    This test drives `harvest.INVENTORY_GLOBS` directly (no synthetic
+    pattern) against a directory literally named "multiqc" -- the shape
+    nf-core's own MultiQC step writes -- symlinked to outside run_dir, so a
+    regression in either the pattern's leading segment or in confined_stat's
+    escape check would show up here."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside_dir = tmp_path / "outside_multiqc"
+    outside_dir.mkdir()
+    outside_report = outside_dir / "multiqc_report.html"
+    outside_report.write_text("<html>leaked</html>")
+    (run_dir / "multiqc").symlink_to(outside_dir)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.INVENTORY_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert inventory == []
+    assert any(
+        item["path"] == "multiqc/multiqc_report.html" and "outside run_dir" in item["reason"]
         for item in skipped
     ), skipped
 
