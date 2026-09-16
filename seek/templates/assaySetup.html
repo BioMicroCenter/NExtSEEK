@@ -38,6 +38,12 @@
 
     <form method="post" action="/seek/assay-setup/download/">
       {% csrf_token %}
+      {# Carries the assay through an empty submit -- nothing ticked posts no #}
+      {# `codes` at all, so without this the view has no slug to fall back to #}
+      {# and re-renders the picker instead of this assay. Named `assay` to    #}
+      {# match the query parameter, not `codes`-prefixed, so `_posted_codes`  #}
+      {# never mistakes it for a selection. #}
+      <input type="hidden" name="assay" value="{{ components.slug }}">
 
       {% include "assaySetupGroups.html" with groups=components.required_parents label="Required parent sample types" prefix="req" %}
       {% include "assaySetupGroups.html" with groups=components.optional_parents label="Optional parent sample types" prefix="opt" %}

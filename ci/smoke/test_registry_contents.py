@@ -39,9 +39,14 @@ from ci.smoke.test_reachability import _callable_routes
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
 # runs, which happen in a different environment. 168 -> 171 on 2026-09-16,
-# confirmed by the completeness gate: this constant was already undercounting by
-# two (untraced against this history) before /seek/assay-setup/download/, the
-# one route this change adds, brought the true total to 171.
+# confirmed by the completeness gate -- but the jump is not one route's worth,
+# it is three, and only the last of them is this branch's own download route.
+# `git show <sha>:ci/routes.py | grep -c '^    Route('` gives 168 owned routes
+# at 7775680a, 169 at 1e32bc5a (the assay-association commit, which added a
+# route without bumping this constant), 170 at 871cdc37 (this plan's own Task
+# 4, the assay-setup page's GET route, same miss), and 171 at the commit that
+# added /seek/assay-setup/download/ and finally moved this constant -- crediting
+# the whole three-route jump to the one route it happened to notice.
 OWNED_ROUTE_COUNT = 171
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served

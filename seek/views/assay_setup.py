@@ -55,7 +55,12 @@ def _picker():
 
 
 def _page_context(request, message=""):
-    slug = (request.GET.get('assay') or "").strip()
+    # GET is the primary source, so the plain GET page (no POST body at all)
+    # is unaffected; POST is the fallback so an empty download submission --
+    # nothing ticked -- can still say which assay it was for. The download
+    # form's hidden `assay` field is what carries it; `_posted_codes` never
+    # sees that key, since it only collects `codes` and `codes-<prefix>-<n>`.
+    slug = (request.GET.get('assay') or request.POST.get('assay') or "").strip()
 
     components = None
     if slug:

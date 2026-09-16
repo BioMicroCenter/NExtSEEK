@@ -198,7 +198,55 @@ class TestAssaySetupDownload:
         db.return_value = _logged_in()
         resp = assaySetupDownload(_post("/seek/assay-setup/download/", {}))
         assert resp.status_code == 200
-        assert "Select at least one" in resp.content.decode()
+        body = resp.content.decode()
+        assert "Select at least one" in body
+        # templatesList.html also renders `message`, and Django tolerates the
+        # context keys this view never sets (`components`, `groups`, ...), so
+        # asserting on the message alone passes just as green if the view
+        # regressed to rendering templatesList.html instead. Assert on
+        # something only assaySetup.html's own header renders.
+        assert '<h1 class="ns-page-title">Assay setup</h1>' in body
+
+    @patch("seek.views.assay_setup.resolve_components", return_value=FLOW)
+    @patch("seek.views.assay_setup.select_entries", return_value=([], []))
+    @patch("seek.decorators.SeekDB")
+    def test_an_empty_submit_re_renders_the_originating_assay(
+        self, db, select, _resolve
+    ):
+        """An assay whose components are all non-downloadable renders every
+        control disabled, so submitting with nothing ticked is reachable. The
+        download form's hidden `assay` field must carry the slug through that
+        POST, or the view has nothing to fall back to and drops the user back
+        on the picker instead of the assay they were working on."""
+        from seek.views.assay_setup import assaySetupDownload
+
+        db.return_value = _logged_in()
+        resp = assaySetupDownload(_post(
+            "/seek/assay-setup/download/", {"assay": "flow-cytometry"}
+        ))
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert "Select at least one" in body
+        # The SAME assay's components, not the picker.
+        assert "TIS" in body and "D.FLOW" in body
+        assert "Flow Cytometry" in body
+
+    @patch("seek.views.assay_setup.resolve_components", return_value=None)
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.views.assay_setup.select_entries", return_value=([], []))
+    @patch("seek.decorators.SeekDB")
+    def test_an_unknown_assay_posted_on_an_empty_submit_is_still_a_404(
+        self, db, select, _assays, _resolve
+    ):
+        """The POST fallback must not relax the 404 an unknown slug already
+        gets via GET."""
+        from django.http import Http404
+
+        from seek.views.assay_setup import assaySetupDownload
+
+        db.return_value = _logged_in()
+        with pytest.raises(Http404):
+            assaySetupDownload(_post("/seek/assay-setup/download/", {"assay": "nope"}))
 
     @patch("seek.views.assay_setup.render_template_workbook",
            return_value=(io.BytesIO(b"x"), "t.xlsx"))
