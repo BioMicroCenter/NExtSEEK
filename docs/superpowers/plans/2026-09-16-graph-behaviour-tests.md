@@ -357,24 +357,24 @@ scripts/graph_search/lane.sh neo4j-cypher \
 Expected: `schema_version` is `1.2`; `samples` equals 1,084,754; `with_hash` equals `samples`. A shortfall in
 `with_hash` means the run stopped early and Stage A has **not** passed.
 
-**Also assert that the run dropped no sample.** `run._project` returns `None` both when the sample's type is not in
-the catalog and when `project_sample` raises, and `scan_samples` appends only non-`None` projections. So a sample
-that fails projection is counted in `scan.errors`, never written, and **the run still reports success**. Read the
-report's projection error count and require it to be 0:
+**Record the projection numbers, as an observation rather than a gate.** Sample completeness is already guarded
+twice and neither guard needs adding:
+
+- Any projection error refuses the whole run **before its first write**. `_preflight` collects `scan.errors` into
+  `problems`, and `full_sync` raises `PreflightError` when that list is non-empty, so `_write` never runs and the
+  report's status is `refused`, not `ok`. A completed run therefore implies zero projection errors.
+- Gate G independently compares the graph's Sample count against MySQL's
+  (`verify.py` check `4.samples.graph_count`), which A5 Step 4 already runs.
+
+So read the numbers for the record, not to catch anything:
 
 ```bash
-python3 -c "import json,sys; r=json.load(open('$GS_WORK/runs/sync-lane/A5-full12.json')); \
-print('projection_errors', r.get('projection_errors'), 'examples', r.get('projection_error_examples'))"
+python3 -c "import json; r=json.load(open('$GS_WORK/runs/sync-lane/A5-full12.json')); \
+print({k: r.get(k) for k in ('status','samples_read','samples_projected','projection_errors','problems')})"
 ```
 
-A non-zero count means the graph is missing those samples and nothing in the run said so. Record the ids.
-
-Context: the POC session found study 55 holding 23 live SEEK samples against 10 in the frozen graph. Four
-explanations were eliminated on 2026-09-16 by reading MySQL: the 23 asset ids all exist in `samples` (so not stale
-`assay_assets` rows, though 362 such orphaned rows do exist globally and are a separate data-hygiene finding); zero
-samples repo-wide have a `sample_type_id` with no `sample_types` row; zero have a NULL one; and the samples were
-created in April and last updated in August, so they long predate the 09-15 full sync and are not recency. The
-projection-error path is the remaining candidate and it cannot be confirmed while the live graph is frozen.
+Expected: `status` `ok`, `projection_errors` 0, `samples_projected` equal to `samples_read`. A `refused` status with
+a projection problem names the sample ids in `projection_error_examples`.
 
 - [ ] **Step 4: Run gate G on the result**
 
