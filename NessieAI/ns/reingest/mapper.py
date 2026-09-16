@@ -189,7 +189,7 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
         # it last so no rule attribute can accidentally clobber it. Only a
         # resolution in `_HAS_PARENT` may set it; an unresolved sample ships
         # its row with no `Parent` key.
-        if sample.uid_resolution in _HAS_PARENT:
+        if sample.uid_resolution in _HAS_PARENT and sample.d_seq_uid:
             row.attributes["Parent"] = MappedAttribute(
                 attribute="Parent", value=sample.d_seq_uid, origin=ORIGIN_MAP)
         rows.append(row)
@@ -224,7 +224,13 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
     seen: set[str] = set()
     parents: list[str] = []
     for sample in run_manifest.samples:
-        if sample.uid_resolution in _HAS_PARENT and sample.d_seq_uid not in seen:
+        # `and sample.d_seq_uid` is not redundant with the resolution check:
+        # the pairing of a _HAS_PARENT resolution with a non-None uid is an
+        # invariant of uid_resolve.resolve(), enforced in another module. Were
+        # it ever broken, a None here would reach ";".join() and raise. Cheap
+        # to keep the guard local.
+        if (sample.uid_resolution in _HAS_PARENT and sample.d_seq_uid
+                and sample.d_seq_uid not in seen):
             seen.add(sample.d_seq_uid)
             parents.append(sample.d_seq_uid)
     if parents:
