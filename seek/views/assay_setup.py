@@ -29,10 +29,10 @@ from .catalog import assay_table_groups
 logger = logging.getLogger(__name__)
 
 PAGE = 'assaySetup.html'
-LOGIN_NEXT = '/seek/assay-setup'
+LOGIN_NEXT = '/seek/assay-setup/'
 
 
-def _picker(request):
+def _picker():
     """The assay table, and a notice if it could not be built.
 
     Same groups, columns and filter hooks as /seek/assays/, with rows pointing
@@ -52,14 +52,19 @@ def _picker(request):
 
 
 def _page_context(request, message=""):
-    groups, total, notice = _picker(request)
     slug = (request.GET.get('assay') or "").strip()
 
     components = None
     if slug:
+        # An assay is selected: the picker would only be built to be thrown
+        # away, and building it runs `load_assays()` a second time (the first
+        # is inside `resolve_components` -> `load_assay`), so skip it.
+        groups, total, notice = [], 0, ""
         components = resolve_components(slug)
         if components is None:
             raise Http404(f"no assay {slug!r}")
+    else:
+        groups, total, notice = _picker()
 
     return {
         "groups": groups,

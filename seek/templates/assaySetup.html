@@ -11,6 +11,7 @@
     <p class="ns-page-subtitle">
       Pick the assay you are running to download the sample sheet templates for
       every sample type it consumes and produces.
+      {% if not components %}{{ total }} assays available.{% endif %}
     </p>
   </header>
 
@@ -25,7 +26,7 @@
   <div class="cat-row-panel">
     <div class="cat-detail-head">
       <span class="cat-detail-title">{{ components.name }}</span>
-      <a class="cat-chip" href="/seek/assays/{{ components.slug }}/">Full entry</a>
+      <a class="cat-chip cat-chip--plain" href="/seek/assays/{{ components.slug }}/">Full entry</a>
     </div>
 
     {% if components.is_split %}

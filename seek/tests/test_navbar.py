@@ -52,11 +52,12 @@ def _render_a_page_with_the_nav():
 
 
 class TestNavbarStructure:
-    def test_useful_info_section_and_its_four_items_are_present(self):
+    def test_useful_info_section_and_its_five_items_are_present(self):
         html = _render_a_page_with_the_nav()
         assert "Useful Info" in html
         assert 'href="/seek/sampletypes/"' in html
         assert 'href="/seek/assays/"' in html
+        assert 'href="/seek/assay-setup/"' in html
         assert 'href="/seek/templates/"' in html
         assert "Documentation" in html
 

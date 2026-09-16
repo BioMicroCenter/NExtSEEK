@@ -86,6 +86,9 @@ class TestAssaySetupPage:
         assert resp.status_code == 200
         body = resp.content.decode()
         assert "Flow Cytometry" in body and "RNA Extraction" in body
+        # The picker's whole reason for existing (rather than reusing
+        # /seek/assays/'s table verbatim) is that its rows point back here.
+        assert 'href="/seek/assay-setup/?assay=flow-cytometry"' in body
 
     @patch("seek.views.assay_setup.resolve_components", return_value=FLOW)
     @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
@@ -129,3 +132,4 @@ class TestAssaySetupPage:
         db.return_value = _logged_in()
         resp = assaySetup(_get("/seek/assay-setup/"))
         assert resp.status_code == 200
+        assert "The assay catalog is unavailable" in resp.content.decode()
