@@ -176,6 +176,32 @@ pressure on 2026-09-16 and has only just been capped at 4G. Without this, a SEEK
 assertion for a reason that has nothing to do with the graph, which is the exact failure mode this spec exists to
 eliminate.
 
+## 6.2 Found in passing: the assistant is taught investigation names that resolve to nothing
+
+Not part of this plan's work, recorded here because it strengthens the ruling section 6.1's cause 2 needs, and
+because it is the same divergence seen from the assistant's end.
+
+`NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md` lists eight investigation names under "Known
+Projects and Investigations" and instructs: **"Use these names exactly when asking graph questions scoped to a
+specific project."**
+
+Measured by the POC session on the frozen 1.1 graph: `Griffith`, `Impact`, `Shoulders` and `SRP` hold zero studies
+and zero samples, and **no investigation carries the title `GBM` at all**. The populated investigations are
+`Impactb Investigation` (84,397 samples), `MIT_SRP` (55,699) and `GBM_BTC` (4,564). Only `CSBC` and `MetNet` resolve
+to something populated.
+
+**Two separate defects sit inside that, and only one is fixed by ruling on cause 2:**
+
+- **Empty but correctly named.** `Griffith`, `Impact`, `Shoulders` and `SRP` exist as investigation titles (the
+  `TestProject_250820` copies, ids 16 to 21) and are empty *because* the paper studies hang off the legacy
+  investigations instead. Repairing the linkage populates them and these names start working.
+- **Wrong name, independent of linkage.** `GBM` is not an investigation title in the graph at any population. No
+  amount of relinking makes `GBM` resolve; the data is under `GBM_BTC`. This is a documentation error in
+  `capabilities.md` and it survives every fix contemplated in section 6.1.
+
+So the ruling on cause 2 is not only a modelling question. As things stand the assistant is instructed to use names
+of which half resolve to empty nodes and one resolves to nothing, and it is told to use them exactly.
+
 ## 7. Out of scope
 
 - Writing anything to the live graph before the operator's go.
