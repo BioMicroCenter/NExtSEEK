@@ -151,6 +151,9 @@ class TestActualColumns:
         got = actual_columns(cursor)
         assert got["required_parent_sample_types"] == "Required_Parent_Sample_Types"
         assert got["assay_name"] == "assay_name"
+        assert len(cursor.executed) == 1
+        sql, params = cursor.executed[0]
+        assert "assay_context" in sql
 
     def test_an_all_lowercase_stack_maps_to_itself(self):
         from nextseek_api.services.assay_authoring import actual_columns
@@ -158,6 +161,53 @@ class TestActualColumns:
         cursor = FakeCursor([("required_parent_sample_types",)])
         got = actual_columns(cursor)
         assert got["required_parent_sample_types"] == "required_parent_sample_types"
+        assert len(cursor.executed) == 1
+        sql, params = cursor.executed[0]
+        assert "assay_context" in sql
+
+
+class TestInsertContext:
+    """`_insert_context` must refuse to write a row that cannot carry the
+    vocabulary link or the name, rather than silently dropping the column."""
+
+    ROW = {
+        "name": "Spectral Flow Cytometry",
+        "description": "Full-spectrum single-cell analysis.",
+        "required_parents": "TIS or CEX",
+        "optional_parents": "",
+        "children": "D.FLOW",
+    }
+
+    def _run_with_columns(self, rows):
+        from nextseek_api.services.assay_authoring import _insert_context
+
+        cursor = FakeCursor(rows)
+        cursor.lastrowid = 7
+        with patch("nextseek_api.services.assay_authoring.connections") as connections:
+            connections.__getitem__.return_value.cursor.return_value = cursor
+            return _insert_context(self.ROW, internal_assay_id=42)
+
+    def test_it_raises_if_assay_name_is_missing_from_introspection(self):
+        with pytest.raises(Exception):
+            self._run_with_columns([
+                ("Internal_Assay_Id",),
+                ("Required_Parent_Sample_Types",),
+            ])
+
+    def test_it_raises_if_internal_assay_id_is_missing_from_introspection(self):
+        with pytest.raises(Exception):
+            self._run_with_columns([
+                ("assay_name",),
+                ("Required_Parent_Sample_Types",),
+            ])
+
+    def test_it_still_tolerates_a_missing_optional_column(self):
+        """The other columns stay best-effort; only the name and the link are required."""
+        got = self._run_with_columns([
+            ("assay_name",),
+            ("internal_assay_id",),
+        ])
+        assert got == 7
 
 
 class TestCreateAssay:
@@ -204,11 +254,17 @@ class TestCreateAssay:
         self._run()
         assert insert.call_args.kwargs["internal_assay_id"] == 42
 
+    @patch("nextseek_api.services.assay_authoring._insert_context")
+    @patch("nextseek_api.services.assay_authoring.Internal_assays")
     @patch("nextseek_api.services.assay_authoring._existing_slugs",
            return_value={"spectral-flow-cytometry"})
-    def test_a_duplicate_is_rejected_before_anything_is_written(self, _slugs):
+    def test_a_duplicate_is_rejected_before_anything_is_written(
+        self, _slugs, internal, insert
+    ):
         with pytest.raises(ValidationError):
             self._run()
+        internal.objects.create.assert_not_called()
+        insert.assert_not_called()
 
     @patch("nextseek_api.services.assay_authoring._insert_context",
            side_effect=RuntimeError("write failed"))
@@ -219,5 +275,22 @@ class TestCreateAssay:
     ):
         """The view has one error path; the service does not leak RuntimeError."""
         internal.objects.create.return_value = MagicMock(id=42)
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as exc:
             self._run()
+        insert.assert_called_once()
+        assert isinstance(exc.value.__cause__, RuntimeError)
+        assert str(exc.value.__cause__) == "write failed"
+
+    def test_a_failed_vocabulary_write_rolls_back_the_transaction(self):
+        """No mock stands between this test and the real Internal_assays table,
+        so a rollback failure here would leave a dangling vocabulary term that
+        every other test in this class is blind to."""
+        from seek.models import Internal_assays
+
+        with patch(
+            "nextseek_api.services.assay_authoring._insert_context",
+            side_effect=RuntimeError("write failed"),
+        ):
+            with pytest.raises(ValidationError):
+                self._run()
+        assert Internal_assays.objects.count() == 0

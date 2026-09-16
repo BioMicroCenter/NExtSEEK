@@ -136,9 +136,22 @@ def _existing_slugs() -> set:
 
 
 def _insert_context(row: dict, internal_assay_id: int) -> int:
-    """Write the assay_context row, returning its new id."""
+    """Write the assay_context row, returning its new id.
+
+    `assay_name` and `internal_assay_id` are required in the introspected
+    columns: every column here is NULLable, so silently skipping either would
+    write a row with no name or no link to the vocabulary term -- the exact
+    orphaned shape the module docstring says new rows must not join. Fail
+    loudly instead; the other columns stay best-effort.
+    """
     with connections[settings.NEXTSEEK_DATABASE].cursor() as cursor:
         columns = actual_columns(cursor)
+        for required in ("assay_name", "internal_assay_id"):
+            if required not in columns:
+                raise RuntimeError(
+                    f"assay_context has no '{required}' column on this stack; "
+                    "refusing to write a row with no name or no vocabulary link"
+                )
         names, values = [], []
         for lowered, key in _WRITTEN.items():
             if lowered in columns:
