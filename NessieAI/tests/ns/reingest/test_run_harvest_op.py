@@ -80,13 +80,23 @@ def test_run_harvest_is_registered_and_takes_no_write_gate():
 # (without globstar, or on a shell that never supports "**") would miss.
 # ---------------------------------------------------------------------------
 
-def _run_stage_script_locally(run_dir: str, patterns) -> bytes:
+def _run_stage_script_locally(run_dir: str, patterns, *, max_file_bytes=None,
+                               max_total_bytes=None, max_files=None) -> bytes:
     """Stand-in for ssh_run_bytes: runs the exact remote script we ship
     (g._STAGE_SCRIPT) via a local subprocess against `run_dir`, exactly as it
     would run on the cluster host over SSH. Returns the tar bytes it writes
-    to stdout."""
+    to stdout (including the trailing __nextseek_stage_report__.json entry).
+
+    The three cap kwargs default to the real harvest.MAX_* caps, matching
+    what `_stage_run_dir` passes in production; a test overrides one to
+    exercise the remote-side cap enforcement without needing a multi-MB
+    fixture file."""
     proc = subprocess.run(
-        [sys.executable, "-c", g._STAGE_SCRIPT, run_dir, *patterns],
+        [sys.executable, "-c", g._STAGE_SCRIPT, run_dir,
+         str(max_file_bytes if max_file_bytes is not None else harvest.MAX_FILE_BYTES),
+         str(max_total_bytes if max_total_bytes is not None else harvest.MAX_TOTAL_BYTES),
+         str(max_files if max_files is not None else harvest.MAX_FILES),
+         g._STAGE_REPORT_NAME, *patterns],
         capture_output=True, check=True)
     return proc.stdout
 
@@ -147,6 +157,59 @@ def test_shell_ls_glob_would_have_silently_missed_depth_zero_and_two():
                 f"depth={depth}: shell glob match={matched}, expected {should_match}")
 
 
+def test_stage_run_dir_skips_a_symlink_that_escapes_run_dir_and_reports_it(tmp_path, monkeypatch):
+    """Important 1 (2026-09-16 review): a symlink inside an otherwise-valid
+    run_dir, named to match a GENERIC_GLOBS pattern and pointing outside
+    run_dir, must never be dereferenced and shipped -- the run_dir
+    confinement exists because the SSH account is shared, and the read
+    already happens on the cluster side, before any local extract step."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside = tmp_path / "outside_secret.csv"
+    outside.write_text("SECRET,DO,NOT,SHIP\n")
+    link = run_dir / "samplesheet.csv"  # matches _SAMPLESHEET_GLOB ("*.csv")
+    link.symlink_to(outside)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path: _run_stage_script_locally(str(run_dir), harvest.GENERIC_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(staged), "/dev/null")
+
+    assert not (staged / "samplesheet.csv").exists()
+    assert not any("SECRET" in p.read_text() for p in staged.rglob("*") if p.is_file())
+    assert any(item["path"] == "samplesheet.csv" and "symlink" in item["reason"] for item in skipped), skipped
+
+
+def test_stage_run_dir_refuses_an_oversized_file_remotely_rather_than_transferring_it(tmp_path, monkeypatch):
+    """Important 2 (2026-09-16 review): the byte ceiling must be enforced on
+    the cluster side, before the tar stream is built, not only after the
+    whole tree is already transferred and extracted (ssh_run_bytes buffers
+    the entire tar in memory; harvest_local's caps apply only after that).
+    Reuses harvest.MAX_FILE_BYTES's mechanism via an override so the test
+    does not need a real ~108 MB RSeQC-sized fixture file."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    big = run_dir / "big.csv"  # matches _SAMPLESHEET_GLOB ("*.csv")
+    big.write_bytes(b"x" * 100)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path: _run_stage_script_locally(
+            str(run_dir), harvest.GENERIC_GLOBS, max_file_bytes=50))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(staged), "/dev/null")
+
+    assert not (staged / "big.csv").exists(), "oversized file must never be transferred, not just discarded locally"
+    assert any(
+        item["path"] == "big.csv" and "exceeds max file bytes" in item["reason"] for item in skipped
+    ), skipped
+
+
 @needs_fixture
 def test_stage_run_dir_against_the_real_fixture_stages_every_rseqc_and_multiqc_file(tmp_path, monkeypatch):
     """Regression guard for the exact drift harvest.py's own module docstring
@@ -184,7 +247,7 @@ def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
         )
 
     monkeypatch.setattr(harvest_mod, "harvest_local", fake_harvest_local)
-    monkeypatch.setattr(g, "_stage_run_dir", lambda *a, **k: None)
+    monkeypatch.setattr(g, "_stage_run_dir", lambda *a, **k: [])
     monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
     # store._ROOT is resolved once at module-import time from an env var; a
     # module already imported by an earlier test would ignore a later

@@ -241,56 +241,132 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
 # single ssh round trip, instead of one `ls` + one `cat` per file: a
 # `cat`-per-file transfer also runs every file's bytes through this
 # process's own text codec (ssh_run decodes stdout as text), which can alter
-# a byte before harvest_local ever reads it. ``dereference=True`` makes the
-# remote tar store a matched symlink's target CONTENT, never the symlink
-# itself -- so a local extract can never be made to follow a link outside
-# the staging directory.
+# a byte before harvest_local ever reads it.
+#
+# Two things the SSH account's confinement to `run_dir` depends on are
+# enforced HERE, on the cluster side, because by the time bytes reach this
+# process the read has already happened:
+#
+# 1. Symlinks. `run_dir` sits on a SHARED filesystem: the pipeline itself, or
+#    anyone else with write access to it, can drop a symlink inside an
+#    otherwise-valid run_dir that points anywhere on the cluster. Earlier,
+#    this script called `path.is_file()` (which dereferences symlinks) and
+#    opened the tar with `dereference=True`, on the reasoning that "a local
+#    extract can never follow a link outside the staging directory." That
+#    reasoning only protects the LOCAL extract step below -- the remote read
+#    of the symlink's target has already happened on the cluster by then,
+#    which is the side the shared account actually needs confining on. So
+#    every match is now checked, before it is added to the tar, for (a) not
+#    being a symlink itself and (b) resolving to a path still inside the
+#    resolved run_dir (catches a symlinked ancestor directory too). Anything
+#    that fails either check is skipped and reported in the trailing
+#    `__nextseek_stage_report__.json` tar entry (parsed back out by
+#    `_stage_run_dir`) rather than silently dropped -- see Important 1 of the
+#    2026-09-16 review.
+# 2. Size/count caps. `harvest_local`'s MAX_FILE_BYTES / MAX_TOTAL_BYTES /
+#    MAX_FILES caps used to apply only after the ENTIRE tar had already been
+#    transferred and extracted (`ssh_run_bytes` buffers the whole stream in
+#    memory). RSeQC writes per-sample files at ~108 MB in real runs, so an
+#    oversized tree was fully shipped over the wire before ever being
+#    capped. The same three caps (imported from `harvest`, never
+#    re-invented, so the two halves cannot drift) are now enforced here,
+#    remotely, before a match is added to the tar -- an oversized file or an
+#    over-cap tree fails fast and is never transferred. Cap hits are
+#    reported the same way as skipped symlinks. See Important 2 of the
+#    2026-09-16 review.
+_STAGE_REPORT_NAME = "__nextseek_stage_report__.json"
+
 _STAGE_SCRIPT = """\
-import pathlib, sys, tarfile
+import io, json, pathlib, sys, tarfile
 run_dir = pathlib.Path(sys.argv[1])
-patterns = sys.argv[2:]
+resolved_run_dir = run_dir.resolve()
+max_file_bytes = int(sys.argv[2])
+max_total_bytes = int(sys.argv[3])
+max_files = int(sys.argv[4])
+report_name = sys.argv[5]
+patterns = sys.argv[6:]
 seen = set()
-tar = tarfile.open(fileobj=sys.stdout.buffer, mode="w|", dereference=True)
+skipped = []
+total_bytes = 0
+files_added = 0
+tar = tarfile.open(fileobj=sys.stdout.buffer, mode="w|")
 for pattern in patterns:
     for path in sorted(run_dir.glob(pattern)):
-        if not path.is_file():
-            continue
         rel = str(path.relative_to(run_dir))
         if rel in seen:
             continue
         seen.add(rel)
+        if path.is_symlink():
+            skipped.append({"path": rel, "reason": "symlink (run_dir confinement cannot follow it safely)"})
+            continue
+        if not path.is_file():
+            continue
+        try:
+            path.resolve().relative_to(resolved_run_dir)
+        except ValueError:
+            skipped.append({"path": rel, "reason": "resolves outside run_dir"})
+            continue
+        size = path.stat().st_size
+        if size > max_file_bytes:
+            skipped.append({"path": rel, "reason": "exceeds max file bytes (%d > %d)" % (size, max_file_bytes)})
+            continue
+        if total_bytes + size > max_total_bytes:
+            skipped.append({"path": rel, "reason": "exceeds total byte cap (%d + %d > %d)" % (total_bytes, size, max_total_bytes)})
+            continue
+        if files_added >= max_files:
+            skipped.append({"path": rel, "reason": "exceeds max file count (%d)" % max_files})
+            continue
         tar.add(str(path), arcname=rel)
+        total_bytes += size
+        files_added += 1
+report = json.dumps({"skipped": skipped}).encode()
+info = tarfile.TarInfo(name=report_name)
+info.size = len(report)
+tar.addfile(info, fileobj=io.BytesIO(report))
 tar.close()
 """
 
 
-def _stage_run_dir(luria_env: dict, run_dir: str, staged_dir: str, key_path: str) -> None:
+def _stage_run_dir(luria_env: dict, run_dir: str, staged_dir: str, key_path: str) -> list[dict]:
     """Stage every ``harvest.GENERIC_GLOBS`` match from ``run_dir`` on Luria
     into ``staged_dir``, ready for ``harvest.harvest_local``. See
     ``_STAGE_SCRIPT`` above for why this runs the glob matching remotely, in
     Python, and packs the matches into a single tar stream rather than an
-    `ls` + per-file `cat`.
+    `ls` + per-file `cat`, and for the symlink/cap enforcement it does before
+    ever adding a match to that stream.
+
+    Returns the list of ``{"path", "reason"}`` entries the remote script
+    skipped (symlinks, escapes, or cap hits) so the caller can surface them
+    rather than let the omission pass silently.
     """
     import io
     import shlex
     import tarfile
 
     from chat_nextseek.luria.ssh import ssh_run_bytes
-    from NessieAI.ns.reingest.harvest import GENERIC_GLOBS
+    from NessieAI.ns.reingest.harvest import GENERIC_GLOBS, MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_BYTES
 
     remote_cmd = " ".join([
         "python3", "-c", shlex.quote(_STAGE_SCRIPT), shlex.quote(run_dir),
+        shlex.quote(str(MAX_FILE_BYTES)), shlex.quote(str(MAX_TOTAL_BYTES)), shlex.quote(str(MAX_FILES)),
+        shlex.quote(_STAGE_REPORT_NAME),
         *(shlex.quote(pattern) for pattern in GENERIC_GLOBS),
     ])
     tar_bytes = ssh_run_bytes(luria_env, remote_cmd, key_path=key_path)
+    skipped: list[dict] = []
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r|") as tar:
         for member in tar:
+            if member.name == _STAGE_REPORT_NAME:
+                report_fileobj = tar.extractfile(member)
+                skipped = json.loads(report_fileobj.read()).get("skipped", []) if report_fileobj else []
+                continue
             if not member.isfile():
                 continue
             name = os.path.normpath(member.name)
             if name.startswith("..") or os.path.isabs(name):
                 raise OpValidationError(f"staged tar entry escapes run_dir: {member.name!r}")
             tar.extract(member, path=staged_dir)
+    return skipped
 
 
 def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
@@ -308,7 +384,7 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
     key_path = prepare_key(luria_env["key"])
     try:
         with tempfile.TemporaryDirectory() as staged:
-            _stage_run_dir(luria_env, run_dir, staged, key_path)
+            skipped = _stage_run_dir(luria_env, run_dir, staged, key_path)
             run_manifest = harvest.harvest_local(staged, lookup_by_fastq=_d_seq_by_fastq)
     finally:
         try:
@@ -316,6 +392,13 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
         except OSError:
             pass
     run_manifest.run_dir = run_dir
+
+    # Files the remote stage skipped (a symlink escaping run_dir, or a
+    # size/count cap hit) must stay visible, not vanish quietly -- surfaced
+    # both in the manifest's own warnings and in the op result below.
+    skipped = skipped or []
+    run_manifest.warnings.extend(
+        f"staging skipped {item['path']}: {item['reason']}" for item in skipped)
 
     # A failed run's outputs may be partial or truncated. Registering them into a
     # database of record by default is the wrong choice; proceeding is a decision
@@ -327,7 +410,7 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
 
     manifest_id = save_manifest(run_manifest)
     return {"run_dir": run_dir, "manifest_id": manifest_id,
-            "manifest": run_manifest.model_dump()}
+            "manifest": run_manifest.model_dump(), "skipped": skipped}
 
 
 def _d_seq_by_fastq(path: str) -> list[str]:
