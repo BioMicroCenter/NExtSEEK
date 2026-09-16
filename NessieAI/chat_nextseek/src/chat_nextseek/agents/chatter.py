@@ -13,7 +13,6 @@ from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitErro
 from ..schemas.schema_helper import call_llm_text
 from ..helpers import (
     log_prompt,
-    log_usage,
 )
 from ..schemas import (
     PlannerOutput,
@@ -486,13 +485,18 @@ def chatter_agent_plan(
     ])
 
     try:
-        resp = chatter_client.chat(
-            model=chatter_model,
-            temperature=0.3,
+        # Same path as the single-turn chatter: retries, provider fallback and a ledger
+        # entry, none of which a bare client.chat had.
+        narrative = call_llm_text(
+            config,
             messages=messages,
+            model_name=chatter_model,
+            client=chatter_client,
+            agent_label="chatter",
+            temperature=0.3,
             thinking_budget=chatter_budget,
-        )
-        narrative = resp.content or "(no response)"
+            usage_label="PLAN_CHATTER",
+        ) or "(no response)"
     except Exception as e:
         print(f"[DEBUG][PLAN_CHATTER] failed: {e!r}")
         narrative = (
