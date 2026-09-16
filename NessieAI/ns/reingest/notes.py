@@ -20,12 +20,23 @@ and was silently dropped on the next recompose. The terminator line removes
 that ambiguity: it is not a value a curator would ever type as their own
 content, so its presence unambiguously marks "block ends here."
 
-Blocks written before the terminator existed have none. For those,
-``strip_block`` falls back to the original blank-line-bounded contract: the
-block runs through the following run of non-empty lines and ends at the
-first blank line or the next tag line, whichever comes first. The terminated
-form is tried first; the blank-line fallback only applies when no terminator
-is found for that run's tag.
+There is no fallback for a block with no terminator. ``_block`` has emitted
+one on every block since the very first line of this module, so a tag line
+for this run with no valid terminator anywhere after it cannot be genuine
+pre-terminator data -- it can only mean the terminator sentence was typo'd,
+edited, deleted, or line-wrapped, most plausibly by a curator editing near
+the block. ``strip_block`` cannot safely guess where such a block ends, so
+it does not try: an unterminated tag line is not recognised as a block at
+all, and nothing under it is touched. An earlier version of this module did
+fall back to a blank-line-bounded guess in that case, which carried the same
+data-loss defect the terminator itself was added to fix: any non-blank line
+sitting right under the tag -- a curator's own line, one missing blank
+line -- was consumed as if it were block content. That fallback is gone.
+The cost is a harmless, bounded residual: a block that loses its terminator
+is left in place, untouched, on every future recompose (verified in
+``NessieAI/tests/ns/reingest/test_notes.py``) -- it never grows past the one
+leftover occurrence, and it is never itself a source of data loss, only of
+one stale tag line a human should clean up.
 
 Deliberate, documented non-issue: ``strip_block``'s ``.strip()`` trims
 leading whitespace off the very first line of ``text`` along with the block
@@ -53,18 +64,17 @@ def _block(run_name: str, values: dict, today: str) -> str:
 def strip_block(text: str, run_name: str) -> str:
     """Remove this run's block, leaving every other block and all prose.
 
-    Tries the terminated form first: the tag line, then the body matched
+    Matches only the terminated form: the tag line, then the body matched
     lazily (``*?``) up to and including the literal terminator line. Lazy
     matching means the search stops at the FIRST terminator it finds, so a
     block is never over-consumed past its own boundary.
 
-    If no terminator is found for this run's tag anywhere in ``text`` (an
-    old-style block, written before the terminator existed), falls back to
-    the original contract: the tag line through the following run of
-    non-empty lines, ending at the first blank line or the next tag line.
-    Each consumed line there must be non-empty (``[^\\n]+``, not
-    ``[^\\n]*``) so a blank line terminates the block rather than being
-    swallowed along with whatever prose follows it.
+    If no terminator is found for this run's tag anywhere in ``text``, the
+    tag line is left alone -- not recognised as a block, nothing under it
+    consumed -- rather than guessed at via a blank-line-bounded fallback.
+    See the module docstring for why that fallback was removed and what
+    residual it trades for (a stale, but harmless and bounded, leftover
+    tag line instead of a chance of losing real content).
 
     Both ends are normalised with ``.strip()`` (not just ``.rstrip()``): a
     block at the very start of ``text`` leaves the separator that used to sit
@@ -83,11 +93,10 @@ def strip_block(text: str, run_name: str) -> str:
     if hits:
         return stripped.strip()
 
-    # Fallback for a block with no terminator at all (pre-fix data).
-    untagged = re.compile(
-        rf"\n*{tag_open}(?:\n(?!{re.escape(_TAG)})[^\n]+)*",
-        re.MULTILINE)
-    return untagged.sub("", text).strip()
+    # No valid terminator for this run's tag: nothing is licensed to
+    # disappear, so consume nothing (see module docstring and this
+    # function's docstring for why there is deliberately no fallback here).
+    return text
 
 
 def compose(existing: str, run_name: str, values: dict, today: str) -> str:

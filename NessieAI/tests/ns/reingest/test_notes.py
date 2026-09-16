@@ -66,16 +66,74 @@ def test_prose_below_the_terminator_survives_three_successive_recomposes():
     assert "2026-09-18" in text
 
 
-def test_an_old_style_block_with_no_terminator_falls_back_to_the_blank_line_rule():
-    # Data written before the terminator existed has none. strip_block must
-    # still bound it correctly, via the original blank-line contract.
-    old_style = f"[nfcore-reingest 2026-09-15 {RUN}]\nOldMetric=1.0"
-    text = f"Keep me.\n\n{old_style}\n\nCurator prose below a blank line."
-    twice = notes.compose(text, RUN, VALUES, "2026-09-16")
-    assert "Curator prose below a blank line." in twice
+def test_an_unterminated_tag_line_is_left_alone_by_strip_block():
+    # No terminator anywhere for this run's tag can only mean the
+    # terminator was typo'd, edited, deleted, or line-wrapped -- _block()
+    # has emitted one on every block since its very first line, so there
+    # is no such thing as genuinely pre-terminator data in this module.
+    # strip_block cannot safely guess where such a block ends, so it must
+    # not touch it at all: consuming nothing is the only safe answer.
+    text = (f"Keep me.\n\n{notes._TAG} 2026-09-15 {RUN}]\n"
+            "OldMetric=1.0\nCURATOR LINE NO BLANK.")
+    assert notes.strip_block(text, RUN) == text
+
+
+def test_a_recompose_over_an_unterminated_block_leaves_all_prose_intact():
+    # Finding 1 repro. This exact shape used to lose "CURATOR LINE NO
+    # BLANK." on recompose, silently, via the now-deleted blank-line
+    # fallback (the fallback swallowed every non-empty line after the tag,
+    # curator prose included, whenever no blank line separated them). With
+    # strip_block refusing to touch an unterminated tag line at all,
+    # compose's `kept` is the untouched original text in full: nothing a
+    # curator wrote is ever a candidate for removal here.
+    prior = (f"Keep me.\n\n{notes._TAG} 2026-09-15 {RUN}]\n"
+             "OldMetric=1.0\nCURATOR LINE NO BLANK.")
+    twice = notes.compose(prior, RUN, VALUES, "2026-09-16")
+    assert "CURATOR LINE NO BLANK." in twice
+    assert "OldMetric=1.0" in twice
+    assert "2026-09-16" in twice
+
+
+def test_the_guard_hard_rejects_a_notes_value_that_drops_what_strip_block_would_not_touch():
+    # Because strip_block now licenses NOTHING to disappear from an
+    # unterminated tag line (previous test), the guard's own
+    # notes.strip_block(prior, run_name) call resolves to the WHOLE prior
+    # text for this shape. Any actual Notes write that does not contain
+    # that verbatim is a real drop -- not a licensed one -- and the guard
+    # must refuse it instead of staying silent the way it did under the
+    # deleted fallback (which licensed the exact same over-consumption on
+    # both sides of the comparison, see the module docstring).
+    from NessieAI.ns import reingest_qa as qa
+
+    prior = (f"Keep me.\n\n{notes._TAG} 2026-09-15 {RUN}]\n"
+             "OldMetric=1.0\nCURATOR LINE NO BLANK.")
+    # A Notes value that kept "Keep me." but dropped the old block's own
+    # content ("OldMetric=1.0" and the curator's line under it) -- exactly
+    # what the deleted fallback used to produce, and exactly the shape the
+    # guard used to wave through because it computed the same
+    # over-consumed `prior_for_compare`.
+    lossy_notes = f"Keep me.\n\n{notes._block(RUN, VALUES, '2026-09-16')}"
+    report = qa.qa_rows(
+        [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1", "Notes": lossy_notes}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"}, mode="update",
+        existing_notes={"D.SEQ-EXAMPLE-1": prior}, run_name=RUN)
+    assert report.disposition == qa.HARD_REJECT
+    assert any(f.code == qa.NOTES_WOULD_CLOBBER for f in report.findings)
+
+
+def test_content_edited_inside_the_block_is_licensed_to_vanish():
+    # The block is machine-owned end to end: a value line between the tag
+    # and the terminator is not curator prose, so tampering with it (by
+    # hand, or by any other means) does not move the boundary -- the whole
+    # block, tampered content included, is still replaced wholesale on the
+    # next recompose. This pins the license's upper edge as deliberate,
+    # not incidental.
+    once = notes.compose("Keep me.", RUN, VALUES, "2026-09-15")
+    tampered = once.replace("Strandedness=reverse", "Strandedness=CURATOR EDITED THIS")
+    twice = notes.compose(tampered, RUN, VALUES, "2026-09-16")
+    assert "CURATOR EDITED THIS" not in twice
     assert twice.count("[nfcore-reingest") == 1
     assert "2026-09-16" in twice
-    assert "OldMetric=1.0" not in twice  # old run's own block is gone
 
 
 def test_a_curator_line_that_merely_resembles_the_terminator_is_ordinary_prose():
@@ -101,6 +159,28 @@ class TestStripBlock:
     def test_a_block_that_is_the_only_content_strips_to_empty(self):
         text = notes.compose("", RUN, VALUES, "2026-09-15")
         assert notes.strip_block(text, RUN) == ""
+
+    def test_an_unterminated_leftover_for_this_run_survives_untouched_and_does_not_grow(self):
+        # Finding 2. A stray, unterminated tag line for THIS run -- never
+        # produced by _block() itself, only reachable by tampering with an
+        # existing block's terminator -- cannot be safely removed, so it
+        # sits alongside whatever the current run legitimately writes.
+        # That is a harmless, BOUNDED residual, never itself data loss:
+        # each recompose still replaces only this run's own properly
+        # terminated block, so the leftover is never duplicated further.
+        # Order does not matter.
+        unterminated = f"{notes._TAG} 2026-09-14 {RUN}]\nOldStaleMetric=0.1"
+        terminated = notes._block(RUN, {"Metric": 1.0}, "2026-09-15")
+        for text in (
+            f"Keep me.\n\n{unterminated}\n\n{terminated}",
+            f"Keep me.\n\n{terminated}\n\n{unterminated}",
+        ):
+            composed = notes.compose(text, RUN, {"Metric": 2.0}, "2026-09-16")
+            assert "OldStaleMetric=0.1" in composed
+            assert composed.count(notes._TAG) == 2
+            # A further recompose does not add a third tag line.
+            composed_again = notes.compose(composed, RUN, {"Metric": 3.0}, "2026-09-17")
+            assert composed_again.count(notes._TAG) == 2
 
     def test_two_blocks_from_the_same_run_are_both_removed(self):
         first = notes._block(RUN, VALUES, "2026-09-01")
