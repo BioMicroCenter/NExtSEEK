@@ -175,8 +175,17 @@ def assay_table_groups(entries, href_for):
                 # column: the Code anchor already carries the produced code.
                 "code": _first_code(first.children) or "—",
                 "cells": [e.name, _all_codes(first.required_parents)],
-                "filter_text": (e.name + " " + " ".join(
-                    r.description or "" for r in e.rows)).lower(),
+                # Alternative names are in the filter text because an assay
+                # is as often looked for by one of them as by its curated
+                # name -- `alternative_assay_names` is the column that records
+                # exactly that, and context_catalog already parses it into
+                # every row. Without them the picker cannot find an assay by
+                # the name the person running it actually uses.
+                "filter_text": " ".join(
+                    [e.name]
+                    + [r.description or "" for r in e.rows]
+                    + [alt for r in e.rows for alt in (r.alternative_names or [])]
+                ).lower(),
             })
         groups.append({
             "clade": name, "clade_slug": _clade_slug(name),

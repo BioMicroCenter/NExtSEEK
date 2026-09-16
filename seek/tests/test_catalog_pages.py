@@ -258,6 +258,52 @@ class TestAssaysList:
         assert "assay_context" in resp.content.decode()
 
 
+class TestAssayTableFilterText:
+    """`assay_table_groups` builds the string the client-side filter matches on.
+
+    Shared by /seek/assays/ and the assay setup picker, so what it carries is
+    what both pages can be searched by.
+    """
+
+    ALT = AssayEntry(slug="flow-cytometry", name="Flow Cytometry", rows=[
+        AssayRow(row_id=30, description="A laser-based technique.",
+                 alternative_names=["FACS", "Fluorescence-activated cell sorting"],
+                 parent_clade="Processed"),
+    ])
+
+    def _row(self, entry):
+        from seek.views.catalog import assay_table_groups
+
+        groups = assay_table_groups([entry], lambda e: f"/seek/assays/{e.slug}/")
+        return groups[0]["rows"][0]
+
+    def test_alternative_names_are_searchable(self):
+        """An assay is as often looked for by an alternative name as by its
+        curated one; `alternative_assay_names` is the column that records them
+        and context_catalog already parses it into every row."""
+        text = self._row(self.ALT)["filter_text"]
+        assert "facs" in text
+        assert "fluorescence-activated cell sorting" in text
+
+    def test_the_name_and_descriptions_are_still_there(self):
+        text = self._row(self.ALT)["filter_text"]
+        assert "flow cytometry" in text
+        assert "a laser-based technique." in text
+
+    def test_an_assay_with_no_alternative_names_reads_as_before(self):
+        text = self._row(FLOW_ASSAY)["filter_text"]
+        assert text == "flow cytometry flow cytometry is a laser-based technique."
+
+    def test_every_row_of_a_split_assay_contributes_its_names(self):
+        """A name carrying two unreconciled rows gets both rows' synonyms."""
+        entry = AssayEntry(slug="cell-culture", name="Cell Culture", rows=[
+            AssayRow(row_id=11, description="", alternative_names=["Culturing"]),
+            AssayRow(row_id=85, description="", alternative_names=["Passaging"]),
+        ])
+        text = self._row(entry)["filter_text"]
+        assert "culturing" in text and "passaging" in text
+
+
 class TestAssayDetail:
     @patch("seek.views.catalog.load_assay", return_value=FLOW_ASSAY)
     @patch("seek.decorators.SeekDB")
