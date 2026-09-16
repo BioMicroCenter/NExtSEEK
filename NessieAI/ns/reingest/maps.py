@@ -8,6 +8,7 @@ file reviewable in a diff rather than a security surface.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,7 +30,10 @@ class OutputRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
     glob: str
     sample_type: str
-    cardinality: str = "per_sample"     # per_sample | per_run
+    # A typo here must fail map load loudly, not fall through to one branch
+    # silently -- this repo has already been bitten by exactly that class of
+    # bug (an unrecognised status value silently read as "complete").
+    cardinality: Literal["per_sample", "per_run"] = "per_sample"
     primary_data: bool = False
     secondary_data_glob: str | None = None
     attributes: dict[str, str] = Field(default_factory=dict)

@@ -80,17 +80,30 @@ def test_provenance_attributes_are_applied_to_the_analysis_rows():
     assert analysis[0].attributes["ReferenceGenome"].value == "GRCm39"
 
 
-def test_a_multirun_sample_gets_no_d_seq_row():
+def test_a_multirun_sample_produces_no_d_seq_row_no_per_sample_row_and_no_parent_in_the_join():
+    # uid_resolve.resolve() discards a multi-run sample's source UIDs
+    # entirely (d_seq_uid=None), so there is nowhere in the manifest to
+    # carry the list the spec would otherwise want -- this pins that as a
+    # real limitation, not an oversight (see mapper._per_sample_rows).
     run = _run(metrics={"star-uniquely_mapped_percent": 91.4,
                         "Kraken2_bracken_fraction": 3.2})
     run.samples[0].uid_resolution = manifest.RESOLUTION_MULTIRUN
     run.samples[0].d_seq_uid = None
     result = mapper.apply(run, maps.load("rnaseq"))
-    # No D.SEQ row for the multirun sample...
+    # No D.SEQ backfill row for the multirun sample...
     assert not any(r.sample_type == "D.SEQ" for r in result.rows)
-    # ...but the run's analysis/output rows are unaffected (they come from
-    # pipeline_map.outputs, not from any one sample's resolution)...
-    assert any(r.sample_type.startswith("A.") for r in result.rows)
+    # ...and no per_sample A.ALN row either -- there is no d_seq_uid to set
+    # Parent to, and a dangling analysis record with no lineage is worse
+    # than none at all.
+    assert not any(r.sample_type == "A.ALN" for r in result.rows)
+    # The per_run A.GEX rule still emits its one row: its literal attributes
+    # (Matrix, MatrixDataType, DataType) do not depend on any sample
+    # resolving...
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    # ...but the multirun sample contributes nothing to the join, and since
+    # no other sample resolved either, Parent is omitted rather than set to
+    # an empty or fabricated value.
+    assert "Parent" not in gex.attributes
     # ...and the sample's own metrics are still walked: an unknown key on it
     # still reaches unmapped rather than being silently swallowed along with
     # the D.SEQ row.
@@ -149,6 +162,60 @@ def test_a_ruled_out_key_claimed_by_an_approved_rule_still_stays_out_of_unmapped
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
     assert row.attributes["PercentDuplication"].value == 18.4
     assert row.attributes["PercentDuplication"].origin == mapper.ORIGIN_APPROVED
+
+
+def _multi_sample_run(*samples):
+    return manifest.RunManifest(
+        run_dir="/net/cluster/runs/r",
+        params={"genome": "GRCm39", "aligner": "star_salmon"},
+        pipeline=manifest.PipelineInfo(name="nf-core/rnaseq", version="3.18.0"),
+        samples=list(samples),
+        sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt"})
+
+
+# --- The fan-out: a per_sample output rule must emit one row per sample
+# that resolved to a d_seq_uid, not one row for the whole rule. ---
+
+def test_a_per_sample_rule_emits_one_row_per_resolved_sample_with_parent_and_nfcore_sample():
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP2", d_seq_uid="D.SEQ-2",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln_rows = [r for r in result.rows if r.sample_type == "A.ALN"]
+    assert len(aln_rows) == 2
+    by_sample = {r.nfcore_sample: r for r in aln_rows}
+    assert set(by_sample) == {"CONTROL_REP1", "CONTROL_REP2"}
+    assert by_sample["CONTROL_REP1"].attributes["Parent"].value == "D.SEQ-1"
+    assert by_sample["CONTROL_REP2"].attributes["Parent"].value == "D.SEQ-2"
+    # The analysis record does not exist yet -- this row is what creates it.
+    assert by_sample["CONTROL_REP1"].uid is None
+    assert by_sample["CONTROL_REP2"].uid is None
+
+
+def test_a_per_run_rule_still_emits_exactly_one_row_with_the_joined_parent():
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP2", d_seq_uid="D.SEQ-2",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    result = mapper.apply(run, maps.load("rnaseq"))
+    gex_rows = [r for r in result.rows if r.sample_type == "A.GEX"]
+    assert len(gex_rows) == 1
+    # Join order follows the manifest's own (samplesheet) sample order.
+    assert gex_rows[0].attributes["Parent"].value == "D.SEQ-1;D.SEQ-2"
+
+
+def test_the_per_run_join_deduplicates_a_repeated_d_seq_uid():
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="S1_LANE1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+        manifest.SampleRecord(nfcore_sample="S1_LANE2", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    result = mapper.apply(run, maps.load("rnaseq"))
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["Parent"].value == "D.SEQ-1"
 
 
 def test_a_ruled_out_key_on_two_different_samples_stays_out_of_unmapped():
