@@ -22,7 +22,9 @@ from django.core.management.base import CommandError
 from neo4j import RoutingControl
 from neo4j.time import Date as Neo4jDate
 
-from nextseek_api.graph_sync import catalog, run, sources, state as sync_state, verify, writer
+from nextseek_api.graph_sync import (
+    catalog, drift, loop, reconcile, run, sources, state as sync_state, targeted, verify, writer,
+)
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.projection import project_sample
 
@@ -715,7 +717,7 @@ def _gate_result(passed):
 
 
 @pytest.mark.parametrize("uri", ["neo4j://neo4j", "neo4j://neo4j:7687", "bolt://NEO4J:7687"])
-@pytest.mark.parametrize("mode", ["--full", "--catalog", "--verify"])
+@pytest.mark.parametrize("mode", ["--full", "--catalog"])
 def test_refuses_the_live_graph_without_the_flag(graphdb, settings, uri, mode):
     settings.NEO4J_DATABASE = {"NAME": "neo4j", "URI": uri, "AUTH": ("neo4j", "x")}
     with pytest.raises(CommandError) as exc:
@@ -803,7 +805,7 @@ def test_catalog_dry_run_calls_catalog_sync_dry(graphdb, monkeypatch):
     seen = {}
     monkeypatch.setattr(run, "catalog_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "dry_run"})
     call_command("graph_sync", "--catalog", "--dry-run", stdout=StringIO(), stderr=StringIO())
-    assert seen == {"dry_run": True}
+    assert seen == {"dry_run": True, "record": True, "trigger": "command"}
 
 
 def test_verify_json_prints_the_gate_and_exits_1_when_it_fails(graphdb, monkeypatch):
@@ -824,3 +826,209 @@ def test_verify_passes_with_exit_0_and_saves_to_the_run_dir(graphdb, monkeypatch
     assert seen["seed"] == 11
     assert "PASS  4.samples.graph_count" in out.getvalue() and "gate G: PASS" in out.getvalue()
     assert json.loads((tmp_path / "gate_g.json").read_text())["pass"] is True
+
+
+# --- the loop, and the reconcile, drift and samples modes -----------------------------------------
+
+LIVE = {"NAME": "neo4j", "URI": "neo4j://neo4j:7687", "AUTH": ("neo4j", "x")}
+
+
+def _drift_result(status, checks=()):
+    return {"status": status, "checks": list(checks), "pass": status == drift.OK, "stats": {}}
+
+
+@pytest.fixture
+def modes(monkeypatch):
+    """Every mode's worker, replaced by a recorder; ``seen`` holds the last call's keyword arguments."""
+    seen = {}
+
+    def answer(name, result):
+        def call(driver, db, *args, **kwargs):
+            seen.clear()
+            seen.update(kwargs, mode=name, db=db, args=args)
+            return result
+        return call
+
+    monkeypatch.setattr(verify, "gate_g", lambda driver, db, **kw: _gate_result(True))
+    monkeypatch.setattr(drift, "drift_check", answer("drift", _drift_result(drift.OK)))
+    monkeypatch.setattr(reconcile, "reconcile", answer("reconcile", {"status": reconcile.OK}))
+    monkeypatch.setattr(targeted, "sync_samples", answer("samples", {"status": targeted.OK}))
+    monkeypatch.setattr(run, "full_sync", answer("full", {"status": "ok"}))
+    monkeypatch.setattr(loop, "run_pass", answer("once", {"counts": {"done": 2}, "drained": []}))
+    monkeypatch.setattr(loop, "run_forever", answer("loop", None))
+    return seen
+
+
+@pytest.mark.parametrize("mode", ["--verify", "--drift", "--loop"])
+def test_the_read_only_and_loop_modes_accept_the_live_graph(graphdb, settings, modes, mode):
+    """The loop runs inside the app container against the live graph, and reading one is never a mistake."""
+    settings.NEO4J_DATABASE = dict(LIVE)
+    call_command("graph_sync", mode, stdout=StringIO(), stderr=StringIO())
+    assert graphdb.uris == ["neo4j://neo4j:7687"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("args", [("--once",), ("--reconcile",), ("--samples", "11")])
+def test_the_writing_modes_still_need_the_live_flag_by_hand(graphdb, settings, modes, args):
+    settings.NEO4J_DATABASE = dict(LIVE)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and graphdb.uris == []
+
+
+# --- --drift --------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("status, code", [(drift.OK, 0), (drift.DRIFT, 1), (drift.REFUSED, 2)])
+def test_drift_exits_by_its_result_and_saves_it(graphdb, monkeypatch, tmp_path, status, code):
+    result = _drift_result(status, [{"name": "samples.not_in_mysql", "expected": 0, "actual": 1,
+                                     "pass": status == drift.OK}])
+    if status == drift.REFUSED:
+        result["reason"] = "the graph is at schema version '1.1', not 1.2"
+    seen = {}
+    monkeypatch.setattr(drift, "drift_check", lambda driver, db, **kw: seen.update(kw) or result)
+    out, args = StringIO(), ("graph_sync", "--drift", "--json", "--run-dir", str(tmp_path), "--seed", "3")
+
+    if code == 0:
+        call_command(*args, stdout=out, stderr=StringIO())
+    else:
+        with pytest.raises(CommandError) as exc:
+            call_command(*args, stdout=out, stderr=StringIO())
+        assert exc.value.returncode == code
+        if status == drift.REFUSED:
+            assert result["reason"] in str(exc.value)
+
+    assert json.loads(out.getvalue()) == result          # --json prints the result whatever the exit status
+    assert json.loads((tmp_path / "drift.json").read_text())["status"] == status
+    assert seen["seed"] == 3 and seen["trigger"] == "command"
+
+
+def test_drift_that_cannot_complete_exits_3(graphdb, monkeypatch):
+    def boom(driver, db, **kwargs):
+        raise RuntimeError("neo4j went away")
+
+    monkeypatch.setattr(drift, "drift_check", boom)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--drift", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 3 and "neo4j went away" in str(exc.value)
+
+
+def test_no_record_keeps_the_drift_run_out_of_the_run_records(graphdb, modes):
+    call_command("graph_sync", "--drift", "--no-record", stdout=StringIO(), stderr=StringIO())
+    assert modes["trigger"] is None
+
+
+# --- --reconcile ----------------------------------------------------------------------------------
+
+def test_reconcile_passes_its_options_and_a_run_directory_under_the_run_root(graphdb, modes, tmp_path):
+    call_command("graph_sync", "--reconcile", "--chunk", "250", "--apply-label-changes", "--no-record",
+                 "--run-root", str(tmp_path), "--trigger", "loop", stdout=StringIO(), stderr=StringIO())
+    assert modes["chunk"] == 250 and modes["apply_label_changes"] is True
+    assert modes["record"] is False and modes["trigger"] == "loop" and modes["dry_run"] is False
+    assert modes["run_dir"].startswith(os.path.join(str(tmp_path), "reconcile-"))
+
+
+def test_reconcile_uses_the_run_dir_it_is_given(graphdb, modes, tmp_path):
+    call_command("graph_sync", "--reconcile", "--run-dir", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    assert modes["run_dir"] == str(tmp_path)
+
+
+@pytest.mark.parametrize("status, code", [(reconcile.OK, 0), (reconcile.DRY_RUN, 0), (reconcile.GUARD_TRIPPED, 0),
+                                          (reconcile.LOCK_TIMEOUT, 1), (reconcile.NOT_AT_VERSION, 2),
+                                          (reconcile.REFUSED, 2)])
+def test_reconcile_exits_by_its_status(graphdb, monkeypatch, status, code):
+    """A lock timeout is exit 1, not a refusal: the run may have written its earlier steps, and the loop's child
+    must be retried rather than marked done."""
+    monkeypatch.setattr(reconcile, "reconcile", lambda driver, db, **kw: {"status": status})
+    out = StringIO()
+    if code == 0:
+        call_command("graph_sync", "--reconcile", "--json", stdout=out, stderr=StringIO())
+    else:
+        with pytest.raises(CommandError) as exc:
+            call_command("graph_sync", "--reconcile", "--json", stdout=out, stderr=StringIO())
+        assert exc.value.returncode == code
+    assert json.loads(out.getvalue())["status"] == status
+
+
+# --- --samples ------------------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_samples_syncs_the_ids_it_is_given_and_records_the_run(graphdb, modes, tmp_path):
+    call_command("graph_sync", "--samples", "11, 12,11", "--run-root", str(tmp_path), "--chunk", "250",
+                 stdout=StringIO(), stderr=StringIO())
+    assert modes["args"] == ([11, 12],) and modes["chunk"] == 250
+    assert modes["apply_label_changes"] is False
+    assert modes["run_dir"].startswith(os.path.join(str(tmp_path), "samples-"))
+    (record,) = sync_state.GraphSyncRun.objects.filter(kind="samples")
+    assert (record.status, record.counts_json["trigger"]) == ("ok", "command")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status, code, recorded", [(targeted.OK, 0, "ok"), (targeted.LOCK_TIMEOUT, 2, "refused"),
+                                                    (targeted.NOT_AT_VERSION, 2, "refused")])
+def test_samples_exits_by_its_status(graphdb, monkeypatch, status, code, recorded):
+    monkeypatch.setattr(targeted, "sync_samples", lambda driver, db, ids, **kw: {"status": status, "requested": 1})
+    if code == 0:
+        call_command("graph_sync", "--samples", "11", stdout=StringIO(), stderr=StringIO())
+    else:
+        with pytest.raises(CommandError) as exc:
+            call_command("graph_sync", "--samples", "11", stdout=StringIO(), stderr=StringIO())
+        assert exc.value.returncode == code
+    (record,) = sync_state.GraphSyncRun.objects.filter(kind="samples")
+    assert record.status == recorded
+
+
+@pytest.mark.django_db
+def test_a_sample_sync_that_raises_records_the_failure(graphdb, monkeypatch):
+    def boom(driver, db, ids, **kwargs):
+        raise RuntimeError("neo4j went away")
+
+    monkeypatch.setattr(targeted, "sync_samples", boom)
+    with pytest.raises(RuntimeError):
+        call_command("graph_sync", "--samples", "11", stdout=StringIO(), stderr=StringIO())
+    (record,) = sync_state.GraphSyncRun.objects.filter(kind="samples")
+    assert record.status == "failed"
+
+
+@pytest.mark.parametrize("bad", ["", "x", "1,-2", "1,,2", "1,2.5"])
+def test_a_bad_sample_id_list_is_an_error_before_connecting(graphdb, bad):
+    with pytest.raises(CommandError):
+        call_command("graph_sync", "--samples", bad, stdout=StringIO(), stderr=StringIO())
+    assert graphdb.uris == []
+
+
+# --- --loop and --once ----------------------------------------------------------------------------
+
+def test_loop_runs_for_ever_with_its_interval_and_run_root(graphdb, modes, tmp_path):
+    call_command("graph_sync", "--loop", "--interval", "30", "--run-root", str(tmp_path),
+                 stdout=StringIO(), stderr=StringIO())
+    assert modes["mode"] == "loop" and modes["interval_s"] == 30
+    opts = modes["opts"]
+    assert (opts.run_root, opts.record, opts.apply_label_changes) == (str(tmp_path), True, False)
+    assert modes["args"][0].startswith(f"{loop.TRIGGER}:")
+
+
+def test_the_loop_takes_its_label_approval_from_the_environment(graphdb, modes, monkeypatch):
+    monkeypatch.setenv(loop.LABEL_CHANGES_ENV, "apply")
+    call_command("graph_sync", "--loop", stdout=StringIO(), stderr=StringIO())
+    assert modes["opts"].apply_label_changes is True
+
+
+def test_once_makes_one_pass_and_prints_its_report(graphdb, modes, tmp_path):
+    out = StringIO()
+    call_command("graph_sync", "--once", "--json", "--run-root", str(tmp_path), "--no-record",
+                 stdout=out, stderr=StringIO())
+    assert modes["mode"] == "once" and modes["opts"].record is False
+    assert json.loads(out.getvalue())["counts"] == {"done": 2}
+
+
+@pytest.mark.parametrize("mode", ["--verify", "--drift", "--catalog", "--loop", "--once"])
+def test_apply_label_changes_is_refused_where_it_would_do_nothing(graphdb, mode):
+    with pytest.raises(CommandError, match="--apply-label-changes"):
+        call_command("graph_sync", mode, "--apply-label-changes", stdout=StringIO(), stderr=StringIO())
+    assert graphdb.uris == []
+
+
+def test_apply_label_changes_and_the_run_record_reach_the_full_sync(graphdb, modes):
+    call_command("graph_sync", "--full", "--apply-label-changes", "--no-record", "--trigger", "loop",
+                 stdout=StringIO(), stderr=StringIO())
+    assert modes["apply_label_changes"] is True and modes["record"] is False and modes["trigger"] == "loop"
