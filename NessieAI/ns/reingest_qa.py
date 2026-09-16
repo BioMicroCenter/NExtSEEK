@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 
 from nextseek_api.batch_upload.helpers import collect_parent_tokens
 
+from NessieAI.ns.reingest import notes
+
 # Placeholder markers are intentional/deferred (OK); surprise sentinels are flagged.
 _PLACEHOLDER_MARKERS = ("*** PLACEHOLDER", "***PLACEHOLDER")
 _SURPRISE_SENTINELS = ("XXX", "TODO", "FIXME", "???", "TBD", "UNCONFIRMED")
@@ -126,12 +128,25 @@ def qa_rows(
     existing_parent_uids: set[str] | None = None,
     mode: str = "new",
     existing_notes: dict[str, str] | None = None,
+    run_name: str = "",
 ) -> QaReport:
     """Validate one sample type's rows. Returns a QaReport (CLEAN/SOFT_FLAG/HARD_REJECT).
 
     ``mode`` is ``"new"`` (brand-new samples; rows must not carry a UID and
     must declare a Parent) or ``"update"`` (a backfill targeting samples that
     already exist; rows must carry a UID and have no Parent to declare).
+
+    ``run_name`` -- the reingest run whose ``notes.compose`` output is being
+    QA'd. ``compose`` is *specified* to remove this run's own previous block
+    before appending the fresh one (see ``NessieAI/ns/reingest/notes.py``), so
+    from the second run onward the composed Notes value legitimately no
+    longer contains the fetched ``prior`` text verbatim -- only this run's own
+    tag line is gone, nothing else is licensed to disappear. When ``run_name``
+    is given, the guard below compares against ``notes.strip_block(prior,
+    run_name)`` instead of raw ``prior``, so exactly that disappearance is
+    forgiven. When ``run_name`` is empty (the default), nothing is licensed to
+    disappear and the guard falls back to comparing against raw ``prior`` --
+    the same behavior as before this parameter existed.
 
     ``existing_notes`` -- CONTRACT, load-bearing, read this before wiring a
     fetcher to this parameter:
@@ -213,13 +228,19 @@ def qa_rows(
                                                         "reason": "existing Notes not fetched"}))
             else:
                 prior = (existing_notes or {})[uid]
+                # This run's own previous block is the one thing licensed to
+                # disappear (notes.compose strips it before appending the
+                # fresh one) -- but only when we know which run is writing.
+                # No run_name means nothing is licensed to disappear, so fall
+                # back to the raw fetched text.
+                prior_for_compare = notes.strip_block(prior, run_name) if run_name else prior
                 # Trailing-whitespace-only differences (a trailing space, a
                 # trailing blank line) must never trip this guard: they are
                 # not data loss. Strip trailing whitespace off `prior` only
                 # before the containment check -- never off the composed
                 # text, and never interior whitespace -- so a genuine drop of
                 # any interior content still hard-rejects.
-                if prior and prior.rstrip() not in str(meta.get("Notes") or ""):
+                if prior_for_compare and prior_for_compare.rstrip() not in str(meta.get("Notes") or ""):
                     report.add(Finding(code=NOTES_WOULD_CLOBBER, severity=HARD,
                                        sample_type=sample_type, attribute="Notes",
                                        row_index=i, detail={"uid": uid,
@@ -247,20 +268,28 @@ def qa_rows(
 
         # Required-attribute coverage. HARD, not advisory: Checksum_PrimaryData is
         # required on A.GEX / A.ALN / A.SCXP, so calling its absence a soft flag
-        # only defers the server's rejection to upload time. New-mode-only,
-        # symmetrically with the Parent guard above: an update row targets an
-        # existing sample that already carries its required attributes, and
-        # only carries the metrics being backfilled, so a required attribute
-        # missing from the row is not missing from the database.
-        if mode == "new":
-            for req in required:
-                if req == "UID":
-                    continue                      # rows never carry one
-                value = str(meta.get(req) or "").strip()
+        # only defers the server's rejection to upload time. New-mode-only for
+        # ABSENCE, symmetrically with the Parent guard above: an update row
+        # targets an existing sample that already carries its required
+        # attributes, and only carries the metrics being backfilled, so a
+        # required attribute missing from the row is not missing from the
+        # database. But deep_merge_metadata overwrites on key PRESENCE: an
+        # update row that carries a required key with a blank value blanks it
+        # on the server -- the same wholesale-overwrite hazard the Notes guard
+        # exists to stop -- so that case is flagged in BOTH modes.
+        for req in required:
+            if req == "UID":
+                continue                          # rows never carry one
+            value = str(meta.get(req) or "").strip()
+            if mode == "new":
                 if not value:
                     report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
                                         sample_type=sample_type, attribute=req,
                                         row_index=i))
+            elif req in meta and not value:
+                report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
+                                    sample_type=sample_type, attribute=req,
+                                    row_index=i))
 
         # Placeholder sniff.
         for key, value in meta.items():
