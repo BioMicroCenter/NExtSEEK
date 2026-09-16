@@ -357,6 +357,25 @@ scripts/graph_search/lane.sh neo4j-cypher \
 Expected: `schema_version` is `1.2`; `samples` equals 1,084,754; `with_hash` equals `samples`. A shortfall in
 `with_hash` means the run stopped early and Stage A has **not** passed.
 
+**Also assert that the run dropped no sample.** `run._project` returns `None` both when the sample's type is not in
+the catalog and when `project_sample` raises, and `scan_samples` appends only non-`None` projections. So a sample
+that fails projection is counted in `scan.errors`, never written, and **the run still reports success**. Read the
+report's projection error count and require it to be 0:
+
+```bash
+python3 -c "import json,sys; r=json.load(open('$GS_WORK/runs/sync-lane/A5-full12.json')); \
+print('projection_errors', r.get('projection_errors'), 'examples', r.get('projection_error_examples'))"
+```
+
+A non-zero count means the graph is missing those samples and nothing in the run said so. Record the ids.
+
+Context: the POC session found study 55 holding 23 live SEEK samples against 10 in the frozen graph. Four
+explanations were eliminated on 2026-09-16 by reading MySQL: the 23 asset ids all exist in `samples` (so not stale
+`assay_assets` rows, though 362 such orphaned rows do exist globally and are a separate data-hygiene finding); zero
+samples repo-wide have a `sample_type_id` with no `sample_types` row; zero have a NULL one; and the samples were
+created in April and last updated in August, so they long predate the 09-15 full sync and are not recency. The
+projection-error path is the remaining candidate and it cannot be confirmed while the live graph is frozen.
+
 - [ ] **Step 4: Run gate G on the result**
 
 ```bash
