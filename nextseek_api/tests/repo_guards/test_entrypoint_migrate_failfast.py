@@ -57,6 +57,12 @@ def _run_entrypoint(
         "DB_WAIT_ATTEMPTS": str(db_wait_attempts),
         "DB_WAIT_INTERVAL": "0",
         "NEXTSEEK_SERVER": "gunicorn",
+        # The graph sync loop restarts itself forever, so it outlives this
+        # script and holds open the pipes `capture_output` reads to EOF: left
+        # on, every run here blocks until the timeout. Its own contract is
+        # `nextseek_api/tests/test_graph_sync_entrypoint.py`, which runs the
+        # marked block by itself with `sleep` stubbed too.
+        "NEXTSEEK_GRAPH_SYNC_LOOP": "0",
     }
     proc = subprocess.run(
         ["bash", str(ENTRYPOINT)],
