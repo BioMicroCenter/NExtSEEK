@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -63,13 +64,23 @@ def _dispatch(op: str, args: dict, config=None, session=None, write_gate=None,
                      neo4j_exec=neo4j_exec, outputs_dir=outputs_dir)
 
 
-def _run_checksum_script_locally(run_dir: str, rels: list[str]) -> str:
+def _run_checksum_script_locally(
+    run_dir: str, rels: list[str], *,
+    max_file_bytes: int = g._CHECKSUM_MAX_FILE_BYTES,
+    max_total_bytes: int = g._CHECKSUM_MAX_TOTAL_BYTES,
+) -> str:
     """Stand-in for ssh_run: runs the exact remote script we ship
     (g._CHECKSUM_SCRIPT) via a local subprocess against `run_dir`, exactly as
     it would run on the cluster host over SSH. Returns the decoded stdout
-    text (one line of JSON), matching what ssh_run itself returns."""
+    text (one line of JSON), matching what ssh_run itself returns.
+
+    `max_file_bytes`/`max_total_bytes` default to the op's real ceilings so
+    existing callers of this helper (written before the ceilings existed)
+    keep exercising real ambient values rather than some arbitrarily large
+    stand-in that would mask a ceiling regression."""
     proc = subprocess.run(
-        [sys.executable, "-c", g._CHECKSUM_SCRIPT, run_dir, *rels],
+        [sys.executable, "-c", g._CHECKSUM_SCRIPT, run_dir,
+         str(max_file_bytes), str(max_total_bytes), *rels],
         capture_output=True, text=True, check=True)
     return proc.stdout
 
@@ -123,7 +134,7 @@ def test_refuses_a_symlink_inside_run_dir_pointing_outside(tmp_path, monkeypatch
     link.symlink_to(outside)
 
     monkeypatch.setattr(ssh, "ssh_run",
-                         lambda env, cmd, *, key_path: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
+                         lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
 
     with pytest.raises(g.OpValidationError) as err:
         _dispatch("run-checksum", {"run_dir": str(run_dir), "paths": "sample.bam"},
@@ -145,7 +156,7 @@ def test_refuses_a_hardlink_to_a_file_outside_run_dir(tmp_path, monkeypatch):
     os.link(str(outside), str(link))
 
     monkeypatch.setattr(ssh, "ssh_run",
-                         lambda env, cmd, *, key_path: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
+                         lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
 
     with pytest.raises(g.OpValidationError) as err:
         _dispatch("run-checksum", {"run_dir": str(run_dir), "paths": "sample.bam"},
@@ -165,7 +176,7 @@ def test_refuses_a_file_reached_through_a_symlinked_ancestor_dir(tmp_path, monke
 
     monkeypatch.setattr(
         ssh, "ssh_run",
-        lambda env, cmd, *, key_path: _run_checksum_script_locally(str(run_dir), ["aligned/sample.bam"]))
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(str(run_dir), ["aligned/sample.bam"]))
 
     with pytest.raises(g.OpValidationError) as err:
         _dispatch("run-checksum", {"run_dir": str(run_dir), "paths": "aligned/sample.bam"},
@@ -183,7 +194,7 @@ def test_a_missing_file_is_a_reported_skip_not_a_silent_omission(tmp_path, monke
 
     monkeypatch.setattr(
         ssh, "ssh_run",
-        lambda env, cmd, *, key_path: _run_checksum_script_locally(
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(
             str(run_dir), ["present.bam", "missing.bam"]))
 
     result = _dispatch("run-checksum",
@@ -204,13 +215,116 @@ def test_computes_the_real_md5_of_an_allowed_file(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         ssh, "ssh_run",
-        lambda env, cmd, *, key_path: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
 
     result = _dispatch("run-checksum", {"run_dir": str(run_dir), "paths": "sample.bam"},
                         _cfg_for(tmp_path), None, None, None, None)
 
     assert result["checksums"]["sample.bam"] == expected
     assert result["run_dir"] == str(run_dir)
+
+
+# ---------------------------------------------------------------------------
+# Byte ceilings (Important 1 of the 2026-09-16 review): the file COUNT cap
+# alone does not bound how long run-checksum can hang -- 200 files can still
+# be arbitrarily large, which is exactly the wall-clock blowout this op was
+# split out to avoid. A size refusal is a reported "skipped" entry, never a
+# hard OpValidationError -- BINDING CONSTRAINTS: "Size refusals may be
+# skips, but must be reported."
+# ---------------------------------------------------------------------------
+
+def test_refuses_a_single_file_over_the_per_file_byte_ceiling(tmp_path, monkeypatch):
+    """A file over the per-file ceiling is skipped -- and, because the
+    ceiling is checked via stat() before open()/read() in _CHECKSUM_SCRIPT,
+    never hashed."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    big = run_dir / "big.bam"
+    big.write_bytes(b"x" * 1000)
+
+    monkeypatch.setattr(g, "_CHECKSUM_MAX_FILE_BYTES", 100)
+    monkeypatch.setattr(g, "_CHECKSUM_MAX_TOTAL_BYTES", 1_000_000)
+    monkeypatch.setattr(
+        ssh, "ssh_run",
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(
+            str(run_dir), ["big.bam"], max_file_bytes=100, max_total_bytes=1_000_000))
+
+    result = _dispatch("run-checksum", {"run_dir": str(run_dir), "paths": "big.bam"},
+                        _cfg_for(tmp_path), None, None, None, None)
+
+    assert result["checksums"] == {}
+    skip = next(item for item in result["skipped"] if item["path"] == "big.bam")
+    assert "exceeds max file bytes" in skip["reason"]
+
+
+def test_refuses_a_set_whose_total_exceeds_the_aggregate_byte_ceiling(tmp_path, monkeypatch):
+    """Each individual file is under the per-file ceiling, but the set's
+    total is over the aggregate ceiling: everything that would push the
+    running total over the cap is skipped -- and never hashed, since the
+    total is checked (from stat() sizes) before the file is opened."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    for name in ("a.bam", "b.bam", "c.bam"):
+        (run_dir / name).write_bytes(b"x" * 100)
+
+    monkeypatch.setattr(g, "_CHECKSUM_MAX_FILE_BYTES", 1_000)
+    monkeypatch.setattr(g, "_CHECKSUM_MAX_TOTAL_BYTES", 250)
+    monkeypatch.setattr(
+        ssh, "ssh_run",
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(
+            str(run_dir), ["a.bam", "b.bam", "c.bam"],
+            max_file_bytes=1_000, max_total_bytes=250))
+
+    result = _dispatch("run-checksum",
+                        {"run_dir": str(run_dir), "paths": "a.bam,b.bam,c.bam"},
+                        _cfg_for(tmp_path), None, None, None, None)
+
+    # a.bam (100) and b.bam (100) fit under the 250 total; c.bam (100) would
+    # push the running total to 300 > 250, so it is skipped, unhashed.
+    assert "a.bam" in result["checksums"]
+    assert "b.bam" in result["checksums"]
+    assert "c.bam" not in result["checksums"]
+    skip = next(item for item in result["skipped"] if item["path"] == "c.bam")
+    assert "exceeds total byte cap" in skip["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Important 2 of the 2026-09-16 review: every existing test above
+# monkeypatches ssh.ssh_run and ignores its `cmd` argument, so the actual
+# `remote_cmd` string _run_checksum builds is never exercised. This test
+# captures the real remote_cmd and drives a hostile path through it.
+# ---------------------------------------------------------------------------
+
+def test_remote_cmd_safely_quotes_a_hostile_path(monkeypatch):
+    """A caller-named path containing shell metacharacters (a quote-breakout
+    attempt followed by a command separator, plus a $() substitution) must
+    survive shlex.quote-ing into the real remote_cmd string as ONE opaque
+    argv token -- never as separate shell-interpretable words. Asserted on
+    the parsed structure (shlex.split, which mirrors POSIX shell word
+    splitting) rather than a substring match, per the review's ask."""
+    captured = {}
+
+    def _capture(env, cmd, *, key_path, timeout=None):
+        captured["cmd"] = cmd
+        return json.dumps({"checksums": {}, "skipped": [], "escaped": []})
+
+    monkeypatch.setattr(ssh, "ssh_run", _capture)
+
+    hostile = "a'; touch /tmp/pwned; echo '$(id)"
+    _dispatch("run-checksum", {"run_dir": "/net/cluster/runs/r", "paths": hostile},
+              _Cfg(), None, None, None, None)
+
+    cmd = captured["cmd"]
+    argv = shlex.split(cmd)
+    # If a real shell parsed `cmd`, the hostile string must reconstitute as
+    # exactly one word -- proving the embedded "'", ";", and "$(...)" were
+    # neutralized by quoting rather than left live for the shell to act on.
+    assert hostile in argv
+    assert argv[-1] == hostile
+    # And nothing decomposed it into extra commands: a naive/unquoted build
+    # would have split this into several argv words (an unquoted ";" ends a
+    # command).
+    assert argv.count(hostile) == 1
 
 
 def test_checksum_script_output_is_valid_json():
