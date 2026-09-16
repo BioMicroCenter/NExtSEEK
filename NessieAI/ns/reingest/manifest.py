@@ -80,7 +80,20 @@ class RunManifest(BaseModel):
     # source of truth; `software_versions` above is the flat convenience view.
     software_versions_by_process: dict[str, dict[str, str]] = Field(default_factory=dict)
     samples: list[SampleRecord] = Field(default_factory=list)
+    # `outputs` is the INVENTORY: one entry per candidate output file found by
+    # matching INVENTORY_GLOBS against a remote listing (see harvest.py) --
+    # never the file's content, just its path and real size. The next reingest
+    # plan matches its own per-pipeline globs (e.g.
+    # "{star_salmon,star_rsem}/*.markdup.sorted.bam") against this list.
+    # `named_outputs` is the second, different consumer: well-known SINGLE
+    # files resolved from that same inventory by name (at minimum
+    # `multiqc_report_html`, `kraken2_report`, `deseq2_dds_rdata`). A map
+    # reference like "$outputs.multiqc_report_html" resolves against
+    # `named_outputs`, never against `outputs` -- `outputs` is a list, so a
+    # `bag.get(key)`-style lookup against it silently returns None for every
+    # key (see the 2026-09-16 whole-branch review that found this).
     outputs: list[OutputRecord] = Field(default_factory=list)
+    named_outputs: dict[str, str] = Field(default_factory=dict)
     execution: ExecutionInfo = Field(default_factory=ExecutionInfo)
     sources: dict[str, str] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
