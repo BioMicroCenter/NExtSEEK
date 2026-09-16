@@ -124,8 +124,15 @@ def qa_rows(
     known_sampletypes: set[str],
     required_fields: list[str] | None = None,
     existing_parent_uids: set[str] | None = None,
+    mode: str = "new",
+    existing_notes: dict[str, str] | None = None,
 ) -> QaReport:
-    """Validate one sample type's rows. Returns a QaReport (CLEAN/SOFT_FLAG/HARD_REJECT)."""
+    """Validate one sample type's rows. Returns a QaReport (CLEAN/SOFT_FLAG/HARD_REJECT).
+
+    ``mode`` is ``"new"`` (brand-new samples; rows must not carry a UID and
+    must declare a Parent) or ``"update"`` (a backfill targeting samples that
+    already exist; rows must carry a UID and have no Parent to declare).
+    """
     report = QaReport()
     required = required_fields or []
     existing = existing_parent_uids or set()
@@ -138,24 +145,67 @@ def qa_rows(
     for i, row in enumerate(rows):
         meta = row.get("json_metadata") or {}
 
-        # Parent resolvability (;-split by the helper; skip placeholder markers).
-        # Ancestors are declared across EVERY key containing "parent"
-        # (AntibodyParent, CompensationFCSParent, Treatment1Parent, …), so read
-        # them all: reading only the literal "Parent" hard-rejected rows whose
-        # sole ancestor lived in a variant key, and never resolvability-checked
-        # the variant tokens it skipped.
-        parent_tokens = collect_parent_tokens(meta)
-        if not parent_tokens:
-            report.add(Finding(
-                code=BLANK_PARENT, severity=HARD, row_index=i,
-                detail={"reason": "blank Parent (reingest outputs must be derived)"}))
-        else:
-            for token in parent_tokens:
-                if _is_placeholder(token):
-                    continue
-                if token not in existing and not any(token in (r.get("json_metadata") or {}).get("Name", "") for r in rows):
-                    report.add(Finding(code=PARENT_UID_NOT_FOUND, severity=HARD,
-                                        row_index=i, detail={"token": token}))
+        if mode == "new":
+            # Parent resolvability (;-split by the helper; skip placeholder
+            # markers). Ancestors are declared across EVERY key containing
+            # "parent" (AntibodyParent, CompensationFCSParent,
+            # Treatment1Parent, …), so read them all: reading only the
+            # literal "Parent" hard-rejected rows whose sole ancestor lived
+            # in a variant key, and never resolvability-checked the variant
+            # tokens it skipped. A backfill row targets an existing sample
+            # and has no Parent to declare, so this whole check is
+            # new-mode-only.
+            parent_tokens = collect_parent_tokens(meta)
+            if not parent_tokens:
+                report.add(Finding(
+                    code=BLANK_PARENT, severity=HARD, row_index=i,
+                    detail={"reason": "blank Parent (reingest outputs must be derived)"}))
+            else:
+                for token in parent_tokens:
+                    if _is_placeholder(token):
+                        continue
+                    if token not in existing and not any(token in (r.get("json_metadata") or {}).get("Name", "") for r in rows):
+                        report.add(Finding(code=PARENT_UID_NOT_FOUND, severity=HARD,
+                                            row_index=i, detail={"token": token}))
+
+        uid = str(meta.get("UID") or "").strip()
+        if mode == "update" and not uid:
+            report.add(Finding(code=UID_MISSING_IN_UPDATE, severity=HARD,
+                               sample_type=sample_type, attribute="UID", row_index=i))
+        if mode == "new" and uid:
+            report.add(Finding(code=UID_PRESENT_IN_NEW, severity=HARD,
+                               sample_type=sample_type, attribute="UID", row_index=i,
+                               detail={"uid": uid}))
+
+        # Notes is overwritten wholesale by deep_merge_metadata, so a write that
+        # does not carry the fetched existing text verbatim destroys it. A UID
+        # absent from existing_notes means the fetch failed: refuse rather than
+        # write over text we never read.
+        if mode == "update" and "Notes" in meta:
+            if uid not in (existing_notes or {}):
+                report.add(Finding(code=NOTES_WOULD_CLOBBER, severity=HARD,
+                                   sample_type=sample_type, attribute="Notes",
+                                   row_index=i, detail={"uid": uid,
+                                                        "reason": "existing Notes not fetched"}))
+            else:
+                prior = (existing_notes or {})[uid]
+                if prior and prior not in str(meta.get("Notes") or ""):
+                    report.add(Finding(code=NOTES_WOULD_CLOBBER, severity=HARD,
+                                       sample_type=sample_type, attribute="Notes",
+                                       row_index=i, detail={"uid": uid,
+                                                            "reason": "existing text absent"}))
+
+        # Provenance-driven flags: a value from an unapproved source can never
+        # come back CLEAN, which is what stops unreviewed rules drifting in.
+        for attribute, origin in (row.get("provenance") or {}).items():
+            if origin.get("origin") == "proposed":
+                report.add(Finding(code=UNAPPROVED_ATTRIBUTE, severity=SOFT,
+                                   sample_type=sample_type, attribute=attribute,
+                                   row_index=i, detail=dict(origin)))
+            elif origin.get("origin") == "parked":
+                report.add(Finding(code=ATTRIBUTE_NOT_DEFINED, severity=SOFT,
+                                   sample_type=sample_type, attribute=attribute,
+                                   row_index=i, detail=dict(origin)))
 
         # Name uniqueness within the batch (if Names are used).
         name = str(meta.get("Name") or "").strip()
