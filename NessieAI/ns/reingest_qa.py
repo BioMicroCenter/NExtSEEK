@@ -78,7 +78,6 @@ class QaReport:
     findings: list[Finding] = field(default_factory=list)
 
     def add(self, finding: Finding) -> None:
-        self.findings.append(finding)
         # Route on the two known severities explicitly and raise on anything
         # else: a QA gate whose entire job is blocking bad uploads must fail
         # loudly on a typo'd or future severity, not quietly file it under
@@ -89,6 +88,7 @@ class QaReport:
             self.soft.append(finding.render())
         else:
             raise ValueError(f"unknown Finding severity: {finding.severity!r}")
+        self.findings.append(finding)
 
     def _finalize(self) -> "QaReport":
         self.disposition = HARD_REJECT if self.hard else (SOFT_FLAG if self.soft else CLEAN)
