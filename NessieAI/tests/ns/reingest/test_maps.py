@@ -1,6 +1,7 @@
 import pytest
 
 from NessieAI.ns.reingest import maps
+from NessieAI.ns.reingest.manifest import PipelineInfo, RunManifest
 
 
 def test_load_reads_the_rnaseq_map_by_pipeline_name():
@@ -50,3 +51,28 @@ def test_resolve_ref_reads_a_named_output():
     class _M:
         named_outputs = {"multiqc_report_html": "multiqc/multiqc_report.html"}
     assert maps.resolve_ref("$outputs.multiqc_report_html", _M()) == "multiqc/multiqc_report.html"
+
+
+def test_resolve_ref_reads_the_whole_named_outputs_bag():
+    # Bare "$outputs" must resolve to named_outputs (the dict), never to the
+    # `outputs` inventory list -- that distinction is the point of the map.
+    class _M:
+        named_outputs = {"multiqc_report_html": "multiqc/multiqc_report.html"}
+        outputs = ["should not be reachable"]
+    assert maps.resolve_ref("$outputs", _M()) == {
+        "multiqc_report_html": "multiqc/multiqc_report.html",
+    }
+
+
+def test_resolve_ref_cannot_reach_a_dunder_or_bound_method_on_a_model():
+    # The escape vector finding 1 fixed: a non-dict run-section bag is a real
+    # pydantic model (RunManifest.pipeline is a PipelineInfo), and the old
+    # fallback `getattr(bag, key, None)` happily returned `__class__` (the
+    # class object) or `model_dump` (a bound method) for any key at all. Only
+    # a field the model actually declares may resolve.
+    run_manifest = RunManifest(run_dir="run", pipeline=PipelineInfo(name="nf-core/rnaseq"))
+    assert maps.resolve_ref("$pipeline.__class__", run_manifest) is None
+    assert maps.resolve_ref("$pipeline.model_dump", run_manifest) is None
+    # A genuine declared field on the same section must still resolve, so the
+    # fix is a restriction to known fields, not a blanket rejection.
+    assert maps.resolve_ref("$pipeline.name", run_manifest) == "nf-core/rnaseq"
