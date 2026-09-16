@@ -165,13 +165,17 @@ def qa_rows(
                                     detail={"name": name}))
             intra_names.add(name)
 
-        # Required-field coverage (advisory — the server is the hard floor).
+        # Required-attribute coverage. HARD, not advisory: Checksum_PrimaryData is
+        # required on A.GEX / A.ALN / A.SCXP, so calling its absence a soft flag
+        # only defers the server's rejection to upload time.
         for req in required:
-            if req in ("UID",):
-                continue
-            if not str(meta.get(req) or "").strip():
-                report.add(Finding(code=MISSING_REQUIRED, severity=SOFT, row_index=i,
-                                    attribute=req))
+            if req == "UID":
+                continue                      # rows never carry one
+            value = str(meta.get(req) or "").strip()
+            if not value:
+                report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
+                                    sample_type=sample_type, attribute=req,
+                                    row_index=i))
 
         # Placeholder sniff.
         for key, value in meta.items():

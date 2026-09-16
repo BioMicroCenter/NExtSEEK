@@ -771,13 +771,23 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
             raise OpValidationError("every row needs a SampleType")
         by_type.setdefault(st, []).append(row)
 
+    from nextseek_api.services.reingest_lookups import attributes_for, known_sample_types
+
     out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
-    known = set(by_type)  # permissive here; the real catalog validates on upload
+    # known_sample_types() returning empty means "the catalog could not be read"
+    # (context_catalog's house rule: any failure costs the caller an empty
+    # catalog, never an exception), not "every type here is unknown". Taking it
+    # literally would hard-reject a whole reingest whenever the catalog table is
+    # briefly unreachable. So an EMPTY catalog falls back to the old permissive
+    # set(by_type) — derived from the rows themselves, so unknown_sampletype
+    # can't fire — and only a POPULATED catalog lets that check actually reject.
+    known = known_sample_types() or set(by_type)
     saved_files: dict[str, str] = {}
     qa: dict[str, dict] = {}
     for st, st_rows in by_type.items():
+        required = [a["title"] for a in attributes_for(st) if a.get("required")]
         report = qa_rows(st_rows, sample_type=st, known_sampletypes=known,
-                         existing_parent_uids=existing)
+                         required_fields=required, existing_parent_uids=existing)
         qa[st] = {"disposition": report.disposition, "hard": report.hard, "soft": report.soft}
         if report.disposition == HARD_REJECT:
             continue

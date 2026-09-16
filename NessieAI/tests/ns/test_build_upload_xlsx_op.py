@@ -55,3 +55,18 @@ def test_bad_json_rows_raises_validation(tmp_path):
     import pytest
     with pytest.raises(g.OpValidationError):
         g._build_upload_xlsx({"rows": "not json"}, _Cfg(), None, None, None, str(tmp_path))
+
+
+def test_empty_catalog_falls_back_to_permissive_known_types(tmp_path):
+    # This test is NOT django_db-marked, so known_sample_types() sees an
+    # unreachable table and (per context_catalog's house rule) comes back
+    # empty -- "I could not find out", not "every type here is unknown". A
+    # populated-vs-empty check must fall back to the old permissive
+    # set(by_type) in that case, or a briefly-unavailable catalog would
+    # hard-reject every sample type in every reingest.
+    rows = _rows(("A.MADE-UP-TYPE", "D.SEQ-1", [12]))
+    out = g._build_upload_xlsx(
+        {"rows": rows, "existing_parent_uids": "D.SEQ-1"},
+        _Cfg(), None, None, None, str(tmp_path))
+    assert out["qa"]["A.MADE-UP-TYPE"]["disposition"] == "CLEAN"
+    assert set(out["saved_files"]) == {"reingest_A_MADE_UP_TYPE"}
