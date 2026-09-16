@@ -173,10 +173,25 @@ class GeminiClient(BaseLLMClient):
     provider = "gcp"
 
     def __init__(self, api_key: str):
-        """Create a Gemini client bound to the supplied API key."""
-        import google.genai as genai
+        """Create a Gemini client bound to the supplied API key.
 
-        self.client = genai.Client(api_key=api_key)
+        `google-genai` ships a retry policy (408/429/500/502/503/504, 5 attempts,
+        exponential backoff with jitter) but leaves `retry_options` unset, and
+        `retry_args(None)` then returns `stop_after_attempt(1)` — its own docstring
+        calls that the "never retry" strategy. So every 503 from Gemini reached the
+        caller on the first try. That is production turn 463 (2026-09-04): the graph
+        query had already succeeded, the chatter drew
+        `503 UNAVAILABLE ... experiencing high demand`, nothing retried, and the user
+        saw "Internal pipeline error". boto3 retries the same class of failure five
+        times without being asked; this makes the two providers behave alike.
+        """
+        import google.genai as genai
+        from google.genai.types import HttpOptions, HttpRetryOptions
+
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options=HttpOptions(retry_options=HttpRetryOptions()),
+        )
 
     def _convert_messages(self, messages: List[dict]) -> tuple[list[dict], str | None]:
         """Split system text from chat messages and reshape the remainder for Gemini."""
@@ -458,8 +473,19 @@ class BedrockClient(BaseLLMClient):
             # away. It is only half the defence: Linux waits net.ipv4.tcp_keepalive_time
             # (7200s by default) before the first probe, so reset_connections() below is
             # what actually rescues a request that drew a dead socket.
+            # retries: botocore's default is "legacy" mode, which already covers
+            # 500/502/503/504 and the throttling family from _retry.json's
+            # __default__ block (bedrock-runtime has no service override), for 5
+            # attempts total. "standard" is the documented successor: the same
+            # conditions plus a retry quota that stops a wide outage becoming a retry
+            # storm. max_attempts counts RETRIES, so 4 keeps the same 5 total attempts
+            # as the legacy default (botocore normalises it to total_max_attempts=5).
+            # Naming it also stops the behaviour drifting if botocore moves its default.
             "config": Config(
-                read_timeout=read_timeout, connect_timeout=10, tcp_keepalive=True
+                read_timeout=read_timeout,
+                connect_timeout=10,
+                tcp_keepalive=True,
+                retries={"max_attempts": 4, "mode": "standard"},
             ),
         }
         if bearer_token:

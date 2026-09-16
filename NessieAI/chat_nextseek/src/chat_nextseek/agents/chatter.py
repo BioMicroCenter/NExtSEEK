@@ -9,7 +9,8 @@ if TYPE_CHECKING:
 
 from ..session import SessionState
 from ..config import ChatConfig
-from ..llm_clients import LLMAPIConnectionError, LLMRateLimitError
+from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError
+from ..schemas.schema_helper import call_llm_text
 from ..helpers import (
     log_prompt,
     log_usage,
@@ -280,16 +281,22 @@ def chatter_agent_answer(
     messages.append({"role": "user", "content": user_content})
 
     # ---------- LLM Call ----------
+    # Through call_llm_text, not client.chat: the chatter is the last step of a turn
+    # whose query has already run, so a provider blip here throws away a finished
+    # answer. It now gets the same 503 -> provider-fallback, timeout-recycle and 429
+    # backoff ladder as every structured agent, plus a ledger entry it never had.
     chatter_client, chatter_model, chatter_budget = config.get_agent_model("chatter")
     try:
-        resp = chatter_client.chat(
-            model=chatter_model,
-            temperature=0,
+        answer = call_llm_text(
+            config,
             messages=messages,
+            model_name=chatter_model,
+            client=chatter_client,
+            agent_label="chatter",
+            temperature=0,
             thinking_budget=chatter_budget,
+            usage_label="CHATTER",
         )
-        log_usage(resp, "CHATTER")
-        answer = resp.content or ""
         print("[DEBUG][CHATTER] Raw answer:", answer)
         log_prompt(
             log_dir or config.LOG_DIR,
@@ -330,6 +337,31 @@ def chatter_agent_answer(
         return (
             "I pulled the NExtSEEK results, but the summarization call hit the model's token/throughput limit. "
             "Try again with a narrower query or after a short pause.\n\n"
+            f"Basic info:\n- endpoint: {parser_plan.get('target_endpoint')}\n"
+            f"- intent: {parser_plan.get('intent_summary')}\n"
+            f"- total matches: {total if total is not None else 'unknown'}"
+        )
+    except LLMFatalError as e:
+        # Every provider in the chain refused. The query itself already succeeded, so
+        # report what it found and name the real cause. Previously this exception left
+        # the chatter uncaught, escaped run_query's bare `except Exception` and was
+        # rewritten by ns/turn.py into "Internal pipeline error" — production turns
+        # 463/464, where a finished graph result (total=0) was thrown away and the user
+        # was told nothing except that something had broken.
+        print("[DEBUG][CHATTER] Fatal LLM error:", repr(e))
+        busy = (
+            "The model that writes the reply is busy, so this answer is unformatted. "
+            "The query itself ran. Ask again in a moment for the written version."
+        )
+        if is_reporter:
+            return f"{busy}\n\nThe report step completed."
+        if is_graph:
+            count = (graph_result or {}).get("count", 0)
+            return f"{busy}\n\nThe graph query returned {count} record(s)."
+        data = (api_result_slim or {}).get("data", {})
+        total = data.get("total") if isinstance(data, dict) else None
+        return (
+            f"{busy}\n\n"
             f"Basic info:\n- endpoint: {parser_plan.get('target_endpoint')}\n"
             f"- intent: {parser_plan.get('intent_summary')}\n"
             f"- total matches: {total if total is not None else 'unknown'}"
