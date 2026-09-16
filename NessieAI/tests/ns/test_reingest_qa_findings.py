@@ -48,6 +48,9 @@ def test_add_raises_on_an_unrecognised_severity():
     report = qa.QaReport()
     with pytest.raises(ValueError, match="nonsense"):
         report.add(qa.Finding(code=qa.BLANK_PARENT, severity="nonsense", row_index=0))
+    assert report.findings == []
+    assert report.hard == []
+    assert report.soft == []
 
 
 def test_add_still_files_a_soft_finding_in_soft():
@@ -56,6 +59,7 @@ def test_add_still_files_a_soft_finding_in_soft():
                            attribute="SomeField"))
     assert report.hard == []
     assert len(report.soft) == 1
+    assert len(report.findings) == 1
 
 
 def test_render_includes_sample_type_on_a_row_level_finding_that_has_one():
