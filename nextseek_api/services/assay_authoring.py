@@ -26,12 +26,33 @@ class ValidationError(Exception):
         self.message = message
 
 
+def _clean_groups(groups):
+    """Strip blank codes and dedupe within each group, dropping emptied groups.
+
+    The single place that cleans alternation groups, so `serialise_groups` and
+    `validate`'s "did this role produce anything" check agree on what counts as
+    a real code. `[[""]]` and `[["  "]]` clean to `[]`; `[["TIS", ""]]` cleans
+    to `[["TIS"]]`; `[["TIS", "TIS"]]` cleans to `[["TIS"]]`, first-seen order
+    kept.
+    """
+    cleaned = []
+    for group in groups or []:
+        seen = []
+        for code in group or []:
+            code = (code or "").strip()
+            if code and code not in seen:
+                seen.append(code)
+        if seen:
+            cleaned.append(seen)
+    return cleaned
+
+
 def serialise_groups(groups) -> str:
     """Alternation groups as the curator grammar.
 
         [["TIS", "CEX"], ["AB"]]  ->  "TIS or CEX, AB"
     """
-    parts = [" or ".join(codes) for codes in (groups or []) if codes]
+    parts = [" or ".join(codes) for codes in _clean_groups(groups)]
     return ", ".join(parts)
 
 
@@ -49,7 +70,7 @@ def validate(name, description, required_parents, optional_parents, children,
         raise ValidationError("Give the assay a name.")
     if not description:
         raise ValidationError("Give the assay a short definition.")
-    if not [codes for codes in (children or []) if codes]:
+    if not _clean_groups(children):
         raise ValidationError(
             "Name at least one sample type the assay produces. "
             "An assay that produces nothing has no templates to offer."

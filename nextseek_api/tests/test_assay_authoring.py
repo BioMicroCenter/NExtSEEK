@@ -42,6 +42,15 @@ class TestSerialiseGroups:
     def test_empty_groups_are_dropped(self):
         assert serialise_groups([["TIS"], []]) == "TIS"
 
+    def test_a_blank_alternative_is_dropped_from_a_group(self):
+        assert serialise_groups([["TIS", ""]]) == "TIS"
+
+    def test_a_group_emptied_entirely_by_cleaning_disappears(self):
+        assert serialise_groups([["  "], ["AB"]]) == "AB"
+
+    def test_duplicate_codes_within_a_group_collapse(self):
+        assert serialise_groups([["TIS", "TIS"]]) == "TIS"
+
 
 class TestValidate:
     def test_a_good_proposal_passes_and_carries_its_slug(self):
@@ -55,8 +64,13 @@ class TestValidate:
         assert got["optional_parents"] == ""
 
     def test_name_and_description_are_stripped(self):
-        got = validate(**{**OK, "name": "  Spectral Flow Cytometry  "})
+        got = validate(**{
+            **OK,
+            "name": "  Spectral Flow Cytometry  ",
+            "description": "  Full-spectrum single-cell analysis.  ",
+        })
         assert got["name"] == "Spectral Flow Cytometry"
+        assert got["description"] == "Full-spectrum single-cell analysis."
 
     def test_an_empty_name_is_rejected(self):
         with pytest.raises(ValidationError) as exc:
@@ -73,6 +87,21 @@ class TestValidate:
         with pytest.raises(ValidationError) as exc:
             validate(**{**OK, "children": []})
         assert "produce" in exc.value.message.lower()
+
+    def test_children_of_only_blank_strings_is_rejected(self):
+        """[[""]] is a truthy list, but it serialises to nothing."""
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "children": [[""]]})
+        assert "produce" in exc.value.message.lower()
+
+    def test_children_of_only_whitespace_is_rejected(self):
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "children": [["  "]]})
+        assert "produce" in exc.value.message.lower()
+
+    def test_a_blank_alternative_in_a_parent_group_is_dropped(self):
+        got = validate(**{**OK, "required_parents": [["TIS", ""]]})
+        assert got["required_parents"] == "TIS"
 
     def test_a_duplicate_slug_is_rejected_and_names_the_clash(self):
         """assay_context already carries 22 duplicate names; it must not grow."""
