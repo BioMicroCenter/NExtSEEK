@@ -116,11 +116,12 @@
 {{ code_options|json_script:"assay-code-options" }}
 <script>
 (function () {
+  var form = document.getElementById('create-assay');
+  if (!form) { return; }
+
   // Codes come from downloadable_codes(): a code with no template sheet would
   // make the new assay offer a download that resolves to nothing.
   var codes = JSON.parse(document.getElementById('assay-code-options').textContent);
-  var form = document.getElementById('create-assay');
-  if (!form) { return; }
 
   // Each role posts JSON so the GROUPING survives. "TIS or CEX, AB" is two
   // pick-one requirements; through ordinary form fields it would arrive as

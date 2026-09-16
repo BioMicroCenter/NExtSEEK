@@ -330,7 +330,7 @@ class TestAssaySetupCreate:
     @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
     @patch("seek.decorators.SeekDB")
     def test_the_group_structure_survives_the_form(self, db, _super, create, _codes):
-        """"TIS or CEX, AB" must not arrive as four independent codes."""
+        """"TIS or CEX, AB" must not arrive as three independent codes."""
         from seek.views.assay_setup import assaySetupCreate
 
         db.return_value = _logged_in()
@@ -434,3 +434,8 @@ class TestCodeOptionsAreNotTrustedInput:
         # the options payload's own `<script>` element and open an attacker
         # one must not appear anywhere in the response.
         assert self.HOSTILE not in body
+        # And not vacuously: the options payload must actually have reached
+        # the page. Without this, deleting the `json_script` line entirely
+        # would still pass the assertion above while silently breaking the
+        # create form.
+        assert 'id="assay-code-options"' in body
