@@ -78,6 +78,14 @@ Key facts every operator must internalize:
   instead, and puma respawns it. Raise `SEEK_MEMORY` in the project-root
   `.env` on a box serving real SEEK traffic; the cap takes effect when `seek`
   is recreated.
+- The `neo4j` container is capped at `${NEO4J_MEMORY:-6G}`, its heap and page
+  cache are sized explicitly (`NEO4J_HEAP`, `NEO4J_PAGECACHE`, 2G each), and a
+  single transaction may allocate at most `${NEO4J_TRANSACTION_MAX:-1g}`. Before
+  2026-09-16 none of these were set: the JVM sized its heap from host RAM, and
+  one graph sync transaction at schema 1.2 needed over 512 MiB, which on this
+  service would have grown unchecked. A transaction that asks for more is now
+  killed and reported to its caller instead. Raise the bounds together on a box
+  with a larger graph; the caps take effect when `neo4j` is recreated.
 - Asynchronous attribute mutations use Celery's SQLAlchemy transport over
   SQLite at `/var/lib/attribute-broker/broker.sqlite3`. The worker and outbox
   dispatcher share the named `attribute_mutation_broker` volume. Routine
