@@ -80,3 +80,59 @@ def test_absent_from_a_known_cohort_falls_back_to_fastq():
                  "fastq_2": None}])
     out = uid_resolve.resolve(ROWS, RUN_DIR, lambda p: ["D.SEQ-EXAMPLE-9"])
     assert out == [("CONTROL_REP1", "D.SEQ-EXAMPLE-9", manifest.RESOLUTION_FASTQ_EXACT)]
+
+
+def _by_basename(mapping):
+    """A fastq lookup stub that discriminates on its argument: it matches
+    only the literal basename string, never the full path `resolve` tries
+    first. Exercises the basename fallback tier for real, unlike every other
+    stub in this file which returns the same value regardless of argument --
+    with those, the exact tier always answers first and the basename branch
+    never runs.
+    """
+    def lookup(path):
+        return mapping.get(path, [])
+    return lookup
+
+
+def test_basename_match_resolves_but_is_recorded_as_the_weaker_tier():
+    fastq = "/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz"
+    basename = "CONTROL_REP1_R1.fastq.gz"
+    rows = [{"sample": "CONTROL_REP1", "fastq_1": fastq, "fastq_2": ""}]
+    out = uid_resolve.resolve(
+        rows, RUN_DIR, _by_basename({basename: ["D.SEQ-EXAMPLE-9"]}))
+    assert out == [("CONTROL_REP1", "D.SEQ-EXAMPLE-9", manifest.RESOLUTION_FASTQ_BASENAME)]
+
+
+def test_basename_match_with_two_candidates_is_ambiguous_and_never_guessed():
+    fastq = "/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz"
+    basename = "CONTROL_REP1_R1.fastq.gz"
+    rows = [{"sample": "CONTROL_REP1", "fastq_1": fastq, "fastq_2": ""}]
+    out = uid_resolve.resolve(
+        rows, RUN_DIR, _by_basename({basename: ["D.SEQ-A", "D.SEQ-B"]}))
+    assert out == [("CONTROL_REP1", None, manifest.RESOLUTION_AMBIGUOUS)]
+
+
+def test_multirun_wins_over_a_resolvable_launch_record():
+    """The existing multi-run test (above) never creates a PipelineRun, so it
+    only proves multi-run beats the fastq path -- which was already being
+    skipped once a launch record exists. This proves the stronger claim: a
+    multi-run sample is excluded even when the launch record HAS a valid UID
+    for it. Multi-run exclusion is a measurement limit, not an identity one --
+    nf-core concatenates those reads before QC, so the single figure it
+    reports cannot honestly be attributed to any one contributing sample.
+    Knowing the UID does not make the number attributable.
+    """
+    rows = [
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz", "fastq_2": ""},
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L002_R1.fastq.gz", "fastq_2": ""},
+    ]
+    PipelineRun.objects.create(
+        run_dir=RUN_DIR, run_name="r", pipeline="nf-core/rnaseq",
+        launched_by=get_user_model().objects.create(username="t"),
+        cohort=[{"d_seq_uid": "D.SEQ-EXAMPLE-1", "nfcore_sample": "S1",
+                 "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz",
+                 "fastq_2": None}])
+    out = uid_resolve.resolve(rows, RUN_DIR, lambda p: ["D.SEQ-A"])
+    assert {r[2] for r in out} == {manifest.RESOLUTION_MULTIRUN}
+    assert all(r[1] is None for r in out)
