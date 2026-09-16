@@ -25,6 +25,31 @@ _NO_BACKFILL = {
     manifest.RESOLUTION_UNRESOLVED,
 }
 
+# Per the UID-resolution table in
+# docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md (Section 11,
+# "UID resolution"), an ambiguous or multi-run sample gets no per_sample /
+# per_run child row at all: ambiguous because guessing between candidate
+# parents would write a wrong lineage, multi-run because uid_resolve.resolve()
+# discards the sample's contributing UIDs and SampleRecord cannot carry a
+# list, so no honest `Parent` exists at this layer. An unresolved sample is
+# NOT in this set -- the spec's table is explicit that its child still ships,
+# just with no `Parent` to name.
+_NO_CHILD_ROW = {
+    manifest.RESOLUTION_MULTIRUN,
+    manifest.RESOLUTION_AMBIGUOUS,
+}
+
+# Resolutions for which the spec's table says a real D.SEQ parent exists, so
+# a child row may carry `Parent`. Checked by name (not by `d_seq_uid`
+# truthiness) so a future bug in uid_resolve.py that set `d_seq_uid` on an
+# ambiguous or unresolved sample could not leak into a fabricated `Parent`
+# here.
+_HAS_PARENT = {
+    manifest.RESOLUTION_LAUNCH_RECORD,
+    manifest.RESOLUTION_FASTQ_EXACT,
+    manifest.RESOLUTION_FASTQ_BASENAME,
+}
+
 
 class MappedAttribute(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -123,20 +148,33 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
 
 def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
                      run_manifest: manifest.RunManifest) -> list[MappedRow]:
-    """One row per sample resolved to a D.SEQ uid; the analysis record does
-    not exist yet, so `uid` stays None and this row is what creates it.
+    """One row per sample this rule's child ships for; the analysis record
+    does not exist yet, so `uid` stays None and this row is what creates it.
 
-    A sample with no `d_seq_uid` -- unresolved, ambiguous, or multi-run --
-    produces no row here. Multi-run is the case worth naming explicitly:
-    `uid_resolve.resolve()` discards a multi-run sample's source UIDs
-    entirely, and `SampleRecord` has nowhere to carry a list of them, so
-    there is no `Parent` this row could honestly carry. Emitting a row with
-    an empty or fabricated `Parent` would be a dangling analysis record,
-    which is worse than simply not creating one.
+    Policy follows the UID-resolution table in
+    docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md (Section 11),
+    per resolution:
+
+    - `_HAS_PARENT` (launch record / fastq exact / fastq basename): row
+      ships, `Parent` set to the resolved `d_seq_uid`, and this row joins the
+      per_run `Parent` (see `_per_run_row`).
+    - `unresolved`: row still SHIPS -- the spec is explicit that the hard
+      reject on this resolution applies "on the backfill only" -- but with
+      no `Parent` key at all. There is no parent to name, and fabricating
+      one (or emitting `Parent: ""`) would assert a lineage that does not
+      exist; the child instead preserves the output file and makes the
+      missing lineage visible for a curator to attach later.
+    - `ambiguous`: no row. The spec calls this a hard reject -- never guess
+      between candidate parents.
+    - `multirun`: no row, matching today's behaviour. The spec wants this
+      child to carry a `;`-joined `Parent` across every contributing D.SEQ,
+      but `uid_resolve.resolve()` discards those source UIDs and
+      `SampleRecord` cannot carry a list, so it is not implementable at this
+      layer. Tracked separately.
     """
     rows: list[MappedRow] = []
     for sample in run_manifest.samples:
-        if not sample.d_seq_uid:
+        if sample.uid_resolution in _NO_CHILD_ROW:
             continue
         row = MappedRow(sample_type=rule.sample_type, nfcore_sample=sample.nfcore_sample)
         for attribute, ref in merged_attrs.items():
@@ -148,9 +186,12 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
                 raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
                 source_file=run_manifest.sources.get("params", ""))
         # Parent is a structural lineage field, not a mapped attribute -- set
-        # it last so no rule attribute can accidentally clobber it.
-        row.attributes["Parent"] = MappedAttribute(
-            attribute="Parent", value=sample.d_seq_uid, origin=ORIGIN_MAP)
+        # it last so no rule attribute can accidentally clobber it. Only a
+        # resolution in `_HAS_PARENT` may set it; an unresolved sample ships
+        # its row with no `Parent` key.
+        if sample.uid_resolution in _HAS_PARENT:
+            row.attributes["Parent"] = MappedAttribute(
+                attribute="Parent", value=sample.d_seq_uid, origin=ORIGIN_MAP)
         rows.append(row)
     return rows
 
@@ -162,11 +203,13 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
 
     Join order follows the manifest's own sample order (the samplesheet
     order the harvester recorded), which is deterministic and requires no
-    extra sort key. Duplicates are dropped by first occurrence. A sample
-    that resolved to no `d_seq_uid` (unresolved, ambiguous, or multi-run --
-    see `_per_sample_rows`) contributes nothing to the join; if no sample
-    resolved at all, `Parent` is omitted entirely rather than set to an
-    empty string.
+    extra sort key. Duplicates are dropped by first occurrence. Only a
+    sample whose resolution is in `_HAS_PARENT` contributes its `d_seq_uid`
+    to the join -- checked by resolution, not by `d_seq_uid` truthiness, so
+    an unresolved, ambiguous, or multi-run sample (see `_per_sample_rows`)
+    can never leak into this join even if a future change set a UID on one
+    of them. If no sample resolved at all, `Parent` is omitted entirely
+    rather than set to an empty string.
     """
     row = MappedRow(sample_type=rule.sample_type)
     for attribute, ref in merged_attrs.items():
@@ -181,7 +224,7 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
     seen: set[str] = set()
     parents: list[str] = []
     for sample in run_manifest.samples:
-        if sample.d_seq_uid and sample.d_seq_uid not in seen:
+        if sample.uid_resolution in _HAS_PARENT and sample.d_seq_uid not in seen:
             seen.add(sample.d_seq_uid)
             parents.append(sample.d_seq_uid)
     if parents:
