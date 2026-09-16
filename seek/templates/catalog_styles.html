@@ -79,6 +79,13 @@ a.cat-chip:hover { border-color: var(--ns-crimson-border); background: var(--ns-
    Same class, set by the same [data-group-toggle] handler. */
 .cat-page .cat-list-group.is-collapsed .cat-list-rows { display: none; }
 .cat-page .cat-list .cat-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.35rem 0.75rem; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--ns-border); font-size: 0.85rem; }
+/* catalog_table_filter.js sets `row.hidden = true` to hide a filtered-out row,
+   and this author rule for `display: flex` outranks the UA default of
+   `[hidden] { display: none }`. Without this, the row only actually hides
+   because base.html's Bootstrap reboot happens to carry `[hidden] { display:
+   none !important }` -- lose that CDN and every row stays visible while the
+   count still reads "1 result". Do not delete this as redundant. */
+.cat-page .cat-list .cat-row[hidden] { display: none; }
 .cat-page .cat-list .cat-row:hover { background: #fbfbfc; }
 /* The primary link. Grows to take the row, so the chips line up on the right
    at any width and wrap under the name rather than beside it when narrow. */
@@ -86,8 +93,9 @@ a.cat-chip:hover { border-color: var(--ns-crimson-border); background: var(--ns-
 .cat-page .cat-assay:hover { color: var(--ns-crimson); text-decoration: underline; }
 .cat-page .cat-flow { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; }
 .cat-page .cat-flow-side { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; }
-/* Kept even when one side is empty, so "TIS -> " and " -> RNA" say which side
-   the codes are on. The arrow is the only thing that distinguishes them. */
+/* Rendered only when both sides are non-empty (assaySetup.html) -- a dangling
+   "TIS -> " on a produces-nothing row read as truncation, not as an assay with
+   one side empty. */
 .cat-page .cat-arrow { color: var(--ns-muted); font-size: 0.8rem; }
 /* An assay curated with neither inputs nor outputs. The .cat-or voice: muted
    and italic, so it reads as an absence rather than as a value. */

@@ -215,8 +215,13 @@ class TestThePickerIsAListWhoseLinkIsTheAssayName:
     @patch("seek.decorators.SeekDB")
     def test_every_assay_gets_exactly_one_link(self, db, _assays):
         db.return_value = _logged_in()
-        links = _picker_links(self._body())
+        body = self._body()
+        links = _picker_links(body)
         assert set(links) == {e.slug for e in ASSAYS}
+        # `_picker_links` keys on slug, so two rows for one assay would
+        # collapse into a single entry and the assertion above would still
+        # pass. Count the anchors themselves so a duplicated row fails this.
+        assert len(_LINK.findall(body)) == len(ASSAYS)
 
     @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
     @patch("seek.decorators.SeekDB")
@@ -274,7 +279,11 @@ class TestThePickerIsAListWhoseLinkIsTheAssayName:
 
     @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
     @patch("seek.decorators.SeekDB")
-    def test_the_count_is_every_assay_not_every_group(self, db, _assays):
+    def test_the_server_rendered_subtitle_states_the_total_assay_count(
+        self, db, _assays
+    ):
+        """Pins the server-rendered subtitle text, not the JS-driven
+        `[data-cat-count]`, which the search box updates client-side."""
         db.return_value = _logged_in()
         assert f"{len(ASSAYS)} assays available." in self._body()
 

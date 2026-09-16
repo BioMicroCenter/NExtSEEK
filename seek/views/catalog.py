@@ -152,11 +152,6 @@ def distinct_codes(*group_lists):
     return seen
 
 
-def _all_codes(groups):
-    """`distinct_codes` joined for a table cell: "TIS · CEX · AB"."""
-    return " · ".join(distinct_codes(groups))
-
-
 def assay_clade_buckets(entries):
     """Assays bucketed by the clade they consume, ready to render.
 
@@ -211,7 +206,8 @@ def assaysList(request):
                 # Consumes = the real parent sample types. Produces is not a
                 # column: the Code anchor already carries the produced code.
                 "code": _first_code(first.children) or "—",
-                "cells": [e.name, _all_codes(first.required_parents)],
+                # `distinct_codes` joined for a table cell: "TIS · CEX · AB".
+                "cells": [e.name, " · ".join(distinct_codes(first.required_parents))],
                 "filter_text": assay_filter_text(e),
             })
         groups.append({"clade": g["clade"], "clade_slug": g["clade_slug"],

@@ -85,9 +85,13 @@
         <li class="cat-row" data-filter="{{ row.filter_text }}">
           <a class="cat-assay" href="{{ row.href }}">{{ row.name }}</a>
           {% if row.consumes or row.produces %}
-          <span class="cat-flow" title="Consumes &rarr; produces">
+          {# aria-label carries the same consumes/produces data as the chips, #}
+          {# because the aria-hidden arrow and the static title give a screen #}
+          {# reader no way to tell which side is which. #}
+          <span class="cat-flow" title="Consumes &rarr; produces"
+                aria-label="{% if row.consumes and row.produces %}consumes {{ row.consumes|join:", " }}, produces {{ row.produces|join:", " }}{% elif row.consumes %}consumes {{ row.consumes|join:", " }}{% else %}produces {{ row.produces|join:", " }}{% endif %}">
             <span class="cat-flow-side">{% for c in row.consumes %}<span class="cat-chip">{{ c }}</span>{% endfor %}</span>
-            <span class="cat-arrow" aria-hidden="true">&rarr;</span>
+            {% if row.consumes and row.produces %}<span class="cat-arrow" aria-hidden="true">&rarr;</span>{% endif %}
             <span class="cat-flow-side">{% for c in row.produces %}<span class="cat-chip">{{ c }}</span>{% endfor %}</span>
           </span>
           {% else %}

@@ -215,6 +215,13 @@ CULTURE = AssayEntry(slug="cell-culture", name="Cell Culture", rows=[
              internal_assay_id=85),
 ])
 
+# A row with a real alternative name. FLOW_ASSAY's own row carries none, so it
+# cannot tell `assaysList`'s `filter_text` key apart from a page that dropped
+# it -- `assay_filter_text` would render an empty string either way.
+NAMED_ASSAY = AssayEntry(slug="flow-cytometry", name="Flow Cytometry", rows=[
+    AssayRow(row_id=31, alternative_names=["FACS"], parent_clade="Processed"),
+])
+
 
 class TestAssaysList:
     @patch("seek.decorators.SeekDB")
@@ -256,6 +263,23 @@ class TestAssaysList:
         resp = assaysList(_get("/seek/assays/"))
         assert resp.status_code == 200
         assert "assay_context" in resp.content.decode()
+
+    @patch("seek.views.catalog.load_assays", return_value=[NAMED_ASSAY])
+    @patch("seek.decorators.SeekDB")
+    def test_an_alternative_name_reaches_the_rendered_row_as_data_filter(
+        self, db, _load
+    ):
+        """Pins `assay_filter_text`'s use at page level. Every other fixture
+        for this page carries no alternative names, so dropping the
+        `filter_text` key from the row dict would fail nothing here without
+        this: the client-side search would silently stop matching an assay by
+        the name people actually call it."""
+        from seek.views.catalog import assaysList
+
+        db.return_value = _logged_in()
+        body = assaysList(_get("/seek/assays/")).content.decode()
+        row = body[body.index("<tr class=\"cat-row\""):]
+        assert "facs" in row.split("data-filter=\"", 1)[1].split("\"", 1)[0]
 
 
 class TestAssayFilterText:

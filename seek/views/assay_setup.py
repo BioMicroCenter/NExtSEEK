@@ -40,11 +40,11 @@ PAGE = 'assaySetup.html'
 LOGIN_NEXT = '/seek/assay-setup/'
 
 
-def picker_groups(entries):
+def _picker_groups(entries):
     """Curated assays as the picker list's groups, by consumed clade.
 
     Row = {href, name, consumes, produces, filter_text}. The NAME is the link,
-    which is the whole reason this is not `/seek/assays/`\'s table: that table
+    which is the whole reason this is not `/seek/assays/`'s table: that table
     links its leading `code` cell, which carries the PRODUCED sample-type code,
     so on a page for picking the assay you are running the assay name was the
     one thing on the row you could not click -- and the 72 curated assays of
@@ -89,7 +89,7 @@ def _picker():
         logger.exception("assay catalog unavailable; the picker will be empty")
         return [], 0, ("The assay catalog is unavailable. "
                        "Tell an administrator if this persists.")
-    return picker_groups(entries), len(entries), ""
+    return _picker_groups(entries), len(entries), ""
 
 
 def _blank_form() -> dict:
