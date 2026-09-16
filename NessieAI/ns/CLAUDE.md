@@ -13,6 +13,7 @@ These are covered by tests. Breaking one is a security or data regression.
 - **A rendered workbook's artifact key is word characters only.** The download route accepts nothing else.
 - **`build-upload-xlsx` never writes to NExtSEEK.** It returns a reviewable workbook; a hard-rejected sample type is skipped with its report.
 - **The upload workbook emits all four sheets**, even empty ones. A missing sheet makes the parser fall back to the flat format silently.
+- **An optional fifth `Provenance` sheet is inert to the parser.** `detect_format` uses a subset test; the parser resolves only the four named sheets, so provenance travels inside the uploaded file.
 - **An artifact is served only from inside an artifact root.** `_safe_artifact_path` in `artifacts.py` resolves symlinks and requires `Path.relative_to` containment in `<BASE_DIR>/outputs` or `NEXTSEEK_OUTPUTS_DIR`. A string-prefix check, or a wider root such as `BASE_DIR` or home, lets a stored path read source or secrets.
 - **`write_gate.py` and `read_safe_endpoints.json` stay side by side.** The loader resolves the JSON from the module's own directory, and `NessieAI/cc/op_registry/ops.py` reads it at import.
 
