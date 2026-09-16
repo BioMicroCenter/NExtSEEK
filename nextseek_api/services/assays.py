@@ -8,6 +8,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.graph_sync import hooks
 from nextseek_api.endpoint_descriptions import (
     ASSAY_LIST_DESC,
     ASSAY_FETCH_DESC,
@@ -168,6 +169,11 @@ class AssayProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
+        if 200 <= code < 300:
+            # An assay feeds the DERIVED_FROM labels and the ISA nodes (spec 5 E8, E15).
+            hooks.enqueue("assay_map", "*")
+            hooks.enqueue("isa", "*")
+
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
@@ -230,6 +236,11 @@ class AssayProxyViewSet(viewsets.ViewSet):
             AssaySingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+
+        if 200 <= code < 300:
+            # A renamed assay leaves every DERIVED_FROM label it names stale (spec 5 E8, E15).
+            hooks.enqueue("assay_map", "*")
+            hooks.enqueue("isa", "*")
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)

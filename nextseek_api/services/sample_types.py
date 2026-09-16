@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.graph_sync import hooks
 import logging
 from django.db import connections
 from seek.seekdb import SeekDB
@@ -108,6 +109,18 @@ def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
     except Exception:
         return None
     return None
+
+
+def _graph_sync_type_id(data, fallback: Optional[str] = None) -> Optional[str]:
+    """The sample type id a graph_sync hook enqueues: the one SEEK returned, else the one the path resolved to."""
+    try:
+        seek_id = str(((data or {}).get("data") or {}).get("id") or "")
+    except Exception:
+        seek_id = ""
+    if seek_id.isdigit():
+        return seek_id
+    fallback = str(fallback or "")
+    return fallback if fallback.isdigit() else None
 
 
 class SampleTypeProxyViewSet(viewsets.ViewSet):
@@ -212,6 +225,13 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
+        if 200 <= code < 300:
+            # A new type is a catalog entry, and its samples take their T_ label from it (spec 5 E4, E10).
+            hooks.enqueue("catalog", "*")
+            type_id = _graph_sync_type_id(data)
+            if type_id is not None:
+                hooks.enqueue("samples_of_type", f"type:{type_id}")
+
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
@@ -262,6 +282,13 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             SampleTypeSingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+
+        if 200 <= code < 300:
+            # A rename moves the catalog and every sample's T_ label, so the whole type is re-synced (spec 5 E4, E10).
+            hooks.enqueue("catalog", "*")
+            type_id = _graph_sync_type_id(data, seek_id)
+            if type_id is not None:
+                hooks.enqueue("samples_of_type", f"type:{type_id}")
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)

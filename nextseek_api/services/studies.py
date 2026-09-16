@@ -8,6 +8,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.graph_sync import hooks
 from nextseek_api.endpoint_descriptions import (
     STUDY_LIST_DESC,
     STUDY_FETCH_DESC,
@@ -168,6 +169,10 @@ class StudyProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
+        if 200 <= code < 300:
+            # The drain rewrites the ISA nodes wholesale (spec 5 E15).
+            hooks.enqueue("isa", "*")
+
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
@@ -231,6 +236,10 @@ class StudyProxyViewSet(viewsets.ViewSet):
             StudySingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+
+        if 200 <= code < 300:
+            # A renamed study leaves its node stale until the drain rewrites the ISA nodes (spec 5 E15).
+            hooks.enqueue("isa", "*")
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)

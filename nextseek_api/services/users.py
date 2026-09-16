@@ -36,6 +36,7 @@ from nextseek_api.services.seek_rails_runner import (
     SeekRailsUnavailableError,
     run_seek_rails_runner,
 )
+from nextseek_api.graph_sync import hooks
 from seek.models import People, Users
 
 logger = logging.getLogger(__name__)
@@ -542,6 +543,8 @@ class UsersViewSet(viewsets.ViewSet):
             project_id=int(result.get("project_id", body.project_id)),
             institution_id=int(result.get("institution_id", body.institution_id)),
         )
+        # The new person joined a work group: MEMBER_OF follows (spec 5 E13).
+        hooks.enqueue("membership", "*")
         import json
 
         return HttpResponse(
@@ -690,6 +693,8 @@ class UsersViewSet(viewsets.ViewSet):
             project_id=result.get("project_id"),
             institution_id=result.get("institution_id"),
         )
+        # A patch can add a membership and rewrites the person: MEMBER_OF follows (spec 5 E13).
+        hooks.enqueue("membership", "*")
         import json
 
         return HttpResponse(
