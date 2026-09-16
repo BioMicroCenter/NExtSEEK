@@ -24,6 +24,8 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`superpowers/specs/2026-09-15-graph-search-sync-design.md`](superpowers/specs/2026-09-15-graph-search-sync-design.md) | draft spec | changing how graph 2.0 stays in sync with every writer: the hooks, the nightly targeted sync, the weekly full sync, batch upload's graph stage, the deletion rule, the loop and its CI gates | |
 | [`superpowers/specs/2026-09-15-graph-search-sync-inventory.md`](superpowers/specs/2026-09-15-graph-search-sync-inventory.md) | inventory | finding who writes a table the graph reads: every writer, route and code-scan site, cross-checked, with the recon's corrections | |
 | [`superpowers/plans/2026-09-15-graph-search-sync.md`](superpowers/plans/2026-09-15-graph-search-sync.md) | plan | executing or reviewing the graph sync work as four Workflow runs, task by task | |
+| [`superpowers/specs/2026-09-16-graph-behaviour-tests-design.md`](superpowers/specs/2026-09-16-graph-behaviour-tests-design.md) | draft spec | making a 1.2 full sync fit inside the live neo4j's transaction bound, and proving by running them that each write path changes the graph | |
+| [`superpowers/plans/2026-09-16-graph-behaviour-tests.md`](superpowers/plans/2026-09-16-graph-behaviour-tests.md) | plan | executing the transaction-bound fix and the behavioural write lane, task by task | |
 
 `docs/superpowers/` is gitignored by default; only files named by a negation in `.gitignore` are tracked.
 
