@@ -896,10 +896,15 @@ def emit_nfcore_artifacts(
         for field in enrichment:
             value = sample_meta.get(field)
             rewritten[field] = "" if value is None else value
+        # Captured before _apply_platform_columns, which — for genomeassembler —
+        # unconditionally pops fastq_1/fastq_2 (PIPELINE_PLATFORM_COLUMNS is truthy
+        # for every row regardless of detected platform), not just when a platform
+        # mapping actually renamed them. Capturing after it left every genomeassembler
+        # cohort entry with a blank fastq_1.
+        cohort_rows.append(dict(rewritten))
         # Platform-dependent columns come BEFORE the static alias map: the alias map
         # is keyed on the standard names, and this may have renamed them away.
         rewritten = _apply_platform_columns(rewritten, pipeline, sample_meta)
-        cohort_rows.append(dict(rewritten))
         keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
 
     columns = _ensure_columns(keep_rows, required, enrichment)
