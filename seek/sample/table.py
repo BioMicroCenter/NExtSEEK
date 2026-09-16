@@ -8,7 +8,6 @@ base. They hold no state of their own; every one of them operates on the
 from dmac.dbtable import DBtable
 from ..dbtable_sampleattribute import DBtable_sampleattribute
 from ..dbtable_sops import DBtable_sops
-from neo4j import GraphDatabase
 from ..models import Samples
 from dmac.conversion import getDefaultDateTime
 import html
@@ -16,8 +15,8 @@ from dmac.iocsv import saveDiclistIntoExcel
 from django.conf import settings
 import simplejson
 
-from .constants import NEO4J_DATABASE, SAMPLE_FILE_ACCESSOR_NAME, SAMPLE_FILTER_MAPPING, SAMPLE_LINK_ACCESSOR_NAME, SAMPLE_PARENT_ACCESSOR_NAME, SAMPLE_PROTOCOL_ACCESSOR_NAME, SAMPLE_PUBLISH_ACCESSOR_NAME, SEEK_DATABASE, logger
-from .upload import SampleUploadMixin
+from .constants import SAMPLE_FILE_ACCESSOR_NAME, SAMPLE_FILTER_MAPPING, SAMPLE_LINK_ACCESSOR_NAME, SAMPLE_PARENT_ACCESSOR_NAME, SAMPLE_PROTOCOL_ACCESSOR_NAME, SAMPLE_PUBLISH_ACCESSOR_NAME, SEEK_DATABASE, logger
+from .upload import SampleUploadMixin, enqueueSampleSync
 from .download import SampleDownloadMixin
 from .search import SampleSearchMixin
 from .api import SampleApiMixin
@@ -56,13 +55,6 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         self.fieldMapping = SAMPLE_FILTER_MAPPING
         self.excludeFields = []
 
-    def deleteSampleNeo4j(self, sample_id):
-        with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
-            records, summary, keys = driver.execute_query("MATCH (s:Sample {id: $id}) DETACH DELETE s",
-                    id=sample_id,
-                    database_=NEO4J_DATABASE['NAME'])
-            logger.debug(f"NEO4J summary: {summary}")
-
     def _deleteOneSample(self, sample_id, policy_id):
         sqlqueries = []
         sqlquery = "DELETE FROM projects_samples where sample_id=" + str(sample_id) + ";"
@@ -85,10 +77,10 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         status = self.db.run_custom_transaction(sqlqueries, db_alias)
         if status:
             msg = "Transaction successful"
-            try:
-                self.deleteSampleNeo4j(sample_id)
-            except:
-                None
+            # The row is gone from MySQL, so the graph holds a sample that no longer exists. The deletion rule (the
+            # design's section 9) is the loop's to apply, from this row, after the transaction: the node used to be
+            # DETACH DELETEd here and a bare ``except`` discarded every failure.
+            enqueueSampleSync('retire', sample_id)
         else:
             msg = "Error: The trandsaction of deletion failed. Delete this sample manually"
         
