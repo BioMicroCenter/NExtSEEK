@@ -289,6 +289,10 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="skipped wherever assay_slug is None, i.e. wherever the list page "
                "rendered no assays to scrape a link from"),
+    Route(pattern=r"^seek/^assay-setup/$", path="/seek/assay-setup/",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
+          note="the assay setup picker. Same empty state and the same caveat as "
+               "/seek/assays/: a 200 is not evidence dmac.assay_context landed"),
     Route(pattern=r"^seek/^help/$", path="/seek/help/",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200),
     Route(pattern=r"^seek/^newsearch/", path="/seek/newsearch/",

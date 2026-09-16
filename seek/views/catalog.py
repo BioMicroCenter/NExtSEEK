@@ -150,16 +150,18 @@ def _all_codes(groups):
     return " · ".join(seen)
 
 
-@requires_seek_login_redirect('/seek/assays/')
-def assaysList(request):
-    """Every curated assay as a table, grouped by the clade it consumes.
+def assay_table_groups(entries, href_for):
+    """Curated assays as `includes/catalog_table.html` groups.
 
-    Left anchor is the produced sample-type code; UNASSIGNED renders collapsed.
+    `href_for` takes an AssayEntry and returns the row's link, so the same table
+    serves the read-only catalog and the assay setup picker. Extracted when the
+    setup page needed this table verbatim: duplicating it would have copied five
+    private helpers and let the two tables drift.
     """
-    entries = load_assays()
     buckets = {}
     for entry in entries:
         buckets.setdefault(_assay_group_key(entry), []).append(entry)
+
     groups = []
     for name in _ordered_clades(buckets):
         if not buckets.get(name):
@@ -167,21 +169,31 @@ def assaysList(request):
         rows = []
         for e in buckets[name]:
             first = e.rows[0]
-            produced = _first_code(first.children)
             rows.append({
-                "href": f"/seek/assays/{e.slug}/",
-                "code": produced or "—",
+                "href": href_for(e),
                 # Consumes = the real parent sample types. Produces is not a
                 # column: the Code anchor already carries the produced code.
+                "code": _first_code(first.children) or "—",
                 "cells": [e.name, _all_codes(first.required_parents)],
-                "filter_text": (e.name + " " + " ".join(r.description or "" for r in e.rows)).lower(),
+                "filter_text": (e.name + " " + " ".join(
+                    r.description or "" for r in e.rows)).lower(),
             })
         groups.append({
             "clade": name, "clade_slug": _clade_slug(name),
             "rows": rows, "collapsed": name == UNASSIGNED_CLADE,
         })
+    return groups
+
+
+@requires_seek_login_redirect('/seek/assays/')
+def assaysList(request):
+    """Every curated assay as a table, grouped by the clade it consumes.
+
+    Left anchor is the produced sample-type code; UNASSIGNED renders collapsed.
+    """
+    entries = load_assays()
     return render(request, 'assaysList.html', {
-        "groups": groups,
+        "groups": assay_table_groups(entries, lambda e: f"/seek/assays/{e.slug}/"),
         "columns": ["Assay", "Consumes"],
         "total": len(entries),
     })

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Assay Setup - NExtSEEK{% endblock %}
+
+{% block extra_head %}{% include "catalog_styles.html" %}{% endblock %}
+
+{% block main %}
+<div class="cat-page">
+
+  <header class="ns-page-header">
+    <h1 class="ns-page-title">Assay setup</h1>
+    <p class="ns-page-subtitle">
+      Pick the assay you are running to download the sample sheet templates for
+      every sample type it consumes and produces.
+    </p>
+  </header>
+
+  {% if notice %}<div class="cat-notice">{{ notice }}</div>{% endif %}
+  {% if message %}<div class="cat-notice">{{ message }}</div>{% endif %}
+
+  {% if components %}
+  <a href="/seek/assay-setup/" class="cat-back">
+    <i class="bi bi-arrow-left"></i> All assays
+  </a>
+
+  <div class="cat-row-panel">
+    <div class="cat-detail-head">
+      <span class="cat-detail-title">{{ components.name }}</span>
+      <a class="cat-chip" href="/seek/assays/{{ components.slug }}/">Full entry</a>
+    </div>
+
+    {% if components.is_split %}
+    <div class="cat-notice">
+      This name appears twice in <code>assay_context</code>, from two sources
+      that were never reconciled. The components of both are offered here.
+    </div>
+    {% endif %}
+
+    <form method="post" action="/seek/assay-setup/download/">
+      {% csrf_token %}
+
+      {% include "assaySetupGroups.html" with groups=components.required_parents label="Required parent sample types" prefix="req" %}
+      {% include "assaySetupGroups.html" with groups=components.optional_parents label="Optional parent sample types" prefix="opt" %}
+      {% include "assaySetupGroups.html" with groups=components.produces label="Produces" prefix="out" %}
+
+      <div class="cat-actions">
+        <button type="submit" class="btn btn-primary">Download templates</button>
+      </div>
+    </form>
+  </div>
+
+  {% elif groups %}
+    {% include "includes/catalog_table.html" %}
+  {% else %}
+    <p class="cat-empty">
+      No assays are curated on this instance. The picker reads
+      <code>dmac.assay_context</code>, which this stack does not have.
+    </p>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if not components %}<script>{% include "includes/catalog_table_filter.js" %}</script>{% endif %}
+{% endblock %}

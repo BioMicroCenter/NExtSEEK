@@ -1,0 +1,39 @@
+{% comment %}
+One role's alternation groups as form controls. Included three times by
+assaySetup.html, so the radio-versus-checkbox rule has one definition.
+
+A group of one posts as a `codes` checkbox; a group of several posts as radios
+sharing `codes-<prefix>-<n>`, which is how the browser enforces pick-one with
+no JavaScript. seek.views.assay_setup._posted_codes collects both.
+
+Chips read exactly as they do on assayDetail.html -- .cat-or between
+alternatives, .cat-and between groups -- so the same assay looks the same on
+both pages.
+{% endcomment %}
+{% if groups %}
+<div class="cat-section">
+  <span class="cat-section-label">{{ label }}</span>
+  <div class="cat-chips">
+    {% for group in groups %}
+      {% for c in group.alternatives %}
+        <label class="cat-pick"{% if not c.downloadable %} title="{{ c.reason }}"{% endif %}>
+          {% if group.alternatives|length > 1 %}
+            <input type="radio" name="codes-{{ prefix }}-{{ forloop.parentloop.counter }}"
+                   value="{{ c.code }}"
+                   {% if c.selected %}checked{% endif %}
+                   {% if not c.downloadable %}disabled{% endif %}>
+          {% else %}
+            <input type="checkbox" name="codes" value="{{ c.code }}"
+                   {% if c.selected %}checked{% endif %}
+                   {% if not c.downloadable %}disabled{% endif %}>
+          {% endif %}
+          <span class="cat-chip">{{ c.code }}</span>
+        </label>
+        {% if not c.downloadable %}<span class="cat-why">{{ c.reason }}</span>{% endif %}
+        {% if not forloop.last %}<span class="cat-or">or</span>{% endif %}
+      {% endfor %}
+      {% if not forloop.last %}<span class="cat-and">and</span>{% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

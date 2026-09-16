@@ -1,7 +1,7 @@
 {% comment %}
-Shared styling for the four catalog pages. Included from {% block extra_head %}
-by sampleTypesList, sampleTypeDetail, assaysList and assayDetail, so the shape
-has one definition. Scoped under .cat-page so nothing here can reach the rest of
+Shared styling for the five catalog pages. Included from {% block extra_head %}
+by sampleTypesList, sampleTypeDetail, assaysList, assayDetail and assaySetup, so
+the shape has one definition. Scoped under .cat-page so nothing here can reach the rest of
 the app.
 {% endcomment %}
 <style>
@@ -43,4 +43,24 @@ a.cat-chip:hover { border-color: var(--ns-crimson-border); background: var(--ns-
 .cat-empty { font-size: 0.85rem; color: var(--ns-muted); padding: 1.5rem 0; }
 .cat-notice { background: var(--ns-crimson-soft); border: 1px solid var(--ns-crimson-border); color: var(--ns-crimson); border-radius: 5px; padding: 0.5rem 0.75rem; font-size: 0.85rem; margin-bottom: 0.75rem; }
 .cat-actions { display: flex; gap: 0.5rem; margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--ns-border); }
+
+/* Assay setup: a chip that is also a form control. The checked treatment is
+   the same crimson wash a.cat-chip already uses on hover, so a picked code
+   looks like the catalog's own emphasis rather than a new idea. */
+.cat-page .cat-pick { display: inline-flex; align-items: center; cursor: pointer; margin: 0; }
+.cat-page .cat-pick input { position: absolute; opacity: 0; width: 0; height: 0; }
+.cat-page .cat-pick input:checked + .cat-chip { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); }
+.cat-page .cat-pick input:focus-visible + .cat-chip { outline: 2px solid var(--ns-crimson); outline-offset: 1px; }
+.cat-page .cat-pick input:disabled + .cat-chip { opacity: 0.45; cursor: not-allowed; }
+.cat-page .cat-pick input:disabled { cursor: not-allowed; }
+
+/* Why a code carries no sheet. Sits beside the chip, in the .cat-or voice. */
+.cat-page .cat-why { font-size: 0.74rem; color: var(--ns-muted); font-style: italic; }
+
+/* The create form. Inputs inherit the page's type rather than the browser's. */
+.cat-page .cat-field { display: block; width: 100%; max-width: 32rem; font-family: inherit; font-size: 0.9rem; color: var(--ns-ink); background: var(--ns-sidebar-bg); border: 1px solid var(--ns-border); border-radius: 5px; padding: 0.35rem 0.5rem; }
+.cat-page .cat-field:focus { border-color: var(--ns-crimson-border); outline: none; }
+.cat-page .cat-group { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin-bottom: 0.3rem; }
+.cat-page .cat-mini { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ns-muted); background: none; border: 1px dashed var(--ns-border); border-radius: 11px; padding: 0.1rem 0.5rem; cursor: pointer; }
+.cat-page .cat-mini:hover { border-color: var(--ns-crimson-border); color: var(--ns-crimson); }
 </style>
