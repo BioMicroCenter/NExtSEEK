@@ -10,6 +10,9 @@ would put the harvest outside the CC turn budget.
 """
 from __future__ import annotations
 
+import csv
+import fnmatch
+import io
 import os
 from pathlib import Path
 
@@ -33,6 +36,17 @@ _EXECUTION_TRACE_GLOB = "pipeline_info/execution_trace*.txt"
 # 3.22, which writes no validated samplesheet into the results directory
 # (see the fixture README). When missing, sample identity falls back to the
 # general-stats rows.
+#
+# A bare "*.csv" glob is not enough by itself: with `--outdir .` the results
+# root IS the run dir, and the fetchngs pre-stage can write its own `ids.csv`
+# there too. `sorted(["samplesheet.csv", "ids.csv"])[0]` is `ids.csv` --
+# picked silently, ahead of the real samplesheet, by a `first()` that only
+# sorts alphabetically. `_find_samplesheet` below is the guard: it prefers an
+# exact `samplesheet.csv`, then any `samplesheet*.csv`, before falling back to
+# whatever else this glob matched, and it rejects any candidate whose header
+# has no `sample` column -- `ids.csv` (empty, or one bare accession per line)
+# never has one, so it is never mistaken for the real thing even when it
+# sorts first.
 _SAMPLESHEET_GLOB = "*.csv"
 # multiqc_report_data's flat text tables. A single "*" here does NOT
 # distinguish MultiQC's per-module summary tables from its `*_plot_*.txt`
@@ -67,8 +81,24 @@ MAX_FILES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILES", 500))
 _PER_READ_ROW_PREFIXES = ("fastqc_raw-", "fastqc_trimmed-", "cutadapt-")
 
 
-def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None) -> manifest.RunManifest:
+def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None,
+                   run_dir: str | None = None) -> manifest.RunManifest:
+    """`root` stays the filesystem read root -- it is where every glob below
+    actually looks for files, local disk only, no SSH, no network.
+
+    `run_dir` is a LABEL for provenance and lookup, not a path this function
+    reads from: it is what the caller staged `root` FROM (e.g. the cluster
+    run directory), used for `RunManifest.run_dir`, `PipelineInfo.run_name`,
+    and as the key `uid_resolve.resolve` looks up `PipelineRun.run_dir`
+    against. It defaults to `str(root)` so an existing local-directory caller
+    (or test) that never passes it keeps today's behavior unchanged. A
+    caller that stages into a `tempfile.TemporaryDirectory()` and forgets to
+    pass the real `run_dir` gets a manifest labeled with the temp path --
+    which never matches any `PipelineRun` row, so the launch record (the
+    primary UID source) silently resolves nothing.
+    """
     base = Path(root)
+    resolved_run_dir = run_dir if run_dir is not None else str(base)
     # extra_globs extends the allowlist for this call only -- e.g. a pipeline
     # variant with an additional generic file worth capturing. Matches are
     # read (subject to the same caps as everything else) and recorded as
@@ -118,7 +148,7 @@ def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None) -> manif
                 return rel, text
         return None
 
-    out = manifest.RunManifest(run_dir=str(base))
+    out = manifest.RunManifest(run_dir=resolved_run_dir)
 
     found = first(_PARAMS_GLOB)
     if found:
@@ -152,7 +182,7 @@ def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None) -> manif
             version=str(workflow_block.get(pipeline_name, "")
                         or out.params.get("pipeline_version", "")),
             nextflow_version=str(workflow_block.get("Nextflow", "")),
-            run_name=base.name,
+            run_name=Path(resolved_run_dir).name,
         )
 
     found = first(_EXECUTION_TRACE_GLOB)
@@ -171,51 +201,67 @@ def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None) -> manif
     else:
         warnings.append("no multiqc general stats found; QC metrics unavailable")
 
-    found = first(_SAMPLESHEET_GLOB)
+    sheet = _find_samplesheet(base, read)
     rows: list[dict] = []
-    if found:
-        sources["samples"], text = found[0], found[1]
-        rows = parsers.parse_samplesheet(text)
-    elif stats:
-        # No validated samplesheet in this run (nf-core/rnaseq 3.22 writes
-        # none into the results directory -- see _SAMPLESHEET_GLOB above).
-        # Fall back to the general-stats sample rows themselves: MultiQC also
-        # emits a per-read row for each mate (`<sample>_1`, `<sample>_2`), so
-        # a row is excluded only when it is confidently classified as one of
-        # those per-read rows -- not merely because its populated columns are
-        # exclusively ones MultiQC fills for per-read rows, which a real
-        # sample whose alignment step failed also has (see
-        # _classify_general_stats_row for how the two are told apart, and
-        # why a same-named row existing is not by itself the test -- that
-        # would also wrongly drop a real replicate sample legitimately named
-        # e.g. "A_1" alongside "A"). Anything left ambiguous is kept as a
-        # sample and warned about rather than silently dropped.
-        if stats_source:
-            sources["samples"] = stats_source
-        warnings.append(
-            "no validated samplesheet; sample names came from multiqc "
-            "general stats, so fastq-based D.SEQ UID resolution is "
-            "unavailable for them")
-        sample_names = []
-        for name in sorted(stats):
-            classification = _classify_general_stats_row(name, stats[name], stats)
-            if classification == "per_read":
-                continue
-            if classification == "ambiguous":
-                warnings.append(
-                    f"{name}: only fastqc/cutadapt columns are populated and "
-                    "no sibling per-sample row was found under its stripped "
-                    "_1/_2 base name; kept as a sample rather than risk "
-                    "silently dropping a real sample whose alignment failed "
-                    "(see _classify_general_stats_row)")
-            sample_names.append(name)
-        rows = [{"sample": name, "fastq_1": "", "fastq_2": "", "strandedness": ""}
-                for name in sample_names]
-    else:
-        warnings.append("no validated samplesheet; samples cannot be resolved")
+    if sheet:
+        candidate_rel, text = sheet
+        candidate_rows = parsers.parse_samplesheet(text)
+        if candidate_rows:
+            sources["samples"], rows = candidate_rel, candidate_rows
+        else:
+            # Found and named right (it passed _find_samplesheet's header
+            # check), but parsed to zero data rows. A "successful" read of an
+            # empty samplesheet must not look identical to a genuinely absent
+            # one -- that would leave `manifest.samples` empty with no
+            # warning at all. Fall through to the general-stats fallback
+            # below exactly as if no samplesheet had matched, but say why.
+            warnings.append(
+                f"{candidate_rel}: samplesheet matched but parsed to zero "
+                "rows; falling back to multiqc general stats for sample names")
+            sheet = None
+    if not sheet:
+        if stats:
+            # No validated samplesheet in this run (nf-core/rnaseq 3.22
+            # writes none into the results directory -- see
+            # _SAMPLESHEET_GLOB above), or the one that matched parsed to
+            # zero rows (see above). Fall back to the general-stats sample
+            # rows themselves: MultiQC also emits a per-read row for each
+            # mate (`<sample>_1`, `<sample>_2`), so a row is excluded only
+            # when it is confidently classified as one of those per-read
+            # rows -- not merely because its populated columns are
+            # exclusively ones MultiQC fills for per-read rows, which a real
+            # sample whose alignment step failed also has (see
+            # _classify_general_stats_row for how the two are told apart, and
+            # why a same-named row existing is not by itself the test -- that
+            # would also wrongly drop a real replicate sample legitimately
+            # named e.g. "A_1" alongside "A"). Anything left ambiguous is
+            # kept as a sample and warned about rather than silently dropped.
+            if stats_source:
+                sources["samples"] = stats_source
+            warnings.append(
+                "no validated samplesheet; sample names came from multiqc "
+                "general stats, so fastq-based D.SEQ UID resolution is "
+                "unavailable for them")
+            sample_names = []
+            for name in sorted(stats):
+                classification = _classify_general_stats_row(name, stats[name], stats)
+                if classification == "per_read":
+                    continue
+                if classification == "ambiguous":
+                    warnings.append(
+                        f"{name}: only fastqc/cutadapt columns are populated and "
+                        "no sibling per-sample row was found under its stripped "
+                        "_1/_2 base name; kept as a sample rather than risk "
+                        "silently dropping a real sample whose alignment failed "
+                        "(see _classify_general_stats_row)")
+                sample_names.append(name)
+            rows = [{"sample": name, "fastq_1": "", "fastq_2": "", "strandedness": ""}
+                    for name in sample_names]
+        else:
+            warnings.append("no validated samplesheet; samples cannot be resolved")
 
     from NessieAI.ns.reingest import uid_resolve
-    resolved = uid_resolve.resolve(rows, str(base), lookup_by_fastq or (lambda p: []))
+    resolved = uid_resolve.resolve(rows, resolved_run_dir, lookup_by_fastq or (lambda p: []))
     by_sample = {name: (uid, how) for name, uid, how in resolved}
 
     for row in rows:
@@ -258,6 +304,53 @@ def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None) -> manif
     out.warnings = warnings
     out.caps = caps
     return out
+
+
+def _samplesheet_header(text: str) -> list[str]:
+    """The raw first row of a CSV -- field names, unparsed as data. Used to
+    check for a `sample` column before trusting a `*.csv` match is the real
+    samplesheet, without fully parsing it through `parsers.parse_samplesheet`
+    (that happens once the candidate is accepted)."""
+    return next(csv.reader(io.StringIO(text)), [])
+
+
+def _find_samplesheet(base: Path, read) -> tuple[str, str] | None:
+    """Pick the samplesheet among every `_SAMPLESHEET_GLOB` ("*.csv") match.
+
+    `--outdir .` makes the results root the run dir itself, so an unrelated
+    CSV the fetchngs pre-stage writes there (`ids.csv`) can sort ahead of the
+    real `samplesheet.csv` in a plain alphabetical `first()`. Two guards fix
+    that, applied together rather than either alone:
+
+    1. Name preference: an exact `samplesheet.csv` first, then any
+       `samplesheet*.csv`, and only then whatever else this glob matched.
+    2. Header validation: a candidate whose first row has no `sample` column
+       is rejected outright -- `ids.csv` (empty, or one bare SRA accession per
+       line with no header at all) never has one, so even a pipeline variant
+       that names its real samplesheet something else entirely does not get
+       silently matched against a file that cannot be the samplesheet.
+
+    Every rejected candidate is still read through `read()`, so it counts
+    against the same byte/file caps as everything else this harvester reads.
+    """
+    def _priority(name: str) -> int:
+        if name == "samplesheet.csv":
+            return 0
+        if fnmatch.fnmatch(name, "samplesheet*.csv"):
+            return 1
+        return 2
+
+    candidates = sorted(base.glob(_SAMPLESHEET_GLOB),
+                         key=lambda p: (_priority(p.name), str(p)))
+    for path in candidates:
+        rel = str(path.relative_to(base))
+        text = read(rel)
+        if text is None:
+            continue
+        if "sample" not in _samplesheet_header(text):
+            continue
+        return rel, text
+    return None
 
 
 def _pipeline_name(params: dict) -> str:

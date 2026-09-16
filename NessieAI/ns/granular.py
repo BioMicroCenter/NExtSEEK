@@ -419,13 +419,18 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
     try:
         with tempfile.TemporaryDirectory() as staged:
             skipped = _stage_run_dir(luria_env, run_dir, staged, key_path)
-            run_manifest = harvest.harvest_local(staged, lookup_by_fastq=_d_seq_by_fastq)
+            # run_dir (the cluster path) is passed through as harvest_local's
+            # provenance/lookup label -- `staged` is only the local read root.
+            # Without this, the manifest and PipelineRun lookup are both keyed
+            # off the temp staging path, which never matches the launch
+            # record's run_dir (see harvest_local's docstring).
+            run_manifest = harvest.harvest_local(
+                staged, run_dir=run_dir, lookup_by_fastq=_d_seq_by_fastq)
     finally:
         try:
             os.remove(key_path)
         except OSError:
             pass
-    run_manifest.run_dir = run_dir
 
     # Files the remote stage skipped (a symlink escaping run_dir, or a
     # size/count cap hit) must stay visible, not vanish quietly -- surfaced
