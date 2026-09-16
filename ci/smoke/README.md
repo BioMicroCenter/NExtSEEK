@@ -7,12 +7,12 @@ user does. Same command locally, on fairdata-dev, and in CI.
 
 ```bash
 # one time, per host
-uv run --no-project --with playwright playwright install chromium
+uv run --no-project --with playwright==1.60.0 playwright install chromium
 
 # everything except the write lane. That includes the Nessie lane, which sends
 # four real chat turns (about $0.30); add --no-nessie to skip it.
 CI_BOX_PROFILE=local \
-uv run --no-project --with pytest --with requests --with playwright \
+uv run --no-project --with pytest --with requests --with playwright==1.60.0 \
   pytest ci/smoke/ --base-url http://127.0.0.1:8000
 ```
 
@@ -168,7 +168,7 @@ When Nessie changes, `test_nessie.py` changes, and nothing else should need to.
   spent, and the rest of the suite is unaffected. Iterate with the command below.
 
 ```bash
-CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with playwright \
+CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with playwright==1.60.0 \
   pytest ci/smoke/test_nessie.py --base-url http://127.0.0.1:8000 --nessie-no-turns -q
 ```
 
@@ -191,7 +191,7 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with pl
   `page.png` (the page as the lane left it) and `debug.json` (the `/debug/`
   answer with `?include=all`). Open the trace with
   `npx playwright show-trace <trace.zip>`, or, with no Node on the host,
-  `uv run --no-project --with playwright playwright show-trace <trace.zip>`.
+  `uv run --no-project --with playwright==1.60.0 playwright show-trace <trace.zip>`.
 
 A direct `pytest` run, the GitHub workflow included, writes no record. Its
 evidence goes to a `nessie-evidence` folder under pytest's base temporary

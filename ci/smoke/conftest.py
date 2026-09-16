@@ -4,7 +4,7 @@ This suite runs OUTSIDE the application container, against a deployed stack, ove
 HTTP, the way a user does. It needs pytest, requests and playwright, and none of
 the application's own dependencies:
 
-    uv run --no-project --with pytest --with requests --with playwright \
+    uv run --no-project --with pytest --with requests --with playwright==1.60.0 \
       pytest ci/smoke/ --base-url http://127.0.0.1:8000
 
 Two authentication modes exist and they are NOT interchangeable. Both were
