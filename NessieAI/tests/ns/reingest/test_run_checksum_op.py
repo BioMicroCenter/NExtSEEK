@@ -66,6 +66,7 @@ def _dispatch(op: str, args: dict, config=None, session=None, write_gate=None,
 
 def _run_checksum_script_locally(
     run_dir: str, rels: list[str], *,
+    runs_root: str | None = None,
     max_file_bytes: int = g._CHECKSUM_MAX_FILE_BYTES,
     max_total_bytes: int = g._CHECKSUM_MAX_TOTAL_BYTES,
 ) -> str:
@@ -77,9 +78,16 @@ def _run_checksum_script_locally(
     `max_file_bytes`/`max_total_bytes` default to the op's real ceilings so
     existing callers of this helper (written before the ceilings existed)
     keep exercising real ambient values rather than some arbitrarily large
-    stand-in that would mask a ceiling regression."""
+    stand-in that would mask a ceiling regression.
+
+    `runs_root` defaults to `run_dir`'s parent, matching every call site
+    below's `tmp_path / "runs" / "a_run"` layout -- i.e. the confinement
+    anchor a real `_validate_run_dir` call would have computed. The
+    run_dir-is-itself-a-symlink guard test overrides it explicitly to the
+    real runs root, distinct from run_dir's (symlinked) location."""
     proc = subprocess.run(
         [sys.executable, "-c", g._CHECKSUM_SCRIPT, run_dir,
+         runs_root if runs_root is not None else str(Path(run_dir).parent),
          str(max_file_bytes), str(max_total_bytes), *rels],
         capture_output=True, text=True, check=True)
     return proc.stdout
@@ -180,6 +188,39 @@ def test_refuses_a_file_reached_through_a_symlinked_ancestor_dir(tmp_path, monke
 
     with pytest.raises(g.OpValidationError) as err:
         _dispatch("run-checksum", {"run_dir": str(run_dir), "paths": "aligned/sample.bam"},
+                   _cfg_for(tmp_path), None, None, None, None)
+    assert "outside" in str(err.value).lower()
+
+
+def test_refuses_a_run_dir_that_is_itself_a_symlink_out_of_the_runs_root(tmp_path, monkeypatch):
+    """The fifth containment escape (Important 1, 2026-09-16 whole-branch
+    review). The escape above is a symlink INSIDE run_dir; this one is
+    run_dir ITSELF: `_validate_run_dir`'s check is purely lexical, so a
+    symlink at `<runs_root>/a_run` pointing at `/elsewhere` still looks
+    like an ordinary subpath of the runs root and passes it. The bug this
+    closes: `_CHECKSUM_SCRIPT` used to anchor its containment check on
+    `run_dir.resolve()`, which for a symlinked run_dir IS `/elsewhere` --
+    so every caller-named path reached through the symlink trivially
+    "resolved inside run_dir" instead of being refused. Anchoring on
+    `runs_root.resolve()` instead makes every such path -- and so the
+    whole request -- a hard OpValidationError, exactly like any other
+    caller-named escape."""
+    runs_root_dir = tmp_path / "runs"
+    runs_root_dir.mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    secret = outside / "sample.bam"
+    secret.write_text("SECRET,DO,NOT,SHIP\n")
+    run_dir = runs_root_dir / "a_run"
+    run_dir.symlink_to(outside)  # run_dir ITSELF escapes the runs root
+
+    monkeypatch.setattr(
+        ssh, "ssh_run",
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(
+            str(run_dir), ["sample.bam"], runs_root=str(runs_root_dir)))
+
+    with pytest.raises(g.OpValidationError) as err:
+        _dispatch("run-checksum", {"run_dir": str(run_dir), "paths": "sample.bam"},
                    _cfg_for(tmp_path), None, None, None, None)
     assert "outside" in str(err.value).lower()
 

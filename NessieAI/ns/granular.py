@@ -189,10 +189,28 @@ def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_
 _RUN_LS_CAP = 2_000_000  # bytes of `ls -laR` returned to CC before truncation (well under the 16 MiB WS cap)
 
 
-def _validate_run_dir(args: dict, config: Any) -> tuple[str, dict]:
-    """Shared by run-ls / run-harvest: the run dir must be under the cluster
-    runs root. An unvalidated run_dir is an arbitrary read of the shared
-    Luria account.
+def _validate_run_dir(args: dict, config: Any) -> tuple[str, dict, str]:
+    """Shared by run-ls / run-harvest / run-checksum: the run dir must be
+    under the cluster runs root. An unvalidated run_dir is an arbitrary read
+    of the shared Luria account.
+
+    This check is purely LEXICAL (``normpath`` + a string prefix test) --
+    it says nothing about where ``run_dir`` actually resolves on the
+    cluster. That is deliberate: this process has no filesystem access to
+    Luria, only SSH, so the only place a symlink can be resolved is on the
+    remote side. Callers that go on to read files under ``run_dir``
+    (run-harvest's ``_STAGE_SCRIPT``, run-checksum's ``_CHECKSUM_SCRIPT``)
+    MUST also confine against the returned ``runs_root``, resolved
+    REMOTELY -- never against a resolve() of ``run_dir`` itself. See
+    Important 1 of the 2026-09-16 whole-branch review: a symlink at
+    ``<runs_root>/foo`` pointing to ``/home/someone/else`` passes this
+    lexical check (the string still looks like a normal subpath) and then,
+    if a remote script anchors its containment check on
+    ``run_dir.resolve()``, RE-ANCHORS confinement to the symlink's target --
+    every file under that target then trivially "resolves inside run_dir".
+    Anchoring on ``runs_root.resolve()`` instead closes this: a file
+    reached through the target directory no longer resolves inside the
+    runs root, symlinked run_dir or not.
     """
     luria_env = getattr(config, "LURIA_ENV", None) or {}
     working_path = str(luria_env.get("working_path") or "").rstrip("/")
@@ -202,7 +220,7 @@ def _validate_run_dir(args: dict, config: Any) -> tuple[str, dict]:
     run_dir = os.path.normpath(str(args["run_dir"]))
     if run_dir != runs_root and not run_dir.startswith(runs_root + "/"):
         raise OpValidationError(f"run_dir must be under {runs_root}")
-    return run_dir, luria_env
+    return run_dir, luria_env, runs_root
 
 
 def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
@@ -211,9 +229,16 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
     Validates ``run_dir`` is under ``<LURIA working_path>/runs`` (no traversal),
     then SSHes Luria and runs ``ls -laR``. Returns the tree text (capped). Never
     writes to Luria.
+
+    Unlike run-harvest/run-checksum, this op does NOT need the
+    run_dir-is-itself-a-symlink guard (Important 1, 2026-09-16 review):
+    ``ls -laR <run_dir>`` never dereferences a symlink named on its own
+    command line, and ``-R`` does not follow symlinks it encounters while
+    recursing either -- so a symlinked run_dir only ever lists as a single
+    symlink entry, never its target's contents.
     """
     import shlex
-    run_dir, luria_env = _validate_run_dir(args, config)
+    run_dir, luria_env, _runs_root = _validate_run_dir(args, config)
     from chat_nextseek.luria.ssh import prepare_key, ssh_run
     key_path = prepare_key(luria_env["key"])
     out = ssh_run(luria_env, f"ls -laR {shlex.quote(run_dir)}", key_path=key_path)
@@ -280,6 +305,25 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
 #    access to run_dir is the threat this closes -- it does not defend
 #    against a write-capable adversary using some OTHER, still-unknown
 #    mechanism to make a directory entry alias an outside inode.
+# 1c. run_dir ITSELF as a symlink. `_validate_run_dir`'s check is lexical
+#    only (see its docstring) -- it never asks the cluster whether run_dir
+#    resolves anywhere. Earlier, this script anchored every containment
+#    check on `run_dir.resolve()`: if run_dir were, say,
+#    `<runs_root>/foo` -> `/home/someone/else` (a symlink, not a plain
+#    directory), that resolve() call RELOCATES the anchor to
+#    `/home/someone/else`, and every file glob-matched through it then
+#    trivially "resolves inside run_dir" -- the confinement re-anchors to
+#    whatever the caller's symlink points at. The anchor is now
+#    `runs_root.resolve()` instead (passed in as its own argument, computed
+#    the same way in `_CHECKSUM_SCRIPT`): a directory entry reached through
+#    a symlinked run_dir no longer resolves inside the runs root, so it is
+#    caught by the same relative_to() check as any other escape. If
+#    run_dir itself escapes the runs root this way, every match fails that
+#    check -- reported via `run_dir_escapes_runs_root` in the trailing
+#    report entry, which `_stage_run_dir` turns into a hard
+#    OpValidationError (this is a caller-named top-level path, not an
+#    incidental glob hit -- see Important 1 of the 2026-09-16 whole-branch
+#    review).
 # 2. Size/count caps. `harvest_local`'s MAX_FILE_BYTES / MAX_TOTAL_BYTES /
 #    MAX_FILES caps used to apply only after the ENTIRE tar had already been
 #    transferred and extracted (`ssh_run_bytes` buffers the whole stream in
@@ -296,64 +340,72 @@ _STAGE_REPORT_NAME = "__nextseek_stage_report__.json"
 _STAGE_SCRIPT = """\
 import io, json, pathlib, sys, tarfile
 run_dir = pathlib.Path(sys.argv[1])
+runs_root = pathlib.Path(sys.argv[2])
+resolved_runs_root = runs_root.resolve()
 resolved_run_dir = run_dir.resolve()
-max_file_bytes = int(sys.argv[2])
-max_total_bytes = int(sys.argv[3])
-max_files = int(sys.argv[4])
-report_name = sys.argv[5]
-patterns = sys.argv[6:]
+max_file_bytes = int(sys.argv[3])
+max_total_bytes = int(sys.argv[4])
+max_files = int(sys.argv[5])
+report_name = sys.argv[6]
+patterns = sys.argv[7:]
 seen = set()
 skipped = []
 total_bytes = 0
 files_added = 0
 tar = tarfile.open(fileobj=sys.stdout.buffer, mode="w|")
-for pattern in patterns:
-    for path in sorted(run_dir.glob(pattern)):
-        rel = str(path.relative_to(run_dir))
-        if rel in seen:
-            continue
-        seen.add(rel)
-        if path.is_symlink():
-            skipped.append({"path": rel, "reason": "symlink (run_dir confinement cannot follow it safely)"})
-            continue
-        if not path.is_file():
-            continue
-        try:
-            path.resolve().relative_to(resolved_run_dir)
-        except ValueError:
-            skipped.append({"path": rel, "reason": "resolves outside run_dir"})
-            continue
-        st = path.stat()
-        if st.st_nlink > 1:
-            # Hardlink: a directory entry inside run_dir sharing an inode with
-            # a file elsewhere. No separate target path exists to resolve
-            # away from (unlike a symlink), so this can only be caught by the
-            # link count itself. Fail closed -- see the "1b. Hardlinks" note
-            # above _STAGE_SCRIPT for why false positives here should be rare.
-            skipped.append({"path": rel, "reason": "hardlinked; cannot confirm no other path reaches it"})
-            continue
-        size = st.st_size
-        if size > max_file_bytes:
-            skipped.append({"path": rel, "reason": "exceeds max file bytes (%d > %d)" % (size, max_file_bytes)})
-            continue
-        if total_bytes + size > max_total_bytes:
-            skipped.append({"path": rel, "reason": "exceeds total byte cap (%d + %d > %d)" % (total_bytes, size, max_total_bytes)})
-            continue
-        if files_added >= max_files:
-            skipped.append({"path": rel, "reason": "exceeds max file count (%d)" % max_files})
-            continue
-        # TOCTOU: the resolve()/stat() checks above and this tar.add() are not
-        # atomic -- the path could be swapped between them. This window is
-        # currently inert only because (a) tar.add() no longer dereferences
-        # symlinks (dereference=True was removed, see "1." above) and (b) the
-        # local extraction in _stage_run_dir filters on member.isfile(), so a
-        # symlink swapped in here would tar as a symlink member and be
-        # dropped on extraction, not followed. A future edit to either of
-        # those two behaviours reopens this window -- keep them paired.
-        tar.add(str(path), arcname=rel)
-        total_bytes += size
-        files_added += 1
-report = json.dumps({"skipped": skipped}).encode()
+run_dir_escapes_runs_root = False
+try:
+    resolved_run_dir.relative_to(resolved_runs_root)
+except ValueError:
+    run_dir_escapes_runs_root = True
+if not run_dir_escapes_runs_root:
+    for pattern in patterns:
+        for path in sorted(run_dir.glob(pattern)):
+            rel = str(path.relative_to(run_dir))
+            if rel in seen:
+                continue
+            seen.add(rel)
+            if path.is_symlink():
+                skipped.append({"path": rel, "reason": "symlink (run_dir confinement cannot follow it safely)"})
+                continue
+            if not path.is_file():
+                continue
+            try:
+                path.resolve().relative_to(resolved_runs_root)
+            except ValueError:
+                skipped.append({"path": rel, "reason": "resolves outside run_dir"})
+                continue
+            st = path.stat()
+            if st.st_nlink > 1:
+                # Hardlink: a directory entry inside run_dir sharing an inode with
+                # a file elsewhere. No separate target path exists to resolve
+                # away from (unlike a symlink), so this can only be caught by the
+                # link count itself. Fail closed -- see the "1b. Hardlinks" note
+                # above _STAGE_SCRIPT for why false positives here should be rare.
+                skipped.append({"path": rel, "reason": "hardlinked; cannot confirm no other path reaches it"})
+                continue
+            size = st.st_size
+            if size > max_file_bytes:
+                skipped.append({"path": rel, "reason": "exceeds max file bytes (%d > %d)" % (size, max_file_bytes)})
+                continue
+            if total_bytes + size > max_total_bytes:
+                skipped.append({"path": rel, "reason": "exceeds total byte cap (%d + %d > %d)" % (total_bytes, size, max_total_bytes)})
+                continue
+            if files_added >= max_files:
+                skipped.append({"path": rel, "reason": "exceeds max file count (%d)" % max_files})
+                continue
+            # TOCTOU: the resolve()/stat() checks above and this tar.add() are not
+            # atomic -- the path could be swapped between them. This window is
+            # currently inert only because (a) tar.add() no longer dereferences
+            # symlinks (dereference=True was removed, see "1." above) and (b) the
+            # local extraction in _stage_run_dir filters on member.isfile(), so a
+            # symlink swapped in here would tar as a symlink member and be
+            # dropped on extraction, not followed. A future edit to either of
+            # those two behaviours reopens this window -- keep them paired.
+            tar.add(str(path), arcname=rel)
+            total_bytes += size
+            files_added += 1
+report = json.dumps({"skipped": skipped, "run_dir_escapes_runs_root": run_dir_escapes_runs_root}).encode()
 info = tarfile.TarInfo(name=report_name)
 info.size = len(report)
 tar.addfile(info, fileobj=io.BytesIO(report))
@@ -361,13 +413,20 @@ tar.close()
 """
 
 
-def _stage_run_dir(luria_env: dict, run_dir: str, staged_dir: str, key_path: str) -> list[dict]:
+def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: str, key_path: str) -> list[dict]:
     """Stage every ``harvest.GENERIC_GLOBS`` match from ``run_dir`` on Luria
     into ``staged_dir``, ready for ``harvest.harvest_local``. See
     ``_STAGE_SCRIPT`` above for why this runs the glob matching remotely, in
     Python, and packs the matches into a single tar stream rather than an
     `ls` + per-file `cat`, and for the symlink/cap enforcement it does before
     ever adding a match to that stream.
+
+    ``runs_root`` (not ``run_dir``) is the confinement anchor the remote
+    script resolves against -- see "1c. run_dir ITSELF as a symlink" above
+    _STAGE_SCRIPT. If the remote script reports ``run_dir`` itself resolves
+    outside ``runs_root``, that is a hard :class:`OpValidationError`, not a
+    skip: ``run_dir`` is a caller-named top-level path, not an incidental
+    glob hit.
 
     Returns the list of ``{"path", "reason"}`` entries the remote script
     skipped (symlinks, escapes, or cap hits) so the caller can surface them
@@ -381,18 +440,24 @@ def _stage_run_dir(luria_env: dict, run_dir: str, staged_dir: str, key_path: str
     from NessieAI.ns.reingest.harvest import GENERIC_GLOBS, MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_BYTES
 
     remote_cmd = " ".join([
-        "python3", "-c", shlex.quote(_STAGE_SCRIPT), shlex.quote(run_dir),
+        "python3", "-c", shlex.quote(_STAGE_SCRIPT), shlex.quote(run_dir), shlex.quote(runs_root),
         shlex.quote(str(MAX_FILE_BYTES)), shlex.quote(str(MAX_TOTAL_BYTES)), shlex.quote(str(MAX_FILES)),
         shlex.quote(_STAGE_REPORT_NAME),
         *(shlex.quote(pattern) for pattern in GENERIC_GLOBS),
     ])
-    tar_bytes = ssh_run_bytes(luria_env, remote_cmd, key_path=key_path)
+    # Bounded, not indefinite: see _HARVEST_SSH_TIMEOUT_S below for why this
+    # backstops a stalled shared filesystem rather than an oversized
+    # request (the size/count caps enforced remotely, above, are that).
+    tar_bytes = ssh_run_bytes(luria_env, remote_cmd, key_path=key_path, timeout=_HARVEST_SSH_TIMEOUT_S)
     skipped: list[dict] = []
+    run_dir_escapes_runs_root = False
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r|") as tar:
         for member in tar:
             if member.name == _STAGE_REPORT_NAME:
                 report_fileobj = tar.extractfile(member)
-                skipped = json.loads(report_fileobj.read()).get("skipped", []) if report_fileobj else []
+                report = json.loads(report_fileobj.read()) if report_fileobj else {}
+                skipped = report.get("skipped", [])
+                run_dir_escapes_runs_root = report.get("run_dir_escapes_runs_root", False)
                 continue
             if not member.isfile():
                 continue
@@ -400,7 +465,25 @@ def _stage_run_dir(luria_env: dict, run_dir: str, staged_dir: str, key_path: str
             if name.startswith("..") or os.path.isabs(name):
                 raise OpValidationError(f"staged tar entry escapes run_dir: {member.name!r}")
             tar.extract(member, path=staged_dir)
+    if run_dir_escapes_runs_root:
+        raise OpValidationError(f"run_dir resolves outside the runs root: {run_dir!r}")
     return skipped
+
+
+# Wall-clock backstop for the run-harvest staging SSH call, mirroring
+# run-checksum's _CHECKSUM_SSH_TIMEOUT_S (added in an earlier review pass;
+# see its docstring for the full reasoning). run-harvest's own byte/count
+# ceilings (harvest.MAX_FILE_BYTES / MAX_TOTAL_BYTES / MAX_FILES, enforced
+# remotely in _STAGE_SCRIPT before any match is added to the tar) bound the
+# LEGITIMATE work; this bounds the illegitimate/unexpected case (a stalled
+# shared filesystem) instead. ssh_run_bytes had no timeout kwarg at all
+# until this review pass (Important 2, 2026-09-16): a stalled remote glob
+# or a wedged network hung the whole CC turn indefinitely, unlike
+# run-checksum's ssh_run call, which already had one. Sized the same as
+# run-checksum's ceiling (150s), comfortably under the 180s CC turn hard
+# cap (NEXTSEEK_CC_TIMEOUT_HARD_MAX, cc_engine.py) with room left for the
+# rest of the turn (local tar extraction + harvest_local parsing).
+_HARVEST_SSH_TIMEOUT_S = int(os.environ.get("NEXTSEEK_HARVEST_SSH_TIMEOUT_S", 150))
 
 
 def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
@@ -413,12 +496,12 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
     from NessieAI.ns.reingest import harvest
     from NessieAI.ns.reingest.store import save_manifest
 
-    run_dir, luria_env = _validate_run_dir(args, config)
+    run_dir, luria_env, runs_root = _validate_run_dir(args, config)
     from chat_nextseek.luria.ssh import prepare_key
     key_path = prepare_key(luria_env["key"])
     try:
         with tempfile.TemporaryDirectory() as staged:
-            skipped = _stage_run_dir(luria_env, run_dir, staged, key_path)
+            skipped = _stage_run_dir(luria_env, run_dir, runs_root, staged, key_path)
             # run_dir (the cluster path) is passed through as harvest_local's
             # provenance/lookup label -- `staged` is only the local read root.
             # Without this, the manifest and PipelineRun lookup are both keyed
@@ -514,18 +597,37 @@ _CHECKSUM_SSH_TIMEOUT_S = int(os.environ.get("NEXTSEEK_CHECKSUM_SSH_TIMEOUT_S", 
 #    skipped the same way -- unhashed. This is what closes Important 1: 200
 #    caller-named multi-GB files can no longer make this op read past a
 #    bounded amount of data no matter how large the files actually are.
+# 5. run_dir ITSELF as a symlink (Important 1, 2026-09-16 whole-branch
+#    review). Anchored on `run_dir.resolve()`, every ``rel`` reached through
+#    a symlinked run_dir used to "resolve inside run_dir" trivially, for the
+#    same reason _STAGE_SCRIPT's equivalent bug did -- see its "1c." note.
+#    Anchoring on `runs_root.resolve()` instead (passed in as its own
+#    argument) means every ``rel`` fails the relative_to() check the moment
+#    run_dir escapes the runs root, landing in ``escaped`` -- which
+#    `_run_checksum` already turns into a hard OpValidationError, exactly
+#    like any other caller-named escape.
 _CHECKSUM_SCRIPT = """\
 import hashlib, json, pathlib, sys
 run_dir = pathlib.Path(sys.argv[1])
+runs_root = pathlib.Path(sys.argv[2])
+resolved_runs_root = runs_root.resolve()
 resolved_run_dir = run_dir.resolve()
-max_file_bytes = int(sys.argv[2])
-max_total_bytes = int(sys.argv[3])
-rels = sys.argv[4:]
+max_file_bytes = int(sys.argv[3])
+max_total_bytes = int(sys.argv[4])
+rels = sys.argv[5:]
 checksums = {}
 skipped = []
 escaped = []
 total_bytes = 0
+run_dir_escapes_runs_root = False
+try:
+    resolved_run_dir.relative_to(resolved_runs_root)
+except ValueError:
+    run_dir_escapes_runs_root = True
 for rel in rels:
+    if run_dir_escapes_runs_root:
+        escaped.append({"path": rel, "reason": "run_dir resolves outside the runs root"})
+        continue
     path = run_dir / rel
     if path.is_symlink():
         escaped.append({"path": rel, "reason": "symlink (run_dir confinement cannot follow it safely)"})
@@ -537,7 +639,7 @@ for rel in rels:
         skipped.append({"path": rel, "reason": "not a regular file"})
         continue
     try:
-        path.resolve().relative_to(resolved_run_dir)
+        path.resolve().relative_to(resolved_runs_root)
     except ValueError:
         escaped.append({"path": rel, "reason": "resolves outside run_dir"})
         continue
@@ -588,7 +690,7 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
     """
     import shlex
 
-    run_dir, luria_env = _validate_run_dir(args, config)
+    run_dir, luria_env, runs_root = _validate_run_dir(args, config)
     rels = [p.strip() for p in str(args.get("paths") or "").split(",") if p.strip()]
     if not rels:
         raise OpValidationError("paths must name at least one file")
@@ -604,7 +706,7 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
     key_path = prepare_key(luria_env["key"])
     try:
         remote_cmd = " ".join([
-            "python3", "-c", shlex.quote(_CHECKSUM_SCRIPT), shlex.quote(run_dir),
+            "python3", "-c", shlex.quote(_CHECKSUM_SCRIPT), shlex.quote(run_dir), shlex.quote(runs_root),
             shlex.quote(str(_CHECKSUM_MAX_FILE_BYTES)), shlex.quote(str(_CHECKSUM_MAX_TOTAL_BYTES)),
             *(shlex.quote(rel) for rel in rels),
         ])

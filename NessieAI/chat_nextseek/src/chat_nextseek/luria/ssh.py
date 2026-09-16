@@ -46,16 +46,25 @@ def ssh_run(luria_env: dict, remote_cmd: str, *, key_path: str, timeout: float |
     return proc.stdout
 
 
-def ssh_run_bytes(luria_env: dict, remote_cmd: str, *, key_path: str) -> bytes:
+def ssh_run_bytes(luria_env: dict, remote_cmd: str, *, key_path: str, timeout: float | None = None) -> bytes:
     """Like :func:`ssh_run`, but returns raw stdout bytes instead of decoded text.
 
     Needed whenever the remote command's stdout is itself binary (e.g. a tar
     stream) rather than a line-oriented text payload: capturing through
     ``text=True`` decodes/re-encodes stdout through this process's own codec,
     which can alter a byte before the caller ever sees it.
+
+    ``timeout`` (seconds) bounds the whole subprocess call's wall clock, same
+    contract as :func:`ssh_run`'s; on expiry ``subprocess.TimeoutExpired``
+    propagates to the caller. Defaults to ``None`` (wait indefinitely, the
+    historical behaviour) so existing callers that never pass it see no
+    change. Added in the 2026-09-16 whole-branch review (Important 2):
+    run-harvest's staging call had no ceiling at all, unlike run-checksum's
+    ``ssh_run`` call, which already had one -- a stalled shared filesystem
+    hung the whole CC turn indefinitely.
     """
     cmd = ["ssh", "-i", key_path, *_SSH_OPTS, _target(luria_env), remote_cmd]
-    proc = subprocess.run(cmd, capture_output=True)
+    proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
     if proc.returncode != 0:
         raise RuntimeError(f"ssh failed ({proc.returncode}): {proc.stderr.decode(errors='replace').strip()}")
     return proc.stdout
