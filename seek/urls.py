@@ -62,6 +62,7 @@ urlpatterns = [
             name='sampleTypeDetail'),
     re_path(r'^assays/$', views.assaysList, name='assaysList'),
     re_path(r'^assays/(?P<slug>[\w-]+)/$', views.assayDetail, name='assayDetail'),
+    re_path(r'^assay-setup/download/$', views.assaySetupDownload, name='assaySetupDownload'),
     re_path(r'^assay-setup/$', views.assaySetup, name='assaySetup'),
 
     re_path(r'^sample_types/id=(?P<id>\d+)/$', views.sample_type, name='sample_type'),

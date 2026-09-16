@@ -17,11 +17,14 @@ lives here.
 
 import logging
 
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import render
+from django.views.decorators.http import require_POST
 
 from nextseek_api.services.assay_templates import resolve_components
 from nextseek_api.services.context_catalog import load_assays
+from nextseek_api.services.sample_workbook import render_template_workbook
+from nextseek_api.services.template_catalog import select_entries
 
 from ..decorators import requires_seek_login_redirect
 from .catalog import assay_table_groups
@@ -82,3 +85,47 @@ def _page_context(request, message=""):
 def assaySetup(request):
     """Pick an assay and see what a template download for it would contain."""
     return render(request, PAGE, _page_context(request))
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _posted_codes(request) -> list:
+    """Every code the form carried, checkboxes and alternation radios alike.
+
+    A group of one posts as a `codes` checkbox; an alternation group posts as a
+    radio under `codes-<prefix>-<n>`, which is what makes the browser enforce
+    pick-one without any JavaScript. Both have to be collected here, or a
+    download would silently omit every alternation the user resolved.
+    """
+    codes = list(request.POST.getlist('codes'))
+    for key in request.POST:
+        if key.startswith('codes-'):
+            codes.extend(request.POST.getlist(key))
+    return codes
+
+
+@require_POST
+@requires_seek_login_redirect(LOGIN_NEXT)
+def assaySetupDownload(request):
+    """Stream one workbook for the components the user ticked.
+
+    Resolution and rendering are both `nextseek_api.services` calls, the same
+    two `templatesDownload` makes, so this page and /seek/templates/ cannot hand
+    out different workbooks.
+
+    Its own view rather than a POST to `templatesDownload`: that one re-renders
+    templatesList.html when the selection is empty, which would drop the user on
+    a different page than the one they were using. Unknown codes are dropped for
+    the reason it states -- a stale bookmark still produces the types it names.
+    """
+    chosen, _unknown = select_entries(_posted_codes(request))
+
+    if not chosen:
+        context = _page_context(request, message="Select at least one sample type.")
+        return render(request, PAGE, context)
+
+    buffer, filename = render_template_workbook(chosen)
+    response = HttpResponse(buffer.getvalue(), content_type=XLSX)
+    response['Content-Disposition'] = f'attachment; filename={filename}'
+    return response

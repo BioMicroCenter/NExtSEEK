@@ -133,3 +133,87 @@ class TestAssaySetupPage:
         resp = assaySetup(_get("/seek/assay-setup/"))
         assert resp.status_code == 200
         assert "The assay catalog is unavailable" in resp.content.decode()
+
+
+import io
+
+
+def _post(path, data):
+    req = RequestFactory().post(path, data)
+    req.user = MagicMock()
+    return req
+
+
+class TestAssaySetupDownload:
+    @patch("seek.decorators.SeekDB")
+    def test_anonymous_is_redirected_to_login(self, db):
+        from seek.views.assay_setup import assaySetupDownload
+
+        db.return_value = _anonymous()
+        resp = assaySetupDownload(_post("/seek/assay-setup/download/", {}))
+        assert resp.status_code == 302
+
+    @patch("seek.views.assay_setup.render_template_workbook",
+           return_value=(io.BytesIO(b"xlsx-bytes"), "templates.xlsx"))
+    @patch("seek.views.assay_setup.select_entries", return_value=(["e"], []))
+    @patch("seek.decorators.SeekDB")
+    def test_it_streams_the_workbook(self, db, select, render):
+        from seek.views.assay_setup import assaySetupDownload
+
+        db.return_value = _logged_in()
+        resp = assaySetupDownload(
+            _post("/seek/assay-setup/download/", {"codes": ["TIS", "D.FLOW"]})
+        )
+        assert resp.status_code == 200
+        assert resp.content == b"xlsx-bytes"
+        assert "templates.xlsx" in resp["Content-Disposition"]
+
+    @patch("seek.views.assay_setup.render_template_workbook",
+           return_value=(io.BytesIO(b"x"), "t.xlsx"))
+    @patch("seek.views.assay_setup.select_entries", return_value=(["e"], []))
+    @patch("seek.decorators.SeekDB")
+    def test_radio_groups_are_collected_alongside_the_checkboxes(
+        self, db, select, render
+    ):
+        """An alternation group posts under codes-<prefix>-<n>, not codes."""
+        from seek.views.assay_setup import assaySetupDownload
+
+        db.return_value = _logged_in()
+        assaySetupDownload(_post("/seek/assay-setup/download/", {
+            "codes": ["D.FLOW"], "codes-req-1": ["TIS"], "codes-opt-1": ["AB"],
+        }))
+        posted = select.call_args.args[0]
+        assert set(posted) == {"D.FLOW", "TIS", "AB"}
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.views.assay_setup.select_entries", return_value=([], []))
+    @patch("seek.decorators.SeekDB")
+    def test_an_empty_selection_re_renders_this_page_with_a_message(
+        self, db, select, _assays
+    ):
+        """templatesDownload re-renders templatesList.html on empty, which would
+        drop the user on the wrong page. This is why it has its own view."""
+        from seek.views.assay_setup import assaySetupDownload
+
+        db.return_value = _logged_in()
+        resp = assaySetupDownload(_post("/seek/assay-setup/download/", {}))
+        assert resp.status_code == 200
+        assert "Select at least one" in resp.content.decode()
+
+    @patch("seek.views.assay_setup.render_template_workbook",
+           return_value=(io.BytesIO(b"x"), "t.xlsx"))
+    @patch("seek.views.assay_setup.select_entries", return_value=(["e"], ["NOPE"]))
+    @patch("seek.decorators.SeekDB")
+    def test_an_unknown_code_is_dropped_rather_than_failing_the_download(
+        self, db, select, render
+    ):
+        """Same rule templatesDownload applies: a stale bookmark still produces
+        the types it names."""
+        from seek.views.assay_setup import assaySetupDownload
+
+        db.return_value = _logged_in()
+        resp = assaySetupDownload(
+            _post("/seek/assay-setup/download/", {"codes": ["TIS", "NOPE"]})
+        )
+        assert resp.status_code == 200
+        assert resp.content == b"x"

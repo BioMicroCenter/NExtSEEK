@@ -500,6 +500,11 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^admin/internal_assays/syncInternalAssays$", path=None,
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
           note="assay / internal-assay synchronisation action"),
+    Route(pattern=r"^seek/^assay-setup/download/$", path=None,
+          methods=(), profiles="", auth="web", exclude="EXCLUDE_UNSAFE_METHOD",
+          note="assay setup picker's submit target; require_POST-gated, so unlike "
+               "/seek/templates/download/ a bare GET is not a safe probe. Streams a "
+               "workbook for the ticked components; login only, no superuser needed"),
     Route(pattern=r"^seek/^attribute/delete/", path=None,
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
           note="sample-attribute editor, delete action"),
