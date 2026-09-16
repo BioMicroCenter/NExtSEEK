@@ -464,6 +464,32 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[
             writer.writerow({c: _coerce_csv(row.get(c)) for c in columns})
 
 
+def _write_cohort_sidecar(samplesheet_path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    """Write cohort.json beside the samplesheet: which NExtSEEK sample each row came from.
+
+    The UID is known here and nowhere downstream — `_write_csv` uses
+    extrasaction="ignore", so `accession` never reaches the CSV, and the submitter
+    receives only a path to that CSV. Without this sidecar the launch record cannot
+    say which D.SEQ sample a run processed, and reingest is left matching fastq
+    paths back to sample records.
+
+    Deliberately NOT a samplesheet column: the CSV is consumed by nf-core, and
+    adding a field there changes a file the pipeline reads.
+    """
+    entries = [
+        {
+            "d_seq_uid": (row.get("accession") or None),
+            "nfcore_sample": str(row.get("sample") or ""),
+            "fastq_1": str(row.get("fastq_1") or ""),
+            "fastq_2": str(row.get("fastq_2") or "") or None,
+        }
+        for row in rows
+    ]
+    path = Path(samplesheet_path).parent / "cohort.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+
+
 def _build_notes_md(
     *,
     pipeline: str,
@@ -598,6 +624,14 @@ def emit_launch_artifacts(
             staged_sheet_path = str(staged_sheet)
             sheet_ref = staged_sheet_path
             result.saved_files["staged_samplesheet"] = staged_sheet_path
+            # cohort.json travels with the sheet it describes — best-effort: its
+            # absence (e.g. emit_launch_artifacts called standalone in a test, or
+            # against a hand-written sheet) must not fail the staging itself.
+            cohort_local = samplesheet_path.parent / "cohort.json"
+            if cohort_local.exists():
+                (staged_dir / "cohort.json").write_text(
+                    cohort_local.read_text(encoding="utf-8"), encoding="utf-8"
+                )
             if excluded:
                 fetchngs_local = out_path / "fetchngs_samplesheet.csv"
                 if fetchngs_local.exists():
@@ -864,6 +898,11 @@ def emit_nfcore_artifacts(
     columns = _ensure_columns(keep_rows, required, enrichment)
     samplesheet_path = out_path / "samplesheet.csv"
     _write_csv(samplesheet_path, keep_rows, columns)
+    # cohort.json sidecar: the only surviving record of which D.SEQ sample each
+    # nf-core row came from (see _write_cohort_sidecar). Written for every real
+    # samplesheet, Tower or Luria — the Luria submitter reads it beside this same
+    # path; a future Tower re-enable would need it staged alongside the sheet too.
+    _write_cohort_sidecar(samplesheet_path, keep_rows)
     result.saved_files["samplesheet"] = str(samplesheet_path)
     result.samplesheet_row_count = len(keep_rows)
     result.excluded_accessions = excluded
