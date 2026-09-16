@@ -35,9 +35,11 @@ mechanically rather than recalled:
 
 | file | what it holds |
 |---|---|
-| `ci/routes.py` | `Route`, `REGISTRY`, `match()`, `PLACEHOLDERS`, `PROFILES`, `EXCLUDE_CODES` |
-| `ci/gate/live_routes.py` | `live_patterns()`, `suggest_path()` |
-| `ci/gate/test_route_registry.py` | the two blocking completeness tests |
+| `ci/routes.py` | `Route`, `REGISTRY`, `match()`, `PLACEHOLDERS`, `PROFILES`, `EXCLUDE_CODES`, `EFFECTS` |
+| `ci/writers.py` | `Writer`, `WRITERS`, `BY_ID`, `DECLARED_SITES`: every writer of a table the graph reads, and what tells graph_sync about it |
+| `ci/gate/live_routes.py` | `live_patterns()`, `live_views()`, `suggest_path()` |
+| `ci/gate/test_route_registry.py` | the two blocking completeness tests, and the skeleton a missing route is reported with |
+| `ci/gate/test_route_effects.py` | what each route writes, checked against `ci/writers.py` in both directions, plus the report-only tripwire |
 | `ci/gate/test_live_routes_unit.py` | pure-string tests for `suggest_path` |
 | `ci/docs_map.py` | the docs map check: `run()`, `main()`, rules R1 to R10 |
 | `ci/gate/test_docs_map.py` | runs the docs map check in the blocking gate step |
@@ -50,24 +52,32 @@ mechanically rather than recalled:
 ### The registry
 
 A `Route` carries the resolver pattern verbatim, a requestable path that may hold
-`{placeholders}`, the methods CI sends, the profiles it may be called under, and
-an expected status (`ci/routes.py:37-55`). `expect` names the status a *working*
+`{placeholders}`, the methods CI sends, the profiles it may be called under, what
+a request there writes, and an expected status (`ci/routes.py:71-91`). `expect`
+names the status a *working*
 route returns, never the status a broken one returns today, which is what lets an
-`xfail` flip to XPASS the day a defect is fixed (`ci/routes.py:44-49`).
+`xfail` flip to XPASS the day a defect is fixed (`ci/routes.py:79-84`).
 `__post_init__` normalises `profiles` to a frozenset and `methods` to an
 upper-cased tuple at construction, because `"od" in "local,dev,prod"` is a
 substring test that passes silently and iterating the string `"GET"` yields three
-characters (`ci/routes.py:57-77`). Validation refuses a route with neither profiles nor an
+characters (`ci/routes.py:93-113`). Validation refuses a route with neither profiles nor an
 exclusion, and refuses a free-text exclusion reason because this repository is
-public (`ci/routes.py:81-89`).
+public (`ci/routes.py:114-125`).
 
-Measured 2026-09-03 by importing the module and counting every entry of the
-`REGISTRY` list that begins at `ci/routes.py:204`: 159 entries, 157 of them
-`resolver=True`; 26 carry an exclusion; 11 carry an `xfail`; 133 entries name
-`local`, 133 name `dev`, 79 name `prod`; and exactly one sets
-`prod_allows_non_get`, the `^login` route at `ci/routes.py:219-223`. The
-placeholder vocabulary those paths draw on holds 13 names
-(`ci/routes.py:162-180`).
+`effect` is the registry's answer to the question the graph sync asks of every
+route: does a request here leave the graph behind? `reads` writes nothing;
+`writes` writes a table the graph is a projection of, and names the `ci/writers.py`
+entries that do it; `external` writes something the graph does not read, such as a
+workbook, a DuckDB store, a session or a job row; `n/a` is not this application's
+surface at all. The vocabulary and the reasoning behind the default are at
+`ci/routes.py:37-57`, and the rules are enforced at `ci/routes.py:126-152`.
+
+The `REGISTRY` list begins at `ci/routes.py:271`. What it holds today -- how many
+entries, how many excluded, how many pinned `xfail`, how many per profile -- is an
+import away rather than a number worth keeping here; the one entry that sets
+`prod_allows_non_get` is the `^login` route at `ci/routes.py:289-294`, and the
+placeholder vocabulary its paths draw on is `PLACEHOLDERS` at
+`ci/routes.py:229-247`.
 
 `match()` resolves a URL to the most specific declaration (the pattern that
 pins the whole path first, then the one spelling out the most literal characters),
@@ -81,14 +91,23 @@ unreachable second entry (`ci/routes.py:882-899`, `ci/routes.py:924`).
 
 `live_patterns()` walks Django's resolver and returns the patterns CI owns:
 everything under `nextseek_api/` or `seek/`, plus seven project-level patterns
-listed at `ci/gate/live_routes.py:42-50`. The Django admin and every DRF
+listed at `ci/gate/live_routes.py:47-55`. The Django admin and every DRF
 format-suffix twin are dropped from the denominator entirely rather than declared
-(`ci/gate/live_routes.py:31-37`, `ci/gate/live_routes.py:57-63`). A `path()`
+(`ci/gate/live_routes.py:36-42`, `ci/gate/live_routes.py:62-68`). A `path()`
 route using converter syntax raises `NotImplementedError` instead of being
 declared, because `Route.matcher` is a plain regex and would never match it
-(`ci/gate/live_routes.py:122-130`). The two tests then diff that set against the
+(`ci/gate/live_routes.py:128-135`). The two tests then diff that set against the
 registry in both directions and fail with a paste-ready skeleton
-(`ci/gate/test_route_registry.py:29-49`).
+(`ci/gate/test_route_registry.py`), which says `effect="UNCLASSIFIED"` so that a
+route nobody has classified cannot be pasted in as one that writes nothing.
+
+`live_views()` returns the same patterns with the view behind each, as
+`path.py::Symbol` sites -- the vocabulary `ci/writers.py` and
+`ci/gate/writer_scan.py` use -- so a reader can go from a URL to the writer
+registry. `ci/gate/test_route_effects.py` uses it twice: to pin what a page's view
+actually is, and for the tripwire, which walks from a `reads` route's view to the
+writer sites and reports what it reaches. That walk resolves calls by name, so it
+reports rather than fails; `ci/CLAUDE.md` says how to read it.
 
 ### The docs map
 
@@ -198,8 +217,11 @@ for a lane path that no longer exists), and the differ always exits 0 by
 decision (`ci/diff_baseline.py:8-9`). So three steps can fail that job, as the
 comment above the gate step says: the lanes step when the lanes did not run,
 `uv run pytest ci/gate -q`, and the blocking unit tests step. The gate step
-holds three checks: the route registry completeness gate, the docs map, and the
-check that every blocking glob matches a file (`ci/gate/test_blocking_lanes.py`).
+holds the route registry completeness gate, the route-effects checks (every
+writer a route names exists, and every writer a route enters is named by one),
+the writer registry gate (`ci/writers.py` and the scan agree in both
+directions), the docs map, and the check that every blocking glob matches a file
+(`ci/gate/test_blocking_lanes.py`).
 The blocking unit tests step fails when the runner has no `node`, when a
 blocking glob matches no file, and when any test `ci/blocking_lanes.py` names
 fails: the graph_sync and graph_search unit tests and the Graph Search page's
@@ -223,12 +245,14 @@ names something that is declared but not yet built, it says so.
 | **T0 / reachability** | `ci/smoke/test_reachability.py`: one test per registry route, parametrised at collection, asserting a status, a live gateway and no silent bounce to `/login/` (`ci/smoke/test_reachability.py:1-10`). Deliberately shallow, which is why the hand-written tests exist beside it |
 | **flows** | `ci/smoke/test_flows.py`: the browser lane, marked `flow` (`ci/smoke/test_flows.py:19`), which drives the real UI through Playwright and with `--strict-console` fails on uncaught console errors. Nothing in it writes to the database (`ci/smoke/test_flows.py:1-9`) |
 | **route registry** | The `REGISTRY` list in `ci/routes.py`. Every application URL declared exactly once; an undeclared route is refused before the request is built (`ci/routes.py:10-13`) |
-| **completeness gate** | `ci/gate/`: the two tests that diff Django's live resolver against `REGISTRY` in both directions and fail with a paste-ready skeleton (`ci/gate/test_route_registry.py:29-49`) |
-| **profile** | Which box the suite believes it is on: `local`, `dev` or `prod` (`ci/routes.py:22`). Every route names the profiles it may be called under. An absent `CI_BOX_PROFILE` resolves to `prod`, the most restrictive, and `--profile` can only narrow from there (`ci/smoke/conftest.py:149-152`, `ci/smoke/conftest.py:168-177`) |
-| **auth level** | Which client calls a route: `anon`, `smoke`, `web` or `write` (`ci/routes.py:43`), pinned to exactly those four (`ci/smoke/test_registry_contents.py:110`). `anon` carries no credentials, `smoke` is Basic-authenticated for `/nextseek_api/*`, `web` holds the session cookie the `/seek/*` views read, and the sweep has no `write` client at all (`ci/smoke/test_reachability.py:102-109`) |
+| **completeness gate** | `ci/gate/`: the two tests that diff Django's live resolver against `REGISTRY` in both directions and fail with a paste-ready skeleton (`ci/gate/test_route_registry.py`) |
+| **effect** | What a request to a route writes: `reads`, `writes` (with the `ci/writers.py` ids that do it), `external` (a write the graph does not read) or `n/a` (not this application's surface). Declared per entry, enforced at `ci/routes.py:126-152`, checked against the writer registry by `ci/gate/test_route_effects.py` |
+| **tripwire** | The one part of `ci/gate/` that reports instead of failing: `reads` routes whose view reaches a writer site through statically resolvable calls. A name-resolving walk that follows only unambiguous names, so it under-reaches by design; `ci/CLAUDE.md` says how to read it |
+| **profile** | Which box the suite believes it is on: `local`, `dev` or `prod` (`ci/routes.py:27`). Every route names the profiles it may be called under. An absent `CI_BOX_PROFILE` resolves to `prod`, the most restrictive, and `--profile` can only narrow from there (`ci/smoke/conftest.py:149-152`, `ci/smoke/conftest.py:168-177`) |
+| **auth level** | Which client calls a route: `anon`, `smoke`, `web` or `write` (`ci/routes.py:76`), pinned to exactly those four (`ci/smoke/test_registry_contents.py:110`). `anon` carries no credentials, `smoke` is Basic-authenticated for `/nextseek_api/*`, `web` holds the session cookie the `/seek/*` views read, and the sweep has no `write` client at all (`ci/smoke/test_reachability.py:102-109`) |
 | **write lane** | `ci/smoke/test_write_lane.py`, marked `write` (`ci/smoke/test_write_lane.py:33`) and deselected unless `-m` is passed (`ci/smoke/conftest.py:261-266`). It authenticates as the superuser account, proves the dry-run contracts by default, and puts a real INSERT behind a second opt-in, `CI_WRITE_DESTRUCTIVE=1` (`ci/smoke/test_write_lane.py:1-17`) |
-| **xfail / XPASS** | A route broken today carries an `xfail` reason and reports `xfailed`. Because `expect` names the status a *working* route returns, the day the defect is fixed that same entry reports **XPASS**, which is the signal to delete the pin rather than a new failure (`ci/routes.py:44-49`, `ci/smoke/README.md:274-277`) |
-| **shape** | A `Route` field naming one key that must exist in the JSON body (`ci/routes.py:50`). Declared and asserted by nothing: a grep for `.shape` across `ci/` finds no reader. It is T1's input, carried over from the body assertions that used to be hand-written (`ci/smoke/test_health.py:15-17`) |
+| **xfail / XPASS** | A route broken today carries an `xfail` reason and reports `xfailed`. Because `expect` names the status a *working* route returns, the day the defect is fixed that same entry reports **XPASS**, which is the signal to delete the pin rather than a new failure (`ci/routes.py:79-84`, `ci/smoke/README.md:274-277`) |
+| **shape** | A `Route` field naming one key that must exist in the JSON body (`ci/routes.py:85`). Declared and asserted by nothing: a grep for `.shape` across `ci/` finds no reader. It is T1's input, carried over from the body assertions that used to be hand-written (`ci/smoke/test_health.py:15-17`) |
 | **pytest baseline** | `ci/pytest-baseline.txt`: which tests were already failing, recorded so a run reports what is *new* rather than what is red. Valid for one exact command and one tree state, and it names that command in its own header (`ci/pytest-baseline.txt:3-11`). See `ci/CLAUDE.md` for how it was last regenerated and how to regenerate it |
 
 ## Running and testing
@@ -312,16 +336,16 @@ grepping every `.py` file in the tree for `ci.routes`, `ci.gate`, `ci.smoke`,
 
 **Depends on:**
 
-- Django's URL resolver, imported inside `live_patterns()` and `_walk()` so that
-  the module stays importable without it (`ci/gate/live_routes.py:93`,
-  `ci/gate/live_routes.py:113`); a module-scope import here would break the smoke
+- Django's URL resolver, imported inside `_walk()` and `_owned_leaves()` so that
+  the module stays importable without it (`ci/gate/live_routes.py:99`,
+  `ci/gate/live_routes.py:119`); a module-scope import here would break the smoke
   lane, which has no Django.
 - The `nextseek` application image, for the gate lane only: the recipe runs
   `/app/.venv/bin/python` from that image against a mount of this worktree
   (`ci/gate/live_routes.py:17-20`).
 - `requests`, in the smoke lane only: imported at `ci/smoke/client.py:11` and
   `ci/smoke/conftest.py:41`, and by nothing under `ci/gate/` or in
-  `ci/routes.py:15-20`.
+  `ci/routes.py:20-25`.
 - `~/.config/nextseek/ci.env`, read for the smoke credentials
   (`ci/smoke/conftest.py:50`) and reported by `startup/steps/doctor.py:13`. It is
   load-bearing input, not scratch: move or delete it and every authenticated
