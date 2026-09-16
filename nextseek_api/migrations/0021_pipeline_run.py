@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
             name='PipelineRun',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('run_dir', models.CharField(max_length=1024, unique=True)),
+                ('run_dir', models.CharField(max_length=768, unique=True)),
                 ('run_name', models.CharField(max_length=255)),
                 ('slurm_job_id', models.CharField(blank=True, default='', max_length=64)),
                 ('pipeline', models.CharField(max_length=255)),
