@@ -56,8 +56,13 @@ class Finding:
     detail: dict = field(default_factory=dict)
 
     def render(self) -> str:
-        bits = [f"row {self.row_index}" if self.row_index >= 0 else self.sample_type,
-                self.code]
+        if self.row_index >= 0:
+            bits = [f"row {self.row_index}"]
+            if self.sample_type:
+                bits.append(self.sample_type)
+        else:
+            bits = [self.sample_type]
+        bits.append(self.code)
         if self.attribute:
             bits.append(self.attribute)
         if self.detail:
@@ -74,7 +79,16 @@ class QaReport:
 
     def add(self, finding: Finding) -> None:
         self.findings.append(finding)
-        (self.hard if finding.severity == HARD else self.soft).append(finding.render())
+        # Route on the two known severities explicitly and raise on anything
+        # else: a QA gate whose entire job is blocking bad uploads must fail
+        # loudly on a typo'd or future severity, not quietly file it under
+        # .soft and let _finalize() report SOFT_FLAG where HARD_REJECT was owed.
+        if finding.severity == HARD:
+            self.hard.append(finding.render())
+        elif finding.severity == SOFT:
+            self.soft.append(finding.render())
+        else:
+            raise ValueError(f"unknown Finding severity: {finding.severity!r}")
 
     def _finalize(self) -> "QaReport":
         self.disposition = HARD_REJECT if self.hard else (SOFT_FLAG if self.soft else CLEAN)
