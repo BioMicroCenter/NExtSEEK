@@ -40,6 +40,21 @@ def ssh_run(luria_env: dict, remote_cmd: str, *, key_path: str) -> str:
     return proc.stdout
 
 
+def ssh_run_bytes(luria_env: dict, remote_cmd: str, *, key_path: str) -> bytes:
+    """Like :func:`ssh_run`, but returns raw stdout bytes instead of decoded text.
+
+    Needed whenever the remote command's stdout is itself binary (e.g. a tar
+    stream) rather than a line-oriented text payload: capturing through
+    ``text=True`` decodes/re-encodes stdout through this process's own codec,
+    which can alter a byte before the caller ever sees it.
+    """
+    cmd = ["ssh", "-i", key_path, *_SSH_OPTS, _target(luria_env), remote_cmd]
+    proc = subprocess.run(cmd, capture_output=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ssh failed ({proc.returncode}): {proc.stderr.decode(errors='replace').strip()}")
+    return proc.stdout
+
+
 def scp_file(luria_env: dict, local_path, remote_path: str, *, key_path: str) -> None:
     """Copy one local file to an explicit remote path (renaming as needed)."""
     dest = f'{_target(luria_env)}:{remote_path}'

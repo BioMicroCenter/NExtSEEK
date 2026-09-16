@@ -189,14 +189,11 @@ def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_
 _RUN_LS_CAP = 2_000_000  # bytes of `ls -laR` returned to CC before truncation (well under the 16 MiB WS cap)
 
 
-def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
-    """Read-only recursive listing of a finished Luria run dir (reingest input).
-
-    Validates ``run_dir`` is under ``<LURIA working_path>/runs`` (no traversal),
-    then SSHes Luria and runs ``ls -laR``. Returns the tree text (capped). Never
-    writes to Luria.
+def _validate_run_dir(args: dict, config: Any) -> tuple[str, dict]:
+    """Shared by run-ls / run-harvest: the run dir must be under the cluster
+    runs root. An unvalidated run_dir is an arbitrary read of the shared
+    Luria account.
     """
-    import shlex
     luria_env = getattr(config, "LURIA_ENV", None) or {}
     working_path = str(luria_env.get("working_path") or "").rstrip("/")
     if not working_path or not luria_env.get("key"):
@@ -205,10 +202,138 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
     run_dir = os.path.normpath(str(args["run_dir"]))
     if run_dir != runs_root and not run_dir.startswith(runs_root + "/"):
         raise OpValidationError(f"run_dir must be under {runs_root}")
+    return run_dir, luria_env
+
+
+def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
+    """Read-only recursive listing of a finished Luria run dir (reingest input).
+
+    Validates ``run_dir`` is under ``<LURIA working_path>/runs`` (no traversal),
+    then SSHes Luria and runs ``ls -laR``. Returns the tree text (capped). Never
+    writes to Luria.
+    """
+    import shlex
+    run_dir, luria_env = _validate_run_dir(args, config)
     from chat_nextseek.luria.ssh import prepare_key, ssh_run
     key_path = prepare_key(luria_env["key"])
     out = ssh_run(luria_env, f"ls -laR {shlex.quote(run_dir)}", key_path=key_path)
     return {"run_dir": run_dir, "truncated": len(out) > _RUN_LS_CAP, "tree": out[:_RUN_LS_CAP]}
+
+
+# The remote-side half of the run-harvest op's staging: matches GENERIC_GLOBS
+# on the CLUSTER, using Python's own pathlib.Path.glob -- the same call
+# harvest_local makes locally -- rather than the remote shell's globbing.
+#
+# GENERIC_GLOBS' MultiQC pattern ("multiqc*/**/*_data/multiqc_*.txt") is a
+# multi-segment "**" pattern, which pathlib treats as zero-or-more
+# intervening directories. A POSIX shell only matches "**" that way when the
+# `globstar` option is explicitly turned on -- which a non-interactive
+# `ssh host cmd` invocation does NOT do by default -- and even then a dash/sh
+# login shell (a plausible remote default) does not support "**" at all.
+# Confirmed directly: `ls -1d multiqc*/**/*_data/multiqc_*.txt` (no globstar)
+# silently returns nothing -- no error, just an empty listing -- for a run
+# whose MultiQC directory has zero or two intervening directories, while
+# pathlib.Path.glob resolves both correctly. That is exactly the failure this
+# staging method exists to avoid: every sample's `metrics`/`derived` would
+# come back empty, with nothing to say why.
+#
+# The remote script tars every match into ONE stream piped back over a
+# single ssh round trip, instead of one `ls` + one `cat` per file: a
+# `cat`-per-file transfer also runs every file's bytes through this
+# process's own text codec (ssh_run decodes stdout as text), which can alter
+# a byte before harvest_local ever reads it. ``dereference=True`` makes the
+# remote tar store a matched symlink's target CONTENT, never the symlink
+# itself -- so a local extract can never be made to follow a link outside
+# the staging directory.
+_STAGE_SCRIPT = """\
+import pathlib, sys, tarfile
+run_dir = pathlib.Path(sys.argv[1])
+patterns = sys.argv[2:]
+seen = set()
+tar = tarfile.open(fileobj=sys.stdout.buffer, mode="w|", dereference=True)
+for pattern in patterns:
+    for path in sorted(run_dir.glob(pattern)):
+        if not path.is_file():
+            continue
+        rel = str(path.relative_to(run_dir))
+        if rel in seen:
+            continue
+        seen.add(rel)
+        tar.add(str(path), arcname=rel)
+tar.close()
+"""
+
+
+def _stage_run_dir(luria_env: dict, run_dir: str, staged_dir: str, key_path: str) -> None:
+    """Stage every ``harvest.GENERIC_GLOBS`` match from ``run_dir`` on Luria
+    into ``staged_dir``, ready for ``harvest.harvest_local``. See
+    ``_STAGE_SCRIPT`` above for why this runs the glob matching remotely, in
+    Python, and packs the matches into a single tar stream rather than an
+    `ls` + per-file `cat`.
+    """
+    import io
+    import shlex
+    import tarfile
+
+    from chat_nextseek.luria.ssh import ssh_run_bytes
+    from NessieAI.ns.reingest.harvest import GENERIC_GLOBS
+
+    remote_cmd = " ".join([
+        "python3", "-c", shlex.quote(_STAGE_SCRIPT), shlex.quote(run_dir),
+        *(shlex.quote(pattern) for pattern in GENERIC_GLOBS),
+    ])
+    tar_bytes = ssh_run_bytes(luria_env, remote_cmd, key_path=key_path)
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r|") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            name = os.path.normpath(member.name)
+            if name.startswith("..") or os.path.isabs(name):
+                raise OpValidationError(f"staged tar entry escapes run_dir: {member.name!r}")
+            tar.extract(member, path=staged_dir)
+
+
+def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
+    """Reingest step 1 — stage the allowlisted files off the cluster and parse
+    them into a RunManifest. Read-only; like run-ls it never calls the write
+    gate (see nextseek_api/assistant/CONTRACT.md).
+    """
+    import tempfile
+
+    from NessieAI.ns.reingest import harvest
+    from NessieAI.ns.reingest.store import save_manifest
+
+    run_dir, luria_env = _validate_run_dir(args, config)
+    from chat_nextseek.luria.ssh import prepare_key
+    key_path = prepare_key(luria_env["key"])
+    try:
+        with tempfile.TemporaryDirectory() as staged:
+            _stage_run_dir(luria_env, run_dir, staged, key_path)
+            run_manifest = harvest.harvest_local(staged, lookup_by_fastq=_d_seq_by_fastq)
+    finally:
+        try:
+            os.remove(key_path)
+        except OSError:
+            pass
+    run_manifest.run_dir = run_dir
+
+    # A failed run's outputs may be partial or truncated. Registering them into a
+    # database of record by default is the wrong choice; proceeding is a decision
+    # the user makes explicitly.
+    if run_manifest.execution.failed and not args.get("allow_failed_run"):
+        raise OpValidationError(
+            f"{run_manifest.execution.failed} process(es) failed in this run. "
+            f"Re-run with --allow-failed-run to reingest it anyway.")
+
+    manifest_id = save_manifest(run_manifest)
+    return {"run_dir": run_dir, "manifest_id": manifest_id,
+            "manifest": run_manifest.model_dump()}
+
+
+def _d_seq_by_fastq(path: str) -> list[str]:
+    """D.SEQ UIDs whose File_PrimaryData / Link_PrimaryData mentions ``path``."""
+    from nextseek_api.services.reingest_lookups import uids_by_primary_data
+    return uids_by_primary_data(path)
 
 
 def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_dir):
@@ -268,4 +393,5 @@ _HANDLERS: dict[str, Callable] = {
     "generate-submission": _generate_submission,
     "run-ls": _run_ls,
     "build-upload-xlsx": _build_upload_xlsx,
+    "run-harvest": _run_harvest,
 }

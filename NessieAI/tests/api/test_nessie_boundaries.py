@@ -92,6 +92,10 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     "NessieAI/hibayes/task6_replay.py": frozenset({"nextseek_api.assistant.models_db"}),
     # Task-6 AppConfig: import_module string, kept on purpose (audit section 3).
     "NessieAI/hibayes/task6_app.py": frozenset({"nextseek_api.assistant.models_db"}),
+    # run-harvest's D.SEQ fastq-path lookup: a plain filtered SELECT against
+    # the seek-mirrored samples table, wrapped by reingest_lookups so the
+    # query is written once rather than re-invented at each call site.
+    "NessieAI/ns/granular.py": frozenset({"nextseek_api.services.reingest_lookups"}),
     # NS engine: the upload helper reingest QA reuses.
     "NessieAI/ns/reingest_qa.py": frozenset({"nextseek_api.batch_upload.helpers"}),
     # The evaluator's retry engine (Phase B, moved from

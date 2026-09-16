@@ -334,6 +334,22 @@ OPS: list[OpSpec] = [
             "{saved_files, qa}",
         ),
     ),
+    _dispatch(
+        op_id="run-harvest",
+        bin_name="nextseek-run-harvest",
+        transport=Transport.sidecar,
+        assistant_endpoint="/nextseek_api/assistant/run-harvest/",
+        gate_class=GateClass.read,
+        argv=[ArgSpec(flag="--run-dir", required=True),
+              ArgSpec(flag="--allow-failed-run", required=False)],
+        response_envelope_fields=["op", "result"],
+        skill_name="nextseek",
+        skill_row=_row(
+            "**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.",
+            "--run-dir <abs path under the cluster runs root>",
+            "{run_dir, manifest_id, manifest}",
+        ),
+    ),
     _subcmd(
         op_id="attrs",
         bin_name="nextseek-sampletype-attrs",

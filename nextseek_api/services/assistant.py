@@ -79,6 +79,7 @@ from nextseek_api.assistant.models_api import (
     ParseOpResponse,
     ReportOpRequest,
     ReportOpResponse,
+    RunHarvestRequest,
     RunLsRequest,
     BuildUploadXlsxRequest,
     SubmissionRequest,
@@ -212,6 +213,7 @@ _GRANULAR_REQUEST_MODELS = {
     "generate-submission": SubmissionRequest,
     "run-ls": RunLsRequest,
     "build-upload-xlsx": BuildUploadXlsxRequest,
+    "run-harvest": RunHarvestRequest,
 }
 
 
@@ -1318,3 +1320,15 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="build-upload-xlsx")
     def build_upload_xlsx(self, request):
         return self._run_granular_op(request, "build-upload-xlsx")
+
+    @extend_schema(
+        operation_id="Assistant: Run Harvest",
+        description="Stage a finished Luria run's allowlisted outputs off the cluster and "
+                    "parse them into a manifest (reingest step 1). Never writes to Luria "
+                    "or to NExtSEEK.",
+        request=RunHarvestRequest,
+        responses={401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="run-harvest")
+    def run_harvest(self, request):
+        return self._run_granular_op(request, "run-harvest")

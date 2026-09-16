@@ -457,6 +457,25 @@ def _dispatch_run_ls(args):
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
 
 
+def _dispatch_run_harvest(args):
+    """Reingest step 1 — stage a finished run's allowlisted outputs off the
+    cluster and parse them into a manifest. Never writes to Luria or NExtSEEK."""
+    if _dry_run():  # pragma: no branch
+        return {"run_dir": args.run_dir, "manifest_id": "dryrun", "manifest": {}}  # pragma: no cover
+    if not args.run_dir:  # pragma: no cover
+        _err("VALIDATION", "missing --run-dir", 3)  # pragma: no cover
+    import _sidecar_client as sc  # pragma: no cover
+    body = {"run_dir": args.run_dir}  # pragma: no cover
+    if getattr(args, "allow_failed_run", False):  # pragma: no cover
+        body["allow_failed_run"] = True  # pragma: no cover
+    try:  # pragma: no cover
+        return sc.call_op("run-harvest", body,  # pragma: no cover
+                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
+    except sc.SidecarCallError as e:  # pragma: no cover
+        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+
+
 def _dispatch_build_upload_xlsx(args):
     """Render NExtSEEK 4-sheet upload workbook(s) from CC-composed reingest rows."""
     if _dry_run():  # pragma: no branch
@@ -489,6 +508,7 @@ _DISPATCH = {
     "pipeline": _dispatch_pipeline,
     "run-ls": _dispatch_run_ls,
     "build-upload-xlsx": _dispatch_build_upload_xlsx,
+    "run-harvest": _dispatch_run_harvest,
 }
 
 
@@ -504,7 +524,8 @@ def main() -> None:
     p.add_argument("--uids")  # for generate-submission
     p.add_argument("--pipeline")  # for pipeline (nf-core key)
     p.add_argument("--message")  # for pipeline (CC-composed summary)
-    p.add_argument("--run-dir")  # for run-ls (finished Luria run dir)
+    p.add_argument("--run-dir")  # for run-ls / run-harvest (finished Luria run dir)
+    p.add_argument("--allow-failed-run", action="store_true")  # for run-harvest
     p.add_argument("--rows")  # for build-upload-xlsx (JSON rows)
     p.add_argument("--existing-parent-uids")  # for build-upload-xlsx (Parent QA)
     p.add_argument("--planner", action="store_true",  # for query
