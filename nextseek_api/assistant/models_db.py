@@ -354,9 +354,24 @@ class PipelineRun(models.Model):
     `cohort` is a list of {d_seq_uid, nfcore_sample, fastq_1, fastq_2}. It is
     JSON rather than a related table because it is written once at launch and
     only ever read whole.
+
+    ``run_dir`` is 768 chars (option (a) of the 2026-09-16 whole-branch
+    review's Critical 3), not 1024: MySQL 8.0 utf8mb4 needs 4 bytes/char, so
+    a unique index on a 1024-char CharField is 4096 bytes -- over InnoDB's
+    3072-byte index limit (ERROR 1071). 768 is exactly 3072 bytes and never
+    caught in CI because the test lane is SQLite, which has no such limit.
+    768 stays generous for a real cluster path: submitter.py builds
+    ``remote_run_dir`` as ``f"{working}/runs/{safe}_{run_id}"``, where
+    ``safe`` is capped at 64 chars (``sanitize_job_name``) and ``run_id`` is
+    a ``YYMMDD_HHMMSS_<idx>`` timestamp (~17 chars) -- so the whole suffix
+    after ``working`` is under 90 chars; ``working`` (``LURIA_WORKING_PATH``)
+    is an admin-set cluster path, never observed anywhere near 678 chars.
+    Option (b) (a separate ``run_dir_digest`` sha256 column, keying
+    ``record_launch``/``uid_resolve`` on the digest instead) was rejected as
+    unnecessary complexity for a field this bounded in practice.
     """
 
-    run_dir = models.CharField(max_length=1024, unique=True)
+    run_dir = models.CharField(max_length=768, unique=True)
     run_name = models.CharField(max_length=255)
     slurm_job_id = models.CharField(max_length=64, blank=True, default="")
     pipeline = models.CharField(max_length=255)
