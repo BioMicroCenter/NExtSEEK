@@ -23,10 +23,12 @@ import tarfile
 from pathlib import Path
 
 import pytest
+from django.contrib.auth import get_user_model
 
 import chat_nextseek.luria.ssh as ssh
 import NessieAI.ns.granular as g
-from NessieAI.ns.reingest import harvest
+from NessieAI.ns.reingest import harvest, manifest as manifest_schema
+from nextseek_api.assistant.models_db import PipelineRun
 
 pytestmark = pytest.mark.django_db
 
@@ -361,9 +363,9 @@ def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
     import NessieAI.ns.reingest.harvest as harvest_mod
     from NessieAI.ns.reingest import manifest as manifest_mod
 
-    def fake_harvest_local(root, *, lookup_by_fastq=None, extra_globs=None):
+    def fake_harvest_local(root, *, lookup_by_fastq=None, extra_globs=None, run_dir=None):
         return manifest_mod.RunManifest(
-            run_dir=root,
+            run_dir=run_dir if run_dir is not None else root,
             execution=manifest_mod.ExecutionInfo(processes=3, failed=failed, non_terminal=0),
         )
 
@@ -404,3 +406,86 @@ def test_run_harvest_succeeds_and_returns_manifest_id(monkeypatch, tmp_path):
     from NessieAI.ns.reingest.store import load_manifest
     loaded = load_manifest(result["manifest_id"])
     assert loaded.run_dir == "/net/cluster/runs/a"
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: neither Critical from the 2026-09-16 whole-branch review shows
+# up in a per-module test, because both live in the SEAM between modules
+# built and reviewed separately.
+#
+# Critical 1: _run_harvest stages into a tempfile.TemporaryDirectory() and
+# used to call harvest_local(staged, ...) with no run_dir label, so
+# uid_resolve.resolve() looked up PipelineRun by the TEMP path -- which never
+# matches the launch record's real (cluster) run_dir. Every sample fell
+# through to the fastq fallback, and PipelineInfo.run_name became the temp
+# dir's own generated name.
+#
+# Critical 2: harvest_local's samplesheet glob ("*.csv") picked whichever
+# match sorted first. A pipeline run with `--outdir .` writes the fetchngs
+# pre-stage's `ids.csv` directly alongside the real `samplesheet.csv`, and
+# "ids.csv" < "samplesheet.csv" alphabetically -- so the harvester read the
+# wrong file (here, an empty one) and would have returned zero samples with
+# no warning at all.
+#
+# This test drives the full op (ssh_run_bytes stubbed to tar a synthetic run
+# tree containing BOTH files, exactly as production staging would) with a
+# PipelineRun row present for the CLUSTER path, and fails on either bug on
+# its own -- so it is the single test that closes both.
+# ---------------------------------------------------------------------------
+
+def test_run_harvest_end_to_end_resolves_via_launch_record_despite_a_decoy_csv(
+        monkeypatch, tmp_path):
+    run_dir = "/net/cluster/runs/nfcore_end_to_end"
+    source = tmp_path / "cluster_run"
+    source.mkdir(parents=True)
+
+    (source / "pipeline_info").mkdir()
+    (source / "pipeline_info" / "nf_core_rnaseq_software_mqc_versions.yml").write_text(
+        "Workflow:\n  nf-core/rnaseq: v3.22.2\n  Nextflow: 25.10.2\n")
+    (source / "pipeline_info" / "execution_trace.txt").write_text(
+        "task_id\tstatus\n1\tCOMPLETED\n")
+
+    # The fetchngs pre-stage's decoy, written BEFORE the `[ -s ids.csv ]`
+    # guard in the common case: empty, and alphabetically ahead of the real
+    # samplesheet.
+    (source / "ids.csv").write_text("")
+    (source / "samplesheet.csv").write_text(
+        "sample,fastq_1,fastq_2,strandedness\n"
+        "CONTROL_REP1,/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz,,auto\n")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path: _run_stage_script_locally(str(source), harvest.GENERIC_GLOBS))
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
+    from NessieAI.ns.reingest import store as store_mod
+    monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+
+    PipelineRun.objects.create(
+        run_dir=run_dir, run_name="r", pipeline="nf-core/rnaseq",
+        launched_by=get_user_model().objects.create(username="t"),
+        cohort=[{"d_seq_uid": "D.SEQ-EXAMPLE-1", "nfcore_sample": "CONTROL_REP1",
+                 "fastq_1": "/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz",
+                 "fastq_2": None}])
+
+    result = _dispatch("run-harvest", {"run_dir": run_dir},
+                        _Cfg(), None, None, None, None)
+
+    got = result["manifest"]
+    assert got["run_dir"] == run_dir, (
+        "run_dir must be the cluster path, not the tempfile.TemporaryDirectory "
+        "harvest_local actually read from")
+    assert got["pipeline"]["run_name"] == "nfcore_end_to_end", (
+        "run_name must derive from the cluster run_dir, not the temp staging "
+        "dir's generated name")
+
+    samples = got["samples"]
+    assert samples, (
+        "manifest.samples came back empty -- the empty ids.csv was read as "
+        "the samplesheet instead of samplesheet.csv")
+    assert {s["nfcore_sample"] for s in samples} == {"CONTROL_REP1"}
+    sample = samples[0]
+    assert sample["uid_resolution"] == manifest_schema.RESOLUTION_LAUNCH_RECORD, (
+        "the PipelineRun launch record for the cluster run_dir must resolve "
+        "this sample; it never will if uid_resolve was looked up by the temp "
+        "staging path")
+    assert sample["d_seq_uid"] == "D.SEQ-EXAMPLE-1"
