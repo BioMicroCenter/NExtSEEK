@@ -265,3 +265,139 @@ class TestAssaySetupDownload:
         )
         assert resp.status_code == 200
         assert resp.content == b"x"
+
+
+import json
+
+
+def _superuser_post(data):
+    req = RequestFactory().post("/seek/assay-setup/create/", data)
+    req.user = MagicMock()
+    req.user.is_superuser = True
+    return req
+
+
+def _plain_post(data):
+    req = RequestFactory().post("/seek/assay-setup/create/", data)
+    req.user = MagicMock()
+    req.user.is_superuser = False
+    return req
+
+
+GOOD = {
+    "name": "Spectral Flow Cytometry",
+    "description": "Full-spectrum single-cell analysis.",
+    "required_parents": json.dumps([["TIS", "CEX"], ["AB"]]),
+    "optional_parents": json.dumps([]),
+    "children": json.dumps([["D.FLOW"]]),
+}
+
+
+class TestAssaySetupCreate:
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=0)
+    @patch("seek.decorators.SeekDB")
+    def test_a_non_superuser_is_refused(self, db, _super):
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        resp = assaySetupCreate(_plain_post(GOOD))
+        assert resp.status_code == 403
+
+    @patch("seek.views.assay_setup.create_assay", return_value=7)
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
+    @patch("seek.decorators.SeekDB")
+    def test_a_superuser_creates_and_is_sent_to_the_new_assay(
+        self, db, _super, create
+    ):
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        resp = assaySetupCreate(_superuser_post(GOOD))
+        assert resp.status_code == 302
+        assert "assay=spectral-flow-cytometry" in resp.url
+
+    # `downloadable_codes` has to be patched, not left to fail soft: the view
+    # allowlists every posted code against it, and in this hermetic container
+    # the real one logs "catalog unavailable" and returns an empty set, which
+    # would drop all four codes and make the assertion below pass vacuously in
+    # the opposite direction -- an empty list is not the grouping surviving.
+    @patch("seek.views.assay_setup.downloadable_codes",
+           return_value={"TIS", "CEX", "AB", "D.FLOW"})
+    @patch("seek.views.assay_setup.create_assay", return_value=7)
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
+    @patch("seek.decorators.SeekDB")
+    def test_the_group_structure_survives_the_form(self, db, _super, create, _codes):
+        """"TIS or CEX, AB" must not arrive as four independent codes."""
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        assaySetupCreate(_superuser_post(GOOD))
+        assert create.call_args.kwargs["required_parents"] == [["TIS", "CEX"], ["AB"]]
+
+    @patch("seek.views.assay_setup.downloadable_codes",
+           return_value={"TIS", "CEX", "D.FLOW"})
+    @patch("seek.views.assay_setup.create_assay", return_value=7)
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
+    @patch("seek.decorators.SeekDB")
+    def test_a_code_with_no_template_sheet_is_dropped(
+        self, db, _super, create, _codes
+    ):
+        """The pickers are built from downloadable_codes(), so a code outside
+        that set can only arrive from a hand-made POST. Keeping it would make
+        the new assay offer a download that resolves to nothing."""
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        assaySetupCreate(_superuser_post(GOOD))
+        # "AB" is not downloadable here, and it was the whole second group.
+        assert create.call_args.kwargs["required_parents"] == [["TIS", "CEX"]]
+        assert create.call_args.kwargs["children"] == [["D.FLOW"]]
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
+    @patch("seek.decorators.SeekDB")
+    def test_malformed_json_is_a_message_not_a_500(self, db, _super, _assays):
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        resp = assaySetupCreate(_superuser_post({**GOOD, "children": "{{{"}))
+        assert resp.status_code == 200
+        assert "could not be read" in resp.content.decode()
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
+    @patch("seek.decorators.SeekDB")
+    def test_a_validation_error_is_shown_on_the_page(self, db, _super, _assays):
+        from nextseek_api.services.assay_authoring import ValidationError
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        with patch("seek.views.assay_setup.create_assay",
+                   side_effect=ValidationError("Give the assay a name.")):
+            resp = assaySetupCreate(_superuser_post({**GOOD, "name": ""}))
+        assert resp.status_code == 200
+        assert "Give the assay a name." in resp.content.decode()
+
+
+class TestCreateFormVisibility:
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_the_form_is_not_rendered_for_a_non_superuser(self, db, _assays):
+        """Not rendered rather than rendered-and-refused, so nobody fills it in
+        to be told no."""
+        from seek.views.assay_setup import assaySetup
+
+        db.return_value = _logged_in()
+        req = _get("/seek/assay-setup/")
+        req.user.is_superuser = False
+        assert "assay-setup/create/" not in assaySetup(req).content.decode()
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_the_form_is_rendered_for_a_superuser(self, db, _assays):
+        from seek.views.assay_setup import assaySetup
+
+        db.return_value = _logged_in()
+        req = _get("/seek/assay-setup/")
+        req.user.is_superuser = True
+        assert "assay-setup/create/" in assaySetup(req).content.decode()

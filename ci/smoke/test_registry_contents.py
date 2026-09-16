@@ -47,7 +47,8 @@ from ci.smoke.test_reachability import _callable_routes
 # 4, the assay-setup page's GET route, same miss), and 171 at the commit that
 # added /seek/assay-setup/download/ and finally moved this constant -- crediting
 # the whole three-route jump to the one route it happened to notice.
-OWNED_ROUTE_COUNT = 171
+# 171 -> 172 on 2026-09-16: /seek/assay-setup/create/, this plan's Task 6.
+OWNED_ROUTE_COUNT = 172
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset and the Django admin login page.

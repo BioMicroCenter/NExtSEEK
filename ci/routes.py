@@ -500,6 +500,11 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^admin/internal_assays/syncInternalAssays$", path=None,
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
           note="assay / internal-assay synchronisation action"),
+    Route(pattern=r"^seek/^assay-setup/create/$", path=None,
+          methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
+          note="creates an assay from the setup page; require_POST-gated and "
+               "superuser-only, and it writes assay_context plus an "
+               "internal_assays term, so it is never a safe probe"),
     Route(pattern=r"^seek/^assay-setup/download/$", path=None,
           methods=(), profiles="", auth="web", exclude="EXCLUDE_UNSAFE_METHOD",
           note="assay setup picker's submit target; require_POST-gated, so unlike "

@@ -64,9 +64,113 @@
     </p>
   {% endif %}
 
+  {% if can_create %}
+  <div class="cat-row-panel">
+    <div class="cat-detail-head">
+      <span class="cat-detail-title">Create an assay</span>
+      <span class="cat-badge">Superuser</span>
+    </div>
+
+    <p class="cat-desc">
+      Use this when the assay you are running is not in the list above. Each
+      row of sample types is one requirement; add alternatives to a row when
+      any one of them satisfies it.
+    </p>
+
+    <form method="post" action="/seek/assay-setup/create/" id="create-assay">
+      {% csrf_token %}
+
+      <div class="cat-section">
+        <label class="cat-section-label" for="new-name">Name</label>
+        <input class="cat-field" id="new-name" name="name" required>
+      </div>
+
+      <div class="cat-section">
+        <label class="cat-section-label" for="new-description">Definition</label>
+        <textarea class="cat-field" id="new-description" name="description"
+                  rows="3" required></textarea>
+      </div>
+
+      {% for role in roles %}
+      <div class="cat-section" data-role="{{ role.field }}">
+        <span class="cat-section-label">{{ role.label }}</span>
+        <div class="group-list"></div>
+        <button type="button" class="cat-mini add-group">+ requirement</button>
+        <input type="hidden" name="{{ role.field }}" value="[]">
+      </div>
+      {% endfor %}
+
+      <div class="cat-actions">
+        <button type="submit" class="btn btn-primary">Create assay</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
 </div>
 {% endblock %}
 
 {% block extra_js %}
 {% if not components %}<script>{% include "includes/catalog_table_filter.js" %}</script>{% endif %}
+{% if can_create %}
+<script>
+(function () {
+  // Codes come from downloadable_codes(): a code with no template sheet would
+  // make the new assay offer a download that resolves to nothing.
+  var codes = {{ code_options_json|safe }};
+  var form = document.getElementById('create-assay');
+  if (!form) { return; }
+
+  // Each role posts JSON so the GROUPING survives. "TIS or CEX, AB" is two
+  // pick-one requirements; through ordinary form fields it would arrive as
+  // three independent codes and no later edit could recover the structure.
+  function serialise(section) {
+    var groups = [];
+    section.querySelectorAll('.cat-group').forEach(function (row) {
+      var picked = [];
+      row.querySelectorAll('select').forEach(function (sel) {
+        if (sel.value) { picked.push(sel.value); }
+      });
+      if (picked.length) { groups.push(picked); }
+    });
+    section.querySelector('input[type=hidden]').value = JSON.stringify(groups);
+  }
+
+  function makeSelect(section) {
+    var sel = document.createElement('select');
+    sel.className = 'cat-field';
+    sel.style.width = 'auto';
+    sel.appendChild(new Option('', ''));
+    codes.forEach(function (c) { sel.appendChild(new Option(c, c)); });
+    sel.addEventListener('change', function () { serialise(section); });
+    return sel;
+  }
+
+  function addGroup(section) {
+    var row = document.createElement('div');
+    row.className = 'cat-group';
+    row.appendChild(makeSelect(section));
+
+    var alt = document.createElement('button');
+    alt.type = 'button';
+    alt.className = 'cat-mini';
+    alt.textContent = 'or';
+    alt.addEventListener('click', function () {
+      row.insertBefore(makeSelect(section), alt);
+      serialise(section);
+    });
+    row.appendChild(alt);
+
+    section.querySelector('.group-list').appendChild(row);
+    serialise(section);
+  }
+
+  form.querySelectorAll('.add-group').forEach(function (button) {
+    button.addEventListener('click', function () {
+      addGroup(button.closest('.cat-section'));
+    });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

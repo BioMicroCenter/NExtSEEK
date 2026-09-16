@@ -15,18 +15,22 @@ HTTP only. Everything these views know comes from
 lives here.
 """
 
+import json
 import logging
 
-from django.http import Http404, HttpResponse
+from django.http import (Http404, HttpResponse, HttpResponseForbidden,
+                         HttpResponseRedirect)
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
 
+from nextseek_api.services.assay_authoring import ValidationError, create_assay
 from nextseek_api.services.assay_templates import resolve_components
-from nextseek_api.services.context_catalog import load_assays
+from nextseek_api.services.context_catalog import load_assays, slugify_name
 from nextseek_api.services.sample_workbook import render_template_workbook
-from nextseek_api.services.template_catalog import select_entries
+from nextseek_api.services.template_catalog import (downloadable_codes,
+                                                    select_entries)
 
-from ..decorators import requires_seek_login_redirect
+from ..decorators import requires_seek_login_redirect, verifySuperUser
 from .catalog import assay_table_groups
 
 logger = logging.getLogger(__name__)
@@ -83,6 +87,12 @@ def _page_context(request, message=""):
         "selected_slug": slug,
         "components": components,
         "can_create": request.user.is_superuser,
+        "roles": [
+            {"field": "required_parents", "label": "Required parent sample types"},
+            {"field": "optional_parents", "label": "Optional parent sample types"},
+            {"field": "children", "label": "Produces"},
+        ],
+        "code_options_json": json.dumps(sorted(downloadable_codes())),
     }
 
 
@@ -134,3 +144,70 @@ def assaySetupDownload(request):
     response = HttpResponse(buffer.getvalue(), content_type=XLSX)
     response['Content-Disposition'] = f'attachment; filename={filename}'
     return response
+
+
+ROLES = ("required_parents", "optional_parents", "children")
+UNREADABLE = ("The sample types could not be read from the form. "
+              "Reload the page and try again.")
+
+
+def _posted_groups(request) -> dict:
+    """Each role as `list[list[str]]`, or raise ValueError.
+
+    The form posts JSON so that the grouping survives -- "TIS or CEX, AB" is two
+    pick-one groups and would arrive as four independent codes through ordinary
+    form fields, which no later edit could recover.
+
+    Every code is checked against `downloadable_codes()`: a code with no sheet
+    would make the new assay offer a download that resolves to nothing, which is
+    the exact defect `template_catalog` warns about.
+    """
+    known = downloadable_codes()
+    groups = {}
+    for role in ROLES:
+        parsed = json.loads(request.POST.get(role) or "[]")
+        if not isinstance(parsed, list):
+            raise ValueError(f"{role} is not a list")
+        cleaned = []
+        for group in parsed:
+            if not isinstance(group, list):
+                raise ValueError(f"{role} group is not a list")
+            codes = [str(c).strip() for c in group if str(c).strip() in known]
+            if codes:
+                cleaned.append(codes)
+        groups[role] = cleaned
+    return groups
+
+
+@require_POST
+@requires_seek_login_redirect(LOGIN_NEXT)
+def assaySetupCreate(request):
+    """Create an assay: one assay_context row and one internal_assays term.
+
+    Superuser only, matching every other vocabulary write in this app
+    (`internalAssaySave`, `cladeSave`). The gate is enforced here as well as by
+    hiding the form, because a hidden form is not an access control.
+    """
+    if verifySuperUser(request) != 1:
+        logger.error("non-superuser attempted to create an assay")
+        return HttpResponseForbidden("Superuser required.")
+
+    try:
+        groups = _posted_groups(request)
+    except (ValueError, TypeError):
+        logger.exception("malformed assay creation payload")
+        return render(request, PAGE, _page_context(request, message=UNREADABLE))
+
+    name = request.POST.get('name', '')
+    try:
+        create_assay(
+            name=name,
+            description=request.POST.get('description', ''),
+            required_parents=groups["required_parents"],
+            optional_parents=groups["optional_parents"],
+            children=groups["children"],
+        )
+    except ValidationError as exc:
+        return render(request, PAGE, _page_context(request, message=exc.message))
+
+    return HttpResponseRedirect(f"/seek/assay-setup/?assay={slugify_name(name)}")
