@@ -263,6 +263,23 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
 #    `__nextseek_stage_report__.json` tar entry (parsed back out by
 #    `_stage_run_dir`) rather than silently dropped -- see Important 1 of the
 #    2026-09-16 review.
+# 1b. Hardlinks. A follow-up adversarial pass on the same 2026-09-16 review
+#    found the symlink checks above miss a hardlink: `os.link(outside, run_dir
+#    / "x.csv")` makes `x.csv` a directory entry INSIDE run_dir that shares an
+#    inode with a file elsewhere -- it is not a symlink (`is_symlink()` is
+#    False) and has no separate target path to resolve away from
+#    (`resolve()` returns itself), so neither existing check catches it and
+#    the outside file's real content would be tarred and shipped. Every match
+#    is now also checked for `st_nlink > 1` and skipped (reported the same
+#    way) if so. This is deliberately blunt -- it also rejects a benign
+#    multiply-linked file -- but GENERIC_GLOBS is small QC/metadata text
+#    (params, versions, samplesheets, MultiQC/RSeQC tables), not the large
+#    deduplicated BAM/FASTQ pipeline outputs where multi-link files actually
+#    occur, so false positives here should be rare. Residual: on a filesystem
+#    without `fs.protected_hardlinks`, an attacker who already has write
+#    access to run_dir is the threat this closes -- it does not defend
+#    against a write-capable adversary using some OTHER, still-unknown
+#    mechanism to make a directory entry alias an outside inode.
 # 2. Size/count caps. `harvest_local`'s MAX_FILE_BYTES / MAX_TOTAL_BYTES /
 #    MAX_FILES caps used to apply only after the ENTIRE tar had already been
 #    transferred and extracted (`ssh_run_bytes` buffers the whole stream in
@@ -306,7 +323,16 @@ for pattern in patterns:
         except ValueError:
             skipped.append({"path": rel, "reason": "resolves outside run_dir"})
             continue
-        size = path.stat().st_size
+        st = path.stat()
+        if st.st_nlink > 1:
+            # Hardlink: a directory entry inside run_dir sharing an inode with
+            # a file elsewhere. No separate target path exists to resolve
+            # away from (unlike a symlink), so this can only be caught by the
+            # link count itself. Fail closed -- see the "1b. Hardlinks" note
+            # above _STAGE_SCRIPT for why false positives here should be rare.
+            skipped.append({"path": rel, "reason": "hardlinked; cannot confirm no other path reaches it"})
+            continue
+        size = st.st_size
         if size > max_file_bytes:
             skipped.append({"path": rel, "reason": "exceeds max file bytes (%d > %d)" % (size, max_file_bytes)})
             continue
@@ -316,6 +342,14 @@ for pattern in patterns:
         if files_added >= max_files:
             skipped.append({"path": rel, "reason": "exceeds max file count (%d)" % max_files})
             continue
+        # TOCTOU: the resolve()/stat() checks above and this tar.add() are not
+        # atomic -- the path could be swapped between them. This window is
+        # currently inert only because (a) tar.add() no longer dereferences
+        # symlinks (dereference=True was removed, see "1." above) and (b) the
+        # local extraction in _stage_run_dir filters on member.isfile(), so a
+        # symlink swapped in here would tar as a symlink member and be
+        # dropped on extraction, not followed. A future edit to either of
+        # those two behaviours reopens this window -- keep them paired.
         tar.add(str(path), arcname=rel)
         total_bytes += size
         files_added += 1
