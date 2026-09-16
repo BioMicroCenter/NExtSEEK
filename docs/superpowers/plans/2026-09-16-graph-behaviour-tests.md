@@ -373,6 +373,33 @@ scripts/graph_search/lane.sh app graph_sync --drift --json > "$GS_WORK/runs/sync
 
 Expected: `pass` is true, `changed` 0, `missing_in_graph` 0, `not_in_mysql` 0.
 
+- [ ] **Step 5a: Measure the SEEK study shortfall (non-blocking)**
+
+Reported by the POC session on 2026-09-16 against the frozen 1.1 graph: two SEEK studies have no Study node at all.
+Root cause established in code and **a full sync entrenches it rather than fixing it**, so the first real 1.2 sync
+must produce a number for it instead of leaving it invisible.
+
+The cause: the full sync's only study step (`run.py:802`) is fed `sources.seek_study_links()`, an inner join through
+`assay_assets` on `asset_type='Sample'`, so a study with no sample-bearing assay yields no node.
+`sources.studies()` is unfiltered but is used only as a title lookup in `_study_rekey_plan` (`run.py:661`) and never
+creates a node.
+
+```bash
+scripts/graph_search/lane.sh neo4j-cypher \
+  'MATCH (s:Study) WHERE s.seek_study_id IS NOT NULL RETURN count(s) AS keyed'
+scripts/graph_search/lane.sh mysql \
+  'SELECT COUNT(*) AS seek_studies FROM seek_production.studies;'
+scripts/graph_search/lane.sh mysql \
+  "SELECT s.id, s.title FROM seek_production.studies s WHERE NOT EXISTS (
+     SELECT 1 FROM seek_production.assays a
+     JOIN seek_production.assay_assets aa ON aa.assay_id = a.id AND aa.asset_type = 'Sample'
+     WHERE a.study_id = s.id);"
+```
+
+Record all three numbers in the Stage A report. **This does not fail Stage A**: the gap predates this work and
+failing acceptance on it would block the transaction fix for an unrelated defect. It is measured so the operator can
+decide, and so the number exists before the live sync rather than after.
+
 - [ ] **Step 6: Write the Stage A report and commit it**
 
 Create `graph-search/runs/sync-lane/A5-REPORT.md` (untracked, outside the repository) with: the wall time against the
