@@ -5,6 +5,8 @@ shared by every project, the same rule templatesList and the catalog pages
 already apply.
 """
 
+import io
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -133,9 +135,6 @@ class TestAssaySetupPage:
         resp = assaySetup(_get("/seek/assay-setup/"))
         assert resp.status_code == 200
         assert "The assay catalog is unavailable" in resp.content.decode()
-
-
-import io
 
 
 def _post(path, data):
@@ -267,9 +266,6 @@ class TestAssaySetupDownload:
         assert resp.content == b"x"
 
 
-import json
-
-
 def _superuser_post(data):
     req = RequestFactory().post("/seek/assay-setup/create/", data)
     req.user = MagicMock()
@@ -315,6 +311,13 @@ class TestAssaySetupCreate:
         resp = assaySetupCreate(_superuser_post(GOOD))
         assert resp.status_code == 302
         assert "assay=spectral-flow-cytometry" in resp.url
+        # A redirect alone would also pass a view that never called
+        # `create_assay` at all -- assert the write actually happened, and
+        # that the description reaches it (a name/description swap would
+        # otherwise pass the entire suite).
+        create.assert_called_once()
+        assert create.call_args.kwargs["name"] == GOOD["name"]
+        assert create.call_args.kwargs["description"] == GOOD["description"]
 
     # `downloadable_codes` has to be patched, not left to fail soft: the view
     # allowlists every posted code against it, and in this hermetic container
@@ -401,3 +404,33 @@ class TestCreateFormVisibility:
         req = _get("/seek/assay-setup/")
         req.user.is_superuser = True
         assert "assay-setup/create/" in assaySetup(req).content.decode()
+
+
+class TestCodeOptionsAreNotTrustedInput:
+    # A sample-type TITLE is ordinary-project-member-writable, not trusted
+    # input -- `template_catalog._is_legal_sheet_name` only rejects titles
+    # over 31 characters or containing `[]:*?/\`; `<`, `>` and `"` are all
+    # legal. This 27-character title is a `</script>` close followed by a new
+    # `<script>` open, so it must never reach the page unescaped: if it does,
+    # it runs as script on the NEXtSEEK origin in the browser of any
+    # superuser who opens this page, with that session's CSRF token in the
+    # DOM -- privilege escalation from ordinary member to superuser.
+    HOSTILE = "</script><script>alert(1)//"
+
+    @patch("seek.views.assay_setup.downloadable_codes",
+           return_value={"TIS", HOSTILE})
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_a_hostile_sample_type_title_cannot_break_out_of_the_script(
+        self, db, _assays, _codes
+    ):
+        from seek.views.assay_setup import assaySetup
+
+        db.return_value = _logged_in()
+        req = _get("/seek/assay-setup/")
+        req.user.is_superuser = True
+        body = assaySetup(req).content.decode()
+        # Not merely "escaped somehow" -- the exact sequence that would end
+        # the options payload's own `<script>` element and open an attacker
+        # one must not appear anywhere in the response.
+        assert self.HOSTILE not in body

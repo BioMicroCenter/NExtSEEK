@@ -92,7 +92,7 @@
       </div>
 
       {% for role in roles %}
-      <div class="cat-section" data-role="{{ role.field }}">
+      <div class="cat-section">
         <span class="cat-section-label">{{ role.label }}</span>
         <div class="group-list"></div>
         <button type="button" class="cat-mini add-group">+ requirement</button>
@@ -113,11 +113,12 @@
 {% block extra_js %}
 {% if not components %}<script>{% include "includes/catalog_table_filter.js" %}</script>{% endif %}
 {% if can_create %}
+{{ code_options|json_script:"assay-code-options" }}
 <script>
 (function () {
   // Codes come from downloadable_codes(): a code with no template sheet would
   // make the new assay offer a download that resolves to nothing.
-  var codes = {{ code_options_json|safe }};
+  var codes = JSON.parse(document.getElementById('assay-code-options').textContent);
   var form = document.getElementById('create-assay');
   if (!form) { return; }
 

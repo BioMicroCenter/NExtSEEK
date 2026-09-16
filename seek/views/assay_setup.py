@@ -78,6 +78,8 @@ def _page_context(request, message=""):
     else:
         groups, total, notice = _picker()
 
+    can_create = request.user.is_superuser
+
     return {
         "groups": groups,
         "columns": ["Assay", "Consumes"],
@@ -86,13 +88,18 @@ def _page_context(request, message=""):
         "message": message,
         "selected_slug": slug,
         "components": components,
-        "can_create": request.user.is_superuser,
+        "can_create": can_create,
         "roles": [
             {"field": "required_parents", "label": "Required parent sample types"},
             {"field": "optional_parents", "label": "Optional parent sample types"},
             {"field": "children", "label": "Produces"},
         ],
-        "code_options_json": json.dumps(sorted(downloadable_codes())),
+        # Only a superuser ever sees the create form, so only a superuser's
+        # render pays for `downloadable_codes()` -- `Sample_types.objects.all()`
+        # plus `load_sample_type_context()`, two extra queries otherwise paid
+        # by every logged-in render, including the 404 path and the download
+        # view's empty re-render.
+        "code_options": sorted(downloadable_codes()) if can_create else [],
     }
 
 
@@ -155,7 +162,7 @@ def _posted_groups(request) -> dict:
     """Each role as `list[list[str]]`, or raise ValueError.
 
     The form posts JSON so that the grouping survives -- "TIS or CEX, AB" is two
-    pick-one groups and would arrive as four independent codes through ordinary
+    pick-one groups and would arrive as three independent codes through ordinary
     form fields, which no later edit could recover.
 
     Every code is checked against `downloadable_codes()`: a code with no sheet
@@ -189,13 +196,14 @@ def assaySetupCreate(request):
     hiding the form, because a hidden form is not an access control.
     """
     if verifySuperUser(request) != 1:
-        logger.error("non-superuser attempted to create an assay")
+        logger.error("non-superuser attempted to create an assay: %s",
+                     request.user.get_username())
         return HttpResponseForbidden("Superuser required.")
 
     try:
         groups = _posted_groups(request)
     except (ValueError, TypeError):
-        logger.exception("malformed assay creation payload")
+        logger.warning("malformed assay creation payload")
         return render(request, PAGE, _page_context(request, message=UNREADABLE))
 
     name = request.POST.get('name', '')
