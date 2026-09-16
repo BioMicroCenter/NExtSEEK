@@ -118,6 +118,79 @@ def test_a_genuine_content_drop_still_hard_rejects_despite_the_whitespace_fix():
     assert any(f.code == qa.NOTES_WOULD_CLOBBER for f in report.findings)
 
 
+def test_new_mode_a_falsy_zero_required_value_is_not_missing_required():
+    # A 0% mapping rate is a real measurement, not a missing attribute.
+    # `meta.get(req) or ""` would collapse 0 into "" and wrongly reject it.
+    report = qa.qa_rows(
+        [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-0", "MappedPercent": 0}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["MappedPercent"],
+        existing_parent_uids={"D.SEQ-EXAMPLE-0"}, mode="new")
+    assert not any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
+def test_new_mode_a_falsy_false_required_value_is_not_missing_required():
+    report = qa.qa_rows(
+        [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-0", "PassedQC": False}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["PassedQC"],
+        existing_parent_uids={"D.SEQ-EXAMPLE-0"}, mode="new")
+    assert not any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
+def test_update_mode_a_falsy_zero_required_value_is_not_missing_required():
+    report = qa.qa_rows(
+        [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1", "MappedPercent": 0}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["MappedPercent"], mode="update",
+        existing_notes={"D.SEQ-EXAMPLE-1": ""})
+    assert not any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
+def test_update_mode_a_falsy_false_required_value_is_not_missing_required():
+    report = qa.qa_rows(
+        [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1", "PassedQC": False}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["PassedQC"], mode="update",
+        existing_notes={"D.SEQ-EXAMPLE-1": ""})
+    assert not any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
+def test_critical_curator_line_immediately_under_the_hint_is_not_silently_lost():
+    # Round-3 regression. The guard now compares against
+    # notes.strip_block(prior, run_name) instead of raw prior, which is
+    # correct for this run's own previous block -- but strip_block's body
+    # match also swallowed the very next line if nothing separated it from
+    # the block by a blank line. A curator who types a line right under the
+    # hint (no blank line -- one Enter keypress short of the "safe" form)
+    # had that line silently dropped on the next reingest run, with NO
+    # finding raised. This reproduces that exact shape end to end: through
+    # notes.compose (the actual write path) and through the qa_rows guard
+    # (the actual safety net), not through a hand-built string.
+    from NessieAI.ns.reingest import notes as notes_mod
+
+    run_name = "nfcore_rnaseq_run"
+    uid = "D.SEQ-EXAMPLE-1"
+
+    run1_notes = notes_mod.compose("Keep me.", run_name,
+                                    {"MappedPercent": 91.4}, "2026-09-15")
+    # Curator continues on the very next line -- no blank line above it.
+    prior = f"{run1_notes}\nCURATOR ADDED THIS LINE."
+
+    new_notes = notes_mod.compose(prior, run_name, {"MappedPercent": 93.7},
+                                   "2026-09-16")
+
+    # The fix: the curator's line must survive the recompose.
+    assert "CURATOR ADDED THIS LINE." in new_notes
+
+    # And the guard must agree it is safe -- not merely that the text
+    # happens to survive this one call.
+    report = _update(
+        [{"json_metadata": {"UID": uid, "Notes": new_notes}}],
+        existing_notes={uid: prior}, run_name=run_name)
+    assert not any(f.code == qa.NOTES_WOULD_CLOBBER for f in report.findings)
+
+
 def test_composing_across_two_runs_round_trips_through_the_guard():
     # notes.compose is *specified* to drop this run's own previous block
     # before appending the fresh one, so run 2's composed output legitimately
