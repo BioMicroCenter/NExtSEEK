@@ -12,6 +12,20 @@ UPD_ROWS = [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1", "MappedPercent": 91.4},
              "assay_ids": []},
             {"json_metadata": {"UID": "D.SEQ-EXAMPLE-2", "MappedPercent": 90.7},
              "assay_ids": []}]
+BOOL_ROWS = [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-1", "Flag": True}, "assay_ids": []},
+             {"json_metadata": {"Parent": "D.SEQ-EXAMPLE-2", "Flag": False}, "assay_ids": []}]
+MIXED_ROWS = [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-1", "Mixed": 5}, "assay_ids": []},
+              {"json_metadata": {"Parent": "D.SEQ-EXAMPLE-2", "Mixed": "n/a"}, "assay_ids": []}]
+BLANK_ROWS = [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-1", "Blank": None}, "assay_ids": []},
+              {"json_metadata": {"Parent": "D.SEQ-EXAMPLE-2", "Blank": ""}, "assay_ids": []}]
+PROVENANCE_ROWS = [{"uid": "D.SEQ-EXAMPLE-1", "attribute": "MappedPercent", "value": 91.4,
+                     "origin": "harvest", "raw_key": "mapped_pct", "source_file": "run.json"}]
+
+
+def _field_types(out):
+    """{Field: Field Type} as declared in the Instructions sheet of a rendered workbook."""
+    sheet = openpyxl.load_workbook(out)["Instructions"]
+    return {row[0].value: row[2].value for row in sheet.iter_rows(min_row=2)}
 
 
 def test_new_mode_emits_no_uid_column(tmp_path):
@@ -60,3 +74,48 @@ def test_all_four_sheets_are_present_in_both_modes(tmp_path):
         render_upload_workbook(stype, rows, str(out), mode=mode)
         names = openpyxl.load_workbook(out).sheetnames
         assert {"Instructions", "Samples", "Assay", "Ontology"} <= set(names)
+
+
+def test_unknown_mode_raises_value_error(tmp_path):
+    with pytest.raises(ValueError, match="unknown mode"):
+        render_upload_workbook("A.GEX", NEW_ROWS, str(tmp_path / "x.xlsx"), mode="bogus")
+
+
+def test_provenance_sheet_has_the_expected_header_row(tmp_path):
+    out = tmp_path / "prov.xlsx"
+    render_upload_workbook("D.SEQ", UPD_ROWS, str(out), mode=MODE_UPDATE,
+                           provenance=PROVENANCE_ROWS)
+    header = [c.value for c in openpyxl.load_workbook(out)["Provenance"][1]]
+    assert header == ["UID", "Attribute", "Value", "Origin", "Raw key", "Source file"]
+
+
+def test_field_type_declares_number_for_an_all_numeric_field(tmp_path):
+    out = tmp_path / "upd.xlsx"
+    render_upload_workbook("D.SEQ", UPD_ROWS, str(out), mode=MODE_UPDATE)
+    assert _field_types(out)["MappedPercent"] == "Number"
+
+
+def test_field_type_declares_text_for_a_text_field(tmp_path):
+    out = tmp_path / "new.xlsx"
+    render_upload_workbook("A.GEX", NEW_ROWS, str(out), mode=MODE_NEW)
+    assert _field_types(out)["Scientist"] == "Text"
+
+
+def test_field_type_bool_carve_out_declares_text_not_number(tmp_path):
+    # Python bools are ints; a naive isinstance(value, (int, float)) check
+    # would misclassify True/False as "Number".
+    out = tmp_path / "bool.xlsx"
+    render_upload_workbook("A.GEX", BOOL_ROWS, str(out), mode=MODE_NEW)
+    assert _field_types(out)["Flag"] == "Text"
+
+
+def test_field_type_mixed_numeric_and_text_declares_text(tmp_path):
+    out = tmp_path / "mixed.xlsx"
+    render_upload_workbook("A.GEX", MIXED_ROWS, str(out), mode=MODE_NEW)
+    assert _field_types(out)["Mixed"] == "Text"
+
+
+def test_field_type_all_blank_field_falls_back_to_text(tmp_path):
+    out = tmp_path / "blank.xlsx"
+    render_upload_workbook("A.GEX", BLANK_ROWS, str(out), mode=MODE_NEW)
+    assert _field_types(out)["Blank"] == "Text"

@@ -62,14 +62,19 @@ def render_upload_workbook(
         for key in (row.get("json_metadata") or {}):
             if key != "UID" and key not in fields:
                 fields.append(key)
-    if not fields:
-        raise ValueError("render_upload_workbook: rows carry no json_metadata")
 
+    # The UID check runs before the empty-fields check: a row missing its UID
+    # is an update-mode-specific problem, and should surface as one even when
+    # the batch also carries no other attributes. Checking fields first would
+    # mask a missing UID behind the generic "no json_metadata" message.
     if mode == MODE_UPDATE:
         for index, row in enumerate(rows):
             if not str((row.get("json_metadata") or {}).get("UID") or "").strip():
                 raise ValueError(f"render_upload_workbook: row {index} has no UID "
                                  f"(update mode targets existing samples)")
+
+    if not fields:
+        raise ValueError("render_upload_workbook: rows carry no json_metadata")
 
     wb = openpyxl.Workbook()
 
