@@ -1,3 +1,4 @@
+import fnmatch
 import json
 import shutil
 
@@ -177,22 +178,63 @@ def test_an_oversized_per_sample_file_is_capped_not_read(tmp_path, monkeypatch):
     assert sample.derived == {}, "the oversized file must not be read at all"
 
 
-def test_every_glob_the_harvester_reads_is_in_generic_globs():
+def test_every_glob_the_harvester_reads_is_in_generic_globs(tmp_path, monkeypatch):
     # GENERIC_GLOBS is what the run-harvest op stages off the cluster (it
     # iterates the tuple verbatim over SSH -- see Task 9 in
     # docs/superpowers/plans/2026-09-15-nfcore-reingest-1-harvest.md). Every
-    # pattern harvest_local actually globs against locally must be a member,
-    # or a real staged run would never contain the file it tries to read.
-    used_patterns = {
-        harvest._PARAMS_GLOB,
-        harvest._SOFTWARE_VERSIONS_GLOB,
-        harvest._EXECUTION_TRACE_GLOB,
-        harvest._SAMPLESHEET_GLOB,
-        harvest._MULTIQC_TXT_GLOB,
-        harvest._RSEQC_READ_DISTRIBUTION_GLOB,
-        harvest._RSEQC_INFER_EXPERIMENT_GLOB,
-    }
-    assert used_patterns <= set(harvest.GENERIC_GLOBS)
+    # pattern harvest_local actually globs against locally must be a member
+    # (or a narrowing of one -- see below), or a real staged run would never
+    # contain the file it tries to read.
+    #
+    # The previous version of this test read harvest._PARAMS_GLOB and its
+    # siblings back into a set and checked that against harvest.GENERIC_GLOBS,
+    # built from those SAME module constants -- true by construction. It
+    # would stay green even if a future call site passed a raw literal that
+    # never went through any of these constants, or a new constant that
+    # never made it into GENERIC_GLOBS -- exactly the bug this test exists
+    # to catch. This version instead monkeypatches Path.glob for the
+    # duration of one harvest_local call and records every pattern actually
+    # passed to it, so it watches reality rather than repeating the module's
+    # own constants back at itself.
+    #
+    # A per-sample RSeQC pattern (e.g.
+    # "*/rseqc/read_distribution/CONTROL_REP1.read_distribution.txt", built
+    # by _rseqc_glob_for_sample) is not byte-identical to its GENERIC_GLOBS
+    # template ("*/rseqc/read_distribution/*.read_distribution.txt"), but it
+    # is a legitimate narrowing of it: the remote staging side globs the
+    # wildcard template, which already covers every per-sample file the
+    # narrowed local pattern could match. So an observed pattern counts as
+    # covered when it fnmatches some GENERIC_GLOBS entry (fnmatch's `*`
+    # matches any substring, including one made of literal sample-name
+    # characters), not only on exact string equality.
+    root = tmp_path / "run"
+    (root / "pipeline_info").mkdir(parents=True)
+    (root / "pipeline_info" / "nf_core_rnaseq_software_mqc_versions.yml").write_text(
+        "Workflow:\n  nf-core/rnaseq: v3.22.2\n  Nextflow: 25.10.2\n")
+    (root / "pipeline_info" / "execution_trace.txt").write_text(
+        "task_id\tstatus\n1\tCOMPLETED\n")
+    stats_dir = root / "multiqc" / "star_salmon" / "multiqc_report_data"
+    stats_dir.mkdir(parents=True)
+    (stats_dir / "multiqc_general_stats.txt").write_text(
+        "Sample\tstar-uniquely_mapped_percent\n"
+        "CONTROL_REP1\t89.16\n")
+
+    observed: list[str] = []
+    original_glob = Path.glob
+
+    def recording_glob(self, pattern, *args, **kwargs):
+        observed.append(pattern)
+        return original_glob(self, pattern, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "glob", recording_glob)
+
+    harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+
+    assert observed, "harvest_local must have called Path.glob at least once"
+    uncovered = [pattern for pattern in set(observed)
+                 if not any(fnmatch.fnmatch(pattern, generic)
+                            for generic in harvest.GENERIC_GLOBS)]
+    assert uncovered == []
 
 
 def test_general_stats_fallback_keeps_a_real_sample_named_with_a_replicate_suffix(tmp_path):
@@ -200,7 +242,7 @@ def test_general_stats_fallback_keeps_a_real_sample_named_with_a_replicate_suffi
     # convention), not MultiQC's per-read row for sample "A" -- it has a
     # populated star- column, which MultiQC never fills in for a per-read
     # row. A name-only heuristic ("ends _1 and A is also a row") would have
-    # dropped it silently; _is_per_read_row must not.
+    # dropped it silently; _classify_general_stats_row must not.
     root = tmp_path / "run"
     (root / "pipeline_info").mkdir(parents=True)
     (root / "pipeline_info" / "nf_core_rnaseq_software_mqc_versions.yml").write_text(
@@ -220,6 +262,45 @@ def test_general_stats_fallback_keeps_a_real_sample_named_with_a_replicate_suffi
 
     names = {s.nfcore_sample for s in got.samples}
     assert names == {"A", "A_1"}
+
+
+def test_general_stats_fallback_keeps_a_failed_alignment_sample(tmp_path):
+    # FAILED_REP1's alignment step never ran, so star/salmon/samtools_*/
+    # qualimap_* -- the columns that would otherwise mark it as a real
+    # sample -- were never written for it. What DID run (fastqc on the raw
+    # and trimmed reads, cutadapt) still produces per-mate rows
+    # "FAILED_REP1_1"/"FAILED_REP1_2", exactly as MultiQC would for a
+    # per-read split of a sample that succeeded -- but there is no bare
+    # "FAILED_REP1" row here, because no per-sample module ever ran to
+    # produce one. That missing sibling is what must keep both rows from
+    # being silently classified as MultiQC's own per-read artifacts and
+    # dropped: a column-signature-only check (the pre-fix _is_per_read_row)
+    # cannot tell this apart from a genuine per-read pair and would drop the
+    # only evidence this sample was ever attempted.
+    root = tmp_path / "run"
+    (root / "pipeline_info").mkdir(parents=True)
+    (root / "pipeline_info" / "nf_core_rnaseq_software_mqc_versions.yml").write_text(
+        "Workflow:\n  nf-core/rnaseq: v3.22.2\n  Nextflow: 25.10.2\n")
+    (root / "pipeline_info" / "execution_trace.txt").write_text(
+        "task_id\tstatus\n1\tCOMPLETED\n")
+    stats_dir = root / "multiqc" / "star_salmon" / "multiqc_report_data"
+    stats_dir.mkdir(parents=True)
+    (stats_dir / "multiqc_general_stats.txt").write_text(
+        "Sample\tstar-uniquely_mapped_percent\tfastqc_raw-percent_gc\n"
+        "CONTROL_REP1\t89.16\t\n"  # a real, completed sample for contrast
+        "FAILED_REP1_1\t\t47.0\n"
+        "FAILED_REP1_2\t\t46.5\n")
+
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+
+    names = {s.nfcore_sample for s in got.samples}
+    assert names == {"CONTROL_REP1", "FAILED_REP1_1", "FAILED_REP1_2"}
+    failed = next(s for s in got.samples if s.nfcore_sample == "FAILED_REP1_1")
+    # No RSeQC files exist for FAILED_REP1_1 (alignment never produced any),
+    # so its per-sample derived metrics are empty -- not invented.
+    assert failed.derived == {}
+    assert any("FAILED_REP1_1" in w for w in got.warnings)
+    assert any("FAILED_REP1_2" in w for w in got.warnings)
 
 
 def test_extra_globs_are_read_and_recorded_as_outputs(tmp_path):
