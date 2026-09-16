@@ -132,6 +132,30 @@ def qa_rows(
     ``mode`` is ``"new"`` (brand-new samples; rows must not carry a UID and
     must declare a Parent) or ``"update"`` (a backfill targeting samples that
     already exist; rows must carry a UID and have no Parent to declare).
+
+    ``existing_notes`` -- CONTRACT, load-bearing, read this before wiring a
+    fetcher to this parameter:
+
+    This is a ``{uid: fetched_notes_text}`` map, and it is the only thing
+    standing between an update-mode backfill and silently destroying whatever
+    a curator wrote in a sample's Notes (``deep_merge_metadata`` replaces the
+    whole field). The map MUST distinguish two states per uid, and they are
+    NOT the same value:
+
+    - key ABSENT -- the fetch failed, or was never attempted, for this uid.
+      Treated as "we do not know what is there"; any row that writes Notes
+      for this uid is HARD-rejected (``NOTES_WOULD_CLOBBER``) rather than
+      risking an overwrite of unread text.
+    - key present with value ``""`` -- the fetch SUCCEEDED and the sample's
+      Notes was genuinely empty. Treated as "nothing to preserve"; a Notes
+      write for this uid is allowed through.
+
+    Do NOT build this map with the common ``notes.get(uid, "")`` idiom (or
+    any other default-to-empty-string fetch pattern): that collapses "fetch
+    failed" into "fetched, empty", which reads to this guard as "nothing to
+    preserve" and waves the write through -- defeating the entire point of
+    this parameter. A failed fetch must leave the uid OUT of the dict, never
+    map it to ``""``.
     """
     report = QaReport()
     required = required_fields or []
@@ -189,7 +213,13 @@ def qa_rows(
                                                         "reason": "existing Notes not fetched"}))
             else:
                 prior = (existing_notes or {})[uid]
-                if prior and prior not in str(meta.get("Notes") or ""):
+                # Trailing-whitespace-only differences (a trailing space, a
+                # trailing blank line) must never trip this guard: they are
+                # not data loss. Strip trailing whitespace off `prior` only
+                # before the containment check -- never off the composed
+                # text, and never interior whitespace -- so a genuine drop of
+                # any interior content still hard-rejects.
+                if prior and prior.rstrip() not in str(meta.get("Notes") or ""):
                     report.add(Finding(code=NOTES_WOULD_CLOBBER, severity=HARD,
                                        sample_type=sample_type, attribute="Notes",
                                        row_index=i, detail={"uid": uid,
@@ -217,15 +247,20 @@ def qa_rows(
 
         # Required-attribute coverage. HARD, not advisory: Checksum_PrimaryData is
         # required on A.GEX / A.ALN / A.SCXP, so calling its absence a soft flag
-        # only defers the server's rejection to upload time.
-        for req in required:
-            if req == "UID":
-                continue                      # rows never carry one
-            value = str(meta.get(req) or "").strip()
-            if not value:
-                report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
-                                    sample_type=sample_type, attribute=req,
-                                    row_index=i))
+        # only defers the server's rejection to upload time. New-mode-only,
+        # symmetrically with the Parent guard above: an update row targets an
+        # existing sample that already carries its required attributes, and
+        # only carries the metrics being backfilled, so a required attribute
+        # missing from the row is not missing from the database.
+        if mode == "new":
+            for req in required:
+                if req == "UID":
+                    continue                      # rows never carry one
+                value = str(meta.get(req) or "").strip()
+                if not value:
+                    report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
+                                        sample_type=sample_type, attribute=req,
+                                        row_index=i))
 
         # Placeholder sniff.
         for key, value in meta.items():

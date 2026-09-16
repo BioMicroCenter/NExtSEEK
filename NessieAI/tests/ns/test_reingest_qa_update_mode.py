@@ -44,6 +44,53 @@ def test_a_uid_whose_notes_could_not_be_fetched_must_not_write_notes():
     assert any(f.code == qa.NOTES_WOULD_CLOBBER for f in report.findings)
 
 
+def test_update_mode_does_not_hard_reject_a_required_attribute_missing_from_the_row():
+    # An update row only carries the metrics being backfilled; the target
+    # sample already holds its required attributes, so their absence from
+    # the row is not absence from the database.
+    report = qa.qa_rows(
+        [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1", "MappedPercent": 91.4}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["Checksum_PrimaryData"], mode="update",
+        existing_notes={})
+    assert not any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
+def test_new_mode_still_hard_rejects_the_same_missing_required_attribute():
+    report = qa.qa_rows(
+        [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-0", "MappedPercent": 91.4}}],
+        sample_type="D.SEQ", known_sampletypes={"D.SEQ"},
+        required_fields=["Checksum_PrimaryData"],
+        existing_parent_uids={"D.SEQ-EXAMPLE-0"}, mode="new")
+    assert report.disposition == qa.HARD_REJECT
+    assert any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+
+
+def test_trailing_whitespace_only_difference_in_notes_does_not_clobber():
+    # A trailing space or trailing blank lines picked up by a round-tripped
+    # fetch must not trip the guard: no content was dropped.
+    report = _update(
+        [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1",
+                            "Notes": "Curator wrote this.\n\n[nfcore-reingest] x"}}],
+        existing_notes={"D.SEQ-EXAMPLE-1": "Curator wrote this.  "})
+    assert not any(f.code == qa.NOTES_WOULD_CLOBBER for f in report.findings)
+
+    report2 = _update(
+        [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1",
+                            "Notes": "Curator wrote this.\n\n[nfcore-reingest] x"}}],
+        existing_notes={"D.SEQ-EXAMPLE-1": "Curator wrote this.\n\n\n"})
+    assert not any(f.code == qa.NOTES_WOULD_CLOBBER for f in report2.findings)
+
+
+def test_a_genuine_content_drop_still_hard_rejects_despite_the_whitespace_fix():
+    report = _update(
+        [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1",
+                            "Notes": "[nfcore-reingest] x"}}],
+        existing_notes={"D.SEQ-EXAMPLE-1": "Curator wrote this.   "})
+    assert report.disposition == qa.HARD_REJECT
+    assert any(f.code == qa.NOTES_WOULD_CLOBBER for f in report.findings)
+
+
 def test_an_unapproved_attribute_soft_flags_so_the_batch_is_never_clean():
     report = qa.qa_rows(
         [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1", "ContamPercent": 3.2},
