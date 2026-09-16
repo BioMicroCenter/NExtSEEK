@@ -7,7 +7,6 @@ file reviewable in a diff rather than a security surface.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -112,5 +111,7 @@ def resolve_ref(ref: str, run_manifest, sample=None):
             return bag
         if isinstance(bag, dict):
             return bag.get(key)
-        return getattr(bag, key, None)
+        if isinstance(bag, BaseModel) and key in type(bag).model_fields:
+            return getattr(bag, key, None)
+        return None
     return None
