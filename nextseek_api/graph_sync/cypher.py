@@ -333,23 +333,32 @@ CYPHER 25
 UNWIND $rows AS r
 MATCH (:Sample {id: r.child_id})-[e:DERIVED_FROM]->(:Sample {id: r.parent_id})
 CALL (e, r) {"""
-_EDGE_LABEL_SET = """
+_EDGE_LABEL_ASSAY_SET = """
   SET e.assay_id = r.labels.assay_id,
       e.internal_assay_id = r.labels.internal_assay_id,
       e.internal_assay_title = r.labels.internal_assay_title,
       e.internal_assay_ids = r.labels.internal_assay_ids,
-      e.internal_assay_titles = r.labels.internal_assay_titles,
-      e.protocol_id = r.labels.protocol_id,
-      e.protocol_title = r.labels.protocol_title
+      e.internal_assay_titles = r.labels.internal_assay_titles"""
+_EDGE_LABEL_TAIL = """
   REMOVE e.assay_title
   RETURN count(*) AS w
 }
 RETURN count(e) AS matched, sum(w) AS written, count(DISTINCT [r.child_id, r.parent_id]) AS pairs
 """
+# Approved mode replaces every value, the protocol pair included.
+_EDGE_LABEL_SET = _EDGE_LABEL_ASSAY_SET + """,
+      e.protocol_id = r.labels.protocol_id,
+      e.protocol_title = r.labels.protocol_title""" + _EDGE_LABEL_TAIL
+# Default mode keeps a stored protocol. An edge can carry a protocol and no assay label (V1 measured 402 of them in
+# production), and R5 forbids removing or replacing a stored label without approval, so the protocol pair is written
+# only where nothing is stored.
+_EDGE_LABEL_SET_NEW = _EDGE_LABEL_ASSAY_SET + """,
+      e.protocol_id = coalesce(e.protocol_id, r.labels.protocol_id),
+      e.protocol_title = coalesce(e.protocol_title, r.labels.protocol_title)""" + _EDGE_LABEL_TAIL
 # The default: a new label only, on an edge whose three singular assay fields are all null (R14).
 WRITE_EDGE_LABELS_NEW = _EDGE_LABEL_HEAD + """
   WITH e, r WHERE e.assay_id IS NULL AND e.internal_assay_id IS NULL AND e.internal_assay_title IS NULL""" + \
-    _EDGE_LABEL_SET
+    _EDGE_LABEL_SET_NEW
 # With the operator's approval: any label, but only where all seven stored values still equal those the caller read
 # (`r.stored`), a null equal only to a null.
 WRITE_EDGE_LABELS_CHANGED = _EDGE_LABEL_HEAD + """

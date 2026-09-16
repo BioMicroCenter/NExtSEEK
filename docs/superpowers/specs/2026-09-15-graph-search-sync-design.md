@@ -192,7 +192,10 @@ internal id winning and the SEEK assay as the fallback; the protocol from the ch
    every edge graph_sync labels.
 3. **Only new labels without the operator's approval** (R5, R14). The default write goes only to an edge whose three
    singular assay fields are all null, and the Cypher itself guards it (`WHERE` those three are null), so a label
-   written between the read and the write is never overwritten. Every other difference is classified per edge
+   written between the read and the write is never overwritten. On such an edge a stored protocol is kept as well:
+   the protocol pair is written only where nothing is stored (`coalesce` in the same statement), because an edge can
+   carry a protocol and no assay label. V1 measured 402 of them in production, and without that clause the default
+   write would have removed their `protocol_id`. Every other difference is classified per edge
    (`new`, `equal`, `plural_missing`, `changed`, `cleared`) and reported per property: a changed value, a label the
    rule would clear (a label an upload sheet supplied and MySQL never stored, a label left stale by an internal-assay
    rename). Those are written only with the operator's explicit opt-in (`--apply-label-changes` for one command run,
@@ -483,7 +486,7 @@ managed `idx_updated_id` and `idx_samples_sample_type_id` (section 10 does not n
 | R11 | Pinning other lineage readers to `:Sample` | deferred, out of scope |
 | R12 | Findings made in passing | security findings are kept private and fixed in Run 1; the other defects are listed in section 20 |
 | R13 | Schema version | 1.2, per the schema doc's versioning rule |
-| R14 | Which labels are written | without the operator's approval, only new labels: an edge whose three singular assay fields are null, guarded in the Cypher. Changed and cleared labels, and a missing plural list on an edge whose singular fields match the rule, are reported per property and written only with `--apply-label-changes` or `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`. Otherwise the first full sync would rewrite about 785k production edges, none of which carries the plural lists |
+| R14 | Which labels are written | without the operator's approval, only new labels: an edge whose three singular assay fields are null, guarded in the Cypher, and on such an edge a stored protocol is kept (the protocol pair is written only where nothing is stored: V1 measured 402 production edges carrying a protocol and no assay label). Changed and cleared labels, and a missing plural list on an edge whose singular fields match the rule, are reported per property and written only with `--apply-label-changes` or `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`. Otherwise the first full sync would rewrite about 785k production edges, none of which carries the plural lists |
 | R15 | Label on create | every edge graph_sync creates is labelled in the same run, all five assay properties together, so a rebuild from an empty graph stays labelled |
 | R16 | Live graph writes | the operator's steps only, each announced for the Nessie chat's freeze of the live local graph before it runs; no plan task runs one (section 17, step 5) |
 

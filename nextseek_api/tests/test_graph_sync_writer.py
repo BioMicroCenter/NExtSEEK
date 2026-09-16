@@ -1107,14 +1107,19 @@ class EdgeGraph:
 
     Answers the incident-edge read and applies both label writes as their guards say: the default write only to an
     edge whose three singular assay fields are all absent; the approved write only to an edge whose seven label
-    properties still equal the row's ``stored``. A write sets all seven (None removes one) and drops ``assay_title``.
+    properties still equal the row's ``stored``. A write sets the five assay properties (None removes one) and drops
+    ``assay_title``; the default write keeps a stored protocol and fills the pair only where nothing is stored.
     """
 
     def __init__(self, edges):
         self.edges = {pair: dict(props) for pair, props in edges.items()}
 
-    def _apply(self, props, labels):
+    def _apply(self, props, labels, *, keep_protocol=False):
         for key in LABEL_KEYS:
+            if keep_protocol and key in ("protocol_id", "protocol_title"):
+                if labels[key] is not None and props.get(key) is None:
+                    props[key] = labels[key]
+                continue
             if labels[key] is None:
                 props.pop(key, None)
             else:
@@ -1142,7 +1147,8 @@ class EdgeGraph:
                 else:
                     ok = all(props.get(k) == row["stored"][k] for k in LABEL_KEYS)
                 if ok:
-                    self._apply(props, row["labels"])
+                    # read the rule out of the statement, so these tests fail if the guard leaves the Cypher
+                    self._apply(props, row["labels"], keep_protocol="coalesce(e.protocol_id" in query)
                     written += 1
             return [{"matched": matched, "written": written, "pairs": len(pairs)}]
         raise AssertionError(f"unexpected statement: {query}")
@@ -1160,7 +1166,14 @@ def test_the_label_keys_are_the_five_assay_properties_and_the_protocol_pair():
 @pytest.mark.parametrize("statement", ["WRITE_EDGE_LABELS_NEW", "WRITE_EDGE_LABELS_CHANGED"])
 def test_each_label_write_sets_all_seven_properties_and_removes_assay_title(statement):
     text = getattr(q, statement)
-    assert _assignments(text) == {k: k for k in LABEL_KEYS}  # never a subset
+    protocol = ("protocol_id", "protocol_title")
+    if statement == "WRITE_EDGE_LABELS_NEW":
+        # The five assay properties are replaced; the protocol pair is written only where nothing is stored (R5).
+        assert _assignments(text) == {k: k for k in LABEL_KEYS if k not in protocol}
+        for key in protocol:
+            assert f"e.{key} = coalesce(e.{key}, r.labels.{key})" in text
+    else:
+        assert _assignments(text) == {k: k for k in LABEL_KEYS}  # never a subset
     assert "REMOVE e.assay_title" in text
     assert "MATCH (:Sample {id: r.child_id})-[e:DERIVED_FROM]->(:Sample {id: r.parent_id})" in text
     assert text.index("WHERE") < text.index("SET e.assay_id")  # the guard is in the statement, before the SET
@@ -1195,7 +1208,8 @@ def test_the_default_write_labels_new_edges_and_leaves_every_labelled_one():
                 "internal_assay_ids": [33], "internal_assay_titles": ["Flow Cytometry"], "protocol_id": 9,
                 "protocol_title": "SOP 9"}
     assert graph.edges[(11, 10)] == {"child_id": 11, "parent_id": 10, **expected}  # assay_title gone
-    assert graph.edges[(12, 10)] == expected
+    # a stored protocol is kept (R5): V1 measured 402 production edges carrying a protocol and no assay label
+    assert graph.edges[(12, 10)] == {**expected, "protocol_id": 4, "protocol_title": "old SOP"}
     assert graph.edges[(13, 10)] == {"internal_assay_title": "Patient Visit"}
     assert graph.edges[(14, 10)] == {"assay_id": 7, "internal_assay_id": 99, "internal_assay_title": "Old",
                                      "protocol_id": 1}
@@ -1203,10 +1217,10 @@ def test_the_default_write_labels_new_edges_and_leaves_every_labelled_one():
                       "labels_skipped_changed": 0, "labels_edges_missing": 1}
 
 
-def test_a_label_that_clears_writes_nulls_and_empty_lists_together():
+def test_a_label_that_clears_writes_nulls_and_empty_lists_but_keeps_a_stored_protocol():
     graph = EdgeGraph({(11, 10): {"protocol_id": 4}})
     w.write_edge_labels(FakeDriver(graph), "neo4j", [{"child_id": 11, "parent_id": 10, "labels": _labels()}])
-    assert graph.edges[(11, 10)] == {"internal_assay_ids": [], "internal_assay_titles": []}
+    assert graph.edges[(11, 10)] == {"protocol_id": 4, "internal_assay_ids": [], "internal_assay_titles": []}
 
 
 def test_with_label_changes_an_edge_changed_since_the_read_is_left_alone():

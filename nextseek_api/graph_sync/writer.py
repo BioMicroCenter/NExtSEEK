@@ -695,7 +695,9 @@ def write_edge_labels(driver, db, rows, *, apply_label_changes: bool = False) ->
     a missing key raises ValueError. A pair is sent once (the first row wins).
 
     By default only new labels are written: the statement's own WHERE passes an edge only when its three singular
-    assay fields are all null, so a label written between the caller's read and this write is kept (R14). With
+    assay fields are all null, so a label written between the caller's read and this write is kept (R14), and a
+    stored protocol is kept too (an edge can carry a protocol and no assay label, and R5 forbids replacing a stored
+    label without approval: the protocol pair is written only where nothing is stored). With
     ``apply_label_changes`` (the operator's approval) any label is written, but only where all seven stored values
     still equal ``stored``. Returns ``labels_rows`` (pairs sent), ``labels_written`` (edges written),
     ``labels_skipped_labelled`` (default mode: edges already labelled), ``labels_skipped_changed`` (approved mode:
