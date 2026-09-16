@@ -382,6 +382,114 @@ class TestAssaySetupCreate:
         assert "Give the assay a name." in resp.content.decode()
 
 
+def _seeded_groups(body):
+    """The `assay-form-groups` payload the page re-echoes, as Python."""
+    tag = body.split('id="assay-form-groups"')[1]
+    return json.loads(tag.split(">", 1)[1].split("</script>")[0])
+
+
+class TestARefusalKeepsWhatWasTyped:
+    """A refused proposal must come back with the form still filled in.
+
+    Both error paths re-render the page. Without an echo the superuser loses the
+    name, the definition and every requirement they built by hand, with no back
+    button that recovers a POST -- and the group builder starts from empty, so
+    the structure is gone rather than merely unsaved.
+    """
+
+    HOSTILE_NAME = '</script><script>alert(1)//'
+
+    def _refused(self, message="An assay with this name already exists (x)."):
+        from nextseek_api.services.assay_authoring import ValidationError
+
+        return patch("seek.views.assay_setup.create_assay",
+                     side_effect=ValidationError(message))
+
+    @patch("seek.views.assay_setup.downloadable_codes",
+           return_value={"TIS", "CEX", "AB", "D.FLOW"})
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
+    @patch("seek.decorators.SeekDB")
+    def test_a_rejected_proposal_comes_back_with_its_name_and_definition(
+        self, db, _super, _assays, _codes
+    ):
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        with self._refused():
+            body = assaySetupCreate(_superuser_post(GOOD)).content.decode()
+        assert 'value="Spectral Flow Cytometry"' in body
+        assert "Full-spectrum single-cell analysis." in body
+
+    @patch("seek.views.assay_setup.downloadable_codes",
+           return_value={"TIS", "CEX", "AB", "D.FLOW"})
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
+    @patch("seek.decorators.SeekDB")
+    def test_the_group_structure_comes_back_for_the_builder(
+        self, db, _super, _assays, _codes
+    ):
+        """The hand-built requirements, not just the two text fields."""
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        with self._refused():
+            body = assaySetupCreate(_superuser_post(GOOD)).content.decode()
+        assert 'id="assay-form-groups"' in body
+        seeded = _seeded_groups(body)
+        assert seeded["required_parents"] == [["TIS", "CEX"], ["AB"]]
+        assert seeded["children"] == [["D.FLOW"]]
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
+    @patch("seek.decorators.SeekDB")
+    def test_an_unreadable_payload_still_returns_the_text_fields(
+        self, db, _super, _assays
+    ):
+        """Nothing trustworthy to rebuild the builder from, but the two things
+        the user typed by hand are not thrown away with it."""
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        resp = assaySetupCreate(_superuser_post({**GOOD, "children": "{{{"}))
+        body = resp.content.decode()
+        assert "could not be read" in body
+        assert 'value="Spectral Flow Cytometry"' in body
+        assert "Full-spectrum single-cell analysis." in body
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.views.assay_setup.verifySuperUser", return_value=1)
+    @patch("seek.decorators.SeekDB")
+    def test_a_hostile_name_is_echoed_escaped(self, db, _super, _assays):
+        """The echo is attacker-controlled by definition -- it is whatever was
+        posted. It reaches an ordinary auto-escaped attribute, never a script,
+        so the sequence that would close one must not appear in the page."""
+        from seek.views.assay_setup import assaySetupCreate
+
+        db.return_value = _logged_in()
+        body = assaySetupCreate(_superuser_post({
+            **GOOD, "name": self.HOSTILE_NAME, "children": "{{{"
+        })).content.decode()
+        assert self.HOSTILE_NAME not in body
+        assert "&lt;/script&gt;" in body
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_a_plain_get_renders_an_empty_form(self, db, _assays):
+        """The echo must not make the ordinary page arrive pre-filled."""
+        from seek.views.assay_setup import assaySetup
+
+        db.return_value = _logged_in()
+        req = _get("/seek/assay-setup/")
+        req.user.is_superuser = True
+        body = assaySetup(req).content.decode()
+        name_tag = body.split('id="new-name"')[1].split(">")[0]
+        assert 'value=""' in name_tag
+        seeded = _seeded_groups(body)
+        assert seeded == {"required_parents": [], "optional_parents": [],
+                          "children": []}
+
+
 class TestCreateFormVisibility:
     @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
     @patch("seek.decorators.SeekDB")
@@ -404,6 +512,21 @@ class TestCreateFormVisibility:
         req = _get("/seek/assay-setup/")
         req.user.is_superuser = True
         assert "assay-setup/create/" in assaySetup(req).content.decode()
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_an_unauthenticated_user_is_not_shown_the_form(self, db, _assays):
+        """The render and the POST must ask the same question. `verifySuperUser`
+        -- what `assaySetupCreate` enforces with -- also requires an
+        authenticated user, so a request that would be refused a 403 must not
+        be handed the form to fill in."""
+        from seek.views.assay_setup import assaySetup
+
+        db.return_value = _logged_in()
+        req = _get("/seek/assay-setup/")
+        req.user.is_superuser = True
+        req.user.is_authenticated = False
+        assert "assay-setup/create/" not in assaySetup(req).content.decode()
 
 
 class TestCodeOptionsAreNotTrustedInput:

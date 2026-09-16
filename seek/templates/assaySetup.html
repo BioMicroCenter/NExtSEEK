@@ -82,13 +82,17 @@
 
       <div class="cat-section">
         <label class="cat-section-label" for="new-name">Name</label>
-        <input class="cat-field" id="new-name" name="name" required>
+        {# Re-echoed so a refusal does not cost what was typed. Ordinary #}
+        {# auto-escaped template output: a name is free text and reaches  #}
+        {# an attribute, never a script. #}
+        <input class="cat-field" id="new-name" name="name" required
+               value="{{ form.name }}">
       </div>
 
       <div class="cat-section">
         <label class="cat-section-label" for="new-description">Definition</label>
         <textarea class="cat-field" id="new-description" name="description"
-                  rows="3" required></textarea>
+                  rows="3" required>{{ form.description }}</textarea>
       </div>
 
       {% for role in roles %}
@@ -114,6 +118,11 @@
 {% if not components %}<script>{% include "includes/catalog_table_filter.js" %}</script>{% endif %}
 {% if can_create %}
 {{ code_options|json_script:"assay-code-options" }}
+{# The groups a refused submission was built from, so the builder repopulates #}
+{# rather than making the user rebuild every requirement by hand. Through     #}
+{# json_script for the same reason the options are: these codes came off a    #}
+{# form, and nothing off a form goes into a script element as template text.  #}
+{{ form.groups|json_script:"assay-form-groups" }}
 <script>
 (function () {
   var form = document.getElementById('create-assay');
@@ -172,6 +181,41 @@
       addGroup(button.closest('.cat-section'));
     });
   });
+
+  // Repopulate from a refused submission. The server re-echoes the groups it
+  // had already validated, so this rebuilds the rows the user built rather
+  // than making them start again from an empty form.
+  function seed() {
+    var node = document.getElementById('assay-form-groups');
+    if (!node) { return; }
+    var seeded;
+    try { seeded = JSON.parse(node.textContent); } catch (e) { return; }
+    if (!seeded || typeof seeded !== 'object') { return; }
+
+    Object.keys(seeded).forEach(function (role) {
+      var hidden = form.querySelector('input[type=hidden][name="' + role + '"]');
+      if (!hidden) { return; }
+      var section = hidden.closest('.cat-section');
+      (seeded[role] || []).forEach(function (group) {
+        if (!group || !group.length) { return; }
+        addGroup(section);
+        var rows = section.querySelectorAll('.cat-group');
+        var row = rows[rows.length - 1];
+        var orButton = row.querySelector('button');
+        group.forEach(function (code, index) {
+          var sel = row.querySelectorAll('select')[index];
+          if (!sel) {
+            sel = makeSelect(section);
+            row.insertBefore(sel, orButton);
+          }
+          sel.value = code;
+        });
+      });
+      serialise(section);
+    });
+  }
+
+  seed();
 })();
 </script>
 {% endif %}

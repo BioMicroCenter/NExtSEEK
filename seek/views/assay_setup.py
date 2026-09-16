@@ -58,7 +58,13 @@ def _picker():
     return groups, len(entries), ""
 
 
-def _page_context(request, message=""):
+def _blank_form() -> dict:
+    """An empty create form: what a GET renders, and the shape `form` always has."""
+    return {"name": "", "description": "",
+            "groups": {role: [] for role in ROLES}}
+
+
+def _page_context(request, message="", form=None):
     # GET is the primary source, so the plain GET page (no POST body at all)
     # is unaffected; POST is the fallback so an empty download submission --
     # nothing ticked -- can still say which assay it was for. The download
@@ -78,7 +84,11 @@ def _page_context(request, message=""):
     else:
         groups, total, notice = _picker()
 
-    can_create = request.user.is_superuser
+    # The same question `assaySetupCreate` enforces with, not a near-miss:
+    # `verifySuperUser` also requires an authenticated user, so an anonymous
+    # request whose `user.is_superuser` is somehow truthy cannot be shown a
+    # form the POST would refuse.
+    can_create = verifySuperUser(request) == 1
 
     return {
         "groups": groups,
@@ -89,6 +99,10 @@ def _page_context(request, message=""):
         "selected_slug": slug,
         "components": components,
         "can_create": can_create,
+        # What the superuser typed, re-rendered on an error path. Blank on a
+        # GET. Without it a rejected proposal costs the name, the definition
+        # and the whole hand-built group structure, with no way back.
+        "form": form or _blank_form(),
         "roles": [
             {"field": "required_parents", "label": "Required parent sample types"},
             {"field": "optional_parents", "label": "Optional parent sample types"},
@@ -153,6 +167,8 @@ def assaySetupDownload(request):
     return response
 
 
+# The three role fields the create form posts. Read at call time by
+# `_blank_form` above, which is why it may be defined further down.
 ROLES = ("required_parents", "optional_parents", "children")
 UNREADABLE = ("The sample types could not be read from the form. "
               "Reload the page and try again.")
@@ -186,6 +202,25 @@ def _posted_groups(request) -> dict:
     return groups
 
 
+def _echoed_form(request, groups=None) -> dict:
+    """What the superuser typed, so a refusal re-renders it rather than losing it.
+
+    `groups` is the already-validated structure from `_posted_groups`, or None
+    when the payload could not be read at all -- in which case there is nothing
+    trustworthy to echo into the builder and only the two text fields come back.
+
+    The codes here have been through `downloadable_codes()`, and they reach the
+    page through `json_script` rather than through a template string, so neither
+    half of this can put attacker-controlled text into a script element.
+    """
+    echoed = _blank_form()
+    echoed["name"] = request.POST.get("name", "")
+    echoed["description"] = request.POST.get("description", "")
+    if groups:
+        echoed["groups"] = {role: groups.get(role, []) for role in ROLES}
+    return echoed
+
+
 @require_POST
 @requires_seek_login_redirect(LOGIN_NEXT)
 def assaySetupCreate(request):
@@ -204,7 +239,8 @@ def assaySetupCreate(request):
         groups = _posted_groups(request)
     except (ValueError, TypeError):
         logger.warning("malformed assay creation payload")
-        return render(request, PAGE, _page_context(request, message=UNREADABLE))
+        return render(request, PAGE, _page_context(
+            request, message=UNREADABLE, form=_echoed_form(request)))
 
     name = request.POST.get('name', '')
     try:
@@ -216,6 +252,7 @@ def assaySetupCreate(request):
             children=groups["children"],
         )
     except ValidationError as exc:
-        return render(request, PAGE, _page_context(request, message=exc.message))
+        return render(request, PAGE, _page_context(
+            request, message=exc.message, form=_echoed_form(request, groups)))
 
     return HttpResponseRedirect(f"/seek/assay-setup/?assay={slugify_name(name)}")
