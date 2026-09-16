@@ -350,6 +350,22 @@ OPS: list[OpSpec] = [
             "{run_dir, manifest_id, manifest}",
         ),
     ),
+    _dispatch(
+        op_id="run-checksum",
+        bin_name="nextseek-run-checksum",
+        transport=Transport.sidecar,
+        assistant_endpoint="/nextseek_api/assistant/run-checksum/",
+        gate_class=GateClass.read,
+        argv=[ArgSpec(flag="--run-dir", required=True),
+              ArgSpec(flag="--paths", required=True)],
+        response_envelope_fields=["op", "result"],
+        skill_name="nextseek",
+        skill_row=_row(
+            "**Reingest step 2** — md5 a caller-named set of settled primary-data files on the cluster.",
+            "--run-dir <abs path under the cluster runs root> --paths <comma-separated relative paths>",
+            "{run_dir, checksums, skipped}",
+        ),
+    ),
     _subcmd(
         op_id="attrs",
         bin_name="nextseek-sampletype-attrs",

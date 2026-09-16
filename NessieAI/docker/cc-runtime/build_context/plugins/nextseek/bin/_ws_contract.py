@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SIDECAR_OPS = frozenset(
     {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission",
-     "run-ls", "run-harvest", "build-upload-xlsx"}
+     "run-ls", "run-harvest", "run-checksum", "build-upload-xlsx"}
 )
 
 # §12 — fixed error code → CLI exit code. The thin client maps a sidecar error
@@ -157,6 +157,12 @@ class _RunHarvestArgs(BaseModel):
     allow_failed_run: bool = False
 
 
+class _RunChecksumArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_dir: str
+    paths: str
+
+
 _OP_ARG_MODELS = {
     "entity": _QueryArg,
     "parse": _QueryArg,
@@ -168,6 +174,7 @@ _OP_ARG_MODELS = {
     "run-ls": _RunLsArgs,
     "build-upload-xlsx": _BuildUploadXlsxArgs,
     "run-harvest": _RunHarvestArgs,
+    "run-checksum": _RunChecksumArgs,
 }
 
 

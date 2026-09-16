@@ -190,10 +190,18 @@ def _run_harvest(args, config, session, write_gate, stage, stage_bytes, commit_b
     return envelope["result"]
 
 
+def _run_checksum(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
+    body = {"run_dir": args["run_dir"], "paths": args["paths"]}
+    envelope = ns_client.call_op("run-checksum", body,
+                                 base_url=config.base_url, auth=config.auth)
+    return envelope["result"]
+
+
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity, "parse": _parse, "graph": _graph,
     "api-read": _api_read, "api-write": _api_write,
     "report": _report, "generate-submission": _generate_submission,
     "run-ls": _run_ls, "build-upload-xlsx": _build_upload_xlsx,
     "run-harvest": _run_harvest,
+    "run-checksum": _run_checksum,
 }

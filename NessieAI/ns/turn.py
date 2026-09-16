@@ -121,6 +121,8 @@ def _granular_args(op: str, req) -> dict:
         return {"rows": req.rows, "existing_parent_uids": req.existing_parent_uids}
     if op == "run-harvest":
         return {"run_dir": req.run_dir, "allow_failed_run": req.allow_failed_run}
+    if op == "run-checksum":
+        return {"run_dir": req.run_dir, "paths": req.paths}
     return {}
 
 

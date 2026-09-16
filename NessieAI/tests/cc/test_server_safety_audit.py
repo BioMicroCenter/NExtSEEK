@@ -23,7 +23,7 @@ from NessieAI.cc.op_registry.models import GateClass, Transport
 
 # Transport-truth sidecar ops present in handlers/ws_contract but absent from
 # write_gate.SIDECAR_OPS (documented audit debt; do not enlarge write_gate here).
-KNOWN_TRANSPORT_ONLY_OPS = frozenset({"run-ls", "build-upload-xlsx", "run-harvest"})
+KNOWN_TRANSPORT_ONLY_OPS = frozenset({"run-ls", "build-upload-xlsx", "run-harvest", "run-checksum"})
 
 
 def test_sidecar_transport_sources_agree_by_set_equality():
