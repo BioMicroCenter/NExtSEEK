@@ -24,7 +24,7 @@ def test_ssh_run_builds_command_and_returns_stdout(monkeypatch):
         stdout = "Submitted batch job 4821\n"
         stderr = ""
 
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, timeout=None):
         seen["cmd"] = cmd
         return R()
 
