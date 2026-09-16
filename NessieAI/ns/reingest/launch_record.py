@@ -36,12 +36,12 @@ def record_launch(*, run_dir, run_name, pipeline, revision, slurm_job_id,
     rather than dropped: reingest needs to know the sample was in the run in
     order to report it as unresolved rather than silently retry it.
     """
-    from nextseek_api.assistant.models_db import PipelineRun
-
     if not run_dir:
         log.warning("record_launch: refusing to record a run with no run_dir")
         return None
     try:
+        from nextseek_api.assistant.models_db import PipelineRun
+
         cohort = [
             {
                 "d_seq_uid": entry.get("d_seq_uid") or None,

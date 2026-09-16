@@ -50,6 +50,18 @@ def test_a_failure_to_record_never_propagates():
         user_id=None, cohort_entries=ENTRIES) is None
 
 
+def test_a_db_failure_during_record_never_propagates(monkeypatch):
+    # test_a_failure_to_record_never_propagates only exercises the early
+    # `if not run_dir` guard, which returns before the DB is ever touched — it
+    # would pass even if record_launch always returned None. This instead makes
+    # the DB call itself raise, to actually exercise the try/except around it.
+    def _boom(**kwargs):
+        raise RuntimeError("simulated DB failure")
+
+    monkeypatch.setattr(PipelineRun.objects, "update_or_create", _boom)
+    assert _call() is None
+
+
 def test_read_cohort_sidecar_returns_empty_when_absent(tmp_path):
     sheet = tmp_path / "samplesheet.csv"
     sheet.write_text("sample,fastq_1\nS1,/x.fastq.gz\n")

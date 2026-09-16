@@ -835,6 +835,10 @@ def emit_nfcore_artifacts(
     # --- samplesheet.csv: rewrite fastq_1/fastq_2 from ENA + stamp enrichment values ---
     accession_metadata = dict(accession_metadata or {})
     keep_rows: list[dict[str, Any]] = []
+    # Parallel to keep_rows, but captured just before each per-pipeline column remap —
+    # so it still carries the pipeline-agnostic sample/fastq_1/fastq_2/accession keys
+    # the sidecar needs, whatever a given pipeline renames them to on the CSV side.
+    cohort_rows: list[dict[str, Any]] = []
     for row in samplesheet_rows or []:
         uid = str(row.get("sample") or row.get("Sample") or "")
         acc = row.get("accession") or row.get("Accession") or row.get("ena_accession")
@@ -858,6 +862,7 @@ def emit_nfcore_artifacts(
             for field in enrichment:
                 value = sample_meta.get(field)
                 rewritten[field] = "" if value is None else value
+            cohort_rows.append(dict(rewritten))
             keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
             continue
         runs = acc_to_runs.get(acc_str) if acc_str else None
@@ -877,6 +882,7 @@ def emit_nfcore_artifacts(
                 for field in enrichment:
                     value = sample_meta.get(field)
                     rewritten[field] = "" if value is None else value
+                cohort_rows.append(dict(rewritten))
                 keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
             continue
         # Luria path (default): fill fastq from a local /net/bmc-* path when the sample's
@@ -893,16 +899,24 @@ def emit_nfcore_artifacts(
         # Platform-dependent columns come BEFORE the static alias map: the alias map
         # is keyed on the standard names, and this may have renamed them away.
         rewritten = _apply_platform_columns(rewritten, pipeline, sample_meta)
+        cohort_rows.append(dict(rewritten))
         keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
 
     columns = _ensure_columns(keep_rows, required, enrichment)
     samplesheet_path = out_path / "samplesheet.csv"
     _write_csv(samplesheet_path, keep_rows, columns)
     # cohort.json sidecar: the only surviving record of which D.SEQ sample each
-    # nf-core row came from (see _write_cohort_sidecar). Written for every real
-    # samplesheet, Tower or Luria — the Luria submitter reads it beside this same
-    # path; a future Tower re-enable would need it staged alongside the sheet too.
-    _write_cohort_sidecar(samplesheet_path, keep_rows)
+    # nf-core row came from (see _write_cohort_sidecar). Built from cohort_rows,
+    # NOT keep_rows: several pipelines rename `sample`/`fastq_1`/`fastq_2` away on
+    # the CSV side (PIPELINE_COLUMN_ALIASES, plus genomeassembler's dynamic platform
+    # columns), and a post-remap row would silently write nfcore_sample: "" for all
+    # of them — turning "this run processed these samples" into "this run processed
+    # nothing" for PipelineRun.knows_sample/uid_for. cohort_rows is captured just
+    # before each per-pipeline remap, so it still carries the original keys.
+    # Written for every real samplesheet, Tower or Luria — the Luria submitter
+    # reads it beside this same path; a future Tower re-enable would need it staged
+    # alongside the sheet too.
+    _write_cohort_sidecar(samplesheet_path, cohort_rows)
     result.saved_files["samplesheet"] = str(samplesheet_path)
     result.samplesheet_row_count = len(keep_rows)
     result.excluded_accessions = excluded
