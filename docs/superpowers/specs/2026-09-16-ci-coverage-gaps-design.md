@@ -107,13 +107,25 @@ is correct, so a confidently wrong answer passes.
 | **B4** | A count of types with no context row is **reported, not enforced**. A missing row is legal (catalog.py says so). The number being visible is the point; a threshold would be invented. |
 | **B5** | The `drift.isa.*` checks are **out of scope here**. They cover Project, Investigation and Study nodes, which is a different surface from the catalog, and nothing in the 2026-09-16 triage pointed at them. Either amend the graph-sync spec to drop them or give them their own task, but do not smuggle them in. |
 
-### 3.4 The dependency the operator controls
+### 3.4 The dependency, and how narrow it actually is
 
-`context/` is tracked on `fix/context-quick-fixes` and **not on `dev-graph`**. Part B's file validation has nothing
-to validate until that branch lands, and the rewritten context is still being finalised in another session.
+`context/` is tracked on `fix/context-quick-fixes` and **not on `dev-graph`**, and the rewritten context is still
+being finalised in another session.
 
-So Part B is written against the finalised context shape, not the current one, and **starts only once the context
-branch has merged.** Part A has no such dependency and can run at any time.
+**That gates the file validator only.** It has nothing to validate until those files are in the repository, and it
+should be written against the finalised shape rather than the current one.
+
+**It does not gate the drift checks.** Verified 2026-09-16: `run.build_catalog()` reads SEEK and the **dmac context
+tables in MySQL**, and no module under `nextseek_api/graph_sync/` reads `context/*.json` at all. The drift checks
+compare the graph's catalog against what MySQL holds, so they are independent of both the JSON files and the
+rewrite.
+
+**They are better built first.** Applying the rewritten context writes new rows into those dmac tables, and the
+graph's copy goes stale the moment that happens until a sync carries it. The drift checks are exactly the alarm for
+that, so having them in place before the write makes them the safety net for it rather than a retrospective audit.
+
+So the execution order inside Part B is: the drift checks and their reporting first, and the file validator last,
+once the context branch has merged. Part A has no dependency at all.
 
 ## 4. Out of scope
 

@@ -7,9 +7,10 @@
 never had: authoring-time validation of the files and runtime drift of the graph's copy.
 
 **Architecture:** Two independent parts. Part A (C1 to C3) repairs and restores the migration check. Part B (C4 to
-C7) tracks the context validator into CI and builds the three catalog drift checks the graph-sync design already
-specifies. Part A has no dependencies. **Part B starts only after the `context/` branch has merged into
-`dev-graph`.**
+C7) builds the three catalog drift checks the graph-sync design already specifies and tracks the context validator
+into CI. Part A has no dependencies. Within Part B only the validator task (C4) is gated on the `context/` branch
+merging into `dev-graph`; the drift checks are independent of it and are more useful landed before the context
+write than after.
 
 **Tech Stack:** Python 3.14, Django, pytest, GitHub Actions, the neo4j Python driver.
 
@@ -221,13 +222,25 @@ git commit -m "test(ci): the blocking job checks for missing migrations again"
 
 # Part B: context health
 
-**Part B does not start until `context/` is tracked on `dev-graph`.** Check first:
+**Execute in the order C5, C6, C7, then C4.** The task numbers follow the spec's section order; the execution order
+does not, for one reason:
+
+**Only C4 is gated.** It validates the tracked `context/*.json` files, which are on `fix/context-quick-fixes` and
+not yet on `dev-graph`, so it has nothing to validate until that branch merges. Check before starting it:
 
 ```bash
 git ls-tree --name-only origin/dev-graph context/
 ```
 
-An empty result means the context branch has not merged and Part B has nothing to validate. Stop and report that.
+An empty result means C4 cannot start. Report that and do the rest.
+
+**C5, C6 and C7 are not gated.** Verified 2026-09-16: `run.build_catalog()` reads SEEK and the dmac context tables
+in MySQL, and no module under `nextseek_api/graph_sync/` reads `context/*.json` at all. The drift checks compare the
+graph's catalog against MySQL and never touch the JSON files.
+
+**Build them before the context write, not after.** Applying the rewritten context writes new rows into those dmac
+tables and the graph's catalog goes stale the moment it happens. C5 to C7 are the alarm for exactly that, so landing
+them first makes them the safety net for the context write instead of an audit after it.
 
 ### Task C4: Track the context validator into the repository
 
@@ -444,7 +457,8 @@ git commit -m "feat(startup): name a failing catalog check in the CI record's gr
   the reporting half of B3 to C7. B5's exclusion is honoured: no task builds `drift.isa.*`.
 - **C2 can conclude that Part A cannot finish.** That is a real outcome. The plan says so rather than assuming the
   Mezzanine entries will turn out to be benign.
-- **Part B's gate is real.** If `context/` is not on `dev-graph`, C4 has nothing to validate and C5 to C7 are
-  measuring a catalog built from context that is about to be replaced.
+- **The gate is narrower than it first looked.** Only C4 needs `context/` on `dev-graph`. C5 to C7 read the dmac
+  context tables through `run.build_catalog()`, never the JSON files, so they are independent of the rewrite and are
+  more useful landed before it than after.
 - **Known soft spot:** C5 and C6's test bodies use the drift suite's existing fake-driver fixtures, which are named
   in `nextseek_api/tests/test_graph_sync_drift.py` and not repeated here; the implementer reads that module first.
