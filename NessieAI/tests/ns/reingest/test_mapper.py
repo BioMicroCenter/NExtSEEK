@@ -92,9 +92,15 @@ def test_a_multirun_sample_produces_no_d_seq_row_no_per_sample_row_and_no_parent
     result = mapper.apply(run, maps.load("rnaseq"))
     # No D.SEQ backfill row for the multirun sample...
     assert not any(r.sample_type == "D.SEQ" for r in result.rows)
-    # ...and no per_sample A.ALN row either -- there is no d_seq_uid to set
-    # Parent to, and a dangling analysis record with no lineage is worse
-    # than none at all.
+    # ...and no per_sample A.ALN row either. Unlike an unresolved sample
+    # (which ships its child with no Parent -- see
+    # test_an_unresolved_sample_still_ships_its_child_with_no_parent), a
+    # multi-run sample gets no row at all: the spec table does want its
+    # child to carry a `;`-joined Parent across every contributing D.SEQ,
+    # but uid_resolve.resolve() discards those source UIDs entirely and
+    # SampleRecord cannot carry a list, so there is nothing here that could
+    # honestly be set. This is the module-level gap `_per_sample_rows`
+    # documents as tracked separately, not implemented here.
     assert not any(r.sample_type == "A.ALN" for r in result.rows)
     # The per_run A.GEX rule still emits its one row: its literal attributes
     # (Matrix, MatrixDataType, DataType) do not depend on any sample
@@ -216,6 +222,52 @@ def test_the_per_run_join_deduplicates_a_repeated_d_seq_uid():
     result = mapper.apply(run, maps.load("rnaseq"))
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     assert gex.attributes["Parent"].value == "D.SEQ-1"
+
+
+# --- The UID-resolution table in
+# docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md (Section 11)
+# is the authority for what an unresolved vs. ambiguous sample's child does.
+# An earlier addendum instruction over-generalised "no d_seq_uid -> no row"
+# from the multirun case to every unresolved sample; these two tests pin the
+# corrected, per-resolution behaviour. ---
+
+def test_an_unresolved_sample_still_ships_its_child_with_no_parent():
+    # "Matches none" is a hard reject "on the backfill only" -- the
+    # per_sample child still ships, just with no Parent to name (see
+    # mapper._per_sample_rows).
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP2", d_seq_uid=None,
+                              uid_resolution=manifest.RESOLUTION_UNRESOLVED))
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln_rows = [r for r in result.rows if r.sample_type == "A.ALN"]
+    by_sample = {r.nfcore_sample: r for r in aln_rows}
+    # Both samples ship a child row...
+    assert set(by_sample) == {"CONTROL_REP1", "CONTROL_REP2"}
+    # ...the resolved one keeps its Parent...
+    assert by_sample["CONTROL_REP1"].attributes["Parent"].value == "D.SEQ-1"
+    # ...but the unresolved one's row has no Parent key at all -- not an
+    # empty string, not a fabricated value.
+    assert "Parent" not in by_sample["CONTROL_REP2"].attributes
+    # The unresolved sample contributes nothing to the per_run join either.
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["Parent"].value == "D.SEQ-1"
+
+
+def test_an_ambiguous_sample_produces_no_child_row():
+    # "Matches more than one D.SEQ" is a hard reject -- never guess between
+    # candidate parents. Unlike unresolved, this resolution gets no row at
+    # all: no backfill, no per_sample child, and it contributes nothing to
+    # the per_run join.
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid=None,
+                              uid_resolution=manifest.RESOLUTION_AMBIGUOUS))
+    result = mapper.apply(run, maps.load("rnaseq"))
+    assert not any(r.sample_type == "D.SEQ" for r in result.rows)
+    assert not any(r.sample_type == "A.ALN" for r in result.rows)
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert "Parent" not in gex.attributes
 
 
 def test_a_ruled_out_key_on_two_different_samples_stays_out_of_unmapped():
