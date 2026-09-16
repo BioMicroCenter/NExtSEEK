@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -207,6 +208,126 @@ def test_stage_run_dir_refuses_an_oversized_file_remotely_rather_than_transferri
     assert not (staged / "big.csv").exists(), "oversized file must never be transferred, not just discarded locally"
     assert any(
         item["path"] == "big.csv" and "exceeds max file bytes" in item["reason"] for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_skips_a_hardlink_to_a_file_outside_run_dir_and_reports_it(tmp_path, monkeypatch):
+    """Important 1 of the follow-up 2026-09-16 adversarial review: a
+    hardlink inside run_dir has no separate target path to resolve away
+    from -- `is_symlink()` is False and `resolve()` returns itself -- so
+    the symlink checks above (test_stage_run_dir_skips_a_symlink_...) do
+    NOT catch it. Without the st_nlink check this ships the outside file's
+    real content."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside = tmp_path / "outside_secret.csv"
+    outside.write_text("SECRET,DO,NOT,SHIP\n")
+    link = run_dir / "samplesheet.csv"  # matches _SAMPLESHEET_GLOB ("*.csv")
+    os.link(str(outside), str(link))
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path: _run_stage_script_locally(str(run_dir), harvest.GENERIC_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(staged), "/dev/null")
+
+    assert not (staged / "samplesheet.csv").exists()
+    assert not any("SECRET" in p.read_text() for p in staged.rglob("*") if p.is_file())
+    assert any(
+        item["path"] == "samplesheet.csv" and "hardlink" in item["reason"] for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_skips_a_file_reached_through_a_symlinked_ancestor_dir(tmp_path, monkeypatch):
+    """Minor 3 (2026-09-16 review): the module comment above _STAGE_SCRIPT
+    claims resolve() 'catches a symlinked ancestor directory too', but only
+    the direct leaf-symlink case (test_stage_run_dir_skips_a_symlink_...) was
+    ever tested. Here the MATCHED FILE ITSELF is a real file, not a symlink
+    -- it is reached through a symlinked PARENT directory that points
+    outside run_dir -- so path.is_symlink() is False and only the
+    resolve()/relative_to() ancestor check can catch it."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside_dir = tmp_path / "outside_dir"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "params_x.json"
+    outside_file.write_text('{"secret": true}')
+
+    # pipeline_info is a symlink (the ancestor), pointing outside run_dir;
+    # the file matched by the glob underneath it is an ordinary file.
+    (run_dir / "pipeline_info").symlink_to(outside_dir)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path: _run_stage_script_locally(str(run_dir), harvest.GENERIC_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(staged), "/dev/null")
+
+    assert not (staged / "pipeline_info" / "params_x.json").exists()
+    assert not any("secret" in p.read_text() for p in staged.rglob("*") if p.is_file())
+    assert any(
+        item["path"] == "pipeline_info/params_x.json" and "outside run_dir" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_enforces_the_total_byte_cap_across_multiple_files(tmp_path, monkeypatch):
+    """Minor 2 (2026-09-16 review): MAX_TOTAL_BYTES accumulates across the
+    whole remote loop, but only the single-file MAX_FILE_BYTES case had a
+    test. Two files individually under the per-file cap must still trip the
+    TOTAL cap once their combined size crosses it, and the second one must
+    never be transferred."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    first = run_dir / "a.csv"
+    second = run_dir / "b.csv"
+    first.write_bytes(b"x" * 60)
+    second.write_bytes(b"y" * 60)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path: _run_stage_script_locally(
+            str(run_dir), harvest.GENERIC_GLOBS, max_file_bytes=1000, max_total_bytes=100))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(staged), "/dev/null")
+
+    staged_names = {p.name for p in staged.rglob("*") if p.is_file()}
+    assert "a.csv" in staged_names, staged_names
+    assert "b.csv" not in staged_names, staged_names
+    assert any(
+        item["path"] == "b.csv" and "exceeds total byte cap" in item["reason"] for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_enforces_the_file_count_cap_across_multiple_files(tmp_path, monkeypatch):
+    """Minor 2 (2026-09-16 review): MAX_FILES accumulates across the whole
+    remote loop too, and was equally untested. Three files under a cap of 2
+    must stage exactly the first two (glob order) and skip the third with a
+    file-count reason."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    for name in ("a.csv", "b.csv", "c.csv"):
+        (run_dir / name).write_text("x")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path: _run_stage_script_locally(
+            str(run_dir), harvest.GENERIC_GLOBS, max_files=2))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(staged), "/dev/null")
+
+    staged_names = {p.name for p in staged.rglob("*") if p.is_file()}
+    assert staged_names == {"a.csv", "b.csv"}, staged_names
+    assert any(
+        item["path"] == "c.csv" and "exceeds max file count" in item["reason"] for item in skipped
     ), skipped
 
 
