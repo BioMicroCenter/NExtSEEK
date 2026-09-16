@@ -59,7 +59,9 @@ silent bounce to the login page, and it grows by itself as the registry does.
 Everything else is hand-written because it is what a table row cannot express --
 the API root's exact viewset list, the OpenAPI document generating at all, an
 enrichment step that fails silently behind a 200, the five `/seek/` pages that
-must bounce a visitor with no credentials, and the six browser flows. Per-route
+must bounce a visitor with no credentials, the seven browser flows, a
+`samples/graph_search/` POST with its envelope checked (`test_graph_search.py`), and the
+state of the graph sync itself (`test_graph_sync_status.py`, below). Per-route
 body assertions are T1's job and are not in this increment.
 
 ## Nessie lane
@@ -196,6 +198,31 @@ evidence goes to a `nessie-evidence` folder under pytest's base temporary
 directory, or wherever `CI_NESSIE_EVIDENCE_DIR` points, and the kept chat's id is
 inside that folder's `debug.json`.
 
+## Graph sync status
+
+`test_graph_sync_status.py` reads `GET /nextseek_api/admin/graph-sync/status/` and asserts
+two things. The endpoint reports the latest run of each kind, freshness per job, the outbox
+and the last drift result; and **none of those jobs is stale**. A box whose sync loop has
+stopped, or whose drain has left an outbox row waiting for more than an hour, must not
+report a green smoke run. A box that has never run a sync answers `never`, which stays
+green, so the tests assert the vocabulary rather than a particular value.
+
+It also carries the parity-lite check: when the status reports a successful full sync at the
+writer's schema version, the same small body sent to `samples/advanced_search/` and to
+`samples/graph_search/` must report the same `total`. Before the first full sync the graph
+is at an earlier schema version and the two are expected to disagree, so that check skips
+rather than failing a box that is simply not synced yet.
+
+**It needs the superuser account, and it runs in the default lane.** The endpoint is
+superuser-only, so this module authenticates with `CI_WRITE_USER` and `CI_WRITE_PASS` and
+**fails rather than skips** when they are missing: it is the first test outside the opt-in
+write lane to need them, and a skip would let a box with no superuser credentials report
+green having proved nothing about the one endpoint no other account can reach. It sends a
+GET and two searches, writes nothing, and carries no `write` marker.
+
+`local` and `dev` only, like the route: production runs a v1.0 graph without migration
+0021, so the two tables the endpoint reads are not there at all.
+
 ## Profiles
 
 Every route in `ci/routes.py` names the profiles it may be called under, and the
@@ -217,35 +244,40 @@ Passing both exits 2 rather than deciding which one wins.
 
 The profile gates whole tests as well as routes. A test marked
 `@pytest.mark.profiles("local", "dev")` is **skipped** under any other profile.
-Two places carry it today. One is the browser flow that submits an upload for
+Five places carry it today. Two are browser flows. The first submits an upload for
 validation, the only flow in `test_flows.py` that makes the page issue a POST. Under `prod`
 the browser guard aborts that POST at the network layer, correctly, and the page
 would then wait out its own response timeout — five red minutes for a rule the
 suite had just enforced. Skipping says the same thing in a line.
 
-The other is the whole of `test_nessie.py`, which writes a chat and pays for
-model turns, so it runs on `local` and `dev` only.
+The second flow drives the Graph Search page, whose route and endpoint are themselves
+declared `local,dev`. The other three places are whole modules: `test_nessie.py`, which
+writes a chat and pays for model turns; `test_graph_search.py`; and
+`test_graph_sync_status.py`, whose endpoint exists only where migration 0021 has been
+applied.
 
 ## Credentials
 
 Two accounts, and the split is a safety rule rather than hygiene. The sweep is,
 by construction, a program that issues GETs at every URL it knows about, so it
-never holds rights it does not need: the health sweep and the four flows
+never holds rights it does not need: the health sweep and the browser flows
 authenticate as the non-superuser, and the sweep never requests any path under
 `/seek/admin/`, at any privilege level. Which routes make that rule necessary,
 and why, is recorded in the private findings note, which this public repository
-does not carry. The Nessie lane is the one exception: it drives the chat page,
-the admin checks and the superuser-only `/debug/` route as the write account,
-because those need a superuser, and it requests nothing under `/seek/admin/`
-either.
+does not carry. Two places are the exception, and both request nothing under
+`/seek/admin/` either. The Nessie lane drives the chat page, the admin checks and the
+superuser-only `/debug/` route as the write account, because those need a superuser. The
+graph sync status check does the same for its one superuser-only endpoint, and unlike the
+Nessie lane and the write lane it runs by default, so the superuser credentials are now a
+prerequisite of an ordinary smoke run.
 
 ```
 ~/.config/nextseek/ci.env      mode 600, never committed, never in GitHub
 
-CI_SMOKE_USER=...     NOT a superuser. Health sweep + the four flows.
+CI_SMOKE_USER=...     NOT a superuser. Health sweep + the browser flows.
 CI_SMOKE_PASS=...
-CI_WRITE_USER=...     Superuser. The write lane and the Nessie lane.
-CI_WRITE_PASS=...
+CI_WRITE_USER=...     Superuser. The write lane, the Nessie lane, and the graph
+CI_WRITE_PASS=...     sync status check, which runs in the default lane.
 ```
 
 Environment variables override the file. `NEXTSEEK_CI_ENV` points at a different

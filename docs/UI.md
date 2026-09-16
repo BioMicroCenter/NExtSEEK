@@ -136,9 +136,9 @@ All four include the shared `catalog_styles.html`. The URL prefix is deliberatel
 
 | Page | URL | View | Template | Embeds |
 |------|-----|------|----------|--------|
-| Sample by ID | `/seek/sample/id=<id>/` | `views.sample` (`seek/views/samples.py:37`) | `seek/templates/samples.html` (`seek/views/samples.py:73`) | `pages/samples.embed.html` → `samples_tree`, `samples_tree_new` |
-| Sample Tree by UID | `/seek/sampletree/uid=<uid>/` | `views.sampleTree` (`seek/views/samples.py:75`) | same: delegates to `sample()` (`seek/views/samples.py:79`) | as above |
-| Samples of a Sample Type | `/seek/sample_types/id=<id>/` | `views.sample_type` (`seek/views/samples.py:84`) | `seek/templates/sampleQuery.html` (`seek/views/samples.py:107`) | `pages/seek_includes.html`, `pages/samples_table.embed.html` |
+| Sample by ID | `/seek/sample/id=<id>/` | `views.sample` (`seek/views/samples.py:93`) | `seek/templates/samples.html` (`seek/views/samples.py:129`) | `pages/samples.embed.html` → `samples_tree`, `samples_tree_new` |
+| Sample Tree by UID | `/seek/sampletree/uid=<uid>/` | `views.sampleTree` (`seek/views/samples.py:131`) | same: delegates to `sample()` (`seek/views/samples.py:135`) | as above |
+| Samples of a Sample Type | `/seek/sample_types/id=<id>/` | `views.sample_type` (`seek/views/samples.py:140`) | `seek/templates/sampleQuery.html` (`seek/views/samples.py:163`) | `pages/seek_includes.html`, `pages/samples_table.embed.html` |
 | Sample Timeline (NHP) | `/seek/sample_timeline/` | `TemplateView` (`seek/urls.py:86`) | `seek/templates/sample_timeline.html` | - |
 | NHP Info | `/seek/nhpinfo/<name>/` | `views.nhp_info` (`seek/views/timeline.py:15`) | (JSON) | - |
 
@@ -160,7 +160,7 @@ All four include the shared `catalog_styles.html`. The URL prefix is deliberatel
 |------|-----|------|----------|
 | Django Admin | `/admin/` | Django admin (`dmac/urls.py:26`) | (Django built-in) |
 | Clades Management | `/seek/admin/clades/` | `views.adminClades` (`seek/views/admin.py:156`) | `seek/templates/clades.html` (`seek/views/admin.py:161`) |
-| Sample Attributes | `/seek/samples/attributes/` | `views.sampleAttributes` (`seek/views/samples.py:288`) | `seek/templates/sampleAttributes.html` (`seek/views/samples.py:296`) |
+| Sample Attributes | `/seek/samples/attributes/` | `views.sampleAttributes` (`seek/views/samples.py:362`) | `seek/templates/sampleAttributes.html` (`seek/views/samples.py:370`) |
 | Admin Sample Retrieval | `/seek/admin/retrieve/` | `views.adminRetrieveSamples` (`seek/views/admin.py:38`) | `seek/templates/admin_retrieval.html` (`seek/views/admin.py:72`) |
 | Internal Assays | `/seek/admin/internal_assays/` | `views.internalAssays` (`seek/views/admin.py:233`) | `seek/templates/internal_assays.html` (`seek/views/admin.py:239`) |
 

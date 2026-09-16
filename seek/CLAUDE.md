@@ -29,8 +29,10 @@
   value into the statement text reopens issue #78.
 - **`_deleteOneSample` owns cascade integrity, and SEEK does not.** Deleting a
   sample means eight raw statements across eight tables in one transaction
-  (`seek/sample/table.py:68-86`), because the ORM has no relations here to
-  cascade along.
+  (`seek/sample/table.py:60-77`), because the ORM has no relations here to
+  cascade along. The graph side of the same delete is not done here: the
+  transaction enqueues a `retire` row and the graph sync loop applies the
+  deletion rule (`nextseek_api/graph_sync/README.md`).
 - **SEEK is the authorization boundary, not Django auth.** Project membership
   and supervisor status come back from SEEK's own API through
   `seek/decorators.py:1-15`; the three decorators there are the only sanctioned
@@ -83,7 +85,7 @@
   hands that string to code that does `tablemodel.objects`
   (`dmac/dbtable.py:211`, `dmac/dbconn_django.py:405-408`), so calling it raises
   `AttributeError` on a `str`. Only `seek/dbtable_content_blobs.py:35` and
-  `seek/sample/table.py:39` assign the model instead.
+  `seek/sample/table.py:37` assign the model instead.
 - **`Sample_types_context.tags` is the only `db_column` override in the whole
   package**, mapping the field `tags` onto a capitalised column
   (`seek/models/nextseek.py:124`) that the seed really does spell `Tags`.
@@ -109,7 +111,7 @@
     `seek/views/__init__.py:6-8` warns explicitly does not reach the call site.
   - `seek/tests/test_dbtables.py:64` asserts the walk still finds 13 `DBtable`
     subclasses; it finds 12, because the thirteenth now declares its class in
-    `seek/sample/table.py:31` and the walk filters on declaring module.
+    `seek/sample/table.py:29` and the walk filters on declaring module.
   - `seek/tests/test_urls.py:15` uses a relative import, and the empty
     `__init__.py` at the worktree root makes pytest name the module after the
     checkout directory, so Django rejects the freshly re-imported models.

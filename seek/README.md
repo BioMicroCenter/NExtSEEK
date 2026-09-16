@@ -74,7 +74,7 @@ list and its unique key in `__init__`, and all but one also bind a Django model:
 `seek/dbtable_sample.py:1-2`, is a two-line backwards-compatibility shim left
 behind when the sample table moved to `seek/sample/`
 (`seek/sample/__init__.py:1-9`), which splits `DBtable_sample` into eight mixins
-combined at `seek/sample/table.py:31`.
+combined at `seek/sample/table.py:29`.
 
 `seek/dbtable_ontology.py:23` is the one table module that names a table
 (`sample_controlled_vocab_terms`) without binding a model to it, a gap its own
@@ -161,7 +161,7 @@ importer grep cannot see.
   unmapped here.
 - Two SEEK tables this package deletes from have no model at all:
   `sample_resource_links` and `sample_auth_lookup`, both hit by raw SQL at
-  `seek/sample/table.py:71-73`, and both present in that same dump. The delete
+  `seek/sample/table.py:62-65`, and both present in that same dump. The delete
   set is hand-maintained, so a SEEK upgrade that adds a table referencing
   `samples` leaves orphan rows behind.
 - Nothing here creates a SEEK table on the live SEEK schema. `manage.py migrate`
