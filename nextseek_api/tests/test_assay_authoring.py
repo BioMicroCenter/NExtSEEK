@@ -15,6 +15,9 @@ OK = dict(
     optional_parents=[],
     children=[["D.FLOW"]],
     existing_slugs={"flow-cytometry"},
+    # Every code any TestValidate* test below expects to PASS, so adding this
+    # parameter does not by itself change which of the existing tests pass.
+    known_context_codes={"TIS", "CEX", "AB", "D.FLOW", "A.SEQ"},
 )
 
 
@@ -177,6 +180,53 @@ class TestValidateRoundTrips:
         got = validate(**{**OK, "children": [["D.FLOW", "A.SEQ"]]})
         assert got["children"] == "D.FLOW or A.SEQ"
 
+
+class TestValidateContextMembership:
+    """The other way a code fails to survive the read.
+
+    `validate` allowlists codes against `template_catalog.downloadable_codes()`
+    -- SEEK's own `Sample_types.title` values -- but the page that reads the
+    assay back re-parses the stored string against `context_catalog.
+    load_sample_types()`'s codes, a different and narrower table. Both
+    modules' docstrings say those two sets are close but not equal. A code
+    with no separator in it at all -- so it passes `TestValidateRoundTrips`
+    clean -- can still be simply absent from the read side, and is then
+    dropped silently on every future read: the assay page shows zero
+    components and offers nothing to download, with no UI that can repair it.
+    """
+
+    def test_a_code_absent_from_the_context_set_is_rejected(self):
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "children": [["D.NEWTYPE"]],
+                       "known_context_codes": {"TIS", "CEX", "AB"}})
+        assert "D.NEWTYPE" in exc.value.message
+        assert "curated" in exc.value.message.lower()
+
+    def test_a_code_present_in_both_sets_still_passes(self):
+        got = validate(**{**OK, "children": [["D.FLOW"]],
+                          "known_context_codes": {"TIS", "CEX", "AB", "D.FLOW"}})
+        assert got["children"] == "D.FLOW"
+
+    def test_a_parent_role_is_checked_too(self):
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "required_parents": [["D.NEWTYPE"]],
+                       "known_context_codes": {"D.FLOW"}})
+        assert "D.NEWTYPE" in exc.value.message
+
+    def test_the_check_is_skipped_when_the_context_catalog_is_unavailable(self):
+        """`None` means the read-side set could not be loaded -- this check
+        must not fail shut and block every creation over an unrelated outage."""
+        got = validate(**{**OK, "known_context_codes": None})
+        assert got["children"] == "D.FLOW"
+
+    def test_the_separator_check_still_wins_when_a_code_fails_both(self):
+        """A code that is both unstorable AND absent from the context set gets
+        the round-trip message, not the context one: the round-trip failure is
+        checked first, and its fix (rename) differs from this check's (curate)."""
+        with pytest.raises(ValidationError) as exc:
+            validate(**{**OK, "children": [["Cells, Frozen"]],
+                       "known_context_codes": set()})
+        assert "cannot be stored" in exc.value.message
 
 
 from unittest.mock import MagicMock, patch

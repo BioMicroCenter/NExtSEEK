@@ -10,6 +10,17 @@ round trip is pinned by a test rather than left to inspection, and `validate`
 also performs it on the proposal in hand: a sample type whose own NAME carries
 one of that parser's separators cannot be stored unambiguously, so it is
 refused at the form rather than written and silently dropped on read.
+
+That is one of two ways a code can fail to survive the read. The other: a code
+can be a perfectly well-formed SEEK title -- no separator in it anywhere -- and
+still be absent from `sample_types_context`, the table `parse_alternation` is
+actually handed as `known` when the page loads. `template_catalog`'s and
+`context_catalog`'s own docstrings both say the write-side allowlist
+(`template_catalog.downloadable_codes()`) and that read-side set are "close but
+not equal". A code in the gap writes cleanly and is then dropped on every
+future read, leaving an assay page with zero components and nothing to
+download -- so `validate` also checks each code against the set the read side
+will recognise, and refuses the ones that are not in it.
 """
 
 from __future__ import annotations
@@ -21,6 +32,7 @@ from django.db import connections, transaction
 
 from seek.models import Internal_assays
 from nextseek_api.services.context_catalog import (load_assays,
+                                                   load_sample_types,
                                                    parse_alternation,
                                                    slugify_name)
 
@@ -109,11 +121,21 @@ def _unstorable_code(groups) -> str:
 
 
 def validate(name, description, required_parents, optional_parents, children,
-             existing_slugs) -> dict:
+             existing_slugs, known_context_codes) -> dict:
     """The row `create_assay` will write, or raise ValidationError.
 
-    `existing_slugs` is passed in rather than loaded here so this function stays
-    pure and the caller controls how stale that set may be.
+    `existing_slugs` and `known_context_codes` are both passed in rather than
+    loaded here so this function stays pure and the caller controls how stale
+    either set may be.
+
+    `known_context_codes` is the set of codes `context_catalog.parse_alternation`
+    will recognise when this assay is read back -- `context_catalog.
+    load_sample_types()`'s codes, not `template_catalog.downloadable_codes()`'s.
+    A code missing from it is refused here rather than written and silently
+    dropped on read (see the module docstring). `None` means that set could not
+    be loaded right now, in which case this one check is skipped rather than
+    refusing every code in the proposal -- the round-trip check below still
+    runs regardless.
     """
     name = (name or "").strip()
     description = (description or "").strip()
@@ -150,6 +172,25 @@ def validate(name, description, required_parents, optional_parents, children,
                 "are what separate sample types when the assay is read back. "
                 "Leave it out, or have the sample type renamed."
             )
+
+    # A code can survive the round trip above -- no separator in its name --
+    # and still not be one context_catalog will ever hand back, because that
+    # side reads a different, narrower table. Checked separately because it is
+    # a different failure mode with a different fix: renaming will not help
+    # here, only curating the sample type into sample_types_context will.
+    if known_context_codes is not None:
+        for label, field in _ROLE_LABELS:
+            for group in _clean_groups(roles[field]):
+                for code in group:
+                    if code not in known_context_codes:
+                        raise ValidationError(
+                            f"The {label} sample type \u201c{code}\u201d is not "
+                            "in the curated sample-type context yet, so this "
+                            "assay would be saved but come back showing no "
+                            "components at all when it is read back. Leave it "
+                            "out, or have the sample type added to the curated "
+                            "context first."
+                        )
 
     return {
         "name": name,
@@ -197,6 +238,39 @@ def _existing_slugs() -> set:
     except Exception:
         logger.exception("assay catalog unavailable; duplicate check is skipped")
         return set()
+
+
+def _known_context_codes():
+    """Codes `context_catalog.parse_alternation` will recognise on read.
+
+    Built the way `_existing_slugs` is, from `context_catalog`'s own loader --
+    but an empty *set* is the wrong fail-soft value here. For `_existing_slugs`
+    an empty result means "no slugs are known to collide", which is exactly
+    what should happen when the duplicate check cannot run: it simply never
+    fires. Here the check runs the other way around -- it rejects a code that
+    is NOT in this set -- so an empty set would reject every single code,
+    turning "the context catalog is briefly unreadable" into "nobody can
+    create an assay", which is worse than the residual this closes.
+
+    So this returns `None` on anything that leaves it without a trustworthy,
+    non-empty set: an outright exception, but also a clean, empty result.
+    `context_catalog.load_sample_types()` already fails soft internally (its
+    own house rule: "nothing here raises to a caller"), so a broken read
+    reaches this function as `[]` rather than as something its own try/except
+    could catch -- and nothing in production runs with zero curated sample
+    types, so an empty read here means the same thing an exception would.
+    `validate` treats `None` as "skip this check for now", not "nothing is
+    known".
+    """
+    try:
+        codes = {entry.code for entry in load_sample_types()}
+    except Exception:
+        logger.exception(
+            "sample type context unavailable; context-membership check is "
+            "skipped for this creation"
+        )
+        return None
+    return codes or None
 
 
 def _insert_context(row: dict, internal_assay_id: int) -> int:
@@ -248,7 +322,7 @@ def create_assay(name, description, required_parents, optional_parents,
     page, so the view has exactly one error path.
     """
     row = validate(name, description, required_parents, optional_parents,
-                   children, _existing_slugs())
+                   children, _existing_slugs(), _known_context_codes())
 
     try:
         with transaction.atomic(using=settings.NEXTSEEK_DATABASE):
