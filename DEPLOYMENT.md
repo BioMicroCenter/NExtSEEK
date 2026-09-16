@@ -71,6 +71,13 @@ Key facts every operator must internalize:
   inside the container instead of exhausting the host. At rest the container
   holds about 6 GiB, so set `NEXTSEEK_MEMORY` in the project-root `.env` well
   above that. A changed cap takes effect when `nextseek` is recreated.
+- The `seek` container is capped the same way at `${SEEK_MEMORY:-4G}`. SEEK's
+  puma workers grow with the requests they serve and never hand the memory
+  back: one reached 10 GiB on a workstation on 2026-09-16 and left the host
+  with nothing free. The kernel kills a runaway worker inside the container
+  instead, and puma respawns it. Raise `SEEK_MEMORY` in the project-root
+  `.env` on a box serving real SEEK traffic; the cap takes effect when `seek`
+  is recreated.
 - Asynchronous attribute mutations use Celery's SQLAlchemy transport over
   SQLite at `/var/lib/attribute-broker/broker.sqlite3`. The worker and outbox
   dispatcher share the named `attribute_mutation_broker` volume. Routine

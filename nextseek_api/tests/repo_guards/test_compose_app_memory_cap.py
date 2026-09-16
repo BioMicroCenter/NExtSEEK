@@ -18,10 +18,15 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 CAP = "${NEXTSEEK_MEMORY:-16G}"
+SEEK_CAP = "${SEEK_MEMORY:-4G}"
+
+
+def _service(name):
+    return yaml.safe_load(COMPOSE.read_text())["services"][name]
 
 
 def _nextseek():
-    return yaml.safe_load(COMPOSE.read_text())["services"]["nextseek"]
+    return _service("nextseek")
 
 
 def test_nextseek_has_a_memory_cap_an_operator_can_tune():
@@ -31,3 +36,14 @@ def test_nextseek_has_a_memory_cap_an_operator_can_tune():
 
 def test_nextseek_cannot_swap_past_its_cap():
     assert _nextseek().get("memswap_limit") == CAP
+
+
+def test_seek_has_a_memory_cap_an_operator_can_tune():
+    """SEEK's puma workers never give memory back: one reached 10 GiB on the
+    operator's workstation on 2026-09-16 and left the host with nothing free."""
+    limits = _service("seek").get("deploy", {}).get("resources", {}).get("limits", {})
+    assert limits.get("memory") == SEEK_CAP
+
+
+def test_seek_cannot_swap_past_its_cap():
+    assert _service("seek").get("memswap_limit") == SEEK_CAP

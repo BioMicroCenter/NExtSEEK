@@ -316,6 +316,19 @@ services:
     container_name: ${INSTANCE_PREFIX:-}seek
     command: docker/entrypoint.sh
     restart: always
+
+    # SEEK's puma workers grow with every request they serve and never give the
+    # memory back: this one reached 10 GiB on the operator's workstation on
+    # 2026-09-16 and left the host with nothing. The cap makes the kernel kill a
+    # runaway worker inside the container instead; puma respawns it, and
+    # `restart: always` covers the container. Raise it per box with SEEK_MEMORY in
+    # the project-root .env (pinned by
+    # nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
+    deploy:
+      resources:
+        limits:
+          memory: "${SEEK_MEMORY:-4G}"
+    memswap_limit: "${SEEK_MEMORY:-4G}"
     environment:
       RAILS_ENV: production
       SOLR_PORT: 8983
