@@ -1,3 +1,4 @@
+import pydantic
 import pytest
 
 from NessieAI.ns.reingest import maps
@@ -62,6 +63,26 @@ def test_resolve_ref_reads_the_whole_named_outputs_bag():
     assert maps.resolve_ref("$outputs", _M()) == {
         "multiqc_report_html": "multiqc/multiqc_report.html",
     }
+
+
+# --- cardinality is constrained to a Literal so a typo in a map file fails
+# loudly at load time, rather than silently falling through to one branch
+# (this repo has already been bitten by exactly this class of bug: an
+# unrecognised status value read as "complete"). ---
+
+def test_a_bogus_cardinality_fails_map_validation():
+    with pytest.raises(pydantic.ValidationError):
+        maps.PipelineMap.model_validate({
+            "pipeline": "nf-core/rnaseq",
+            "outputs": [{"glob": "*.bam", "sample_type": "A.ALN",
+                        "cardinality": "per_lane"}],
+        })
+
+
+def test_the_committed_rnaseq_map_still_loads_with_the_constrained_cardinality():
+    pipeline_map = maps.load("rnaseq")
+    assert pipeline_map.outputs, "expected at least one output rule"
+    assert {rule.cardinality for rule in pipeline_map.outputs} <= {"per_sample", "per_run"}
 
 
 def test_resolve_ref_cannot_reach_a_dunder_or_bound_method_on_a_model():

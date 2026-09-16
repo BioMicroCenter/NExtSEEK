@@ -104,24 +104,91 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
             })
 
     for rule in pipeline_map.outputs:
-        row = MappedRow(sample_type=rule.sample_type)
         # The output rule's own attributes are the more specific authority:
         # they must win over a provenance attribute of the same name (e.g.
         # A.ALN's "Software" is the STAR version string; provenance's
         # "Software" is the whole software_versions dict).
-        for attribute, ref in {**pipeline_map.provenance_attributes,
-                               **rule.attributes}.items():
-            value = maps.resolve_ref(ref, run_manifest)
+        merged_attrs = {**pipeline_map.provenance_attributes, **rule.attributes}
+
+        if rule.cardinality == "per_sample":
+            for row in _per_sample_rows(rule, merged_attrs, run_manifest):
+                result.rows.append(row)
+        else:
+            row = _per_run_row(rule, merged_attrs, run_manifest)
+            if row is not None:
+                result.rows.append(row)
+
+    return result
+
+
+def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
+                     run_manifest: manifest.RunManifest) -> list[MappedRow]:
+    """One row per sample resolved to a D.SEQ uid; the analysis record does
+    not exist yet, so `uid` stays None and this row is what creates it.
+
+    A sample with no `d_seq_uid` -- unresolved, ambiguous, or multi-run --
+    produces no row here. Multi-run is the case worth naming explicitly:
+    `uid_resolve.resolve()` discards a multi-run sample's source UIDs
+    entirely, and `SampleRecord` has nowhere to carry a list of them, so
+    there is no `Parent` this row could honestly carry. Emitting a row with
+    an empty or fabricated `Parent` would be a dangling analysis record,
+    which is worse than simply not creating one.
+    """
+    rows: list[MappedRow] = []
+    for sample in run_manifest.samples:
+        if not sample.d_seq_uid:
+            continue
+        row = MappedRow(sample_type=rule.sample_type, nfcore_sample=sample.nfcore_sample)
+        for attribute, ref in merged_attrs.items():
+            value = maps.resolve_ref(ref, run_manifest, sample)
             if value is None or value == "":
                 continue
             row.attributes[attribute] = MappedAttribute(
                 attribute=attribute, value=value, origin=ORIGIN_MAP,
                 raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
                 source_file=run_manifest.sources.get("params", ""))
-        if row.attributes:
-            result.rows.append(row)
+        # Parent is a structural lineage field, not a mapped attribute -- set
+        # it last so no rule attribute can accidentally clobber it.
+        row.attributes["Parent"] = MappedAttribute(
+            attribute="Parent", value=sample.d_seq_uid, origin=ORIGIN_MAP)
+        rows.append(row)
+    return rows
 
-    return result
+
+def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
+                 run_manifest: manifest.RunManifest) -> MappedRow | None:
+    """One row for the whole run, with `Parent` `;`-joined across the run's
+    resolved `d_seq_uid`s.
+
+    Join order follows the manifest's own sample order (the samplesheet
+    order the harvester recorded), which is deterministic and requires no
+    extra sort key. Duplicates are dropped by first occurrence. A sample
+    that resolved to no `d_seq_uid` (unresolved, ambiguous, or multi-run --
+    see `_per_sample_rows`) contributes nothing to the join; if no sample
+    resolved at all, `Parent` is omitted entirely rather than set to an
+    empty string.
+    """
+    row = MappedRow(sample_type=rule.sample_type)
+    for attribute, ref in merged_attrs.items():
+        value = maps.resolve_ref(ref, run_manifest)
+        if value is None or value == "":
+            continue
+        row.attributes[attribute] = MappedAttribute(
+            attribute=attribute, value=value, origin=ORIGIN_MAP,
+            raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
+            source_file=run_manifest.sources.get("params", ""))
+
+    seen: set[str] = set()
+    parents: list[str] = []
+    for sample in run_manifest.samples:
+        if sample.d_seq_uid and sample.d_seq_uid not in seen:
+            seen.add(sample.d_seq_uid)
+            parents.append(sample.d_seq_uid)
+    if parents:
+        row.attributes["Parent"] = MappedAttribute(
+            attribute="Parent", value=";".join(parents), origin=ORIGIN_MAP)
+
+    return row if row.attributes else None
 
 
 def _lookup(rule: maps.AttributeRule, run_manifest: manifest.RunManifest,
