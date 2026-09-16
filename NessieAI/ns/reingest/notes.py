@@ -28,6 +28,7 @@ _TAG = "[nfcore-reingest"
 def _block(run_name: str, values: dict, today: str) -> str:
     lines = [f"{_TAG} {today} {run_name}]"]
     lines += [f"{k}={v}" for k, v in values.items()]
+    lines.append("(anything you write below a blank line survives the next reingest run)")
     return "\n".join(lines)
 
 
@@ -39,11 +40,18 @@ def strip_block(text: str, run_name: str) -> str:
     terminates the block rather than being swallowed along with whatever
     prose follows it. See the module docstring for the full boundary
     contract.
+
+    Both ends are normalised with ``.strip()`` (not just ``.rstrip()``): a
+    block at the very start of ``text`` leaves the separator that used to sit
+    between it and whatever follows, so trimming only the trailing side would
+    leak leading blank lines into the result. Interior whitespace -- the
+    contract's blank-line boundary between blocks and between a block and
+    trailing prose -- is untouched.
     """
     pattern = re.compile(
         rf"\n*{re.escape(_TAG)} \S+ {re.escape(run_name)}\](?:\n(?!{re.escape(_TAG)})[^\n]+)*",
         re.MULTILINE)
-    return pattern.sub("", text).rstrip()
+    return pattern.sub("", text).strip()
 
 
 def compose(existing: str, run_name: str, values: dict, today: str) -> str:
