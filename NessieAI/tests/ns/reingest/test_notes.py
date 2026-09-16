@@ -40,14 +40,51 @@ def test_prose_below_a_blank_line_survives_a_recompose():
     assert "2026-09-16" in twice
 
 
-def test_prose_written_with_no_blank_line_above_it_is_treated_as_block_body_and_lost():
-    # Documented limit, not a surprise: a line right under the block with no
-    # blank line separating it is indistinguishable from a block value line,
-    # so it is consumed (and dropped) along with the block on recompose.
+def test_prose_written_with_no_blank_line_above_it_now_survives_via_the_terminator():
+    # Regression for the Critical: the block's last line is a real
+    # terminator, not an ordinary body line, so a curator line typed
+    # immediately under it -- no blank line, one Enter keypress short of the
+    # old "safe" form -- is no longer indistinguishable from block content.
     once = notes.compose("Keep me.", RUN, VALUES, "2026-09-15")
     no_blank_line = f"{once}\nCurator added later."
     twice = notes.compose(no_blank_line, RUN, VALUES, "2026-09-16")
-    assert "Curator added later." not in twice
+    assert "Curator added later." in twice
+    assert twice.count("[nfcore-reingest") == 1
+    assert "2026-09-16" in twice
+
+
+def test_prose_below_the_terminator_survives_three_successive_recomposes():
+    # Guards against slow accumulation: no extra tag or terminator lines pile
+    # up across repeated runs, and the curator's line is never duplicated.
+    run1 = notes.compose("Keep me.", RUN, VALUES, "2026-09-15")
+    text = f"{run1}\nCurator added later."
+    for today in ("2026-09-16", "2026-09-17", "2026-09-18"):
+        text = notes.compose(text, RUN, VALUES, today)
+        assert text.count("Curator added later.") == 1
+        assert text.count("[nfcore-reingest") == 1
+        assert text.count(notes._TERMINATOR) == 1
+    assert "2026-09-18" in text
+
+
+def test_an_old_style_block_with_no_terminator_falls_back_to_the_blank_line_rule():
+    # Data written before the terminator existed has none. strip_block must
+    # still bound it correctly, via the original blank-line contract.
+    old_style = f"[nfcore-reingest 2026-09-15 {RUN}]\nOldMetric=1.0"
+    text = f"Keep me.\n\n{old_style}\n\nCurator prose below a blank line."
+    twice = notes.compose(text, RUN, VALUES, "2026-09-16")
+    assert "Curator prose below a blank line." in twice
+    assert twice.count("[nfcore-reingest") == 1
+    assert "2026-09-16" in twice
+    assert "OldMetric=1.0" not in twice  # old run's own block is gone
+
+
+def test_a_curator_line_that_merely_resembles_the_terminator_is_ordinary_prose():
+    once = notes.compose("Keep me.", RUN, VALUES, "2026-09-15")
+    lookalike = "Anything you jot down here stays put, no need to worry."
+    with_prose = f"{once}\n{lookalike}"
+    twice = notes.compose(with_prose, RUN, VALUES, "2026-09-16")
+    assert lookalike in twice
+    assert twice.count("[nfcore-reingest") == 1
 
 
 class TestStripBlock:

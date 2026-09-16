@@ -9,49 +9,85 @@ survives: deep_merge_metadata overwrites the whole Notes value, so composing
 blind would silently destroy whatever a curator wrote.
 
 Block boundary contract: a block runs from its ``[nfcore-reingest ...]`` tag
-line through the following run of non-empty ``key=value`` lines, and ends at
-the first BLANK line or the next tag line, whichever comes first. Prose a
-curator writes below a blank line therefore survives a recompose untouched.
-The corollary: a line written immediately under the block with NO blank line
-separating it from the block is, by this contract, part of the block, and is
-replaced (or dropped) the next time this run recomposes. There is no way to
-tell such a line apart from a block value line, so a curator who wants prose
-kept must leave a blank line before it.
+line through its body (``key=value`` lines) down to its TERMINATOR line --
+the human-readable sentence ``_block`` always emits last. ``strip_block``
+stops AT AND INCLUDING that terminator line; anything below it, blank line or
+not, is prose and is never consumed. That is the fix for a real data-loss
+defect: an earlier version of this contract ended the block at the first
+blank line, which meant a curator line typed immediately under the block --
+one missing Enter keypress -- was indistinguishable from a block body line
+and was silently dropped on the next recompose. The terminator line removes
+that ambiguity: it is not a value a curator would ever type as their own
+content, so its presence unambiguously marks "block ends here."
+
+Blocks written before the terminator existed have none. For those,
+``strip_block`` falls back to the original blank-line-bounded contract: the
+block runs through the following run of non-empty lines and ends at the
+first blank line or the next tag line, whichever comes first. The terminated
+form is tried first; the blank-line fallback only applies when no terminator
+is found for that run's tag.
+
+Deliberate, documented non-issue: ``strip_block``'s ``.strip()`` trims
+leading whitespace off the very first line of ``text`` along with the block
+it removes. A Notes value like ``"   indented curator note\\n\\n[block]"``
+recomposes to ``"indented curator note\\n\\n[block]"`` -- the leading spaces
+are gone, but no *content* is lost, so the guard does not (and should not)
+treat this as clobbering. Recorded here so it is not mistaken for a defect
+when spotted in a diff of production Notes.
 """
 from __future__ import annotations
 
 import re
 
 _TAG = "[nfcore-reingest"
+_TERMINATOR = "(anything written below this line is preserved by every future reingest run)"
 
 
 def _block(run_name: str, values: dict, today: str) -> str:
     lines = [f"{_TAG} {today} {run_name}]"]
     lines += [f"{k}={v}" for k, v in values.items()]
-    lines.append("(anything you write below a blank line survives the next reingest run)")
+    lines.append(_TERMINATOR)
     return "\n".join(lines)
 
 
 def strip_block(text: str, run_name: str) -> str:
     """Remove this run's block, leaving every other block and all prose.
 
-    The body of the block is matched one line at a time, and each consumed
-    line must be non-empty (``[^\\n]+``, not ``[^\\n]*``) so a blank line
-    terminates the block rather than being swallowed along with whatever
-    prose follows it. See the module docstring for the full boundary
-    contract.
+    Tries the terminated form first: the tag line, then the body matched
+    lazily (``*?``) up to and including the literal terminator line. Lazy
+    matching means the search stops at the FIRST terminator it finds, so a
+    block is never over-consumed past its own boundary.
+
+    If no terminator is found for this run's tag anywhere in ``text`` (an
+    old-style block, written before the terminator existed), falls back to
+    the original contract: the tag line through the following run of
+    non-empty lines, ending at the first blank line or the next tag line.
+    Each consumed line there must be non-empty (``[^\\n]+``, not
+    ``[^\\n]*``) so a blank line terminates the block rather than being
+    swallowed along with whatever prose follows it.
 
     Both ends are normalised with ``.strip()`` (not just ``.rstrip()``): a
     block at the very start of ``text`` leaves the separator that used to sit
     between it and whatever follows, so trimming only the trailing side would
     leak leading blank lines into the result. Interior whitespace -- the
-    contract's blank-line boundary between blocks and between a block and
-    trailing prose -- is untouched.
+    contract's boundary between blocks and between a block and trailing
+    prose -- is untouched (see the module docstring for the one deliberate
+    exception: leading whitespace on the very first line).
     """
-    pattern = re.compile(
-        rf"\n*{re.escape(_TAG)} \S+ {re.escape(run_name)}\](?:\n(?!{re.escape(_TAG)})[^\n]+)*",
+    tag_open = rf"{re.escape(_TAG)} \S+ {re.escape(run_name)}\]"
+
+    terminated = re.compile(
+        rf"\n*{tag_open}(?:\n(?!{re.escape(_TAG)})[^\n]+)*?\n{re.escape(_TERMINATOR)}",
         re.MULTILINE)
-    return pattern.sub("", text).strip()
+    stripped, hits = terminated.subn("", text)
+    if hits:
+        return stripped.strip()
+
+    # Fallback for a block with no terminator at all (pre-fix data).
+    untagged = re.compile(
+        rf"\n*{tag_open}(?:\n(?!{re.escape(_TAG)})[^\n]+)*",
+        re.MULTILINE)
+    return untagged.sub("", text).strip()
 
 
 def compose(existing: str, run_name: str, values: dict, today: str) -> str:

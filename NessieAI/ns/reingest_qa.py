@@ -240,6 +240,17 @@ def qa_rows(
                 # before the containment check -- never off the composed
                 # text, and never interior whitespace -- so a genuine drop of
                 # any interior content still hard-rejects.
+                #
+                # Deliberate, documented non-issue (not fixed here): when
+                # `run_name` is passed, `prior_for_compare` is
+                # `notes.strip_block`'s output, whose own `.strip()` also
+                # drops LEADING whitespace off the very first line of
+                # `prior` (see `NessieAI/ns/reingest/notes.py`'s module
+                # docstring). A prior Notes value of
+                # ``"   indented curator note\n\n[block]"`` therefore passes
+                # this guard even though the composed text has lost its
+                # leading spaces -- whitespace-only, never content, so this
+                # is intentionally not treated as clobbering.
                 if prior_for_compare and prior_for_compare.rstrip() not in str(meta.get("Notes") or ""):
                     report.add(Finding(code=NOTES_WOULD_CLOBBER, severity=HARD,
                                        sample_type=sample_type, attribute="Notes",
@@ -280,7 +291,13 @@ def qa_rows(
         for req in required:
             if req == "UID":
                 continue                          # rows never carry one
-            value = str(meta.get(req) or "").strip()
+            # A falsy-but-present value (0, False) is a real measurement --
+            # a 0% mapping rate is data, not a missing attribute. Only
+            # "absent" (key missing, i.e. None) or "blank string" count as
+            # missing; `meta.get(req) or ""` would collapse 0/False into ""
+            # and wrongly hard-reject a legitimate zero.
+            raw = meta.get(req)
+            value = "" if raw is None else str(raw).strip()
             if mode == "new":
                 if not value:
                     report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
