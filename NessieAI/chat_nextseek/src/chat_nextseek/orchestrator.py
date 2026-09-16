@@ -22,6 +22,7 @@ from .artifacts import (
 )
 from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
 from .pipeline import agent as pipeline_agent
+from .agents.followup import run_followup
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -415,6 +416,76 @@ def _build_graph_refine_context(last_bundle: dict) -> str:
     )
 
 
+def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_dir) -> dict | None:
+    """Run the follow-up tool loop, and never let it be the reason a turn fails.
+
+    Its ``run_new_query`` seam re-uses the graph agent the ordinary graph turn uses, so
+    a follow-up runs the same engine as a fresh question; the difference is only that
+    the previous result's UIDs are handed to it. Returns None on any failure, which
+    sends the caller to the pre-existing stored-result path.
+    """
+    def _run_query(*, question: str, seed_uids: list[str]) -> dict:
+        refine = None
+        if seed_uids:
+            shown = ", ".join(seed_uids[:200])
+            refine = (
+                "Scope this query to the following sample UIDs, which are the result "
+                "the user is asking a follow-up about. Filter on them explicitly; do "
+                "not widen to every sample of the same type.\n"
+                f"UIDs ({len(seed_uids)} total): {shown}"
+                + ("" if len(seed_uids) <= 200 else " ... (truncated)")
+            )
+        graph_plan = graph_agent(
+            config, question, EntityAgentOutput(),
+            ParserPlan(mode="graph_query", intent_summary=question),
+            refine_context=refine,
+        )
+        if not graph_plan.cypher:
+            return {"ok": False, "error": "no query could be generated for that question"}
+        result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+        rows = result.get("data") or []
+        # Counts and a few examples. Never rows: this goes back into a conversation
+        # that is re-sent in full on every later iteration of the loop.
+        return {
+            "ok": bool(result.get("ok")),
+            "count": result.get("total") if result.get("total") is not None else result.get("count"),
+            "rows_returned": len(rows),
+            "truncated": bool(result.get("truncated")),
+            "examples": _followup_examples(rows),
+            "error": result.get("error"),
+            "seeded_uid_count": len(seed_uids),
+        }
+
+    try:
+        return run_followup(
+            config, user_text=user_text, bundle=bundle, run_query=_run_query, log_dir=log_dir,
+        )
+    except Exception as exc:
+        print(f"[DEBUG][FOLLOWUP] agent failed, falling back to the stored result: {exc!r}")
+        return None
+
+
+def _followup_examples(rows: list, limit: int = 3) -> list[str]:
+    out: list[str] = []
+    for row in rows[: limit * 3]:
+        if not isinstance(row, dict):
+            continue
+        for key in ("uid", "UID", "uuid", "UUID", "id", "name"):
+            value = row.get(key)
+            if isinstance(value, str) and value:
+                out.append(value)
+                break
+        if len(out) >= limit:
+            break
+    return out
+
+
+#: How many times the graph turn may generate-execute-read before it settles.
+#: Bounded on purpose: each try is a model call plus a Neo4j round trip on the user's
+#: latency budget, and the measured graph stage already runs at a p90 of 18.9 s.
+GRAPH_MAX_TRIES = 3
+
+
 def _execute_graph_turn(
     *,
     config: ChatConfig,
@@ -452,21 +523,76 @@ def _execute_graph_turn(
 
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
     graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-    if not graph_result.get("ok"):
-        neo4j_error = graph_result.get("error", "Unknown error")
-        print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
-        retry_ctx = (
-            f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
-            "Revisit the schema carefully - check property types, relationship directions, "
-            "and graph_topology - then generate a corrected query."
-        )
+
+    # Generate -> execute -> read the outcome -> regenerate, up to GRAPH_MAX_TRIES.
+    # This was one retry and only on a Cypher error, so a query that ran perfectly well
+    # and matched nothing was final. That is B11 (juanita, a guessed assay name returned
+    # zero and the zero was reported as the answer). A zero-row result now gets exactly
+    # one more go, and if the second query also finds nothing the FIRST result stands:
+    # reporting a different query's number would be worse than reporting zero.
+    attempts: list[dict[str, Any]] = [{
+        "cypher": graph_plan.cypher, "ok": graph_result.get("ok"),
+        "count": graph_result.get("count"), "error": graph_result.get("error"),
+        "reason": "initial",
+    }]
+    first_ok_empty = graph_result.get("ok") and not (graph_result.get("count") or 0)
+    zero_row_retry_used = False
+
+    for _ in range(GRAPH_MAX_TRIES - 1):
+        if not graph_result.get("ok"):
+            neo4j_error = graph_result.get("error", "Unknown error")
+            print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
+            retry_ctx = (
+                f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
+                "Revisit the schema carefully - check property types, relationship directions, "
+                "and graph_topology - then generate a corrected query."
+            )
+            reason = "cypher_error"
+        elif not (graph_result.get("count") or 0) and not zero_row_retry_used:
+            zero_row_retry_used = True
+            print("[GRAPH] Query ran but matched nothing, retrying once with that context")
+            retry_ctx = (
+                "Your previous Cypher query ran without error and matched 0 records:\n"
+                f"{graph_plan.cypher}\n\n"
+                "If a value you filtered on may not appear verbatim in the graph (an assay "
+                "or sample-type code you inferred rather than read from the catalog, a name "
+                "with different capitalisation or punctuation), use the closest value that "
+                "really exists and try again. If the filters are all real and the answer is "
+                "genuinely zero, return the SAME query unchanged - zero is a valid answer and "
+                "a second guess would be worse than it."
+            )
+            reason = "zero_rows"
+        else:
+            break
+
         graph_plan_retry = graph_agent(
             config, user_text, entity_result, plan,
             retry_context=retry_ctx, refine_context=refine_context,
         )
-        if graph_plan_retry.cypher:
-            graph_plan = graph_plan_retry
-            graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+        if not graph_plan_retry.cypher:
+            break
+        retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, graph_plan_retry.parameters)
+        attempts.append({
+            "cypher": graph_plan_retry.cypher, "ok": retry_result.get("ok"),
+            "count": retry_result.get("count"), "error": retry_result.get("error"),
+            "reason": reason,
+        })
+        # Keep the retry only when it is an improvement. A retry that errors, or that
+        # also finds nothing after a zero-row first attempt, leaves the original alone.
+        if not retry_result.get("ok"):
+            if graph_result.get("ok"):
+                break
+        elif reason == "zero_rows" and not (retry_result.get("count") or 0):
+            break
+        graph_plan = graph_plan_retry
+        graph_result = retry_result
+
+    debug_payload["graph_attempts"] = attempts
+    if first_ok_empty and (graph_result.get("count") or 0):
+        # The user must not be told a number without being told the first query found
+        # nothing and the filter was changed to get it.
+        debug_payload["graph_retry_changed_answer"] = True
+
     send_event(
         "search_complete",
         {"source": "neo4j", "ok": graph_result.get("ok"), "count": graph_result.get("count")},
@@ -802,7 +928,33 @@ def run_query(
                     return _emit_query_complete(send_event, reply, debug_payload, None)
 
             _t0 = time.perf_counter()
-            answer = memory_agent_answer(config, user_text, bundle, log_dir=log_dir)
+            # The follow-up agent first. This branch used to end here: it read one
+            # stored bundle and answered from it, with no path back to the graph, so a
+            # question the stored result could not answer was answered from it anyway
+            # (wesselr 440 was told "No other data types are available" about a result
+            # that could not have held them). The agent can look at what the bundle
+            # holds and run a new query seeded with its UIDs. When the profile has no
+            # tool-capable model, or the agent produces nothing, the old path still
+            # runs: worse, but never worse than before.
+            followup_outcome = _run_followup_agent(
+                config, session=session, user_text=user_text, bundle=bundle, log_dir=log_dir,
+            )
+            answer = (followup_outcome or {}).get("reply")
+            if answer:
+                debug_payload["followup"] = {
+                    "tool_calls": followup_outcome.get("tool_calls"),
+                    "queries": [
+                        {"question": q.get("question"), "seeded": q.get("seeded"),
+                         "count": (q.get("result") or {}).get("count")}
+                        for q in followup_outcome.get("queries") or []
+                    ],
+                    "caveats": followup_outcome.get("caveats"),
+                }
+                caveats = followup_outcome.get("caveats") or []
+                if caveats:
+                    answer = answer + "\n\n" + "\n".join(f"- {c}" for c in caveats)
+            else:
+                answer = memory_agent_answer(config, user_text, bundle, log_dir=log_dir)
             print(f"[TIMING][MEMORY] {time.perf_counter() - _t0:.2f}s")
             append_turn(
                 session,

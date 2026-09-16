@@ -46,7 +46,11 @@ tool with a contract stated in its module docstring
 
 Beneath those sit the agent modules (`NessieAI/chat_nextseek/src/chat_nextseek/agents/__init__.py:15-29`),
 the shared helpers and I/O tools (`NessieAI/chat_nextseek/src/chat_nextseek/helpers/__init__.py:10-40`),
-the nf-core tool loop (`NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:211-225`),
+the two tool loops and the one call they share
+(`NessieAI/chat_nextseek/src/chat_nextseek/tool_loop.py`: recovery, prompt caching and a
+ledger entry per tool call; the nf-core builder at
+`NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:211-225` and the follow-up
+agent at `NessieAI/chat_nextseek/src/chat_nextseek/agents/followup.py` are its two callers),
 the Luria launch backend, whose cluster host is hardcoded and whose three
 required environment variables are checked together
 (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:46-59`), the prompt files in
