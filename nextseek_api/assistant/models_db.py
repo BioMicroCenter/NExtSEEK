@@ -376,8 +376,27 @@ class PipelineRun(models.Model):
         ordering = ["-launched_at"]
 
     def uid_for(self, nfcore_sample: str) -> str | None:
-        """The D.SEQ UID this run's samplesheet row came from, or None."""
+        """The D.SEQ UID this run's samplesheet row came from, or None.
+
+        A ``None`` return does not by itself mean the sample was absent from
+        this run: `cohort` can hold an entry for `nfcore_sample` whose
+        `d_seq_uid` is null, and that also returns `None` here. Call
+        `knows_sample` to tell "never in this run" apart from "in this run,
+        UID unresolved".
+        """
         for entry in self.cohort or []:
             if entry.get("nfcore_sample") == nfcore_sample:
                 return entry.get("d_seq_uid") or None
         return None
+
+    def knows_sample(self, nfcore_sample: str) -> bool:
+        """Whether `cohort` has an entry for `nfcore_sample`, resolved or not.
+
+        Separates the two facts `uid_for` alone cannot: absent from `cohort`
+        means this run never processed the sample, so a caller should fall
+        back to matching fastq paths against D.SEQ records; present with a
+        null `d_seq_uid` means the run DID process it but no NExtSEEK sample
+        was known for it, so it must be reported unresolved rather than
+        retried through the fastq fallback.
+        """
+        return any(entry.get("nfcore_sample") == nfcore_sample for entry in self.cohort or [])
