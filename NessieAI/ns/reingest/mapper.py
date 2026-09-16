@@ -49,7 +49,8 @@ class MapResult(BaseModel):
     unmapped: list[dict] = Field(default_factory=list)
 
 
-def apply(run_manifest, pipeline_map, approved_rules=None) -> MapResult:
+def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
+          approved_rules: dict[str, maps.AttributeRule] | None = None) -> MapResult:
     approved_rules = approved_rules or {}
     result = MapResult()
     ruled_out = pipeline_map.ruled_out()
@@ -123,7 +124,8 @@ def apply(run_manifest, pipeline_map, approved_rules=None) -> MapResult:
     return result
 
 
-def _lookup(rule, run_manifest, sample):
+def _lookup(rule: maps.AttributeRule, run_manifest: manifest.RunManifest,
+            sample: manifest.SampleRecord) -> tuple[object, str] | None:
     """(value, raw_key) from the rule's primary key, then each alternate."""
     for key in [rule.from_key, *rule.alternates]:
         if key.startswith("$"):
