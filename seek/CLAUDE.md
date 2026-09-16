@@ -25,7 +25,7 @@
   a `WHERE` with no filter in it, which is a data leak rather than an error.
 - **Values in that SQL are bound, never interpolated.** The one interpolation
   left in the children-UID path is the schema name from settings, and the
-  comment at `seek/views/admin.py:86-91` says exactly that. Reintroducing a
+  comment at `seek/views/admin.py:93-99` says exactly that. Reintroducing a
   value into the statement text reopens issue #78.
 - **`_deleteOneSample` owns cascade integrity, and SEEK does not.** Deleting a
   sample means eight raw statements across eight tables in one transaction
@@ -46,7 +46,7 @@
 - **Four modules open a real MySQL socket that Django's test database never
   intercepts.** They build the connection from `settings.DATABASES` by hand —
   `seek/sample/core.py:33-36` and `seek/sample/core.py:229-230` are two sites in
-  the first, then `seek/views/admin.py:82-83`, `seek/views/upload.py:153-154`
+  the first, then `seek/views/admin.py:89-90`, `seek/views/upload.py:153-154`
   and `seek/timeline/core/database.py:7-16`. Django fills the sqlite alias's missing keys with
   empty strings, so under `dmac.test_settings` the call does not fail on a
   KeyError — measured 2026-09-03 in the throwaway container, it raises

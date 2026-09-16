@@ -71,7 +71,7 @@ and `scripts/validate_attribute_api_evidence.py:28` then check.
 
 **E. Live batch-upload E2E.** `scripts/test_batch_upload_e2e.py:2-6` posts a real
 spreadsheet at a running deployment and then checks Neo4j; it defines no `test_` function,
-so it contributes zero cases to collection. `nextseek_api/batch_upload/README.md:248-250`
+so it contributes zero cases to collection. `nextseek_api/batch_upload/README.md:230-232`
 describes it as a standalone program.
 
 **F. NessieAI codemod.** `scripts/nessieai_codemod.py` rewrites Python imports and dotted

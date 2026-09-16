@@ -119,12 +119,6 @@ lineage, and none of them fails loudly.
   and can fail: a consumer already wraps it in a bare `except` with a Celery fallback
   (`nextseek_api/cc_assistant/cc_upload_tasks.py:18-20`). Never import it for a cheap look
   at a task name.
-- **`nextseek_api/batch_upload/tests/test_neo4j_integration.py:31` does not skip when Neo4j
-  is merely unreachable.** It skips only on missing configuration, and
-  `dmac/test_settings.py:51-55` supplies a complete but fictional Neo4j, so under the test
-  settings the driver retries until it gives up: measured 2026-09-03, 3 errors and about
-  125 of the suite's 128 seconds. Pass `--ignore` for that module unless a real graph is
-  reachable from wherever you run it.
 - **`nextseek_api/batch_upload/policies.py:76-79` changes the SQL it issues when pytest is
   running**, taking the non-RETURNING branch and, at
   `nextseek_api/batch_upload/policies.py:107-113`, handing back synthetic ids. A green test
@@ -145,42 +139,32 @@ lineage, and none of them fails loudly.
   this boundary** by `ci/smoke/test_flows.py:220-223`, which skips rather than fails when it
   is absent (`ci/smoke/test_flows.py:224-225`). Renaming or moving it removes a smoke check
   without turning anything red.
-- **Three files here still tell you to run them from a path that is not in the image.**
-  `nextseek_api/batch_upload/scripts/backfill_parent_titles.py:12`,
-  `nextseek_api/batch_upload/scripts/backfill_parent_title_hashes.py:12` and
-  `nextseek_api/batch_upload/tests/fixtures/_generate_wave3_fixtures.py:15` all name an
+- **One file here still tells you to run it from a path that is not in the image.**
+  `nextseek_api/batch_upload/tests/fixtures/_generate_wave3_fixtures.py:15` names an
   interpreter under `/opt/NExtSEEK`, while the image puts the application and its
   virtualenv under `/app` (`scripts/run_tests.sh:45-47`, the `nextseek` healthcheck in
-  `docker-compose.yml`). Copy-pasting any of those three commands fails on a missing
-  interpreter. `nextseek_api/batch_upload/tests/WAVE3_LIVE_TESTING.md` already runs its
-  lane with `/app/.venv/bin/python` inside the `nextseek` container.
-- **`nextseek_api/batch_upload/neo4j_sync.py:1849` is the last line of the largest module
-  here**, and a `grep` of its top-level `def` lines on 2026-09-03 counted 31, among them 8
-  bulk merges from `nextseek_api/batch_upload/neo4j_sync.py:99` to
-  `nextseek_api/batch_upload/neo4j_sync.py:501`, 2 read-only endpoint audits
-  (`nextseek_api/batch_upload/neo4j_sync.py:220` and
-  `nextseek_api/batch_upload/neo4j_sync.py:334`) and 2 edge deleters. Only the narrower
-  deleter is wired: `nextseek_api/batch_upload/neo4j_sync.py:1767` calls it, and a grep of
-  the whole repo for the wider one at `nextseek_api/batch_upload/neo4j_sync.py:529` finds
-  its own definition, one cross-reference in a neighbouring docstring
-  (`nextseek_api/batch_upload/neo4j_sync.py:537`) and calls from
-  `nextseek_api/batch_upload/tests/test_neo4j_sync.py:622` and nowhere else. Reach for the
-  more obvious name and you will delete every lineage edge a sample has instead of the
-  stale ones.
+  `docker-compose.yml`). Copy-pasting that command fails on a missing interpreter.
+  `nextseek_api/batch_upload/tests/WAVE3_LIVE_TESTING.md` already runs its lane with
+  `/app/.venv/bin/python` inside the `nextseek` container.
+- **`nextseek_api/batch_upload/neo4j_sync.py` writes nothing to Neo4j, although its name
+  still says it does.** `upload_all`, the bulk merges, the constraint and index DDL, both
+  `DERIVED_FROM` deleters and the two read-only endpoint audits were deleted when stage 6
+  moved to `nextseek_api/graph_sync/targeted.py`. What stays reads MySQL and builds
+  payloads, and `nextseek_api/graph_sync/labels.py` and `nextseek_api/graph_sync/sources.py`
+  are checked against it on the same fixtures, so it is the reference for a lineage edge's
+  labels rather than a second writer. Reach in here for a writer and you will find a
+  payload builder no graph ever sees.
 
 ## Test command
 
 ```
 docker exec -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek sh -c \
   'cd /app && uv run --no-sync python -m pytest nextseek_api/batch_upload/tests/ \
-   --no-migrations -q -p no:randomly \
-   --ignore=nextseek_api/batch_upload/tests/test_neo4j_integration.py'
+   --no-migrations -q -p no:randomly'
 ```
 
-Ran 2026-09-03: 1223 passed, 26 skipped, 3.82s. Drop the `--ignore` only when a reachable
-Neo4j is configured; see the landmine above for what happens otherwise. Never widen the path
-to the whole `nextseek_api/` tree in one go: that pulls in hundreds of unrelated
-environmental failures that are not regressions.
+Never widen the path to the whole `nextseek_api/` tree in one go: that pulls in hundreds of
+unrelated environmental failures that are not regressions.
 
 ## See also
 

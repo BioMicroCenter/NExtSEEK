@@ -183,15 +183,17 @@ importer grep cannot see.
   `seek/seekapi.py:60-64` and wrapped by `seek/seekdb.py:11-31`. This is the
   authorization boundary: project membership and supervisor status come from
   SEEK, not from Django's auth tables.
-- Neo4j, for sample lineage: `seek/sample/table.py:61-65` opens the driver
-  directly from `settings.NEO4J_DATABASE`.
+- Neo4j, for sample lineage, to READ: `seek/sample/trees.py:31-32` opens the
+  driver directly from `settings.NEO4J_DATABASE`. Nothing under `seek/` writes
+  the graph any more: the pages enqueue a `graph_sync` outbox row after their
+  own MySQL commit and the sync loop writes it.
 - `dmac/`, mutually: 14 modules here import `dmac.dbtable.DBtable`, and
-  `seek/views/admin.py:5-8` imports four `dmac.dbtable_*` modules that
+  `seek/views/admin.py:11-14` imports four `dmac.dbtable_*` modules that
   themselves import back from `seek.models` (`dmac/dbtable_clades.py:15`).
 - `nextseek_api.services`, mutually and at module scope, for the catalog and
   workbook logic the pages render: `seek/views/catalog.py:16`,
   `seek/views/projects.py:19-22`, `seek/views/assets.py:17-18`,
-  `seek/views/admin.py:25`, `seek/sample/download.py:17`.
+  `seek/views/admin.py:32`, `seek/sample/download.py:17`.
 
 **Depended on by.** Generated 2026-09-03 by grepping every `.py` file in the
 worktree for a line beginning with an import of `seek` or of any `seek.`

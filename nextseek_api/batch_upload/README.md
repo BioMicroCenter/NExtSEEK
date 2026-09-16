@@ -82,8 +82,8 @@ both the upload and the validate entry points; the stage order is spelled out at
 | 2.5 LEVELS | `nextseek_api/batch_upload/levels.py:27` | topological insert order |
 | 3 PREFETCH | `nextseek_api/batch_upload/prefetch.py:263` | cached sample-type and assay lookups |
 | 4 TRANSFORM | `nextseek_api/batch_upload/transform.py:43` | builds the insertable row |
-| 5 INSERT | `nextseek_api/batch_upload/insert.py:116` | the batch loop, per topological level |
-| 6 NEO4J | `nextseek_api/batch_upload/neo4j_sync.py:1582` | bulk MERGE of nodes and edges |
+| 5 INSERT | `nextseek_api/batch_upload/insert.py:171` | the batch loop, per topological level |
+| 6 GRAPH SYNC | `nextseek_api/batch_upload/orchestrator.py:637` | hands this job's committed ids to `graph_sync` |
 | 7 REPORT | `nextseek_api/batch_upload/report.py:108` | the per-row summary CSV |
 
 Around them: `nextseek_api/batch_upload/ontology.py:15` reads the workbook's controlled
@@ -146,14 +146,6 @@ onto two queues (`nextseek_api/batch_upload/celery_app.py:35-39`), carries one b
 another subsystem (`nextseek_api/batch_upload/celery_app.py:40-45`) and clamps a task at two
 hours soft, 7800 seconds hard (`nextseek_api/batch_upload/celery_app.py:46-47`).
 
-`scripts/` holds three one-time Neo4j backfills, each of which calls `django.setup()` itself
-and is run as a standalone program. Two repair sample-node parent fields
-(`nextseek_api/batch_upload/scripts/backfill_parent_titles.py:50` writes both lists in
-lockstep, `nextseek_api/batch_upload/scripts/backfill_parent_title_hashes.py:77` fills the
-hash list alone); the third recomputes the full shared-assay set onto `DERIVED_FROM` edges
-from SQL and is the only one with a dry-run gate
-(`nextseek_api/batch_upload/scripts/backfill_shared_assays.py:160-161`).
-
 ## Running and testing
 
 The suite is self-contained under `tests/`, and there is no `conftest.py` anywhere beneath
@@ -167,16 +159,9 @@ docker exec -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek sh -c \
    --no-migrations -q -p no:randomly'
 ```
 
-Run 2026-09-03: 1223 passed, 26 skipped, 3 errors in 128.50s. Before trusting that, note
-that the container ships its own copy of the code; on that date a per-file md5 comparison of
-all 87 `*.py` files under `nextseek_api/batch_upload` against `/app` in the running
-`nextseek` container showed no difference, so the lane exercised this branch's source.
-
-The three errors all come from the module-scoped driver fixture at
-`nextseek_api/batch_upload/tests/test_neo4j_integration.py:34-40`, and they cost almost the
-whole runtime: the same command with that one module ignored
-finished in 3.82s with an identical 1223 passed, 26 skipped. See
-`nextseek_api/batch_upload/CLAUDE.md` for why that module errors instead of skipping.
+Before trusting a green run, note that the container ships its own copy of the code: a
+per-file comparison of the package against `/app` in the running `nextseek` container is
+what proves the lane exercised this branch's source rather than the image's.
 
 The 26 skips break down, on the same date and with `-rs`, as 23 needing a MariaDB fixture
 the environment does not supply
@@ -213,9 +198,6 @@ Depends on, outside this directory:
 - `seek/models/seek_mirror.py:20` and `seek/seekdb.py:148`, plus
   `nextseek_api/helpers.py:89`, the three routes by which
   `nextseek_api/batch_upload/views.py:674` turns a Django session into a SEEK person id.
-- `nextseek_api/assay_registration/graph.py`, imported by
-  `nextseek_api/batch_upload/scripts/backfill_shared_assays.py:56-60`: the reverse of the
-  edge below, and the only place the dependency runs this way.
 - Optional accelerators, each with a live fallback: `orjson`
   (`nextseek_api/batch_upload/dag.py:10-16`) and `duckdb`, which falls back to pandas above
   the 250,000-row threshold (`nextseek_api/batch_upload/dag.py:189-193`). `polars`

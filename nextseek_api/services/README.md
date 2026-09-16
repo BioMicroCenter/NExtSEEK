@@ -177,7 +177,7 @@ non-Python and non-import contexts, then grouped. Test modules are omitted:
   imports, which is how everything routed here reaches HTTP.
 - `seek/`, in the reverse direction, and this is the edge most likely to surprise: the legacy
   app imports this directory's library half at `seek/sample/download.py:17`,
-  `seek/views/admin.py:25`, `seek/views/assets.py:17-24`, `seek/views/catalog.py:16` and
+  `seek/views/admin.py:32`, `seek/views/assets.py:17-24`, `seek/views/catalog.py:16` and
   `seek/views/projects.py:19-22`. Both directions are module-scope, so the two apps are
   mutually dependent at import time.
 - Three sibling packages import one class from `nextseek_api/services/assistant.py`:

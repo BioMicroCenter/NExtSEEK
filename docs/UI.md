@@ -159,10 +159,10 @@ All four include the shared `catalog_styles.html`. The URL prefix is deliberatel
 | Page | URL | View | Template |
 |------|-----|------|----------|
 | Django Admin | `/admin/` | Django admin (`dmac/urls.py:26`) | (Django built-in) |
-| Clades Management | `/seek/admin/clades/` | `views.adminClades` (`seek/views/admin.py:149`) | `seek/templates/clades.html` (`seek/views/admin.py:154`) |
+| Clades Management | `/seek/admin/clades/` | `views.adminClades` (`seek/views/admin.py:156`) | `seek/templates/clades.html` (`seek/views/admin.py:161`) |
 | Sample Attributes | `/seek/samples/attributes/` | `views.sampleAttributes` (`seek/views/samples.py:288`) | `seek/templates/sampleAttributes.html` (`seek/views/samples.py:296`) |
-| Admin Sample Retrieval | `/seek/admin/retrieve/` | `views.adminRetrieveSamples` (`seek/views/admin.py:31`) | `seek/templates/admin_retrieval.html` (`seek/views/admin.py:65`) |
-| Internal Assays | `/seek/admin/internal_assays/` | `views.internalAssays` (`seek/views/admin.py:218`) | `seek/templates/internal_assays.html` (`seek/views/admin.py:224`) |
+| Admin Sample Retrieval | `/seek/admin/retrieve/` | `views.adminRetrieveSamples` (`seek/views/admin.py:38`) | `seek/templates/admin_retrieval.html` (`seek/views/admin.py:72`) |
+| Internal Assays | `/seek/admin/internal_assays/` | `views.internalAssays` (`seek/views/admin.py:233`) | `seek/templates/internal_assays.html` (`seek/views/admin.py:239`) |
 
 ---
 
