@@ -63,7 +63,7 @@ MAX_FILES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILES", 500))
 
 # MultiQC's per-read rows (`<sample>_1`, `<sample>_2`) populate only these
 # modules' columns; every other module (star, salmon, samtools_*, qualimap_*,
-# ...) is per-sample and leaves them blank. See _is_per_read_row.
+# ...) is per-sample and leaves them blank. See _classify_general_stats_row.
 _PER_READ_ROW_PREFIXES = ("fastqc_raw-", "fastqc_trimmed-", "cutadapt-")
 
 
@@ -181,20 +181,34 @@ def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None) -> manif
         # none into the results directory -- see _SAMPLESHEET_GLOB above).
         # Fall back to the general-stats sample rows themselves: MultiQC also
         # emits a per-read row for each mate (`<sample>_1`, `<sample>_2`), so
-        # a row is excluded only when its populated columns are EXCLUSIVELY
-        # ones MultiQC fills for those per-read rows (see
-        # _is_per_read_row) -- not merely because its name ends "_1"/"_2" and
-        # a same-named row exists, which would also wrongly drop a real
-        # replicate sample legitimately named e.g. "A_1" alongside "A".
+        # a row is excluded only when it is confidently classified as one of
+        # those per-read rows -- not merely because its populated columns are
+        # exclusively ones MultiQC fills for per-read rows, which a real
+        # sample whose alignment step failed also has (see
+        # _classify_general_stats_row for how the two are told apart, and
+        # why a same-named row existing is not by itself the test -- that
+        # would also wrongly drop a real replicate sample legitimately named
+        # e.g. "A_1" alongside "A"). Anything left ambiguous is kept as a
+        # sample and warned about rather than silently dropped.
         if stats_source:
             sources["samples"] = stats_source
         warnings.append(
             "no validated samplesheet; sample names came from multiqc "
             "general stats, so fastq-based D.SEQ UID resolution is "
             "unavailable for them")
-        sample_names = sorted(
-            name for name, columns in stats.items()
-            if not _is_per_read_row(columns))
+        sample_names = []
+        for name in sorted(stats):
+            classification = _classify_general_stats_row(name, stats[name], stats)
+            if classification == "per_read":
+                continue
+            if classification == "ambiguous":
+                warnings.append(
+                    f"{name}: only fastqc/cutadapt columns are populated and "
+                    "no sibling per-sample row was found under its stripped "
+                    "_1/_2 base name; kept as a sample rather than risk "
+                    "silently dropping a real sample whose alignment failed "
+                    "(see _classify_general_stats_row)")
+            sample_names.append(name)
         rows = [{"sample": name, "fastq_1": "", "fastq_2": "", "strandedness": ""}
                 for name in sample_names]
     else:
@@ -250,23 +264,53 @@ def _pipeline_name(params: dict) -> str:
     return str(params.get("pipeline") or "")
 
 
-def _is_per_read_row(columns: dict) -> bool:
-    """True for a multiqc_general_stats.txt row that is one of MultiQC's own
-    per-read rows (`<sample>_1`, `<sample>_2`), not a real biological sample.
+def _classify_general_stats_row(name: str, columns: dict, stats: dict) -> str:
+    """Classify one multiqc_general_stats.txt row as "sample", "per_read", or
+    "ambiguous", for the samplesheet-less fallback that must decide which
+    rows are real biological samples.
 
-    Naming alone is not a safe signal: a samplesheet can legitimately name a
-    real replicate "A_1" alongside a sample "A" -- a common numeric-replicate
-    convention -- and a check based only on "name ends _1/_2 and the
-    stripped name is also a row" would silently drop that real sample. What
-    actually characterises MultiQC's per-read rows is which modules populate
-    them: only the per-read fastqc/cutadapt columns are ever filled in for
-    those rows (see _PER_READ_ROW_PREFIXES); every other module (star,
-    salmon, samtools_*, qualimap_*, ...) is per-sample and leaves them blank.
+    Any row with at least one column outside _PER_READ_ROW_PREFIXES is
+    unambiguously "sample": those columns (star, salmon, samtools_*,
+    qualimap_*, ...) are per-sample and MultiQC never fills them in for a
+    per-read row.
+
+    A row where EVERY populated column is fastqc/cutadapt-prefixed is NOT
+    safely "per_read" on the column signature alone. Column signature alone
+    cannot tell apart two very different rows:
+      (a) MultiQC's own per-read split of a real sample -- `<sample>_1` and
+          `<sample>_2` -- which sits ALONGSIDE that sample's own per-sample
+          row, since fastqc/cutadapt run per-mate regardless of what happens
+          downstream.
+      (b) a real biological sample whose alignment step FAILED: star,
+          salmon, samtools_* and qualimap_* never ran, so nothing but
+          fastqc/cutadapt ever gets written for it -- the exact same column
+          signature as (a), with nothing to tell them apart by columns.
+    The two are told apart structurally instead: (a) is only a genuine
+    MultiQC artifact when the row's name ends "_1" or "_2" AND the stripped
+    base name is ALSO a row in this same table (that base row is the real
+    per-sample data the mate rows split off from -- fastqc/cutadapt would
+    not otherwise produce a lone "_1"/"_2" row with no sibling). Naming
+    alone is still not enough either way: a samplesheet can legitimately
+    name a real replicate "A_1" alongside a sample "A", which is why the
+    base-row check only fires once the column signature already narrowed
+    things to "nothing but fastqc/cutadapt ran" -- "A_1" with a populated
+    star- column is caught by the first check above and never reaches here.
+    Anything that reaches this point without a confirmed sibling -- a
+    plainly-named failed sample, or one with a "_1"/"_2" suffix but no base
+    row -- is "ambiguous": kept as a sample rather than risk silently
+    dropping a real one, per Important 1 of the 2026-09-16 review.
     Confirmed against the real CONTROL_REP1_1/_2 and TREATED_REP1_1/_2 rows
-    in the fixture's multiqc_general_stats.txt.
+    (case (a)) in the fixture's multiqc_general_stats.txt.
     """
-    return bool(columns) and all(
-        column.startswith(_PER_READ_ROW_PREFIXES) for column in columns)
+    if not columns:
+        return "sample"
+    if any(not column.startswith(_PER_READ_ROW_PREFIXES) for column in columns):
+        return "sample"
+    if name.endswith(("_1", "_2")):
+        base = name[:-2]
+        if base and base != name and base in stats:
+            return "per_read"
+    return "ambiguous"
 
 
 def _rseqc_glob_for_sample(pattern: str, sample: str) -> str:
