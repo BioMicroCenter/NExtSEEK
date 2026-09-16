@@ -75,9 +75,11 @@ def test_render_of_a_batch_level_finding_is_unchanged():
 
 
 def test_every_finding_lands_in_exactly_one_of_hard_or_soft():
-    rows = [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-1", "Name": "n1"}},
+    # missing_required moved to HARD (Task 4), so it can no longer supply this
+    # test's SOFT example; surprise_sentinel still is one.
+    rows = [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-1", "Name": "n1", "Notes": "TODO"}},
             {"json_metadata": {"Name": "n2"}}]  # n2 has no Parent -> HARD BLANK_PARENT
-    report = _qa(rows, required_fields=["Notes"])  # missing Notes -> SOFT on both rows
+    report = _qa(rows)  # n1's "TODO" Notes -> SOFT surprise_sentinel
     assert report.hard  # at least one hard finding present
     assert report.soft  # at least one soft finding present
     assert len(report.hard) + len(report.soft) == len(report.findings)

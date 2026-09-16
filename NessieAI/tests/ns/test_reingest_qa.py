@@ -63,11 +63,11 @@ def test_placeholder_ok_surprise_sentinel_soft_flags():
     assert any("surprise_sentinel" in s for s in flag.soft)
 
 
-def test_missing_required_is_soft_flag():
+def test_missing_required_is_hard_reject():
     r = qa_rows([_row("D.SEQ-220823SHA-1")], sample_type="A.SCXP", known_sampletypes=_TYPES,
                 required_fields=["Parent", "File_PrimaryData"], existing_parent_uids=_PARENTS)
-    assert r.disposition == SOFT_FLAG
-    assert any("missing_required" in s and "File_PrimaryData" in s for s in r.soft)
+    assert r.disposition == HARD_REJECT
+    assert any("missing_required" in s and "File_PrimaryData" in s for s in r.hard)
 
 
 # ── variant parent keys (AntibodyParent, Treatment1Parent, …) ──────────────
