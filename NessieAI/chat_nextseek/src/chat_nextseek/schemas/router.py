@@ -25,10 +25,29 @@ class EndpointCandidate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+#: The modes the orchestrator actually dispatches on, in one place so the schema the
+#: model is handed and the branches that consume it cannot drift apart.
+#: ``memory_lookup`` is an accepted alias the parser normalises to
+#: ``ask_about_last_results``.
+PARSER_MODES: tuple[str, ...] = (
+    "new_search",
+    "refine_last_search",
+    "ask_about_last_results",
+    "memory_lookup",
+    "system_question",
+    "reporter",
+    "graph_query",
+    "unsupported",
+)
+
+
 class ParserPlan(BaseModel):
-    # Valid modes: "new_search" | "refine_last_search" | "ask_about_last_results" |
-    #              "system_question" | "reporter" | "graph_query" | "unsupported"
-    mode: str = "unsupported"
+    # The field stays `str`, not a Literal: an unrecognised mode must reach the
+    # orchestrator's "unexpected mode" branch and get a civil reply, not fail
+    # validation and burn the repair loop. The enum is published in the JSON schema
+    # instead, where it constrains a schema-shaped (forced tool call) request and is a
+    # strong hint everywhere else. Guard: tests/chat_nextseek/test_structured_via_tools.py.
+    mode: str = Field(default="unsupported", json_schema_extra={"enum": list(PARSER_MODES)})
     target_endpoint: str | None = None
     intent_summary: str = ""
     filters: ParserFilters = Field(default_factory=ParserFilters)

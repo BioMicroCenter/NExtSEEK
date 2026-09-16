@@ -15,6 +15,7 @@ __all__ = [
     "LLMAPIConnectionError",
     "LLMTimeoutError",
     "LLMServiceUnavailableError",
+    "LLMStructuredUnsupportedError",
     "LLMFatalError",
     "LLMResponse",
     "BaseLLMClient",
@@ -22,6 +23,7 @@ __all__ = [
     "GeminiClient",
     "AnthropicClient",
     "BedrockClient",
+    "pydantic_to_tool_schema",
     "build_llm_client",
 ]
 
@@ -51,6 +53,16 @@ class LLMFatalError(BaseException):
     def __init__(self, message: str, *, agent: str | None = None):
         super().__init__(message)
         self.agent = agent
+
+
+class LLMStructuredUnsupportedError(LLMError):
+    """The model rejected a schema-constrained request, but would accept a plain one.
+
+    Raised when Bedrock returns a ValidationException naming toolConfig/toolChoice or
+    the thinking/tool-choice combination. It is NOT a provider outage and must not
+    trip the fallback chain: the caller retries the same model without the schema and
+    falls back to prompt-shaped JSON, which is what every call did before.
+    """
 
 
 class LLMServiceUnavailableError(LLMError):
@@ -442,6 +454,106 @@ class AnthropicClient(BaseLLMClient):
         )
 
 
+def _is_schema_rejection(message: str) -> bool:
+    """True when a Bedrock ValidationException is about the schema, not the content.
+
+    A model that will not take `toolConfig`, a forced `toolChoice`, or `strict` will
+    happily take the same request without them, so the caller retries plain rather
+    than failing over to another provider or killing the turn. Matched on the message
+    because Bedrock returns one ValidationException code for all of them.
+    """
+    lowered = (message or "").lower()
+    return any(
+        token in lowered
+        for token in ("toolchoice", "toolconfig", "tool_choice", "strict", "outputconfig", "output_config")
+    )
+
+
+def _converse_usage(resp: dict) -> dict | None:
+    """Token counts from a Converse response, including the two cache fields.
+
+    `inputTokens` counts only tokens that were NEITHER read from nor written to the
+    cache, so a caller that ignores the cache fields under-reports the real prompt by
+    exactly the cached part. Total input is
+    `inputTokens + cacheReadInputTokens + cacheWriteInputTokens`.
+    """
+    try:
+        u = resp.get("usage") or {}
+        usage = {
+            "prompt_tokens": u.get("inputTokens"),
+            "completion_tokens": u.get("outputTokens"),
+            "total_tokens": u.get("totalTokens"),
+        }
+        if u.get("cacheReadInputTokens") is not None:
+            usage["cache_read_tokens"] = u.get("cacheReadInputTokens")
+        if u.get("cacheWriteInputTokens") is not None:
+            usage["cache_write_tokens"] = u.get("cacheWriteInputTokens")
+        return usage
+    except Exception:
+        return None
+
+
+def _converse_metadata(resp: dict) -> dict | None:
+    """Request id, http status, retry count, server latency and stop reason.
+
+    `stop_reason` is the field that would have named production turn 406's cause; the
+    enum now includes `malformed_model_output` and `model_context_window_exceeded`.
+    """
+    try:
+        rmeta = resp.get("ResponseMetadata") or {}
+        return {
+            "request_id": rmeta.get("RequestId"),
+            "http_status": rmeta.get("HTTPStatusCode"),
+            "retry_attempts": rmeta.get("RetryAttempts"),
+            "bedrock_latency_ms": (resp.get("metrics") or {}).get("latencyMs"),
+            "stop_reason": resp.get("stopReason"),
+        }
+    except Exception:
+        return None
+
+
+def _normalize_tool_choice(choice: str | dict) -> dict:
+    """Accept "auto" | "any" | "<tool name>" | a raw Converse toolChoice dict.
+
+    Converse spells the three options `{"auto": {}}`, `{"any": {}}` and
+    `{"tool": {"name": ...}}`. Forcing a named tool is how a call gets schema-shaped
+    output on a model with no structured-output support: the model answers by filling
+    the tool's input schema, and a forced call cannot come back as an empty text
+    block, which is the failure in production turn 406.
+    """
+    if isinstance(choice, dict):
+        return choice
+    if choice in ("auto", "any"):
+        return {choice: {}}
+    return {"tool": {"name": choice}}
+
+
+def pydantic_to_tool_schema(model: Any) -> dict:
+    """Turn a Pydantic model into a tool input schema Bedrock will accept.
+
+    Pydantic emits `$defs`/`$ref`, which Converse allows (internal references only),
+    and omits `additionalProperties`. Closing every object that declares properties
+    makes the shape unambiguous for the model and is also the precondition for
+    `strict: true` later; objects with no declared properties (a free-form `dict`
+    field such as `ParserPlan.metadata`) are left open, because closing those would
+    forbid the very content they exist to carry.
+    """
+    schema = model.model_json_schema()
+
+    def close(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" and node.get("properties"):
+                node.setdefault("additionalProperties", False)
+            for value in node.values():
+                close(value)
+        elif isinstance(node, list):
+            for value in node:
+                close(value)
+
+    close(schema)
+    return schema
+
+
 class BedrockClient(BaseLLMClient):
     """
     AWS Bedrock Converse API client via boto3.
@@ -629,27 +741,11 @@ class BedrockClient(BaseLLMClient):
 
         usage = None
         try:
-            u = resp.get("usage", {})
-            usage = {
-                "prompt_tokens": u.get("inputTokens"),
-                "completion_tokens": u.get("outputTokens"),
-                "total_tokens": u.get("totalTokens"),
-            }
+            usage = _converse_usage(resp)
         except Exception:
             pass
 
-        metadata = None
-        try:
-            rmeta = resp.get("ResponseMetadata") or {}
-            metadata = {
-                "request_id": rmeta.get("RequestId"),
-                "http_status": rmeta.get("HTTPStatusCode"),
-                "retry_attempts": rmeta.get("RetryAttempts"),
-                "bedrock_latency_ms": (resp.get("metrics") or {}).get("latencyMs"),
-                "stop_reason": resp.get("stopReason"),
-            }
-        except Exception:
-            pass
+        metadata = _converse_metadata(resp)
 
         return LLMResponse(
             content=text or "",
@@ -711,6 +807,11 @@ class BedrockClient(BaseLLMClient):
         model: str,
         max_tokens: int | None = None,
         temperature: float = 0.0,
+        tool_choice: str | dict | None = None,
+        strict_tools: bool = False,
+        cache_prompt: bool = False,
+        cache_ttl: str = "1h",
+        thinking_budget: int | None = None,
     ) -> dict:
         """Invoke Bedrock Converse with tool-use enabled; return a normalized response.
 
@@ -757,16 +858,34 @@ class BedrockClient(BaseLLMClient):
                 raise ValueError(f"Unsupported message content type: {type(content).__name__}")
 
         # Translate tools: anthropic-style -> Bedrock toolConfig shape.
-        tool_specs = [
-            {
-                "toolSpec": {
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "inputSchema": {"json": tool["input_schema"]},
-                }
+        tool_specs: list[dict] = []
+        for tool in tools:
+            spec: dict[str, Any] = {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "inputSchema": {"json": tool["input_schema"]},
             }
-            for tool in tools
-        ]
+            if strict_tools:
+                # Bedrock validates the schema against its JSON Schema Draft 2020-12
+                # subset and compiles a grammar, so the model's tool input is
+                # guaranteed to match. Only some models accept it (Claude Sonnet 4.5,
+                # Haiku 4.5, Opus 4.5, Opus 4.6 at the time of writing; NOT Opus 4.7),
+                # hence opt-in rather than always on.
+                spec["strict"] = True
+            tool_specs.append({"toolSpec": spec})
+
+        # A cachePoint after the tool definitions and after the system prompt caches
+        # the static head of the request. Checkpoints are processed tools -> system ->
+        # messages and the minimum is cumulative across all three, so putting them at
+        # the end of the two stable sections is what a growing tool conversation wants:
+        # every later iteration of the loop re-sends this same head.
+        system_blocks: list[dict] = [{"text": system}] if system else []
+        if cache_prompt:
+            cache_block = {"cachePoint": {"type": "default", "ttl": cache_ttl}}
+            if tool_specs:
+                tool_specs.append(dict(cache_block))
+            if system_blocks:
+                system_blocks.append(dict(cache_block))
 
         # Opus 4.7 / Mythos forbid temperature/top_p/top_k.
         is_adaptive_only = "opus-4-7" in model or "mythos" in model
@@ -776,11 +895,35 @@ class BedrockClient(BaseLLMClient):
         kwargs: dict[str, Any] = {
             "modelId": model,
             "messages": converse_messages,
-            "system": [{"text": system}] if system else [],
+            "system": system_blocks,
             "inferenceConfig": inference_config,
         }
+        if thinking_budget is not None:
+            # Same translation `chat` does. Adaptive thinking auto-enables interleaved
+            # thinking, so a tool loop keeps reasoning between calls; the headroom on
+            # maxTokens is what stops the model spending the whole budget thinking and
+            # returning nothing.
+            if is_adaptive_only:
+                _BUDGET_TO_EFFORT = {4000: "low", 8000: "medium", 16000: "high"}
+                kwargs["additionalModelRequestFields"] = {
+                    "thinking": {"type": "adaptive"},
+                    "output_config": {"effort": _BUDGET_TO_EFFORT.get(thinking_budget, "high")},
+                }
+                inference_config["maxTokens"] = max(
+                    max_tokens or self.max_output_tokens, thinking_budget + 4096
+                )
+            else:
+                kwargs["additionalModelRequestFields"] = {
+                    "thinking": {"type": "enabled", "budget_tokens": thinking_budget}
+                }
+                inference_config["maxTokens"] = max(
+                    max_tokens or self.max_output_tokens, thinking_budget + 2048
+                )
         if tool_specs:
-            kwargs["toolConfig"] = {"tools": tool_specs}
+            tool_config: dict[str, Any] = {"tools": tool_specs}
+            if tool_choice is not None:
+                tool_config["toolChoice"] = _normalize_tool_choice(tool_choice)
+            kwargs["toolConfig"] = tool_config
 
         try:
             resp = self.client.converse(**kwargs)
@@ -798,6 +941,11 @@ class BedrockClient(BaseLLMClient):
                 "ModelErrorException",
             ):
                 raise LLMServiceUnavailableError(str(e)) from e
+            if code == "ValidationException" and _is_schema_rejection(str(e)):
+                # The model will not take this request WITH a schema but would take it
+                # without one. Distinct from a 503 on purpose: failing over to another
+                # provider would be the wrong move, and so would killing the turn.
+                raise LLMStructuredUnsupportedError(str(e)) from e
             raise   # unknown ClientError propagates
 
         # Normalize the Converse response to anthropic-style content blocks.
@@ -817,7 +965,89 @@ class BedrockClient(BaseLLMClient):
                 })
             # Other block types (image, document, etc.) ignored for now.
 
-        return {"stop_reason": stop_reason, "content": normalized}
+        # usage and metadata used to be dropped here, so the pipeline agent — the one
+        # place that already ran a tool loop — spent tokens no ledger ever saw, and a
+        # cache hit was unmeasurable. Additive keys: callers reading stop_reason and
+        # content are unaffected.
+        return {
+            "stop_reason": stop_reason,
+            "content": normalized,
+            "usage": _converse_usage(resp),
+            "metadata": _converse_metadata(resp),
+        }
+
+    def chat_structured(
+        self,
+        *,
+        messages: list[dict],
+        system: str | None,
+        model: str,
+        schema: dict,
+        schema_name: str = "emit_result",
+        schema_description: str = "",
+        max_tokens: int | None = None,
+        temperature: float = 0.0,
+        thinking_budget: int | None = None,
+        strict: bool = False,
+        cache_prompt: bool = False,
+        cache_ttl: str = "1h",
+    ) -> "LLMResponse":
+        """Get schema-shaped JSON by forcing one tool call, and return it as text.
+
+        Every Bedrock structured call in this codebase used to be unconstrained text:
+        `BedrockClient.chat` accepts `response_format` and never sends it, so the JSON
+        was prompt discipline plus a Pydantic repair loop. Forcing a named tool makes
+        the model answer by filling the schema instead, and a forced tool call cannot
+        come back as an empty text block — which is precisely how production turn 406
+        failed three times in a row.
+
+        `.content` is the tool input serialised, so callers parse it exactly as they
+        parsed the free-text reply and nothing downstream changes. `strict=True` adds
+        Bedrock's grammar-level guarantee but only some models accept it (Claude Sonnet
+        4.5/4.6, Haiku 4.5, Opus 4.5/4.6; NOT Opus 4.7), so it stays opt-in.
+        """
+        import json as _json
+
+        result = self.chat_with_tools(
+            messages=messages,
+            tools=[{
+                "name": schema_name,
+                "description": schema_description or f"Return the result as {schema_name}.",
+                "input_schema": schema,
+            }],
+            system=system or "",
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            tool_choice=schema_name,
+            strict_tools=strict,
+            cache_prompt=cache_prompt,
+            cache_ttl=cache_ttl,
+            thinking_budget=thinking_budget,
+        )
+
+        payload = ""
+        for block in result.get("content", []):
+            if block.get("type") == "tool_use" and block.get("name") == schema_name:
+                payload = _json.dumps(block.get("input", {}))
+                break
+        if not payload:
+            # The model answered in prose despite the forced tool. Hand the text back
+            # so the ordinary parse path gets its chance rather than failing here.
+            payload = "".join(
+                b.get("text", "") for b in result.get("content", []) if b.get("type") == "text"
+            )
+
+        metadata = dict(result.get("metadata") or {})
+        metadata["structured_via"] = "tool_use"
+        return LLMResponse(
+            content=payload,
+            raw=result,
+            usage=result.get("usage"),
+            model=model,
+            provider=self.provider,
+            metadata=metadata,
+        )
 
 
 def build_llm_client(

@@ -8,7 +8,15 @@ from pydantic import BaseModel, ValidationError
 
 from ..config import ChatConfig
 from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
-from ..llm_clients import LLMError, LLMRateLimitError, LLMTimeoutError, LLMServiceUnavailableError, LLMFatalError
+from ..llm_clients import (
+    LLMError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+    LLMServiceUnavailableError,
+    LLMStructuredUnsupportedError,
+    LLMFatalError,
+    pydantic_to_tool_schema,
+)
 
 # Default timeout for LLM calls (5 minutes)
 LLM_CALL_TIMEOUT_SECONDS = 300
@@ -142,12 +150,41 @@ def _call_llm_with_timeout(
     response_format: dict[str, Any] | None,
     timeout_seconds: float = LLM_CALL_TIMEOUT_SECONDS,
     thinking_budget: int | None = None,
+    response_schema: dict | None = None,
+    schema_name: str = "emit_result",
 ):
     """
     Execute an LLM call with a wall-clock timeout enforced via ThreadPoolExecutor.
     Returns the response on success or raises LLMTimeoutError when time is exceeded, preserving the calling signature.
+
+    When the client can take a schema (`chat_structured`, currently Bedrock only) and
+    one is supplied, the call goes out as a forced tool call instead of prompt-shaped
+    JSON. `BedrockClient.chat` accepts `response_format` and never sends it, so that
+    path had no output constraint at all. A model that rejects the schema-shaped
+    request raises `LLMStructuredUnsupportedError` and the same call is retried plain,
+    which is exactly the behaviour every call had before — the schema can only help.
     """
     def _do_call():
+        if response_schema is not None and callable(getattr(client, "chat_structured", None)):
+            system_text = "\n\n".join(
+                str(m.get("content") or "") for m in messages if (m.get("role") or "").lower() == "system"
+            )
+            chat_messages = [m for m in messages if (m.get("role") or "").lower() != "system"]
+            try:
+                return client.chat_structured(
+                    messages=chat_messages,
+                    system=system_text or None,
+                    model=model_name,
+                    schema=response_schema,
+                    schema_name=schema_name,
+                    temperature=temperature,
+                    thinking_budget=thinking_budget,
+                )
+            except LLMStructuredUnsupportedError as e:
+                print(
+                    f"[STRUCTURED_PARSE] model='{model_name}' rejected the schema-shaped "
+                    f"request, retrying as plain text: {e}"
+                )
         return client.chat(
             model=model_name,
             temperature=temperature,
@@ -231,6 +268,20 @@ def _recycle_client_connections(client, label: str = "") -> None:
         print(f"[STRUCTURED_PARSE][{label}] connection recycle failed: {e!r}")
 
 
+def _schema_tool_name(model: Type[BaseModel]) -> str:
+    """A stable, Bedrock-legal tool name per schema.
+
+    Bedrock caches a compiled grammar per schema for 24 hours, and the name is part of
+    what the model sees, so it must not vary run to run. ``ParserPlan`` -> ``emit_parser_plan``.
+    """
+    import re as _re
+
+    name = model.__name__.lstrip("_")
+    snake = _re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+    snake = _re.sub(r"[^a-z0-9_]", "_", snake).strip("_") or "result"
+    return f"emit_{snake}"[:64]
+
+
 def _call_with_recovery(
     config: ChatConfig,
     *,
@@ -249,6 +300,8 @@ def _call_with_recovery(
     label: str,
     usage_label: str | None,
     on_response,
+    response_schema: dict | None = None,
+    schema_name: str = "emit_result",
 ) -> tuple[bool, Any]:
     """The provider-recovery ladder shared by every LLM call in the deterministic path.
 
@@ -292,6 +345,8 @@ def _call_with_recovery(
                 response_format=response_format,
                 timeout_seconds=_timeout,
                 thinking_budget=target_thinking_budget,
+                response_schema=response_schema,
+                schema_name=schema_name,
             )
             # An empty completion is a PROVIDER fault, not a schema error, and until
             # now it was treated as the latter: "" fails json parsing, so the repair
@@ -441,10 +496,16 @@ def call_llm_structured(
     thinking_budget: int | None = None,
     client=None,
     agent_label: str | None = None,
+    structured_via_tools: bool = True,
 ) -> BaseModel:
     """
     Call the LLM and parse into a structured Pydantic model with a repair loop.
     Includes timeout handling (default 300s) with automatic retry on timeout.
+
+    ``structured_via_tools`` sends the schema to providers that can enforce a shape
+    (a forced tool call on Bedrock) instead of asking for JSON in the prompt. It
+    degrades to the prompt-shaped request on any provider that will not take it, so
+    it is on by default; pass False to pin a call to the old behaviour.
     """
     base_messages: list[dict[str, str]] = []
     if messages is not None:
@@ -492,6 +553,13 @@ def call_llm_structured(
             ]
             return False, None, repair
 
+    schema = None
+    if structured_via_tools:
+        try:
+            schema = pydantic_to_tool_schema(model)
+        except Exception as e:  # a schema we cannot build is not a reason to fail the call
+            print(f"[STRUCTURED_PARSE][{model.__name__}] could not build a tool schema: {e!r}")
+
     ok, value = _call_with_recovery(
         config,
         base_messages=base_messages,
@@ -509,6 +577,8 @@ def call_llm_structured(
         label=model.__name__,
         usage_label=usage_label,
         on_response=_on_response,
+        response_schema=schema,
+        schema_name=_schema_tool_name(model),
     )
     if ok:
         return value
