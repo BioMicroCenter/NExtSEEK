@@ -10,6 +10,7 @@ params.yml. Then `sbatch`es it over SSH. Returns one ref dict per submitted run
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import tempfile
@@ -25,6 +26,8 @@ from .run_script import render_run_script, render_luria_config, render_process_c
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
+
+log = logging.getLogger(__name__)
 
 _JOB_ID_RE = re.compile(r"Submitted batch job (\d+)")
 _REQUIRED_ENV = ("user", "key", "working_path", "host")
@@ -181,6 +184,22 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
 
     m = _JOB_ID_RE.search(out or "")
     job_id = m.group(1) if m else None
+
+    # Best-effort launch bookkeeping: record which D.SEQ samples this run consumed,
+    # so reingest never has to guess it back from fastq paths. user_id=None — no
+    # request user is in scope this deep (luria_env["user"] is the shared cluster
+    # account, not a Django user); the FK is nullable and launched_by is provenance,
+    # not a key. Must never fail a run the user already paid cluster time for.
+    try:
+        from NessieAI.ns.reingest.launch_record import read_cohort_sidecar, record_launch
+        record_launch(
+            run_dir=remote_run_dir, run_name=safe, pipeline=pipeline,
+            revision=revision, slurm_job_id=str(job_id or ""), user_id=None,
+            cohort_entries=read_cohort_sidecar(local_sheet),
+        )
+    except Exception:  # bookkeeping must never fail a submitted run
+        log.exception("launch record failed for %s", remote_run_dir)
+
     return {
         "job_id": job_id,
         "remote_dir": remote_run_dir,
