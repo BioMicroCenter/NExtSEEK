@@ -1,4 +1,10 @@
-"""Supervisor-only pages: retrieval, clades and internal assays."""
+"""Supervisor-only pages: retrieval, clades and internal assays.
+
+The clade views change what a SampleType node carries and the internal-assay views change the map that labels
+DERIVED_FROM edges, so each one enqueues an outbox row after its write and the graph sync loop applies it later
+(``nextseek_api/graph_sync/hooks.py``). ``hooks.enqueue`` never raises: a lost row costs a graph refresh that the
+nightly targeted sync then makes, never the administrator's edit.
+"""
 
 import logging
 
@@ -22,6 +28,7 @@ from ..decorators import requires_supervisor
 from django.conf import settings
 import simplejson
 from ..decorators import verifySuperUser
+from nextseek_api.graph_sync import hooks
 from nextseek_api.services.sample_workbook import write_samples_workbook
 
 from .shared import DOWNLOAD_DIRECTORY, SEEK_DATABASE
@@ -158,7 +165,9 @@ def adminClades(request):
 def cladesSyncSampleTypes(request):
     stcdb = DBtable_stc()
     stcdb.syncSampleTypes()
-    
+
+    hooks.enqueue('catalog', '*')
+
     return HttpResponse({})
 
 @requires_seek_login
@@ -181,7 +190,9 @@ def cladeSave(request):
                            title=clade['title'],
                            color=clade['order'],
                            order=clade['order'])
-        
+
+    hooks.enqueue('catalog', '*')
+
     return HttpResponse({}, headers={"Refresh": 1})
 
 @requires_seek_login(log_failure=True)
@@ -194,7 +205,9 @@ def cladeDelete(request):
 
     for clade in clades:
         cladedb.delete(clade['id'])
-    
+
+    hooks.enqueue('catalog', '*')
+
     return HttpResponse({}, headers={"Refresh": 1})
 
 @requires_seek_login
@@ -210,7 +223,9 @@ def cladeSampleTypesSave(request):
         clade_id = record['clade_title']
         
         stcdb.update(sample_type_id, clade_id)
-        
+
+    hooks.enqueue('catalog', '*')
+
     return HttpResponse({}, headers={"Refresh": 1})
 
 @requires_seek_login_redirect('/seek/samples/attributes/')
@@ -239,7 +254,9 @@ def internalAssaySave(request):
             internal_assay_title = internal_assay["internal_assay_title"]
             ia.update(internal_assay_id=id,
                       internal_assay_title=internal_assay_title)
-        
+
+    hooks.enqueue('assay_map', '*')
+
     return HttpResponse({}, headers={"Refresh": 1})
 
 @requires_seek_login(log_failure=True)
@@ -252,7 +269,9 @@ def internalAssayDelete(request):
 
     for internal_assay in internal_assays:
         ia.delete(internal_assay['id'])
-    
+
+    hooks.enqueue('assay_map', '*')
+
     return HttpResponse({}, headers={"Refresh": 1})
 
 @requires_seek_login
@@ -268,7 +287,9 @@ def assayAssociationSave(request):
         internal_assay_id = record['internal_assay_id']
         
         aia.update(assay_id, internal_assay_id)
-        
+
+    hooks.enqueue('assay_map', '*')
+
     return HttpResponse({}, headers={"Refresh": 1})
 
 @requires_seek_login
@@ -276,5 +297,7 @@ def assayAssociationSave(request):
 def syncInternalAssays(request):
     aia = DBtable_assaysinternalassays()
     aia.syncAssays()
-    
+
+    hooks.enqueue('assay_map', '*')
+
     return HttpResponse({})
