@@ -157,15 +157,36 @@ and only calls SEEK over HTTP for basic and session schemes. So B2 under token a
 B3, B4 and B5 proxy to SEEK by definition, so they cannot run without it, and per **D8** that is reported rather than
 worked around.
 
+## 6.1 Two prerequisites, folded in from the 2026-09-16 CI triage
+
+Both were first written up as standalone issues. Each is load-bearing for Stage B, so each is a task here and the
+issue records the public history rather than the work.
+
+**P1, smoke route discovery picks objects the smoke account cannot load.** `ci/smoke/conftest.py` resolves
+`seek_project_id` and `sample_type_id` by taking the first row of an unscoped list. Since the TCGA merge those are a
+project the smoke account is not a member of and a sample type with 283,311 samples, which is why four routes went
+red on 2026-09-16 at 15:26. This is not merely adjacent: **B5 needs the corrected version of exactly that lookup** to
+find a project the read account belongs to. Left separate, the same logic gets written twice and only the private
+copy is correct.
+
+**P2, `seekapi` has no fetch timeout and no `None` guard.** `getPageRequests` calls `requests.get` with no timeout
+and `__getHtmlpageDiv` calls `.prettify()` on a `find()` that returns `None` when the div is absent, so any SEEK
+hiccup becomes a 500. B3, B4 and B5 drive SEEK-proxied endpoints against a SEEK that was killed under memory
+pressure on 2026-09-16 and has only just been capped at 4G. Without this, a SEEK stumble mid-test fails a graph
+assertion for a reason that has nothing to do with the graph, which is the exact failure mode this spec exists to
+eliminate.
+
 ## 7. Out of scope
 
 - Writing anything to the live graph before the operator's go.
 - The V1 label decisions (55,307 stale `internal_assay_title`, 2,976 sheet-only protocols). Those are the operator's
   call at review point 2 and are not testing.
-- The four CI issues triaged on 2026-09-16 (smoke discovery landing on TCGA objects, `seekapi` timeout and None
-  guard, `ISSUE-DRAFTS.md` Draft 1, context-file checking in CI). They are filed separately.
-- The context-file health checks. Separate issue, and the spec for them should be written against the finalised
-  context shape, not the current one.
+- The migration check under `dmac.test_settings` (`ISSUE-DRAFTS.md` Draft 1) and context-file health checking in CI.
+  Both are covered by [`2026-09-16-ci-coverage-gaps-design.md`](2026-09-16-ci-coverage-gaps-design.md). The context
+  checks in particular must be written against the finalised context shape, not the current one.
+
+Two of the four CI issues triaged on 2026-09-16 were originally out of scope here and have been folded in, because
+each is load-bearing for Stage B rather than merely adjacent. See section 6.1.
 
 ## 8. Unverified at writing
 

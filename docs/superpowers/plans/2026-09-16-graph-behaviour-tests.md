@@ -6,9 +6,13 @@
 **Goal:** Make a 1.2 full sync complete inside production memory bounds, then prove by running them that each write
 path changes the graph.
 
-**Architecture:** Two stages, strictly ordered. Stage A works only in the throwaway lane and ends with a `--full`
-that completes inside the live Neo4j's configured bounds. Stage B adds a permanent behavioural write lane to
-`ci/smoke/` that drives real endpoints against the live local stack and asserts the resulting graph change over HTTP.
+**Architecture:** Three stages, strictly ordered. Stage A works only in the throwaway lane and ends with a `--full`
+that completes inside the live Neo4j's configured bounds. Stage P fixes the two 2026-09-16 CI defects that Stage B
+depends on. Stage B adds a permanent behavioural write lane to `ci/smoke/` that drives real endpoints against the
+live local stack and asserts the resulting graph change over HTTP.
+
+**Gate between A and B that this plan does not control:** the operator's first live
+`graph_sync --full --i-mean-the-live-graph`. Stage B cannot run before it, and it cannot run before Stage A passes.
 
 **Tech Stack:** Python 3.14, Django, pytest, the neo4j Python driver (lane only), `requests` (smoke lane only),
 Docker, `scripts/graph_search/lane.sh`.
@@ -375,6 +379,211 @@ Create `graph-search/runs/sync-lane/A5-REPORT.md` (untracked, outside the reposi
 1.1 baseline of 427 s, the chunk size used, every probe's number from A2 to A4, the gate G result and the drift
 result. Then commit only the code changes already made in A3 and A4; the reports stay out of the repository because
 they name real sample data.
+
+---
+
+# Stage P: prerequisites for Stage B
+
+Both tasks come from the 2026-09-16 CI triage and both are load-bearing for Stage B (spec section 6.1). Neither
+needs the 1.2 graph, so both may run as soon as the POC releases the box. P2 needs no stack at all.
+
+### Task P1: Discovery resolves objects the smoke account can actually load
+
+**Files:**
+- Modify: `ci/smoke/conftest.py` (the `_JSONAPI_LIST_SOURCE` map and the resolver that reads it)
+- Test: `ci/smoke/test_registry_contents.py`
+
+**Interfaces:**
+- Produces: `seek_project_id` is a project the smoke account belongs to, and `sample_type_id` is the type of a
+  sample that account can already see. Task B5 consumes the project resolver instead of writing its own.
+
+**Why:** four routes went red on 2026-09-16 at 15:26 because discovery took the first row of an unscoped list. The
+project routes are membership-gated and denied correctly; the sample-type routes timed out on a type with 283,311
+samples.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `ci/smoke/test_registry_contents.py`:
+
+```python
+def test_project_discovery_does_not_read_the_unscoped_list():
+    """The project routes are membership-gated, so the discovered project must be one the smoke account
+    belongs to. /nextseek_api/projects/ returns every project ordered by updated_at, so its first row is
+    whichever project was touched last. On 2026-09-16 that was a project the account is not in and four
+    routes went red against correct product behaviour."""
+    source = conftest._JSONAPI_LIST_SOURCE
+    assert "seek_project_id" not in source, (
+        "seek_project_id must come from the caller's own memberships, not from the unscoped project list"
+    )
+
+
+def test_sample_type_discovery_does_not_read_the_unscoped_list():
+    """The type detail pages render that type's samples, so a type with hundreds of thousands of them
+    times out. Deriving the type from a sample the account can already see keeps it both visible and
+    modest."""
+    assert "sample_type_id" not in conftest._JSONAPI_LIST_SOURCE
+```
+
+- [ ] **Step 2: Run it and watch it fail**
+
+```bash
+cd /home/cdemurjian/code/dmac/docker/wt-gs-sync/ci/smoke
+python -m pytest test_registry_contents.py -q -k discovery
+```
+
+Expected: FAIL, both keys are still in `_JSONAPI_LIST_SOURCE`.
+
+- [ ] **Step 3: Move both keys to their own resolvers**
+
+Remove `"seek_project_id"` and `"sample_type_id"` from `_JSONAPI_LIST_SOURCE` and add beside the other bespoke
+resolvers:
+
+```python
+# The caller's own projects, which is what the membership gate in seek/views/projects.py checks. Verified
+# 2026-09-16: this endpoint answers the smoke account with exactly its two memberships, where
+# /nextseek_api/projects/ answers with all fourteen ordered by updated_at.
+_CURRENT_PERSON = "/nextseek_api/people/current/"
+
+
+def _own_project_id(api, base_url):
+    r = api.get(f"{base_url}{_CURRENT_PERSON}", timeout=60)
+    if r.status_code != 200:
+        return None
+    data = (r.json() or {}).get("data") or {}
+    projects = ((data.get("relationships") or {}).get("projects") or {}).get("data") or []
+    ids = sorted(int(p["id"]) for p in projects if p.get("id"))
+    return str(ids[0]) if ids else None
+
+
+def _visible_sample_type_id(api, base_url, sample_id):
+    """The type of a sample the account can already see, so the type is both visible and of workable size."""
+    if not sample_id:
+        return None
+    r = api.get(f"{base_url}/nextseek_api/samples/{sample_id}/", timeout=60)
+    if r.status_code != 200:
+        return None
+    attrs = ((r.json() or {}).get("data") or {}).get("attributes") or {}
+    value = attrs.get("sample_type_id")
+    return str(value) if value else None
+```
+
+Then call them where the other bespoke values are resolved, passing the already-discovered `sample_id`.
+
+- [ ] **Step 4: Run the registry tests and confirm they pass**
+
+```bash
+python -m pytest test_registry_contents.py test_registry_unit.py -q
+```
+
+Expected: PASS. `test_registry_contents.py` asserts the discovery vocabulary matches `ci/routes.py`, so a key moved
+without its resolver fails here rather than mid-sweep.
+
+- [ ] **Step 5: Run the reachability sweep against the live stack**
+
+```bash
+cd /home/cdemurjian/code/dmac/docker/wt-gs-sync/ci/smoke
+python -m pytest test_reachability.py -q
+```
+
+Expected: the four routes that failed on 2026-09-16 now pass. Record which project id and sample type id were
+discovered, so the change is verifiable rather than asserted.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add ci/smoke/conftest.py ci/smoke/test_registry_contents.py
+git commit -m "test(ci): discover a project the smoke account is in and a sample type it can load"
+```
+
+---
+
+### Task P2: The SEEK page scrape survives a slow or unexpected SEEK
+
+**Files:**
+- Modify: `seek/seekapi.py` (`getPageRequests`, `__getHtmlpageDiv`)
+- Test: `seek/tests/test_seekapi_page_requests.py` (create)
+
+**Interfaces:**
+- Produces: a SEEK hiccup no longer becomes a 500, so a Stage B assertion that fails means the graph is wrong.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `seek/tests/test_seekapi_page_requests.py`:
+
+```python
+"""getPageRequests must not turn a slow or odd SEEK response into an unhandled AttributeError.
+
+Measured 2026-09-16: /seek/sample_types/id=142/ returned 500 with
+"'NoneType' object has no attribute 'prettify'" because the fetched page carried no div#content.
+"""
+
+
+class TestTheScrapeSurvivesAPageWithoutTheDiv:
+    def test_a_page_without_the_content_div_does_not_raise(self, seekapi):
+        assert seekapi._SeekApi__getHtmlpageDiv("<html><body><p>error</p></body></html>", "content") == ""
+
+    def test_a_page_with_no_body_does_not_raise(self, seekapi):
+        assert seekapi._SeekApi__getHtmlpageDiv("", "content") == ""
+
+
+class TestTheFetchIsBounded:
+    def test_get_is_called_with_a_timeout(self, seekapi, monkeypatch):
+        seen = {}
+
+        def fake_get(url, **kwargs):
+            seen.update(kwargs)
+            raise AssertionError("stop here; the call shape is what this pins")
+
+        monkeypatch.setattr("requests.get", fake_get)
+        with pytest.raises(AssertionError):
+            seekapi.getPageRequests("/sample_types/1")
+        assert seen.get("timeout"), "requests.get was called with no timeout, so a slow SEEK holds the worker"
+```
+
+Adjust the private-name mangling prefix to the real class name when writing the fixture.
+
+- [ ] **Step 2: Run them and watch them fail**
+
+```bash
+cd /home/cdemurjian/code/dmac/docker/wt-gs-sync
+docker run --rm -i --network none -e LOG_DIR=/tmp/nextseek-logs \
+  -e DJANGO_SETTINGS_MODULE=dmac.test_settings -e PYTHONDONTWRITEBYTECODE=1 \
+  -v "$PWD":/src:ro -w /src nextseek-nextseek:latest \
+  /app/.venv/bin/python -m pytest seek/tests/test_seekapi_page_requests.py -q -p no:cacheprovider
+```
+
+Expected: FAIL, `AttributeError: 'NoneType' object has no attribute 'prettify'` and a missing timeout.
+
+- [ ] **Step 3: Guard both**
+
+In `seek/seekapi.py`, replace the body of `__getHtmlpageDiv` with a version that returns `""` when either
+`parsed_html.body` or the `find` result is `None`, and give `getPageRequests` an explicit timeout. Keep the existing
+return type, a string, so no caller changes.
+
+- [ ] **Step 4: Run the tests and the seek suite**
+
+```bash
+docker run --rm -i --network none -e LOG_DIR=/tmp/nextseek-logs \
+  -e DJANGO_SETTINGS_MODULE=dmac.test_settings -e PYTHONDONTWRITEBYTECODE=1 \
+  -v "$PWD":/src:ro -w /src nextseek-nextseek:latest \
+  /app/.venv/bin/python -m pytest seek/tests/test_seekapi_page_requests.py seek/tests -q \
+  -p no:cacheprovider --continue-on-collection-errors
+```
+
+Expected: the new tests PASS and the seek suite shows no id failing that did not fail before. Compare against a run
+on `origin/dev-graph` if any id looks new.
+
+- [ ] **Step 5: Decide what the page shows, and say so**
+
+An empty string means the page renders without the embedded panel. If the product should instead show an explicit
+panel error, that is the operator's call. Record the decision in the commit body rather than choosing silently.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add seek/seekapi.py seek/tests/test_seekapi_page_requests.py
+git commit -m "fix(seek): bound the SEEK page fetch and survive a page without the content div"
+```
 
 ---
 
@@ -829,9 +1038,10 @@ Expected: FAIL, `add_sample_to_project` and `smoke_account_project` are not defi
 
 - [ ] **Step 3: Write both helpers**
 
-`smoke_account_project` reads the read account's own projects from `/nextseek_api/projects/` filtered to its
-membership, and **must not** take the first row of the unscoped list, which is the bug that made the 2026-09-16 CI
-run go red on project 16. `add_sample_to_project` PATCHes the sample's project set through the samples proxy.
+`smoke_account_project` **reuses Task P1's `_own_project_id`** rather than writing the lookup again. P1 moved that
+resolution onto `/nextseek_api/people/current/`, which answers with the caller's own memberships; the unscoped
+`/nextseek_api/projects/` list is what made the 2026-09-16 CI run go red on project 16 and must not be used here.
+`add_sample_to_project` PATCHes the sample's project set through the samples proxy.
 
 - [ ] **Step 4: Run and confirm it passes**
 
@@ -880,7 +1090,8 @@ git commit -m "docs(ci): document the behavioural lane and what each assertion p
 
 ## Self-review notes
 
-- **Spec coverage:** section 5 maps to A1 to A5; section 6's six rows map to B1 to B6 with B0 as their harness;
+- **Spec coverage:** section 5 maps to A1 to A5; section 6.1's two prerequisites map to P1 and P2; section 6's six
+  rows map to B1 to B6 with B0 as their harness;
   D1 to D4 are realised in `graph_assert.py`; D6 in `wait_for_drain`; D7 in the `destructive` marker and the
   `finally` blocks; D9 in B0's `test_the_graph_is_at_schema_1_2`.
 - **Known soft spots, deliberately left:** B1 step 3's workbook builder and B5 step 3's helpers are described by
