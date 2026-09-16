@@ -375,14 +375,17 @@ Expected: `pass` is true, `changed` 0, `missing_in_graph` 0, `not_in_mysql` 0.
 
 - [ ] **Step 5a: Measure the SEEK study shortfall (non-blocking)**
 
-Reported by the POC session on 2026-09-16 against the frozen 1.1 graph: two SEEK studies have no Study node at all.
-Root cause established in code and **a full sync entrenches it rather than fixing it**, so the first real 1.2 sync
-must produce a number for it instead of leaving it invisible.
+Measured by the POC session on 2026-09-16 against the live SEEK database and the frozen 1.1 graph: **42 of 81 SEEK
+studies have no Study node**, and the graph's 39 nodes carrying `seek_study_id` is what is left. **A full sync
+entrenches this rather than fixing it**, so the first real 1.2 sync must report it instead of leaving it invisible.
 
-The cause: the full sync's only study step (`run.py:802`) is fed `sources.seek_study_links()`, an inner join through
-`assay_assets` on `asset_type='Sample'`, so a study with no sample-bearing assay yields no node.
-`sources.studies()` is unfiltered but is used only as a title lookup in `_study_rekey_plan` (`run.py:661`) and never
-creates a node.
+Two distinct causes, both established in code, and the arithmetic closes on the measured 39:
+
+| Component | Count | Cause |
+|---|---|---|
+| Structurally ineligible | 40 | The full sync's only study step (`run.py:802`) is fed `sources.seek_study_links()`, an inner join through `assay_assets` on `asset_type='Sample'`. A study with no sample-bearing assay yields no row and so no node, however often the sync runs. `sources.studies()` is unfiltered but is used only as a title lookup in `_study_rekey_plan` (`run.py:661`) and never creates a node. |
+| Eligible but suppressed | 2 | In `writer.write_seek_studies` the `studies.setdefault(...)` sits **below** the `if sample_id in in_paper: continue`, so a study whose samples are all in paper-level Study nodes never reaches it. The skip is meant to suppress only the IN_STUDY edge. Recoverable by moving that one line above the `if`. |
+| Written | 39 | 81 minus 40 minus 2. Matches the measured graph total. |
 
 ```bash
 scripts/graph_search/lane.sh neo4j-cypher \
@@ -396,9 +399,22 @@ scripts/graph_search/lane.sh mysql \
      WHERE a.study_id = s.id);"
 ```
 
-Record all three numbers in the Stage A report. **This does not fail Stage A**: the gap predates this work and
-failing acceptance on it would block the transaction fix for an unrelated defect. It is measured so the operator can
-decide, and so the number exists before the live sync rather than after.
+Report the three components separately, not as one shortfall. A single number hides that 40 are unreachable by any
+sync while 2 are recoverable by moving one line.
+
+Also record the DERIVED_FROM total before and after this run. The POC session measured a corpus lineage statement
+moving from 3,061 in August to 3,728 now on data the TCGA merge never touched, and once a live full sync runs that
+becomes unattributable. Stage A resets from the 09-14 v1.1 snapshot and then syncs the same data, so a clean before
+and after costs nothing here:
+
+```bash
+scripts/graph_search/lane.sh neo4j-cypher \
+  'MATCH ()-[e:DERIVED_FROM]->() RETURN count(e) AS derived_from'
+```
+
+**None of this fails Stage A**: all of it predates this work, and failing acceptance on it would block the
+transaction fix for unrelated defects. It is measured so the operator can decide, and so the numbers exist before
+the live sync rather than after it.
 
 - [ ] **Step 6: Write the Stage A report and commit it**
 
