@@ -117,3 +117,107 @@ class TestValidate:
         """slugify_name collapses punctuation, so these are one assay."""
         with pytest.raises(ValidationError):
             validate(**{**OK, "name": "Flow-Cytometry"})
+
+
+from unittest.mock import MagicMock, patch
+
+
+class FakeCursor:
+    """Stands in for a DB-API cursor. SQLite has no information_schema, so the
+    introspection this module does can only be tested by injection."""
+
+    def __init__(self, rows):
+        self._rows = rows
+        self.executed = []
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+
+    def fetchall(self):
+        return self._rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class TestActualColumns:
+    def test_it_maps_lowercase_to_the_spelling_this_stack_uses(self):
+        from nextseek_api.services.assay_authoring import actual_columns
+
+        cursor = FakeCursor([("assay_name",), ("Required_Parent_Sample_Types",)])
+        got = actual_columns(cursor)
+        assert got["required_parent_sample_types"] == "Required_Parent_Sample_Types"
+        assert got["assay_name"] == "assay_name"
+
+    def test_an_all_lowercase_stack_maps_to_itself(self):
+        from nextseek_api.services.assay_authoring import actual_columns
+
+        cursor = FakeCursor([("required_parent_sample_types",)])
+        got = actual_columns(cursor)
+        assert got["required_parent_sample_types"] == "required_parent_sample_types"
+
+
+class TestCreateAssay:
+    """The two writes, and that a failure leaves neither."""
+
+    # transaction.atomic(using=...) touches the connection even when the
+    # model call inside it is mocked, and pytest-django blocks real DB access
+    # without this marker.
+    pytestmark = pytest.mark.django_db
+
+    def _run(self, **overrides):
+        from nextseek_api.services import assay_authoring
+
+        kwargs = dict(
+            name="Spectral Flow Cytometry",
+            description="Full-spectrum single-cell analysis.",
+            required_parents=[["TIS", "CEX"]],
+            optional_parents=[],
+            children=[["D.FLOW"]],
+        )
+        kwargs.update(overrides)
+        return assay_authoring.create_assay(**kwargs)
+
+    @patch("nextseek_api.services.assay_authoring._insert_context", return_value=7)
+    @patch("nextseek_api.services.assay_authoring.Internal_assays")
+    @patch("nextseek_api.services.assay_authoring._existing_slugs", return_value=set())
+    def test_it_writes_both_rows_and_returns_the_context_id(
+        self, _slugs, internal, insert
+    ):
+        internal.objects.create.return_value = MagicMock(id=42)
+        assert self._run() == 7
+        internal.objects.create.assert_called_once_with(
+            internal_assay_title="Spectral Flow Cytometry"
+        )
+
+    @patch("nextseek_api.services.assay_authoring._insert_context", return_value=7)
+    @patch("nextseek_api.services.assay_authoring.Internal_assays")
+    @patch("nextseek_api.services.assay_authoring._existing_slugs", return_value=set())
+    def test_the_context_row_links_to_the_vocabulary_term(
+        self, _slugs, internal, insert
+    ):
+        """Without the link the assay is a recipe that can never be registered."""
+        internal.objects.create.return_value = MagicMock(id=42)
+        self._run()
+        assert insert.call_args.kwargs["internal_assay_id"] == 42
+
+    @patch("nextseek_api.services.assay_authoring._existing_slugs",
+           return_value={"spectral-flow-cytometry"})
+    def test_a_duplicate_is_rejected_before_anything_is_written(self, _slugs):
+        with pytest.raises(ValidationError):
+            self._run()
+
+    @patch("nextseek_api.services.assay_authoring._insert_context",
+           side_effect=RuntimeError("write failed"))
+    @patch("nextseek_api.services.assay_authoring.Internal_assays")
+    @patch("nextseek_api.services.assay_authoring._existing_slugs", return_value=set())
+    def test_a_failed_context_write_is_reported_as_a_validation_error(
+        self, _slugs, internal, insert
+    ):
+        """The view has one error path; the service does not leak RuntimeError."""
+        internal.objects.create.return_value = MagicMock(id=42)
+        with pytest.raises(ValidationError):
+            self._run()
