@@ -449,15 +449,44 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
 
 _CHECKSUM_MAX_FILES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_FILES", 200))
 
+# Byte ceilings for run-checksum, deliberately NOT harvest.py's MAX_FILE_BYTES
+# / MAX_TOTAL_BYTES (4 MB / 32 MB). Those cap small QC/metadata TEXT files
+# (params.json, MultiQC tables, ...) that get fully read into memory and
+# parsed into a manifest -- a ceiling sized for that job would reject a
+# legitimate BAM/FASTQ outright, which is exactly the primary data this op
+# exists to checksum. These ceilings instead bound the one thing that makes
+# run-checksum the DoS this op was split out to avoid (see the docstring
+# below and Important 1 of the 2026-09-16 review): the remote hashing time.
+# Sized so that _CHECKSUM_MAX_FILES (200) files at the per-file ceiling could
+# never blow the SSH call's own timeout (_CHECKSUM_SSH_TIMEOUT_S below) even
+# at a conservative shared-cluster-disk md5 throughput (~150 MB/s): the
+# aggregate ceiling (20 GB) hashes in ~135s at that rate, comfortably inside
+# a 150s SSH timeout that itself sits under the default 180s CC turn hard cap
+# (NEXTSEEK_CC_TIMEOUT_HARD_MAX, cc_engine.py) with room left for the rest of
+# the turn. The per-file ceiling (10 GB) is generous for one sequencing file
+# without needing to equal the aggregate.
+_CHECKSUM_MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_FILE_BYTES", 10_000_000_000))
+_CHECKSUM_MAX_TOTAL_BYTES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_TOTAL_BYTES", 20_000_000_000))
+# Wall-clock backstop for the SSH call itself: the byte ceilings above bound
+# the LEGITIMATE work to well under this, so this timeout exists to bound the
+# illegitimate/unexpected case (a stalled shared filesystem, a wedged
+# network) rather than to be the primary defense against an oversized
+# request -- that job is the byte ceilings, enforced before any file is
+# opened for reading (see _CHECKSUM_SCRIPT).
+_CHECKSUM_SSH_TIMEOUT_S = int(os.environ.get("NEXTSEEK_CHECKSUM_SSH_TIMEOUT_S", 150))
+
 # The remote-side half of run-checksum: unlike run-harvest's GENERIC_GLOBS
 # matches, ``--paths`` is CALLER-supplied -- an explicit request, not an
 # incidental glob hit. So every one of the guards below is surfaced as an
 # "escaped" entry that _run_checksum turns into a hard OpValidationError,
 # never folded silently into "skipped" (see the module docstring and
 # test_run_checksum_op.py's docstring for why that distinction matters).
+# The one exception is the byte-ceiling checks added below: per BINDING
+# CONSTRAINTS a size refusal may be a skip, but it is never silent -- it is
+# always reported by name in "skipped", exactly like a missing file.
 #
-# The guards mirror _STAGE_SCRIPT's exactly, and for the same reason: the
-# read already happens on the cluster side, before any byte reaches this
+# The escape guards mirror _STAGE_SCRIPT's exactly, and for the same reason:
+# the read already happens on the cluster side, before any byte reaches this
 # process, so confinement can only be enforced there.
 # 1. Symlinks. A path inside run_dir can be a symlink pointing anywhere on
 #    the shared cluster account; is_symlink() is checked before anything
@@ -471,14 +500,26 @@ _CHECKSUM_MAX_FILES = int(os.environ.get("NEXTSEEK_CHECKSUM_MAX_FILES", 200))
 #    multiply-linked file), same trade-off as run-harvest's staging guard.
 # A missing file or a non-regular-file match (a directory, a fifo, ...) is
 # NOT an escape -- those are ordinary misses, reported in "skipped".
+#
+# 4. Size. `st.st_size` is read from the SAME stat() call already made for
+#    the hardlink check above -- so the per-file/total ceilings below are
+#    enforced BEFORE `open()`/`read()` ever touches the file. A file over the
+#    per-file ceiling is skipped without a single byte read; once the
+#    running total would cross the aggregate ceiling, every remaining path is
+#    skipped the same way -- unhashed. This is what closes Important 1: 200
+#    caller-named multi-GB files can no longer make this op read past a
+#    bounded amount of data no matter how large the files actually are.
 _CHECKSUM_SCRIPT = """\
 import hashlib, json, pathlib, sys
 run_dir = pathlib.Path(sys.argv[1])
 resolved_run_dir = run_dir.resolve()
-rels = sys.argv[2:]
+max_file_bytes = int(sys.argv[2])
+max_total_bytes = int(sys.argv[3])
+rels = sys.argv[4:]
 checksums = {}
 skipped = []
 escaped = []
+total_bytes = 0
 for rel in rels:
     path = run_dir / rel
     if path.is_symlink():
@@ -499,11 +540,19 @@ for rel in rels:
     if st.st_nlink > 1:
         escaped.append({"path": rel, "reason": "hardlinked; cannot confirm no other path reaches it"})
         continue
+    size = st.st_size
+    if size > max_file_bytes:
+        skipped.append({"path": rel, "reason": "exceeds max file bytes (%d > %d)" % (size, max_file_bytes)})
+        continue
+    if total_bytes + size > max_total_bytes:
+        skipped.append({"path": rel, "reason": "exceeds total byte cap (%d + %d > %d)" % (total_bytes, size, max_total_bytes)})
+        continue
     h = hashlib.md5()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             h.update(chunk)
     checksums[rel] = h.hexdigest()
+    total_bytes += size
 print(json.dumps({"checksums": checksums, "skipped": skipped, "escaped": escaped}))
 """
 
@@ -522,6 +571,15 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
     OpValidationError rather than a silent "skipped" entry -- an explicit
     request to read outside run_dir is adversarial, not incidental. Only a
     genuinely missing/non-regular-file match is a reported skip.
+
+    The file COUNT cap (``_CHECKSUM_MAX_FILES``) alone does not bound how
+    long this op can hang: 200 files can still be arbitrarily large, which is
+    exactly the wall-clock blowout this op was split out to avoid (see
+    above). ``_CHECKSUM_MAX_FILE_BYTES`` / ``_CHECKSUM_MAX_TOTAL_BYTES`` close
+    that gap remotely, inside ``_CHECKSUM_SCRIPT``, before a single byte of
+    an oversized file is read; a size refusal is reported in "skipped", never
+    silently dropped. ``_CHECKSUM_SSH_TIMEOUT_S`` bounds the SSH call itself
+    so an unexpected hang (not just an oversized request) is also bounded.
     """
     import shlex
 
@@ -542,9 +600,14 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
     try:
         remote_cmd = " ".join([
             "python3", "-c", shlex.quote(_CHECKSUM_SCRIPT), shlex.quote(run_dir),
+            shlex.quote(str(_CHECKSUM_MAX_FILE_BYTES)), shlex.quote(str(_CHECKSUM_MAX_TOTAL_BYTES)),
             *(shlex.quote(rel) for rel in rels),
         ])
-        out = ssh_run(luria_env, remote_cmd, key_path=key_path)
+        # Bounded, not indefinite: see _CHECKSUM_SSH_TIMEOUT_S above for why
+        # the byte ceilings (not this timeout) are the primary defense, and
+        # this is the backstop for the unexpected hang (a stalled shared
+        # filesystem) rather than the oversized request.
+        out = ssh_run(luria_env, remote_cmd, key_path=key_path, timeout=_CHECKSUM_SSH_TIMEOUT_S)
     finally:
         try:
             os.remove(key_path)

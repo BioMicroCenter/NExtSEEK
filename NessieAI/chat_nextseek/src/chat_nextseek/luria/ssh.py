@@ -31,10 +31,16 @@ def prepare_key(key_path: str) -> str:
     return tmp
 
 
-def ssh_run(luria_env: dict, remote_cmd: str, *, key_path: str) -> str:
-    """Run one remote command over SSH; return stdout, raise RuntimeError on nonzero exit."""
+def ssh_run(luria_env: dict, remote_cmd: str, *, key_path: str, timeout: float | None = None) -> str:
+    """Run one remote command over SSH; return stdout, raise RuntimeError on nonzero exit.
+
+    ``timeout`` (seconds) bounds the whole subprocess call's wall clock; on
+    expiry ``subprocess.TimeoutExpired`` propagates to the caller. Defaults to
+    ``None`` (wait indefinitely, the historical behaviour) so existing callers
+    that never pass it see no change.
+    """
     cmd = ["ssh", "-i", key_path, *_SSH_OPTS, _target(luria_env), remote_cmd]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if proc.returncode != 0:
         raise RuntimeError(f"ssh failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout
