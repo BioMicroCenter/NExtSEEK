@@ -15,7 +15,8 @@ Test commands live only in `NessieAI/tests/README.md`.
   - `nextseek_api.models`, from `NessieAI/schema_rag/`
   - `nextseek_api.assistant.excel_export`, lazily and behind a guard, from `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py`
   - `nextseek_api.conftest` (its fixtures), from `NessieAI/tests/nessie_tests/tests_container/`
-- No engine module imports `nextseek_api.services`: that would be the API calling itself through the engine. The ViewSets there call the engine (`NessieAI/router/policy.py`, `NessieAI/cc/turn.py`, `NessieAI/ns/{turn,artifacts,retry}.py`) and hand in the host seams (the session adapter, the event callback, the SEEK credentials). `policy.py` and `artifacts.py` have no back-edge at all.
+  - `nextseek_api.services.reingest_lookups`, from `NessieAI/ns/granular.py`
+- Beyond that one entry, no engine module imports `nextseek_api.services`: that would be the API calling itself through the engine. The documented exception is read-only — a sample-type-catalog lookup (`known_sample_types`/`attributes_for`) and the D.SEQ fastq-path lookup, both against the seek-mirrored tables — with no writes and nothing routed back through a ViewSet. The ViewSets there call the engine (`NessieAI/router/policy.py`, `NessieAI/cc/turn.py`, `NessieAI/ns/{turn,artifacts,retry}.py`) and hand in the host seams (the session adapter, the event callback, the SEEK credentials). `policy.py` and `artifacts.py` have no back-edge at all.
 - Importing the router does not load `NessieAI/hibayes/`: `NessieAI/router/posterior_selector.py` imports the generation store only inside `get_active_snapshot` (guard: `NessieAI/tests/router/test_router_import_is_lazy.py`). `NessieAI/router/route_monitoring.py` still imports HiBayes at module scope; nothing on the router's import path imports it.
 - Three engine-to-harness imports are frozen, and no new one may be added:
   - `NessieAI/cc/op_registry/paired_evidence.py` imports the bayes harness
