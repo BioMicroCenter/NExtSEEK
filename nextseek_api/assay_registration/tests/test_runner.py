@@ -6,7 +6,7 @@ endpoint exists to remove, one level up from the row.
 Three of the brief's fixtures were corrected against the tree, each proved by a
 run before it was changed:
 
-* the `_recompute` doubles were `MagicMock`s, and `RegistrationResponse.graph`
+* the graph-step doubles were `MagicMock`s, and `RegistrationResponse.graph`
   is a `GraphOutcome` field, so pydantic rejected them ("Input should be a valid
   dictionary or instance of GraphOutcome") -- and the rejection escaped
   `run_one` entirely, leaving the job `running` forever. They are real
@@ -64,7 +64,7 @@ def _result(written=1, overall_status="succeeded"):
     )
 
 
-def _runs(result=None, graph_status="succeeded", edges=3):
+def _runs(result=None, graph_status="queued", edges=0):
     """Patch the whole write path out. Returns the patch context managers."""
     graph = GraphOutcome(status=graph_status, edges_recomputed=edges)
     return (
@@ -72,7 +72,7 @@ def _runs(result=None, graph_status="succeeded", edges=3):
         patch("nextseek_api.assay_registration.runner.plan_batch"),
         patch("nextseek_api.assay_registration.runner.execute",
               return_value=result if result is not None else _result()),
-        patch("nextseek_api.assay_registration.runner._recompute",
+        patch("nextseek_api.assay_registration.runner._enqueue_graph_sync",
               return_value=graph),
     )
 
@@ -183,10 +183,11 @@ class TestRunOne:
             "record_progress ran even though finish's success-only shortcut did not"
         )
 
-    def test_the_graph_recompute_runs_after_the_connection_closes(self, actor):
-        """The write must survive a graph failure, which is only true if the
-        MySQL transaction has already committed when the recompute runs. Pinned
-        by event order, the same way service.register pins it."""
+    def test_the_graph_enqueue_runs_after_the_connection_closes(self, actor):
+        """The hook goes after the writer's own commit, never inside its
+        transaction: an outbox row written inside it would ride a transaction
+        that a later failure could still roll back. Pinned by event order, the
+        same way service.register pins it."""
         events = []
         seen_ids = []
         conn = MagicMock()
@@ -198,14 +199,14 @@ class TestRunOne:
              patch("nextseek_api.assay_registration.runner.plan_batch"), \
              patch("nextseek_api.assay_registration.runner.execute",
                    side_effect=lambda *a: events.append("executed") or _result()), \
-             patch("nextseek_api.assay_registration.runner._recompute",
-                   side_effect=lambda ids: events.append("recomputed")
+             patch("nextseek_api.assay_registration.runner._enqueue_graph_sync",
+                   side_effect=lambda ids: events.append("enqueued")
                    or seen_ids.append(ids)
-                   or GraphOutcome(status="succeeded", edges_recomputed=3)):
+                   or GraphOutcome(status="queued")):
             assert runner.run_one(job, "worker-a") is True
-        assert events == ["executed", "connection_closed", "recomputed"]
+        assert events == ["executed", "connection_closed", "enqueued"]
         assert seen_ids == [{100}], (
-            "the recompute must be handed the ids the executor actually wrote; "
+            "the hook must be handed the ids whose links the batch changed; "
             "an empty set reports `skipped` and silently leaves the graph stale"
         )
 
@@ -233,23 +234,24 @@ class TestRunOne:
         job.refresh_from_db()
         assert job.terminal_result["counts"]["submitted"] == 9
 
-    def test_a_recompute_that_RAISES_still_leaves_the_batch_succeeded(self, actor):
-        """The one the failed-recompute test below does not cover.
+    def test_a_graph_step_that_RAISES_still_leaves_the_batch_succeeded(self, actor):
+        """The one the failed-enqueue test below does not cover.
 
-        That one patches `_recompute` to RETURN a failed outcome. This patches it
-        to RAISE, which is the case that used to land in the `except` that writes
-        "the whole batch failed, nothing was written" -- for a batch already
-        committed at the block exit above it. Without this test the invariant is
-        defended only by `service._recompute`'s own except clause, one module
-        away, with nothing pinning it across the boundary.
+        That one patches `_enqueue_graph_sync` to RETURN a failed outcome. This
+        patches it to RAISE, which is the case that used to land in the `except`
+        that writes "the whole batch failed, nothing was written" -- for a batch
+        already committed at the block exit above it. `hooks.enqueue` never
+        raises, so nothing SHOULD reach here; this guard is what keeps that
+        module's promise from being the only thing standing between a committed
+        batch and a receipt that denies it.
         """
         job = jobs.create_job(BODY, actor, total_rows=1)
         with patch("nextseek_api.assay_registration.runner.get_connection"), \
              patch("nextseek_api.assay_registration.runner.plan_batch"), \
              patch("nextseek_api.assay_registration.runner.execute",
                    return_value=_result()), \
-             patch("nextseek_api.assay_registration.runner._recompute",
-                   side_effect=RuntimeError("bolt refused")):
+             patch("nextseek_api.assay_registration.runner._enqueue_graph_sync",
+                   side_effect=RuntimeError("outbox unreachable")):
             assert runner.run_one(job, "worker-a") is True
 
         job.refresh_from_db()
@@ -257,7 +259,7 @@ class TestRunOne:
         assert job.terminal_result["rows"][0]["status"] == "written"
         assert job.terminal_result["rows"][0]["assay_assets_id"] == 414936
         assert job.terminal_result["graph"]["status"] == "failed"
-        assert "bolt refused" in job.terminal_result["graph"]["error"]
+        assert "outbox unreachable" in job.terminal_result["graph"]["error"]
 
     def test_a_dry_run_job_is_refused_rather_than_executed(self, actor):
         """Unreachable through `service.register`, which answers a dry run inline
@@ -274,7 +276,7 @@ class TestRunOne:
         assert job.state == "failed"
         assert "dry_run" in job.terminal_result["rows"][0]["error"]["message"]
 
-    def test_a_failed_recompute_does_not_fail_the_job(self, actor):
+    def test_a_failed_graph_enqueue_does_not_fail_the_job(self, actor):
         """assay_assets is the source of truth; the graph is derived. A stale
         derived view must not turn a correct write into a failed receipt."""
         job = jobs.create_job(BODY, actor, total_rows=1)
@@ -318,7 +320,7 @@ class TestTheReceiptIsReadableByTheStatusEndpoint:
         )
         assert status.result.counts.written == 1
         assert status.result.rows[0].assay_assets_id == 414936
-        assert status.result.graph.edges_recomputed == 3
+        assert status.result.graph.status == "queued"
 
     def test_an_execution_failure_receipt_reads_back(self, actor):
         job = jobs.create_job(BODY, actor, total_rows=1)
@@ -330,7 +332,7 @@ class TestTheReceiptIsReadableByTheStatusEndpoint:
         assert status.result.overall_status == "failed"
         assert status.result.counts.failed == 1
         assert status.result.graph.status == "skipped", (
-            "nothing was written, so nothing was recomputed"
+            "nothing was written, so no sample needed a graph sync"
         )
         assert status.result.rows[0].error.code == "job_execution_failed", (
             "not write_not_confirmed_by_readback: that code is published as 'an "
