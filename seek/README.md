@@ -82,7 +82,7 @@ test records and pins with a strict xfail (`seek/tests/test_dbtables.py:44-47`).
 
 ### Pages, search and export
 
-`seek/urls.py` declares 68 `re_path` entries, mounted under `^seek/` by
+`seek/urls.py` declares 67 `re_path` entries, mounted under `^seek/` by
 `dmac/urls.py:27`. The views are a **package of 12 modules**, not a single file:
 `seek/views/__init__.py:1-8` re-exports every name the URL conf uses and states
 the consequence for patching. `seek/search.py:16-35` holds the identifier
