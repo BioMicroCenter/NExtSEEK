@@ -183,6 +183,7 @@
         "nextseek-generate-submission",
         "nextseek-run-ls",
         "nextseek-build-upload-xlsx",
+        "nextseek-run-harvest",
         "nextseek-sampletype-attrs",
         "nextseek-extract-text",
         "nextseek-project-resolve",

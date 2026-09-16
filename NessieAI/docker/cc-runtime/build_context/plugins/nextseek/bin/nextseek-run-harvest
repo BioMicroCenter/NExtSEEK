@@ -1,0 +1,36 @@
+#!/bin/sh
+# nextseek-run-harvest — reingest step 1: stage a finished Luria run's allowlisted
+# machine-readable outputs off the cluster (server-side SSH) and parse them into
+# a manifest. Read-only w.r.t. Luria and NExtSEEK; the input to build-upload-xlsx.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+RUN_DIR=""
+ALLOW_FAILED=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --run-dir) RUN_DIR="$2"; shift 2 ;;
+    --run-dir=*) RUN_DIR="${1#--run-dir=}"; shift ;;
+    --allow-failed-run) ALLOW_FAILED=1; shift ;;
+    --allow-failed-run=*)
+      nextseek_die 3 "--allow-failed-run requires no value; pass bare --allow-failed-run"
+      ;;
+    --help)
+      echo "Usage: nextseek-run-harvest --run-dir <abs path under the Luria runs root> [--allow-failed-run]"
+      echo ""
+      echo "Stages the allowlisted machine-readable outputs of a finished run off Luria"
+      echo "and parses them into a manifest. Refuses a run with any failed process"
+      echo "unless --allow-failed-run is passed."
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$RUN_DIR" ] || nextseek_die 3 "missing --run-dir"
+
+if [ "$ALLOW_FAILED" = "1" ]; then
+  exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent run-harvest --run-dir "$RUN_DIR" --allow-failed-run
+else
+  exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent run-harvest --run-dir "$RUN_DIR"
+fi

@@ -83,6 +83,15 @@ class ReportOpRequest(BaseModel):
         return v
 
 
+class RunHarvestRequest(BaseModel):
+    """POST /assistant/run-harvest/ body — stage + parse a finished Luria run's
+    allowlisted outputs into a manifest."""
+    run_dir: str = Field(..., description="Absolute path under <LURIA working_path>/runs.")
+    allow_failed_run: bool = False
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
 class SubmissionRequest(BaseModel):
     """POST /assistant/generate-submission/ body."""
     type: str = Field(..., description="One of: GEO | SRA | NFCORE_RNASEQ | NFCORE_SCRNASEQ | PRIDE")

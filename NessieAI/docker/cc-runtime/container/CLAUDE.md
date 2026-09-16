@@ -39,6 +39,7 @@ nextseek-project-resolve	project-resolve	Resolve a project against the live proj
 nextseek-query	query	Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present.
 nextseek-recall	recall	Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned.
 nextseek-report	report	Project summary report.
+nextseek-run-harvest	run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.
 nextseek-run-ls	run-ls	**Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory.
 nextseek-sample-search	sample-search	Retrieve current sample rows by UID.
 nextseek-sampletype-attrs	attrs	Fetch structured sample-type schema.
