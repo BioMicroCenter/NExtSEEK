@@ -57,6 +57,42 @@ a.cat-chip:hover { border-color: var(--ns-crimson-border); background: var(--ns-
 /* Why a code carries no sheet. Sits beside the chip, in the .cat-or voice. */
 .cat-page .cat-why { font-size: 0.74rem; color: var(--ns-muted); font-style: italic; }
 
+/* Assay setup picker. A list rather than the catalog table, because the assay
+   NAME has to be the link -- the table links only its leading code cell. The
+   clade banding, the group toggle, the chips and the search box are all the
+   catalog's own, reused verbatim from nextseek.css; only the row shape is new,
+   and it is scoped to .cat-list so nothing here reaches .cat-table. */
+/* The clade bar is nextseek.css's own .clade-accent--*, on the section, so it
+   runs the whole group; the head only takes the matching tint. One bar of one
+   width, rather than the section's 3px doubled by a 4px of the head's own. */
+.cat-page .cat-list-group { margin-bottom: 0.9rem; }
+/* An <h2> for the outline, not for its size: the toggle button inside carries
+   the type, and without this the heading's default font-size sets the band's
+   height. */
+.cat-page .cat-list-head { margin: 0; padding: 0.35rem 0.6rem; font-size: 0.8rem; line-height: 1.5; background: var(--ns-sidebar-bg); }
+.cat-page .cat-list-group.clade-accent--source    .cat-list-head { background: var(--ns-clade-source-tint); }
+.cat-page .cat-list-group.clade-accent--processed .cat-list-head { background: var(--ns-clade-processed-tint); }
+.cat-page .cat-list-group.clade-accent--raw       .cat-list-head { background: var(--ns-clade-raw-tint); }
+.cat-page .cat-list-group.clade-accent--analyzed  .cat-list-head { background: var(--ns-clade-analyzed-tint); }
+.cat-page .cat-list-rows { list-style: none; margin: 0; padding: 0; }
+/* The table's collapse rule is .cat-table-scoped, so the list needs its own.
+   Same class, set by the same [data-group-toggle] handler. */
+.cat-page .cat-list-group.is-collapsed .cat-list-rows { display: none; }
+.cat-page .cat-list .cat-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.35rem 0.75rem; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--ns-border); font-size: 0.85rem; }
+.cat-page .cat-list .cat-row:hover { background: #fbfbfc; }
+/* The primary link. Grows to take the row, so the chips line up on the right
+   at any width and wrap under the name rather than beside it when narrow. */
+.cat-page .cat-assay { flex: 1 1 16rem; font-weight: 600; color: var(--ns-ink); text-decoration: none; }
+.cat-page .cat-assay:hover { color: var(--ns-crimson); text-decoration: underline; }
+.cat-page .cat-flow { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; }
+.cat-page .cat-flow-side { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; }
+/* Kept even when one side is empty, so "TIS -> " and " -> RNA" say which side
+   the codes are on. The arrow is the only thing that distinguishes them. */
+.cat-page .cat-arrow { color: var(--ns-muted); font-size: 0.8rem; }
+/* An assay curated with neither inputs nor outputs. The .cat-or voice: muted
+   and italic, so it reads as an absence rather than as a value. */
+.cat-page .cat-none { font-size: 0.78rem; color: var(--ns-muted); font-style: italic; }
+
 /* The create form. Inputs inherit the page's type rather than the browser's. */
 .cat-page .cat-field { display: block; width: 100%; max-width: 32rem; font-family: inherit; font-size: 0.9rem; color: var(--ns-ink); background: var(--ns-sidebar-bg); border: 1px solid var(--ns-border); border-radius: 5px; padding: 0.35rem 0.5rem; }
 .cat-page .cat-field:focus { border-color: var(--ns-crimson-border); outline: none; }

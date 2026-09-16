@@ -56,7 +56,51 @@
   </div>
 
   {% elif groups %}
-    {% include "includes/catalog_table.html" %}
+  {% comment %}
+  The picker. Deliberately NOT includes/catalog_table.html: that table's only
+  link is its leading `code` cell, which carries the PRODUCED sample-type code,
+  so the assay name -- the thing the user came here to pick -- was the one cell
+  on the row they could not click, and the 72 curated assays of 193 that
+  produce nothing rendered it as an em dash with nothing clickable at all.
+
+  Everything else is the catalog's own vocabulary: cat-toolbar, cat-search,
+  cat-count, cat-chip, the clade dot and accent, and the same
+  [data-cat-filter] / [data-cat-count] / [data-group] / [data-group-toggle] /
+  .cat-row + data-filter hooks, so includes/catalog_table_filter.js drives this
+  list unchanged.
+  {% endcomment %}
+  <div class="cat-toolbar">
+    <input type="search" class="cat-search" data-cat-filter
+           placeholder="Search assays&hellip;" autocomplete="off"
+           aria-label="Filter assays">
+    <span class="cat-count" data-cat-count></span>
+  </div>
+
+  <div class="cat-list">
+    {% for group in groups %}
+    <section data-group class="cat-list-group clade-accent--{{ group.clade_slug }}{% if group.collapsed %} is-collapsed{% endif %}">
+      <h2 class="cat-list-head"><button type="button" class="cat-group-toggle" data-group-toggle><span class="clade-dot clade-dot--{{ group.clade_slug }}"></span>{{ group.clade }}<span class="cat-group-n">{{ group.rows|length }}</span></button></h2>
+      <ul class="cat-list-rows">
+        {% for row in group.rows %}
+        <li class="cat-row" data-filter="{{ row.filter_text }}">
+          <a class="cat-assay" href="{{ row.href }}">{{ row.name }}</a>
+          {% if row.consumes or row.produces %}
+          <span class="cat-flow" title="Consumes &rarr; produces">
+            <span class="cat-flow-side">{% for c in row.consumes %}<span class="cat-chip">{{ c }}</span>{% endfor %}</span>
+            <span class="cat-arrow" aria-hidden="true">&rarr;</span>
+            <span class="cat-flow-side">{% for c in row.produces %}<span class="cat-chip">{{ c }}</span>{% endfor %}</span>
+          </span>
+          {% else %}
+          {# Never an em dash and never blank: the row still has to read as a #}
+          {# thing you can pick, and say why it has nothing beside it.        #}
+          <span class="cat-none">no curated inputs or outputs</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endfor %}
+  </div>
   {% else %}
     <p class="cat-empty">
       No assays are curated on this instance. The picker reads

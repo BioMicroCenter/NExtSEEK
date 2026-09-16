@@ -7,8 +7,9 @@ and the catalog pages in catalog.py.
 
 Its own module rather than an addition to catalog.py: that module's docstring
 commits it to read-only pages over the context tables, and this one writes. It
-does borrow catalog.py's table builder, so the picker and /seek/assays/ are one
-table with two link targets rather than two tables that drift.
+borrows catalog.py's clade grouping and its filter text, so the picker and
+/seek/assays/ group, order and search assays identically; the row shape is this
+page's own, because the two pages link different things.
 
 HTTP only. Everything these views know comes from
 `nextseek_api.services.assay_templates` and `.assay_authoring`, so no query
@@ -31,7 +32,7 @@ from nextseek_api.services.template_catalog import (downloadable_codes,
                                                     select_entries)
 
 from ..decorators import requires_seek_login_redirect, verifySuperUser
-from .catalog import assay_table_groups
+from .catalog import assay_clade_buckets, assay_filter_text, distinct_codes
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +40,48 @@ PAGE = 'assaySetup.html'
 LOGIN_NEXT = '/seek/assay-setup/'
 
 
-def _picker():
-    """The assay table, and a notice if it could not be built.
+def picker_groups(entries):
+    """Curated assays as the picker list's groups, by consumed clade.
 
-    Same groups, columns and filter hooks as /seek/assays/, with rows pointing
-    back here. Empty plus a notice on failure, never a 500: the house rule is
-    that a missing table costs the offer, not the page.
+    Row = {href, name, consumes, produces, filter_text}. The NAME is the link,
+    which is the whole reason this is not `/seek/assays/`\'s table: that table
+    links its leading `code` cell, which carries the PRODUCED sample-type code,
+    so on a page for picking the assay you are running the assay name was the
+    one thing on the row you could not click -- and the 72 curated assays of
+    193 that produce nothing rendered that cell as an em dash and had no
+    clickable element at all.
+
+    `consumes` and `produces` are read across EVERY row of the entry, not just
+    the first. 24 slugs carry two unreconciled rows, and a first row that names
+    no children would otherwise report an assay as having no outputs while the
+    second row names them.
+
+    Consumed means REQUIRED parents, matching the catalog table's Consumes
+    column. Optional parents are left to `assayDetail`, which has the room to
+    label them: listing them here would read as requirements.
+    """
+    groups = []
+    for g in assay_clade_buckets(entries):
+        rows = []
+        for e in g["entries"]:
+            rows.append({
+                "href": f"/seek/assay-setup/?assay={e.slug}",
+                "name": e.name,
+                "consumes": distinct_codes(*[r.required_parents for r in e.rows]),
+                "produces": distinct_codes(*[r.children for r in e.rows]),
+                "filter_text": assay_filter_text(e),
+            })
+        groups.append({"clade": g["clade"], "clade_slug": g["clade_slug"],
+                       "rows": rows, "collapsed": g["collapsed"]})
+    return groups
+
+
+def _picker():
+    """The assay list, and a notice if it could not be built.
+
+    Same grouping, order and filter hooks as /seek/assays/, with the assay name
+    linking back here. Empty plus a notice on failure, never a 500: the house
+    rule is that a missing table costs the offer, not the page.
     """
     try:
         entries = load_assays()
@@ -52,10 +89,7 @@ def _picker():
         logger.exception("assay catalog unavailable; the picker will be empty")
         return [], 0, ("The assay catalog is unavailable. "
                        "Tell an administrator if this persists.")
-    groups = assay_table_groups(
-        entries, lambda e: f"/seek/assay-setup/?assay={e.slug}"
-    )
-    return groups, len(entries), ""
+    return picker_groups(entries), len(entries), ""
 
 
 def _blank_form() -> dict:
@@ -92,7 +126,6 @@ def _page_context(request, message="", form=None):
 
     return {
         "groups": groups,
-        "columns": ["Assay", "Consumes"],
         "total": total,
         "notice": notice,
         "message": message,

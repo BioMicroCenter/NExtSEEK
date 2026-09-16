@@ -11,7 +11,7 @@ the owning module instead, e.g. `seek.views.admin.write_samples_workbook`.
 from .samples import (editSample, getAssaysOptions, getAttributes, getInstituionUsers, getOperators, getSampleType, getStudiesOptions, manageSample, retrieveSamples, sample, sampleAttributeDelete, sampleAttributeSave, sampleAttributes, sampleDelete, sampleDownload, sampleExport, sampleFindAjax, sampleQuery, sampleTree, sample_type, seek)
 from .upload import (batchUpload, datafileUpload, sampleUploadAjax, samplesValidate)
 from .assets import (datafileQuery, document, sopQuery, templatesDownload, templatesList)
-from .catalog import (assayDetail, assay_table_groups, assaysList, sampleTypeDetail, sampleTypesList)
+from .catalog import (assayDetail, assaysList, sampleTypeDetail, sampleTypesList)
 from .assay_setup import (assaySetup, assaySetupCreate, assaySetupDownload)
 from .search import (newSearch, remote, runSampleSearch, sampleSearch, sampleSearching, searchAdvanced, searchingAdvanced, searchingUIDs, smartSearch)
 from .admin import (adminClades, adminRetrieveSamples, assayAssociationSave, cladeDelete, cladeSampleTypesSave, cladeSave, cladesSyncSampleTypes, get_children_uids, internalAssayDelete, internalAssaySave, internalAssaySuggestions, internalAssays, parse_children_uids, parse_json_metadata, sample_retrieval_data, syncInternalAssays)
@@ -28,7 +28,6 @@ __all__ = [
     'assaySetup',
     'assaySetupCreate',
     'assaySetupDownload',
-    'assay_table_groups',
     'assaysList',
     'batchUpload',
     'cladeDelete',

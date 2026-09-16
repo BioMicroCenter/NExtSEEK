@@ -135,63 +135,63 @@ def _first_code(groups):
     return ""
 
 
-def _all_codes(groups):
-    """Distinct codes across alternation groups, joined for a cell.
+def distinct_codes(*group_lists):
+    """Distinct codes across any number of alternation-group lists, in order.
 
-    [["TIS", "CEX"], ["AB"]] -> "TIS · CEX · AB". Used for the assay
-    table's Consumes column, which shows the real parent sample types rather
-    than the clade (that is already the group heading).
+    [["TIS", "CEX"], ["AB"]] -> ["TIS", "CEX", "AB"]. The alternation structure
+    is deliberately flattened: both callers are summaries beside a link, and
+    "one of TIS or CEX" is a statement `assayDetail` makes properly, with the
+    word `or` between the chips.
     """
     seen = []
-    for grp in groups or []:
-        for code in grp:
-            if code not in seen:
-                seen.append(code)
-    return " · ".join(seen)
+    for groups in group_lists:
+        for grp in groups or []:
+            for code in grp:
+                if code not in seen:
+                    seen.append(code)
+    return seen
 
 
-def assay_table_groups(entries, href_for):
-    """Curated assays as `includes/catalog_table.html` groups.
+def _all_codes(groups):
+    """`distinct_codes` joined for a table cell: "TIS · CEX · AB"."""
+    return " · ".join(distinct_codes(groups))
 
-    `href_for` takes an AssayEntry and returns the row's link, so the same table
-    serves the read-only catalog and the assay setup picker. Extracted when the
-    setup page needed this table verbatim: duplicating it would have copied five
-    private helpers and let the two tables drift.
+
+def assay_clade_buckets(entries):
+    """Assays bucketed by the clade they consume, ready to render.
+
+    [{"clade", "clade_slug", "collapsed", "entries"}, ...] in pipeline order,
+    empty clades dropped, Unassigned last and collapsed. Every key a group
+    needs except `rows`, which is the part the two pages do NOT share.
+
+    Shared by /seek/assays/ and the assay setup picker so the two pages group,
+    order and collapse assays identically. They share this and
+    `assay_filter_text` and nothing else: the picker is a list whose link is
+    the assay NAME, the catalog is a table whose link is the produced code, so
+    there is no row shape left for them to hold in common.
     """
     buckets = {}
     for entry in entries:
         buckets.setdefault(_assay_group_key(entry), []).append(entry)
+    return [{"clade": name, "clade_slug": _clade_slug(name),
+             "collapsed": name == UNASSIGNED_CLADE, "entries": buckets[name]}
+            for name in _ordered_clades(buckets) if buckets.get(name)]
 
-    groups = []
-    for name in _ordered_clades(buckets):
-        if not buckets.get(name):
-            continue
-        rows = []
-        for e in buckets[name]:
-            first = e.rows[0]
-            rows.append({
-                "href": href_for(e),
-                # Consumes = the real parent sample types. Produces is not a
-                # column: the Code anchor already carries the produced code.
-                "code": _first_code(first.children) or "—",
-                "cells": [e.name, _all_codes(first.required_parents)],
-                # Alternative names are in the filter text because an assay
-                # is as often looked for by one of them as by its curated
-                # name -- `alternative_assay_names` is the column that records
-                # exactly that, and context_catalog already parses it into
-                # every row. Without them the picker cannot find an assay by
-                # the name the person running it actually uses.
-                "filter_text": " ".join(
-                    [e.name]
-                    + [r.description or "" for r in e.rows]
-                    + [alt for r in e.rows for alt in (r.alternative_names or [])]
-                ).lower(),
-            })
-        groups.append({
-            "clade": name, "clade_slug": _clade_slug(name),
-            "rows": rows, "collapsed": name == UNASSIGNED_CLADE,
-        })
-    return groups
+
+def assay_filter_text(entry):
+    """The lowercase string the client-side filter matches an assay against.
+
+    Alternative names are in here because an assay is as often looked for by
+    one of them as by its curated name -- `alternative_assay_names` is the
+    column that records exactly that, and context_catalog already parses it
+    into every row. Without them neither page can find an assay by the name the
+    person running it actually uses.
+    """
+    return " ".join(
+        [entry.name]
+        + [r.description or "" for r in entry.rows]
+        + [alt for r in entry.rows for alt in (r.alternative_names or [])]
+    ).lower()
 
 
 @requires_seek_login_redirect('/seek/assays/')
@@ -201,8 +201,23 @@ def assaysList(request):
     Left anchor is the produced sample-type code; UNASSIGNED renders collapsed.
     """
     entries = load_assays()
+    groups = []
+    for g in assay_clade_buckets(entries):
+        rows = []
+        for e in g["entries"]:
+            first = e.rows[0]
+            rows.append({
+                "href": f"/seek/assays/{e.slug}/",
+                # Consumes = the real parent sample types. Produces is not a
+                # column: the Code anchor already carries the produced code.
+                "code": _first_code(first.children) or "—",
+                "cells": [e.name, _all_codes(first.required_parents)],
+                "filter_text": assay_filter_text(e),
+            })
+        groups.append({"clade": g["clade"], "clade_slug": g["clade_slug"],
+                       "rows": rows, "collapsed": g["collapsed"]})
     return render(request, 'assaysList.html', {
-        "groups": assay_table_groups(entries, lambda e: f"/seek/assays/{e.slug}/"),
+        "groups": groups,
         "columns": ["Assay", "Consumes"],
         "total": len(entries),
     })

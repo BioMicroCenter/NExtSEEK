@@ -7,6 +7,7 @@ already apply.
 
 import io
 import json
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,18 +34,65 @@ FLOW = AssayComponents(
     produces=[ComponentGroup([ComponentCode("D.FLOW", "Flow Data", True, "", True)])],
 )
 
-# Every entry carries a row: assay_table_groups reads e.rows[0] to build the
-# table, so an AssayEntry with no rows is not a shape the picker ever sees.
+# Deliberately not in clade order: the picker groups by the clade an assay
+# consumes, so a fixture already in pipeline order could not tell a real
+# grouping from the input order surviving untouched.
+#
+# `bulk-rna-seq` is the case that sank the old table. 72 of the 193 curated
+# assays produce no sample type, so the table's leading `code` cell -- its only
+# link -- rendered as an em dash and the row had nothing clickable on it at
+# all. Here it names no parents either, which is the same row with nothing on
+# the consumed side to fall back on.
 ASSAYS = [
     AssayEntry(slug="flow-cytometry", name="Flow Cytometry", rows=[
         AssayRow(row_id=1, required_parents=[["TIS"]], children=[["D.FLOW"]],
-                 parent_clade="Processed"),
+                 alternative_names=["FACS"], parent_clade="Processed"),
+    ]),
+    AssayEntry(slug="variant-calling", name="Variant Calling", rows=[
+        AssayRow(row_id=4, required_parents=[["D.FASTQ"]], children=[["A.VCF"]],
+                 parent_clade="Analyzed"),
+    ]),
+    AssayEntry(slug="tissue-collection", name="Tissue Collection", rows=[
+        AssayRow(row_id=3, required_parents=[["MUS"]], children=[["TIS"]],
+                 parent_clade="Source"),
+    ]),
+    AssayEntry(slug="bulk-rna-seq", name="Bulk RNA Seq", rows=[
+        AssayRow(row_id=5),
     ]),
     AssayEntry(slug="rna-extraction", name="RNA Extraction", rows=[
         AssayRow(row_id=2, required_parents=[["TIS"]], children=[["RNA"]],
                  parent_clade="Processed"),
     ]),
+    AssayEntry(slug="sequencing", name="Sequencing", rows=[
+        AssayRow(row_id=6, required_parents=[["RNA"]], children=[["D.FASTQ"]],
+                 parent_clade="Raw"),
+    ]),
 ]
+
+# The picker's own markup, read back out of the rendered page. Regexes rather
+# than bare substrings because the assertions are about WHICH element carries
+# the link and WHAT is inside one row -- "Flow Cytometry" and the setup URL
+# both appearing somewhere in the body is exactly what the old table passed.
+_LINK = re.compile(
+    r'<a class="cat-assay" href="(/seek/assay-setup/\?assay=([^"]+))">([^<]*)</a>'
+)
+_ROW = re.compile(r'<li class="cat-row".*?</li>', re.S)
+_CLADE_HEAD = re.compile(
+    r'<span class="clade-dot clade-dot--[a-z]+"></span>([A-Za-z]+)'
+)
+
+
+def _picker_links(body):
+    """{slug: the anchor's own text} for every assay the picker offers."""
+    return {m.group(2): m.group(3).strip() for m in _LINK.finditer(body)}
+
+
+def _picker_row(body, slug):
+    """The one `<li>` for an assay, or None."""
+    for row in _ROW.findall(body):
+        if f"assay={slug}" in row:
+            return row
+    return None
 
 
 def _logged_in():
@@ -135,6 +183,125 @@ class TestAssaySetupPage:
         resp = assaySetup(_get("/seek/assay-setup/"))
         assert resp.status_code == 200
         assert "The assay catalog is unavailable" in resp.content.decode()
+
+
+class TestThePickerIsAListWhoseLinkIsTheAssayName:
+    """Option A: a purpose-built list, not the read-only catalog table.
+
+    The table this replaced linked exactly one cell per row -- the leading
+    `code`, which holds the PRODUCED sample-type code. On a page whose entire
+    job is "pick the assay you are running", the assay name was the one thing
+    on the row that could not be clicked, and the 72 assays of 193 that produce
+    nothing rendered that cell as an em dash, leaving the row with no clickable
+    element at all.
+    """
+
+    def _body(self):
+        from seek.views.assay_setup import assaySetup
+
+        return assaySetup(_get("/seek/assay-setup/")).content.decode()
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_the_assay_name_is_the_link_to_its_setup_url(self, db, _assays):
+        """The name IS the anchor text, not merely present on the page."""
+        db.return_value = _logged_in()
+        links = _picker_links(self._body())
+        assert links["flow-cytometry"] == "Flow Cytometry"
+        assert links["rna-extraction"] == "RNA Extraction"
+        assert links["tissue-collection"] == "Tissue Collection"
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_every_assay_gets_exactly_one_link(self, db, _assays):
+        db.return_value = _logged_in()
+        links = _picker_links(self._body())
+        assert set(links) == {e.slug for e in ASSAYS}
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_an_assay_that_produces_nothing_is_still_listed_and_still_linked(
+        self, db, _assays
+    ):
+        """The defect Option A exists to fix, pinned directly."""
+        db.return_value = _logged_in()
+        body = self._body()
+        assert _picker_links(body)["bulk-rna-seq"] == "Bulk RNA Seq"
+        assert _picker_row(body, "bulk-rna-seq") is not None
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_an_assay_with_no_components_says_so_instead_of_an_em_dash(
+        self, db, _assays
+    ):
+        db.return_value = _logged_in()
+        body = self._body()
+        row = _picker_row(body, "bulk-rna-seq")
+        assert "no curated inputs or outputs" in row
+        # Scoped to the picker's own rows: the em dash was the old table's
+        # placeholder, and asserting on the whole page would be testing the
+        # surrounding chrome instead.
+        assert not any("\u2014" in r for r in _ROW.findall(body))
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_a_row_reads_consumed_codes_then_produced_codes(self, db, _assays):
+        db.return_value = _logged_in()
+        row = _picker_row(self._body(), "flow-cytometry")
+        assert row.index("TIS") < row.index("D.FLOW")
+        assert 'class="cat-chip"' in row
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_the_clade_grouping_and_its_pipeline_order_survive(self, db, _assays):
+        """Same grouping and same order as /seek/assays/, built from
+        CLADE_ORDER rather than from the data, with Unassigned last."""
+        db.return_value = _logged_in()
+        heads = _CLADE_HEAD.findall(self._body())
+        assert heads == ["Source", "Processed", "Raw", "Analyzed", "Unassigned"]
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_unassigned_is_still_the_only_group_that_starts_collapsed(
+        self, db, _assays
+    ):
+        """Collapse behaviour is tracked separately; this pins it unchanged."""
+        db.return_value = _logged_in()
+        body = self._body()
+        assert "clade-accent--unassigned is-collapsed" in body
+        for slug in ("source", "processed", "raw", "analyzed"):
+            assert f"clade-accent--{slug} is-collapsed" not in body
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_the_count_is_every_assay_not_every_group(self, db, _assays):
+        db.return_value = _logged_in()
+        assert f"{len(ASSAYS)} assays available." in self._body()
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_the_search_box_and_the_shared_filter_script_still_drive_the_list(
+        self, db, _assays
+    ):
+        """The list reuses `includes/catalog_table_filter.js` unchanged, so it
+        has to keep the hooks that script looks for: the search input, the
+        count, one `[data-group]` per clade, and `.cat-row` + `data-filter` on
+        every row."""
+        db.return_value = _logged_in()
+        body = self._body()
+        assert "data-cat-filter" in body and "data-cat-count" in body
+        assert "data-group-toggle" in body
+        assert "document.querySelectorAll('.cat-row')" in body
+        assert 'data-filter="' in _picker_row(body, "flow-cytometry")
+
+    @patch("seek.views.assay_setup.load_assays", return_value=ASSAYS)
+    @patch("seek.decorators.SeekDB")
+    def test_an_assay_is_searchable_by_its_alternative_names(self, db, _assays):
+        """`alternative_assay_names` is how people actually refer to an assay.
+        The improvement that lived in the shared table builder has to reach the
+        picker too, or it can only be found by its curated name."""
+        db.return_value = _logged_in()
+        assert "facs" in _picker_row(self._body(), "flow-cytometry")
 
 
 def _post(path, data):
