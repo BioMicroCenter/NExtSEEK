@@ -75,6 +75,13 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     # which already held this edge): ChatSession reads and summary writes, and
     # the CCSessionTranscript upsert when a CC turn completes.
     "NessieAI/cc/turn.py": frozenset({"nextseek_api.assistant.models_db"}),
+    # Reingest: PipelineRun records which NExtSEEK sequencing samples a pipeline
+    # run consumed. The model lives in nextseek_api/assistant/models_db.py because
+    # models and migrations stay with the API (app label nextseek_api), so reading
+    # it from the engine is the same sanctioned edge cc/turn.py and the HiBayes
+    # ORM modules already hold.
+    "NessieAI/ns/reingest/launch_record.py": frozenset({"nextseek_api.assistant.models_db"}),
+    "NessieAI/ns/reingest/uid_resolve.py": frozenset({"nextseek_api.assistant.models_db"}),
     # Router telemetry and the posterior leg, through the ORM models.
     "NessieAI/router/risk_overlay.py": frozenset({"nextseek_api.assistant.models_db"}),
     "NessieAI/router/turn_ledger.py": frozenset({"nextseek_api.assistant.models_db"}),
