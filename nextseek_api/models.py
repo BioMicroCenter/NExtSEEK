@@ -2919,6 +2919,107 @@ class SampleTypeConnectionsResponse(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
+# -----------------------------
+# Graph sync: the status endpoint (nextseek_api/services/graph_sync_status.py)
+# -----------------------------
+#
+# These mirror what nextseek_api/graph_sync/state.py returns, key for key, and forbid extra keys: a shape change on
+# either side is then a failing test rather than a field that silently stops being published.
+
+class GraphSyncRunRecord(BaseModel):
+    """One `graph_sync_run` row, as `graph_sync.state.last_runs` reports it."""
+
+    id: int = Field(..., description="graph_sync_run row id")
+    kind: str = Field(..., description="full, catalog, reconcile, drift or samples")
+    status: str = Field(..., description="running while the run is going, then ok, failed, refused, abandoned or drift")
+    started_at: Optional[str] = Field(None, description="ISO 8601; when the run began reading MySQL")
+    finished_at: Optional[str] = Field(None, description="ISO 8601; null while the run is still going")
+    watermark_from: Optional[str] = Field(None, description="Lowest source position the run covered")
+    watermark_to: Optional[str] = Field(None, description="Highest source position the run covered")
+    counts: Optional[Dict[str, Any]] = Field(None, description="What the run did, and the trigger that started it")
+    drift: Optional[Dict[str, Any]] = Field(None, description="The drift result, on a drift run")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncJobFreshness(BaseModel):
+    """Whether one scheduled job has run recently enough."""
+
+    status: str = Field(..., description="ok, stale, or never before the first successful run")
+    satisfied_by: Optional[str] = Field(
+        None, description="Which kind of run satisfied it; a full sync also counts for the reconcile"
+    )
+    last_ok_started_at: Optional[str] = Field(None, description="ISO 8601 start of the newest successful run")
+    last_ok_finished_at: Optional[str] = Field(None, description="ISO 8601 end of that run")
+    age_s: Optional[float] = Field(None, description="Seconds since that run started")
+    threshold_s: int = Field(..., description="How old that run may be before the job counts as stale")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncOutboxFreshness(BaseModel):
+    """Whether the oldest waiting outbox row has been waiting too long."""
+
+    status: str = Field(..., description="ok, or stale when the oldest waiting row is over the threshold")
+    oldest_enqueued_at: Optional[str] = Field(None, description="ISO 8601; null when nothing is waiting")
+    age_s: Optional[float] = Field(None, description="Seconds that row has been waiting")
+    threshold_s: int = Field(..., description="How long a row may wait before the outbox counts as stale")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncFreshness(BaseModel):
+    """Freshness per job: the weekly full sync, the nightly reconcile and the outbox."""
+
+    full: GraphSyncJobFreshness
+    reconcile: GraphSyncJobFreshness
+    outbox: GraphSyncOutboxFreshness
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncOutboxRow(BaseModel):
+    """The oldest open outbox row no worker is holding."""
+
+    kind: str = Field(..., description="The outbox kind, which says what to do")
+    key: str = Field(..., description="What to do it to")
+    enqueued_at: Optional[str] = Field(None, description="ISO 8601")
+    age_s: float = Field(..., description="Seconds the row has been waiting")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncOutboxSummary(BaseModel):
+    """The open outbox rows, counted by kind."""
+
+    pending: Dict[str, int] = Field(
+        ..., description="Claimable now or later, rows in a worker's hands included"
+    )
+    dead: Dict[str, int] = Field(..., description="At the attempt limit and in no worker's hands")
+    claimed: Dict[str, int] = Field(..., description="Under a live lease")
+    oldest_pending: Optional[GraphSyncOutboxRow] = Field(
+        None, description="The oldest open row no worker holds, dead rows included; null when none is waiting"
+    )
+    max_attempts: int = Field(..., description="Claims a row gets before it counts as dead")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncStatusResponse(BaseModel):
+    """Response model for `GET /nextseek_api/admin/graph-sync/status/`."""
+
+    generated_at: str = Field(..., description="ISO 8601; the one clock every age below is measured from")
+    schema_version: str = Field(..., description="The graph schema version this instance's writer produces")
+    runs: Dict[str, GraphSyncRunRecord] = Field(
+        ..., description="The latest run of each kind, whatever its status, keyed by kind"
+    )
+    freshness: GraphSyncFreshness
+    outbox: GraphSyncOutboxSummary
+    drift: Optional[Dict[str, Any]] = Field(None, description="What the latest drift run recorded, if any")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
 # Durable job record for batch assay registration. Defined in its own module to
 # keep this file from growing further; imported here so Django discovers it.
 from nextseek_api.assay_registration.models_db import AssayRegistrationJob  # noqa: E402,F401

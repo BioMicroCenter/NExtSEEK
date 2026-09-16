@@ -531,6 +531,13 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
           note="router root; exactly 15 registrations, so a 16th or a missing one "
                "means a registration changed"),
+    Route(pattern=r"^nextseek_api/^^admin/graph-sync/status/$",
+          path="/nextseek_api/admin/graph-sync/status/",
+          methods=("GET",), profiles="local,dev", auth="write", expect=200,
+          note="the graph sync's own state, read from the two dmac tables. Superuser "
+               "only, so the expectation is by inspection -- the sweep never holds "
+               "those rights. Local and dev only: production has no migration 0021, "
+               "so those tables are absent and the endpoint answers 503 there"),
     Route(pattern=r"^nextseek_api/^^admin/project-export/(?P<pk>[^/.]+)/$",
           path="/nextseek_api/admin/project-export/{seek_project_id}/",
           methods=("GET",), profiles="local,dev", auth="write", expect=200,
