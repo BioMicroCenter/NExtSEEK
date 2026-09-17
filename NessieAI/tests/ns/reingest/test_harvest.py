@@ -462,3 +462,22 @@ def test_a_multirun_sample_with_nothing_resolved_gets_no_partial_warning(tmp_pat
     sample = next(s for s in got.samples if s.nfcore_sample == "S1")
     assert sample.d_seq_uid_multirun == []
     assert not any("S1" in w and "partial" in w for w in got.warnings)
+
+
+def test_a_multirun_samples_two_rows_resolving_to_the_same_parent_is_not_partial(tmp_path):
+    # Realistic whenever one D.SEQ record's File_PrimaryData lists both
+    # lanes: BOTH contributing rows resolve, but to the SAME uid, so
+    # len(parents) de-duplicates to 1 against row_counts == 2. That must not
+    # look partial -- every contributing row did in fact resolve, and Parent
+    # is a complete list. This is the case the len(parents)-based check got
+    # wrong; comparing resolved ROWS (2) against row_counts (2) gets it right.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    _multirun_samplesheet(root)
+
+    got = harvest.harvest_local(
+        str(root), lookup_by_fastq=lambda p: ["D.SEQ-SAME-RECORD"])
+
+    sample = next(s for s in got.samples if s.nfcore_sample == "S1")
+    assert sample.d_seq_uid_multirun == ["D.SEQ-SAME-RECORD"]
+    assert not any("S1" in w and "partial" in w for w in got.warnings)
