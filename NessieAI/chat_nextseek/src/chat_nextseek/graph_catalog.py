@@ -22,6 +22,14 @@ one driver per key:
 This is the admin form (node-level statistics over every project). A non-admin form needs per-project usage and the
 caller's scope (spec D10, stage A1).
 
+The per-attribute statistics (``top_values``, ``top_counts``, the ranges and ``distinct_count``) are optional: they
+are read when an ``Attribute`` carries them and are absent otherwise, so no ``SCHEMA_VERSION`` or ``catalog_hash``
+change is needed to read a catalog that gains them. No writer in this tree writes any of them yet, and the deployed
+graph carries none (measured 2026-09-17 against ``catalog_hash 1168b5e6…a362ba``: 3,568 ``Attribute`` nodes, 0 with
+``top_values``). ``distinct_count`` is the one that makes a value list usable: without it ten values are a top ten,
+and a predicate built from them silently excludes real data. The statistics pass must write it in the same pass as
+``top_values`` (``PilotAPOC/review/PROPOSALS.md`` P7b).
+
 Tests replace ``_make_driver`` and ``_now``.
 """
 from __future__ import annotations
@@ -54,7 +62,8 @@ def schema_version_supported(value) -> bool:
     version = _version_tuple(value)
     return version is not None and version >= _version_tuple(SCHEMA_VERSION)
 
-# The catalog keeps at most ten top values per attribute; TYPES_ADMIN never reads more.
+# The catalog keeps at most ten top values per attribute; TYPES_ADMIN never reads more. Ten values are a top ten
+# unless something says otherwise, which is what ``AttributeRow.values_complete`` is for (P7b).
 TOP_VALUES_MAX = 10
 
 # The clock; tests patch this name.
@@ -97,7 +106,7 @@ RETURN t.title AS title, t.label AS label, t.name AS name, t.summary AS summary,
          MATCH (t)-[:HAS_ATTRIBUTE]->(a:Attribute)
          WHERE a.sample_count > 0
          RETURN a { .title, .value_type, .declared, .needs_backticks, .sample_count, .meaning, .unit_key, .role,
-                    .num_min, .num_max, .date_min, .date_max,
+                    .num_min, .num_max, .date_min, .date_max, .distinct_count,
                     top_values: a.top_values[0..$top], top_counts: a.top_counts[0..$top] } AS attribute
          ORDER BY a.sample_count DESC, a.title
        } AS attributes,
@@ -160,6 +169,27 @@ class TypeIndexRow:
     attributes_with_values: int
 
 
+def _values_complete(top_values, top_counts, sample_count, distinct_count) -> bool | None:
+    """``AttributeRow.values_complete``, as a function of the four fields. Never raises: it is on the prompt path."""
+    values, counts = tuple(top_values or ()), tuple(top_counts or ())
+    listed = len(values)
+    if listed == 0:
+        return None  # nothing is listed, so there is nothing to qualify
+    distinct = _opt_int(distinct_count)
+    if distinct is not None:
+        if distinct < listed:
+            return None  # the count contradicts the list, so neither is trusted
+        return distinct == listed
+    samples = _opt_int(sample_count)
+    counted = [_opt_int(c) for c in counts[:listed]]
+    if samples is None or len(counted) < listed or any(c is None for c in counted):
+        return None  # the list cannot be totalled
+    total = sum(counted)
+    if total > samples:
+        return None  # multi-valued or stale statistics: a total above the samples holding a value proves nothing
+    return total == samples
+
+
 @dataclass(frozen=True)
 class AttributeRow:
     """One attribute of a resolved type that holds a value on at least one sample."""
@@ -178,6 +208,25 @@ class AttributeRow:
     num_max: float | None = None
     date_min: str | None = None
     date_max: str | None = None
+    # How many distinct values the attribute takes (P7b), when the catalog carries it. Written by the statistics
+    # pass that writes ``top_values``; a catalog without it reads None, which means unknown and never zero.
+    distinct_count: int | None = None
+
+    @property
+    def values_complete(self) -> bool | None:
+        """Whether ``top_values`` is the whole value set: True, False, or None when nothing settles it (P7b).
+
+        True means the listed values may be treated as every value there is. False means values are missing, so a
+        predicate built from the list alone silently excludes real data. The failure this serves is the other way
+        round: ``toLower(s.Strain) CONTAINS 'mtb'`` answered 0 because mTB is not one of the 8 designations BAC.Strain
+        holds, which a value list known to be complete says outright.
+
+        ``distinct_count`` decides it when the catalog carries one; otherwise the sample counts can, because listed
+        counts that total ``sample_count`` account for every sample holding a value. It describes the catalog's list,
+        not the text a renderer prints: a renderer that drops a value of its own must not pass this on as
+        completeness.
+        """
+        return _values_complete(self.top_values, self.top_counts, self.sample_count, self.distinct_count)
 
 
 @dataclass(frozen=True)
@@ -593,6 +642,7 @@ def _attribute_row(attr: dict) -> AttributeRow:
         role=_opt_str(attr.get("role")),
         top_values=tuple(v if isinstance(v, str) else str(v) for v in (attr.get("top_values") or ())),
         top_counts=tuple(_opt_int(c) or 0 for c in (attr.get("top_counts") or ())),
+        distinct_count=_opt_int(attr.get("distinct_count")),
         num_min=_opt_float(attr.get("num_min")),
         num_max=_opt_float(attr.get("num_max")),
         date_min=_opt_str(attr.get("date_min")),

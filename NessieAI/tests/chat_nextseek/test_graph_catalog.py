@@ -5,6 +5,7 @@ Every test drives a fake driver and a patched clock: nothing reaches a network o
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -559,6 +560,168 @@ def test_a_failed_detail_read_is_unavailable_and_remembered(harness, clock):
         gc.get_snapshot(cfg())
     clock[0] += gc.FAILURE_MEMORY_S
     assert [d.title for d in gc.get_type_details(cfg(), ["TIS"])] == ["TIS"]
+
+
+# --- P7b: is the value list all of them? ----------------------------------------------------------------------------
+#
+# PROPOSALS.md P7b: "add Attribute.distinct_count so the agent can tell 'these 10 values are all of them' from
+# 'top 10 of 62'". Every number in these fixtures was read off the deployed graph (catalog_hash 1168b5e6…a362ba,
+# schema 1.2, 2026-09-17) with read-only Cypher, so the cases are the review's own failures:
+#
+#   T_MUS.Sex     8 distinct values on 5,631 samples: F 2,913, M 2,371, Male 179, Female 160, and four more.
+#                 A complete list makes the right predicate derivable: F + Female = 3,073, which is exactly the
+#                 answer key for advanced.female_mice, where toLower(s.Sex) = 'female' returned 160.
+#   T_TIS.Organ   106 distinct values on 95,630 samples. Its true top ten totals 63,045 and does NOT hold LUNG
+#                 (2,532, twelfth), so the lung answer is 22,734 and a value-set predicate built from the list
+#                 alone reaches 20,202. This is the list the agent must not read as exhaustive.
+#   T_BAC.Strain  8 designations on 19 samples, none of them mTB (FINDINGS H3: toLower(s.Strain) CONTAINS 'mtb'
+#                 answered 0 where the truth is 2,999). A list known to be whole says the field is the wrong one.
+
+
+def _attr(**kw) -> gc.AttributeRow:
+    """An AttributeRow with the required fields filled, and whatever a test varies."""
+    fields = {"title": "Strain", "value_type": "string", "declared": True, "needs_backticks": False,
+              "sample_count": 19, "meaning": None, "unit_key": None, "role": "data"}
+    return gc.AttributeRow(**{**fields, **kw})
+
+
+def _values(n: int) -> tuple:
+    return tuple(f"v{i}" for i in range(n))
+
+
+# T_MUS.Sex, whole. The counts total sample_count, which is what makes the set closed.
+SEX = {"title": "Sex", "value_type": "string", "declared": True, "needs_backticks": False,
+       "sample_count": 5631, "distinct_count": 8,
+       "top_values": ["F", "M", "Male", "Female", "Female and male in equal ratios", "DAM", "F?", "Male-hydro"],
+       "top_counts": [2913, 2371, 179, 160, 5, 1, 1, 1]}
+# T_TIS.Organ, truncated: the true top ten of 106 values.
+ORGAN = {"title": "Organ", "value_type": "string", "declared": True, "needs_backticks": False,
+         "sample_count": 95630, "distinct_count": 106,
+         "top_values": ["Lung", "Blood", "Liver", "Lymph Node", "Kidney", "LIVER", "lung", "Pancreas", "Brain",
+                        "Bronchus and lung"],
+         "top_counts": [16841, 11189, 7443, 6329, 5363, 4154, 3361, 3080, 2669, 2616]}
+# T_BAC.Strain, whole.
+STRAIN = {"title": "Strain", "value_type": "string", "declared": True, "needs_backticks": False,
+          "sample_count": 19, "distinct_count": 8,
+          "top_values": ["H37Rv", "Erdman", "L2-G2G (strain 8165)", "YFP-tagged H37Rv", "HN878", "BcRv",
+                         "Danish SSI 1331", "mc2 155"],
+          "top_counts": [10, 3, 1, 1, 1, 1, 1, 1]}
+
+
+def _only_attribute(harness, attribute: dict) -> gc.AttributeRow:
+    """Read one attribute through the whole reader: injected on CEL, the fixture type with none of its own, so no
+    other test's expectations move."""
+    harness.graph.types["CEL"]["attributes"] = [dict(attribute)]
+    detail, = gc.get_type_details(cfg(), ["CEL"])
+    row, = detail.attributes
+    return row
+
+
+def test_the_statement_asks_for_the_distinct_count():
+    # A catalog that carries it needs no reader change; on one that does not, the map projection returns null.
+    assert ".distinct_count" in gc.TYPES_ADMIN
+
+
+def test_the_statement_caps_the_value_list_it_reads(harness):
+    # What the reader shows is capped in Cypher, so ten values are a top ten unless a distinct count says otherwise.
+    gc.get_type_details(cfg(), ["TIS"])
+
+    admin = next(c for c in harness.graph.calls if c["name"] == "TYPES_ADMIN")
+    assert admin["params"]["top"] == gc.TOP_VALUES_MAX
+    assert "a.top_values[0..$top]" in gc.TYPES_ADMIN and "a.top_counts[0..$top]" in gc.TYPES_ADMIN
+
+
+def test_a_catalog_without_a_distinct_count_reads_as_unknown_not_zero(harness):
+    # The state of every deployed graph today: no Attribute carries top_values or a distinct count, and a missing
+    # property must read as unknown, never as "no values" or "zero distinct values".
+    tis, = gc.get_type_details(cfg(), ["TIS"])
+    organ, catalog = tis.attributes
+
+    assert (organ.distinct_count, catalog.distinct_count) == (None, None)
+    # This fixture's Organ counts (16,841 + 5,893) exceed its sample_count, so the numbers settle nothing either way.
+    assert organ.values_complete is None
+    # Nothing is listed for Catalog#, so there is nothing to qualify.
+    assert catalog.values_complete is None
+
+
+def test_a_complete_value_set_reads_as_complete(harness):
+    sex = _only_attribute(harness, SEX)
+
+    assert (sex.distinct_count, len(sex.top_values)) == (8, 8)
+    assert sex.values_complete is True
+    # Because the set is closed, the counts answer the question the agent got wrong: F + Female = 3,073.
+    by_value = dict(zip(sex.top_values, sex.top_counts))
+    assert by_value["F"] + by_value["Female"] == 3073
+
+
+def test_a_truncated_value_list_is_not_complete(harness):
+    organ = _only_attribute(harness, ORGAN)
+
+    assert (organ.distinct_count, len(organ.top_values)) == (106, gc.TOP_VALUES_MAX)
+    assert organ.values_complete is False
+    # What the list alone would give for lung is 20,202 against a truth of 22,734: LUNG is the value it cannot see.
+    by_value = dict(zip(organ.top_values, organ.top_counts))
+    assert sum(n for v, n in by_value.items() if v.lower() == "lung") == 20202
+    assert "LUNG" not in by_value
+
+
+def test_the_wrong_field_is_settled_by_a_complete_value_set(harness):
+    strain = _only_attribute(harness, STRAIN)
+
+    assert strain.values_complete is True
+    # Every value Strain takes is on the page and none of them is mTB, so the field is wrong, not the predicate.
+    assert not any("mtb" in value.lower() for value in strain.top_values)
+    assert sum(strain.top_counts) == strain.sample_count == 19
+
+
+@pytest.mark.parametrize("distinct, listed, expected", [
+    (8, 8, True),               # every value is listed
+    (10, 10, True),             # the cap is reached and the cap is the whole set
+    (11, 10, False),            # one value is missing, which is enough to break a value-set predicate
+    (106, 10, False),           # T_TIS.Organ: the proposal's "top ten of sixty-two", measured as ten of 106
+    (0, 0, None),               # nothing listed, nothing to qualify
+    (3, 5, None),               # the count contradicts the list: claim nothing
+])
+def test_the_distinct_count_decides_when_the_catalog_carries_one(distinct, listed, expected):
+    row = _attr(distinct_count=distinct, top_values=_values(listed), top_counts=(1,) * listed,
+                sample_count=max(listed, 1))
+
+    assert row.values_complete is expected
+
+
+@pytest.mark.parametrize("sample_count, values, counts, expected", [
+    # T_MUS.Sex: the listed counts total every sample holding a value, so no other value exists.
+    (SEX["sample_count"], 8, tuple(SEX["top_counts"]), True),
+    # T_TIS.Organ: 63,045 of 95,630, so values are missing even without a distinct count to say so.
+    (ORGAN["sample_count"], 10, tuple(ORGAN["top_counts"]), False),
+    (19, 2, (), None),                            # values with no counts settle nothing
+    (19, 3, (6, 3), None),                        # fewer counts than values: the list cannot be totalled
+    (None, 2, (6, 3), None),                      # no sample count
+    (5, 2, (6, 3), None),                         # the counts exceed the sample count: claim nothing
+])
+def test_without_a_distinct_count_the_sample_counts_settle_it(sample_count, values, counts, expected):
+    row = _attr(sample_count=sample_count, top_values=_values(values), top_counts=counts)
+
+    assert row.values_complete is expected
+
+
+@pytest.mark.parametrize("kw", [
+    {"top_values": None, "top_counts": None},                                 # a row built with nothing
+    {"top_values": ("F", "M"), "top_counts": (2913, None)},                   # a count that is not a number
+    {"top_values": ("F",), "top_counts": ("many",), "sample_count": "19"},    # counts that are not numbers
+    {"top_values": ("F",), "distinct_count": "eight"},                        # a distinct count that is not a number
+])
+def test_a_malformed_row_is_unknown_and_never_an_exception(kw):
+    # This is read while a prompt is being built, so a bad statistic must cost the note, not the turn.
+    assert _attr(**kw).values_complete is None
+
+
+def test_completeness_is_derived_so_the_row_keeps_its_identity():
+    # A field would have to be kept in step with the values by everything that builds an AttributeRow; a property
+    # cannot drift, and equality (which test_type_details_carry_the_admin_form asserts in full) is unaffected.
+    names = [f.name for f in dataclasses.fields(gc.AttributeRow)]
+    assert "distinct_count" in names and "values_complete" not in names
+    assert _attr(distinct_count=8, top_values=_values(8)) == _attr(distinct_count=8, top_values=_values(8))
 
 
 # --- vocabulary -----------------------------------------------------------------------------------------------------
