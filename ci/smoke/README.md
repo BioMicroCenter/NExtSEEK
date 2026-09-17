@@ -223,6 +223,95 @@ GET and two searches, writes nothing, and carries no `write` marker.
 `local` and `dev` only, like the route: production runs a v1.0 graph without migration
 0021, so the two tables the endpoint reads are not there at all.
 
+## The behavioural lane
+
+`test_graph_behaviour.py` is the only module that asserts **the graph changed** after a write.
+Everything else about graph sync proves wiring: `ci/writers.py` declares all 30 writer sites and
+`ci/gate/test_writer_registry.py` fails when one appears without a hook, which proves a writer calls
+something and nothing about Neo4j.
+
+**Opt in twice**, like the write lane: `-m graphwrite`, plus `CI_WRITE_DESTRUCTIVE=1` for the cases
+that mutate rows. From a worktree, add `--force-profile local CI_FORCE_PROFILE_CONFIRM=yes`, because
+`startup/.instance.json` lives in the checkout the stack runs from and the guard fails closed to
+`prod` without it.
+
+```bash
+CI_FORCE_PROFILE_CONFIRM=yes CI_WRITE_DESTRUCTIVE=1 uv run --no-project --with pytest \
+  --with requests --with playwright pytest ci/smoke/test_graph_behaviour.py -m graphwrite \
+  --base-url http://127.0.0.1:8000 --force-profile local
+```
+
+### Two gates, then the cases
+
+The module refuses to mean anything until both gates pass: the graph is at the writer's schema
+version (below it the writer refuses every write, so each case would fail for the wrong reason), and
+the sync loop drains the outbox **without help** — no case here issues a sync command. The gates also
+assert the outbox holds no dead rows, because `wait_for_drain` reports a drain with dead rows present.
+
+| Case | Writer | What the graph must do |
+|---|---|---|
+| batch upload | WR-01, WR-02 | the job's `totals.graph` says `synced`, and the graph matches both rows: the one path that syncs inline |
+| attribute create and delete | WR-05 | the graph's **catalog** declares the attribute, then stops declaring it |
+| sample update | WR-07 PATCH | the node matches the new value and stops matching the old one |
+| delete | WR-13 | the node comes down by the retire rule |
+| delete, through the API | WR-07 destroy | **strict xfail**: see below |
+| sample joins a project | WR-01, WR-02 | a scoped account that could not see the sample now can |
+| person change | WR-10 | the `membership` row drains rather than dead-lettering |
+
+### Three things that will mislead you
+
+All three were measured on 2026-09-17 by running the lane, and each one reads as a product defect
+until you know about it.
+
+- **`total` and `rows` can disagree, and only `total` is the graph's answer.** `total` is counted in
+  Cypher; `rows` are that page hydrated from MySQL. A node the graph still holds whose MySQL row is
+  gone answers `total: 1, rows: []`. So `graph_holds` is for **presence** only, and every absence
+  assertion reads `graph_total`/`wait_for_total`. An absence assertion built on the rows passes on
+  exactly the failure it exists to catch.
+- **`graph_meta` is as fresh as the last drift run, and no fresher.** The status endpoint does not
+  query Neo4j. Asserting that `catalog_hash` moved after a write compares a cached value with itself.
+- **`graph_search` caches the catalog** for `RECHECK_SECONDS` (60) and re-reads it only when
+  `GraphMeta.catalog_hash` moves, so a change that has genuinely landed can take a minute to show.
+  The attribute case polls past that window.
+
+### What it cannot assert, and where that is covered
+
+`graph_search` answers about samples, so **`MEMBER_OF` is invisible to this lane**. The person case
+proves the hook fires and the loop drains the kind; whether the graph's memberships match SEEK is
+gate G's `people.*` check (`graph_sync/verify.py::_check_people`), which runs inside every drift run.
+Asserting it here would need a Neo4j connection this lane may not open.
+
+### Identity, and why not `people/current/`
+
+The cases resolve accounts through `/nextseek_api/users/` (the admin list, read from SEEK's tables
+through the ORM) and memberships through `/nextseek_api/people/<id>/` (the full `projects` set).
+**Not `/nextseek_api/people/current/`**: that path resolves the caller through the SEEK proxy's
+shared session, and six calls alternating the two smoke accounts answered with one identity for
+both. A lookup that names its subject in the path is unaffected.
+
+### The API-proxy delete xfail
+
+`DELETE /nextseek_api/samples/<id>/` answered 500 after 20.13 s three times out of three: SEEK's own
+delete outruns `SeekAPIClient.timeout_s = 20`. Rails completes the delete, so the row leaves MySQL,
+but WR-07's retire hook is guarded by `200 <= code < 300` and never runs — leaving a node
+`graph_search` counts and cannot show. It is a strict xfail for the reason `ci/routes.py` gives for a
+route that is broken today: the defect stays visible, and the day it is fixed the lane goes red and
+tells whoever fixed it to remove the marker. The product's own UI does not use this path; the Sample
+Deletion tab posts `alluids` to `/seek/samples/delete/` (WR-13), which the lane proves works.
+
+### `/seek/samples/delete/` is enabled for `local` only
+
+That route was `EXCLUDE_UNSAFE_METHOD` with no profile. The lane needs it, so it is now declared
+`profiles="local", auth="write"`, and **never dev or prod**: the write it makes is irreversible data
+loss rather than one of the safe previews. `auth="write"` keeps it out of the T0 sweep, which never
+holds that account.
+
+### What it leaves behind
+
+Each case deletes its own samples through WR-13. What cannot be cleaned up over HTTP is a node whose
+MySQL row went without a retire row, which is what the xfailed case produces on purpose: retire those
+with `manage.py graph_sync --samples <ids> --i-mean-the-live-graph`.
+
 ## Profiles
 
 Every route in `ci/routes.py` names the profiles it may be called under, and the
