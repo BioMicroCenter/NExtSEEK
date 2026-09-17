@@ -16,14 +16,19 @@ from __future__ import annotations
 
 from NessieAI.ns import reingest_qa as qa
 
-# Human names for the attributes a reader will actually see flagged.
+# Human names for the attributes a reader will actually see flagged, cased
+# exactly as they should appear at the start of a sentence. Curated here
+# rather than derived with `_cap`/str.capitalize(), both of which mangle a
+# name like "rRNA content" -- capitalize() lowercases the tail into "Rrna
+# content", and even the first-character-only `_cap` turns it into "RRNA
+# content". These values are used verbatim, never passed through either.
 _FRIENDLY = {
-    "ContamPercent": "contamination percentage",
-    "MappedPercent": "mapping rate",
+    "ContamPercent": "Contamination percentage",
+    "MappedPercent": "Mapping rate",
     "rRNAPercent": "rRNA content",
-    "GenesDetected": "genes detected",
-    "Strandedness": "strandedness",
-    "DuplicationPercent": "duplication rate",
+    "GenesDetected": "Genes detected",
+    "Strandedness": "Strandedness",
+    "DuplicationPercent": "Duplication rate",
 }
 
 # UNRESOLVED_UID lists affected samples by name; cap it so a genuinely large
@@ -31,15 +36,20 @@ _FRIENDLY = {
 _MAX_SAMPLES_LISTED = 10
 
 
-def _name(attribute: str) -> str:
-    return _FRIENDLY.get(attribute, attribute)
-
-
 def _cap(s: str) -> str:
     """Capitalize only the first character. str.capitalize() also lowercases
-    the tail, which mangles a curated name like "rRNA content" or a bare
-    attribute like "MedianCV" that is already correctly cased."""
+    the tail, which would mangle a bare attribute like "MedianCV" that is
+    already correctly cased. Used only as `_name`'s fallback for an attribute
+    with no curated `_FRIENDLY` entry -- a curated name is already cased
+    correctly and must never be run through this."""
     return s[:1].upper() + s[1:] if s else s
+
+
+def _name(attribute: str) -> str:
+    """Sentence-ready display name for `attribute`: the curated friendly name
+    verbatim, or `_cap` applied to the raw attribute when there is none."""
+    friendly = _FRIENDLY.get(attribute)
+    return friendly if friendly is not None else _cap(attribute)
 
 
 def _plural(count: int, word: str = "row") -> str:
@@ -122,7 +132,18 @@ def render_qa_for_user(reports, artifacts, run_name) -> str:
             # we're iterating is already scoped to one sample type, which is
             # the reliable source, so it wins over whatever group() carried.
             bucket["sample_type"] = sample_type
-            target = hard_checks if bucket["severity"] == qa.HARD else soft_checks
+            # Route explicitly on the two known severities and fail loudly on
+            # anything else, matching QaReport.add()'s own philosophy: a gate
+            # whose job is blocking bad uploads must not quietly file an
+            # unknown severity under "soft" (or "hard") and render it as
+            # something milder (or harsher) than it is.
+            if bucket["severity"] == qa.HARD:
+                target = hard_checks
+            elif bucket["severity"] == qa.SOFT:
+                target = soft_checks
+            else:
+                raise ValueError(
+                    f"unknown finding severity: {bucket['severity']!r}")
             target.append((code, attribute, bucket))
 
     if hard_checks:
@@ -146,6 +167,20 @@ def render_qa_for_user(reports, artifacts, run_name) -> str:
 
     # A workbook whose sample type was hard-rejected is not something to
     # upload -- the message above just said it is blocked.
+    #
+    # A HARD_REJECT sample type whose own workbook creates new samples (i.e.
+    # it is not itself a backfill) blocks every backfill in this run too: a
+    # backfill's rows reference the samples that workbook would have created,
+    # and those rows describe samples that do not exist until it lands. This
+    # is detected from the artifact side (whether the *blocked* type's own
+    # workbook is a "_update" one), not from sample-type naming, so it holds
+    # for any [NEW] sample type, not one particular prefix convention.
+    blocked_children = any(
+        built.disposition == qa.HARD_REJECT
+        and not _is_backfill(_resolve_artifact(artifacts, sample_type)[0] or "")
+        for sample_type, built in ordered
+    )
+
     uploadable = []
     for sample_type, built in ordered:
         if built.disposition == qa.HARD_REJECT:
@@ -158,11 +193,21 @@ def render_qa_for_user(reports, artifacts, run_name) -> str:
 
     if uploadable:
         for order, (key, path) in enumerate(uploadable, 1):
-            suffix = ('   — tick "update existing samples"' if _is_backfill(key)
-                       else "   — normal upload")
+            if _is_backfill(key) and blocked_children:
+                # Still named -- the reader must not lose track of it -- but
+                # not offered as a step to take now: uploading it while a
+                # child workbook above is blocked would leave it describing
+                # samples that were never created.
+                suffix = "   — hold until the blocked workbooks above are fixed"
+            elif _is_backfill(key):
+                suffix = '   — tick "update existing samples"'
+            else:
+                suffix = "   — normal upload"
             lines.append(f"  {order}.  {path.rsplit('/', 1)[-1]}{suffix}")
-    else:
+    elif blocked:
         lines.append("  Nothing to upload yet — fix the blockers above first.")
+    else:
+        lines.append("  Nothing to upload — no workbook was produced for this run.")
 
     return "\n".join(lines)
 
@@ -171,12 +216,11 @@ def _render_one(index, code, attribute, bucket):
     count = bucket["count"]
     detail = bucket["detail"]
     sample_type = bucket.get("sample_type", "")
-    tag = f"[{sample_type}] " if sample_type else ""
     rows = _plural(count)
 
     if code == qa.UNAPPROVED_ATTRIBUTE:
         return [
-            f"  {index}.  {tag}{_cap(_name(attribute))} — worth a sanity-check.",
+            f"  {index}.  {_name(attribute)} in {_workbook_ref(sample_type)} — worth a sanity-check.",
             "",
             f"      I filled this in on {count} sample{'' if count == 1 else 's'}"
             f" for the first time. {detail.get('example', '')}".rstrip(),
@@ -192,7 +236,7 @@ def _render_one(index, code, attribute, bucket):
         ]
     if code == qa.ATTRIBUTE_NOT_DEFINED:
         return [
-            f"  {index}.  {tag}{_cap(_name(attribute))} has nowhere to live.",
+            f"  {index}.  {_name(attribute)} in {_workbook_ref(sample_type)} has nowhere to live.",
             "",
             "      There is no matching sample attribute, so I have written it into",
             f"      the Notes of {count} sample{'' if count == 1 else 's'}, tagged with this run.",
@@ -210,7 +254,7 @@ def _render_one(index, code, attribute, bucket):
         shown = samples[:_MAX_SAMPLES_LISTED]
         extra = len(samples) - len(shown)
         body = [
-            f"  {index}.  {tag}{count} sample{'' if count == 1 else 's'} could not be matched",
+            f"  {index}.  {count} sample{'' if count == 1 else 's'} in {_workbook_ref(sample_type)} could not be matched",
             "      to any sequencing sample in NExtSEEK:",
         ]
         if shown:
@@ -227,7 +271,7 @@ def _render_one(index, code, attribute, bucket):
         return body
     if code == qa.MULTIRUN_NOT_ATTRIBUTABLE:
         return [
-            f"  {index}.  {tag}{count} sample{'' if count == 1 else 's'} were sequenced across",
+            f"  {index}.  {count} sample{'' if count == 1 else 's'} in {_workbook_ref(sample_type)} were sequenced across",
             "      several runs and merged before QC.",
             "",
             "      The pipeline reports one figure for the merged result, and there",
@@ -236,15 +280,16 @@ def _render_one(index, code, attribute, bucket):
         ]
     if code == qa.MISSING_REQUIRED:
         return [
-            f"  {index}.  {tag}{_cap(_name(attribute))} is required and missing on {count} {rows}.",
+            f"  {index}.  {_name(attribute)} is required and missing on {count} {rows}"
+            f" in {_workbook_ref(sample_type)}.",
             "",
             "      The server will reject these rows. I could not derive the value;",
             "      fill it in, or tell me where to get it.",
         ]
     if code == qa.UNKNOWN_SAMPLETYPE:
-        label = sample_type or "This sample type"
         return [
-            f"  {index}.  '{label}' is not in NExtSEEK's catalog of sample types.",
+            f"  {index}.  {_cap(_workbook_ref(sample_type))} is not in NExtSEEK's"
+            " catalog of sample types.",
             "",
             "      Reingest never creates a sample type on its own. Check the code",
             "      for a typo, or ask an administrator to add it, then re-run.",
@@ -273,9 +318,9 @@ def _render_one(index, code, attribute, bucket):
             "      inside one batch is not safe. Rename one, or drop the duplicate.",
         ]
     if code == qa.SURPRISE_SENTINEL:
-        what = _cap(_name(attribute)) if attribute else "A value"
+        what = _name(attribute) if attribute else "A value"
         return [
-            f"  {index}.  {tag}{what} on {count} {rows} still contains a placeholder",
+            f"  {index}.  {what} on {count} {rows} in {_workbook_ref(sample_type)} still contains a placeholder",
             "      marker (TODO, XXX, TBD, or similar) that was not deliberately",
             "      flagged as a placeholder.",
             "",
@@ -325,9 +370,10 @@ def _render_one(index, code, attribute, bucket):
             "      note to be left alone.",
         ]
     return [
-        f"  {index}.  {tag}Something on {count} {rows} needs a look before upload.",
+        f"  {index}.  Something on {count} {rows} in {_workbook_ref(sample_type)} needs a look before upload.",
         "",
-        f"      This does not have friendly wording yet (internal code: {code}).",
+        "      This does not have friendly wording yet. The finding is preserved",
+        "      in the run's audit trail, so nothing is lost by checking there.",
         "      Check the affected rows in the workbook's Provenance sheet before",
         "      deciding whether to upload as-is or ask an administrator.",
     ]
