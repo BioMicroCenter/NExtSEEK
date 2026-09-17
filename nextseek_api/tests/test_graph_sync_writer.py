@@ -1377,3 +1377,58 @@ def test_sample_hashes_of_an_empty_graph():
     driver = FakeDriver()
     assert list(w.sample_hashes(driver, "neo4j")) == []
     assert len(driver.calls) == 1
+
+
+class TestAStudyWhoseSamplesAreAllInPaperStudiesStillGetsItsNode:
+    """Node creation must not sit below the paper-study skip.
+
+    Measured 2026-09-17 against the live graph with the graph-evidence POC: SEEK study 14 has 568 of
+    568 samples in paper-level Study nodes and study 55 has 23 of 23, so every link row was skipped,
+    `studies.setdefault` was never reached, and neither study got a node. 81 SEEK studies minus 40 with
+    no sample-bearing assay minus these 2 is the 39 nodes the graph held.
+
+    The skip is meant to suppress only the IN_STUDY edge, which is the documented paper-level rule
+    ("A sample already in a paper-level Study is left as it is"). It must not suppress the node.
+    """
+
+    def _run_write(self, links, in_paper):
+        seen = {"studies": [], "edges": []}
+
+        def respond(query, params):
+            if query == q.SAMPLES_IN_PAPER_STUDIES:
+                return [{"id": i} for i in in_paper]
+            if query == q.MERGE_SEEK_STUDIES:
+                seen["studies"].extend(params["rows"])
+                return []
+            if query == q.MERGE_SEEK_IN_STUDY:
+                seen["edges"].extend(params["rows"])
+                return [{"linked": len(params["rows"])}]
+            raise AssertionError(f"unexpected statement: {query}")
+
+        result = w.write_seek_studies(FakeDriver(respond), "neo4j", links)
+        return result, seen
+
+    def test_the_study_node_is_written_even_when_every_sample_is_skipped(self):
+        links = [{"sample_id": 1, "study_id": 55, "study_title": "BioMicroCenter - Unpublished",
+                  "investigation_id": 22},
+                 {"sample_id": 2, "study_id": 55, "study_title": "BioMicroCenter - Unpublished",
+                  "investigation_id": 22}]
+        result, seen = self._run_write(links, in_paper={1, 2})
+        assert [s["study_id"] for s in seen["studies"]] == [55], (
+            "the study got no node because every one of its samples was skipped"
+        )
+        assert result["seek_studies"] == 1
+
+    def test_no_in_study_edge_is_written_for_a_skipped_sample(self):
+        """The paper-level rule itself is unchanged: the node appears, the edge does not."""
+        links = [{"sample_id": 1, "study_id": 55, "study_title": "S", "investigation_id": 22}]
+        result, seen = self._run_write(links, in_paper={1})
+        assert seen["edges"] == []
+        assert result["samples_skipped_in_paper_study"] == 1
+
+    def test_a_mixed_study_writes_the_node_once_and_only_the_unskipped_edge(self):
+        links = [{"sample_id": 1, "study_id": 55, "study_title": "S", "investigation_id": 22},
+                 {"sample_id": 2, "study_id": 55, "study_title": "S", "investigation_id": 22}]
+        _, seen = self._run_write(links, in_paper={1})
+        assert [s["study_id"] for s in seen["studies"]] == [55]
+        assert [e["sample_id"] for e in seen["edges"]] == [2]

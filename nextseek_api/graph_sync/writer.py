@@ -755,11 +755,16 @@ def write_seek_studies(driver, db, links: list[dict]) -> dict:
     skipped = set()
     for link in links:
         sample_id, study_id = int(link["sample_id"]), int(link["study_id"])
+        # The study is registered from the link row FIRST, above the skip. The skip suppresses only the
+        # IN_STUDY edge, which is the paper-level rule this function documents; it must not suppress the
+        # node as well. Measured 2026-09-17: with setdefault below the `continue`, a study whose samples
+        # are all in paper-level Study nodes never reached it and got no node at all. SEEK study 14 (568
+        # of 568 samples) and study 55 (23 of 23) were the two live cases.
+        studies.setdefault(study_id, {"study_id": study_id, "title": link.get("study_title"),
+                                      "investigation_id": link.get("investigation_id")})
         if sample_id in in_paper:
             skipped.add(sample_id)
             continue
-        studies.setdefault(study_id, {"study_id": study_id, "title": link.get("study_title"),
-                                      "investigation_id": link.get("investigation_id")})
         edges.append((sample_id, study_id))
     for batch in _batches([studies[k] for k in sorted(studies)], REL_CHUNK):
         _run(driver, db, q.MERGE_SEEK_STUDIES, {"rows": batch})
