@@ -36,7 +36,32 @@ class SampleRecord(BaseModel):
     nfcore_sample: str
     fastq_1: str = ""
     fastq_2: str | None = None
+    # The resolved parent's UID. The NAME is now historical: a parent found
+    # through the launch record or by path can legitimately be an
+    # already-analysed A.* sample (e.g. A.ALN, A.VCF), not only a raw D.SEQ
+    # -- see maps.PipelineMap.accepts_parent_types -- but nothing downstream
+    # depends on the name, so it is not renamed here. `parent_sample_type`
+    # below carries the actual SampleType title this UID points at.
     d_seq_uid: str | None = None
+    # The resolved parent's real SampleType title (e.g. "D.SEQ", "A.ALN"),
+    # looked up from the database by `harvest.py` via
+    # `nextseek_api.services.reingest_lookups.sample_types_for_uids` --
+    # never parsed off the UID's prefix, since ~1.5% of real samples do not
+    # follow that convention (free-text titles on CEL samples, measured
+    # against the live database). Empty string means "not known": either no
+    # lookup was reachable at harvest time, or the lookup could not resolve
+    # this UID. `mapper.py` is the layer that decides what an unknown parent
+    # type means for the QC backfill row -- it must never guess.
+    parent_sample_type: str = ""
+    # Populated only when `uid_resolution == RESOLUTION_MULTIRUN`: the D.SEQ
+    # UIDs recovered for THIS sample's own contributing samplesheet rows
+    # (see uid_resolve._resolve_multirun_parents), first-occurrence
+    # de-duplicated, in samplesheet order. `d_seq_uid` above stays None for
+    # a multi-run sample -- there is no single parent to name -- so this is
+    # the only place a multi-run sample's lineage lives. Empty when none of
+    # its rows resolved (a wholly-unresolved multi-run sample); a non-empty
+    # but short list is a real, honest partial resolution, not an error.
+    d_seq_uid_multirun: list[str] = Field(default_factory=list)
     uid_resolution: str = RESOLUTION_UNRESOLVED
     strandedness_declared: str | None = None
     strandedness_inferred: str | None = None

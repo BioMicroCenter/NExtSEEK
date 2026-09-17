@@ -14,10 +14,11 @@ import csv
 import fnmatch
 import io
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Callable
 
-from NessieAI.ns.reingest import derived, manifest, parsers
+from NessieAI.ns.reingest import derived, manifest, maps, parsers
 
 # Each of these is used verbatim below -- never retyped as a second, separate
 # literal -- so the allowlist and what harvest_local actually reads can never
@@ -130,6 +131,7 @@ _PER_READ_ROW_PREFIXES = ("fastqc_raw-", "fastqc_trimmed-", "cutadapt-")
 
 
 def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
+                   sample_type_lookup=None,
                    run_dir: str | None = None) -> manifest.RunManifest:
     """`root` stays the filesystem read root -- it is where every glob below
     actually looks for files, local disk only, no SSH, no network.
@@ -155,6 +157,41 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     Defaults to `None` (treated as empty) so a purely local caller -- one
     with no remote listing to pass, e.g. an existing test or a
     local-directory caller -- still works, just with no outputs recorded.
+
+    `lookup_by_fastq(path, types)` is the fastq-path fallback UID lookup
+    (see `uid_resolve`'s module docstring for when it is tried at all); its
+    contract now takes a second argument, the tuple of sample-type codes to
+    search, because a run's pipeline map may declare a wider
+    `accepts_parent_types` than the default `("D.SEQ",)` (see
+    `maps.PipelineMap.accepts_parent_types`). This function is the one that
+    resolves the map: it knows `out.pipeline.name` (parsed from
+    software_versions, above) and `uid_resolve` does not, so `uid_resolve`
+    itself keeps its original one-argument `Callable[[str], list[str]]`
+    contract unchanged -- what it receives below is a closure that has
+    already bound in the resolved `types` for this run. Defaults to `None`
+    (treated as never matching anything) so a caller with nothing to look up
+    against -- an existing test, or a local-directory caller with no D.SEQ
+    catalog at hand -- still works.
+
+    `sample_type_lookup(uids)` is the batched SampleType-title lookup (see
+    `nextseek_api.services.reingest_lookups.sample_types_for_uids`), called
+    ONCE for every resolved parent UID in the whole run -- never once per
+    sample. Its result fills `SampleRecord.parent_sample_type`, which
+    `mapper.py` uses to build the QC backfill row for the parent's REAL type
+    instead of a hardcoded guess (see that module's docstring for why: a
+    parent found by launch record or path can now legitimately be an
+    already-analysed A.* sample, not only D.SEQ, and the UID's own prefix is
+    not a reliable enough signal to parse instead of asking the database).
+    Kept as an injected callable, the same reason `lookup_by_fastq` is: this
+    module stays free of any import of the Django host (see
+    NessieAI/tests/api/test_nessie_boundaries.py's back-edge allowlist), so
+    the caller supplies the query rather than this function reaching for it
+    directly. Defaults to `None` (treated as resolving nothing) so a caller
+    with no way to reach the lookup -- an existing test, or a caller wired
+    before this parameter existed -- still works, just with every sample's
+    `parent_sample_type` left at `""` ("not known"); `mapper.py` is the layer
+    that decides what an unknown parent type means for the backfill, never
+    this one.
     """
     base = Path(root)
     resolved_run_dir = run_dir if run_dir is not None else str(base)
@@ -314,22 +351,114 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             warnings.append("no validated samplesheet; samples cannot be resolved")
 
     from NessieAI.ns.reingest import uid_resolve
-    resolved = uid_resolve.resolve(rows, resolved_run_dir, lookup_by_fastq or (lambda p: []))
-    by_sample = {name: (uid, how) for name, uid, how in resolved}
+
+    # Which sample types this run's own pipeline may point back to as a
+    # parent -- see maps.PipelineMap.accepts_parent_types. `out.pipeline.name`
+    # is only just now known (parsed from software_versions, above; it is ""
+    # when that file never arrived), so this is the first point in the
+    # harvest where the map CAN be resolved -- not at this function's own
+    # call site (the caller stages files and invokes harvest_local before
+    # any pipeline identity is known at all). An unrecognised or not-yet-
+    # committed pipeline name (UnknownPipelineMap, or "" itself) falls back
+    # to the same ("D.SEQ",) scope this lookup always used, rather than
+    # raising out of a read-only harvest step.
+    try:
+        pipeline_map = maps.load(out.pipeline.name) if out.pipeline.name else None
+    except maps.UnknownPipelineMap:
+        pipeline_map = None
+    accepts_parent_types = (
+        tuple(pipeline_map.accepts_parent_types) if pipeline_map is not None
+        else ("D.SEQ",))
+
+    # `uid_resolve.resolve` keeps its original one-argument
+    # Callable[[str], list[str]] contract (see its own module docstring) --
+    # this closure is what "builds" the callable it actually receives,
+    # binding in `accepts_parent_types` so `uid_resolve` never has to know
+    # about maps or types scoping at all.
+    base_lookup = lookup_by_fastq or (lambda path, types: [])
+
+    def _scoped_lookup(path: str) -> list[str]:
+        return base_lookup(path, accepts_parent_types)
+
+    # `multirun_resolved_rows` is filled in as a side effect: {sample:
+    # resolved_row_count}, the number of a multi-run sample's OWN
+    # contributing rows that resolved to a UID, counted before
+    # `uid_resolve`'s own first-occurrence de-duplication into `parents`
+    # collapses same-UID rows together. The partial-resolution warning below
+    # needs that un-collapsed count, not len(parents) -- see
+    # uid_resolve._resolve_multirun_parents.
+    multirun_resolved_rows: dict[str, int] = {}
+    resolved = uid_resolve.resolve(
+        rows, resolved_run_dir, _scoped_lookup,
+        multirun_resolved_rows=multirun_resolved_rows)
+    by_sample = {name: (uid, how, parents) for name, uid, how, parents in resolved}
+    # A multi-run sample has several samplesheet ROWS sharing one name, but
+    # must become exactly ONE SampleRecord -- one A.ALN child, not several
+    # identical ones -- so rows are walked in order and every name after its
+    # first occurrence is skipped. This is a no-op for every non-multi-run
+    # sample, which by construction (uid_resolve's own Counter check) never
+    # has a second row to skip.
+    seen_samples: set[str] = set()
+    row_counts = Counter(str(row.get("sample") or "") for row in rows)
 
     for row in rows:
         name = str(row.get("sample") or "")
-        uid, how = by_sample.get(name, (None, manifest.RESOLUTION_UNRESOLVED))
+        if name in seen_samples:
+            continue
+        seen_samples.add(name)
+        uid, how, parents = by_sample.get(
+            name, (None, manifest.RESOLUTION_UNRESOLVED, ()))
+        if how == manifest.RESOLUTION_MULTIRUN:
+            # Compare RESOLVED ROWS against the raw row count, not
+            # de-duplicated parents against it: two rows resolving to the
+            # SAME D.SEQ (one record whose File_PrimaryData lists both
+            # lanes, say) collapses len(parents) below row_counts[name] even
+            # though every row resolved -- that is a complete Parent list,
+            # not a partial one. multirun_resolved_rows carries the
+            # un-collapsed count; len(parents) is only a fallback for a name
+            # that somehow never made it into that dict.
+            resolved_rows = multirun_resolved_rows.get(name, len(parents))
+            if 0 < resolved_rows < row_counts[name]:
+                # Some, but not all, of this sample's contributing rows
+                # resolved to a D.SEQ -- a real, honest partial parent list
+                # (see uid_resolve._resolve_multirun_parents), not a bug.
+                # Surfaced here, not silently: this is the layer that knows
+                # how many rows SHOULD have contributed and so can tell
+                # "partial" apart from "none of them resolved", which
+                # uid_resolve cannot on its own.
+                warnings.append(
+                    f"{name}: multi-run sample resolved {resolved_rows} of "
+                    f"{row_counts[name]} contributing D.SEQ parents; Parent "
+                    "will be a partial list")
         out.samples.append(manifest.SampleRecord(
             nfcore_sample=name,
             fastq_1=str(row.get("fastq_1") or ""),
             fastq_2=str(row.get("fastq_2") or "") or None,
             d_seq_uid=uid,
+            d_seq_uid_multirun=list(parents),
             uid_resolution=how,
             strandedness_declared=str(row.get("strandedness") or "") or None,
             metrics=stats.get(name, {}),
             derived=_derived_for(base, name, read),
         ))
+
+    # SampleRecord.parent_sample_type: one batched call for every resolved
+    # parent UID in the whole run, first-occurrence de-duplicated -- never
+    # once per sample (see this function's docstring on `sample_type_lookup`
+    # and reingest_lookups.sample_types_for_uids' own docstring on why a
+    # UID's prefix is never parsed instead). `sample_type_lookup` defaults to
+    # `None` when the caller has no way to reach it, in which case every
+    # sample's `parent_sample_type` stays at its `""` default -- exactly the
+    # same degrade-and-carry-on this function already applies to
+    # `lookup_by_fastq`. A UID the lookup could not resolve is simply absent
+    # from its result (`dict.get` below then leaves `""`), never guessed.
+    resolved_uids = sorted({s.d_seq_uid for s in out.samples if s.d_seq_uid})
+    types_by_uid = (
+        sample_type_lookup(resolved_uids)
+        if sample_type_lookup is not None and resolved_uids else {})
+    for sample in out.samples:
+        if sample.d_seq_uid:
+            sample.parent_sample_type = types_by_uid.get(sample.d_seq_uid, "")
 
     # The inventory is gathered elsewhere (remotely, against the real run
     # directory -- see this function's docstring) and handed in whole; it is

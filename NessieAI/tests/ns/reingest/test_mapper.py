@@ -1,7 +1,8 @@
 from NessieAI.ns.reingest import manifest, mapper, maps
 
 
-def _run(metrics=None, derived=None, params=None, software_versions=None):
+def _run(metrics=None, derived=None, params=None, software_versions=None,
+         parent_sample_type="D.SEQ"):
     return manifest.RunManifest(
         run_dir="/net/cluster/runs/r",
         params=params or {"genome": "GRCm39", "aligner": "star_salmon"},
@@ -10,6 +11,7 @@ def _run(metrics=None, derived=None, params=None, software_versions=None):
         samples=[manifest.SampleRecord(
             nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-EXAMPLE-1",
             uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+            parent_sample_type=parent_sample_type,
             metrics=metrics or {}, derived=derived or {})],
         sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt"})
 
@@ -73,47 +75,97 @@ def test_an_approved_rule_applies_and_is_marked_origin_approved():
     assert not any(u["raw_key"] == "Kraken2_bracken_fraction" for u in result.unmapped)
 
 
-def test_provenance_attributes_are_applied_to_the_analysis_rows():
+def test_provenance_attributes_are_applied_to_an_opted_in_output_row():
+    # A.GEX sets include_provenance: true in the committed rnaseq map, so its
+    # row receives provenance_attributes (e.g. ReferenceGenome).
     result = mapper.apply(_run(), maps.load("rnaseq"))
-    analysis = [r for r in result.rows if r.sample_type.startswith("A.")]
-    assert analysis, "expected at least one analysis row"
-    assert analysis[0].attributes["ReferenceGenome"].value == "GRCm39"
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["ReferenceGenome"].value == "GRCm39"
 
 
-def test_a_multirun_sample_produces_no_d_seq_row_no_per_sample_row_and_no_parent_in_the_join():
-    # uid_resolve.resolve() discards a multi-run sample's source UIDs
-    # entirely (d_seq_uid=None), so there is nowhere in the manifest to
-    # carry the list the spec would otherwise want -- this pins that as a
-    # real limitation, not an oversight (see mapper._per_sample_rows).
+def test_provenance_attributes_are_not_applied_to_an_opted_out_output_row():
+    # A.ALN does NOT set include_provenance in the committed rnaseq map --
+    # deliberately, since A.ALN's sample type does not have most of the
+    # provenance attributes (e.g. DESeqFile) at all. Its row must receive
+    # only its own rule's attributes, never a spillover from
+    # provenance_attributes.
+    result = mapper.apply(_run(), maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert "ReferenceGenome" not in aln.attributes
+    assert "DESeqFile" not in aln.attributes
+    assert "Pipeline" not in aln.attributes
+
+
+def test_a_multirun_sample_with_nothing_resolved_produces_no_d_seq_row_but_ships_a_parentless_child():
+    # A multi-run sample none of whose contributing rows resolved
+    # (`d_seq_uid_multirun` empty, matching a fully-unresolved multi-run
+    # sample) behaves like an unresolved single-run sample: no D.SEQ
+    # backfill row, but its A.ALN child still SHIPS -- with no Parent key --
+    # rather than silently dropping the output file it would otherwise
+    # register. This is the corrected behaviour; see
+    # test_a_multirun_sample_whose_rows_resolve_ships_a_child_with_the_joined_parent
+    # for the case some or all of its rows DID resolve.
     run = _run(metrics={"star-uniquely_mapped_percent": 91.4,
                         "Kraken2_bracken_fraction": 3.2})
     run.samples[0].uid_resolution = manifest.RESOLUTION_MULTIRUN
     run.samples[0].d_seq_uid = None
     result = mapper.apply(run, maps.load("rnaseq"))
-    # No D.SEQ backfill row for the multirun sample...
+    # No D.SEQ backfill row for the multirun sample -- this half of the old
+    # behaviour is still correct and must survive: MultiQC's one figure for
+    # the concatenated sample cannot honestly be attributed to any one
+    # contributing D.SEQ, and that measurement limit is untouched by the fix.
     assert not any(r.sample_type == "D.SEQ" for r in result.rows)
-    # ...and no per_sample A.ALN row either. Unlike an unresolved sample
-    # (which ships its child with no Parent -- see
-    # test_an_unresolved_sample_still_ships_its_child_with_no_parent), a
-    # multi-run sample gets no row at all: the spec table does want its
-    # child to carry a `;`-joined Parent across every contributing D.SEQ,
-    # but uid_resolve.resolve() discards those source UIDs entirely and
-    # SampleRecord cannot carry a list, so there is nothing here that could
-    # honestly be set. This is the module-level gap `_per_sample_rows`
-    # documents as tracked separately, not implemented here.
-    assert not any(r.sample_type == "A.ALN" for r in result.rows)
+    # ...but the per_sample A.ALN row now SHIPS -- this is the half of the
+    # old behaviour that changes: the output file a multi-run sample's
+    # analysis produced (the BAM, its index) is real primary data and must
+    # be registered, even with no parent to name yet.
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert "Parent" not in aln.attributes
     # The per_run A.GEX rule still emits its one row: its literal attributes
     # (Matrix, MatrixDataType, DataType) do not depend on any sample
     # resolving...
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
-    # ...but the multirun sample contributes nothing to the join, and since
-    # no other sample resolved either, Parent is omitted rather than set to
-    # an empty or fabricated value.
+    # ...but the multirun sample contributes nothing to the join (it has no
+    # resolved parents of its own), and since no other sample resolved
+    # either, Parent is omitted rather than set to an empty or fabricated
+    # value.
     assert "Parent" not in gex.attributes
     # ...and the sample's own metrics are still walked: an unknown key on it
     # still reaches unmapped rather than being silently swallowed along with
     # the D.SEQ row.
     assert any(u["raw_key"] == "Kraken2_bracken_fraction" for u in result.unmapped)
+
+
+def test_a_multirun_sample_whose_rows_resolve_ships_a_child_with_the_joined_parent():
+    # The defect this fix closes: a multi-run sample whose contributing rows
+    # DID resolve to real D.SEQ parents must ship an A.ALN child carrying
+    # them, `;`-joined, first-occurrence de-duplicated, in manifest order --
+    # and, since that lineage is now real and honest (not a fabricated
+    # measurement), the per_run A.GEX join gets it too.
+    run = _run()
+    run.samples[0].uid_resolution = manifest.RESOLUTION_MULTIRUN
+    run.samples[0].d_seq_uid = None
+    run.samples[0].d_seq_uid_multirun = ["D.SEQ-LANE-1", "D.SEQ-LANE-2", "D.SEQ-LANE-1"]
+    result = mapper.apply(run, maps.load("rnaseq"))
+    # Still no D.SEQ backfill row -- the QC-attribution limit is unchanged.
+    assert not any(r.sample_type == "D.SEQ" for r in result.rows)
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert aln.attributes["Parent"].value == "D.SEQ-LANE-1;D.SEQ-LANE-2"
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["Parent"].value == "D.SEQ-LANE-1;D.SEQ-LANE-2"
+
+
+def test_a_multirun_samples_partial_parent_list_ships_as_is():
+    # Only one of two contributing rows resolved (see uid_resolve's own
+    # partial-resolution tests) -- the child ships with exactly that partial
+    # list, not padded, not withheld.
+    run = _run()
+    run.samples[0].uid_resolution = manifest.RESOLUTION_MULTIRUN
+    run.samples[0].d_seq_uid = None
+    run.samples[0].d_seq_uid_multirun = ["D.SEQ-LANE-1"]
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert aln.attributes["Parent"].value == "D.SEQ-LANE-1"
 
 
 # --- Resolution 2: an output rule's own attribute must win over a
@@ -281,6 +333,92 @@ def test_an_ambiguous_sample_produces_no_child_row():
     assert not any(r.sample_type == "A.ALN" for r in result.rows)
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     assert "Parent" not in gex.attributes
+
+
+# --- The QC backfill row must be built for the parent's REAL sample type,
+# never a hardcoded "D.SEQ" -- a resolved parent can now legitimately be an
+# already-analysed A.* sample (see maps.PipelineMap.accepts_parent_types).
+# `sample.parent_sample_type` (filled by harvest.py from the database, never
+# parsed off the UID) is the only source of truth for which type's
+# qc_attributes rules apply. ---
+
+def test_an_aln_parent_gets_a_row_typed_for_its_real_type_and_only_its_own_rules():
+    # A synthetic map with one rule per target, exactly the mechanism under
+    # test: a rule targeting the sample's actual parent type (A.ALN) must
+    # apply; a rule targeting a DIFFERENT type (D.SEQ) must not -- even
+    # though its own metric genuinely measured something on this sample.
+    pipeline_map = maps.PipelineMap(
+        pipeline="nf-core/fake-for-test",
+        qc_attributes={
+            "MappedPercent": maps.AttributeRule(
+                **{"from": "star-uniquely_mapped_percent", "target": "D.SEQ",
+                   "datatype": "number", "provenance": "seed"}),
+            "AlnQualityScore": maps.AttributeRule(
+                **{"from": "some-aln-metric", "target": "A.ALN",
+                   "datatype": "number", "provenance": "seed"}),
+        })
+    run = _run(
+        metrics={"star-uniquely_mapped_percent": 91.4, "some-aln-metric": 7.0},
+        parent_sample_type="A.ALN")
+
+    result = mapper.apply(run, pipeline_map)
+
+    # The backfill row itself -- distinguished from any analysis-child row
+    # by carrying the parent's own uid (a child row's uid is always None,
+    # see _per_sample_rows) -- is typed A.ALN, not D.SEQ.
+    row = next(r for r in result.rows if r.uid == "D.SEQ-EXAMPLE-1")
+    assert row.sample_type == "A.ALN"
+    # Only the A.ALN-targeted rule's attribute made it onto the row...
+    assert set(row.attributes) == {"AlnQualityScore"}
+    assert row.attributes["AlnQualityScore"].value == 7.0
+    # ...the D.SEQ-targeted rule found a real, measured value
+    # (star-uniquely_mapped_percent=91.4 is genuinely present) but has no
+    # home on an A.ALN row, so it must NOT silently vanish: it is named in a
+    # manifest warning, naming the sample, the real parent type, and how
+    # many measured attributes had no matching rule.
+    assert "MappedPercent" not in row.attributes
+    warning = next(w for w in result.warnings if "CONTROL_REP1" in w)
+    assert "A.ALN" in warning
+    assert "1" in warning
+
+
+def test_an_unknown_parent_type_skips_the_backfill_row_and_warns_rather_than_guess():
+    # The lookup could not determine the parent's real type (see harvest.py's
+    # sample_type_lookup and reingest_lookups.sample_types_for_uids -- either
+    # was unreachable, or the UID was absent from its result). Guessing
+    # "D.SEQ" here is exactly the failure mode this change exists to stop, so
+    # no backfill row is written at all -- but the sample is not silently
+    # dropped: a warning names it.
+    run = _run(metrics={"star-uniquely_mapped_percent": 91.4},
+               parent_sample_type="")
+
+    result = mapper.apply(run, maps.load("rnaseq"))
+
+    assert not any(r.uid == "D.SEQ-EXAMPLE-1" for r in result.rows)
+    warning = next(w for w in result.warnings if "CONTROL_REP1" in w)
+    assert "D.SEQ-EXAMPLE-1" in warning
+    # The rest of the sample's evidence gathering is unaffected: an unknown
+    # metric key on the very same sample still reaches unmapped, proving the
+    # unknown-type branch does not short-circuit the per-sample metrics scan.
+    run2 = _run(metrics={"Some_Definitely_Unknown_Metric_XYZ": 1.0},
+                parent_sample_type="")
+    result2 = mapper.apply(run2, maps.load("rnaseq"))
+    assert any(u["raw_key"] == "Some_Definitely_Unknown_Metric_XYZ"
+               for u in result2.unmapped)
+
+
+def test_a_d_seq_parent_produces_no_warnings():
+    # The regression guard from the other direction: the ordinary, unchanged
+    # case -- every rnaseq qc_attributes rule targets D.SEQ, and the parent
+    # really is D.SEQ -- must not emit any of the new warnings.
+    result = mapper.apply(
+        _run(metrics={"star-uniquely_mapped_percent": 91.4,
+                      "kraken2-pct_unclassified": 4.5}),
+        maps.load("rnaseq"))
+    row = next(r for r in result.rows if r.sample_type == "D.SEQ")
+    assert row.attributes["MappedPercent"].value == 91.4
+    assert row.attributes["ContamPercent"].value == 4.5
+    assert result.warnings == []
 
 
 def test_a_ruled_out_key_on_two_different_samples_stays_out_of_unmapped():
