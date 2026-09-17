@@ -37,6 +37,15 @@ class SampleRecord(BaseModel):
     fastq_1: str = ""
     fastq_2: str | None = None
     d_seq_uid: str | None = None
+    # Populated only when `uid_resolution == RESOLUTION_MULTIRUN`: the D.SEQ
+    # UIDs recovered for THIS sample's own contributing samplesheet rows
+    # (see uid_resolve._resolve_multirun_parents), first-occurrence
+    # de-duplicated, in samplesheet order. `d_seq_uid` above stays None for
+    # a multi-run sample -- there is no single parent to name -- so this is
+    # the only place a multi-run sample's lineage lives. Empty when none of
+    # its rows resolved (a wholly-unresolved multi-run sample); a non-empty
+    # but short list is a real, honest partial resolution, not an error.
+    d_seq_uid_multirun: list[str] = Field(default_factory=list)
     uid_resolution: str = RESOLUTION_UNRESOLVED
     strandedness_declared: str | None = None
     strandedness_inferred: str | None = None

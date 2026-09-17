@@ -23,25 +23,29 @@ def test_launch_record_wins_and_is_marked_as_such():
                  "fastq_1": "/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz",
                  "fastq_2": None}])
     assert uid_resolve.resolve(ROWS, RUN_DIR, _none) == [
-        ("CONTROL_REP1", "D.SEQ-EXAMPLE-1", manifest.RESOLUTION_LAUNCH_RECORD)]
+        ("CONTROL_REP1", "D.SEQ-EXAMPLE-1", manifest.RESOLUTION_LAUNCH_RECORD, ())]
 
 
 def test_falls_back_to_an_exact_fastq_path_match():
     out = uid_resolve.resolve(ROWS, RUN_DIR, lambda p: ["D.SEQ-EXAMPLE-9"])
-    assert out == [("CONTROL_REP1", "D.SEQ-EXAMPLE-9", manifest.RESOLUTION_FASTQ_EXACT)]
+    assert out == [("CONTROL_REP1", "D.SEQ-EXAMPLE-9", manifest.RESOLUTION_FASTQ_EXACT, ())]
 
 
 def test_two_candidate_parents_is_ambiguous_and_never_guessed():
     out = uid_resolve.resolve(ROWS, RUN_DIR, lambda p: ["D.SEQ-A", "D.SEQ-B"])
-    assert out == [("CONTROL_REP1", None, manifest.RESOLUTION_AMBIGUOUS)]
+    assert out == [("CONTROL_REP1", None, manifest.RESOLUTION_AMBIGUOUS, ())]
 
 
 def test_no_candidate_is_unresolved():
     assert uid_resolve.resolve(ROWS, RUN_DIR, _none) == [
-        ("CONTROL_REP1", None, manifest.RESOLUTION_UNRESOLVED)]
+        ("CONTROL_REP1", None, manifest.RESOLUTION_UNRESOLVED, ())]
 
 
 def test_a_multi_run_sample_is_flagged_multirun_not_resolved():
+    # No PipelineRun exists for this run_dir, so each row falls to the fastq
+    # fallback. The stub answers the same single candidate for every path,
+    # so each row resolves unambiguously (on its own) to that UID; both
+    # rows resolving to the SAME UID collapses to one parent, not two.
     rows = [
         {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz", "fastq_2": ""},
         {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L002_R1.fastq.gz", "fastq_2": ""},
@@ -49,6 +53,82 @@ def test_a_multi_run_sample_is_flagged_multirun_not_resolved():
     out = uid_resolve.resolve(rows, RUN_DIR, lambda p: ["D.SEQ-A"])
     assert {r[2] for r in out} == {manifest.RESOLUTION_MULTIRUN}
     assert all(r[1] is None for r in out)
+    # Each row's OWN fastq path resolves to "D.SEQ-A" (the stub answers the
+    # same UID for any path), so BOTH contributing rows resolve to the same
+    # UID -- de-duplicated to a single-element parents tuple, not an error.
+    assert all(r[3] == ("D.SEQ-A",) for r in out)
+
+
+def test_a_multirun_samples_own_rows_resolve_independently_by_fastq():
+    # Two distinct fastq paths, two distinct D.SEQ candidates: this is the
+    # case the fix is for -- a real multi-run sample whose lanes came from
+    # two different D.SEQ records, both now recovered.
+    rows = [
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz", "fastq_2": ""},
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L002_R1.fastq.gz", "fastq_2": ""},
+    ]
+    mapping = {
+        "/net/cluster/fastq/S1_L001_R1.fastq.gz": ["D.SEQ-LANE-1"],
+        "/net/cluster/fastq/S1_L002_R1.fastq.gz": ["D.SEQ-LANE-2"],
+    }
+    out = uid_resolve.resolve(rows, RUN_DIR, lambda p: mapping.get(p, []))
+    assert {r[2] for r in out} == {manifest.RESOLUTION_MULTIRUN}
+    assert all(r[1] is None for r in out)
+    assert all(r[3] == ("D.SEQ-LANE-1", "D.SEQ-LANE-2") for r in out)
+
+
+def test_a_multirun_sample_partially_resolves_when_only_one_row_matches():
+    # The lineage-honesty case the brief calls out explicitly: one
+    # contributing row resolves, the other has no candidate at all. The
+    # parents tuple is the real, partial result -- not silently emptied, and
+    # not padded with a fabricated second UID.
+    rows = [
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz", "fastq_2": ""},
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L002_R1.fastq.gz", "fastq_2": ""},
+    ]
+    mapping = {"/net/cluster/fastq/S1_L001_R1.fastq.gz": ["D.SEQ-LANE-1"]}
+    out = uid_resolve.resolve(rows, RUN_DIR, lambda p: mapping.get(p, []))
+    assert all(r[3] == ("D.SEQ-LANE-1",) for r in out)
+
+
+def test_a_multirun_rows_own_ambiguous_fastq_match_contributes_nothing():
+    # One row's fastq path has two candidates in the D.SEQ database -- never
+    # guess, so that row contributes nothing, but the sample's OTHER row
+    # (an unambiguous match) still contributes its own UID.
+    rows = [
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz", "fastq_2": ""},
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L002_R1.fastq.gz", "fastq_2": ""},
+    ]
+    mapping = {
+        "/net/cluster/fastq/S1_L001_R1.fastq.gz": ["D.SEQ-A", "D.SEQ-B"],
+        "/net/cluster/fastq/S1_L002_R1.fastq.gz": ["D.SEQ-LANE-2"],
+    }
+    out = uid_resolve.resolve(rows, RUN_DIR, lambda p: mapping.get(p, []))
+    assert all(r[3] == ("D.SEQ-LANE-2",) for r in out)
+
+
+def test_a_multirun_samples_own_rows_resolve_via_the_launch_record_by_fastq_path():
+    # The launch record's cohort has two entries for "S1" -- one per
+    # contributing row -- discriminated by fastq_1 rather than by
+    # nfcore_sample, since `PipelineRun.uid_for`/`knows_sample` cannot tell
+    # the two rows apart by name alone (see uid_resolve._resolve_multirun_row).
+    rows = [
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz", "fastq_2": ""},
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L002_R1.fastq.gz", "fastq_2": ""},
+    ]
+    PipelineRun.objects.create(
+        run_dir=RUN_DIR, run_name="r", pipeline="nf-core/rnaseq",
+        launched_by=get_user_model().objects.create(username="t"),
+        cohort=[
+            {"d_seq_uid": "D.SEQ-LANE-1", "nfcore_sample": "S1",
+             "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz", "fastq_2": None},
+            {"d_seq_uid": "D.SEQ-LANE-2", "nfcore_sample": "S1",
+             "fastq_1": "/net/cluster/fastq/S1_L002_R1.fastq.gz", "fastq_2": None},
+        ])
+    # A fastq stub that would answer wrongly if it were ever consulted --
+    # proves the launch record was actually used, not the fastq fallback.
+    out = uid_resolve.resolve(rows, RUN_DIR, lambda p: ["D.SEQ-WRONG"])
+    assert all(r[3] == ("D.SEQ-LANE-1", "D.SEQ-LANE-2") for r in out)
 
 
 def test_present_in_cohort_with_null_uid_stays_unresolved_without_trying_fastq():
@@ -64,7 +144,7 @@ def test_present_in_cohort_with_null_uid_stays_unresolved_without_trying_fastq()
                  "fastq_1": "/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz",
                  "fastq_2": None}])
     out = uid_resolve.resolve(ROWS, RUN_DIR, lambda p: ["D.SEQ-WOULD-MATCH-IF-TRIED"])
-    assert out == [("CONTROL_REP1", None, manifest.RESOLUTION_UNRESOLVED)]
+    assert out == [("CONTROL_REP1", None, manifest.RESOLUTION_UNRESOLVED, ())]
 
 
 def test_absent_from_a_known_cohort_falls_back_to_fastq():
@@ -79,7 +159,7 @@ def test_absent_from_a_known_cohort_falls_back_to_fastq():
                  "fastq_1": "/net/cluster/fastq/OTHER_R1.fastq.gz",
                  "fastq_2": None}])
     out = uid_resolve.resolve(ROWS, RUN_DIR, lambda p: ["D.SEQ-EXAMPLE-9"])
-    assert out == [("CONTROL_REP1", "D.SEQ-EXAMPLE-9", manifest.RESOLUTION_FASTQ_EXACT)]
+    assert out == [("CONTROL_REP1", "D.SEQ-EXAMPLE-9", manifest.RESOLUTION_FASTQ_EXACT, ())]
 
 
 def _by_basename(mapping):
@@ -101,7 +181,7 @@ def test_basename_match_resolves_but_is_recorded_as_the_weaker_tier():
     rows = [{"sample": "CONTROL_REP1", "fastq_1": fastq, "fastq_2": ""}]
     out = uid_resolve.resolve(
         rows, RUN_DIR, _by_basename({basename: ["D.SEQ-EXAMPLE-9"]}))
-    assert out == [("CONTROL_REP1", "D.SEQ-EXAMPLE-9", manifest.RESOLUTION_FASTQ_BASENAME)]
+    assert out == [("CONTROL_REP1", "D.SEQ-EXAMPLE-9", manifest.RESOLUTION_FASTQ_BASENAME, ())]
 
 
 def test_basename_match_with_two_candidates_is_ambiguous_and_never_guessed():
@@ -110,7 +190,7 @@ def test_basename_match_with_two_candidates_is_ambiguous_and_never_guessed():
     rows = [{"sample": "CONTROL_REP1", "fastq_1": fastq, "fastq_2": ""}]
     out = uid_resolve.resolve(
         rows, RUN_DIR, _by_basename({basename: ["D.SEQ-A", "D.SEQ-B"]}))
-    assert out == [("CONTROL_REP1", None, manifest.RESOLUTION_AMBIGUOUS)]
+    assert out == [("CONTROL_REP1", None, manifest.RESOLUTION_AMBIGUOUS, ())]
 
 
 def test_multirun_wins_over_a_resolvable_launch_record():
@@ -136,3 +216,8 @@ def test_multirun_wins_over_a_resolvable_launch_record():
     out = uid_resolve.resolve(rows, RUN_DIR, lambda p: ["D.SEQ-A"])
     assert {r[2] for r in out} == {manifest.RESOLUTION_MULTIRUN}
     assert all(r[1] is None for r in out)
+    # The single-uid field stays None regardless, but the sample's own
+    # lineage is still recovered: L001 via the launch record (the cohort
+    # entry that exists for it), L002 via the fastq fallback (the cohort has
+    # no entry for it at all).
+    assert all(r[3] == ("D.SEQ-EXAMPLE-1", "D.SEQ-A") for r in out)
