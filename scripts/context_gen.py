@@ -220,3 +220,185 @@ def with_pi_names(rows: list[dict]) -> list[dict]:
     leaves it undefined. This happens before the database write, not after.
     """
     return [{**row, "pi_names": parse_pi(row.get("pi"))} for row in rows]
+
+
+# --- rendering values --------------------------------------------------------
+
+
+class UnsupportedValue(ValueError):
+    """A value this renderer will not put in a SQL literal."""
+
+
+class DuplicateKey(ValueError):
+    """Two curated rows share a natural key, as MySQL would compare it."""
+
+
+def json_text(value) -> str:
+    """A JSON column's stored text.
+
+    `json.dumps` defaults, which is how production already stores
+    `alternative_names` (`'["Forest", "White", "U54"]'`), and `ensure_ascii=False`
+    to match `context/README.md`'s convention and the utf8mb4 columns.
+    """
+    return json.dumps(value, ensure_ascii=False)
+
+
+def db_value(table: str, column: str, value):
+    """The Python value a column holds, before it becomes a SQL literal.
+
+    One place so that the renderers and the round-trip check cannot disagree
+    about it. Empty strings become NULL, which is how production stores them.
+    """
+    spec = TABLES[table]
+    if column in spec.json_columns:
+        return None if value is None else json_text(value)
+    if value is None or value == "":
+        return None
+    if column in spec.int_columns:
+        return int(value)
+    return value
+
+
+def literal(value) -> str:
+    """A portable SQL literal: NULL, a bare integer, or a single-quoted string.
+
+    Quotes are doubled rather than backslash-escaped and newlines stay literal, so
+    the text means the same thing to MySQL and to the SQLite the round-trip check
+    runs against. That is the whole reason this differs from
+    `seed_literal` below, which keeps the committed seed files' one-line shape.
+
+    A backslash is refused rather than guessed at: MySQL interprets `\\` inside a
+    string literal and SQLite does not, so no single spelling survives both. No
+    curated value contains one today (`test_no_curated_value_needs_a_backslash`),
+    and if one ever does, this raises instead of writing something that means one
+    thing to the generator's tests and another to production.
+    """
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        raise UnsupportedValue(f"boolean {value!r}: no context column is boolean")
+    if isinstance(value, int):
+        return str(value)
+    text = str(value)
+    if "\\" in text:
+        raise UnsupportedValue(
+            f"{text[:60]!r} contains a backslash; MySQL and SQLite disagree about "
+            "how to spell it, so add explicit handling rather than guessing"
+        )
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _checked_keys(table: str, rows: list[dict]) -> list[str]:
+    """The rows' natural keys, refusing any collision MySQL would see.
+
+    `sample_types_context`, `assay_context` and `projects_context` are all
+    utf8mb4_unicode_ci, which compares case-insensitively and ignores trailing
+    spaces. Two curated rows that differ only that way would collide in the unique
+    key below, so they are refused here instead.
+    """
+    spec = TABLES[table]
+    keys, seen = [], {}
+    for index, row in enumerate(rows):
+        key = str(row[spec.key])
+        folded = key.strip().lower()
+        if folded in seen:
+            raise DuplicateKey(
+                f"{spec.source}: rows {seen[folded]} and {index} both key on "
+                f"{key!r} as MySQL compares it (case-insensitive, trailing space ignored)"
+            )
+        seen[folded] = index
+        keys.append(key)
+    return keys
+
+
+# --- the update script -------------------------------------------------------
+
+# The round-trip check splits the script here and applies only what follows, so
+# that the MySQL-only preamble (information_schema, PREPARE, multi-table DELETE)
+# does not have to be translated into another dialect to be tested.
+ROWS_MARKER = "-- == rows =="
+
+_IDEMPOTENT = """\
+SET @nextseek_missing := (SELECT COUNT(*) = 0 FROM information_schema.{catalog}
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{table}' AND {name_column} = '{name}');
+SET @nextseek_stmt := IF(@nextseek_missing, '{statement}', 'DO 0');
+PREPARE nextseek_stmt FROM @nextseek_stmt;
+EXECUTE nextseek_stmt;
+DEALLOCATE PREPARE nextseek_stmt;
+"""
+
+
+def _add_column(table_name: str, column: str, definition: str) -> str:
+    return _IDEMPOTENT.format(
+        catalog="COLUMNS", table=table_name, name_column="COLUMN_NAME", name=column,
+        statement=f"ALTER TABLE `{table_name}` ADD COLUMN `{column}` {definition}",
+    )
+
+
+def _add_unique_key(table_name: str, key: str) -> str:
+    index = f"uq_{table_name}_{key}"
+    return _IDEMPOTENT.format(
+        catalog="STATISTICS", table=table_name, name_column="INDEX_NAME", name=index,
+        statement=f"ALTER TABLE `{table_name}` ADD UNIQUE KEY `{index}` (`{key}`)",
+    )
+
+
+def render_update(table: str, rows: list[dict]) -> str:
+    """The SQL that makes `table` hold exactly these rows, re-runnable.
+
+    Four things happen before the upserts, in this order, and each one is needed
+    against the 2026-09-11 production pull rather than hypothetical:
+
+      1. **Add the columns the table may predate.** `repository_attributes` and
+         `pi_names` are newer than every instance's table.
+      2. **Delete the rows the curated source no longer names.** Production's
+         `assay_context` holds 68 such names and `projects_context` holds one
+         (`GBM`). An upsert alone leaves every one of them in place while
+         reporting success.
+      3. **Collapse duplicate keys, keeping the lowest id.** Production's
+         `assay_context` has 22 duplicated `assay_name` values, 20 of them names
+         the curated source carries, and the unique key in step 4 cannot be added
+         while they exist.
+      4. **Add the unique key.** `ON DUPLICATE KEY UPDATE` only fires against one,
+         and no context table has one today.
+
+    Then one upsert per row, which sets every column including the key: MySQL
+    matches the key case-insensitively, so the one case-only correction in the
+    curated data (`Chemical challenge` -> `Chemical Challenge`) needs the key
+    reassigned or production keeps its old spelling.
+    """
+    spec = TABLES[table]
+    check_columns(table, rows)
+    keys = _checked_keys(table, rows)
+    columns = ", ".join(f"`{c}`" for c in spec.columns)
+    assignments = ", ".join(f"`{c}`=VALUES(`{c}`)" for c in spec.columns)
+
+    out = [
+        f"-- {spec.name}: {len(rows)} rows generated from {spec.source} by",
+        "-- scripts/context_gen.py --emit update. Regenerate rather than hand-editing.",
+        "--",
+        "-- Re-runnable: every statement below is idempotent, so applying this twice",
+        f"-- leaves {spec.name} holding exactly the {len(rows)} curated rows.",
+        "",
+        "-- 1. columns this instance's table may predate",
+    ]
+    for column, definition in ADDED_COLUMNS.get(table, {}).items():
+        out.append(_add_column(spec.name, column, definition))
+    out += [
+        f"-- 2. rows {spec.source} no longer names",
+        f"DELETE FROM `{spec.name}` WHERE `{spec.key}` NOT IN "
+        f"({', '.join(literal(k) for k in keys)});",
+        "",
+        f"-- 3. duplicate `{spec.key}` values, keeping the lowest id",
+        f"DELETE `a` FROM `{spec.name}` `a` JOIN `{spec.name}` `b` "
+        f"ON `a`.`{spec.key}` = `b`.`{spec.key}` AND `a`.`id` > `b`.`id`;",
+        "",
+        "-- 4. the unique key the upsert fires against",
+        _add_unique_key(spec.name, spec.key),
+        ROWS_MARKER,
+    ]
+    for row in rows:
+        values = ", ".join(literal(db_value(table, c, row.get(c))) for c in spec.columns)
+        out.append(f"INSERT INTO `{spec.name}` ({columns}) VALUES ({values})\n"
+                   f"  ON DUPLICATE KEY UPDATE {assignments};")
+    return "\n".join(out) + "\n"

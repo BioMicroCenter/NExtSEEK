@@ -186,3 +186,124 @@ def test_pi_names_is_emitted_alongside_the_free_text_pi():
     assert bprc["pi_names"] == []
     # Every row gains the column, so the write never leaves it undefined.
     assert all("pi_names" in r for r in rows)
+
+
+# --- 6.9 the update SQL ------------------------------------------------------
+#
+# What "idempotent" has to mean here, measured against the 2026-09-11 production
+# pull rather than assumed:
+#
+#   * one INSERT ... ON DUPLICATE KEY UPDATE per curated row, so re-running the
+#     script is a no-op;
+#   * the upsert only fires against a UNIQUE key, and no context table has one
+#     today, so the script adds it;
+#   * production's assay_context holds 217 rows against the curated 138: 68 names
+#     the curated source no longer carries and 22 duplicated names, 20 of them
+#     names the curated source does carry. projects_context holds a GBM row the
+#     curated source drops. Upserting alone would leave every one of those behind
+#     while reporting success, so the script deletes what the source no longer
+#     names and collapses duplicate keys before it adds the index;
+#   * every value escaped, and no literal autoincrement `id`.
+
+INSERT_RE = re.compile(r"^INSERT INTO ", re.M)
+
+
+def _rows_for(table: str) -> list[dict]:
+    rows = cg.load_source(cg.TABLES[table].source)
+    return cg.with_pi_names(rows) if table == "projects" else rows
+
+
+def test_update_writes_one_upsert_per_row():
+    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 12)):
+        sql = cg.render_update(table, _rows_for(table))
+        assert len(INSERT_RE.findall(sql)) == expected, table
+        assert sql.count("ON DUPLICATE KEY UPDATE") == expected, table
+
+
+def test_update_never_writes_the_autoincrement_id():
+    for table in ("sample_types", "assays", "projects"):
+        sql = cg.render_update(table, _rows_for(table))
+        for statement in sql.split("INSERT INTO ")[1:]:
+            columns = statement.split("(", 1)[1].split(")", 1)[0]
+            assert "`id`" not in columns, table
+
+
+def test_update_sets_every_column_including_the_key_on_a_duplicate():
+    """The key is reassigned too, and that is not redundant.
+
+    MySQL matches the unique key case-insensitively and ignores trailing spaces,
+    so a row whose key differs only in case matches and is updated in place. The
+    curated data holds exactly one such correction, `Chemical challenge` ->
+    `Chemical Challenge` in assay_context. Leaving the key out of the SET list
+    keeps production's old spelling while reporting a successful write.
+    """
+    spec = cg.TABLES["projects"]
+    sql = cg.render_update("projects", _rows_for("projects"))
+    tail = sql.split("ON DUPLICATE KEY UPDATE", 1)[1].split(";", 1)[0]
+    for column in spec.columns:
+        assert f"`{column}`=VALUES(`{column}`)" in tail, column
+
+
+def test_update_removes_rows_the_source_no_longer_names():
+    sql = cg.render_update("projects", _rows_for("projects"))
+    assert "DELETE FROM `projects_context` WHERE `name` NOT IN (" in sql
+    assert "'CSBC'" in sql.split("NOT IN (", 1)[1].split(")", 1)[0]
+    # And collapses duplicate keys, which production's assay_context has 22 of.
+    assert "DELETE `a` FROM `projects_context` `a`" in sql
+
+
+def test_update_adds_the_unique_key_the_upsert_needs_and_any_new_column():
+    sql = cg.render_update("projects", _rows_for("projects"))
+    assert "uq_projects_context_name" in sql
+    assert "information_schema" in sql          # the idempotent add, not a bare ALTER
+    assert "`pi_names`" in sql and "JSON NULL" in sql
+    sample = cg.render_update("sample_types", _rows_for("sample_types"))
+    assert "`repository_attributes`" in sample and "JSON NULL" in sample
+
+
+def test_update_escapes_a_quote_by_doubling_it():
+    rows = [{"name": "Griffith", "pi": "O'Neill, Pat (MIT)"}]
+    sql = cg.render_update("projects", cg.with_pi_names(rows))
+    assert "'O''Neill, Pat (MIT)'" in sql
+    assert "\\'" not in sql                     # no backslash escapes: see literal()
+
+
+def test_update_refuses_a_backslash_rather_than_corrupting_it():
+    import pytest
+
+    rows = [{"name": "Backslash", "description": r"a\b"}]
+    with pytest.raises(cg.UnsupportedValue):
+        cg.render_update("projects", cg.with_pi_names(rows))
+
+
+def test_update_writes_json_columns_as_json_text():
+    sql = cg.render_update("projects", _rows_for("projects"))
+    assert '\'["BTC", "Breakthrough Cancer"' in sql
+    assert '\'["White", "Forest M. White", "Michor", "Franziska Michor"]\'' in sql
+
+
+def test_update_is_deterministic():
+    rows = _rows_for("assays")
+    assert cg.render_update("assays", rows) == cg.render_update("assays", rows)
+
+
+def test_update_refuses_a_duplicate_key_in_the_source():
+    import pytest
+
+    rows = [{"name": "CSBC"}, {"name": "csbc "}]
+    with pytest.raises(cg.DuplicateKey):
+        cg.render_update("projects", cg.with_pi_names(rows))
+
+
+def test_no_curated_value_needs_a_backslash():
+    """The precondition `literal` refuses on, checked against the real files.
+
+    `literal` will not guess at a backslash because MySQL interprets one inside a
+    string literal and SQLite does not. That is only safe while no curated value
+    contains one, so this is where that is checked rather than assumed.
+    """
+    for table in ("sample_types", "assays", "projects"):
+        for row in cg.load_source(cg.TABLES[table].source):
+            for column, value in row.items():
+                rendered = cg.db_value(table, column, value)
+                assert "\\" not in str(rendered or ""), f"{table}.{column}"
