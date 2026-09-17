@@ -100,7 +100,7 @@ not deterministic on this question, and that the corrected and uncorrected
 labels produce the same answers at every payload size tested (3 repeats each).
 The dominant factor is something else: how much nf-core documentation is in
 the payload. That measurement is in
-`chat_nextseek/evals/demo-output-ablation*`.
+`NessieAI/chat_nextseek/evals/demo-output-ablation*`.
 
 So this is worth fixing because it is **wrong**, not because of a demonstrated
 downstream effect. Anyone reading the study to see what data it holds gets a
@@ -120,7 +120,7 @@ its own `Name` and `File_PrimaryData`. Everything needed is already in the
 record, with no re-sequencing and no external lookup.
 
 The check is scripted at
-`chat_nextseek/evals/survey_seqtype_labels.py`; it runs against production and
+`NessieAI/chat_nextseek/evals/survey_seqtype_labels.py`; it runs against production and
 prints the cross-tab above plus every disagreement by UID:
 
 ```bash
@@ -134,7 +134,7 @@ reports 0 disagreements out of 114, which is what it now does.
 
 There is no sample-edit endpoint. The only write path into sample metadata is
 `batch-upload` in upsert mode (`update_existing=true`). The fix is scripted at
-`chat_nextseek/evals/fix_seqtype_labels.py`, which re-derives its 54 targets
+`NessieAI/chat_nextseek/evals/fix_seqtype_labels.py` (never committed), which re-derives its 54 targets
 from the same two helpers the survey uses, so the two cannot drift apart.
 
 Without `--apply` it surveys, resolves, builds the payload and validates it
@@ -188,7 +188,7 @@ assay link changed. The run that landed reported no drift on any of the 108.
   `3dce9817` and `766f0dea`. No `Name` in the study now carries it.
 
   Correcting `Name` needs two passes, and the script for it is
-  `chat_nextseek/evals/fix_name_typo.py`. A row carrying `Name` recomputes the
+  `NessieAI/chat_nextseek/evals/fix_name_typo.py`, which was never committed. A row carrying `Name` recomputes the
   title from it, which would rename a sample whose title is its UID; a row
   carrying `File_PrimaryData` as well recomputes an over-long title and fails.
   So pass 1 sends the corrected `Name` and accepts the renamed title, and pass
