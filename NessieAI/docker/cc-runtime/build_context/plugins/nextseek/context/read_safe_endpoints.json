@@ -6,6 +6,12 @@
     "rationale": "Search endpoint; returns data and does not mutate NExtSEEK state."
   },
   {
+    "endpoint": "/nextseek_api/samples/graph_search/",
+    "methods": ["POST"],
+    "source": "nextseek_api/graph_search/",
+    "rationale": "Search endpoint over the metadata graph; runs in a Neo4j READ transaction and injects the caller's project clause server-side, so it mutates nothing and widens no caller's visibility."
+  },
+  {
     "endpoint": "/nextseek_api/samples/",
     "methods": ["GET"],
     "source": "min_api_endpoints_enriched.json",

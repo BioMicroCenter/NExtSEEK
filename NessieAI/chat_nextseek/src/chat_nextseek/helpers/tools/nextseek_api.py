@@ -39,6 +39,7 @@ _READ_POST_PATHS = frozenset({
     "/nextseek_api/admin/samples/retrieve/",
     "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
     "/nextseek_api/samples/advanced_search/",
+    "/nextseek_api/samples/graph_search/",
 })
 
 
