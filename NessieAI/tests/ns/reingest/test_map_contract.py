@@ -86,26 +86,40 @@ def test_every_output_rule_names_a_known_sample_type(name):
 
 
 @pytest.mark.parametrize("name", ALL_MAPS)
-def test_every_provenance_attribute_exists_on_every_output_sample_type(name):
+def test_every_provenance_attribute_exists_on_every_opted_in_output_sample_type(name):
     """provenance_attributes has no target of its own: mapper.apply() merges
-    every one of them into EVERY output rule's row
-    (``merged_attrs = {**provenance_attributes, **rule.attributes}``,
-    per-sample and per-run alike), so each provenance key must exist as a
-    real attribute on every sample type the map's output rules declare. An
+    every one of them into every output rule's row THAT OPTS IN
+    (``rule.include_provenance``; see OutputRule.include_provenance in
+    maps.py), per-sample and per-run alike -- a rule that does not opt in
+    gets only its own attributes. So each provenance key must exist as a
+    real attribute on every sample type an OPTED-IN output rule declares. An
     override in ``rule.attributes`` for the same key still leaves that key
     in the merged row -- only the source ref changes -- so the check applies
     regardless of which rule attributes happen to override a provenance one.
+
+    A map whose provenance_attributes is non-empty but where NO rule opts in
+    is itself a bug worth failing loudly on: that block would be merged into
+    nothing, which is either dead configuration or a forgotten
+    ``include_provenance: true`` on the rule it was meant for -- either way
+    a human should see it, not have it silently do nothing.
     """
     pipeline_map = maps.load(name)
-    target_types = {rule.sample_type for rule in pipeline_map.outputs}
-    if not target_types:
+    if not pipeline_map.outputs:
         pytest.skip(f"{name}: no output rules, so provenance_attributes targets nothing")
+    opted_in_types = {rule.sample_type for rule in pipeline_map.outputs
+                       if rule.include_provenance}
+    if pipeline_map.provenance_attributes:
+        assert opted_in_types, (
+            f"{name}: provenance_attributes is non-empty but no output rule "
+            "sets include_provenance=true, so it is merged into nothing -- "
+            "opt the intended rule in or delete the block")
     for attribute in pipeline_map.provenance_attributes:
-        for target in target_types:
+        for target in opted_in_types:
             assert target in ATTRS, f"{name}: unknown sample type {target}"
             assert attribute in ATTRS[target], \
                 f"{name}: provenance attribute {attribute!r} is merged into " \
-                f"every {target} output row but {target} has no such attribute"
+                f"every opted-in {target} output row but {target} has no " \
+                f"such attribute"
 
 
 @pytest.mark.parametrize("name", ALL_MAPS)
@@ -192,16 +206,22 @@ def test_live_every_output_rule_names_a_known_sample_type(name):
 
 @pytest.mark.skipif(not LIVE_SAMPLE_TYPES, reason=_LIVE_SKIP_REASON)
 @pytest.mark.parametrize("name", ALL_MAPS)
-def test_live_every_provenance_attribute_exists_on_every_output_sample_type(name):
+def test_live_every_provenance_attribute_exists_on_every_opted_in_output_sample_type(name):
     pipeline_map = maps.load(name)
-    target_types = {rule.sample_type for rule in pipeline_map.outputs}
-    if not target_types:
+    if not pipeline_map.outputs:
         pytest.skip(f"{name}: no output rules, so provenance_attributes targets nothing")
+    opted_in_types = {rule.sample_type for rule in pipeline_map.outputs
+                       if rule.include_provenance}
+    if pipeline_map.provenance_attributes:
+        assert opted_in_types, (
+            f"{name}: provenance_attributes is non-empty but no output rule "
+            "sets include_provenance=true, so it is merged into nothing "
+            "(live catalog) -- opt the intended rule in or delete the block")
     for attribute in pipeline_map.provenance_attributes:
-        for target in target_types:
+        for target in opted_in_types:
             assert target in LIVE_SAMPLE_TYPES, \
                 f"{name}: unknown sample type {target} (live catalog)"
             assert attribute in _live_attribute_titles(target), \
                 f"{name}: provenance attribute {attribute!r} is merged into " \
-                f"every {target} output row but {target} has no such " \
-                f"attribute (live catalog)"
+                f"every opted-in {target} output row but {target} has no " \
+                f"such attribute (live catalog)"

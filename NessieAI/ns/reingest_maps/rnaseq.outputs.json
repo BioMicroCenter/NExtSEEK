@@ -34,6 +34,7 @@
 
     { "glob": "{star_salmon,salmon,star_rsem,kallisto}/*.merged.gene_counts.tsv",
       "sample_type": "A.GEX", "cardinality": "per_run", "primary_data": true,
+      "include_provenance": true,
       "attributes": { "Matrix": "gene_counts", "MatrixDataType": "tsv",
                       "DataType": "gene-level raw counts" } }
   ],

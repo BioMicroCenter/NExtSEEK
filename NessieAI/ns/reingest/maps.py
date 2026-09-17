@@ -37,6 +37,16 @@ class OutputRule(BaseModel):
     primary_data: bool = False
     secondary_data_glob: str | None = None
     attributes: dict[str, str] = Field(default_factory=dict)
+    # Whether this rule's rows also receive the map's `provenance_attributes`
+    # (mapper.apply merges that one flat dict into every row of every output
+    # rule that opts in). Default False is deliberate: provenance_attributes
+    # is shared across the whole map, but sample types differ in which
+    # attributes they even have -- e.g. in the rnaseq map, A.GEX carries the
+    # pipeline/reference/DESeq provenance set and A.ALN does not have most of
+    # those attributes at all. A new output rule must opt IN to inherit that
+    # set rather than silently receiving attributes that may not exist on
+    # its sample type, which would break the upload at runtime.
+    include_provenance: bool = False
 
 
 class AttributeRule(BaseModel):

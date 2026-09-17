@@ -129,11 +129,20 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
             })
 
     for rule in pipeline_map.outputs:
-        # The output rule's own attributes are the more specific authority:
-        # they must win over a provenance attribute of the same name (e.g.
-        # A.ALN's "Software" is the STAR version string; provenance's
-        # "Software" is the whole software_versions dict).
-        merged_attrs = {**pipeline_map.provenance_attributes, **rule.attributes}
+        # provenance_attributes is only merged in for a rule that opts in
+        # (rule.include_provenance) -- see OutputRule.include_provenance in
+        # maps.py for why the default is False. A rule that does not opt in
+        # gets only its own attributes.
+        #
+        # When it IS merged, the output rule's own attributes are still the
+        # more specific authority: they must win over a provenance attribute
+        # of the same name (e.g. A.ALN's "Software" is the STAR version
+        # string; provenance's "Software" is the whole software_versions
+        # dict).
+        if rule.include_provenance:
+            merged_attrs = {**pipeline_map.provenance_attributes, **rule.attributes}
+        else:
+            merged_attrs = dict(rule.attributes)
 
         if rule.cardinality == "per_sample":
             for row in _per_sample_rows(rule, merged_attrs, run_manifest):
