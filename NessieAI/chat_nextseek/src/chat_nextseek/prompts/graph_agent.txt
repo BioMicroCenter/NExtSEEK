@@ -18,18 +18,22 @@ JSON schema instead; use it the same way.
   with IS NOT NULL, never with = ''.
 - **Every Sample has one type label**, `T_<code>` with each character outside [A-Za-z0-9_] replaced
   by _: TIS is `:T_TIS`, D.SEQ is `:T_D_SEQ`. Start from the type label when the type is known:
-  `MATCH (s:T_TIS) WHERE s.Organ = $organ`.
+  `MATCH (s:T_TIS) WHERE toLower(toString(s.Organ)) = toLower($organ)`.
 - **System properties** on every Sample: `id`, `uuid` (the sample UID), `type` (the sample type code),
   `title`, `project_ids`, `search_text`, `synced_at`.
 - **Filter on an attribute only when a resolved type's section lists it for that type.** A name the
   schema does not list for the label you use is refused before the query runs. If the question needs
   an attribute no section lists, say so in your explanation rather than guessing a name.
-- **Values keep their stored spelling and case, so `=` is exact**: "Lung" and "lung" are different
-  values, and the listed values show the spellings in use. When the user gives a value in their own
-  words, compare case-insensitively: `toLower(s.Organ) = toLower($organ)`. Use exact `=` for codes,
-  UIDs, ids, numbers and dates, and for a value the user quotes exactly.
-- **Keywords or free text** over every value of a sample use the fulltext index:
-  `CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node, score`.
+- **Values keep their stored spelling and case, so a bare `=` on a string attribute is an exact,
+  case-sensitive test** and is almost always the wrong one: `s.Organ = 'Lung'` finds 16,841 of the
+  22,734 lung tissue samples and silently drops every `lung` and `LUNG`. Exact `=` is right for a
+  number, a date, a sample type code, a sample id and a whole UID, each of which has one stored
+  form. For every other string, follow STEP 2's **Matching a value** procedure.
+- **A value, a keyword or a phrase can be matched three ways** — a property predicate, a
+  `toLower(s.search_text) CONTAINS` scan, or the `sample_search_text` fulltext index — and the
+  three return different numbers for the same question. The index **tokenises**; it is not a
+  substring search. STEP 2's **Matching a value** procedure chooses between them; choosing by habit
+  instead is what returned the wrong count on 8 of the last 60 questions asked of this agent.
 - **Never return or collect a whole Sample node** (`RETURN s`, `collect(s)`, `s {.*}`,
   `properties(s)`): a Sample node carries every attribute. Return `s.id`, `s.uuid`, `s.type` and the
   named properties the question needs, and count with `count(*)`. A query that returns a whole Sample
@@ -61,6 +65,130 @@ Key mappings to know:
 
 **The schema is the source of truth. Upstream entity values (resolved.sampletypes, resolved.assays, resolved.projects) are HINTS about user intent — not guaranteed to match actual graph values verbatim. Always verify property names and valid value formats against the provided schema before writing Cypher.**
 
+### Matching a value: three branches, chosen deliberately
+
+Every question carrying a value, a keyword or a phrase goes through this decision procedure. It is
+not a preference: each branch is measurably right where it belongs and measurably wrong outside it.
+Work out which branch the question is in before you write the predicate.
+
+**Branch 1 — a property predicate, when a resolved type's section lists the attribute.** The
+attribute lines in the GRAPH SCHEMA block carry `n=` (how many samples hold a value) and a `values:`
+list of the most frequent spellings with their counts. When one of those attributes is what the
+question is about, filter on it and case-fold both sides:
+
+    MATCH (s:T_TIS) WHERE toLower(toString(s.Organ)) = toLower($organ)      // the whole field
+    MATCH (s:T_NHP) WHERE toLower(toString(s.Arm)) CONTAINS toLower($arm)   // part of a longer field
+
+Use `=` when the question means the whole field ("Organ recorded as just Lung") and `CONTAINS` when
+the term is one part of it ("cd8 depleted monkeys", where `Arm` holds "CD8 depletion" inside a longer
+value). Measured: that `Arm` predicate returns 45 NHP samples, the right answer, where the same
+question asked of `search_text` returns 70.
+
+**Wrap the property in `toString`, never in `coalesce(..., '')`.** One attribute can hold more than
+one type: 474 NHP samples store `Arm` as a string and 35 store it as an integer, so
+`coalesce(s.Arm, '')` aborts the whole query with a type error. `toLower(toString(s.Arm))` is both
+type-safe and null-safe — an absent property yields null, and null matches nothing.
+
+**Match the whole SET of spellings the data uses, never one of them.** The `values:` list is the
+database's own vocabulary; read the spellings off it and match them all:
+
+    MATCH (s:T_MUS) WHERE toLower(toString(s.Sex)) IN ['f','female']
+
+Measured: that is 3,073 mice, where `toLower(s.Sex) = 'female'` returns 160, because 2,913 of them
+store the code `F`. Patient `Sex` has the same shape: `IN ['male','m']` is 5,564 where `= 'male'` is
+5,485. A value the user puts in quotation marks is still the user's spelling, not the database's —
+quoting tells you which concept they mean, never how it is stored. The `values:` list shows at most
+the ten most frequent spellings, so when the concept could be written a way the list does not show,
+OR in a branch-2 `search_text` test rather than trusting the list to be complete.
+
+**A branch-1 predicate that comes back empty has usually picked the wrong attribute.** "How many HeLa
+cell-line samples" asked of `s.CellLine` returns 0 where the truth is 4, because HeLa is recorded
+elsewhere on those samples. Re-ask with branch 2 before reporting a zero, and never report a zero
+from a guessed attribute as though it settled the question.
+
+**Branch 2 — `toLower(s.search_text) CONTAINS toLower($term)`.** `search_text` holds every value of
+the sample, one per line, in its stored case. Use it when:
+
+- the term must match **inside** a longer word: `fibrin` by CONTAINS finds 241 images where the index
+  finds 127, because `fibrinogen` is a single token and the index never sees `fibrin` within it;
+- the term **holds punctuation, a hyphen or a digit**, so the analyser cuts it differently from the
+  way it was written: `cd8` by CONTAINS is 14,998 samples where the index finds 785, because `CD8+`,
+  `anti-CD8` and `CD8a_Ly3` are each their own token. The same goes for `ChIP-seq` and `H37Rv`;
+- **adjacency matters**, i.e. the term is a phrase: `toLower(s.search_text) CONTAINS 'cd8 depletion'`
+  is 151 samples, where the same two words handed to the index unquoted are ORed into thousands;
+- no listed attribute carries the concept, or the question is "anything mentioning X": mice
+  mentioning `ndma` anywhere are 2,111, of which 1,549 carry it in a Treatment field.
+
+Scope it by type label whenever the type is known, and conjoin terms with AND, which the REST search
+cannot express at all:
+
+    MATCH (s:Sample) WHERE s.type IN ['D.IMG','A.IMG']
+      AND toLower(s.search_text) CONTAINS toLower($term1)
+      AND toLower(s.search_text) CONTAINS toLower($term2)
+    RETURN count(s) AS total
+
+(fibrin AND omero: 241.) An **unscoped** CONTAINS across all 1,084,754 samples is allowed and was
+measured at about four seconds, so a whole-database keyword question is a legitimate query rather
+than a reason to reach for the index.
+
+**Branch 3 — the fulltext index, for a single clean word whose case variants should merge.**
+
+    CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node, score
+    WHERE node:T_D_IMG
+    RETURN count(DISTINCT node) AS total
+
+A clean word is letters only: no hyphen, no digit, no space, no punctuation. On one of those the
+analyser's lowercasing is exactly what you want and the index is fast and exact: `ImmPort` across
+every spelling is 4,081 samples, and `extravasation` images are 338. Two rules hold without
+exception:
+
+- **never hand the index a hyphenated or multi-word term.** Lucene splits on the punctuation and ORs
+  the pieces: `ChIP-seq` becomes `chip` OR `seq`, which is 1,103 OR 137,210 = 138,313 samples in a
+  database that holds no ChIP-seq at all. Quoting a phrase restores adjacency, but the analyser still
+  cuts the tokens, so a quoted phrase is close rather than exact: `"cd8 depletion"` is 150 where the
+  branch-2 scan is 151. Use branch 2.
+- **scope the call.** Put the type label or another predicate in the same query whenever the
+  question names a type. An unscoped call is right only when the question really is about every
+  sample of every type, as the ImmPort one is.
+
+Whichever branch you choose, say in the explanation which predicate produced the number, so a zero
+reads as "this predicate matched nothing" and never as "the database holds none of these".
+
+### UIDs and lab codes
+
+`Sample.uuid` is the sample UID, and every UID follows one house grammar:
+
+    <TYPE>-<YYMMDD><LAB>-<n>      TIS-220831FLY-26, OOC-250519KAM-8, D.SEQ-240910LAU-1
+
+the sample type code, a hyphen, a six-digit date, a three-letter lab/PI code, a hyphen, and a serial
+number. 1,084,753 of the 1,084,754 UIDs in the graph match it. `api_agent.txt` states the same rule
+for the REST side: a lab or PI is identified by its three-letter code appearing **inside the UID**,
+and there is no lab or PI field to filter on.
+
+- **A lab code is never at the start of a UID**, so never test one with `STARTS WITH`:
+  `s.uuid STARTS WITH 'KAM'` returns 0 where the Kamm lab has 9,821 samples. Nor does it live in a
+  metadata field: `toLower(s.Lab) CONTAINS 'kam'` returns 26 of those 9,821, and `s.Scientist` holds
+  a person, not a lab — `CONTAINS 'kamm'` matches 3 samples in the whole database and none of the
+  683 organ-on-chips the Kamm lab owns.
+- **Scope by lab with the code anchored at its position in the grammar:**
+
+      MATCH (s:Sample) WHERE s.uuid =~ ('(?i)^[^-]+-\d{6}' + $lab + '-\d+.*')
+      RETURN count(s) AS total
+
+  Measured: 9,821 across every type, 683 with `s.type = 'OOC'`, 140 with `s.type = 'RNA'`. Pass the
+  code the entity layer resolved (Kamm → KAM) as `$lab`. `toLower(s.uuid) CONTAINS toLower($lab)` is
+  the loose form: far better than a prefix test, and 9,821 here as well, but it also matches the code
+  anywhere else in the UID, so prefer the anchored form.
+- **A whole UID is a code:** match it with `s.uuid = $uuid`, and a fragment of one with
+  `toLower(s.uuid) CONTAINS toLower($fragment)`.
+- **Never filter sample type through the UID.** The prefix is the sample type code, but the label
+  `:T_<code>` and `s.type = $code` are the indexed ways to say it.
+- **The six digits are the sample's date**, YYMMDD: `substring(split(s.uuid,'-')[1], 0, 6)`. The only
+  date property on a Sample is `synced_at`, which is when the graph last synced the row, not when the
+  sample was made.
+
+### Other mappings
+
 Rules:
 
 - **For sample types:** `resolved.sampletypes[].code` (e.g. "TIS", "MUS") names the type. `Sample.type` and the type label `T_<code>` both identify it: prefer the label, `MATCH (s:T_TIS)`, which is also what lets you use that type's attributes; `WHERE s.type = $type` selects the same samples. Only apply a type filter when the user's intent is clearly about that sample type. Do not traverse `OF_TYPE` to a SampleType node to filter samples by type; SampleType nodes describe the types (their `title` is the code).
@@ -73,7 +201,8 @@ Rules:
   "MetNet", "SRP", "CSBC"), while most `Study.title` values are full publication titles.
   A named "study" may therefore live in either place, and if the publication does not
   exist yet, the name may be recorded only as a sample metadata value on the Sample nodes
-  (the fulltext index finds it), not as a Study or Investigation node.
+  (branch 2 of **Matching a value** finds it; a study name is usually several words, so the
+  fulltext index is the wrong tool for it), not as a Study or Investigation node.
 
   Matching only one node type is what produces wildly inconsistent answers to the same
   question: "NHP samples from study IMPACT" returns hundreds via `Investigation.title` but
@@ -107,8 +236,8 @@ Rules:
   Apply this whenever the user names a study, investigation, project or cohort, whatever
   noun they used. If the disjunction returns nothing, say so explicitly and note that the
   name may be recorded as a sample metadata value rather than as a Study or Investigation
-  node (the fulltext index can find it); do not report "0 samples" as if it settled the
-  question.
+  node (a `toLower(s.search_text) CONTAINS` scan finds it); do not report "0 samples" as if it
+  settled the question.
 
 - **For assays and protocols:** fuzzy-match the user's term against the ASSAY TITLES (or PROTOCOL TITLES) vocabulary block (`internal_assay_titles` or `protocol_titles` in the JSON form). Use that exact vocabulary string as the parameter. Fall back to CONTAINS if no close match exists.
 
