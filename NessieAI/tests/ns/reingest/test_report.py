@@ -1,3 +1,5 @@
+import pytest
+
 from NessieAI.ns import reingest_qa as qa
 from NessieAI.ns.reingest import report
 
@@ -180,6 +182,10 @@ _NEW_CODE_CASES = [
     (qa.BLANK_PARENT, qa.HARD,
      dict(sample_type="D.SEQ", row_index=0, detail={"reason": "blank Parent"}),
      ["input sample", "which sequencing sample"]),
+    (qa.LINEAGE_UNRESOLVED, qa.SOFT,
+     dict(sample_type="A.GEX", row_index=0,
+          detail={"reason": "no Parent key present (lineage could not be resolved)"}),
+     ["no parent identified", "attach the parent", "re-run"]),
     (qa.PARENT_UID_NOT_FOUND, qa.HARD,
      dict(sample_type="D.SEQ", row_index=0, detail={"token": "D.SEQ-EXAMPLE-1"}),
      ["does not resolve", "register"]),
@@ -302,6 +308,29 @@ def test_missing_required_names_both_alternatives_when_the_attribute_is_a_group(
     assert "server will reject" not in plain_text.lower()
 
 
+def test_missing_required_group_rendering_tolerates_a_single_member_group(monkeypatch):
+    # Minor 3: the rewritten is_group_label branch does
+    # `" or ".join(_name(m) for m in members[1:])`, which for a one-member
+    # group renders "a  value may be accepted too" (a blank secondary) -- the
+    # code it replaced carried an explicit comment that nothing there assumed
+    # exactly two. Today's one real group (File_PrimaryData/Link_PrimaryData)
+    # always has 2+ members, so this simulates a hypothetical single-member
+    # group by monkeypatching is_group_label/group_members_for_label, and
+    # pins that the branch falls back to the plain wording instead of
+    # crashing or rendering a blank alternative.
+    fake_label = "SoloRequired"
+    monkeypatch.setattr(qa, "is_group_label", lambda attribute: attribute == fake_label)
+    monkeypatch.setattr(qa, "group_members_for_label",
+                        lambda attribute: ("SoloRequired",) if attribute == fake_label else None)
+    built = _single_finding_report(
+        qa.MISSING_REQUIRED, qa.HARD, sample_type="A.GEX",
+        attribute=fake_label, row_index=0)
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert "may be accepted too" not in text
+    assert "SoloRequired is required and missing" in text
+    assert qa.MISSING_REQUIRED not in text
+
+
 def test_primary_data_link_only_soft_flags_when_only_a_secondary_is_present():
     # reingest_qa.qa_rows only emits PRIMARY_DATA_LINK_ONLY when
     # File_PrimaryData (the primary) is absent but Link_PrimaryData (a
@@ -369,13 +398,17 @@ def test_mixed_hard_and_soft_primary_data_findings_in_one_batch_both_render():
     hard_section = text[blocking_at:checking_at]
     soft_section = text[checking_at:]
 
-    # Both findings render, each with its own correct count.
-    assert "7" in hard_section
-    assert "3" in soft_section
+    # Both findings render, each with its own correct count. Scoped to the
+    # actual counted phrase ("N row(s) in") rather than a bare digit scan --
+    # Minor 5: a bare "7"/"10" can also match a footer, a fixture name, or an
+    # unrelated number, so it would break on an unrelated change elsewhere in
+    # the render.
+    assert "7 rows in" in hard_section
+    assert "3 rows in" in soft_section
     # Neither count leaks into the other section, and the two are never
     # merged back into the total of 10.
-    assert "7" not in soft_section
-    assert "10" not in text
+    assert "7 rows in" not in soft_section
+    assert "10 rows in" not in text
 
 
 def test_resolve_artifact_matches_a_hyphenated_sample_type():

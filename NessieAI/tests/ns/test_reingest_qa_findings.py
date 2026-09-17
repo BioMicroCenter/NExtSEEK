@@ -31,9 +31,31 @@ def test_a_finding_is_structured_not_a_string():
 
 
 def test_hard_and_soft_string_lists_are_still_populated():
-    report = _qa([{"json_metadata": {"Name": "n1"}}])
-    assert report.disposition == qa.SOFT_FLAG
+    # Minor 6: a two-row fixture covering both severities, so this test's
+    # name (which promises both lists) actually matches its depth -- the
+    # single-row Name-only fixture it replaced only ever populated `.soft`.
+    rows = [{"json_metadata": {"Parent": "", "Name": "n1"}},
+            {"json_metadata": {"Parent": "D.SEQ-EXAMPLE-1", "Name": "n2",
+                               "Notes": "TODO"}}]
+    report = _qa(rows)
+    assert report.disposition == qa.HARD_REJECT
+    assert report.hard and isinstance(report.hard[0], str)
     assert report.soft and isinstance(report.soft[0], str)
+
+
+def test_parent_none_and_non_string_parent_land_in_blank_parent_hard():
+    # Minor 4: collect_parent_tokens (helpers.py) skips a value that is
+    # falsy or not a str, so it returns [] for None/int/list Parent values
+    # exactly as it does for a genuinely blank string -- these all reach
+    # BLANK_PARENT/HARD via _has_any_parent_key, not LINEAGE_UNRESOLVED/SOFT
+    # (state 3, no parent-ish key at all). See the three-state comment in
+    # reingest_qa.py for why this reading is deliberate.
+    for value in (None, 12345, ["D.SEQ-EXAMPLE-1"]):
+        report = _qa([{"json_metadata": {"Parent": value, "Name": "n1"}}])
+        assert report.disposition == qa.HARD_REJECT, value
+        codes = [f.code for f in report.findings]
+        assert qa.BLANK_PARENT in codes, value
+        assert qa.LINEAGE_UNRESOLVED not in codes, value
 
 
 def test_findings_sharing_a_code_and_attribute_group_for_rendering():

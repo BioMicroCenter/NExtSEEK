@@ -338,6 +338,24 @@ def _render_one(index, code, attribute, bucket):
             # the reader toward the member the directional design exists to
             # treat as not provably sufficient is a wasted round trip.
             members = qa.group_members_for_label(attribute)
+            # `group_label()`/`is_group_label()` guarantee `attribute` names a
+            # real ALTERNATIVE_REQUIRED_GROUPS group, and every declared group
+            # has at least one secondary (see `_AlternativeGroup`), so
+            # `members` always has 2+ entries today -- but nothing here may
+            # assume that stays true (the group this replaced carried the
+            # same comment). A hypothetical single-member group has no
+            # secondary to steer toward, so it falls back to the plain,
+            # non-alternatives wording below rather than rendering "a  value
+            # may be accepted too" with a blank secondary.
+            if len(members) <= 1:
+                return [
+                    f"  {index}.  {_name(attribute)} is required and missing on {count} {rows}"
+                    f" in {_workbook_ref(sample_type)}.",
+                    "",
+                    "      This is required before I can upload these rows, whether or not the",
+                    "      server itself would reject them for lacking it. I could not derive",
+                    "      the value; fill it in, or tell me where to get it.",
+                ]
             primary = _name(members[0])
             secondaries = " or ".join(_name(m) for m in members[1:])
             return [
