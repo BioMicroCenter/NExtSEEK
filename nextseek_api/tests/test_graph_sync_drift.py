@@ -98,6 +98,7 @@ class DriftGraph:
         # The catalog check reads this too. Empty by default and CAT declares no sample types, so
         # both sides are empty and the catalog checks pass without affecting any existing case.
         self.catalog = list(catalog)
+        self.investigation_samples = 1
 
     def __call__(self, query, params):
         if query == q.SAMPLE_HASHES_PAGE:
@@ -112,6 +113,11 @@ class DriftGraph:
             return self.meta
         if query == verify.GRAPH_CATALOG:
             return self.catalog
+        if query == drift.ASSISTANT_INVESTIGATIONS:
+            # Every name the assistant is told to use resolves in this world, so the check passes and
+            # these cases stay about what they are named for. The real repository's capabilities.md is
+            # what supplies the names; TestTheAssistantsInvestigationNamesMustResolve covers failure.
+            return [{"title": title, "samples": self.investigation_samples} for title in params["titles"]]
         raise AssertionError(f"unexpected statement: {query}")
 
 
@@ -271,6 +277,7 @@ def test_drift_check_is_ok_when_nothing_drifted(mysql_rows, gate, catalog):
     assert names == ["samples.missing_in_graph", "samples.not_in_mysql", "samples.source_hash_mismatch",
                      "samples.new_uuids",
                      "catalog.sample_types", "catalog.types_with_attribute_set_diff",
+                     "catalog.assistant_investigations",
                      "freshness.full", "freshness.reconcile", "freshness.outbox",
                      "4.samples.graph_count"]
     assert all({"name", "expected", "actual", "pass"} <= set(c) for c in result["checks"])
@@ -500,3 +507,74 @@ class TestContextCoverageIsReportedNotEnforced:
         checks, stats = _run_catalog_checks(cat, rows)
         assert stats["catalog"]["types_without_context"] == 1
         assert not any("context" in name for name in checks)
+
+
+# --- the assistant's investigation names (the POC's CI hook) --------------------------------------
+
+# The real file separates name and gloss with an em dash. The parser stops at the closing ``**`` and
+# never looks further, so a plain hyphen here exercises the same path and keeps the repo's no-dash rule.
+CAPABILITIES_SAMPLE = """
+## Known Projects and Investigations
+
+The currently known investigations are:
+
+- **CSBC** - Cancer Systems Biology Consortium
+- **GBM** - Glioblastoma program
+- **MetNet** - Metabolic Network investigation
+
+Use these names exactly when asking graph questions scoped to a specific project.
+
+---
+
+## What the System Cannot Do
+- **NotAnInvestigation** - this bullet is outside the section and must not be read
+"""
+
+
+class TestTheNamesTheAssistantIsToldToUseAreParsed:
+    def test_only_the_known_investigations_section_is_read(self):
+        assert drift.assistant_investigation_names(CAPABILITIES_SAMPLE) == ["CSBC", "GBM", "MetNet"]
+
+    def test_a_file_without_the_section_yields_nothing(self):
+        assert drift.assistant_investigation_names("# Something else\n\n- **Nope** - no section\n") == []
+
+
+def _investigation_reader(populated):
+    """Answers the resolve query: populated maps a title to its sample count."""
+    def respond(query, params):
+        if query == drift.ASSISTANT_INVESTIGATIONS:
+            return [{"title": t, "samples": populated.get(t, 0)} for t in params["titles"]]
+        raise AssertionError(f"unexpected statement: {query}")
+    return FakeDriver(respond)
+
+
+def _run_investigation_check(names, populated):
+    checks, stats = [], {}
+    drift._check_assistant_investigations(_investigation_reader(populated), "neo4j", names, checks, stats)
+    return {c["name"]: c for c in checks}, stats
+
+
+class TestTheAssistantsInvestigationNamesMustResolve:
+    def test_names_that_all_resolve_pass(self):
+        checks, stats = _run_investigation_check(["CSBC", "MetNet"], {"CSBC": 4272, "MetNet": 9534})
+        assert checks["catalog.assistant_investigations"]["pass"]
+        assert stats["assistant_investigations"]["unresolved"] == []
+
+    def test_a_name_with_no_node_fails_and_is_named(self):
+        """Measured 2026-09-17: no investigation carries the title GBM at any population."""
+        checks, stats = _run_investigation_check(["CSBC", "GBM"], {"CSBC": 4272})
+        failed = checks["catalog.assistant_investigations"]
+        assert not failed["pass"]
+        assert "GBM" in str(failed["detail"])
+        assert stats["assistant_investigations"]["unresolved"] == ["GBM"]
+
+    def test_a_name_resolving_to_an_empty_investigation_fails(self):
+        """Griffith, Impact, SRP and Shoulders each have a node and zero samples. A node that answers
+        nothing is worse than a missing one: the agent gets a confident zero."""
+        checks, _ = _run_investigation_check(["Griffith"], {"Griffith": 0})
+        assert not checks["catalog.assistant_investigations"]["pass"]
+
+    def test_no_names_means_nothing_to_check_and_no_failure(self):
+        checks, stats = _run_investigation_check([], {})
+        assert checks["catalog.assistant_investigations"]["pass"]
+        assert stats["assistant_investigations"]["names"] == 0

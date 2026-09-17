@@ -30,8 +30,10 @@ run record); without one nothing is written at all.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Iterator, NamedTuple
 
 from django.db import DatabaseError
@@ -284,6 +286,65 @@ def _check_detection(driver, db, chunk: int, checks: list, stats: dict):
     return cat
 
 
+# The names the assistant is told to scope by, and whether the graph answers them. Measured 2026-09-17 on a graph
+# graph_sync had just written at 1.2: of the eight names capabilities.md lists, GBM matched no Investigation at all
+# and Griffith, Impact, SRP and Shoulders each matched one holding zero studies and zero samples. A full sync does
+# not repair that, so nothing caught it and the agent answered a confident zero. Raised by the graph-evidence POC.
+ASSISTANT_CAPABILITIES = ("NessieAI", "chat_nextseek", "src", "chat_nextseek", "context", "capabilities.md")
+_CAPABILITIES_SECTION = re.compile(r"^##\s+Known Projects and Investigations\s*$", re.M)
+_CAPABILITIES_NAME = re.compile(r"^-\s+\*\*([^*]+)\*\*", re.M)
+
+ASSISTANT_INVESTIGATIONS = """
+UNWIND $titles AS title
+OPTIONAL MATCH (i:Investigation {title: title})
+OPTIONAL MATCH (i)<-[:IN_INVESTIGATION]-(:Study)<-[:IN_STUDY]-(s:Sample)
+RETURN title AS title, count(DISTINCT s) AS samples
+"""
+
+
+def assistant_investigation_names(text: str) -> list[str]:
+    """The investigation names under "Known Projects and Investigations", in file order.
+
+    Only that section is read: the file carries bulleted bold terms elsewhere that are not investigations. The
+    section ends at the next horizontal rule or heading.
+    """
+    start = _CAPABILITIES_SECTION.search(text)
+    if start is None:
+        return []
+    rest = text[start.end():]
+    end = re.search(r"^(?:---\s*|##\s+)", rest, re.M)
+    return [m.group(1).strip() for m in _CAPABILITIES_NAME.finditer(rest[:end.start()] if end else rest)]
+
+
+def _capabilities_text(repo_root=None) -> str | None:
+    path = Path(repo_root or Path(__file__).resolve().parents[2]).joinpath(*ASSISTANT_CAPABILITIES)
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _check_assistant_investigations(driver, db, names: list[str], checks: list, stats: dict) -> None:
+    """Every investigation name the assistant is told to use must resolve to one that answers (CI-4, the POC).
+
+    An empty node is worse than a missing one: the agent scopes to it and gets a confident zero rather than an
+    error. So a name fails when no Investigation carries it AND when the one that does holds no samples.
+    """
+    if not names:
+        stats["assistant_investigations"] = {"names": 0, "unresolved": [], "note": "no names found to check"}
+        _check(checks, "catalog.assistant_investigations", 0, 0,
+               detail="capabilities.md has no Known Projects and Investigations section")
+        return
+    rows = _records(_run(driver, db, ASSISTANT_INVESTIGATIONS, {"titles": names}, read=True))
+    samples = {r["title"]: int(r["samples"] or 0) for r in rows}
+    unresolved = [name for name in names if samples.get(name, 0) == 0]
+    stats["assistant_investigations"] = {"names": len(names), "unresolved": unresolved,
+                                         "samples": {k: samples.get(k, 0) for k in names}}
+    _check(checks, "catalog.assistant_investigations", 0, len(unresolved),
+           detail={"unresolved": unresolved[:EXAMPLES],
+                   "hint": "capabilities.md names these but the graph answers nothing for them"})
+
+
 def _check_catalog(driver, db, cat, checks: list, stats: dict) -> None:
     """The graph's catalog against the one MySQL declares (spec CI-4, `drift.catalog.*`).
 
@@ -353,6 +414,10 @@ def _drift(driver, db, sample_size: int, seed, chunk: int, now) -> dict:
     cat = _timed(timings, "detection", _check_detection, driver, db, chunk, checks, stats)
     if cat is not None:
         _timed(timings, "catalog", _check_catalog, driver, db, cat, checks, stats)
+    text = _capabilities_text()
+    if text is not None:
+        _timed(timings, "assistant_investigations", _check_assistant_investigations,
+               driver, db, assistant_investigation_names(text), checks, stats)
     _timed(timings, "freshness", _check_freshness, now, checks, stats)
     gate = _timed(timings, "gate_g", verify.gate_g, driver, db, sample_size, seed=seed, accounts=(), chunk=chunk)
     checks.extend(gate["checks"])
