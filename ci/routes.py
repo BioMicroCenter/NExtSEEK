@@ -648,10 +648,14 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=(), profiles="", auth="web", exclude="EXCLUDE_UNSAFE_METHOD",
           note="sample retrieval endpoint behind the retrieval page"),
-    Route(pattern=r"^seek/^samples/delete/", path=None,
+    Route(pattern=r"^seek/^samples/delete/", path="/seek/samples/delete/",
           effect="writes", writers=("WR-13",),
-          methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
-          note="sample deletion endpoint behind the search grid"),
+          methods=("POST",), profiles="local", auth="write", expect=200,
+          note="sample deletion endpoint behind the search grid: the Sample Deletion tab posts "
+               "`alluids` here. LOCAL ONLY, and never dev or prod, because the write it makes is "
+               "irreversible data loss rather than one of the safe previews. Enabled so the "
+               "behavioural lane can prove a delete takes the node down (WR-13's retire row): "
+               "auth=write keeps it out of the T0 sweep, which never holds that account"),
 
     # ----------------------------------------------------------------- #
     # nextseek_api: reads
