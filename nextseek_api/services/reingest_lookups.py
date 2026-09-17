@@ -18,12 +18,13 @@ territory (see the repo root ``CLAUDE.md``: "the API surface stays in
 module inherits that loader's house rule for free: a missing table or row
 costs the caller an empty catalog, never an exception.
 
-Each lenient function has a ``_strict`` twin (``known_sample_types_strict``,
-``attributes_for_strict``) built on ``context_catalog``'s own ``_strict``
-loaders. Those raise instead of swallowing a catalog outage into an empty
-result, for the one caller that must not mistake "the database is
-unreachable" for "genuinely not defined" -- see ``proposals.attribute_exists``
-in ``NessieAI/ns/reingest/proposals.py``.
+``attributes_for_strict`` is the exception to that house rule, built on
+``context_catalog.load_sample_types_strict``: it raises instead of swallowing
+a catalog outage into an empty result, for the one caller that must not
+mistake "the database is unreachable" for "genuinely not defined" -- see
+``proposals.attribute_exists`` in ``NessieAI/ns/reingest/proposals.py``. There
+is deliberately no strict twin for ``known_sample_types``: nothing needs one,
+and an uncalled function is one more thing to keep true.
 """
 from __future__ import annotations
 
@@ -34,7 +35,6 @@ from nextseek_api.services.context_catalog import (
     load_sample_type,
     load_sample_type_strict,
     load_sample_types,
-    load_sample_types_strict,
 )
 
 log = logging.getLogger(__name__)
@@ -43,15 +43,6 @@ log = logging.getLogger(__name__)
 def known_sample_types() -> set[str]:
     """Every SampleType code in the catalog. Empty on failure, never raises."""
     return {entry.code for entry in load_sample_types()}
-
-
-def known_sample_types_strict() -> set[str]:
-    """Every SampleType code in the catalog.
-
-    Raises on a catalog outage instead of returning an empty set for it; see
-    `context_catalog.load_sample_types_strict`.
-    """
-    return {entry.code for entry in load_sample_types_strict()}
 
 
 def _attributes_from_entry(entry) -> list[dict]:

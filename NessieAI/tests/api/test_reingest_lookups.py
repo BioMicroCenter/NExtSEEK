@@ -108,13 +108,6 @@ def test_attributes_for_strict_raises_when_the_catalog_is_unreachable():
             reingest_lookups.attributes_for_strict("A.GEX")
 
 
-def test_known_sample_types_strict_raises_when_the_catalog_is_unreachable():
-    with patch("nextseek_api.services.context_catalog._sample_type_rows",
-              side_effect=RuntimeError("sample_types_context table unreachable")):
-        with pytest.raises(RuntimeError):
-            reingest_lookups.known_sample_types_strict()
-
-
 def _metadata_row(uid: str, **fields) -> tuple:
     return (uid, json.dumps(fields))
 
