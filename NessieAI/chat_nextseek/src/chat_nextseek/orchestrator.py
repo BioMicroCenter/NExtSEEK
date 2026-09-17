@@ -589,10 +589,18 @@ def _execute_graph_turn(
         graph_result = retry_result
 
     debug_payload["graph_attempts"] = attempts
+    # The user must not be told a number without being told the first query found
+    # nothing and the filter was changed to get it. Recording it in debug_payload was
+    # not enough: nothing read the flag, so the reply never carried the caveat. It now
+    # goes to the chatter as a query note as well.
+    query_notes: list[str] = []
     if first_ok_empty and not matched_nothing(graph_result):
-        # The user must not be told a number without being told the first query found
-        # nothing and the filter was changed to get it.
         debug_payload["graph_retry_changed_answer"] = True
+        query_notes.append(
+            "The first query for this question matched nothing. This result comes from a "
+            "second query with a changed filter, so say that the original filter found "
+            "nothing and what was used instead."
+        )
 
     send_event(
         "search_complete",
@@ -647,7 +655,7 @@ def _execute_graph_turn(
     reply = chatter_agent_answer(
         config, user_text, entity_result.model_dump(), plan.model_dump(),
         graph_plan=graph_plan.model_dump(), graph_result=graph_result,
-        log_dir=log_dir, session=session,
+        log_dir=log_dir, session=session, query_notes=query_notes,
     )
     print(f"[TIMING][CHATTER] {time.perf_counter() - _t1:.2f}s")
     send_event("agent_complete", {"agent": "chatter", "summary": None})

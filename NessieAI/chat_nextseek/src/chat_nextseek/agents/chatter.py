@@ -14,10 +14,35 @@ from ..schemas.schema_helper import call_llm_text
 from ..helpers import (
     log_prompt,
 )
+from ..helpers.query_scope import describe_query_scope, render_query_scope
 from ..schemas import (
     PlannerOutput,
 )
 from .parser import _step_query
+
+#: Keys on the REST result envelope that describe HOW the request was made rather
+#: than WHAT came back. `slim_api_result_for_llm` copies them straight through from
+#: `tool_nextseek_api_request`, so until D1 the prompt carried the full URL, the HTTP
+#: verb, `page_size` and every requestBody field name. They stay on
+#: `debug_payload["api_result_slim"]` and in the stored bundle, where a power user
+#: inspects them; they are only removed from what the reply writer reads.
+#: `page_size` joins them: it is the NAME of an API query parameter, and the three
+#: disclosure flags the prompt actually has rules for (`rows_returned`,
+#: `result_capped`, `total_matching`) already carry everything a reply needs about
+#: the cap it describes.
+_RESULT_PLUMBING_KEYS = frozenset({"url", "method", "query", "body", "endpoint", "page_size"})
+
+#: The same cut on `error_context`. `status_code`, `error`, `response_preview` and
+#: `schema_required_paths` are kept: they are the cause and the names of the values
+#: the user has to supply, which the error-handling system message asks for.
+_ERROR_PLUMBING_KEYS = frozenset({"url", "method", "request_body", "request_query"})
+
+
+def _scrub_plumbing(payload: dict | None, keys: frozenset[str]) -> dict:
+    """A shallow copy without the transport keys. Non-dicts pass through as {}."""
+    if not isinstance(payload, dict):
+        return {}
+    return {k: v for k, v in payload.items() if k not in keys}
 
 
 def chatter_agent_answer(
@@ -34,6 +59,7 @@ def chatter_agent_answer(
     graph_result: dict | None = None,
     log_dir: str | None = None,
     session: "SessionState | SessionStateProxy | None" = None,
+    query_notes: list[str] | None = None,
 ) -> str:
     """
     Unified chatter agent: produces a narrative answer for search, reporter, and graph results,
@@ -41,14 +67,20 @@ def chatter_agent_answer(
     Pass reporter_summary for reporter mode, graph_plan+graph_result for graph mode,
     or API params for search/refine mode.
     Falls back to informative messages when the LLM hits rate or connection limits.
+
+    ``query_notes`` are caveats the caller knows and the plans do not carry — the
+    graph turn's ``graph_retry_changed_answer`` is the first one — each of which is
+    disclosed to the writer verbatim.
     """
     is_reporter = reporter_summary is not None
     is_graph = graph_plan is not None
 
     # ---------- Build mode-appropriate debug JSON (UI debug panel only) ----------
     # This JSON is for power-user inspection in the UI — it intentionally
-    # keeps plumbing (endpoint, requestBody, Cypher). The LLM prompt built
-    # further below does NOT see any of this.
+    # keeps plumbing (endpoint, requestBody, Cypher). The LLM prompt built further
+    # below is assembled separately and none of these fields is passed into it; the
+    # guard is tests/chat_nextseek/test_chatter_prompt.py, not this comment, which
+    # said the same thing while the REST envelope carried the plumbing in anyway.
     if is_graph:
         debug_info = {
             "entity": {
@@ -105,9 +137,27 @@ def chatter_agent_answer(
     debug_json = json.dumps(debug_info, indent=2)
 
     # ---------- Build LLM user_content (UNIVERSAL across modes) ----------
-    # The LLM never sees endpoint names, Cypher, requestBody, or filter
-    # operators. It gets a uniform structure: question + resolved entities
-    # + mode-specific data + result stats + brief instructions.
+    # D1. This block used to claim "the LLM never sees endpoint names, Cypher,
+    # requestBody, or filter operators", and on the REST path that was never true.
+    # `tool_nextseek_api_request` returns {ok, url, status_code, method, query, body,
+    # data} and `slim_api_result_for_llm` copies everything but `data` through
+    # verbatim, so the prompt carried the full URL, the verb, `page_size` and the
+    # requestBody field names — while the instruction block told the model not to
+    # mention any of it. The mechanics were in the prompt and the useful form was not.
+    #
+    # Both halves are fixed here. `_scrub_plumbing` takes the raw envelope out, which
+    # is what this comment always claimed; `describe_query_scope` puts in a structured,
+    # user-facing account of what the executed query CONSTRAINED and what the user
+    # asked for that it did not. That gap is what production issues B7, B8 and B13 all
+    # needed and none of them had: a reply cannot avoid misreporting the question if
+    # the writer has no way to know what ran. See helpers/query_scope.py.
+    scope = describe_query_scope(
+        entity_result=entity_result,
+        parser_plan=parser_plan,
+        api_plan=api_plan if not (is_graph or is_reporter) else None,
+        graph_plan=graph_plan,
+        extra_notes=query_notes,
+    )
 
     def _fmt_entities(items: Any) -> str:
         if not items:
@@ -128,7 +178,12 @@ def chatter_agent_answer(
     resolved_sampletypes = _fmt_entities(entity_result.get("sampletypes"))
     resolved_assays = _fmt_entities(entity_result.get("assays"))
     resolved_projects = _fmt_entities(entity_result.get("projects"))
-    keywords_list = (entity_result.get("filters") or {}).get("keywords") or []
+    # `keywords` is a TOP-LEVEL field on EntityAgentOutput (schemas/entity.py); there
+    # has never been a `filters` key on it, so reading entity_result["filters"]
+    # ["keywords"] rendered "(none)" in every turn, in every mode, since the line was
+    # written. The system prompt's "state ... what the key filters were (sample type,
+    # assay, keywords)" was unsatisfiable for keywords the whole time.
+    keywords_list = [str(k) for k in (entity_result.get("keywords") or []) if str(k).strip()]
     keywords_str = ", ".join(keywords_list) if keywords_list else "(none)"
 
     # Compute total_matches + preview_count for the mode at hand, AND
@@ -212,10 +267,16 @@ def chatter_agent_answer(
         mode_label = "reporter"
         log_label = "chatter_report"
     else:
-        api_json = json.dumps(api_result_slim, separators=(",", ":"))
+        api_json = json.dumps(
+            _scrub_plumbing(api_result_slim, _RESULT_PLUMBING_KEYS),
+            separators=(",", ":"), default=str,
+        )
         data_section = f"Matching sample records (slimmed):\n{api_json}"
         if error_context:
-            error_json = json.dumps(error_context, separators=(",", ":"))
+            error_json = json.dumps(
+                _scrub_plumbing(error_context, _ERROR_PLUMBING_KEYS),
+                separators=(",", ":"), default=str,
+            )
             data_section += f"\n\nError context:\n{error_json}"
         mode_label = "search"
         log_label = "chatter"
@@ -235,6 +296,7 @@ def chatter_agent_answer(
         f"- Assays: {resolved_assays}\n"
         f"- Projects: {resolved_projects}\n"
         f"- Keywords: {keywords_str}\n\n"
+        f"{render_query_scope(scope)}\n\n"
         f"{data_section}\n\n"
         "Result statistics:\n"
         f"- Total matches: {total_matches if total_matches is not None else 'unknown'}\n"
@@ -256,8 +318,17 @@ def chatter_agent_answer(
             if example_ids else
             "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
         )
-        + "- Do NOT describe HOW the data was retrieved — no endpoint names, no Cypher, "
-        "no API mechanics, no filter operators (AND/OR), no requestBody.\n"
+        + (
+            "- The query did NOT constrain on everything the user asked for. Say which "
+            "constraint is missing in your FIRST sentence, and do not describe the result "
+            "as though it were restricted to it.\n"
+            if scope.not_applied else ""
+        )
+        + "- Name sample types, assay codes and keywords from 'Constrained by', never from "
+        "'What the user asked for' — those are what was requested, not what was searched.\n"
+        "- You may state WHAT was searched using the 'Searched' phrase above, once. Never "
+        "name an endpoint, a URL, an HTTP method, Cypher, a query operator (AND/OR) or a "
+        "request field: the user cannot act on any of it.\n"
         "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
         "Be informative and brief."
     )
@@ -319,8 +390,8 @@ def chatter_agent_answer(
         return (
             "I successfully queried NExtSEEK, but had a connection issue talking to the LLM to "
             "summarize the results.\n\n"
-            f"Basic info:\n- endpoint: {parser_plan.get('target_endpoint')}\n"
-            f"- intent: {parser_plan.get('intent_summary')}\n"
+            f"Basic info:\n- searched: {scope.searched}\n"
+            f"- your question: {parser_plan.get('intent_summary')}\n"
             f"- total matches: {total if total is not None else 'unknown'}\n\n"
             "You can re-run the query or refine it (e.g. by project or study) to narrow the results."
         )
@@ -336,8 +407,8 @@ def chatter_agent_answer(
         return (
             "I pulled the NExtSEEK results, but the summarization call hit the model's token/throughput limit. "
             "Try again with a narrower query or after a short pause.\n\n"
-            f"Basic info:\n- endpoint: {parser_plan.get('target_endpoint')}\n"
-            f"- intent: {parser_plan.get('intent_summary')}\n"
+            f"Basic info:\n- searched: {scope.searched}\n"
+            f"- your question: {parser_plan.get('intent_summary')}\n"
             f"- total matches: {total if total is not None else 'unknown'}"
         )
     except LLMFatalError as e:
@@ -361,8 +432,8 @@ def chatter_agent_answer(
         total = data.get("total") if isinstance(data, dict) else None
         return (
             f"{busy}\n\n"
-            f"Basic info:\n- endpoint: {parser_plan.get('target_endpoint')}\n"
-            f"- intent: {parser_plan.get('intent_summary')}\n"
+            f"Basic info:\n- searched: {scope.searched}\n"
+            f"- your question: {parser_plan.get('intent_summary')}\n"
             f"- total matches: {total if total is not None else 'unknown'}"
         )
 

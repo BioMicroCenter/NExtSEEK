@@ -266,3 +266,168 @@ def test_api_result_meta_on_a_complete_result_is_not_truncated():
 
     assert meta["row_count"] == 28
     assert meta["truncated"] is False
+
+
+# --------------------------------------------------------------------------- #
+# The grouped-by-sample-type shape (`POST admin/samples/retrieve/`)
+#
+# `AdminSampleRetrieveResponse` (nextseek_api/models.py) is
+# `{total_samples, total_sample_types, total_children, failed_uids,
+#   data: [{sample_type, n_samples, samples: [...]}]}`.
+#
+# So `data["data"]` IS a list and `preview_key` resolves to "data" — but the list
+# holds GROUPS, not records. Measured on a faithful 101-sample / 3-type payload:
+#
+#   * `max_rows=5` trimmed 3 groups to 3 groups and changed nothing, so the
+#     >max_chars branch fired and the "slimmed" payload came out LARGER than the
+#     raw one (28,232 chars in, 28,342 out). The chatter's 5,000-char budget was
+#     exceeded by more than five times, silently.
+#   * `rows_returned` was 3 — the number of sample TYPES — while `total_matching`
+#     was 1,904. The system prompt tells the chatter `rows_returned` "is how many
+#     records the search actually found", so it was handed a number that means
+#     nothing and told it was the answer.
+#
+# This is the endpoint B7 ran on: wesselr 462 asked for the PAT samples under
+# MDL-250912LAU-1, and the reply reported 1,904 lineage records with none of them
+# PAT. The per-type breakdown that would have let the reply say "40 of them are
+# PAT" was in the payload and was buried under 28 KB of sample metadata.
+# --------------------------------------------------------------------------- #
+
+def _retrieve_grouped(groups, total_samples=None):
+    """A faithful admin/samples/retrieve/ body, wrapped as the REST tool wraps it."""
+    body_groups = []
+    for sample_type, n in groups:
+        body_groups.append({
+            "sample_type": sample_type,
+            "n_samples": n,
+            "samples": [
+                {"id": str(i), "uuid": f"{sample_type}-2509{i:02d}LAU-{i}",
+                 "sample_type_id": 7,
+                 "metadata": {"Scientist": "wesselr", "Organ": "Lung",
+                              "Notes": "x" * 120, "Treatment": "vehicle"}}
+                for i in range(n)
+            ],
+        })
+    n_total = total_samples if total_samples is not None else sum(n for _, n in groups)
+    return {
+        "ok": True, "status_code": 200, "method": "POST",
+        "url": "http://127.0.0.1:8000/nextseek_api/admin/samples/retrieve/",
+        "data": {
+            "total_samples": n_total,
+            "total_sample_types": len(groups),
+            "total_children": max(0, n_total - 1),
+            "failed_uids": 0,
+            "data": body_groups,
+        },
+    }
+
+
+def test_a_grouped_result_is_counted_in_records_not_groups():
+    """`rows_returned` must mean samples. It reported the number of sample types."""
+    full = _retrieve_grouped([("MDL", 1), ("PAT", 40), ("D.SEQ", 60)], total_samples=1904)
+
+    d = build_result_disclosure(full, {"queryParameters": {}})
+
+    assert d["rows_returned"] == 101
+    assert d["total_matching"] == 1904
+
+
+def test_a_grouped_result_actually_fits_the_chatter_budget():
+    """The size cap has to bind. It did not: 28,232 chars in, 28,342 chars out."""
+    import json as _json
+
+    full = _retrieve_grouped([("MDL", 1), ("PAT", 40), ("D.SEQ", 60)], total_samples=1904)
+    raw_len = len(_json.dumps(full))
+    slim = slim_api_result_for_llm(full, api_plan={"queryParameters": {}})
+
+    assert raw_len > 5000, "the fixture must be big enough to trip the cap"
+    assert len(_json.dumps(slim)) <= 5000
+
+
+def test_a_grouped_result_keeps_the_per_type_breakdown():
+    """B7's missing sentence: 1,904 records, 40 of them PAT."""
+    full = _retrieve_grouped([("MDL", 1), ("PAT", 40), ("D.SEQ", 60)], total_samples=1904)
+
+    slim = slim_api_result_for_llm(full, api_plan={"queryParameters": {}})
+
+    assert slim["data"]["samples_by_type"] == {"MDL": 1, "PAT": 40, "D.SEQ": 60}
+    assert slim["data"]["total_samples"] == 1904
+
+
+def test_a_grouped_result_previews_records_not_groups():
+    """B8's fix: every previewed record names the type it came from."""
+    full = _retrieve_grouped([("MDL", 1), ("PAT", 40), ("D.SEQ", 60)], total_samples=1904)
+
+    slim = slim_api_result_for_llm(full, api_plan={"queryParameters": {}})
+    preview = slim["data"]["samples_preview"]
+
+    assert 0 < len(preview) <= 5
+    assert all(isinstance(row, dict) and row.get("sample_type") for row in preview)
+    assert {row["uuid"] for row in preview} & {"MDL-250900LAU-0"}
+
+
+def test_a_small_grouped_result_is_not_flagged_as_capped():
+    full = _retrieve_grouped([("MDL", 1), ("PAT", 2)])
+
+    slim = slim_api_result_for_llm(full, api_plan={"queryParameters": {}})
+
+    assert slim["rows_returned"] == 3
+    assert slim["data"]["samples_by_type"] == {"MDL": 1, "PAT": 2}
+    assert "result_capped" not in slim
+
+
+def test_a_grouped_row_count_reaches_api_result_meta():
+    """The harness asserts on row_count, and it read the sample-type count."""
+    from chat_nextseek.helpers.results import build_api_result_meta
+
+    full = _retrieve_grouped([("MDL", 1), ("PAT", 40), ("D.SEQ", 60)], total_samples=1904)
+    meta = build_api_result_meta(full, {"queryParameters": {}}, bundle_id=6)
+
+    assert meta["row_count"] == 101
+    assert meta["total_matching"] == 1904
+    assert meta["truncated"] is True
+
+
+def test_an_oversized_flat_preview_is_shrunk_until_it_fits():
+    """The >max_chars branch never reduced anything; it only relabelled the keys."""
+    import json as _json
+
+    fat = {"ok": True, "data": {"total": 9,
+                                "rows": [{"uid": f"U-{i}", "blob": "y" * 3000} for i in range(9)]}}
+    slim = slim_api_result_for_llm(fat, api_plan={"queryParameters": {}})
+
+    assert len(_json.dumps(slim)) <= 5000
+    assert slim["rows_returned"] == 9
+
+
+def test_the_oversize_branch_keeps_the_truncation_key_name_it_always_had():
+    """`rows_truncated`, not `rows_preview_truncated`: the label is not the key."""
+    fat = {"ok": True, "data": {"total": 9,
+                               "rows": [{"uid": f"U-{i}", "blob": "y" * 3000} for i in range(9)]}}
+
+    slim = slim_api_result_for_llm(fat, api_plan={"queryParameters": {}})
+
+    assert "rows_truncated" in slim["data"]
+    assert "rows_preview_truncated" not in slim["data"]
+
+
+def test_a_grouped_preview_shrunk_for_size_says_it_was_truncated():
+    """The flag is set before the shrink runs, so a shrink could leave it False.
+
+    Silently dropping records the payload claims are all of them is exactly the
+    class of quiet lie the disclosure flags exist to close.
+    """
+    import json as _json
+
+    # Three samples in total, so `max_rows` trims nothing -- only the size cap can.
+    full = {"ok": True, "status_code": 200,
+            "data": {"total_samples": 3, "total_sample_types": 1, "failed_uids": 0,
+                     "data": [{"sample_type": "PAT", "n_samples": 3,
+                               "samples": [{"uuid": f"PAT-{i}", "metadata": {"Notes": "z" * 3000}}
+                                           for i in range(3)]}]}}
+
+    slim = slim_api_result_for_llm(full, api_plan={"queryParameters": {}})
+
+    assert len(_json.dumps(slim)) <= 5000
+    assert len(slim["data"]["samples_preview"]) < 3
+    assert slim["data"]["samples_truncated"] is True
