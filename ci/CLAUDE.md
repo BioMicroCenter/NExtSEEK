@@ -121,16 +121,26 @@
   node for that reason. To run them, use a host with node:
   `node seek/tests/js/graph_search_cases.js`, or that module under
   `uv run --no-project --with pytest pytest`, which needs no Django.
-- No step runs `makemigrations --check`. Under `dmac.test_settings`,
-  `manage.py makemigrations --check --dry-run` stops on system check
-  `4_0.E001`: `dmac/settings.py` splits an unset `DJANGO_CSRF_TRUSTED_ORIGINS`
-  into one empty origin. With `--skip-checks` it runs, and reports changes the
-  tree has not migrated: in Mezzanine's own apps (its installed migrations lag
-  the installed Django), in `seek`, and in `nextseek_api`, whose TurnLedger index
-  keeps the migrated name that `nextseek_api/migrations/_turn_ledger_heal.py`
-  converges live databases to, not the name the model now generates. Run it in
-  the gate lane with `--skip-checks` for the current list. Adding it to the
-  blocking step turns the job red on every run until those are settled.
+- **`makemigrations --check` blocks for `nextseek_api` only, and the scope is
+  deliberate.** Under `dmac.test_settings` the check needs `--skip-checks`,
+  because `dmac/settings.py` splits an unset `DJANGO_CSRF_TRUSTED_ORIGINS` into
+  one empty origin and Django stops on system check `4_0.E001` before it reaches
+  migration state. The `nextseek_api` TurnLedger index now declares the name its
+  migration created and `nextseek_api/migrations/_turn_ledger_heal.py` converges
+  live databases to, so that app is clean. The other apps are not, for two
+  different reasons:
+  - Mezzanine's `blog`, `core`, `generic` and `pages` propose migrations whose
+    files would be written **into `site-packages`**, because its shipped
+    migrations lag the installed Django. Nothing here can fix them and `uv`
+    would overwrite an edit. They can never join the check.
+  - `seek` proposes creating five models whose DDL the installer applies out of
+    band. Three are `managed = False` as the invariant in `seek/CLAUDE.md`
+    requires; `Sample_types_context` and `Session_state` are `managed = True`,
+    which is the condition that file warns about. `seek` joins the check only
+    after that is ruled on.
+  Measurements and the full output:
+  `docs/superpowers/plans/2026-09-16-ci-coverage-gaps-findings.md`. Widen the
+  scope by naming another app once it is green, never by dropping the argument.
 - `OWNED_ROUTE_COUNT` in `ci/smoke/test_registry_contents.py` is a
   second, hand-maintained declaration of the route count, and its own comment
   names the completeness gate as the authority. Add a route and this constant

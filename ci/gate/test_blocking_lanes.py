@@ -58,3 +58,25 @@ def test_main_fails_and_prints_no_path_when_a_glob_matches_nothing():
     assert rc == 1
     assert out.getvalue() == ""
     assert "seek/tests/test_graph_search_*.py" in err.getvalue()
+
+
+def test_the_blocking_job_checks_for_missing_migrations():
+    """A model changed without its migration must fail the job, which it could not until task C1.
+
+    Scoped to nextseek_api on purpose. Mezzanine's four apps propose migrations that would be
+    written into site-packages, so they can never be clean here, and seek is excluded pending a
+    ruling on two out-of-band models declared managed. Both are recorded in ci/CLAUDE.md and in
+    docs/superpowers/plans/2026-09-16-ci-coverage-gaps-findings.md.
+    """
+    raw = (ROOT / ".github" / "workflows" / "ci-pytest.yml").read_text(encoding="utf-8")
+    # Comment lines are stripped first: the file's own note explaining why no check used to run
+    # contains this exact command, so a bare substring search passes on prose.
+    body = "\n".join(line for line in raw.splitlines() if not line.lstrip().startswith("#"))
+    assert "makemigrations --check --dry-run" in body, (
+        "the blocking job runs no migration check, so a model changed without its migration is "
+        "invisible to CI"
+    )
+    assert "--skip-checks" in body, (
+        "the migration check must pass --skip-checks: without it Django stops on the empty "
+        "CSRF_TRUSTED_ORIGINS system check before it reaches the migration state"
+    )
