@@ -311,7 +311,7 @@ OPS: list[OpSpec] = [
         response_envelope_fields=["op", "result"],
         skill_name="nextseek",
         skill_row=_row(
-            "**Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory.",
+            "Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below.",
             "--run-dir <abs path under the Luria runs root>",
             "{tree, truncated, run_dir}",
         ),
@@ -331,7 +331,7 @@ OPS: list[OpSpec] = [
         response_envelope_fields=["op", "result"],
         skill_name="nextseek",
         skill_row=_row(
-            "**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record.",
+            "**Reingest step 4** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record.",
             "--manifest-id <id> [--mode {new,update}]",
             "{saved_files, qa, reply, proposals}",
         ),
@@ -348,8 +348,8 @@ OPS: list[OpSpec] = [
         skill_name="nextseek",
         skill_row=_row(
             "**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.",
-            "--run-dir <abs path under the cluster runs root>",
-            "{run_dir, manifest_id, manifest}",
+            "--run-dir <abs path under the cluster runs root> [--allow-failed-run]",
+            "{run_dir, manifest_id, manifest, skipped}",
         ),
     ),
     _dispatch(
@@ -363,7 +363,7 @@ OPS: list[OpSpec] = [
         response_envelope_fields=["op", "result"],
         skill_name="nextseek",
         skill_row=_row(
-            "**Reingest step 2** — md5 a caller-named set of settled primary-data files on the cluster.",
+            "**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster.",
             "--run-dir <abs path under the cluster runs root> --paths <comma-separated relative paths>",
             "{run_dir, checksums, skipped}",
         ),

@@ -27,7 +27,7 @@ nextseek-api-read	api-read	Execute a read-safe REST call from a parser plan.
 nextseek-api-write	api-write	Execute a write (POST/PUT/DELETE) from a parser plan.
 nextseek-assay-resolve	assay-resolve	Resolve assay titles against the selected project.
 nextseek-build-payload	build-payload	Build staged upload payloads from source rows.
-nextseek-build-upload-xlsx	build-upload-xlsx	**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record.
+nextseek-build-upload-xlsx	build-upload-xlsx	**Reingest step 4** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record.
 nextseek-entity-extract	entity	Resolve NL terms to NExtSEEK vocabulary.
 nextseek-extract-text	extract	Extract text from a file.
 nextseek-generate-submission	generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.
@@ -39,9 +39,9 @@ nextseek-project-resolve	project-resolve	Resolve a project against the live proj
 nextseek-query	query	Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present.
 nextseek-recall	recall	Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned.
 nextseek-report	report	Project summary report.
-nextseek-run-checksum	run-checksum	**Reingest step 2** — md5 a caller-named set of settled primary-data files on the cluster.
+nextseek-run-checksum	run-checksum	**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster.
 nextseek-run-harvest	run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.
-nextseek-run-ls	run-ls	**Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory.
+nextseek-run-ls	run-ls	Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below.
 nextseek-sample-search	sample-search	Retrieve current sample rows by UID.
 nextseek-sampletype-attrs	attrs	Fetch structured sample-type schema.
 nextseek-validate-upload	build-validate	Fused build and validate of an upload workbook.
