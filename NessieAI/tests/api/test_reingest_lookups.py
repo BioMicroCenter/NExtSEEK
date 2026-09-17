@@ -194,6 +194,70 @@ class TestUidsByPrimaryData:
                 path, types=("D.SEQ", "A.ALN")) == ["A.ALN-PARENT-1"]
 
 
+class TestSampleTypesForUids:
+    def test_omits_a_uid_it_could_not_fetch(self):
+        # The safety property under test, same shape as
+        # TestNotesForUids.test_omits_a_uid_it_could_not_fetch: a mix of one
+        # UID the database knows and one it does not must keep the resolved
+        # title and drop the other -- not merely "the whole call returns
+        # {}", which would pass even against a stub that always returns {}.
+        with patch("seek.models.Samples.objects") as samples, \
+                patch("seek.models.Sample_types.objects") as sample_types:
+            samples.filter.return_value.values_list.return_value = [
+                ("seek-good-uid", 7),
+            ]
+            sample_types.filter.return_value.values_list.return_value = [(7, "D.SEQ")]
+            result = reingest_lookups.sample_types_for_uids(
+                ["seek-good-uid", "seek-missing-uid"])
+        assert result == {"seek-good-uid": "D.SEQ"}
+        assert "seek-missing-uid" not in result
+
+    def test_a_uid_whose_type_id_names_no_known_sample_type_is_omitted(self):
+        # A Samples row exists and carries a sample_type_id, but that id
+        # resolves to no row in Sample_types (a dangling reference) -- must
+        # not be reported as some empty-string type, or a caller could
+        # mistake that for a genuinely resolved (but blank) title.
+        with patch("seek.models.Samples.objects") as samples, \
+                patch("seek.models.Sample_types.objects") as sample_types:
+            samples.filter.return_value.values_list.return_value = [
+                ("seek-dangling-uid", 99),
+            ]
+            sample_types.filter.return_value.values_list.return_value = []
+            result = reingest_lookups.sample_types_for_uids(["seek-dangling-uid"])
+        assert result == {}
+
+    def test_returns_the_real_type_for_an_already_analysed_parent(self):
+        # The scenario this lookup exists for: a resolved parent that is
+        # itself an already-analysed A.ALN sample, not raw D.SEQ -- mapper.py
+        # must be told this, never left to assume D.SEQ.
+        with patch("seek.models.Samples.objects") as samples, \
+                patch("seek.models.Sample_types.objects") as sample_types:
+            samples.filter.return_value.values_list.return_value = [
+                ("A.ALN-PARENT-1", 2),
+            ]
+            sample_types.filter.return_value.values_list.return_value = [(2, "A.ALN")]
+            result = reingest_lookups.sample_types_for_uids(["A.ALN-PARENT-1"])
+        assert result == {"A.ALN-PARENT-1": "A.ALN"}
+
+    def test_returns_empty_dict_when_the_fetch_itself_fails(self):
+        with patch("seek.models.Samples.objects") as samples:
+            samples.filter.side_effect = Exception("samples table unreachable")
+            assert reingest_lookups.sample_types_for_uids(["D.SEQ-NOT-A-REAL-UID"]) == {}
+
+    def test_returns_empty_dict_when_the_type_title_fetch_fails(self):
+        # A failure in the SECOND query (resolving type ids to titles) must
+        # omit everything too, never report a partial result built only from
+        # sample_type_id numbers with no title behind them.
+        with patch("seek.models.Samples.objects") as samples, \
+                patch("seek.models.Sample_types.objects") as sample_types:
+            samples.filter.return_value.values_list.return_value = [("uid-1", 7)]
+            sample_types.filter.side_effect = Exception("sample_types table unreachable")
+            assert reingest_lookups.sample_types_for_uids(["uid-1"]) == {}
+
+    def test_of_an_empty_list_is_empty(self):
+        assert reingest_lookups.sample_types_for_uids([]) == {}
+
+
 class TestNotesForUids:
     def test_omits_a_uid_it_could_not_fetch(self):
         # The safety property under test: a mix of UIDs where one resolves and

@@ -93,6 +93,14 @@ class MapResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rows: list[MappedRow] = Field(default_factory=list)
     unmapped: list[dict] = Field(default_factory=list)
+    # Real, visible outcomes that are not a row and not an unmapped key:
+    # today, only the QC-backfill cases in `apply`'s main loop below --
+    # a parent whose real type could not be determined (no backfill row
+    # written for it), and a parent whose real type IS known but some of the
+    # map's qc_attributes rules target a different type (those measured
+    # attributes have no home on this row). Never silently dropped; see the
+    # loop below for both cases.
+    warnings: list[str] = Field(default_factory=list)
 
 
 def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
@@ -110,33 +118,85 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
 
     for sample in run_manifest.samples:
         if sample.uid_resolution not in _NO_BACKFILL and sample.d_seq_uid:
-            row = MappedRow(sample_type="D.SEQ", uid=sample.d_seq_uid,
-                            nfcore_sample=sample.nfcore_sample)
+            parent_type = sample.parent_sample_type
+            if not parent_type:
+                # The lookup that ran at harvest time (see harvest.py's
+                # `sample_type_lookup`) either was not reachable at all, or
+                # could not resolve this particular UID. Before parents
+                # could legitimately be an already-analysed A.* sample, this
+                # branch never existed -- a resolved d_seq_uid was always
+                # D.SEQ. Now that assumption is not safe: writing a
+                # D.SEQ-shaped row on a guess is exactly the failure mode
+                # this change exists to stop (a real A.ALN row has no
+                # MappedPercent, and asserting one would invent a sample
+                # attribute, or worse, silently corrupt the wrong sample's
+                # metadata). So: no backfill row, and say so -- silently
+                # doing nothing here would look identical to "this sample's
+                # metrics genuinely had nothing to map", which is not what
+                # happened.
+                result.warnings.append(
+                    f"{sample.nfcore_sample}: parent {sample.d_seq_uid}'s "
+                    "sample type could not be determined; no QC backfill "
+                    "row was written for it rather than guess one")
+            else:
+                row = MappedRow(sample_type=parent_type, uid=sample.d_seq_uid,
+                                nfcore_sample=sample.nfcore_sample)
+                unmatched = 0
 
-            # Committed map rules go first and claim their attributes outright.
-            for attribute, rule in pipeline_map.qc_attributes.items():
-                found = _lookup(rule, run_manifest, sample)
-                if found is None:
-                    continue
-                value, raw_key = found
-                row.attributes[attribute] = MappedAttribute(
-                    attribute=attribute, value=value, origin=ORIGIN_MAP,
-                    raw_key=raw_key, source_file=metrics_source)
+                # Committed map rules go first and claim their attributes
+                # outright -- but only the ones whose `target` is this
+                # sample's ACTUAL parent type. A rule targeting some other
+                # type is still looked up (not skipped outright): if it
+                # finds a real measured value, that value has no home on
+                # this row, and is counted rather than silently discarded --
+                # see the warning below. A map whose rules all target D.SEQ
+                # therefore contributes nothing to an A.ALN parent, which is
+                # correct: A.ALN has no MappedPercent, and writing one would
+                # break reingest's invariant that it never invents a sample
+                # attribute.
+                for attribute, rule in pipeline_map.qc_attributes.items():
+                    found = _lookup(rule, run_manifest, sample)
+                    if found is None:
+                        continue
+                    if rule.target != parent_type:
+                        unmatched += 1
+                        continue
+                    value, raw_key = found
+                    row.attributes[attribute] = MappedAttribute(
+                        attribute=attribute, value=value, origin=ORIGIN_MAP,
+                        raw_key=raw_key, source_file=metrics_source)
 
-            # Approved rules only fill attributes the committed map left empty.
-            for attribute, rule in approved_rules.items():
-                if attribute in row.attributes:
-                    continue
-                found = _lookup(rule, run_manifest, sample)
-                if found is None:
-                    continue
-                value, raw_key = found
-                row.attributes[attribute] = MappedAttribute(
-                    attribute=attribute, value=value, origin=ORIGIN_APPROVED,
-                    raw_key=raw_key, source_file=metrics_source)
+                # Approved rules only fill attributes the committed map left
+                # empty, same target-matching rule as above.
+                for attribute, rule in approved_rules.items():
+                    if attribute in row.attributes:
+                        continue
+                    found = _lookup(rule, run_manifest, sample)
+                    if found is None:
+                        continue
+                    if rule.target != parent_type:
+                        unmatched += 1
+                        continue
+                    value, raw_key = found
+                    row.attributes[attribute] = MappedAttribute(
+                        attribute=attribute, value=value, origin=ORIGIN_APPROVED,
+                        raw_key=raw_key, source_file=metrics_source)
 
-            if row.attributes:
-                result.rows.append(row)
+                if unmatched:
+                    # A real, visible outcome, not a no-op: this many
+                    # genuinely measured attributes had a rule that fired
+                    # but targets a different sample type than this
+                    # sample's actual parent, so none of them got a home on
+                    # this row. Silently losing them is the failure mode
+                    # this whole change exists to stop.
+                    result.warnings.append(
+                        f"{sample.nfcore_sample}: parent {sample.d_seq_uid} "
+                        f"is {parent_type}, but {unmatched} measured "
+                        "qc_attributes value(s) targeted a different sample "
+                        "type and had no matching rule for it")
+
+                if row.attributes:
+                    result.rows.append(row)
 
         for raw_key, value in sample.metrics.items():
             if raw_key in claimed or raw_key in ruled_out:

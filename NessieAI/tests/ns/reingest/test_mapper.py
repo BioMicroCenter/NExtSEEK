@@ -1,7 +1,8 @@
 from NessieAI.ns.reingest import manifest, mapper, maps
 
 
-def _run(metrics=None, derived=None, params=None, software_versions=None):
+def _run(metrics=None, derived=None, params=None, software_versions=None,
+         parent_sample_type="D.SEQ"):
     return manifest.RunManifest(
         run_dir="/net/cluster/runs/r",
         params=params or {"genome": "GRCm39", "aligner": "star_salmon"},
@@ -10,6 +11,7 @@ def _run(metrics=None, derived=None, params=None, software_versions=None):
         samples=[manifest.SampleRecord(
             nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-EXAMPLE-1",
             uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+            parent_sample_type=parent_sample_type,
             metrics=metrics or {}, derived=derived or {})],
         sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt"})
 
@@ -331,6 +333,92 @@ def test_an_ambiguous_sample_produces_no_child_row():
     assert not any(r.sample_type == "A.ALN" for r in result.rows)
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     assert "Parent" not in gex.attributes
+
+
+# --- The QC backfill row must be built for the parent's REAL sample type,
+# never a hardcoded "D.SEQ" -- a resolved parent can now legitimately be an
+# already-analysed A.* sample (see maps.PipelineMap.accepts_parent_types).
+# `sample.parent_sample_type` (filled by harvest.py from the database, never
+# parsed off the UID) is the only source of truth for which type's
+# qc_attributes rules apply. ---
+
+def test_an_aln_parent_gets_a_row_typed_for_its_real_type_and_only_its_own_rules():
+    # A synthetic map with one rule per target, exactly the mechanism under
+    # test: a rule targeting the sample's actual parent type (A.ALN) must
+    # apply; a rule targeting a DIFFERENT type (D.SEQ) must not -- even
+    # though its own metric genuinely measured something on this sample.
+    pipeline_map = maps.PipelineMap(
+        pipeline="nf-core/fake-for-test",
+        qc_attributes={
+            "MappedPercent": maps.AttributeRule(
+                **{"from": "star-uniquely_mapped_percent", "target": "D.SEQ",
+                   "datatype": "number", "provenance": "seed"}),
+            "AlnQualityScore": maps.AttributeRule(
+                **{"from": "some-aln-metric", "target": "A.ALN",
+                   "datatype": "number", "provenance": "seed"}),
+        })
+    run = _run(
+        metrics={"star-uniquely_mapped_percent": 91.4, "some-aln-metric": 7.0},
+        parent_sample_type="A.ALN")
+
+    result = mapper.apply(run, pipeline_map)
+
+    # The backfill row itself -- distinguished from any analysis-child row
+    # by carrying the parent's own uid (a child row's uid is always None,
+    # see _per_sample_rows) -- is typed A.ALN, not D.SEQ.
+    row = next(r for r in result.rows if r.uid == "D.SEQ-EXAMPLE-1")
+    assert row.sample_type == "A.ALN"
+    # Only the A.ALN-targeted rule's attribute made it onto the row...
+    assert set(row.attributes) == {"AlnQualityScore"}
+    assert row.attributes["AlnQualityScore"].value == 7.0
+    # ...the D.SEQ-targeted rule found a real, measured value
+    # (star-uniquely_mapped_percent=91.4 is genuinely present) but has no
+    # home on an A.ALN row, so it must NOT silently vanish: it is named in a
+    # manifest warning, naming the sample, the real parent type, and how
+    # many measured attributes had no matching rule.
+    assert "MappedPercent" not in row.attributes
+    warning = next(w for w in result.warnings if "CONTROL_REP1" in w)
+    assert "A.ALN" in warning
+    assert "1" in warning
+
+
+def test_an_unknown_parent_type_skips_the_backfill_row_and_warns_rather_than_guess():
+    # The lookup could not determine the parent's real type (see harvest.py's
+    # sample_type_lookup and reingest_lookups.sample_types_for_uids -- either
+    # was unreachable, or the UID was absent from its result). Guessing
+    # "D.SEQ" here is exactly the failure mode this change exists to stop, so
+    # no backfill row is written at all -- but the sample is not silently
+    # dropped: a warning names it.
+    run = _run(metrics={"star-uniquely_mapped_percent": 91.4},
+               parent_sample_type="")
+
+    result = mapper.apply(run, maps.load("rnaseq"))
+
+    assert not any(r.uid == "D.SEQ-EXAMPLE-1" for r in result.rows)
+    warning = next(w for w in result.warnings if "CONTROL_REP1" in w)
+    assert "D.SEQ-EXAMPLE-1" in warning
+    # The rest of the sample's evidence gathering is unaffected: an unknown
+    # metric key on the very same sample still reaches unmapped, proving the
+    # unknown-type branch does not short-circuit the per-sample metrics scan.
+    run2 = _run(metrics={"Some_Definitely_Unknown_Metric_XYZ": 1.0},
+                parent_sample_type="")
+    result2 = mapper.apply(run2, maps.load("rnaseq"))
+    assert any(u["raw_key"] == "Some_Definitely_Unknown_Metric_XYZ"
+               for u in result2.unmapped)
+
+
+def test_a_d_seq_parent_produces_no_warnings():
+    # The regression guard from the other direction: the ordinary, unchanged
+    # case -- every rnaseq qc_attributes rule targets D.SEQ, and the parent
+    # really is D.SEQ -- must not emit any of the new warnings.
+    result = mapper.apply(
+        _run(metrics={"star-uniquely_mapped_percent": 91.4,
+                      "kraken2-pct_unclassified": 4.5}),
+        maps.load("rnaseq"))
+    row = next(r for r in result.rows if r.sample_type == "D.SEQ")
+    assert row.attributes["MappedPercent"].value == 91.4
+    assert row.attributes["ContamPercent"].value == 4.5
+    assert result.warnings == []
 
 
 def test_a_ruled_out_key_on_two_different_samples_stays_out_of_unmapped():

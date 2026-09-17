@@ -584,3 +584,100 @@ def test_an_unrecognised_pipeline_falls_back_to_the_d_seq_only_default(tmp_path)
     # unresolved lookup is called twice -- both calls must carry the same
     # ("D.SEQ",) scope.
     assert calls == [("D.SEQ",), ("D.SEQ",)]
+
+
+# ---------------------------------------------------------------------------
+# sample_type_lookup wiring: harvest_local fills SampleRecord.parent_sample_type
+# from the batched sample-type lookup, one call for the whole run -- never
+# once per sample, and never by parsing the UID's own prefix (see
+# manifest.SampleRecord.parent_sample_type and
+# nextseek_api.services.reingest_lookups.sample_types_for_uids).
+# ---------------------------------------------------------------------------
+
+def _single_sample_run(root, sample="CONTROL_REP1", fastq_name="CONTROL_REP1_R1.fastq.gz"):
+    _minimal_run(root)
+    (root / "samplesheet.csv").write_text(
+        "sample,fastq_1,fastq_2,strandedness\n"
+        f"{sample},/net/cluster/fastq/{fastq_name},,auto\n")
+
+
+def test_the_parent_sample_type_is_filled_from_the_batched_lookup(tmp_path):
+    root = tmp_path / "run"
+    _single_sample_run(root)
+    calls = []
+
+    def sample_type_lookup(uids):
+        calls.append(tuple(uids))
+        return {"D.SEQ-UID-1": "D.SEQ"}
+
+    got = harvest.harvest_local(
+        str(root),
+        lookup_by_fastq=lambda p, types=None: (
+            ["D.SEQ-UID-1"] if p.endswith("CONTROL_REP1_R1.fastq.gz") else []),
+        sample_type_lookup=sample_type_lookup)
+
+    sample = next(s for s in got.samples if s.nfcore_sample == "CONTROL_REP1")
+    assert sample.d_seq_uid == "D.SEQ-UID-1"
+    assert sample.parent_sample_type == "D.SEQ"
+    assert calls == [("D.SEQ-UID-1",)]
+
+
+def test_no_sample_type_lookup_leaves_the_parent_type_empty_rather_than_erroring(tmp_path):
+    # A harvest with no way to reach the lookup (the default, `None`) must
+    # still work, exactly the same degrade-and-carry-on `lookup_by_fastq`
+    # already gets -- never a guess, never a crash.
+    root = tmp_path / "run"
+    _single_sample_run(root)
+
+    got = harvest.harvest_local(
+        str(root),
+        lookup_by_fastq=lambda p, types=None: (
+            ["D.SEQ-UID-1"] if p.endswith("CONTROL_REP1_R1.fastq.gz") else []))
+
+    sample = next(s for s in got.samples if s.nfcore_sample == "CONTROL_REP1")
+    assert sample.d_seq_uid == "D.SEQ-UID-1"
+    assert sample.parent_sample_type == ""
+
+
+def test_a_uid_the_lookup_cannot_resolve_leaves_the_parent_type_empty_not_guessed(tmp_path):
+    # The lookup ran, but this UID is absent from its result (see
+    # sample_types_for_uids' own omission contract) -- must not fall back to
+    # any default guess such as "D.SEQ".
+    root = tmp_path / "run"
+    _single_sample_run(root)
+
+    got = harvest.harvest_local(
+        str(root),
+        lookup_by_fastq=lambda p, types=None: (
+            ["D.SEQ-UID-1"] if p.endswith("CONTROL_REP1_R1.fastq.gz") else []),
+        sample_type_lookup=lambda uids: {})
+
+    sample = next(s for s in got.samples if s.nfcore_sample == "CONTROL_REP1")
+    assert sample.d_seq_uid == "D.SEQ-UID-1"
+    assert sample.parent_sample_type == ""
+
+
+def test_the_lookup_is_called_once_for_the_whole_run_not_once_per_sample(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    (root / "samplesheet.csv").write_text(
+        "sample,fastq_1,fastq_2,strandedness\n"
+        "S1,/net/cluster/fastq/S1_R1.fastq.gz,,auto\n"
+        "S2,/net/cluster/fastq/S2_R1.fastq.gz,,auto\n")
+    mapping = {"/net/cluster/fastq/S1_R1.fastq.gz": ["D.SEQ-1"],
+               "/net/cluster/fastq/S2_R1.fastq.gz": ["A.ALN-1"]}
+    calls = []
+
+    def sample_type_lookup(uids):
+        calls.append(sorted(uids))
+        return {"D.SEQ-1": "D.SEQ", "A.ALN-1": "A.ALN"}
+
+    got = harvest.harvest_local(
+        str(root), lookup_by_fastq=lambda p, types=None: mapping.get(p, []),
+        sample_type_lookup=sample_type_lookup)
+
+    # One call for both resolved parents, not two separate calls.
+    assert calls == [["A.ALN-1", "D.SEQ-1"]]
+    by_name = {s.nfcore_sample: s for s in got.samples}
+    assert by_name["S1"].parent_sample_type == "D.SEQ"
+    assert by_name["S2"].parent_sample_type == "A.ALN"
