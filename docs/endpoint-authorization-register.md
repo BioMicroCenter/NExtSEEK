@@ -233,6 +233,10 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/batch-upload/status/{job_id}/` | `BatchUploadViewSet.job_status` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:538` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/batch-upload/summary/{job_id}/` | `BatchUploadViewSet.summary` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:589` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/admin/project-export/{pk}/` | `ProjectExportViewSet.retrieve` | `IsAuthenticated, IsSuperUser` (`services/project_export.py:267`) | **None on the caller's own membership**: `project_id` comes from the URL (`services/project_export.py:316` -> `:197`). Superuser gate is the whole control. See note J | admin-only |
+| `GET /nextseek_api/reingest-proposals/` | `ReingestProposalViewSet.list` | `IsAuthenticated, IsSuperUser` (`services/reingest_proposals.py:75`) | **None**, global operator worklist rather than project data -- same posture as `users/`. Also accepts `?status=` and `?pipeline=` filters | admin-only |
+| `GET /nextseek_api/reingest-proposals/{pk}/` | `ReingestProposalViewSet.retrieve` | same | **None**, id lookup, same posture as `users/{uid}/` | admin-only |
+| `POST /nextseek_api/reingest-proposals/{pk}/approve/` | `ReingestProposalViewSet.approve` | same | n/a -- a mutation, not a read. Re-checks `attribute_exists` before writing, so approval can never hand the mapper a rule for an attribute that is not defined (`services/reingest_proposals.py:97-126`). See note K | admin-only |
+| `POST /nextseek_api/reingest-proposals/{pk}/reject/` | `ReingestProposalViewSet.reject` | same | n/a -- a mutation, not a read | admin-only |
 
 ### Bucket totals
 
@@ -240,8 +244,15 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 |---|---|
 | public-to-authenticated | 42 (of which 14 are owner-scoped) |
 | project-scoped | 7 |
-| admin-only | 6 |
-| **Total** | **55** |
+| admin-only | 10 |
+| **Total** | **59** |
+
+The two `POST .../approve/` and `.../reject/` rows are mutations, outside this document's
+original "every read endpoint" scope (see "What this is not", above) -- recorded here anyway
+because they share the superuser-only worklist with the two read rows immediately above them,
+and `nextseek_api/CLAUDE.md` and the root `CLAUDE.md` both ask for a per-endpoint authorization
+ruling on every new endpoint, not only reads. No other mutation endpoint in this app has a row
+here; this is the first, not a precedent that the omission above was wrong.
 
 ### NOT ROUTED
 
@@ -528,6 +539,24 @@ comes straight from the URL; the caller's own SEEK membership is never consulted
 control, and that is a defensible design for a deliberate cross-project export tool. Recorded
 here so that "superuser can export any project" is an explicit, ruled-on property rather than an
 accident.
+
+### Note K: `reingest-proposals/approve` re-checks the attribute exists before writing
+
+A `needs_definition` row on the reingest attribute-approval queue means precisely that: the
+proposed attribute was NOT defined on its target sample type when the row was queued
+(`nextseek_api/assistant/models_db.py`, `ReingestAttributeProposal`). Nothing about a later
+`approve` call guarantees the attribute has since been defined, and
+`proposals.approved_rules()` (`NessieAI/ns/reingest/proposals.py`) hands every `approved` row
+straight to the mapper as a rule -- so an approval on an undefined attribute would let reingest
+write a sample attribute that was never created, breaking the project's invariant that reingest
+never invents one. `services/reingest_proposals.py:approve` calls
+`proposals.attribute_exists(row.proposed_target, row.proposed_attribute)` before writing the
+ruling and refuses with `409` when it is still undefined. `attribute_exists` raises when the
+sample-type catalog itself is unreachable rather than returning `False`, and that exception is
+let through as `503`, not folded into the `409` refusal -- an infrastructure outage must never
+be reported to a superuser as "this attribute does not exist". This is the only enforcement
+point for approved rows: the CI contract test for reingest map files covers committed files,
+never database rows.
 
 ---
 
