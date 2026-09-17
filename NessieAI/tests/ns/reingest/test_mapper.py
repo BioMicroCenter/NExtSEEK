@@ -249,6 +249,18 @@ def test_an_unresolved_sample_still_ships_its_child_with_no_parent():
     assert by_sample["CONTROL_REP1"].attributes["Parent"].value == "D.SEQ-1"
     # ...but the unresolved one's row has no Parent key at all -- not an
     # empty string, not a fabricated value.
+    #
+    # THIS DISTINCTION IS LOAD-BEARING ACROSS A LAYER BOUNDARY. The QA gate in
+    # NessieAI/ns/reingest_qa.py reads three states, not two: a parent-ish key
+    # with a real value passes; a parent-ish key present but blank is a HARD
+    # reject, because something tried to set lineage and produced nothing; and
+    # no parent-ish key at all is a SOFT flag (LINEAGE_UNRESOLVED) so the row
+    # still ships and a curator attaches the parent later. It can only tell the
+    # last two apart because the mapper never emits an empty Parent -- it sets
+    # a real UID or omits the key. Start emitting `Parent: ""` here and every
+    # unresolved sample's child becomes a hard reject downstream, which is
+    # precisely the spec guarantee (lines 375-383, "children still ship") that
+    # this test exists to protect.
     assert "Parent" not in by_sample["CONTROL_REP2"].attributes
     # The unresolved sample contributes nothing to the per_run join either.
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
