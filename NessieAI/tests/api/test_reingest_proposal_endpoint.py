@@ -49,11 +49,30 @@ def test_an_anonymous_caller_is_refused():
 
 
 def test_a_superuser_lists_pending_proposals():
+    # Two rows in two states, so the assertion can tell a working ?status=
+    # filter from one that is ignored entirely. With a single matching row it
+    # could not: filtered and unfiltered would return the same list.
     _proposal()
+    Proposal.objects.create(
+        pipeline="nf-core/rnaseq", raw_key="Some_Other_Key",
+        proposed_target="D.SEQ", proposed_attribute="AlreadyRuledOn",
+        datatype="number", example_value="1.0",
+        status=Proposal.STATUS_REJECTED)
     client, _ = _client(superuser=True)
     response = client.get(BASE, {"status": "pending"})
     assert response.status_code == 200
-    assert response.json()["results"][0]["proposed_attribute"] == "ContamPercent"
+    results = response.json()["results"]
+    assert [r["proposed_attribute"] for r in results] == ["ContamPercent"]
+
+
+def test_the_list_shows_who_ruled_on_a_terminal_row():
+    row = _proposal()
+    client, user = _client(superuser=True)
+    row.status = Proposal.STATUS_REJECTED
+    row.reviewed_by = user
+    row.save(update_fields=["status", "reviewed_by"])
+    body = client.get(BASE, {"status": "rejected"}).json()["results"][0]
+    assert body["reviewed_by"] == user.username
 
 
 @patch("nextseek_api.services.reingest_proposals.attribute_exists", return_value=True)
