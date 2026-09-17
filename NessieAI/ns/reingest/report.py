@@ -312,6 +312,20 @@ def _render_one(index, code, attribute, bucket):
             "      are left out of the backfill. Their analysis outputs are unaffected.",
         ]
     if code == qa.MISSING_REQUIRED:
+        # A group label (e.g. "File_PrimaryData or Link_PrimaryData") is
+        # already a composed phrase naming interchangeable attributes -- not
+        # a single attribute title -- so it skips `_name`'s friendly-name
+        # lookup/capitalisation and gets its own alternatives-aware wording:
+        # "is required" reads oddly as a single verb over two named options,
+        # and "fill it in" has no clear antecedent when either would do.
+        if qa.is_group_label(attribute):
+            return [
+                f"  {index}.  One of {attribute} is required, and neither is present,"
+                f" on {count} {rows} in {_workbook_ref(sample_type)}.",
+                "",
+                "      The server will reject these rows. I could not derive either",
+                "      value; fill in one of them, or tell me where to get it.",
+            ]
         return [
             f"  {index}.  {_name(attribute)} is required and missing on {count} {rows}"
             f" in {_workbook_ref(sample_type)}.",
