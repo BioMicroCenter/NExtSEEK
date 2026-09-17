@@ -151,3 +151,72 @@ def check_columns(table: str, rows: list[dict]) -> None:
             )
         if not row.get(spec.key):
             raise MissingKey(f"{spec.source} row {index}: no {spec.key}, which rows are keyed on")
+
+
+# --- the PI field ------------------------------------------------------------
+
+# Anything that means "no PI recorded". The database and the curated files
+# disagree about how to spell an absent value.
+_NO_PI = {"", "none", "null", "n/a", "na", "-", "tbd", "unknown"}
+
+
+def _split_outside_parens(value: str, separator: str = ";") -> list[str]:
+    """Split on `separator`, ignoring separators inside parentheses.
+
+    Required, not defensive: one curated row is
+    `Griffith, Linda G. (MIT, PI; Scientific Director, Center for Gynepathology
+    Research); Goods, Brittany A. (...)`. Splitting on every semicolon invents a
+    PI called "Scientific Director, Center for Gynepathology Research".
+    """
+    parts, current, depth = [], [], 0
+    for char in value:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        if char == separator and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    parts.append("".join(current))
+    return [part.strip() for part in parts if part.strip()]
+
+
+def parse_pi(value) -> list[str]:
+    """The names in a free-text `pi` field: each PI's surname, then their full name.
+
+    `Last, First M. (Affiliation, role)`, semicolon-separated, the parenthetical
+    optional. Returns names in file order, deduplicated, so the person-name rule
+    can match a question's person name without an LLM (plan D7). An absent PI
+    gives an empty list.
+
+        >>> parse_pi("White, Forest M. (MIT, contact PI); Michor, Franziska (Dana-Farber, co-PI)")
+        ['White', 'Forest M. White', 'Michor', 'Franziska Michor']
+    """
+    if value is None:
+        return []
+    text = str(value).strip()
+    if text.lower() in _NO_PI:
+        return []
+
+    names: list[str] = []
+    for entry in _split_outside_parens(text):
+        # Drop the affiliation and role, which are not names.
+        bare = entry.split("(", 1)[0].strip().rstrip(",").strip()
+        if not bare or bare.lower() in _NO_PI:
+            continue
+        surname, _, given = (part.strip() for part in bare.partition(","))
+        for name in (surname, f"{given} {surname}".strip() if given else surname):
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def with_pi_names(rows: list[dict]) -> list[dict]:
+    """Copies of `rows` carrying `pi_names` beside the free-text `pi`.
+
+    Every row gains the column, including the ones with no PI, so the write never
+    leaves it undefined. This happens before the database write, not after.
+    """
+    return [{**row, "pi_names": parse_pi(row.get("pi"))} for row in rows]

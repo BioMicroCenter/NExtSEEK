@@ -113,3 +113,76 @@ def test_a_missing_natural_key_raises():
 
     with pytest.raises(cg.MissingKey):
         cg.check_columns("projects", [{"pi": "Kamm, Roger D. (MIT, contact PI)"}])
+
+
+# --- 6.7 parse_pi ------------------------------------------------------------
+#
+# Per plan D7 the generator parses the free-text `pi` field into structured names
+# so the person-name rule (13c) matches deterministically instead of asking an
+# LLM to read `Last, First M. (Affiliation, role); ...`. The free-text field
+# survives for display.
+#
+# The format, measured across all 12 curated rows: 9 carry PI names and 3 carry
+# nothing; PIs are semicolon-separated; a PI is `Last, First M.` with an optional
+# `(Affiliation, role)` suffix. Two hazards the format description hides:
+#
+#   1. a semicolon can appear INSIDE the parentheses (Griffith's row), so
+#      splitting on every semicolon invents a PI called
+#      "Scientific Director, Center for Gynepathology Research"
+#   2. several PIs in one row carry no parenthetical at all (RMS-NGC's row)
+
+PI_CSBC = "White, Forest M. (MIT, contact PI); Michor, Franziska (Dana-Farber, co-PI)"
+PI_GRIFFITH = ("Griffith, Linda G. (MIT, PI; Scientific Director, Center for Gynepathology "
+               "Research); Goods, Brittany A. (University of Melbourne, partner lab)")
+PI_RMS = ("Koehler, Angela N. (MIT Koch Institute and Broad Institute, contact PI); "
+          "Burgin, Alex B.; Gould, Alexandra E.; Linardic, Corinne M.; "
+          "Nomura, Daniel (multi-PIs)")
+
+
+def test_parse_pi_yields_every_surname_and_every_full_name():
+    assert cg.parse_pi(PI_CSBC) == ["White", "Forest M. White", "Michor", "Franziska Michor"]
+
+
+def test_parse_pi_ignores_a_semicolon_inside_the_parenthetical():
+    assert cg.parse_pi(PI_GRIFFITH) == [
+        "Griffith", "Linda G. Griffith", "Goods", "Brittany A. Goods",
+    ]
+
+
+def test_parse_pi_reads_a_pi_with_no_parenthetical():
+    assert cg.parse_pi(PI_RMS) == [
+        "Koehler", "Angela N. Koehler", "Burgin", "Alex B. Burgin",
+        "Gould", "Alexandra E. Gould", "Linardic", "Corinne M. Linardic",
+        "Nomura", "Daniel Nomura",
+    ]
+
+
+def test_parse_pi_of_nothing_is_empty():
+    for empty in ("None", "none", "", "   ", None):
+        assert cg.parse_pi(empty) == [], repr(empty)
+
+
+def test_parse_pi_of_a_single_name_does_not_repeat_it():
+    assert cg.parse_pi("Levine (MIT)") == ["Levine"]
+
+
+def test_every_curated_project_row_parses():
+    rows = cg.load_source(cg.TABLES["projects"].source)
+    with_names = [r for r in rows if cg.parse_pi(r.get("pi"))]
+    assert len(rows) == 12
+    assert len(with_names) == 9
+    # A surname is never dropped: every parsed name is non-empty and stripped.
+    for row in rows:
+        for name in cg.parse_pi(row.get("pi")):
+            assert name == name.strip() and name
+
+
+def test_pi_names_is_emitted_alongside_the_free_text_pi():
+    rows = cg.with_pi_names(cg.load_source(cg.TABLES["projects"].source))
+    csbc = next(r for r in rows if r["name"] == "CSBC")
+    assert csbc["pi"] == PI_CSBC                      # free text kept for display
+    assert csbc["pi_names"] == ["White", "Forest M. White", "Michor", "Franziska Michor"]
+    bprc = next(r for r in rows if r["name"] == "BPRC")
+    assert bprc["pi_names"] == []
+    # Every row gains the column, so the write never leaves it undefined.
+    assert all("pi_names" in r for r in rows)
