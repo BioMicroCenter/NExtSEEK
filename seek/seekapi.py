@@ -8,6 +8,10 @@ from subprocess import Popen, PIPE
 import logging
 logger = logging.getLogger(__name__)
 
+# (connect, read) seconds for a SEEK page fetch, matching nextseek_api/helpers.py. A page SEEK
+# cannot render in time becomes an empty panel, never an unbounded wait.
+PAGE_TIMEOUT_S = (10, 300)
+
 class SeekAPI(object):
     def __init__(self, server, username, password):
         self.__server = server
@@ -99,20 +103,39 @@ class SeekAPI(object):
         return htmlpage
         
     def __getHtmlpageDiv(self, htmlpage, div_id):
+        # Both lookups can come back None and neither used to be checked: a page with no <body>,
+        # and a body with no div of this id. SEEK returns both for an error page, a login redirect
+        # and a page it could not render in time, and .prettify() on None then reached the caller
+        # as a 500 (measured 2026-09-16 on /seek/sample_types/id=142/). Empty means "no panel",
+        # which every caller already renders around.
         from bs4 import BeautifulSoup
         parsed_html = BeautifulSoup(htmlpage)
-        bodyhtml = parsed_html.body.find('div', attrs={'id':div_id})
+        body = parsed_html.body
+        if body is None:
+            logger.warning("SEEK page has no body; returning no %s panel", div_id)
+            return ""
+        bodyhtml = body.find('div', attrs={'id':div_id})
+        if bodyhtml is None:
+            logger.warning("SEEK page carries no div#%s; returning no panel", div_id)
+            return ""
         return bodyhtml.prettify()
-        
+
     def getPageRequests(self, seekurl):
         import requests
         # Imported inside the method: nextseek_api.helpers imports seek.seekdb,
         # which imports this module, so a top-level import here would cycle.
         from nextseek_api.helpers import basic_auth_header
         urlIn = self.__server + seekurl
+        # (connect, read), the pair nextseek_api/helpers.py already uses for SEEK. Without it this
+        # call waits as long as SEEK takes and holds the worker with it.
         response = requests.get(urlIn,
                                 headers=basic_auth_header((self.__username, self.__password)),
-                                verify=False)
+                                verify=False,
+                                timeout=PAGE_TIMEOUT_S)
+        status = getattr(response, "status_code", None)
+        if status is not None and status >= 400:
+            logger.warning("SEEK answered %s for %s; returning no panel", status, seekurl)
+            return ""
         htmlpage = response.text
         htmlpage = self.__reviseURLs(htmlpage)
         return self.__getHtmlpageDiv(htmlpage, 'content')
