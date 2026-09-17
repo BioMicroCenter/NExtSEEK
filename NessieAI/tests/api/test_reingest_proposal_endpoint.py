@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import OperationalError
 from rest_framework.test import APIClient
 
 from nextseek_api.assistant.models_db import ReingestAttributeProposal as Proposal
@@ -147,12 +148,66 @@ def test_reject_works_on_a_needs_definition_row():
 
 @patch("nextseek_api.services.reingest_proposals.attribute_exists")
 def test_approve_refusal_is_a_server_error_when_the_catalog_is_unreachable(mock_exists):
-    """A RuntimeError from attribute_exists (outage) must not be reported as a refusal."""
+    """A RuntimeError from attribute_exists (outage) must not be reported as a refusal.
+
+    Mocks `attribute_exists` itself, so this only proves the endpoint's own
+    `except RuntimeError` clause maps to 503 -- it never calls the real
+    `attribute_exists`, so it cannot catch a bug in what that function does
+    with a real DB error. See the two tests below, which go through the real
+    chain instead.
+    """
     mock_exists.side_effect = RuntimeError("sample type catalog came back empty")
     row = _proposal(status=Proposal.STATUS_NEEDS_DEFINITION)
     client, _ = _client(superuser=True)
 
     response = client.post(f"{BASE}{row.pk}/approve/")
+
+    assert response.status_code == 503
+    row.refresh_from_db()
+    assert row.status == Proposal.STATUS_NEEDS_DEFINITION
+    assert row.reviewed_by_id is None
+
+
+def test_approve_returns_503_not_500_when_attributes_for_strict_raises_a_real_db_error():
+    """Unlike the test above, this leaves the real `attribute_exists`
+    (`NessieAI/ns/reingest/proposals.py`) in place and injects the failure one
+    layer below it, at `reingest_lookups.attributes_for_strict` -- a real
+    Django DB error (`django.db.OperationalError`), the type a genuine MySQL
+    outage actually raises, never a bare `RuntimeError`. `attribute_exists`
+    must normalize that into `RuntimeError` for the endpoint's catch to see
+    503 rather than an opaque 500; a version of `attribute_exists` that let
+    the `OperationalError` through unconverted would fail this test.
+    """
+    row = _proposal(status=Proposal.STATUS_NEEDS_DEFINITION)
+    client, _ = _client(superuser=True)
+
+    with patch("nextseek_api.services.reingest_lookups.attributes_for_strict",
+               side_effect=OperationalError(2006, "Server has gone away")):
+        response = client.post(f"{BASE}{row.pk}/approve/")
+
+    assert response.status_code == 503
+    row.refresh_from_db()
+    assert row.status == Proposal.STATUS_NEEDS_DEFINITION
+    assert row.reviewed_by_id is None
+
+
+def test_approve_returns_503_not_500_when_the_catalog_table_itself_is_unreachable():
+    """The deepest, most realistic version of the same scenario: the failure
+    is injected at `context_catalog._sample_type_rows`, the raw queryset call
+    at the bottom of the whole chain (`_sample_type_rows` ->
+    `load_sample_types_strict` -> `load_sample_type_strict` ->
+    `attributes_for_strict` -> `proposals.attribute_exists` -> this endpoint).
+    Nothing on that path is mocked except the one query a real table-gone-
+    missing outage would actually fail at, so this is the closest thing to
+    reproducing Finding 1's real production scenario: a superuser's ruling
+    must not be silently lost behind an opaque 500 when the catalog is down.
+    """
+    row = _proposal(status=Proposal.STATUS_NEEDS_DEFINITION)
+    client, _ = _client(superuser=True)
+
+    with patch("nextseek_api.services.context_catalog._sample_type_rows",
+               side_effect=OperationalError(2006, "Server has gone away")):
+        response = client.post(f"{BASE}{row.pk}/approve/")
 
     assert response.status_code == 503
     row.refresh_from_db()
