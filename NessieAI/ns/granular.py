@@ -798,6 +798,29 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
             run_manifest = load_manifest(manifest_id)
         except FileNotFoundError:
             raise OpValidationError(f"no manifest {manifest_id!r}")
+        # Both `run_dir` and `manifest_id` are caller-supplied off the same CC
+        # turn, and nothing else ties them together: a session that reingests
+        # run A then run B, but passes run A's stale manifest_id while hashing
+        # run B's files, would otherwise have this call's checksums merge into
+        # run A's manifest. Relative output paths collide across nf-core runs
+        # by construction (every run has its own "star_salmon/SAMPLE_1...bam"),
+        # so `_primary_output` would then match run A's OutputRecord for that
+        # identical path and ship run B's digest as run A's measured value --
+        # exactly the model-authored-metadata failure the manifest-id design
+        # exists to eliminate, just laundered through a caller mismatch
+        # instead of a hand-typed number. Cheap (no I/O) and done before the
+        # expensive SSH hash, like every other check in this function.
+        # `_validate_run_dir` already normalised `run_dir` with `normpath`;
+        # normalise the manifest's own `run_dir` the same way before
+        # comparing, since `harvest.harvest_local` stores it verbatim from
+        # whatever `_run_harvest` passed in (also `_validate_run_dir`'s
+        # output, but from that separate call, not necessarily
+        # byte-identical as a raw string).
+        manifest_run_dir = os.path.normpath(str(run_manifest.run_dir))
+        if manifest_run_dir != run_dir:
+            raise OpValidationError(
+                f"manifest_id {manifest_id!r} was harvested from {manifest_run_dir!r}, "
+                f"not the run_dir being hashed ({run_dir!r})")
 
     from chat_nextseek.luria.ssh import prepare_key, ssh_run
     key_path = prepare_key(luria_env["key"])
@@ -837,7 +860,17 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
 
     if run_manifest is not None:
         from NessieAI.ns.reingest.store import save_manifest
-        run_manifest.checksums.update(checksums)
+        # Merge keyed by the NORMALISED path, not the caller's raw `--paths`
+        # token verbatim: `OutputRecord.path` is harvest-normalised (see
+        # harvest.py), so a caller-supplied "./star_salmon/x.bam" or
+        # "star_salmon//x.bam" would otherwise land in `checksums` under a
+        # key `mapper._primary_output`'s harvested path never matches,
+        # silently losing the checksum this call just paid an SSH round trip
+        # to compute. `result["checksums"]` (returned to the caller) keeps
+        # the raw token as its key -- it is just an echo of what was asked
+        # for, not a lookup key into the manifest.
+        run_manifest.checksums.update(
+            {os.path.normpath(rel): digest for rel, digest in checksums.items()})
         result["manifest_id"] = save_manifest(run_manifest)
 
     return result

@@ -34,14 +34,26 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 # bypassing `resolve_ref` entirely -- and is the checksum wiring's real,
 # reachable, tested consumer (test_mapper.py, and the rendered-workbook
 # round-trip in test_build_upload_manifest.py). "checksums" stays in
-# `_RUN_SECTIONS` regardless, for the narrower case a `glob` cannot cover: a
-# provenance attribute for a NAMED output whose path is fixed by pipeline
-# convention rather than resolved per-sample (e.g. a future
-# "DESeqFile_Checksum": "$checksums.<the fixed deseq2_dds_rdata path>" beside
-# the existing `$outputs.deseq2_dds_rdata` provenance ref) -- a case
-# `resolve_ref` already supports and `test_maps.py` exercises directly
-# (`test_resolve_ref_reads_a_checksum_by_path`), even with no committed map
-# rule using it yet.
+# `_RUN_SECTIONS` for the one thing `resolve_ref` DOES support today and
+# `test_maps.py` exercises directly (`test_resolve_ref_reads_a_checksum_by_path`):
+# a literal, hand-typed "$checksums.<path>" naming a path that genuinely is
+# fixed ahead of time -- there is no such path anywhere in a committed map
+# today, but the mechanism is real, not aspirational.
+#
+# It does NOT, despite an earlier version of this comment's claim, cover
+# `named_outputs` keys like `deseq2_dds_rdata` as "a narrower future use one
+# map edit away": those are resolved by `harvest._NAMED_OUTPUT_MATCHERS`
+# matching a SUFFIX against whatever the run's inventory actually contains
+# (e.g. anything ending `.dds.rdata` or `.dds.rds`), so
+# `deseq2_dds_rdata`'s real path is exactly as run-time-variable as an
+# output rule's own `glob` match -- no committed map can spell it literally
+# any more than it can spell a per-sample BAM path. A future
+# "DESeqFile_Checksum" entry would need a deref form this module does not
+# have, e.g. `$checksums.$outputs.deseq2_dds_rdata` (look up
+# `named_outputs["deseq2_dds_rdata"]` first, then use THAT as the checksums
+# key) -- `resolve_ref` below only ever does one dotted lookup, never a
+# lookup-of-a-lookup, so this is a real gap to design around, not one edit
+# away.
 _RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs", "checksums")
 _SAMPLE_SECTIONS = ("metrics", "derived")
 _RUN_SECTION_ATTR = {"outputs": "named_outputs"}
