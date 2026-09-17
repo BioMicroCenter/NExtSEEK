@@ -395,9 +395,11 @@ def a_throwaway_sample(wapi, base_url, write_project):
     and it is the path the house actually creates samples with, so a fixture failure is a failure of
     something already covered by B1 rather than a new unknown.
 
-    It is NOT cleaned up here. The delete path is itself under test (B4) and is broken on this box, so
-    a fixture that insisted on deleting would fail every case that used it. What cleanup is possible
-    over HTTP happens in the cases; the residue is named in the lane's README.
+    It is NOT cleaned up here, because the delete path is itself under test and a fixture that
+    insisted on deleting would fail every case that borrowed it for an unrelated reason. Each case
+    deletes its own instead, in a finally, through _cleanup. A case added here that forgets to do
+    that leaves one row per run: measured 2026-09-17, five rows accumulated from the update case
+    before it had its finally.
     """
     marker = _marker()
     result = upload_rows(wapi, base_url, project_id=write_project, rows=[_tis_row(marker)])
@@ -413,7 +415,7 @@ def a_throwaway_sample(wapi, base_url, write_project):
 
 
 @destructive
-def test_a_sample_update_moves_the_value_in_the_graph(wapi, base_url, a_throwaway_sample):
+def test_a_sample_update_moves_the_value_in_the_graph(wapi, wweb, base_url, a_throwaway_sample):
     """WR-07, the SEEK sample proxy's PATCH. Enqueue only, so the sync LOOP has to carry this one.
 
     The assertion is a filter on the NEW value and a filter on the OLD one: the graph must match the
@@ -427,6 +429,19 @@ def test_a_sample_update_moves_the_value_in_the_graph(wapi, base_url, a_throwawa
     seek_id, uid, old_marker = a_throwaway_sample
     new_marker = _marker()
 
+    try:
+        _assert_the_update_moved_the_value(wapi, base_url, seek_id, uid, old_marker, new_marker)
+    finally:
+        _cleanup(wweb, base_url, [uid])
+        wait_for_drain(wapi, base_url, timeout_s=600)
+
+
+def _assert_the_update_moved_the_value(wapi, base_url, seek_id, uid, old_marker, new_marker):
+    """The body of the update case, so its cleanup can be a finally around the whole of it.
+
+    Split out rather than nested: every other case in this module reads as request-then-assert, and
+    an eight-line try block around four assertions hides which one is the behaviour under test.
+    """
     r = wapi.patch(f"{base_url}{SAMPLES_PATH}{seek_id}/",
                    json={"data": {"type": "samples",
                                   "attributes": {"attribute_map": {MARKER_ATTRIBUTE: new_marker}}}},

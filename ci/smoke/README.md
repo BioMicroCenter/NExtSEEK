@@ -308,9 +308,19 @@ holds that account.
 
 ### What it leaves behind
 
-Each case deletes its own samples through WR-13. What cannot be cleaned up over HTTP is a node whose
-MySQL row went without a retire row, which is what the xfailed case produces on purpose: retire those
-with `manage.py graph_sync --samples <ids> --i-mean-the-live-graph`.
+Each case deletes its own samples through WR-13, in a `finally`. **The xfailed case leaves exactly
+one orphan node per run**, unavoidably: the proxy removes the MySQL row after its timeout, so by the
+time the cleanup runs there is no row for `getSampleID` to resolve the UID against, and the delete
+that would enqueue the retire cannot find it. Measured 2026-09-17 over four runs: four orphans, one
+each. Retire them with
+
+```bash
+manage.py graph_sync --samples <ids> --i-mean-the-live-graph
+```
+
+and find their ids by asking the graph rather than the endpoint, since `graph_search` counts them and
+cannot show them. Nothing else accumulates: a case that borrows `a_throwaway_sample` and forgets its
+`finally` leaves one row per run, which is how five of them appeared before the update case had one.
 
 ## Profiles
 
