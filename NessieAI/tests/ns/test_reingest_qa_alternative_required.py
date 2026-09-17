@@ -49,22 +49,51 @@ def test_file_primary_data_alone_satisfies_the_group():
     assert report.disposition == qa.CLEAN
 
 
-def test_link_primary_data_alone_soft_flags_not_clean():
-    # The unsafe direction: SEEK requires File_PrimaryData on some sample
-    # types and never requires Link_PrimaryData on any of them, so a
-    # Link-only row is not provably safe. It must not be silently waved
-    # through as CLEAN (2ad401d0's defect) -- but it must also not HARD
-    # block a workbook that may well be fine for a type where SEEK does not
-    # require the path, so it soft-flags instead.
-    report = _qa({"Link_PrimaryData": "https://example.org/gideon4wk/sample1.bam"})
-    missing_required = [f for f in report.findings if f.code == qa.MISSING_REQUIRED]
-    assert len(missing_required) == 1
-    finding = missing_required[0]
+def test_link_primary_data_alone_with_a_name_soft_flags_not_clean():
+    # The unsafe direction, named sub-case: SEEK requires File_PrimaryData on
+    # some sample types and never requires Link_PrimaryData on any of them,
+    # so a Link-only row is not provably safe against that requirement. It
+    # must not be silently waved through as CLEAN (2ad401d0's defect) -- but
+    # a Name is present here, so both SEEK upload paths can still title the
+    # sample, and the row is not a guaranteed rejection. It must also not
+    # HARD block a workbook that may well be fine for a type where SEEK does
+    # not require the path, so it soft-flags instead, as PRIMARY_DATA_LINK_ONLY
+    # (its own code -- never MISSING_REQUIRED, which is reserved for the
+    # neither-present HARD case; see Important 1 of the fix that added this).
+    report = _qa({"Name": "SAMPLE_1",
+                  "Link_PrimaryData": "https://example.org/gideon4wk/sample1.bam"})
+    link_only = [f for f in report.findings if f.code == qa.PRIMARY_DATA_LINK_ONLY]
+    assert len(link_only) == 1
+    finding = link_only[0]
     assert finding.severity == qa.SOFT
     assert finding.attribute == _GROUP_LABEL
     assert finding.detail == {"primary": "File_PrimaryData",
                                "present_secondary": "Link_PrimaryData"}
     assert report.disposition == qa.SOFT_FLAG
+    assert not any(f.code == qa.MISSING_REQUIRED for f in report.findings)
+    assert not any(f.code == qa.PRIMARY_DATA_UNNAMED for f in report.findings)
+
+
+def test_link_primary_data_alone_without_a_name_hard_rejects():
+    # Important 3: the same Link-only shape as above, but with no Name
+    # either. Both SEEK upload paths derive the sample title from Name,
+    # falling back to File_PrimaryData (seek/sample/upload.py's per-row
+    # check errors with code 302; seek/sample/core.py falls back further, to
+    # the literal title "Undefined") -- with neither present, the row cannot
+    # be titled and is rejected on EVERY sample type, not a maybe. That is
+    # decidable from the row alone, so it hard-rejects as PRIMARY_DATA_UNNAMED
+    # instead of the usual advisory SOFT.
+    report = _qa({"Link_PrimaryData": "https://example.org/gideon4wk/sample1.bam"})
+    unnamed = [f for f in report.findings if f.code == qa.PRIMARY_DATA_UNNAMED]
+    assert len(unnamed) == 1
+    finding = unnamed[0]
+    assert finding.severity == qa.HARD
+    assert finding.attribute == _GROUP_LABEL
+    assert finding.detail == {"primary": "File_PrimaryData",
+                               "present_secondary": "Link_PrimaryData"}
+    assert report.disposition == qa.HARD_REJECT
+    assert not any(f.code == qa.PRIMARY_DATA_LINK_ONLY for f in report.findings)
+    assert not any(f.code == qa.MISSING_REQUIRED for f in report.findings)
 
 
 def test_both_members_present_satisfies_the_group():
@@ -89,12 +118,13 @@ def test_a_blank_file_primary_data_with_link_present_soft_flags():
     # A blank string is "missing" (_value_missing), so a blank
     # File_PrimaryData does not count as the primary being present -- this
     # is the same soft-flag case as File_PrimaryData being wholly absent,
-    # not a fresh "blank beats present" exception.
-    report = _qa({"File_PrimaryData": "   ",
+    # not a fresh "blank beats present" exception. A Name is supplied so this
+    # exercises only that question, not the separate Important-3 Name check.
+    report = _qa({"Name": "SAMPLE_1", "File_PrimaryData": "   ",
                   "Link_PrimaryData": "https://example.org/gideon4wk/sample1.bam"})
-    missing_required = [f for f in report.findings if f.code == qa.MISSING_REQUIRED]
-    assert len(missing_required) == 1
-    assert missing_required[0].severity == qa.SOFT
+    link_only = [f for f in report.findings if f.code == qa.PRIMARY_DATA_LINK_ONLY]
+    assert len(link_only) == 1
+    assert link_only[0].severity == qa.SOFT
     assert report.disposition == qa.SOFT_FLAG
 
 

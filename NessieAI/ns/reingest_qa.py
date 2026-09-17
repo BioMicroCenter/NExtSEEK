@@ -32,6 +32,13 @@ SURPRISE_SENTINEL = "surprise_sentinel"
 PLACEHOLDER_VALUE = "placeholder_value"
 UNKNOWN_SAMPLETYPE = "unknown_sampletype"
 MISSING_REQUIRED = "missing_required"
+# The two sub-cases of the ALTERNATIVE_REQUIRED_GROUPS SOFT direction each
+# get their own code (never MISSING_REQUIRED) so that `group()`'s
+# `(code, attribute)` key can never merge a SOFT and a HARD finding that
+# share a group-label attribute into one bucket -- see the ALTERNATIVE_
+# REQUIRED_GROUPS comment below and report.py's mixed-batch regression test.
+PRIMARY_DATA_LINK_ONLY = "primary_data_link_only"
+PRIMARY_DATA_UNNAMED = "primary_data_unnamed"
 UID_MISSING_IN_UPDATE = "uid_missing_in_update"
 UID_PRESENT_IN_NEW = "uid_present_in_new"
 UNRESOLVED_UID = "unresolved_uid"
@@ -64,11 +71,20 @@ METRIC_UNAVAILABLE = "metric_unavailable"
 #   - `primary` present and non-blank -> the requirement is satisfied,
 #     full stop, regardless of the secondaries. This is the direction the
 #     shipped reingest recipe actually exercises and it is always safe.
-#   - only a `secondary` present -> NOT provably satisfied. Soft-flag it:
-#     the server may still reject the row for lacking `primary`, but it may
-#     also not (not every sample type requires it), so this must not block
-#     a workbook that could well be fine.
-#   - neither present -> exactly one HARD finding, naming every member.
+#   - only a `secondary` present -> NOT provably satisfied against the
+#     PrimaryData requirement itself: the server may still reject the row
+#     for lacking `primary`, but it may also not (not every sample type
+#     requires it), so this must not block a workbook that could well be
+#     fine. This is PRIMARY_DATA_LINK_ONLY, SOFT -- *unless* the row also
+#     has no `Name`: both SEEK upload paths derive the sample title from
+#     `Name`, falling back to `File_PrimaryData` (seek/sample/upload.py's
+#     per-row check; seek/sample/core.py falls back further, to the literal
+#     title "Undefined"), so a row with neither can never be titled and is
+#     rejected on EVERY sample type, not a maybe. That sub-case is
+#     PRIMARY_DATA_UNNAMED, HARD, even though the PrimaryData requirement
+#     itself is only ever a maybe.
+#   - neither `primary` nor any secondary present -> exactly one HARD
+#     MISSING_REQUIRED finding, naming every member.
 #
 # This does NOT extend to Checksum_PrimaryData, required by that same
 # catalog row: it is not declared here as an alternative to anything, and
@@ -119,6 +135,18 @@ def is_group_label(attribute: str) -> bool:
     """True when `attribute` is a `group_label()` rendering of one of
     ALTERNATIVE_REQUIRED_GROUPS, rather than a single attribute title."""
     return any(attribute == group_label(group.members) for group in ALTERNATIVE_REQUIRED_GROUPS)
+
+
+def group_members_for_label(attribute: str) -> tuple[str, ...] | None:
+    """The `.members` tuple (primary first) of the ALTERNATIVE_REQUIRED_GROUPS
+    group whose `group_label()` equals `attribute`, or None when `attribute`
+    is not a group label. Lets a renderer recover which member is the
+    primary from just the label string carried on a Finding/bucket, without
+    duplicating `_GROUP_LABEL_SEP` or the group table itself."""
+    for group in ALTERNATIVE_REQUIRED_GROUPS:
+        if attribute == group_label(group.members):
+            return group.members
+    return None
 
 
 def _value_missing(raw) -> bool:
@@ -444,15 +472,33 @@ def qa_rows(
                         member for member in group.secondaries
                         if not _value_missing(meta.get(member))]
                     if present_secondaries:
-                        # A secondary alone is NOT provably enough -- SEEK may
-                        # still require the primary for this sample type --
-                        # so this stays advisory, not blocking.
-                        report.add(Finding(
-                            code=MISSING_REQUIRED, severity=SOFT,
-                            sample_type=sample_type,
-                            attribute=group_label(group.members), row_index=i,
-                            detail={"primary": group.primary,
-                                    "present_secondary": present_secondaries[0]}))
+                        # A secondary alone is NOT provably enough against the
+                        # PrimaryData requirement itself -- SEEK may still
+                        # require the primary for this sample type, but it may
+                        # also not -- so that half stays advisory, not
+                        # blocking. But a row with no Name either cannot be
+                        # titled by ANY sample type's upload path (Name ->
+                        # File_PrimaryData is every fallback there is), which
+                        # is a guaranteed rejection, not a maybe -- so that
+                        # sub-case is its own HARD code, never folded into the
+                        # advisory one (see the code constants' comment: a
+                        # SOFT and a HARD finding must never share a code, or
+                        # a mixed batch merges them into one bucket and loses
+                        # one severity's findings entirely).
+                        if _value_missing(meta.get("Name")):
+                            report.add(Finding(
+                                code=PRIMARY_DATA_UNNAMED, severity=HARD,
+                                sample_type=sample_type,
+                                attribute=group_label(group.members), row_index=i,
+                                detail={"primary": group.primary,
+                                        "present_secondary": present_secondaries[0]}))
+                        else:
+                            report.add(Finding(
+                                code=PRIMARY_DATA_LINK_ONLY, severity=SOFT,
+                                sample_type=sample_type,
+                                attribute=group_label(group.members), row_index=i,
+                                detail={"primary": group.primary,
+                                        "present_secondary": present_secondaries[0]}))
                     else:
                         report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
                                             sample_type=sample_type,

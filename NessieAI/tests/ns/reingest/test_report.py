@@ -212,12 +212,18 @@ _NEW_CODE_CASES = [
     (qa.MISSING_REQUIRED, qa.HARD,
      dict(sample_type="D.SEQ", attribute="Strandedness", row_index=0),
      ["required and missing", "fill it in"]),
-    (qa.MISSING_REQUIRED, qa.SOFT,
+    (qa.PRIMARY_DATA_LINK_ONLY, qa.SOFT,
      dict(sample_type="A.GEX",
           attribute=qa.group_label(("File_PrimaryData", "Link_PrimaryData")),
           row_index=0,
           detail={"primary": "File_PrimaryData", "present_secondary": "Link_PrimaryData"}),
      ["may still require", "let the", "settle whether"]),
+    (qa.PRIMARY_DATA_UNNAMED, qa.HARD,
+     dict(sample_type="A.GEX",
+          attribute=qa.group_label(("File_PrimaryData", "Link_PrimaryData")),
+          row_index=0,
+          detail={"primary": "File_PrimaryData", "present_secondary": "Link_PrimaryData"}),
+     ["cannot title the sample", "neither", "tell me where to get one"]),
     ("some_future_code_without_wording_yet", qa.SOFT,
      dict(sample_type="D.SEQ"),
      ["needs a look", "provenance"]),
@@ -296,30 +302,80 @@ def test_missing_required_names_both_alternatives_when_the_attribute_is_a_group(
     assert "server will reject" not in plain_text.lower()
 
 
-def test_missing_required_soft_flags_when_only_a_secondary_is_present():
-    # reingest_qa.qa_rows only emits this SOFT variant of the group label
-    # when File_PrimaryData (the primary) is absent but Link_PrimaryData
-    # (a secondary) is present -- the safe direction (primary alone) never
-    # produces a finding at all, and neither-present is the HARD case above.
-    # This must read differently from the HARD case: it names which
-    # attribute was supplied and which is still missing, and it must not
-    # claim the server will reject the row -- it might not.
+def test_primary_data_link_only_soft_flags_when_only_a_secondary_is_present():
+    # reingest_qa.qa_rows only emits PRIMARY_DATA_LINK_ONLY when
+    # File_PrimaryData (the primary) is absent but Link_PrimaryData (a
+    # secondary) is present *and* the row can still be named -- the safe
+    # direction (primary alone) never produces a finding at all,
+    # neither-present is the MISSING_REQUIRED HARD case above, and a Link-only
+    # row with no Name either is the separate PRIMARY_DATA_UNNAMED HARD case
+    # (Important 3). This must read differently from both HARD cases: it
+    # names which attribute was supplied and which is still missing (by their
+    # friendly names -- Minor 4 gave File_PrimaryData/Link_PrimaryData
+    # _FRIENDLY entries), and it must not claim the server will reject the
+    # row -- it might not.
     group_label = qa.group_label(("File_PrimaryData", "Link_PrimaryData"))
     built = _single_finding_report(
-        qa.MISSING_REQUIRED, qa.SOFT, sample_type="A.GEX",
+        qa.PRIMARY_DATA_LINK_ONLY, qa.SOFT, sample_type="A.GEX",
         attribute=group_label, row_index=0,
         detail={"primary": "File_PrimaryData",
                 "present_secondary": "Link_PrimaryData"})
     text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
     lowered = text.lower()
-    assert "link_primarydata" in lowered
-    assert "file_primarydata" in lowered
+    assert "the download link" in lowered
+    assert "the file path" in lowered
     assert "may still require" in lowered
     assert "server will reject" not in lowered
-    assert qa.MISSING_REQUIRED not in text
+    assert qa.PRIMARY_DATA_LINK_ONLY not in text
     # It renders under the advisory header, not the blocking one.
     assert "ONE THING TO CHECK" in text
     assert "WHAT IS BLOCKING" not in text
+
+
+def test_mixed_hard_and_soft_primary_data_findings_in_one_batch_both_render():
+    # Important 1 regression: before PRIMARY_DATA_LINK_ONLY/PRIMARY_DATA_UNNAMED
+    # got their own codes, both the SOFT (link-only, named) and HARD
+    # (neither present) cases shared code=MISSING_REQUIRED with the same
+    # group-label attribute. qa.group() keys on (code, attribute) and takes
+    # severity from the first finding seen, so a mixed batch collapsed into
+    # ONE bucket whose severity depended on row order -- the other severity's
+    # findings, and their count, vanished from the render entirely. A row
+    # order of 3 SOFT-eligible rows (link only, but named) then 7 HARD rows
+    # (neither present) reproduces the exact failure scenario from the
+    # report: with the old shared code this became one SOFT bucket with
+    # count 10, "WHAT IS BLOCKING" would render nothing despite
+    # disposition HARD_REJECT. With separate codes both buckets survive,
+    # each under its own header, with its own correct count (3 and 7, not
+    # 10 and 10).
+    group_label = qa.group_label(("File_PrimaryData", "Link_PrimaryData"))
+    built = qa.QaReport()
+    for i in range(3):
+        built.add(qa.Finding(code=qa.PRIMARY_DATA_LINK_ONLY, severity=qa.SOFT,
+                             sample_type="A.GEX", attribute=group_label, row_index=i,
+                             detail={"primary": "File_PrimaryData",
+                                     "present_secondary": "Link_PrimaryData"}))
+    for i in range(3, 10):
+        built.add(qa.Finding(code=qa.MISSING_REQUIRED, severity=qa.HARD,
+                             sample_type="A.GEX", attribute=group_label, row_index=i))
+    built._finalize()
+    assert built.disposition == qa.HARD_REJECT
+
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+
+    assert "WHAT IS BLOCKING" in text
+    assert "THING" in text  # "N THINGS TO CHECK"
+    blocking_at = text.index("WHAT IS BLOCKING")
+    checking_at = text.index("THING", blocking_at + len("WHAT IS BLOCKING"))
+    hard_section = text[blocking_at:checking_at]
+    soft_section = text[checking_at:]
+
+    # Both findings render, each with its own correct count.
+    assert "7" in hard_section
+    assert "3" in soft_section
+    # Neither count leaks into the other section, and the two are never
+    # merged back into the total of 10.
+    assert "7" not in soft_section
+    assert "10" not in text
 
 
 def test_resolve_artifact_matches_a_hyphenated_sample_type():
