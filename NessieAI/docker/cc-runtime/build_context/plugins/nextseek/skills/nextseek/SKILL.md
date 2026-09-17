@@ -166,7 +166,8 @@ nextseek-api-write --parser-plan '<plan>' --confirmed-write
 **Pure capability / vocabulary questions — read the cached catalogs.** For "what sampletypes
 exist?", "what can I ask?", read the baked catalogs directly with `Read` (no op, no network):
 `/app/plugins/nextseek/context/capabilities.md` (start here), `min_sampletypes_db.json`,
-`min_assays_db.json`, `min_api_endpoints_enriched.json`, `projects_db.json`, `neo4j_schema.json`.
+`min_assays_db.json`, `min_api_endpoints_enriched.json`, `projects_db.json`. The graph schema is
+not among them: run `nextseek-graph-schema`, which reads the deployed graph.
 For *data* questions, use the ops above — the catalogs alone will not answer those.
 
 ## Multi-step planner (`nextseek-plan`)

@@ -71,9 +71,12 @@ without an error at the point of the change.
   those tracked files change in place; the next cc-agent build then ships the refreshed
   bytes, exactly as the app image build does. Check `git status` on this directory before
   a cc-agent rebuild.
-- **Two graph snapshots are not baked from here.** The plugin tree keeps its own
-  `min_graph_schema.json` and `neo4j_schema.json`, which differ from the ones here and do
-  reach the agent (`NessieAI/docker/CLAUDE.md`).
+- **One graph file is not baked from here.** The plugin tree keeps its own
+  `min_graph_schema.json`, which differs from the one here and does reach the agent
+  (`NessieAI/docker/CLAUDE.md`). `neo4j_schema.json` is no longer baked into the cc-agent
+  image at all: that agent calls the `nextseek-graph-schema` op, which serves
+  `graph_schema_snapshot` from this package. The copy here stays as the NS engine's
+  fallback.
 - **The graph schema is no longer written into `context/`.** `neo4j_schema.json`,
   `neo4j_protocol_schema.json` and `neo4j_assay-sample-conn.json` are committed files the
   config only reads (`ChatConfig.NEO4J_SCHEMA`, `PROTOCOL_SCHEMA` and
@@ -81,7 +84,9 @@ without an error at the point of the change.
   is the only way they change. The graph agent reads the live v1.1 catalog through
   `graph_catalog.get_snapshot`, cached per process on `GraphMeta.catalog_hash`, and falls
   back to those committed files on any catalog failure (`live_catalog_context` in
-  `NessieAI/chat_nextseek/src/chat_nextseek/agents/graph.py`). A graph turn records which
+  `NessieAI/chat_nextseek/src/chat_nextseek/agents/graph.py`). `graph_schema_snapshot`, beside
+  it, is the same read as a plain dict for the `graph-schema` op, and names which of the two it
+  answered from. A graph turn records which
   one it read in `debug.graph_context` (`catalog` or `fallback`). The parser and the older
   property guard read the committed files either way. `_ensure_context_files` still
   rewrites the database exports of the bullet above once a day: only the Neo4j-derived

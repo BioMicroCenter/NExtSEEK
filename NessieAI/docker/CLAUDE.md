@@ -17,7 +17,7 @@ Each is enforced from outside this folder. Breaking one is a security regression
 
 ## Landmines
 
-- **Two baked catalogs, `min_graph_schema.json` and `neo4j_schema.json`, differ from canonical and DO reach the agent.** They are the only plugin-tree files with a chat_nextseek twin, and nothing overwrites them. The catalog snapshot generator lives in an external clone, so they are hand-maintained here, together with their digests.
+- **One baked catalog, `min_graph_schema.json`, differs from canonical and DOES reach the agent.** It is the only plugin-tree file left with a chat_nextseek twin, nothing overwrites it, and nothing generates or compares them, so it is hand-maintained here together with its digest. Despite the name it is not a schema capture: it holds hand-authored routing prose. `neo4j_schema.json` is no longer baked at all (`cc-runtime/PORT-EVIDENCE.json`, 2026-09-17): the agent reads the deployed graph through the `nextseek-graph-schema` op, so a catalog change no longer needs a cc-agent rebuild.
 - **A bare `pytest` inside `cc-runtime/` exits 1 even when every test passes**: the declared coverage targets name trees this port lacks. Pass `-o addopts=""`.
 - **`docker build` on `cc-runtime/` alone fails.** The named contexts `chat_nextseek` and `dmac_assistant_baml` exist only through compose; a manual build must pass both as `--build-context`, exactly as the generated `additional_contexts` block in `docker-compose.yml` declares them.
 - **A cc-agent build bakes the chat_nextseek context files as they are on disk.** The config rewrites three of them in place when it runs against a checkout (`NessieAI/chat_nextseek/CLAUDE.md`); check `git status` there before a cc-agent rebuild.

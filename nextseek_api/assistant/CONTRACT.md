@@ -43,7 +43,7 @@ surface is in one place.
 | **entity** | POST `/assistant/entity/` | `EntityOpRequest{query}` | `EntityOpResponse` | `entity_agent(config, query)` → `EntityAgentOutput` |
 | **parse** | POST `/assistant/parse/` | `ParseOpRequest{query}` | `ParseOpResponse` | `parser_agent(session, config, query, entity_agent(config, query))` → `ParserPlan` |
 | **graph** | POST `/assistant/graph/` | `GraphOpRequest{query}` | `GraphOpResponse` | `graph_agent(config, query, entity_agent(config, query))` → `GraphAgentPlan`, **then** `tool_neo4j_query(config, plan.cypher, plan.parameters)`. Result = `{plan, result}`. **Note:** a superset of the sidecar's original op, which returned the plan only |
-| **graph-schema** | POST `/assistant/graph-schema/` | `GraphSchemaOpRequest{types?, query?}` | `GraphSchemaOpResponse` | no agent and **no LLM**: `graph_schema_snapshot(config, types=[...], question=query)` reads the live v1.1/1.2 catalog through `graph_catalog` and renders it with `graph_context`. Result = `{source, schema_version, catalog_hash, synced_at, sample_types, resolved_types, unknown_types, schema, vocabulary, unavailable_reason, fallback_fetched_at}`. `source` is `catalog` or `fallback` (the committed `context/neo4j_schema.json`, with the reason). Read-only: the caller sends no Cypher. |
+| **graph-schema** | POST `/assistant/graph-schema/` | `GraphSchemaOpRequest{types?, query?}` | `GraphSchemaOpResponse` | no agent and **no LLM**: `graph_schema_snapshot(config, types=[...], question=query)` reads the live v1.1/1.2 catalog through `graph_catalog` and renders it with `graph_context`. Result = `{source, schema_version, catalog_hash, synced_at, sample_types, resolved_types, unknown_types, schema, vocabulary, unavailable_reason, fallback_fetched_at}`. `source` is `catalog` or `fallback` (the committed `NessieAI/chat_nextseek/src/chat_nextseek/context/neo4j_schema.json`, with the reason). Read-only: the caller sends no Cypher. |
 | **api-read** | POST `/assistant/api-read/` | `ApiReadRequest{parser_plan}` | `ApiReadResponse` | `api_agent_build_request(config, json.loads(parser_plan))` → gate `(endpoint, METHOD)` against `read_safe_endpoints.json` → `tool_nextseek_api_request(config, endpoint, method, requestBody, queryParameters)`. Result = `{endpoint, method, api_plan, response}` |
 | **api-write** | POST `/assistant/api-write/` | `ApiWriteRequest{parser_plan, confirmed_write=false, query?}` | `ApiWriteResponse` | gate: **executes only when `confirmed_write is True`** (strict bool) else `WRITE_BLOCKED`; then `api_agent_build_request` → `tool_nextseek_api_request`. Result = `{endpoint, method, api_plan, response}` |
 | **report** | POST `/assistant/report/` | `ReportOpRequest{mode, project}` | `ReportOpResponse` | `run_reporter_summary(config, ReporterPlan(project, reporter_mode="summary", summary_mode=("RPPR" if mode=="rppr" else mode)), log_dir)` → `(result, saved_files, summary)`. Result = `{summary, saved_files, rows}`. **No LLM** (SQL/Neo4j). |
@@ -111,9 +111,9 @@ cannot reach the database. `api-read` is allowlist-gated against
 `NessieAI/ns/read_safe_endpoints.json`. Source: `build_gate` in `NessieAI/ns/write_gate.py`.
 
 Only two handlers call the gate at all: the `api-read` and `api-write` handlers in
-`NessieAI/ns/granular.py`. The other seven, `run-ls` and `build-upload-xlsx` among them, never
-reach it, which is why the gate's own `SIDECAR_OPS` frozenset still holds the **seven** ported
-labels while the dispatcher holds nine. That set is not a second op catalog: it is the gate's
+`NessieAI/ns/granular.py`. The other eight, `run-ls` and `build-upload-xlsx` among them, never
+reach it, which is why the gate's own `SIDECAR_OPS` frozenset holds the **eight** labels it has a
+policy for (the seven ported ones plus `graph-schema`) while the dispatcher holds ten. That set is not a second op catalog: it is the gate's
 known-label list, and anything outside it is default-denied. A handler added later that *does*
 call the gate with its own label is refused with `WRITE_BLOCKED` until the label is added there.
 
