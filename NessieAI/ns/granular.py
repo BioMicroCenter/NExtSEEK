@@ -578,7 +578,8 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
             # `run_dir` (the real cluster directory) itself, only `staged`, so
             # it cannot gather that listing on its own.
             run_manifest = harvest.harvest_local(
-                staged, run_dir=run_dir, lookup_by_fastq=_d_seq_by_fastq, inventory=inventory)
+                staged, run_dir=run_dir, lookup_by_fastq=_d_seq_by_fastq,
+                sample_type_lookup=_sample_types_for_uids, inventory=inventory)
     finally:
         try:
             os.remove(key_path)
@@ -816,6 +817,21 @@ def _d_seq_by_fastq(path: str, types: tuple[str, ...] = ("D.SEQ",)) -> list[str]
     one (see maps.PipelineMap.accepts_parent_types)."""
     from nextseek_api.services.reingest_lookups import uids_by_primary_data
     return uids_by_primary_data(path, types=types)
+
+
+def _sample_types_for_uids(uids: list[str]) -> dict[str, str]:
+    """The SampleType title per resolved parent UID, for the QC backfill.
+
+    A parent is no longer necessarily a D.SEQ -- a pipeline whose map declares
+    a wider ``accepts_parent_types`` can be launched from an already-analysed
+    A.* sample -- so the backfill row must be typed from what the parent
+    actually IS. The UID's own prefix is not a safe source for that: measured
+    against the live instance, 766 of 51,372 samples do not start with their
+    type code, so parsing it would be quietly wrong for those. This asks the
+    database instead. A UID it cannot resolve is OMITTED, and the backfill
+    writes no row for that sample rather than guessing a type."""
+    from nextseek_api.services.reingest_lookups import sample_types_for_uids
+    return sample_types_for_uids(uids)
 
 
 def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_dir):
