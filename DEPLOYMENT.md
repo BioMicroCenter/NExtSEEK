@@ -86,6 +86,23 @@ Key facts every operator must internalize:
   service would have grown unchecked. A transaction that asks for more is now
   killed and reported to its caller instead. Raise the bounds together on a box
   with a larger graph; the caps take effect when `neo4j` is recreated.
+- Every other long-lived service carries a cap too: `seek_workers`
+  (`${SEEK_WORKERS_MEMORY:-3G}`), `solr` (`${SOLR_MEMORY:-2G}`), `db`
+  (`${SEEK_DB_MEMORY:-2G}`) and `nextseek-sidecar` (`${SIDECAR_MEMORY:-1G}`).
+  Capping only some services moves the kill rather than preventing it: on
+  2026-09-16 `seek` was capped and `seek_workers`, which is the same Rails
+  process with the same leak, was not. The two together held 11.2 GiB across 24
+  `bundle` processes, the host ran out at 29.5 GiB resident, and the kernel
+  killed the operator's desktop instead of a worker.
+- **The defaults are sized for the smallest box we run, and they do not add up
+  to any host.** They bound a single runaway; they do not bound the sum. Every
+  box sets its own values in the project-root `.env`, and a box whose total must
+  fit lowers `NEXTSEEK_MEMORY` first, since 16G is headroom for the search path
+  rather than steady-state need (about 6 GiB at rest). Worked example, a 30 GiB
+  workstation: `NEXTSEEK_MEMORY=10G` with the rest at their defaults totals
+  28G. A 46 GiB box such as fairdata-dev can leave `NEXTSEEK_MEMORY` at 16G and
+  raise `SEEK_WORKERS_MEMORY` instead. Each cap takes effect when its own
+  service is recreated.
 - Asynchronous attribute mutations use Celery's SQLAlchemy transport over
   SQLite at `/var/lib/attribute-broker/broker.sqlite3`. The worker and outbox
   dispatcher share the named `attribute_mutation_broker` volume. Routine
