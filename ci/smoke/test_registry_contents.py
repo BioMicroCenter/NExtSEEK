@@ -38,8 +38,12 @@ from ci.smoke.test_reachability import _callable_routes
 # moves, and the COMPLETENESS GATE (ci/gate/test_route_registry.py) is the
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
-# runs, which happen in a different environment.
-OWNED_ROUTE_COUNT = 168
+# runs, which happen in a different environment. 168 -> 171 on 2026-09-17: two of
+# those are the run-harvest/run-checksum rows the completeness gate found
+# undeclared (shipped in an earlier plan, never added here); the third is this
+# tripwire itself having already drifted one stale before that omission was
+# fixed (169 resolver-owned routes were declared going into this change, not 168).
+OWNED_ROUTE_COUNT = 171
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset and the Django admin login page.
