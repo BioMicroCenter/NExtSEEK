@@ -166,11 +166,14 @@ def test_agent_recipe_row_against_the_real_catalog_required_set(tmp_path, monkey
     # and A.SCXP each declare required_metadata = UID, File_PrimaryData,
     # Link_PrimaryData, Scientist, Parent, Checksum_PrimaryData.
     #
-    # Row shaped exactly the way the shipped agent recipe composes one (see
+    # Row shaped the way the agent recipe used to hand-compose one via the
+    # legacy nextseek-run-ls + --rows fallback, before that step was replaced
+    # by the manifest-driven nextseek-run-harvest + nextseek-run-checksum +
+    # nextseek-build-upload-xlsx workflow (see
     # NessieAI/docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek/SKILL.md,
-    # the nextseek-run-ls + nextseek-build-upload-xlsx workflow step 3): it
-    # supplies File_PrimaryData, never Link_PrimaryData, never
-    # Checksum_PrimaryData.
+    # the reingest workflow's step 3 note: hand-composing --rows to smuggle a
+    # checksum in is explicitly forbidden today): it supplies
+    # File_PrimaryData, never Link_PrimaryData, never Checksum_PrimaryData.
     monkeypatch.setattr(reingest_lookups, "known_sample_types", lambda: {"A.GEX"})
     monkeypatch.setattr(
         reingest_lookups, "attributes_for",
