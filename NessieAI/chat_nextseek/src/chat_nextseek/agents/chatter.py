@@ -128,7 +128,12 @@ def chatter_agent_answer(
     resolved_sampletypes = _fmt_entities(entity_result.get("sampletypes"))
     resolved_assays = _fmt_entities(entity_result.get("assays"))
     resolved_projects = _fmt_entities(entity_result.get("projects"))
-    keywords_list = (entity_result.get("filters") or {}).get("keywords") or []
+    # `keywords` is a TOP-LEVEL field on EntityAgentOutput (schemas/entity.py); there
+    # has never been a `filters` key on it, so reading entity_result["filters"]
+    # ["keywords"] rendered "(none)" in every turn, in every mode, since the line was
+    # written. The system prompt's "state ... what the key filters were (sample type,
+    # assay, keywords)" was unsatisfiable for keywords the whole time.
+    keywords_list = [str(k) for k in (entity_result.get("keywords") or []) if str(k).strip()]
     keywords_str = ", ".join(keywords_list) if keywords_list else "(none)"
 
     # Compute total_matches + preview_count for the mode at hand, AND
