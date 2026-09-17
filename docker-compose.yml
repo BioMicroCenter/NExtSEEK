@@ -216,6 +216,11 @@ services:
     image: nextseek-ns-sidecar:latest
     container_name: nextseek-sidecar
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: "${SIDECAR_MEMORY:-1G}"
+    memswap_limit: "${SIDECAR_MEMORY:-1G}"
     environment:
       NEXTSEEK_BASE_URL: http://nextseek_nginx
       SIDECAR_STAGING_DIR: /home/sidecar/staging
@@ -260,6 +265,12 @@ services:
       start_period: 40s
     restart: always
     stop_grace_period: 1m30s
+    # InnoDB grows its buffer pool and per-connection buffers without a bound.
+    deploy:
+      resources:
+        limits:
+          memory: "${SEEK_DB_MEMORY:-2G}"
+    memswap_limit: "${SEEK_DB_MEMORY:-2G}"
     ports:
       - "127.0.0.1:${DB_PORT:-3306}:3306"
     env_file:
@@ -385,6 +396,15 @@ services:
         SOLR_HOST: solr
         RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
         QUIET_SUPERCRONIC: 1 # remove to show supercronic activity logs
+      # The delayed-job workers are the same Rails process as `seek` and bloat the
+      # same way. On 2026-09-16 the two SEEK services together held 11.2 GiB
+      # across 24 `bundle` processes when the host ran out; `seek` was capped and
+      # this one was not, so the kill landed on the host instead of in here.
+      deploy:
+        resources:
+          limits:
+            memory: "${SEEK_WORKERS_MEMORY:-3G}"
+      memswap_limit: "${SEEK_WORKERS_MEMORY:-3G}"
       env_file:
         - ./docker/db.env
       volumes:
@@ -401,6 +421,13 @@ services:
     image: fairdom/seek-solr:8.11
     container_name: ${INSTANCE_PREFIX:-}seek-solr
     restart: always
+    # SOLR_JAVA_MEM bounds the JVM heap, not the container: off-heap and page
+    # cache are unbounded without this.
+    deploy:
+      resources:
+        limits:
+          memory: "${SOLR_MEMORY:-2G}"
+    memswap_limit: "${SOLR_MEMORY:-2G}"
     environment:
       SOLR_JAVA_MEM: -Xms512m -Xmx1024m
     volumes:
