@@ -1079,6 +1079,16 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
     provenance_by_type: dict[str, list] = {}
     rows_by_type: dict[str, list] = {}
     needs_definition: list[dict] = []
+    # Surface 2 of the superuser surfaces: a File_PrimaryData the mapper
+    # picked among two or more same-basename candidates with no checksum to
+    # decisively break the tie (see mapper.py's `MappedAttribute.candidates`
+    # docstring). Collected here, not left in `result.rows`, so it can ride
+    # into `render_qa_for_user`'s reply the same way `needs_definition`
+    # already rides into `proposals` below -- reusing `result.unmapped`
+    # would have been wrong: that channel means "a raw metric key nobody
+    # claimed", a different fact from "an attribute WAS set, but the pick
+    # among ambiguous candidates was not forced by evidence".
+    ambiguous_primary: list[dict] = []
     # (sample_type, attribute) -> bool, memoised so a 20-sample backfill does
     # not re-query the schema catalog once per sample for the same attribute.
     exists_cache: dict[tuple[str, str], bool] = {}
@@ -1116,6 +1126,11 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
             else:
                 meta[name] = attr.value
             provenance_entry[name] = {"origin": origin, "raw_key": attr.raw_key}
+            if attr.candidates:
+                ambiguous_primary.append({
+                    "sample_type": row.sample_type, "attribute": name,
+                    "chosen": attr.source_file, "candidates": attr.candidates,
+                })
 
         if row.uid:
             meta["UID"] = row.uid
@@ -1252,7 +1267,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
                              f"`{entry['source_file']}` |\n")
         saved_files[f"map_proposals_{_slug(pipeline)}"] = proposals_path
 
-    reply = user_report.render_qa_for_user(reports_by_type, saved_files, run_name)
+    reply = user_report.render_qa_for_user(reports_by_type, saved_files, run_name,
+                                           ambiguous_primary=ambiguous_primary)
 
     pending = [
         {**entry, "proposed_attribute": "", "proposed_target": "",

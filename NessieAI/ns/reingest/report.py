@@ -121,7 +121,7 @@ def _children_first(item):
 
 
 def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str],
-                        run_name: str) -> str:
+                        run_name: str, ambiguous_primary: list[dict] | None = None) -> str:
     """Render the whole run's QA outcome as plain-language text.
 
     ``reports`` -- ``{sample_type: QaReport}``, one entry per sample type QA'd
@@ -134,11 +134,25 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     per sample type via ``_resolve_artifact``/``_normalize_artifact_key``,
     which duplicate that same normalisation by hand.
 
+    ``ambiguous_primary`` -- ``[{sample_type, attribute, chosen, candidates}]``,
+    one entry per ``File_PrimaryData`` the mapper set from more than one
+    same-basename candidate with no checksum to decisively pick a winner (see
+    ``NessieAI/ns/reingest/mapper.py``'s ``MappedAttribute.candidates``
+    docstring). This is a DIFFERENT fact from an unmapped raw metric key --
+    an attribute here WAS set, but the choice among candidates was not forced
+    by evidence -- so it is its own parameter rather than folded into
+    ``reports``' hard/soft findings (a mapping-time judgement call, not a
+    row-level QA check) or the unrelated ``result.unmapped`` channel
+    (``NessieAI/ns/granular.py``'s own docstring on why). ``chosen`` and each
+    entry in ``candidates`` are harvested, run-relative paths -- the only way
+    to show the directory a same-named basename hides.
+
     Returns the full report as one string. This is the module's only public
     function, and its output is relayed to the user VERBATIM by the calling
     agent -- see the module docstring's three rules -- so nothing here should
     be re-summarised or reworded downstream.
     """
+    ambiguous_primary = ambiguous_primary or []
     blocked = any(built.disposition == qa.HARD_REJECT for built in reports.values())
     lines: list[str] = []
 
@@ -209,6 +223,25 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
         lines.append("")
         for index, (code, attribute, bucket) in enumerate(soft_checks, start=1):
             lines.extend(_render_one(index, code, attribute, bucket, parent_blocked_types))
+            lines.append("")
+
+    if ambiguous_primary:
+        header = ("ONE PRIMARY-FILE PICK TO CONFIRM" if len(ambiguous_primary) == 1
+                   else f"{len(ambiguous_primary)} PRIMARY-FILE PICKS TO CONFIRM")
+        lines.append(header)
+        lines.append("")
+        for index, entry in enumerate(ambiguous_primary, start=1):
+            candidates = ", ".join(entry["candidates"])
+            lines.append(
+                f"  {index}.  {len(entry['candidates'])} candidate primary files matched"
+                f" {entry['sample_type']}'s rule ({candidates}); used {entry['chosen']}.")
+            lines.append("")
+            lines.append(
+                "      No checksum settled this one, so the pick was alphabetical,")
+            lines.append(
+                "      not measured. Confirm it is the right file, or tell me which")
+            lines.append(
+                "      one is and I will use that instead.")
             lines.append("")
 
     lines.append("TO UPLOAD")

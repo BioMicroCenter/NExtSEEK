@@ -512,6 +512,37 @@ def test_primary_output_prefers_the_checksummed_candidate_over_sorted_first():
 def test_primary_output_still_breaks_ties_by_sorted_path_when_none_is_checksummed():
     # Same two candidates, neither hashed -- sorted-first ("salmon/") stays
     # the deterministic tie-break, unchanged from before Important 3's fix.
+    #
+    # Selects the A.GEX rule by `sample_type`, not `outputs[1]`: a positional
+    # index silently retargets to a different rule if `rnaseq.outputs.json`
+    # is ever reordered (Minor 6, 2026-09-17 review). The old
+    # `File_PrimaryData.value == "all.merged.gene_counts.tsv"` assertion is
+    # dropped rather than kept alongside: both candidates share that
+    # basename by construction, so it passed no matter which one won and
+    # exercised nothing that `_primary_output(...).path` below does not
+    # already cover for real.
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.outputs = [
+        manifest.OutputRecord(path="star_salmon/all.merged.gene_counts.tsv", bytes=50),
+        manifest.OutputRecord(path="salmon/all.merged.gene_counts.tsv", bytes=50),
+    ]
+    gex_rule = next(o for o in maps.load("rnaseq").outputs if o.sample_type == "A.GEX")
+    primary = mapper._primary_output(gex_rule, run, None)
+    assert primary.path == "salmon/all.merged.gene_counts.tsv"
+
+
+def test_ambiguous_primary_candidates_are_reported_but_still_set_a_value():
+    # Minor 1 (2026-09-17 review): the checksummed-preference fix only helps
+    # when the agent actually hashed something -- the recipe usually says to
+    # SKIP the checksum step, so the common path is exactly this one, with
+    # `checksums == {}` and sorted-first the only tie-break. Because the
+    # rendered value is a basename, the two candidates are textually
+    # identical on the Samples sheet, so the silent pick must be reported
+    # somewhere a curator can see it: on the attribute's own `candidates`
+    # list (see mapper.py's `MappedAttribute.candidates` docstring), never
+    # dropped even though a value is still set so the render stays unblocked.
     run = _multi_sample_run(
         manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
                               uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
@@ -521,6 +552,29 @@ def test_primary_output_still_breaks_ties_by_sorted_path_when_none_is_checksumme
     ]
     result = mapper.apply(run, maps.load("rnaseq"))
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
-    assert gex.attributes["File_PrimaryData"].value == "all.merged.gene_counts.tsv"
-    primary = mapper._primary_output(maps.load("rnaseq").outputs[1], run, None)
-    assert primary.path == "salmon/all.merged.gene_counts.tsv"
+    attr = gex.attributes["File_PrimaryData"]
+    # A value is still set -- the render stays unblocked.
+    assert attr.value == "all.merged.gene_counts.tsv"
+    # ...but the ambiguity is reported: both candidates are named, and the
+    # winner is identifiable by its full, directory-qualified path (unlike
+    # `value`, which cannot show the difference).
+    assert set(attr.candidates) == {
+        "star_salmon/all.merged.gene_counts.tsv", "salmon/all.merged.gene_counts.tsv"}
+    assert attr.source_file == "salmon/all.merged.gene_counts.tsv"
+
+
+def test_a_single_checksummed_candidate_is_not_reported_as_ambiguous():
+    # The counterpart to the test above: when a checksum genuinely singles
+    # out one candidate (Important 3's own fix), that is a real, evidenced
+    # pick, not a silent one -- `candidates` must stay empty.
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.outputs = [
+        manifest.OutputRecord(path="salmon/all.merged.gene_counts.tsv", bytes=50),
+        manifest.OutputRecord(path="star_salmon/all.merged.gene_counts.tsv", bytes=50),
+    ]
+    run.checksums = {"star_salmon/all.merged.gene_counts.tsv": "star0salmon0checksum"}
+    result = mapper.apply(run, maps.load("rnaseq"))
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["File_PrimaryData"].candidates == []

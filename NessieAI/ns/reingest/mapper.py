@@ -61,6 +61,17 @@ class MappedAttribute(BaseModel):
     origin: str
     raw_key: str = ""
     source_file: str = ""
+    # Populated only for a File_PrimaryData attribute whose winning candidate
+    # was NOT singled out by a checksum -- i.e. more than one inventoried
+    # output matched the rule's own glob and either none or more than one of
+    # them is checksummed, so `sorted()` (see `_primary_output`) made the
+    # call rather than measured evidence. Holds every candidate's harvested,
+    # run-relative path (the chosen one included) so a reader can see the
+    # directory each shared a basename with -- `value` itself is a bare
+    # basename and cannot show that. Empty whenever there was only one
+    # candidate, or a checksum uniquely picked the winner: an ordinary,
+    # non-ambiguous pick is not something to flag.
+    candidates: list[str] = Field(default_factory=list)
 
 
 class MappedRow(BaseModel):
@@ -177,19 +188,41 @@ def _expand_braces(pattern: str) -> list[str]:
             for expanded in _expand_braces(before + alt + after)]
 
 
-def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
-                    sample_name: str | None) -> manifest.OutputRecord | None:
-    """The inventoried output this rule's own ``glob`` matches, so
-    ``Checksum_PrimaryData`` can be looked up by the SAME path
-    ``run-checksum`` hashed -- reusing ``rule.glob``/``rule.primary_data``
-    rather than a static ``$``-ref, since the harvested path is a run-time
-    value no committed map can name in advance (see mapper.py's module
-    docstring on why a map rule cannot express this directly).
+def _primary_candidates(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
+                        sample_name: str | None) -> list[manifest.OutputRecord]:
+    """Every inventoried output this rule's own ``glob`` matches, sorted by
+    path -- the shared candidate-gathering step behind both ``_primary_output``
+    (which picks one) and ``_attach_checksum`` (which also needs to know
+    whether more than one candidate was in play, to decide whether the pick
+    was a real tie-break worth flagging). Factored out rather than
+    duplicated so the two can never drift on what counts as a candidate.
 
     ``sample_name`` filters to one sample's own output (a per_sample rule) by
     ``OutputRecord.sample`` -- attributed once, at harvest time, by
     ``harvest.py``'s ``_sample_for_output_path``, never re-derived here;
     ``None`` skips that filter for a per_run rule's single, run-wide file.
+    Empty whenever the rule declares no primary data, or nothing in the
+    inventory matches yet -- never an error.
+    """
+    if not rule.primary_data:
+        return []
+    patterns = _expand_braces(rule.glob)
+    return sorted(
+        (o for o in run_manifest.outputs
+         if (sample_name is None or o.sample == sample_name)
+         and any(fnmatch.fnmatch(o.path, pat) for pat in patterns)),
+        key=lambda o: o.path)
+
+
+def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
+                    sample_name: str | None) -> manifest.OutputRecord | None:
+    """The one candidate from ``_primary_candidates`` to treat as this rule's
+    primary file, so ``Checksum_PrimaryData`` can be looked up by the SAME
+    path ``run-checksum`` hashed -- reusing ``rule.glob``/``rule.primary_data``
+    rather than a static ``$``-ref, since the harvested path is a run-time
+    value no committed map can name in advance (see mapper.py's module
+    docstring on why a map rule cannot express this directly).
+
     Ties (more than one candidate, e.g. two aligners both present) prefer
     whichever candidate ``run_manifest.checksums`` already has a digest for
     -- run-checksum only ever hashes what the agent actually pointed at (see
@@ -203,17 +236,9 @@ def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
     checksummed (including "none of them"), sorted-first is still the
     deterministic tie-break ``harvest.py``'s own ``_resolve_named_outputs``
     uses -- not a claim that it is the "right" one. Returns ``None`` on an
-    ordinary miss (rule declares no primary data, or nothing in the
-    inventory matches yet) -- never an error.
+    ordinary miss (see ``_primary_candidates``) -- never an error.
     """
-    if not rule.primary_data:
-        return None
-    patterns = _expand_braces(rule.glob)
-    candidates = sorted(
-        (o for o in run_manifest.outputs
-         if (sample_name is None or o.sample == sample_name)
-         and any(fnmatch.fnmatch(o.path, pat) for pat in patterns)),
-        key=lambda o: o.path)
+    candidates = _primary_candidates(rule, run_manifest, sample_name)
     if not candidates:
         return None
     checksummed = [o for o in candidates if o.path in run_manifest.checksums]
@@ -224,9 +249,11 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
                      run_manifest: manifest.RunManifest, sample_name: str | None) -> None:
     """Set ``File_PrimaryData`` (always, once a primary output is found) and
     ``Checksum_PrimaryData`` (only once that file has actually been hashed)
-    on ``row``, both keyed by this rule's own matched output path -- reusing
-    ``_primary_output`` so both attributes name the SAME file, never two
-    different candidates.
+    on ``row``, both keyed by this rule's own matched output path -- sharing
+    ``_primary_candidates``' tie-break logic with ``_primary_output`` (rather
+    than calling it) so this can also see the FULL candidate set, needed to
+    tell an ordinary pick from an ambiguous one; both ways of picking always
+    name the SAME file, never two different candidates.
 
     Without ``File_PrimaryData`` (or ``Link_PrimaryData``, which reingest
     never produces), A.ALN/A.GEX fail the catalog's own
@@ -264,14 +291,39 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
     committed map currently sets ``File_PrimaryData`` this way, but the
     guard costs nothing and keeps the rule uniform with
     ``Checksum_PrimaryData``'s own.
+
+    ``File_PrimaryData``'s ``raw_key`` is deliberately left blank rather than
+    a ``$outputs.<path>``-shaped string: ``$outputs`` only ever resolves
+    against ``RunManifest.named_outputs`` BY KEY (``maps.resolve_ref``), never
+    by path, so a string built from ``primary.path`` looks like a resolvable
+    reference (its sibling ``Checksum_PrimaryData``'s ``$checksums.<path>``
+    raw_key genuinely does resolve, by path, which is exactly what makes the
+    difference easy to miss) but silently resolves to ``None`` if anyone ever
+    pasted it into a map file. ``source_file`` already carries the same path
+    for the Provenance sheet, so nothing is lost by leaving ``raw_key`` empty.
+
+    When more than one inventoried output matched the rule's glob and no
+    single checksum picked a clear winner (see ``_primary_output``'s
+    docstring), the pick is a real, silent judgement call -- so every
+    candidate's path (winner included) is recorded on the attribute's own
+    ``candidates`` list. That reaches the run's QA reply
+    (``NessieAI/ns/granular.py`` folds it into ``ambiguous_primary``, and
+    ``report.py`` renders it) so a same-basename ambiguity a curator could
+    never see on the Samples sheet becomes reviewable instead of silent. A
+    single candidate, or one a checksum genuinely singled out, is an
+    ordinary pick and leaves ``candidates`` empty.
     """
-    primary = _primary_output(rule, run_manifest, sample_name)
-    if primary is None:
+    candidates = _primary_candidates(rule, run_manifest, sample_name)
+    if not candidates:
         return
+    checksummed = [o for o in candidates if o.path in run_manifest.checksums]
+    primary = checksummed[0] if checksummed else candidates[0]
     if "File_PrimaryData" not in row.attributes:
+        ambiguous = len(candidates) > 1 and len(checksummed) != 1
         row.attributes["File_PrimaryData"] = MappedAttribute(
             attribute="File_PrimaryData", value=os.path.basename(primary.path),
-            origin=ORIGIN_MAP, raw_key=f"$outputs.{primary.path}", source_file=primary.path)
+            origin=ORIGIN_MAP, raw_key="", source_file=primary.path,
+            candidates=[c.path for c in candidates] if ambiguous else [])
     if "Checksum_PrimaryData" in row.attributes:
         return
     checksum = run_manifest.checksums.get(primary.path)

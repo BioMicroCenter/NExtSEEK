@@ -56,7 +56,14 @@ def _dispatch(op: str, args: dict, config=None, session=None, write_gate=None,
 _D_SEQ_ROW = {
     "sample_type": "D.SEQ", "sampletype_id": 1, "name": "Sequencing Data",
     "description": "Raw sequencing reads.", "clade": "Raw", "tags": "",
-    "required_metadata": "UID",
+    # required_metadata VERBATIM from the committed seed (startup/seed/dmac.sql.gz,
+    # table sample_types_context, the D.SEQ row) -- un-blanked for the same
+    # reason A.ALN/A.GEX below are: it is harmless today (update mode only
+    # checks present-but-blank, never absence) but leaving it as the bare
+    # "UID" this fixture used to declare hides that from the next reader
+    # (Minor 7, 2026-09-17 review).
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, "
+                          "Checksum_PrimaryData, Scientist, Parent",
     "standard_metadata": "MappedPercent, Genome",
     "possible_metadata_fields": "",
     "parent_sampletypes": "", "child_sampletypes": "",
@@ -413,6 +420,20 @@ def test_a_manifest_with_no_checksums_still_renders_a_workbook(rows, tmp_path, m
         wb = openpyxl.load_workbook(result["saved_files"][key])
         header = [c.value for c in wb["Samples"][1]]
         assert "Checksum_PrimaryData" not in header
+
+    # Minor 3 (2026-09-17 review): the docstring above has promised
+    # "File_PrimaryData filled from that inventory" since this test was
+    # written, but nothing checked the actual cell -- only that the
+    # workbooks exist and Checksum_PrimaryData is absent. Assert the real
+    # value, for both A.ALN and A.GEX, the same way the checksummed test
+    # above does for Checksum_PrimaryData.
+    wb_aln = openpyxl.load_workbook(result["saved_files"]["reingest_A_ALN"])
+    aln_files = _cell_by_header(wb_aln["Samples"], "File_PrimaryData")
+    assert set(aln_files.values()) == {"SAMPLE_1.markdup.sorted.bam"}
+
+    wb_gex = openpyxl.load_workbook(result["saved_files"]["reingest_A_GEX"])
+    gex_files = _cell_by_header(wb_gex["Samples"], "File_PrimaryData")
+    assert set(gex_files.values()) == {"all.merged.gene_counts.tsv"}
 
 
 @patch("nextseek_api.services.context_catalog._sample_type_rows")
