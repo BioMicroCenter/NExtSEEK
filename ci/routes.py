@@ -928,6 +928,15 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^assistant/report/$", path=None,
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
           note="granular assistant op: reporter summary"),
+    Route(pattern=r"^nextseek_api/^^assistant/run-checksum/$", path=None,
+          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_EXTERNAL",
+          note="granular assistant op: md5 a caller-named set of settled primary-data "
+               "files under a finished Luria run over SSH (reingest step 2)"),
+    Route(pattern=r"^nextseek_api/^^assistant/run-harvest/$", path=None,
+          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_EXTERNAL",
+          note="granular assistant op: stage a finished Luria run's allowlisted "
+               "outputs off the cluster over SSH and parse them into a manifest "
+               "(reingest step 1)"),
     Route(pattern=r"^nextseek_api/^^assistant/run-ls/$", path=None,
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_EXTERNAL",
           note="recursive listing of a finished Luria run directory over SSH"),
