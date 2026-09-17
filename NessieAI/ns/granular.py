@@ -808,10 +808,14 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
             "skipped": payload.get("skipped") or []}
 
 
-def _d_seq_by_fastq(path: str) -> list[str]:
-    """D.SEQ UIDs whose File_PrimaryData / Link_PrimaryData mentions ``path``."""
+def _d_seq_by_fastq(path: str, types: tuple[str, ...] = ("D.SEQ",)) -> list[str]:
+    """UIDs of a sample type in ``types`` whose File_PrimaryData /
+    Link_PrimaryData mentions ``path``. Defaults to D.SEQ only, this
+    lookup's original scope -- ``harvest.harvest_local`` passes the run's
+    own pipeline map's ``accepts_parent_types`` here instead when it has
+    one (see maps.PipelineMap.accepts_parent_types)."""
     from nextseek_api.services.reingest_lookups import uids_by_primary_data
-    return uids_by_primary_data(path)
+    return uids_by_primary_data(path, types=types)
 
 
 def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_dir):

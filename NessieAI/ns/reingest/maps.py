@@ -73,6 +73,27 @@ class PipelineMap(BaseModel):
     harvest_globs: list[str] = Field(default_factory=list)
     derived_metrics: list[str] = Field(default_factory=list)
     outputs: list[OutputRule] = Field(default_factory=list)
+    # Which sample types this pipeline's samplesheet can legitimately point
+    # back to as a PARENT. `nextseek_api.services.reingest_lookups.
+    # uids_by_primary_data`, the fastq-path fallback used when a run has no
+    # Nessie launch record, used to search only D.SEQ -- so a run whose input
+    # was already-analysed data (an A.* sample fed into a downstream
+    # pipeline, e.g. hlatyping's `bam` column, or rnavar's `vcf` column)
+    # could never be found by path and fell through to RESOLUTION_UNRESOLVED
+    # even though its real parent exists and is findable. This field lets a
+    # map opt into searching wider, but ONLY among types its own pinned
+    # samplesheet schema actually declares as acceptable input -- never an
+    # unscoped string search across the whole ~101-type catalog, where a
+    # wrong-but-plausible match would be indistinguishable from a right one
+    # and would write a fabricated lineage into a database of record. The
+    # default, ["D.SEQ"], is deliberately the narrow, pre-existing behavior:
+    # an undeclared map (or one nobody has verified against a wider set)
+    # must keep searching exactly what it always searched, not silently
+    # widen. Must be non-empty -- see test_map_contract.py's
+    # test_accepts_parent_types_is_never_empty for why an empty list is
+    # illegal rather than a silent no-op.
+    accepts_parent_types: list[str] = Field(
+        default_factory=lambda: ["D.SEQ"], min_length=1)
     provenance_attributes: dict[str, str] = Field(default_factory=dict)
     qc_attributes: dict[str, AttributeRule] = Field(default_factory=dict)
     deliberately_unmapped: list[UnmappedRuling] = Field(default_factory=list)

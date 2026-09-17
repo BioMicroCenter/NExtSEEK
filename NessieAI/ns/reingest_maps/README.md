@@ -8,6 +8,22 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 
 - `harvest_globs` — extra files this pipeline needs, on top of the generic
   `pipeline_info/` and MultiQC allowlist in `reingest/harvest.py`.
+- `accepts_parent_types` — the sample types this pipeline's samplesheet can
+  legitimately point back to as a PARENT, e.g. `["D.SEQ", "A.ALN"]` for a
+  pipeline whose input schema accepts a `bam` column alongside `fastq_1`.
+  Scopes the fastq/file-path fallback lookup
+  (`nextseek_api.services.reingest_lookups.uids_by_primary_data`) that runs
+  when a run has no Nessie launch record to resolve a sample's UID by name.
+  Defaults to `["D.SEQ"]` — the lookup's original, sole scope — so an
+  undeclared or unverified map keeps searching exactly what it always
+  searched rather than silently widening. Set it only after checking the
+  pipeline's own pinned `schema_input.json` (or, absent a fixture, a census
+  of its required samplesheet columns): declaring a type the pipeline's
+  input schema does not actually accept would let a same-run coincidence
+  masquerade as a real parent, which is worse than finding nothing — see
+  `_matches_path` in `reingest_lookups.py`. Must be non-empty;
+  `test_map_contract.py` enforces both that and that every entry names a
+  real sample type in the catalog.
 - `outputs` — glob to SampleType, with `cardinality` `per_sample` (1 to 1) or
   `per_run` (many to 1, `Parent` semicolon-joined).
 - `provenance_attributes` — a single flat dict shared by the whole map, merged

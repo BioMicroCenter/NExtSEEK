@@ -26,14 +26,14 @@ needs_golden = pytest.mark.skipif(
 @needs_fixture
 @needs_golden
 def test_harvest_matches_the_golden_manifest():
-    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p: []).model_dump()
+    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p, types=None: []).model_dump()
     got["run_dir"] = "<fixture>"
     assert got == json.loads(GOLDEN.read_text())
 
 
 @needs_fixture
 def test_metric_keys_are_not_renamed():
-    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p, types=None: [])
     sample = next(s for s in got.samples if s.nfcore_sample == "CONTROL_REP1")
     assert sample.metrics, "expected general-stats metrics for CONTROL_REP1"
     # Two MultiQC modules spell a near-identical metric two different ways
@@ -46,7 +46,7 @@ def test_metric_keys_are_not_renamed():
 
 @needs_fixture
 def test_sources_names_a_file_for_every_top_level_section():
-    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p, types=None: [])
     assert got.sources["params"].endswith("params_2026-01-26_13-53-31.json")
     assert got.sources["software_versions"].endswith(
         "nf_core_rnaseq_software_mqc_versions.yml")
@@ -56,7 +56,7 @@ def test_sources_names_a_file_for_every_top_level_section():
 
 @needs_fixture
 def test_a_finished_run_is_marked_complete():
-    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p, types=None: [])
     assert got.run_status == manifest.RUN_COMPLETE
 
 
@@ -65,7 +65,7 @@ def test_a_missing_software_versions_makes_the_run_incomplete(tmp_path):
     copy = tmp_path / "run"
     shutil.copytree(FIXTURE, copy)
     (copy / "pipeline_info" / "nf_core_rnaseq_software_mqc_versions.yml").unlink()
-    got = harvest.harvest_local(str(copy), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(copy), lookup_by_fastq=lambda p, types=None: [])
     assert got.run_status == manifest.RUN_INCOMPLETE
 
 
@@ -77,7 +77,7 @@ def test_a_missing_execution_trace_makes_the_run_incomplete(tmp_path):
     copy = tmp_path / "run"
     shutil.copytree(FIXTURE, copy)
     (copy / "pipeline_info" / "execution_trace.txt").unlink()
-    got = harvest.harvest_local(str(copy), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(copy), lookup_by_fastq=lambda p, types=None: [])
     assert got.run_status == manifest.RUN_INCOMPLETE
 
 
@@ -89,13 +89,13 @@ def test_a_failed_run_is_marked_failed_so_the_op_can_refuse(tmp_path):
     lines = trace.read_text().splitlines()
     lines[1] = lines[1].replace("COMPLETED", "FAILED")
     trace.write_text("\n".join(lines) + "\n")
-    got = harvest.harvest_local(str(copy), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(copy), lookup_by_fastq=lambda p, types=None: [])
     assert got.execution.failed == 1
 
 
 @needs_fixture
 def test_caps_record_what_was_read():
-    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p, types=None: [])
     assert got.caps.files_read > 0
     assert got.caps.bytes_read > 0
     assert got.caps.truncated == []
@@ -110,7 +110,7 @@ def test_software_version_conflict_is_surfaced_as_a_warning():
     # vs UCSC_BEDGRAPHTOBIGWIG 469). The flat `software_versions` map keeps
     # only the last-seen value for each; none of the three conflicts may be
     # silently lost.
-    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p, types=None: [])
     assert got.warnings == [
         "python: conflicting versions across processes (3.10.4, 3.9.5)",
         "star: conflicting versions across processes (2.7.10a, 2.7.11b)",
@@ -128,7 +128,7 @@ def test_samples_source_is_recorded_even_via_the_general_stats_fallback():
     # Samples WERE identified (from multiqc general stats) even though there
     # is no samplesheet to resolve their D.SEQ UIDs from -- sources["samples"]
     # must name the file the names actually came from, not be absent.
-    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p, types=None: [])
     assert got.sources["samples"] == got.sources["metrics"]
     assert got.sources["samples"].endswith("multiqc_general_stats.txt")
 
@@ -138,7 +138,7 @@ def test_per_sample_derived_metrics_include_sense_antisense_ratio():
     # sense_antisense_ratio comes from parse_infer_experiment, fed from
     # <aligner>/rseqc/infer_experiment/<sample>.infer_experiment.txt -- not
     # just read_distribution's four percentages.
-    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(FIXTURE), lookup_by_fastq=lambda p, types=None: [])
     sample = next(s for s in got.samples if s.nfcore_sample == "CONTROL_REP1")
     assert "sense_antisense_ratio" in sample.derived
     assert "cds_pct" in sample.derived
@@ -171,7 +171,7 @@ def test_an_oversized_per_sample_file_is_capped_not_read(tmp_path, monkeypatch):
     oversized_rel = "star_salmon/rseqc/read_distribution/CONTROL_REP1.read_distribution.txt"
     (root / oversized_rel).write_text("Total Assigned Tags 100\n" + "x" * 2_000)
 
-    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
 
     assert oversized_rel in got.caps.truncated
     sample = next(s for s in got.samples if s.nfcore_sample == "CONTROL_REP1")
@@ -228,7 +228,7 @@ def test_every_glob_the_harvester_reads_is_in_generic_globs(tmp_path, monkeypatc
 
     monkeypatch.setattr(Path, "glob", recording_glob)
 
-    harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+    harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
 
     assert observed, "harvest_local must have called Path.glob at least once"
     uncovered = [pattern for pattern in set(observed)
@@ -258,7 +258,7 @@ def test_general_stats_fallback_keeps_a_real_sample_named_with_a_replicate_suffi
         # a genuine MultiQC per-read row: only fastqc/cutadapt columns.
         "A_2\t\t47.5\n")
 
-    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
 
     names = {s.nfcore_sample for s in got.samples}
     assert names == {"A", "A_1"}
@@ -291,7 +291,7 @@ def test_general_stats_fallback_keeps_a_failed_alignment_sample(tmp_path):
         "FAILED_REP1_1\t\t47.0\n"
         "FAILED_REP1_2\t\t46.5\n")
 
-    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
 
     names = {s.nfcore_sample for s in got.samples}
     assert names == {"CONTROL_REP1", "FAILED_REP1_1", "FAILED_REP1_2"}
@@ -318,7 +318,7 @@ def test_a_purely_local_caller_without_an_inventory_still_works(tmp_path):
     # test) must keep working, with an empty inventory rather than an error.
     root = tmp_path / "run"
     _minimal_run(root)
-    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
     assert got.outputs == []
     assert got.named_outputs == {}
 
@@ -332,7 +332,7 @@ def test_inventory_entry_carries_the_real_file_size_not_a_decoded_text_length():
     got = harvest.harvest_local(
         "/nonexistent-root-never-read",
         inventory=[{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 4823019283}],
-        lookup_by_fastq=lambda p: [])
+        lookup_by_fastq=lambda p, types=None: [])
     assert len(got.outputs) == 1
     assert got.outputs[0].path == "star_salmon/CONTROL_REP1.markdup.sorted.bam"
     assert got.outputs[0].bytes == 4823019283
@@ -353,7 +353,7 @@ def test_inventory_entries_are_attributed_to_a_sample_when_derivable(tmp_path):
             {"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 100},
             {"path": "star_salmon/salmon.merged.gene_counts.tsv", "bytes": 200},
         ],
-        lookup_by_fastq=lambda p: [])
+        lookup_by_fastq=lambda p, types=None: [])
 
     by_path = {o.path: o for o in got.outputs}
     assert by_path["star_salmon/CONTROL_REP1.markdup.sorted.bam"].sample == "CONTROL_REP1"
@@ -376,7 +376,7 @@ def test_named_outputs_resolves_the_three_well_known_keys_from_a_synthetic_tree(
             # a decoy that must NOT be picked for any named key.
             {"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 444},
         ],
-        lookup_by_fastq=lambda p: [])
+        lookup_by_fastq=lambda p, types=None: [])
 
     assert got.named_outputs == {
         "multiqc_report_html": "multiqc/star_salmon/multiqc_data/multiqc_report.html",
@@ -391,7 +391,7 @@ def test_named_outputs_omits_a_key_with_no_matching_inventory_entry(tmp_path):
     got = harvest.harvest_local(
         str(root),
         inventory=[{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 1}],
-        lookup_by_fastq=lambda p: [])
+        lookup_by_fastq=lambda p, types=None: [])
     assert got.named_outputs == {}
 
 
@@ -418,7 +418,7 @@ def test_a_multirun_sample_collapses_to_exactly_one_sample_record(tmp_path):
     mapping = {"/net/cluster/fastq/S1_L001_R1.fastq.gz": ["D.SEQ-LANE-1"],
                "/net/cluster/fastq/S1_L002_R1.fastq.gz": ["D.SEQ-LANE-2"]}
 
-    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: mapping.get(p, []))
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: mapping.get(p, []))
 
     matches = [s for s in got.samples if s.nfcore_sample == "S1"]
     assert len(matches) == 1
@@ -443,7 +443,7 @@ def test_a_multirun_samples_partial_resolution_is_recorded_as_a_warning(tmp_path
     _multirun_samplesheet(root)
     mapping = {"/net/cluster/fastq/S1_L001_R1.fastq.gz": ["D.SEQ-LANE-1"]}
 
-    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: mapping.get(p, []))
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: mapping.get(p, []))
 
     sample = next(s for s in got.samples if s.nfcore_sample == "S1")
     assert sample.d_seq_uid_multirun == ["D.SEQ-LANE-1"]
@@ -457,7 +457,7 @@ def test_a_multirun_sample_with_nothing_resolved_gets_no_partial_warning(tmp_pat
     _minimal_run(root)
     _multirun_samplesheet(root)
 
-    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
 
     sample = next(s for s in got.samples if s.nfcore_sample == "S1")
     assert sample.d_seq_uid_multirun == []
@@ -476,8 +476,111 @@ def test_a_multirun_samples_two_rows_resolving_to_the_same_parent_is_not_partial
     _multirun_samplesheet(root)
 
     got = harvest.harvest_local(
-        str(root), lookup_by_fastq=lambda p: ["D.SEQ-SAME-RECORD"])
+        str(root), lookup_by_fastq=lambda p, types=None: ["D.SEQ-SAME-RECORD"])
 
     sample = next(s for s in got.samples if s.nfcore_sample == "S1")
     assert sample.d_seq_uid_multirun == ["D.SEQ-SAME-RECORD"]
     assert not any("S1" in w and "partial" in w for w in got.warnings)
+
+
+# ---------------------------------------------------------------------------
+# accepts_parent_types wiring: harvest_local resolves the run's own pipeline
+# map and threads its accepts_parent_types into the lookup it hands to
+# uid_resolve -- see maps.PipelineMap.accepts_parent_types and harvest.py's
+# comment at the uid_resolve.resolve() call site.
+# ---------------------------------------------------------------------------
+
+def _hlatyping_run(root, sample="PATIENT1", primary_path=None):
+    """A minimal staged run for a pipeline whose committed map declares a
+    wider accepts_parent_types (["D.SEQ", "A.ALN"]) than the default -- see
+    NessieAI/ns/reingest_maps/hlatyping.outputs.json. `fastq_1` carries
+    whatever path the test wants the lookup to be asked about; hlatyping's
+    real samplesheet would put an already-aligned parent's path in its `bam`
+    column instead (uid_resolve only ever reads `fastq_1` -- see this
+    change's report for that gap), but this test is only about which TYPES
+    the lookup is asked to search, not which samplesheet column feeds it.
+    """
+    primary_path = primary_path or f"/net/cluster/runs/aln/{sample}.markdup.sorted.bam"
+    (root / "pipeline_info").mkdir(parents=True)
+    (root / "pipeline_info" / "nf_core_hlatyping_software_mqc_versions.yml").write_text(
+        "Workflow:\n  nf-core/hlatyping: 2.1.0\n  Nextflow: 25.10.2\n")
+    (root / "pipeline_info" / "execution_trace.txt").write_text(
+        "task_id\tstatus\n1\tCOMPLETED\n")
+    (root / "samplesheet.csv").write_text(
+        f"sample,fastq_1\n{sample},{primary_path}\n")
+    return primary_path
+
+
+def test_a_wider_map_threads_its_extra_type_into_the_lookup(tmp_path):
+    # hlatyping's committed map declares accepts_parent_types = ["D.SEQ",
+    # "A.ALN"] (its pinned schema_input.json accepts a `bam` column
+    # alongside fastq_1/fastq_2 -- see the report for the source
+    # verification). harvest_local must resolve THAT map from the run's own
+    # parsed pipeline name and hand BOTH types to the lookup, not just
+    # "D.SEQ" -- a stub that never implemented this threading would only
+    # ever see ("D.SEQ",) and this test would fail against it.
+    root = tmp_path / "run"
+    primary_path = _hlatyping_run(root)
+    calls = []
+
+    def lookup(path, types):
+        calls.append(tuple(types))
+        return ["A.ALN-PARENT-1"] if "A.ALN" in types and path == primary_path else []
+
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lookup)
+
+    sample = next(s for s in got.samples if s.nfcore_sample == "PATIENT1")
+    assert calls and set(calls[0]) == {"D.SEQ", "A.ALN"}
+    assert sample.d_seq_uid == "A.ALN-PARENT-1"
+    assert sample.uid_resolution == manifest.RESOLUTION_FASTQ_EXACT
+
+
+def test_a_d_seq_only_map_threads_exactly_the_historical_scope(tmp_path):
+    # rnaseq's committed map declares no wider accepts_parent_types, so the
+    # lookup this test's stub records must be handed EXACTLY ("D.SEQ",) --
+    # the same scope used before this field existed -- never silently
+    # widened to a type this map never declared.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    (root / "samplesheet.csv").write_text(
+        "sample,fastq_1,fastq_2,strandedness\n"
+        "CONTROL_REP1,/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz,,auto\n")
+    calls = []
+
+    def lookup(path, types):
+        calls.append(tuple(types))
+        return ["D.SEQ-UID-1"] if path.endswith("CONTROL_REP1_R1.fastq.gz") else []
+
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lookup)
+
+    sample = next(s for s in got.samples if s.nfcore_sample == "CONTROL_REP1")
+    assert calls == [("D.SEQ",)]
+    assert sample.d_seq_uid == "D.SEQ-UID-1"
+    assert sample.uid_resolution == manifest.RESOLUTION_FASTQ_EXACT
+
+
+def test_an_unrecognised_pipeline_falls_back_to_the_d_seq_only_default(tmp_path):
+    # A pipeline with no committed map at all (or one harvest_local cannot
+    # yet identify) must not raise out of a read-only harvest step, and must
+    # not search wider than the historical default either.
+    root = tmp_path / "run"
+    root.mkdir(parents=True)
+    (root / "pipeline_info").mkdir()
+    (root / "pipeline_info" / "nf_core_notreal_software_mqc_versions.yml").write_text(
+        "Workflow:\n  nf-core/notreal: 1.0.0\n  Nextflow: 25.10.2\n")
+    (root / "pipeline_info" / "execution_trace.txt").write_text(
+        "task_id\tstatus\n1\tCOMPLETED\n")
+    (root / "samplesheet.csv").write_text(
+        "sample,fastq_1\nS1,/net/cluster/fastq/S1_R1.fastq.gz\n")
+    calls = []
+
+    def lookup(path, types):
+        calls.append(tuple(types))
+        return []
+
+    harvest.harvest_local(str(root), lookup_by_fastq=lookup)
+
+    # _by_path tries an exact match and then a basename fallback, so an
+    # unresolved lookup is called twice -- both calls must carry the same
+    # ("D.SEQ",) scope.
+    assert calls == [("D.SEQ",), ("D.SEQ",)]

@@ -1,5 +1,5 @@
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -140,6 +140,58 @@ class TestUidsByPrimaryData:
                 _metadata_row("uid-1", File_PrimaryData="/net/cluster/fastq/aa.fastq.gz"),
             ]
             assert reingest_lookups.uids_by_primary_data("a.fastq.gz") == []
+
+    def test_default_types_scopes_the_type_filter_to_d_seq_only(self):
+        # The historical, sole scope of this lookup, preserved as the
+        # default so every caller that never passes `types` (there were no
+        # others before this parameter existed) keeps searching exactly
+        # what it always searched.
+        with patch("seek.models.Sample_types.objects") as sample_types, \
+                patch("seek.models.Samples.objects") as samples:
+            sample_types.filter.return_value.values_list.return_value = [7]
+            samples.filter.return_value.values_list.return_value = []
+            reingest_lookups.uids_by_primary_data("/net/cluster/fastq/a.fastq.gz")
+            sample_types.filter.assert_called_once_with(title__in=["D.SEQ"])
+
+    def test_a_declared_wider_type_finds_a_parent_a_d_seq_only_search_would_miss(self):
+        # The scenario the fix exists for: a parent that is itself an
+        # already-analysed A.ALN sample (fed as input to a downstream
+        # pipeline, e.g. hlatyping's `bam` column), not raw D.SEQ. A
+        # D.SEQ-only search -- this lookup's old, hardcoded scope -- can
+        # never see it; scoping to the pipeline's own declared
+        # accepts_parent_types does. The mock's `side_effect` inspects the
+        # actual filter kwargs so the two calls below can genuinely differ,
+        # rather than both reading from one fixed `return_value`.
+        path = "/net/cluster/runs/aln/PATIENT1.markdup.sorted.bam"
+        type_ids_by_title = {"D.SEQ": 1, "A.ALN": 2}
+
+        def type_filter(**kwargs):
+            titles = set(kwargs.get("title__in", ()))
+            mock = MagicMock()
+            mock.values_list.return_value = [
+                type_ids_by_title[t] for t in titles if t in type_ids_by_title]
+            return mock
+
+        def sample_filter(**kwargs):
+            type_ids = set(kwargs.get("sample_type_id__in", ()))
+            mock = MagicMock()
+            rows = []
+            if type_ids_by_title["A.ALN"] in type_ids:
+                rows.append(_metadata_row("A.ALN-PARENT-1", File_PrimaryData=path))
+            mock.values_list.return_value = rows
+            return mock
+
+        with patch("seek.models.Sample_types.objects") as sample_types, \
+                patch("seek.models.Samples.objects") as samples:
+            sample_types.filter.side_effect = type_filter
+            samples.filter.side_effect = sample_filter
+
+            # The old, D.SEQ-only scope finds nothing -- the real parent is
+            # an A.ALN sample, invisible to a D.SEQ-only search.
+            assert reingest_lookups.uids_by_primary_data(path) == []
+            # Declaring the wider type finds it.
+            assert reingest_lookups.uids_by_primary_data(
+                path, types=("D.SEQ", "A.ALN")) == ["A.ALN-PARENT-1"]
 
 
 class TestNotesForUids:

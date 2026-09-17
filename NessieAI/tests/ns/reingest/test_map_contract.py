@@ -88,6 +88,51 @@ def test_every_qc_attribute_target_exists_on_its_sample_type(name):
 
 
 @pytest.mark.parametrize("name", ALL_MAPS)
+def test_accepts_parent_types_is_never_empty(name):
+    """`maps.PipelineMap.accepts_parent_types` already enforces `min_length=1`
+    at load time -- a map JSON that declares `[]` fails `maps.load()` itself
+    with a pydantic ValidationError, before this test body ever runs. This
+    is a second, explicit, friendlier-message layer of the same invariant:
+    an empty list is illegal, not a silent no-op, because
+    `test_every_accepts_parent_type_is_a_known_sample_type` below is
+    parametrized OVER the list's own entries -- exactly like
+    `test_there_are_maps_to_check` above, an empty list would make that
+    check "pass" by iterating zero times, silently checking nothing.
+    """
+    assert maps.load(name).accepts_parent_types, (
+        f"{name}: accepts_parent_types must declare at least one sample "
+        "type -- an empty list would make every check below pass "
+        "vacuously, and would scope the fastq-path parent lookup to search "
+        "nothing")
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_accepts_parent_type_is_a_known_sample_type(name):
+    for sample_type in maps.load(name).accepts_parent_types:
+        assert sample_type in ATTRS, \
+            f"{name}: unknown sample type {sample_type!r} in accepts_parent_types"
+
+
+def test_every_accepts_parent_type_is_a_known_sample_type_catches_a_typo(monkeypatch):
+    """Runs the REAL check above (not a re-implementation of its assertion)
+    against a fabricated map with a typo'd sample type, to prove the gate
+    actually fails CI rather than merely looking like it would. `maps.load`
+    is monkeypatched -- rather than adding a fake file under MAPS_DIR -- to
+    a stand-in that ignores its `name` argument and always returns the bad
+    map, so this stays a unit test of the check, not a fixture the real
+    ALL_MAPS list has to carry around.
+    """
+    bad_map = maps.PipelineMap(
+        pipeline="nf-core/fake-for-test", accepts_parent_types=["D.SEQ", "A.NOPE"])
+    assert "A.NOPE" not in ATTRS, (
+        "the catalog snapshot must not genuinely contain this sentinel "
+        "type, or this test cannot tell a real gap from a coincidence")
+    monkeypatch.setattr(maps, "load", lambda name: bad_map)
+    with pytest.raises(AssertionError, match="A.NOPE"):
+        test_every_accepts_parent_type_is_a_known_sample_type("nf-core/fake-for-test")
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
 def test_every_output_rule_names_a_known_sample_type(name):
     for rule in maps.load(name).outputs:
         assert rule.sample_type in ATTRS, \
@@ -208,6 +253,15 @@ def test_live_every_qc_attribute_target_exists_on_its_sample_type(name):
             f"{name}: unknown sample type {rule.target} (live catalog)"
         assert attribute in _live_attribute_titles(rule.target), \
             f"{name}: {rule.target} has no attribute {attribute!r} (live catalog)"
+
+
+@pytest.mark.skipif(not LIVE_SAMPLE_TYPES, reason=_LIVE_SKIP_REASON)
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_live_every_accepts_parent_type_is_a_known_sample_type(name):
+    for sample_type in maps.load(name).accepts_parent_types:
+        assert sample_type in LIVE_SAMPLE_TYPES, \
+            f"{name}: unknown sample type {sample_type!r} in " \
+            f"accepts_parent_types (live catalog)"
 
 
 @pytest.mark.skipif(not LIVE_SAMPLE_TYPES, reason=_LIVE_SKIP_REASON)

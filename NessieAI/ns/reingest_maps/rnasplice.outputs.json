@@ -2,6 +2,7 @@
   "map_version": 1,
   "pipeline": "nf-core/rnasplice",
   "applies_to_versions": "",
+  "accepts_parent_types": ["D.SEQ"],
   "harvest_globs": [],
   "derived_metrics": [],
   "outputs": [],

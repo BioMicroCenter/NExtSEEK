@@ -395,7 +395,7 @@ def test_stage_run_dir_against_the_real_fixture_stages_every_rseqc_and_multiqc_f
     staged.mkdir()
     g._stage_run_dir(_Cfg.LURIA_ENV, str(FIXTURE), str(FIXTURE.parent), str(staged), "/dev/null")
 
-    run_manifest = harvest.harvest_local(str(staged), lookup_by_fastq=lambda p: [])
+    run_manifest = harvest.harvest_local(str(staged), lookup_by_fastq=lambda p, types=None: [])
     assert run_manifest.samples, "expected staged samples"
     for sample in run_manifest.samples:
         assert sample.derived, (
