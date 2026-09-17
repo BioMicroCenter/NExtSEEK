@@ -73,11 +73,25 @@ def test_an_approved_rule_applies_and_is_marked_origin_approved():
     assert not any(u["raw_key"] == "Kraken2_bracken_fraction" for u in result.unmapped)
 
 
-def test_provenance_attributes_are_applied_to_the_analysis_rows():
+def test_provenance_attributes_are_applied_to_an_opted_in_output_row():
+    # A.GEX sets include_provenance: true in the committed rnaseq map, so its
+    # row receives provenance_attributes (e.g. ReferenceGenome).
     result = mapper.apply(_run(), maps.load("rnaseq"))
-    analysis = [r for r in result.rows if r.sample_type.startswith("A.")]
-    assert analysis, "expected at least one analysis row"
-    assert analysis[0].attributes["ReferenceGenome"].value == "GRCm39"
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["ReferenceGenome"].value == "GRCm39"
+
+
+def test_provenance_attributes_are_not_applied_to_an_opted_out_output_row():
+    # A.ALN does NOT set include_provenance in the committed rnaseq map --
+    # deliberately, since A.ALN's sample type does not have most of the
+    # provenance attributes (e.g. DESeqFile) at all. Its row must receive
+    # only its own rule's attributes, never a spillover from
+    # provenance_attributes.
+    result = mapper.apply(_run(), maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert "ReferenceGenome" not in aln.attributes
+    assert "DESeqFile" not in aln.attributes
+    assert "Pipeline" not in aln.attributes
 
 
 def test_a_multirun_sample_produces_no_d_seq_row_no_per_sample_row_and_no_parent_in_the_join():
