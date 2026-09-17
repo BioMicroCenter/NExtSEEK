@@ -313,25 +313,52 @@ def _render_one(index, code, attribute, bucket):
         ]
     if code == qa.MISSING_REQUIRED:
         # A group label (e.g. "File_PrimaryData or Link_PrimaryData") is
-        # already a composed phrase naming interchangeable attributes -- not
-        # a single attribute title -- so it skips `_name`'s friendly-name
-        # lookup/capitalisation and gets its own alternatives-aware wording:
-        # "is required" reads oddly as a single verb over two named options,
-        # and "fill it in" has no clear antecedent when either would do.
+        # already a composed phrase naming interchangeable-as-DATA
+        # attributes -- not a single attribute title -- so it skips `_name`'s
+        # friendly-name lookup/capitalisation and gets its own
+        # alternatives-aware wording: "is required" reads oddly as a single
+        # verb over several named options, and "fill it in" has no clear
+        # antecedent when any one of them would do. The wording below says
+        # "none of them" rather than "neither" so it stays correct however
+        # many members the group has -- today's one group happens to have
+        # two, but nothing here assumes exactly two.
         if qa.is_group_label(attribute):
+            if bucket["severity"] == qa.SOFT:
+                # The group is directional (see reingest_qa.py's
+                # ALTERNATIVE_REQUIRED_GROUPS comment): a secondary member
+                # (here, a link) was supplied, but only the primary member's
+                # presence is ever provably enough -- SEEK requires the
+                # primary on some sample types and never requires the
+                # secondary on any of them. So this batch may or may not be
+                # rejected at upload; a human decides, it doesn't block.
+                primary = _name(detail.get("primary", ""))
+                secondary = _name(detail.get("present_secondary", ""))
+                return [
+                    f"  {index}.  {count} {rows} in {_workbook_ref(sample_type)}"
+                    f" {_verb(count, 'give')} {secondary} but not {primary}.",
+                    "",
+                    f"      {secondary} and {primary} can point at the same data, but not",
+                    f"      every sample type accepts {secondary} on its own -- the server",
+                    f"      may still require {primary} here and reject the row without it.",
+                    "",
+                    f"      Add {primary} if you have it, or leave it as-is and let the",
+                    "      upload attempt settle whether this sample type needs it.",
+                ]
             return [
-                f"  {index}.  One of {attribute} is required, and neither is present,"
+                f"  {index}.  One of {attribute} is required, and none of them is present,"
                 f" on {count} {rows} in {_workbook_ref(sample_type)}.",
                 "",
-                "      The server will reject these rows. I could not derive either",
-                "      value; fill in one of them, or tell me where to get it.",
+                "      One of these is required before I can upload these rows. I could",
+                "      not derive either value; fill in one of them, or tell me where to",
+                "      get it.",
             ]
         return [
             f"  {index}.  {_name(attribute)} is required and missing on {count} {rows}"
             f" in {_workbook_ref(sample_type)}.",
             "",
-            "      The server will reject these rows. I could not derive the value;",
-            "      fill it in, or tell me where to get it.",
+            "      This is required before I can upload these rows, whether or not the",
+            "      server itself would reject them for lacking it. I could not derive",
+            "      the value; fill it in, or tell me where to get it.",
         ]
     if code == qa.UNKNOWN_SAMPLETYPE:
         # Deliberate exception to the _workbook_ref convention used

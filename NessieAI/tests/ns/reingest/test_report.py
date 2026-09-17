@@ -212,6 +212,12 @@ _NEW_CODE_CASES = [
     (qa.MISSING_REQUIRED, qa.HARD,
      dict(sample_type="D.SEQ", attribute="Strandedness", row_index=0),
      ["required and missing", "fill it in"]),
+    (qa.MISSING_REQUIRED, qa.SOFT,
+     dict(sample_type="A.GEX",
+          attribute=qa.group_label(("File_PrimaryData", "Link_PrimaryData")),
+          row_index=0,
+          detail={"primary": "File_PrimaryData", "present_secondary": "Link_PrimaryData"}),
+     ["may still require", "let the", "settle whether"]),
     ("some_future_code_without_wording_yet", qa.SOFT,
      dict(sample_type="D.SEQ"),
      ["needs a look", "provenance"]),
@@ -258,8 +264,10 @@ def test_notes_would_clobber_distinguishes_not_fetched_from_would_overwrite():
 def test_missing_required_names_both_alternatives_when_the_attribute_is_a_group():
     # NessieAI/ns/reingest_qa.ALTERNATIVE_REQUIRED_GROUPS: an absent
     # File_PrimaryData/Link_PrimaryData pair renders as one finding whose
-    # attribute is the group label -- the reader must be told either
-    # attribute satisfies the requirement, not just shown one bare name.
+    # attribute is the group label -- the reader must be told every
+    # alternative attribute, not just shown one bare name. This is the
+    # neither-present case, so it is HARD (see the SOFT case below for a
+    # secondary supplied alone).
     group_label = qa.group_label(("File_PrimaryData", "Link_PrimaryData"))
     built = _single_finding_report(
         qa.MISSING_REQUIRED, qa.HARD, sample_type="A.GEX",
@@ -267,7 +275,11 @@ def test_missing_required_names_both_alternatives_when_the_attribute_is_a_group(
     text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
     assert "File_PrimaryData" in text
     assert "Link_PrimaryData" in text
-    assert "or" in text
+    # The concrete phrase naming both alternatives together, not just the
+    # bare word "or" -- "or" alone would also match "before", "for", or the
+    # word "or" occurring anywhere by coincidence in surrounding prose, so it
+    # can never fail even if the group label were dropped entirely.
+    assert "File_PrimaryData or Link_PrimaryData" in text
     assert qa.MISSING_REQUIRED not in text
 
     # A plain (ungrouped) MISSING_REQUIRED must not gain either alternative's
@@ -278,6 +290,36 @@ def test_missing_required_names_both_alternatives_when_the_attribute_is_a_group(
     plain_text = report.render_qa_for_user({"A.GEX": plain}, ARTIFACTS, RUN)
     assert "File_PrimaryData" not in plain_text
     assert "Link_PrimaryData" not in plain_text
+    # The reworded prose must still be true: it must not claim a server
+    # rejection that startup/seed/seek_production.sql.gz's required=0 rows
+    # (e.g. Checksum_PrimaryData on A.GEX/A.ALN/A.SCXP/D.SEQ) contradict.
+    assert "server will reject" not in plain_text.lower()
+
+
+def test_missing_required_soft_flags_when_only_a_secondary_is_present():
+    # reingest_qa.qa_rows only emits this SOFT variant of the group label
+    # when File_PrimaryData (the primary) is absent but Link_PrimaryData
+    # (a secondary) is present -- the safe direction (primary alone) never
+    # produces a finding at all, and neither-present is the HARD case above.
+    # This must read differently from the HARD case: it names which
+    # attribute was supplied and which is still missing, and it must not
+    # claim the server will reject the row -- it might not.
+    group_label = qa.group_label(("File_PrimaryData", "Link_PrimaryData"))
+    built = _single_finding_report(
+        qa.MISSING_REQUIRED, qa.SOFT, sample_type="A.GEX",
+        attribute=group_label, row_index=0,
+        detail={"primary": "File_PrimaryData",
+                "present_secondary": "Link_PrimaryData"})
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    lowered = text.lower()
+    assert "link_primarydata" in lowered
+    assert "file_primarydata" in lowered
+    assert "may still require" in lowered
+    assert "server will reject" not in lowered
+    assert qa.MISSING_REQUIRED not in text
+    # It renders under the advisory header, not the blocking one.
+    assert "ONE THING TO CHECK" in text
+    assert "WHAT IS BLOCKING" not in text
 
 
 def test_resolve_artifact_matches_a_hyphenated_sample_type():
