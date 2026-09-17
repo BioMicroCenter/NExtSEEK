@@ -265,7 +265,8 @@ def _timed(timings: dict, name: str, fn, *args, **kwargs):
     return out
 
 
-def _check_detection(driver, db, chunk: int, checks: list, stats: dict) -> None:
+def _check_detection(driver, db, chunk: int, checks: list, stats: dict):
+    """Returns the built catalog so the caller can reuse it, or None when it does not build."""
     try:
         cat = run.build_catalog()
     except ValueError as exc:   # a label collision: no digest can be computed (gate G's 8.catalog.builds says why)
@@ -273,13 +274,55 @@ def _check_detection(driver, db, chunk: int, checks: list, stats: dict) -> None:
         for name in DETECTION_CHECKS:
             _check(checks, name, 0, "not compared", passed=False, detail=detail)
         stats["detection"] = {"error": detail}
-        return
+        return None
     found = detect_sample_drift(driver, db, chunk=chunk, cat=cat)
     stats["detection"] = found
     for name, key in zip(DETECTION_CHECKS, ("missing_in_graph", "not_in_mysql", "changed")):
         _check(checks, name, 0, found[key], detail=found[f"{key}_ids"][:EXAMPLES])
     _check(checks, "samples.new_uuids", "any", found["new_uuids"], passed=True,
            detail=found["new_uuid_list"][:EXAMPLES])
+    return cat
+
+
+def _check_catalog(driver, db, cat, checks: list, stats: dict) -> None:
+    """The graph's catalog against the one MySQL declares (spec CI-4, `drift.catalog.*`).
+
+    Gate G's `3.catalog.*` checks the graph's catalog against the graph's own sample nodes, which is
+    internal consistency and cannot see that MySQL has moved. These two are the other comparison.
+
+    Only the DECLARED side is compared. A key a sample carries that its type does not declare becomes
+    an Attribute with `declared` false, which is a normal state and not drift, so a graph attribute
+    with no declared counterpart is ignored rather than reported.
+
+    `types_without_context` is a stat and never a check: `catalog.py` states that a type with no
+    `sample_types_context` row is a normal state, so any threshold here would be invented. The number
+    is reported so that a type which silently lost its curated card is visible.
+    """
+    rows = _records(_run(driver, db, verify.GRAPH_CATALOG, read=True))
+    graph_titles = {r["title"] for r in rows if r.get("title") is not None}
+    mysql_titles = {t["title"] for t in cat.sample_types if t.get("title") is not None}
+    only_mysql, only_graph = sorted(mysql_titles - graph_titles), sorted(graph_titles - mysql_titles)
+
+    declared: dict[int, set] = {}
+    for attr in cat.attributes:
+        declared.setdefault(int(attr["sample_type_id"]), set()).add(attr["title"])
+    in_graph = {int(r["id"]): {t for t in (r.get("titles") or []) if t is not None}
+                for r in rows if r.get("id") is not None}
+    differing = {}
+    for type_id, titles in sorted(declared.items()):
+        missing = sorted(titles - in_graph.get(type_id, set()))
+        if missing:
+            differing[str(type_id)] = missing[:EXAMPLES]
+
+    without_context = sum(1 for t in cat.sample_types if t.get("has_context") is False)
+    stats["catalog"] = {"mysql_sample_types": len(mysql_titles), "graph_sample_types": len(graph_titles),
+                        "only_in_mysql": only_mysql[:EXAMPLES], "only_in_graph": only_graph[:EXAMPLES],
+                        "types_with_attribute_set_diff": len(differing),
+                        "types_without_context": without_context}
+    _check(checks, "catalog.sample_types", 0, len(only_mysql) + len(only_graph),
+           detail={"only_in_mysql": only_mysql[:EXAMPLES], "only_in_graph": only_graph[:EXAMPLES]})
+    _check(checks, "catalog.types_with_attribute_set_diff", 0, len(differing),
+           detail=dict(list(differing.items())[:EXAMPLES]))
 
 
 def _check_freshness(now, checks: list, stats: dict) -> None:
@@ -307,7 +350,9 @@ def _drift(driver, db, sample_size: int, seed, chunk: int, now) -> dict:
         log.info("drift check refused: %s", reason)
         return {"status": REFUSED, "reason": reason, "checks": [], "pass": False, "stats": stats}
     checks: list = []
-    _timed(timings, "detection", _check_detection, driver, db, chunk, checks, stats)
+    cat = _timed(timings, "detection", _check_detection, driver, db, chunk, checks, stats)
+    if cat is not None:
+        _timed(timings, "catalog", _check_catalog, driver, db, cat, checks, stats)
     _timed(timings, "freshness", _check_freshness, now, checks, stats)
     gate = _timed(timings, "gate_g", verify.gate_g, driver, db, sample_size, seed=seed, accounts=(), chunk=chunk)
     checks.extend(gate["checks"])

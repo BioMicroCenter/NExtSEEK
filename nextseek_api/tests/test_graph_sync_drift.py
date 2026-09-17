@@ -91,10 +91,13 @@ def _hash(row):
 class DriftGraph:
     """The graph side: ``hashes`` (id to source_hash), ``uuids`` (id to uuid) and the GraphMeta node."""
 
-    def __init__(self, rows=(), schema_version="1.2"):
+    def __init__(self, rows=(), schema_version="1.2", catalog=()):
         self.hashes = {r["id"]: _hash(r) for r in rows}
         self.uuids = {r["id"]: r["uuid"] for r in rows}
         self.meta = [{"props": {"schema_version": schema_version, "catalog_hash": "c"}}] if schema_version else []
+        # The catalog check reads this too. Empty by default and CAT declares no sample types, so
+        # both sides are empty and the catalog checks pass without affecting any existing case.
+        self.catalog = list(catalog)
 
     def __call__(self, query, params):
         if query == q.SAMPLE_HASHES_PAGE:
@@ -107,6 +110,8 @@ class DriftGraph:
             return [{"uuid": u} for u in params["uuids"] if u in carried]
         if query == q.READ_GRAPHMETA:
             return self.meta
+        if query == verify.GRAPH_CATALOG:
+            return self.catalog
         raise AssertionError(f"unexpected statement: {query}")
 
 
@@ -264,7 +269,9 @@ def test_drift_check_is_ok_when_nothing_drifted(mysql_rows, gate, catalog):
     assert (result["status"], result["pass"]) == ("ok", True)
     names = [c["name"] for c in result["checks"]]
     assert names == ["samples.missing_in_graph", "samples.not_in_mysql", "samples.source_hash_mismatch",
-                     "samples.new_uuids", "freshness.full", "freshness.reconcile", "freshness.outbox",
+                     "samples.new_uuids",
+                     "catalog.sample_types", "catalog.types_with_attribute_set_diff",
+                     "freshness.full", "freshness.reconcile", "freshness.outbox",
                      "4.samples.graph_count"]
     assert all({"name", "expected", "actual", "pass"} <= set(c) for c in result["checks"])
     assert result["stats"]["gate_g"] == {"seed": 7}
@@ -401,3 +408,95 @@ def test_drift_check_records_a_failed_run_and_raises_when_it_cannot_complete(mys
     with pytest.raises(OSError):
         drift.drift_check(FakeDriver(broken), "neo4j", now=T0, trigger="loop")
     assert GraphSyncRun.objects.get(kind="drift").status == "failed"
+
+
+# --- the catalog checks (spec CI-4) ---------------------------------------------------------------
+
+def _catalog(sample_types, attributes):
+    """A Catalog whose declared side is what MySQL says, which is what the checks compare against."""
+    titles = {int(t["id"]): t["title"] for t in sample_types}
+    return run.Catalog(sample_types=sample_types, attributes=attributes, type_titles=titles, value_types={})
+
+
+def _graph_catalog_reader(rows):
+    """A responder answering only verify.GRAPH_CATALOG, which is all _check_catalog reads."""
+    def respond(query, params):
+        if query == verify.GRAPH_CATALOG:
+            return rows
+        raise AssertionError(f"unexpected statement: {query}")
+    return FakeDriver(respond)
+
+
+def _run_catalog_checks(cat, graph_rows):
+    checks, stats = [], {}
+    drift._check_catalog(_graph_catalog_reader(graph_rows), "neo4j", cat, checks, stats)
+    return {c["name"]: c for c in checks}, stats
+
+
+class TestTheCatalogIsComparedAgainstMySQL:
+    def test_a_matching_catalog_passes_both_checks(self):
+        cat = _catalog([{"id": 26, "title": "TIS", "label": "T_TIS", "has_context": True}],
+                       [{"sample_type_id": 26, "title": "Organ"}])
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": ["Organ"]}]
+        checks, stats = _run_catalog_checks(cat, rows)
+        assert checks["catalog.sample_types"]["pass"], checks["catalog.sample_types"]
+        assert checks["catalog.types_with_attribute_set_diff"]["pass"]
+        assert stats["catalog"]["mysql_sample_types"] == 1
+        assert stats["catalog"]["graph_sample_types"] == 1
+
+    def test_a_type_missing_from_the_graph_fails_and_is_named(self):
+        cat = _catalog([{"id": 26, "title": "TIS", "label": "T_TIS"},
+                        {"id": 27, "title": "PAV", "label": "T_PAV"}],
+                       [])
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": []}]
+        checks, _ = _run_catalog_checks(cat, rows)
+        failed = checks["catalog.sample_types"]
+        assert not failed["pass"]
+        assert "PAV" in str(failed["detail"]), failed["detail"]
+
+    def test_a_type_only_in_the_graph_fails_too(self):
+        cat = _catalog([{"id": 26, "title": "TIS", "label": "T_TIS"}], [])
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": []},
+                {"id": 99, "title": "GONE", "label": "T_GONE", "titles": []}]
+        checks, _ = _run_catalog_checks(cat, rows)
+        assert not checks["catalog.sample_types"]["pass"]
+        assert "GONE" in str(checks["catalog.sample_types"]["detail"])
+
+    def test_a_declared_attribute_missing_from_the_graph_is_reported(self):
+        cat = _catalog([{"id": 26, "title": "TIS", "label": "T_TIS"}],
+                       [{"sample_type_id": 26, "title": "Organ"}, {"sample_type_id": 26, "title": "Donor"}])
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": ["Organ"]}]
+        checks, _ = _run_catalog_checks(cat, rows)
+        diff = checks["catalog.types_with_attribute_set_diff"]
+        assert not diff["pass"]
+        assert "Donor" in str(diff["detail"]), diff["detail"]
+
+    def test_an_undeclared_attribute_in_the_graph_is_not_a_difference(self):
+        """A key a sample carries that its type does not declare becomes an Attribute with
+        declared false, which is a normal state, not catalog drift."""
+        cat = _catalog([{"id": 26, "title": "TIS", "label": "T_TIS"}],
+                       [{"sample_type_id": 26, "title": "Organ"}])
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": ["Organ", "ObservedOnly"]}]
+        checks, _ = _run_catalog_checks(cat, rows)
+        assert checks["catalog.types_with_attribute_set_diff"]["pass"]
+
+
+class TestContextCoverageIsReportedNotEnforced:
+    def test_types_without_a_context_row_are_counted(self):
+        cat = _catalog([{"id": 26, "title": "TIS", "label": "T_TIS", "has_context": True},
+                        {"id": 27, "title": "PAV", "label": "T_PAV", "has_context": False}],
+                       [])
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": []},
+                {"id": 27, "title": "PAV", "label": "T_PAV", "titles": []}]
+        _, stats = _run_catalog_checks(cat, rows)
+        assert stats["catalog"]["types_without_context"] == 1
+
+    def test_the_count_is_a_stat_and_never_a_check(self):
+        """catalog.py states that a type with no context row is a normal state, so a threshold
+        here would be invented. The number is reported so a type that silently lost its curated
+        card is visible."""
+        cat = _catalog([{"id": 27, "title": "PAV", "label": "T_PAV", "has_context": False}], [])
+        rows = [{"id": 27, "title": "PAV", "label": "T_PAV", "titles": []}]
+        checks, stats = _run_catalog_checks(cat, rows)
+        assert stats["catalog"]["types_without_context"] == 1
+        assert not any("context" in name for name in checks)
