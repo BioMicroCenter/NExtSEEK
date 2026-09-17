@@ -190,7 +190,7 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
     return store_mod.save_manifest(run_manifest)
 
 
-def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None):
+def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=None):
     """Same shape as `_save_manifest`, but with `n` distinct samples -- the
     only way to tell "iterate result.rows" (correct, one row per sample)
     apart from "iterate output rules" (the brief's buggy sketch, one row per
@@ -200,8 +200,10 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None):
     below, and the mutation-testing evidence in task-7-report.md.
 
     Also carries `_default_outputs`' per-sample BAM + shared gene-counts
-    matrix, for the same reason `_save_manifest` does -- see that fixture's
-    comment."""
+    matrix by default, for the same reason `_save_manifest` does -- see that
+    fixture's comment. `outputs` overrides that default (mirroring
+    `_save_manifest`'s own kwarg) for a caller that needs a specific
+    inventory shape, e.g. an ambiguous per_run rule shared by every sample."""
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
     _patch_seek_required(monkeypatch)
     sample_names = [f"SAMPLE_{i}" for i in range(1, n + 1)]
@@ -218,7 +220,7 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None):
             name="nf-core/rnaseq", version="3.18.0", run_name="test_run_multi"),
         params={"genome": "GRCh38", "aligner": "star_salmon"},
         samples=samples,
-        outputs=_default_outputs(sample_names),
+        outputs=outputs if outputs is not None else _default_outputs(sample_names),
         sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt",
                  "params": "params.json"},
     )
@@ -434,6 +436,89 @@ def test_a_manifest_with_no_checksums_still_renders_a_workbook(rows, tmp_path, m
     wb_gex = openpyxl.load_workbook(result["saved_files"]["reingest_A_GEX"])
     gex_files = _cell_by_header(wb_gex["Samples"], "File_PrimaryData")
     assert set(gex_files.values()) == {"all.merged.gene_counts.tsv"}
+
+
+# ---------------------------------------------------------------------------
+# ambiguous_primary: the join between mapper.py (sets `candidates`) and
+# granular.py (collects + dedupes + renders via report.py) -- 2026-09-17
+# review, Cheap 4/Important 2.
+# ---------------------------------------------------------------------------
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_ambiguous_primary_data_reaches_the_reply_through_the_full_dispatch(
+        rows, tmp_path, monkeypatch):
+    """Cheap 4 (2026-09-17 review): the mapper half (test_mapper.py) and the
+    report half (test_report.py) are each tested on their own, but nothing
+    previously proved `granular.py` actually WIRES one to the other -- if
+    that join broke (the condition that folds `attr.candidates` into
+    `ambiguous_primary` stopped firing, or the kwarg into
+    `render_qa_for_user` got dropped), both halves would stay green while
+    the "PRIMARY-FILE PICKS TO CONFIRM" section silently vanished from the
+    real, dispatched reply. Two same-basename A.GEX outputs (the shared
+    per_run gene-counts matrix, once under each of two aligner directories)
+    is the minimal manifest that makes `_attach_checksum` set `candidates`
+    at all."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    gex_a = "star_salmon/all.merged.gene_counts.tsv"
+    gex_b = "salmon/all.merged.gene_counts.tsv"
+    manifest_id = _save_manifest(
+        tmp_path, monkeypatch,
+        outputs=[
+            manifest_mod.OutputRecord(path="star_salmon/SAMPLE_1.markdup.sorted.bam",
+                                      bytes=123, sample="SAMPLE_1"),
+            manifest_mod.OutputRecord(path=gex_a, bytes=456, sample=None),
+            manifest_mod.OutputRecord(path=gex_b, bytes=456, sample=None),
+        ])
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                        outputs_dir=str(tmp_path))
+
+    assert "PRIMARY-FILE PICK" in result["reply"]
+    assert gex_a in result["reply"]
+    assert gex_b in result["reply"]
+    # The envelope shape (Global Constraints: build-upload-xlsx never writes
+    # to NExtSEEK) must stay exactly these four keys -- `ambiguous_primary`
+    # is a local that feeds the reply text, never a key of its own.
+    assert set(result) == {"saved_files", "qa", "reply", "proposals"}
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_ambiguous_primary_dedupes_the_same_pick_across_many_samples(
+        rows, tmp_path, monkeypatch):
+    """Important 2 (2026-09-17 review): the pre-fix collection appended one
+    `ambiguous_primary` entry per ROW, so a per-sample rule whose ambiguity
+    is the SAME two candidates on every sample (e.g. every sample published
+    under both `star_salmon/` and `hisat2/` with no per-sample-distinguishing
+    filename) rendered one near-identical block per sample -- ~20 entries
+    for one genuine ambiguity on a 20-sample run, exactly the enumerate-
+    instead-of-count failure report.py's module docstring (rule 1) exists to
+    prevent. Three samples, each with the identical two-candidate BAM pick,
+    must fold into ONE entry that says it affects all three -- never three."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    sample_names = ["SAMPLE_1", "SAMPLE_2", "SAMPLE_3"]
+    outputs = []
+    for name in sample_names:
+        # Deliberately the SAME two literal paths for every sample -- the
+        # filename itself carries no sample-distinguishing text, only the
+        # OutputRecord's own `sample` field attributes it -- so the resulting
+        # `candidates` tuple is byte-identical across all three rows.
+        outputs.append(manifest_mod.OutputRecord(
+            path="star_salmon/aligned.markdup.sorted.bam", bytes=123, sample=name))
+        outputs.append(manifest_mod.OutputRecord(
+            path="hisat2/aligned.markdup.sorted.bam", bytes=123, sample=name))
+    outputs.append(manifest_mod.OutputRecord(
+        path="star_salmon/all.merged.gene_counts.tsv", bytes=456, sample=None))
+    manifest_id = _save_manifest_multi(tmp_path, monkeypatch, n=3, outputs=outputs)
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                        outputs_dir=str(tmp_path))
+
+    # Singular header -- ONE distinct ambiguity, not three.
+    assert "ONE PRIMARY-FILE PICK TO CONFIRM" in result["reply"]
+    assert "3 PRIMARY-FILE PICKS" not in result["reply"]
+    assert "on 3 samples" in result["reply"]
+    # Not three near-identical numbered entries.
+    assert result["reply"].count("could be A.ALN's primary data") == 1
 
 
 @patch("nextseek_api.services.context_catalog._sample_type_rows")

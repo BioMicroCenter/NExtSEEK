@@ -495,7 +495,13 @@ def test_ambiguous_primary_data_reaches_the_reply_verbatim():
     assert "PRIMARY-FILE PICK" in text
     assert "salmon/all.merged.gene_counts.tsv" in text
     assert "star_salmon/all.merged.gene_counts.tsv" in text
-    assert "matched A.GEX's rule" in text
+    # Reworded in the module's own voice (Minor 5, 2026-09-17 review): no
+    # bare "rule" -- a map-internals concept -- and it points at the real
+    # remedy (run-checksum + rebuild), not the unimplemented "tell me which
+    # one" the agent had no way to act on.
+    assert "A.GEX's primary data" in text
+    assert "rule" not in text.lower()
+    assert "run the checksum step" in text
     # The section lands before the upload steps, not after.
     assert text.index("PRIMARY-FILE PICK") < text.index("TO UPLOAD")
 

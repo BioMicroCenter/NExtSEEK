@@ -134,12 +134,18 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     per sample type via ``_resolve_artifact``/``_normalize_artifact_key``,
     which duplicate that same normalisation by hand.
 
-    ``ambiguous_primary`` -- ``[{sample_type, attribute, chosen, candidates}]``,
-    one entry per ``File_PrimaryData`` the mapper set from more than one
-    same-basename candidate with no checksum to decisively pick a winner (see
-    ``NessieAI/ns/reingest/mapper.py``'s ``MappedAttribute.candidates``
-    docstring). This is a DIFFERENT fact from an unmapped raw metric key --
-    an attribute here WAS set, but the choice among candidates was not forced
+    ``ambiguous_primary`` -- ``[{sample_type, attribute, chosen, candidates,
+    sample_count}]``, one entry per DISTINCT ``(sample_type, attribute,
+    candidates)`` ambiguity the mapper hit while setting ``File_PrimaryData``
+    from more than one same-basename candidate with no checksum to
+    decisively pick a winner (see ``NessieAI/ns/reingest/mapper.py``'s
+    ``MappedAttribute.candidates`` docstring) -- already deduplicated by the
+    caller (``NessieAI/ns/granular.py``) so a per_run rule's identical pick,
+    repeated on every one of a run's sample rows, renders as ONE entry here,
+    not one per sample (rule 1's "count, do not enumerate"). ``sample_count``
+    carries how many rows shared this exact ambiguity, defaulting to 1 when
+    absent. This is a DIFFERENT fact from an unmapped raw metric key -- an
+    attribute here WAS set, but the choice among candidates was not forced
     by evidence -- so it is its own parameter rather than folded into
     ``reports``' hard/soft findings (a mapping-time judgement call, not a
     row-level QA check) or the unrelated ``result.unmapped`` channel
@@ -232,16 +238,19 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
         lines.append("")
         for index, entry in enumerate(ambiguous_primary, start=1):
             candidates = ", ".join(entry["candidates"])
+            count = entry.get("sample_count", 1)
+            on_samples = "1 sample" if count == 1 else f"{count} samples"
             lines.append(
-                f"  {index}.  {len(entry['candidates'])} candidate primary files matched"
-                f" {entry['sample_type']}'s rule ({candidates}); used {entry['chosen']}.")
+                f"  {index}.  {len(entry['candidates'])} files could be"
+                f" {entry['sample_type']}'s primary data ({candidates});"
+                f" used {entry['chosen']}, on {on_samples}.")
             lines.append("")
             lines.append(
                 "      No checksum settled this one, so the pick was alphabetical,")
             lines.append(
-                "      not measured. Confirm it is the right file, or tell me which")
+                "      not measured. If it is the wrong file, run the checksum step")
             lines.append(
-                "      one is and I will use that instead.")
+                "      on the right one and rebuild — the hashed file wins the pick.")
             lines.append("")
 
     lines.append("TO UPLOAD")
