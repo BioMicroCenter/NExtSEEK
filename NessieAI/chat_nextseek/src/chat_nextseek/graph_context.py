@@ -9,10 +9,13 @@ The text has three parts (spec section 4.2):
 1. the structure, hand-owned text in ``prompts/graph_schema_structure.txt``, kept consistent with
    ``docs/neo4j-schema.md`` v1.1 by a test;
 2. the type index, one line per non-deprecated sample type;
-3. at most ``MAX_TYPES`` resolved types, each with its K most-filled attributes in full and the rest by name.
+3. at most ``MAX_TYPES`` resolved types, each with its K most-filled attributes in full and the rest by name
+   with its sample count.
 
 ``render_graph_context`` holds the whole text within ``BUDGET_BYTES``: when it is over, K steps down through
 ``K_STEPS`` (0 means names only) before a resolved section is dropped, the last one first.
+``render_vocabulary`` holds its own blocks within ``VOCAB_BUDGET_BYTES``: it searches for the largest per-block
+item cap that fits and drops a block only when one item each is still too big.
 """
 
 from __future__ import annotations
@@ -25,11 +28,17 @@ from typing import Any
 STRUCTURE_PATH: Path = Path(__file__).resolve().parent / "prompts" / "graph_schema_structure.txt"
 BUDGET_BYTES = 32_768
 K_STEPS = (25, 15, 10, 0)  # 0 means names only
+# The vocabulary blocks are a second, separately assembled message, and until now they had no bound at all.
+# Measured over 181 questions: median 12,203 bytes, p90 15,139, max 26,833 (the study and assay blocks together).
+# Half the schema budget therefore binds only that largest 2% and leaves every other question byte for byte.
+VOCAB_BUDGET_BYTES = 16_384
 MAX_TYPES, MEANING_MAX, VALUE_MAX = 3, 120, 60
 TOP_VALUES = 10  # values rendered per attribute at most (the catalog stores up to 10)
 SUMMARY_MAX = 240  # a summary's first sentence is cut here, so one long summary cannot outgrow the budget
 
-# The keyword gates the graph agent used before the catalog (agents/graph.py), kept word for word.
+# The keyword gates the graph agent used before the catalog (agents/graph.py), kept word for word. They are
+# matched as whole words by ``mentions``, not as substrings: "data" is one of them, so ``word in question`` fired
+# the assay block on "... in the database".
 PROTOCOL_WORDS = ("protocol", "method", "procedure", "technique")
 ASSAY_WORDS = ("assay", "sequencing", "cytometry", "spectrometry", "imaging", "data", "processed", "associated",
                "underwent", "via", "collection", "extraction")
@@ -41,6 +50,31 @@ _SKIPPED_ATTRIBUTES = frozenset({"UID"})
 _ABBREVIATIONS = frozenset({"e.g", "i.e", "etc", "vs", "approx", "cf", "ca", "no", "fig", "resp", "incl", "esp"})
 _STOP_RE = re.compile(r"[.;!?](?=\s|$)")
 _KEY_PREFIX_RE = re.compile(r"^\d+:")
+_GATES: dict[tuple[str, ...], re.Pattern] = {}
+
+
+def _gate(words: tuple[str, ...]) -> re.Pattern:
+    gate = _GATES.get(words)
+    if gate is None:
+        alternation = "|".join(re.escape(word) for word in words)
+        gate = _GATES[words] = re.compile(rf"\b(?:{alternation})(?:e?s)?\b", re.IGNORECASE)
+    return gate
+
+
+def mentions(words, text: Any) -> bool:
+    """True when ``text`` uses one of ``words`` as a whole word, a plural allowed.
+
+    The gate lists are matched this way instead of by substring. ``"data" in "database"`` is true, and on the 60
+    questions of the 2026-09-17 run that fired the assay block on 18 of them, 7 with no assay language at all
+    ("How many samples are in the database?"). Measured against the live vocabulary, each of those 7 carried
+    15,923 bytes of assay titles and connections it had no use for. A bare word boundary would then lose "assays"
+    and "methods", which the substring test did catch, so a trailing ``s`` or ``es`` still matches. An empty list
+    matches nothing.
+    """
+    words = tuple(words or ())
+    if not words or not text:
+        return False
+    return bool(_gate(words).search(str(text)))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -274,8 +308,22 @@ def _attribute_line(attribute: Any) -> str:
     return " | ".join(parts)
 
 
+def _tail_entry(attribute: Any) -> str:
+    """A names-only entry: the property name, and the count of samples holding a value when the catalog knows it.
+
+    ``_filled`` sorts by count descending, so this tail is exactly the sparse attributes, and a sparse attribute
+    rendered as a bare name is what the agent guesses at. Replayed against the live catalog: ``CellLine`` is the
+    29th of CEL's 71 filled attributes, so at K=25 the agent met it only here, wrote
+    ``toLower(s.CellLine) CONTAINS 'hela'`` and reported the 0 as fact against a true 4. ``CellLine n=287`` of
+    3,288 CEL samples is the signal it did not have.
+    """
+    name = _property_name(str(_get(attribute, "title")), bool(_get(attribute, "needs_backticks")))
+    count = _get(attribute, "sample_count")
+    return f"{name} n={_count(count)}" if count is not None else name
+
+
 def render_type_section(detail, k: int) -> str:
-    """One resolved type: header, summary sentence, curated lines, K attributes in full, the rest by name."""
+    """One resolved type: header, summary, curated lines, K attributes in full, the rest by name and count."""
     head = f"### {_get(detail, 'title')} :{_get(detail, 'label')}"
     if _get(detail, "name"):
         head += " " + _quote(_get(detail, "name"))
@@ -300,7 +348,7 @@ def render_type_section(detail, k: int) -> str:
     lines += [_attribute_line(a) for a in filled[:k]]
     rest = filled[k:]
     if rest:
-        names = ", ".join(_property_name(str(_get(a, "title")), bool(_get(a, "needs_backticks"))) for a in rest)
+        names = ", ".join(_tail_entry(a) for a in rest)
         lines.append(f"{'also filled' if k else 'filled'}: {names}")
     if not filled:
         lines.append("(no attribute holds a value)")
@@ -324,9 +372,9 @@ def _assemble(structure: str, index: str, titles: list[str], sections: list[str]
     parts = [structure, index]
     if sections:
         if k:
-            how = f"the {k} most-filled attributes in full, then the rest by name"
+            how = f"the {k} most-filled attributes in full, then the rest by name with its sample count"
         else:
-            how = "attribute names only"
+            how = "attribute names only, each with its sample count"
         parts.append(
             f"## Resolved sample types: {', '.join(titles)} ({how}; per attribute: [value type] n=samples "
             "holding a value | range | most frequent values with their sample counts | meaning)")
@@ -375,11 +423,30 @@ def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET
 # Vocabulary
 # ---------------------------------------------------------------------------------------------------------------
 
-def _title_block(heading: str, titles) -> str | None:
+_VOCAB_LISTS = ("investigation_titles", "project_titles", "study_titles", "published_studies",
+                "assay_titles", "protocol_titles", "assay_connections")
+
+
+def _largest_list(vocab: Any) -> int:
+    """An upper bound on the entries one block can render: the cap search's high-water mark."""
+    return max([len(list(_get(vocab, name) or ())) for name in _VOCAB_LISTS] + [1])
+
+
+def _left_out(total: int, shown: int) -> str:
+    """The line a trimmed block ends on, so a partial list is never read as the whole of one."""
+    return f"\n... and {_count(total - shown)} more" if total > shown else ""
+
+
+def _limited(items: list, limit: int | None) -> list:
+    return items if limit is None else items[:max(int(limit), 1)]
+
+
+def _title_block(heading: str, titles, limit: int | None = None) -> str | None:
     titles = [t for t in titles or () if t not in (None, "")]
     if not titles:
         return None
-    return f"{heading}:\n" + ", ".join(_quote(t) for t in titles)
+    kept = _limited(titles, limit)
+    return f"{heading}:\n" + ", ".join(_quote(t) for t in kept) + _left_out(len(titles), len(kept))
 
 
 def _field_ci(record: Any, name: str) -> Any:
@@ -391,7 +458,7 @@ def _field_ci(record: Any, name: str) -> Any:
     return _get(record, name) or _get(record, name.lower())
 
 
-def _published_block(studies) -> str | None:
+def _published_block(studies, limit: int | None = None) -> str | None:
     lines = []
     for study in studies or ():
         title = _field_ci(study, "title")
@@ -403,10 +470,12 @@ def _published_block(studies) -> str | None:
         lines.append("- " + ", ".join(bits))
     if not lines:
         return None
-    return "PUBLISHED STUDIES (Study nodes with a DOI or PMID):\n" + "\n".join(lines)
+    kept = _limited(lines, limit)
+    return ("PUBLISHED STUDIES (Study nodes with a DOI or PMID):\n" + "\n".join(kept)
+            + _left_out(len(lines), len(kept)))
 
 
-def _connections_block(connections) -> str | None:
+def _connections_block(connections, limit: int | None = None) -> str | None:
     grouped: dict[str, list[str]] = {}
     for conn in connections or ():
         assay = _get(conn, "assay")
@@ -423,30 +492,68 @@ def _connections_block(connections) -> str | None:
         return None
     lines = [f"- {_quote(assay)}: {', '.join(pairs)}" if assay else f"- {', '.join(pairs)}"
              for assay, pairs in grouped.items()]
+    kept = _limited(lines, limit)
     return ("ASSAY-SAMPLE CONNECTIONS (assay: parent type -> child type; shows which side of an assay a sample "
-            "type sits on):\n" + "\n".join(lines))
+            "type sits on):\n" + "\n".join(kept) + _left_out(len(lines), len(kept)))
 
 
-def render_vocabulary(vocab, question: str) -> str:
+def render_vocabulary(vocab, question: str, *, budget: int = VOCAB_BUDGET_BYTES) -> str:
     """The keyword-gated vocabulary blocks, blank-line separated ("" when there is nothing to send).
 
     Investigation and project titles always; study titles and published studies when the question names a
     study, paper, publication, DOI or PMID; assay titles and assay connections on the assay words; protocol
-    titles on the protocol words (the last two gates are the graph agent's existing word lists).
+    titles on the protocol words (the last two gates are the graph agent's existing word lists, matched as whole
+    words by ``mentions``).
+
+    The text is held within ``budget`` bytes: over budget, the largest per-block item cap that fits is searched
+    for, each trimmed block ending on the count of entries it left out, and only when one item each is still too
+    big are blocks dropped, the last one first. Bytes grow with the cap, so a search is cheap and beats a fixed
+    ladder: on the live catalog a ladder gave up 33 of 133 assay titles to save 2 KiB the budget allowed.
     """
-    q = (question or "").lower()
-    blocks = [
-        _title_block("INVESTIGATION TITLES (Investigation.title)", _get(vocab, "investigation_titles")),
-        _title_block("PROJECT TITLES (Project.title)", _get(vocab, "project_titles")),
-    ]
-    if STUDY_WORDS_RE.search(q):
-        blocks.append(_title_block("STUDY TITLES (Study.title)", _get(vocab, "study_titles")))
-        blocks.append(_published_block(_get(vocab, "published_studies")))
-    if any(word in q for word in ASSAY_WORDS):
-        blocks.append(_title_block("ASSAY TITLES (DERIVED_FROM.internal_assay_title values)",
-                                   _get(vocab, "assay_titles")))
-        blocks.append(_connections_block(_get(vocab, "assay_connections")))
-    if any(word in q for word in PROTOCOL_WORDS):
-        blocks.append(_title_block("PROTOCOL TITLES (DERIVED_FROM.protocol_title values)",
-                                   _get(vocab, "protocol_titles")))
-    return "\n\n".join(block for block in blocks if block)
+    q = question or ""
+    wants_study = bool(STUDY_WORDS_RE.search(q))
+    wants_assay = mentions(ASSAY_WORDS, q)
+    wants_protocol = mentions(PROTOCOL_WORDS, q)
+
+    def build(limit: int | None) -> list[str]:
+        blocks = [
+            _title_block("INVESTIGATION TITLES (Investigation.title)", _get(vocab, "investigation_titles"), limit),
+            _title_block("PROJECT TITLES (Project.title)", _get(vocab, "project_titles"), limit),
+        ]
+        if wants_study:
+            blocks.append(_title_block("STUDY TITLES (Study.title)", _get(vocab, "study_titles"), limit))
+            blocks.append(_published_block(_get(vocab, "published_studies"), limit))
+        if wants_assay:
+            blocks.append(_title_block("ASSAY TITLES (DERIVED_FROM.internal_assay_title values)",
+                                       _get(vocab, "assay_titles"), limit))
+            blocks.append(_connections_block(_get(vocab, "assay_connections"), limit))
+        if wants_protocol:
+            blocks.append(_title_block("PROTOCOL TITLES (DERIVED_FROM.protocol_title values)",
+                                       _get(vocab, "protocol_titles"), limit))
+        return [block for block in blocks if block]
+
+    def text_at(limit: int | None) -> str:
+        return "\n\n".join(build(limit))
+
+    whole = text_at(None)
+    if _fits(whole, budget):
+        return whole
+
+    low, high, best = 1, _largest_list(vocab), None
+    while low <= high:
+        mid = (low + high) // 2
+        text = text_at(mid)
+        if _fits(text, budget):
+            best, low = text, mid + 1
+        else:
+            high = mid - 1
+    if best is not None:
+        return best
+
+    blocks = build(1)
+    while blocks:
+        blocks.pop()
+        text = "\n\n".join(blocks)
+        if _fits(text, budget):
+            return text
+    return ""

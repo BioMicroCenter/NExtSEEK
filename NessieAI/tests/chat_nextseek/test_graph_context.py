@@ -90,6 +90,11 @@ def test_constants():
     assert gc.STRUCTURE_PATH.name == "graph_schema_structure.txt"
     assert gc.STRUCTURE_PATH.parent.name == "prompts"
     assert gc.STRUCTURE_PATH.is_file()
+    # P7c: the vocabulary blocks have a budget of their own, half the schema's. Measured over the 181 questions
+    # of PilotAPOC/stage1/vocabulary_sizes.json it binds 4, the only ones that fire the study and assay blocks
+    # together (26,833 bytes); the median block is 12,203 and the 90th percentile 15,139.
+    assert gc.VOCAB_BUDGET_BYTES == 16_384
+    assert gc.VOCAB_BUDGET_BYTES * 2 == gc.BUDGET_BYTES
 
 
 def test_module_is_pure():
@@ -238,7 +243,7 @@ def test_k_most_filled_in_full_then_one_also_filled_line():
     attributes.reverse()  # the renderer orders by fill, not by input order
     text = gc.render_type_section(detail("TIS", attributes), 25)
     assert [line.split()[1] for line in attribute_lines(text)] == [f"A{i:02d}" for i in range(25)]
-    assert "also filled: A25, A26, A27, A28, A29" in text.splitlines()
+    assert "also filled: A25 n=975, A26 n=974, A27 n=973, A28 n=972, A29 n=971" in text.splitlines()
 
 
 def test_no_also_filled_line_when_everything_fits():
@@ -251,7 +256,7 @@ def test_names_only_at_k_zero():
                                                                         sample_count=3)]
     text = gc.render_type_section(detail("TIS", attributes), 0)
     assert attribute_lines(text) == []
-    assert "filled: Organ, `Catalog#`" in text.splitlines()
+    assert "filled: Organ n=9, `Catalog#` n=3" in text.splitlines()
 
 
 def test_never_filled_count_line():
@@ -275,8 +280,38 @@ def test_only_catalog_attributes_appear():
     text = gc.render_type_section(d, 25)
     rendered = {line.split()[1] for line in attribute_lines(text)}
     also = next(line for line in text.splitlines() if line.startswith("also filled: "))
-    rendered |= set(also[len("also filled: "):].split(", "))
+    rendered |= {entry.split(" n=")[0] for entry in also[len("also filled: "):].split(", ")}
     assert rendered == names
+
+
+def test_tail_carries_the_sample_count():
+    """P7a: ``_filled`` sorts by count, so the names-only tail is exactly the sparse attributes.
+
+    Replayed against the live catalog: CEL has 71 attributes holding a value and ``CellLine`` is the 29th, so at
+    K=25 the agent met it as a bare name in the tail. It wrote ``toLower(s.CellLine) CONTAINS 'hela'``, got
+    nothing and reported the 0 as fact against a true 4. ``CellLine n=287`` of 3,288 CEL samples is the signal
+    it did not have.
+
+    Not every wrong-field failure is this one. BAC holds 24 filled attributes, so ``Strain [string] n=19`` was
+    already in the K=25 head when the agent guessed it for mTB and returned 0 against a true 2,999: that failure
+    is P1's and P2's, and the proposal's mTB evidence for P7a does not survive the replay.
+    """
+    attributes = [attr(f"Common{i:02d}", sample_count=3288 - i) for i in range(28)]
+    attributes.append(attr("CellLine", sample_count=287))
+    text = gc.render_type_section(detail("CEL", attributes, sample_count=3288), 25)
+    tail = next(line for line in text.splitlines() if line.startswith("also filled: "))
+    assert tail.endswith("CellLine n=287")
+    assert "CellLine" not in "\n".join(attribute_lines(text))
+
+
+def test_tail_entry_without_a_known_count_is_the_bare_name():
+    d = detail("BAC", [attr("Organ", sample_count=5), attr("Strain", sample_count=None)])
+    assert "also filled: Strain" in gc.render_type_section(d, 1).splitlines()
+
+
+def test_tail_counts_are_grouped_by_thousands():
+    d = detail("BAC", [attr("Organ", sample_count=22734), attr("Strain", sample_count=1234)])
+    assert "also filled: Strain n=1,234" in gc.render_type_section(d, 1).splitlines()
 
 
 def test_rendering_without_values_meanings_or_usage():
@@ -383,6 +418,26 @@ def test_small_type_renders_at_k_25():
     assert section_attribute_counts(text) == {"TIS": 25}
 
 
+def resolved_heading(text):
+    return next(line for line in text.splitlines() if line.startswith("## Resolved sample types:"))
+
+
+def test_resolved_heading_says_the_tail_carries_counts():
+    d = detail("TIS", [attr(f"A{i:02d}", sample_count=100 - i) for i in range(30)], sample_count=100)
+    snap = snapshot([index_row("TIS", sample_count=100)])
+    assert "then the rest by name with its sample count" in resolved_heading(gc.render_graph_context(snap, [d]))
+    assert "attribute names only, each with its sample count" in resolved_heading(
+        gc.render_graph_context(snap, [d], k=0))
+
+
+def test_resolved_heading_still_parses_for_the_venue_check():
+    """scripts/graph_search/nessie_venue_check.py reads K out of this heading; both prefixes must survive."""
+    venue = re.compile(r"^## Resolved sample types: .*?\((?:the (\d+) most-filled|(attribute names only))", re.M)
+    snap, d = snapshot([index_row("TIS", sample_count=5)]), detail("TIS", [attr("Organ", sample_count=5)])
+    assert venue.search(gc.render_graph_context(snap, [d])).group(1) == "25"
+    assert venue.search(gc.render_graph_context(snap, [d], k=0)).group(2) == "attribute names only"
+
+
 def test_context_is_structure_then_index_then_sections():
     structure = gc.STRUCTURE_PATH.read_text(encoding="utf-8").strip()
     text = gc.render_graph_context(snapshot([index_row("TIS", sample_count=5)]), [tis_detail()])
@@ -464,6 +519,190 @@ def test_vocabulary_omits_empty_blocks():
                                       published_studies=(), assay_titles=(), protocol_titles=(),
                                       assay_connections=()), "study assay protocol")
     assert text == ""
+
+
+# The 60 distinct questions of the 2026-09-17 graph-versus-API run (PilotAPOC/review/compare_export.json), one
+# per line and verbatim: they are run data, so they are not wrapped and not edited.
+# The assay gate's ``word in question`` test fired on 18 of them.
+POC_QUESTIONS = (
+    "Do we have any ChIP-seq datasets?",
+    "Do we have any western blot data",
+    "Find PBMCs that were sequenced using single cell methods.",
+    "Find RNA samples with a RIN score greater than 7.",
+    "Find all NHP samples in the database",
+    "Find bacteria samples with strain mTB.",
+    "Find every sample whose Scientist is Owen Leddy, and break it down by sample type.",
+    "Find female mouse samples.",
+    "Find me DNA samples",
+    "Find me RNA samples",
+    "Find me all CD8 antibodies in the database.",
+    "Find me all fibrin images on omero",
+    "Find me all monkeys in the database",
+    "Find me all of the fibrin images that are on omero",
+    "Find me all samples associated with CD8 Antibodies",
+    "Find me cd8 antibodies",
+    "Find me cd8 depleted monkeys",
+    "Find me cell line samples",
+    "Find me extravasation images",
+    "Find me images associated with fibrin",
+    "Find me mice associated with ndma",
+    "Find me mice treated with NDMA.",
+    "Find me mice treated with mTB",
+    "Find me mice treated with tuberculosis",
+    "Find me monkeys",
+    "Find me ndma treated mice",
+    "Find me samples associated with cd8 depletion",
+    "Find me scRNA-seq clustering results",
+    "Find mice treated with 50mg NDMA for 6 weeks from the water study",
+    "Find mice treated with 50mg NDMA from the water study",
+    "Find mice treated with NDMA",
+    "Find tissue samples with organ type Liver",
+    "How many CometChip imaging datasets are there?",
+    "How many HeLa cell-line samples do we have?",
+    "How many PBMC samples do we have?",
+    "How many RNA samples does the Kamm lab have?",
+    "How many male patient samples are there?",
+    "How many organ on chips exist in the Kamm lab",
+    "How many samples are from the Kamm lab?",
+    "How many samples are in the database?",
+    "How many samples list ImmPort as their repository, across every spelling?",
+    "How many samples, of any sample type, have TIS-220831FLY-26 inside their UID, whether or not that is the whole UID?",
+    "How many samples, of any sample type, have the UID exactly TIS-220831FLY-26?",
+    "How many sequencing samples used an amplicon library strategy?",
+    "How many tissue (TIS) samples have 21619 somewhere in their Name?",
+    "How many tissue (TIS) samples have the UID exactly TIS-220831FLY-26?",
+    "How many tissue (TIS) samples have their Organ recorded as just Lung, with nothing else in that field?",
+    "How many tissue (TIS) samples mention lung in the Organ field, counting longer values such as Bronchus and lung as well?",
+    "I don't trust the sequencing-sample number — work out how many D.SEQ samples there are from scratch and show me your method.",
+    "Show me all FACS data for the monkeys",
+    "Some of these mouse genotype terms look like the same thing written differently — which ones should be merged, and what should each become?",
+    "The AB sample type declares an attribute called Catalog# — is every antibody record actually using that exact key?",
+    "The Scientist field looks like it has the same people entered under different names. Which entries are duplicates of each other, and what should each one be?",
+    "What GPT Data is in the database",
+    "What GPT data exists in the database",
+    "What fibrin images exist",
+    "What fibrin images exist in the database",
+    "What is the difference between a D.SEQ sample and an A.SCXP sample?",
+    "What monkeys exist in the database?",
+    "what about organ on chips in the kamm lab?",
+)
+
+# P7c: the seven the substring test fired on with no assay language at all. Every one is "data" inside
+# "database" or "datasets"; none names an assay, a platform or a processing step.
+POC_ASSAY_SUBSTRING_ONLY = (
+    "Do we have any ChIP-seq datasets?",
+    "Find all NHP samples in the database",
+    "Find me all CD8 antibodies in the database.",
+    "Find me all monkeys in the database",
+    "How many samples are in the database?",
+    "What fibrin images exist in the database",
+    "What monkeys exist in the database?",
+)
+
+
+def assay_gate(question):
+    return "ASSAY TITLES" in gc.render_vocabulary(vocab(), question)
+
+
+def protocol_gate(question):
+    return "PROTOCOL TITLES" in gc.render_vocabulary(vocab(), question)
+
+
+def test_assay_gate_no_longer_fires_on_a_substring():
+    for question in POC_ASSAY_SUBSTRING_ONLY:
+        assert not assay_gate(question), question
+
+
+def test_assay_gate_fires_on_eleven_of_the_sixty_poc_questions():
+    assert len(POC_QUESTIONS) == 60
+    substring = [q for q in POC_QUESTIONS if any(word in q.lower() for word in gc.ASSAY_WORDS)]
+    firing = [q for q in POC_QUESTIONS if assay_gate(q)]
+    assert len(substring) == 18  # what shipped
+    assert len(firing) == 11
+    assert set(substring) == set(firing) | set(POC_ASSAY_SUBSTRING_ONLY)  # nothing else changed
+
+
+def test_the_protocol_gate_is_unchanged_on_the_poc_questions():
+    assert len([q for q in POC_QUESTIONS if protocol_gate(q)]) == 2
+
+
+def test_a_gate_word_still_matches_its_plural():
+    assert assay_gate("which assays ran on these")
+    assert protocol_gate("Find PBMCs that were sequenced using single cell methods.")
+    assert protocol_gate("which procedures apply")
+
+
+def test_a_gate_word_no_longer_matches_a_longer_word():
+    assert not assay_gate("how many samples are in the database?")
+    assert not protocol_gate("which methodology applies")
+
+
+def test_mentions_is_the_shared_whole_word_gate():
+    """Exported so agents/graph.py's fallback path can drop its own ``kw in query`` test onto it."""
+    assert gc.mentions(gc.ASSAY_WORDS, "Show sequencing data")
+    assert not gc.mentions(gc.ASSAY_WORDS, "all samples in the database")
+    assert gc.mentions(("assay",), "ASSAYS")
+    assert not gc.mentions((), "an empty gate matches nothing")
+    assert not gc.mentions(gc.ASSAY_WORDS, None)
+
+
+# --- the vocabulary byte budget (P7c) -----------------------------------------------------------------------------
+
+BUDGET_QUESTION = "which assays and studies used which protocol"
+
+
+def big_vocab(n=2000):
+    return vocab(study_titles=tuple(f"Study {i:04d} of the lung cohort" for i in range(n)),
+                 assay_titles=tuple(f"Assay {i:04d} sequencing panel" for i in range(n)),
+                 protocol_titles=tuple(f"P.{i:04d}-protocol-document.pdf" for i in range(n)),
+                 published_studies=tuple({"title": f"Study {i:04d}", "DOI": f"10.1/{i}", "PMID": str(i)}
+                                         for i in range(n)),
+                 assay_connections=tuple({"assay": f"Assay {i:04d}", "parent_type": "RNA", "child_type": "D.SEQ"}
+                                         for i in range(n)))
+
+
+def test_vocabulary_had_no_budget_and_now_has_one():
+    unbounded = gc.render_vocabulary(big_vocab(), BUDGET_QUESTION, budget=10**9)
+    assert len(unbounded.encode("utf-8")) > gc.VOCAB_BUDGET_BYTES
+    text = gc.render_vocabulary(big_vocab(), BUDGET_QUESTION)
+    assert len(text.encode("utf-8")) <= gc.VOCAB_BUDGET_BYTES
+
+
+def test_the_budget_trims_the_lists_before_it_drops_a_block():
+    text = gc.render_vocabulary(big_vocab(), BUDGET_QUESTION)
+    for heading in ("INVESTIGATION TITLES", "PROJECT TITLES", "STUDY TITLES", "PUBLISHED STUDIES",
+                    "ASSAY TITLES", "ASSAY-SAMPLE CONNECTIONS", "PROTOCOL TITLES"):
+        assert heading in text
+
+
+def test_the_budget_keeps_as_much_as_it_fits():
+    """A fixed step ladder undershot: on the live catalog it gave up 33 of 133 assay titles to save 2 KiB."""
+    text = gc.render_vocabulary(big_vocab(), BUDGET_QUESTION)
+    assert gc.VOCAB_BUDGET_BYTES - 400 <= len(text.encode("utf-8")) <= gc.VOCAB_BUDGET_BYTES
+
+
+def test_a_trimmed_block_says_how_many_it_left_out():
+    text = gc.render_vocabulary(big_vocab(), BUDGET_QUESTION)
+    left_out = [line for line in text.splitlines() if line.startswith("... and ")]
+    assert left_out and all(line.endswith(" more") for line in left_out)
+    assert any("," in line for line in left_out)  # thousands separated, as every other count is
+
+
+def test_a_vocabulary_inside_the_budget_renders_exactly_as_before():
+    small = vocab()
+    assert gc.render_vocabulary(small, BUDGET_QUESTION) == gc.render_vocabulary(small, BUDGET_QUESTION,
+                                                                               budget=10**9)
+
+
+def test_blocks_are_dropped_from_the_end_when_one_item_each_is_still_too_big():
+    text = gc.render_vocabulary(big_vocab(), BUDGET_QUESTION, budget=200)
+    assert len(text.encode("utf-8")) <= 200
+    assert "PROTOCOL TITLES" not in text
+    assert text.startswith("INVESTIGATION TITLES")
+
+
+def test_an_unreachable_budget_sends_nothing():
+    assert gc.render_vocabulary(big_vocab(), BUDGET_QUESTION, budget=1) == ""
 
 
 # ---------------------------------------------------------------------------------------------------------------
