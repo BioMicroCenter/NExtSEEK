@@ -21,17 +21,19 @@ def test_a_clean_batch_produces_no_findings():
 
 
 def test_a_finding_is_structured_not_a_string():
+    # No parent-ish key at all is state 3 of the three-state Parent rule
+    # (reingest_qa.py) -- LINEAGE_UNRESOLVED, SOFT, not BLANK_PARENT/HARD.
     report = _qa([{"json_metadata": {"Name": "n1"}}])
     finding = report.findings[0]
-    assert finding.code == qa.BLANK_PARENT
-    assert finding.severity == "hard"
+    assert finding.code == qa.LINEAGE_UNRESOLVED
+    assert finding.severity == "soft"
     assert finding.row_index == 0
 
 
 def test_hard_and_soft_string_lists_are_still_populated():
     report = _qa([{"json_metadata": {"Name": "n1"}}])
-    assert report.disposition == qa.HARD_REJECT
-    assert report.hard and isinstance(report.hard[0], str)
+    assert report.disposition == qa.SOFT_FLAG
+    assert report.soft and isinstance(report.soft[0], str)
 
 
 def test_findings_sharing_a_code_and_attribute_group_for_rendering():
@@ -76,9 +78,12 @@ def test_render_of_a_batch_level_finding_is_unchanged():
 
 def test_every_finding_lands_in_exactly_one_of_hard_or_soft():
     # missing_required moved to HARD (Task 4), so it can no longer supply this
-    # test's SOFT example; surprise_sentinel still is one.
+    # test's SOFT example; surprise_sentinel still is one. A row with no
+    # Parent key at all is now state 3 (LINEAGE_UNRESOLVED, SOFT) of the
+    # three-state Parent rule, so it can no longer supply this test's HARD
+    # example either -- a present-but-blank Parent key (state 2) still is.
     rows = [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-1", "Name": "n1", "Notes": "TODO"}},
-            {"json_metadata": {"Name": "n2"}}]  # n2 has no Parent -> HARD BLANK_PARENT
+            {"json_metadata": {"Parent": "", "Name": "n2"}}]  # blank Parent -> HARD BLANK_PARENT
     report = _qa(rows)  # n1's "TODO" Notes -> SOFT surprise_sentinel
     assert report.hard  # at least one hard finding present
     assert report.soft  # at least one soft finding present

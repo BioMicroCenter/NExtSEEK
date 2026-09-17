@@ -42,6 +42,28 @@ def test_groups_by_type_and_renders_each(tmp_path):
     assert all(r.SampleType == "A.SCXP" for r in batch.rows)
 
 
+def test_unresolved_child_still_renders_soft_flagged(tmp_path):
+    # An analysis child the upstream mapper could not match to a D.SEQ ships
+    # with no Parent key at all (never Parent: "") -- the spec's "Matches
+    # none" row is hard on the backfill only, so this must still render a
+    # workbook, just SOFT_FLAG rather than CLEAN.
+    rows = json.dumps([{
+        "SampleType": "A.SCXP",
+        "json_metadata": {"Scientist": "Marie Floryan", "ReferenceGenome": "GRCh38"},
+        "assay_ids": [12],
+    }])
+    out = g._build_upload_xlsx(
+        {"rows": rows, "existing_parent_uids": "D.SEQ-1"},
+        _Cfg(), None, None, None, str(tmp_path))
+
+    assert out["qa"]["A.SCXP"]["disposition"] == "SOFT_FLAG"
+    assert not out["qa"]["A.SCXP"]["hard"]
+    assert set(out["saved_files"]) == {"reingest_A_SCXP"}
+    scxp_path = out["saved_files"]["reingest_A_SCXP"]
+    batch = parse_traditional_file(scxp_path)
+    assert len(batch.rows) == 1
+
+
 def test_hard_reject_type_is_skipped(tmp_path):
     # Unresolvable parent -> HARD_REJECT -> no workbook for that type.
     rows = _rows(("A.SCXP", "D.SEQ-does-not-exist", [12]))

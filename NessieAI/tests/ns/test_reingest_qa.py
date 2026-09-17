@@ -2,6 +2,7 @@
 from NessieAI.ns.reingest_qa import (
     CLEAN, HARD_REJECT, SOFT_FLAG, qa_rows,
 )
+from NessieAI.ns import reingest_qa as qa
 
 _TYPES = {"A.SCXP", "A.ALN", "D.SEQ"}
 _PARENTS = {"D.SEQ-220823SHA-1", "D.SEQ-220823SHA-2"}
@@ -109,10 +110,16 @@ def test_variant_parent_key_is_resolvability_checked():
                    for h in r.hard), f"{key}: {r.hard}"
 
 
-def test_no_parent_key_of_any_kind_is_hard_reject():
+def test_no_parent_key_of_any_kind_is_soft_flagged_and_ships():
+    # No parent-ish key at all (never a blank one) is the upstream mapper's
+    # deliberate "could not resolve lineage" signal for an unresolved
+    # pipeline sample -- the analysis child still ships (spec's "Matches
+    # none" row: hard on the backfill only), it is not a defect like a
+    # blank Parent value is.
     r = _qa([_bare_row(ReferenceGenome="GRCh38")])
-    assert r.disposition == HARD_REJECT
-    assert any("blank Parent" in h for h in r.hard)
+    assert r.disposition == SOFT_FLAG
+    assert not r.hard
+    assert any(qa.LINEAGE_UNRESOLVED in s for s in r.soft)
 
 
 def test_blank_variant_parent_alone_is_hard_reject():
@@ -152,3 +159,67 @@ def test_variant_parent_resolves_against_intra_batch_name():
     ]
     r = _qa(rows)
     assert r.disposition == CLEAN, r.hard
+
+
+# ── the three-state Parent rule (new mode only) ────────────────────────────
+#
+# collect_parent_tokens() returns [] both for "no parent-ish key present"
+# and for "a parent-ish key present but every value is blank". Those are
+# genuinely different: the first is the upstream mapper's deliberate
+# unresolved-lineage signal (SOFT, ships); the second is a real defect
+# (HARD). See reingest_qa.py's LINEAGE_UNRESOLVED comment.
+
+
+def test_state2_blank_literal_parent_still_hard_rejects():
+    r = qa_rows([_row("")], sample_type="A.SCXP", known_sampletypes=_TYPES,
+                existing_parent_uids=_PARENTS)
+    assert r.disposition == HARD_REJECT
+    assert any(qa.BLANK_PARENT in h for h in r.hard)
+
+
+def test_state2_blank_variant_parent_still_hard_rejects():
+    r = _qa([_bare_row(AntibodyParent="   ")])
+    assert r.disposition == HARD_REJECT
+    assert any(qa.BLANK_PARENT in h for h in r.hard)
+
+
+def test_state1_untouched_intra_batch_name_and_placeholder_skip():
+    # Intra-batch Name resolution (state 1, unchanged).
+    rows = [
+        {"json_metadata": {"Parent": "D.SEQ-220823SHA-1", "Name": "in_batch_ab"},
+         "assay_ids": [12]},
+        _bare_row(AntibodyParent="in_batch_ab"),
+    ]
+    r = _qa(rows)
+    assert r.disposition == CLEAN, r.hard
+    assert not any(qa.LINEAGE_UNRESOLVED in s for s in r.soft)
+
+    # Placeholder-marker skip (state 1, unchanged): a token found, but
+    # marked as an intentional placeholder, is neither hard-rejected nor
+    # soft-flagged as unresolved lineage.
+    placeholder = _qa([_bare_row(AntibodyParent="*** PLACEHOLDER: antibody parent ***")])
+    assert not any(qa.PARENT_UID_NOT_FOUND in h for h in placeholder.hard)
+    assert not any(qa.BLANK_PARENT in h for h in placeholder.hard)
+    assert not any(qa.LINEAGE_UNRESOLVED in s for s in placeholder.soft)
+
+
+def test_blank_parent_alongside_a_real_variant_value_is_state1_not_state2():
+    # A blank literal Parent is not itself a defect when another parent-ish
+    # key on the same row carries a real, resolvable value -- the row has
+    # lineage, just not under the literal key. This must resolve as state 1
+    # (tokens found), never state 2 (BLANK_PARENT).
+    row = {"json_metadata": {"Parent": "", "AntibodyParent": "D.SEQ-220823SHA-1"},
+           "assay_ids": [12]}
+    r = _qa([row])
+    assert r.disposition == CLEAN, (r.hard, r.soft)
+    assert not any(qa.BLANK_PARENT in h for h in r.hard)
+    assert not any(qa.LINEAGE_UNRESOLVED in s for s in r.soft)
+
+
+def test_state3_soft_flags_without_hard_rejecting():
+    r = _qa([_bare_row(ReferenceGenome="GRCh38")])
+    assert r.disposition == SOFT_FLAG
+    assert r.disposition != CLEAN
+    assert r.disposition != HARD_REJECT
+    assert not r.hard
+    assert any(qa.LINEAGE_UNRESOLVED in s for s in r.soft)
