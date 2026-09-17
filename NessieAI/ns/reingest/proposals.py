@@ -52,6 +52,22 @@ path even under MySQL, where isolation-level or lock-timing edge cases could
 still let two creates race): a lost race raises ``IntegrityError`` off the
 model's ``unique_together``, which this module catches and folds into the row
 that won, bumping its evidence instead of propagating a 500 to the loser.
+
+The two races are NOT equally protected, and the difference matters:
+
+* Two creates for the SAME (pipeline, raw_key, proposed_attribute) collide on
+  ``unique_together``, so the ``IntegrityError`` catch covers them on every
+  backend, lock or no lock. This is the case the test suite exercises.
+* Two creates for the same (pipeline, raw_key) with DIFFERENT proposed
+  attributes collide with nothing -- the 3-tuples differ, so no constraint
+  fires and the catch is inert. Only ``select_for_update()``'s gap lock stops
+  that fork, which means it is protected on MySQL/InnoDB and NOT protected on
+  a backend without effective row/gap locking. The result there is two open
+  rows for one key: the exact fork this module's dedupe policy exists to
+  prevent, arrived at by a route the policy cannot see. It is untested,
+  because sqlite cannot exercise a lock the backend does not implement.
+  Production is MySQL, so this is a documented residual, not a live defect --
+  but do not read the green suite as proof the lock works.
 """
 from __future__ import annotations
 

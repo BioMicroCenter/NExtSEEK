@@ -250,17 +250,18 @@ def test_an_unresolved_sample_still_ships_its_child_with_no_parent():
     # ...but the unresolved one's row has no Parent key at all -- not an
     # empty string, not a fabricated value.
     #
-    # THIS DISTINCTION IS LOAD-BEARING ACROSS A LAYER BOUNDARY. The QA gate in
-    # NessieAI/ns/reingest_qa.py reads three states, not two: a parent-ish key
-    # with a real value passes; a parent-ish key present but blank is a HARD
-    # reject, because something tried to set lineage and produced nothing; and
-    # no parent-ish key at all is a SOFT flag (LINEAGE_UNRESOLVED) so the row
-    # still ships and a curator attaches the parent later. It can only tell the
-    # last two apart because the mapper never emits an empty Parent -- it sets
-    # a real UID or omits the key. Start emitting `Parent: ""` here and every
-    # unresolved sample's child becomes a hard reject downstream, which is
-    # precisely the spec guarantee (lines 375-383, "children still ship") that
-    # this test exists to protect.
+    # THIS DISTINCTION IS LOAD-BEARING ACROSS A LAYER BOUNDARY, and the other
+    # half of it is NOT in this worktree yet. reingest_qa.py HERE is two-state:
+    # collect_parent_tokens() in nextseek_api/batch_upload/helpers.py skips
+    # falsy values, so it returns [] for both "no parent-ish key" and "key
+    # present but blank", and the gate hard-rejects either. The three-state
+    # rule -- real value passes, blank hard-rejects, ABSENT soft-flags and
+    # ships -- lives on feat/nfcore-reingest-workbooks and arrives at merge.
+    # A gate can only tell absent from blank because the mapper never emits an
+    # empty Parent: it sets a real UID or omits the key. Start emitting
+    # `Parent: ""` here and every unresolved sample's child becomes a hard
+    # reject downstream, which is exactly the spec guarantee (lines 375-383,
+    # "children still ship") that this test exists to protect.
     assert "Parent" not in by_sample["CONTROL_REP2"].attributes
     # The unresolved sample contributes nothing to the per_run join either.
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
