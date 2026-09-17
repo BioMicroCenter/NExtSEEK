@@ -35,6 +35,8 @@ def resolve(
     samplesheet_rows: list[dict],
     run_dir: str,
     lookup_by_fastq: Callable[[str], list[str]],
+    *,
+    multirun_resolved_rows: dict[str, int] | None = None,
 ) -> list[tuple[str, str | None, str, tuple[str, ...]]]:
     """One (sample, uid_or_None, resolution, multirun_parents) per
     samplesheet row, input order.
@@ -47,6 +49,17 @@ def resolve(
     caller may read it off any one of them. It is empty (not partial-looking,
     just empty) when none of the sample's contributing rows resolved --
     exactly like today's behaviour before this field existed.
+
+    `multirun_resolved_rows`, when given, is filled in as a side effect with
+    ``{sample: resolved_row_count}`` for every multi-run sample -- the number
+    of that sample's OWN contributing rows that resolved to a UID, counted
+    BEFORE de-duplication. This is deliberately not folded into the returned
+    per-row tuples: `multirun_parents` is a de-duplicated set of UIDs, so two
+    rows resolving to the SAME UID (one D.SEQ record whose `File_PrimaryData`
+    lists both lanes, say) collapses `len(multirun_parents)` below the row
+    count even though every row resolved. `harvest.py` needs the un-collapsed
+    row count, not the UID count, to tell that genuinely-complete case apart
+    from an actually-partial one -- see its partial-resolution warning.
     """
     from nextseek_api.assistant.models_db import PipelineRun
 
@@ -57,13 +70,15 @@ def resolve(
     multi = {s for s, n in Counter(
         str(r.get("sample") or "") for r in samplesheet_rows).items() if n > 1}
 
-    multirun_parents: dict[str, tuple[str, ...]] = {
-        sample: _resolve_multirun_parents(
-            sample,
-            [r for r in samplesheet_rows if str(r.get("sample") or "") == sample],
-            record, lookup_by_fastq)
-        for sample in multi
-    }
+    multirun_parents: dict[str, tuple[str, ...]] = {}
+    for sample in multi:
+        rows_for_sample = [r for r in samplesheet_rows
+                            if str(r.get("sample") or "") == sample]
+        parents, resolved_rows = _resolve_multirun_parents(
+            sample, rows_for_sample, record, lookup_by_fastq)
+        multirun_parents[sample] = parents
+        if multirun_resolved_rows is not None:
+            multirun_resolved_rows[sample] = resolved_rows
 
     out: list[tuple[str, str | None, str, tuple[str, ...]]] = []
     for row in samplesheet_rows:
@@ -91,8 +106,9 @@ def resolve(
 def _resolve_multirun_parents(
     sample: str, rows: list[dict], record,
     lookup_by_fastq: Callable[[str], list[str]],
-) -> tuple[str, ...]:
-    """The D.SEQ UIDs behind a multi-run sample's OWN contributing rows.
+) -> tuple[tuple[str, ...], int]:
+    """The D.SEQ UIDs behind a multi-run sample's OWN contributing rows, and
+    how many of those rows resolved.
 
     Each row is resolved independently, by the same order of authority a
     single-run sample gets -- the launch record first, then an exact fastq
@@ -112,15 +128,26 @@ def _resolve_multirun_parents(
     de-duplicated and in the rows' own order -- `harvest.py` is the layer
     that notices and warns when the result is partial, since only it knows
     how many contributing rows there were to compare against.
+
+    The second element, `resolved_row_count`, counts every row whose OWN uid
+    resolved to something -- BEFORE de-duplication, so two rows that resolve
+    to the SAME uid (one D.SEQ record whose `File_PrimaryData` lists both
+    lanes) both count, even though they collapse to one entry in the parents
+    tuple. Comparing THAT count against the raw row count, not
+    `len(parents)`, is what lets `harvest.py` tell a genuinely partial parent
+    list apart from a complete one that merely de-duplicated.
     """
     seen: set[str] = set()
     parents: list[str] = []
+    resolved_rows = 0
     for row in rows:
         uid = _resolve_multirun_row(sample, row, record, lookup_by_fastq)
-        if uid and uid not in seen:
-            seen.add(uid)
-            parents.append(uid)
-    return tuple(parents)
+        if uid:
+            resolved_rows += 1
+            if uid not in seen:
+                seen.add(uid)
+                parents.append(uid)
+    return tuple(parents), resolved_rows
 
 
 def _resolve_multirun_row(
@@ -128,17 +155,27 @@ def _resolve_multirun_row(
 ) -> str | None:
     """One contributing row's own D.SEQ UID, or None -- see
     `_resolve_multirun_parents` for why this cannot reuse `record.uid_for`.
+
+    Cohort entries are matched on the ``(nfcore_sample, fastq_1)`` pair, not
+    on the UID: if the launch record has ANY entry for this exact pair, it is
+    authoritative for this row -- resolved or not -- exactly the guarantee a
+    single-run sample gets from `resolve`'s own `knows_sample`/`uid_for`
+    check. A matching entry with `d_seq_uid: None` means the launch already
+    established there is nothing in NExtSEEK to match this row against, so
+    the fastq fallback below is never tried for it: retrying by path would
+    only manufacture a same-run coincidence, not a real answer (see this
+    module's docstring). Only when NO cohort entry matches the pair at all --
+    the launch record has nothing to say about this row -- does the fastq
+    fallback run.
     """
     fastq = str(row.get("fastq_1") or "")
     if record is not None and fastq:
-        matches = {entry.get("d_seq_uid") for entry in (record.cohort or [])
+        entries = [entry for entry in (record.cohort or [])
                    if entry.get("nfcore_sample") == sample
-                   and entry.get("fastq_1") == fastq
-                   and entry.get("d_seq_uid")}
-        if len(matches) == 1:
-            return next(iter(matches))
-        if len(matches) > 1:
-            return None
+                   and entry.get("fastq_1") == fastq]
+        if entries:
+            uids = {entry.get("d_seq_uid") for entry in entries if entry.get("d_seq_uid")}
+            return next(iter(uids)) if len(uids) == 1 else None
     uid, _resolution = _by_path(fastq, lookup_by_fastq)
     return uid
 

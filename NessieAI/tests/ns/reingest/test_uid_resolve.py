@@ -147,6 +147,48 @@ def test_present_in_cohort_with_null_uid_stays_unresolved_without_trying_fastq()
     assert out == [("CONTROL_REP1", None, manifest.RESOLUTION_UNRESOLVED, ())]
 
 
+def test_a_multirun_rows_own_null_uid_cohort_entry_stays_unresolved_without_trying_fastq():
+    """Mirrors test_present_in_cohort_with_null_uid_stays_unresolved_without_trying_fastq
+    for the multi-run case: a cohort entry existing for this row's own
+    (nfcore_sample, fastq_1) pair with `d_seq_uid: None` means the launch
+    already established there is nothing in NExtSEEK to match this row
+    against, so `_resolve_multirun_row` must not retry it by fastq path --
+    that would manufacture a same-run coincidence for a row the launch
+    record explicitly marked unresolvable. The OTHER contributing row (a
+    genuine cohort hit, non-null UID) still resolves normally.
+    """
+    rows = [
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz", "fastq_2": ""},
+        {"sample": "S1", "fastq_1": "/net/cluster/fastq/S1_L002_R1.fastq.gz", "fastq_2": ""},
+    ]
+    PipelineRun.objects.create(
+        run_dir=RUN_DIR, run_name="r", pipeline="nf-core/rnaseq",
+        launched_by=get_user_model().objects.create(username="t"),
+        cohort=[
+            {"d_seq_uid": None, "nfcore_sample": "S1",
+             "fastq_1": "/net/cluster/fastq/S1_L001_R1.fastq.gz", "fastq_2": None},
+            {"d_seq_uid": "D.SEQ-LANE-2", "nfcore_sample": "S1",
+             "fastq_1": "/net/cluster/fastq/S1_L002_R1.fastq.gz", "fastq_2": None},
+        ])
+    calls: list[str] = []
+
+    def lookup(path):
+        calls.append(path)
+        return ["D.SEQ-WOULD-MATCH-IF-TRIED"]
+
+    out = uid_resolve.resolve(rows, RUN_DIR, lookup)
+    assert {r[2] for r in out} == {manifest.RESOLUTION_MULTIRUN}
+    assert all(r[1] is None for r in out)
+    # Only the row with a genuine (non-null) cohort UID contributes a
+    # parent; the null-UID row contributes nothing.
+    assert all(r[3] == ("D.SEQ-LANE-2",) for r in out)
+    # The launch record was authoritative for BOTH rows (each matched the
+    # cohort on its own (nfcore_sample, fastq_1) pair), so the fastq lookup
+    # was never consulted for either -- not even the one whose entry has no
+    # UID.
+    assert calls == []
+
+
 def test_absent_from_a_known_cohort_falls_back_to_fastq():
     """knows_sample=False for THIS sample (a launch record exists for the run,
     but its cohort never mentions CONTROL_REP1): this is the step-3 case, and
