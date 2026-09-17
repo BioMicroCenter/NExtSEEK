@@ -88,6 +88,41 @@ def _probe_total(db_session, body: str, params: dict, work=None) -> int | None:
     return db_session.execute_read(work or _read_total, probe, params)
 
 
+def matched_nothing(result: dict | None) -> bool:
+    """Did this successful query find nothing? Row count alone does not answer that.
+
+    A query written as `RETURN count(s) AS total` that matches no samples comes back as ONE
+    row holding zero, so `count` is 1 and a row-count test calls it a hit. Measured on the
+    2026-09-16 evaluation run: of the five graph answers that were a wrong zero, three were
+    that shape (`search.hela_trap`, `how_many_samples_are_from_the_ka`,
+    `routing.lab_ooc_kamm_count`) and the zero-row retry never fired on any of them. The
+    user was told "there are no HeLa samples" when there are four.
+
+    So: no rows, or exactly one row whose numeric values are all zero. The single-row test
+    is deliberately narrow. An aggregate answer is one row; a row of real data that happens
+    to hold a zero (a count of 0 beside a name, say) keeps its non-numeric values, and a
+    query returning several rows has found something whatever the numbers say.
+
+    A genuine zero re-queried is not a loss: the retry prompt tells the model to return the
+    same query when the filters are real, the second zero leaves the first result standing,
+    and the user gets the answer with the evidence that it was checked twice.
+    """
+    if not result or not result.get("ok"):
+        return False
+    count = result.get("count") or 0
+    if not count:
+        return True
+    if count != 1:
+        return False
+    rows = result.get("data") or []
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        return False
+    numbers = [v for v in rows[0].values() if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    if not numbers or len(numbers) != len(rows[0]):
+        return False
+    return all(n == 0 for n in numbers)
+
+
 def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = None) -> dict:
     """
     Execute a read-only Cypher query against the configured Neo4j instance.
