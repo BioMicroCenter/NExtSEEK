@@ -32,6 +32,7 @@ nextseek-entity-extract	entity	Resolve NL terms to NExtSEEK vocabulary.
 nextseek-extract-text	extract	Extract text from a file.
 nextseek-generate-submission	generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.
 nextseek-graph	graph	Run a Neo4j lineage/graph query from NL.
+nextseek-graph-schema	graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.
 nextseek-parse	parse	Turn an NL question into a parser plan.
 nextseek-pipeline	pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.
 nextseek-plan	plan	Multi-step planner advisor (read-only).
@@ -75,9 +76,17 @@ Files (the `min_*` variants are the compact forms — prefer them when grounding
 - `projects_db.json` — projects / investigations (name, id, description).
 - `min_api_endpoints.json` / `min_api_endpoints_enriched.json` — REST endpoint catalog.
 - `read_safe_endpoints.json` — the read-safe endpoint allowlist.
-- `min_graph_schema.json` / `neo4j_schema.json` — Neo4j graph schema.
+- `min_graph_schema.json` — routing guidance for the graph: which filters it supports.
 
 Read-only.
+
+**The graph schema is NOT one of these files.** Run `nextseek-graph-schema` for it: the image
+bakes no graph-schema capture, because one goes stale the moment the graph is synced and nothing
+would tell you. That op reads the deployed graph and returns its node labels, relationships,
+sample types with their attributes and stored values, and the investigation/project/study/assay
+vocabulary; `--types "TIS,D.SEQ"` renders those types in full. Its `source` field says whether the
+answer came from the live graph (`catalog`) or from a committed capture (`fallback`, with the
+reason) — say so if you rely on a fallback.
 
 ## Credentials
 

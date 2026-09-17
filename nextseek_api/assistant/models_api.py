@@ -269,6 +269,22 @@ class GraphOpRequest(EntityOpRequest):
     """POST /assistant/graph/ body."""
 
 
+class GraphSchemaOpRequest(BaseModel):
+    """POST /assistant/graph-schema/ body.
+
+    Both fields are optional: with neither, the answer is the structure, the sample type
+    index and the always-on vocabulary. ``types`` is a comma-separated list of sample type
+    codes to render in full; ``query`` only gates the keyword-driven vocabulary blocks and
+    is never sent to a model.
+    """
+    types: str = Field("", max_length=2000,
+                       description="Comma-separated sample type codes to render in full.")
+    query: str = Field("", max_length=32000,
+                       description="Gates the vocabulary blocks; no model call is made.")
+    use_prod: bool = Field(False, description="Admin-only: route through the prod ChatConfig.")
+    model_config = ConfigDict(extra="forbid")
+
+
 class ApiReadRequest(BaseModel):
     """POST /assistant/api-read/ body."""
     parser_plan: str = Field(..., description="A parser plan as a JSON string.")
@@ -404,6 +420,33 @@ class GraphResult(BaseModel):
 class GraphOpResponse(BaseModel):
     op: Literal["graph"] = "graph"
     result: GraphResult
+    model_config = ConfigDict(extra="forbid")
+
+
+class GraphSchemaResult(BaseModel):
+    """The live graph schema as text, or the committed fallback, saying which it is.
+
+    ``source`` is the load-bearing field: ``catalog`` means the deployed graph answered,
+    ``fallback`` means the committed ``context/neo4j_schema.json`` did, and then
+    ``unavailable_reason`` says why and ``fallback_fetched_at`` how stale it is.
+    """
+    source: Literal["catalog", "fallback"]
+    schema_version: Optional[str] = None
+    catalog_hash: Optional[str] = None
+    synced_at: Optional[str] = None
+    sample_types: int = 0
+    resolved_types: List[str] = Field(default_factory=list)
+    unknown_types: List[str] = Field(default_factory=list)
+    graph_schema: str = Field("", alias="schema")
+    vocabulary: str = ""
+    unavailable_reason: Optional[str] = None
+    fallback_fetched_at: Optional[str] = None
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+class GraphSchemaOpResponse(BaseModel):
+    op: Literal["graph-schema"] = "graph-schema"
+    result: GraphSchemaResult
     model_config = ConfigDict(extra="forbid")
 
 

@@ -166,7 +166,8 @@ nextseek-api-write --parser-plan '<plan>' --confirmed-write
 **Pure capability / vocabulary questions — read the cached catalogs.** For "what sampletypes
 exist?", "what can I ask?", read the baked catalogs directly with `Read` (no op, no network):
 `/app/plugins/nextseek/context/capabilities.md` (start here), `min_sampletypes_db.json`,
-`min_assays_db.json`, `min_api_endpoints_enriched.json`, `projects_db.json`, `neo4j_schema.json`.
+`min_assays_db.json`, `min_api_endpoints_enriched.json`, `projects_db.json`. The graph schema is
+not among them: run `nextseek-graph-schema`, which reads the deployed graph.
 For *data* questions, use the ops above — the catalogs alone will not answer those.
 
 ## Multi-step planner (`nextseek-plan`)
@@ -256,6 +257,7 @@ build-upload-xlsx	nextseek-build-upload-xlsx	**Reingest step 2** — render NExt
 entity	nextseek-entity-extract	Resolve NL terms to NExtSEEK vocabulary.	sidecar	read	true	true
 generate-submission	nextseek-generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.	sidecar	read	true	true
 graph	nextseek-graph	Run a Neo4j lineage/graph query from NL.	sidecar	read	true	true
+graph-schema	nextseek-graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.	sidecar	read	true	true
 parse	nextseek-parse	Turn an NL question into a parser plan.	sidecar	read	true	true
 pipeline	nextseek-pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.	viewset	unrouted	true	true
 plan	nextseek-plan	Multi-step planner advisor (read-only).	viewset	unrouted	true	true

@@ -50,8 +50,8 @@
   },
   {
    "path": "app/contract.py",
-   "size_bytes": 5295,
-   "sha256": "e05942c28710855a5fc4b14777fbd6c6713b5ded981711e86676f6fad28be891"
+   "size_bytes": 5658,
+   "sha256": "f58425228161f8148860952d40312587dca5cac0062e3e247a737dfb254d394e"
   },
   {
    "path": "app/exceptions.py",
@@ -75,8 +75,8 @@
   },
   {
    "path": "app/ops.py",
-   "size_bytes": 8079,
-   "sha256": "24fdd247a9a2b05e6770d3c7ef7bd733c7d9c6e38339a3ece9083dc48a5dec7c"
+   "size_bytes": 8508,
+   "sha256": "3f117e3f51c3c4cd3ad0fdf99d0d5ecf6ca0345e5d44b9e91d80af2d9fe227b4"
   },
   {
    "path": "app/server.py",
@@ -184,12 +184,12 @@
  "local_additions_beyond_port_source": [
   {
    "path": "app/contract.py",
-   "addition": "Registered the reingest ops run-ls + build-upload-xlsx (KNOWN_OPS set, _RunLsArgs / _BuildUploadXlsxArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature."
+   "addition": "Registered the reingest ops run-ls + build-upload-xlsx (KNOWN_OPS set, _RunLsArgs / _BuildUploadXlsxArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature. 2026-09-17: registered graph-schema (SIDECAR_OPS, _GraphSchemaArgs), the read-only live-graph-schema op that replaces the neo4j_schema.json snapshot the cc-agent image used to bake. Also not upstream."
   },
   {
    "path": "app/ops.py",
-   "addition": "Added the run-ls + build-upload-xlsx forwarders (_run_ls, _build_upload_xlsx) that proxy to the NExtSEEK /assistant/run-ls/ and /build-upload-xlsx/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature."
+   "addition": "Added the run-ls + build-upload-xlsx forwarders (_run_ls, _build_upload_xlsx) that proxy to the NExtSEEK /assistant/run-ls/ and /build-upload-xlsx/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature. 2026-09-17: added the graph-schema forwarder (_graph_schema) that proxies to the NExtSEEK /assistant/graph-schema/ endpoint. Also not upstream."
   }
  ],
- "notes": "2026-07-22 (dev/v3 reconciliation Wave 5): contract.py + ops.py are NO LONGER byte-identical to port_source_commit a429f137 -- the reingest ops were added directly to this NExtSEEK copy rather than upstream-first. Pins + inventory updated consciously per the test_step7_sidecar_port drift-guard contract. TODO(taisha): fold the reingest sidecar ops into dmac-assistant upstream, then re-port and restore byte-identity."
+ "notes": "2026-07-22 (dev/v3 reconciliation Wave 5): contract.py + ops.py are NO LONGER byte-identical to port_source_commit a429f137 -- the reingest ops were added directly to this NExtSEEK copy rather than upstream-first. Pins + inventory updated consciously per the test_step7_sidecar_port drift-guard contract. TODO(taisha): fold the reingest sidecar ops into dmac-assistant upstream, then re-port and restore byte-identity. 2026-09-17 (Nessie master plan 7.3): graph-schema was added to contract.py and ops.py the same way, so the CC agent reads the deployed graph's schema instead of a snapshot baked into its image. Pins and inventory updated consciously; the same TODO applies."
 }

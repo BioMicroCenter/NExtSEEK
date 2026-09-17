@@ -866,6 +866,69 @@ def live_catalog_context(config: ChatConfig, user_query: str, entity_result, par
     return CatalogContext(snapshot, schema, vocabulary)
 
 
+def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -> dict:
+    """The deployed graph's schema as text, read live, with the committed file as a named fallback.
+
+    The read-only projection the ``graph-schema`` op returns, so a caller with no in-process access to
+    ``graph_catalog`` (the Container-CC agent) describes the graph that is deployed rather than a snapshot
+    baked into its image. It spends no model call: the catalog reads and the renderers, nothing else.
+
+    ``types`` names sample type codes to render in full (their attributes, value types and most frequent
+    values); ``question`` gates the vocabulary blocks exactly as a graph turn does. A code the catalog does
+    not know is returned in ``unknown_types`` rather than guessed at.
+
+    ``source`` is ``catalog`` when the answer is the live graph and ``fallback`` when it is the committed
+    ``context/neo4j_schema.json``, and a fallback carries both why (``unavailable_reason``) and how stale the
+    file is (``fallback_fetched_at``). A caller that ignores ``source`` is describing a graph that may not
+    exist, which is the failure this op was added to end.
+    """
+    requested = list(dict.fromkeys(str(t).strip() for t in (types or ()) if str(t).strip()))
+    try:
+        snapshot = graph_catalog.get_snapshot(config)
+        known = {row.title for row in snapshot.index}
+        wanted = [code for code in requested if code in known]
+        details = graph_catalog.get_type_details(config, wanted) if wanted else []
+        schema = graph_context.render_graph_context(snapshot, details)
+        vocabulary = graph_context.render_vocabulary(graph_catalog.get_vocabulary(config), question or "")
+    except graph_catalog.CatalogUnavailable as exc:
+        return _fallback_schema_snapshot(config, question, requested, str(exc))
+    except Exception as exc:  # noqa: BLE001 (a catalog defect must cost the answer's freshness, not the call)
+        return _fallback_schema_snapshot(config, question, requested,
+                                         f"graph catalog context failed: {type(exc).__name__}: {exc}")
+    return {
+        "source": CONTEXT_CATALOG,
+        "schema_version": snapshot.schema_version,
+        "catalog_hash": snapshot.catalog_hash,
+        "synced_at": snapshot.synced_at,
+        "sample_types": len(snapshot.index),
+        "resolved_types": [str(detail.title) for detail in details],
+        "unknown_types": [code for code in requested if code not in known],
+        "schema": schema,
+        "vocabulary": vocabulary,
+        "unavailable_reason": None,
+        "fallback_fetched_at": None,
+    }
+
+
+def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list[str], reason: str) -> dict:
+    """The committed ``neo4j_schema.json`` as the answer, saying so and saying why."""
+    committed = getattr(config, "NEO4J_SCHEMA", None) or {}
+    print(f"[DEBUG][GRAPH] graph-schema falling back to the committed schema: {reason}")
+    return {
+        "source": CONTEXT_FALLBACK,
+        "schema_version": None,
+        "catalog_hash": None,
+        "synced_at": None,
+        "sample_types": 0,
+        "resolved_types": [],
+        "unknown_types": list(requested),
+        "schema": json.dumps(committed, indent=2) if committed else "{}",
+        "vocabulary": "\n\n".join(_fallback_vocabulary(config, question or "")),
+        "unavailable_reason": reason,
+        "fallback_fetched_at": committed.get("fetched_at") if isinstance(committed, dict) else None,
+    }
+
+
 def _fallback_vocabulary(config: ChatConfig, user_query: str) -> list[str]:
     """The committed protocol and assay-connection blocks, keyword-gated as before the catalog."""
     blocks = []

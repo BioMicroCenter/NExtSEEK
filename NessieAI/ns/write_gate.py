@@ -12,7 +12,7 @@ semantics exactly:
   before executing").
 * ``api-read`` is **allowlist-gated**: the ``(endpoint, METHOD)`` pair must be
   present in the canonical read-safe allowlist (``read_safe_endpoints.json``).
-* every other (read-class) op — entity / parse / graph / report /
+* every other (read-class) op — entity / parse / graph / graph-schema / report /
   generate-submission — always passes.
 * an unknown op label is a programming error and is default-denied.
 
@@ -25,9 +25,13 @@ import json
 import os
 from typing import Callable
 
-# The 7 granular sidecar ops (mirrors dmac _ws_contract.SIDECAR_OPS).
+# The granular sidecar ops this gate has a policy for (the 7 ported from dmac
+# _ws_contract.SIDECAR_OPS, plus graph-schema). The transport-truth set is larger:
+# run-ls and build-upload-xlsx are dispatched without ever calling the gate
+# (NessieAI/ns/CLAUDE.md "Landmines"; measured by derive_transport_minus_write_gate).
 SIDECAR_OPS = frozenset(
-    {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission"}
+    {"entity", "parse", "api-read", "api-write", "graph", "graph-schema", "report",
+     "generate-submission"}
 )
 
 # Read-class ops: every sidecar op that is neither api-read nor api-write.

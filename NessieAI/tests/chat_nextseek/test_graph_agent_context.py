@@ -19,6 +19,7 @@ from chat_nextseek.agents import system as system_mod
 from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan, SystemAgentOutput
 
 FALLBACK_SCHEMA = {
+    "fetched_at": "2026-08-21T00:00:00Z",
     "node_properties": {"Sample": ["uuid", "type", "id"], "Study": ["title"]},
     "relationship_properties": {"DERIVED_FROM": ["internal_assay_title", "protocol_title"]},
     "vocabulary": {"investigation_titles": ["FallbackOnly"]},
@@ -364,3 +365,73 @@ def test_the_mcp_neo4j_schema_resource_in_both_states(monkeypatch, tmp_path):
 
     monkeypatch.setattr(gcat, "get_snapshot", _unavailable)
     assert server.context_resource("neo4j-schema") == '{"from": "the committed file"}'
+
+
+# --- the graph-schema op's read-only projection ----------------------------------------------------------------------
+# graph_schema_snapshot is what the nextseek-graph-schema op returns, so the CC agent reads the deployed graph
+# instead of a snapshot baked into its image. It spends no model call: the catalog reads and the renderers only.
+
+
+def test_the_schema_snapshot_is_the_live_catalog(live):
+    out = graph_mod.graph_schema_snapshot(_config(), types=["TIS"], question="which assays")
+    assert out["source"] == graph_mod.CONTEXT_CATALOG == "catalog"
+    assert out["schema_version"] == SNAPSHOT.schema_version
+    assert out["catalog_hash"] == "h1"
+    assert out["sample_types"] == 3
+    assert out["resolved_types"] == ["TIS"]
+    assert out["unknown_types"] == []
+    assert out["unavailable_reason"] is None
+    assert gctx.load_structure() in out["schema"]
+    assert gctx.render_type_index(SNAPSHOT.index) in out["schema"]
+    assert "Organ" in out["schema"], "the resolved type's attributes must be in the text"
+    assert "Bulk RNA Sequencing" in out["vocabulary"], "the assay word gate must have fired"
+    assert live["details"] == [["TIS"]]
+
+
+def test_the_schema_snapshot_names_an_unknown_type_instead_of_guessing(live):
+    out = graph_mod.graph_schema_snapshot(_config(), types=["TIS", "NOPE"])
+    assert out["resolved_types"] == ["TIS"]
+    assert out["unknown_types"] == ["NOPE"]
+    assert live["details"] == [["TIS"]], "an unknown code must not reach the catalog read"
+
+
+def test_the_schema_snapshot_renders_no_type_section_when_none_is_asked_for(live):
+    out = graph_mod.graph_schema_snapshot(_config())
+    assert out["resolved_types"] == []
+    assert "Resolved sample types" not in out["schema"]
+    assert live["details"] == []
+    assert "INVESTIGATION TITLES" in out["vocabulary"]
+    assert "ASSAY TITLES" not in out["vocabulary"], "no question, so no keyword-gated block"
+
+
+def test_the_schema_snapshot_falls_back_loudly_when_the_graph_is_down(down):
+    out = graph_mod.graph_schema_snapshot(_config(), types=["TIS"], question="which protocol")
+    assert out["source"] == graph_mod.CONTEXT_FALLBACK == "fallback"
+    assert out["schema_version"] is None
+    assert out["catalog_hash"] is None
+    assert out["sample_types"] == 0
+    assert "graph down in this test" in out["unavailable_reason"]
+    assert out["fallback_fetched_at"] == "2026-08-21T00:00:00Z", (
+        "how stale the committed file is must be in the answer, not left to be guessed"
+    )
+    assert '"node_properties"' in out["schema"]
+    assert out["resolved_types"] == []
+    assert out["unknown_types"] == ["TIS"]
+    assert "Old protocol" in out["vocabulary"]
+
+
+def test_a_catalog_defect_falls_back_rather_than_raising(monkeypatch, live):
+    def boom(config):
+        raise RuntimeError("catalog defect")
+
+    monkeypatch.setattr(gcat, "get_vocabulary", boom)
+    out = graph_mod.graph_schema_snapshot(_config())
+    assert out["source"] == graph_mod.CONTEXT_FALLBACK
+    assert "RuntimeError: catalog defect" in out["unavailable_reason"]
+
+
+def test_the_schema_snapshot_is_exported_as_portable():
+    from chat_nextseek import portable
+
+    assert portable.graph_schema_snapshot is graph_mod.graph_schema_snapshot
+    assert "graph_schema_snapshot" in portable.__all__

@@ -186,10 +186,12 @@ def test_cc_runtime_plugin_scripts_setup_present():
 
 
 # Since NessieAI Phase C the image's context/ is fed from two trees: the plugin
-# tree's own context/ (files with no chat_nextseek twin, and the two drifted graph
-# snapshots) and, through the chat_nextseek named context, the canonical
-# chat_nextseek context files. image_context_source() replays the Dockerfile's
-# COPY lines to name the checkout file each in-image catalog comes from.
+# tree's own context/ (files with no chat_nextseek twin, plus min_graph_schema.json)
+# and, through the chat_nextseek named context, the canonical chat_nextseek context
+# files. image_context_source() replays the Dockerfile's COPY lines to name the
+# checkout file each in-image catalog comes from. neo4j_schema.json is deliberately
+# absent: the agent reads the deployed graph through the nextseek-graph-schema op
+# (NessieAI/tests/cc/test_cc_context_drift_guard.py pins that).
 @pytest.mark.parametrize("catalog", [
     "capabilities.md",
     "min_api_endpoints.json",
@@ -197,7 +199,6 @@ def test_cc_runtime_plugin_scripts_setup_present():
     "min_assays_db.json",
     "min_graph_schema.json",
     "min_sampletypes_db.json",
-    "neo4j_schema.json",
     "projects_db.json",
     "read_safe_endpoints.json",
 ])

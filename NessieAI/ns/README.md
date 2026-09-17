@@ -8,7 +8,7 @@ No Django models live here; the HTTP contract and the ORM stay in `nextseek_api/
 
 | Module | What it does |
 |---|---|
-| `granular.py` | `run_op` dispatches a table of nine handlers: seven ported sidecar ops, plus `run-ls` and `build-upload-xlsx` for reingest. Every `chat_nextseek` agent is imported inside a handler body |
+| `granular.py` | `run_op` dispatches a table of ten handlers: seven ported sidecar ops, `run-ls` and `build-upload-xlsx` for reingest, and `graph-schema`, which returns the live graph catalog as text so the CC agent reads the deployed graph instead of a snapshot baked into its image. Every `chat_nextseek` agent is imported inside a handler body |
 | `write_gate.py` + `read_safe_endpoints.json` | `build_gate`: strict `True` confirms `api-write`; allowlist membership for `api-read`; pass for the read-class labels; deny anything else. The JSON is found beside the module |
 | `reingest_qa.py` | `qa_rows` grades composed rows CLEAN, SOFT_FLAG or HARD_REJECT |
 | `upload_workbook.py` | `render_upload_workbook` emits the four sheets the batch-upload parser reads |
