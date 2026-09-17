@@ -1,0 +1,20 @@
+{
+  "map_version": 1,
+  "pipeline": "nf-core/denovotranscript",
+  "applies_to_versions": "",
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "outputs": [],
+  "provenance_attributes": {},
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": []
+}
