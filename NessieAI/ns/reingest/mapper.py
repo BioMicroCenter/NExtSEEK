@@ -214,6 +214,32 @@ def _primary_candidates(rule: maps.OutputRule, run_manifest: manifest.RunManifes
         key=lambda o: o.path)
 
 
+def _pick_primary(candidates: list[manifest.OutputRecord],
+                  checksums: dict[str, str]) -> manifest.OutputRecord | None:
+    """The one tie-break rule behind both ``_primary_output`` and
+    ``_attach_checksum``, kept in exactly one place so the two can never
+    drift on which candidate wins: prefer whichever candidate ``checksums``
+    already has a digest for -- run-checksum only ever hashes what the agent
+    actually pointed at (see its own docstring), so when the agent hashed
+    one of several equally valid candidates (e.g. nf-core/rnaseq with both
+    ``--aligner star_salmon`` and ``--pseudo_aligner salmon`` publishing the
+    same-named gene-counts matrix under two directories), the one it paid to
+    SSH-hash is the one this must return -- picking sorted-first regardless
+    would silently discard a real, already-computed checksum whenever the
+    alphabetically first candidate happens not to be it. Among candidates
+    that are equally checksummed (including "none of them"), sorted-first is
+    still the deterministic tie-break ``harvest.py``'s own
+    ``_resolve_named_outputs`` uses -- not a claim that it is the "right"
+    one. ``candidates`` is assumed already sorted by path (as
+    ``_primary_candidates`` returns it). ``None`` on an empty candidate list,
+    never an error.
+    """
+    if not candidates:
+        return None
+    checksummed = [o for o in candidates if o.path in checksums]
+    return checksummed[0] if checksummed else candidates[0]
+
+
 def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
                     sample_name: str | None) -> manifest.OutputRecord | None:
     """The one candidate from ``_primary_candidates`` to treat as this rule's
@@ -223,26 +249,14 @@ def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
     value no committed map can name in advance (see mapper.py's module
     docstring on why a map rule cannot express this directly).
 
-    Ties (more than one candidate, e.g. two aligners both present) prefer
-    whichever candidate ``run_manifest.checksums`` already has a digest for
-    -- run-checksum only ever hashes what the agent actually pointed at (see
-    its own docstring), so when the agent hashed one of several equally
-    valid candidates (e.g. nf-core/rnaseq with both ``--aligner star_salmon``
-    and ``--pseudo_aligner salmon`` publishing the same-named gene-counts
-    matrix under two directories), the one it paid to SSH-hash is the one
-    this must return -- picking sorted-first regardless would silently
-    discard a real, already-computed checksum whenever the alphabetically
-    first candidate happens not to be it. Among candidates that are equally
-    checksummed (including "none of them"), sorted-first is still the
-    deterministic tie-break ``harvest.py``'s own ``_resolve_named_outputs``
-    uses -- not a claim that it is the "right" one. Returns ``None`` on an
+    Delegates the actual tie-break to ``_pick_primary``, the same function
+    ``_attach_checksum`` calls on its own candidate list -- one rule, one
+    place, so a future change to the tie-break cannot update this selector
+    without also updating the live rendering path. Returns ``None`` on an
     ordinary miss (see ``_primary_candidates``) -- never an error.
     """
     candidates = _primary_candidates(rule, run_manifest, sample_name)
-    if not candidates:
-        return None
-    checksummed = [o for o in candidates if o.path in run_manifest.checksums]
-    return checksummed[0] if checksummed else candidates[0]
+    return _pick_primary(candidates, run_manifest.checksums)
 
 
 def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
@@ -317,7 +331,9 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
     if not candidates:
         return
     checksummed = [o for o in candidates if o.path in run_manifest.checksums]
-    primary = checksummed[0] if checksummed else candidates[0]
+    # Same tie-break _primary_output uses, shared via _pick_primary rather
+    # than re-derived here, so the two can never pick different winners.
+    primary = _pick_primary(candidates, run_manifest.checksums)
     if "File_PrimaryData" not in row.attributes:
         ambiguous = len(candidates) > 1 and len(checksummed) != 1
         row.attributes["File_PrimaryData"] = MappedAttribute(

@@ -1088,7 +1088,18 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
     # would have been wrong: that channel means "a raw metric key nobody
     # claimed", a different fact from "an attribute WAS set, but the pick
     # among ambiguous candidates was not forced by evidence".
-    ambiguous_primary: list[dict] = []
+    #
+    # Keyed on (sample_type, attribute, tuple(candidates)) rather than
+    # appended as a flat list: a per_run output rule (e.g. a shared
+    # gene-counts matrix) sets the SAME ambiguous attribute, with the SAME
+    # candidate set, on every one of a run's sample rows, so a flat list
+    # would relay one near-identical entry per sample -- exactly the
+    # enumerate-instead-of-count failure report.py's own module docstring
+    # (rule 1) exists to prevent, and on a 20-sample run it is ~20 entries
+    # for one genuine ambiguity. A true per-sample rule's candidates differ
+    # by sample (the harvested path embeds the sample name), so those stay
+    # distinct entries here, each affecting exactly the samples that hit it.
+    ambiguous_primary_groups: dict[tuple, dict] = {}
     # (sample_type, attribute) -> bool, memoised so a 20-sample backfill does
     # not re-query the schema catalog once per sample for the same attribute.
     exists_cache: dict[tuple[str, str], bool] = {}
@@ -1127,10 +1138,13 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
                 meta[name] = attr.value
             provenance_entry[name] = {"origin": origin, "raw_key": attr.raw_key}
             if attr.candidates:
-                ambiguous_primary.append({
+                group_key = (row.sample_type, name, tuple(attr.candidates))
+                group = ambiguous_primary_groups.setdefault(group_key, {
                     "sample_type": row.sample_type, "attribute": name,
                     "chosen": attr.source_file, "candidates": attr.candidates,
+                    "sample_count": 0,
                 })
+                group["sample_count"] += 1
 
         if row.uid:
             meta["UID"] = row.uid
@@ -1246,6 +1260,18 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
         render_upload_workbook(sample_type, type_rows, path, mode=mode,
                                provenance=provenance_by_type.get(sample_type))
         saved_files[safe_key] = path
+
+    # A HARD_REJECT sample type's own workbook was skipped above (the
+    # `continue` two lines up), so asking the reader to confirm a
+    # primary-file pick inside a workbook that was never produced would be
+    # nonsensical on a blocked run. Every group's `sample_type` is known by
+    # now -- `reports_by_type` was just populated for every key
+    # `ambiguous_primary_groups` could possibly hold, since both are built
+    # from the same `rows_by_type` sample-type set.
+    ambiguous_primary = [
+        group for group in ambiguous_primary_groups.values()
+        if reports_by_type[group["sample_type"]].disposition != HARD_REJECT
+    ]
 
     # Surface 1 of the superuser surfaces (design doc section 10): the
     # genuinely unmapped raw keys ride out in the same artifact bundle as the
