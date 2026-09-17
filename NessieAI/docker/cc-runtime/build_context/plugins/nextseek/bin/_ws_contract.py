@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SIDECAR_OPS = frozenset(
     {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission",
@@ -147,12 +147,22 @@ class _RunLsArgs(BaseModel):
 
 class _BuildUploadXlsxArgs(BaseModel):
     """Two calling conventions: manifest_id (current) or rows (legacy). Exactly
-    one of the two is enforced server-side (NessieAI.ns.granular), not here."""
+    one of the two is required, enforced right here by the validator below --
+    ops.py's forwarder dispatches on ``req.args``, the raw pre-validation dict
+    (server.py never re-validates against this model's own defaults), so an
+    args dict this model accepts but that names neither field would otherwise
+    reach the handler and KeyError there instead of failing VALIDATION here."""
     model_config = ConfigDict(extra="forbid")
     rows: str = ""
     existing_parent_uids: str = ""
     manifest_id: str = ""
     mode: str = "new"
+
+    @model_validator(mode="after")
+    def _exactly_one_of_manifest_id_or_rows(self) -> "_BuildUploadXlsxArgs":
+        if bool(self.manifest_id) == bool(self.rows):
+            raise ValueError("exactly one of manifest_id or rows is required")
+        return self
 
 
 class _RunHarvestArgs(BaseModel):

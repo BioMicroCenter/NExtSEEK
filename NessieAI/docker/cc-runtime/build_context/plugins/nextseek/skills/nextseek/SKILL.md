@@ -53,7 +53,7 @@ is the complete contract; there are no hidden flags.
 | `nextseek-query` | Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present. | `--query "<text>"` | `{reply, debug, bundle_id}` (+ scratch manifest path when applicable) |
 | `nextseek-recall` | Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned. | `--turn <N>` | `{turn_id, bundle_id, total, row_count, columns, path}` |
 | `nextseek-run-ls` | **Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory. | `--run-dir <abs path under the Luria runs root>` | `{tree, truncated, run_dir}` |
-| `nextseek-build-upload-xlsx` | **Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK. | `--rows '<json array>' [--existing-parent-uids <csv>]` | `{saved_files, qa}` |
+| `nextseek-build-upload-xlsx` | **Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record. | `--manifest-id <id> [--mode {new,update}]` (legacy: `--rows '<json array>' [--existing-parent-uids <csv>]`) | `{saved_files, qa, reply, proposals}` (legacy: `{saved_files, qa}`) |
 
 ## Choosing the op for a task
 
