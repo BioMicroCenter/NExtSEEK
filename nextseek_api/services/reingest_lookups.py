@@ -1,6 +1,6 @@
 """Read-only lookups reingest makes against NExtSEEK.
 
-Kept in one module because all three reingest plans need the same three answers,
+Kept in one module because the reingest plans need the same handful of answers,
 and because each is a query someone could otherwise re-invent slightly
 differently -- which is how a required-attribute check ends up disagreeing with
 the server that enforces it.
@@ -176,6 +176,58 @@ def uids_by_primary_data(path: str, types=("D.SEQ",)) -> list[str]:
     except Exception:
         log.exception("uids_by_primary_data: lookup failed for %s", path)
         return []
+
+
+def sample_types_for_uids(uids: list[str]) -> dict[str, str]:
+    """The SampleType title per UID. A UID whose type cannot be determined is
+    OMITTED.
+
+    The omission is the safety property, same reasoning as `notes_for_uids`:
+    reingest's QC backfill row (`NessieAI/ns/reingest/mapper.py`) uses this to
+    find out what a resolved parent's REAL sample type is, because the UID
+    alone cannot be trusted -- most UIDs start with their type code
+    ("D.SEQ-...", "A.ALN-..."), but roughly 1.5% of real samples do not
+    (free-text titles on CEL samples, measured against the live database),
+    so parsing the prefix would be silently wrong for a small but real slice
+    of every run. A UID absent from this result must never be guessed at
+    (e.g. defaulted to "D.SEQ") -- that guess is exactly the class of bug the
+    QC backfill exists to avoid: writing a measurement onto a row shaped for
+    the wrong sample type. QA/mapper.py treats "absent from this map" as "do
+    not build a QC row for that sample" -- which is why this must never
+    return "" as a stand-in for an unresolved title.
+
+    A UID that does not exist, or whose resolved type id names no known
+    SampleType, is simply absent from the result; the whole lookup failing
+    (for example, the samples or sample_types table being unreachable) omits
+    every UID rather than raising.
+    """
+    if not uids:
+        return {}
+    try:
+        from seek.models import Sample_types, Samples
+
+        rows = list(
+            Samples.objects.filter(uuid__in=uids).values_list("uuid", "sample_type_id")
+        )
+
+        type_ids = {type_id for _, type_id in rows if type_id is not None}
+        titles_by_id: dict[int, str] = {}
+        if type_ids:
+            titles_by_id = dict(
+                Sample_types.objects.filter(id__in=type_ids).values_list("id", "title")
+            )
+    except Exception:
+        log.exception("sample_types_for_uids: lookup failed for %s", uids)
+        return {}
+
+    out: dict[str, str] = {}
+    for uid, type_id in rows:
+        if not uid:
+            continue
+        title = titles_by_id.get(type_id)
+        if title:
+            out[str(uid)] = str(title)
+    return out
 
 
 def notes_for_uids(uids: list[str]) -> dict[str, str]:

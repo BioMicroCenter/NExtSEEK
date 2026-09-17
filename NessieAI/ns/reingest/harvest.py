@@ -131,6 +131,7 @@ _PER_READ_ROW_PREFIXES = ("fastqc_raw-", "fastqc_trimmed-", "cutadapt-")
 
 
 def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
+                   sample_type_lookup=None,
                    run_dir: str | None = None) -> manifest.RunManifest:
     """`root` stays the filesystem read root -- it is where every glob below
     actually looks for files, local disk only, no SSH, no network.
@@ -171,6 +172,26 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     (treated as never matching anything) so a caller with nothing to look up
     against -- an existing test, or a local-directory caller with no D.SEQ
     catalog at hand -- still works.
+
+    `sample_type_lookup(uids)` is the batched SampleType-title lookup (see
+    `nextseek_api.services.reingest_lookups.sample_types_for_uids`), called
+    ONCE for every resolved parent UID in the whole run -- never once per
+    sample. Its result fills `SampleRecord.parent_sample_type`, which
+    `mapper.py` uses to build the QC backfill row for the parent's REAL type
+    instead of a hardcoded guess (see that module's docstring for why: a
+    parent found by launch record or path can now legitimately be an
+    already-analysed A.* sample, not only D.SEQ, and the UID's own prefix is
+    not a reliable enough signal to parse instead of asking the database).
+    Kept as an injected callable, the same reason `lookup_by_fastq` is: this
+    module stays free of any import of the Django host (see
+    NessieAI/tests/api/test_nessie_boundaries.py's back-edge allowlist), so
+    the caller supplies the query rather than this function reaching for it
+    directly. Defaults to `None` (treated as resolving nothing) so a caller
+    with no way to reach the lookup -- an existing test, or a caller wired
+    before this parameter existed -- still works, just with every sample's
+    `parent_sample_type` left at `""` ("not known"); `mapper.py` is the layer
+    that decides what an unknown parent type means for the backfill, never
+    this one.
     """
     base = Path(root)
     resolved_run_dir = run_dir if run_dir is not None else str(base)
@@ -420,6 +441,24 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             metrics=stats.get(name, {}),
             derived=_derived_for(base, name, read),
         ))
+
+    # SampleRecord.parent_sample_type: one batched call for every resolved
+    # parent UID in the whole run, first-occurrence de-duplicated -- never
+    # once per sample (see this function's docstring on `sample_type_lookup`
+    # and reingest_lookups.sample_types_for_uids' own docstring on why a
+    # UID's prefix is never parsed instead). `sample_type_lookup` defaults to
+    # `None` when the caller has no way to reach it, in which case every
+    # sample's `parent_sample_type` stays at its `""` default -- exactly the
+    # same degrade-and-carry-on this function already applies to
+    # `lookup_by_fastq`. A UID the lookup could not resolve is simply absent
+    # from its result (`dict.get` below then leaves `""`), never guessed.
+    resolved_uids = sorted({s.d_seq_uid for s in out.samples if s.d_seq_uid})
+    types_by_uid = (
+        sample_type_lookup(resolved_uids)
+        if sample_type_lookup is not None and resolved_uids else {})
+    for sample in out.samples:
+        if sample.d_seq_uid:
+            sample.parent_sample_type = types_by_uid.get(sample.d_seq_uid, "")
 
     # The inventory is gathered elsewhere (remotely, against the real run
     # directory -- see this function's docstring) and handed in whole; it is

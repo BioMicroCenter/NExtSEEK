@@ -36,7 +36,23 @@ class SampleRecord(BaseModel):
     nfcore_sample: str
     fastq_1: str = ""
     fastq_2: str | None = None
+    # The resolved parent's UID. The NAME is now historical: a parent found
+    # through the launch record or by path can legitimately be an
+    # already-analysed A.* sample (e.g. A.ALN, A.VCF), not only a raw D.SEQ
+    # -- see maps.PipelineMap.accepts_parent_types -- but nothing downstream
+    # depends on the name, so it is not renamed here. `parent_sample_type`
+    # below carries the actual SampleType title this UID points at.
     d_seq_uid: str | None = None
+    # The resolved parent's real SampleType title (e.g. "D.SEQ", "A.ALN"),
+    # looked up from the database by `harvest.py` via
+    # `nextseek_api.services.reingest_lookups.sample_types_for_uids` --
+    # never parsed off the UID's prefix, since ~1.5% of real samples do not
+    # follow that convention (free-text titles on CEL samples, measured
+    # against the live database). Empty string means "not known": either no
+    # lookup was reachable at harvest time, or the lookup could not resolve
+    # this UID. `mapper.py` is the layer that decides what an unknown parent
+    # type means for the QC backfill row -- it must never guess.
+    parent_sample_type: str = ""
     # Populated only when `uid_resolution == RESOLUTION_MULTIRUN`: the D.SEQ
     # UIDs recovered for THIS sample's own contributing samplesheet rows
     # (see uid_resolve._resolve_multirun_parents), first-occurrence
