@@ -62,6 +62,13 @@ def graph_total(api, base_url, *, sample_type, attribute, value, timeout=180):
 def graph_meta(api, base_url, timeout=60):
     """``GraphMeta`` as the status endpoint reports it, from the last drift run's stats.
 
+    **As fresh as the last drift run, and no fresher.** The status endpoint does not read the graph; it
+    reports what the last recorded drift run saw. So this is right for asking "what did the graph look
+    like when it was last checked" and WRONG for asking "did the graph just change": between two calls
+    with a write in the middle, the value does not move unless a drift run happened in between. Measured
+    2026-09-17, an assertion built on that difference failed against a catalog that had demonstrably
+    changed. Assert a change through graph_holds, which queries the graph itself.
+
     Empty when no drift run has been recorded yet, which is itself worth asserting on.
     """
     r = api.get(f"{base_url}{STATUS_PATH}", timeout=timeout)

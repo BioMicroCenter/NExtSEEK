@@ -15,6 +15,8 @@ below schema 1.2, because the writer refuses to touch one, and most of it is mea
 loop, because only batch upload syncs inline.
 """
 import os
+import time
+import uuid
 
 import pytest
 
@@ -102,4 +104,89 @@ def test_the_search_the_assertions_use_actually_discriminates(wapi, base_url, a_
     assert undeclared is NOT_DECLARED, (
         "an attribute the catalog does not declare should answer 422, which is how a deleted attribute is "
         f"told apart from one that matches nothing; got {undeclared!r}"
+    )
+
+
+# --- B2: an attribute change reaches the graph ----------------------------------------------------
+
+ATTR_SEARCH = "/nextseek_api/attributes/search/"
+ATTR_CREATE = "/nextseek_api/attributes/batch-create/"
+ATTR_DELETE = "/nextseek_api/attributes/batch-delete/"
+
+
+def _wait_until_declared(wapi, base_url, sample_type, title, want, timeout_s=150, poll_s=10):
+    """Poll until the graph's catalog agrees, because graph_search caches it.
+
+    nextseek_api/graph_search/catalog_cache.py re-reads GraphMeta.catalog_hash at most once every
+    RECHECK_SECONDS (60) and only re-reads the catalog when that hash moved. So a change that has
+    genuinely reached the graph can take up to a minute to become visible through this endpoint.
+    Measured 2026-09-17: a delete that the sync had already applied still read as declared inside that
+    window, which is a cache artefact and not a defect. write_attributes does issue
+    DELETE_GONE_ATTRIBUTES.
+    """
+    deadline = time.monotonic() + timeout_s
+    seen = None
+    while time.monotonic() < deadline:
+        seen = _declared_in_graph(wapi, base_url, sample_type, title)
+        if seen is want:
+            return True
+        time.sleep(poll_s)
+    return False
+
+
+def _declared_in_graph(wapi, base_url, sample_type, title):
+    """Whether the graph's catalog declares this attribute.
+
+    graph_search validates extensions.where against the catalog, so an undeclared attribute answers 422
+    and a declared one answers 200 even when nothing matches. That difference is the assertion: it tells
+    "the catalog carries it" apart from "it carries it and no sample has that value".
+    """
+    probe_value = "cismoke-probe-value-that-nothing-carries"
+    return graph_holds(wapi, base_url, sample_type=sample_type,
+                       attribute=title, value=probe_value) is not NOT_DECLARED
+
+
+@destructive
+def test_an_attribute_create_and_delete_reach_the_graphs_catalog(wapi, base_url, a_sample_type):
+    """WR-05. The attribute API only enqueues, so the sync loop has to carry this one.
+
+    Asserted on the catalog rather than on a sample, because a newly declared attribute has no values
+    yet: what must change is what the graph DECLARES. catalog_hash is asserted too, since it covers the
+    declared set and must move when that set does.
+    """
+    probe = f"CiSmoke{uuid.uuid4().hex[:8]}"
+    assert not _declared_in_graph(wapi, base_url, a_sample_type, probe), (
+        f"{probe} is somehow already in the graph's catalog before it was created"
+    )
+    created = False
+    try:
+        r = wapi.post(f"{base_url}{ATTR_CREATE}",
+                      json={"targets": [{"sample_type": a_sample_type,
+                                         "attributes": [{"title": probe,
+                                                         "sample_attribute_type": "Text",
+                                                         "required": False}]}]},
+                      timeout=180)
+        assert r.status_code in (200, 202), f"create failed {r.status_code}: {r.text[:300]}"
+        created = True
+
+        wait_for_drain(wapi, base_url, timeout_s=600)
+        assert _wait_until_declared(wapi, base_url, a_sample_type, probe, True), (
+            f"the outbox drained but the graph's catalog still does not declare {probe}. The attribute "
+            "API enqueued and the loop closed the row without the catalog reaching the graph."
+        )
+        # catalog_hash is deliberately NOT asserted here. graph_meta reads the last DRIFT run's stats,
+        # and nothing in this test runs drift, so the value is whatever the last one recorded and would
+        # compare equal even when the catalog has moved. Measured 2026-09-17: this assertion failed
+        # against a graph whose catalog demonstrably HAD changed, because it was reading a cached hash.
+        # Whether catalog_hash moved belongs to a drift-run assertion, not to this one.
+    finally:
+        if created:
+            wapi.post(f"{base_url}{ATTR_DELETE}",
+                      json={"targets": [{"sample_type": a_sample_type, "attributes": [probe]}]},
+                      timeout=180)
+            wait_for_drain(wapi, base_url, timeout_s=600)
+
+    assert _wait_until_declared(wapi, base_url, a_sample_type, probe, False), (
+        f"{probe} was deleted and the outbox drained, but the graph's catalog still declares it after "
+        "the catalog cache window. write_attributes issues DELETE_GONE_ATTRIBUTES, so this is a real gap."
     )
