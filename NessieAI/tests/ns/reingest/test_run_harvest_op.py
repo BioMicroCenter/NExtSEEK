@@ -580,7 +580,16 @@ def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
     import NessieAI.ns.reingest.harvest as harvest_mod
     from NessieAI.ns.reingest import manifest as manifest_mod
 
-    def fake_harvest_local(root, *, lookup_by_fastq=None, inventory=None, run_dir=None):
+    # Mirrors harvest_local's real keyword signature. `seen` records what the
+    # op actually passed, so the production wiring is pinned by a test rather
+    # than assumed: drop `sample_type_lookup=` from granular._run_harvest and
+    # test_run_harvest_passes_both_lookups_through below goes red.
+    seen: dict = {}
+
+    def fake_harvest_local(root, *, lookup_by_fastq=None, sample_type_lookup=None,
+                           inventory=None, run_dir=None):
+        seen["lookup_by_fastq"] = lookup_by_fastq
+        seen["sample_type_lookup"] = sample_type_lookup
         return manifest_mod.RunManifest(
             run_dir=run_dir if run_dir is not None else root,
             execution=manifest_mod.ExecutionInfo(processes=3, failed=failed, non_terminal=0),
@@ -594,6 +603,20 @@ def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
     # monkeypatch.setenv, so patch the module attribute directly instead.
     from NessieAI.ns.reingest import store as store_mod
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_manifest_dir))
+    return seen
+
+
+def test_run_harvest_passes_both_lookups_through(monkeypatch, tmp_path):
+    """The QC backfill needs the parent's real sample type, and the parent
+    lookup needs to reach the database. Both arrive as callables the op
+    injects; neither has a default that would work in production, so a
+    missing one is silent -- the backfill simply stops being written. Pin
+    both here."""
+    seen = _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
+    _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+              _Cfg(), None, None, None, None)
+    assert seen["lookup_by_fastq"] is g._d_seq_by_fastq
+    assert seen["sample_type_lookup"] is g._sample_types_for_uids
 
 
 def test_run_harvest_refuses_a_failed_run_without_the_override(monkeypatch, tmp_path):
