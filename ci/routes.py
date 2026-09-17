@@ -864,6 +864,27 @@ REGISTRY: list[Route] = [
           path="/nextseek_api/entity_tree/lineage/",
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
           note="a graph read expressed as a POST, so the prod guard refuses it"),
+    Route(pattern=r"^nextseek_api/^^reingest-proposals/$",
+          path="/nextseek_api/reingest-proposals/",
+          methods=("GET",), profiles="local,dev", auth="write", expect=200,
+          note="superuser only, so the expectation is by inspection. Also accepts "
+               "?status= and ?pipeline= filters"),
+    Route(pattern=r"^nextseek_api/^^reingest-proposals/(?P<pk>[^/.]+)/$",
+          path="/nextseek_api/reingest-proposals/" + _NO_SUCH_ID + "/",
+          methods=("GET",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies. Superuser only, "
+               "so the expectation is by inspection"),
+    Route(pattern=r"^nextseek_api/^^reingest-proposals/(?P<pk>[^/.]+)/approve/$",
+          path="/nextseek_api/reingest-proposals/" + _NO_SUCH_ID + "/approve/",
+          methods=("POST",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies before reaching "
+               "the attribute-exists guard (nextseek_api/services/reingest_proposals.py). "
+               "Superuser only, so the expectation is by inspection"),
+    Route(pattern=r"^nextseek_api/^^reingest-proposals/(?P<pk>[^/.]+)/reject/$",
+          path="/nextseek_api/reingest-proposals/" + _NO_SUCH_ID + "/reject/",
+          methods=("POST",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies. Superuser only, "
+               "so the expectation is by inspection"),
     Route(pattern=r"^nextseek_api/^^sample_types/get_parents/parents_by_child_types/$",
           path="/nextseek_api/sample_types/get_parents/parents_by_child_types/",
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
