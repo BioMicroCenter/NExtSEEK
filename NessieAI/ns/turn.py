@@ -118,7 +118,8 @@ def _granular_args(op: str, req) -> dict:
     if op == "run-ls":
         return {"run_dir": req.run_dir}
     if op == "build-upload-xlsx":
-        return {"rows": req.rows, "existing_parent_uids": req.existing_parent_uids}
+        return {"rows": req.rows, "existing_parent_uids": req.existing_parent_uids,
+                "manifest_id": req.manifest_id, "mode": req.mode}
     if op == "run-harvest":
         return {"run_dir": req.run_dir, "allow_failed_run": req.allow_failed_run}
     if op == "run-checksum":

@@ -323,15 +323,17 @@ OPS: list[OpSpec] = [
         assistant_endpoint="/nextseek_api/assistant/build-upload-xlsx/",
         gate_class=GateClass.read,
         argv=[
-            ArgSpec(flag="--rows", required=True),
+            ArgSpec(flag="--manifest-id"),
+            ArgSpec(flag="--mode", enum=["new", "update"]),
+            ArgSpec(flag="--rows"),
             ArgSpec(flag="--existing-parent-uids"),
         ],
         response_envelope_fields=["op", "result"],
         skill_name="nextseek",
         skill_row=_row(
-            "**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK.",
-            "--rows '<json array>' [--existing-parent-uids <csv>]",
-            "{saved_files, qa}",
+            "**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record.",
+            "--manifest-id <id> [--mode {new,update}]",
+            "{saved_files, qa, reply, proposals}",
         ),
     ),
     _dispatch(

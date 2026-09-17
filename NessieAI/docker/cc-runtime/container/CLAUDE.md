@@ -27,7 +27,7 @@ nextseek-api-read	api-read	Execute a read-safe REST call from a parser plan.
 nextseek-api-write	api-write	Execute a write (POST/PUT/DELETE) from a parser plan.
 nextseek-assay-resolve	assay-resolve	Resolve assay titles against the selected project.
 nextseek-build-payload	build-payload	Build staged upload payloads from source rows.
-nextseek-build-upload-xlsx	build-upload-xlsx	**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK.
+nextseek-build-upload-xlsx	build-upload-xlsx	**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record.
 nextseek-entity-extract	entity	Resolve NL terms to NExtSEEK vocabulary.
 nextseek-extract-text	extract	Extract text from a file.
 nextseek-generate-submission	generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.

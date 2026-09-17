@@ -312,9 +312,23 @@ class RunLsRequest(BaseModel):
 
 
 class BuildUploadXlsxRequest(BaseModel):
-    """POST /assistant/build-upload-xlsx/ body — render 4-sheet upload workbook(s)."""
-    rows: str = Field(..., description="JSON array of {SampleType, json_metadata, assay_ids} rows.")
+    """POST /assistant/build-upload-xlsx/ body — render 4-sheet upload workbook(s).
+
+    Two calling conventions: ``manifest_id`` (current — the server loads its own
+    copy of the harvested manifest and derives every row itself, so no measured
+    value round-trips through the model) or ``rows`` (legacy — CC-composed rows,
+    kept working for any caller that still builds its own). Exactly one of the
+    two must be supplied; enforced by the op (``NessieAI.ns.granular``), not
+    here, since a pydantic field can't see its sibling's value from a plain
+    ``Field(...)`` default.
+    """
+    rows: Optional[str] = Field(
+        None, description="Legacy: JSON array of {SampleType, json_metadata, assay_ids} rows.")
     existing_parent_uids: str = Field("", description="Comma-separated existing parent UIDs (for Parent QA).")
+    manifest_id: Optional[str] = Field(
+        None, description="Current: id of a manifest saved by run-harvest.")
+    mode: str = Field("new", description="'new' (create analysis children) or "
+                                          "'update' (backfill existing D.SEQ samples).")
     use_prod: bool = False
     session_id: Optional[UUID] = Field(
         None, description="Optional chat session to attach the workbook bundle to.")

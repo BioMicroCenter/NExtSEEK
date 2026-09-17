@@ -332,3 +332,52 @@ class ReingestEndpointTests(GranularEndpointBase):
         # build-upload-xlsx is an artifact op -> a download bundle is registered
         self.assertIn("download", body)
         self.assertEqual(body["download"]["bundle_id"], 1)
+
+    def test_build_upload_xlsx_manifest_id_is_accepted_by_the_request_model(self):
+        """rows is now optional; a caller sending manifest_id instead must not
+        422 at the pydantic layer (NessieAI.ns.granular does its own
+        manifest_id/rows validation, not tested at this HTTP layer)."""
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"saved_files": {}, "qa": {}, "reply": "", "proposals": []}):
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+
+    def test_build_upload_xlsx_persists_returned_proposals_via_the_service_layer(self):
+        """The op stays pure (never calls proposals.record itself, per its own
+        docstring); the SERVICE layer is the one writer. This proves the Step 4
+        wiring actually persists what the op hands back, using a real
+        ReingestAttributeProposal row rather than a mocked record() call."""
+        from nextseek_api.assistant.models_db import ReingestAttributeProposal as Proposal
+
+        pending = [{
+            "raw_key": "Some_Unmapped_Metric", "example_value": 3.2,
+            "source_file": "multiqc/x.txt", "example_sample": "SAMPLE_1",
+            "proposed_attribute": "", "proposed_target": "",
+            "pipeline": "nf-core/rnaseq", "manifest_digest": "abc123",
+            "run_dir": "/net/cluster/runs/r1",
+        }]
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"saved_files": {}, "qa": {}, "reply": "",
+                                 "proposals": pending}):
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(Proposal.objects.count(), 1)
+        row = Proposal.objects.first()
+        self.assertEqual(row.raw_key, "Some_Unmapped_Metric")
+        self.assertEqual(row.pipeline, "nf-core/rnaseq")
+        self.assertEqual(row.status, Proposal.STATUS_PENDING)
+
+    def test_build_upload_xlsx_with_no_proposals_writes_nothing(self):
+        """An empty/absent proposals list must not call record() at all --
+        record() indexes pending[0], which would IndexError on an empty list
+        if the guard were missing."""
+        from nextseek_api.assistant.models_db import ReingestAttributeProposal as Proposal
+
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"saved_files": {}, "qa": {}, "reply": "", "proposals": []}):
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(Proposal.objects.count(), 0)

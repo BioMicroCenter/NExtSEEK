@@ -496,15 +496,22 @@ def _dispatch_run_checksum(args):
 
 
 def _dispatch_build_upload_xlsx(args):
-    """Render NExtSEEK 4-sheet upload workbook(s) from CC-composed reingest rows."""
+    """Render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest
+    (current) or CC-composed reingest rows (legacy)."""
     if _dry_run():  # pragma: no branch
         return {"saved_files": {}, "qa": {}}  # pragma: no cover
-    if not args.rows:  # pragma: no cover
-        _err("VALIDATION", "missing --rows", 3)  # pragma: no cover
+    manifest_id = getattr(args, "manifest_id", None)  # pragma: no cover
+    if not manifest_id and not args.rows:  # pragma: no cover
+        _err("VALIDATION", "missing --manifest-id or --rows", 3)  # pragma: no cover
     import _sidecar_client as sc  # pragma: no cover
-    body = {"rows": args.rows}  # pragma: no cover
-    if getattr(args, "existing_parent_uids", None):  # pragma: no cover
-        body["existing_parent_uids"] = args.existing_parent_uids  # pragma: no cover
+    if manifest_id:  # pragma: no cover
+        body = {"manifest_id": manifest_id}  # pragma: no cover
+        if getattr(args, "mode", None):  # pragma: no cover
+            body["mode"] = args.mode  # pragma: no cover
+    else:  # pragma: no cover
+        body = {"rows": args.rows}  # pragma: no cover
+        if getattr(args, "existing_parent_uids", None):  # pragma: no cover
+            body["existing_parent_uids"] = args.existing_parent_uids  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("build-upload-xlsx", body,  # pragma: no cover
                           ns_login=(_api_user(), _api_pass()),  # pragma: no cover
@@ -547,8 +554,9 @@ def main() -> None:
     p.add_argument("--run-dir")  # for run-ls / run-harvest / run-checksum (finished Luria run dir)
     p.add_argument("--allow-failed-run", action="store_true")  # for run-harvest
     p.add_argument("--paths")  # for run-checksum (comma-separated relative paths)
-    p.add_argument("--rows")  # for build-upload-xlsx (JSON rows)
-    p.add_argument("--existing-parent-uids")  # for build-upload-xlsx (Parent QA)
+    p.add_argument("--rows")  # for build-upload-xlsx (legacy: JSON rows)
+    p.add_argument("--existing-parent-uids")  # for build-upload-xlsx (legacy: Parent QA)
+    p.add_argument("--manifest-id")  # for build-upload-xlsx (id of a run-harvest manifest)
     p.add_argument("--planner", action="store_true",  # for query
                    help="Use run_query_plan instead of run_query (multi-step capable)")
     p.add_argument("--turn", type=int)  # for recall

@@ -162,9 +162,14 @@ def _run_ls(args, config, session, write_gate, stage, stage_bytes, commit_bytes)
 
 
 def _build_upload_xlsx(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
-    body = {"rows": args["rows"]}
-    if args.get("existing_parent_uids"):
-        body["existing_parent_uids"] = args["existing_parent_uids"]
+    if args.get("manifest_id"):
+        body = {"manifest_id": args["manifest_id"]}
+        if args.get("mode"):
+            body["mode"] = args["mode"]
+    else:
+        body = {"rows": args["rows"]}
+        if args.get("existing_parent_uids"):
+            body["existing_parent_uids"] = args["existing_parent_uids"]
     envelope = ns_client.call_op("build-upload-xlsx", body,
                                  base_url=config.base_url, auth=config.auth)
     result = envelope["result"]
