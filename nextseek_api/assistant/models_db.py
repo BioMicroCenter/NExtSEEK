@@ -94,7 +94,13 @@ class TurnLedger(models.Model):
                 fields=["session", "turn_number"], name="uniq_turn_per_session"
             )
         ]
-        indexes = [models.Index(fields=["task_family", "route"])]
+        # The name is the one migration 0010 created and the database already has. Without it
+        # Django regenerates the hash suffix from the model as it stands now
+        # (assistant_t_task_fa_0b3487_idx), sees it differ from the stored
+        # assistant_t_task_fa_6d0f8a_idx, and proposes a rename on every makemigrations run, which
+        # is why the blocking CI step could carry no migration check. Naming it needs no migration
+        # and no DDL.
+        indexes = [models.Index(fields=["task_family", "route"], name="assistant_t_task_fa_6d0f8a_idx")]
 
 
 class TurnJudgment(models.Model):
