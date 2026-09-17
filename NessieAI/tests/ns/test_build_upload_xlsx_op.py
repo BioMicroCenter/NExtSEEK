@@ -123,7 +123,7 @@ def test_populated_catalog_with_required_attribute_present_is_clean(tmp_path, mo
         lambda st: [{"title": "Checksum_PrimaryData", "required": True}])
     rows = json.dumps([{
         "SampleType": "A.SCXP",
-        "json_metadata": {"Parent": "D.SEQ-1", "Scientist": "Marie Floryan",
+        "json_metadata": {"Parent": "D.SEQ-1", "Scientist": "A Person",
                            "Checksum_PrimaryData": "abc123"},
         "assay_ids": [12],
     }])

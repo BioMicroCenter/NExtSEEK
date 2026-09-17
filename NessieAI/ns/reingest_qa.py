@@ -98,7 +98,22 @@ class QaReport:
 
 
 def group(findings):
-    """{(code, attribute): {"count": int, "rows": [...], "detail": dict}}.
+    """{(code, attribute): bucket}, where each bucket is:
+
+        {"count": int,          -- how many findings share this (code, attribute)
+         "rows": [...],         -- their row_index values, in encounter order
+         "samples": [...],      -- detail["nfcore_sample"] for findings that carry one
+         "detail": dict,        -- the first non-empty finding.detail seen for this key
+         "severity": str,       -- qa.HARD or qa.SOFT, from the first finding seen
+         "sample_type": str}    -- sample_type from the first finding seen
+
+    Consumed by ``NessieAI/ns/reingest/report.py``'s renderer: ``severity``
+    routes each bucket to the blocking or advisory section (an unrecognised
+    value raises there, same as ``QaReport.add`` does here), and ``samples``
+    feeds the capped per-sample listing for ``UNRESOLVED_UID``. ``sample_type``
+    is read there too, though the renderer prefers its own (the QaReport being
+    iterated is already scoped to one sample type, which is more reliable than
+    whatever the first grouped finding happened to carry).
 
     Rendering counts rather than enumerating: 24 rows sharing one finding is one
     sentence, not 24 lines of log leaked into a scientist's chat.
