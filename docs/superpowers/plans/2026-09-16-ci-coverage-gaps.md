@@ -225,6 +225,26 @@ git commit -m "test(ci): the blocking job checks for missing migrations again"
 **Execute in the order C5, C6, C7, then C4.** The task numbers follow the spec's section order; the execution order
 does not, for one reason:
 
+> **C4 is handed to the next agent, not abandoned.** As of 2026-09-17 everything else in both plans is built except
+> the Stage B behavioural cases and this one task. C4 cannot start on this branch because `context/` is not on
+> `dev-graph` yet, and it should be written against the finalised context shape rather than today's. The agent that
+> merges the new context files and re-runs the 93 POC questions is the one holding that shape, so **C4 belongs to
+> that agent's plan.** What it needs to know:
+>
+> - The validator to track is `CONTEXT_FILES/tools/validate_context.py`, 237 lines, currently untracked and outside
+>   the repository. It defaults to a sibling worktree path and reads a dated production pull from outside the repo,
+>   so both inputs have to become repository-relative and the production cross-check has to become an optional flag
+>   (that data is real and does not enter a public repo).
+> - It validates the four files the assistant loads: `context/sample_types.json`, `assays.json`,
+>   `assay_mappings.json`, `projects.json`.
+> - The graph half of the same problem is already built and needs nothing from them: `catalog.sample_types`,
+>   `catalog.types_with_attribute_set_diff` and `catalog.assistant_investigations` all ship in
+>   `nextseek_api/graph_sync/drift.py` and run after every `./startup.sh rebuild`. Measured live 2026-09-17,
+>   `types_without_context` is **17 of 118** sample types, and `catalog.assistant_investigations` **fails** on five
+>   of the eight names `capabilities.md` tells the agent to use.
+> - `drift.catalog.hash` was specified under CI-4 and is **not** built, for a structural reason set out in the
+>   findings note beside this plan. Do not add it without reading that first.
+
 **Only C4 is gated.** It validates the tracked `context/*.json` files, which are on `fix/context-quick-fixes` and
 not yet on `dev-graph`, so it has nothing to validate until that branch merges. Check before starting it:
 
