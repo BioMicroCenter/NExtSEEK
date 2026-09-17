@@ -1,0 +1,265 @@
+"""A description of the query that ran, in words a researcher can read.
+
+Decision D1. The chatter used to be told what the user asked for and what came back,
+and nothing whatever about the query in between: no endpoint, no method, no
+``requestBody``, no ``filter_searchText``, no Cypher, no parser filters, no
+``intent_summary``. That was deliberate — the comment in ``agents/chatter.py`` says
+the LLM never sees them — and the reason is sound: a biologist must not be answered
+with retrieval mechanics.
+
+The cost of it is three production failures out of 84 turns, all the same shape: the
+reply described a result as if it answered a question the query never asked.
+
+* **B7** (wesselr 462) "list all the human patient samples (PAT) associated with
+  MDL-250912LAU-1" fetched the whole lineage of the model and never filtered to PAT.
+  The reply reported 1,904 matching records; none of the nine it showed were PAT.
+* **B8** (wesselr 437) searched ``D.FLOW`` and ``D.CYTOF`` and the reply named
+  ``D.FCS``. The review's fix is "name types in the reply from the query that ran".
+* **B13** (mplaster 501/502) counted every mouse with transcriptomic descendants.
+  The plan's own note said the ``CC`` keyword filter could not be applied in the
+  graph, and the reply still called the 731 a subset of the CC mice.
+
+None of the three is a hallucination. In each, the gap between the question and the
+executed query was computable from arguments ``chatter_agent_answer`` already
+receives, and was thrown away before the prompt was built.
+
+So the middle path: the chatter is told **what the executed query constrained**, and
+**what the user asked for that it did not constrain**, in user-facing vocabulary. It
+is still told nothing about how the query was written. ``render_query_scope`` emits
+only entity codes, entity names and one fixed English phrase per kind of search, and
+``tests/chat_nextseek/test_query_scope.py`` asserts that no endpoint path, HTTP verb,
+Cypher fragment or request-body field name can reach the prompt through it.
+
+**The gap is measured by containment, not inference.** Every constraint the user asked
+for is one value; a constraint counts as applied when that value appears, bounded by
+non-identifier characters and case-insensitively, in the text of the query that was
+actually dispatched. A value that happens to appear for an unrelated reason is read as
+applied, so this under-reports the gap and never invents one. When nothing describes
+an executed query at all — the reporter path has no query text — the scope reports
+itself as unmeasurable and claims no gap, because "the query ignored your filter" is
+exactly the kind of confident false statement this is here to prevent.
+"""
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+#: One English phrase per endpoint, for the single sentence the reply may say about
+#: how the answer was obtained. Display only: nothing here routes, and the generic
+#: fallback is what an endpoint added later gets until someone writes it a phrase.
+_SEARCH_KIND_BY_ENDPOINT: dict[str, str] = {
+    "/nextseek_api/samples/advanced_search/": "a keyword search over sample records",
+    "/nextseek_api/admin/samples/retrieve/":
+        "a lookup of the named samples and everything derived from them",
+    "/nextseek_api/sample-tree/{uid}/tree/": "the lineage tree of a named sample",
+    "/nextseek_api/sample_types/get_parents/parents_by_child_types/":
+        "the sample types that can be parents of the requested types",
+    "/nextseek_api/sample_types/": "the sample type catalog",
+    "/nextseek_api/assays/": "the assay catalog",
+    "/nextseek_api/projects/": "the project list",
+    "/nextseek_api/investigations/": "the investigation list",
+    "/nextseek_api/sops/": "the protocol (SOP) list",
+    "/nextseek_api/people/": "the list of registered SEEK users",
+}
+
+_GRAPH_SEARCH_KIND = "a graph query over the sample network"
+_REPORT_SEARCH_KIND = "an aggregated project report"
+_GENERIC_SEARCH_KIND = "a database search"
+
+#: Free text the query's author wrote for a human is useful (B13's caveat lived
+#: there) and is the most likely place for mechanics to leak, so it is capped.
+_NOTE_MAX_CHARS = 400
+
+
+@dataclass
+class QueryScope:
+    """What the executed query constrained, and what it was asked to and did not."""
+
+    searched: str = _GENERIC_SEARCH_KIND
+    applied: list[str] = field(default_factory=list)
+    not_applied: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    #: False when nothing in hand describes an executed query, so no claim about
+    #: applied or dropped constraints can be made either way.
+    measurable: bool = False
+
+
+def _uniq(values: Any) -> list[str]:
+    """Non-empty stringified values, order preserved, duplicates dropped."""
+    out: list[str] = []
+    for value in values or []:
+        text = str(value).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def _codes_and_names(items: Any) -> list[tuple[str, str | None]]:
+    """``[{code, name}]`` (or bare strings) as ``(code, name)`` pairs."""
+    pairs: list[tuple[str, str | None]] = []
+    for item in items or []:
+        if isinstance(item, dict):
+            code = str(item.get("code") or "").strip()
+            name = (item.get("name") or None) and str(item["name"]).strip()
+        else:
+            code, name = str(item or "").strip(), None
+        if code and code not in [existing for existing, _ in pairs]:
+            pairs.append((code, name if name and name != code else None))
+    return pairs
+
+
+def _label(kind: str, value: str, name: str | None = None) -> str:
+    if kind == "keyword":
+        return f'keyword "{value}"'
+    if name:
+        return f"{kind} {value} ({name})"
+    return f"{kind} {value}"
+
+
+def _asked_for(entity_result: dict, parser_plan: dict) -> list[tuple[str, str]]:
+    """Every constraint the turn asked for, as ``(value, label)``.
+
+    Both the entity agent's resolution and the parser's filters are read: the parser
+    can add a filter the entity agent never resolved (a UID, a lab code) and the
+    entity agent can resolve one the parser dropped, and a reply that misses either
+    is the failure this exists to catch.
+    """
+    filters = parser_plan.get("filters") or {}
+    asked: list[tuple[str, str]] = []
+
+    def _add(kind: str, value: str, name: str | None = None) -> None:
+        label = _label(kind, value, name)
+        if value and all(label != existing for _, existing in asked):
+            asked.append((value, label))
+
+    for code, name in _codes_and_names(entity_result.get("sampletypes")):
+        _add("sample type", code, name)
+    if filters.get("sampletype_code"):
+        _add("sample type", str(filters["sampletype_code"]))
+
+    for code, name in _codes_and_names(entity_result.get("assays")):
+        _add("assay", code, name)
+    for code in _uniq(filters.get("assay_codes")):
+        _add("assay", code)
+
+    for value in _uniq(entity_result.get("keywords")) + _uniq(filters.get("keywords")):
+        _add("keyword", value)
+    for value in _uniq(filters.get("uids")):
+        _add("sample", value)
+    for value in _uniq(entity_result.get("projects")):
+        _add("project", value)
+    for value in _uniq(entity_result.get("lab_codes")) + _uniq(filters.get("lab_codes")):
+        _add("lab", value)
+
+    return asked
+
+
+def _executed_text(api_plan: dict | None, graph_plan: dict | None) -> str | None:
+    """The text of the query that was dispatched, or None when there is none.
+
+    This string is never shown to anyone: it is only the haystack the containment
+    test runs over.
+    """
+    parts: list[str] = []
+    if graph_plan:
+        cypher = str(graph_plan.get("cypher") or "")
+        if cypher.strip():
+            parts.append(cypher)
+        parts.append(json.dumps(graph_plan.get("parameters") or {}, default=str))
+    if api_plan:
+        for key in ("requestBody", "queryParameters"):
+            parts.append(json.dumps(api_plan.get(key) or {}, default=str))
+        parts.append(str(api_plan.get("endpoint") or ""))
+    if not parts:
+        return None
+    joined = "".join(parts)
+    return joined if joined.strip() else None
+
+
+def _is_applied(value: str, haystack: str) -> bool:
+    """Whether the query constrained on ``value``.
+
+    Bounded on both sides by anything that is not an identifier character, so a
+    two-letter tag like ``CC`` is not read as applied because the Cypher happens to
+    say ``ACCESSION``, while ``PAT`` inside ``PAT-250912LAU-1`` is — that really is
+    the same scope. ``-`` and ``.`` are boundaries on purpose: ``A.GEX`` and a UID
+    prefix must both match.
+    """
+    pattern = r"(?<![A-Za-z0-9_])" + re.escape(value) + r"(?![A-Za-z0-9_])"
+    return re.search(pattern, haystack, re.IGNORECASE) is not None
+
+
+def _search_kind(parser_plan: dict, api_plan: dict | None, graph_plan: dict | None) -> str:
+    if graph_plan:
+        return _GRAPH_SEARCH_KIND
+    if str(parser_plan.get("mode") or "") == "reporter":
+        return _REPORT_SEARCH_KIND
+    endpoint = str(
+        (api_plan or {}).get("endpoint") or parser_plan.get("target_endpoint") or ""
+    ).strip()
+    if endpoint:
+        normalized = "/" + endpoint.split("?", 1)[0].strip().strip("/") + "/"
+        for known, phrase in _SEARCH_KIND_BY_ENDPOINT.items():
+            if normalized == known or normalized.startswith(known.split("{", 1)[0]):
+                return phrase
+    return _GENERIC_SEARCH_KIND
+
+
+def _clean_note(text: Any) -> str | None:
+    note = " ".join(str(text or "").split())
+    if not note:
+        return None
+    return note[:_NOTE_MAX_CHARS - 1] + "…" if len(note) > _NOTE_MAX_CHARS else note
+
+
+def describe_query_scope(
+    *,
+    entity_result: dict,
+    parser_plan: dict,
+    api_plan: dict | None = None,
+    graph_plan: dict | None = None,
+    extra_notes: list[str] | None = None,
+) -> QueryScope:
+    """Split the turn's constraints into the ones the query carried and the rest."""
+    entity_result = entity_result if isinstance(entity_result, dict) else {}
+    parser_plan = parser_plan if isinstance(parser_plan, dict) else {}
+
+    scope = QueryScope(searched=_search_kind(parser_plan, api_plan, graph_plan))
+
+    if graph_plan:
+        note = _clean_note(graph_plan.get("explanation"))
+        if note:
+            scope.notes.append(note)
+    for note in extra_notes or []:
+        cleaned = _clean_note(note)
+        if cleaned:
+            scope.notes.append(cleaned)
+
+    haystack = _executed_text(api_plan, graph_plan)
+    if haystack is None:
+        # No executed query text: report no verdict rather than a guessed one.
+        return scope
+
+    scope.measurable = True
+    for value, label in _asked_for(entity_result, parser_plan):
+        (scope.applied if _is_applied(value, haystack) else scope.not_applied).append(label)
+    return scope
+
+
+def render_query_scope(scope: QueryScope) -> str:
+    """The prompt block. Entity codes, entity names and fixed phrases only."""
+    lines = ["What the query actually did:", f"- Searched: {scope.searched}"]
+    if scope.measurable:
+        lines.append(
+            "- Constrained by: " + ("; ".join(scope.applied) if scope.applied else "(nothing)")
+        )
+        if scope.not_applied:
+            lines.append(
+                "- NOT APPLIED, the user asked for this and the query did not constrain on it: "
+                + "; ".join(scope.not_applied)
+            )
+    for note in scope.notes:
+        lines.append(f"- Note from whoever built the query: {note}")
+    return "\n".join(lines)

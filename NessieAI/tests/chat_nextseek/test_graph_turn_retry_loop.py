@@ -42,9 +42,13 @@ def _run(monkeypatch, tmp_path, plans, results):
         calls["neo4j"] += 1
         return next(result_iter)
 
+    def _chatter(*a, **k):
+        calls["chatter_kwargs"] = k
+        return "reply"
+
     monkeypatch.setattr(orch, "graph_agent", _agent)
     monkeypatch.setattr(orch, "tool_neo4j_query", _neo4j)
-    monkeypatch.setattr(orch, "chatter_agent_answer", lambda *a, **k: "reply")
+    monkeypatch.setattr(orch, "chatter_agent_answer", _chatter)
     monkeypatch.setattr(orch, "append_turn", lambda *a, **k: None)
 
     config = MagicMock()
@@ -212,3 +216,38 @@ def test_the_loop_is_bounded(monkeypatch, tmp_path):
     _, debug, calls = _run(monkeypatch, tmp_path, plans=plans, results=[_err()] * 10)
     assert calls["neo4j"] <= orch.GRAPH_MAX_TRIES
     assert len(debug["graph_attempts"]) <= orch.GRAPH_MAX_TRIES
+
+
+# --------------------------------------------------------------------------
+# The record has to reach the writer, not just the debug panel.
+#
+# `graph_retry_changed_answer` was set here and read by nothing but these tests. The
+# comment on it says the user must not be told a number without being told the first
+# query found nothing and the filter was changed to get it -- and the chatter was
+# never handed it, so the user never was.
+# --------------------------------------------------------------------------
+
+def test_a_retry_that_changed_the_answer_is_disclosed_to_the_chatter(monkeypatch, tmp_path):
+    _, debug, calls = _run(
+        monkeypatch, tmp_path,
+        plans=[
+            GraphAgentPlan(cypher="MATCH (a:A_GUESSED) RETURN count(*)", context_mode="catalog"),
+            GraphAgentPlan(cypher="MATCH (a:A_REAL) RETURN count(*)", context_mode="catalog"),
+        ],
+        results=[_ok(0), _ok(731)],
+    )
+
+    assert debug["graph_retry_changed_answer"] is True
+    notes = calls["chatter_kwargs"].get("query_notes") or []
+    assert any("matched nothing" in note for note in notes), notes
+
+
+def test_a_first_time_answer_carries_no_such_note(monkeypatch, tmp_path):
+    _, debug, calls = _run(
+        monkeypatch, tmp_path,
+        plans=[GraphAgentPlan(cypher="MATCH (s) RETURN count(*)", context_mode="catalog")],
+        results=[_ok(1206)],
+    )
+
+    assert "graph_retry_changed_answer" not in debug
+    assert not (calls["chatter_kwargs"].get("query_notes") or [])
