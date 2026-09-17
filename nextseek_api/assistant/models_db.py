@@ -415,3 +415,70 @@ class PipelineRun(models.Model):
         retried through the fastq fallback.
         """
         return any(entry.get("nfcore_sample") == nfcore_sample for entry in self.cohort or [])
+
+
+class ReingestAttributeProposal(models.Model):
+    """A raw pipeline key the agent proposed mapping onto a sample attribute.
+
+    Two different gaps share this table, distinguished by status:
+
+    * ``pending`` — the attribute EXISTS; nobody has confirmed this source is
+      the right one for it. The requesting user has leverage to chase it, so it
+      is surfaced by pull (a QA soft flag) rather than pushed.
+    * ``needs_definition`` — the attribute does NOT exist on that sample type.
+      Only a superuser can fix that, so the value is parked in ``Notes`` and the
+      row is pushed to superusers.
+
+    Approved rows are read by the mapper alongside the committed map file, so
+    approving never requires editing a file inside a running image.
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_NEEDS_DEFINITION = "needs_definition"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"), (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"), (STATUS_NEEDS_DEFINITION, "Needs definition"),
+    ]
+
+    # pipeline and proposed_attribute are capped at 128 (not 255, unlike
+    # raw_key): unique_together over three CharFields at utf8mb4 sums index
+    # key bytes as max_length * 4 per column, plus a 2-byte length prefix per
+    # long VARCHAR. Three columns at 255 is 3060 + 6 = 3066 bytes -- six bytes
+    # under InnoDB's 3072-byte hard limit (ERROR 1071), the same failure mode
+    # that already sank a max_length=1024 unique CharField on this branch.
+    # Real values are short ("nf-core/rnaseq", "ContamPercent"), so 128 is
+    # generous headroom while keeping the composite key well under the
+    # limit: 128*4 + 255*4 + 128*4 + 6 = 2054 bytes.
+    pipeline = models.CharField(max_length=128)
+    raw_key = models.CharField(max_length=255)
+    proposed_target = models.CharField(max_length=64)
+    proposed_attribute = models.CharField(max_length=128)
+    datatype = models.CharField(max_length=32, default="string")
+    example_value = models.TextField(blank=True, default="")
+    source_file = models.CharField(max_length=1024, blank=True, default="")
+    rationale = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES,
+                              default=STATUS_PENDING)
+    times_proposed = models.PositiveIntegerField(default=1)
+    first_seen_run = models.CharField(max_length=1024, blank=True, default="")
+    last_seen_run = models.CharField(max_length=1024, blank=True, default="")
+    manifest_digest = models.CharField(max_length=64, blank=True, default="")
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="reingest_proposals")
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="reingest_reviews")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "assistant_reingest_attribute_proposal"
+        app_label = "nextseek_api"
+        # pipeline and proposed_attribute are max_length=128, not 255, so this
+        # composite unique index fits under InnoDB's 3072-byte key limit at
+        # utf8mb4 -- see the field comment above. Load-bearing, not arbitrary.
+        unique_together = (("pipeline", "raw_key", "proposed_attribute"),)
+        ordering = ["-times_proposed", "-created_at"]
