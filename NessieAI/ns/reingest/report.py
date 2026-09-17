@@ -313,6 +313,16 @@ def _render_one(index, code, attribute, bucket):
             "      is no honest way to split it across the original samples, so they",
             "      are left out of the backfill. Their analysis outputs are unaffected.",
         ]
+    if code == qa.CATALOG_REQUIRED_MISSING:
+        return [
+            f"  {index}.  {_name(attribute)} is missing on {count} {rows}"
+            f" in {_workbook_ref(sample_type)}.",
+            "",
+            "      The server will accept these rows without it -- this is a curation",
+            "      expectation, not something it would reject the upload over.",
+            "",
+            "      Fill it in if you have it, or upload as-is.",
+        ]
     if code == qa.MISSING_REQUIRED:
         # A group label (e.g. "File_PrimaryData or Link_PrimaryData") is
         # already a composed phrase naming interchangeable-as-DATA

@@ -898,9 +898,18 @@ def _build_upload_xlsx_from_rows(args, outputs_dir):
     saved_files: dict[str, str] = {}
     qa: dict[str, dict] = {}
     for st, st_rows in by_type.items():
-        required = [a["title"] for a in attributes_for(st) if a.get("required")]
+        attrs = attributes_for(st)
+        required = [a["title"] for a in attrs if a.get("required")]
+        # a.get("server_required", a.get("required")): an attributes_for
+        # entry that never set the new key (an un-updated test double, or a
+        # caller mocking the old two-key shape) falls back to that same
+        # entry's own "required" -- keeping today's HARD-everything
+        # behaviour for anyone who hasn't wired the new flag through, per
+        # reingest_qa.qa_rows' own None-vs-explicit-list contract.
+        server_required = [a["title"] for a in attrs if a.get("server_required", a.get("required"))]
         report = qa_rows(st_rows, sample_type=st, known_sampletypes=known,
-                         required_fields=required, existing_parent_uids=existing)
+                         required_fields=required, server_required_fields=server_required,
+                         existing_parent_uids=existing)
         qa[st] = {"disposition": report.disposition, "hard": report.hard, "soft": report.soft}
         if report.disposition == HARD_REJECT:
             continue
@@ -1119,9 +1128,14 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
     # against an empty set and hard-reject the whole batch.
     existing_parent_uids = {s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid}
     for sample_type, type_rows in rows_by_type.items():
-        required = [a["title"] for a in attributes_for(sample_type) if a.get("required")]
+        attrs = attributes_for(sample_type)
+        required = [a["title"] for a in attrs if a.get("required")]
+        # See the legacy-rows path above for why the fallback default is the
+        # entry's own "required" rather than False.
+        server_required = [a["title"] for a in attrs if a.get("server_required", a.get("required"))]
         built = qa_rows(type_rows, sample_type=sample_type, known_sampletypes=known,
-                        required_fields=required, mode=mode,
+                        required_fields=required, server_required_fields=server_required,
+                        mode=mode,
                         existing_parent_uids=existing_parent_uids,
                         existing_notes=dseq_existing_notes if mode == MODE_UPDATE else None,
                         run_name=run_name)

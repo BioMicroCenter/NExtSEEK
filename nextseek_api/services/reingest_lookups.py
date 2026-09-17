@@ -34,25 +34,84 @@ def known_sample_types() -> set[str]:
 
 
 def attributes_for(sample_type: str) -> list[dict]:
-    """[{"title", "required"}] for one sample type; [] when it is unknown.
+    """[{"title", "required", "server_required"}] for one sample type; []
+    when it is unknown.
 
-    Required comes from the catalog's required metadata; standard and possible
-    fields are returned too, flagged not-required, so a caller can ask both
-    "does this attribute exist?" and "must it be filled?" from one call.
+    Two independent answers to "is this attribute required?", because two
+    stores disagree and each is the authority for a different question:
+
+    - ``required`` -- the catalog's ``required_metadata`` policy
+      (``sample_types_context``). Unchanged from before this flag existed:
+      a curation expectation, not necessarily something the server enforces.
+    - ``server_required`` -- SEEK's own ``sample_attributes.required`` flag,
+      the thing that actually rejects a row at upload
+      (``seek/dbtable_sampleattribute.py``, ``seek/sample/core.py``'s
+      ``_verifyRequiredFields``). This is the HARD blocker; ``required`` on
+      its own must never be treated as one.
+
+    Standard and possible fields are returned too, flagged not-required by
+    either measure, so a caller can ask both "does this attribute exist?"
+    and "must it be filled?" from one call.
+
+    Fail-safe direction: when SEEK's attribute table is unreachable, or has
+    no row for a title the catalog knows, that is an outage, not an answer
+    -- and the safe direction here is STRICTER, not looser. So an unknown
+    ``server_required`` falls back to the catalog's own ``required`` flag
+    for that title, never to ``False``. This mirrors this module's own house
+    rule (see the module docstring: a missing table costs the caller an
+    empty catalog, never an exception) applied to the new flag specifically,
+    so a caller that never learns SEEK's answer keeps today's HARD-blocking
+    behaviour instead of silently letting a row through.
     """
-    entry = load_sample_type(str(sample_type or "").strip())
+    st = str(sample_type or "").strip()
+    entry = load_sample_type(st)
     if entry is None:
         return []
     required = entry.required_metadata
     others = entry.standard_metadata + entry.possible_metadata_fields
+    seek_required = _seek_required_map(st)
     seen: set[str] = set()
     out: list[dict] = []
     for title in required + others:
         if title in seen:
             continue
         seen.add(title)
-        out.append({"title": title, "required": title in required})
+        is_required = title in required
+        # .get(title, is_required): only an EXPLICIT SEEK answer overrides
+        # the catalog's own flag -- an outage or a title SEEK never heard of
+        # falls back to `is_required`, the stricter of the two possible
+        # defaults ("not required" would let a row through SEEK might
+        # actually reject; "required" merely keeps today's behaviour).
+        server_required = seek_required.get(title, is_required)
+        out.append({"title": title, "required": is_required,
+                    "server_required": server_required})
     return out
+
+
+def _seek_required_map(sample_type: str) -> dict[str, bool]:
+    """{attribute title: bool(required)} from SEEK's own ``sample_attributes``
+    table for ``sample_type``, or ``{}`` on any failure -- table unreachable,
+    the type unresolvable on this instance, or no attribute rows at all.
+
+    ``{}`` is read by ``attributes_for`` as "we don't know", never as "SEEK
+    requires nothing here": that distinction is the whole point of the
+    fail-safe fallback documented on ``attributes_for``. Follows the same
+    lazy, guarded shape as ``uids_by_primary_data`` above.
+    """
+    try:
+        from seek.models import Sample_attributes, Sample_types
+
+        type_ids = list(
+            Sample_types.objects.filter(title=sample_type).values_list("id", flat=True))
+        if not type_ids:
+            return {}
+        rows = list(
+            Sample_attributes.objects.filter(
+                sample_type_id__in=type_ids).values_list("title", "required"))
+        return {str(title): bool(required) for title, required in rows}
+    except Exception:
+        log.exception("attributes_for: SEEK required-attribute lookup failed for %s", sample_type)
+        return {}
 
 
 def _matches_path(value, path: str) -> bool:

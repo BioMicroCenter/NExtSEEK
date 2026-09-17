@@ -58,6 +58,14 @@ MULTIRUN_NOT_ATTRIBUTABLE = "multirun_not_attributable"
 UNAPPROVED_ATTRIBUTE = "unapproved_attribute"
 ATTRIBUTE_NOT_DEFINED = "attribute_not_defined"
 METRIC_UNAVAILABLE = "metric_unavailable"
+# A required attribute the CATALOG wants but SEEK's own sample_attributes
+# table does not (`server_required` is false or unknown for it) -- present
+# in `required_fields` but absent from `server_required_fields`/the
+# fallback-derived hard set. SEEK would accept the row without it, so this
+# is a curation expectation, not a blocker: never MISSING_REQUIRED, which is
+# reserved for an attribute the server itself would reject the row over. See
+# the qa_rows docstring's `server_required_fields` section for the split.
+CATALOG_REQUIRED_MISSING = "catalog_required_missing"
 # Used by granular.py's manifest-driven build-upload-xlsx path: every
 # attribute on a sample type's rows was parked (attribute_exists said none is
 # defined on the schema) and the Notes fetch that would have recorded them
@@ -311,12 +319,45 @@ def qa_rows(
     sample_type: str,
     known_sampletypes: set[str],
     required_fields: list[str] | None = None,
+    server_required_fields: list[str] | None = None,
     existing_parent_uids: set[str] | None = None,
     mode: str = "new",
     existing_notes: dict[str, str] | None = None,
     run_name: str = "",
 ) -> QaReport:
     """Validate one sample type's rows. Returns a QaReport (CLEAN/SOFT_FLAG/HARD_REJECT).
+
+    ``required_fields`` / ``server_required_fields`` -- two stores disagree
+    about which attributes are required (see
+    ``nextseek_api/services/reingest_lookups.py::attributes_for``), and this
+    is the split between them for the plain (non-grouped, new-mode absence)
+    required-attribute check below:
+
+    - ``required_fields`` -- the catalog's policy (unchanged meaning from
+      before this parameter existed). Every title here is still checked for
+      absence; this list alone decides WHICH attributes are checked, not
+      their severity.
+    - ``server_required_fields`` -- the subset of ``required_fields`` that
+      SEEK's own ``sample_attributes.required`` flag actually enforces at
+      upload. A title missing here (present in ``required_fields``, absent
+      or falsy in the row) is genuinely a blocker: ``MISSING_REQUIRED``,
+      HARD. A title that IS in ``required_fields`` but NOT in
+      ``server_required_fields`` is a curation expectation SEEK would not
+      reject the row over: ``CATALOG_REQUIRED_MISSING``, SOFT.
+    - ``server_required_fields=None`` (the default) -- an un-updated caller
+      that only knows the old parameter. The safe default is today's
+      behaviour: every ``required_fields`` title is treated as
+      server-required too, so nothing here silently loosens the gate for a
+      caller that never learned the split. Pass an explicit list (``[]``
+      included) to opt into the split; passing ``[]`` deliberately means
+      "nothing here is a hard blocker", which is exactly what an explicit
+      empty list should mean, hence the ``None``-vs-``[]`` distinction
+      rather than a single falsy check.
+
+    This split does NOT touch the ``ALTERNATIVE_REQUIRED_GROUPS`` directional
+    group logic below (File_PrimaryData/Link_PrimaryData), the ``UID``
+    exemption, or the update-mode present-but-blank rule -- all three keep
+    their existing HARD/SOFT behaviour unchanged.
 
     ``mode`` is ``"new"`` (brand-new samples; rows must not carry a UID and
     must declare a Parent) or ``"update"`` (a backfill targeting samples that
@@ -360,6 +401,10 @@ def qa_rows(
     """
     report = QaReport()
     required = required_fields or []
+    # None (not given) -> today's behaviour: every required_fields title is
+    # also server-required. An explicit list (including []) is the caller
+    # opting into the split -- see the docstring above.
+    hard_required = set(required) if server_required_fields is None else set(server_required_fields)
     existing = existing_parent_uids or set()
 
     if sample_type not in known_sampletypes:
@@ -585,9 +630,19 @@ def qa_rows(
                                             row_index=i))
                     continue
                 if _value_missing(meta.get(req)):
-                    report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
-                                        sample_type=sample_type, attribute=req,
-                                        row_index=i))
+                    # SEEK's own required flag is the HARD blocker; a title
+                    # the catalog wants but SEEK does not enforce is a
+                    # curation expectation, not a rejection -- see the
+                    # docstring's required_fields/server_required_fields
+                    # split above.
+                    if req in hard_required:
+                        report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
+                                            sample_type=sample_type, attribute=req,
+                                            row_index=i))
+                    else:
+                        report.add(Finding(code=CATALOG_REQUIRED_MISSING, severity=SOFT,
+                                            sample_type=sample_type, attribute=req,
+                                            row_index=i))
             elif req in meta and _value_missing(meta.get(req)):
                 report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
                                     sample_type=sample_type, attribute=req,

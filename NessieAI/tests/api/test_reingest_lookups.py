@@ -90,6 +90,73 @@ def test_attributes_for_strips_the_callers_sample_type():
     assert reingest_lookups.attributes_for(" A.GEX ") != []
 
 
+class TestServerRequired:
+    """attributes_for's `server_required` flag: sourced from SEEK's own
+    `sample_attributes.required` when reachable, fail-safe (fall back to the
+    catalog's `required`) when it is not -- see the function's docstring."""
+
+    def test_seeks_own_flag_wins_when_reachable(self):
+        # A.GEX's catalog entry declares BOTH Checksum_PrimaryData and
+        # File_PrimaryData required -- SEEK disagrees for Checksum_PrimaryData
+        # (verified against startup/seed/seek_production.sql.gz: required=0
+        # on A.GEX). server_required must reflect SEEK's answer per title,
+        # not just copy the catalog's.
+        with patch("seek.models.Sample_types.objects") as sample_types, \
+                patch("seek.models.Sample_attributes.objects") as sample_attrs:
+            sample_types.filter.return_value.values_list.return_value = [2]
+            sample_attrs.filter.return_value.values_list.return_value = [
+                ("Checksum_PrimaryData", 0), ("File_PrimaryData", 1),
+            ]
+            attrs = {a["title"]: a for a in reingest_lookups.attributes_for("A.GEX")}
+
+        assert attrs["Checksum_PrimaryData"]["required"] is True
+        assert attrs["Checksum_PrimaryData"]["server_required"] is False
+        assert attrs["File_PrimaryData"]["required"] is True
+        assert attrs["File_PrimaryData"]["server_required"] is True
+
+    def test_falls_back_to_catalog_required_when_seek_lookup_raises(self):
+        # The fail-safe direction under test: SEEK's table is unreachable
+        # (any exception), so server_required must NOT default to "not
+        # required" -- it must fall back to the catalog's own `required`,
+        # the stricter of the two possible defaults, so the gate stays HARD
+        # rather than silently loosening because of an outage.
+        with patch("seek.models.Sample_types.objects") as sample_types:
+            sample_types.filter.side_effect = Exception("seek db unreachable")
+            attrs = {a["title"]: a for a in reingest_lookups.attributes_for("A.GEX")}
+
+        assert attrs["Checksum_PrimaryData"]["required"] is True
+        assert attrs["Checksum_PrimaryData"]["server_required"] is True
+        assert attrs["File_PrimaryData"]["required"] is True
+        assert attrs["File_PrimaryData"]["server_required"] is True
+
+    def test_falls_back_to_catalog_required_when_seek_has_no_rows_for_a_known_type(self):
+        # SEEK resolves no Sample_types row at all for this title (an
+        # instance where the type is unresolvable on the SEEK side even
+        # though the catalog knows it) -- an outage signal, not "nothing is
+        # required here", so the same fallback applies.
+        with patch("seek.models.Sample_types.objects") as sample_types:
+            sample_types.filter.return_value.values_list.return_value = []
+            attrs = {a["title"]: a for a in reingest_lookups.attributes_for("A.GEX")}
+
+        assert attrs["Checksum_PrimaryData"]["server_required"] is True
+        assert attrs["File_PrimaryData"]["server_required"] is True
+
+    def test_falls_back_per_title_when_seek_is_reachable_but_silent_on_it(self):
+        # SEEK is reachable and answers for File_PrimaryData but has no row
+        # at all for Checksum_PrimaryData on this type -- still "we don't
+        # know" for that one title specifically, not "SEEK says False".
+        with patch("seek.models.Sample_types.objects") as sample_types, \
+                patch("seek.models.Sample_attributes.objects") as sample_attrs:
+            sample_types.filter.return_value.values_list.return_value = [2]
+            sample_attrs.filter.return_value.values_list.return_value = [
+                ("File_PrimaryData", 1),
+            ]
+            attrs = {a["title"]: a for a in reingest_lookups.attributes_for("A.GEX")}
+
+        assert attrs["Checksum_PrimaryData"]["server_required"] is True  # fallback
+        assert attrs["File_PrimaryData"]["server_required"] is True  # SEEK's own answer
+
+
 def _metadata_row(uid: str, **fields) -> tuple:
     return (uid, json.dumps(fields))
 
