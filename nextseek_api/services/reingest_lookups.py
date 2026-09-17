@@ -17,30 +17,50 @@ territory (see the repo root ``CLAUDE.md``: "the API surface stays in
 ``context_catalog.load_sample_type``/``load_sample_types`` also means this
 module inherits that loader's house rule for free: a missing table or row
 costs the caller an empty catalog, never an exception.
+
+Each lenient function has a ``_strict`` twin (``known_sample_types_strict``,
+``attributes_for_strict``) built on ``context_catalog``'s own ``_strict``
+loaders. Those raise instead of swallowing a catalog outage into an empty
+result, for the one caller that must not mistake "the database is
+unreachable" for "genuinely not defined" -- see ``proposals.attribute_exists``
+in ``NessieAI/ns/reingest/proposals.py``.
 """
 from __future__ import annotations
 
 import json
 import logging
 
-from nextseek_api.services.context_catalog import load_sample_type, load_sample_types
+from nextseek_api.services.context_catalog import (
+    load_sample_type,
+    load_sample_type_strict,
+    load_sample_types,
+    load_sample_types_strict,
+)
 
 log = logging.getLogger(__name__)
 
 
 def known_sample_types() -> set[str]:
-    """Every SampleType code in the catalog."""
+    """Every SampleType code in the catalog. Empty on failure, never raises."""
     return {entry.code for entry in load_sample_types()}
 
 
-def attributes_for(sample_type: str) -> list[dict]:
-    """[{"title", "required"}] for one sample type; [] when it is unknown.
+def known_sample_types_strict() -> set[str]:
+    """Every SampleType code in the catalog.
+
+    Raises on a catalog outage instead of returning an empty set for it; see
+    `context_catalog.load_sample_types_strict`.
+    """
+    return {entry.code for entry in load_sample_types_strict()}
+
+
+def _attributes_from_entry(entry) -> list[dict]:
+    """[{"title", "required"}] for one already-loaded entry, or [] for None.
 
     Required comes from the catalog's required metadata; standard and possible
     fields are returned too, flagged not-required, so a caller can ask both
     "does this attribute exist?" and "must it be filled?" from one call.
     """
-    entry = load_sample_type(str(sample_type or "").strip())
     if entry is None:
         return []
     required = entry.required_metadata
@@ -53,6 +73,28 @@ def attributes_for(sample_type: str) -> list[dict]:
         seen.add(title)
         out.append({"title": title, "required": title in required})
     return out
+
+
+def attributes_for(sample_type: str) -> list[dict]:
+    """[{"title", "required"}] for one sample type; [] when it is unknown,
+    and also [] on a catalog outage -- see `attributes_for_strict` for a
+    caller that must tell those two apart.
+    """
+    entry = load_sample_type(str(sample_type or "").strip())
+    return _attributes_from_entry(entry)
+
+
+def attributes_for_strict(sample_type: str) -> list[dict]:
+    """[{"title", "required"}] for one sample type; [] when it is genuinely
+    unknown in a working catalog.
+
+    Raises on a catalog outage instead of returning `[]` for it, so a caller
+    that acts on absence (reingest's `attribute_exists`) cannot mistake a
+    database outage for a genuine schema gap; see
+    `context_catalog.load_sample_types_strict`.
+    """
+    entry = load_sample_type_strict(str(sample_type or "").strip())
+    return _attributes_from_entry(entry)
 
 
 def _matches_path(value, path: str) -> bool:

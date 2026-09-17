@@ -7,7 +7,9 @@ import pytest
 from nextseek_api.services.context_catalog import (
     SampleTypeContextEntry,
     load_sample_type,
+    load_sample_type_strict,
     load_sample_types,
+    load_sample_types_strict,
     parse_alternation,
     parse_list,
     slugify_name,
@@ -176,6 +178,49 @@ class TestLoadSampleTypes:
         rows.return_value = [self.ROW]
         assert load_sample_type("D.FLOW").name == "Flow Cytometry Data"
         assert load_sample_type("NOPE") is None
+
+
+class TestLoadSampleTypesStrict:
+    """The `_strict` twin: same read and parse, but a failure propagates.
+
+    See the module docstring for why this pair exists: `reingest_lookups`
+    needs to tell a catalog outage apart from a sample type that is
+    genuinely not defined, and the lenient loaders make those two
+    indistinguishable on purpose.
+    """
+
+    @patch("nextseek_api.services.context_catalog._sample_type_rows")
+    def test_a_missing_table_raises_instead_of_returning_no_entries(self, rows):
+        rows.side_effect = Exception("Table 'dmac.sample_types_context' doesn't exist")
+        with pytest.raises(Exception, match="doesn't exist"):
+            load_sample_types_strict()
+
+    @patch("nextseek_api.services.context_catalog._sample_type_rows")
+    def test_the_strict_and_lenient_loaders_differ_on_the_same_failure(self, rows):
+        """The whole point of the pair: one failure, two different answers."""
+        rows.side_effect = Exception("Table 'dmac.sample_types_context' doesn't exist")
+        with pytest.raises(Exception):
+            load_sample_types_strict()
+        assert load_sample_types() == []
+
+    @patch("nextseek_api.services.context_catalog._sample_type_rows")
+    def test_a_genuinely_empty_catalog_is_not_treated_as_a_failure(self, rows):
+        """No row at all is a fact about the data, not an outage -- it must
+        come back as `[]`, not raise, from the strict path too."""
+        rows.return_value = []
+        assert load_sample_types_strict() == []
+
+    @patch("nextseek_api.services.context_catalog._sample_type_rows")
+    def test_load_sample_type_strict_finds_one_and_returns_none_for_a_stranger(self, rows):
+        rows.return_value = [TestLoadSampleTypes.ROW]
+        assert load_sample_type_strict("D.FLOW").name == "Flow Cytometry Data"
+        assert load_sample_type_strict("NOPE") is None
+
+    @patch("nextseek_api.services.context_catalog._sample_type_rows")
+    def test_load_sample_type_strict_raises_on_a_catalog_outage(self, rows):
+        rows.side_effect = Exception("sample_types_context table unreachable")
+        with pytest.raises(Exception, match="unreachable"):
+            load_sample_type_strict("D.FLOW")
 
 
 from nextseek_api.services.context_catalog import (  # noqa: E402

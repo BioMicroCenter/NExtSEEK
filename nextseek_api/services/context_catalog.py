@@ -6,9 +6,17 @@ what this returns, so neither reaches into the database itself. Same division
 `template_catalog.py` already draws for the Download Templates page.
 
 House rule, inherited from `template_catalog.load_catalog` and pinned by tests:
-a missing table or a missing row costs that one field or entry. Nothing here
-raises to a caller. A stack without `assay_context` renders an empty assays
-page; it does not 500 and it does not take the project page down with it.
+a missing table or a missing row costs that one field or entry. The public
+loaders (`load_sample_types`, `load_sample_type`, `load_assays`, `load_assay`,
+`load_project_context`) never raise to a caller. A stack without
+`assay_context` renders an empty assays page; it does not 500 and it does not
+take the project page down with it.
+
+The one exception is the `_strict` twins (`load_sample_types_strict`,
+`load_sample_type_strict`): they do the same read and parse but let a failure
+propagate, for the rare caller that must tell "the database is unreachable"
+apart from "genuinely nothing curated here" -- see
+`nextseek_api/services/reingest_lookups.py`.
 """
 
 from __future__ import annotations
@@ -138,18 +146,21 @@ def _sample_type_rows() -> list[dict]:
     return list(Sample_types_context.objects.all().values(*_SAMPLE_TYPE_COLUMNS))
 
 
-def load_sample_types() -> list[SampleTypeContextEntry]:
+def load_sample_types_strict() -> list[SampleTypeContextEntry]:
     """Every curated sample type, parsed, in clade then code order.
+
+    Raises whatever `_sample_type_rows` raises, instead of swallowing it: for
+    a caller that must tell a genuine outage (the table unreachable) apart
+    from a genuinely empty or absent catalog, which this returns as `[]`
+    without raising -- an empty result here is a fact about the data, not a
+    failure. `load_sample_types` is the swallowing wrapper around this for
+    every caller that degrades gracefully instead.
 
     Retired types are omitted, reusing `template_catalog.is_deprecated`: SEEK
     spells the marker six different ways in its own descriptions and that
     function already matches the stem they share.
     """
-    try:
-        rows = _sample_type_rows()
-    except Exception:
-        logger.exception("sample_types_context unavailable; catalog will be empty")
-        return []
+    rows = _sample_type_rows()
 
     known = {row.get("sample_type") for row in rows if row.get("sample_type")}
 
@@ -180,6 +191,33 @@ def load_sample_types() -> list[SampleTypeContextEntry]:
 
     entries.sort(key=lambda e: _clade_sort_key(e.clade, e.code))
     return entries
+
+
+def load_sample_types() -> list[SampleTypeContextEntry]:
+    """Every curated sample type, parsed, in clade then code order.
+
+    Empty on failure, never raises: a stack without `sample_types_context`
+    renders an empty catalog page rather than 500ing, or taking a project
+    page down with it. A caller that must distinguish that from a genuine
+    outage wants `load_sample_types_strict` instead.
+    """
+    try:
+        return load_sample_types_strict()
+    except Exception:
+        logger.exception("sample_types_context unavailable; catalog will be empty")
+        return []
+
+
+def load_sample_type_strict(code: str) -> SampleTypeContextEntry | None:
+    """One entry by code, or None for a code the catalog genuinely lacks.
+
+    Raises on a catalog outage rather than returning None for it; see
+    `load_sample_types_strict`. `load_sample_type` is the swallowing wrapper.
+    """
+    for entry in load_sample_types_strict():
+        if entry.code == code:
+            return entry
+    return None
 
 
 def load_sample_type(code: str) -> SampleTypeContextEntry | None:

@@ -90,6 +90,31 @@ def test_attributes_for_strips_the_callers_sample_type():
     assert reingest_lookups.attributes_for(" A.GEX ") != []
 
 
+def test_attributes_for_strict_matches_the_lenient_result_on_a_healthy_catalog():
+    """Both walk the same catalog when nothing is wrong; they only diverge on
+    a failure (see test_context_catalog.py's TestLoadSampleTypesStrict)."""
+    assert reingest_lookups.attributes_for_strict("A.GEX") == \
+        reingest_lookups.attributes_for("A.GEX")
+
+
+def test_attributes_for_strict_is_empty_for_a_genuinely_unknown_type():
+    assert reingest_lookups.attributes_for_strict("A.NOPE") == []
+
+
+def test_attributes_for_strict_raises_when_the_catalog_is_unreachable():
+    with patch("nextseek_api.services.context_catalog._sample_type_rows",
+              side_effect=RuntimeError("sample_types_context table unreachable")):
+        with pytest.raises(RuntimeError):
+            reingest_lookups.attributes_for_strict("A.GEX")
+
+
+def test_known_sample_types_strict_raises_when_the_catalog_is_unreachable():
+    with patch("nextseek_api.services.context_catalog._sample_type_rows",
+              side_effect=RuntimeError("sample_types_context table unreachable")):
+        with pytest.raises(RuntimeError):
+            reingest_lookups.known_sample_types_strict()
+
+
 def _metadata_row(uid: str, **fields) -> tuple:
     return (uid, json.dumps(fields))
 
