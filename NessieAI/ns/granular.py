@@ -1,4 +1,4 @@
-"""Native dispatch for the 7 granular assistant ops.
+"""Native dispatch for the granular assistant ops.
 
 Port of the dmac sidecar's ``sidecar/app/ops.py``: each op calls the same
 chat_nextseek portable function, with the same argument order, so behavior is
@@ -92,6 +92,20 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
     else:
         result = {"ok": False, "error": "graph agent produced no cypher", "data": []}
     return {"plan": plan_dump, "result": result}
+
+
+def _graph_schema(args, config, session, write_gate, neo4j_exec, outputs_dir):
+    """The deployed graph's schema, read live, with no model call and no Cypher.
+
+    The op that replaces the graph snapshot the cc-agent image used to bake: the agent
+    asks NExtSEEK, which reads the live catalog through ``graph_catalog``, so a catalog
+    change no longer needs an image rebuild. ``types`` arrives as a comma-separated
+    string over the wire (one shim flag) and is split here; ``query`` only gates the
+    vocabulary blocks.
+    """
+    from chat_nextseek.portable import graph_schema_snapshot
+    types = [code.strip() for code in str(args.get("types") or "").split(",") if code.strip()]
+    return graph_schema_snapshot(config, types=types, question=args.get("query") or "")
 
 
 def _api_read(args, config, session, write_gate, neo4j_exec, outputs_dir):
@@ -262,6 +276,7 @@ _HANDLERS: dict[str, Callable] = {
     "entity": _entity,
     "parse": _parse,
     "graph": _graph,
+    "graph-schema": _graph_schema,
     "api-read": _api_read,
     "api-write": _api_write,
     "report": _report,

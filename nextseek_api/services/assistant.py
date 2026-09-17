@@ -73,6 +73,8 @@ from nextseek_api.assistant.models_api import (
     EntityOpRequest,
     EntityOpResponse,
     GraphOpRequest,
+    GraphSchemaOpRequest,
+    GraphSchemaOpResponse,
     GraphOpResponse,
     OpErrorResponse,
     ParseOpRequest,
@@ -206,6 +208,7 @@ _GRANULAR_REQUEST_MODELS = {
     "entity": EntityOpRequest,
     "parse": ParseOpRequest,
     "graph": GraphOpRequest,
+    "graph-schema": GraphSchemaOpRequest,
     "api-read": ApiReadRequest,
     "api-write": ApiWriteRequest,
     "report": ReportOpRequest,
@@ -1253,6 +1256,22 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="graph")
     def graph(self, request):
         return self._run_granular_op(request, "graph")
+
+    @extend_schema(
+        operation_id="Assistant: Graph Schema",
+        description=(
+            "Return the deployed graph's schema, read live from the Neo4j catalog: the "
+            "structure, the sample type index, any requested types in full, and the "
+            "keyword-gated vocabulary. No model call. `result.source` is `catalog` when "
+            "the live graph answered and `fallback` when the committed neo4j_schema.json "
+            "did, in which case `unavailable_reason` says why."
+        ),
+        request=GraphSchemaOpRequest,
+        responses={200: GraphSchemaOpResponse, 401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="graph-schema")
+    def graph_schema(self, request):
+        return self._run_granular_op(request, "graph-schema")
 
     @extend_schema(
         operation_id="Assistant: API Read",

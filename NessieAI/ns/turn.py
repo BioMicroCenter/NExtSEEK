@@ -106,6 +106,8 @@ def _granular_args(op: str, req) -> dict:
     """Project a validated request model into the op's chat_nextseek arg dict."""
     if op in ("entity", "parse", "graph"):
         return {"query": req.query}
+    if op == "graph-schema":
+        return {"types": req.types, "query": req.query}
     if op == "api-read":
         return {"parser_plan": req.parser_plan}
     if op == "api-write":

@@ -7,6 +7,7 @@ provenance + write-DB-unchanged proofs live in the paid acceptance tier.
 """
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 from django.conf import settings
@@ -332,3 +333,62 @@ class ReingestEndpointTests(GranularEndpointBase):
         # build-upload-xlsx is an artifact op -> a download bundle is registered
         self.assertIn("download", body)
         self.assertEqual(body["download"]["bundle_id"], 1)
+
+
+class GraphSchemaEndpointTests(GranularEndpointBase):
+    """POST /assistant/graph-schema/ — the route that lets the CC agent read the
+    deployed graph's schema instead of a snapshot baked into its image.
+
+    No model call, so this endpoint is free: the catalog projection is patched here
+    because the test container has no Neo4j, not because it would cost anything.
+    ``_granular_chat_config`` is patched too, so these run in the hermetic lane, whose
+    settings module carries no ``NEXTSEEK_CHAT_CONFIG`` (that value comes from the
+    gitignored ``dmac/local_settings.py``, which is why the sibling classes above are
+    red there). What is proved here is the route, CSRF exemption, the auth gate, the
+    request model and the arg projection — everything this change adds."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("nextseek_api.services.assistant._granular_chat_config",
+                        return_value=SimpleNamespace())
+        self.chat_config = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    LIVE = {
+        "source": "catalog", "schema_version": "1.2", "catalog_hash": "abc123",
+        "synced_at": "2026-09-17T00:00:00Z", "sample_types": 109,
+        "resolved_types": ["TIS"], "unknown_types": [],
+        "schema": "# NExtSEEK graph schema v1.1", "vocabulary": "INVESTIGATION TITLES",
+        "unavailable_reason": None, "fallback_fetched_at": None,
+    }
+
+    def test_graph_schema_returns_the_live_catalog_envelope(self):
+        with patch("chat_nextseek.portable.graph_schema_snapshot", return_value=self.LIVE):
+            resp = self.client.post(f"{self.BASE}/graph-schema/", {}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        self.assertEqual(body["op"], "graph-schema")
+        self.assertEqual(body["result"]["source"], "catalog")
+        self.assertEqual(body["result"]["schema_version"], "1.2")
+        self.assertNotIn("download", body)
+
+    def test_graph_schema_forwards_types_and_query(self):
+        with patch("chat_nextseek.portable.graph_schema_snapshot",
+                   return_value=self.LIVE) as snap:
+            resp = self.client.post(f"{self.BASE}/graph-schema/",
+                                    {"types": "TIS,D.SEQ", "query": "which assays"},
+                                    format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(snap.call_args.kwargs["types"], ["TIS", "D.SEQ"])
+        self.assertEqual(snap.call_args.kwargs["question"], "which assays")
+
+    def test_graph_schema_rejects_an_unknown_body_field(self):
+        resp = self.client.post(f"{self.BASE}/graph-schema/",
+                                {"cypher": "MATCH (n) DETACH DELETE n"}, format="json")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()["code"], "VALIDATION")
+
+    def test_graph_schema_needs_authentication(self):
+        anon = APIClient()
+        resp = anon.post(f"{self.BASE}/graph-schema/", {}, format="json")
+        self.assertEqual(resp.status_code, 401)

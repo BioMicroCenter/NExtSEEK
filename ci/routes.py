@@ -1018,6 +1018,15 @@ REGISTRY: list[Route] = [
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
           note="deterministic workbook renderer, no model call; writes files under "
                "the run root, so it stays off prod"),
+    Route(pattern=r"^nextseek_api/^^assistant/graph-schema/$",
+          path="/nextseek_api/assistant/graph-schema/",
+          effect="reads",
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
+          shape="source",
+          note="a read expressed as a POST, so the prod guard refuses it: the live "
+               "graph catalog rendered as text for the CC agent. No model call, and "
+               "no Cypher from the caller; it answers from the committed schema and "
+               "says so when the graph cannot serve the catalog"),
     Route(pattern=r"^nextseek_api/^^attributes/batch-create/$",
           path="/nextseek_api/attributes/batch-create/",
           effect="writes", writers=("WR-05",),
