@@ -10,6 +10,8 @@ No Django models live here; the HTTP contract and the ORM stay in `nextseek_api/
 |---|---|
 | `granular.py` | `run_op` dispatches a table of nine handlers: seven ported sidecar ops, plus `run-ls` and `build-upload-xlsx` for reingest. Every `chat_nextseek` agent is imported inside a handler body |
 | `write_gate.py` + `read_safe_endpoints.json` | `build_gate`: strict `True` confirms `api-write`; allowlist membership for `api-read`; pass for the read-class labels; deny anything else. The JSON is found beside the module |
+| [`reingest/`](reingest/README.md) | turns a finished nf-core run into NExtSEEK rows: harvest to a `RunManifest`, a committed per-pipeline map, and an approval queue for every raw key the map does not cover. Never invents a sample attribute |
+| [`reingest_maps/`](reingest_maps/README.md) | one `<pipeline>.outputs.json` per nf-core pipeline: committed, code-reviewed, read-only at runtime, gated in CI by `NessieAI/tests/ns/reingest/test_map_contract.py` |
 | `reingest_qa.py` | `qa_rows` grades composed rows CLEAN, SOFT_FLAG or HARD_REJECT |
 | `upload_workbook.py` | `render_upload_workbook` emits the four sheets the batch-upload parser reads |
 | `bundle_download.py` | serves the files of a stored NS bundle |
@@ -34,7 +36,7 @@ Tests are in `NessieAI/tests/ns/` (engine) and `NessieAI/tests/api/` (HTTP surfa
 
 ## Depends on / depended on by
 
-- Depends on `NessieAI/chat_nextseek/` (agents, lazily; the config and orchestrator at import, from `turn.py`; the orchestrator lazily, from `retry.py`), `nextseek_api.batch_upload.helpers` (from `reingest_qa.py`), `nextseek_api.assistant.session_adapter` (`SessionSaveError`, from `turn.py`), and `nextseek_api.assistant.models_evaluator` plus `models_db` (`QueryTask`, from `retry.py`), all allowed back-edges.
+- Depends on `NessieAI/chat_nextseek/` (agents, lazily; the config and orchestrator at import, from `turn.py`; the orchestrator lazily, from `retry.py`), `nextseek_api.batch_upload.helpers` (from `reingest_qa.py`), `models_db` and `nextseek_api.services.reingest_lookups` (from `reingest/`), `nextseek_api.assistant.session_adapter` (`SessionSaveError`, from `turn.py`), and `nextseek_api.assistant.models_evaluator` plus `models_db` (`QueryTask`, from `retry.py`), all allowed back-edges.
 - Called by `nextseek_api/services/assistant.py` (`granular`, `write_gate`, `turn`, `artifacts` and the bundle projections) and `nextseek_api/services/evaluator.py` (`retry`); `nextseek_api/assistant/session_debug.py` imports `bundle_download`; the Container-CC turn imports `turn`.
 - `NessieAI/cc/op_registry/ops.py` reads `read_safe_endpoints.json` at import.
 - `NessieAI/docker/ns-sidecar/` calls these ops over HTTP and keeps its own copy of the wire models.
