@@ -476,3 +476,31 @@ def test_unresolved_uid_caps_the_sample_list_instead_of_enumerating_all():
     # Not all 40 sample names are dumped into the chat.
     assert text.count("SAMPLE_0") + text.count("SAMPLE_1") + text.count("SAMPLE_2") + \
         text.count("SAMPLE_3") < 40
+
+
+def test_ambiguous_primary_data_reaches_the_reply_verbatim():
+    # Minor 1 (2026-09-17 review): a silent File_PrimaryData pick among
+    # same-basename candidates (see mapper.py's `_attach_checksum`) must
+    # reach the reply the agent relays verbatim, naming both candidates and
+    # the one used, not just get logged somewhere a curator won't see.
+    clean = qa.QaReport()._finalize()
+    ambiguous_primary = [{
+        "sample_type": "A.GEX", "attribute": "File_PrimaryData",
+        "chosen": "salmon/all.merged.gene_counts.tsv",
+        "candidates": ["salmon/all.merged.gene_counts.tsv",
+                       "star_salmon/all.merged.gene_counts.tsv"],
+    }]
+    text = report.render_qa_for_user({"A.GEX": clean}, ARTIFACTS, RUN,
+                                     ambiguous_primary=ambiguous_primary)
+    assert "PRIMARY-FILE PICK" in text
+    assert "salmon/all.merged.gene_counts.tsv" in text
+    assert "star_salmon/all.merged.gene_counts.tsv" in text
+    assert "matched A.GEX's rule" in text
+    # The section lands before the upload steps, not after.
+    assert text.index("PRIMARY-FILE PICK") < text.index("TO UPLOAD")
+
+
+def test_no_ambiguous_primary_data_omits_the_section():
+    clean = qa.QaReport()._finalize()
+    text = report.render_qa_for_user({"A.GEX": clean}, ARTIFACTS, RUN)
+    assert "PRIMARY-FILE" not in text
