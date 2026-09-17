@@ -7,6 +7,11 @@ EXISTING = {"D.SEQ-EXAMPLE-1"}
 
 
 def test_a_missing_required_attribute_is_a_hard_reject():
+    # File_PrimaryData is one member of the File_PrimaryData/Link_PrimaryData
+    # alternatives group (see reingest_qa.ALTERNATIVE_REQUIRED_GROUPS): with
+    # neither member present, the group produces one finding naming both,
+    # not a finding for File_PrimaryData alone. Checksum_PrimaryData is not
+    # in any group and is still flagged on its own.
     report = qa.qa_rows(
         [{"json_metadata": {"Parent": "D.SEQ-EXAMPLE-1", "Scientist": "A Person"}}],
         sample_type="A.GEX", known_sampletypes={"A.GEX"},
@@ -14,7 +19,8 @@ def test_a_missing_required_attribute_is_a_hard_reject():
         existing_parent_uids=EXISTING)
     assert report.disposition == qa.HARD_REJECT
     missing = {f.attribute for f in report.findings if f.code == qa.MISSING_REQUIRED}
-    assert missing == {"File_PrimaryData", "Checksum_PrimaryData"}
+    assert missing == {qa.group_label(("File_PrimaryData", "Link_PrimaryData")),
+                        "Checksum_PrimaryData"}
 
 
 def test_uid_is_exempt_from_the_required_check_in_new_mode():

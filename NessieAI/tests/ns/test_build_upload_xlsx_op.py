@@ -132,3 +132,53 @@ def test_populated_catalog_with_required_attribute_present_is_clean(tmp_path, mo
         _Cfg(), None, None, None, str(tmp_path))
     assert out["qa"]["A.SCXP"]["disposition"] == "CLEAN"
     assert set(out["saved_files"]) == {"reingest_A_SCXP"}
+
+
+def test_agent_recipe_row_against_the_real_catalog_required_set(tmp_path, monkeypatch):
+    # Honest record of where the regression stands after the
+    # File_PrimaryData/Link_PrimaryData alternatives fix (see
+    # NessieAI/ns/reingest_qa.ALTERNATIVE_REQUIRED_GROUPS).
+    #
+    # Catalog required set verified against the committed seed
+    # (startup/seed/dmac.sql.gz, table sample_types_context): A.GEX, A.ALN
+    # and A.SCXP each declare required_metadata = UID, File_PrimaryData,
+    # Link_PrimaryData, Scientist, Parent, Checksum_PrimaryData.
+    #
+    # Row shaped exactly the way the shipped agent recipe composes one (see
+    # NessieAI/docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek/SKILL.md,
+    # the nextseek-run-ls + nextseek-build-upload-xlsx workflow step 3): it
+    # supplies File_PrimaryData, never Link_PrimaryData, never
+    # Checksum_PrimaryData.
+    monkeypatch.setattr(reingest_lookups, "known_sample_types", lambda: {"A.GEX"})
+    monkeypatch.setattr(
+        reingest_lookups, "attributes_for",
+        lambda st: [{"title": t, "required": True} for t in (
+            "UID", "File_PrimaryData", "Link_PrimaryData", "Scientist",
+            "Parent", "Checksum_PrimaryData")])
+    rows = json.dumps([{
+        "SampleType": "A.GEX",
+        "json_metadata": {
+            "Parent": "D.SEQ-1",
+            "Scientist": "A Person",
+            "Pipeline": "nf-core/rnaseq",
+            "ReferenceGenome": "GRCh38",
+            "Aligner": "STAR",
+            "File_PrimaryData": "/net/cluster/runs/gideon4wk/star_salmon/sample1.bam",
+        },
+        "assay_ids": [12],
+    }])
+    out = g._build_upload_xlsx(
+        {"rows": rows, "existing_parent_uids": "D.SEQ-1"},
+        _Cfg(), None, None, None, str(tmp_path))
+
+    # Still hard-rejects today -- the fix did not, and must not, relax
+    # Checksum_PrimaryData -- but no longer on the PrimaryData pair, since
+    # File_PrimaryData alone now satisfies that alternatives group.
+    assert out["qa"]["A.GEX"]["disposition"] == "HARD_REJECT"
+    assert out["saved_files"] == {}
+    hard = out["qa"]["A.GEX"]["hard"]
+    missing_required_hard = [h for h in hard if "missing_required" in h]
+    assert len(missing_required_hard) == 1
+    assert "Checksum_PrimaryData" in missing_required_hard[0]
+    assert "File_PrimaryData" not in missing_required_hard[0]
+    assert "Link_PrimaryData" not in missing_required_hard[0]

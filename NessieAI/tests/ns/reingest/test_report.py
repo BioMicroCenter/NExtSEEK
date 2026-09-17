@@ -255,6 +255,31 @@ def test_notes_would_clobber_distinguishes_not_fetched_from_would_overwrite():
     assert text != text2
 
 
+def test_missing_required_names_both_alternatives_when_the_attribute_is_a_group():
+    # NessieAI/ns/reingest_qa.ALTERNATIVE_REQUIRED_GROUPS: an absent
+    # File_PrimaryData/Link_PrimaryData pair renders as one finding whose
+    # attribute is the group label -- the reader must be told either
+    # attribute satisfies the requirement, not just shown one bare name.
+    group_label = qa.group_label(("File_PrimaryData", "Link_PrimaryData"))
+    built = _single_finding_report(
+        qa.MISSING_REQUIRED, qa.HARD, sample_type="A.GEX",
+        attribute=group_label, row_index=0)
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert "File_PrimaryData" in text
+    assert "Link_PrimaryData" in text
+    assert "or" in text
+    assert qa.MISSING_REQUIRED not in text
+
+    # A plain (ungrouped) MISSING_REQUIRED must not gain either alternative's
+    # name: the group-aware wording is only for an actual group label.
+    plain = _single_finding_report(
+        qa.MISSING_REQUIRED, qa.HARD, sample_type="A.GEX",
+        attribute="Checksum_PrimaryData", row_index=0)
+    plain_text = report.render_qa_for_user({"A.GEX": plain}, ARTIFACTS, RUN)
+    assert "File_PrimaryData" not in plain_text
+    assert "Link_PrimaryData" not in plain_text
+
+
 def test_resolve_artifact_matches_a_hyphenated_sample_type():
     # Regression: granular.py's safe_key replaces ".", "-", "/" and space with
     # "_" (see its comment beside `safe_key`); _resolve_artifact must

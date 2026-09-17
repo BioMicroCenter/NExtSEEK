@@ -41,6 +41,74 @@ UNAPPROVED_ATTRIBUTE = "unapproved_attribute"
 ATTRIBUTE_NOT_DEFINED = "attribute_not_defined"
 METRIC_UNAVAILABLE = "metric_unavailable"
 
+# ---------------------------------------------------------------------------
+# Alternative-required-attribute groups
+# ---------------------------------------------------------------------------
+#
+# The A.GEX / A.ALN / A.SCXP catalog rows (startup/seed/dmac.sql.gz, table
+# sample_types_context) declare required_metadata including BOTH
+# File_PrimaryData (a filesystem path) and Link_PrimaryData (a URL) -- but
+# they are two ways to point at the same primary-data artifact, so a row
+# that supplies EITHER one has satisfied the requirement.
+#
+# This does NOT extend to Checksum_PrimaryData, required by that same
+# catalog row: spec Section 9 makes MISSING_REQUIRED hard specifically
+# because calling its absence advisory only defers the server's rejection to
+# upload time. It is not declared here as an alternative to anything, and
+# must not be added to a group -- its absence still hard-rejects on its own.
+ALTERNATIVE_REQUIRED_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("File_PrimaryData", "Link_PrimaryData"),
+)
+
+_GROUP_LABEL_SEP = " or "
+
+
+def _group_containing(attribute: str) -> tuple[str, ...] | None:
+    """The ALTERNATIVE_REQUIRED_GROUPS group `attribute` belongs to, or None."""
+    for group in ALTERNATIVE_REQUIRED_GROUPS:
+        if attribute in group:
+            return group
+    return None
+
+
+def group_label(group: tuple[str, ...]) -> str:
+    """The Finding.attribute value used for a whole-group MISSING_REQUIRED
+    finding, e.g. "File_PrimaryData or Link_PrimaryData" -- named so the
+    reader knows either member will do. `report.py`'s `is_group_label`
+    recognises this exact shape to render alternatives-aware prose."""
+    return _GROUP_LABEL_SEP.join(group)
+
+
+def is_group_label(attribute: str) -> bool:
+    """True when `attribute` is a `group_label()` rendering of one of
+    ALTERNATIVE_REQUIRED_GROUPS, rather than a single attribute title."""
+    return any(attribute == group_label(group) for group in ALTERNATIVE_REQUIRED_GROUPS)
+
+
+def _value_missing(raw) -> bool:
+    """True when `raw` (a metadata value for a required attribute) counts as
+    missing.
+
+    A falsy-but-present value (0, False) is a real measurement -- a 0%
+    mapping rate is data, not a missing attribute. Only "absent" (key
+    missing, i.e. None) or a blank/whitespace-only STRING count as missing;
+    `meta.get(req) or ""` would collapse 0/False into "" and wrongly
+    hard-reject a legitimate zero. `str(raw).strip()` is exactly as wrong in
+    the other direction: it stringifies an empty list/dict into "[]"/"{}", a
+    non-blank string, so an empty collection would wrongly count as present.
+    So: only a string is blank-checked; an empty collection is judged by its
+    own truthiness (missing, like a blank string); anything else non-None
+    (numbers, bools) is never missing, however falsy -- 0 and False stay
+    present.
+    """
+    if raw is None:
+        return True
+    if isinstance(raw, str):
+        return not raw.strip()
+    if isinstance(raw, (list, dict, set, tuple)):
+        return not raw
+    return False
+
 
 @dataclass
 class Finding:
@@ -303,31 +371,36 @@ def qa_rows(
         # update row that carries a required key with a blank value blanks it
         # on the server -- the same wholesale-overwrite hazard the Notes guard
         # exists to stop -- so that case is flagged in BOTH modes.
+        #
+        # Some required titles are interchangeable (ALTERNATIVE_REQUIRED_GROUPS
+        # above) -- File_PrimaryData / Link_PrimaryData are two ways to point
+        # at the same primary-data artifact. That only changes the NEW-mode
+        # ABSENCE check: a group is satisfied when ANY one member is present
+        # and non-blank, and an absent group produces exactly ONE finding
+        # naming every member, not one per member -- so once a group has been
+        # checked for this row (`handled_groups`), a later `req` naming the
+        # same group is skipped. Update-mode's presence-but-blank hazard is
+        # NOT grouped: a row that carries one member blank still blanks that
+        # specific attribute on the server regardless of its alternative, so
+        # each member is checked independently there, exactly as before.
+        handled_groups: set[tuple[str, ...]] = set()
         for req in required:
             if req == "UID":
                 continue                          # rows never carry one
-            # A falsy-but-present value (0, False) is a real measurement --
-            # a 0% mapping rate is data, not a missing attribute. Only
-            # "absent" (key missing, i.e. None) or a blank/whitespace-only
-            # STRING count as missing; `meta.get(req) or ""` would collapse
-            # 0/False into "" and wrongly hard-reject a legitimate zero.
-            # `str(raw).strip()` is exactly as wrong in the other direction:
-            # it stringifies an empty list/dict into "[]"/"{}", a non-blank
-            # string, so an empty collection would wrongly count as
-            # present. So: only a string is blank-checked; an empty
-            # collection is judged by its own truthiness (missing, like a
-            # blank string); anything else non-None (numbers, bools) is
-            # never missing, however falsy -- 0 and False stay present.
             raw = meta.get(req)
-            if raw is None:
-                missing = True
-            elif isinstance(raw, str):
-                missing = not raw.strip()
-            elif isinstance(raw, (list, dict, set, tuple)):
-                missing = not raw
-            else:
-                missing = False
+            missing = _value_missing(raw)
             if mode == "new":
+                group = _group_containing(req)
+                if group is not None:
+                    if group in handled_groups:
+                        continue
+                    handled_groups.add(group)
+                    if all(_value_missing(meta.get(member)) for member in group):
+                        report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
+                                            sample_type=sample_type,
+                                            attribute=group_label(group),
+                                            row_index=i))
+                    continue
                 if missing:
                     report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
                                         sample_type=sample_type, attribute=req,
