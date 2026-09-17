@@ -29,6 +29,8 @@ _FRIENDLY = {
     "GenesDetected": "Genes detected",
     "Strandedness": "Strandedness",
     "DuplicationPercent": "Duplication rate",
+    "File_PrimaryData": "the file path",
+    "Link_PrimaryData": "the download link",
 }
 
 # UNRESOLVED_UID lists affected samples by name; cap it so a genuinely large
@@ -322,35 +324,29 @@ def _render_one(index, code, attribute, bucket):
         # "none of them" rather than "neither" so it stays correct however
         # many members the group has -- today's one group happens to have
         # two, but nothing here assumes exactly two.
+        #
+        # This branch is always HARD now: the group's SOFT sub-cases
+        # (PRIMARY_DATA_LINK_ONLY, PRIMARY_DATA_UNNAMED) have their own codes
+        # precisely so a bucket keyed on (code, attribute) can never mix a
+        # SOFT finding into this one -- see reingest_qa.py's code constants.
         if qa.is_group_label(attribute):
-            if bucket["severity"] == qa.SOFT:
-                # The group is directional (see reingest_qa.py's
-                # ALTERNATIVE_REQUIRED_GROUPS comment): a secondary member
-                # (here, a link) was supplied, but only the primary member's
-                # presence is ever provably enough -- SEEK requires the
-                # primary on some sample types and never requires the
-                # secondary on any of them. So this batch may or may not be
-                # rejected at upload; a human decides, it doesn't block.
-                primary = _name(detail.get("primary", ""))
-                secondary = _name(detail.get("present_secondary", ""))
-                return [
-                    f"  {index}.  {count} {rows} in {_workbook_ref(sample_type)}"
-                    f" {_verb(count, 'give')} {secondary} but not {primary}.",
-                    "",
-                    f"      {secondary} and {primary} can point at the same data, but not",
-                    f"      every sample type accepts {secondary} on its own -- the server",
-                    f"      may still require {primary} here and reject the row without it.",
-                    "",
-                    f"      Add {primary} if you have it, or leave it as-is and let the",
-                    "      upload attempt settle whether this sample type needs it.",
-                ]
+            # Name the primary as the preferred answer rather than presenting
+            # every member as an equally good choice: a scientist who fills
+            # in only the secondary (e.g. Link_PrimaryData) would get the
+            # workbook back next run carrying the new PRIMARY_DATA_LINK_ONLY
+            # SOFT flag saying the server may reject it anyway -- steering
+            # the reader toward the member the directional design exists to
+            # treat as not provably sufficient is a wasted round trip.
+            members = qa.group_members_for_label(attribute)
+            primary = _name(members[0])
+            secondaries = " or ".join(_name(m) for m in members[1:])
             return [
                 f"  {index}.  One of {attribute} is required, and none of them is present,"
                 f" on {count} {rows} in {_workbook_ref(sample_type)}.",
                 "",
-                "      One of these is required before I can upload these rows. I could",
-                "      not derive either value; fill in one of them, or tell me where to",
-                "      get it.",
+                f"      Fill in {primary} if you have it (a {secondaries} value may be",
+                "      accepted too, but not every sample type takes it on its own), or",
+                "      tell me where to get one.",
             ]
         return [
             f"  {index}.  {_name(attribute)} is required and missing on {count} {rows}"
@@ -359,6 +355,52 @@ def _render_one(index, code, attribute, bucket):
             "      This is required before I can upload these rows, whether or not the",
             "      server itself would reject them for lacking it. I could not derive",
             "      the value; fill it in, or tell me where to get it.",
+        ]
+    if code == qa.PRIMARY_DATA_LINK_ONLY:
+        # The group is directional (see reingest_qa.py's
+        # ALTERNATIVE_REQUIRED_GROUPS comment): a secondary member (here, a
+        # link) was supplied, and the row can still be named (Name is
+        # present), but only the primary member's presence is ever provably
+        # enough -- SEEK requires the primary on some sample types and never
+        # requires the secondary on any of them. So this batch may or may not
+        # be rejected at upload; a human decides, it doesn't block.
+        #
+        # `detail` is always populated by reingest_qa.qa_rows for this code,
+        # but a hand-built Finding (tests, or a future caller) could omit it
+        # -- `or attribute` keeps that harmless (a named group-label phrase)
+        # instead of rendering "give  but not ." with both names blank.
+        primary = _name(detail.get("primary") or attribute)
+        secondary = _name(detail.get("present_secondary") or attribute)
+        return [
+            f"  {index}.  {count} {rows} in {_workbook_ref(sample_type)}"
+            f" {_verb(count, 'give')} {secondary} but not {primary}.",
+            "",
+            f"      {secondary} and {primary} can point at the same data, but not",
+            f"      every sample type accepts {secondary} on its own -- the server",
+            f"      may still require {primary} here and reject the row without it.",
+            "",
+            f"      Add {primary} if you have it, or leave it as-is and let the",
+            "      upload attempt settle whether this sample type needs it.",
+        ]
+    if code == qa.PRIMARY_DATA_UNNAMED:
+        # Important 3: unlike PRIMARY_DATA_LINK_ONLY above, this sub-case is
+        # not a maybe. Every SEEK upload path titles a new sample from Name,
+        # falling back to File_PrimaryData (seek/sample/upload.py's per-row
+        # check; seek/sample/core.py falls back further, to the literal title
+        # "Undefined") -- with neither present, there is nothing left to
+        # derive a title from, and the row is rejected on every sample type,
+        # not just the ones that require the PrimaryData path itself.
+        primary = _name(detail.get("primary") or attribute)
+        secondary = _name(detail.get("present_secondary") or attribute)
+        return [
+            f"  {index}.  {count} {rows} in {_workbook_ref(sample_type)}"
+            f" {_verb(count, 'give')} {secondary}, but neither {primary} nor a Name.",
+            "",
+            f"      SEEK titles a new sample from Name, or falls back to {primary} --",
+            "      with neither present here, it cannot title the sample and will",
+            "      reject the row, on every sample type, not just some.",
+            "",
+            f"      Add {primary} or a Name value, or tell me where to get one.",
         ]
     if code == qa.UNKNOWN_SAMPLETYPE:
         # Deliberate exception to the _workbook_ref convention used
