@@ -237,9 +237,11 @@ def _multi_sample_run(*samples):
 def test_a_per_sample_rule_emits_one_row_per_resolved_sample_with_parent_and_nfcore_sample():
     run = _multi_sample_run(
         manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
-                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                              parent_sample_type="D.SEQ"),
         manifest.SampleRecord(nfcore_sample="CONTROL_REP2", d_seq_uid="D.SEQ-2",
-                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                              parent_sample_type="D.SEQ"))
     result = mapper.apply(run, maps.load("rnaseq"))
     aln_rows = [r for r in result.rows if r.sample_type == "A.ALN"]
     assert len(aln_rows) == 2
@@ -255,9 +257,11 @@ def test_a_per_sample_rule_emits_one_row_per_resolved_sample_with_parent_and_nfc
 def test_a_per_run_rule_still_emits_exactly_one_row_with_the_joined_parent():
     run = _multi_sample_run(
         manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
-                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                              parent_sample_type="D.SEQ"),
         manifest.SampleRecord(nfcore_sample="CONTROL_REP2", d_seq_uid="D.SEQ-2",
-                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                              parent_sample_type="D.SEQ"))
     result = mapper.apply(run, maps.load("rnaseq"))
     gex_rows = [r for r in result.rows if r.sample_type == "A.GEX"]
     assert len(gex_rows) == 1
@@ -268,9 +272,11 @@ def test_a_per_run_rule_still_emits_exactly_one_row_with_the_joined_parent():
 def test_the_per_run_join_deduplicates_a_repeated_d_seq_uid():
     run = _multi_sample_run(
         manifest.SampleRecord(nfcore_sample="S1_LANE1", d_seq_uid="D.SEQ-1",
-                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                              parent_sample_type="D.SEQ"),
         manifest.SampleRecord(nfcore_sample="S1_LANE2", d_seq_uid="D.SEQ-1",
-                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                              parent_sample_type="D.SEQ"))
     result = mapper.apply(run, maps.load("rnaseq"))
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     assert gex.attributes["Parent"].value == "D.SEQ-1"
@@ -289,7 +295,8 @@ def test_an_unresolved_sample_still_ships_its_child_with_no_parent():
     # mapper._per_sample_rows).
     run = _multi_sample_run(
         manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
-                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                              parent_sample_type="D.SEQ"),
         manifest.SampleRecord(nfcore_sample="CONTROL_REP2", d_seq_uid=None,
                               uid_resolution=manifest.RESOLUTION_UNRESOLVED))
     result = mapper.apply(run, maps.load("rnaseq"))
@@ -318,6 +325,61 @@ def test_an_unresolved_sample_still_ships_its_child_with_no_parent():
     # The unresolved sample contributes nothing to the per_run join either.
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     assert gex.attributes["Parent"].value == "D.SEQ-1"
+
+
+# Every SampleRecord in this file is hand-built, so a new field on the model
+# arrives here as a DEFAULT nobody chose. That is not hypothetical: when
+# `parent_sample_type` was added, fixtures that never set it silently stopped
+# producing a backfill row, and the tests that assert a row is ABSENT kept
+# passing -- for the wrong reason. This fails by name the next time the model
+# grows a field, so whoever adds it decides what these fixtures should claim
+# rather than inheriting a default by accident.
+_SAMPLE_RECORD_FIELDS_KNOWN_HERE = {
+    "nfcore_sample", "fastq_1", "fastq_2", "d_seq_uid", "d_seq_uid_multirun",
+    "uid_resolution", "parent_sample_type", "strandedness_declared",
+    "strandedness_inferred", "metrics", "derived",
+}
+
+
+def test_sample_record_has_not_grown_a_field_these_fixtures_ignore():
+    actual = set(manifest.SampleRecord.model_fields)
+    new = actual - _SAMPLE_RECORD_FIELDS_KNOWN_HERE
+    gone = _SAMPLE_RECORD_FIELDS_KNOWN_HERE - actual
+    assert not new, (
+        f"SampleRecord gained {sorted(new)}. Decide what the hand-built "
+        "fixtures in this file should set for it -- a default nobody chose "
+        "can make an absence assertion pass for the wrong reason -- then add "
+        "it to _SAMPLE_RECORD_FIELDS_KNOWN_HERE.")
+    assert not gone, (
+        f"SampleRecord no longer has {sorted(gone)}; drop it from "
+        "_SAMPLE_RECORD_FIELDS_KNOWN_HERE and from any fixture that sets it.")
+
+
+def test_an_ambiguous_sample_is_refused_on_its_resolution_alone():
+    """The existing ambiguous test below cannot prove WHY the row is absent.
+
+    Its fixture has `d_seq_uid=None` and no `parent_sample_type`, and the
+    backfill is guarded on all three -- resolution, uid, and parent type -- so
+    that assertion passes if ANY one of them fires. Delete the
+    `_NO_BACKFILL` membership check entirely and it still passes, on the uid
+    guard alone.
+
+    So this one hands the sample a uid AND a parent type it has no business
+    having, leaving its AMBIGUOUS resolution as the only thing that can
+    refuse it. That is also the defence-in-depth case that matters: a stray
+    uid on an ambiguous sample must not become a Parent, because "matches
+    more than one D.SEQ" is a hard reject and never a guess.
+    """
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1",
+                              d_seq_uid="D.SEQ-STRAY",
+                              uid_resolution=manifest.RESOLUTION_AMBIGUOUS,
+                              parent_sample_type="D.SEQ"))
+    result = mapper.apply(run, maps.load("rnaseq"))
+    assert not any(r.sample_type == "D.SEQ" for r in result.rows)
+    assert not any(r.sample_type == "A.ALN" for r in result.rows)
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert "Parent" not in gex.attributes
 
 
 def test_an_ambiguous_sample_produces_no_child_row():
