@@ -1,14 +1,20 @@
-"""Resolve each nf-core sample back to the D.SEQ record it came from.
+"""Resolve each nf-core sample back to the D.SEQ (or already-analysed A.*)
+record it came from.
 
-Order: the launch record, then an exact fastq path match, then a basename
-match. Two candidates is never resolved to one of them -- picking a parent by
-coin flip writes a wrong lineage into a scientific database of record.
+Order: the launch record, then a path match against every path-bearing
+column the row actually carries (see `_PATH_COLUMNS`), tried exact-then-
+basename within each column. Two candidates -- whether from one column or
+from two DIFFERENT columns naming two different real parents -- is never
+resolved to one of them: picking a parent by coin flip writes a wrong
+lineage into a scientific database of record. See `_resolve_row_path` for
+exactly how columns are combined and why `fastq_2` is not tried the same way
+the others are.
 
 A launch record that lists the sample in its cohort but never got a UID for
 it (`PipelineRun.knows_sample` True, `uid_for` None) is reported unresolved
-directly, without trying the fastq fallback: the launch already established
+directly, without trying the path fallback: the launch already established
 there is nothing in NExtSEEK to match against, so retrying by path would only
-manufacture a same-run coincidence, not a real answer. The fastq fallback is
+manufacture a same-run coincidence, not a real answer. The path fallback is
 tried only when the sample is absent from the cohort altogether -- or there is
 no launch record for this run_dir at all, which happens for a run launched
 outside Nessie.
@@ -29,6 +35,25 @@ from collections import Counter
 from typing import Callable
 
 from NessieAI.ns.reingest import manifest
+
+# Every path-bearing INPUT column across the ten committed pipeline maps'
+# pinned samplesheet schemas -- cross-checked two ways: the fixture schemas
+# NessieAI/tests/chat_nextseek/fixtures/nfcore/*.schema_input.json
+# (hlatyping, rnafusion, rnaseq, rnasplice, scrnaseq, smrnaseq) and, for the
+# four maps with no fixture file (denovotranscript, differentialabundance,
+# riboseq, rnavar), their `all_cols` entries in
+# docs/nfcore-schema-census-2026-08-05.json. No pinned schema among the ten
+# uses any other path-shaped column: rnafusion/rnavar's own "bai"/"crai"/
+# "tbi"/"junctions"/"splice_junctions" columns are companion index or
+# annotation files, never a parent's own primary-data path, so they are
+# deliberately excluded here.
+#
+# Order matters -- see `_resolve_row_path` for how it is used. "fastq_1"
+# first (the original, most common case); "fastq_2" is NOT tried the same
+# way as the rest (see that function); then "bam", "cram", "vcf" in the
+# order hlatyping (bam), rnafusion/rnavar (bam, cram) and rnavar (vcf) were
+# reviewed.
+_PATH_COLUMNS: tuple[str, ...] = ("fastq_1", "fastq_2", "bam", "cram", "vcf")
 
 
 def resolve(
@@ -97,8 +122,7 @@ def resolve(
             else:
                 out.append((sample, None, manifest.RESOLUTION_UNRESOLVED, ()))
             continue
-        fastq = str(row.get("fastq_1") or "")
-        uid, resolution = _by_path(fastq, lookup_by_fastq)
+        uid, resolution = _resolve_row_path(row, lookup_by_fastq)
         out.append((sample, uid, resolution, ()))
     return out
 
@@ -153,8 +177,9 @@ def _resolve_multirun_parents(
 def _resolve_multirun_row(
     sample: str, row: dict, record, lookup_by_fastq: Callable[[str], list[str]],
 ) -> str | None:
-    """One contributing row's own D.SEQ UID, or None -- see
-    `_resolve_multirun_parents` for why this cannot reuse `record.uid_for`.
+    """One contributing row's own D.SEQ (or already-analysed A.*) UID, or
+    None -- see `_resolve_multirun_parents` for why this cannot reuse
+    `record.uid_for`.
 
     Cohort entries are matched on the ``(nfcore_sample, fastq_1)`` pair, not
     on the UID: if the launch record has ANY entry for this exact pair, it is
@@ -162,11 +187,25 @@ def _resolve_multirun_row(
     single-run sample gets from `resolve`'s own `knows_sample`/`uid_for`
     check. A matching entry with `d_seq_uid: None` means the launch already
     established there is nothing in NExtSEEK to match this row against, so
-    the fastq fallback below is never tried for it: retrying by path would
+    the path fallback below is never tried for it: retrying by path would
     only manufacture a same-run coincidence, not a real answer (see this
     module's docstring). Only when NO cohort entry matches the pair at all --
-    the launch record has nothing to say about this row -- does the fastq
+    the launch record has nothing to say about this row -- does the path
     fallback run.
+
+    The pair is deliberately still keyed on ``fastq_1``, never on whichever
+    column this row's OWN path actually lives in: `record_launch`'s cohort
+    entries (built by the emitter's `_write_cohort_sidecar`, which pops
+    `fastq_1`/`fastq_2` for an alignment-input row and writes an already-
+    analysed row's path into `mapped`/`bam` instead) carry ONLY
+    `fastq_1`/`fastq_2` keys, for every pipeline, fastq-input or not -- there
+    is no `bam`/`cram`/`vcf` key a cohort entry could ever be matched on. A
+    bam-column row's own `fastq_1` is therefore always ``""``, so this
+    lookup finds nothing to key on and correctly falls straight through to
+    the path fallback below, which DOES search every populated column (see
+    `_resolve_row_path`). Concretely: a cohort entry can match a row on
+    `fastq_1`/`fastq_2` identity only -- it can never confirm or refute a
+    `bam`/`cram`/`vcf` row's parent, launched by Nessie or not.
     """
     fastq = str(row.get("fastq_1") or "")
     if record is not None and fastq:
@@ -176,8 +215,82 @@ def _resolve_multirun_row(
         if entries:
             uids = {entry.get("d_seq_uid") for entry in entries if entry.get("d_seq_uid")}
             return next(iter(uids)) if len(uids) == 1 else None
-    uid, _resolution = _by_path(fastq, lookup_by_fastq)
+    uid, _resolution = _resolve_row_path(row, lookup_by_fastq)
     return uid
+
+
+def _resolve_row_path(
+    row: dict, lookup: Callable[[str], list[str]],
+) -> tuple[str | None, str]:
+    """One row's parent UID, searched across every `_PATH_COLUMNS` column it
+    actually has populated -- not just `fastq_1`.
+
+    Each populated column is resolved independently, exact-then-basename,
+    exactly as `_by_path` always has for a single value. The results are
+    then combined by the rule this module lives by -- never guess between
+    candidate parents:
+      - any column that is itself internally ambiguous (two candidates for
+        one path) makes the WHOLE row ambiguous; a real conflict inside one
+        column is not something a clean match in another column gets to
+        override.
+      - otherwise, if the columns that did resolve agree on exactly one
+        distinct UID, that is the parent (two columns naming the SAME
+        record -- e.g. `fastq_1` and `bam` both pointing at the row's own
+        source -- collapse to one match, not two).
+      - if they resolve to MORE THAN ONE distinct UID, that is a row naming
+        two different real parents: `RESOLUTION_AMBIGUOUS`, no parent.
+      - if nothing resolves, `RESOLUTION_UNRESOLVED`, exactly as before this
+        change.
+    When more than one column contributes the same winning UID, the
+    reported resolution strength (`RESOLUTION_FASTQ_EXACT` vs
+    `RESOLUTION_FASTQ_BASENAME`) is whichever column found it first in
+    `_PATH_COLUMNS` order -- every contributing column already agrees on
+    identity, so only the reported strength can differ, and the first
+    column tried is the one this function reports for.
+
+    `fastq_2` is handled differently from every other column: a paired-end
+    row's `fastq_2` almost always names the SAME D.SEQ record as its
+    `fastq_1`, so trying it in parallel on every ordinary row would double
+    this function's lookup cost for no information gain on the common case.
+    `bam`/`cram`/`vcf`, by contrast, are mutually exclusive with `fastq_1` in
+    every pinned schema that has them (a row is fastq-input or already-
+    analysed-input, never both) -- always trying them costs at most one
+    extra lookup on a row that already resolved via `fastq_1`. So `fastq_2`
+    is consulted only when `fastq_1` gave NOTHING to work with at all --
+    empty, or a genuine `RESOLUTION_UNRESOLVED` -- which is exactly the case
+    where `fastq_1` having been renamed on disk (so its own path lookup
+    misses) would otherwise lose a real, findable parent for no reason. A
+    `fastq_1` that came back internally ambiguous is a real signal, not
+    nothing, so `fastq_2` is not consulted then either.
+    """
+    found: dict[str, str] = {}          # uid -> resolution that first found it
+    fastq_1_gave_nothing = True
+
+    for column in _PATH_COLUMNS:
+        if column == "fastq_2" and not fastq_1_gave_nothing:
+            # See the docstring: fastq_2 is a fallback for a renamed
+            # fastq_1, not a second opinion on a fastq_1 that already spoke.
+            continue
+        value = str(row.get(column) or "")
+        if not value:
+            continue
+        uid, resolution = _by_path(value, lookup)
+        if resolution == manifest.RESOLUTION_AMBIGUOUS:
+            # A real conflict inside one column is not something a clean
+            # match in another column gets to override.
+            return None, manifest.RESOLUTION_AMBIGUOUS
+        if column == "fastq_1":
+            fastq_1_gave_nothing = uid is None
+        if uid is not None and uid not in found:
+            found[uid] = resolution
+
+    if not found:
+        return None, manifest.RESOLUTION_UNRESOLVED
+    if len(found) > 1:
+        # The row names two different real parents. Refuse, never pick.
+        return None, manifest.RESOLUTION_AMBIGUOUS
+    uid, resolution = next(iter(found.items()))
+    return uid, resolution
 
 
 def _by_path(fastq: str, lookup: Callable[[str], list[str]]) -> tuple[str | None, str]:
