@@ -315,7 +315,17 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             warnings.append("no validated samplesheet; samples cannot be resolved")
 
     from NessieAI.ns.reingest import uid_resolve
-    resolved = uid_resolve.resolve(rows, resolved_run_dir, lookup_by_fastq or (lambda p: []))
+    # `multirun_resolved_rows` is filled in as a side effect: {sample:
+    # resolved_row_count}, the number of a multi-run sample's OWN
+    # contributing rows that resolved to a UID, counted before
+    # `uid_resolve`'s own first-occurrence de-duplication into `parents`
+    # collapses same-UID rows together. The partial-resolution warning below
+    # needs that un-collapsed count, not len(parents) -- see
+    # uid_resolve._resolve_multirun_parents.
+    multirun_resolved_rows: dict[str, int] = {}
+    resolved = uid_resolve.resolve(
+        rows, resolved_run_dir, lookup_by_fastq or (lambda p: []),
+        multirun_resolved_rows=multirun_resolved_rows)
     by_sample = {name: (uid, how, parents) for name, uid, how, parents in resolved}
     # A multi-run sample has several samplesheet ROWS sharing one name, but
     # must become exactly ONE SampleRecord -- one A.ALN child, not several
@@ -333,17 +343,28 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
         seen_samples.add(name)
         uid, how, parents = by_sample.get(
             name, (None, manifest.RESOLUTION_UNRESOLVED, ()))
-        if how == manifest.RESOLUTION_MULTIRUN and 0 < len(parents) < row_counts[name]:
-            # Some, but not all, of this sample's contributing rows resolved
-            # to a D.SEQ -- a real, honest partial parent list (see
-            # uid_resolve._resolve_multirun_parents), not a bug. Surfaced
-            # here, not silently: this is the layer that knows how many rows
-            # SHOULD have contributed and so can tell "partial" apart from
-            # "none of them resolved", which uid_resolve cannot on its own.
-            warnings.append(
-                f"{name}: multi-run sample resolved {len(parents)} of "
-                f"{row_counts[name]} contributing D.SEQ parents; Parent will "
-                "be a partial list")
+        if how == manifest.RESOLUTION_MULTIRUN:
+            # Compare RESOLVED ROWS against the raw row count, not
+            # de-duplicated parents against it: two rows resolving to the
+            # SAME D.SEQ (one record whose File_PrimaryData lists both
+            # lanes, say) collapses len(parents) below row_counts[name] even
+            # though every row resolved -- that is a complete Parent list,
+            # not a partial one. multirun_resolved_rows carries the
+            # un-collapsed count; len(parents) is only a fallback for a name
+            # that somehow never made it into that dict.
+            resolved_rows = multirun_resolved_rows.get(name, len(parents))
+            if 0 < resolved_rows < row_counts[name]:
+                # Some, but not all, of this sample's contributing rows
+                # resolved to a D.SEQ -- a real, honest partial parent list
+                # (see uid_resolve._resolve_multirun_parents), not a bug.
+                # Surfaced here, not silently: this is the layer that knows
+                # how many rows SHOULD have contributed and so can tell
+                # "partial" apart from "none of them resolved", which
+                # uid_resolve cannot on its own.
+                warnings.append(
+                    f"{name}: multi-run sample resolved {resolved_rows} of "
+                    f"{row_counts[name]} contributing D.SEQ parents; Parent "
+                    "will be a partial list")
         out.samples.append(manifest.SampleRecord(
             nfcore_sample=name,
             fastq_1=str(row.get("fastq_1") or ""),
