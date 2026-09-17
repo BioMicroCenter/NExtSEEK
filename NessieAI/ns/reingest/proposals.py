@@ -231,32 +231,28 @@ def attribute_exists(sample_type: str, attribute: str) -> bool:
     needs_definition row is queued for superusers, so it must mean a genuine
     "not defined on this sample type", never an infrastructure hiccup.
 
-    `attributes_for` (via `context_catalog.load_sample_type`/
-    `load_sample_types`) already returns `[]` for a sample type the catalog
-    does not know, so a real "not defined" answer needs no exception
-    handling for THAT case. But `load_sample_types` also catches Exception
-    and returns `[]` when the sample-type table itself is unreachable (its
-    own house rule, shared by every caller of that module -- changing it is
-    a repo-wide decision, tracked separately, not something to "simplify
-    away" here). That means the single most likely infrastructure failure --
-    the database being down -- would otherwise arrive here indistinguishable
-    from a genuinely unknown sample type, and get reported as `False`: a
-    fabricated schema gap. `known_sample_types()` gives this module a way to
-    tell the two apart without reaching past `reingest_lookups` into
-    `context_catalog` directly (see the NessieAI/nextseek_api boundary
-    allowlist): a populated NExtSEEK always has at least one sample type, so
-    an ENTIRELY empty catalog is an outage signal, not an answer, and must
-    raise. A genuinely unknown sample type in a populated catalog still
-    returns `False`, same as before -- the same rule
-    `reingest_lookups.notes_for_uids` follows by omitting a UID whose fetch
-    failed instead of pretending it has no Notes.
-    """
-    from nextseek_api.services.reingest_lookups import attributes_for, known_sample_types
+    Uses ``reingest_lookups.attributes_for_strict``, which reaches the same
+    ``context_catalog`` loader ``attributes_for`` does but through its
+    ``_strict`` twin: a genuinely unknown sample type in a working catalog
+    still comes back as ``[]`` (so this still returns `False` for it, same
+    as before), but a catalog outage -- the sample-type table unreachable --
+    raises instead of coming back indistinguishable as the same ``[]``. That
+    is the fabricated-schema-gap failure mode this function exists to avoid.
 
-    if not known_sample_types():
+    Whatever ``attributes_for_strict`` raises on that outage -- a real
+    backend's ``django.db.utils.OperationalError``/``ProgrammingError``, or
+    anything else -- is normalized here to ``RuntimeError``. That is the
+    boundary the caller (``nextseek_api/services/reingest_proposals.py``'s
+    ``approve``) is written against: it catches exactly ``RuntimeError`` to
+    report a 503 rather than the 409 a genuine schema gap gets, and must not
+    have to enumerate every exception type the Django DB layer might raise.
+    """
+    from nextseek_api.services.reingest_lookups import attributes_for_strict
+
+    try:
+        attributes = attributes_for_strict(sample_type)
+    except Exception as exc:
         raise RuntimeError(
-            "sample type catalog came back empty; treating this as an "
-            "outage rather than reporting a fabricated schema gap for "
-            f"{attribute!r} on {sample_type!r}"
-        )
-    return attribute in {a["title"] for a in attributes_for(sample_type)}
+            f"sample type catalog unreachable while checking {sample_type!r}: {exc}"
+        ) from exc
+    return attribute in {a["title"] for a in attributes}

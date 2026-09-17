@@ -1,0 +1,48 @@
+{
+  "map_version": 1,
+  "pipeline": "nf-core/scrnaseq",
+  "applies_to_versions": ">=2.7",
+  "accepts_parent_types": ["D.SEQ"],
+  "harvest_globs": [
+    "{star,alevin,kallisto,cellranger}/mtx_conversions/**/*.h5ad",
+    "multiqc/**/multiqc_data/multiqc_*.txt"
+  ],
+  "derived_metrics": [],
+  "outputs": [
+    {
+      "glob": "{star,alevin,kallisto,cellranger}/mtx_conversions/combined_matrix.h5ad",
+      "sample_type": "A.SCXP",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "DataType": "h5ad"
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "ReferenceGenome": "$params.genome",
+    "DemultiplexingTool": "$params.aligner"
+  },
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": [
+    {
+      "key": "cells_detected",
+      "why": "A.SCXP has no attribute for the called-cell count. It is worth proposing as a schema addition, but that is an Attribute API decision, not a mapping one."
+    },
+    {
+      "key": "FastQC_total_sequences",
+      "why": "The contract test can only check that a rule's target attribute exists, not that its raw `from` key is a real MultiQC column; every raw key guessed this way in the rnaseq map turned out wrong against a real run (the real convention is <module>-<metric>, not Module_metric), and for rnaseq the fastqc read-count keys additionally turned out to live only on per-read rows, never the sample row. There is no scrnaseq fixture here to check a guess against, so the read-count key is deliberately left unmapped: the first real scrnaseq run will surface the true key through the approval queue, which is the designed mechanism for exactly this case."
+    }
+  ]
+}

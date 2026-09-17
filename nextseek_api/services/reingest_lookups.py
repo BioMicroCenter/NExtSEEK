@@ -1,6 +1,6 @@
 """Read-only lookups reingest makes against NExtSEEK.
 
-Kept in one module because all three reingest plans need the same three answers,
+Kept in one module because the reingest plans need the same handful of answers,
 and because each is a query someone could otherwise re-invent slightly
 differently -- which is how a required-attribute check ends up disagreeing with
 the server that enforces it.
@@ -17,25 +17,37 @@ territory (see the repo root ``CLAUDE.md``: "the API surface stays in
 ``context_catalog.load_sample_type``/``load_sample_types`` also means this
 module inherits that loader's house rule for free: a missing table or row
 costs the caller an empty catalog, never an exception.
+
+``attributes_for_strict`` is the exception to that house rule, built on
+``context_catalog.load_sample_types_strict``: it raises instead of swallowing
+a catalog outage into an empty result, for the one caller that must not
+mistake "the database is unreachable" for "genuinely not defined" -- see
+``proposals.attribute_exists`` in ``NessieAI/ns/reingest/proposals.py``. There
+is deliberately no strict twin for ``known_sample_types``: nothing needs one,
+and an uncalled function is one more thing to keep true.
 """
 from __future__ import annotations
 
 import json
 import logging
 
-from nextseek_api.services.context_catalog import load_sample_type, load_sample_types
+from nextseek_api.services.context_catalog import (
+    load_sample_type,
+    load_sample_type_strict,
+    load_sample_types,
+)
 
 log = logging.getLogger(__name__)
 
 
 def known_sample_types() -> set[str]:
-    """Every SampleType code in the catalog."""
+    """Every SampleType code in the catalog. Empty on failure, never raises."""
     return {entry.code for entry in load_sample_types()}
 
 
-def attributes_for(sample_type: str) -> list[dict]:
-    """[{"title", "required", "server_required"}] for one sample type; []
-    when it is unknown.
+def _attributes_from_entry(entry, sample_type: str) -> list[dict]:
+    """[{"title", "required", "server_required"}] for one already-loaded
+    entry, or [] for None.
 
     Two independent answers to "is this attribute required?", because two
     stores disagree and each is the authority for a different question:
@@ -63,13 +75,11 @@ def attributes_for(sample_type: str) -> list[dict]:
     so a caller that never learns SEEK's answer keeps today's HARD-blocking
     behaviour instead of silently letting a row through.
     """
-    st = str(sample_type or "").strip()
-    entry = load_sample_type(st)
     if entry is None:
         return []
     required = entry.required_metadata
     others = entry.standard_metadata + entry.possible_metadata_fields
-    seek_required = _seek_required_map(st)
+    seek_required = _seek_required_map(sample_type)
     seen: set[str] = set()
     out: list[dict] = []
     for title in required + others:
@@ -86,6 +96,30 @@ def attributes_for(sample_type: str) -> list[dict]:
         out.append({"title": title, "required": is_required,
                     "server_required": server_required})
     return out
+
+
+def attributes_for(sample_type: str) -> list[dict]:
+    """[{"title", "required", "server_required"}] for one sample type; []
+    when it is unknown, and also [] on a catalog outage -- see
+    `attributes_for_strict` for a caller that must tell those two apart.
+    """
+    st = str(sample_type or "").strip()
+    entry = load_sample_type(st)
+    return _attributes_from_entry(entry, st)
+
+
+def attributes_for_strict(sample_type: str) -> list[dict]:
+    """[{"title", "required", "server_required"}] for one sample type; []
+    when it is genuinely unknown in a working catalog.
+
+    Raises on a catalog outage instead of returning `[]` for it, so a caller
+    that acts on absence (reingest's `attribute_exists`) cannot mistake a
+    database outage for a genuine schema gap; see
+    `context_catalog.load_sample_types_strict`.
+    """
+    st = str(sample_type or "").strip()
+    entry = load_sample_type_strict(st)
+    return _attributes_from_entry(entry, st)
 
 
 def _seek_required_map(sample_type: str) -> dict[str, bool]:
@@ -146,24 +180,36 @@ def _matches_path(value, path: str) -> bool:
         start = idx + 1
 
 
-def uids_by_primary_data(path: str) -> list[str]:
-    """D.SEQ UIDs whose File_PrimaryData or Link_PrimaryData mentions ``path``.
+def uids_by_primary_data(path: str, types=("D.SEQ",)) -> list[str]:
+    """UIDs of a sample type in ``types`` whose File_PrimaryData or
+    Link_PrimaryData mentions ``path``.
 
     The fallback UID join for a run Nessie did not launch. Returns every match:
     the caller decides what to do with more than one, and must never pick.
 
+    ``types`` defaults to ``("D.SEQ",)`` -- this lookup's original, sole
+    scope -- so every existing caller that does not pass it keeps searching
+    exactly what it always searched. A caller that knows its pipeline's map
+    declares a wider ``accepts_parent_types`` (see
+    ``NessieAI/ns/reingest/maps.py``) may pass that instead, to find a parent
+    that is itself an already-analysed A.* sample rather than raw D.SEQ. This
+    function does not know about maps or reingest at all -- it only searches
+    whatever type titles it is given -- so scoping decisions stay entirely
+    with the caller, matching the rest of this module's read-only, caller-
+    decides contract.
+
     Read-only: a plain filtered SELECT against the seek-mirrored ``samples``
-    table (`seek.models.Samples`), scoped to the D.SEQ sample type. Any failure
-    -- the table unreachable, D.SEQ unresolvable on this instance, malformed
+    table (`seek.models.Samples`), scoped to ``types``. Any failure -- the
+    table unreachable, a named type unresolvable on this instance, malformed
     metadata -- costs this one lookup, never raises to the caller.
     """
-    if not path:
+    if not path or not types:
         return []
     try:
         from seek.models import Sample_types, Samples
 
         type_ids = list(
-            Sample_types.objects.filter(title="D.SEQ").values_list("id", flat=True)
+            Sample_types.objects.filter(title__in=list(types)).values_list("id", flat=True)
         )
         if not type_ids:
             return []
@@ -190,6 +236,58 @@ def uids_by_primary_data(path: str) -> list[str]:
     except Exception:
         log.exception("uids_by_primary_data: lookup failed for %s", path)
         return []
+
+
+def sample_types_for_uids(uids: list[str]) -> dict[str, str]:
+    """The SampleType title per UID. A UID whose type cannot be determined is
+    OMITTED.
+
+    The omission is the safety property, same reasoning as `notes_for_uids`:
+    reingest's QC backfill row (`NessieAI/ns/reingest/mapper.py`) uses this to
+    find out what a resolved parent's REAL sample type is, because the UID
+    alone cannot be trusted -- most UIDs start with their type code
+    ("D.SEQ-...", "A.ALN-..."), but roughly 1.5% of real samples do not
+    (free-text titles on CEL samples, measured against the live database),
+    so parsing the prefix would be silently wrong for a small but real slice
+    of every run. A UID absent from this result must never be guessed at
+    (e.g. defaulted to "D.SEQ") -- that guess is exactly the class of bug the
+    QC backfill exists to avoid: writing a measurement onto a row shaped for
+    the wrong sample type. QA/mapper.py treats "absent from this map" as "do
+    not build a QC row for that sample" -- which is why this must never
+    return "" as a stand-in for an unresolved title.
+
+    A UID that does not exist, or whose resolved type id names no known
+    SampleType, is simply absent from the result; the whole lookup failing
+    (for example, the samples or sample_types table being unreachable) omits
+    every UID rather than raising.
+    """
+    if not uids:
+        return {}
+    try:
+        from seek.models import Sample_types, Samples
+
+        rows = list(
+            Samples.objects.filter(uuid__in=uids).values_list("uuid", "sample_type_id")
+        )
+
+        type_ids = {type_id for _, type_id in rows if type_id is not None}
+        titles_by_id: dict[int, str] = {}
+        if type_ids:
+            titles_by_id = dict(
+                Sample_types.objects.filter(id__in=type_ids).values_list("id", "title")
+            )
+    except Exception:
+        log.exception("sample_types_for_uids: lookup failed for %s", uids)
+        return {}
+
+    out: dict[str, str] = {}
+    for uid, type_id in rows:
+        if not uid:
+            continue
+        title = titles_by_id.get(type_id)
+        if title:
+            out[str(uid)] = str(title)
+    return out
 
 
 def notes_for_uids(uids: list[str]) -> dict[str, str]:

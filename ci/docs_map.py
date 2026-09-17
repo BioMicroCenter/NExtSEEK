@@ -51,6 +51,11 @@ EXCLUDED_PREFIXES = (
     "docs/archive/",
     "docs/superpowers/",
     "NessieAI/hibayes/fit/vendor/",
+    # Verbatim copies of nf-core's own README/usage/output pages, pinned as test
+    # fixtures. Their relative links point into the upstream repo (images/,
+    # CITATIONS.md) and must stay byte-identical to what the pipelines publish --
+    # "fixing" a link would corrupt the fixture the tests assert against.
+    "NessieAI/tests/chat_nextseek/fixtures/nfcore/",
     "NessieAI/docker/cc-runtime/docs/",
     "NessieAI/docker/cc-runtime/build_context/",
     "NessieAI/docker/cc-runtime/container/",
