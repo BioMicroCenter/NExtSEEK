@@ -512,3 +512,153 @@ def test_a_created_internal_assay_with_no_assays_row_is_refused():
             [{"assay_name": "Kept", "internal_assay_id": 1}],
             [{"action": "create_internal", "internal_assay_title": "Orphan"}],
         )
+
+
+# --- 6.11 the round trip -----------------------------------------------------
+#
+# Generate the update SQL, apply it to a real engine, SELECT * back and compare
+# field for field with the curated rows. This is the test that makes the generator
+# safe to point at production: everything above checks the shape of the text, and
+# only this one checks that a value survives becoming a SQL literal.
+#
+# The engine is SQLite because the lane has no database. Two things are translated
+# and nothing else, both named here so it is clear what is NOT being tested:
+#
+#   1. the schema, built from cg.TABLES[...].columns rather than from cg.DDL,
+#      because MySQL column types would have to be translated too and
+#      test_seed_ddl_declares_exactly_the_columns_the_module_writes already pins
+#      the two against each other;
+#   2. the upsert tail, `ON DUPLICATE KEY UPDATE c=VALUES(c)` ->
+#      `ON CONFLICT(key) DO UPDATE SET c=excluded.c`.
+#
+# The VALUES list, which is the part under test, passes through untouched. That is
+# why cg.literal doubles quotes and keeps newlines literal instead of using MySQL's
+# backslash escapes: the same text means the same thing to both engines, so this
+# test is not checking an escaper against its own inverse.
+
+import sqlite3
+
+
+def _sqlite_schema(table: str) -> str:
+    spec = cg.TABLES[table]
+    columns = ["`id` INTEGER PRIMARY KEY AUTOINCREMENT"]
+    for column in spec.columns:
+        columns.append(f"`{column}` " + ("INTEGER" if column in spec.int_columns else "TEXT"))
+    columns.append(f"UNIQUE(`{spec.key}`)")
+    return f"CREATE TABLE `{spec.name}` (\n  " + ",\n  ".join(columns) + "\n);"
+
+
+def _translate(sql: str, table: str) -> str:
+    """The two named substitutions, and a count so nothing else slipped through."""
+    spec = cg.TABLES[table]
+    assignments = ", ".join(f"`{c}`=excluded.`{c}`" for c in spec.columns)
+    out = sql.replace(
+        "ON DUPLICATE KEY UPDATE " + ", ".join(f"`{c}`=VALUES(`{c}`)" for c in spec.columns),
+        f"ON CONFLICT(`{spec.key}`) DO UPDATE SET {assignments}",
+    )
+    assert "VALUES(`" not in out                      # every tail was translated
+    return out
+
+
+def _apply(conn, table: str, rows: list[dict], *, preload=()) -> None:
+    sql = cg.render_update(table, rows)
+    head, marker, body = sql.partition(cg.ROWS_MARKER)
+    assert marker, "render_update stopped emitting the rows marker"
+    conn.executescript(_sqlite_schema(table))
+    for statement in preload:
+        conn.execute(statement)
+    # The only statement from the preamble that is not MySQL-only: it is what
+    # removes the rows the curated source no longer names.
+    delete = next(line for line in head.splitlines() if line.startswith("DELETE FROM "))
+    conn.executescript(_translate(delete + "\n" + body, table))
+
+
+def _read_back(conn, table: str) -> list[dict]:
+    spec = cg.TABLES[table]
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute(f"SELECT * FROM `{spec.name}` ORDER BY `id`")
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def test_update_sql_round_trips_every_curated_field():
+    for table in ("sample_types", "assays", "projects"):
+        spec = cg.TABLES[table]
+        rows = _rows_for(table)
+        with sqlite3.connect(":memory:") as conn:
+            _apply(conn, table, rows)
+            stored = _read_back(conn, table)
+        assert len(stored) == len(rows), table
+        for curated, back in zip(rows, stored):
+            assert set(back) == set(spec.columns) | {"id"}, table
+            for column in spec.columns:
+                assert back[column] == cg.db_value(table, column, curated.get(column)), \
+                    f"{table}.{column} of {curated[spec.key]!r}"
+
+
+def test_a_value_with_a_newline_and_an_apostrophe_survives_byte_for_byte():
+    """Named values rather than a normalizer, so this cannot agree with itself."""
+    rows = [{
+        "name": "Quote and newline",
+        "description": "It's two lines.\nSecond line, with 'quotes' and a % sign.",
+        "pi": "O'Neill, Pat (MIT)",
+        "alternative_names": ["a'b", "plain"],
+    }]
+    with sqlite3.connect(":memory:") as conn:
+        _apply(conn, "projects", cg.with_pi_names(rows))
+        back = _read_back(conn, "projects")[0]
+    assert back["description"] == "It's two lines.\nSecond line, with 'quotes' and a % sign."
+    assert back["pi"] == "O'Neill, Pat (MIT)"
+    assert back["alternative_names"] == '["a\'b", "plain"]'
+    assert back["pi_names"] == '["O\'Neill", "Pat O\'Neill"]'
+
+
+def test_a_newline_inside_a_json_column_is_refused_and_says_why():
+    """The generator's one declared limit, pinned rather than discovered later.
+
+    A newline inside a JSON column survives json.dumps as the two characters `\n`,
+    and a backslash is the one thing cg.literal will not guess at. No curated value
+    has one (test_no_curated_value_needs_a_backslash), and a plain text column takes
+    a newline literally, so this is the narrow case: a list or dict value whose text
+    contains one.
+    """
+    import pytest
+
+    rows = cg.with_pi_names([{"name": "Wrapped", "alternative_names": ["two\nlines"]}])
+    with pytest.raises(cg.UnsupportedValue) as excinfo:
+        cg.render_update("projects", rows)
+    assert "backslash" in str(excinfo.value)
+
+
+def test_update_sql_is_a_no_op_on_a_second_run():
+    table = "assays"
+    rows = _rows_for(table)
+    with sqlite3.connect(":memory:") as conn:
+        _apply(conn, table, rows)
+        once = _read_back(conn, table)
+        head, _, body = cg.render_update(table, rows).partition(cg.ROWS_MARKER)
+        delete = next(line for line in head.splitlines() if line.startswith("DELETE FROM "))
+        conn.executescript(_translate(delete + "\n" + body, table))
+        twice = _read_back(conn, table)
+    assert once == twice
+    assert len(twice) == 138
+
+
+def test_update_sql_drops_a_stale_row_and_updates_an_existing_one_in_place():
+    """The production case, not a hypothetical one.
+
+    projects_context holds a `GBM` row the curated source drops, and 11 of its 12
+    curated names are already there with older content. So: a row whose key the
+    source no longer names goes, and a row whose key it does name is updated
+    without changing its id.
+    """
+    rows = _rows_for("projects")
+    with sqlite3.connect(":memory:") as conn:
+        _apply(conn, "projects", rows, preload=(
+            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('GBM', 'stale');",
+            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('CSBC', 'old');",
+        ))
+        stored = {row["name"]: row for row in _read_back(conn, "projects")}
+    assert "GBM" not in stored
+    assert stored["CSBC"]["id"] == 2                      # updated in place, not reinserted
+    assert stored["CSBC"]["description"] != "old"
+    assert len(stored) == 12
