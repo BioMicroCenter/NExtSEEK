@@ -388,14 +388,22 @@ def test_checksum_script_output_is_valid_json():
 # passing it must leave every existing caller's result shape untouched.
 # ---------------------------------------------------------------------------
 
-def _save_manifest(tmp_path, monkeypatch):
+def _save_manifest(tmp_path, monkeypatch, run_dir="/net/cluster/runs/r1"):
     # store._ROOT is resolved once at module-import time from an env var, so
     # a monkeypatch.setenv after the module is already imported would be
     # ignored -- patch the module attribute directly instead (same pattern
     # as test_build_upload_manifest.py's _save_manifest).
+    #
+    # `run_dir` defaults to a value unrelated to any real tmp_path tree
+    # (fine for a caller that never actually dispatches run-checksum against
+    # a real run_dir), but a caller that DOES must pass the SAME run_dir it
+    # will hash against: the op now refuses a manifest whose own run_dir
+    # does not match the run_dir being hashed (Critical 2, 2026-09-17
+    # review) -- see test_manifest_id_round_trip_yields_a_new_id_with_the_
+    # checksums_merged_in below for why this parameter exists at all.
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
     run_manifest = manifest_mod.RunManifest(
-        run_dir="/net/cluster/runs/r1",
+        run_dir=run_dir,
         pipeline=manifest_mod.PipelineInfo(name="nf-core/rnaseq", run_name="r1"))
     return store_mod.save_manifest(run_manifest)
 
@@ -418,9 +426,9 @@ def test_without_manifest_id_the_result_shape_is_unchanged(tmp_path, monkeypatch
 
 
 def test_manifest_id_round_trip_yields_a_new_id_with_the_checksums_merged_in(tmp_path, monkeypatch):
-    original_id = _save_manifest(tmp_path, monkeypatch)
-
     run_dir = tmp_path / "runs" / "a_run"
+    original_id = _save_manifest(tmp_path, monkeypatch, run_dir=str(run_dir))
+
     run_dir.mkdir(parents=True)
     (run_dir / "sample.bam").write_bytes(b"hello world")
 
@@ -449,13 +457,13 @@ def test_manifest_id_checksums_are_additive_not_replacing(tmp_path, monkeypatch)
     """A second run-checksum call for a different file must not drop the
     first call's checksum -- RunManifest.checksums accumulates."""
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+    run_dir = tmp_path / "runs" / "a_run"
     run_manifest = manifest_mod.RunManifest(
-        run_dir="/net/cluster/runs/r1",
+        run_dir=str(run_dir),
         pipeline=manifest_mod.PipelineInfo(name="nf-core/rnaseq", run_name="r1"),
         checksums={"already/hashed.bam": "existing123"})
     first_id = store_mod.save_manifest(run_manifest)
 
-    run_dir = tmp_path / "runs" / "a_run"
     run_dir.mkdir(parents=True)
     (run_dir / "sample.bam").write_bytes(b"hello world")
     monkeypatch.setattr(
@@ -472,8 +480,69 @@ def test_manifest_id_checksums_are_additive_not_replacing(tmp_path, monkeypatch)
     assert updated.checksums["sample.bam"] == result["checksums"]["sample.bam"]
 
 
+# ---------------------------------------------------------------------------
+# manifest_id must be cross-checked against run_dir (Critical 2, 2026-09-17
+# review). Both are caller-supplied off the same CC turn; without this, a
+# session that reingests run A then run B, but passes run A's stale
+# manifest_id while hashing run B's files, ships run B's digest as run A's
+# measured value -- relative output paths collide across nf-core runs by
+# construction, so `_primary_output` matches run A's own OutputRecord for
+# the identical path.
+# ---------------------------------------------------------------------------
+
+def test_a_manifest_from_a_different_run_dir_is_rejected(tmp_path, monkeypatch):
+    run_a_dir = tmp_path / "runs" / "run_a"
+    run_b_dir = tmp_path / "runs" / "run_b"
+    run_b_dir.mkdir(parents=True)
+    (run_b_dir / "sample.bam").write_bytes(b"hello world")
+
+    # A manifest genuinely harvested from run A ...
+    manifest_id = _save_manifest(tmp_path, monkeypatch, run_dir=str(run_a_dir))
+
+    def _boom(*a, **k):
+        raise AssertionError("ssh_run must not be called when run_dir mismatches the manifest")
+
+    monkeypatch.setattr(ssh, "ssh_run", _boom)
+
+    # ... must not be accepted while hashing a file under run B, even though
+    # run B is itself a valid, existing run_dir.
+    with pytest.raises(g.OpValidationError, match="not the run_dir being hashed"):
+        _dispatch(
+            "run-checksum",
+            {"run_dir": str(run_b_dir), "paths": "sample.bam", "manifest_id": manifest_id},
+            _cfg_for(tmp_path), None, None, None, None)
+
+
+def test_a_manifest_from_the_matching_run_dir_is_accepted(tmp_path, monkeypatch):
+    """Positive control for the check above: the ordinary, correct case (the
+    manifest and the file being hashed agree on run_dir) must not be
+    collaterally rejected."""
+    run_dir = tmp_path / "runs" / "run_a"
+    run_dir.mkdir(parents=True)
+    (run_dir / "sample.bam").write_bytes(b"hello world")
+
+    manifest_id = _save_manifest(tmp_path, monkeypatch, run_dir=str(run_dir))
+
+    monkeypatch.setattr(
+        ssh, "ssh_run",
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
+
+    result = _dispatch(
+        "run-checksum",
+        {"run_dir": str(run_dir), "paths": "sample.bam", "manifest_id": manifest_id},
+        _cfg_for(tmp_path), None, None, None, None)
+
+    assert "manifest_id" in result
+    assert result["checksums"]["sample.bam"]
+
+
 def test_a_malformed_manifest_id_is_rejected():
-    with pytest.raises(g.OpValidationError):
+    # match= pins this to the manifest_id check specifically: both this
+    # run_dir and this manifest_id would also fail `_validate_run_dir`'s own
+    # check (an un-configured Luria env, via the bare `_Cfg()`), so a bare
+    # `pytest.raises(OpValidationError)` would stay green even if a future
+    # change made run_dir validation run first and shadow this one entirely.
+    with pytest.raises(g.OpValidationError, match="manifest_id must be alphanumeric"):
         _dispatch("run-checksum",
                    {"run_dir": "/net/cluster/runs/r", "paths": "f.bam",
                     "manifest_id": "../../etc/passwd"},
@@ -482,7 +551,10 @@ def test_a_malformed_manifest_id_is_rejected():
 
 def test_an_unknown_manifest_id_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
-    with pytest.raises(g.OpValidationError):
+    # match= for the same reason as the malformed-id test above: this must
+    # fail on the unknown manifest_id, not on run_dir validation happening to
+    # run first and rejecting for an unrelated reason.
+    with pytest.raises(g.OpValidationError, match="no manifest"):
         _dispatch("run-checksum",
                    {"run_dir": "/net/cluster/runs/r", "paths": "f.bam",
                     "manifest_id": "deadbeefdeadbeef"},

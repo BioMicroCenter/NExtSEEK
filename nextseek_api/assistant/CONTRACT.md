@@ -124,9 +124,11 @@ NExtSEEK's write API. It is intentionally absent from `write_gate.SIDECAR_OPS` �
 would not make it safer, since nothing in its handler ever calls the gate to begin with, and it
 would make the count-mismatch above harder to explain to the next reader.
 
-`run-checksum` is read-only for the same reason: it only SSHes Luria to md5 files and returns the
-digests, never calling `write_gate` or NExtSEEK's write API, and is likewise absent from
-`write_gate.SIDECAR_OPS`. Because `paths` is caller-supplied rather than a glob match, its
+`run-checksum` is read-only for the same reason: it only SSHes Luria to md5 files, returns the
+digests, and — when `manifest_id` is given — folds them into a NEW, content-addressed manifest
+(never mutating the one behind the original id) and returns that manifest's id too. It never calls
+`write_gate` or NExtSEEK's write API, and is likewise absent from `write_gate.SIDECAR_OPS`. Because
+`paths` is caller-supplied rather than a glob match, its
 containment/symlink/hardlink checks raise `OpValidationError` directly (VALIDATION) instead of
 degrading to a silent "skipped" entry — the safety response to an out-of-bounds request is a hard
 refusal, not a softer omission, precisely because nothing here ever reaches `write_gate` to catch

@@ -406,3 +406,121 @@ def test_expand_braces_handles_a_pattern_with_no_braces():
 
 def test_expand_braces_expands_one_group():
     assert mapper._expand_braces("{a,b,c}/*.bam") == ["a/*.bam", "b/*.bam", "c/*.bam"]
+
+
+def test_expand_braces_cross_multiplies_two_groups():
+    # "harvest_globs" in the same committed map file (rnaseq.outputs.json)
+    # already uses two groups in one pattern
+    # ("{star_salmon,star_rsem,hisat2}/samtools_stats/*.{flagstat,idxstats,stats}"),
+    # so an output rule glob adopting the same two-group style must not
+    # silently degrade to matching nothing (Important 4, 2026-09-17 review).
+    assert mapper._expand_braces("a/{x,y}/*.{p,q}") == [
+        "a/x/*.p", "a/x/*.q", "a/y/*.p", "a/y/*.q"]
+
+
+# ---------------------------------------------------------------------------
+# File_PrimaryData: the same fix that unblocks the render on a populated
+# catalog (Critical 1, 2026-09-17 review) -- without it, neither
+# File_PrimaryData nor Link_PrimaryData was ever produced, so A.ALN/A.GEX
+# HARD_REJECT on the catalog's own ALTERNATIVE_REQUIRED_GROUPS gate
+# (reingest_qa.py) on any populated catalog, and granular.py never calls
+# render_upload_workbook for them.
+# ---------------------------------------------------------------------------
+
+def test_file_primary_data_is_set_from_the_same_primary_output_as_the_checksum():
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.outputs = [
+        manifest.OutputRecord(path="star_salmon/CONTROL_REP1.markdup.sorted.bam",
+                              bytes=100, sample="CONTROL_REP1"),
+    ]
+    run.checksums = {"star_salmon/CONTROL_REP1.markdup.sorted.bam": "aaa111"}
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    # Basename, not the harvested run-relative path -- see _attach_checksum's
+    # docstring for the seed-data evidence (real File_PrimaryData values are
+    # overwhelmingly bare filenames, never a path with a directory).
+    assert aln.attributes["File_PrimaryData"].value == "CONTROL_REP1.markdup.sorted.bam"
+    assert aln.attributes["Checksum_PrimaryData"].value == "aaa111"
+
+
+def test_file_primary_data_is_set_even_when_nothing_has_been_checksummed_yet():
+    # The harvest-only case: run-harvest has populated `outputs`, but
+    # run-checksum was never called (or skipped, per the agent recipe's own
+    # advice). File_PrimaryData must still be set from the inventory alone
+    # -- it does not depend on a checksum having been computed.
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.outputs = [
+        manifest.OutputRecord(path="star_salmon/CONTROL_REP1.markdup.sorted.bam",
+                              bytes=100, sample="CONTROL_REP1"),
+        manifest.OutputRecord(path="star_salmon/all.merged.gene_counts.tsv", bytes=50),
+    ]
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert aln.attributes["File_PrimaryData"].value == "CONTROL_REP1.markdup.sorted.bam"
+    assert gex.attributes["File_PrimaryData"].value == "all.merged.gene_counts.tsv"
+    assert "Checksum_PrimaryData" not in aln.attributes
+    assert "Checksum_PrimaryData" not in gex.attributes
+
+
+def test_no_output_inventory_at_all_still_sets_no_file_primary_data():
+    # Negative control, symmetric with test_no_checksum_at_all_is_the_
+    # advisory_path_row_still_renders above: with no `outputs` at all
+    # (never a real run-harvest shape, but must not crash), neither
+    # File_PrimaryData nor Checksum_PrimaryData is set -- exactly the
+    # pre-fix behaviour, not a new failure mode.
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert "File_PrimaryData" not in aln.attributes
+    assert "Checksum_PrimaryData" not in aln.attributes
+
+
+# ---------------------------------------------------------------------------
+# _primary_output must prefer a checksummed candidate over a merely
+# alphabetically-first one (Important 3, 2026-09-17 review) -- otherwise an
+# agent that paid for an SSH hash of the aligner the run actually used
+# (e.g. star_salmon) can have that checksum silently discarded because a
+# DIFFERENT, unhashed candidate (e.g. salmon/) sorts first.
+# ---------------------------------------------------------------------------
+
+def test_primary_output_prefers_the_checksummed_candidate_over_sorted_first():
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    # nf-core/rnaseq --aligner star_salmon --pseudo_aligner salmon publishes
+    # the SAME-named gene-counts matrix under both directories; "salmon/"
+    # sorts before "star_salmon/" alphabetically, but only "star_salmon/"
+    # (the aligner the run actually used) was hashed.
+    run.outputs = [
+        manifest.OutputRecord(path="salmon/all.merged.gene_counts.tsv", bytes=50),
+        manifest.OutputRecord(path="star_salmon/all.merged.gene_counts.tsv", bytes=50),
+    ]
+    run.checksums = {"star_salmon/all.merged.gene_counts.tsv": "star0salmon0checksum"}
+    result = mapper.apply(run, maps.load("rnaseq"))
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["Checksum_PrimaryData"].value == "star0salmon0checksum"
+    assert gex.attributes["File_PrimaryData"].value == "all.merged.gene_counts.tsv"
+
+
+def test_primary_output_still_breaks_ties_by_sorted_path_when_none_is_checksummed():
+    # Same two candidates, neither hashed -- sorted-first ("salmon/") stays
+    # the deterministic tie-break, unchanged from before Important 3's fix.
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.outputs = [
+        manifest.OutputRecord(path="star_salmon/all.merged.gene_counts.tsv", bytes=50),
+        manifest.OutputRecord(path="salmon/all.merged.gene_counts.tsv", bytes=50),
+    ]
+    result = mapper.apply(run, maps.load("rnaseq"))
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["File_PrimaryData"].value == "all.merged.gene_counts.tsv"
+    primary = mapper._primary_output(maps.load("rnaseq").outputs[1], run, None)
+    assert primary.path == "salmon/all.merged.gene_counts.tsv"

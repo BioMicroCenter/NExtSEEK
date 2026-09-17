@@ -63,27 +63,100 @@ _D_SEQ_ROW = {
     "associated_assay_parents": "", "associated_assay_children": "",
 }
 
-# Minimal catalog rows for the two analysis-children sample types the
-# rnaseq map's mode=new output rules always produce (see
-# NessieAI/ns/reingest_maps/rnaseq.outputs.json). required_metadata is
-# deliberately empty -- these fixtures exist only so known_sample_types()
-# is non-empty (Important 3's fix now raises on an entirely empty catalog,
-# matching proposals.attribute_exists), not to exercise required-attribute
-# QA, which is covered elsewhere.
+# Catalog rows for the two analysis-children sample types the rnaseq map's
+# mode=new output rules always produce (see
+# NessieAI/ns/reingest_maps/rnaseq.outputs.json), with required_metadata /
+# standard_metadata / possible_metadata_fields taken VERBATIM from the
+# committed seed (startup/seed/dmac.sql.gz, table sample_types_context,
+# rows 43 and 66) -- not blanked. An empty required_metadata here used to
+# remove the exact gate production applies (the 2026-09-17 whole-branch
+# review's finding: these tests passed only because their fixtures deleted
+# the thing under test), so a HARD_REJECT this fixture would have hidden is
+# now something these tests can actually hit. See
+# test_reingest_qa_server_required.py::_real_attrs_for /
+# test_build_upload_xlsx_op.py's own `_real_attrs_for` for the matching real
+# SEEK `sample_attributes.required` set this file's `_patch_seek_required`
+# below mirrors for these two types (UID is the only server-required title
+# on A.ALN/A.GEX; the rest -- including Scientist -- are catalog-required
+# only, so their absence SOFT-flags rather than blocking the workbook).
 _A_ALN_ROW = {
     "sample_type": "A.ALN", "sampletype_id": 2, "name": "Alignment",
     "description": "Aligned reads.", "clade": "Analysis", "tags": "",
-    "required_metadata": "", "standard_metadata": "", "possible_metadata_fields": "",
-    "parent_sampletypes": "", "child_sampletypes": "",
-    "associated_assay_parents": "", "associated_assay_children": "",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Scientist, "
+                          "Parent, Checksum_PrimaryData",
+    "standard_metadata": "Protocol, Software, DataType, Type, Aligner, Genome",
+    "possible_metadata_fields": "Name, SampleCreationDate, File_SecondaryData, "
+                                 "Link_SecondaryData, Checksum_SecondaryData, Publish_uri, "
+                                 "Checksum_PrimaryType, Checksum_SecondaryType",
+    "parent_sampletypes": "D.SEQ", "child_sampletypes": "",
+    "associated_assay_parents": "Genome Alignment", "associated_assay_children": "",
 }
 _A_GEX_ROW = {
     "sample_type": "A.GEX", "sampletype_id": 3, "name": "Gene Expression",
     "description": "Gene expression matrix.", "clade": "Analysis", "tags": "",
-    "required_metadata": "", "standard_metadata": "", "possible_metadata_fields": "",
-    "parent_sampletypes": "", "child_sampletypes": "",
-    "associated_assay_parents": "", "associated_assay_children": "",
+    "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Scientist, "
+                          "Parent, Checksum_PrimaryData",
+    "standard_metadata": "Protocol, Pipeline, PipelineVersion, Link_QualityControl, "
+                          "ReferenceGenome, Link_ReferenceGenome, Aligner, Software, Accession",
+    "possible_metadata_fields": "SampleCreationDate, Checksum_PrimaryType, Name, Notes, "
+                                 "AnnotationGTF, Link_GTF, Pseudo_Aligner, Metadata, "
+                                 "MetadataDataType, Link_Metadata, Matrix, MatrixDataType, "
+                                 "Link_Matrix, Publish_uri, DataType, Lab, DESeqFile, "
+                                 "DESeqFile_Link, DemultiplexingTool, Repository",
+    "parent_sampletypes": "D.SEQ", "child_sampletypes": "",
+    "associated_assay_parents": "Gene Expression Analysis", "associated_assay_children": "",
 }
+
+
+def _patch_seek_required(monkeypatch):
+    """Mirror the real seek_production seed's `sample_attributes.required`
+    flags for A.ALN / A.GEX (verified against startup/seed/seek_production.sql.gz
+    in test_build_upload_xlsx_op.py's own `_real_attrs_for`): UID is the only
+    server-required title on either type; File_PrimaryData, Link_PrimaryData,
+    Scientist, Parent and Checksum_PrimaryData are all required=0.
+
+    Patched onto `_seek_required_map`, not `attributes_for` itself, so
+    `attributes_for`'s real required/others merge against the
+    `_sample_type_rows`-mocked catalog above still runs for real -- only the
+    SEEK side, which this module's bare django_db has no sample_attributes
+    rows loaded for, is supplied. Without this, `attributes_for`'s
+    fail-safe-STRICTER fallback (an unreachable/empty SEEK table treats
+    every catalog-required title as server-required too) would make
+    `Scientist` a HARD blocker here, which the real system does not: a
+    fallback answer that is stricter than the production system is a false
+    positive for these tests specifically, not a safety margin worth
+    preserving in a test that exists to exercise the REAL gate. Returns `{}`
+    for any other sample_type, i.e. the same untouched fallback behaviour
+    every other test in this file already relies on for D.SEQ.
+    """
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups._seek_required_map",
+        lambda st: {"UID": True, "File_PrimaryData": False, "Link_PrimaryData": False,
+                    "Scientist": False, "Parent": False, "Checksum_PrimaryData": False}
+                   if st in ("A.ALN", "A.GEX") else {})
+
+
+# Default per-sample output inventory a real `run-harvest` would have found
+# for a `star_salmon`-aligned run -- matching rnaseq.outputs.json's own
+# globs -- so a caller that does not care about outputs still gets an
+# honestly-shaped manifest: `File_PrimaryData` is now filled from THIS
+# inventory (mapper._attach_checksum), and the real A.ALN/A.GEX
+# required_metadata declares File_PrimaryData/Link_PrimaryData as an
+# ALTERNATIVE_REQUIRED_GROUPS pair (see reingest_qa.py), so a manifest with
+# no outputs at all would HARD_REJECT on the very gate this fixture switch
+# is meant to exercise honestly -- and no real harvested manifest is ever
+# actually shaped that way (run-harvest always populates `outputs`; only
+# `checksums` is optional, filled in later by run-checksum). One BAM per
+# sample (A.ALN, per_sample) plus one shared gene-counts matrix (A.GEX,
+# per_run, sample=None matches any/every sample) is the minimum that
+# satisfies both output rules.
+def _default_outputs(sample_names: list[str]) -> list[manifest_mod.OutputRecord]:
+    return [
+        manifest_mod.OutputRecord(
+            path=f"star_salmon/{name}.markdup.sorted.bam", bytes=123, sample=name)
+        for name in sample_names
+    ] + [manifest_mod.OutputRecord(
+        path="star_salmon/all.merged.gene_counts.tsv", bytes=456, sample=None)]
 
 
 def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksums=None):
@@ -92,6 +165,7 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
     # monkeypatch.setenv, so patch the module attribute directly instead
     # (same pattern as test_run_harvest_op.py's _patch_harvest).
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+    _patch_seek_required(monkeypatch)
     run_manifest = manifest_mod.RunManifest(
         run_dir="/net/cluster/runs/r1",
         pipeline=manifest_mod.PipelineInfo(
@@ -101,7 +175,7 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
             nfcore_sample="SAMPLE_1", d_seq_uid="D.SEQ-EXAMPLE-1",
             uid_resolution=manifest_mod.RESOLUTION_LAUNCH_RECORD,
             metrics=metrics or {})],
-        outputs=outputs or [],
+        outputs=outputs if outputs is not None else _default_outputs(["SAMPLE_1"]),
         checksums=checksums or {},
         sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt",
                  "params": "params.json"},
@@ -116,14 +190,20 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None):
     rule, carrying only the last-seen sample's values): with a single sample
     (every other manifest in this file) both loops produce identical output.
     See test_mode_new_fans_out_one_row_per_sample / test_mode_update_fans_out
-    below, and the mutation-testing evidence in task-7-report.md."""
+    below, and the mutation-testing evidence in task-7-report.md.
+
+    Also carries `_default_outputs`' per-sample BAM + shared gene-counts
+    matrix, for the same reason `_save_manifest` does -- see that fixture's
+    comment."""
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+    _patch_seek_required(monkeypatch)
+    sample_names = [f"SAMPLE_{i}" for i in range(1, n + 1)]
     samples = [
         manifest_mod.SampleRecord(
-            nfcore_sample=f"SAMPLE_{i}", d_seq_uid=f"D.SEQ-EXAMPLE-{i}",
+            nfcore_sample=name, d_seq_uid=f"D.SEQ-EXAMPLE-{i}",
             uid_resolution=manifest_mod.RESOLUTION_LAUNCH_RECORD,
             metrics=metrics or {})
-        for i in range(1, n + 1)
+        for i, name in enumerate(sample_names, start=1)
     ]
     run_manifest = manifest_mod.RunManifest(
         run_dir="/net/cluster/runs/r1",
@@ -131,6 +211,7 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None):
             name="nf-core/rnaseq", version="3.18.0", run_name="test_run_multi"),
         params={"genome": "GRCh38", "aligner": "star_salmon"},
         samples=samples,
+        outputs=_default_outputs(sample_names),
         sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt",
                  "params": "params.json"},
     )
@@ -316,9 +397,11 @@ def test_a_checksummed_manifest_puts_checksum_primarydata_in_the_rendered_cell(
 def test_a_manifest_with_no_checksums_still_renders_a_workbook(rows, tmp_path, monkeypatch):
     """Negative control: checksumming is advisory, never a hard dependency
     (mapper._attach_checksum's own docstring). A manifest that never ran
-    run-checksum -- no `outputs`, no `checksums`, exactly `_save_manifest`'s
-    default -- must still render both workbooks, with no
-    Checksum_PrimaryData column at all rather than a blank/error one."""
+    run-checksum -- `_save_manifest`'s default outputs (a harvested
+    inventory, as run-harvest always produces), no `checksums` at all --
+    must still render both workbooks, with `File_PrimaryData` filled from
+    that inventory but no Checksum_PrimaryData column at all rather than a
+    blank/error one."""
     rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
     manifest_id = _save_manifest(tmp_path, monkeypatch)
 

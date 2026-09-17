@@ -10,6 +10,7 @@ it, so an unreviewed rule cannot quietly become permanent by repetition.
 from __future__ import annotations
 
 import fnmatch
+import os
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -149,19 +150,31 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
 
 
 def _expand_braces(pattern: str) -> list[str]:
-    """Expand ONE non-nested ``{a,b,c}`` alternation in an output rule's
+    """Expand every non-nested ``{a,b,c}`` alternation in an output rule's
     ``glob`` into every literal variant -- ``fnmatch`` itself has no brace
-    syntax. Every committed map's ``glob`` (see
+    syntax. Every committed output rule's ``glob`` today (see
     ``NessieAI/ns/reingest_maps/rnaseq.outputs.json``) uses at most one,
-    unnested group, e.g. ``"{star_salmon,star_rsem,hisat2}/*.bam"``, so a
-    single expansion is enough; a pattern with no ``{`` passes through
-    unchanged.
+    unnested group, e.g. ``"{star_salmon,star_rsem,hisat2}/*.bam"``, but the
+    SAME map file's ``harvest_globs`` already uses two in one pattern
+    (``"{star_salmon,star_rsem,hisat2}/samtools_stats/*.{flagstat,idxstats,stats}"``),
+    so two groups are an established habit in this map format, not a
+    hypothetical. Handling only the first group silently mismatches a
+    second: the residual ``{p,q}`` would reach ``fnmatch`` literally, match
+    nothing, and drop a checksum with no error or warning. This recurses
+    left-to-right instead, expanding one group per call and recursing on
+    the (still possibly braced) remainder, so any number of non-nested
+    groups fully cross-multiplies; a pattern with no ``{`` passes through
+    unchanged. A pattern with an unbalanced/nested ``{`` (no committed map
+    has one) falls through to ``partition``'s empty-string behaviour on a
+    missing ``}``, which is caught by whatever loads the map, not here.
     """
     if "{" not in pattern:
         return [pattern]
     before, _, rest = pattern.partition("{")
     body, _, after = rest.partition("}")
-    return [before + alt + after for alt in body.split(",")]
+    return [expanded
+            for alt in body.split(",")
+            for expanded in _expand_braces(before + alt + after)]
 
 
 def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
@@ -177,38 +190,89 @@ def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
     ``OutputRecord.sample`` -- attributed once, at harvest time, by
     ``harvest.py``'s ``_sample_for_output_path``, never re-derived here;
     ``None`` skips that filter for a per_run rule's single, run-wide file.
-    Ties (more than one candidate, e.g. two aligners both present) break the
-    same way ``harvest.py``'s own ``_resolve_named_outputs`` does: sorted by
-    path, first wins -- deterministic, not a claim that it is the "right"
-    one. Returns ``None`` on an ordinary miss (rule declares no primary
-    data, or nothing in the inventory matches yet) -- never an error.
+    Ties (more than one candidate, e.g. two aligners both present) prefer
+    whichever candidate ``run_manifest.checksums`` already has a digest for
+    -- run-checksum only ever hashes what the agent actually pointed at (see
+    its own docstring), so when the agent hashed one of several equally
+    valid candidates (e.g. nf-core/rnaseq with both ``--aligner star_salmon``
+    and ``--pseudo_aligner salmon`` publishing the same-named gene-counts
+    matrix under two directories), the one it paid to SSH-hash is the one
+    this must return -- picking sorted-first regardless would silently
+    discard a real, already-computed checksum whenever the alphabetically
+    first candidate happens not to be it. Among candidates that are equally
+    checksummed (including "none of them"), sorted-first is still the
+    deterministic tie-break ``harvest.py``'s own ``_resolve_named_outputs``
+    uses -- not a claim that it is the "right" one. Returns ``None`` on an
+    ordinary miss (rule declares no primary data, or nothing in the
+    inventory matches yet) -- never an error.
     """
     if not rule.primary_data:
         return None
     patterns = _expand_braces(rule.glob)
-    candidates = [
-        o for o in run_manifest.outputs
-        if (sample_name is None or o.sample == sample_name)
-        and any(fnmatch.fnmatch(o.path, pat) for pat in patterns)
-    ]
-    return sorted(candidates, key=lambda o: o.path)[0] if candidates else None
+    candidates = sorted(
+        (o for o in run_manifest.outputs
+         if (sample_name is None or o.sample == sample_name)
+         and any(fnmatch.fnmatch(o.path, pat) for pat in patterns)),
+        key=lambda o: o.path)
+    if not candidates:
+        return None
+    checksummed = [o for o in candidates if o.path in run_manifest.checksums]
+    return checksummed[0] if checksummed else candidates[0]
 
 
 def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
                      run_manifest: manifest.RunManifest, sample_name: str | None) -> None:
-    """Set ``Checksum_PrimaryData`` on ``row`` from ``run_manifest.checksums``,
-    keyed by this rule's own matched output path -- a no-op (row unchanged)
-    when the rule has no primary file, nothing in the inventory matches yet,
-    that path has not been checksummed, or the rule's own ``attributes``
-    already named ``Checksum_PrimaryData`` explicitly (the committed map
-    rule wins outright, same precedence as everywhere else in this module).
-    This is the advisory path: a manifest with no checksums at all renders
-    exactly as before.
+    """Set ``File_PrimaryData`` (always, once a primary output is found) and
+    ``Checksum_PrimaryData`` (only once that file has actually been hashed)
+    on ``row``, both keyed by this rule's own matched output path -- reusing
+    ``_primary_output`` so both attributes name the SAME file, never two
+    different candidates.
+
+    Without ``File_PrimaryData`` (or ``Link_PrimaryData``, which reingest
+    never produces), A.ALN/A.GEX fail the catalog's own
+    ``ALTERNATIVE_REQUIRED_GROUPS`` gate (``NessieAI/ns/reingest_qa.py``) on
+    every populated catalog, and ``granular.py`` skips
+    ``render_upload_workbook`` on a HARD_REJECT -- so no workbook, checksum
+    included, was ever reachable until this filled it. Checksumming stays
+    advisory: a manifest with no checksums at all still gets
+    ``File_PrimaryData`` (from the inventory ``run-harvest`` already
+    produced) but no ``Checksum_PrimaryData`` cell, same as before this
+    method existed.
+
+    ``File_PrimaryData`` is set from ``os.path.basename(primary.path)``, not
+    the harvested run-relative path (with its pipeline-internal directory,
+    e.g. ``star_salmon/``) and not a cluster-absolute path built from
+    ``RunManifest.run_dir``. Checked against every real
+    ``File_PrimaryData`` value in the committed seed
+    (``startup/seed/seek_production.sql.gz``, table ``samples``,
+    ``json_metadata``): of ~23k values, zero are absolute filesystem paths
+    and the overwhelming majority (~90%) are bare filenames with no path
+    separator at all -- the rest are external identifiers (``s3://...``,
+    ``http://...``), never a local path. This is also why
+    ``uid_resolve.py``'s fastq matching tries an exact full-path match
+    first and only THEN falls back to a basename match: the exact tier
+    exists for the rare case a full path was stored, and the basename tier
+    is what actually resolves the common case where only a filename was
+    written down. Writing a directory-qualified path here would be the one
+    genuinely novel convention in the table.
+
+    Precedence: a no-op (row unchanged, for each attribute independently)
+    when the rule has no primary file, nothing in the inventory matches
+    yet, or the rule's own ``attributes`` (a committed map ``$``-ref)
+    already named that attribute explicitly -- the committed map rule wins
+    outright, same precedence as everywhere else in this module. No
+    committed map currently sets ``File_PrimaryData`` this way, but the
+    guard costs nothing and keeps the rule uniform with
+    ``Checksum_PrimaryData``'s own.
     """
-    if "Checksum_PrimaryData" in row.attributes:
-        return
     primary = _primary_output(rule, run_manifest, sample_name)
     if primary is None:
+        return
+    if "File_PrimaryData" not in row.attributes:
+        row.attributes["File_PrimaryData"] = MappedAttribute(
+            attribute="File_PrimaryData", value=os.path.basename(primary.path),
+            origin=ORIGIN_MAP, raw_key=f"$outputs.{primary.path}", source_file=primary.path)
+    if "Checksum_PrimaryData" in row.attributes:
         return
     checksum = run_manifest.checksums.get(primary.path)
     if not checksum:
