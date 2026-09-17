@@ -84,7 +84,8 @@ def test_run_harvest_is_registered_and_takes_no_write_gate():
 # ---------------------------------------------------------------------------
 
 def _run_stage_script_locally(run_dir: str, patterns, *, runs_root=None, max_file_bytes=None,
-                               max_total_bytes=None, max_files=None) -> bytes:
+                               max_total_bytes=None, max_files=None, inventory_patterns=(),
+                               max_inventory_files=None) -> bytes:
     """Stand-in for ssh_run_bytes: runs the exact remote script we ship
     (g._STAGE_SCRIPT) via a local subprocess against `run_dir`, exactly as it
     would run on the cluster host over SSH. Returns the tar bytes it writes
@@ -97,17 +98,22 @@ def _run_stage_script_locally(run_dir: str, patterns, *, runs_root=None, max_fil
     it explicitly to the real runs root, distinct from run_dir's (symlinked)
     location.
 
-    The three cap kwargs default to the real harvest.MAX_* caps, matching
-    what `_stage_run_dir` passes in production; a test overrides one to
-    exercise the remote-side cap enforcement without needing a multi-MB
-    fixture file."""
+    The cap kwargs default to the real harvest.MAX_* caps, matching what
+    `_stage_run_dir` passes in production; a test overrides one to exercise
+    the remote-side cap enforcement without needing a multi-MB fixture file.
+
+    ``inventory_patterns`` defaults to empty -- most tests here exercise
+    only the staging half (``patterns``) and don't care about the inventory
+    half at all; a test that does passes its own ``harvest.INVENTORY_GLOBS``
+    or a narrower synthetic set."""
     proc = subprocess.run(
         [sys.executable, "-c", g._STAGE_SCRIPT, run_dir,
          runs_root if runs_root is not None else str(Path(run_dir).parent),
          str(max_file_bytes if max_file_bytes is not None else harvest.MAX_FILE_BYTES),
          str(max_total_bytes if max_total_bytes is not None else harvest.MAX_TOTAL_BYTES),
          str(max_files if max_files is not None else harvest.MAX_FILES),
-         g._STAGE_REPORT_NAME, *patterns],
+         str(max_inventory_files if max_inventory_files is not None else harvest.MAX_INVENTORY_FILES),
+         g._STAGE_REPORT_NAME, str(len(patterns)), *patterns, *inventory_patterns],
         capture_output=True, check=True)
     return proc.stdout
 
@@ -187,7 +193,7 @@ def test_stage_run_dir_skips_a_symlink_that_escapes_run_dir_and_reports_it(tmp_p
 
     staged = tmp_path / "staged"
     staged.mkdir()
-    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
 
     assert not (staged / "samplesheet.csv").exists()
     assert not any("SECRET" in p.read_text() for p in staged.rglob("*") if p.is_file())
@@ -248,7 +254,7 @@ def test_stage_run_dir_refuses_an_oversized_file_remotely_rather_than_transferri
 
     staged = tmp_path / "staged"
     staged.mkdir()
-    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
 
     assert not (staged / "big.csv").exists(), "oversized file must never be transferred, not just discarded locally"
     assert any(
@@ -276,7 +282,7 @@ def test_stage_run_dir_skips_a_hardlink_to_a_file_outside_run_dir_and_reports_it
 
     staged = tmp_path / "staged"
     staged.mkdir()
-    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
 
     assert not (staged / "samplesheet.csv").exists()
     assert not any("SECRET" in p.read_text() for p in staged.rglob("*") if p.is_file())
@@ -310,7 +316,7 @@ def test_stage_run_dir_skips_a_file_reached_through_a_symlinked_ancestor_dir(tmp
 
     staged = tmp_path / "staged"
     staged.mkdir()
-    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
 
     assert not (staged / "pipeline_info" / "params_x.json").exists()
     assert not any("secret" in p.read_text() for p in staged.rglob("*") if p.is_file())
@@ -340,7 +346,7 @@ def test_stage_run_dir_enforces_the_total_byte_cap_across_multiple_files(tmp_pat
 
     staged = tmp_path / "staged"
     staged.mkdir()
-    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
 
     staged_names = {p.name for p in staged.rglob("*") if p.is_file()}
     assert "a.csv" in staged_names, staged_names
@@ -367,7 +373,7 @@ def test_stage_run_dir_enforces_the_file_count_cap_across_multiple_files(tmp_pat
 
     staged = tmp_path / "staged"
     staged.mkdir()
-    skipped = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
 
     staged_names = {p.name for p in staged.rglob("*") if p.is_file()}
     assert staged_names == {"a.csv", "b.csv"}, staged_names
@@ -398,6 +404,174 @@ def test_stage_run_dir_against_the_real_fixture_stages_every_rseqc_and_multiqc_f
 
 
 # ---------------------------------------------------------------------------
+# Inventory: the SAME remote script also emits a name+size-only listing for
+# every INVENTORY_GLOBS match, subject to the SAME containment guards as
+# staging (symlink / escape / hardlink) plus its own count cap. Nothing in
+# this half is ever staged or transferred -- the tar carries only the
+# `patterns` (GENERIC_GLOBS) matches; `inventory` entries are listing-only.
+# ---------------------------------------------------------------------------
+
+def test_stage_run_dir_emits_an_inventory_entry_for_each_output_glob_match(tmp_path, monkeypatch):
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    bam_dir = run_dir / "star_salmon"
+    bam_dir.mkdir()
+    bam = bam_dir / "CONTROL_REP1.markdup.sorted.bam"
+    bam.write_bytes(b"x" * 4096)
+    (run_dir / "not_an_output.txt").write_text("not matched")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.INVENTORY_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    # Listing-only: the matched file is never staged, unlike a GENERIC_GLOBS
+    # match -- the inventory names it and its real size, nothing more.
+    assert not (staged / "star_salmon" / "CONTROL_REP1.markdup.sorted.bam").exists()
+    assert inventory == [{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 4096}]
+    assert skipped == []
+
+
+def test_stage_run_dir_skips_a_symlinked_inventory_candidate_and_reports_it(tmp_path, monkeypatch):
+    """The listing gets the SAME containment guard as staging: listing a
+    symlink's target name+size is a smaller disclosure than shipping its
+    content, but this is still a shared cluster account, and the boundary
+    must not have two standards."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside = tmp_path / "outside_secret.bam"
+    outside.write_bytes(b"SECRET")
+    link = run_dir / "CONTROL_REP1.markdup.sorted.bam"
+    link.symlink_to(outside)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.INVENTORY_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert inventory == []
+    assert any(
+        item["path"] == "CONTROL_REP1.markdup.sorted.bam" and "symlink" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_skips_an_inventory_candidate_reached_through_an_escaping_path(tmp_path, monkeypatch):
+    """The escape guard (ancestor-symlink / resolves-outside-run_dir) applies
+    to inventory candidates too, not only staged ones. This uses a
+    non-"**" pattern ("aligner_out/*.bam", not one of the real
+    INVENTORY_GLOBS): on current interpreters, confirmed directly against a
+    symlinked ancestor, pathlib.Path.glob's "**" component does not recurse
+    through it (the exact Python version this became the default is not
+    authoritative here -- see
+    test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_symlinked_dir
+    below for why the guard does not depend on it either way). A leading
+    literal or wildcard glob SEGMENT (like "aligner_out" here, or "multiqc*"
+    in the one real INVENTORY_GLOBS entry with a non-"**" leading segment)
+    still follows a symlink there normally, so this pattern -- like that
+    real one -- does reach the symlinked file, exercising the STAT-LEVEL
+    guard inside confined_stat (shared with staging) directly, the same way
+    GENERIC_GLOBS' own ancestor-symlink test relies on _PARAMS_GLOB (also
+    non-"**")."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside_dir = tmp_path / "outside_dir"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "leak.bam"
+    outside_file.write_bytes(b"leak")
+    (run_dir / "aligner_out").symlink_to(outside_dir)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=["aligner_out/*.bam"]))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert inventory == []
+    assert any(
+        item["path"] == "aligner_out/leak.bam" and "outside run_dir" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_symlinked_dir(tmp_path, monkeypatch):
+    """The ONE production INVENTORY_GLOBS entry an ancestor-symlink escape
+    can actually reach: "multiqc*/**/multiqc_report.html" is the only
+    pattern in the tuple whose leading segment is a literal/wildcard
+    ("multiqc*") rather than "**" -- and, per the synthetic-pattern test
+    above, only the "**" component declines to follow a symlink; a leading
+    wildcard segment still follows one normally. Every other INVENTORY_GLOBS
+    entry starts with "**" and so never reaches a file behind a symlinked
+    ancestor to begin with, which is why the synthetic "aligner_out/*.bam"
+    test above is needed to exercise confined_stat's escape check at all --
+    but that leaves the actually-exposed production path itself unverified.
+    This test drives `harvest.INVENTORY_GLOBS` directly (no synthetic
+    pattern) against a directory literally named "multiqc" -- the shape
+    nf-core's own MultiQC step writes -- symlinked to outside run_dir, so a
+    regression in either the pattern's leading segment or in confined_stat's
+    escape check would show up here."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside_dir = tmp_path / "outside_multiqc"
+    outside_dir.mkdir()
+    outside_report = outside_dir / "multiqc_report.html"
+    outside_report.write_text("<html>leaked</html>")
+    (run_dir / "multiqc").symlink_to(outside_dir)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.INVENTORY_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert inventory == []
+    assert any(
+        item["path"] == "multiqc/multiqc_report.html" and "outside run_dir" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_enforces_the_inventory_file_count_cap(tmp_path, monkeypatch):
+    """MAX_INVENTORY_FILES bounds the listing the same way MAX_FILES bounds
+    staging -- cap hit reported, never a silent omission."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    for i in range(3):
+        (run_dir / f"sample{i}.bam").write_bytes(b"x")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.INVENTORY_GLOBS, max_inventory_files=2))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert len(inventory) == 2
+    assert any("exceeds max inventory file count" in item["reason"] for item in skipped), skipped
+
+
+# ---------------------------------------------------------------------------
 # _run_harvest: full handler behavior (staging + harvest_local mocked out at
 # the boundary so this test is about the handler's own logic, not staging).
 # ---------------------------------------------------------------------------
@@ -406,14 +580,14 @@ def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
     import NessieAI.ns.reingest.harvest as harvest_mod
     from NessieAI.ns.reingest import manifest as manifest_mod
 
-    def fake_harvest_local(root, *, lookup_by_fastq=None, extra_globs=None, run_dir=None):
+    def fake_harvest_local(root, *, lookup_by_fastq=None, inventory=None, run_dir=None):
         return manifest_mod.RunManifest(
             run_dir=run_dir if run_dir is not None else root,
             execution=manifest_mod.ExecutionInfo(processes=3, failed=failed, non_terminal=0),
         )
 
     monkeypatch.setattr(harvest_mod, "harvest_local", fake_harvest_local)
-    monkeypatch.setattr(g, "_stage_run_dir", lambda *a, **k: [])
+    monkeypatch.setattr(g, "_stage_run_dir", lambda *a, **k: ([], []))
     monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
     # store._ROOT is resolved once at module-import time from an env var; a
     # module already imported by an earlier test would ignore a later

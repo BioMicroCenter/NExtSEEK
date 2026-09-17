@@ -15,6 +15,7 @@ import fnmatch
 import io
 import os
 from pathlib import Path
+from typing import Callable
 
 from NessieAI.ns.reingest import derived, manifest, parsers
 
@@ -71,9 +72,56 @@ GENERIC_GLOBS: tuple[str, ...] = (
     _RSEQC_INFER_EXPERIMENT_GLOB,
 )
 
+# A sibling to GENERIC_GLOBS, but for a completely different purpose:
+# GENERIC_GLOBS is small QC/metadata TEXT that gets staged (copied) and read
+# for content; INVENTORY_GLOBS is never staged and never read -- it is only
+# LISTED (name + real size) by granular.py's _STAGE_SCRIPT, which walks the
+# run directory remotely and emits one inventory entry per match, subject to
+# the SAME containment guards (no symlinks, no escapes, no hardlinks) as
+# staging, plus its own file-count cap (MAX_INVENTORY_FILES).
+#
+# Covers the file classes that can become primary data (A.ALN, A.GEX, ...)
+# or a named single-file link (multiqc_report_html, kraken2_report,
+# deseq2_dds_rdata -- see _NAMED_OUTPUT_MATCHERS below): alignment files and
+# their indexes, merged per-run count/abundance matrices, single-cell/R
+# objects, VCFs, the MultiQC html report, and contaminant-screening reports.
+# Deliberately broad ("**") rather than per-pipeline: this layer is generic
+# across every nf-core pipeline, the same as GENERIC_GLOBS -- a per-pipeline
+# map (docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md appendix
+# A) narrows further downstream, against this inventory.
+INVENTORY_GLOBS: tuple[str, ...] = (
+    # Alignment files and their indexes.
+    "**/*.bam",
+    "**/*.bam.bai",
+    "**/*.cram",
+    "**/*.cram.crai",
+    # Merged per-run count / abundance matrices.
+    "**/*.merged.gene_counts.tsv",
+    "**/*.merged.gene_tpm.tsv",
+    "**/*.merged.transcript_counts.tsv",
+    "**/*.merged.transcript_tpm.tsv",
+    # Single-cell / R objects that become primary data or a named link.
+    "**/*.h5ad",
+    "**/*.mtx",
+    "**/*.mtx.gz",
+    "**/*.rds",
+    "**/*.RData",
+    # Variant calls.
+    "**/*.vcf",
+    "**/*.vcf.gz",
+    # The MultiQC html report -- named link $outputs.multiqc_report_html.
+    "multiqc*/**/multiqc_report.html",
+    # Contaminant screening reports -- named link $outputs.kraken2_report.
+    "**/*.kraken2.report.txt",
+)
+
 MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILE_BYTES", 4_000_000))
 MAX_TOTAL_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_TOTAL_BYTES", 32_000_000))
 MAX_FILES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILES", 500))
+# The inventory lists names and sizes only -- nothing is transferred or read
+# -- so it needs no byte ceiling, only a count cap, the same idiom as the
+# other caps above.
+MAX_INVENTORY_FILES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_INVENTORY_FILES", 500))
 
 # MultiQC's per-read rows (`<sample>_1`, `<sample>_2`) populate only these
 # modules' columns; every other module (star, salmon, samtools_*, qualimap_*,
@@ -81,7 +129,7 @@ MAX_FILES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILES", 500))
 _PER_READ_ROW_PREFIXES = ("fastqc_raw-", "fastqc_trimmed-", "cutadapt-")
 
 
-def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None,
+def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                    run_dir: str | None = None) -> manifest.RunManifest:
     """`root` stays the filesystem read root -- it is where every glob below
     actually looks for files, local disk only, no SSH, no network.
@@ -96,15 +144,20 @@ def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None,
     pass the real `run_dir` gets a manifest labeled with the temp path --
     which never matches any `PipelineRun` row, so the launch record (the
     primary UID source) silently resolves nothing.
+
+    `inventory` is the OUTPUT-file listing (`[{"path", "bytes"}, ...]`) a
+    caller gathered remotely by matching INVENTORY_GLOBS against the real
+    run directory -- see granular.py's `_STAGE_SCRIPT`. This function stays
+    local-only and never sees that real directory (only `root`, a staged
+    temp copy of the small GENERIC_GLOBS text files), so it cannot gather
+    the inventory itself; it only turns the given listing into
+    `RunManifest.outputs` and, from that, `RunManifest.named_outputs`.
+    Defaults to `None` (treated as empty) so a purely local caller -- one
+    with no remote listing to pass, e.g. an existing test or a
+    local-directory caller -- still works, just with no outputs recorded.
     """
     base = Path(root)
     resolved_run_dir = run_dir if run_dir is not None else str(base)
-    # extra_globs extends the allowlist for this call only -- e.g. a pipeline
-    # variant with an additional generic file worth capturing. Matches are
-    # read (subject to the same caps as everything else) and recorded as
-    # `outputs`; they are not assigned to any of the named sections below,
-    # since nothing here knows what role an arbitrary extra pattern plays.
-    allowed_globs = GENERIC_GLOBS + tuple(extra_globs or ())
     caps = manifest.CapsInfo()
     sources: dict[str, str] = {}
     warnings: list[str] = []
@@ -278,19 +331,20 @@ def harvest_local(root: str, *, extra_globs=None, lookup_by_fastq=None,
             derived=_derived_for(base, name, read),
         ))
 
-    # allowed_globs is GENERIC_GLOBS followed by whatever extra_globs added;
-    # slicing off the GENERIC_GLOBS prefix is what's left to scan here -- the
-    # GENERIC_GLOBS patterns themselves were already read above under their
-    # own named section, and must not be read a second time as a generic
-    # "output".
-    for pattern in allowed_globs[len(GENERIC_GLOBS):]:
-        for path in sorted(base.glob(pattern)):
-            rel = str(path.relative_to(base))
-            text = read(rel)
-            if text is None:
-                continue
-            out.outputs.append(manifest.OutputRecord(
-                path=rel, bytes=len(text.encode("utf-8"))))
+    # The inventory is gathered elsewhere (remotely, against the real run
+    # directory -- see this function's docstring) and handed in whole; it is
+    # never globbed or read here. Each entry becomes one `outputs` record,
+    # attributed to a sample where derivable; `named_outputs` is then
+    # resolved from that same list.
+    sample_names = [s.nfcore_sample for s in out.samples]
+    for entry in inventory or []:
+        rel = str((entry or {}).get("path") or "")
+        if not rel:
+            continue
+        out.outputs.append(manifest.OutputRecord(
+            path=rel, bytes=int((entry or {}).get("bytes") or 0),
+            sample=_sample_for_output_path(rel, sample_names)))
+    out.named_outputs = _resolve_named_outputs(out.outputs)
 
     # Complete requires BOTH the versions file present AND the trace showing
     # no non-terminal process. A trace that never arrived (not staged,
@@ -355,6 +409,57 @@ def _find_samplesheet(base: Path, read) -> tuple[str, str] | None:
 
 def _pipeline_name(params: dict) -> str:
     return str(params.get("pipeline") or "")
+
+
+def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | None:
+    """Best-effort per-sample attribution for one inventory entry, "where
+    derivable" (per the design) -- never invented. A per-sample output names
+    its sample in the basename (e.g. "CONTROL_REP1.markdup.sorted.bam"); a
+    per-run output (e.g. a merged matrix) names no single sample at all, and
+    correctly gets None here rather than a guess.
+
+    Matching is on the basename only, and requires the sample name to be
+    either the whole stem or followed by a "." or "_" separator -- a bare
+    substring match would let a sample named "A" claim an output that
+    actually belongs to sample "AB" ("AB.markdup.sorted.bam" contains "A" as
+    a substring, but does not start with "A." or "A_"). When more than one
+    known sample name matches this way (a name that is itself a prefix of
+    another, e.g. "A" and "A_1"), the LONGEST match wins, so "A_1.bam" is
+    attributed to "A_1", never mistakenly to "A".
+    """
+    name = Path(rel_path).name
+    best: str | None = None
+    for sample in sample_names:
+        if not sample:
+            continue
+        if name == sample or name.startswith(sample + ".") or name.startswith(sample + "_"):
+            if best is None or len(sample) > len(best):
+                best = sample
+    return best
+
+
+# Well-known SINGLE files the next reingest plan's map references by key --
+# "$outputs.<key>" resolves against RunManifest.named_outputs (a dict), never
+# against RunManifest.outputs (a list) -- see manifest.py's docstring on both
+# fields and docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md.
+# Each matcher runs against the LOWERCASED basename only, over every
+# inventory entry sorted by path for a deterministic pick among ties (e.g.
+# two aligners' MultiQC reports both matching multiqc_report.html).
+_NAMED_OUTPUT_MATCHERS: tuple[tuple[str, Callable[[str], bool]], ...] = (
+    ("multiqc_report_html", lambda name: name == "multiqc_report.html"),
+    ("kraken2_report", lambda name: name.endswith(".kraken2.report.txt")),
+    ("deseq2_dds_rdata", lambda name: name.endswith(".dds.rdata") or name.endswith(".dds.rds")),
+)
+
+
+def _resolve_named_outputs(outputs: list[manifest.OutputRecord]) -> dict[str, str]:
+    named: dict[str, str] = {}
+    for key, matches in _NAMED_OUTPUT_MATCHERS:
+        for record in sorted(outputs, key=lambda o: o.path):
+            if matches(Path(record.path).name.lower()):
+                named[key] = record.path
+                break
+    return named
 
 
 def _classify_general_stats_row(name: str, columns: dict, stats: dict) -> str:
