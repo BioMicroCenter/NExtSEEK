@@ -82,6 +82,14 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     # ORM modules already hold.
     "NessieAI/ns/reingest/launch_record.py": frozenset({"nextseek_api.assistant.models_db"}),
     "NessieAI/ns/reingest/uid_resolve.py": frozenset({"nextseek_api.assistant.models_db"}),
+    # The proposal queue: the ReingestAttributeProposal ORM model (same
+    # sanctioned edge as launch_record.py/uid_resolve.py above), and the
+    # read-only attributes_for lookup it asks whether a candidate attribute
+    # is already defined on a sample type, so it never invents one.
+    "NessieAI/ns/reingest/proposals.py": frozenset({
+        "nextseek_api.assistant.models_db",
+        "nextseek_api.services.reingest_lookups",
+    }),
     # Router telemetry and the posterior leg, through the ORM models.
     "NessieAI/router/risk_overlay.py": frozenset({"nextseek_api.assistant.models_db"}),
     "NessieAI/router/turn_ledger.py": frozenset({"nextseek_api.assistant.models_db"}),
