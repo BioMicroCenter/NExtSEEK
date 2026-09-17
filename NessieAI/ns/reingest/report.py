@@ -178,20 +178,6 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
         lines.append(f"  {mark}  {name}")
     lines.append("")
 
-    # Sample types where a missing Parent is itself hard-blocking this run
-    # (qa.MISSING_REQUIRED on "Parent" -- see qa.reingest_qa's
-    # _ALWAYS_HARD_REQUIRED). A row with no parent-ish key at all trips BOTH
-    # this and the three-state LINEAGE_UNRESOLVED SOFT finding below, and
-    # LINEAGE_UNRESOLVED's own wording ("upload as-is, attach the parent
-    # later") is only true when nothing else blocks the workbook -- so its
-    # renderer needs to know, per sample type, whether that is still the
-    # case. See _render_one's qa.LINEAGE_UNRESOLVED branch.
-    parent_blocked_types = {
-        sample_type for sample_type, built in ordered
-        if any(f.code == qa.MISSING_REQUIRED and f.attribute == "Parent"
-               for f in built.findings)
-    }
-
     hard_checks: list[tuple] = []
     soft_checks: list[tuple] = []
     for sample_type, built in ordered:
@@ -219,7 +205,7 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
         lines.append("WHAT IS BLOCKING")
         lines.append("")
         for index, (code, attribute, bucket) in enumerate(hard_checks, start=1):
-            lines.extend(_render_one(index, code, attribute, bucket, parent_blocked_types))
+            lines.extend(_render_one(index, code, attribute, bucket))
             lines.append("")
 
     if soft_checks:
@@ -228,7 +214,7 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
         lines.append(header)
         lines.append("")
         for index, (code, attribute, bucket) in enumerate(soft_checks, start=1):
-            lines.extend(_render_one(index, code, attribute, bucket, parent_blocked_types))
+            lines.extend(_render_one(index, code, attribute, bucket))
             lines.append("")
 
     if ambiguous_primary:
@@ -303,7 +289,7 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     return "\n".join(lines)
 
 
-def _render_one(index, code, attribute, bucket, parent_blocked_types: frozenset = frozenset()):
+def _render_one(index, code, attribute, bucket):
     count = bucket["count"]
     detail = bucket["detail"]
     sample_type = bucket.get("sample_type", "")
@@ -508,23 +494,14 @@ def _render_one(index, code, attribute, bucket, parent_blocked_types: frozenset 
             "      sequencing sample each of these came from, and I will fill it in.",
         ]
     if code == qa.LINEAGE_UNRESOLVED:
-        # A row with no parent-ish key at all also trips MISSING_REQUIRED on
-        # "Parent" now (Parent is exempt from the SEEK-required-flag split --
-        # see reingest_qa._ALWAYS_HARD_REQUIRED), which blocks this sample
-        # type's whole workbook. When that HARD finding is present for this
-        # sample type, "upload as-is" below would be a straight
-        # contradiction of the "WHAT IS BLOCKING" section above -- so this
-        # branch defers to that blocking finding instead of repeating its
-        # own (now false) "ships anyway" story.
-        if sample_type in parent_blocked_types:
-            return [
-                f"  {index}.  {count} {rows} in {_workbook_ref(sample_type)}"
-                f" {_verb(count, 'have', 'has')} no parent identified.",
-                "",
-                "      This is the missing Parent blocking this workbook above --",
-                "      fixing that also resolves this; there is nothing further to do",
-                "      here on its own.",
-            ]
+        # Stands on its own again: a Parent-less row used to also trip a
+        # HARD MISSING_REQUIRED("Parent") finding (see reingest_qa.py's
+        # CATALOG_REQUIRED_MISSING comment for why that carve-out briefly
+        # existed and why it was removed), which would have made "upload
+        # as-is" below a straight contradiction of "WHAT IS BLOCKING". Now
+        # that Parent follows the plain SEEK-flag split like everything
+        # else, a missing Parent alone is only ever this SOFT finding, so
+        # this branch no longer needs to defer to anything.
         return [
             f"  {index}.  {count} {rows} in {_workbook_ref(sample_type)}"
             f" {_verb(count, 'ship', 'ships')} with no parent identified.",

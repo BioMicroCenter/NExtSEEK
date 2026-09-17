@@ -87,52 +87,62 @@ def test_a_present_catalog_only_attribute_is_clean_not_flagged():
     assert not report.hard and not report.soft
 
 
-# --- Parent: exempted from this split unconditionally ----------------------
+# --- Parent: follows this split like any other title, no carve-out --------
 #
-# Parent is required=0 in SEEK on all four reingest sample types
-# (A.GEX/A.ALN/A.SCXP/D.SEQ), so without an exemption it would follow the
-# ordinary rule above and SOFT-flag when missing -- exactly the unintended
-# consequence this revert exists to undo (see reingest_qa._ALWAYS_HARD_REQUIRED's
-# comment for why Parent is a structural lineage field, not ordinary
-# metadata). `_qa`'s default `meta` always carries a resolvable Parent, so
-# these tests build their own rows without it.
+# Between a720b7fe and this branch's merge, Parent was briefly carved out of
+# this split unconditionally (reingest_qa._ALWAYS_HARD_REQUIRED), because the
+# UID resolver behind Parent resolution only ever searched D.SEQ, so an
+# unresolved parent could mean either "genuinely no parent" or "the parent
+# exists but is an A.*-typed sample the resolver never looked for" --
+# treating both as SOFT would have silently shipped real orphans as root
+# samples. The resolver now searches every type a pipeline's map declares
+# (see NessieAI/ns/reingest/maps.py's accepts_parent_types), so a findable
+# parent resolves regardless of its type and an unresolved one is once again
+# a genuine orphan -- exactly what CATALOG_REQUIRED_MISSING/SOFT and the
+# three-state LINEAGE_UNRESOLVED rule are for. Parent is required=0 in SEEK
+# on all four reingest sample types (A.GEX/A.ALN/A.SCXP/D.SEQ), so it now
+# SOFT-flags like Checksum_PrimaryData or any other catalog-only title.
+# `_qa`'s default `meta` always carries a resolvable Parent, so these tests
+# build their own rows without it.
 
 
-def test_parent_missing_hard_rejects_even_when_seek_says_it_is_not_required():
+def test_parent_missing_soft_flags_when_seek_says_it_is_not_required():
     built = qa.qa_rows(
         [{"json_metadata": {"Scientist": "A Person"}}],
         sample_type="A.GEX", known_sampletypes={"A.GEX"},
         required_fields=["Parent"], server_required_fields=[],
         existing_parent_uids=EXISTING)
-    assert built.disposition == qa.HARD_REJECT
+    assert built.disposition == qa.SOFT_FLAG
+    assert not built.hard
     codes_attrs = {(f.code, f.attribute) for f in built.findings}
-    assert (qa.MISSING_REQUIRED, "Parent") in codes_attrs
-    assert (qa.CATALOG_REQUIRED_MISSING, "Parent") not in codes_attrs
+    assert (qa.CATALOG_REQUIRED_MISSING, "Parent") in codes_attrs
+    assert (qa.MISSING_REQUIRED, "Parent") not in codes_attrs
 
 
-def test_missing_parent_key_also_soft_flags_lineage_unresolved_alongside_the_hard_finding():
+def test_missing_parent_key_also_soft_flags_lineage_unresolved_alongside_the_catalog_finding():
     # A row with no parent-ish key at all trips BOTH the three-state
     # LINEAGE_UNRESOLVED SOFT finding (no key present at all -- see qa_rows'
-    # new-mode Parent-resolvability block) and, via the exemption above, the
-    # HARD MISSING_REQUIRED finding for the same underlying gap. Two
-    # findings on one row saying two different things is acceptable; pin
-    # exactly which codes appear so this interaction cannot silently change.
-    # See NessieAI/ns/reingest/report.py's LINEAGE_UNRESOLVED branch for how
-    # the two are reconciled in the text a user actually reads.
+    # new-mode Parent-resolvability block) and the plain CATALOG_REQUIRED_
+    # MISSING SOFT finding for the same underlying gap. Two SOFT findings on
+    # one row saying two different things is fine -- neither is HARD, so
+    # nothing here blocks the workbook; pin exactly which codes appear so
+    # this interaction cannot silently change. See
+    # NessieAI/ns/reingest/report.py's LINEAGE_UNRESOLVED branch, which no
+    # longer needs to defer to anything now that both are SOFT.
     built = qa.qa_rows(
         [{"json_metadata": {"Scientist": "A Person"}}],
         sample_type="A.GEX", known_sampletypes={"A.GEX"},
         required_fields=["Parent"], server_required_fields=[],
         existing_parent_uids=EXISTING)
-    assert built.disposition == qa.HARD_REJECT
+    assert built.disposition == qa.SOFT_FLAG
+    assert not built.hard
     codes_attrs = {(f.code, f.attribute) for f in built.findings}
-    assert (qa.MISSING_REQUIRED, "Parent") in codes_attrs
+    assert (qa.CATALOG_REQUIRED_MISSING, "Parent") in codes_attrs
     assert any(f.code == qa.LINEAGE_UNRESOLVED for f in built.findings)
 
 
-def test_parent_present_is_unaffected_by_the_exemption():
-    # A resolvable Parent must never be flagged at all -- the exemption only
-    # changes what happens when it is MISSING.
+def test_parent_present_is_clean():
+    # A resolvable Parent must never be flagged at all.
     report = _qa({}, required_fields=["Parent"], server_required_fields=[])
     codes = {f.code for f in report.findings}
     assert qa.MISSING_REQUIRED not in codes

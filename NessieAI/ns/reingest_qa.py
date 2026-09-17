@@ -64,35 +64,28 @@ METRIC_UNAVAILABLE = "metric_unavailable"
 # fallback-derived hard set. SEEK would accept the row without it, so this
 # is a curation expectation, not a blocker: never MISSING_REQUIRED, which is
 # reserved for an attribute the server itself would reject the row over. See
-# the qa_rows docstring's `server_required_fields` section for the split --
-# and `_ALWAYS_HARD_REQUIRED` below for the one title this split never
-# applies to.
+# the qa_rows docstring's `server_required_fields` section for the split.
 CATALOG_REQUIRED_MISSING = "catalog_required_missing"
-# Titles that stay MISSING_REQUIRED/HARD no matter what
-# `server_required_fields` says, because they are structural to reingest
-# itself rather than ordinary curation metadata SEEK happens to gatekeep.
 #
-# `Parent`: reingest's entire purpose is attaching an analysis output to the
-# sample it came from, so a row with no Parent is a reingest-domain failure
-# whether or not the server would accept it -- and SEEK's flag says nothing
-# useful here anyway (Parent is required=0 on all four of A.GEX / A.ALN /
-# A.SCXP / D.SEQ in startup/seed/seek_production.sql.gz). Without this
-# exemption the required_fields/server_required_fields split above
-# downgrades a missing Parent to CATALOG_REQUIRED_MISSING/SOFT, and
-# nextseek_api/batch_upload/orchestrator.py then treats the row as a root
-# sample -- silently shipping an orphaned analysis output.
-#
-# Do NOT simplify this away as redundant with SEEK's required flag: it is
-# deliberately the opposite. It is also expected to be revisited, not
-# permanent -- it exists only because the UID resolver
-# (nextseek_api/services/reingest_lookups.py's uids_by_primary_data, hard-
-# scoped to title="D.SEQ") cannot resolve a pipeline input that is itself an
-# A.* sample rather than a D.SEQ, so RESOLUTION_UNRESOLVED currently
-# conflates "no parent exists" with "the parent exists but was never
-# searched for." Shipping a Parent-less child turns the second case into a
-# silent orphan. Once that resolver gap closes, revisit whether Parent still
-# needs this carve-out -- but do not remove it before then.
-_ALWAYS_HARD_REQUIRED = frozenset({"Parent"})
+# History: between a720b7fe and this branch's merge, `Parent` was carved out
+# of this split with a module-level `_ALWAYS_HARD_REQUIRED = {"Parent"}`,
+# forcing a missing Parent to stay MISSING_REQUIRED/HARD regardless of SEEK's
+# own required=0 flag on it. That carve-out existed only because the UID
+# resolver behind Parent resolution
+# (`nextseek_api/services/reingest_lookups.py`'s `uids_by_primary_data`) was
+# hard-scoped to `title="D.SEQ"`, so `RESOLUTION_UNRESOLVED` conflated a
+# genuine orphan (no parent exists) with a parent that exists but was never
+# searched for (an already-analysed A.* sample). Downgrading that conflated
+# signal to SOFT would have silently shipped real orphans as root samples
+# (`nextseek_api/batch_upload/orchestrator.py`). The resolver now searches
+# every type a pipeline's map declares via `accepts_parent_types`, not just
+# D.SEQ (see `NessieAI/ns/reingest/maps.py`), so a parent that exists and is
+# findable resolves regardless of its type: an unresolved sample is once
+# again a genuine orphan, exactly the case this SOFT code and the
+# three-state `LINEAGE_UNRESOLVED` finding below are written for. `Parent`
+# therefore follows the plain split again, with no carve-out -- do not
+# re-add one without first checking whether the resolver has regressed back
+# to a narrow scope.
 # Used by granular.py's manifest-driven build-upload-xlsx path: every
 # attribute on a sample type's rows was parked (attribute_exists said none is
 # defined on the schema) and the Notes fetch that would have recorded them
@@ -142,12 +135,11 @@ NO_ATTRIBUTES_TO_WRITE = "no_attributes_to_write"
 #
 # This does NOT extend to Checksum_PrimaryData, required by that same
 # catalog row: it is not declared here as an alternative to anything, and
-# must not be added to a group. Unlike Parent (always HARD when missing --
-# see `_ALWAYS_HARD_REQUIRED` below), Checksum_PrimaryData follows the plain
-# required_fields/server_required_fields split like any other ordinary
-# attribute: its absence SOFT-flags (CATALOG_REQUIRED_MISSING), not a hard
-# reject, because SEEK's own required flag does not enforce it either (see
-# the MISSING_REQUIRED loop below).
+# must not be added to a group. Like Parent, Checksum_PrimaryData follows
+# the plain required_fields/server_required_fields split like any other
+# ordinary attribute: its absence SOFT-flags (CATALOG_REQUIRED_MISSING), not
+# a hard reject, because SEEK's own required flag does not enforce it either
+# (see the MISSING_REQUIRED loop below).
 @dataclass(frozen=True)
 class _AlternativeGroup:
     """One directional alternative-required group: `primary`'s presence
@@ -387,11 +379,11 @@ def qa_rows(
     This split does NOT touch the ``ALTERNATIVE_REQUIRED_GROUPS`` directional
     group logic below (File_PrimaryData/Link_PrimaryData), the ``UID``
     exemption, or the update-mode present-but-blank rule -- all three keep
-    their existing HARD/SOFT behaviour unchanged. It also never applies to a
-    title in ``_ALWAYS_HARD_REQUIRED`` (``Parent``): that stays
-    ``MISSING_REQUIRED``/HARD when missing regardless of
-    ``server_required_fields``, because it is a structural lineage field,
-    not ordinary curation metadata -- see that constant's comment above.
+    their existing HARD/SOFT behaviour unchanged. ``Parent`` is no longer
+    carved out of this split either -- see the ``CATALOG_REQUIRED_MISSING``
+    comment above for why a missing ``Parent`` was briefly forced HARD and
+    why that carve-out was removed once the UID resolver could see A.*
+    parents again.
 
     ``mode`` is ``"new"`` (brand-new samples; rows must not carry a UID and
     must declare a Parent) or ``"update"`` (a backfill targeting samples that
@@ -439,11 +431,6 @@ def qa_rows(
     # also server-required. An explicit list (including []) is the caller
     # opting into the split -- see the docstring above.
     hard_required = set(required) if server_required_fields is None else set(server_required_fields)
-    # Parent is exempted from the split above unconditionally -- see
-    # `_ALWAYS_HARD_REQUIRED`'s comment. Harmless when "Parent" is not in
-    # `required` at all: the loop below only consults `hard_required` for
-    # titles it is already iterating from `required`.
-    hard_required |= _ALWAYS_HARD_REQUIRED
     existing = existing_parent_uids or set()
 
     if sample_type not in known_sampletypes:
@@ -588,14 +575,13 @@ def qa_rows(
 
         # Required-attribute coverage, for an ungrouped attribute: HARD
         # (MISSING_REQUIRED) only when the title is genuinely
-        # server-required (in `hard_required` -- either SEEK's own
+        # server-required (in `hard_required` -- SEEK's own
         # `sample_attributes.required` flag enforces it, per
-        # `server_required_fields`, or it is `Parent`, which stays HARD
-        # unconditionally -- see `_ALWAYS_HARD_REQUIRED`'s comment above for
-        # why that one title is carved out). Every other catalog-required
-        # title that is merely absent from SEEK's own flag SOFT-flags
-        # instead (CATALOG_REQUIRED_MISSING): Checksum_PrimaryData, for one,
-        # is required=0 on A.GEX / A.ALN / A.SCXP / D.SEQ in
+        # `server_required_fields`; `Parent` is no longer carved out of this
+        # -- see the `CATALOG_REQUIRED_MISSING` comment above). Every other
+        # catalog-required title that is merely absent from SEEK's own flag
+        # SOFT-flags instead (CATALOG_REQUIRED_MISSING): Checksum_PrimaryData,
+        # for one, is required=0 on A.GEX / A.ALN / A.SCXP / D.SEQ in
         # startup/seed/seek_production.sql.gz, so the server will happily
         # accept a row without it, and hard-rejecting the whole workbook
         # over it would block rows SEEK would have accepted (see

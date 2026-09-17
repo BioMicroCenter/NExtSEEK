@@ -243,11 +243,12 @@ def _real_attrs_for(sample_type):
         if title in ("File_PrimaryData", "Scientist"):
             return scxp_or_dseq
         # Link_PrimaryData, Parent, Checksum_PrimaryData: required=0 on
-        # every one of the four types. Parent's absence still hard-rejects
-        # regardless -- reingest_qa.qa_rows exempts it from this flag
-        # unconditionally (see reingest_qa._ALWAYS_HARD_REQUIRED); returning
-        # the real, unexempted False here is deliberate, so the exemption
-        # itself is what these tests exercise, not a stubbed-True value.
+        # every one of the four types, and reingest_qa.qa_rows no longer
+        # carves Parent out of this flag (see reingest_qa.py's
+        # CATALOG_REQUIRED_MISSING comment) -- returning the real,
+        # unexempted False here is deliberate, so the plain
+        # required_fields/server_required_fields split is what these tests
+        # exercise, not a stubbed-True value.
         return False
 
     return [{"title": t, "required": True, "server_required": _server_required(t)}
@@ -310,21 +311,23 @@ def test_file_primary_data_missing_still_hard_rejects_where_seek_requires_it(tmp
                for h in hard)
 
 
-# --- Parent revert: exempted from the required_fields/server_required_fields
-# split regardless of what SEEK's own flag says for it (reingest_qa's
-# _ALWAYS_HARD_REQUIRED) --------------------------------------------------
+# --- Parent: follows the plain required_fields/server_required_fields split
+# again, with no carve-out (see reingest_qa.py's CATALOG_REQUIRED_MISSING
+# comment for the history of the brief HARD exemption and why it was
+# removed) --------------------------------------------------------------
 
 
-def test_missing_parent_key_hard_rejects_on_all_four_types_and_produces_no_workbook(
+def test_missing_parent_key_soft_flags_on_all_four_types_and_a_workbook_is_produced(
         tmp_path, monkeypatch):
     # Parent is required=0 in SEEK on all four reingest sample types (see
-    # the real-flags table above _real_attrs_for), so without the exemption
-    # a row with no Parent key at all would SOFT-flag
-    # (CATALOG_REQUIRED_MISSING) and ship as a silent root sample --
-    # nextseek_api/batch_upload/orchestrator.py:446 treats a Parent-less row
-    # as exactly that. This pins the revert: missing Parent stays
-    # MISSING_REQUIRED/HARD, and hard-rejects the whole workbook, on every
-    # one of the four types, not just some.
+    # the real-flags table above _real_attrs_for). Now that the UID resolver
+    # can find an A.*-typed parent too (not just D.SEQ), an unresolved
+    # parent is once again a genuine orphan rather than a search that was
+    # never attempted, so Parent no longer needs a standing HARD exemption:
+    # a row with no Parent key at all SOFT-flags (CATALOG_REQUIRED_MISSING)
+    # like any other catalog-only requirement, and still ships -- backed by
+    # the three-state LINEAGE_UNRESOLVED rule, which a curator can resolve
+    # later. Pin this on every one of the four types, not just some.
     for sample_type in ("A.GEX", "A.ALN", "A.SCXP", "D.SEQ"):
         monkeypatch.setattr(reingest_lookups, "known_sample_types",
                              lambda st=sample_type: {st})
@@ -341,17 +344,19 @@ def test_missing_parent_key_hard_rejects_on_all_four_types_and_produces_no_workb
             {"rows": rows, "existing_parent_uids": ""},
             _Cfg(), None, None, None, str(tmp_path))
 
-        assert out["qa"][sample_type]["disposition"] == "HARD_REJECT", sample_type
-        assert out["saved_files"] == {}, sample_type
-        hard = out["qa"][sample_type]["hard"]
-        assert any("missing_required" in h and "Parent" in h for h in hard), (sample_type, hard)
+        assert out["qa"][sample_type]["disposition"] == "SOFT_FLAG", sample_type
+        assert not out["qa"][sample_type]["hard"], sample_type
+        soft = out["qa"][sample_type]["soft"]
+        assert any("catalog_required_missing" in s and "Parent" in s for s in soft), (sample_type, soft)
+        assert any("lineage_unresolved" in s for s in soft), (sample_type, soft)
+        assert set(out["saved_files"]) == {f"reingest_{sample_type.replace('.', '_')}"}, sample_type
 
 
-def test_a_resolvable_parent_is_unaffected_by_the_revert(tmp_path, monkeypatch):
-    # A row that DOES carry a resolvable Parent must not be touched by the
-    # exemption at all -- it never reaches the "missing" branch in the
-    # required-attribute loop, so it stays CLEAN (of Parent findings) exactly
-    # as before this change.
+def test_a_resolvable_parent_is_unaffected(tmp_path, monkeypatch):
+    # A row that DOES carry a resolvable Parent never reaches the "missing"
+    # branch in the required-attribute loop at all, so it stays CLEAN (of
+    # Parent findings) regardless of whether Parent is exempted from the
+    # SEEK-flag split.
     monkeypatch.setattr(reingest_lookups, "known_sample_types", lambda: {"A.GEX"})
     monkeypatch.setattr(reingest_lookups, "attributes_for", _real_attrs_for)
     rows = json.dumps([{
@@ -373,11 +378,10 @@ def test_a_resolvable_parent_is_unaffected_by_the_revert(tmp_path, monkeypatch):
 
 def test_scientist_missing_on_a_gex_still_soft_flags_and_a_workbook_is_produced(
         tmp_path, monkeypatch):
-    # Scope check for the revert: Scientist is required=0 on A.GEX per SEEK
-    # (see the real-flags table above _real_attrs_for) and correctly follows
-    # the ordinary required_fields/server_required_fields split -- it must
-    # stay SOFT (CATALOG_REQUIRED_MISSING), not be swept up into the Parent
-    # exemption.
+    # Scope check: Scientist is required=0 on A.GEX per SEEK (see the
+    # real-flags table above _real_attrs_for) and correctly follows the
+    # ordinary required_fields/server_required_fields split -- it must stay
+    # SOFT (CATALOG_REQUIRED_MISSING), same as Parent now does.
     monkeypatch.setattr(reingest_lookups, "known_sample_types", lambda: {"A.GEX"})
     monkeypatch.setattr(reingest_lookups, "attributes_for", _real_attrs_for)
     rows = json.dumps([{
