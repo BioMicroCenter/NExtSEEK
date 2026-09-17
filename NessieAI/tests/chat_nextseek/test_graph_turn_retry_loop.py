@@ -109,6 +109,41 @@ def test_zero_rows_gets_one_more_go(monkeypatch, tmp_path):
     assert debug["graph_retry_changed_answer"] is True
 
 
+def test_a_single_row_aggregate_zero_also_gets_one_more_go(monkeypatch, tmp_path):
+    """`RETURN count(s) AS total` matching nothing comes back as ONE row holding zero, so a
+    row-count test sees a hit and the retry never fires.
+
+    Measured on the 2026-09-16 evaluation run: three of the five wrong-zero graph answers
+    were this shape, and none of them was retried. One told the user there are no HeLa
+    samples when there are four; another that no samples come from a lab that has 9,821.
+    """
+    _, debug, calls = _run(
+        monkeypatch, tmp_path,
+        plans=[
+            GraphAgentPlan(cypher="MATCH (s:T_CEL) WHERE s.CellLine CONTAINS 'hela' RETURN count(s) AS total",
+                           context_mode="catalog"),
+            GraphAgentPlan(cypher="MATCH (s:T_CEL) WHERE toLower(s.search_text) CONTAINS 'hela' RETURN count(s) AS total",
+                           context_mode="catalog"),
+        ],
+        results=[_ok(1, data=[{"total": 0}]), _ok(1, data=[{"total": 4}])],
+    )
+    assert calls["agent"] == 2, "a one-row zero must be retried like a no-row result"
+    assert "matched 0 records" in calls["retry_contexts"][0]
+    assert debug["graph_attempts"][-1]["count"] == 1
+    assert debug["graph_retry_changed_answer"] is True
+
+
+def test_a_single_row_real_count_is_left_alone(monkeypatch, tmp_path):
+    """The narrowness matters: a real answer must not be re-queried and risk replacement."""
+    _, debug, calls = _run(
+        monkeypatch, tmp_path,
+        plans=[GraphAgentPlan(cypher="MATCH (s:T_CEL) RETURN count(s) AS total", context_mode="catalog")],
+        results=[_ok(1, data=[{"total": 3288}])],
+    )
+    assert calls["agent"] == 1, "one row holding a real count is an answer, not an empty result"
+    assert "graph_retry_changed_answer" not in debug
+
+
 def test_zero_twice_keeps_the_first_result_and_stops(monkeypatch, tmp_path):
     """A second query that also finds nothing must not replace the first: zero is a
     valid answer, and a different query's zero is not a better one."""

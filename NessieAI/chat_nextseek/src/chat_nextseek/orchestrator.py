@@ -56,6 +56,7 @@ from .helpers import (
     shortlist_catalog,
     slim_api_result_for_llm,
     tool_nextseek_api_request,
+    matched_nothing,
     tool_neo4j_query,
 )
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
@@ -535,7 +536,7 @@ def _execute_graph_turn(
         "count": graph_result.get("count"), "error": graph_result.get("error"),
         "reason": "initial",
     }]
-    first_ok_empty = graph_result.get("ok") and not (graph_result.get("count") or 0)
+    first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
 
     for _ in range(GRAPH_MAX_TRIES - 1):
@@ -548,7 +549,7 @@ def _execute_graph_turn(
                 "and graph_topology - then generate a corrected query."
             )
             reason = "cypher_error"
-        elif not (graph_result.get("count") or 0) and not zero_row_retry_used:
+        elif matched_nothing(graph_result) and not zero_row_retry_used:
             zero_row_retry_used = True
             print("[GRAPH] Query ran but matched nothing, retrying once with that context")
             retry_ctx = (
@@ -582,13 +583,13 @@ def _execute_graph_turn(
         if not retry_result.get("ok"):
             if graph_result.get("ok"):
                 break
-        elif reason == "zero_rows" and not (retry_result.get("count") or 0):
+        elif reason == "zero_rows" and matched_nothing(retry_result):
             break
         graph_plan = graph_plan_retry
         graph_result = retry_result
 
     debug_payload["graph_attempts"] = attempts
-    if first_ok_empty and (graph_result.get("count") or 0):
+    if first_ok_empty and not matched_nothing(graph_result):
         # The user must not be told a number without being told the first query found
         # nothing and the filter was changed to get it.
         debug_payload["graph_retry_changed_answer"] = True
