@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import OperationalError
 
 from NessieAI.ns.reingest import proposals
 from nextseek_api.assistant.models_db import ReingestAttributeProposal as Proposal
@@ -211,9 +212,19 @@ def test_attribute_exists_propagates_a_lookup_failure_rather_than_returning_fals
     exist): downstream, `False` parks the value in Notes and queues a
     needs_definition row for superusers -- a fabricated schema gap. The
     genuine "not defined" answer needs no exception handling at all, because
-    `attributes_for_strict` already returns [] for an unknown sample type."""
+    `attributes_for_strict` already returns [] for an unknown sample type.
+
+    The injected failure is `django.db.OperationalError` -- what a real MySQL
+    outage actually raises -- not a bare `RuntimeError`: `attribute_exists`
+    must normalize whatever the DB layer throws into `RuntimeError`, the type
+    its caller catches for the 503 path (`nextseek_api/services/
+    reingest_proposals.py::approve`). A test that injects `RuntimeError`
+    directly cannot tell "propagates" apart from "normalizes" -- both look
+    identical from here -- and would not have caught the bug where
+    `attribute_exists` let a real `OperationalError` through unconverted.
+    """
     with patch("nextseek_api.services.reingest_lookups.attributes_for_strict",
-              side_effect=RuntimeError("catalog database unreachable")):
+              side_effect=OperationalError(2006, "Server has gone away")):
         with pytest.raises(RuntimeError):
             proposals.attribute_exists("D.FLOW", "UID")
 
@@ -227,7 +238,12 @@ def test_attribute_exists_raises_when_the_real_catalog_lookup_fails(rows):
     `load_sample_types_strict` -- the twin of the lenient loader that lets a
     failure from `_sample_type_rows` propagate instead of swallowing it into
     `[]` (see test_context_catalog.py's own use of this patch target). It
-    must still raise here, not return a fabricated `False`."""
-    rows.side_effect = RuntimeError("sample_types_context table unreachable")
+    must still raise here, not return a fabricated `False`.
+
+    `django.db.OperationalError` here too, for the same reason as the test
+    above: `_sample_type_rows` is a real Django queryset call, and a real
+    outage there raises a DB-layer exception, never a bare `RuntimeError`.
+    """
+    rows.side_effect = OperationalError(2006, "sample_types_context table unreachable")
     with pytest.raises(RuntimeError):
         proposals.attribute_exists("D.FLOW", "UID")

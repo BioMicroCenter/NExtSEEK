@@ -238,7 +238,21 @@ def attribute_exists(sample_type: str, attribute: str) -> bool:
     as before), but a catalog outage -- the sample-type table unreachable --
     raises instead of coming back indistinguishable as the same ``[]``. That
     is the fabricated-schema-gap failure mode this function exists to avoid.
+
+    Whatever ``attributes_for_strict`` raises on that outage -- a real
+    backend's ``django.db.utils.OperationalError``/``ProgrammingError``, or
+    anything else -- is normalized here to ``RuntimeError``. That is the
+    boundary the caller (``nextseek_api/services/reingest_proposals.py``'s
+    ``approve``) is written against: it catches exactly ``RuntimeError`` to
+    report a 503 rather than the 409 a genuine schema gap gets, and must not
+    have to enumerate every exception type the Django DB layer might raise.
     """
     from nextseek_api.services.reingest_lookups import attributes_for_strict
 
-    return attribute in {a["title"] for a in attributes_for_strict(sample_type)}
+    try:
+        attributes = attributes_for_strict(sample_type)
+    except Exception as exc:
+        raise RuntimeError(
+            f"sample type catalog unreachable while checking {sample_type!r}: {exc}"
+        ) from exc
+    return attribute in {a["title"] for a in attributes}
