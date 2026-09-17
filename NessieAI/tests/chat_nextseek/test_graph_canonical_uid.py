@@ -91,13 +91,25 @@ def test_an_aliased_return_column_named_uid_is_not_rewritten():
 
 
 def test_graph_agent_applies_the_rewrite_end_to_end():
-    """The task 855 shape must not reach Neo4j with `.UID` on it."""
-    plan = GraphAgentPlan(
+    """The task 855 shape must not reach Neo4j with `.UID` on it.
+
+    Task 855's Cypher also carries `[:DERIVED_FROM*1..]`, which the shape guard (POC P6a) now
+    refuses and repairs, so the mock answers the repair prompt with the bounded form. The point
+    of this test is unchanged: whichever plan the agent ends on, the UID rewrite has been applied
+    to it — the guard runs the rewrite over the repaired Cypher too.
+    """
+    unbounded = GraphAgentPlan(
         cypher="MATCH (seq:Sample)-[:DERIVED_FROM*1..]->(nhp:Sample) "
                "WHERE nhp.UID IN $uids AND seq.type = $type RETURN seq.uuid AS uuid",
         explanation="find sequencing data",
         parameters={"type": "D.SEQ", "uids": ["NHP-220524FLY-1-PUB"]})
-    with patch("chat_nextseek.agents.graph.call_llm_structured", return_value=plan):
+    bounded = GraphAgentPlan(
+        cypher="MATCH (seq:Sample)-[:DERIVED_FROM*1..8]->(nhp:Sample) "
+               "WHERE nhp.UID IN $uids AND seq.type = $type RETURN seq.uuid AS uuid",
+        explanation="find sequencing data",
+        parameters={"type": "D.SEQ", "uids": ["NHP-220524FLY-1-PUB"]})
+    with patch("chat_nextseek.agents.graph.call_llm_structured",
+               side_effect=[unbounded, bounded]):
         out = graph_agent(_config(), user_query="Find sequencing data for NHP-220524FLY-1-PUB.",
                           entity_result={})
 

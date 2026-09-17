@@ -390,6 +390,8 @@ class _Scan:
     samples: set[str] = field(default_factory=set)  # variables that hold a Sample node
     paths: set[str] = field(default_factory=set)  # path variables over Sample nodes
     clauses: list[tuple[str, int, int, int]] = field(default_factory=list)
+    # every node and relationship pattern, sorted: (start, end, 'node'|'rel', var, labels or types)
+    elements: list[tuple[int, int, str, str | None, list[str]]] = field(default_factory=list)
 
 
 def _label_names(text: str | None) -> list[str]:
@@ -630,6 +632,7 @@ def _scan(cypher: str) -> _Scan:
     scan.samples = {v for v, labels in scan.node_labels.items()
                     if "Sample" in labels or any(label.startswith("T_") for label in labels)}
     elements.sort()
+    scan.elements = elements
     for i in range(1, len(elements) - 1):
         left, rel, right = elements[i - 1], elements[i], elements[i + 1]
         if left[2] != "node" or rel[2] != "rel" or right[2] != "node" or len(rel[4]) != 1:
@@ -820,6 +823,364 @@ def _catalog_refusal(problems: list[_Problem], whole: list[str]) -> str:
         parts.append(f"labels {labels} name no sample type")
     if whole:
         parts.append("it returns whole Sample nodes (" + ", ".join(f"whole node {v}" for v in whole) + ")")
+    return "Graph agent could not produce valid Cypher; " + "; ".join(parts) + "."
+
+
+# --------------------------------------------------------------------------- #
+# The query-shape guards: P6a and P6b of the Pilot A POC review
+#
+# Both refuse a *shape*, not a name, and both are string-in / list-out, so they replay over
+# `PilotAPOC/review/compare_export.json` with no graph, no model call and no cost. Each
+# refusal is a repair prompt first — the agent gets one retry, and the message names the
+# query to write instead — and a named empty plan second. Over-refusal is this guard's own
+# failure mode, so every rule below is the narrowest one the run's evidence supports and
+# anything the guard cannot read is left alone.
+#
+# P6a, the variable-length path. Two of the 56 executed queries in run full-a used one at
+# all, and both wrote `*0..`: `entity.find_pbmcs_that_were_sequenced_u` ran 173.4 s and was
+# killed (the run's only timeout) and `advanced.show_me_all_facs_data_for_the` returned
+# 3,688 where the key says 3,728. Neo4j expands an unbounded pattern to exhaustion over
+# 1,213,093 DERIVED_FROM edges. The answer key's own traversal oracles for those two
+# questions bound the hops — `*1..6` and `*1..8` — which is what the refusal asks for. The
+# second condition, no anchor on either end, is the narrow case a bound does not cover: a
+# bounded expansion that starts from every sample in the database is still one.
+#
+# NOTE for the prompt half of phase 9: `prompts/graph_agent.txt` still teaches
+# `[:DERIVED_FROM*1..]` and `[:DERIVED_FROM*0..]` in three places (the hop-choice bullet and
+# the two worked patterns). A query that follows the prompt is therefore refused once and
+# repaired once, which costs one model call per traversal. Bounding the prompt's examples at
+# `*1..MAX_DERIVATION_HOPS` removes that cost; the guard stays either way, for the same
+# reason the WITH guard stays — the prompt already carries that rule and the model drops it
+# about 40% of the time.
+#
+# P6b, the fulltext call. `sample_search_text` is analysed, so an unquoted multi-token term
+# is an OR over its tokens and an unscoped call returns their union: `ChIP-seq` became
+# `chip OR seq` and answered "Yes, there are 138,313 matching records" to a question whose
+# true answer is none, the worst single reply in the run. The rule is "unscoped AND
+# multi-token", not "unscoped", because the same unscoped index on one clean word is exact
+# and free: `ImmPort` returned 4,081, which is the key.
+# --------------------------------------------------------------------------- #
+
+# The derivation chain is D.SEQ -> DNA -> TIS -> PAV -> NHP and the answer key's traversal
+# oracles bound it at *1..6 and *1..8. 8 is the number the refusal names.
+MAX_DERIVATION_HOPS = 8
+
+# Labels every sample carries, so a pattern wearing one of them narrows nothing.
+_UNIVERSAL_LABELS = frozenset({"Sample", "OrphanSample"})
+
+_FULLTEXT_CALL_RE = re.compile(r"\bdb\.index\.fulltext\.queryNodes\s*\(", re.IGNORECASE)
+# Lucene's own conjunctions. Case-sensitive on purpose: a lowercase `and` is a term.
+_LUCENE_CONJUNCTION_RE = re.compile(r"\bAND\b|&&|(?:^|\s)\+\w")
+_ANALYSER_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+_PARAM_RE = re.compile(rf"\$({_NAME})")
+_LITERAL_RE = re.compile(r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\"")
+# `s = node` and `s.uuid = node.uuid`, but not `<=`, `>=`, `<>`, `=~` or `==`.
+_EQ_JOIN_RE = re.compile(
+    rf"(?<![\w.$])(?P<a>{_NAME})(?:\.{_NAME})?\s*(?<![<>!=~])=(?![=~])\s*(?P<b>{_NAME})(?:\.{_NAME})?(?![\w(])")
+_LEFT_OF_REL_RE = re.compile(r"\s*<?\s*-\s*")
+_RIGHT_OF_REL_RE = re.compile(r"\s*-\s*>?\s*")
+
+
+class _Shape(NamedTuple):
+    pos: int
+    kind: str  # 'unbounded_path' | 'unanchored_path' | 'unscoped_fulltext'
+    text: str  # the offending fragment, verbatim from the Cypher
+    detail: str  # what makes it one: the hop range, the bare ends, the tokens the index would OR
+
+
+def _matching_paren(masked: str, i: int) -> int:
+    """Index of the `)` closing the `(` at ``i``, or -1."""
+    depth = 0
+    for j in range(i, len(masked)):
+        if masked[j] == "(":
+            depth += 1
+        elif masked[j] == ")":
+            depth -= 1
+            if depth == 0:
+                return j
+    return -1
+
+
+def _hop_range(hops: str) -> tuple[int, int | None] | None:
+    """``(min, max)`` for a `*`, `*3`, `*1..8`, `*..8` or `*2..` quantifier; None if unreadable.
+
+    ``max`` is None when the pattern has no upper bound. An unreadable quantifier is a syntax
+    error Neo4j will reject on its own, so the guard says nothing about it.
+    """
+    body = hops.lstrip("*").replace(" ", "")
+    try:
+        if not body:
+            return 1, None
+        if ".." in body:
+            low, _, high = body.partition("..")
+            return (int(low) if low else 1), (int(high) if high else None)
+        return int(body), int(body)
+    except ValueError:
+        return None
+
+
+def _in_clause(scan: _Scan, pos: int, keyword: str) -> bool:
+    return any(kw == keyword and body_start <= pos < body_end
+               for kw, _, body_start, body_end in scan.clauses)
+
+
+def _filtered_variables(scan: _Scan) -> set[str]:
+    """Variables the query actually constrains: a predicate, an inline map, or a fulltext hit.
+
+    A read in RETURN or WITH is a projection and filters nothing, which is why the clause the
+    read sits in matters. Reads inside a pattern are its property map (`(s:T_TIS {Organ: $o})`).
+    """
+    patterns = [(start, end) for start, end, kind, *_ in scan.elements if kind == "node"]
+    filtered = {key for pos, kind, key, _prop in scan.reads
+                if kind == "var" and key
+                and (_in_clause(scan, pos, "WHERE") or any(s <= pos < e for s, e in patterns))}
+    for m in _YIELD_NODE_RE.finditer(scan.masked):
+        filtered.add(m.group("alias") or "node")  # the index already narrowed this one
+    for source, alias in scan.aliases:
+        if source in filtered:
+            filtered.add(alias)
+    return filtered
+
+
+def _path_end(scan: _Scan, rel_start: int, rel_end: int, side: str):
+    """The node pattern on one side of a relationship pattern: ``(start, end, var, labels)``."""
+    found = None
+    for start, end, kind, var, names in scan.elements:
+        if kind != "node":
+            continue
+        if side == "left" and end <= rel_start and _LEFT_OF_REL_RE.fullmatch(scan.masked[end:rel_start]):
+            found = (start, end, var, names)
+        if side == "right" and start >= rel_end and _RIGHT_OF_REL_RE.fullmatch(scan.masked[rel_end:start]):
+            return start, end, var, names
+    return found
+
+
+def _is_anchored(scan: _Scan, end, filtered: set[str], rel_start: int) -> bool:
+    """Whether one end of a variable-length path narrows the expansion.
+
+    Anchored by a label that is not `Sample`, by an inline property map, by a predicate
+    anywhere in the query, by being a fulltext hit, or by an earlier pattern having bound it.
+    """
+    if end is None:
+        return False
+    start, stop, var, labels = end
+    if any(label not in _UNIVERSAL_LABELS for label in labels):
+        return True
+    if "{" in scan.masked[start:stop]:
+        return True
+    if not var:
+        return False
+    if var in filtered:
+        return True
+    return any(kind == "node" and v == var and (s, e) != (start, stop) and s < rel_start
+               for s, e, kind, v, _ in scan.elements)
+
+
+def _variable_length_problems(cypher: str, scan: _Scan) -> list[_Shape]:
+    """P6a: every variable-length relationship pattern with no upper bound or no anchored end."""
+    problems: list[_Shape] = []
+    filtered = _filtered_variables(scan)
+    for m in _REL_PATTERN_RE.finditer(scan.masked):
+        if not m.group("hops"):
+            continue
+        k = m.start() - 1
+        while k >= 0 and scan.masked[k].isspace():
+            k -= 1
+        if k < 0 or scan.masked[k] != "-":
+            continue  # a list or an index, not `-[...]-`
+        bounds = _hop_range(m.group("hops"))
+        if bounds is None:
+            continue
+        fragment = " ".join(cypher[m.start():m.end()].split())
+        low, high = bounds
+        if high is None:
+            problems.append(_Shape(m.start(), "unbounded_path", fragment,
+                                   f"no maximum hop count (the quantifier only says {low} or more)"))
+        left = _path_end(scan, m.start(), m.end(), "left")
+        right = _path_end(scan, m.start(), m.end(), "right")
+        if not _is_anchored(scan, left, filtered, m.start()) and \
+                not _is_anchored(scan, right, filtered, m.start()):
+            ends = " and ".join(" ".join(cypher[e[0]:e[1]].split()) if e else "(an unnamed end)"
+                               for e in (left, right))
+            problems.append(_Shape(m.start(), "unanchored_path", fragment,
+                                   f"neither end is anchored: {ends}"))
+    return problems
+
+
+def _fulltext_term(cypher: str, start: int, end: int, parameters) -> str | None:
+    """The text the fulltext index would search, or None when the guard cannot read it.
+
+    One `$param` and no literal resolves through ``parameters``; one literal and no `$param`
+    resolves to itself. Anything else — a concatenation, several parameters, an unbound name —
+    is unresolved, and an unresolved term is never a refusal.
+
+    Both are read off the original Cypher, not the mask, which blanks exactly these two.
+    """
+    argument = cypher[start:end]
+    params = _PARAM_RE.findall(argument)
+    literals = _LITERAL_RE.findall(argument)
+    if len(params) == 1 and not literals:
+        value = (parameters or {}).get(params[0])
+        return value if isinstance(value, str) else None
+    if len(literals) == 1 and not params:
+        return literals[0][0] or literals[0][1]
+    return None
+
+
+def _analyser_tokens(term: str) -> list[str]:
+    """The tokens the index's analyser would produce: it splits on everything but letters and
+    digits and lowercases, which is why `ChIP-seq` matches every `seq` in the database."""
+    return [t.lower() for t in _ANALYSER_TOKEN_RE.findall(term)]
+
+
+def _is_one_lucene_unit(term: str) -> bool:
+    """A term the index will not silently turn into an OR: one token, a quoted phrase, or an
+    explicit conjunction (`chip AND seq`, `+chip +seq`)."""
+    text = term.strip()
+    if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+        return True
+    if _LUCENE_CONJUNCTION_RE.search(text):
+        return True
+    return len(_analyser_tokens(text)) < 2
+
+
+def _joined_to(scan: _Scan, hit: str) -> set[str]:
+    """``hit`` and every variable the query ties to it: `s = node`, `(s:T_X {uuid: node.uuid})`,
+    `WITH node AS s`."""
+    joined = {hit}
+    for _ in range(4):  # transitive, and four hops is more than any real query needs
+        before = len(joined)
+        for m in _EQ_JOIN_RE.finditer(scan.masked):
+            a, b = m.group("a"), m.group("b")
+            if a in joined:
+                joined.add(b)
+            if b in joined:
+                joined.add(a)
+        for start, end, kind, var, _labels in scan.elements:
+            if kind == "node" and var and var not in joined and any(
+                    read in joined for read in re.findall(rf"(?<![\w.$])({_NAME})\.", scan.masked[start:end])):
+                joined.add(var)
+        for source, alias in scan.aliases:
+            if source in joined:
+                joined.add(alias)
+            if alias in joined:
+                joined.add(source)
+        if len(joined) == before:
+            break
+    return joined
+
+
+def _fulltext_scope(scan: _Scan, joined: set[str]) -> str | None:
+    """How the query narrows the index's hits — a type label or a predicate — or None."""
+    for var in sorted(joined):
+        for label in scan.node_labels.get(var, {}):
+            if label not in _UNIVERSAL_LABELS:
+                return f"{var}:{label}"
+    for pos, kind, key, prop in scan.reads:
+        if kind == "var" and key in joined and _in_clause(scan, pos, "WHERE"):
+            return f"{key}.{prop}"
+    return None
+
+
+def _fulltext_problems(cypher: str, scan: _Scan, parameters) -> list[_Shape]:
+    """P6b: every `db.index.fulltext.queryNodes` call whose hits are unscoped and whose term
+    the analyser would split into an OR over several tokens."""
+    problems: list[_Shape] = []
+    for m in _FULLTEXT_CALL_RE.finditer(scan.masked):
+        close = _matching_paren(scan.masked, m.end() - 1)
+        if close == -1:
+            continue
+        arguments = _items(scan.masked, m.end(), close)
+        if len(arguments) < 2:
+            continue
+        term = _fulltext_term(cypher, *arguments[1], parameters)
+        if term is None or _is_one_lucene_unit(term):
+            continue
+        hit = _YIELD_NODE_RE.search(scan.masked, close)
+        if hit is None:
+            continue  # the call's nodes are never yielded, so there is nothing to scope
+        joined = _joined_to(scan, hit.group("alias") or "node")
+        if _fulltext_scope(scan, joined) is not None:
+            continue
+        tokens = _analyser_tokens(term)
+        problems.append(_Shape(
+            m.start(), "unscoped_fulltext",
+            " ".join(cypher[m.start():close + 1].split()),
+            f"the term {term!r} analyses to {', '.join(tokens)}, and nothing scopes the hits"))
+    return problems
+
+
+def query_shape_problems(cypher: str | None, parameters=None) -> list[_Shape]:
+    """Shapes this graph must not be asked to run, in the order they appear in the Cypher.
+
+    ``parameters`` is the plan's parameter map, needed to read a `$param` search term. Fails
+    soft: a guard that cannot parse a query says nothing about it, because the alternative is
+    refusing a query that works.
+    """
+    if not cypher or not cypher.strip():
+        return []
+    try:
+        scan = _scan(cypher)
+        problems = _variable_length_problems(cypher, scan) + _fulltext_problems(cypher, scan, parameters)
+    except Exception as e:  # noqa: BLE001 (never refuse because the guard itself broke)
+        print(f"[DEBUG][GRAPH][SHAPE_GUARD] guard failed, allowing the query: {e!r}")
+        return []
+    return sorted(problems)
+
+
+def refused_query_shapes(cypher: str | None, parameters=None) -> list[str]:
+    """One line per refused shape: ``["unbounded path [:DERIVED_FROM*0..]: ...", ...]``."""
+    return [f"{problem.kind.replace('_', ' ')} {problem.text}: {problem.detail}"
+            for problem in query_shape_problems(cypher, parameters)]
+
+
+def _shape_repair_message(problems: list[_Shape]) -> str:
+    """The one repair prompt: what each shape costs, and the query to write instead."""
+    lines = ["The previous Cypher is well formed but its shape cannot be run against this graph:"]
+    for problem in problems:
+        lines.append(f"- {problem.text} — {problem.detail}")
+    if any(p.kind == "unbounded_path" for p in problems):
+        lines.append(
+            f"Give every variable-length relationship an explicit maximum: write "
+            f"`[:DERIVED_FROM*1..{MAX_DERIVATION_HOPS}]` (or `*0..{MAX_DERIVATION_HOPS}` when the zero-hop case "
+            f"counts) instead of `*`, `*1..` or `*0..`. The house derivation chain D.SEQ -> DNA -> TIS -> PAV -> NHP "
+            f"is four hops, the answer key's own traversal queries bound theirs at *1..6 and *1..8, and an unbounded "
+            "pattern was measured on this database at 173 s before it was killed without returning anything.")
+    if any(p.kind == "unanchored_path" for p in problems):
+        lines.append(
+            "Anchor at least one end of the path before the hops: a sample type label (`(d:T_D_SEQ)`), a property "
+            "predicate on that end, or a variable an earlier clause already bound. A plain `(:Sample)` on both ends "
+            "expands from all 1,084,754 samples.")
+    if any(p.kind == "unscoped_fulltext" for p in problems):
+        lines.append(
+            "The fulltext index is analysed: it lowercases and splits on punctuation and spaces, then returns every "
+            "sample matching ANY token, so an unscoped multi-word term answers with the union. Measured on this "
+            "database, 'ChIP-seq' became chip OR seq and returned 138,313 of 1,084,754 samples for a question whose "
+            "answer is none. Do one of these instead:\n"
+            "  - match the text directly, which keeps adjacency and punctuation:\n"
+            "    WHERE toLower(s.search_text) CONTAINS toLower($term)  (one OR branch per spelling)\n"
+            "  - or keep the index and scope its hits to the sample type the question is about:\n"
+            "    CALL db.index.fulltext.queryNodes('sample_search_text', $term) YIELD node WHERE node:T_<code>\n"
+            "  - use the index unscoped only for a single clean word whose case variants should merge.")
+    lines.append("Regenerate the Cypher with a runnable shape, or return an empty cypher and say why if the question "
+                 "cannot be answered from the graph.")
+    return "\n".join(lines)
+
+
+def _shape_refusal(problems: list[_Shape]) -> str:
+    """The user-facing reason, when the one repair kept the shape."""
+    parts = []
+    for problem in problems:
+        if problem.kind == "unbounded_path":
+            parts.append(f"the path {problem.text} has no maximum hop count, which does not return on this graph "
+                         f"(bound it at *1..{MAX_DERIVATION_HOPS})")
+        elif problem.kind == "unanchored_path":
+            parts.append(f"the path {problem.text} expands from every sample in the database "
+                         "(anchor one end to a sample type or a predicate)")
+        else:
+            parts.append(f"the unscoped fulltext call {problem.text} would return the union of its tokens rather "
+                         "than an answer (match toLower(search_text) CONTAINS the phrase, or scope the hits to a "
+                         "sample type)")
     return "Graph agent could not produce valid Cypher; " + "; ".join(parts) + "."
 
 
@@ -1083,6 +1444,26 @@ def graph_agent(
                         parameters={},
                         context_mode=context_mode,
                     )
+
+        # Shape guard (POC P6a, P6b): an unbounded or unanchored variable-length path, and an
+        # unscoped fulltext call whose term the analyser would split into an OR. Runs after the
+        # property guards, so it sees whatever Cypher they settled on, and takes the same one
+        # repair then empty plan. The repair message names the query to write instead.
+        shapes = query_shape_problems(result.cypher, result.parameters)
+        if shapes:
+            print(f"[DEBUG][GRAPH] Shape guard: {refused_query_shapes(result.cypher, result.parameters)}; "
+                  "attempting repair")
+            messages.append({"role": "system", "content": _shape_repair_message(shapes)})
+            result = call("Regenerate the Cypher.", "graph_agent_shape_repair")
+            result.cypher, _ = canonicalize_sample_uid_property(result.cypher)
+            print(f"[DEBUG][GRAPH] Reshaped cypher: {result.cypher!r}")
+            shapes = query_shape_problems(result.cypher, result.parameters)
+            if shapes:
+                print(f"[DEBUG][GRAPH] Repair keeps the refused shape: "
+                      f"{[s.kind for s in shapes]}; returning empty plan")
+                return GraphAgentPlan(cypher="", explanation=_shape_refusal(shapes), parameters={},
+                                      context_mode=context_mode)
+            result.explanation = f"{result.explanation} [shape guard: one repair]".strip()
 
         # Filter guard: an OPTIONAL MATCH immediately followed by WHERE folds the
         # predicate into the optional pattern, so the filter is silently discarded and
