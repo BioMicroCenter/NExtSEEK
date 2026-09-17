@@ -92,6 +92,17 @@ def _graph(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
     return envelope["result"]
 
 
+def _graph_schema(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
+    body = {}
+    if args.get("types"):
+        body["types"] = args["types"]
+    if args.get("query"):
+        body["query"] = args["query"]
+    envelope = ns_client.call_op("graph-schema", body,
+                                 base_url=config.base_url, auth=config.auth)
+    return envelope["result"]
+
+
 def _api_read(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
     # Validate parser_plan JSON before forwarding (OpValidationError parity)
     _load_parser_plan(args)  # raises OpValidationError on bad JSON
@@ -183,6 +194,7 @@ def _build_upload_xlsx(args, config, session, write_gate, stage, stage_bytes, co
 
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity, "parse": _parse, "graph": _graph,
+    "graph-schema": _graph_schema,
     "api-read": _api_read, "api-write": _api_write,
     "report": _report, "generate-submission": _generate_submission,
     "run-ls": _run_ls, "build-upload-xlsx": _build_upload_xlsx,

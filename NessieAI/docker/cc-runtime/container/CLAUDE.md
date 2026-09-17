@@ -32,6 +32,7 @@ nextseek-entity-extract	entity	Resolve NL terms to NExtSEEK vocabulary.
 nextseek-extract-text	extract	Extract text from a file.
 nextseek-generate-submission	generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.
 nextseek-graph	graph	Run a Neo4j lineage/graph query from NL.
+nextseek-graph-schema	graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.
 nextseek-parse	parse	Turn an NL question into a parser plan.
 nextseek-pipeline	pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.
 nextseek-plan	plan	Multi-step planner advisor (read-only).

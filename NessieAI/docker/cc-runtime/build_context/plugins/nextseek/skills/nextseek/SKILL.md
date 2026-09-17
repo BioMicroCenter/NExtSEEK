@@ -256,6 +256,7 @@ build-upload-xlsx	nextseek-build-upload-xlsx	**Reingest step 2** — render NExt
 entity	nextseek-entity-extract	Resolve NL terms to NExtSEEK vocabulary.	sidecar	read	true	true
 generate-submission	nextseek-generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.	sidecar	read	true	true
 graph	nextseek-graph	Run a Neo4j lineage/graph query from NL.	sidecar	read	true	true
+graph-schema	nextseek-graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.	sidecar	read	true	true
 parse	nextseek-parse	Turn an NL question into a parser plan.	sidecar	read	true	true
 pipeline	nextseek-pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.	viewset	unrouted	true	true
 plan	nextseek-plan	Multi-step planner advisor (read-only).	viewset	unrouted	true	true

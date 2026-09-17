@@ -1,0 +1,26 @@
+#!/bin/sh
+# nextseek-graph-schema — the deployed graph's schema, read live from NExtSEEK.
+# Replaces reading the neo4j_schema.json that used to be baked into this image.
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+TYPES=""
+QUERY=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --types) TYPES="$2"; shift 2 ;;
+    --types=*) TYPES="${1#--types=}"; shift ;;
+    --query) QUERY="$2"; shift 2 ;;
+    --query=*) QUERY="${1#--query=}"; shift ;;
+    --help)
+      echo "Usage: nextseek-graph-schema [--types \"TIS,D.SEQ\"] [--query \"<text>\"]"
+      echo "  --types  sample type codes to render in full (attributes and their values)"
+      echo "  --query  gates the vocabulary blocks; no model call is made either way"
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent graph-schema --types "$TYPES" --query "$QUERY"

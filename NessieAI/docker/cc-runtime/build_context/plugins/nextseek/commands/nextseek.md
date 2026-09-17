@@ -19,6 +19,7 @@ nextseek-entity-extract	entity	sidecar
 nextseek-extract-text	extract	local_subcommand
 nextseek-generate-submission	generate-submission	sidecar
 nextseek-graph	graph	sidecar
+nextseek-graph-schema	graph-schema	sidecar
 nextseek-parse	parse	sidecar
 nextseek-pipeline	pipeline	viewset
 nextseek-plan	plan	viewset

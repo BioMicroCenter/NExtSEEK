@@ -218,6 +218,23 @@ def _dispatch_graph(args):
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
 
 
+def _dispatch_graph_schema(args):
+    if _dry_run():  # pragma: no branch
+        return {"source": "catalog", "schema": "", "vocabulary": ""}  # pragma: no cover
+    import _sidecar_client as sc  # pragma: no cover
+    body = {}  # pragma: no cover
+    if args.types:  # pragma: no cover
+        body["types"] = args.types  # pragma: no cover
+    if args.query:  # pragma: no cover
+        body["query"] = args.query  # pragma: no cover
+    try:  # pragma: no cover
+        return sc.call_op("graph-schema", body,  # pragma: no cover
+                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
+    except sc.SidecarCallError as e:  # pragma: no cover
+        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+
+
 def _dispatch_report(args):
     if args.mode not in ("samples", "protocols", "published", "rppr"):  # pragma: no cover
         _err("VALIDATION",  # pragma: no cover
@@ -484,6 +501,7 @@ _DISPATCH = {
     "api-read": _dispatch_api_read,
     "api-write": _dispatch_api_write,
     "graph": _dispatch_graph,
+    "graph-schema": _dispatch_graph_schema,
     "report": _dispatch_report,
     "generate-submission": _dispatch_generate_submission,
     "pipeline": _dispatch_pipeline,
@@ -498,6 +516,7 @@ def main() -> None:
     p.add_argument("--query")
     p.add_argument("--parser-plan")  # for api-read / api-write
     p.add_argument("--confirmed-write", action="store_true")
+    p.add_argument("--types")  # for graph-schema (comma-separated sample type codes)
     p.add_argument("--mode")  # for report
     p.add_argument("--project")  # for report
     p.add_argument("--type")  # for generate-submission
