@@ -469,3 +469,34 @@ def test_an_unknown_lane_is_refused():
     with pytest.raises(ValueError, match="lane"):
         Route(pattern=r"^x/$", path=None, methods=(), profiles="",
               exclude="EXCLUDE_COST", lane="nightly")
+
+
+def test_project_discovery_does_not_read_the_unscoped_project_list():
+    """The project routes are membership-gated, so the discovered project must be one the smoke
+    account belongs to.
+
+    /nextseek_api/projects/ returns every project ordered by updated_at, so its first row is
+    whichever project was touched last. On 2026-09-16 that was a project the smoke account is not
+    a member of, and /seek/projects/{id}/connections/ and .../samples/ both reported 403 against
+    correct product behaviour. The caller's own memberships come from
+    /nextseek_api/people/current/, which answers with exactly them.
+    """
+    from ci.smoke import conftest
+    assert "seek_project_id" not in conftest._JSONAPI_LIST_SOURCE, (
+        "seek_project_id must resolve from the caller's own memberships, not from the first row "
+        "of the unscoped project list"
+    )
+    assert "seek_project_id" in DISCOVERED_KEYS
+
+
+def test_sample_type_discovery_does_not_read_the_unscoped_type_list():
+    """The type detail pages render that type's samples, so a large type times out.
+
+    On 2026-09-16 discovery picked a type with 283,311 samples and both
+    /seek/sample_types/id={id}/ and /nextseek_api/sample_types/{id}/ returned 500, one on a proxy
+    TimeoutError and one on a SEEK page that never carried its content div. Taking the type of a
+    sample the account can already see keeps it both visible and of workable size.
+    """
+    from ci.smoke import conftest
+    assert "sample_type_id" not in conftest._JSONAPI_LIST_SOURCE
+    assert "sample_type_id" in DISCOVERED_KEYS

@@ -587,14 +587,26 @@ _JSONAPI_LIST_SOURCE: dict[str, str] = {
     "data_file_id":     "/nextseek_api/data_files/",
     "investigation_id": "/nextseek_api/investigations/",
     "person_id":        "/nextseek_api/people/",
-    "sample_type_id":   "/nextseek_api/sample_types/",
-    "seek_project_id":  "/nextseek_api/projects/",
     "sop_id":           "/nextseek_api/sops/",
     "study_id":         "/nextseek_api/studies/",
 }
 
 # The attributes endpoint answers {"attributes": [...]}, not a JSON:API document.
 _ATTRIBUTE_SOURCE = "/nextseek_api/attributes/"
+
+# seek_project_id and sample_type_id are NOT taken from their list endpoints, and the reason is a
+# measured CI failure rather than a preference. Both lists are unscoped and unordered by size:
+#   * /nextseek_api/projects/ returns every project ordered by updated_at, so its first row is
+#     whichever project was touched last. The project routes are membership-gated
+#     (seek/views/projects.py), so on 2026-09-16 discovery picked a project the smoke account is
+#     not in and two routes reported 403 against correct product behaviour.
+#   * /nextseek_api/sample_types/ has no notion of size, and the type detail pages render that
+#     type's samples. The same day it picked a type with 283,311 samples; the proxy call raised
+#     TimeoutError and the SEEK page came back with no content div, so two more routes went 500.
+# So the project comes from the caller's own memberships, and the type from a sample the caller can
+# already see. It is the same rule SMOKE_SEARCH_TERM above already states: a discovered value the
+# smoke account cannot use reads as a broken route rather than as correct scoping.
+_CURRENT_PERSON = "/nextseek_api/people/current/"
 
 # Both sample names come from one request: the query the search page itself makes.
 _SAMPLE_SOURCE = "/seek/searchAdvanced/"
@@ -628,6 +640,7 @@ _ASSAY_CATALOG = "/seek/assays/"
 DISCOVERED_KEYS = frozenset(_JSONAPI_LIST_SOURCE) | {
     "attribute_id", "sample_id", "sample_uid",
     "sample_type_code", "assay_slug",
+    "seek_project_id", "sample_type_id",
 }
 
 
@@ -704,10 +717,28 @@ def discovered(profile, api, web, base_url) -> dict[str, str | None]:
         if _profile_permits(profile, base_url, _ATTRIBUTE_SOURCE) else None
     )
 
+    # A project the caller is actually a member of, which is what the gate in
+    # seek/views/projects.py checks. Lowest id of the caller's own, so the value is stable across
+    # runs rather than moving with whichever project was last touched.
+    found["seek_project_id"] = None
+    if _profile_permits(profile, base_url, _CURRENT_PERSON):
+        r = api.get(base_url + _CURRENT_PERSON, timeout=90,
+                    headers={"Accept": "application/json"})
+        if r.status_code == 200:
+            try:
+                data = (r.json() or {}).get("data") or {}
+            except ValueError:
+                data = {}
+            members = ((data.get("relationships") or {}).get("projects") or {}).get("data") or []
+            ids = sorted(int(p["id"]) for p in members
+                         if isinstance(p, dict) and str(p.get("id", "")).isdigit())
+            found["seek_project_id"] = str(ids[0]) if ids else None
+
     # The sample pair. This is the query the advanced-search grid itself issues,
     # and the same one test_flows.py's a_sample fixture uses: a bare GET of this
     # view is a 500, so the full filter set is not decoration.
     found["sample_id"] = found["sample_uid"] = None
+    rows: list = []   # bound here so the sample_type_id block below is safe when the profile forbids
     if _profile_permits(profile, base_url, _SAMPLE_SOURCE):
         r = web.get(
             base_url + _SAMPLE_SOURCE,
@@ -731,6 +762,16 @@ def discovered(profile, api, web, base_url) -> dict[str, str | None]:
             found["sample_id"] = str(rows[0]["id"])
             # The grid renders the UID as a link, so the raw field carries markup.
             found["sample_uid"] = re.sub(r"<[^>]+>", "", str(rows[0].get("uid", ""))).strip() or None
+
+    # The type of that sample, taken from the same row: the search already selects
+    # sample_type_id (seek/sample/queries.py), so this costs no extra request, and a type reached
+    # this way is by construction one the smoke account can see and of a size the detail pages can
+    # render. Set here rather than beside the other ids because it depends on the search above.
+    found["sample_type_id"] = None
+    if rows and isinstance(rows[0], dict):
+        type_id = rows[0].get("sample_type_id")
+        if type_id is not None and str(type_id).strip().isdigit():
+            found["sample_type_id"] = str(type_id).strip()
 
     # The two catalog pages publish their own detail links, so the placeholder is
     # scraped from the page it will be used against. `web`, not `api`: these are
