@@ -425,6 +425,17 @@ def _render_one(index, code, attribute, bucket):
             "      Every reingested sample is derived from something. Tell me which",
             "      sequencing sample each of these came from, and I will fill it in.",
         ]
+    if code == qa.LINEAGE_UNRESOLVED:
+        return [
+            f"  {index}.  {count} {rows} in {_workbook_ref(sample_type)}"
+            f" {_verb(count, 'ship', 'ships')} with no parent identified.",
+            "",
+            "      I could not tell which sequencing sample produced these outputs,",
+            "      so I kept them rather than dropping the files from NExtSEEK.",
+            "",
+            "      Upload as-is and attach the parent in NExtSEEK once you know it,",
+            "      or identify the source sample now and re-run this reingest first.",
+        ]
     if code == qa.PARENT_UID_NOT_FOUND:
         return [
             f"  {index}.  {count} {rows} in {_workbook_ref(sample_type)}"

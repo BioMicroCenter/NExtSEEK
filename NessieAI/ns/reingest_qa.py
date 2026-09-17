@@ -26,6 +26,17 @@ HARD = "hard"
 SOFT = "soft"
 
 BLANK_PARENT = "blank_parent"
+# Parent-key presence is a three-state signal, not two (see the new-mode
+# Parent-resolvability block below): a parent-ish key present with every
+# value blank is BLANK_PARENT, HARD -- something tried to set lineage and
+# produced nothing, a real defect. No parent-ish key present at ALL is this
+# code, SOFT -- the upstream mapper's deliberate way of shipping a sample it
+# could not match to a D.SEQ (see NessieAI/ns/reingest/mapper.py) rather than
+# silently dropping the analysis output. Never conflate the two: collapsing
+# them back to one HARD code is exactly the regression this split exists to
+# prevent (docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md's
+# "Matches none" row -- hard on the backfill only, children still ship).
+LINEAGE_UNRESOLVED = "lineage_unresolved"
 PARENT_UID_NOT_FOUND = "parent_uid_not_found"
 DUPLICATE_NAME = "duplicate_name"
 SURPRISE_SENTINEL = "surprise_sentinel"
@@ -341,18 +352,40 @@ def qa_rows(
             # tokens it skipped. A backfill row targets an existing sample
             # and has no Parent to declare, so this whole check is
             # new-mode-only.
+            #
+            # collect_parent_tokens() returns [] for two genuinely different
+            # situations, and `helpers.py` does not (and should not) tell
+            # them apart -- it is a plain token collector, used elsewhere for
+            # more than this gate. So the distinction is made here, against
+            # the raw keys, instead:
+            #   1. tokens found -> resolvability-checked exactly as before.
+            #   2. a parent-ish key IS present, but every one of them is
+            #      blank/whitespace -> BLANK_PARENT, HARD. Something tried to
+            #      set lineage and produced nothing -- a real defect.
+            #   3. no parent-ish key is present at all -> LINEAGE_UNRESOLVED,
+            #      SOFT, and the row still ships. This is the upstream
+            #      mapper's deliberate signal that it could not match this
+            #      sample to a D.SEQ (no `Parent` key at all, never
+            #      `Parent: ""`) -- the spec's "Matches none" row is hard on
+            #      the backfill only, so a new-mode child must not be
+            #      silently dropped for a lineage gap a curator can attach
+            #      later.
             parent_tokens = collect_parent_tokens(meta)
-            if not parent_tokens:
-                report.add(Finding(
-                    code=BLANK_PARENT, severity=HARD, row_index=i,
-                    detail={"reason": "blank Parent (reingest outputs must be derived)"}))
-            else:
+            if parent_tokens:
                 for token in parent_tokens:
                     if _is_placeholder(token):
                         continue
                     if token not in existing and not any(token in (r.get("json_metadata") or {}).get("Name", "") for r in rows):
                         report.add(Finding(code=PARENT_UID_NOT_FOUND, severity=HARD,
                                             row_index=i, detail={"token": token}))
+            elif _has_any_parent_key(meta):
+                report.add(Finding(
+                    code=BLANK_PARENT, severity=HARD, row_index=i,
+                    detail={"reason": "blank Parent (reingest outputs must be derived)"}))
+            else:
+                report.add(Finding(
+                    code=LINEAGE_UNRESOLVED, severity=SOFT, row_index=i,
+                    detail={"reason": "no Parent key present (lineage could not be resolved)"}))
 
         uid = str(meta.get("UID") or "").strip()
         if mode == "update" and not uid:
@@ -531,3 +564,13 @@ def qa_rows(
 
 def _is_placeholder(text: str) -> bool:
     return any(marker in text for marker in _PLACEHOLDER_MARKERS)
+
+
+def _has_any_parent_key(meta: dict) -> bool:
+    """True when `meta` has at least one key whose name contains "parent"
+    (case-insensitive) -- the same key family `collect_parent_tokens` scans
+    -- whatever that key's value is. `collect_parent_tokens` returns [] both
+    when no such key exists and when every such key is blank; this is the
+    other half of the check that tells those two cases apart (see the
+    new-mode Parent-resolvability block in `qa_rows`)."""
+    return any("parent" in key.lower() for key in meta)
