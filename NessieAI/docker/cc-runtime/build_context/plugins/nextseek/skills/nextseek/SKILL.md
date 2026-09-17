@@ -54,7 +54,7 @@ is the complete contract; there are no hidden flags.
 | `nextseek-recall` | Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned. | `--turn <N>` | `{turn_id, bundle_id, total, row_count, columns, path}` |
 | `nextseek-run-ls` | Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below. | `--run-dir <abs path under the Luria runs root>` | `{tree, truncated, run_dir}` |
 | `nextseek-run-harvest` | **Reingest step 1** — parse a finished run's machine-readable outputs into a manifest. | `--run-dir <abs path under the cluster runs root> [--allow-failed-run]` | `{run_dir, manifest_id, manifest, skipped}` |
-| `nextseek-run-checksum` | **Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. | `--run-dir <abs path under the cluster runs root> --paths <comma-separated relative paths>` | `{run_dir, checksums, skipped}` |
+| `nextseek-run-checksum` | **Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. With `--manifest-id`, folds the checksums into that manifest and returns a NEW manifest_id (manifests are content-addressed) — pass that new id, not the original, to `nextseek-build-upload-xlsx`. Without it, checksums are returned but not persisted. | `--run-dir <abs path under the cluster runs root> --paths <comma-separated relative paths> [--manifest-id <id>]` | `{run_dir, checksums, skipped}` (+ `manifest_id` when `--manifest-id` was passed) |
 | `nextseek-build-upload-xlsx` | **Reingest step 4** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record. | `--manifest-id <id> [--mode {new,update}]` (legacy: `--rows '<json array>' [--existing-parent-uids <csv>]`) | `{saved_files, qa, reply, proposals}` (legacy: `{saved_files, qa}`) |
 
 ## Choosing the op for a task
@@ -146,23 +146,24 @@ user to REVIEW and upload — it does **not** write to NExtSEEK. Workflow:
    key never appears in the `reply` — it reaches the user only through the `map_proposals_*`
    artifact and the `proposals` return field, for a superuser to rule on later. Relay what's there;
    do not resolve it yourself.
-3. **`nextseek-run-checksum` — conditional, and usually skip it.** "Once the sample types are
-   settled" never happens in this flow: the committed map settles sample types server-side, at
-   step 4, not you. `Checksum_PrimaryData` is required on `A.GEX`/`A.ALN`/`A.SCXP`, but there is
-   currently no wiring from this op's result into the manifest-driven workbook —
-   `build-upload-xlsx --manifest-id` has no field for it, so anything it returns is discarded
-   before step 4 ever runs. **Skip this step** unless the user explicitly asks for a checksum: it
-   SSHes the cluster to md5 files that can be many GB each, and can by itself consume most of the
-   CC turn's 180s hard cap (`NEXTSEEK_CC_TIMEOUT_HARD_MAX`), leaving no budget for the harvest and
-   `build-upload-xlsx` calls that actually produce a workbook. If the user does ask for it, pass
-   `--paths` as the comma-separated `path` values from `manifest.outputs` (relative to
-   `--run-dir`) — there is no other source for them; `run-ls` is not part of this workflow. Either
-   way, expect step 4 to `HARD_REJECT` `A.GEX`/`A.ALN`/`A.SCXP` on a populated catalog until the
-   wiring gap above is closed server-side. **Do not work around it** — never hand-compose `--rows`
-   to smuggle a checksum in; that reintroduces exactly the model-authored-metadata risk this
-   pipeline was rebuilt to remove. Relay the `HARD_REJECT` plainly instead.
-4. `nextseek-build-upload-xlsx --manifest-id <id> --mode new` for the analysis children, then
-   `--mode update` for the D.SEQ backfill.
+3. **`nextseek-run-checksum --manifest-id <id from step 1>` — conditional, and usually skip it.**
+   `Checksum_PrimaryData` is a catalog expectation on `A.GEX`/`A.ALN`/`A.SCXP`; SEEK itself does
+   not enforce it there today, so a missing checksum SOFT-flags the row rather than blocking the
+   workbook. **Skip this step** unless the user explicitly asks for a checksum, or explicitly
+   wants that soft flag cleared: it SSHes the cluster to md5 files that can be many GB each, and
+   can by itself consume most of the CC turn's 180s hard cap (`NEXTSEEK_CC_TIMEOUT_HARD_MAX`),
+   leaving no budget for the harvest and `build-upload-xlsx` calls that actually produce a
+   workbook. If the user does ask for it, pass `--paths` as the comma-separated `path` values
+   from `manifest.outputs` (relative to `--run-dir`) — there is no other source for them; `run-ls`
+   is not part of this workflow. **Always pass `--manifest-id`** (step 1's id): without it the
+   checksums are computed and returned but never persisted anywhere step 4 can see, which is a
+   wasted SSH call. **The result's `manifest_id` is a NEW id — manifests are content-addressed, so
+   folding in checksums produces a different one.** Use THAT new id, not step 1's, in step 4. A
+   checksum only reaches a row when it is the file that sample type's committed map rule already
+   names as primary data (e.g. A.ALN's aligned BAM, A.GEX's merged gene-counts matrix) — a path
+   you hashed that no rule points at contributes nothing.
+4. `nextseek-build-upload-xlsx --manifest-id <id — step 3's id if you ran it, else step 1's>
+   --mode new` for the analysis children, then `--mode update` for the D.SEQ backfill.
 5. **Relay the `reply` field of the result VERBATIM.** It is already written for the user;
    re-summarising it loses the wording and the calibration.
 
@@ -279,7 +280,7 @@ plan	nextseek-plan	Multi-step planner advisor (read-only).	viewset	unrouted	true
 query	nextseek-query	Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present.	viewset	unrouted	true	false
 recall	nextseek-recall	Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned.	viewset	unrouted	true	false
 report	nextseek-report	Project summary report.	sidecar	read	true	true
-run-checksum	nextseek-run-checksum	**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster.	sidecar	read	true	true
+run-checksum	nextseek-run-checksum	**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. With `--manifest-id`, folds the checksums into that manifest and returns a NEW manifest_id (manifests are content-addressed) — pass that new id, not the original, to build-upload-xlsx. Without it, checksums are returned but not persisted.	sidecar	read	true	true
 run-harvest	nextseek-run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.	sidecar	read	true	true
 run-ls	nextseek-run-ls	Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below.	sidecar	read	true	true
 <!-- END PLAN005-GEN:skill-ops -->

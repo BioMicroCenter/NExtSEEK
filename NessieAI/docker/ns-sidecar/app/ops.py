@@ -203,6 +203,8 @@ def _run_harvest(args, config, session, write_gate, stage, stage_bytes, commit_b
 
 def _run_checksum(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
     body = {"run_dir": args["run_dir"], "paths": args["paths"]}
+    if args.get("manifest_id"):
+        body["manifest_id"] = args["manifest_id"]
     envelope = ns_client.call_op("run-checksum", body,
                                  base_url=config.base_url, auth=config.auth)
     return envelope["result"]

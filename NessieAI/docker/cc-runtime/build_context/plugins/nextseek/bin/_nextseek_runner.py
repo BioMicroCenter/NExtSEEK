@@ -478,7 +478,10 @@ def _dispatch_run_harvest(args):
 
 def _dispatch_run_checksum(args):
     """Reingest step 2 — md5 a caller-named set of settled primary-data files
-    on the cluster. Never writes to Luria or NExtSEEK."""
+    on the cluster. Never writes to Luria or NExtSEEK. With --manifest-id,
+    folds the checksums into that manifest server-side and the result
+    carries a NEW manifest_id (manifests are content-addressed) to thread
+    into build-upload-xlsx in place of the original."""
     if _dry_run():  # pragma: no branch
         return {"run_dir": args.run_dir, "checksums": {}, "skipped": []}  # pragma: no cover
     if not args.run_dir:  # pragma: no cover
@@ -487,6 +490,8 @@ def _dispatch_run_checksum(args):
         _err("VALIDATION", "missing --paths", 3)  # pragma: no cover
     import _sidecar_client as sc  # pragma: no cover
     body = {"run_dir": args.run_dir, "paths": args.paths}  # pragma: no cover
+    if getattr(args, "manifest_id", None):  # pragma: no cover
+        body["manifest_id"] = args.manifest_id  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("run-checksum", body,  # pragma: no cover
                           ns_login=(_api_user(), _api_pass()),  # pragma: no cover
@@ -556,7 +561,8 @@ def main() -> None:
     p.add_argument("--paths")  # for run-checksum (comma-separated relative paths)
     p.add_argument("--rows")  # for build-upload-xlsx (legacy: JSON rows)
     p.add_argument("--existing-parent-uids")  # for build-upload-xlsx (legacy: Parent QA)
-    p.add_argument("--manifest-id")  # for build-upload-xlsx (id of a run-harvest manifest)
+    p.add_argument("--manifest-id")  # for build-upload-xlsx (id of a manifest) and, optionally,
+                                      # run-checksum (id of the manifest to fold checksums into)
     p.add_argument("--planner", action="store_true",  # for query
                    help="Use run_query_plan instead of run_query (multi-step capable)")
     p.add_argument("--turn", type=int)  # for recall

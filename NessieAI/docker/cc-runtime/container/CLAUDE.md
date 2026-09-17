@@ -39,7 +39,7 @@ nextseek-project-resolve	project-resolve	Resolve a project against the live proj
 nextseek-query	query	Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present.
 nextseek-recall	recall	Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned.
 nextseek-report	report	Project summary report.
-nextseek-run-checksum	run-checksum	**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster.
+nextseek-run-checksum	run-checksum	**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. With `--manifest-id`, folds the checksums into that manifest and returns a NEW manifest_id (manifests are content-addressed) — pass that new id, not the original, to build-upload-xlsx. Without it, checksums are returned but not persisted.
 nextseek-run-harvest	run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.
 nextseek-run-ls	run-ls	Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below.
 nextseek-sample-search	sample-search	Retrieve current sample rows by UID.

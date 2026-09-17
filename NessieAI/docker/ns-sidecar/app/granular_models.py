@@ -94,9 +94,14 @@ class RunHarvestRequest(BaseModel):
 
 class RunChecksumRequest(BaseModel):
     """POST /assistant/run-checksum/ body — md5 a caller-named set of settled
-    primary-data files under a finished Luria run."""
+    primary-data files under a finished Luria run. Optional manifest_id folds
+    these checksums into that run-harvest manifest; the response then carries
+    a NEW manifest_id (manifests are content-addressed)."""
     run_dir: str = Field(..., description="Absolute path under <LURIA working_path>/runs.")
     paths: str = Field(..., description="Comma-separated relative paths under run_dir.")
+    manifest_id: Optional[str] = Field(
+        None, description="Optional: id of a manifest saved by run-harvest to fold "
+                          "these checksums into.")
     use_prod: bool = False
     model_config = ConfigDict(extra="forbid")
 

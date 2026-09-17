@@ -175,6 +175,7 @@ class _RunChecksumArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_dir: str
     paths: str
+    manifest_id: str | None = None
 
 
 _OP_ARG_MODELS = {

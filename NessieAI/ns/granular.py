@@ -757,6 +757,19 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
     an oversized file is read; a size refusal is reported in "skipped", never
     silently dropped. ``_CHECKSUM_SSH_TIMEOUT_S`` bounds the SSH call itself
     so an unexpected hang (not just an oversized request) is also bounded.
+
+    An optional ``manifest_id`` folds this call's checksums into a manifest
+    run-harvest already saved: loaded, merged (``RunManifest.checksums``,
+    additive -- an earlier checksum for a path not named this time survives),
+    and re-saved. ``store.save_manifest`` derives the id from a content
+    digest, so a manifest carrying checksums is a genuinely DIFFERENT,
+    immutable manifest -- this never mutates the manifest behind the
+    original id, which keeps loading exactly what it always has. The new id
+    is returned as ``manifest_id`` for the caller to thread into
+    ``build-upload-xlsx`` in place of the original. Omitting ``manifest_id``
+    keeps every existing caller's behaviour byte-identical (no such key in
+    the result at all), since not every caller of this read-only op has a
+    manifest to fold checksums into.
     """
     import shlex
 
@@ -771,6 +784,20 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
         joined = os.path.normpath(os.path.join(run_dir, rel))
         if joined != run_dir and not joined.startswith(run_dir + "/"):
             raise OpValidationError(f"path outside the run dir: {rel!r}")
+
+    # Validated -- and the manifest loaded, if named -- before the expensive
+    # remote SSH hashing below, the same "fail cheap before failing
+    # expensive" ordering _validate_run_dir already applies to run_dir/paths.
+    manifest_id = str(args.get("manifest_id") or "").strip()
+    run_manifest = None
+    if manifest_id:
+        if not manifest_id.isalnum():
+            raise OpValidationError(f"manifest_id must be alphanumeric, got {manifest_id!r}")
+        from NessieAI.ns.reingest.store import load_manifest
+        try:
+            run_manifest = load_manifest(manifest_id)
+        except FileNotFoundError:
+            raise OpValidationError(f"no manifest {manifest_id!r}")
 
     from chat_nextseek.luria.ssh import prepare_key, ssh_run
     key_path = prepare_key(luria_env["key"])
@@ -804,8 +831,16 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir):
         detail = "; ".join(f"{item['path']!r}: {item['reason']}" for item in escaped)
         raise OpValidationError(f"path outside the run dir or unsafe: {detail}")
 
-    return {"run_dir": run_dir, "checksums": payload.get("checksums") or {},
-            "skipped": payload.get("skipped") or []}
+    checksums = payload.get("checksums") or {}
+    result = {"run_dir": run_dir, "checksums": checksums,
+              "skipped": payload.get("skipped") or []}
+
+    if run_manifest is not None:
+        from NessieAI.ns.reingest.store import save_manifest
+        run_manifest.checksums.update(checksums)
+        result["manifest_id"] = save_manifest(run_manifest)
+
+    return result
 
 
 def _d_seq_by_fastq(path: str) -> list[str]:

@@ -70,6 +70,25 @@ def test_resolve_ref_reads_the_whole_named_outputs_bag():
 # (this repo has already been bitten by exactly this class of bug: an
 # unrecognised status value read as "complete"). ---
 
+def test_resolve_ref_reads_a_checksum_by_path():
+    class _M:
+        checksums = {"star_salmon/CONTROL_REP1.markdup.sorted.bam": "abc123"}
+    assert maps.resolve_ref(
+        "$checksums.star_salmon/CONTROL_REP1.markdup.sorted.bam", _M()) == "abc123"
+
+
+def test_resolve_ref_returns_none_for_a_checksum_not_yet_computed():
+    class _M:
+        checksums = {}
+    assert maps.resolve_ref("$checksums.not/hashed/yet.bam", _M()) is None
+
+
+def test_resolve_ref_still_returns_none_for_an_unknown_section():
+    # Adding "checksums" must not loosen the allowlist itself -- an
+    # unrecognised section name is still an ordinary miss, not a lookup.
+    assert maps.resolve_ref("$bogus_section.key", object()) is None
+
+
 def test_a_bogus_cardinality_fails_map_validation():
     with pytest.raises(pydantic.ValidationError):
         maps.PipelineMap.model_validate({

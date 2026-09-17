@@ -9,6 +9,8 @@ it, so an unreviewed rule cannot quietly become permanent by repetition.
 """
 from __future__ import annotations
 
+import fnmatch
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from NessieAI.ns.reingest import manifest, maps
@@ -146,6 +148,76 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
     return result
 
 
+def _expand_braces(pattern: str) -> list[str]:
+    """Expand ONE non-nested ``{a,b,c}`` alternation in an output rule's
+    ``glob`` into every literal variant -- ``fnmatch`` itself has no brace
+    syntax. Every committed map's ``glob`` (see
+    ``NessieAI/ns/reingest_maps/rnaseq.outputs.json``) uses at most one,
+    unnested group, e.g. ``"{star_salmon,star_rsem,hisat2}/*.bam"``, so a
+    single expansion is enough; a pattern with no ``{`` passes through
+    unchanged.
+    """
+    if "{" not in pattern:
+        return [pattern]
+    before, _, rest = pattern.partition("{")
+    body, _, after = rest.partition("}")
+    return [before + alt + after for alt in body.split(",")]
+
+
+def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
+                    sample_name: str | None) -> manifest.OutputRecord | None:
+    """The inventoried output this rule's own ``glob`` matches, so
+    ``Checksum_PrimaryData`` can be looked up by the SAME path
+    ``run-checksum`` hashed -- reusing ``rule.glob``/``rule.primary_data``
+    rather than a static ``$``-ref, since the harvested path is a run-time
+    value no committed map can name in advance (see mapper.py's module
+    docstring on why a map rule cannot express this directly).
+
+    ``sample_name`` filters to one sample's own output (a per_sample rule) by
+    ``OutputRecord.sample`` -- attributed once, at harvest time, by
+    ``harvest.py``'s ``_sample_for_output_path``, never re-derived here;
+    ``None`` skips that filter for a per_run rule's single, run-wide file.
+    Ties (more than one candidate, e.g. two aligners both present) break the
+    same way ``harvest.py``'s own ``_resolve_named_outputs`` does: sorted by
+    path, first wins -- deterministic, not a claim that it is the "right"
+    one. Returns ``None`` on an ordinary miss (rule declares no primary
+    data, or nothing in the inventory matches yet) -- never an error.
+    """
+    if not rule.primary_data:
+        return None
+    patterns = _expand_braces(rule.glob)
+    candidates = [
+        o for o in run_manifest.outputs
+        if (sample_name is None or o.sample == sample_name)
+        and any(fnmatch.fnmatch(o.path, pat) for pat in patterns)
+    ]
+    return sorted(candidates, key=lambda o: o.path)[0] if candidates else None
+
+
+def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
+                     run_manifest: manifest.RunManifest, sample_name: str | None) -> None:
+    """Set ``Checksum_PrimaryData`` on ``row`` from ``run_manifest.checksums``,
+    keyed by this rule's own matched output path -- a no-op (row unchanged)
+    when the rule has no primary file, nothing in the inventory matches yet,
+    that path has not been checksummed, or the rule's own ``attributes``
+    already named ``Checksum_PrimaryData`` explicitly (the committed map
+    rule wins outright, same precedence as everywhere else in this module).
+    This is the advisory path: a manifest with no checksums at all renders
+    exactly as before.
+    """
+    if "Checksum_PrimaryData" in row.attributes:
+        return
+    primary = _primary_output(rule, run_manifest, sample_name)
+    if primary is None:
+        return
+    checksum = run_manifest.checksums.get(primary.path)
+    if not checksum:
+        return
+    row.attributes["Checksum_PrimaryData"] = MappedAttribute(
+        attribute="Checksum_PrimaryData", value=checksum, origin=ORIGIN_MAP,
+        raw_key=f"$checksums.{primary.path}", source_file=primary.path)
+
+
 def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
                      run_manifest: manifest.RunManifest) -> list[MappedRow]:
     """One row per sample this rule's child ships for; the analysis record
@@ -185,6 +257,7 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
                 attribute=attribute, value=value, origin=ORIGIN_MAP,
                 raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
                 source_file=run_manifest.sources.get("params", ""))
+        _attach_checksum(row, rule, run_manifest, sample.nfcore_sample)
         # Parent is a structural lineage field, not a mapped attribute -- set
         # it last so no rule attribute can accidentally clobber it. Only a
         # resolution in `_HAS_PARENT` may set it; an unresolved sample ships
@@ -220,6 +293,7 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
             attribute=attribute, value=value, origin=ORIGIN_MAP,
             raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
             source_file=run_manifest.sources.get("params", ""))
+    _attach_checksum(row, rule, run_manifest, None)
 
     seen: set[str] = set()
     parents: list[str] = []

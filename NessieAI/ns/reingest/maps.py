@@ -16,8 +16,33 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 
 # The only sections a $-ref may name. "outputs" reads RunManifest.named_outputs
 # (well-known single files by key), never RunManifest.outputs (the file
-# inventory, which is a list and has no .get(key)).
-_RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs")
+# inventory, which is a list and has no .get(key)). "checksums" reads
+# RunManifest.checksums directly (path -> hex digest) -- a run-scoped bag
+# like the others, not a per-sample one, since a checksum is keyed by the
+# file's path, not by which sample it belongs to. It resolves to None until
+# run-checksum has actually hashed that path (see manifest.py's docstring on
+# the field); a map rule referencing it before that is an ordinary miss, not
+# an error.
+#
+# No committed map (rnaseq.outputs.json included) actually spells a
+# "$checksums.<path>" ref today, and none is expected to: an output rule's
+# `glob` matches a harvest-time path that varies per run (per sample, even),
+# so no map file authored ahead of time can name it literally. That is
+# exactly why `Checksum_PrimaryData` is wired the other way --
+# `mapper._attach_checksum` re-derives the SAME path from the rule's own
+# `glob`/`primary_data` and looks it up in `RunManifest.checksums` directly,
+# bypassing `resolve_ref` entirely -- and is the checksum wiring's real,
+# reachable, tested consumer (test_mapper.py, and the rendered-workbook
+# round-trip in test_build_upload_manifest.py). "checksums" stays in
+# `_RUN_SECTIONS` regardless, for the narrower case a `glob` cannot cover: a
+# provenance attribute for a NAMED output whose path is fixed by pipeline
+# convention rather than resolved per-sample (e.g. a future
+# "DESeqFile_Checksum": "$checksums.<the fixed deseq2_dds_rdata path>" beside
+# the existing `$outputs.deseq2_dds_rdata` provenance ref) -- a case
+# `resolve_ref` already supports and `test_maps.py` exercises directly
+# (`test_resolve_ref_reads_a_checksum_by_path`), even with no committed map
+# rule using it yet.
+_RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs", "checksums")
 _SAMPLE_SECTIONS = ("metrics", "derived")
 _RUN_SECTION_ATTR = {"outputs": "named_outputs"}
 
