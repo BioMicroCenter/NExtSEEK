@@ -94,40 +94,76 @@ def test_provenance_attributes_are_not_applied_to_an_opted_out_output_row():
     assert "Pipeline" not in aln.attributes
 
 
-def test_a_multirun_sample_produces_no_d_seq_row_no_per_sample_row_and_no_parent_in_the_join():
-    # uid_resolve.resolve() discards a multi-run sample's source UIDs
-    # entirely (d_seq_uid=None), so there is nowhere in the manifest to
-    # carry the list the spec would otherwise want -- this pins that as a
-    # real limitation, not an oversight (see mapper._per_sample_rows).
+def test_a_multirun_sample_with_nothing_resolved_produces_no_d_seq_row_but_ships_a_parentless_child():
+    # A multi-run sample none of whose contributing rows resolved
+    # (`d_seq_uid_multirun` empty, matching a fully-unresolved multi-run
+    # sample) behaves like an unresolved single-run sample: no D.SEQ
+    # backfill row, but its A.ALN child still SHIPS -- with no Parent key --
+    # rather than silently dropping the output file it would otherwise
+    # register. This is the corrected behaviour; see
+    # test_a_multirun_sample_whose_rows_resolve_ships_a_child_with_the_joined_parent
+    # for the case some or all of its rows DID resolve.
     run = _run(metrics={"star-uniquely_mapped_percent": 91.4,
                         "Kraken2_bracken_fraction": 3.2})
     run.samples[0].uid_resolution = manifest.RESOLUTION_MULTIRUN
     run.samples[0].d_seq_uid = None
     result = mapper.apply(run, maps.load("rnaseq"))
-    # No D.SEQ backfill row for the multirun sample...
+    # No D.SEQ backfill row for the multirun sample -- this half of the old
+    # behaviour is still correct and must survive: MultiQC's one figure for
+    # the concatenated sample cannot honestly be attributed to any one
+    # contributing D.SEQ, and that measurement limit is untouched by the fix.
     assert not any(r.sample_type == "D.SEQ" for r in result.rows)
-    # ...and no per_sample A.ALN row either. Unlike an unresolved sample
-    # (which ships its child with no Parent -- see
-    # test_an_unresolved_sample_still_ships_its_child_with_no_parent), a
-    # multi-run sample gets no row at all: the spec table does want its
-    # child to carry a `;`-joined Parent across every contributing D.SEQ,
-    # but uid_resolve.resolve() discards those source UIDs entirely and
-    # SampleRecord cannot carry a list, so there is nothing here that could
-    # honestly be set. This is the module-level gap `_per_sample_rows`
-    # documents as tracked separately, not implemented here.
-    assert not any(r.sample_type == "A.ALN" for r in result.rows)
+    # ...but the per_sample A.ALN row now SHIPS -- this is the half of the
+    # old behaviour that changes: the output file a multi-run sample's
+    # analysis produced (the BAM, its index) is real primary data and must
+    # be registered, even with no parent to name yet.
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert "Parent" not in aln.attributes
     # The per_run A.GEX rule still emits its one row: its literal attributes
     # (Matrix, MatrixDataType, DataType) do not depend on any sample
     # resolving...
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
-    # ...but the multirun sample contributes nothing to the join, and since
-    # no other sample resolved either, Parent is omitted rather than set to
-    # an empty or fabricated value.
+    # ...but the multirun sample contributes nothing to the join (it has no
+    # resolved parents of its own), and since no other sample resolved
+    # either, Parent is omitted rather than set to an empty or fabricated
+    # value.
     assert "Parent" not in gex.attributes
     # ...and the sample's own metrics are still walked: an unknown key on it
     # still reaches unmapped rather than being silently swallowed along with
     # the D.SEQ row.
     assert any(u["raw_key"] == "Kraken2_bracken_fraction" for u in result.unmapped)
+
+
+def test_a_multirun_sample_whose_rows_resolve_ships_a_child_with_the_joined_parent():
+    # The defect this fix closes: a multi-run sample whose contributing rows
+    # DID resolve to real D.SEQ parents must ship an A.ALN child carrying
+    # them, `;`-joined, first-occurrence de-duplicated, in manifest order --
+    # and, since that lineage is now real and honest (not a fabricated
+    # measurement), the per_run A.GEX join gets it too.
+    run = _run()
+    run.samples[0].uid_resolution = manifest.RESOLUTION_MULTIRUN
+    run.samples[0].d_seq_uid = None
+    run.samples[0].d_seq_uid_multirun = ["D.SEQ-LANE-1", "D.SEQ-LANE-2", "D.SEQ-LANE-1"]
+    result = mapper.apply(run, maps.load("rnaseq"))
+    # Still no D.SEQ backfill row -- the QC-attribution limit is unchanged.
+    assert not any(r.sample_type == "D.SEQ" for r in result.rows)
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert aln.attributes["Parent"].value == "D.SEQ-LANE-1;D.SEQ-LANE-2"
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["Parent"].value == "D.SEQ-LANE-1;D.SEQ-LANE-2"
+
+
+def test_a_multirun_samples_partial_parent_list_ships_as_is():
+    # Only one of two contributing rows resolved (see uid_resolve's own
+    # partial-resolution tests) -- the child ships with exactly that partial
+    # list, not padded, not withheld.
+    run = _run()
+    run.samples[0].uid_resolution = manifest.RESOLUTION_MULTIRUN
+    run.samples[0].d_seq_uid = None
+    run.samples[0].d_seq_uid_multirun = ["D.SEQ-LANE-1"]
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert aln.attributes["Parent"].value == "D.SEQ-LANE-1"
 
 
 # --- Resolution 2: an output rule's own attribute must win over a

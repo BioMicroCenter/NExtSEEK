@@ -393,3 +393,72 @@ def test_named_outputs_omits_a_key_with_no_matching_inventory_entry(tmp_path):
         inventory=[{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 1}],
         lookup_by_fastq=lambda p: [])
     assert got.named_outputs == {}
+
+
+def _multirun_samplesheet(root, sample="S1"):
+    (root / "samplesheet.csv").write_text(
+        "sample,fastq_1,fastq_2,strandedness\n"
+        f"{sample},/net/cluster/fastq/{sample}_L001_R1.fastq.gz,,auto\n"
+        f"{sample},/net/cluster/fastq/{sample}_L002_R1.fastq.gz,,auto\n")
+    stats_dir = root / "multiqc" / "star_salmon" / "multiqc_report_data"
+    stats_dir.mkdir(parents=True)
+    (stats_dir / "multiqc_general_stats.txt").write_text(
+        "Sample\tstar-uniquely_mapped_percent\n"
+        f"{sample}\t90.0\n")
+
+
+def test_a_multirun_sample_collapses_to_exactly_one_sample_record(tmp_path):
+    # Two samplesheet ROWS share the sample name "S1" (a topped-up library,
+    # the ordinary case a multi-run sample comes from) -- harvest_local must
+    # not build one SampleRecord per row, or the mapper would emit two
+    # identical A.ALN children for what is really one analysis output.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    _multirun_samplesheet(root)
+    mapping = {"/net/cluster/fastq/S1_L001_R1.fastq.gz": ["D.SEQ-LANE-1"],
+               "/net/cluster/fastq/S1_L002_R1.fastq.gz": ["D.SEQ-LANE-2"]}
+
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: mapping.get(p, []))
+
+    matches = [s for s in got.samples if s.nfcore_sample == "S1"]
+    assert len(matches) == 1
+    sample = matches[0]
+    assert sample.uid_resolution == manifest.RESOLUTION_MULTIRUN
+    # The single-parent field stays None -- there is no one parent -- but
+    # both of this sample's own contributing rows resolved, in samplesheet
+    # order.
+    assert sample.d_seq_uid is None
+    assert sample.d_seq_uid_multirun == ["D.SEQ-LANE-1", "D.SEQ-LANE-2"]
+    assert not any("S1" in w and "partial" in w for w in got.warnings)
+
+
+def test_a_multirun_samples_partial_resolution_is_recorded_as_a_warning(tmp_path):
+    # Only one of the two contributing rows has a fastq match -- a real,
+    # partial parent list. harvest.py is the layer that knows how many rows
+    # a sample SHOULD have had (uid_resolve only sees the resolved subset),
+    # so it is the one that must notice and say so, rather than the partial
+    # list passing through silently.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    _multirun_samplesheet(root)
+    mapping = {"/net/cluster/fastq/S1_L001_R1.fastq.gz": ["D.SEQ-LANE-1"]}
+
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: mapping.get(p, []))
+
+    sample = next(s for s in got.samples if s.nfcore_sample == "S1")
+    assert sample.d_seq_uid_multirun == ["D.SEQ-LANE-1"]
+    assert any("S1" in w and "1 of 2" in w for w in got.warnings)
+
+
+def test_a_multirun_sample_with_nothing_resolved_gets_no_partial_warning(tmp_path):
+    # Zero of two rows resolving is the ordinary "nothing known" case, not a
+    # partial result -- it must not be reported as one.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    _multirun_samplesheet(root)
+
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p: [])
+
+    sample = next(s for s in got.samples if s.nfcore_sample == "S1")
+    assert sample.d_seq_uid_multirun == []
+    assert not any("S1" in w and "partial" in w for w in got.warnings)

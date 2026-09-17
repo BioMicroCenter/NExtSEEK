@@ -14,6 +14,7 @@ import csv
 import fnmatch
 import io
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Callable
 
@@ -315,16 +316,40 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
 
     from NessieAI.ns.reingest import uid_resolve
     resolved = uid_resolve.resolve(rows, resolved_run_dir, lookup_by_fastq or (lambda p: []))
-    by_sample = {name: (uid, how) for name, uid, how in resolved}
+    by_sample = {name: (uid, how, parents) for name, uid, how, parents in resolved}
+    # A multi-run sample has several samplesheet ROWS sharing one name, but
+    # must become exactly ONE SampleRecord -- one A.ALN child, not several
+    # identical ones -- so rows are walked in order and every name after its
+    # first occurrence is skipped. This is a no-op for every non-multi-run
+    # sample, which by construction (uid_resolve's own Counter check) never
+    # has a second row to skip.
+    seen_samples: set[str] = set()
+    row_counts = Counter(str(row.get("sample") or "") for row in rows)
 
     for row in rows:
         name = str(row.get("sample") or "")
-        uid, how = by_sample.get(name, (None, manifest.RESOLUTION_UNRESOLVED))
+        if name in seen_samples:
+            continue
+        seen_samples.add(name)
+        uid, how, parents = by_sample.get(
+            name, (None, manifest.RESOLUTION_UNRESOLVED, ()))
+        if how == manifest.RESOLUTION_MULTIRUN and 0 < len(parents) < row_counts[name]:
+            # Some, but not all, of this sample's contributing rows resolved
+            # to a D.SEQ -- a real, honest partial parent list (see
+            # uid_resolve._resolve_multirun_parents), not a bug. Surfaced
+            # here, not silently: this is the layer that knows how many rows
+            # SHOULD have contributed and so can tell "partial" apart from
+            # "none of them resolved", which uid_resolve cannot on its own.
+            warnings.append(
+                f"{name}: multi-run sample resolved {len(parents)} of "
+                f"{row_counts[name]} contributing D.SEQ parents; Parent will "
+                "be a partial list")
         out.samples.append(manifest.SampleRecord(
             nfcore_sample=name,
             fastq_1=str(row.get("fastq_1") or ""),
             fastq_2=str(row.get("fastq_2") or "") or None,
             d_seq_uid=uid,
+            d_seq_uid_multirun=list(parents),
             uid_resolution=how,
             strandedness_declared=str(row.get("strandedness") or "") or None,
             metrics=stats.get(name, {}),
