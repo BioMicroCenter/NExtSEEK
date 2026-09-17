@@ -966,6 +966,22 @@ class ChatConfig:
         return datetime.fromtimestamp(ts, timezone.utc).date() == today
 
 
+    # A test run must never write into this package's context directory: every
+    # file _ensure_context_files writes is git-tracked, so any lane with BOTH a
+    # writable checkout and a reachable database rewrites tracked source merely
+    # as a side effect of building the config -- silently, with pytest still
+    # exiting 0 (scripts/run_tests.sh is exactly such a lane). The refresh
+    # itself is wanted on a real instance, where the app and cc-agent images
+    # bake the refreshed bytes, so the gate is on the LANE, never on the
+    # refresh. Absence of the variable means production: this fails toward
+    # refreshing, never toward silently disabling it on a live box.
+    @staticmethod
+    def _db_context_refresh_enabled() -> bool:
+        """False when DJANGO_SETTINGS_MODULE names a test settings module
+        (``dmac.test_settings``, ``dmac.test_settings_realstack``)."""
+        return "test_settings" not in os.environ.get("DJANGO_SETTINGS_MODULE", "")
+
+
     def _write_refresh_marker(self) -> None:
         """Record that a successful DB refresh happened now. Best-effort: if the
         context dir is read-only the marker simply never registers as today, so
@@ -978,7 +994,8 @@ class ChatConfig:
             print(f"[CONFIG][DB] Could not write refresh marker: {e!r}")
 
 
-    def _ensure_context_files(self, env: str = "prod") -> dict[str, Path]:
+    def _ensure_context_files(self, env: str = "prod", *,
+                              refresh: bool | None = None) -> dict[str, Path]:
         """
         Ensure DB-driven context JSON files exist and are fresh for today.
         Returns a dict of {label: Path}.
@@ -988,6 +1005,10 @@ class ChatConfig:
         baked into the image on run-day carries a today mtime but stale content,
         so trusting file mtime silently skipped the refresh (BUG-2). We still
         refresh when any target file is missing.
+
+        ``refresh`` defaults to ``_db_context_refresh_enabled()``: a test lane
+        reports the files already on disk and writes nothing. Pass it
+        explicitly to pin either behavior regardless of the lane.
         """
         targets = {
             "sampletypes_full": Path(self.CONTEXT_DIR) / "sampletypes_db.json",
@@ -996,6 +1017,13 @@ class ChatConfig:
             "assays_min": Path(self.CONTEXT_DIR) / "min_assays_db.json",
             "projects_full": Path(self.CONTEXT_DIR) / "projects_db.json",
         }
+
+        if refresh is None:
+            refresh = self._db_context_refresh_enabled()
+        if not refresh:
+            print("[CONFIG][DB] Test lane: skipping the DB context refresh; "
+                  "using the context files already on disk.")
+            return {k: v for k, v in targets.items() if v.exists()}
 
         marker = Path(self.CONTEXT_DIR) / self._REFRESH_MARKER_NAME
         needs_refresh = (not self._is_today(marker)) or any(not p.exists() for p in targets.values())
