@@ -26,8 +26,8 @@ def test_load_source_reads_every_curated_row():
 # dropping a column at write time. So the expected column sets are derived from
 # files the generator does not own, never restated by hand:
 #
-#   assays        scripts/generate_assay_context_seed.py::COLUMNS, whose database
-#                 spellings are what production answered with
+#   assays        the committed startup/seed/sql/assay_context.sql CREATE TABLE,
+#                 whose spellings are what production answered with
 #   sample_types  the Django model seek/models/nextseek.py::Sample_types_context,
 #                 whose fields are the live columns (`tags` carries the one
 #                 db_column override, capital-T `Tags`)
@@ -63,19 +63,29 @@ def _model_columns() -> set[str]:
     return found
 
 
+def _ddl_columns(ddl: str, table_name: str) -> list[str]:
+    """The column names a CREATE TABLE declares, in order, without `id`."""
+    body = ddl.split(f"CREATE TABLE IF NOT EXISTS {table_name} (", 1)[1].rsplit(") ENGINE", 1)[0]
+    found = []
+    for line in body.splitlines():
+        match = re.match(r"\s{2}`?(\w+)`?\s+\w", line)
+        if match and match.group(1) not in {"KEY", "PRIMARY", "UNIQUE"}:
+            found.append(match.group(1))
+    return [c for c in found if c != "id"]
+
+
 def _assay_seed_columns() -> set[str]:
-    body = _repo(Path("scripts/generate_assay_context_seed.py")).split("COLUMNS = [", 1)[1].split("]", 1)[0]
-    return {db for _src, db in re.findall(r'\("([^"]*)",\s*"([^"]*)"\)', body)}
+    """The committed assay_context.sql CREATE TABLE.
+
+    Its column spellings were map_assay's first choice for each field, which is
+    what production answered with on the 2026-09-11 pull; the retired
+    scripts/generate_assay_context_seed.py wrote them there.
+    """
+    return set(_ddl_columns(_repo(Path("startup/seed/sql/assay_context.sql")), "assay_context"))
 
 
 def _projects_ddl_columns() -> set[str]:
-    body = _repo(PROJECTS_DDL).split("CREATE TABLE IF NOT EXISTS projects_context (", 1)[1].split(")\nENGINE", 1)[0]
-    found = set()
-    for line in body.splitlines():
-        match = re.match(r"\s{2}(\w+)\s+\w", line)
-        if match and match.group(1) not in {"KEY", "PRIMARY"}:
-            found.add(match.group(1))
-    return found - {"id"}
+    return set(_ddl_columns(_repo(PROJECTS_DDL), "projects_context"))
 
 
 def test_columns_match_the_fixtures_that_define_them():
@@ -256,9 +266,10 @@ def test_update_adds_the_unique_key_the_upsert_needs_and_any_new_column():
     sql = cg.render_update("projects", _rows_for("projects"))
     assert "uq_projects_context_name" in sql
     assert "information_schema" in sql          # the idempotent add, not a bare ALTER
-    assert "`pi_names`" in sql and "JSON NULL" in sql
+    assert f"`pi_names` {cg.ADDED_COLUMNS['projects']['pi_names']}" in sql
     sample = cg.render_update("sample_types", _rows_for("sample_types"))
-    assert "`repository_attributes`" in sample and "JSON NULL" in sample
+    added = cg.ADDED_COLUMNS["sample_types"]["repository_attributes"]
+    assert f"`repository_attributes` {added}" in sample
 
 
 def test_update_escapes_a_quote_by_doubling_it():
@@ -307,3 +318,80 @@ def test_no_curated_value_needs_a_backslash():
             for column, value in row.items():
                 rendered = cg.db_value(table, column, value)
                 assert "\\" not in str(rendered or ""), f"{table}.{column}"
+
+
+# --- 6.10 the seed SQL -------------------------------------------------------
+#
+# A fresh install gets these tables from startup/seed/sql/, not from
+# startup/seed/dmac.sql.gz: none of the three has a Django migration and
+# regenerating that dump needs maintainer credentials for a remote host
+# (startup/seed/README.md). assay_context.sql is the template, header comment
+# included, so a regenerated file is a diff of rows rather than of shape.
+#
+# The seed files keep their committed one-line-per-INSERT style, which escapes
+# newlines as `\n` the way MySQL reads them. The update SQL deliberately does not
+# (see cg.literal), because that spelling means something else in SQLite.
+
+SEED_PATHS = {
+    "sample_types": Path("startup/seed/sql/sample_types_context.sql"),
+    "assays": Path("startup/seed/sql/assay_context.sql"),
+    "projects": Path("startup/seed/sql/projects_context.sql"),
+}
+
+
+def test_seed_ddl_declares_exactly_the_columns_the_module_writes():
+    for table, spec in cg.TABLES.items():
+        assert _ddl_columns(cg.DDL[table], spec.name) == list(spec.columns), table
+
+
+def test_seed_ddl_declares_the_unique_key_the_upsert_needs():
+    for table, spec in cg.TABLES.items():
+        assert f"UNIQUE KEY `uq_{spec.name}_{spec.key}` (`{spec.key}`)" in cg.DDL[table], table
+
+
+def test_seed_writes_the_ddl_then_one_insert_per_line():
+    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 12)):
+        sql = cg.render_seed(table, _rows_for(table))
+        assert sql.startswith("-- ")                      # the header comment
+        assert cg.DDL[table] in sql
+        inserts = [line for line in sql.splitlines() if line.startswith("INSERT INTO ")]
+        assert len(inserts) == expected, table
+        assert all(line.endswith(");") for line in inserts), table
+        assert "ON DUPLICATE KEY UPDATE" not in sql, table   # a seed loads once
+        assert sql.endswith("\n")
+
+
+def test_seed_escapes_a_newline_so_every_insert_is_one_line():
+    # 79 curated sample type values and 30 assay values contain a newline.
+    sql = cg.render_seed("sample_types", _rows_for("sample_types"))
+    body = sql.split(");", 1)[1]                            # past the CREATE TABLE
+    assert "\\n" in sql
+    for line in body.splitlines():
+        assert line.startswith(("INSERT INTO ", "--", "")) or not line.strip(), line
+
+
+def test_seed_matches_the_committed_files_shape():
+    """The regenerated files are what is committed, so 6.13 is a diff of rows."""
+    for table, path in SEED_PATHS.items():
+        committed = _repo(path)
+        rendered = cg.render_seed(table, _rows_for(table))
+        assert committed == rendered, f"{path} is stale; regenerate it"
+
+
+def test_the_retired_assay_seed_generator_is_gone():
+    """Decided at 6.10: retired, not repointed.
+
+    scripts/generate_assay_context_seed.py wrote the same file from a committed
+    JSON export of production. Two programs writing startup/seed/sql/
+    assay_context.sql from different sources is how the file goes stale without
+    anyone noticing, and context/ is now the source of truth.
+    """
+    assert not (Path(cg.REPO_ROOT) / "scripts/generate_assay_context_seed.py").exists()
+    assert "context_gen.py" in _repo(Path("scripts/README.md"))
+
+
+def test_render_seed_refuses_the_mapping_operations():
+    import pytest
+
+    with pytest.raises(ValueError):
+        cg.render_seed("mappings", [])
