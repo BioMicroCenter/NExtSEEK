@@ -34,14 +34,28 @@ The three-column ``unique_together`` on the model stays the database
 backstop; this module never relies on being able to fork
 (pipeline, raw_key, proposed_attribute) rows the way an unqualified
 ``get_or_create`` on all three columns would.
+
+Concurrency: two reingest runs recording the same (pipeline, raw_key) at the
+same time is ordinary -- two users reingesting different runs of the same
+pipeline share raw keys. Each entry's read-then-write is wrapped in its own
+``transaction.atomic()`` with ``select_for_update()`` on the existing rows for
+that key, so the fold-into-open-row and bump-terminal-row paths above are
+consistent under concurrency on a backend that honours row/gap locking
+(MySQL/InnoDB): a second transaction's locked read blocks until the first
+commits, then sees the row the first just wrote and folds into it rather than
+forking. On sqlite (used by the test settings), ``select_for_update()`` is a
+documented no-op -- Django's compiler only emits ``FOR UPDATE`` when
+``connection.features.has_select_for_update`` is true, which sqlite reports as
+``False``, so the call neither locks anything nor raises. The create path is
+therefore still reachable there (and as a backend-independent belt-and-braces
+path even under MySQL, where isolation-level or lock-timing edge cases could
+still let two creates race): a lost race raises ``IntegrityError`` off the
+model's ``unique_together``, which this module catches and folds into the row
+that won, bumping its evidence instead of propagating a 500 to the loser.
 """
 from __future__ import annotations
 
-import logging
-
 from NessieAI.ns.reingest import maps
-
-log = logging.getLogger(__name__)
 
 
 def _alt_marker(attribute: str) -> str:
@@ -69,7 +83,11 @@ def record(entries, *, pipeline, run_dir, manifest_digest, user_id):
     """Upsert one proposal row per entry, per the dedupe policy above.
 
     Returns the list of rows touched, one per entry in ``entries``, in order.
+    Each entry's read-then-write is one locked transaction; see the module
+    docstring's "Concurrency" section for what that does and does not
+    guarantee on each backend.
     """
+    from django.db import IntegrityError, transaction
     from django.db.models import F
 
     from nextseek_api.assistant.models_db import ReingestAttributeProposal as Proposal
@@ -82,57 +100,94 @@ def record(entries, *, pipeline, run_dir, manifest_digest, user_id):
         raw_key = entry["raw_key"]
         proposed_attribute = entry["proposed_attribute"]
 
-        existing = list(
-            Proposal.objects.filter(pipeline=pipeline, raw_key=raw_key).order_by("pk")
-        )
-        open_row = next((row for row in existing if row.status in non_terminal_statuses), None)
-
-        if open_row is not None:
-            updates = {
-                "times_proposed": F("times_proposed") + 1,
-                "last_seen_run": run_dir,
-                "manifest_digest": manifest_digest,
-            }
-            if open_row.proposed_attribute != proposed_attribute:
-                updates["rationale"] = _fold_alternative(open_row.rationale, entry)
-            Proposal.objects.filter(pk=open_row.pk).update(**updates)
-            open_row.refresh_from_db()
-            saved.append(open_row)
-            continue
-
-        terminal_match = next(
-            (row for row in existing
-             if row.status in terminal_statuses and row.proposed_attribute == proposed_attribute),
-            None,
-        )
-        if terminal_match is not None:
-            # A human already ruled on this exact attribute. Repetition is
-            # evidence, not a veto: bump the count, never the status.
-            Proposal.objects.filter(pk=terminal_match.pk).update(
-                times_proposed=F("times_proposed") + 1,
-                last_seen_run=run_dir,
-                manifest_digest=manifest_digest,
+        with transaction.atomic():
+            # select_for_update() locks the rows this entry is about to read
+            # and act on, for the life of this transaction. On MySQL/InnoDB
+            # this also gap-locks the (pipeline, raw_key) index range when no
+            # row exists yet, so a concurrent transaction's read for the same
+            # key blocks here until this one commits -- see the module
+            # docstring. On sqlite it is a documented no-op (no lock, no
+            # error), which is why the create path below still needs its own
+            # IntegrityError handling.
+            existing = list(
+                Proposal.objects.select_for_update()
+                .filter(pipeline=pipeline, raw_key=raw_key)
+                .order_by("pk")
             )
-            terminal_match.refresh_from_db()
-            saved.append(terminal_match)
-            continue
+            open_row = next(
+                (row for row in existing if row.status in non_terminal_statuses), None
+            )
 
-        row = Proposal.objects.create(
-            pipeline=pipeline,
-            raw_key=raw_key,
-            proposed_target=entry.get("proposed_target", ""),
-            proposed_attribute=proposed_attribute,
-            datatype=entry.get("datatype", "string"),
-            example_value=str(entry.get("example_value", "")),
-            source_file=entry.get("source_file", ""),
-            rationale=entry.get("rationale", ""),
-            status=entry.get("status", Proposal.STATUS_PENDING),
-            first_seen_run=run_dir,
-            last_seen_run=run_dir,
-            manifest_digest=manifest_digest,
-            proposed_by_id=user_id,
-        )
-        saved.append(row)
+            if open_row is not None:
+                updates = {
+                    "times_proposed": F("times_proposed") + 1,
+                    "last_seen_run": run_dir,
+                    "manifest_digest": manifest_digest,
+                }
+                if open_row.proposed_attribute != proposed_attribute:
+                    updates["rationale"] = _fold_alternative(open_row.rationale, entry)
+                Proposal.objects.filter(pk=open_row.pk).update(**updates)
+                open_row.refresh_from_db()
+                saved.append(open_row)
+                continue
+
+            terminal_match = next(
+                (row for row in existing
+                 if row.status in terminal_statuses
+                 and row.proposed_attribute == proposed_attribute),
+                None,
+            )
+            if terminal_match is not None:
+                # A human already ruled on this exact attribute. Repetition is
+                # evidence, not a veto: bump the count, never the status.
+                Proposal.objects.filter(pk=terminal_match.pk).update(
+                    times_proposed=F("times_proposed") + 1,
+                    last_seen_run=run_dir,
+                    manifest_digest=manifest_digest,
+                )
+                terminal_match.refresh_from_db()
+                saved.append(terminal_match)
+                continue
+
+            try:
+                # Nested atomic() opens a savepoint (we are already inside
+                # the outer atomic() above), so a caught IntegrityError rolls
+                # back only this insert, not the whole entry's transaction --
+                # the documented Django pattern for handling an expected
+                # constraint failure without poisoning the transaction.
+                with transaction.atomic():
+                    row = Proposal.objects.create(
+                        pipeline=pipeline,
+                        raw_key=raw_key,
+                        proposed_target=entry.get("proposed_target", ""),
+                        proposed_attribute=proposed_attribute,
+                        datatype=entry.get("datatype", "string"),
+                        example_value=str(entry.get("example_value", "")),
+                        source_file=entry.get("source_file", ""),
+                        rationale=entry.get("rationale", ""),
+                        status=entry.get("status", Proposal.STATUS_PENDING),
+                        first_seen_run=run_dir,
+                        last_seen_run=run_dir,
+                        manifest_digest=manifest_digest,
+                        proposed_by_id=user_id,
+                    )
+            except IntegrityError:
+                # Lost the race: another transaction inserted this exact
+                # (pipeline, raw_key, proposed_attribute) row between our
+                # locked read and our create. Fold into the row that won
+                # instead of propagating -- the loser bumps evidence, same as
+                # the terminal-match path above.
+                row = Proposal.objects.get(
+                    pipeline=pipeline, raw_key=raw_key,
+                    proposed_attribute=proposed_attribute,
+                )
+                Proposal.objects.filter(pk=row.pk).update(
+                    times_proposed=F("times_proposed") + 1,
+                    last_seen_run=run_dir,
+                    manifest_digest=manifest_digest,
+                )
+                row.refresh_from_db()
+            saved.append(row)
     return saved
 
 
@@ -160,15 +215,32 @@ def attribute_exists(sample_type: str, attribute: str) -> bool:
     needs_definition row is queued for superusers, so it must mean a genuine
     "not defined on this sample type", never an infrastructure hiccup.
 
-    Deliberately no try/except: `attributes_for` (via
-    `context_catalog.load_sample_type`/`load_sample_types`) already returns
-    `[]` for a sample type the catalog does not know, so a real "not defined"
-    answer needs no exception handling here at all. Anything that DOES raise
-    out of that call is an outage, not a schema fact, and must propagate to
-    the caller rather than being reported as `False` -- the same rule
+    `attributes_for` (via `context_catalog.load_sample_type`/
+    `load_sample_types`) already returns `[]` for a sample type the catalog
+    does not know, so a real "not defined" answer needs no exception
+    handling for THAT case. But `load_sample_types` also catches Exception
+    and returns `[]` when the sample-type table itself is unreachable (its
+    own house rule, shared by every caller of that module -- changing it is
+    a repo-wide decision, tracked separately, not something to "simplify
+    away" here). That means the single most likely infrastructure failure --
+    the database being down -- would otherwise arrive here indistinguishable
+    from a genuinely unknown sample type, and get reported as `False`: a
+    fabricated schema gap. `known_sample_types()` gives this module a way to
+    tell the two apart without reaching past `reingest_lookups` into
+    `context_catalog` directly (see the NessieAI/nextseek_api boundary
+    allowlist): a populated NExtSEEK always has at least one sample type, so
+    an ENTIRELY empty catalog is an outage signal, not an answer, and must
+    raise. A genuinely unknown sample type in a populated catalog still
+    returns `False`, same as before -- the same rule
     `reingest_lookups.notes_for_uids` follows by omitting a UID whose fetch
     failed instead of pretending it has no Notes.
     """
-    from nextseek_api.services.reingest_lookups import attributes_for
+    from nextseek_api.services.reingest_lookups import attributes_for, known_sample_types
 
+    if not known_sample_types():
+        raise RuntimeError(
+            "sample type catalog came back empty; treating this as an "
+            "outage rather than reporting a fabricated schema gap for "
+            f"{attribute!r} on {sample_type!r}"
+        )
     return attribute in {a["title"] for a in attributes_for(sample_type)}
