@@ -450,7 +450,7 @@ class ReingestAttributeProposal(models.Model):
     # that already sank a max_length=1024 unique CharField on this branch.
     # Real values are short ("nf-core/rnaseq", "ContamPercent"), so 128 is
     # generous headroom while keeping the composite key well under the
-    # limit: 128*4 + 255*4 + 128*4 + 6 = 2054 bytes.
+    # limit: 128*4 + 255*4 + 128*4 + 6 = 2050 bytes, 1022 to spare.
     pipeline = models.CharField(max_length=128)
     raw_key = models.CharField(max_length=255)
     proposed_target = models.CharField(max_length=64)
