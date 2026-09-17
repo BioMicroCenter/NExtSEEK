@@ -398,3 +398,36 @@ def test_an_oversized_flat_preview_is_shrunk_until_it_fits():
 
     assert len(_json.dumps(slim)) <= 5000
     assert slim["rows_returned"] == 9
+
+
+def test_the_oversize_branch_keeps_the_truncation_key_name_it_always_had():
+    """`rows_truncated`, not `rows_preview_truncated`: the label is not the key."""
+    fat = {"ok": True, "data": {"total": 9,
+                               "rows": [{"uid": f"U-{i}", "blob": "y" * 3000} for i in range(9)]}}
+
+    slim = slim_api_result_for_llm(fat, api_plan={"queryParameters": {}})
+
+    assert "rows_truncated" in slim["data"]
+    assert "rows_preview_truncated" not in slim["data"]
+
+
+def test_a_grouped_preview_shrunk_for_size_says_it_was_truncated():
+    """The flag is set before the shrink runs, so a shrink could leave it False.
+
+    Silently dropping records the payload claims are all of them is exactly the
+    class of quiet lie the disclosure flags exist to close.
+    """
+    import json as _json
+
+    # Three samples in total, so `max_rows` trims nothing -- only the size cap can.
+    full = {"ok": True, "status_code": 200,
+            "data": {"total_samples": 3, "total_sample_types": 1, "failed_uids": 0,
+                     "data": [{"sample_type": "PAT", "n_samples": 3,
+                               "samples": [{"uuid": f"PAT-{i}", "metadata": {"Notes": "z" * 3000}}
+                                           for i in range(3)]}]}}
+
+    slim = slim_api_result_for_llm(full, api_plan={"queryParameters": {}})
+
+    assert len(_json.dumps(slim)) <= 5000
+    assert len(slim["data"]["samples_preview"]) < 3
+    assert slim["data"]["samples_truncated"] is True

@@ -252,6 +252,9 @@ def slim_api_result_for_llm(
     preview_items = None
     preview_key = None
     preview_rows: int | None = None
+    #: The key that says the preview is not the whole list, so the size shrink below
+    #: can set it. Whichever branch builds a preview names its own.
+    truncated_key: str | None = None
 
     groups = _grouped_records(data)
     if groups is not None:
@@ -283,6 +286,7 @@ def slim_api_result_for_llm(
             "samples_preview": preview_items,
             "samples_truncated": len(preview_items) < len(flat),
         }
+        truncated_key = "samples_truncated"
     elif isinstance(data, dict):
         if isinstance(data.get("rows"), list):
             preview_key = "rows"
@@ -310,16 +314,19 @@ def slim_api_result_for_llm(
         # Keep a small preview even when truncating for size
         preview_items = preview_items if preview_items is not None else []
         preview_label = f"{preview_key}_preview" if preview_key else "items_preview"
-        preview_key = preview_label
+        # `<list>_truncated` is built from the ORIGINAL key ("rows_truncated"), not
+        # from the relabelled preview key, which is how it has always read.
+        truncated_key = f"{preview_key or 'items'}_truncated"
         slimmed = {
             **{k: v for k, v in api_result.items() if k != "data"},
             "data": {
                 total_key: total,
                 preview_label: preview_items,
-                f"{preview_key or 'items'}_truncated": True,
+                truncated_key: True,
                 "note": f"Result truncated for LLM context (>{max_chars} chars).",
             },
         }
+        preview_key = preview_label
 
     # Relabelling the keys is not trimming. The branch above rewrote the envelope
     # and kept every previewed row whole, so a result whose individual rows are
@@ -328,7 +335,9 @@ def slim_api_result_for_llm(
     # empty preview leaves the chatter with a total and nothing to name, which is
     # the state that produces a generic reply.
     if preview_key:
-        slimmed, preview_rows = _shrink_preview_to_budget(slimmed, preview_key, max_chars)
+        slimmed, preview_rows = _shrink_preview_to_budget(
+            slimmed, preview_key, max_chars, truncated_key=truncated_key,
+        )
 
     # Row counts come from the ORIGINAL result; `preview_rows` is what actually
     # survived into the payload the chatter reads. Passing both is what lets the
@@ -339,12 +348,23 @@ def slim_api_result_for_llm(
     return slimmed
 
 
-def _shrink_preview_to_budget(slimmed: dict, preview_key: str, max_chars: int) -> tuple[dict, int | None]:
+def _shrink_preview_to_budget(
+    slimmed: dict,
+    preview_key: str,
+    max_chars: int,
+    *,
+    truncated_key: str | None = None,
+) -> tuple[dict, int | None]:
     """Drop previewed rows until the payload fits, keeping at least one.
 
     Returns the payload and how many rows survived. A single row larger than the
     whole budget is kept and the payload stays over it: one real record the chatter
     can quote beats a preview of none.
+
+    Anything dropped here is dropped AFTER the caller decided whether the preview
+    was complete, so ``truncated_key`` is re-asserted: a payload that silently lost
+    records while still claiming to hold all of them is the quiet lie these flags
+    exist to close.
     """
     data = slimmed.get("data")
     if not isinstance(data, dict) or not isinstance(data.get(preview_key), list):
@@ -353,9 +373,10 @@ def _shrink_preview_to_budget(slimmed: dict, preview_key: str, max_chars: int) -
     items = list(data[preview_key])
     while len(items) > 1 and len(json.dumps(slimmed, default=str)) > max_chars:
         items = items[:-1]
-        data = {**data, preview_key: items, "note": (
-            f"Result truncated for LLM context (>{max_chars} chars)."
-        )}
+        data = {**data, preview_key: items,
+                "note": f"Result truncated for LLM context (>{max_chars} chars)."}
+        if truncated_key:
+            data[truncated_key] = True
         slimmed = {**slimmed, "data": data}
     return slimmed, len(items)
 
