@@ -53,6 +53,8 @@ is the complete contract; there are no hidden flags.
 | `nextseek-query` | Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present. | `--query "<text>"` | `{reply, debug, bundle_id}` (+ scratch manifest path when applicable) |
 | `nextseek-recall` | Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned. | `--turn <N>` | `{turn_id, bundle_id, total, row_count, columns, path}` |
 | `nextseek-run-ls` | **Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory. | `--run-dir <abs path under the Luria runs root>` | `{tree, truncated, run_dir}` |
+| `nextseek-run-harvest` | **Reingest step 1** — parse a finished run's machine-readable outputs into a manifest. | `--run-dir <abs path under the cluster runs root>` | `{run_dir, manifest_id, manifest, skipped}` |
+| `nextseek-run-checksum` | **Reingest step 2** — md5 a caller-named set of settled primary-data files on the cluster. | `--run-dir <abs path under the cluster runs root> --paths <comma-separated relative paths>` | `{run_dir, checksums, skipped}` |
 | `nextseek-build-upload-xlsx` | **Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record. | `--manifest-id <id> [--mode {new,update}]` (legacy: `--rows '<json array>' [--existing-parent-uids <csv>]`) | `{saved_files, qa, reply, proposals}` (legacy: `{saved_files, qa}`) |
 
 ## Choosing the op for a task
@@ -128,29 +130,36 @@ NExtSEEK side, not here.** **Decision rule:** intent is to *run/launch/submit/ex
 `nextseek-generate-submission`. **On a `nextseek-pipeline` error, do NOT fall back to
 `nextseek-generate-submission`** — report the error and let the user retry.
 
-**Reingest pipeline outputs — `nextseek-run-ls` + `nextseek-build-upload-xlsx`.** After an nf-core
-run finishes on Luria, register its outputs as new NExtSEEK analysis samples. This produces an
-upload sheet for the user to REVIEW and upload — it does **not** write to NExtSEEK. Workflow:
+**Reingest pipeline outputs — `nextseek-run-harvest` + `nextseek-run-checksum` +
+`nextseek-build-upload-xlsx`.** After an nf-core run finishes, register its outputs as NExtSEEK
+samples and backfill QC onto the sequencing samples it consumed. This produces workbooks for the
+user to REVIEW and upload — it does **not** write to NExtSEEK. Workflow:
 
-1. `nextseek-run-ls --run-dir <finished run dir>` → the recursive `ls -laR` tree of the outputs.
-2. Reason over the tree + the sample-type catalog. Decide, per output, which `A.*` analysis type it
-   is (BAM → `A.ALN`; count/expression matrix → `A.SCXP`/`A.GEX`; VCF → `A.VCF`). Get the input
-   cohort's `Scientist`, project, and how existing `A.*` rows cite `Parent` with **`nextseek-api-read`
-   on a `D.SEQ` sample** — these are sample *attributes*, so use `api-read` (a REST fetch), NOT
-   `nextseek-graph`. Graph is for lineage traversal only; asked for metadata it returns empty Cypher.
-   Only if a value genuinely can't be fetched, mark it `*** PLACEHOLDER ***` — do not block on it.
-3. Compose one row per output sample: `{"SampleType": "A.SCXP", "json_metadata": {"Parent": "<input
-   D.SEQ UID>", "Scientist": "<carried from the input D.SEQ>", "Pipeline": "...", "ReferenceGenome":
-   "...", "Aligner": "...", "File_PrimaryData": "...", ...}, "assay_ids": [<int>...]}`. `Parent` is the
-   input `D.SEQ` UID(s) the output derives from (`;`-delimited for a merged/aggregate output). Use
-   `*** PLACEHOLDER: <what> ***` for any required value you cannot derive — never leave it blank.
-4. `nextseek-build-upload-xlsx --rows '<json array>' --existing-parent-uids "<input D.SEQ UIDs, csv>"`
-   → renders one 4-sheet workbook per sample type as a downloadable artifact, with a per-type QA
-   verdict `{disposition, hard, soft}`. Relay the workbook(s) + QA to the user. If QA HARD_REJECTs a
-   type, fix the flagged rows and re-run.
+1. `nextseek-run-harvest --run-dir <finished run dir>` → `{manifest_id, manifest, skipped}`. The
+   manifest already carries every parsed value and each sample's `d_seq_uid`. **Do not re-type any
+   number from it into a later call.** The server keeps its own copy, keyed by `manifest_id`, and
+   `build-upload-xlsx` reads that copy — it does not take values from you.
+2. Read `manifest.warnings`. Any raw key the server's map can't place is queued automatically —
+   you never decide which sample attribute an unmapped key belongs to, and reingest never invents
+   one. `build-upload-xlsx` (step 4) surfaces what it queued in its `reply` and in a
+   `map_proposals_*` artifact for a superuser to rule on later; your job is to relay that, not
+   resolve it.
+3. `nextseek-run-checksum --run-dir <dir> --paths <comma-separated primary-data files>` once the
+   sample types are settled, to md5 the settled primary-data files. `Checksum_PrimaryData` is
+   required on `A.GEX`/`A.ALN`/`A.SCXP`, and there is currently no wiring from this op's result
+   into the manifest-driven workbook — `build-upload-xlsx --manifest-id` has no field for it. Run
+   this step anyway (it is the real source of that value and the only honest one), but expect step
+   4 to `HARD_REJECT` those sample types on a populated catalog until that gap is closed
+   server-side. **Do not work around it** — never hand-compose `--rows` to smuggle a checksum in;
+   that reintroduces exactly the model-authored-metadata risk this pipeline was rebuilt to remove.
+   Relay the `HARD_REJECT` plainly instead.
+4. `nextseek-build-upload-xlsx --manifest-id <id> --mode new` for the analysis children, then
+   `--mode update` for the D.SEQ backfill.
+5. **Relay the `reply` field of the result VERBATIM.** It is already written for the user;
+   re-summarising it loses the wording and the calibration.
 
-The user reviews the workbook(s) and uploads them via the normal batch-upload UI — **you do not
-upload**; producing the reviewable sheet is the final step.
+The user reviews the workbook(s) and uploads them — children first, then the backfill with
+"update existing samples" ticked. **You do not upload.**
 
 **Multi-step "do X, then Y" — `nextseek-plan`.** See the planner section below.
 
