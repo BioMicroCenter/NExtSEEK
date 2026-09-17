@@ -77,19 +77,34 @@ def _is_backfill(key: str) -> bool:
     return key.endswith("_update")
 
 
+def _normalize_artifact_key(name: str) -> str:
+    """Duplicate of `NessieAI/ns/granular.py`'s `safe_key` normalisation
+    (dot, hyphen, slash and space -> underscore), kept in sync by hand
+    rather than imported: report.py may import only `NessieAI.ns.reingest_qa`
+    and the stdlib, and importing granular.py would be a new coupling.
+
+    If you change this, change granular.py's `safe_key` line too -- a
+    mismatch means a sample type with a hyphen/space/slash (e.g.
+    "A.MADE-UP-TYPE") normalises to a different key here than the one
+    granular.py actually saved the workbook under, so `_resolve_artifact`
+    matches nothing and the workbook silently drops out of both the status
+    list and TO UPLOAD."""
+    return name.replace(".", "_").replace("-", "_").replace("/", "_").replace(" ", "_")
+
+
 def _resolve_artifact(artifacts: dict, sample_type: str):
     """Match a sample type to its workbook, anchored on the exact key first
     and the "_update" backfill variant second -- never a bare substring test,
     which would let sample type "A.GEX" match artifact key
     "reingest_A.GEXPLUS" before "reingest_A.GEX" depending on dict order."""
-    norm = sample_type.replace(".", "_")
+    norm = _normalize_artifact_key(sample_type)
     exact = f"reingest_{norm}"
     update = f"{exact}_update"
     for key, path in artifacts.items():
-        if key.replace(".", "_") == exact:
+        if _normalize_artifact_key(key) == exact:
             return key, path
     for key, path in artifacts.items():
-        if key.replace(".", "_") == update:
+        if _normalize_artifact_key(key) == update:
             return key, path
     return None, None
 
@@ -103,7 +118,25 @@ def _children_first(item):
     return (0 if item[0].startswith("A.") else 1, item[0])
 
 
-def render_qa_for_user(reports, artifacts, run_name) -> str:
+def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str],
+                        run_name: str) -> str:
+    """Render the whole run's QA outcome as plain-language text.
+
+    ``reports`` -- ``{sample_type: QaReport}``, one entry per sample type QA'd
+    this run (see ``NessieAI/ns/reingest_qa.qa_rows``).
+
+    ``artifacts`` -- ``{artifact_key: path}``, the rendered workbooks for this
+    run, keyed exactly as ``NessieAI/ns/granular.py``'s ``_build_upload_xlsx``
+    builds ``saved_files`` (``reingest_<sample_type with "." "-" "/" " " ->
+    "_">``, optionally suffixed ``_update`` for a backfill workbook). Looked up
+    per sample type via ``_resolve_artifact``/``_normalize_artifact_key``,
+    which duplicate that same normalisation by hand.
+
+    Returns the full report as one string. This is the module's only public
+    function, and its output is relayed to the user VERBATIM by the calling
+    agent -- see the module docstring's three rules -- so nothing here should
+    be re-summarised or reworded downstream.
+    """
     blocked = any(built.disposition == qa.HARD_REJECT for built in reports.values())
     lines: list[str] = []
 
@@ -346,7 +379,7 @@ def _render_one(index, code, attribute, bucket):
         return [
             f"  {index}.  {count} {rows} in {_workbook_ref(sample_type)}"
             f" {_verb(count, 'are', 'is')} meant to create new samples but"
-            f" already {_verb(count, 'carry')} an existing",
+            f" already {_verb(count, 'carry', 'carries')} an existing",
             "      sample's identifier.",
             "",
             "      New samples and updates cannot be mixed in one workbook. Say",

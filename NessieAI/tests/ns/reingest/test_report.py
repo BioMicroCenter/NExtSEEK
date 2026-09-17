@@ -195,7 +195,10 @@ _NEW_CODE_CASES = [
      ["existing sample", "identify"]),
     (qa.UID_PRESENT_IN_NEW, qa.HARD,
      dict(sample_type="D.SEQ", attribute="UID", row_index=0, detail={"uid": "D.SEQ-EXAMPLE-1"}),
-     ["cannot be mixed", "which was intended"]),
+     # "carries" (not the malformed "carrys" _verb's fallback would produce
+     # for a count of exactly one, which _single_finding_report always is)
+     # pins the singular subject-verb agreement fixed alongside this case.
+     ["cannot be mixed", "which was intended", "carries"]),
     (qa.UNAPPROVED_ATTRIBUTE, qa.SOFT,
      dict(sample_type="D.SEQ", attribute="MappedPercent", row_index=0,
           detail={"example": "SAMPLE_01 = 91%"}),
@@ -250,6 +253,24 @@ def test_notes_would_clobber_distinguishes_not_fetched_from_would_overwrite():
 
     # The two reasons must not read identically.
     assert text != text2
+
+
+def test_resolve_artifact_matches_a_hyphenated_sample_type():
+    # Regression: granular.py's safe_key replaces ".", "-", "/" and space with
+    # "_" (see its comment beside `safe_key`); _resolve_artifact must
+    # normalise identically or a sample type like "A.MADE-UP-TYPE" (this
+    # branch's own fixture, test_build_upload_xlsx_op.py) resolves to
+    # "reingest_A_MADE-UP-TYPE" here while granular.py actually saved
+    # "reingest_A_MADE_UP_TYPE", and the workbook silently disappears from
+    # both the status list and TO UPLOAD.
+    artifacts = {"reingest_A_MADE_UP_TYPE": "/out/reingest_A.MADE-UP-TYPE.xlsx"}
+    key, path = report._resolve_artifact(artifacts, "A.MADE-UP-TYPE")
+    assert (key, path) == ("reingest_A_MADE_UP_TYPE", "/out/reingest_A.MADE-UP-TYPE.xlsx")
+
+    clean = qa.QaReport()._finalize()
+    text = report.render_qa_for_user({"A.MADE-UP-TYPE": clean}, artifacts, RUN)
+    upload_section = text.split("TO UPLOAD", 1)[1]
+    assert "reingest_A.MADE-UP-TYPE.xlsx" in upload_section
 
 
 def test_unresolved_uid_caps_the_sample_list_instead_of_enumerating_all():

@@ -72,6 +72,20 @@ def render_upload_workbook(
             if not str((row.get("json_metadata") or {}).get("UID") or "").strip():
                 raise ValueError(f"render_upload_workbook: row {index} has no UID "
                                  f"(update mode targets existing samples)")
+    elif mode == MODE_NEW:
+        # Symmetric to the MODE_UPDATE loop above: new mode has no UID column
+        # at all (the field-set loop above strips a "UID" key out of `fields`
+        # unconditionally), so a row carrying one would have its UID silently
+        # vanish from the rendered workbook instead of raising -- and
+        # parse_traditional_file would then read the row back as a
+        # brand-new sample, duplicating whatever it was meant to update.
+        # Mirrors qa_rows' own UID_PRESENT_IN_NEW check (reingest_qa.py).
+        for index, row in enumerate(rows):
+            uid = str((row.get("json_metadata") or {}).get("UID") or "").strip()
+            if uid:
+                raise ValueError(f"render_upload_workbook: row {index} carries a UID "
+                                 f"{uid!r} in new mode (new mode creates samples; it "
+                                 f"has no UID column and cannot target an existing one)")
 
     if not fields:
         raise ValueError("render_upload_workbook: rows carry no json_metadata")

@@ -68,6 +68,19 @@ def test_update_mode_rejects_a_row_with_no_uid(tmp_path):
                                str(tmp_path / "x.xlsx"), mode=MODE_UPDATE)
 
 
+def test_new_mode_rejects_a_row_carrying_a_uid(tmp_path):
+    # Symmetric to test_update_mode_rejects_a_row_with_no_uid: new mode has
+    # no UID column at all, so a row carrying one must raise loudly instead
+    # of having its UID silently stripped by the field-set loop -- which
+    # would otherwise round-trip through parse_traditional_file as a
+    # brand-new sample, duplicating whatever it was meant to update.
+    with pytest.raises(ValueError, match="UID"):
+        render_upload_workbook(
+            "D.SEQ",
+            [{"json_metadata": {"UID": "D.SEQ-EXAMPLE-1", "Parent": "D.SEQ-EXAMPLE-1"}}],
+            str(tmp_path / "x.xlsx"), mode=MODE_NEW)
+
+
 def test_all_four_sheets_are_present_in_both_modes(tmp_path):
     for mode, rows, stype in ((MODE_NEW, NEW_ROWS, "A.GEX"), (MODE_UPDATE, UPD_ROWS, "D.SEQ")):
         out = tmp_path / f"{mode}.xlsx"

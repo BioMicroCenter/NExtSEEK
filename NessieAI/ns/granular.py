@@ -795,6 +795,13 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
         # The artifact KEY is the download URL segment, which the route only
         # accepts as [\w]+ — so it must be word-chars only (A.SCXP -> A_SCXP).
         # The file on disk keeps the dot; download serves it by its real name.
+        #
+        # NessieAI/ns/reingest/report.py's `_resolve_artifact` reconstructs
+        # this same key from a bare sample type to look the workbook back up,
+        # and duplicates this exact normalisation rather than importing it
+        # from here (report.py may not import granular.py). If you change
+        # this normalisation, change the copy there too, or a sample type
+        # with a hyphen/space/slash silently drops out of the QA report.
         safe_key = safe_name.replace(".", "_").replace("-", "_")
         path = os.path.join(out_root, f"reingest_{safe_name}.xlsx")
         render_upload_workbook(st, st_rows, path)
