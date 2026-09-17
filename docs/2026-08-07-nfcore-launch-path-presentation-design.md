@@ -285,7 +285,7 @@ is a known behaviour rather than a surprise.
 
 ## 6. Visual design
 
-Deliberately unlike `chat_nextseek/agent_atlas.html` so the two are not confused.
+Deliberately unlike `NessieAI/chat_nextseek/agent_atlas.html` so the two are not confused.
 Where the atlas is warm cream, serif, and hand-drawn, this is a cool technical report:
 near-white ground, ink-black text, a geometric sans for headings and body, monospace
 reserved strictly for real identifiers (`configure_run`, `params.yml`, `GRCm39`).

@@ -4,7 +4,7 @@ Date: 2026-08-07
 Status: approved design, revised after the acceptance audit, not yet planned
 Scope: sub-project 1 of 3 (see "Relationship to the other two projects")
 
-> **Revised 2026-08-07 after running `scripts/audit_metadata_coverage.py`
+> **Revised 2026-08-07 after running `scripts/audit_metadata_coverage.py` (never committed)
 > against the live database.** The audit confirmed the core premise and
 > falsified three parts of the original design; those are now explicit
 > non-goals, and one component the original design lacked — a normaliser — is
@@ -52,7 +52,8 @@ and asks rather than guessing.
 
 Three of these were in the original design and were cut by the audit. The
 measurements are in the appendix; each should be revisited if the corpus
-changes, and `scripts/audit_metadata_coverage.py` exists to re-measure.
+changes; `scripts/audit_metadata_coverage.py` was never committed, so re-measuring
+means writing it again.
 
 - **Assay-driven behaviour params (`inferred_params` mappings).** Cut. With the
   `kit` fact dead (below), primers still elicited by policy, and strandedness
@@ -94,7 +95,8 @@ rejected because it cannot be reused by sub-project 2, which needs these facts
 
 ## Architecture
 
-Three new modules under `chat_nextseek/src/chat_nextseek/inference/`. No new
+Three new modules under `chat_nextseek/src/chat_nextseek/inference/`, which never existed --
+this design was approved but never built. No new
 module in `seqera/` — the consumers are existing functions.
 
 ```
@@ -278,7 +280,7 @@ No model in the loop at any level — that is the payoff of the chosen approach.
 
 ## Appendix — acceptance audit, 2026-08-07
 
-`scripts/audit_metadata_coverage.py`, run against the live database.
+`scripts/audit_metadata_coverage.py` (never committed), run against the live database.
 51,359 samples; 2,057 `D.SEQ`.
 
 **Field population on `D.SEQ`:**
