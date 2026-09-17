@@ -49,13 +49,21 @@ def _error_response(title: str, status: int, detail: str | None = None) -> Respo
 
 
 class ReingestAttributeProposalSerializer(serializers.ModelSerializer):
+    # The list is not restricted to pending rows, so a superuser auditing the
+    # queue sees terminal ones too -- and "approved" is useless without "by
+    # whom". StringRelatedField renders the username rather than a user id:
+    # the audit question is who ruled, not which primary key they are.
+    proposed_by = serializers.StringRelatedField()
+    reviewed_by = serializers.StringRelatedField()
+
     class Meta:
         model = ReingestAttributeProposal
         fields = [
             "id", "pipeline", "raw_key", "proposed_target", "proposed_attribute",
             "datatype", "example_value", "source_file", "rationale", "status",
             "times_proposed", "first_seen_run", "last_seen_run",
-            "manifest_digest", "reviewed_at", "created_at",
+            "manifest_digest", "proposed_by", "reviewed_by", "reviewed_at",
+            "created_at",
         ]
         read_only_fields = fields
 
