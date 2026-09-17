@@ -127,6 +127,20 @@ KNOWN_TABLE_FIXUPS: list[MissingTable] = [
         table="sample_type_requirements",
         ddl_path="startup/seed/sql/sample_type_requirements.sql",
     ),
+    # Curated sample type context, generated from context/sample_types.json by
+    # scripts/context_gen.py. Unlike the others below, dmac.sql.gz DOES create and
+    # populate this table (measured 2026-09-17: one CREATE, 101 rows), so on a
+    # seeded install this entry is a no-op and the table keeps the dump's older
+    # shape and rows. It earns its place on the paths where the dump does not
+    # run -- `--no-seed`, and any box whose dump predates the table -- where
+    # without it the sample types catalog renders its empty state. Bringing a
+    # seeded install up to the curated content is the update SQL's job, not this
+    # one's: it adds the newer columns and replaces the rows.
+    MissingTable(
+        database="dmac",
+        table="sample_types_context",
+        ddl_path="startup/seed/sql/sample_types_context.sql",
+    ),
     # Curated assay context. Present on production and on no other stack, so
     # without this entry the assays catalog page renders its empty state
     # everywhere except prod and a green CI sweep proves nothing.

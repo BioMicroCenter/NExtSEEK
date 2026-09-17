@@ -60,14 +60,17 @@ component map (`startup/lib/rebuild_policy.py:1`), clean-source verification
 (`startup/lib/ui.py:1`).
 
 **The data payload.** `startup/seed/` ships three gzipped dumps loaded in phase 6, and
-`startup/seed/sql/` ships eight `CREATE TABLE IF NOT EXISTS` files, five of which are
-registered as table fixups at `startup/steps/schema_fixups.py:109-152`. All five of
-those tables are absent from the committed dump: measured 2026-09-03,
+`startup/seed/sql/` ships nine `CREATE TABLE IF NOT EXISTS` files, six of which are
+registered as table fixups at `startup/steps/schema_fixups.py:109-152`. Five of those six
+tables are absent from the committed dump: measured 2026-09-03,
 `zgrep -c 'CREATE TABLE \`<name>\`' startup/seed/dmac.sql.gz` returns 0 for
 `sample_attributes_unique`, `sample_type_requirements`, `assay_context`,
-`projects_context` and `project_template_bundles`, and 1 for `sample_types_context`.
-So those five tables reach an install only through the fixup step, never through the
-seed. `startup/templates/` holds the three files rendered into `docker/db.env`,
+`projects_context` and `project_template_bundles`. So those five reach an install only
+through the fixup step, never through the seed. The sixth, `sample_types_context`, is the
+exception: the same measurement returns 1 for it and the dump carries 101 rows, so on a
+seeded install its fixup is a no-op and the table keeps the dump's older shape. Its DDL
+file earns its place on the paths where the dump does not run, and bringing a seeded
+install up to the curated content is the update SQL's job (`scripts/README.md` group C). `startup/templates/` holds the three files rendered into `docker/db.env`,
 `docker/nextseek.env` and `dmac/local_settings.py`
 (`startup/steps/config.py:149-170`).
 

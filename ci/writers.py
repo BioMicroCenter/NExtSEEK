@@ -359,12 +359,17 @@ WRITERS: tuple[Writer, ...] = (
            reconcile="RECONCILE_OPERATOR",
            note="hand SQL kept in the tree; nothing in the code applies any of these five files"),
     Writer(id="WR-21",
-           sites=(),
-           tables=("sample_types_context",),
-           how=("external",),
+           sites=("scripts/context_gen.py::render_mappings",
+                  "startup/seed/sql/sample_types_context.sql"),
+           tables=("sample_types_context", "internal_assays", "assays_internal_assays"),
+           how=("sql_file", "sql", "external"),
            reconcile="RECONCILE_OPERATOR",
-           note="the context tables, written by hand today; when the context work's apply step lands it becomes "
-                "a hooked writer and this entry changes with it"),
+           note="the curated context tables. scripts/context_gen.py turns context/*.json into SQL but never "
+                "connects to a database, so the write is always an operator applying that SQL by hand; "
+                "render_update and render_seed build the table name at run time and are in UNRESOLVED_SITES. "
+                "The seed file reaches a fresh install through the schema fixups instead (WR-19's mechanism), "
+                "before any full sync. Every one of these tables feeds the graph catalog, so the sync that "
+                "repairs them is the nightly or a full run, never the writer"),
     Writer(id="WR-22",
            sites=(),
            tables=("samples", "sample_types", "sample_attributes", "sample_attribute_types", "projects_samples",
@@ -499,6 +504,12 @@ UNRESOLVED_SITES: tuple[str, ...] = (
     # A module the scan cannot parse, so cannot clear: it is Python 2, under the
     # app that is never mounted.
     "api_app/api_sampleParser.py",
+    # The context generator's two table-agnostic renderers (WR-21). Both take the
+    # table as an argument and read its name off cg.TABLES, so the scan sees a
+    # statement with no literal table; and neither writes anything anyway, they
+    # return SQL text for an operator to apply.
+    "scripts/context_gen.py::render_seed",
+    "scripts/context_gen.py::render_update",
     # Install-time helpers, on tables the graph does not read (WR-19 and SEEK's own
     # settings table).
     "startup/steps/schema_fixups.py::_add_and_backfill",

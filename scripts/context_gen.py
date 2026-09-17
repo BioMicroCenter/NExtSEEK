@@ -42,11 +42,12 @@ def load_source(path: Path) -> list[dict]:
 #
 # Column spellings, and where each one is pinned:
 #
-#   assays        scripts/generate_assay_context_seed.py::COLUMNS, whose database
-#                 side is map_assay's first choice for each field, which is what
-#                 production answered with
-#   sample_types  the lowercase keys map_sampletype reads in
-#                 NessieAI/chat_nextseek/src/chat_nextseek/config.py
+#   sample_types  the Django model seek/models/nextseek.py::Sample_types_context,
+#                 whose fields are the live columns (`tags` carries the one
+#                 db_column override, capital-T `Tags`)
+#   assays        the CREATE TABLE in startup/seed/sql/assay_context.sql, whose
+#                 spellings are map_assay's first choice for each field, which is
+#                 what production answered with on the 2026-09-11 pull
 #   projects      the CREATE TABLE in startup/seed/sql/projects_context.sql
 #
 # NessieAI/tests/api/test_context_gen.py re-derives all three from those files

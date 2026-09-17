@@ -1,9 +1,22 @@
 # context/
 
 Hand-owned source of truth for NExtSEEK's catalog context. Edit these files; do not edit the
-database tables or the exported JSON directly. A generator (not written yet) turns them into
-the SQL that updates production, the seed SQL for fresh installs, and Nessie's JSON exports.
-Whatever is in these files is what the database will hold.
+database tables or the exported JSON directly. Whatever is in these files is what the
+database will hold.
+
+`scripts/context_gen.py` is the generator that gets them there:
+
+```
+python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
+python scripts/context_gen.py --emit seed --table all
+```
+
+`--emit update` writes re-runnable SQL for a live database; the operator applies it.
+`--emit seed` rewrites the three files under `startup/seed/sql/` in place, which is what a
+fresh install reads. Nessie's JSON exports need no generator: `_fetch_context_files_from_db`
+rewrites them from these tables once per UTC day, which is also why editing an export
+changes nothing that survives a day. `scripts/README.md` group C is the generator's
+reference and `NessieAI/tests/api/test_context_gen.py` is its test lane.
 
 **Review gate:** nothing from these files is written to any database (local, fairdata-dev or
 production) until the user has reviewed them as an xlsx workbook and signed off.
@@ -18,7 +31,10 @@ production) until the user has reviewed them as an xlsx workbook and signed off.
 ## Conventions
 
 - Keys are the database column names, spelled exactly (`Tags` is capitalised on both
-  sample types and assays). The autoincrement `id` is left out; the generator owns it.
+  sample types and assays). The autoincrement `id` is left out; the generator owns it. A key
+  that is not a column of its table fails at generation, so a typo here never reaches a
+  write. `projects.json` has one generated column it must NOT carry: `pi_names`, which
+  `context_gen.py::parse_pi` derives from the free-text `pi` field.
 - Sample types sort by `sample_type`, assays by `assay_name`, projects by `name`.
 - Written with `json.dumps(rows, indent=2, ensure_ascii=False)` plus a trailing newline.
 - List-like text columns (`Tags`, metadata fields, parents, children, associated assays) stay

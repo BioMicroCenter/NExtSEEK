@@ -187,7 +187,7 @@ Breaking one is a regression, not a refactor.
   watching an install sees green and concludes the indexes were created. The flag is
   read at `startup/steps/schema_fixups.py:995` and is true only for `1/true/yes/on`;
   its own docstring calls it opt-in, default off (`startup/steps/schema_fixups.py:979-994`).
-- **Three of the eight DDL files in `startup/seed/sql/` are wired to nothing.** A
+- **Three of the nine DDL files in `startup/seed/sql/` are wired to nothing.** A
   recursive grep of the worktree for the three basenames
   `sample_attributes_description.sql`, `sample_attributes_unique_data.sql` and
   `ROLLBACK_sample_attributes_description.sql`, excluding `.git/`, `node_modules/`,

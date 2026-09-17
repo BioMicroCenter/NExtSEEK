@@ -16,10 +16,18 @@ This directory ships sanitized snapshots of dev databases for fresh installs.
   its next `install` too. Apply the DDL by hand only to an instance you are not
   reinstalling — production. If the table is missing regardless, the README's
   meanings render blank, which is the designed fail-soft behaviour, not a
-  failure. (`assay_context` and `projects_context` are also absent from the seed,
-  but for a different reason — nothing has needed them yet; see the "Seed gap"
-  section of `docs/sample-download-workflow.md`.) Neither this table nor
-  `sample_types_context` has a Django migration; both are created in SQL.
+  failure. (`assay_context` and `projects_context` are also absent from the seed;
+  see the "Seed gap" section of `docs/sample-download-workflow.md`.) Neither this
+  table nor `sample_types_context` has a Django migration; both are created in SQL.
+
+  The three curated context tables are the generated ones. `sample_types_context.sql`,
+  `assay_context.sql` and `projects_context.sql` are written by
+  `scripts/context_gen.py --emit seed` from the hand-owned source in `context/`;
+  regenerate them, never hand-edit them. All three are registered as table fixups, so
+  an install with no dump still gets the curated rows. `sample_types_context` is the
+  one the dump does carry, with its own older shape and 101 rows, so on a seeded
+  install its fixup is a no-op; the update SQL is what brings that install up to the
+  curated content.
 - `seek_production.sql.gz` — SEEK schema (the `seek_production` MySQL database)
 - `neo4j.cypher.gz` — Neo4j graph export (sample/assay nodes + relationships)
 - `filestore.tar.gz` — SEEK filestore snapshot (the content blobs the
