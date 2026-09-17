@@ -96,6 +96,49 @@ def test_link_primary_data_alone_without_a_name_hard_rejects():
     assert not any(f.code == qa.MISSING_REQUIRED for f in report.findings)
 
 
+def test_link_primary_data_with_forward_only_soft_flags_not_hard_rejects():
+    # Important 1: PRIMARY_DATA_UNNAMED's title check is the full four-link
+    # chain (_TITLE_FALLBACKS), not just Name -- SEEK's own upload paths
+    # (seek/sample/upload.py:427-434, seek/sample/core.py:183-190,
+    # seek/sample/api.py:141) all fall back from Name to File_PrimaryData to
+    # File_PrimaryData_Forward to File_PrimaryData_Reverse before giving up.
+    # A Forward-only row with no Name is exactly as nameable (by
+    # File_PrimaryData_Forward) as a File_PrimaryData-only row, so it must
+    # soft-flag as PRIMARY_DATA_LINK_ONLY, the same as the named case above --
+    # truncating the chain to just Name would hard-reject a row SEEK accepts
+    # and, via granular.py skipping render_upload_workbook on HARD_REJECT,
+    # drop the whole sample type's workbook.
+    report = _qa({"Link_PrimaryData": "https://example.org/gideon4wk/sample1.bam",
+                  "File_PrimaryData_Forward": "fwd.fastq"})
+    link_only = [f for f in report.findings if f.code == qa.PRIMARY_DATA_LINK_ONLY]
+    assert len(link_only) == 1
+    assert link_only[0].severity == qa.SOFT
+    assert report.disposition == qa.SOFT_FLAG
+    assert not any(f.code == qa.PRIMARY_DATA_UNNAMED for f in report.findings)
+
+
+def test_link_primary_data_with_reverse_only_soft_flags_not_hard_rejects():
+    # Same as the Forward case above, for the other paired-end fallback.
+    report = _qa({"Link_PrimaryData": "https://example.org/gideon4wk/sample1.bam",
+                  "File_PrimaryData_Reverse": "rev.fastq"})
+    link_only = [f for f in report.findings if f.code == qa.PRIMARY_DATA_LINK_ONLY]
+    assert len(link_only) == 1
+    assert link_only[0].severity == qa.SOFT
+    assert report.disposition == qa.SOFT_FLAG
+    assert not any(f.code == qa.PRIMARY_DATA_UNNAMED for f in report.findings)
+
+
+def test_link_primary_data_alone_with_no_fallback_at_all_still_hard_rejects():
+    # The genuine PRIMARY_DATA_UNNAMED case survives the widened chain: a
+    # Link-only row with none of Name/File_PrimaryData/Forward/Reverse is
+    # still unnameable by any SEEK upload path.
+    report = _qa({"Link_PrimaryData": "https://example.org/gideon4wk/sample1.bam"})
+    unnamed = [f for f in report.findings if f.code == qa.PRIMARY_DATA_UNNAMED]
+    assert len(unnamed) == 1
+    assert unnamed[0].severity == qa.HARD
+    assert report.disposition == qa.HARD_REJECT
+
+
 def test_both_members_present_satisfies_the_group():
     report = _qa({"File_PrimaryData": "/net/cluster/runs/gideon4wk/sample1.bam",
                   "Link_PrimaryData": "https://example.org/gideon4wk/sample1.bam"})

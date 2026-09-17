@@ -87,11 +87,11 @@ METRIC_UNAVAILABLE = "metric_unavailable"
 #     for lacking `primary`, but it may also not (not every sample type
 #     requires it), so this must not block a workbook that could well be
 #     fine. This is PRIMARY_DATA_LINK_ONLY, SOFT -- *unless* the row also
-#     has no `Name`: both SEEK upload paths derive the sample title from
-#     `Name`, falling back to `File_PrimaryData` (seek/sample/upload.py's
-#     per-row check; seek/sample/core.py falls back further, to the literal
-#     title "Undefined"), so a row with neither can never be titled and is
-#     rejected on EVERY sample type, not a maybe. That sub-case is
+#     has none of `_TITLE_FALLBACKS` below: every SEEK upload path titles a
+#     new sample by walking Name -> File_PrimaryData -> File_PrimaryData_
+#     Forward -> File_PrimaryData_Reverse in order and using the first
+#     non-blank one, so a row with none of the four can never be titled and
+#     is rejected on EVERY sample type, not a maybe. That sub-case is
 #     PRIMARY_DATA_UNNAMED, HARD, even though the PrimaryData requirement
 #     itself is only ever a maybe.
 #   - neither `primary` nor any secondary present -> exactly one HARD
@@ -118,6 +118,26 @@ class _AlternativeGroup:
 ALTERNATIVE_REQUIRED_GROUPS: tuple[_AlternativeGroup, ...] = (
     _AlternativeGroup("File_PrimaryData", ("Link_PrimaryData",)),
 )
+
+# The full title-derivation chain every SEEK upload path walks before giving
+# up on naming a new sample, in order -- mirrored from, not invented beside,
+# these three call sites (all four names checked in the same order at each):
+#   seek/sample/upload.py:427-434   Name -> File_PrimaryData ->
+#                                    File_PrimaryData_Forward ->
+#                                    File_PrimaryData_Reverse -> error 302
+#   seek/sample/core.py:183-190     same four, then title falls back further,
+#                                    to the literal string "Undefined"
+#   seek/sample/api.py:141          same chain
+# A row missing ALL FOUR cannot be titled by any of these paths and is
+# rejected (or silently titled "Undefined") on every sample type -- not a
+# maybe, unlike the PrimaryData requirement itself. PRIMARY_DATA_UNNAMED
+# below tests against this whole tuple, not just "Name" -- a Forward- or
+# Reverse-only, Name-less row is exactly as nameable as a File_PrimaryData-only
+# one, and treating it as unnamed silently HARD_REJECTs a row SEEK would
+# accept, taking the row's whole sample-type workbook down with it
+# (granular.py skips render_upload_workbook on HARD_REJECT).
+_TITLE_FALLBACKS: tuple[str, ...] = (
+    "Name", "File_PrimaryData", "File_PrimaryData_Forward", "File_PrimaryData_Reverse")
 
 _GROUP_LABEL_SEP = " or "
 
@@ -370,6 +390,23 @@ def qa_rows(
             #      the backfill only, so a new-mode child must not be
             #      silently dropped for a lineage gap a curator can attach
             #      later.
+            #
+            # `collect_parent_tokens` (in `helpers.py`, not editable from
+            # here) skips a value that is falsy or not a `str` -- so
+            # `{"Parent": None}`, `{"Parent": 12345}` and
+            # `{"Parent": ["D.SEQ-EXAMPLE-1"]}` all return [] from it exactly
+            # like a genuinely absent key, and land in state 2 (BLANK_PARENT,
+            # HARD) via `_has_any_parent_key`, not state 3. That is a
+            # deliberate, if narrow, reading: the mapper's actual signal for
+            # "could not resolve" is key *absence*, and an explicit `null` (or
+            # a non-string value the mapper should never emit) is not
+            # absence, so treating it as "something tried to set lineage and
+            # produced nothing" is defensible. It is also unpinned by any
+            # other comment, so state it once, here: `Parent: None` is
+            # newly load-bearing now that it sits on the HARD/SOFT boundary
+            # this three-state split created, where before this fix it and
+            # every other "no usable Parent value" shape were collapsed into
+            # one HARD code.
             parent_tokens = collect_parent_tokens(meta)
             if parent_tokens:
                 for token in parent_tokens:
@@ -509,16 +546,17 @@ def qa_rows(
                         # PrimaryData requirement itself -- SEEK may still
                         # require the primary for this sample type, but it may
                         # also not -- so that half stays advisory, not
-                        # blocking. But a row with no Name either cannot be
-                        # titled by ANY sample type's upload path (Name ->
-                        # File_PrimaryData is every fallback there is), which
-                        # is a guaranteed rejection, not a maybe -- so that
-                        # sub-case is its own HARD code, never folded into the
-                        # advisory one (see the code constants' comment: a
-                        # SOFT and a HARD finding must never share a code, or
-                        # a mixed batch merges them into one bucket and loses
-                        # one severity's findings entirely).
-                        if _value_missing(meta.get("Name")):
+                        # blocking. But a row with none of `_TITLE_FALLBACKS`
+                        # (Name, File_PrimaryData, or either paired-end
+                        # variant) cannot be titled by ANY sample type's
+                        # upload path, which is a guaranteed rejection, not a
+                        # maybe -- so that sub-case is its own HARD code,
+                        # never folded into the advisory one (see the code
+                        # constants' comment: a SOFT and a HARD finding must
+                        # never share a code, or a mixed batch merges them
+                        # into one bucket and loses one severity's findings
+                        # entirely).
+                        if all(_value_missing(meta.get(k)) for k in _TITLE_FALLBACKS):
                             report.add(Finding(
                                 code=PRIMARY_DATA_UNNAMED, severity=HARD,
                                 sample_type=sample_type,
