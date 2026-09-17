@@ -60,8 +60,20 @@ def test_approved_rules_returns_only_approved_rows():
 
 
 def test_a_pending_row_is_never_returned_as_a_rule():
-    _record()
-    assert "ContamPercent" not in proposals.approved_rules("nf-core/rnaseq")
+    """A stub `approved_rules` that always returns `{}` would also pass a
+    bare "pending is absent" check. Put a pending row and an approved row
+    for the SAME pipeline side by side so this can only pass if the status
+    filtering is real: the approved one must come back and the pending one
+    must not."""
+    _record()  # pending: ContamPercent / Kraken2_bracken_fraction
+    approved_entry = dict(ENTRY, raw_key="Other_raw_key", proposed_attribute="OtherAttribute")
+    _record(username="u2", entries=[approved_entry])
+    Proposal.objects.filter(proposed_attribute="OtherAttribute").update(
+        status=Proposal.STATUS_APPROVED)
+
+    rules = proposals.approved_rules("nf-core/rnaseq")
+    assert "OtherAttribute" in rules
+    assert "ContamPercent" not in rules
 
 
 def test_recording_does_not_reset_a_rejected_row_to_pending():
@@ -132,6 +144,55 @@ def test_a_terminal_row_for_a_different_attribute_lets_a_new_question_through():
     assert fresh.times_proposed == 1
 
 
+def test_a_lost_create_race_folds_into_the_row_that_won_instead_of_raising():
+    """Simulates the race record()'s IntegrityError catch exists for: another
+    transaction's insert for the exact same (pipeline, raw_key,
+    proposed_attribute) commits between this transaction's own "does a row
+    already exist" read and its own create(). We can't reproduce that timing
+    with real threads deterministically, so the "winner" row is created
+    first -- as a plain statement outside any transaction record() opens, so
+    none of record()'s internal rollbacks can touch it -- and record()'s own
+    existence read is blinded to it, standing in for the read landing in the
+    adversarial window a lock only narrows, never eliminates on every
+    backend (see the module docstring's "Concurrency" section: sqlite's
+    select_for_update() is a documented no-op). record() then reaches its
+    own create() call for the exact same key, and sqlite's real
+    unique_together constraint raises the same IntegrityError the actual
+    race would -- nothing about the exception itself is mocked, only the
+    read that would otherwise have found `winner` first."""
+    winner = Proposal.objects.create(
+        pipeline="nf-core/rnaseq", raw_key=ENTRY["raw_key"],
+        proposed_target=ENTRY["proposed_target"],
+        proposed_attribute=ENTRY["proposed_attribute"],
+        datatype=ENTRY["datatype"], example_value=ENTRY["example_value"],
+        source_file=ENTRY["source_file"], rationale=ENTRY["rationale"],
+        first_seen_run="/net/cluster/runs/r0", last_seen_run="/net/cluster/runs/r0",
+        manifest_digest="orig",
+    )
+
+    # Blind record()'s existence read only -- not every `.filter()` call --
+    # so the post-collision fold's own `.filter(pk=...).update(...)` still
+    # works normally. select_for_update() is unconditional because the real
+    # code never passes it arguments.
+    real_filter = Proposal.objects.filter
+
+    def _blind_the_existence_check(*args, **kwargs):
+        if set(kwargs) == {"pipeline", "raw_key"}:
+            return Proposal.objects.none()
+        return real_filter(*args, **kwargs)
+
+    with patch.object(Proposal.objects, "filter", side_effect=_blind_the_existence_check), \
+         patch.object(Proposal.objects, "select_for_update",
+                       return_value=Proposal.objects.none()):
+        _record()  # must fold into `winner`, not raise IntegrityError
+
+    assert Proposal.objects.count() == 1
+    winner.refresh_from_db()
+    assert winner.times_proposed == 2
+    assert winner.last_seen_run == "/net/cluster/runs/r1"
+    assert winner.manifest_digest == "abc123"
+
+
 @patch("nextseek_api.services.context_catalog._sample_type_rows")
 def test_attribute_exists_is_true_for_an_attribute_really_on_the_sample_type(rows):
     rows.return_value = [SAMPLE_TYPE_ROW]
@@ -155,3 +216,21 @@ def test_attribute_exists_propagates_a_lookup_failure_rather_than_returning_fals
               side_effect=RuntimeError("catalog database unreachable")):
         with pytest.raises(RuntimeError):
             proposals.attribute_exists("D.FLOW", "UID")
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_attribute_exists_raises_when_the_real_catalog_swallow_empties_it(rows):
+    """The test above mocks `attributes_for` directly, which bypasses the
+    real swallow path and gives false confidence. This one goes through it:
+    `context_catalog.load_sample_types` catches Exception and returns `[]`
+    when the sample-type table is unreachable -- the same swallow that made
+    the outage indistinguishable from a genuine schema gap before this fix.
+    `_sample_type_rows` is the one call that swallow wraps (see
+    test_context_catalog.py's own use of this patch target), so raising
+    there reaches `attribute_exists` only through the real chain:
+    attributes_for -> context_catalog.load_sample_type -> load_sample_types
+    -> _sample_type_rows. It must still raise, not return a fabricated
+    `False`."""
+    rows.side_effect = RuntimeError("sample_types_context table unreachable")
+    with pytest.raises(RuntimeError):
+        proposals.attribute_exists("D.FLOW", "UID")
