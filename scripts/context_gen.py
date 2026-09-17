@@ -730,6 +730,161 @@ def render_mappings(rows: list[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+# --- the generated investigation block ---------------------------------------
+#
+# capabilities.md's "Known Projects and Investigations" section lists eight names
+# and tells the agent to "use these names exactly". Five of the eight return
+# nothing: SEEK carries two parallel investigation systems, and the list names the
+# paper-tracking copies in TestProject_250820 (38 bibliographic studies, zero
+# samples) rather than the real investigations that hold the samples. Measured on
+# the live 1.2 graph and confirmed against the 2026-09-11 production pull. It is
+# not repaired by a sync and it is not a local artifact.
+#
+# Operator decision, 2026-09-17: do not hand-edit that list, generate it. The
+# section becomes a marked generated block filled from projects_context rows whose
+# entity_type is "investigation", following the repo's existing
+# `<!-- BEGIN DOCS-MAP:... -->` precedent. The marker is CONTEXT-GEN rather than
+# DOCS-MAP because ci/docs_map.py owns that namespace and does not own this block.
+#
+# Two rules the block keeps, and one refusal:
+#
+#   * **No counts.** The repo's doc rules forbid a dated count in a README or CLAUDE
+#     file, and a baked count rots the day the next sync runs. Names and a short
+#     description. Live counts reach the graph agent through the catalog reader.
+#   * **Investigations only.** `catalog.assistant_investigations` checks every name
+#     in the section against Investigation nodes, so a project row that is not also
+#     an investigation title would fail a check for a perfectly correct row.
+#   * **Refuse at generation, not at rebuild.** An investigation that resolves to
+#     zero samples is not emitted, so the defect cannot be committed in the first
+#     place. `drift.py` stays the runtime backstop for the case where the data moves
+#     under a correct file.
+
+CAPABILITIES_BEGIN = "<!-- BEGIN CONTEXT-GEN:investigations -->"
+CAPABILITIES_END = "<!-- END CONTEXT-GEN:investigations -->"
+
+_CAPABILITIES_INTRO = (
+    "The graph database organizes samples into studies grouped under named "
+    "investigations. The investigations that hold samples are:"
+)
+_CAPABILITIES_OUTRO = (
+    "Use these names exactly when asking graph questions scoped to one "
+    "investigation. The names in brackets are what people call them; the bold name "
+    "is what the graph answers to."
+)
+
+
+class ZeroSampleInvestigation(ValueError):
+    """An investigation in the catalog resolves to no samples in the graph."""
+
+
+class NoInvestigations(ValueError):
+    """No row is an investigation, so there is no list to generate."""
+
+
+class IncompleteInvestigation(ValueError):
+    """An investigation row carries no description to tell the agent what it is."""
+
+
+def _short_description(row: dict) -> str:
+    """One line saying what an investigation studies.
+
+    `research_focus` when it is there, else the first sentence of `description`.
+    Both are single lines by the time they reach the block: a bullet that wraps
+    would end the list as far as a Markdown reader is concerned.
+    """
+    focus = (row.get("research_focus") or "").strip()
+    if not focus:
+        text = " ".join((row.get("description") or "").split())
+        focus = text.split(". ", 1)[0].strip()
+        if focus and not focus.endswith("."):
+            focus += "."
+    return " ".join(focus.split())
+
+
+def render_capabilities_block(rows: list[dict], sample_counts=None) -> str:
+    """The generated "Known Projects and Investigations" block.
+
+    `rows` are `projects_context` rows; only the investigations are listed.
+    `sample_counts` maps an investigation title to its live sample count and is
+    what the refusal is decided on. `nextseek_api/graph_sync/drift.py` already
+    produces exactly that mapping, in the `assistant_investigations` stat, from the
+    same Cypher its runtime check uses, so generation and the backstop are decided
+    on one measurement.
+
+    No counts are written. They decide what is emitted and are then discarded.
+
+    Passing no counts refuses everything, which is the honest reading: without
+    evidence that a name answers, nothing may be told to the agent.
+    """
+    counts = dict(sample_counts or {})
+    investigations = sorted(
+        (r for r in rows if (r.get("entity_type") or "").strip().lower() == "investigation"),
+        key=lambda r: str(r.get("name") or ""),
+    )
+    if not investigations:
+        raise NoInvestigations(
+            "no row has entity_type 'investigation', so this block would empty the "
+            "section and take the agent's only list of investigations with it. Add "
+            "the rows to context/projects.json first (plan task 6.15c)."
+        )
+
+    dead = [str(r.get("name")) for r in investigations if counts.get(str(r.get("name")), 0) <= 0]
+    if dead:
+        raise ZeroSampleInvestigation(
+            f"{len(dead)} investigation(s) resolve to no samples: {', '.join(sorted(dead))}. "
+            "An empty investigation is worse than a missing one: the agent scopes to it "
+            "and gets a confident zero rather than an error. Point the row at the "
+            "investigation that holds the samples, or drop it."
+        )
+
+    missing = [str(r.get("name")) for r in investigations if not _short_description(r)]
+    if missing:
+        raise IncompleteInvestigation(
+            f"no research_focus or description for: {', '.join(sorted(missing))}. "
+            "A name on its own tells the agent nothing about when to use it."
+        )
+
+    lines = [CAPABILITIES_BEGIN, "", _CAPABILITIES_INTRO, ""]
+    for row in investigations:
+        name = str(row["name"])
+        # drift.py captures the bold term as `[^*]+`, so an asterisk in a title
+        # would truncate the name it then looks up and the check would fail on a
+        # name nobody wrote. Newlines would end the bullet outright.
+        if any(char in name for char in "*\n\r"):
+            raise UnsupportedValue(
+                f"investigation title {name!r} contains Markdown that would split the "
+                "bold run the drift check reads; rename it or the check fails on a name "
+                "nobody wrote"
+            )
+        alternatives = [str(a).strip() for a in (row.get("alternative_names") or [])
+                        if str(a).strip() and str(a).strip() != name]
+        bullet = f"- **{name}** — {_short_description(row)}"
+        if alternatives:
+            bullet += f" [also: {', '.join(alternatives)}]"
+        lines.append(bullet)
+    lines += ["", _CAPABILITIES_OUTRO, "", CAPABILITIES_END, ""]
+    return "\n".join(lines)
+
+
+def replace_capabilities_block(text: str, block: str) -> str:
+    """`text` with everything between the markers replaced by `block`.
+
+    The order of the chain matters and is not enforceable from here: this writes
+    `capabilities.md`, then `gen_op_surfaces --write` reads `capabilities.md` to
+    regenerate `route_capabilities.json`, then both images rebuild. Running those
+    out of order ships a `route_capabilities.json` built from the old list.
+    """
+    if CAPABILITIES_BEGIN not in text or CAPABILITIES_END not in text:
+        raise ValueError(
+            f"no {CAPABILITIES_BEGIN} ... {CAPABILITIES_END} pair to replace. The "
+            "markers are added to capabilities.md once, by hand, around the section "
+            "body; after that this function owns what is between them."
+        )
+    head = text.split(CAPABILITIES_BEGIN, 1)[0]
+    tail = text.split(CAPABILITIES_END, 1)[1]
+    return head + block.rstrip("\n") + tail
+
+
 # --- the command line --------------------------------------------------------
 
 SEED_FILES = {"sample_types": "sample_types_context.sql",

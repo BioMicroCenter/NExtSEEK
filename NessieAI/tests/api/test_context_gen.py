@@ -662,3 +662,214 @@ def test_update_sql_drops_a_stale_row_and_updates_an_existing_one_in_place():
     assert stored["CSBC"]["id"] == 2                      # updated in place, not reinserted
     assert stored["CSBC"]["description"] != "old"
     assert len(stored) == 12
+
+
+# --- 6.15 the generated investigation block ----------------------------------
+#
+# capabilities.md's "Known Projects and Investigations" section lists eight names
+# and tells the agent to "use these names exactly". Five of the eight return
+# nothing: SEEK carries two parallel investigation systems, and the list names the
+# paper-tracking copies in TestProject_250820 (38 bibliographic studies, zero
+# samples) rather than the real investigations that hold the samples. Measured on
+# the live 1.2 graph and confirmed against the 2026-09-11 production pull; a sync
+# does not repair it.
+#
+# Operator decision, 2026-09-17: do not hand-edit that list, generate it. So the
+# section becomes a marked generated block filled from projects_context, and the
+# generator REFUSES an investigation that resolves to zero samples. That refusal is
+# the whole point: the defect cannot be committed in the first place.
+# catalog.assistant_investigations in nextseek_api/graph_sync/drift.py stays as the
+# runtime backstop for the case where the data moves under a correct file.
+#
+# This module owns the renderer only. The investigation rows are 6.15c and the
+# consumer audit is 6.15d, both gated on the operator's xlsx review, and nothing
+# here edits capabilities.md.
+
+# The five that resolve to nothing today, and what they should say, from the plan's
+# measured table. Sample counts are used to DECIDE, never emitted.
+LIVE_COUNTS = {
+    "Impactb Investigation": 84394, "MIT_SRP": 56004, "GBM_BTC": 4564,
+    "Endometriosis": 3247, "Collagen Study": 568, "CSBC": 3643, "MetNet": 10379,
+    "TCGA": 918519,
+}
+DEAD_NAMES = ("Impact", "SRP", "GBM", "Griffith", "Shoulders")
+
+
+def _investigation(name, **extra):
+    row = {"name": name, "entity_type": "investigation", "parent_project": "MIT-Koch",
+           "project_id": 5, "research_focus": f"What {name} studies.",
+           "alternative_names": [], "pi": None}
+    row.update(extra)
+    return row
+
+
+def test_capabilities_block_is_one_marked_generated_block():
+    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 918519})
+    assert block.startswith(cg.CAPABILITIES_BEGIN)
+    assert block.rstrip("\n").endswith(cg.CAPABILITIES_END)
+    assert "BEGIN" in cg.CAPABILITIES_BEGIN and "END" in cg.CAPABILITIES_END
+    assert cg.CAPABILITIES_BEGIN.startswith("<!--") and cg.CAPABILITIES_END.endswith("-->")
+
+
+def test_capabilities_block_lists_investigations_and_skips_projects():
+    """Only investigations. The section's names are checked against Investigation
+    nodes, so a project row that is not also an investigation title would make the
+    drift check fail for a row that is perfectly correct."""
+    rows = [_investigation("TCGA"),
+            {"name": "MIT-Koch", "entity_type": "project", "research_focus": "A program."}]
+    block = cg.render_capabilities_block(rows, {"TCGA": 918519})
+    assert "**TCGA**" in block
+    assert "MIT-Koch" not in block
+
+
+def test_capabilities_block_carries_no_counts():
+    """A baked count rots the day the next sync runs, and the repo's doc rules
+    forbid a dated count in a README or CLAUDE file. Live counts reach the graph
+    agent through the catalog reader instead."""
+    rows = [_investigation(name) for name in sorted(LIVE_COUNTS)]
+    block = cg.render_capabilities_block(rows, LIVE_COUNTS)
+    assert not re.search(r"\d", block), "the block must carry no digits at all"
+    for count in LIVE_COUNTS.values():
+        assert str(count) not in block and f"{count:,}" not in block
+
+
+def test_capabilities_block_refuses_an_investigation_with_no_samples():
+    """The refusal that is the whole point of generating this section."""
+    import pytest
+
+    rows = [_investigation("TCGA")] + [_investigation(name) for name in DEAD_NAMES]
+    with pytest.raises(cg.ZeroSampleInvestigation) as excinfo:
+        cg.render_capabilities_block(rows, LIVE_COUNTS)
+    message = str(excinfo.value)
+    for name in DEAD_NAMES:
+        assert name in message, name
+    assert "TCGA" not in message
+
+
+def test_capabilities_block_refuses_a_name_the_counts_do_not_mention():
+    """Absent is not zero, but it is not evidence either."""
+    import pytest
+
+    with pytest.raises(cg.ZeroSampleInvestigation):
+        cg.render_capabilities_block([_investigation("Nowhere")], {"TCGA": 918519})
+
+
+def test_capabilities_block_refuses_with_no_counts_at_all():
+    import pytest
+
+    with pytest.raises(cg.ZeroSampleInvestigation):
+        cg.render_capabilities_block([_investigation("TCGA")])
+
+
+def test_capabilities_block_refuses_when_no_row_is_an_investigation():
+    """Today's live state: all 12 projects_context rows are projects.
+
+    Emitting an empty list would silently delete the agent's only list of
+    investigations, so this says to add the rows (6.15c) first.
+    """
+    import pytest
+
+    with pytest.raises(cg.NoInvestigations):
+        cg.render_capabilities_block(cg.with_pi_names(_rows_for("projects")), LIVE_COUNTS)
+
+
+def test_capabilities_block_refuses_an_investigation_with_nothing_to_say():
+    import pytest
+
+    row = _investigation("TCGA", research_focus=None, description=None)
+    with pytest.raises(cg.IncompleteInvestigation):
+        cg.render_capabilities_block([row], {"TCGA": 918519})
+
+
+def test_capabilities_block_bridges_what_users_type_to_the_exact_title():
+    """`Impact` has to reach `Impactb Investigation` instead of failing silently."""
+    row = _investigation("Impactb Investigation",
+                         research_focus="Tuberculosis in non-human primates.",
+                         alternative_names=["Impact", "IMPAcTb"])
+    block = cg.render_capabilities_block([row], LIVE_COUNTS)
+    assert "**Impactb Investigation**" in block
+    assert "Impact" in block and "IMPAcTb" in block
+
+
+def test_capabilities_block_sorts_by_name_and_one_bullet_per_row():
+    rows = [_investigation(name) for name in ("TCGA", "CSBC", "MetNet")]
+    block = cg.render_capabilities_block(rows, LIVE_COUNTS)
+    bullets = [line for line in block.splitlines() if line.startswith("- **")]
+    assert len(bullets) == 3
+    assert [b.split("**")[1] for b in bullets] == ["CSBC", "MetNet", "TCGA"]
+
+
+def test_capabilities_block_falls_back_to_the_first_sentence_of_the_description():
+    row = _investigation("TCGA", research_focus=None,
+                         description="Public pan-cancer atlas. Many more sentences follow.")
+    block = cg.render_capabilities_block([row], LIVE_COUNTS)
+    assert "Public pan-cancer atlas." in block
+    assert "Many more sentences" not in block
+
+
+def test_the_drift_check_reads_exactly_the_names_the_block_emits():
+    """The generator and the runtime backstop have to agree, so this uses the real
+    parser rather than a copy of its regex. Same function drift.py calls after every
+    ./startup.sh rebuild."""
+    from nextseek_api.graph_sync import drift
+
+    names = ["CSBC", "Collagen Study", "Endometriosis", "GBM_BTC",
+             "Impactb Investigation", "MIT_SRP", "MetNet", "TCGA"]
+    rows = [_investigation(name) for name in names]
+    block = cg.render_capabilities_block(rows, LIVE_COUNTS)
+    document = ("## Known Projects and Investigations\n\n" + block +
+                "\n---\n\n## What the System Cannot Do\n\n- **Generate charts** nope\n")
+    assert drift.assistant_investigation_names(document) == sorted(names)
+
+
+def test_the_block_replaces_the_section_body_between_its_markers():
+    """The substitution the chain needs, as text: context_gen writes the block into
+    capabilities.md, then gen_op_surfaces reads capabilities.md to regenerate
+    route_capabilities.json. Running those out of order ships a
+    route_capabilities.json built from the old list."""
+    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 918519})
+    before = ("## Known Projects and Investigations\n\n"
+              f"{cg.CAPABILITIES_BEGIN}\nold text\n{cg.CAPABILITIES_END}\n\n---\n")
+    after = cg.replace_capabilities_block(before, block)
+    assert "old text" not in after
+    assert "**TCGA**" in after
+    assert after.count(cg.CAPABILITIES_BEGIN) == 1
+    assert after.endswith("\n---\n")
+    assert cg.replace_capabilities_block(after, block) == after      # idempotent
+
+
+def test_replacing_the_block_refuses_a_document_with_no_markers():
+    import pytest
+
+    with pytest.raises(ValueError):
+        cg.replace_capabilities_block("## Known Projects and Investigations\n\n- **X** y\n", "b")
+
+
+def test_a_dead_name_may_survive_as_an_alternative_but_never_as_a_checked_name():
+    """The trap in the bridging design, pinned.
+
+    `SRP` is one of the five names that resolve to nothing, and it is also what
+    people type for `MIT_SRP`. It has to reach the agent as an alias without
+    becoming a name the drift check then looks up and fails on. Only the bold term
+    is checked, so an alternative in brackets is safe -- as long as it stays out of
+    the bold run.
+    """
+    from nextseek_api.graph_sync import drift
+
+    row = _investigation("MIT_SRP", research_focus="Environmental exposure and DNA damage.",
+                         alternative_names=["SRP"])
+    block = cg.render_capabilities_block([row], LIVE_COUNTS)
+    assert "[also: SRP]" in block
+    document = "## Known Projects and Investigations\n\n" + block + "\n---\n"
+    assert drift.assistant_investigation_names(document) == ["MIT_SRP"]
+    for name in DEAD_NAMES:
+        assert name not in drift.assistant_investigation_names(document)
+
+
+def test_an_alternative_name_never_carries_markdown_that_would_split_the_bold_run():
+    """The regex captures `[^*]+`, so a `*` in a name would truncate it."""
+    import pytest
+
+    row = _investigation("Bad*Name", research_focus="Anything.")
+    with pytest.raises(cg.UnsupportedValue):
+        cg.render_capabilities_block([row], {"Bad*Name": 1})

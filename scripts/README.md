@@ -80,6 +80,19 @@ curated rows. `--emit seed` rewrites the three files under `startup/seed/sql/` i
 Nothing here connects to a database; the operator applies the SQL. `context/README.md`
 owns the source conventions and the review gate.
 
+It also owns `capabilities.md`'s "Known Projects and Investigations" list.
+`render_capabilities_block` builds that section from the `projects_context` rows whose
+`entity_type` is `investigation`, as a marked `<!-- BEGIN CONTEXT-GEN:investigations -->`
+block, and `replace_capabilities_block` swaps it in. Names and a short description only:
+a baked sample count rots the day the next sync runs. The generator **refuses** an
+investigation that resolves to no samples, which is the point of generating the list at
+all — five of the eight hand-written names resolve to nothing, because SEEK carries two
+parallel investigation systems and the list named the paper-tracking copies.
+`catalog.assistant_investigations` in `nextseek_api/graph_sync/drift.py` stays the runtime
+backstop, and it is also where the sample counts the refusal reads come from. The chain
+has an order: write the block, then `gen_op_surfaces --write`, then both image rebuilds.
+Out of order ships a `route_capabilities.json` built from the old list.
+
 **D. Attribute-API verification lane.** `scripts/attribute_api_test.sh:4-5` dispatches
 twelve named lanes, several of which shell out to `scripts/run_attribute_coverage.py` and
 `scripts/run_attribute_mutants.py` (`scripts/attribute_api_test.sh:19-22`). Both that
