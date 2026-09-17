@@ -63,6 +63,28 @@ _D_SEQ_ROW = {
     "associated_assay_parents": "", "associated_assay_children": "",
 }
 
+# Minimal catalog rows for the two analysis-children sample types the
+# rnaseq map's mode=new output rules always produce (see
+# NessieAI/ns/reingest_maps/rnaseq.outputs.json). required_metadata is
+# deliberately empty -- these fixtures exist only so known_sample_types()
+# is non-empty (Important 3's fix now raises on an entirely empty catalog,
+# matching proposals.attribute_exists), not to exercise required-attribute
+# QA, which is covered elsewhere.
+_A_ALN_ROW = {
+    "sample_type": "A.ALN", "sampletype_id": 2, "name": "Alignment",
+    "description": "Aligned reads.", "clade": "Analysis", "tags": "",
+    "required_metadata": "", "standard_metadata": "", "possible_metadata_fields": "",
+    "parent_sampletypes": "", "child_sampletypes": "",
+    "associated_assay_parents": "", "associated_assay_children": "",
+}
+_A_GEX_ROW = {
+    "sample_type": "A.GEX", "sampletype_id": 3, "name": "Gene Expression",
+    "description": "Gene expression matrix.", "clade": "Analysis", "tags": "",
+    "required_metadata": "", "standard_metadata": "", "possible_metadata_fields": "",
+    "parent_sampletypes": "", "child_sampletypes": "",
+    "associated_assay_parents": "", "associated_assay_children": "",
+}
+
 
 def _save_manifest(tmp_path, monkeypatch, *, metrics=None):
     # store._ROOT is resolved once at module-import time from an env var; a
@@ -79,6 +101,34 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None):
             nfcore_sample="SAMPLE_1", d_seq_uid="D.SEQ-EXAMPLE-1",
             uid_resolution=manifest_mod.RESOLUTION_LAUNCH_RECORD,
             metrics=metrics or {})],
+        sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt",
+                 "params": "params.json"},
+    )
+    return store_mod.save_manifest(run_manifest)
+
+
+def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None):
+    """Same shape as `_save_manifest`, but with `n` distinct samples -- the
+    only way to tell "iterate result.rows" (correct, one row per sample)
+    apart from "iterate output rules" (the brief's buggy sketch, one row per
+    rule, carrying only the last-seen sample's values): with a single sample
+    (every other manifest in this file) both loops produce identical output.
+    See test_mode_new_fans_out_one_row_per_sample / test_mode_update_fans_out
+    below, and the mutation-testing evidence in task-7-report.md."""
+    monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+    samples = [
+        manifest_mod.SampleRecord(
+            nfcore_sample=f"SAMPLE_{i}", d_seq_uid=f"D.SEQ-EXAMPLE-{i}",
+            uid_resolution=manifest_mod.RESOLUTION_LAUNCH_RECORD,
+            metrics=metrics or {})
+        for i in range(1, n + 1)
+    ]
+    run_manifest = manifest_mod.RunManifest(
+        run_dir="/net/cluster/runs/r1",
+        pipeline=manifest_mod.PipelineInfo(
+            name="nf-core/rnaseq", version="3.18.0", run_name="test_run_multi"),
+        params={"genome": "GRCh38", "aligner": "star_salmon"},
+        samples=samples,
         sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt",
                  "params": "params.json"},
     )
@@ -121,11 +171,41 @@ def test_the_manifest_path_returns_proposals_rather_than_writing_them():
     assert "proposals" in source
 
 
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_the_manifest_path_never_actually_calls_proposals_record(rows, tmp_path, monkeypatch):
+    """The source-grep checks above are evadable: `from
+    NessieAI.ns.reingest.proposals import record` then a bare `record(...)`
+    call contains neither the literal `proposals.record` nor breaks the
+    `"proposals" in source` check, so a regression that started writing
+    proposals directly from this op would sail past both greps. Patch the
+    real target and assert it is never invoked, which cannot be evaded by
+    renaming the import."""
+    rows.return_value = [_D_SEQ_ROW]
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups.notes_for_uids",
+        lambda uids: {u: "" for u in uids})
+    manifest_id = _save_manifest(
+        tmp_path, monkeypatch,
+        metrics={"star-uniquely_mapped_percent": 91.4,
+                 "custom_content_biotype_counts-percent_rRNA": 2.1})
+
+    with patch("NessieAI.ns.reingest.proposals.record") as mock_record:
+        result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
+                            outputs_dir=str(tmp_path))
+
+    mock_record.assert_not_called()
+    # Sanity: this run genuinely produced a needs_definition proposal (the
+    # thing that would have been recorded, had this op recorded anything).
+    assert any(p.get("status") == "needs_definition" for p in result["proposals"])
+
+
 # ---------------------------------------------------------------------------
 # mode=new: analysis children, never the D.SEQ backfill
 # ---------------------------------------------------------------------------
 
-def test_mode_new_renders_analysis_children_not_dseq(tmp_path, monkeypatch):
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_mode_new_renders_analysis_children_not_dseq(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
     manifest_id = _save_manifest(tmp_path, monkeypatch)
     result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
                         outputs_dir=str(tmp_path))
@@ -138,7 +218,9 @@ def test_mode_new_renders_analysis_children_not_dseq(tmp_path, monkeypatch):
     assert result["proposals"] == []  # every metric in this manifest is mapped
 
 
-def test_mode_new_a_dot_aln_workbook_round_trips(tmp_path, monkeypatch):
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_mode_new_a_dot_aln_workbook_round_trips(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
     manifest_id = _save_manifest(tmp_path, monkeypatch)
     result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
                         outputs_dir=str(tmp_path))
@@ -148,6 +230,54 @@ def test_mode_new_a_dot_aln_workbook_round_trips(tmp_path, monkeypatch):
     assert len(batch.rows) == 1
     assert batch.rows[0].SampleType == "A.ALN"
     assert _meta(batch.rows[0])["Parent"] == "D.SEQ-EXAMPLE-1"
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_mode_new_fans_out_one_row_per_sample_not_one_row_total(rows, tmp_path, monkeypatch):
+    """Regression guard for the plan's own headline correction: the
+    manifest-driven path must iterate `result.rows` (one row per sample,
+    each carrying its own Parent) -- never output RULES (the brief's
+    published, buggy sketch: one row per rule, carrying only the
+    last-seen sample's values). Every other test in this file uses a
+    single-sample manifest, where both loops produce identical output; this
+    is the one test that can tell them apart. See task-7-report.md for the
+    mutation check that proves it (temporarily reverting the loop to
+    iterate output rules and confirming this test fails)."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest_multi(tmp_path, monkeypatch, n=3)
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                        outputs_dir=str(tmp_path))
+
+    from nextseek_api.batch_upload.convert import parse_traditional_file
+    batch = parse_traditional_file(result["saved_files"]["reingest_A_ALN"])
+    assert len(batch.rows) == 3
+    parents = {_meta(row)["Parent"] for row in batch.rows}
+    assert parents == {"D.SEQ-EXAMPLE-1", "D.SEQ-EXAMPLE-2", "D.SEQ-EXAMPLE-3"}
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_mode_update_fans_out_one_row_per_sample_with_distinct_uids(rows, tmp_path, monkeypatch):
+    """Same regression guard as the mode=new test above, for the D.SEQ
+    backfill path: three samples must produce three distinct UIDs, never one
+    row (whichever sample the buggy "iterate output rules" loop happened to
+    see last)."""
+    rows.return_value = [_D_SEQ_ROW]
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups.notes_for_uids",
+        lambda uids: {u: "" for u in uids})
+    manifest_id = _save_manifest_multi(
+        tmp_path, monkeypatch, n=3,
+        metrics={"star-uniquely_mapped_percent": 91.4})
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "update"},
+                        outputs_dir=str(tmp_path))
+
+    from nextseek_api.batch_upload.convert import parse_traditional_file
+    batch = parse_traditional_file(result["saved_files"]["reingest_D_SEQ_update"])
+    assert len(batch.rows) == 3
+    uids = {row.UID for row in batch.rows}
+    assert uids == {"D.SEQ-EXAMPLE-1", "D.SEQ-EXAMPLE-2", "D.SEQ-EXAMPLE-3"}
+    assert all(_meta(row)["MappedPercent"] == 91.4 for row in batch.rows)
 
 
 # ---------------------------------------------------------------------------

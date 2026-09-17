@@ -876,6 +876,24 @@ def _build_upload_xlsx_from_rows(args, outputs_dir):
     # briefly unreachable. So an EMPTY catalog falls back to the old permissive
     # set(by_type) — derived from the rows themselves, so unknown_sampletype
     # can't fire — and only a POPULATED catalog lets that check actually reject.
+    #
+    # This is DELIBERATELY inconsistent with the manifest-driven path below
+    # (_build_upload_xlsx_from_manifest), which raises on the same empty-catalog
+    # signal instead of falling back (matching proposals.attribute_exists' own
+    # "an entirely empty catalog is an outage, not an answer" rule). The two
+    # paths differ because their callers differ: the manifest path is Task 7's
+    # DB-backed reingest pipeline, where an outage silently producing an
+    # unvalidated workbook is the exact failure the fallback-vs-raise design
+    # decision exists to prevent. This legacy rows path is called with
+    # CC-composed rows from callers that make no assumption the sample-type
+    # table is reachable (or even present) at all, and
+    # test_build_upload_xlsx_op.py::test_empty_catalog_falls_back_to_permissive_known_types
+    # pins exactly this permissive behaviour, deliberately without django_db, so
+    # that it can exercise a genuinely unreachable table. Raising here would
+    # hard-reject every legacy call whenever that table is briefly unreachable,
+    # which is the regression this fallback was written to avoid in the first
+    # place -- so it stays, and this comment is the reconciliation the review
+    # asked for rather than a silent, unexplained divergence between the two.
     known = known_sample_types() or set(by_type)
     saved_files: dict[str, str] = {}
     qa: dict[str, dict] = {}
@@ -941,17 +959,22 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
     caught and defaulted to False, which would fabricate a schema gap.
     """
     import datetime
+    import re
 
     from NessieAI.ns.reingest import mapper, maps, proposals, report as user_report
     from NessieAI.ns.reingest.notes import compose as compose_notes
     from NessieAI.ns.reingest.store import load_manifest
-    from NessieAI.ns.reingest_qa import HARD_REJECT, qa_rows
+    from NessieAI.ns.reingest_qa import HARD, HARD_REJECT, Finding, NO_ATTRIBUTES_TO_WRITE, qa_rows
     from NessieAI.ns.upload_workbook import MODE_NEW, MODE_UPDATE, render_upload_workbook
-    from nextseek_api.services.reingest_lookups import attributes_for, known_sample_types, notes_for_uids
+    from nextseek_api.services.reingest_lookups import attributes_for, known_sample_types
 
     def _slug(name: str) -> str:
-        # Artifact keys are word characters only; the download route accepts nothing else.
-        return name.split("/")[-1].replace(".", "_").replace("-", "_")
+        # Artifact keys are word characters only; the download route accepts
+        # nothing else -- re.sub(r"\W+", ...) also folds whitespace (unlike
+        # the legacy safe_name at :889, which only replaces "/" and " "
+        # explicitly), so a pipeline name with a space still produces a
+        # route-safe key.
+        return re.sub(r"\W+", "_", name.split("/")[-1])
 
     manifest_id = str(args.get("manifest_id") or "").strip()
     if not manifest_id.isalnum():
@@ -960,7 +983,14 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
     if mode not in (MODE_NEW, MODE_UPDATE):
         raise OpValidationError(f"mode must be {MODE_NEW!r} or {MODE_UPDATE!r}")
 
-    run_manifest = load_manifest(manifest_id)
+    # manifest_id is user-supplied (comes off the CC turn, not a value this
+    # process minted), so an unknown-but-well-formed id must be a caller-visible
+    # refusal, not the FileNotFoundError load_manifest's open() raises escaping
+    # as an opaque 502.
+    try:
+        run_manifest = load_manifest(manifest_id)
+    except FileNotFoundError:
+        raise OpValidationError(f"no manifest {manifest_id!r}")
     pipeline = run_manifest.pipeline.name or "nf-core/rnaseq"
     run_name = run_manifest.pipeline.run_name or manifest_id
     pipeline_map = maps.load(pipeline)
@@ -1024,6 +1054,20 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
              "raw_key": a.raw_key, "source_file": a.source_file}
             for n, a in row.attributes.items())
 
+    # Existing Notes for D.SEQ's update-mode rows, fetched AT MOST ONCE: the
+    # `want_update` guard above means `rows_by_type` can only ever carry a
+    # "D.SEQ" key when mode == MODE_UPDATE (every other sample type is
+    # `continue`d past whenever mode == MODE_UPDATE), so the Notes-composition
+    # step below (parked values) and qa_rows' own NOTES_WOULD_CLOBBER guard
+    # both need Notes for exactly the same row set -- `rows_by_type["D.SEQ"]`.
+    # Querying it twice was not just wasted work: a transient blip on the
+    # SECOND fetch would drop a UID the first fetch had just proved readable,
+    # turning it into a spurious NOTES_WOULD_CLOBBER hard reject for no
+    # reason. One fetch, reused both places, closes that window.
+    dseq_existing_notes: dict[str, str] | None = None
+    if mode == MODE_UPDATE and rows_by_type.get("D.SEQ"):
+        dseq_existing_notes = _existing_notes(rows_by_type["D.SEQ"])
+
     # Compose Notes for every D.SEQ row carrying a parked value, gated by the
     # same existing-Notes fetch the NOTES_WOULD_CLOBBER guard uses: a sample
     # whose Notes could not be fetched gets no note written at all, per the
@@ -1034,9 +1078,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
     # superuser defining the attribute is what stops the parking, not a
     # successful Notes fetch.
     if dseq_parked:
-        existing_notes = notes_for_uids(
-            [row_dict["json_metadata"].get("UID") for row_dict, _, _ in dseq_parked
-             if row_dict["json_metadata"].get("UID")])
+        existing_notes = dseq_existing_notes or {}
         for row_dict, parked_values, parked_attrs in dseq_parked:
             uid = row_dict["json_metadata"].get("UID")
             if uid in existing_notes:
@@ -1055,7 +1097,21 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
                     "status": "needs_definition",
                 })
 
-    known = known_sample_types() or {r.sample_type for r in result.rows}
+    # An entirely empty catalog is an outage signal (proposals.attribute_exists'
+    # own contract, right above), never an answer -- so this must raise here
+    # too, exactly like that function does, rather than quietly substituting a
+    # set derived from the very rows it is supposed to validate (which would
+    # make UNKNOWN_SAMPLETYPE unfireable for the whole duration of an outage).
+    # See NessieAI/ns/granular.py's legacy `_build_upload_xlsx_from_rows` (the
+    # `known = known_sample_types() or set(by_type)` line) for the one place
+    # in this module that still falls back on purpose, and why.
+    known = known_sample_types()
+    if not known:
+        raise RuntimeError(
+            "sample type catalog came back empty; treating this as an "
+            "outage rather than validating this reingest run's sample types "
+            "against an empty schema"
+        )
     # Every d_seq_uid the manifest resolved is, by construction, a legitimate
     # Parent target (mapper.py only ever sets Parent from one of these -- see
     # its _HAS_PARENT set) -- qa_rows' new-mode Parent-resolvability check
@@ -1067,8 +1123,21 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
         built = qa_rows(type_rows, sample_type=sample_type, known_sampletypes=known,
                         required_fields=required, mode=mode,
                         existing_parent_uids=existing_parent_uids,
-                        existing_notes=_existing_notes(type_rows) if mode == MODE_UPDATE else None,
+                        existing_notes=dseq_existing_notes if mode == MODE_UPDATE else None,
                         run_name=run_name)
+        # Every attribute on this sample type's rows may have been parked into
+        # Notes (attribute_exists said none of them are defined on the
+        # schema) -- if the Notes fetch above also failed for every one of
+        # these UIDs, no row even got a Notes column, and json_metadata is
+        # left holding nothing but UID. render_upload_workbook refuses to
+        # render that ("rows carry no json_metadata"): catch the same
+        # condition here as a QA hard-reject instead of letting that
+        # ValueError escape past this op's own VALIDATION/WRITE_BLOCKED/
+        # AGENT_FAILED taxonomy as an opaque 502.
+        if not any(set(row.get("json_metadata") or {}) - {"UID"} for row in type_rows):
+            built.add(Finding(code=NO_ATTRIBUTES_TO_WRITE, severity=HARD,
+                              sample_type=sample_type))
+            built._finalize()
         reports_by_type[sample_type] = built
         qa[sample_type] = {"disposition": built.disposition, "hard": built.hard, "soft": built.soft}
         if built.disposition == HARD_REJECT:
@@ -1081,12 +1150,13 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
                                provenance=provenance_by_type.get(sample_type))
         saved_files[safe_key] = path
 
-    reply = user_report.render_qa_for_user(reports_by_type, saved_files, run_name)
-
     # Surface 1 of the superuser surfaces (design doc section 10): the
     # genuinely unmapped raw keys ride out in the same artifact bundle as the
     # workbooks, so whoever ran the reingest sees exactly what the mapper
-    # could not place, immediately.
+    # could not place, immediately. This must join `saved_files` BEFORE
+    # render_qa_for_user runs below, or the verbatim user-facing reply it
+    # builds is composed from a saved_files snapshot that does not yet
+    # mention this artifact.
     if result.unmapped:
         proposals_path = os.path.join(out_root, f"map_proposals_{_slug(pipeline)}.md")
         with open(proposals_path, "w", encoding="utf-8") as handle:
@@ -1099,6 +1169,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
                              f"{entry.get('example_sample', '')} | "
                              f"`{entry['source_file']}` |\n")
         saved_files[f"map_proposals_{_slug(pipeline)}"] = proposals_path
+
+    reply = user_report.render_qa_for_user(reports_by_type, saved_files, run_name)
 
     pending = [
         {**entry, "proposed_attribute": "", "proposed_target": "",
@@ -1117,6 +1189,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
         "reply": reply,
         "proposals": pending,
     }
+
 
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity,

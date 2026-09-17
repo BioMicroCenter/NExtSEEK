@@ -58,6 +58,14 @@ MULTIRUN_NOT_ATTRIBUTABLE = "multirun_not_attributable"
 UNAPPROVED_ATTRIBUTE = "unapproved_attribute"
 ATTRIBUTE_NOT_DEFINED = "attribute_not_defined"
 METRIC_UNAVAILABLE = "metric_unavailable"
+# Used by granular.py's manifest-driven build-upload-xlsx path: every
+# attribute on a sample type's rows was parked (attribute_exists said none is
+# defined on the schema) and the Notes fetch that would have recorded them
+# also failed, so json_metadata is left holding nothing but UID -- nothing
+# survives to write. Caught there as a QA hard-reject rather than letting
+# render_upload_workbook's ValueError ("rows carry no json_metadata") escape
+# as an opaque 502.
+NO_ATTRIBUTES_TO_WRITE = "no_attributes_to_write"
 
 # ---------------------------------------------------------------------------
 # Alternative-required-attribute groups

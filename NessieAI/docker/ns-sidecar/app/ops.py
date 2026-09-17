@@ -167,7 +167,13 @@ def _build_upload_xlsx(args, config, session, write_gate, stage, stage_bytes, co
         if args.get("mode"):
             body["mode"] = args["mode"]
     else:
-        body = {"rows": args["rows"]}
+        # .get(..., "") rather than args["rows"]: server.py dispatches req.args,
+        # the RAW pre-validation dict, not the validated model (validate_op_args
+        # only validates -- its defaults are discarded), so this forwarder must
+        # not assume the key is present even though _BuildUploadXlsxArgs'
+        # model_validator now requires exactly one of manifest_id/rows to be
+        # non-empty before dispatch ever reaches here.
+        body = {"rows": args.get("rows", "")}
         if args.get("existing_parent_uids"):
             body["existing_parent_uids"] = args["existing_parent_uids"]
     envelope = ns_client.call_op("build-upload-xlsx", body,
