@@ -464,9 +464,10 @@ def test_the_renames_have_to_run_before_the_creates():
     assert freed & created == {"Mass Spectrometry", "Mass Spectrometry Analysis"}
     sql = cg.render_update("mappings", rows)
     for title in sorted(freed & created):
-        rename_at = sql.index(f"SET `internal_assay_title` = ")
+        # The rename that frees this exact title, not merely the first rename.
+        frees_it = sql.index(f"AND `internal_assay_title` IN ('{title}',")
         create_at = sql.index(f"SELECT '{title}' FROM DUAL")
-        assert rename_at < create_at, title
+        assert frees_it < create_at, title
 
 
 def test_a_merge_refuses_while_any_seek_assay_still_points_at_it():

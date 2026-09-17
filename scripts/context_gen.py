@@ -10,9 +10,18 @@ nothing that survives a day. `context/` is the hand-owned source; this program i
 how it reaches a database.
 
     python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
-    python scripts/context_gen.py --emit seed --table assays --out startup/seed/sql/assay_context.sql
+    python scripts/context_gen.py --emit seed --table all
 
-Nothing here connects to a database. It reads committed JSON and writes SQL text.
+`--emit update` writes one re-runnable script (stdout when `--out` is left off) and
+`--emit seed` rewrites the files under `startup/seed/sql/` in place, `--out` naming
+the directory rather than a file.
+
+`render_capabilities_block` is the third thing this module generates and has no
+`--emit` mode yet: every `projects_context` row is still a project, so it can only
+refuse. Task 6.15c adds the investigation rows and wires it up.
+
+Nothing here connects to a database. It reads committed JSON and writes SQL text;
+the operator applies it. `scripts/README.md` group C is the reference.
 """
 from __future__ import annotations
 
