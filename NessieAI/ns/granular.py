@@ -815,7 +815,32 @@ def _d_seq_by_fastq(path: str) -> list[str]:
 
 
 def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_dir):
-    """Render one 4-sheet upload workbook per A.* sample type from CC-composed rows.
+    """Reingest step 2 — render reviewable workbooks.
+
+    Two calling conventions:
+
+    * ``args["manifest_id"]`` (current) — the manifest-driven path. CC sends
+      only a manifest_id and a mode; the server loads its own copy of the
+      harvested manifest (``store.load_manifest``), maps it
+      (``mapper.apply``), and derives every row itself. No measured number
+      ever round-trips through the model. Writes no NExtSEEK data — proposals
+      are RETURNED in the envelope; the service layer
+      (``nextseek_api/services/assistant.py``) persists them alongside the
+      artifact bundle.
+    * ``args["rows"]`` (legacy) — CC-composed rows, kept working verbatim for
+      any caller that still builds its own
+      ``{"SampleType", "json_metadata", "assay_ids"}`` rows directly.
+    """
+    if args.get("manifest_id"):
+        return _build_upload_xlsx_from_manifest(args, outputs_dir)
+    if args.get("rows") is not None:
+        return _build_upload_xlsx_from_rows(args, outputs_dir)
+    raise OpValidationError("build-upload-xlsx needs either manifest_id or rows")
+
+
+def _build_upload_xlsx_from_rows(args, outputs_dir):
+    """Legacy path: render one 4-sheet upload workbook per A.* sample type from
+    CC-composed rows.
 
     args["rows"]: JSON array of {"SampleType", "json_metadata", "assay_ids"}. Runs QA
     per type (a HARD_REJECT type is skipped, its report returned). Returns the rendered
@@ -877,6 +902,221 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
         render_upload_workbook(st, st_rows, path)
         saved_files[f"reingest_{safe_key}"] = path
     return {"saved_files": saved_files, "qa": qa}
+
+
+def _existing_notes(rows) -> dict[str, str]:
+    """Current Notes for every UID in ``rows``.
+
+    A UID absent from the result means the fetch failed for it, and QA turns that
+    into a hard reject rather than letting a blind write destroy curator text.
+    """
+    from nextseek_api.services.reingest_lookups import notes_for_uids
+
+    uids = [str((r.get("json_metadata") or {}).get("UID") or "").strip()
+            for r in rows]
+    return notes_for_uids([u for u in uids if u])
+
+
+def _build_upload_xlsx_from_manifest(args, outputs_dir):
+    """Manifest-driven path: render workbooks from a harvested manifest.
+
+    Takes a manifest_id, not values: CC sends a mode and the server fills every
+    number from its own copy of the manifest (``store.load_manifest`` +
+    ``mapper.apply``). A measured value therefore never round-trips through
+    the model.
+
+    Writes no NExtSEEK data. Attribute proposals are RETURNED; the service
+    layer persists them alongside the artifact bundle -- this function must
+    never call the recording function itself (see NessieAI/ns/CLAUDE.md's
+    "build-upload-xlsx never writes to NExtSEEK" invariant).
+
+    A mapped D.SEQ backfill attribute (map- or approved-origin) that is not
+    actually defined on D.SEQ's schema (``proposals.attribute_exists``) is
+    parked into that sample's ``Notes`` instead of a normal column (never
+    silently invented as a real attribute), and a ``needs_definition``
+    proposal is queued for it -- see
+    docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md section 8.
+    ``attribute_exists`` raises on an outage (an entirely empty catalog) by
+    design; that exception is deliberately let through here rather than
+    caught and defaulted to False, which would fabricate a schema gap.
+    """
+    import datetime
+
+    from NessieAI.ns.reingest import mapper, maps, proposals, report as user_report
+    from NessieAI.ns.reingest.notes import compose as compose_notes
+    from NessieAI.ns.reingest.store import load_manifest
+    from NessieAI.ns.reingest_qa import HARD_REJECT, qa_rows
+    from NessieAI.ns.upload_workbook import MODE_NEW, MODE_UPDATE, render_upload_workbook
+    from nextseek_api.services.reingest_lookups import attributes_for, known_sample_types, notes_for_uids
+
+    def _slug(name: str) -> str:
+        # Artifact keys are word characters only; the download route accepts nothing else.
+        return name.split("/")[-1].replace(".", "_").replace("-", "_")
+
+    manifest_id = str(args.get("manifest_id") or "").strip()
+    if not manifest_id.isalnum():
+        raise OpValidationError(f"manifest_id must be alphanumeric, got {manifest_id!r}")
+    mode = str(args.get("mode") or MODE_NEW)
+    if mode not in (MODE_NEW, MODE_UPDATE):
+        raise OpValidationError(f"mode must be {MODE_NEW!r} or {MODE_UPDATE!r}")
+
+    run_manifest = load_manifest(manifest_id)
+    pipeline = run_manifest.pipeline.name or "nf-core/rnaseq"
+    run_name = run_manifest.pipeline.run_name or manifest_id
+    pipeline_map = maps.load(pipeline)
+    result = mapper.apply(run_manifest, pipeline_map,
+                          approved_rules=proposals.approved_rules(pipeline))
+
+    out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
+    saved_files, qa, reports_by_type = {}, {}, {}
+    provenance_by_type: dict[str, list] = {}
+    rows_by_type: dict[str, list] = {}
+    needs_definition: list[dict] = []
+    # (sample_type, attribute) -> bool, memoised so a 20-sample backfill does
+    # not re-query the schema catalog once per sample for the same attribute.
+    exists_cache: dict[tuple[str, str], bool] = {}
+    today = datetime.date.today().isoformat()
+
+    def _attribute_exists(sample_type: str, attribute: str) -> bool:
+        key = (sample_type, attribute)
+        if key not in exists_cache:
+            # Deliberately not try/except'd: an outage (RuntimeError) must
+            # propagate, never be swallowed into a fabricated False -- see
+            # proposals.attribute_exists' own docstring.
+            exists_cache[key] = proposals.attribute_exists(sample_type, attribute)
+        return exists_cache[key]
+
+    # rows carrying at least one parked value, so their Notes can be composed
+    # once existing Notes for their UIDs are known (below, after this loop).
+    dseq_parked: list[tuple[dict, dict, dict]] = []
+
+    for row in result.rows:
+        want_update = row.sample_type == "D.SEQ"
+        if (mode == MODE_UPDATE) != want_update:
+            continue
+
+        meta: dict = {}
+        provenance_entry: dict = {}
+        parked_values: dict = {}
+        parked_attrs: dict = {}
+        for name, attr in row.attributes.items():
+            origin = attr.origin
+            if (want_update and name != "Parent"
+                    and not _attribute_exists(row.sample_type, name)):
+                origin = mapper.ORIGIN_PARKED
+                parked_values[name] = attr.value
+                parked_attrs[name] = attr
+            else:
+                meta[name] = attr.value
+            provenance_entry[name] = {"origin": origin, "raw_key": attr.raw_key}
+
+        if row.uid:
+            meta["UID"] = row.uid
+
+        row_dict = {"json_metadata": meta, "assay_ids": [], "provenance": provenance_entry}
+        rows_by_type.setdefault(row.sample_type, []).append(row_dict)
+        if parked_values:
+            dseq_parked.append((row_dict, parked_values, parked_attrs))
+
+        provenance_by_type.setdefault(row.sample_type, []).extend(
+            {"uid": row.uid or "", "attribute": a.attribute, "value": a.value,
+             "origin": (mapper.ORIGIN_PARKED if n in parked_values else a.origin),
+             "raw_key": a.raw_key, "source_file": a.source_file}
+            for n, a in row.attributes.items())
+
+    # Compose Notes for every D.SEQ row carrying a parked value, gated by the
+    # same existing-Notes fetch the NOTES_WOULD_CLOBBER guard uses: a sample
+    # whose Notes could not be fetched gets no note written at all, per the
+    # design's clobbering guard (section 8) -- guessing here would risk
+    # destroying curator text deep_merge_metadata would overwrite wholesale.
+    # The needs_definition proposal is queued regardless: the schema gap is
+    # real whether or not THIS run could safely write it into Notes, and a
+    # superuser defining the attribute is what stops the parking, not a
+    # successful Notes fetch.
+    if dseq_parked:
+        existing_notes = notes_for_uids(
+            [row_dict["json_metadata"].get("UID") for row_dict, _, _ in dseq_parked
+             if row_dict["json_metadata"].get("UID")])
+        for row_dict, parked_values, parked_attrs in dseq_parked:
+            uid = row_dict["json_metadata"].get("UID")
+            if uid in existing_notes:
+                row_dict["json_metadata"]["Notes"] = compose_notes(
+                    existing_notes[uid], run_name, parked_values, today)
+            for name, attr in parked_attrs.items():
+                needs_definition.append({
+                    "raw_key": attr.raw_key, "proposed_attribute": name,
+                    # Parking only ever happens on the D.SEQ backfill branch
+                    # (the `want_update` guard above), so the target sample
+                    # type is always D.SEQ here -- never the stale loop `row`
+                    # from the (already-exited) row-construction loop above.
+                    "proposed_target": "D.SEQ", "datatype": "string",
+                    "example_value": attr.value, "source_file": attr.source_file,
+                    "rationale": "mapped by reingest but not defined on D.SEQ (parked in Notes)",
+                    "status": "needs_definition",
+                })
+
+    known = known_sample_types() or {r.sample_type for r in result.rows}
+    # Every d_seq_uid the manifest resolved is, by construction, a legitimate
+    # Parent target (mapper.py only ever sets Parent from one of these -- see
+    # its _HAS_PARENT set) -- qa_rows' new-mode Parent-resolvability check
+    # needs this cohort or every new-mode row's Parent would fail resolution
+    # against an empty set and hard-reject the whole batch.
+    existing_parent_uids = {s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid}
+    for sample_type, type_rows in rows_by_type.items():
+        required = [a["title"] for a in attributes_for(sample_type) if a.get("required")]
+        built = qa_rows(type_rows, sample_type=sample_type, known_sampletypes=known,
+                        required_fields=required, mode=mode,
+                        existing_parent_uids=existing_parent_uids,
+                        existing_notes=_existing_notes(type_rows) if mode == MODE_UPDATE else None,
+                        run_name=run_name)
+        reports_by_type[sample_type] = built
+        qa[sample_type] = {"disposition": built.disposition, "hard": built.hard, "soft": built.soft}
+        if built.disposition == HARD_REJECT:
+            continue
+        safe_name = sample_type.replace("/", "_").replace(" ", "_")
+        suffix = "_update" if mode == MODE_UPDATE else ""
+        safe_key = f"reingest_{safe_name}{suffix}".replace(".", "_").replace("-", "_")
+        path = os.path.join(out_root, f"reingest_{safe_name}{suffix}.xlsx")
+        render_upload_workbook(sample_type, type_rows, path, mode=mode,
+                               provenance=provenance_by_type.get(sample_type))
+        saved_files[safe_key] = path
+
+    reply = user_report.render_qa_for_user(reports_by_type, saved_files, run_name)
+
+    # Surface 1 of the superuser surfaces (design doc section 10): the
+    # genuinely unmapped raw keys ride out in the same artifact bundle as the
+    # workbooks, so whoever ran the reingest sees exactly what the mapper
+    # could not place, immediately.
+    if result.unmapped:
+        proposals_path = os.path.join(out_root, f"map_proposals_{_slug(pipeline)}.md")
+        with open(proposals_path, "w", encoding="utf-8") as handle:
+            handle.write(f"# Proposed sample attributes — {pipeline}\n\n")
+            handle.write(f"Run: {run_manifest.run_dir}\n\n")
+            handle.write("| Raw key | Example value | Example sample | Source file |\n")
+            handle.write("|---|---|---|---|\n")
+            for entry in result.unmapped:
+                handle.write(f"| `{entry['raw_key']}` | {entry['example_value']} | "
+                             f"{entry.get('example_sample', '')} | "
+                             f"`{entry['source_file']}` |\n")
+        saved_files[f"map_proposals_{_slug(pipeline)}"] = proposals_path
+
+    pending = [
+        {**entry, "proposed_attribute": "", "proposed_target": "",
+         "pipeline": pipeline, "manifest_digest": manifest_id,
+         "run_dir": run_manifest.run_dir}
+        for entry in result.unmapped
+    ] + [
+        {**entry, "pipeline": pipeline, "manifest_digest": manifest_id,
+         "run_dir": run_manifest.run_dir}
+        for entry in needs_definition
+    ]
+
+    return {
+        "saved_files": saved_files,
+        "qa": qa,
+        "reply": reply,
+        "proposals": pending,
+    }
 
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity,

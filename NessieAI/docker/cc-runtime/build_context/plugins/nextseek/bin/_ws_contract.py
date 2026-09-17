@@ -146,9 +146,13 @@ class _RunLsArgs(BaseModel):
 
 
 class _BuildUploadXlsxArgs(BaseModel):
+    """Two calling conventions: manifest_id (current) or rows (legacy). Exactly
+    one of the two is enforced server-side (NessieAI.ns.granular), not here."""
     model_config = ConfigDict(extra="forbid")
-    rows: str
+    rows: str = ""
     existing_parent_uids: str = ""
+    manifest_id: str = ""
+    mode: str = "new"
 
 
 class _RunHarvestArgs(BaseModel):

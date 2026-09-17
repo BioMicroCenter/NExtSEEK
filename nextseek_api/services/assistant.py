@@ -1215,6 +1215,18 @@ class AssistantViewSet(viewsets.ViewSet):
             bundle = {"id": bundle_id,
                       "mode": "reingest" if op == "build-upload-xlsx" else "reporter",
                       "report_saved_files": saved_files or {}, "report_writer_output": {}}
+
+        if op == "build-upload-xlsx":
+            # The op returns proposals; persisting them is a service-layer
+            # concern, so build-upload-xlsx keeps its "writes nothing" invariant.
+            pending = (result or {}).get("proposals") or []
+            if pending:
+                from NessieAI.ns.reingest.proposals import record
+                record(pending, pipeline=pending[0].get("pipeline", ""),
+                       run_dir=pending[0].get("run_dir", ""),
+                       manifest_digest=pending[0].get("manifest_digest", ""),
+                       user_id=getattr(request.user, "id", None))
+
         history.append(bundle)
         chat_session.results_history = history
         chat_session.save(update_fields=["results_history", "updated_at"])

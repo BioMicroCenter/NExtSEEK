@@ -49,8 +49,8 @@
   },
   {
    "path": "app/contract.py",
-   "size_bytes": 5649,
-   "sha256": "78f62fabf1bad7b7acb72d3bb7a1edcfe801a532743bbef7d7ae31080b5bee2b"
+   "size_bytes": 5862,
+   "sha256": "aff3062147cfbe3e46d024008623e5c45a67da7e04d336fe9a5304e1afafa9ae"
   },
   {
    "path": "app/exceptions.py",
@@ -74,8 +74,8 @@
   },
   {
    "path": "app/ops.py",
-   "size_bytes": 8850,
-   "sha256": "54348d88984489d699c989623474dafe7f65297df76f51d21bbaf7483b35741f"
+   "size_bytes": 9025,
+   "sha256": "b3d6f21c0585039f250d7e39f79e4089cf0460b2ac629e6259705e62f622df06"
   },
   {
    "path": "app/server.py",
@@ -183,11 +183,11 @@
  "local_additions_beyond_port_source": [
   {
    "path": "app/contract.py",
-   "addition": "Registered the reingest ops run-ls + build-upload-xlsx + run-harvest + run-checksum (SIDECAR_OPS set, _RunLsArgs / _BuildUploadXlsxArgs / _RunHarvestArgs / _RunChecksumArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature."
+   "addition": "Registered the reingest ops run-ls + build-upload-xlsx + run-harvest + run-checksum (SIDECAR_OPS set, _RunLsArgs / _BuildUploadXlsxArgs / _RunHarvestArgs / _RunChecksumArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _BuildUploadXlsxArgs gained optional manifest_id + mode fields alongside the now-optional legacy rows field, mirrored byte-for-byte in the plugin's own _ws_contract.py copy."
   },
   {
    "path": "app/ops.py",
-   "addition": "Added the run-ls + build-upload-xlsx + run-harvest + run-checksum forwarders (_run_ls, _build_upload_xlsx, _run_harvest, _run_checksum) that proxy to the NExtSEEK /assistant/run-ls/, /build-upload-xlsx/, /run-harvest/ and /run-checksum/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature."
+   "addition": "Added the run-ls + build-upload-xlsx + run-harvest + run-checksum forwarders (_run_ls, _build_upload_xlsx, _run_harvest, _run_checksum) that proxy to the NExtSEEK /assistant/run-ls/, /build-upload-xlsx/, /run-harvest/ and /run-checksum/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _build_upload_xlsx now forwards manifest_id + mode when the caller sends a manifest_id, else the legacy rows + existing_parent_uids body."
   },
   {
    "path": "app/granular_models.py",
