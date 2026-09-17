@@ -19,7 +19,7 @@ module inherits that loader's house rule for free: a missing table or row
 costs the caller an empty catalog, never an exception.
 
 ``attributes_for_strict`` is the exception to that house rule, built on
-``context_catalog.load_sample_types_strict``: it raises instead of swallowing
+``context_catalog.load_sample_type_strict``: it raises instead of swallowing
 a catalog outage into an empty result, for the one caller that must not
 mistake "the database is unreachable" for "genuinely not defined" -- see
 ``proposals.attribute_exists`` in ``NessieAI/ns/reingest/proposals.py``. There
@@ -115,7 +115,7 @@ def attributes_for_strict(sample_type: str) -> list[dict]:
     Raises on a catalog outage instead of returning `[]` for it, so a caller
     that acts on absence (reingest's `attribute_exists`) cannot mistake a
     database outage for a genuine schema gap; see
-    `context_catalog.load_sample_types_strict`.
+    `context_catalog.load_sample_type_strict`.
     """
     st = str(sample_type or "").strip()
     entry = load_sample_type_strict(st)

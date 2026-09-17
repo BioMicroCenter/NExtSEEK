@@ -160,6 +160,10 @@ class TestServerRequired:
 def test_attributes_for_strict_matches_the_lenient_result_on_a_healthy_catalog():
     """Both walk the same catalog when nothing is wrong; they only diverge on
     a failure (see test_context_catalog.py's TestLoadSampleTypesStrict)."""
+    # Guard against a vacuous pass: if A.GEX were absent from this test
+    # environment's sample_types_context, both sides would return [] and the
+    # equality below would hold having proved nothing about the real walk.
+    assert reingest_lookups.attributes_for("A.GEX")
     assert reingest_lookups.attributes_for_strict("A.GEX") == \
         reingest_lookups.attributes_for("A.GEX")
 
