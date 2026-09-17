@@ -61,7 +61,7 @@ def test_the_unapproved_attribute_soft_flag_offers_upload_as_is_or_admin_confirm
     # UNAPPROVED_ATTRIBUTE/soft branch's two phrases. The general "every new
     # code offers its prescribed choice" claim is `_NEW_CODE_CASES` below.
     text = report.render_qa_for_user({"D.SEQ": _soft_report()}, ARTIFACTS, RUN)
-    assert "Upload as-is" in text
+    assert "Leave it as-is" in text
     assert "administrator" in text
 
 
@@ -155,8 +155,8 @@ def test_a_blocked_child_holds_the_backfill_instead_of_an_unqualified_offer():
 
 def test_severity_split_blockers_and_advisories_get_separate_headers():
     # Important 3: a hard finding must render under a blocking header with no
-    # "upload as-is" choice nearby, and a soft finding must render under the
-    # checking header, where "Upload as-is" is a real option.
+    # "leave it as-is" choice nearby, and a soft finding must render under the
+    # checking header, where "Leave it as-is" is a real option.
     hard = _single_finding_report(qa.UNKNOWN_SAMPLETYPE, qa.HARD, sample_type="Z.BOGUS")
     soft = _soft_report(3)
     text = report.render_qa_for_user({"Z.BOGUS": hard, "D.SEQ": soft}, ARTIFACTS, RUN)
@@ -165,12 +165,12 @@ def test_severity_split_blockers_and_advisories_get_separate_headers():
     assert "THING" in text  # "ONE THING TO CHECK" / "N THINGS TO CHECK"
     blocking_at = text.index("WHAT IS BLOCKING")
     checking_at = text.index("THING", blocking_at + len("WHAT IS BLOCKING"))
-    upload_as_is_at = text.index("Upload as-is")
+    leave_as_is_at = text.index("Leave it as-is")
 
-    assert blocking_at < checking_at < upload_as_is_at
+    assert blocking_at < checking_at < leave_as_is_at
     # Each numbered item names which workbook it concerns.
     assert "Z.BOGUS" in text[blocking_at:checking_at]
-    assert "D.SEQ" in text[checking_at:upload_as_is_at]
+    assert "D.SEQ" in text[checking_at:leave_as_is_at]
 
 
 _NEW_CODE_CASES = [
@@ -199,7 +199,7 @@ _NEW_CODE_CASES = [
     (qa.UNAPPROVED_ATTRIBUTE, qa.SOFT,
      dict(sample_type="D.SEQ", attribute="MappedPercent", row_index=0,
           detail={"example": "SAMPLE_01 = 91%"}),
-     ["sanity-check", "upload as-is", "administrator"]),
+     ["sanity-check", "leave it as-is", "administrator"]),
     (qa.ATTRIBUTE_NOT_DEFINED, qa.SOFT,
      dict(sample_type="D.SEQ", attribute="DuplicationPercent", row_index=0),
      ["nowhere to live", "administrators", "re-run"]),

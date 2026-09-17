@@ -228,7 +228,7 @@ def _render_one(index, code, attribute, bucket):
             "      That judgement is mine and nobody has confirmed it. If you know",
             "      what to expect for these samples, that is the number to look at.",
             "",
-            "      Upload as-is — the cells are marked in the workbook's Provenance",
+            "      Leave it as-is — the cells are marked in the workbook's Provenance",
             "      sheet, so it stays traceable.",
             "",
             "      Or ask an administrator to confirm it, and it will not be flagged",
@@ -287,8 +287,15 @@ def _render_one(index, code, attribute, bucket):
             "      fill it in, or tell me where to get it.",
         ]
     if code == qa.UNKNOWN_SAMPLETYPE:
+        # Deliberate exception to the _workbook_ref convention used
+        # everywhere else in this function: the subject here is the sample
+        # *type* itself, not the workbook that names it. "The Z.BOGUS
+        # workbook is not in NExtSEEK's catalog of sample types" is false --
+        # a workbook is never a catalog entry, the type is -- so this branch
+        # names the type directly instead.
+        subject = sample_type if sample_type else "This sample type"
         return [
-            f"  {index}.  {_cap(_workbook_ref(sample_type))} is not in NExtSEEK's"
+            f"  {index}.  {subject} is not in NExtSEEK's"
             " catalog of sample types.",
             "",
             "      Reingest never creates a sample type on its own. Check the code",
