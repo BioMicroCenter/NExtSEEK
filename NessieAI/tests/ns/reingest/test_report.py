@@ -43,6 +43,10 @@ def test_n_rows_sharing_a_finding_render_as_one_sentence_not_n_lines():
 def test_the_raw_key_is_not_shown_to_the_user():
     text = report.render_qa_for_user({"D.SEQ": _soft_report()}, ARTIFACTS, RUN)
     assert "Kraken2_bracken_fraction_total_reads" not in text
+    # Pure-negative on its own: a mutant that returns a fixed string also
+    # lacks the raw key. Pin the positive half too, so this test dies if the
+    # measurement name it's supposed to show in its place ever goes missing.
+    assert "contamination percentage" in text.lower()
 
 
 def test_the_message_says_the_judgement_is_unconfirmed():
@@ -52,7 +56,10 @@ def test_the_message_says_the_judgement_is_unconfirmed():
     assert "confirm" in lowered
 
 
-def test_every_flag_offers_a_choice_the_reader_can_make():
+def test_the_unapproved_attribute_soft_flag_offers_upload_as_is_or_admin_confirmation():
+    # Narrower than its name once claimed: this only checks the
+    # UNAPPROVED_ATTRIBUTE/soft branch's two phrases. The general "every new
+    # code offers its prescribed choice" claim is `_NEW_CODE_CASES` below.
     text = report.render_qa_for_user({"D.SEQ": _soft_report()}, ARTIFACTS, RUN)
     assert "Upload as-is" in text
     assert "administrator" in text
@@ -110,19 +117,40 @@ def test_a_blocked_workbook_is_not_offered_for_upload():
     assert "fix" in upload_section.lower() or "nothing" in upload_section.lower()
 
 
-def test_a_mix_of_hard_and_soft_still_offers_the_clean_workbook():
-    # One sample type hard-rejected, another only soft-flagged: the soft
-    # workbook should still be offered for upload even though the run overall
-    # reads as blocked.
-    hard = _single_finding_report(qa.UNKNOWN_SAMPLETYPE, qa.HARD, sample_type="D.SEQ")
-    soft = _soft_report(3)
-    artifacts = {"reingest_D.SEQ_update": "/out/reingest_D.SEQ_update.xlsx",
-                 "reingest_A.GEX": "/out/reingest_A.GEX.xlsx"}
-    text = report.render_qa_for_user({"D.SEQ": hard, "A.GEX": soft}, artifacts, RUN)
+def test_a_blocked_child_holds_the_backfill_instead_of_an_unqualified_offer():
+    # The hazardous direction: a HARD_REJECT child (A.GEX, a workbook that
+    # creates new samples, not a backfill) must not leave an unrelated
+    # backfill (D.SEQ_update) offered as a plain "go ahead" step -- its rows
+    # would describe analysis samples that were never created. Compare a
+    # clean child against a blocked one: the backfill's own report is
+    # untouched (still SOFT_FLAG) in both runs, but its offered line must
+    # change -- a constant-string mutant, or one that only suppresses the
+    # blocked type's own workbook, cannot make this pair differ correctly.
+    soft_backfill = _soft_report(3)
+    artifacts = {"reingest_A.GEX": "/out/reingest_A.GEX.xlsx",
+                 "reingest_D.SEQ_update": "/out/reingest_D.SEQ_update.xlsx"}
 
-    upload_section = text.split("TO UPLOAD", 1)[1]
-    assert "reingest_D.SEQ_update.xlsx" not in upload_section
-    assert "reingest_A.GEX.xlsx" in upload_section
+    clean_child = qa.QaReport()._finalize()
+    clean_text = report.render_qa_for_user(
+        {"A.GEX": clean_child, "D.SEQ": soft_backfill}, artifacts, RUN)
+    clean_upload = clean_text.split("TO UPLOAD", 1)[1]
+    assert "reingest_A.GEX.xlsx" in clean_upload
+    assert 'tick "update existing samples"' in clean_upload
+
+    hard_child = _single_finding_report(qa.UNKNOWN_SAMPLETYPE, qa.HARD, sample_type="A.GEX")
+    blocked_text = report.render_qa_for_user(
+        {"A.GEX": hard_child, "D.SEQ": soft_backfill}, artifacts, RUN)
+    blocked_upload = blocked_text.split("TO UPLOAD", 1)[1]
+
+    # The blocked child's own workbook is never offered (Important 2).
+    assert "reingest_A.GEX.xlsx" not in blocked_upload
+    # The backfill is still named -- the reader must not lose track of it --
+    # but it is no longer offered as an unqualified upload step.
+    assert "reingest_D.SEQ_update.xlsx" in blocked_upload
+    assert 'tick "update existing samples"' not in blocked_upload
+    assert "hold until the blocked workbooks above are fixed" in blocked_upload
+
+    assert clean_upload != blocked_upload
 
 
 def test_severity_split_blockers_and_advisories_get_separate_headers():
@@ -168,6 +196,22 @@ _NEW_CODE_CASES = [
     (qa.UID_PRESENT_IN_NEW, qa.HARD,
      dict(sample_type="D.SEQ", attribute="UID", row_index=0, detail={"uid": "D.SEQ-EXAMPLE-1"}),
      ["cannot be mixed", "which was intended"]),
+    (qa.UNAPPROVED_ATTRIBUTE, qa.SOFT,
+     dict(sample_type="D.SEQ", attribute="MappedPercent", row_index=0,
+          detail={"example": "SAMPLE_01 = 91%"}),
+     ["sanity-check", "upload as-is", "administrator"]),
+    (qa.ATTRIBUTE_NOT_DEFINED, qa.SOFT,
+     dict(sample_type="D.SEQ", attribute="DuplicationPercent", row_index=0),
+     ["nowhere to live", "administrators", "re-run"]),
+    (qa.MULTIRUN_NOT_ATTRIBUTABLE, qa.SOFT,
+     dict(sample_type="D.SEQ", row_index=0),
+     ["merged", "left out of the backfill"]),
+    (qa.MISSING_REQUIRED, qa.HARD,
+     dict(sample_type="D.SEQ", attribute="Strandedness", row_index=0),
+     ["required and missing", "fill it in"]),
+    ("some_future_code_without_wording_yet", qa.SOFT,
+     dict(sample_type="D.SEQ"),
+     ["needs a look", "provenance"]),
 ]
 
 
