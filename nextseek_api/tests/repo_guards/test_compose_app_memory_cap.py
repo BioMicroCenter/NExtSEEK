@@ -20,6 +20,15 @@ COMPOSE = REPO_ROOT / "docker-compose.yml"
 CAP = "${NEXTSEEK_MEMORY:-16G}"
 SEEK_CAP = "${SEEK_MEMORY:-4G}"
 NEO4J_CAP = "${NEO4J_MEMORY:-6G}"
+# Every remaining long-lived service. On 2026-09-16 the host itself ran out with
+# 29.5 GiB resident across 227 tasks: no single container was over its own cap,
+# but four services had no cap at all, so nothing bounded the sum.
+OTHER_CAPS = {
+    "seek_workers": "${SEEK_WORKERS_MEMORY:-3G}",
+    "solr": "${SOLR_MEMORY:-2G}",
+    "db": "${SEEK_DB_MEMORY:-2G}",
+    "nextseek-sidecar": "${SIDECAR_MEMORY:-1G}",
+}
 
 
 def _service(name):
@@ -68,3 +77,13 @@ def test_neo4j_bounds_one_transaction_and_sizes_its_heap():
     assert env.get("NEO4J_db_memory_transaction_max") == "${NEO4J_TRANSACTION_MAX:-1g}"
     assert env.get("NEO4J_server_memory_heap_max__size") == "${NEO4J_HEAP:-2g}"
     assert env.get("NEO4J_server_memory_pagecache_size") == "${NEO4J_PAGECACHE:-2g}"
+
+
+def test_every_long_lived_service_has_a_cap_and_cannot_swap_past_it():
+    """A cap on some services only moves the kill: the 2026-09-16 host OOM had
+    `seek` capped and `seek_workers` not, and the two together held 11.2 GiB."""
+    for name, cap in OTHER_CAPS.items():
+        service = _service(name)
+        limits = service.get("deploy", {}).get("resources", {}).get("limits", {})
+        assert limits.get("memory") == cap, f"{name} has no memory cap"
+        assert service.get("memswap_limit") == cap, f"{name} may swap past its cap"
