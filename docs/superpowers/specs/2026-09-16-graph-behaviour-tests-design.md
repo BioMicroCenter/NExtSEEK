@@ -145,7 +145,8 @@ Each ends with an assertion that the graph changed. Endpoints are the registry's
 | **B2** | Attribute create, rename, delete | `POST /nextseek_api/attributes/batch-create/`, `PATCH .../batch-patch/`, `POST .../batch-delete/` | WR-05 | after the drain, `graph_search` on the new attribute name returns the type's samples and on the old name returns none; `catalog_hash` moves | no (token auth) |
 | **B3** | Sample update | `PATCH /nextseek_api/samples/{id}/` | WR-07 | `graph_search` on the new value hits and on the old value misses; drift reports the sample changed before the drain and clean after | yes |
 | **B4** | Sample delete retires the node | `DELETE /nextseek_api/samples/{id}/` | WR-07, WR-13 | `graph_search` on the UID returns nothing; the run's `retired.tsv` names it | yes |
-| **B5** | Membership or project change | `POST`/`PATCH /nextseek_api/users/`, `POST`/`PATCH /nextseek_api/projects/` | WR-09, WR-10 | a `graph_search` as the affected account gains or loses the samples, which is scope resolved from the graph | yes |
+| **B5** | Membership or project change (the person side) | `POST`/`PATCH /nextseek_api/users/`, `POST`/`PATCH /nextseek_api/projects/` | WR-09, WR-10 | a `graph_search` as the affected account gains or loses the samples, which is scope resolved from the graph | yes |
+| **B7** | **A sample joins a project** (the sample side) | `PATCH /nextseek_api/samples/{id}/`; also batch upload and the legacy upload page | WR-07, WR-01, WR-12 | the sample's `project_ids` and its `IN_PROJECT` edge move, so an account in the new project can see it in `graph_search` and one outside it cannot | yes |
 | **B6** | Drift clean, loop drains unaided | `GET /nextseek_api/admin/graph-sync/status/` | n/a | the outbox empties with no manual command, freshness reaches `ok`, drift passes with 0 changed and 0 missing before and after each of B1 to B5 | no |
 
 **B2's authentication is the finding that makes it lane-capable if ever needed.**
@@ -156,6 +157,13 @@ and only calls SEEK over HTTP for basic and session schemes. So B2 under token a
 
 B3, B4 and B5 proxy to SEEK by definition, so they cannot run without it, and per **D8** that is reported rather than
 worked around.
+
+**B7 is separate from B5 and matters more.** B5 moves a *person* between projects; B7 moves a *sample*. The second
+is what changes the visibility of data that already exists, and it has three writers rather than one (WR-01 batch
+upload, WR-07 the sample proxy, WR-12 the legacy upload page), so a hook missing on any of them leaves a sample
+visible to the wrong people in the graph while MySQL says otherwise. `projects_samples` is also written by SEEK's
+own Rails UI (WR-22), which no hook can see: only the nightly reconcile catches that, and B7 should assert what the
+hooked paths do rather than implying the table is fully covered.
 
 ## 6.1 Two prerequisites, folded in from the 2026-09-16 CI triage
 
