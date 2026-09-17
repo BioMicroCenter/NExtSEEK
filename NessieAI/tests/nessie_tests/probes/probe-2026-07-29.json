@@ -55,19 +55,27 @@
         {"family": "probe_reingest", "id": "probe.reingest_scrnaseq_typed",
          "name": "Reingest a finished scrnaseq run, target sample type given",
          "tags": ["nessie", "probe", "full"], "requires_env": [],
-         "turns": [{"label": "main",
+         "_asserts": "Upgraded 2026-09-17 from route+nonempty only (graded WEAK in docs/nessie-harmonization-reingest-questions.xlsx) to also require a produced artifact and a QA disposition. A container_cc turn's debug payload carries no structured qa/saved_files at all (see NessieAI/tests/nessie_tests/evaluate.py's build_artifact_index docstring) -- only reply/artifacts/cc_raw_files -- and render_qa_for_user (NessieAI/ns/reingest/report.py) never prints the disposition constants CLEAN/SOFT_FLAG/HARD_REJECT verbatim; it prints 'Reingest ready'/'Reingest blocked' plus a per-type 'reingest_<type>' name line. Those are therefore the closest resolvable proxies the harness's field DSL has for 'an artifact whose key matches reingest_' and 'qa.*.disposition in {CLEAN, SOFT_FLAG}'. api_artifact.artifacts.zip follows the documented KNOWN LIMIT that a multi-deliverable CC turn (workbook + map_proposals_*.md) only ever exposes the zip, not a per-file basename.",
+         "turns": [{"label": "main", "_disposition_check": "'Reingest ready' in last_reply is the resolvable proxy for a QA disposition of CLEAN or SOFT_FLAG (never HARD_REJECT) across every reported sample type -- render_qa_for_user headers the reply 'Reingest blocked' the moment any type's disposition is HARD_REJECT, 'Reingest ready' otherwise (NessieAI/ns/reingest/report.py).",
                     "query": "The scrnaseq run at /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_gideon-4wk_260711_024438_0 has finished — register its outputs as new A.SCXP analysis samples.",
                     "pass_criteria": [
                       {"field": "route", "op": "eq", "value": "container_cc"},
-                      {"field": "last_reply", "op": "nonempty", "value": null}]}]},
+                      {"field": "last_reply", "op": "nonempty", "value": null},
+                      {"field": "api_artifact.artifacts.zip", "op": "true", "value": null},
+                      {"field": "last_reply", "op": "matches_re", "value": "reingest_"},
+                      {"field": "last_reply", "op": "contains", "value": "Reingest ready"}]}]},
         {"family": "probe_reingest", "id": "probe.reingest_rnaseq_untyped",
          "name": "Reingest a finished rnaseq run, sample type left to infer",
          "tags": ["nessie", "probe", "full"], "requires_env": [],
-         "turns": [{"label": "main",
+         "_asserts": "Same upgrade and same rationale as probe.reingest_scrnaseq_typed above -- see that variant's _asserts note.",
+         "turns": [{"label": "main", "_disposition_check": "'Reingest ready' in last_reply is the resolvable proxy for a QA disposition of CLEAN or SOFT_FLAG (never HARD_REJECT) across every reported sample type -- render_qa_for_user headers the reply 'Reingest blocked' the moment any type's disposition is HARD_REJECT, 'Reingest ready' otherwise (NessieAI/ns/reingest/report.py).",
                     "query": "Build me a NExtSEEK reingest upload sheet from the pipeline outputs in /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_rnaseq_260723_205359_0/",
                     "pass_criteria": [
                       {"field": "route", "op": "eq", "value": "container_cc"},
-                      {"field": "last_reply", "op": "nonempty", "value": null}]}]}
+                      {"field": "last_reply", "op": "nonempty", "value": null},
+                      {"field": "api_artifact.artifacts.zip", "op": "true", "value": null},
+                      {"field": "last_reply", "op": "matches_re", "value": "reingest_"},
+                      {"field": "last_reply", "op": "contains", "value": "Reingest ready"}]}]}
       ]
     },
 
