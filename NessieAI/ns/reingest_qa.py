@@ -65,8 +65,6 @@ METRIC_UNAVAILABLE = "metric_unavailable"
 # is a curation expectation, not a blocker: never MISSING_REQUIRED, which is
 # reserved for an attribute the server itself would reject the row over. See
 # the qa_rows docstring's `server_required_fields` section for the split.
-CATALOG_REQUIRED_MISSING = "catalog_required_missing"
-#
 # History: between a720b7fe and this branch's merge, `Parent` was carved out
 # of this split with a module-level `_ALWAYS_HARD_REQUIRED = {"Parent"}`,
 # forcing a missing Parent to stay MISSING_REQUIRED/HARD regardless of SEEK's
@@ -86,6 +84,8 @@ CATALOG_REQUIRED_MISSING = "catalog_required_missing"
 # therefore follows the plain split again, with no carve-out -- do not
 # re-add one without first checking whether the resolver has regressed back
 # to a narrow scope.
+CATALOG_REQUIRED_MISSING = "catalog_required_missing"
+
 # Used by granular.py's manifest-driven build-upload-xlsx path: every
 # attribute on a sample type's rows was parked (attribute_exists said none is
 # defined on the schema) and the Notes fetch that would have recorded them
