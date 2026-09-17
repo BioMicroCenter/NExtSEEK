@@ -395,3 +395,120 @@ def test_render_seed_refuses_the_mapping_operations():
 
     with pytest.raises(ValueError):
         cg.render_seed("mappings", [])
+
+
+# --- the mapping operations --------------------------------------------------
+#
+# context/assay_mappings.json is not a table. It is 95 operations on rows that
+# already exist in dmac.internal_assays and dmac.assays_internal_assays, applied
+# grouped in the order context/README.md gives: renames, creates, maps and
+# remaps, merges. Every `from_*` key is a production value so the generator can
+# refuse if production has moved; each statement's WHERE clause is that refusal.
+#
+# Measured against the 2026-09-11 production pull, which is why each guard is
+# there rather than defensive:
+#
+#   * all 25 `map` ops name exactly the 25 assays_internal_assays rows whose
+#     internal_assay_id is NULL;
+#   * all 39 `remap` ops match a row carrying the stated from_internal_assay_id,
+#     and no SEEK assay has more than one row;
+#   * all 13 `merge_internal` ids exist, and all 4 renames match their from_title;
+#   * 2 of the 14 `create_internal` titles ALREADY exist in production, and they
+#     are exactly the 2 the renames free up, which is what makes the group order
+#     load-bearing rather than stylistic.
+
+
+def test_mappings_render_every_operation_in_the_readme_order():
+    rows = cg.load_source(cg.TABLES_EXTRA["mappings"])
+    sql = cg.render_update("mappings", rows)
+    order = [sql.index(f"-- {group}") for group in
+             ("rename_internal", "create_internal", "map and remap", "merge_internal")]
+    assert order == sorted(order)
+    assert sql.count("UPDATE `internal_assays`") == 4                  # renames
+    assert sql.count("INSERT INTO `internal_assays`") == 14            # creates
+    assert sql.count("UPDATE `assays_internal_assays`") == 25 + 39     # maps and remaps
+    assert sql.count("DELETE FROM `internal_assays`") == 13            # merges
+
+
+def test_a_map_only_fills_a_null_and_a_remap_only_moves_the_stated_id():
+    rows = cg.load_source(cg.TABLES_EXTRA["mappings"])
+    sql = cg.render_update("mappings", rows)
+    # map: seek assay 466 -> Library Creation, and only while it is still NULL
+    assert ("UPDATE `assays_internal_assays` SET `internal_assay_id` = "
+            "(SELECT `id` FROM `internal_assays` WHERE `internal_assay_title` = "
+            "'Library Creation' ORDER BY `id` LIMIT 1)\n"
+            "  WHERE `assay_id` = 466 AND `internal_assay_id` IS NULL;") in sql
+    # remap: seek assay 37 moves off 130, and re-running is a no-op
+    assert "WHERE `assay_id` = 37 AND `internal_assay_id` IN (130, (SELECT `id`" in sql
+
+
+def test_a_create_is_a_no_op_on_a_second_run():
+    rows = cg.load_source(cg.TABLES_EXTRA["mappings"])
+    sql = cg.render_update("mappings", rows)
+    assert sql.count("WHERE NOT EXISTS (SELECT 1 FROM `internal_assays`") == 14
+
+
+def test_the_renames_have_to_run_before_the_creates():
+    """The group order is load-bearing, and this is the measurement that says so.
+
+    Two `create_internal` titles exist in production today, `Mass Spectrometry` and
+    `Mass Spectrometry Analysis`, and they are exactly the two the renames free up:
+    internal assay 130 becomes `Mass Spectrometry Proteomics` and 47 becomes `Mass
+    Spectrometry Proteomics Analysis`. Run the creates first and their NOT EXISTS
+    guard skips both, so the two new internal assays never exist and every remap
+    aimed at them resolves to the old id instead.
+    """
+    rows = cg.load_source(cg.TABLES_EXTRA["mappings"])
+    freed = {r["from_title"] for r in rows if r["action"] == "rename_internal"}
+    created = {r["internal_assay_title"] for r in rows if r["action"] == "create_internal"}
+    assert freed & created == {"Mass Spectrometry", "Mass Spectrometry Analysis"}
+    sql = cg.render_update("mappings", rows)
+    for title in sorted(freed & created):
+        rename_at = sql.index(f"SET `internal_assay_title` = ")
+        create_at = sql.index(f"SELECT '{title}' FROM DUAL")
+        assert rename_at < create_at, title
+
+
+def test_a_merge_refuses_while_any_seek_assay_still_points_at_it():
+    rows = cg.load_source(cg.TABLES_EXTRA["mappings"])
+    sql = cg.render_update("mappings", rows)
+    assert ("DELETE FROM `internal_assays` WHERE `id` = 174 AND "
+            "`internal_assay_title` = 'Library Preparation'\n"
+            "  AND NOT EXISTS (SELECT 1 FROM `assays_internal_assays` "
+            "WHERE `internal_assay_id` = 174);") in sql
+
+
+def test_mappings_refuse_an_unknown_action():
+    import pytest
+
+    with pytest.raises(cg.UnknownAction):
+        cg.render_update("mappings", [{"action": "delete_everything"}])
+
+
+def test_mappings_refuse_a_missing_key_for_a_known_action():
+    import pytest
+
+    with pytest.raises(cg.UnknownColumn):
+        cg.render_update("mappings", [{"action": "create_internal", "oops": "x"}])
+
+
+def test_every_new_internal_assay_is_named_by_both_files():
+    """context/README.md: a row in assays.json with internal_assay_id null IS a
+    create_internal entry, named identically. 14 each way, so a rename in one
+    file that misses the other fails here rather than at write time."""
+    assays = cg.load_source(cg.TABLES["assays"].source)
+    mappings = cg.load_source(cg.TABLES_EXTRA["mappings"])
+    cg.check_mapping_consistency(assays, mappings)
+    nameless = {r["assay_name"] for r in assays if r.get("internal_assay_id") is None}
+    created = {m["internal_assay_title"] for m in mappings if m["action"] == "create_internal"}
+    assert nameless == created and len(created) == 14
+
+
+def test_a_created_internal_assay_with_no_assays_row_is_refused():
+    import pytest
+
+    with pytest.raises(cg.MappingMismatch):
+        cg.check_mapping_consistency(
+            [{"assay_name": "Kept", "internal_assay_id": 1}],
+            [{"action": "create_internal", "internal_assay_title": "Orphan"}],
+        )

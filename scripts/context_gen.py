@@ -371,6 +371,8 @@ def render_update(table: str, rows: list[dict]) -> str:
     curated data (`Chemical challenge` -> `Chemical Challenge`) needs the key
     reassigned or production keeps its old spelling.
     """
+    if table == "mappings":
+        return render_mappings(rows)
     spec = TABLES[table]
     check_columns(table, rows)
     keys = _checked_keys(table, rows)
@@ -570,6 +572,163 @@ def render_seed(table: str, rows: list[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+# --- the mapping operations --------------------------------------------------
+#
+# context/assay_mappings.json is not a table. It is a list of operations on rows
+# that already exist in `dmac.internal_assays` and `dmac.assays_internal_assays`,
+# applied grouped in the order context/README.md gives: renames, creates, maps and
+# remaps, merges. Targets are named by title, after renames, and every `from_*`
+# key is a production value so the generator can refuse if production has moved.
+# Each statement's WHERE clause is that refusal and also what makes it a no-op on
+# a second run.
+#
+# Each guard below is there for a measured reason, not a hypothetical one. Against
+# the 2026-09-11 production pull: the 25 `map` ops name exactly the 25
+# `assays_internal_assays` rows whose `internal_assay_id` is NULL; every `remap`
+# matches a row carrying its stated `from_internal_assay_id`; and every
+# `merge_internal` id and `rename_internal` from_title matches.
+#
+# The rename-before-create order is load-bearing, not stylistic. Exactly 2 of the
+# 14 `create_internal` titles already exist in production, `Mass Spectrometry` and
+# `Mass Spectrometry Analysis`, and they are exactly the 2 titles the renames free
+# up (ids 130 and 47 become `Mass Spectrometry Proteomics` and `Mass Spectrometry
+# Proteomics Analysis`). Run the creates first and their NOT EXISTS guard skips
+# both, so the two new internal assays never exist and every remap aimed at them
+# resolves to the old id instead. `test_the_renames_have_to_run_before_the_creates`
+# pins that.
+
+TABLES_EXTRA = {"mappings": Path("context/assay_mappings.json")}
+
+MAPPING_KEYS = {
+    "rename_internal": {"internal_assay_id", "from_title", "internal_assay_title"},
+    "create_internal": {"internal_assay_title"},
+    "map": {"seek_assay_id", "seek_title", "internal_assay_title"},
+    "remap": {"seek_assay_id", "seek_title", "from_internal_assay_id", "internal_assay_title"},
+    "merge_internal": {"internal_assay_id", "from_title", "into_internal_assay_title"},
+}
+MAPPING_ORDER = ("rename_internal", "create_internal", "map", "remap", "merge_internal")
+
+
+class UnknownAction(ValueError):
+    """A mapping row names an operation this generator does not implement."""
+
+
+class MappingMismatch(ValueError):
+    """assays.json and assay_mappings.json disagree about a new internal assay."""
+
+
+def _by_title(title: str) -> str:
+    """The subquery that resolves an internal assay title to its id.
+
+    By title and never by id, because `create_internal` ids are assigned by the
+    database, and after the rename group every title is the curated spelling.
+    """
+    return (f"(SELECT `id` FROM `internal_assays` WHERE `internal_assay_title` = "
+            f"{literal(title)} ORDER BY `id` LIMIT 1)")
+
+
+def check_mapping_consistency(assays: list[dict], mappings: list[dict]) -> None:
+    """Refuse a new internal assay that only one of the two files knows about.
+
+    context/README.md: a row in `assays.json` with `internal_assay_id: null` IS a
+    `create_internal` entry, and its `assay_name` must equal that entry's title.
+    A rename in one file that misses the other fails here rather than leaving an
+    assay_context row pointing at nothing.
+    """
+    nameless = {r.get("assay_name") for r in assays if r.get("internal_assay_id") is None}
+    created = {m.get("internal_assay_title") for m in mappings
+               if m.get("action") == "create_internal"}
+    if nameless != created:
+        raise MappingMismatch(
+            f"created but not in assays.json: {sorted(created - nameless)}; "
+            f"null internal_assay_id but never created: {sorted(nameless - created)}"
+        )
+
+
+def _check_mapping_rows(rows: list[dict]) -> None:
+    for index, row in enumerate(rows):
+        action = row.get("action")
+        if action not in MAPPING_KEYS:
+            raise UnknownAction(f"assay_mappings.json row {index}: unknown action {action!r}")
+        expected = MAPPING_KEYS[action]
+        keys = set(row) - {"action"}
+        if keys != expected:
+            raise UnknownColumn(
+                f"assay_mappings.json row {index} ({action}): expected "
+                f"{sorted(expected)}, got {sorted(keys)}"
+            )
+
+
+def render_mappings(rows: list[dict]) -> str:
+    """The SQL for `context/assay_mappings.json`, grouped and re-runnable."""
+    _check_mapping_rows(rows)
+    grouped = {action: [r for r in rows if r["action"] == action] for action in MAPPING_ORDER}
+
+    out = [
+        f"-- internal_assays and assays_internal_assays: {len(rows)} operations generated",
+        "-- from context/assay_mappings.json by scripts/context_gen.py --emit update.",
+        "--",
+        "-- Grouped in context/README.md's order. Every WHERE clause pins the production",
+        "-- value the operation was written against, so an operation whose target has",
+        "-- moved affects no rows instead of writing the wrong one, and a second run is",
+        "-- a no-op.",
+        "",
+        f"-- rename_internal: {len(grouped['rename_internal'])}",
+    ]
+    for row in grouped["rename_internal"]:
+        out.append(
+            f"UPDATE `internal_assays` SET `internal_assay_title` = "
+            f"{literal(row['internal_assay_title'])}\n"
+            f"  WHERE `id` = {int(row['internal_assay_id'])} AND `internal_assay_title` IN "
+            f"({literal(row['from_title'])}, {literal(row['internal_assay_title'])});"
+        )
+
+    out += ["", f"-- create_internal: {len(grouped['create_internal'])}. These run AFTER the "
+                "renames on purpose: two of the",
+            "-- titles are ones a rename above frees up, and the guard would skip them.",
+            "-- The guard itself is what makes a second run a no-op."]
+    for row in grouped["create_internal"]:
+        title = literal(row["internal_assay_title"])
+        out.append(
+            f"INSERT INTO `internal_assays` (`internal_assay_title`) SELECT {title} FROM DUAL\n"
+            f"  WHERE NOT EXISTS (SELECT 1 FROM `internal_assays` "
+            f"WHERE `internal_assay_title` = {title});"
+        )
+
+    out += ["", f"-- map and remap: {len(grouped['map'])} + {len(grouped['remap'])}. A map only "
+                "fills a NULL; a remap only",
+            "-- moves the internal assay it was written against."]
+    for row in grouped["map"]:
+        out.append(
+            f"-- {row['seek_title']} (SEEK assay {int(row['seek_assay_id'])})\n"
+            f"UPDATE `assays_internal_assays` SET `internal_assay_id` = "
+            f"{_by_title(row['internal_assay_title'])}\n"
+            f"  WHERE `assay_id` = {int(row['seek_assay_id'])} AND `internal_assay_id` IS NULL;"
+        )
+    for row in grouped["remap"]:
+        target = _by_title(row["internal_assay_title"])
+        out.append(
+            f"-- {row['seek_title']} (SEEK assay {int(row['seek_assay_id'])})\n"
+            f"UPDATE `assays_internal_assays` SET `internal_assay_id` = {target}\n"
+            f"  WHERE `assay_id` = {int(row['seek_assay_id'])} AND `internal_assay_id` IN "
+            f"({int(row['from_internal_assay_id'])}, {target});"
+        )
+
+    out += ["", f"-- merge_internal: {len(grouped['merge_internal'])}. Each one refuses while any "
+                "SEEK assay still points at it,",
+            "-- which is what makes the remaps above a precondition rather than an intention."]
+    for row in grouped["merge_internal"]:
+        assay_id = int(row["internal_assay_id"])
+        out.append(
+            f"-- into {row['into_internal_assay_title']}\n"
+            f"DELETE FROM `internal_assays` WHERE `id` = {assay_id} AND "
+            f"`internal_assay_title` = {literal(row['from_title'])}\n"
+            f"  AND NOT EXISTS (SELECT 1 FROM `assays_internal_assays` "
+            f"WHERE `internal_assay_id` = {assay_id});"
+        )
+    return "\n".join(out) + "\n"
+
+
 # --- the command line --------------------------------------------------------
 
 SEED_FILES = {"sample_types": "sample_types_context.sql",
@@ -580,6 +739,8 @@ SEED_DIR = Path("startup/seed/sql")
 
 def rows_for(table: str) -> list[dict]:
     """The curated rows for `table`, with everything the generator adds."""
+    if table in TABLES_EXTRA:
+        return load_source(TABLES_EXTRA[table])
     rows = load_source(TABLES[table].source)
     return with_pi_names(rows) if table == "projects" else rows
 
@@ -603,14 +764,20 @@ def main(argv=None) -> int:
     parser.add_argument("--emit", required=True, choices=("update", "seed"),
                         help="update: SQL for a live database. seed: a fresh install's file.")
     parser.add_argument("--table", default="all",
-                        choices=("all",) + tuple(TABLES),
+                        choices=("all",) + tuple(TABLES) + tuple(TABLES_EXTRA),
                         help="which table, or all of them")
     parser.add_argument("--out", default=None,
                         help="a file for --emit update (default stdout), or the seed "
                              f"directory for --emit seed (default {SEED_DIR})")
     args = parser.parse_args(argv)
 
-    tables = list(TABLES) if args.table == "all" else [args.table]
+    if args.table == "all":
+        tables = list(TABLES) + (list(TABLES_EXTRA) if args.emit == "update" else [])
+    else:
+        tables = [args.table]
+    if {"assays", "mappings"} <= set(tables):
+        # Both files describe the same new internal assays; refuse if they disagree.
+        check_mapping_consistency(rows_for("assays"), rows_for("mappings"))
     if args.emit == "seed":
         directory = Path(args.out) if args.out else (REPO_ROOT / SEED_DIR)
         for table in tables:
