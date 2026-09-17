@@ -302,6 +302,13 @@ CONTEXT_CATALOG, CONTEXT_FALLBACK = "catalog", "fallback"
 # docs/neo4j-schema.md "v1.1", Nodes: the system properties every Sample carries.
 V11_SYSTEM_PROPERTIES = frozenset({"id", "uuid", "type", "title", "project_ids", "search_text", "synced_at"})
 
+# docs/neo4j-schema.md "v1.2: what the sync adds". graph_sync writes three more system properties on every Sample:
+# `source_hash` (the digest it re-syncs on) and the projection-owned `parent_titles` / `parent_title_hashes`. The
+# guard must allow them or it refuses correct Cypher against the graph that is actually deployed, and the agent
+# reads that refusal as its own query being wrong: it repairs once, then is refused again. V11_SYSTEM_PROPERTIES
+# stays as the v1.1 record because a test pins it to the v1.1 section of the document.
+V12_SYSTEM_PROPERTIES = V11_SYSTEM_PROPERTIES | {"source_hash", "parent_titles", "parent_title_hashes"}
+
 # docs/neo4j-schema.md "v1.1", Relationships; DERIVED_FROM keeps its v1.0 properties.
 V11_RELATIONSHIP_PROPERTIES: dict[str, frozenset[str]] = {
     "DERIVED_FROM": frozenset({"child_id", "parent_id", "assay_id", "internal_assay_id", "internal_assay_title",
@@ -329,12 +336,13 @@ V11_NODE_PROPERTIES: dict[str, frozenset[str]] = {
     "Person": frozenset({"id"}),
     "Study": frozenset({"id", "title", "description", "DOI", "PMID", "seek_study_id"}),
     "Investigation": frozenset({"id", "title", "description", "project_id"}),
-    "GraphMeta": frozenset({"schema_version", "catalog_hash", "synced_at"}),
+    # v1.2 adds label_maps_hash here; writer.GRAPHMETA_KEYS is the source of truth for this node.
+    "GraphMeta": frozenset({"schema_version", "catalog_hash", "label_maps_hash", "synced_at"}),
 }
 
 _KNOWN_LABELS = frozenset({"Sample", "OrphanSample"}) | frozenset(V11_NODE_PROPERTIES) | frozenset(
     V11_RELATIONSHIP_PROPERTIES)
-_ALL_V11_PROPERTIES = (V11_SYSTEM_PROPERTIES.union(*V11_NODE_PROPERTIES.values())
+_ALL_V11_PROPERTIES = (V12_SYSTEM_PROPERTIES.union(*V11_NODE_PROPERTIES.values())
                        .union(*V11_RELATIONSHIP_PROPERTIES.values()))
 
 _NAME = r"[A-Za-z_][A-Za-z0-9_]*"
@@ -675,11 +683,11 @@ def _property_problems(cypher: str, snapshot) -> list[_Problem]:
             known = [label for label in type_labels if label in guard]
             if not known:
                 return None  # the unknown type label is reported instead
-            allowed = V11_SYSTEM_PROPERTIES.union(*(guard[label] for label in known))
+            allowed = V12_SYSTEM_PROPERTIES.union(*(guard[label] for label in known))
             allowed = allowed.union(*(V11_NODE_PROPERTIES[label] for label in labels if label in V11_NODE_PROPERTIES))
             return "|".join(titles.get(label, label) for label in known), allowed, tuple(known)
         if "Sample" in labels:
-            return "Sample", V11_SYSTEM_PROPERTIES | all_attributes, ("Sample",)
+            return "Sample", V12_SYSTEM_PROPERTIES | all_attributes, ("Sample",)
         other = [label for label in labels if label in V11_NODE_PROPERTIES]
         if other:
             return "|".join(other), frozenset().union(*(V11_NODE_PROPERTIES[label] for label in other)), tuple(other)
@@ -796,7 +804,7 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
             lines.append(f"{owner} properties: {_names(V11_RELATIONSHIP_PROPERTIES[owner])}")
         elif owner in V11_NODE_PROPERTIES:
             lines.append(f"{owner} properties: {_names(V11_NODE_PROPERTIES[owner])}")
-    lines.append(f"Every Sample also has the system properties {_names(V11_SYSTEM_PROPERTIES)}.")
+    lines.append(f"Every Sample also has the system properties {_names(V12_SYSTEM_PROPERTIES)}.")
     lines.append("Regenerate the Cypher using only properties the schema lists for each label, or return an empty "
                  "cypher and say why if the question cannot be answered from the graph.")
     return "\n".join(lines)

@@ -19,6 +19,7 @@ from chat_nextseek import graph_catalog as gcat
 from chat_nextseek.agents.graph import (
     V11_RELATIONSHIP_PROPERTIES,
     V11_SYSTEM_PROPERTIES,
+    V12_SYSTEM_PROPERTIES,
     _mask_cypher,
     catalog_unknown_properties,
     whole_node_returns,
@@ -227,3 +228,31 @@ def test_whole_sample_node_returns_are_found(cypher, expected):
 ])
 def test_named_properties_and_counts_are_not_whole_node_returns(cypher):
     assert whole_node_returns(cypher) == []
+
+
+# --- v1.2: the sync's own properties must not be refused -------------------------------------------------------------
+# The live graph is at schema 1.2. A guard that only knows v1.1 refuses correct Cypher reading the properties
+# graph_sync writes, and the agent sees that as its own query being wrong: it repairs once, then is refused again.
+
+
+def test_the_v12_sample_system_properties_follow_the_document_of_record():
+    section = SCHEMA_DOC.split("\n## v1.2", 1)[1]
+    added = set()
+    for line in section.splitlines():
+        if line.startswith("| `Sample`"):
+            added |= set(re.findall(r"`([a-z_]+)`", line))
+    assert {"source_hash", "parent_titles", "parent_title_hashes"} <= added
+    assert {"source_hash", "parent_titles", "parent_title_hashes"} <= V12_SYSTEM_PROPERTIES
+    assert V11_SYSTEM_PROPERTIES < V12_SYSTEM_PROPERTIES
+
+
+def test_a_sample_may_read_source_hash():
+    assert unknown("MATCH (s:T_TIS) WHERE s.source_hash <> '' RETURN s.id") == []
+
+
+def test_a_sample_may_read_the_projection_owned_parent_titles():
+    assert unknown("MATCH (s:Sample) RETURN s.parent_titles, s.parent_title_hashes") == []
+
+
+def test_graphmeta_may_read_label_maps_hash():
+    assert unknown("MATCH (m:GraphMeta) RETURN m.schema_version, m.label_maps_hash") == []
