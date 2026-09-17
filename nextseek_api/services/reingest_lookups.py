@@ -120,24 +120,36 @@ def _matches_path(value, path: str) -> bool:
         start = idx + 1
 
 
-def uids_by_primary_data(path: str) -> list[str]:
-    """D.SEQ UIDs whose File_PrimaryData or Link_PrimaryData mentions ``path``.
+def uids_by_primary_data(path: str, types=("D.SEQ",)) -> list[str]:
+    """UIDs of a sample type in ``types`` whose File_PrimaryData or
+    Link_PrimaryData mentions ``path``.
 
     The fallback UID join for a run Nessie did not launch. Returns every match:
     the caller decides what to do with more than one, and must never pick.
 
+    ``types`` defaults to ``("D.SEQ",)`` -- this lookup's original, sole
+    scope -- so every existing caller that does not pass it keeps searching
+    exactly what it always searched. A caller that knows its pipeline's map
+    declares a wider ``accepts_parent_types`` (see
+    ``NessieAI/ns/reingest/maps.py``) may pass that instead, to find a parent
+    that is itself an already-analysed A.* sample rather than raw D.SEQ. This
+    function does not know about maps or reingest at all -- it only searches
+    whatever type titles it is given -- so scoping decisions stay entirely
+    with the caller, matching the rest of this module's read-only, caller-
+    decides contract.
+
     Read-only: a plain filtered SELECT against the seek-mirrored ``samples``
-    table (`seek.models.Samples`), scoped to the D.SEQ sample type. Any failure
-    -- the table unreachable, D.SEQ unresolvable on this instance, malformed
+    table (`seek.models.Samples`), scoped to ``types``. Any failure -- the
+    table unreachable, a named type unresolvable on this instance, malformed
     metadata -- costs this one lookup, never raises to the caller.
     """
-    if not path:
+    if not path or not types:
         return []
     try:
         from seek.models import Sample_types, Samples
 
         type_ids = list(
-            Sample_types.objects.filter(title="D.SEQ").values_list("id", flat=True)
+            Sample_types.objects.filter(title__in=list(types)).values_list("id", flat=True)
         )
         if not type_ids:
             return []

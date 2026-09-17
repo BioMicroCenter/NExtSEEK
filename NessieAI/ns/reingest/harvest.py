@@ -18,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable
 
-from NessieAI.ns.reingest import derived, manifest, parsers
+from NessieAI.ns.reingest import derived, manifest, maps, parsers
 
 # Each of these is used verbatim below -- never retyped as a second, separate
 # literal -- so the allowlist and what harvest_local actually reads can never
@@ -156,6 +156,21 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     Defaults to `None` (treated as empty) so a purely local caller -- one
     with no remote listing to pass, e.g. an existing test or a
     local-directory caller -- still works, just with no outputs recorded.
+
+    `lookup_by_fastq(path, types)` is the fastq-path fallback UID lookup
+    (see `uid_resolve`'s module docstring for when it is tried at all); its
+    contract now takes a second argument, the tuple of sample-type codes to
+    search, because a run's pipeline map may declare a wider
+    `accepts_parent_types` than the default `("D.SEQ",)` (see
+    `maps.PipelineMap.accepts_parent_types`). This function is the one that
+    resolves the map: it knows `out.pipeline.name` (parsed from
+    software_versions, above) and `uid_resolve` does not, so `uid_resolve`
+    itself keeps its original one-argument `Callable[[str], list[str]]`
+    contract unchanged -- what it receives below is a closure that has
+    already bound in the resolved `types` for this run. Defaults to `None`
+    (treated as never matching anything) so a caller with nothing to look up
+    against -- an existing test, or a local-directory caller with no D.SEQ
+    catalog at hand -- still works.
     """
     base = Path(root)
     resolved_run_dir = run_dir if run_dir is not None else str(base)
@@ -315,6 +330,35 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             warnings.append("no validated samplesheet; samples cannot be resolved")
 
     from NessieAI.ns.reingest import uid_resolve
+
+    # Which sample types this run's own pipeline may point back to as a
+    # parent -- see maps.PipelineMap.accepts_parent_types. `out.pipeline.name`
+    # is only just now known (parsed from software_versions, above; it is ""
+    # when that file never arrived), so this is the first point in the
+    # harvest where the map CAN be resolved -- not at this function's own
+    # call site (the caller stages files and invokes harvest_local before
+    # any pipeline identity is known at all). An unrecognised or not-yet-
+    # committed pipeline name (UnknownPipelineMap, or "" itself) falls back
+    # to the same ("D.SEQ",) scope this lookup always used, rather than
+    # raising out of a read-only harvest step.
+    try:
+        pipeline_map = maps.load(out.pipeline.name) if out.pipeline.name else None
+    except maps.UnknownPipelineMap:
+        pipeline_map = None
+    accepts_parent_types = (
+        tuple(pipeline_map.accepts_parent_types) if pipeline_map is not None
+        else ("D.SEQ",))
+
+    # `uid_resolve.resolve` keeps its original one-argument
+    # Callable[[str], list[str]] contract (see its own module docstring) --
+    # this closure is what "builds" the callable it actually receives,
+    # binding in `accepts_parent_types` so `uid_resolve` never has to know
+    # about maps or types scoping at all.
+    base_lookup = lookup_by_fastq or (lambda path, types: [])
+
+    def _scoped_lookup(path: str) -> list[str]:
+        return base_lookup(path, accepts_parent_types)
+
     # `multirun_resolved_rows` is filled in as a side effect: {sample:
     # resolved_row_count}, the number of a multi-run sample's OWN
     # contributing rows that resolved to a UID, counted before
@@ -324,7 +368,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     # uid_resolve._resolve_multirun_parents.
     multirun_resolved_rows: dict[str, int] = {}
     resolved = uid_resolve.resolve(
-        rows, resolved_run_dir, lookup_by_fastq or (lambda p: []),
+        rows, resolved_run_dir, _scoped_lookup,
         multirun_resolved_rows=multirun_resolved_rows)
     by_sample = {name: (uid, how, parents) for name, uid, how, parents in resolved}
     # A multi-run sample has several samplesheet ROWS sharing one name, but

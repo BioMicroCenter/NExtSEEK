@@ -2,6 +2,7 @@
   "map_version": 1,
   "pipeline": "nf-core/scrnaseq",
   "applies_to_versions": ">=2.7",
+  "accepts_parent_types": ["D.SEQ"],
   "harvest_globs": [
     "{star,alevin,kallisto,cellranger}/mtx_conversions/**/*.h5ad",
     "multiqc/**/multiqc_data/multiqc_*.txt"
