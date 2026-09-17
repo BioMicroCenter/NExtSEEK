@@ -215,10 +215,15 @@ def test_agent_recipe_row_against_the_real_catalog_required_set(tmp_path, monkey
 #   - the catalog (startup/seed/dmac.sql.gz, sample_types_context): UID,
 #     File_PrimaryData, Link_PrimaryData, Scientist, Parent,
 #     Checksum_PrimaryData, on all four of A.GEX / A.ALN / A.SCXP / D.SEQ.
-#   - SEEK's own sample_attributes.required (startup/seed/seek_production.sql.gz):
-#     File_PrimaryData is required=1 on A.SCXP/D.SEQ and required=0 on
-#     A.GEX/A.ALN; Link_PrimaryData is required=0 everywhere;
-#     Checksum_PrimaryData is required=0 everywhere.
+#   - SEEK's own sample_attributes.required (startup/seed/seek_production.sql.gz),
+#     verified directly against that seed -- the per-type required=1 sets are:
+#       A.GEX   required=1: ['UID']
+#       A.ALN   required=1: ['UID']
+#       A.SCXP  required=1: ['UID', 'Scientist', 'File_PrimaryData']
+#       D.SEQ   required=1: ['Scientist', 'UID', 'File_PrimaryData']
+#     So File_PrimaryData and Scientist are both required=1 on A.SCXP/D.SEQ
+#     and required=0 on A.GEX/A.ALN; Link_PrimaryData, Parent and
+#     Checksum_PrimaryData are required=0 on every one of the four.
 # These tests monkeypatch attributes_for with BOTH flags set explicitly
 # (real sets from both stores), through the same legacy rows path the
 # now-fixed test above exercises with only the old "required" key.
@@ -228,14 +233,22 @@ _REAL_REQUIRED = ("UID", "File_PrimaryData", "Link_PrimaryData", "Scientist",
 
 
 def _real_attrs_for(sample_type):
-    file_primary_data_server_required = sample_type in ("A.SCXP", "D.SEQ")
+    # File_PrimaryData and Scientist share the same real SEEK gate (see the
+    # table above): required=1 on A.SCXP/D.SEQ, required=0 on A.GEX/A.ALN.
+    scxp_or_dseq = sample_type in ("A.SCXP", "D.SEQ")
 
     def _server_required(title):
-        if title == "File_PrimaryData":
-            return file_primary_data_server_required
-        if title in ("Link_PrimaryData", "Checksum_PrimaryData"):
-            return False
-        return True  # UID, Scientist, Parent: unaffected by this defect
+        if title == "UID":
+            return True
+        if title in ("File_PrimaryData", "Scientist"):
+            return scxp_or_dseq
+        # Link_PrimaryData, Parent, Checksum_PrimaryData: required=0 on
+        # every one of the four types. Parent's absence still hard-rejects
+        # regardless -- reingest_qa.qa_rows exempts it from this flag
+        # unconditionally (see reingest_qa._ALWAYS_HARD_REQUIRED); returning
+        # the real, unexempted False here is deliberate, so the exemption
+        # itself is what these tests exercise, not a stubbed-True value.
+        return False
 
     return [{"title": t, "required": True, "server_required": _server_required(t)}
             for t in _REAL_REQUIRED]
@@ -295,3 +308,95 @@ def test_file_primary_data_missing_still_hard_rejects_where_seek_requires_it(tmp
     hard = out["qa"]["A.SCXP"]["hard"]
     assert any("missing_required" in h and "File_PrimaryData" in h and "Link_PrimaryData" in h
                for h in hard)
+
+
+# --- Parent revert: exempted from the required_fields/server_required_fields
+# split regardless of what SEEK's own flag says for it (reingest_qa's
+# _ALWAYS_HARD_REQUIRED) --------------------------------------------------
+
+
+def test_missing_parent_key_hard_rejects_on_all_four_types_and_produces_no_workbook(
+        tmp_path, monkeypatch):
+    # Parent is required=0 in SEEK on all four reingest sample types (see
+    # the real-flags table above _real_attrs_for), so without the exemption
+    # a row with no Parent key at all would SOFT-flag
+    # (CATALOG_REQUIRED_MISSING) and ship as a silent root sample --
+    # nextseek_api/batch_upload/orchestrator.py:446 treats a Parent-less row
+    # as exactly that. This pins the revert: missing Parent stays
+    # MISSING_REQUIRED/HARD, and hard-rejects the whole workbook, on every
+    # one of the four types, not just some.
+    for sample_type in ("A.GEX", "A.ALN", "A.SCXP", "D.SEQ"):
+        monkeypatch.setattr(reingest_lookups, "known_sample_types",
+                             lambda st=sample_type: {st})
+        monkeypatch.setattr(reingest_lookups, "attributes_for", _real_attrs_for)
+        rows = json.dumps([{
+            "SampleType": sample_type,
+            "json_metadata": {
+                "Scientist": "A Person",
+                "File_PrimaryData": "/net/cluster/runs/gideon4wk/star_salmon/sample1.bam",
+            },
+            "assay_ids": [12],
+        }])
+        out = g._build_upload_xlsx(
+            {"rows": rows, "existing_parent_uids": ""},
+            _Cfg(), None, None, None, str(tmp_path))
+
+        assert out["qa"][sample_type]["disposition"] == "HARD_REJECT", sample_type
+        assert out["saved_files"] == {}, sample_type
+        hard = out["qa"][sample_type]["hard"]
+        assert any("missing_required" in h and "Parent" in h for h in hard), (sample_type, hard)
+
+
+def test_a_resolvable_parent_is_unaffected_by_the_revert(tmp_path, monkeypatch):
+    # A row that DOES carry a resolvable Parent must not be touched by the
+    # exemption at all -- it never reaches the "missing" branch in the
+    # required-attribute loop, so it stays CLEAN (of Parent findings) exactly
+    # as before this change.
+    monkeypatch.setattr(reingest_lookups, "known_sample_types", lambda: {"A.GEX"})
+    monkeypatch.setattr(reingest_lookups, "attributes_for", _real_attrs_for)
+    rows = json.dumps([{
+        "SampleType": "A.GEX",
+        "json_metadata": {
+            "Parent": "D.SEQ-1", "Scientist": "A Person",
+            "File_PrimaryData": "/net/cluster/runs/gideon4wk/star_salmon/sample1.bam",
+        },
+        "assay_ids": [12],
+    }])
+    out = g._build_upload_xlsx(
+        {"rows": rows, "existing_parent_uids": "D.SEQ-1"},
+        _Cfg(), None, None, None, str(tmp_path))
+
+    assert not any("Parent" in h for h in out["qa"]["A.GEX"]["hard"])
+    assert not any("Parent" in s for s in out["qa"]["A.GEX"]["soft"])
+    assert set(out["saved_files"]) == {"reingest_A_GEX"}
+
+
+def test_scientist_missing_on_a_gex_still_soft_flags_and_a_workbook_is_produced(
+        tmp_path, monkeypatch):
+    # Scope check for the revert: Scientist is required=0 on A.GEX per SEEK
+    # (see the real-flags table above _real_attrs_for) and correctly follows
+    # the ordinary required_fields/server_required_fields split -- it must
+    # stay SOFT (CATALOG_REQUIRED_MISSING), not be swept up into the Parent
+    # exemption.
+    monkeypatch.setattr(reingest_lookups, "known_sample_types", lambda: {"A.GEX"})
+    monkeypatch.setattr(reingest_lookups, "attributes_for", _real_attrs_for)
+    rows = json.dumps([{
+        "SampleType": "A.GEX",
+        "json_metadata": {
+            "Parent": "D.SEQ-1",
+            "File_PrimaryData": "/net/cluster/runs/gideon4wk/star_salmon/sample1.bam",
+        },
+        "assay_ids": [12],
+    }])
+    out = g._build_upload_xlsx(
+        {"rows": rows, "existing_parent_uids": "D.SEQ-1"},
+        _Cfg(), None, None, None, str(tmp_path))
+
+    assert out["qa"]["A.GEX"]["disposition"] == "SOFT_FLAG"
+    assert not out["qa"]["A.GEX"]["hard"]
+    assert any("catalog_required_missing" in s and "Scientist" in s
+               for s in out["qa"]["A.GEX"]["soft"])
+    assert set(out["saved_files"]) == {"reingest_A_GEX"}
+    path = out["saved_files"]["reingest_A_GEX"]
+    batch = parse_traditional_file(path)
+    assert len(batch.rows) == 1

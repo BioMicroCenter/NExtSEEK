@@ -175,6 +175,37 @@ def test_severity_split_blockers_and_advisories_get_separate_headers():
     assert "D.SEQ" in text[checking_at:leave_as_is_at]
 
 
+def test_lineage_unresolved_defers_to_the_hard_parent_finding_on_the_same_type():
+    # A row with no parent-ish key at all now trips BOTH the three-state
+    # LINEAGE_UNRESOLVED SOFT finding and, via reingest_qa's Parent
+    # exemption (_ALWAYS_HARD_REQUIRED), a HARD MISSING_REQUIRED finding for
+    # "Parent" -- on the same sample type. LINEAGE_UNRESOLVED's own prose
+    # ("upload as-is, attach the parent later") would flatly contradict the
+    # "WHAT IS BLOCKING" section naming the very same workbook, so it must
+    # not appear when the Parent finding is present; the reader must be
+    # pointed at the blocking item instead. Pin the actual combined text so
+    # this reconciliation cannot silently regress.
+    built = qa.QaReport()
+    built.add(qa.Finding(code=qa.MISSING_REQUIRED, severity=qa.HARD,
+                         sample_type="A.GEX", attribute="Parent", row_index=0))
+    built.add(qa.Finding(code=qa.LINEAGE_UNRESOLVED, severity=qa.SOFT,
+                         sample_type="A.GEX", row_index=0,
+                         detail={"reason": "no Parent key present (lineage could not be resolved)"}))
+    text = report.render_qa_for_user({"A.GEX": built._finalize()}, ARTIFACTS, RUN)
+
+    assert "Reingest blocked" in text
+    assert "upload as-is" not in text.lower()
+    assert "no parent identified" in text.lower()
+    # The SOFT section's rendering of LINEAGE_UNRESOLVED must point back at
+    # the blocking finding rather than repeating its own "ships anyway"
+    # story.
+    soft_section = text.split("WHAT IS BLOCKING", 1)[1]
+    assert "blocking this workbook above" in soft_section.lower()
+    # And the workbook must not be offered for upload.
+    upload_section = text.split("TO UPLOAD", 1)[1]
+    assert "xlsx" not in upload_section or "reingest_A.GEX.xlsx" not in upload_section
+
+
 _NEW_CODE_CASES = [
     (qa.UNKNOWN_SAMPLETYPE, qa.HARD,
      dict(sample_type="Z.BOGUS"),

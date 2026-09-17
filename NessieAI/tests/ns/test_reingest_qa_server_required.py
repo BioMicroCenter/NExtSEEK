@@ -85,3 +85,56 @@ def test_a_present_catalog_only_attribute_is_clean_not_flagged():
                  required_fields=["Checksum_PrimaryData"], server_required_fields=[])
     assert report.disposition == qa.CLEAN
     assert not report.hard and not report.soft
+
+
+# --- Parent: exempted from this split unconditionally ----------------------
+#
+# Parent is required=0 in SEEK on all four reingest sample types
+# (A.GEX/A.ALN/A.SCXP/D.SEQ), so without an exemption it would follow the
+# ordinary rule above and SOFT-flag when missing -- exactly the unintended
+# consequence this revert exists to undo (see reingest_qa._ALWAYS_HARD_REQUIRED's
+# comment for why Parent is a structural lineage field, not ordinary
+# metadata). `_qa`'s default `meta` always carries a resolvable Parent, so
+# these tests build their own rows without it.
+
+
+def test_parent_missing_hard_rejects_even_when_seek_says_it_is_not_required():
+    built = qa.qa_rows(
+        [{"json_metadata": {"Scientist": "A Person"}}],
+        sample_type="A.GEX", known_sampletypes={"A.GEX"},
+        required_fields=["Parent"], server_required_fields=[],
+        existing_parent_uids=EXISTING)
+    assert built.disposition == qa.HARD_REJECT
+    codes_attrs = {(f.code, f.attribute) for f in built.findings}
+    assert (qa.MISSING_REQUIRED, "Parent") in codes_attrs
+    assert (qa.CATALOG_REQUIRED_MISSING, "Parent") not in codes_attrs
+
+
+def test_missing_parent_key_also_soft_flags_lineage_unresolved_alongside_the_hard_finding():
+    # A row with no parent-ish key at all trips BOTH the three-state
+    # LINEAGE_UNRESOLVED SOFT finding (no key present at all -- see qa_rows'
+    # new-mode Parent-resolvability block) and, via the exemption above, the
+    # HARD MISSING_REQUIRED finding for the same underlying gap. Two
+    # findings on one row saying two different things is acceptable; pin
+    # exactly which codes appear so this interaction cannot silently change.
+    # See NessieAI/ns/reingest/report.py's LINEAGE_UNRESOLVED branch for how
+    # the two are reconciled in the text a user actually reads.
+    built = qa.qa_rows(
+        [{"json_metadata": {"Scientist": "A Person"}}],
+        sample_type="A.GEX", known_sampletypes={"A.GEX"},
+        required_fields=["Parent"], server_required_fields=[],
+        existing_parent_uids=EXISTING)
+    assert built.disposition == qa.HARD_REJECT
+    codes_attrs = {(f.code, f.attribute) for f in built.findings}
+    assert (qa.MISSING_REQUIRED, "Parent") in codes_attrs
+    assert any(f.code == qa.LINEAGE_UNRESOLVED for f in built.findings)
+
+
+def test_parent_present_is_unaffected_by_the_exemption():
+    # A resolvable Parent must never be flagged at all -- the exemption only
+    # changes what happens when it is MISSING.
+    report = _qa({}, required_fields=["Parent"], server_required_fields=[])
+    codes = {f.code for f in report.findings}
+    assert qa.MISSING_REQUIRED not in codes
+    assert qa.CATALOG_REQUIRED_MISSING not in codes
+    assert qa.LINEAGE_UNRESOLVED not in codes
