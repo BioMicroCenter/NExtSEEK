@@ -45,44 +45,80 @@ METRIC_UNAVAILABLE = "metric_unavailable"
 # Alternative-required-attribute groups
 # ---------------------------------------------------------------------------
 #
-# The A.GEX / A.ALN / A.SCXP catalog rows (startup/seed/dmac.sql.gz, table
-# sample_types_context) declare required_metadata including BOTH
-# File_PrimaryData (a filesystem path) and Link_PrimaryData (a URL) -- but
-# they are two ways to point at the same primary-data artifact, so a row
-# that supplies EITHER one has satisfied the requirement.
+# The A.GEX / A.ALN / A.SCXP / D.SEQ catalog rows (startup/seed/dmac.sql.gz,
+# table sample_types_context) declare required_metadata including BOTH
+# File_PrimaryData (a filesystem path) and Link_PrimaryData (a URL) -- two
+# ways to point at the same primary-data artifact, so they are
+# interchangeable as DATA.
+#
+# They are NOT interchangeable at the upload GATE, though, and that is the
+# reason this group is directional rather than a plain either-will-do set.
+# Per startup/seed/seek_production.sql.gz, table sample_attributes:
+# File_PrimaryData is required=1 on some sample types (D.SEQ, A.SCXP) and
+# Link_PrimaryData is required=0 on every one of the 82 types that declare
+# it at all. So a row that supplies only File_PrimaryData is always safe,
+# but a row that supplies only Link_PrimaryData may still be missing the
+# path the server actually demands for its sample type -- SEEK's
+# `_verifyRequiredFields` (seek/sample/core.py) checks the stored required
+# flag, not this group. Concretely:
+#   - `primary` present and non-blank -> the requirement is satisfied,
+#     full stop, regardless of the secondaries. This is the direction the
+#     shipped reingest recipe actually exercises and it is always safe.
+#   - only a `secondary` present -> NOT provably satisfied. Soft-flag it:
+#     the server may still reject the row for lacking `primary`, but it may
+#     also not (not every sample type requires it), so this must not block
+#     a workbook that could well be fine.
+#   - neither present -> exactly one HARD finding, naming every member.
 #
 # This does NOT extend to Checksum_PrimaryData, required by that same
-# catalog row: spec Section 9 makes MISSING_REQUIRED hard specifically
-# because calling its absence advisory only defers the server's rejection to
-# upload time. It is not declared here as an alternative to anything, and
-# must not be added to a group -- its absence still hard-rejects on its own.
-ALTERNATIVE_REQUIRED_GROUPS: tuple[tuple[str, ...], ...] = (
-    ("File_PrimaryData", "Link_PrimaryData"),
+# catalog row: it is not declared here as an alternative to anything, and
+# must not be added to a group -- its absence still hard-rejects on its own
+# (see the MISSING_REQUIRED loop below for why that HARD is deliberately
+# stricter than SEEK's own required flag for this attribute).
+@dataclass(frozen=True)
+class _AlternativeGroup:
+    """One directional alternative-required group: `primary`'s presence
+    alone satisfies the requirement; each of `secondaries` satisfies it only
+    provisionally (soft-flagged when `primary` is absent)."""
+    primary: str
+    secondaries: tuple[str, ...]
+
+    @property
+    def members(self) -> tuple[str, ...]:
+        return (self.primary, *self.secondaries)
+
+
+ALTERNATIVE_REQUIRED_GROUPS: tuple[_AlternativeGroup, ...] = (
+    _AlternativeGroup("File_PrimaryData", ("Link_PrimaryData",)),
 )
 
 _GROUP_LABEL_SEP = " or "
 
 
-def _group_containing(attribute: str) -> tuple[str, ...] | None:
-    """The ALTERNATIVE_REQUIRED_GROUPS group `attribute` belongs to, or None."""
+def _group_containing(attribute: str) -> _AlternativeGroup | None:
+    """The ALTERNATIVE_REQUIRED_GROUPS group `attribute` belongs to (as
+    primary or secondary), or None."""
     for group in ALTERNATIVE_REQUIRED_GROUPS:
-        if attribute in group:
+        if attribute in group.members:
             return group
     return None
 
 
-def group_label(group: tuple[str, ...]) -> str:
+def group_label(members: tuple[str, ...]) -> str:
     """The Finding.attribute value used for a whole-group MISSING_REQUIRED
     finding, e.g. "File_PrimaryData or Link_PrimaryData" -- named so the
-    reader knows either member will do. `report.py`'s `is_group_label`
-    recognises this exact shape to render alternatives-aware prose."""
-    return _GROUP_LABEL_SEP.join(group)
+    reader knows every member is named, whatever the finding's severity.
+    `report.py`'s `is_group_label` recognises this exact shape to render
+    alternatives-aware prose. Takes the group's `.members` tuple (primary
+    first), not the `_AlternativeGroup` itself, so a caller that already has
+    the plain member names on hand (tests included) need not construct one."""
+    return _GROUP_LABEL_SEP.join(members)
 
 
 def is_group_label(attribute: str) -> bool:
     """True when `attribute` is a `group_label()` rendering of one of
     ALTERNATIVE_REQUIRED_GROUPS, rather than a single attribute title."""
-    return any(attribute == group_label(group) for group in ALTERNATIVE_REQUIRED_GROUPS)
+    return any(attribute == group_label(group.members) for group in ALTERNATIVE_REQUIRED_GROUPS)
 
 
 def _value_missing(raw) -> bool:
@@ -360,52 +396,74 @@ def qa_rows(
                                     detail={"name": name}))
             intra_names.add(name)
 
-        # Required-attribute coverage. HARD, not advisory: Checksum_PrimaryData is
-        # required on A.GEX / A.ALN / A.SCXP, so calling its absence a soft flag
-        # only defers the server's rejection to upload time. New-mode-only for
-        # ABSENCE, symmetrically with the Parent guard above: an update row
-        # targets an existing sample that already carries its required
-        # attributes, and only carries the metrics being backfilled, so a
-        # required attribute missing from the row is not missing from the
-        # database. But deep_merge_metadata overwrites on key PRESENCE: an
-        # update row that carries a required key with a blank value blanks it
-        # on the server -- the same wholesale-overwrite hazard the Notes guard
-        # exists to stop -- so that case is flagged in BOTH modes.
+        # Required-attribute coverage. HARD, not advisory, for an ungrouped
+        # attribute: this gate deliberately requires more than SEEK's own
+        # `sample_attributes.required` flag does for some of these titles
+        # (Checksum_PrimaryData, for one, is required=0 on A.GEX / A.ALN /
+        # A.SCXP / D.SEQ in startup/seed/seek_production.sql.gz -- the
+        # server will happily accept a row without it). That is not a
+        # mirror of a server behaviour that will happen; it is this gate
+        # choosing to be stricter, because a reingest row with no checksum
+        # cannot be verified against the file it claims to describe, and a
+        # human should decide that up front rather than discover it later.
+        # New-mode-only for ABSENCE, symmetrically with the Parent guard
+        # above: an update row targets an existing sample that already
+        # carries its required attributes, and only carries the metrics
+        # being backfilled, so a required attribute missing from the row is
+        # not missing from the database. But deep_merge_metadata overwrites
+        # on key PRESENCE: an update row that carries a required key with a
+        # blank value blanks it on the server -- the same wholesale-overwrite
+        # hazard the Notes guard exists to stop -- so that case is flagged in
+        # BOTH modes.
         #
-        # Some required titles are interchangeable (ALTERNATIVE_REQUIRED_GROUPS
-        # above) -- File_PrimaryData / Link_PrimaryData are two ways to point
-        # at the same primary-data artifact. That only changes the NEW-mode
-        # ABSENCE check: a group is satisfied when ANY one member is present
-        # and non-blank, and an absent group produces exactly ONE finding
-        # naming every member, not one per member -- so once a group has been
-        # checked for this row (`handled_groups`), a later `req` naming the
-        # same group is skipped. Update-mode's presence-but-blank hazard is
-        # NOT grouped: a row that carries one member blank still blanks that
-        # specific attribute on the server regardless of its alternative, so
-        # each member is checked independently there, exactly as before.
-        handled_groups: set[tuple[str, ...]] = set()
+        # Some required titles are interchangeable as DATA but not at the
+        # GATE (ALTERNATIVE_REQUIRED_GROUPS above): File_PrimaryData is
+        # required=1 on some sample types and Link_PrimaryData is required=0
+        # on all of them, so only File_PrimaryData's presence can be trusted
+        # to satisfy the requirement unconditionally. That only changes the
+        # NEW-mode ABSENCE check, and only for a `req` that names a group
+        # member -- once a group has been checked for this row
+        # (`handled_groups`), a later `req` naming the same group is skipped.
+        # Update-mode's presence-but-blank hazard is NOT grouped: a row that
+        # carries one member blank still blanks that specific attribute on
+        # the server regardless of its alternative, so each member is
+        # checked independently there, exactly as before.
+        handled_groups: set[_AlternativeGroup] = set()
         for req in required:
             if req == "UID":
                 continue                          # rows never carry one
-            raw = meta.get(req)
-            missing = _value_missing(raw)
             if mode == "new":
                 group = _group_containing(req)
                 if group is not None:
                     if group in handled_groups:
                         continue
                     handled_groups.add(group)
-                    if all(_value_missing(meta.get(member)) for member in group):
+                    if not _value_missing(meta.get(group.primary)):
+                        continue                  # primary present: satisfied, full stop
+                    present_secondaries = [
+                        member for member in group.secondaries
+                        if not _value_missing(meta.get(member))]
+                    if present_secondaries:
+                        # A secondary alone is NOT provably enough -- SEEK may
+                        # still require the primary for this sample type --
+                        # so this stays advisory, not blocking.
+                        report.add(Finding(
+                            code=MISSING_REQUIRED, severity=SOFT,
+                            sample_type=sample_type,
+                            attribute=group_label(group.members), row_index=i,
+                            detail={"primary": group.primary,
+                                    "present_secondary": present_secondaries[0]}))
+                    else:
                         report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
                                             sample_type=sample_type,
-                                            attribute=group_label(group),
+                                            attribute=group_label(group.members),
                                             row_index=i))
                     continue
-                if missing:
+                if _value_missing(meta.get(req)):
                     report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
                                         sample_type=sample_type, attribute=req,
                                         row_index=i))
-            elif req in meta and missing:
+            elif req in meta and _value_missing(meta.get(req)):
                 report.add(Finding(code=MISSING_REQUIRED, severity=HARD,
                                     sample_type=sample_type, attribute=req,
                                     row_index=i))
