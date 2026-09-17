@@ -4,25 +4,35 @@
 # w.r.t. Luria and NExtSEEK; separate from run-harvest because which files
 # become File_PrimaryData is only known after sample types are assigned, and
 # hashing multi-GB BAMs during harvest would blow the harvest step's wall clock.
+# Optional --manifest-id folds the checksums into that manifest server-side;
+# the result then carries a NEW manifest_id (manifests are content-addressed)
+# to pass to build-upload-xlsx in place of the original.
 set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/_nextseek_common.sh"
 
 RUN_DIR=""
 PATHS=""
+MANIFEST_ID=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --run-dir) RUN_DIR="$2"; shift 2 ;;
     --run-dir=*) RUN_DIR="${1#--run-dir=}"; shift ;;
     --paths) PATHS="$2"; shift 2 ;;
     --paths=*) PATHS="${1#--paths=}"; shift ;;
+    --manifest-id) MANIFEST_ID="$2"; shift 2 ;;
+    --manifest-id=*) MANIFEST_ID="${1#--manifest-id=}"; shift ;;
     --help)
-      echo "Usage: nextseek-run-checksum --run-dir <abs path under the Luria runs root> --paths <comma-separated relative paths>"
+      echo "Usage: nextseek-run-checksum --run-dir <abs path under the Luria runs root> --paths <comma-separated relative paths> [--manifest-id <id>]"
       echo ""
       echo "md5s a caller-named set of settled files under a finished run. Every"
       echo "path must resolve inside run_dir; a symlink, hardlink, or escape is a"
       echo "hard validation error, not a silent skip. A genuinely missing file is"
       echo "reported in the result's skipped list instead."
+      echo ""
+      echo "--manifest-id <id> (optional): fold these checksums into the named"
+      echo "run-harvest manifest. The result then carries a NEW manifest_id --"
+      echo "pass THAT id, not this one, to nextseek-build-upload-xlsx."
       exit 0
       ;;
     *) nextseek_die 3 "unknown arg: $1" ;;
@@ -30,5 +40,10 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$RUN_DIR" ] || nextseek_die 3 "missing --run-dir"
 [ -n "$PATHS" ] || nextseek_die 3 "missing --paths"
+
+if [ -n "$MANIFEST_ID" ]; then
+  exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent run-checksum \
+    --run-dir "$RUN_DIR" --paths "$PATHS" --manifest-id "$MANIFEST_ID"
+fi
 
 exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent run-checksum --run-dir "$RUN_DIR" --paths "$PATHS"

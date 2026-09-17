@@ -33,6 +33,8 @@ import pytest
 
 import chat_nextseek.luria.ssh as ssh
 import NessieAI.ns.granular as g
+from NessieAI.ns.reingest import manifest as manifest_mod
+from NessieAI.ns.reingest import store as store_mod
 
 pytestmark = pytest.mark.django_db
 
@@ -378,3 +380,127 @@ def test_checksum_script_output_is_valid_json():
         out = _run_checksum_script_locally(str(run_dir), ["a.txt"])
     payload = json.loads(out)
     assert set(payload) >= {"checksums", "skipped", "escaped"}
+
+
+# ---------------------------------------------------------------------------
+# --manifest-id: fold this call's checksums into a run-harvest manifest and
+# return the NEW id (manifests are content-addressed -- see store.py). Not
+# passing it must leave every existing caller's result shape untouched.
+# ---------------------------------------------------------------------------
+
+def _save_manifest(tmp_path, monkeypatch):
+    # store._ROOT is resolved once at module-import time from an env var, so
+    # a monkeypatch.setenv after the module is already imported would be
+    # ignored -- patch the module attribute directly instead (same pattern
+    # as test_build_upload_manifest.py's _save_manifest).
+    monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+    run_manifest = manifest_mod.RunManifest(
+        run_dir="/net/cluster/runs/r1",
+        pipeline=manifest_mod.PipelineInfo(name="nf-core/rnaseq", run_name="r1"))
+    return store_mod.save_manifest(run_manifest)
+
+
+def test_without_manifest_id_the_result_shape_is_unchanged(tmp_path, monkeypatch):
+    """No `manifest_id` key at all when the caller does not ask for one --
+    every existing caller of this read-only op keeps today's exact shape."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "sample.bam").write_bytes(b"hello")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run",
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
+
+    result = _dispatch("run-checksum", {"run_dir": str(run_dir), "paths": "sample.bam"},
+                        _cfg_for(tmp_path), None, None, None, None)
+
+    assert set(result) == {"run_dir", "checksums", "skipped"}
+
+
+def test_manifest_id_round_trip_yields_a_new_id_with_the_checksums_merged_in(tmp_path, monkeypatch):
+    original_id = _save_manifest(tmp_path, monkeypatch)
+
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "sample.bam").write_bytes(b"hello world")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run",
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
+
+    result = _dispatch(
+        "run-checksum",
+        {"run_dir": str(run_dir), "paths": "sample.bam", "manifest_id": original_id},
+        _cfg_for(tmp_path), None, None, None, None)
+
+    new_id = result["manifest_id"]
+    assert new_id != original_id, "a manifest carrying checksums is content-different"
+
+    updated = store_mod.load_manifest(new_id)
+    assert updated.checksums == {"sample.bam": result["checksums"]["sample.bam"]}
+
+    # Content-addressing preserved: the ORIGINAL id still loads the original,
+    # checksum-less manifest -- this call must not have mutated it in place.
+    original = store_mod.load_manifest(original_id)
+    assert original.checksums == {}
+
+
+def test_manifest_id_checksums_are_additive_not_replacing(tmp_path, monkeypatch):
+    """A second run-checksum call for a different file must not drop the
+    first call's checksum -- RunManifest.checksums accumulates."""
+    monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+    run_manifest = manifest_mod.RunManifest(
+        run_dir="/net/cluster/runs/r1",
+        pipeline=manifest_mod.PipelineInfo(name="nf-core/rnaseq", run_name="r1"),
+        checksums={"already/hashed.bam": "existing123"})
+    first_id = store_mod.save_manifest(run_manifest)
+
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "sample.bam").write_bytes(b"hello world")
+    monkeypatch.setattr(
+        ssh, "ssh_run",
+        lambda env, cmd, *, key_path, timeout=None: _run_checksum_script_locally(str(run_dir), ["sample.bam"]))
+
+    result = _dispatch(
+        "run-checksum",
+        {"run_dir": str(run_dir), "paths": "sample.bam", "manifest_id": first_id},
+        _cfg_for(tmp_path), None, None, None, None)
+
+    updated = store_mod.load_manifest(result["manifest_id"])
+    assert updated.checksums["already/hashed.bam"] == "existing123"
+    assert updated.checksums["sample.bam"] == result["checksums"]["sample.bam"]
+
+
+def test_a_malformed_manifest_id_is_rejected():
+    with pytest.raises(g.OpValidationError):
+        _dispatch("run-checksum",
+                   {"run_dir": "/net/cluster/runs/r", "paths": "f.bam",
+                    "manifest_id": "../../etc/passwd"},
+                   _Cfg(), None, None, None, None)
+
+
+def test_an_unknown_manifest_id_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+    with pytest.raises(g.OpValidationError):
+        _dispatch("run-checksum",
+                   {"run_dir": "/net/cluster/runs/r", "paths": "f.bam",
+                    "manifest_id": "deadbeefdeadbeef"},
+                   _Cfg(), None, None, None, None)
+
+
+def test_manifest_id_is_validated_before_the_expensive_ssh_call(tmp_path, monkeypatch):
+    """A bad manifest_id must fail before the remote hashing call runs at
+    all -- the same 'fail cheap before failing expensive' ordering the path
+    validation above already gets."""
+    monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+
+    def _boom(*a, **k):
+        raise AssertionError("ssh_run must not be called for an unknown manifest_id")
+
+    monkeypatch.setattr(ssh, "ssh_run", _boom)
+    with pytest.raises(g.OpValidationError):
+        _dispatch("run-checksum",
+                   {"run_dir": "/net/cluster/runs/r", "paths": "f.bam",
+                    "manifest_id": "deadbeefdeadbeef"},
+                   _cfg_for(tmp_path), None, None, None, None)

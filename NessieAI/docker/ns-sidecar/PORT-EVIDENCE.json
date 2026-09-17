@@ -49,8 +49,8 @@
   },
   {
    "path": "app/contract.py",
-   "size_bytes": 6456,
-   "sha256": "b654d122dc5addc433b3ada7a89413e8178447672b2bf49ffc998d3109b7f84d"
+   "size_bytes": 6491,
+   "sha256": "f76eab11d6441da4fbc1f18ad2165b19ea850ed3540cf99e8ee68fec6ba289ed"
   },
   {
    "path": "app/exceptions.py",
@@ -59,8 +59,8 @@
   },
   {
    "path": "app/granular_models.py",
-   "size_bytes": 9819,
-   "sha256": "9ee38ba2d8ced85a52025af5621d63cae280f06c90e1db8b637e991fca44218c"
+   "size_bytes": 10157,
+   "sha256": "392a9b1840118c907dd300ae0823a65f1a127f878554e41a5b18db74e2fca981"
   },
   {
    "path": "app/healthcheck.py",
@@ -74,8 +74,8 @@
   },
   {
    "path": "app/ops.py",
-   "size_bytes": 9481,
-   "sha256": "209b05cdc90e006f62d7091419c5eb12fdb7f423d5f1be9b02502db8e2d74c40"
+   "size_bytes": 9563,
+   "sha256": "7f886dde04ba8c2827a0acf6be3ffe09a7642fa2f805d1dbc2c9eaf89c622aca"
   },
   {
    "path": "app/server.py",
@@ -183,16 +183,16 @@
  "local_additions_beyond_port_source": [
   {
    "path": "app/contract.py",
-   "addition": "Registered the reingest ops run-ls + build-upload-xlsx + run-harvest + run-checksum (SIDECAR_OPS set, _RunLsArgs / _BuildUploadXlsxArgs / _RunHarvestArgs / _RunChecksumArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _BuildUploadXlsxArgs gained optional manifest_id + mode fields alongside the now-optional legacy rows field, mirrored byte-for-byte in the plugin's own _ws_contract.py copy. 2026-09-17 (Task 7 review fix, Important 2): _BuildUploadXlsxArgs gained a model_validator(mode=\"after\") requiring exactly one of manifest_id/rows -- loosening rows to optional had left a well-formed args dict naming neither field passing validation and then KeyError'ing inside ops.py's forwarder (server.py dispatches the raw pre-validation args dict, not this model's own defaults). Mirrored byte-for-byte in _ws_contract.py again."
+   "addition": "Registered the reingest ops run-ls + build-upload-xlsx + run-harvest + run-checksum (SIDECAR_OPS set, _RunLsArgs / _BuildUploadXlsxArgs / _RunHarvestArgs / _RunChecksumArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _BuildUploadXlsxArgs gained optional manifest_id + mode fields alongside the now-optional legacy rows field, mirrored byte-for-byte in the plugin's own _ws_contract.py copy. 2026-09-17 (Task 7 review fix, Important 2): _BuildUploadXlsxArgs gained a model_validator(mode=\"after\") requiring exactly one of manifest_id/rows -- loosening rows to optional had left a well-formed args dict naming neither field passing validation and then KeyError'ing inside ops.py's forwarder (server.py dispatches the raw pre-validation args dict, not this model's own defaults). Mirrored byte-for-byte in _ws_contract.py again. 2026-09-17 (checksum-manifest wiring): _RunChecksumArgs gained an optional manifest_id field, so a caller can fold run-checksum's result into a run-harvest manifest server-side. Mirrored byte-for-byte in _ws_contract.py."
   },
   {
    "path": "app/ops.py",
-   "addition": "Added the run-ls + build-upload-xlsx + run-harvest + run-checksum forwarders (_run_ls, _build_upload_xlsx, _run_harvest, _run_checksum) that proxy to the NExtSEEK /assistant/run-ls/, /build-upload-xlsx/, /run-harvest/ and /run-checksum/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _build_upload_xlsx now forwards manifest_id + mode when the caller sends a manifest_id, else the legacy rows + existing_parent_uids body. 2026-09-17 (Task 7 review fix, Important 2): the legacy-branch body now reads args.get(\"rows\", \"\") instead of args[\"rows\"] -- args is server.py's raw pre-validation dict, so this forwarder must not assume the key is present even though contract.py's model_validator now requires it before dispatch reaches here."
+   "addition": "Added the run-ls + build-upload-xlsx + run-harvest + run-checksum forwarders (_run_ls, _build_upload_xlsx, _run_harvest, _run_checksum) that proxy to the NExtSEEK /assistant/run-ls/, /build-upload-xlsx/, /run-harvest/ and /run-checksum/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _build_upload_xlsx now forwards manifest_id + mode when the caller sends a manifest_id, else the legacy rows + existing_parent_uids body. 2026-09-17 (Task 7 review fix, Important 2): the legacy-branch body now reads args.get(\"rows\", \"\") instead of args[\"rows\"] -- args is server.py's raw pre-validation dict, so this forwarder must not assume the key is present even though contract.py's model_validator now requires it before dispatch reaches here. 2026-09-17 (checksum-manifest wiring): _run_checksum now forwards manifest_id to the NExtSEEK endpoint when the caller supplied one."
   },
   {
    "path": "app/granular_models.py",
-   "addition": "Added RunHarvestRequest and RunChecksumRequest (mirror nextseek_api/assistant/models_api.py's models of the same names). NOT present in port_source_commit a429f137; added locally for the reingest feature. This is a documentation-only local copy -- nothing under docker/ns-sidecar/app/ imports granular_models.py at runtime."
+   "addition": "Added RunHarvestRequest and RunChecksumRequest (mirror nextseek_api/assistant/models_api.py's models of the same names). NOT present in port_source_commit a429f137; added locally for the reingest feature. This is a documentation-only local copy -- nothing under docker/ns-sidecar/app/ imports granular_models.py at runtime. 2026-09-17 (checksum-manifest wiring): RunChecksumRequest gained the optional manifest_id field, mirroring models_api.py's RunChecksumRequest."
   }
  ],
- "notes": "2026-07-22 (dev/v3 reconciliation Wave 5): contract.py + ops.py are NO LONGER byte-identical to port_source_commit a429f137 -- the reingest ops run-ls + build-upload-xlsx were added directly to this NExtSEEK copy rather than upstream-first. Pins + inventory updated consciously per the test_step7_sidecar_port drift-guard contract. 2026-09-16 (Task 9, run-harvest op): contract.py, ops.py AND granular_models.py gained the run-harvest reingest op (SIDECAR_OPS/_RunHarvestArgs, the _run_harvest forwarder, and RunHarvestRequest respectively) -- granular_models.py is consequently removed from byte_identical_files too. Pins + inventory updated consciously again, same contract. 2026-09-16 (Task 10, run-checksum op): contract.py, ops.py AND granular_models.py gained the run-checksum reingest op (SIDECAR_OPS/_RunChecksumArgs, the _run_checksum forwarder, and RunChecksumRequest respectively). Pins + inventory updated consciously again, same contract. 2026-09-17 (Task 7 review fix, Important 2): contract.py's _BuildUploadXlsxArgs gained a model_validator(mode=\"after\") requiring exactly one of manifest_id/rows (loosening rows to optional for the manifest-id path had left an args dict naming neither field passing validation, then KeyError'ing inside ops.py's forwarder, since server.py dispatches the raw pre-validation args dict, not this model's own defaults); ops.py's legacy branch also now reads args.get(\"rows\", \"\") instead of args[\"rows\"] so the forwarder cannot KeyError regardless. Mirrored byte-for-byte in _ws_contract.py. Pins + inventory updated consciously again, same contract. TODO(taisha): fold the reingest sidecar ops into dmac-assistant upstream, then re-port and restore byte-identity."
+ "notes": "2026-07-22 (dev/v3 reconciliation Wave 5): contract.py + ops.py are NO LONGER byte-identical to port_source_commit a429f137 -- the reingest ops run-ls + build-upload-xlsx were added directly to this NExtSEEK copy rather than upstream-first. Pins + inventory updated consciously per the test_step7_sidecar_port drift-guard contract. 2026-09-16 (Task 9, run-harvest op): contract.py, ops.py AND granular_models.py gained the run-harvest reingest op (SIDECAR_OPS/_RunHarvestArgs, the _run_harvest forwarder, and RunHarvestRequest respectively) -- granular_models.py is consequently removed from byte_identical_files too. Pins + inventory updated consciously again, same contract. 2026-09-16 (Task 10, run-checksum op): contract.py, ops.py AND granular_models.py gained the run-checksum reingest op (SIDECAR_OPS/_RunChecksumArgs, the _run_checksum forwarder, and RunChecksumRequest respectively). Pins + inventory updated consciously again, same contract. 2026-09-17 (Task 7 review fix, Important 2): contract.py's _BuildUploadXlsxArgs gained a model_validator(mode=\"after\") requiring exactly one of manifest_id/rows (loosening rows to optional for the manifest-id path had left an args dict naming neither field passing validation, then KeyError'ing inside ops.py's forwarder, since server.py dispatches the raw pre-validation args dict, not this model's own defaults); ops.py's legacy branch also now reads args.get(\"rows\", \"\") instead of args[\"rows\"] so the forwarder cannot KeyError regardless. Mirrored byte-for-byte in _ws_contract.py. Pins + inventory updated consciously again, same contract. 2026-09-17 (checksum-manifest wiring): contract.py (_RunChecksumArgs) and granular_models.py (RunChecksumRequest) gained an optional manifest_id field, and ops.py's _run_checksum forwarder now passes it through -- lets run-checksum fold its result into a run-harvest manifest server-side and return the new manifest_id, closing the gap where a computed checksum had no way to reach build-upload-xlsx's render. Mirrored byte-for-byte in _ws_contract.py. Pins + inventory updated consciously again, same contract. TODO(taisha): fold the reingest sidecar ops into dmac-assistant upstream, then re-port and restore byte-identity."
 }

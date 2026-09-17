@@ -359,13 +359,14 @@ OPS: list[OpSpec] = [
         assistant_endpoint="/nextseek_api/assistant/run-checksum/",
         gate_class=GateClass.read,
         argv=[ArgSpec(flag="--run-dir", required=True),
-              ArgSpec(flag="--paths", required=True)],
+              ArgSpec(flag="--paths", required=True),
+              ArgSpec(flag="--manifest-id", required=False)],
         response_envelope_fields=["op", "result"],
         skill_name="nextseek",
         skill_row=_row(
-            "**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster.",
-            "--run-dir <abs path under the cluster runs root> --paths <comma-separated relative paths>",
-            "{run_dir, checksums, skipped}",
+            "**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. With `--manifest-id`, folds the checksums into that manifest and returns a NEW manifest_id (manifests are content-addressed) — pass that new id, not the original, to build-upload-xlsx. Without it, checksums are returned but not persisted.",
+            "--run-dir <abs path under the cluster runs root> --paths <comma-separated relative paths> [--manifest-id <id>]",
+            "{run_dir, checksums, skipped, manifest_id?}",
         ),
     ),
     _subcmd(

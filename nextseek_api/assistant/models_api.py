@@ -350,9 +350,19 @@ class RunChecksumRequest(BaseModel):
     primary-data files under a finished Luria run. Separate from run-harvest:
     which files become File_PrimaryData is only known after sample types are
     assigned, and hashing multi-GB BAMs during harvest would blow the harvest
-    step's wall clock."""
+    step's wall clock.
+
+    ``manifest_id`` is optional: when supplied, the server folds these
+    checksums into that run-harvest manifest and returns a NEW manifest_id
+    (manifests are content-addressed; see NessieAI/ns/reingest/store.py), to
+    be threaded into build-upload-xlsx in place of the original. Omitting it
+    keeps this op exactly as it was -- checksums returned, nothing persisted.
+    """
     run_dir: str = Field(..., description="Absolute path under <LURIA working_path>/runs.")
     paths: str = Field(..., description="Comma-separated relative paths under run_dir.")
+    manifest_id: Optional[str] = Field(
+        None, description="Optional: id of a manifest saved by run-harvest to fold these "
+                          "checksums into. The response then carries a NEW manifest_id.")
     use_prod: bool = False
     model_config = ConfigDict(extra="forbid")
 

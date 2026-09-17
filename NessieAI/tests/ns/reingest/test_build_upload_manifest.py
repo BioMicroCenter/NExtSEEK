@@ -86,7 +86,7 @@ _A_GEX_ROW = {
 }
 
 
-def _save_manifest(tmp_path, monkeypatch, *, metrics=None):
+def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksums=None):
     # store._ROOT is resolved once at module-import time from an env var; a
     # module already imported by an earlier test would ignore a later
     # monkeypatch.setenv, so patch the module attribute directly instead
@@ -101,6 +101,8 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None):
             nfcore_sample="SAMPLE_1", d_seq_uid="D.SEQ-EXAMPLE-1",
             uid_resolution=manifest_mod.RESOLUTION_LAUNCH_RECORD,
             metrics=metrics or {})],
+        outputs=outputs or [],
+        checksums=checksums or {},
         sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt",
                  "params": "params.json"},
     )
@@ -253,6 +255,81 @@ def test_mode_new_fans_out_one_row_per_sample_not_one_row_total(rows, tmp_path, 
     assert len(batch.rows) == 3
     parents = {_meta(row)["Parent"] for row in batch.rows}
     assert parents == {"D.SEQ-EXAMPLE-1", "D.SEQ-EXAMPLE-2", "D.SEQ-EXAMPLE-3"}
+
+
+# ---------------------------------------------------------------------------
+# Checksum wiring reaches the rendered workbook, not just MappedRow.attributes
+# ---------------------------------------------------------------------------
+#
+# mapper.py's own unit tests (test_mapper.py) stop at MappedRow.attributes --
+# one layer short of the thing a curator actually opens. These read the
+# Samples sheet of the real, saved xlsx with openpyxl (the pattern the
+# Provenance-sheet tests above already use), the same file
+# render_upload_workbook wrote and parse_traditional_file round-trips on
+# upload, so a break anywhere between mapper.apply and the saved cell -- a
+# fields-list mismatch, a stale header, a _cell() serialization bug -- would
+# fail here even though it could not fail a MappedRow-level assertion.
+
+def _cell_by_header(ws, header_name):
+    """{row_index (1-based, header excluded) -> that column's value} for one
+    Samples-sheet column, located by its header text rather than a hard-coded
+    index -- the column position depends on json_metadata's first-seen key
+    order (see render_upload_workbook), which is not this test's concern."""
+    header = [c.value for c in ws[1]]
+    col = header.index(header_name) + 1
+    return {r: row[col - 1].value
+            for r, row in enumerate(ws.iter_rows(min_row=2, values_only=False), start=2)}
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_checksummed_manifest_puts_checksum_primarydata_in_the_rendered_cell(
+        rows, tmp_path, monkeypatch):
+    """A manifest whose `outputs`/`checksums` name the SAME path each output
+    rule's own `glob`/`primary_data` resolves (rnaseq.outputs.json: A.ALN's
+    aligned BAM, A.GEX's merged gene-counts matrix) must produce an actual
+    xlsx cell carrying that checksum -- not just a MappedRow attribute that
+    render_upload_workbook could still have dropped."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    aln_path = "star_salmon/SAMPLE_1.markdup.sorted.bam"
+    gex_path = "star_salmon/all.merged.gene_counts.tsv"
+    manifest_id = _save_manifest(
+        tmp_path, monkeypatch,
+        outputs=[
+            manifest_mod.OutputRecord(path=aln_path, bytes=123, sample="SAMPLE_1"),
+            manifest_mod.OutputRecord(path=gex_path, bytes=456, sample=None),
+        ],
+        checksums={aln_path: "aln0checksum0abc123", gex_path: "gex0checksum0def456"})
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                        outputs_dir=str(tmp_path))
+
+    wb_aln = openpyxl.load_workbook(result["saved_files"]["reingest_A_ALN"])
+    aln_checksums = _cell_by_header(wb_aln["Samples"], "Checksum_PrimaryData")
+    assert set(aln_checksums.values()) == {"aln0checksum0abc123"}
+
+    wb_gex = openpyxl.load_workbook(result["saved_files"]["reingest_A_GEX"])
+    gex_checksums = _cell_by_header(wb_gex["Samples"], "Checksum_PrimaryData")
+    assert set(gex_checksums.values()) == {"gex0checksum0def456"}
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_manifest_with_no_checksums_still_renders_a_workbook(rows, tmp_path, monkeypatch):
+    """Negative control: checksumming is advisory, never a hard dependency
+    (mapper._attach_checksum's own docstring). A manifest that never ran
+    run-checksum -- no `outputs`, no `checksums`, exactly `_save_manifest`'s
+    default -- must still render both workbooks, with no
+    Checksum_PrimaryData column at all rather than a blank/error one."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                        outputs_dir=str(tmp_path))
+
+    assert set(result["saved_files"]) == {"reingest_A_ALN", "reingest_A_GEX"}
+    for key in ("reingest_A_ALN", "reingest_A_GEX"):
+        wb = openpyxl.load_workbook(result["saved_files"][key])
+        header = [c.value for c in wb["Samples"][1]]
+        assert "Checksum_PrimaryData" not in header
 
 
 @patch("nextseek_api.services.context_catalog._sample_type_rows")

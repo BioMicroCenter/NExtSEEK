@@ -307,3 +307,102 @@ def test_a_ruled_out_key_on_two_different_samples_stays_out_of_unmapped():
         sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt"})
     result = mapper.apply(run, pipeline_map)
     assert not any(u["raw_key"] == "MaxReads" for u in result.unmapped)
+
+
+# ---------------------------------------------------------------------------
+# Checksum_PrimaryData: reaches a row via the output rule's own `glob` +
+# `primary_data`, matched against RunManifest.outputs/.checksums -- not a
+# static map $-ref (the harvested path is a run-time value; see mapper.py's
+# _primary_output docstring for why a committed map rule cannot name it).
+# ---------------------------------------------------------------------------
+
+def test_a_per_sample_rules_checksum_attaches_to_the_matching_samples_own_file():
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP2", d_seq_uid="D.SEQ-2",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.outputs = [
+        manifest.OutputRecord(path="star_salmon/CONTROL_REP1.markdup.sorted.bam",
+                              bytes=100, sample="CONTROL_REP1"),
+        manifest.OutputRecord(path="star_salmon/CONTROL_REP2.markdup.sorted.bam",
+                              bytes=100, sample="CONTROL_REP2"),
+    ]
+    run.checksums = {
+        "star_salmon/CONTROL_REP1.markdup.sorted.bam": "aaa111",
+        "star_salmon/CONTROL_REP2.markdup.sorted.bam": "bbb222",
+    }
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln_by_sample = {r.nfcore_sample: r for r in result.rows if r.sample_type == "A.ALN"}
+    assert aln_by_sample["CONTROL_REP1"].attributes["Checksum_PrimaryData"].value == "aaa111"
+    assert aln_by_sample["CONTROL_REP2"].attributes["Checksum_PrimaryData"].value == "bbb222"
+    # Never each other's -- a per-sample checksum must not leak across rows.
+    assert aln_by_sample["CONTROL_REP1"].attributes["Checksum_PrimaryData"].value != "bbb222"
+
+
+def test_a_per_run_rules_checksum_attaches_from_the_single_run_wide_file():
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.outputs = [
+        manifest.OutputRecord(path="star_salmon/salmon.merged.gene_counts.tsv", bytes=50),
+    ]
+    run.checksums = {"star_salmon/salmon.merged.gene_counts.tsv": "ccc333"}
+    result = mapper.apply(run, maps.load("rnaseq"))
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["Checksum_PrimaryData"].value == "ccc333"
+
+
+def test_no_checksum_at_all_is_the_advisory_path_row_still_renders():
+    # A manifest with no checksums (the default -- `outputs` and `checksums`
+    # both empty) must not be a new hard dependency: rows ship exactly as
+    # before, simply without Checksum_PrimaryData.
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert "Checksum_PrimaryData" not in aln.attributes
+    assert "Checksum_PrimaryData" not in gex.attributes
+
+
+def test_a_checksum_for_a_path_the_rule_does_not_match_is_not_attached():
+    # An inventoried, checksummed file that is not this rule's primary output
+    # (e.g. the .bai index, or an unrelated file) must not leak in.
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.outputs = [
+        manifest.OutputRecord(path="star_salmon/CONTROL_REP1.markdup.sorted.bam.bai",
+                              bytes=10, sample="CONTROL_REP1"),
+    ]
+    run.checksums = {"star_salmon/CONTROL_REP1.markdup.sorted.bam.bai": "deadbeef"}
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert "Checksum_PrimaryData" not in aln.attributes
+
+
+def test_the_brace_glob_matches_whichever_aligner_directory_was_actually_used():
+    # rule.glob is "{star_salmon,star_rsem,hisat2}/*.markdup.sorted.bam" --
+    # every alternative must match, not only the first.
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.params["aligner"] = "hisat2"
+    run.outputs = [
+        manifest.OutputRecord(path="hisat2/CONTROL_REP1.markdup.sorted.bam",
+                              bytes=100, sample="CONTROL_REP1"),
+    ]
+    run.checksums = {"hisat2/CONTROL_REP1.markdup.sorted.bam": "hisat2sum"}
+    result = mapper.apply(run, maps.load("rnaseq"))
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    assert aln.attributes["Checksum_PrimaryData"].value == "hisat2sum"
+
+
+def test_expand_braces_handles_a_pattern_with_no_braces():
+    assert mapper._expand_braces("plain/*.bam") == ["plain/*.bam"]
+
+
+def test_expand_braces_expands_one_group():
+    assert mapper._expand_braces("{a,b,c}/*.bam") == ["a/*.bam", "b/*.bam", "c/*.bam"]

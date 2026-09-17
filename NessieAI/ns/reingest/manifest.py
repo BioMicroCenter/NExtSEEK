@@ -94,6 +94,18 @@ class RunManifest(BaseModel):
     # key (see the 2026-09-16 whole-branch review that found this).
     outputs: list[OutputRecord] = Field(default_factory=list)
     named_outputs: dict[str, str] = Field(default_factory=dict)
+    # {OutputRecord.path: hex md5 digest}, filled in by run-checksum
+    # (granular.py's `_run_checksum` with `--manifest-id`), never by harvest --
+    # hashing is deliberately its own op (see `_run_checksum`'s docstring), so
+    # a freshly harvested manifest always has this empty. Keyed by the SAME
+    # run-relative path string as `OutputRecord.path` / `outputs[].path`, not
+    # by a canonical name like `named_outputs` -- `--paths` is a caller-named,
+    # arbitrary subset of the inventory, so there is no fixed set of keys to
+    # name in advance. `mapper.apply` looks a row's own primary-output path up
+    # here to fill `Checksum_PrimaryData`; a path with no entry (not yet
+    # checksummed) simply contributes nothing, the same as any other
+    # unresolved optional attribute.
+    checksums: dict[str, str] = Field(default_factory=dict)
     execution: ExecutionInfo = Field(default_factory=ExecutionInfo)
     sources: dict[str, str] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
