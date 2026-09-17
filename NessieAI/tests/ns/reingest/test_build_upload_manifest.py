@@ -181,6 +181,15 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
         samples=[manifest_mod.SampleRecord(
             nfcore_sample="SAMPLE_1", d_seq_uid="D.SEQ-EXAMPLE-1",
             uid_resolution=manifest_mod.RESOLUTION_LAUNCH_RECORD,
+            # Explicit, not the field's own "" default: real harvest always
+            # assigns this (a batched DB lookup keyed on d_seq_uid -- see
+            # harvest.py's `sample_type_lookup` wiring) whenever d_seq_uid is
+            # set, and mapper.apply now skips the whole D.SEQ backfill row
+            # when it is empty (see NessieAI/ns/CLAUDE.md / manifest.py's
+            # SampleRecord.parent_sample_type docstring). These tests are
+            # about that very backfill row, so the fixture must say what
+            # harvest would have found, not fall back to "unknown".
+            parent_sample_type="D.SEQ",
             metrics=metrics or {})],
         outputs=outputs if outputs is not None else _default_outputs(["SAMPLE_1"]),
         checksums=checksums or {},
@@ -211,6 +220,9 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=No
         manifest_mod.SampleRecord(
             nfcore_sample=name, d_seq_uid=f"D.SEQ-EXAMPLE-{i}",
             uid_resolution=manifest_mod.RESOLUTION_LAUNCH_RECORD,
+            # See _save_manifest's identical field for why this is explicit
+            # rather than left at the model's own "" default.
+            parent_sample_type="D.SEQ",
             metrics=metrics or {})
         for i, name in enumerate(sample_names, start=1)
     ]
@@ -225,6 +237,54 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=No
                  "params": "params.json"},
     )
     return store_mod.save_manifest(run_manifest)
+
+
+# Fields these two fixture helpers deliberately leave at SampleRecord's own
+# default -- the manifest shapes this file exercises (build-upload-xlsx
+# rendering) genuinely do not need them explicit. Every OTHER field of
+# SampleRecord must appear as a literal kwarg in both `_save_manifest` and
+# `_save_manifest_multi` above, not fall back to a default silently.
+_DEFAULTED_SAMPLE_RECORD_FIELDS = {
+    "fastq_1", "fastq_2", "d_seq_uid_multirun",
+    "strandedness_declared", "strandedness_inferred", "derived",
+}
+# Fields both helpers above DO set explicitly, right now.
+_EXPLICIT_SAMPLE_RECORD_FIELDS = {
+    "nfcore_sample", "d_seq_uid", "uid_resolution", "parent_sample_type", "metrics",
+}
+
+
+def test_fixture_sample_records_account_for_every_samplerecord_field():
+    """Closes the gap that let six tests go red silently at the merge that
+    added `parent_sample_type`: `_save_manifest` / `_save_manifest_multi`
+    hand-build `SampleRecord` instead of running a real harvest, so a new
+    field silently takes its pydantic default instead of failing loudly --
+    exactly what happened here (parent_sample_type stayed "" and
+    mapper.apply correctly, but silently to this file's fixtures, skipped
+    the D.SEQ backfill row).
+
+    This does not try to know which fields production harvest "guarantees"
+    (that would need running harvest itself, or duplicating its logic) --
+    it just refuses to let a new SampleRecord field pass by unmentioned.
+    When SampleRecord gains one, this fails until someone puts it in
+    exactly one place: `_EXPLICIT_SAMPLE_RECORD_FIELDS` (and actually adds
+    it to both constructor calls above) if these tests need a real value
+    for it, or `_DEFAULTED_SAMPLE_RECORD_FIELDS` if leaving it at default
+    is genuinely fine here -- a conscious choice instead of a silent
+    multi-test regression."""
+    accounted = _EXPLICIT_SAMPLE_RECORD_FIELDS | _DEFAULTED_SAMPLE_RECORD_FIELDS
+    all_fields = set(manifest_mod.SampleRecord.model_fields)
+    missing = all_fields - accounted
+    assert not missing, (
+        f"SampleRecord gained field(s) {sorted(missing)} that this file's "
+        "_save_manifest/_save_manifest_multi fixtures do not account for -- "
+        "add each to _EXPLICIT_SAMPLE_RECORD_FIELDS (and the two "
+        "SampleRecord(...) call sites above) or to "
+        "_DEFAULTED_SAMPLE_RECORD_FIELDS, whichever is correct.")
+    extra = accounted - all_fields
+    assert not extra, (
+        f"Stale field name(s) {sorted(extra)} in this test's bookkeeping "
+        "sets -- SampleRecord no longer declares them.")
 
 
 # ---------------------------------------------------------------------------
