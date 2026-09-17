@@ -95,3 +95,31 @@ ruling, so the next reader does not assume the narrow scope was laziness.
 2. Are the four `~ Alter field` operations on `assays_internal_assays` and `sample_types_clades` also vendor-shaped
    drift, or a real divergence between those models and their out-of-band DDL? Not established; not investigated.
 3. `CSRF_TRUSTED_ORIGINS` still makes the check fail without `--skip-checks` (spec decision A3). Unchanged here.
+
+
+## `drift.catalog.hash` cannot be built as specified
+
+Task C5 named three checks. Two are built (`catalog.sample_types`,
+`catalog.types_with_attribute_set_diff`). The third, `drift.catalog.hash`, is not, and the reason is structural
+rather than effort.
+
+`GraphMeta.catalog_hash` is written by the full sync as
+`catalog.catalog_hash(cat.sample_types, attributes)` (`run.py`), where `attributes` is the **declared catalog plus
+the undeclared keys discovered by the census** of every sample. `catalog_hash` includes each attribute's `declared`
+flag, so the stored value covers both kinds.
+
+A drift pass has no census. `detect_sample_drift` reads digest rows to compare hashes and never observes attribute
+keys, so recomputing the stored hash from `build_catalog()` alone yields a declared-only digest that can never equal
+it. The check as named would fail on every healthy graph.
+
+Two honest options, neither chosen here:
+
+1. **Drop it.** The two checks that were built already catch what it was for: a catalog that has moved in MySQL and
+   not in the graph. The hash adds nothing they miss.
+2. **Redefine it as an internal-consistency check.** Recompute the hash from the graph's own `SampleType` and
+   `Attribute` nodes and compare with `GraphMeta.catalog_hash`. That is cheap and catches a real failure, a catalog
+   edited without restamping GraphMeta, but it is a different comparison from the one CI-4 describes and would need
+   `verify.GRAPH_CATALOG` extended to return `value_type` and `declared`.
+
+This is a scope question rather than an implementation detail, so it goes to the operator instead of being decided
+in the spec. Until then the graph-sync design's CI-4 list overstates what exists.

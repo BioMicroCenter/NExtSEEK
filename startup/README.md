@@ -266,3 +266,15 @@ performs.
   committed by accident.
 
 See `startup/CLAUDE.md` for the invariants, the traps and the one command to run.
+
+## Graph drift after an app rebuild
+
+`rebuild` and `ci` run `manage.py graph_sync --drift` once the stack is healthy and write the result into the CI
+record under `## Graph drift` (`startup/steps/validate.py`, `startup/ci/runner.py`). It is read-only and never
+writes to the graph.
+
+On a graph that `graph_sync --full` has not yet written at the writer's schema version the check reports
+**skipped**, with the version it read, rather than passing or failing: only a graph at that version is comparable.
+After the first full sync it reports no drift, or names the checks that failed. The check families are in
+`nextseek_api/graph_sync/README.md` "What the drift check compares".
+
