@@ -235,6 +235,117 @@ def test_basename_match_with_two_candidates_is_ambiguous_and_never_guessed():
     assert out == [("CONTROL_REP1", None, manifest.RESOLUTION_AMBIGUOUS, ())]
 
 
+def test_bam_only_row_resolves_to_its_alignment_parent():
+    """The mechanism `779f8c7e` widened WHERE to search (accepts_parent_types)
+    is unreachable unless the row's own path -- here entirely in `bam`, as a
+    real hlatyping/rnafusion/rnavar row with no fastq input looks -- is
+    actually read. A stub that only ever consulted `fastq_1` would see an
+    empty string here and return RESOLUTION_UNRESOLVED, so this fails against
+    a do-nothing stub.
+    """
+    rows = [{"sample": "SAMPLE1", "fastq_1": "", "fastq_2": "",
+             "bam": "/net/cluster/runs/bam/SAMPLE1.bam"}]
+
+    def lookup(path):
+        return ["A.ALN-EXAMPLE-1"] if path == "/net/cluster/runs/bam/SAMPLE1.bam" else []
+
+    out = uid_resolve.resolve(rows, RUN_DIR, lookup)
+    assert out == [("SAMPLE1", "A.ALN-EXAMPLE-1", manifest.RESOLUTION_FASTQ_EXACT, ())]
+
+
+def test_fastq_1_and_bam_naming_different_parents_is_ambiguous_not_a_guess():
+    """A row with a real path in both `fastq_1` and `bam` that resolve to two
+    DIFFERENT UIDs must refuse, not silently prefer whichever column comes
+    first -- see `_resolve_row_path`. A stub returning the same list
+    regardless of argument could not distinguish this from the same-parent
+    case below, so the lookup here must (and does) discriminate by path.
+    """
+    rows = [{"sample": "SAMPLE1",
+             "fastq_1": "/net/cluster/runs/fastq/SAMPLE1_R1.fastq.gz", "fastq_2": "",
+             "bam": "/net/cluster/runs/bam/SAMPLE1.bam"}]
+    mapping = {
+        "/net/cluster/runs/fastq/SAMPLE1_R1.fastq.gz": ["D.SEQ-A"],
+        "/net/cluster/runs/bam/SAMPLE1.bam": ["A.ALN-B"],
+    }
+    out = uid_resolve.resolve(rows, RUN_DIR, lambda p: mapping.get(p, []))
+    assert out == [("SAMPLE1", None, manifest.RESOLUTION_AMBIGUOUS, ())]
+
+
+def test_fastq_1_and_bam_naming_the_same_parent_resolves_once():
+    """The mirror case: `fastq_1` and `bam` both name the SAME real parent --
+    e.g. a re-harvested row that happens to carry both -- must resolve to
+    that one UID, not refuse merely because two columns matched.
+    """
+    rows = [{"sample": "SAMPLE1",
+             "fastq_1": "/net/cluster/runs/fastq/SAMPLE1_R1.fastq.gz", "fastq_2": "",
+             "bam": "/net/cluster/runs/bam/SAMPLE1.bam"}]
+    mapping = {
+        "/net/cluster/runs/fastq/SAMPLE1_R1.fastq.gz": ["A.ALN-SAME"],
+        "/net/cluster/runs/bam/SAMPLE1.bam": ["A.ALN-SAME"],
+    }
+    out = uid_resolve.resolve(rows, RUN_DIR, lambda p: mapping.get(p, []))
+    assert out == [("SAMPLE1", "A.ALN-SAME", manifest.RESOLUTION_FASTQ_EXACT, ())]
+
+
+def test_a_multirun_samples_own_rows_resolve_independently_by_bam_path():
+    """Mirrors test_a_multirun_samples_own_rows_resolve_independently_by_fastq,
+    but each contributing row's own path lives in `bam`, never `fastq_1` --
+    the multi-run equivalent of the bam-only single-run case above.
+    """
+    rows = [
+        {"sample": "S1", "fastq_1": "", "fastq_2": "",
+         "bam": "/net/cluster/runs/bam/S1_L001.bam"},
+        {"sample": "S1", "fastq_1": "", "fastq_2": "",
+         "bam": "/net/cluster/runs/bam/S1_L002.bam"},
+    ]
+    mapping = {
+        "/net/cluster/runs/bam/S1_L001.bam": ["A.ALN-LANE-1"],
+        "/net/cluster/runs/bam/S1_L002.bam": ["A.ALN-LANE-2"],
+    }
+    out = uid_resolve.resolve(rows, RUN_DIR, lambda p: mapping.get(p, []))
+    assert {r[2] for r in out} == {manifest.RESOLUTION_MULTIRUN}
+    assert all(r[1] is None for r in out)
+    assert all(r[3] == ("A.ALN-LANE-1", "A.ALN-LANE-2") for r in out)
+
+
+def test_fastq_2_is_not_consulted_once_fastq_1_already_resolves():
+    """The fastq_2 cost decision: fastq_2 must NOT be queried in parallel with
+    a fastq_1 that already found its answer -- doubling the lookup on every
+    ordinary paired-end row for no information gain. The lookup stub would
+    happily answer a DIFFERENT (wrong) uid for fastq_2 if it were ever asked,
+    so this fails loudly if that guard regresses.
+    """
+    calls: list[str] = []
+
+    def lookup(path):
+        calls.append(path)
+        if path == "/net/cluster/runs/fastq/SAMPLE1_R1.fastq.gz":
+            return ["D.SEQ-1"]
+        return ["D.SEQ-WOULD-MATCH-IF-TRIED"]
+
+    rows = [{"sample": "SAMPLE1",
+             "fastq_1": "/net/cluster/runs/fastq/SAMPLE1_R1.fastq.gz",
+             "fastq_2": "/net/cluster/runs/fastq/SAMPLE1_R2.fastq.gz"}]
+    out = uid_resolve.resolve(rows, RUN_DIR, lookup)
+    assert out == [("SAMPLE1", "D.SEQ-1", manifest.RESOLUTION_FASTQ_EXACT, ())]
+    assert "/net/cluster/runs/fastq/SAMPLE1_R2.fastq.gz" not in calls
+
+
+def test_fastq_2_rescues_a_row_whose_fastq_1_was_renamed_on_disk():
+    """The other half of the fastq_2 decision: when fastq_1 is populated but
+    genuinely UNRESOLVED (as if the file were renamed on disk after the
+    samplesheet was written), fastq_2 IS consulted and can still recover the
+    real parent. A stub that never tried fastq_2 at all would see this row
+    stay unresolved.
+    """
+    rows = [{"sample": "SAMPLE1",
+             "fastq_1": "/net/cluster/runs/fastq/RENAMED_R1.fastq.gz",
+             "fastq_2": "/net/cluster/runs/fastq/SAMPLE1_R2.fastq.gz"}]
+    mapping = {"/net/cluster/runs/fastq/SAMPLE1_R2.fastq.gz": ["D.SEQ-9"]}
+    out = uid_resolve.resolve(rows, RUN_DIR, lambda p: mapping.get(p, []))
+    assert out == [("SAMPLE1", "D.SEQ-9", manifest.RESOLUTION_FASTQ_EXACT, ())]
+
+
 def test_multirun_wins_over_a_resolvable_launch_record():
     """The existing multi-run test (above) never creates a PipelineRun, so it
     only proves multi-run beats the fastq path -- which was already being
