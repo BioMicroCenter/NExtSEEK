@@ -30,6 +30,18 @@ FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "sampletype_at
 _FIXTURE = json.loads(FIXTURE_PATH.read_text())
 ATTRS = _FIXTURE["sample_types"]
 ALL_MAPS = maps.available()
+
+# Every check below is parametrized over ALL_MAPS. pytest collects
+# @parametrize("name", []) as ONE SKIPPED test -- not a failure, not an error --
+# and most CI does not fail a build on skips. So a bad glob, a moved directory
+# or a deleted map would turn this entire file green while checking nothing,
+# which is the precise failure this gate exists to prevent, applied to itself.
+def test_there_are_maps_to_check():
+    assert ALL_MAPS, (
+        f"no committed pipeline maps found in {maps.MAPS_DIR} -- every contract "
+        "check in this file is parametrized over that list, so an empty one "
+        "silently skips the whole suite instead of failing it")
+
 RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs")
 SAMPLE_SECTIONS = ("metrics", "derived")
 
@@ -104,10 +116,16 @@ def test_every_provenance_attribute_exists_on_every_opted_in_output_sample_type(
     a human should see it, not have it silently do nothing.
     """
     pipeline_map = maps.load(name)
-    if not pipeline_map.outputs:
-        pytest.skip(f"{name}: no output rules, so provenance_attributes targets nothing")
     opted_in_types = {rule.sample_type for rule in pipeline_map.outputs
                        if rule.include_provenance}
+    if not pipeline_map.outputs:
+        # Checked BEFORE skipping: a map with no output rules at all but a
+        # non-empty provenance block is the same dead config as one where
+        # nobody opted in, and must fail rather than escape as a skip.
+        assert not pipeline_map.provenance_attributes, (
+            f"{name}: provenance_attributes is non-empty but the map declares no "
+            "output rules at all, so it is merged into nothing")
+        pytest.skip(f"{name}: no output rules, so provenance_attributes targets nothing")
     if pipeline_map.provenance_attributes:
         assert opted_in_types, (
             f"{name}: provenance_attributes is non-empty but no output rule "
@@ -208,10 +226,16 @@ def test_live_every_output_rule_names_a_known_sample_type(name):
 @pytest.mark.parametrize("name", ALL_MAPS)
 def test_live_every_provenance_attribute_exists_on_every_opted_in_output_sample_type(name):
     pipeline_map = maps.load(name)
-    if not pipeline_map.outputs:
-        pytest.skip(f"{name}: no output rules, so provenance_attributes targets nothing")
     opted_in_types = {rule.sample_type for rule in pipeline_map.outputs
                        if rule.include_provenance}
+    if not pipeline_map.outputs:
+        # Checked BEFORE skipping: a map with no output rules at all but a
+        # non-empty provenance block is the same dead config as one where
+        # nobody opted in, and must fail rather than escape as a skip.
+        assert not pipeline_map.provenance_attributes, (
+            f"{name}: provenance_attributes is non-empty but the map declares no "
+            "output rules at all, so it is merged into nothing")
+        pytest.skip(f"{name}: no output rules, so provenance_attributes targets nothing")
     if pipeline_map.provenance_attributes:
         assert opted_in_types, (
             f"{name}: provenance_attributes is non-empty but no output rule "
