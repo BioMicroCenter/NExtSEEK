@@ -211,26 +211,23 @@ def test_attribute_exists_propagates_a_lookup_failure_rather_than_returning_fals
     exist): downstream, `False` parks the value in Notes and queues a
     needs_definition row for superusers -- a fabricated schema gap. The
     genuine "not defined" answer needs no exception handling at all, because
-    `attributes_for` already returns [] for an unknown sample type."""
-    with patch("nextseek_api.services.reingest_lookups.attributes_for",
+    `attributes_for_strict` already returns [] for an unknown sample type."""
+    with patch("nextseek_api.services.reingest_lookups.attributes_for_strict",
               side_effect=RuntimeError("catalog database unreachable")):
         with pytest.raises(RuntimeError):
             proposals.attribute_exists("D.FLOW", "UID")
 
 
 @patch("nextseek_api.services.context_catalog._sample_type_rows")
-def test_attribute_exists_raises_when_the_real_catalog_swallow_empties_it(rows):
-    """The test above mocks `attributes_for` directly, which bypasses the
-    real swallow path and gives false confidence. This one goes through it:
-    `context_catalog.load_sample_types` catches Exception and returns `[]`
-    when the sample-type table is unreachable -- the same swallow that made
-    the outage indistinguishable from a genuine schema gap before this fix.
-    `_sample_type_rows` is the one call that swallow wraps (see
-    test_context_catalog.py's own use of this patch target), so raising
-    there reaches `attribute_exists` only through the real chain:
-    attributes_for -> context_catalog.load_sample_type -> load_sample_types
-    -> _sample_type_rows. It must still raise, not return a fabricated
-    `False`."""
+def test_attribute_exists_raises_when_the_real_catalog_lookup_fails(rows):
+    """The test above mocks `attributes_for_strict` directly, which bypasses
+    the real chain and gives false confidence. This one goes through it:
+    `attribute_exists` calls `reingest_lookups.attributes_for_strict`, which
+    calls `context_catalog.load_sample_type_strict` /
+    `load_sample_types_strict` -- the twin of the lenient loader that lets a
+    failure from `_sample_type_rows` propagate instead of swallowing it into
+    `[]` (see test_context_catalog.py's own use of this patch target). It
+    must still raise here, not return a fabricated `False`."""
     rows.side_effect = RuntimeError("sample_types_context table unreachable")
     with pytest.raises(RuntimeError):
         proposals.attribute_exists("D.FLOW", "UID")
