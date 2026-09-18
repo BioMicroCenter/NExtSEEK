@@ -9,13 +9,20 @@ Membership is ``group_memberships`` joined to ``work_groups``. Former members ar
 REST's ``Person#projects`` does today, so the scope matches ``advanced_search`` exactly.
 
 The query builder turns a ``Scope`` into the Cypher clause; nothing else may supply scope.
+
+``plain_scope`` hands the same scope to the assistant as plain data, for the project scope on the graph agent's
+Cypher (docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 4.2): the ViewSets resolve it and pass it
+down, because the engine packages never import this module.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from django.conf import settings
 from django.db import connections
+
+log = logging.getLogger(__name__)
 
 _PERSON_SQL = "SELECT person_id FROM users WHERE login = %s"
 
@@ -69,3 +76,21 @@ def resolve_scope(user) -> Scope:
 
     project_ids = tuple(sorted({int(r[0]) for r in project_rows if r[0] is not None}))
     return Scope(is_admin=False, person_id=person_id, project_ids=project_ids)
+
+
+def plain_scope(user) -> Optional[dict]:
+    """The caller's scope as the assistant takes it: ``{"is_admin": bool, "project_ids": [int, ...]}``.
+
+    ``None`` when the caller cannot be resolved (``ScopeUnavailable``) or membership cannot be read (any database
+    error), logged. ``None`` refuses every graph query for the request; it never widens to "unscoped".
+    """
+    try:
+        scope = resolve_scope(user)
+    except ScopeUnavailable:
+        log.warning("graph scope: the caller maps to no SEEK person; graph queries are refused for this request")
+        return None
+    except Exception as exc:  # noqa: BLE001 (fail closed on any membership read failure)
+        log.warning("graph scope: project membership could not be read (%s); graph queries are refused for this "
+                    "request", type(exc).__name__)
+        return None
+    return {"is_admin": bool(scope.is_admin), "project_ids": [] if scope.is_admin else list(scope.project_ids)}

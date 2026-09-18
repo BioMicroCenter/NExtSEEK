@@ -187,21 +187,34 @@ def _error_tracking_send_event(send_event):
     return wrapped, state
 
 
+def _scope_kwargs(graph_scope) -> dict:
+    """The orchestrator's ``graph_scope`` keyword, when the ViewSet resolved one.
+
+    ``graph_scope`` is the caller's scope as plain data (``nextseek_api/graph_search/scope.py::plain_scope``,
+    resolved in the ViewSet: this package never imports that module). ``None`` means it could not be resolved; the
+    keyword is then left out and the turn runs on the request's config, which never carries a scope (the Django
+    singletons carry none, a test pins it), so every graph query refuses. Either way ``None`` refuses.
+    """
+    return {} if graph_scope is None else {"graph_scope": graph_scope}
+
+
 def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
-                     chat_session, resolved_session_id, event_queue) -> None:
+                     chat_session, resolved_session_id, event_queue, graph_scope=None) -> None:
     """Pipeline body of the ``query`` (SSE) endpoint, run on its daemon thread.
 
     Runs the orchestrator for ``req.mode`` (``plan`` or standard), turns an
     unhandled error into a ``query_error`` event, saves the turn, and always
     ends the stream with the ``None`` sentinel on ``event_queue``.
+    ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
     """
     tracked_send_event, error_state = _error_tracking_send_event(send_event)
+    scope_kw = _scope_kwargs(graph_scope)
     try:
         match getattr(req, "mode", "standard"):
             case "plan":
-                run_query_plan(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_query_plan(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case _:
-                run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
     except Exception:
         logger.exception("Unhandled pipeline error")
         if not error_state["sent"]:
@@ -217,22 +230,24 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
 
 
 def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
-                       chat_session, resolved_session_id) -> None:
+                       chat_session, resolved_session_id, graph_scope=None) -> None:
     """Pipeline body of the ``query/async`` endpoint, run on its daemon thread.
 
     Runs the orchestrator for ``req.mode`` (``plan``, ``pipeline`` or
     standard), turns an unhandled error into a ``query_error`` event, and
     saves the turn. Progress reaches the client only through ``send_event``.
+    ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
     """
     tracked_send_event, error_state = _error_tracking_send_event(send_event)
+    scope_kw = _scope_kwargs(graph_scope)
     try:
         match getattr(req, "mode", "standard"):
             case "plan":
-                run_query_plan(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_query_plan(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case "pipeline":
-                run_pipeline_launch(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_pipeline_launch(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case _:
-                run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
     except Exception:
         logger.exception("Unhandled pipeline error (async)")
         if not error_state["sent"]:

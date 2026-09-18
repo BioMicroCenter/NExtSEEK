@@ -323,16 +323,23 @@ def _eval_config(chat_config, user, req):
 
 def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                send_event, adapter, api_user, api_pass,
-               resolved_session_id: str) -> None:
+               resolved_session_id: str, graph_scope=None) -> None:
     """Run one routed chat turn on a daemon thread; return at once.
 
     The body of ``CCAssistantViewSet._start_task``, which keeps every HTTP
     and host seam and hands them in: the resolved ``chat_session``, its new
     ``query_task`` row, the ``send_event`` callback bound to that row, the
     ``DictSessionAdapter`` over the session, the caller's resolved SEEK
-    credentials and the session id string. The turn's own outcome reaches the
-    client only through ``send_event``; nothing is returned.
+    credentials, the caller's project scope for graph queries (plain data,
+    resolved by the ViewSet) and the session id string. The turn's own outcome
+    reaches the client only through ``send_event``; nothing is returned.
+
+    ``graph_scope`` reaches the NS engine only. ``None`` leaves the keyword out,
+    and the request configs carry no scope of their own, so every graph query
+    refuses. The CC route's graph ops come back over HTTP to the granular view,
+    which resolves the scope again for the same caller.
     """
+    scope_kw = {} if graph_scope is None else {"graph_scope": graph_scope}
     terminal_seen = cc_turn_complete.new_terminal_tracker()
     send_event = cc_turn_complete.wrap_send_event(send_event, terminal_seen)
     user_api_user, user_api_pass = api_user, api_pass
@@ -397,12 +404,12 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 try:
                     if mode == "plan":
                         run_query_plan(adapter, _with_prompt_variant(chat_config, request.user, req),
-                                       req.query, send_event, credentials=creds)
+                                       req.query, send_event, credentials=creds, **scope_kw)
                     else:
                         # The evaluation switches: a per-request copy, made after the
                         # PROD identity check above has compared the singleton.
                         run_query(adapter, _eval_config(chat_config, request.user, req),
-                                  req.query, send_event, credentials=creds)
+                                  req.query, send_event, credentials=creds, **scope_kw)
                 finally:
                     # In a `finally` deliberately. run_query resolves
                     # run_root_dir three statements in (orchestrator.py:620),

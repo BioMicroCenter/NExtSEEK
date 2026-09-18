@@ -121,6 +121,7 @@ from nextseek_api.authentication import (  # noqa: F401
 )
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
+from nextseek_api.graph_search.scope import plain_scope
 
 # No module-scope chat_nextseek import: the orchestrator entry points are called from
 # NessieAI/ns/turn.py, so patch them there. Importing them here again would let a
@@ -228,11 +229,14 @@ def _op_error_response(code: str, detail: str, http_status: int) -> Response:
 
 
 def _granular_chat_config(request, req) -> ChatConfig:
-    """Per-request ChatConfig copy carrying the caller's resolved credentials.
+    """Per-request ChatConfig copy carrying the caller's resolved credentials and graph scope.
 
     Mirrors the credential handling in ``query``/``query_async`` and
     ``run_query``'s ``copy.copy(config)`` so outbound NExtSEEK calls run as the
-    requesting user and the shared singleton is never mutated.
+    requesting user and the shared singleton is never mutated. The copy also
+    carries the caller's project scope (``plain_scope``), which the Neo4j tool and
+    the graph catalog read; an unresolved or malformed scope is stored as ``None``,
+    which refuses every graph query.
     """
     chat_config = _select_chat_config(request, req)
     basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
@@ -251,7 +255,15 @@ def _granular_chat_config(request, req) -> ChatConfig:
         cfg.API_USER = api_user
     if api_pass:
         cfg.API_PASS = api_pass
-    return cfg
+    from chat_nextseek.graph_scope import GraphScope, with_scope
+
+    plain = plain_scope(request.user)
+    try:
+        scope = GraphScope.from_plain(plain) if plain else None
+    except ValueError as exc:
+        logger.warning("granular op: malformed graph scope, graph queries are refused: %s", exc)
+        scope = None
+    return with_scope(cfg, scope)
 
 
 # Content-type by file extension for report artifacts served from disk.
@@ -645,6 +657,10 @@ class AssistantViewSet(viewsets.ViewSet):
                 api_user = chat_config.API_USER
                 api_pass = chat_config.API_PASS
 
+        # The caller's project scope for graph queries, resolved here in the request
+        # thread and handed down as plain data (None refuses every graph query).
+        graph_scope = plain_scope(request.user)
+
         # The pipeline body runs in NessieAI/ns/turn.py (run_sse_pipeline); the
         # thread and the SSE stream stay here.
         thread = threading.Thread(
@@ -655,6 +671,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 chat_session=chat_session,
                 resolved_session_id=resolved_session_id,
                 event_queue=event_queue,
+                graph_scope=graph_scope,
             ),
             daemon=True,
         )
@@ -764,6 +781,10 @@ class AssistantViewSet(viewsets.ViewSet):
                 api_user = chat_config.API_USER
                 api_pass = chat_config.API_PASS
 
+        # The caller's project scope for graph queries, resolved here in the request
+        # thread and handed down as plain data (None refuses every graph query).
+        graph_scope = plain_scope(request.user)
+
         # The pipeline body runs in NessieAI/ns/turn.py (run_async_pipeline);
         # the thread start stays here.
         thread = threading.Thread(
@@ -773,6 +794,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 send_event=send_event, api_user=api_user, api_pass=api_pass,
                 chat_session=chat_session,
                 resolved_session_id=resolved_session_id,
+                graph_scope=graph_scope,
             ),
             daemon=True,
         )
