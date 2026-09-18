@@ -96,10 +96,19 @@ It works in three stages, all in that one file:
    ledger the page showed. After a reload the chat reopens with every turn. The
    reported spend stayed under the ceiling.
 
-On a pass the chat is deleted. On a failure it is kept, so that it can be read:
-any failed test in the module counts, stage 1 included, because the failure count
-is taken before the lane's first test. A passing lane whose DELETE does not answer
-204 names the leftover chat as "Cleanup failed" in the CI record's Nessie section,
+The chat is kept whether the lane passed or failed, and the CI record names it as
+the kept session. On a failure it is kept as it is, so that it can be read: any
+failed test in the module counts, stage 1 included, because the failure count is
+taken before the lane's first test. On a pass it is kept so that a later
+intermittent failure has a passing chat to be diffed against: the lane titles it
+`CI Nessie lane passed <UTC time>` (`PASSING_CHAT_TITLE`), then deletes the write
+account's older chats with that title beyond `KEEP_PASSING_CHATS` (3), the one it
+just kept included. So the write account's saved-chats sidebar holds the three
+newest passing chats, plus every failing chat until someone deletes it by hand.
+The lane finds the old ones in `assistant/sessions/`, which lists an account's
+newest 50 chats. A passing chat the lane cannot title is deleted instead, because
+no later run could find it to prune it. Anything that did not work (the title, a
+DELETE, the list) is named as "Cleanup failed" in the CI record's Nessie section,
 and in pytest's warnings summary on a direct run.
 
 ### When it runs
@@ -184,8 +193,10 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with pl
 - **The kept chat.** Open its `/debug/` URL
   (`/nextseek_api/nessie/sessions/<id>/debug/`) as a superuser: it lists every
   turn, the route ledger, the CC transcript, the files and any warnings. The chat
-  also stays in the write account's saved-chats sidebar. Delete it when you are
-  done.
+  also stays in the write account's saved-chats sidebar. To tell an intermittent
+  failure from a steady one, open the newest `CI Nessie lane passed` chat beside
+  it and compare the same turn in both. Delete a failing chat when you are done;
+  the passing ones are pruned by the lane.
 - **The evidence folder**, `startup/ci-reports/<label>-nessie/`, written only on
   a failure: `trace.zip` (a Playwright trace of the whole browser session),
   `page.png` (the page as the lane left it) and `debug.json` (the `/debug/`

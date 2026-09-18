@@ -69,8 +69,8 @@ def read_nessie_summary(repo_root: Path) -> dict | None:
 
 def render_nessie_section(summary: dict) -> list[str]:
     """The CI record's Nessie section: one row per question (route, source, the
-    path it took, seconds, cost, status, task id), then the spend, and on a
-    failure the kept chat and the evidence folder."""
+    path it took, seconds, cost, status, task id), then the spend, the kept chat
+    (kept on a pass too), and on a failure the evidence folder."""
     lines = ["## Nessie", "",
              "| question | route | source | path | seconds | cost | status | task |",
              "|---|---|---|---|---|---|---|---|"]
@@ -93,7 +93,9 @@ def render_nessie_section(summary: dict) -> list[str]:
     if summary.get("evidence_dir"):
         lines.append(f"- **Evidence:** `{summary['evidence_dir']}`")
     if summary.get("cleanup_error"):
-        # A passing lane deletes its chat; this is the DELETE that did not work.
+        # What the lane's cleanup could not do: title a passing chat, delete one
+        # (an untitled passing chat, or an older one past the kept number), or
+        # read the sessions list (finish_chat in ci/smoke/test_nessie.py).
         lines.append(f"- **Cleanup failed:** {summary['cleanup_error']}; delete it by hand.")
     return lines + [""]
 
