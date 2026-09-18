@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .. import graph_catalog
 from ..config import ChatConfig
 from ..schemas.schema_helper import call_llm_structured
 from ..schemas import (
@@ -61,7 +62,9 @@ def system_agent(
     if catalog is not None:
         schema_json = catalog.schema + (f"\n{catalog.vocabulary}\n" if catalog.vocabulary else "")
     else:
-        schema_json = json.dumps(config.NEO4J_SCHEMA, indent=2) if config.NEO4J_SCHEMA else "{}"
+        # The committed schema, without its vocabulary for a caller who is not an admin (graph_catalog).
+        committed = graph_catalog.committed_schema(config)
+        schema_json = json.dumps(committed, indent=2) if committed else "{}"
     entity_details_json = json.dumps(entity_details, indent=2) if entity_details else "{}"
 
     messages = [

@@ -2,7 +2,9 @@
 
 Spec: ``docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`` sections 8 and 11.3. The op serves
 ``graph_schema_snapshot``, which reads the catalog through ``graph_catalog.get_snapshot`` and ``get_type_details``
-with the request's config, so the redaction there reaches the Container-CC agent with no change to the op.
+with the request's config, so the redaction there reaches the Container-CC agent with no change to the op. The
+vocabulary it carries is read through the caller's project scope (``graph_catalog.get_vocabulary``), so a caller who
+is not an admin is shown only titles from its own projects, and a caller who sees no project is shown none.
 
 FREE tests: the catalog reader is stubbed below ``graph_catalog`` (``_make_driver`` and ``_read``), so the op, the
 projection, the getters and the renderer all run for real and nothing reaches Neo4j or a model.
@@ -38,13 +40,20 @@ ROWS = {
         ],
         "never_filled": 0,
     }],
-    "VOCAB_INVESTIGATIONS": [{"title": "Investigation A"}],
-    "VOCAB_PROJECTS": [{"title": "Project A"}],
+    "VOCAB_INVESTIGATIONS": [{"title": "Investigation A"}, {"title": "Investigation of another project"}],
+    "VOCAB_PROJECTS": [{"title": "Project A"}, {"title": "Another project"}],
     "VOCAB_STUDIES": [],
     "VOCAB_PUBLISHED": [],
     "VOCAB_EDGES": [],
+    # the same sources read through the caller's project scope
+    "VOCAB_INVESTIGATIONS_SCOPED": [{"title": "Investigation A"}],
+    "VOCAB_PROJECTS_SCOPED": [{"title": "Project A"}],
+    "VOCAB_STUDIES_SCOPED": [],
+    "VOCAB_PUBLISHED_SCOPED": [],
+    "VOCAB_EDGES_SCOPED": [],
 }
-STATEMENTS = {getattr(gc, name): name for name in ROWS}
+STATEMENTS = {getattr(gc, name): name for name in ROWS if isinstance(getattr(gc, name, None), str)}
+FOREIGN_TITLES = ("Investigation of another project", "Another project")
 ADMIN_ONLY_TEXT = ("72,614", "8,093", "6,158", "2,471", "0.125", "804.5", "marker-organ-value")
 COLUMN_TOKENS = ("n=", "values:", "range")
 LEGEND_PREFIX = "## Resolved sample types:"  # names the columns for every caller (graph_context._assemble)
@@ -90,6 +99,14 @@ def test_an_admin_schema_carries_counts_values_and_ranges():
         assert any(token in line for line in text.splitlines() if not line.startswith(LEGEND_PREFIX)), token
 
 
+def test_an_admin_schema_carries_every_projects_vocabulary():
+    # The control for the vocabulary tests below.
+    vocabulary = _schema(with_scope(_base(), GraphScope.admin("test")))["vocabulary"]
+
+    for title in FOREIGN_TITLES + ("Project A", "Investigation A"):
+        assert title in vocabulary, title
+
+
 @pytest.mark.parametrize("make_config", [
     lambda: with_scope(_base(), GraphScope.for_projects([1, 3], source="test")),
     lambda: with_scope(_base(), GraphScope.for_projects([], source="test")),
@@ -112,4 +129,23 @@ def test_a_non_admin_schema_has_no_counts_values_or_ranges(make_config):
     assert 'TIS :T_TIS "Tissue Sample" clade Source, sample count unknown, 2 attributes with values' in text
     assert "- Organ [string]" in text and "- Weight [number]" in text
     assert (out["catalog_hash"], out["schema_version"], out["sample_types"]) == ("hash-op", "1.2", 1)
-    assert "Project A" in out["vocabulary"]
+    for title in FOREIGN_TITLES:
+        assert title not in out["vocabulary"], title
+
+
+def test_a_non_admin_schema_carries_only_its_own_projects_vocabulary():
+    out = _schema(with_scope(_base(), GraphScope.for_projects([1, 3], source="test")))
+
+    assert "Project A" in out["vocabulary"] and "Investigation A" in out["vocabulary"]
+    for title in FOREIGN_TITLES:
+        assert title not in out["vocabulary"], title
+
+
+@pytest.mark.parametrize("make_config", [
+    lambda: with_scope(_base(), GraphScope.for_projects([], source="test")),
+    lambda: with_scope(_base(), None),
+    _base,
+    _magicmock,
+], ids=["no_projects", "scope_none", "no_scope_attribute", "magicmock_config"])
+def test_a_caller_who_sees_no_project_gets_no_vocabulary(make_config):
+    assert _schema(make_config())["vocabulary"] == ""

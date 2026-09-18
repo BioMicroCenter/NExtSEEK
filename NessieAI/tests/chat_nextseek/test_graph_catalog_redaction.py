@@ -5,6 +5,10 @@ counts, top values and ranges are computed over every project, so ``get_snapshot
 any config that is not an admin ``GraphScope`` a redacted copy, and never touch the cached objects. A missing scope,
 ``None``, a plain dict and a ``MagicMock`` config all redact (fail closed).
 
+The vocabulary (investigation, project and study titles, published studies, assay and protocol titles, assay
+connections) holds record values, so a caller who is not an admin reads it through the project scope instead: its own
+statements, bound to the caller's project ids, cached per set of ids. A caller who sees no project reads none of it.
+
 Every test stubs the reader (``_make_driver`` and ``_read``): nothing reaches a driver or a Neo4j.
 """
 from __future__ import annotations
@@ -17,7 +21,8 @@ import pytest
 from chat_nextseek import graph_catalog as gc
 from chat_nextseek import graph_context
 from chat_nextseek.agents import graph as graph_mod
-from chat_nextseek.graph_scope import SCOPE_ATTR, GraphScope, with_scope
+from chat_nextseek.cypher_scope import SCOPE_CLAUSE_TEMPLATE
+from chat_nextseek.graph_scope import SCOPE_ATTR, SCOPE_PARAM, GraphScope, with_scope
 
 URI = "bolt://catalog-redaction:7687"
 
@@ -87,20 +92,39 @@ COLUMN_TOKENS = ("n=", "values:", "range")
 # The one line that names those columns for every caller: the resolved-types legend in graph_context._assemble.
 LEGEND_PREFIX = "## Resolved sample types:"
 
-STATEMENTS = {getattr(gc, name): name for name in (
-    "META", "INDEX", "GUARD", "TYPES_ADMIN",
-    "VOCAB_INVESTIGATIONS", "VOCAB_PROJECTS", "VOCAB_STUDIES", "VOCAB_PUBLISHED", "VOCAB_EDGES")}
+VOCAB_NAMES = ("VOCAB_INVESTIGATIONS", "VOCAB_PROJECTS", "VOCAB_STUDIES", "VOCAB_PUBLISHED", "VOCAB_EDGES")
+SCOPED_VOCAB_NAMES = tuple(name + "_SCOPED" for name in VOCAB_NAMES)
+# What the scoped statements return: a strict subset of the rows above, so a test can tell which statement answered.
+SCOPED_VOCAB_ROWS = {
+    "VOCAB_INVESTIGATIONS_SCOPED": [{"title": "Investigation A"}],
+    "VOCAB_PROJECTS_SCOPED": [{"title": "Project A"}],
+    "VOCAB_STUDIES_SCOPED": [],
+    "VOCAB_PUBLISHED_SCOPED": [],
+    "VOCAB_EDGES_SCOPED": [{"assay": "Short Read Sequencing", "protocol": None, "parent_type": "TIS",
+                            "child_type": "D.SEQ"}],
+}
+EMPTY_VOCABULARY = gc.Vocabulary((), (), (), (), (), (), ())
+
+STATEMENTS = {getattr(gc, name): name
+              for name in ("META", "INDEX", "GUARD", "TYPES_ADMIN") + VOCAB_NAMES + SCOPED_VOCAB_NAMES
+              if isinstance(getattr(gc, name, None), str)}
 
 
 class StubReader:
-    """Stands in for ``graph_catalog._read``: rows by statement, and the name of every statement asked for."""
+    """Stands in for ``graph_catalog._read``: rows by statement, and the name (and parameters) of every statement
+    asked for."""
 
     def __init__(self):
         self.names: list[str] = []
+        self.calls: list[tuple[str, dict]] = []
+
+    def vocabulary_reads(self) -> list[tuple[str, dict]]:
+        return [(name, params) for name, params in self.calls if name.startswith("VOCAB_")]
 
     def __call__(self, driver, database, statement, params=None):
         name = STATEMENTS[statement]
         self.names.append(name)
+        self.calls.append((name, dict(params or {})))
         if name == "META":
             return [dict(META)]
         if name == "INDEX":
@@ -109,6 +133,8 @@ class StubReader:
             return [dict(row) for row in GUARD_ROWS]
         if name == "TYPES_ADMIN":
             return [TYPE_ROWS[t] for t in (params or {}).get("types", []) if t in TYPE_ROWS]
+        if name in SCOPED_VOCAB_ROWS:
+            return [dict(row) for row in SCOPED_VOCAB_ROWS[name]]
         return [dict(row) for row in VOCAB_ROWS[name]]
 
 
@@ -250,8 +276,70 @@ def test_attributes_are_listed_by_title_because_fill_order_is_itself_a_count(red
     assert [a.title for a in tis.attributes] == ["Collected", "Organ", "Weight"]
 
 
-def test_vocabulary_is_the_same_for_every_caller(redacted):
-    assert gc.get_vocabulary(redacted) == gc.get_vocabulary(admin())
+# --- the vocabulary: every project for an admin, the caller's own projects for anyone else ----------------------------
+
+
+def test_an_admin_vocabulary_reads_every_project(reader):
+    vocab = gc.get_vocabulary(admin())
+
+    assert [name for name, _ in reader.vocabulary_reads()] == list(VOCAB_NAMES)
+    assert all(params == {} for _, params in reader.vocabulary_reads())
+    assert vocab.investigation_titles == ("Investigation A", "Investigation B")
+    assert vocab.project_titles == ("Project A", "Project B")
+    assert vocab.study_titles == ("Study 1",)
+    assert vocab.published_studies == ({"title": "Study 1", "doi": "10.1000/example", "pmid": ""},)
+    assert vocab.protocol_titles == ("RNA prep",)
+
+
+def test_a_non_admin_vocabulary_is_read_through_the_project_scope(reader):
+    vocab = gc.get_vocabulary(REDACTED["non_admin"]())  # projects 1 and 3
+
+    assert [name for name, _ in reader.vocabulary_reads()] == list(SCOPED_VOCAB_NAMES)
+    assert all(params == {SCOPE_PARAM: [1, 3]} for _, params in reader.vocabulary_reads())
+    assert vocab == gc.Vocabulary(
+        investigation_titles=("Investigation A",), project_titles=("Project A",), study_titles=(),
+        published_studies=(), assay_titles=("Short Read Sequencing",), protocol_titles=(),
+        assay_connections=({"assay": "Short Read Sequencing", "parent_type": "TIS", "child_type": "D.SEQ"},))
+
+
+@pytest.mark.parametrize("name", ["no_projects", "no_scope_attribute", "scope_none", "plain_dict_admin",
+                                  "string_admin", "magicmock_config"])
+def test_a_caller_who_sees_no_project_gets_an_empty_vocabulary_and_reads_none(reader, name):
+    assert gc.get_vocabulary(REDACTED[name]()) == EMPTY_VOCABULARY
+    assert reader.vocabulary_reads() == []
+
+
+def test_a_vocabulary_is_never_served_to_another_caller(reader):
+    first = with_scope(_base(), GraphScope.for_projects([3, 1], source="test"))
+    second = with_scope(_base(), GraphScope.for_projects([2], source="test"))
+
+    mine = gc.get_vocabulary(first)
+    everything = gc.get_vocabulary(admin())
+    theirs = gc.get_vocabulary(second)
+    again = gc.get_vocabulary(first)
+
+    assert mine.project_titles == theirs.project_titles == ("Project A",)
+    assert everything.project_titles == ("Project A", "Project B")
+    assert again == mine
+    # one scoped read per set of ids (the repeat is cached), one unscoped read for the admin
+    assert [params for name, params in reader.vocabulary_reads() if name == "VOCAB_PROJECTS_SCOPED"] == [
+        {SCOPE_PARAM: [1, 3]}, {SCOPE_PARAM: [2]}]
+    assert [name for name, _ in reader.vocabulary_reads()].count("VOCAB_PROJECTS") == 1
+    # and the admin's cached vocabulary is still whole after both
+    assert gc.get_vocabulary(admin()).project_titles == ("Project A", "Project B")
+
+
+def test_the_scoped_statements_carry_graph_searchs_scope_clause():
+    def visible(var):
+        return SCOPE_CLAUSE_TEMPLATE.format(element="__scope_p", var=var, param=SCOPE_PARAM)
+
+    for name in ("VOCAB_INVESTIGATIONS_SCOPED", "VOCAB_STUDIES_SCOPED", "VOCAB_PUBLISHED_SCOPED"):
+        assert visible("s") in getattr(gc, name), name
+    assert visible("c") in gc.VOCAB_EDGES_SCOPED and visible("p") in gc.VOCAB_EDGES_SCOPED
+    assert f"p.id IN ${SCOPE_PARAM}" in gc.VOCAB_PROJECTS_SCOPED
+    assert f"p.id IN ${SCOPE_PARAM}" in gc.VOCAB_INVESTIGATIONS_SCOPED
+    for name in SCOPED_VOCAB_NAMES:
+        assert "LIMIT" not in getattr(gc, name).upper(), name
 
 
 # --- the cache ------------------------------------------------------------------------------------------------------

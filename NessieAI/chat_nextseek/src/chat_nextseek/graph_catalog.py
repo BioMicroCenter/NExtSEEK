@@ -23,9 +23,16 @@ The cache holds the admin form: node-level statistics (sample counts, most frequ
 and date ranges) computed over every project. ``get_snapshot`` and ``get_type_details`` return the cached objects
 only when ``graph_scope.sees_all(config)``; any other config (a non-admin scope, no scope, anything that is not a
 ``GraphScope``) gets copies with those statistics emptied and each type's attributes listed by title, since the fill
-order is itself a count. Names, labels, value types, meanings, structure, the guard map, the hash and the vocabulary
-are the same for every caller, and a redaction never changes the cache
-(``docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`` section 8).
+order is itself a count. Names, labels, value types, meanings, structure, the guard map and the hash are the same for
+every caller, and a redaction never changes the cache.
+
+The vocabulary holds record values (study, investigation and project titles, DOIs and PMIDs, assay and protocol
+titles), so it is read per caller. An admin gets the ``VOCAB_*`` statements over every project. A caller limited to a
+set of projects gets the ``VOCAB_*_SCOPED`` statements, bound to its project ids with ``graph_search``'s scope clause:
+a study that holds a visible sample, an investigation of the caller's projects or of such a study, the caller's
+projects, and the assay and protocol titles of ``DERIVED_FROM`` relationships whose two ends are visible. Each set of
+ids is cached apart. A caller who sees no project (an empty set, no scope, anything that is not a ``GraphScope``) gets
+an empty vocabulary and no statement runs (``docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`` section 8).
 
 Tests replace ``_make_driver`` and ``_now``.
 """
@@ -40,6 +47,7 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 from . import graph_scope
+from .cypher_scope import SCOPE_CLAUSE_TEMPLATE
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +55,8 @@ log = logging.getLogger(__name__)
 # adds Sample.source_hash and GraphMeta.label_maps_hash and leaves the catalog as v1.1 defines it.
 SCHEMA_VERSION = "1.1"
 HASH_RECHECK_S, DETAIL_TTL_S, VOCAB_TTL_S, FAILURE_MEMORY_S, QUERY_TIMEOUT_S = 60, 600, 3600, 60, 10
+# How many callers' project sets keep a scoped vocabulary at once; the oldest read is dropped first.
+SCOPED_VOCAB_MAX = 256
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)$")
 
@@ -147,6 +157,60 @@ RETURN DISTINCT r.internal_assay_title AS assay, r.protocol_title AS protocol,
 """.strip()
 
 
+# The same five sources for a caller limited to a set of projects, bound as $__scope_projects (graph_scope.SCOPE_PARAM)
+# and filtered with graph_search's scope clause (cypher_scope.SCOPE_CLAUSE_TEMPLATE): only what a visible sample, or
+# one of the caller's projects, reaches. Record values of anything else are never read.
+def _visible(var: str) -> str:
+    return SCOPE_CLAUSE_TEMPLATE.format(element="__scope_p", var=var, param=graph_scope.SCOPE_PARAM)
+
+
+_IN_SCOPE_PROJECT = f"p.id IN ${graph_scope.SCOPE_PARAM}"
+
+VOCAB_INVESTIGATIONS_SCOPED = f"""
+MATCH (i:Investigation) WHERE i.title IS NOT NULL
+  AND (EXISTS {{ MATCH (i)-[:IN_PROJECT]->(p:Project) WHERE {_IN_SCOPE_PROJECT} }}
+       OR EXISTS {{ MATCH (i)<-[:IN_INVESTIGATION]-(:Study)<-[:IN_STUDY]-(s:Sample) WHERE {_visible("s")} }})
+RETURN DISTINCT i.title AS title ORDER BY title
+""".strip()
+
+VOCAB_PROJECTS_SCOPED = f"""
+MATCH (p:Project) WHERE p.title IS NOT NULL AND {_IN_SCOPE_PROJECT}
+RETURN DISTINCT p.title AS title ORDER BY title
+""".strip()
+
+VOCAB_STUDIES_SCOPED = f"""
+MATCH (st:Study) WHERE st.title IS NOT NULL
+  AND EXISTS {{ MATCH (st)<-[:IN_STUDY]-(s:Sample) WHERE {_visible("s")} }}
+RETURN DISTINCT st.title AS title ORDER BY title
+""".strip()
+
+VOCAB_PUBLISHED_SCOPED = f"""
+MATCH (st:Study)
+WHERE (coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> '')
+  AND EXISTS {{ MATCH (st)<-[:IN_STUDY]-(s:Sample) WHERE {_visible("s")} }}
+RETURN st.title AS title, st.DOI AS doi, st.PMID AS pmid ORDER BY title
+""".strip()
+
+VOCAB_EDGES_SCOPED = f"""
+MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
+WHERE (r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL)
+  AND {_visible("c")} AND {_visible("p")}
+RETURN DISTINCT r.internal_assay_title AS assay, r.protocol_title AS protocol,
+       p.type AS parent_type, c.type AS child_type
+""".strip()
+
+# (field, statement) per source, for every project and for a caller's projects.
+_VOCAB_SOURCES = (
+    ("investigation_titles", VOCAB_INVESTIGATIONS), ("project_titles", VOCAB_PROJECTS),
+    ("study_titles", VOCAB_STUDIES), ("published_studies", VOCAB_PUBLISHED), ("assay_connections", VOCAB_EDGES),
+)
+_SCOPED_VOCAB_SOURCES = (
+    ("investigation_titles", VOCAB_INVESTIGATIONS_SCOPED), ("project_titles", VOCAB_PROJECTS_SCOPED),
+    ("study_titles", VOCAB_STUDIES_SCOPED), ("published_studies", VOCAB_PUBLISHED_SCOPED),
+    ("assay_connections", VOCAB_EDGES_SCOPED),
+)
+
+
 # --- what the reader returns ----------------------------------------------------------------------------------------
 
 
@@ -244,6 +308,7 @@ class _Entry:
     vocab_at: float | None = None
     vocab_ttl: float = VOCAB_TTL_S
     vocab_failed: tuple[str, ...] = ()
+    scoped_vocab: dict = field(default_factory=dict)  # project ids -> (read_at, ttl, Vocabulary)
 
 
 _ENTRIES: dict[tuple[str, str], _Entry] = {}
@@ -445,52 +510,93 @@ def get_type_details(config, titles: Iterable[str]) -> list[TypeDetail]:
     return details if graph_scope.sees_all(config) else [_redacted_detail(detail) for detail in details]
 
 
+#: What a caller who sees no project is given: nothing, and no statement runs for it.
+EMPTY_VOCABULARY = Vocabulary((), (), (), (), (), (), ())
+
+
 def get_vocabulary(config) -> Vocabulary:
     """Investigation, project and study titles, published studies, and the DERIVED_FROM assay and protocol titles and
-    assay connections, cached ``VOCAB_TTL_S``.
+    assay connections that ``config``'s caller may see, cached ``VOCAB_TTL_S``.
+
+    An admin gets every project's; a caller limited to a set of projects gets what its projects reach, read through the
+    ``VOCAB_*_SCOPED`` statements and cached per set of ids; anyone else (an empty set, no scope, anything that is not
+    a ``GraphScope``) gets ``EMPTY_VOCABULARY`` and no vocabulary statement runs.
 
     Raises ``CatalogUnavailable`` like ``get_snapshot``. A source whose read fails is empty (logged, and named in
-    ``cache_state``) and the whole vocabulary is read again after ``FAILURE_MEMORY_S``.
+    ``cache_state`` for the admin form) and that vocabulary is read again after ``FAILURE_MEMORY_S``.
     """
     key = _key(config)
     entry = _entry_for(key)
+    scope = graph_scope.scope_of(config)
     with entry.lock:
         _snapshot_locked(entry, key, config)
+        if scope is None or (not scope.is_admin and not scope.project_ids):
+            return EMPTY_VOCABULARY
         now = _now()
-        if entry.vocab is not None and entry.vocab_at is not None and now - entry.vocab_at < entry.vocab_ttl:
-            return entry.vocab
-        driver = _driver_locked(entry, config)
-        failed: list[str] = []
-
-        def read(name: str, statement: str) -> list[dict]:
-            try:
-                return _read(driver, key[1], statement)
-            except Exception as exc:  # noqa: BLE001 (one source failing leaves the others usable)
-                failed.append(name)
-                log.warning("graph catalog vocabulary %s unavailable: %s", name, _read_failed(exc)[:300])
-                return []
-
-        investigations = _titles(read("investigation_titles", VOCAB_INVESTIGATIONS))
-        projects = _titles(read("project_titles", VOCAB_PROJECTS))
-        studies = _titles(read("study_titles", VOCAB_STUDIES))
-        published = tuple(
-            {"title": _opt_str(r.get("title")), "doi": r.get("doi"), "pmid": r.get("pmid")}
-            for r in read("published_studies", VOCAB_PUBLISHED)
-        )
-        edges = read("assay_connections", VOCAB_EDGES)
-        vocab = Vocabulary(
-            investigation_titles=investigations,
-            project_titles=projects,
-            study_titles=studies,
-            published_studies=published,
-            assay_titles=_titles({"title": r.get("assay")} for r in edges),
-            protocol_titles=_titles({"title": r.get("protocol")} for r in edges),
-            assay_connections=_connections(edges),
-        )
-        entry.vocab, entry.vocab_at = vocab, now
-        entry.vocab_ttl = FAILURE_MEMORY_S if failed else VOCAB_TTL_S
-        entry.vocab_failed = tuple(failed)
+        if scope.is_admin:
+            if entry.vocab is not None and entry.vocab_at is not None and now - entry.vocab_at < entry.vocab_ttl:
+                return entry.vocab
+            vocab, failed = _read_vocabulary(_driver_locked(entry, config), key[1], _VOCAB_SOURCES, None)
+            entry.vocab, entry.vocab_at = vocab, now
+            entry.vocab_ttl = FAILURE_MEMORY_S if failed else VOCAB_TTL_S
+            entry.vocab_failed = tuple(failed)
+            return vocab
+        ids = scope.project_ids
+        cached = entry.scoped_vocab.get(ids)
+        if cached is not None and now - cached[0] < cached[1]:
+            return cached[2]
+        vocab, failed = _read_vocabulary(_driver_locked(entry, config), key[1], _SCOPED_VOCAB_SOURCES,
+                                         {graph_scope.SCOPE_PARAM: list(ids)})
+        entry.scoped_vocab.pop(ids, None)
+        while len(entry.scoped_vocab) >= SCOPED_VOCAB_MAX:
+            entry.scoped_vocab.pop(min(entry.scoped_vocab, key=lambda k: entry.scoped_vocab[k][0]))
+        entry.scoped_vocab[ids] = (now, FAILURE_MEMORY_S if failed else VOCAB_TTL_S, vocab)
         return vocab
+
+
+def _read_vocabulary(driver, database: str, sources, params: dict | None) -> tuple[Vocabulary, list[str]]:
+    """One read per source; a source whose read fails is empty and named in the returned list."""
+    failed: list[str] = []
+
+    def read(name: str, statement: str) -> list[dict]:
+        try:
+            return _read(driver, database, statement, params)
+        except Exception as exc:  # noqa: BLE001 (one source failing leaves the others usable)
+            failed.append(name)
+            log.warning("graph catalog vocabulary %s unavailable: %s", name, _read_failed(exc)[:300])
+            return []
+
+    rows = {name: read(name, statement) for name, statement in sources}
+    edges = rows["assay_connections"]
+    vocab = Vocabulary(
+        investigation_titles=_titles(rows["investigation_titles"]),
+        project_titles=_titles(rows["project_titles"]),
+        study_titles=_titles(rows["study_titles"]),
+        published_studies=tuple(
+            {"title": _opt_str(r.get("title")), "doi": r.get("doi"), "pmid": r.get("pmid")}
+            for r in rows["published_studies"]
+        ),
+        assay_titles=_titles({"title": r.get("assay")} for r in edges),
+        protocol_titles=_titles({"title": r.get("protocol")} for r in edges),
+        assay_connections=_connections(edges),
+    )
+    return vocab, failed
+
+
+def committed_schema(config) -> Any:
+    """The committed schema (``config.NEO4J_SCHEMA``, what a caller reads when the live catalog is unavailable) as
+    ``config``'s caller may read it: whole for an admin; for anyone else without its ``vocabulary`` block, whose
+    titles were read over every project. Node labels, properties and relationships stay."""
+    committed = getattr(config, "NEO4J_SCHEMA", None)
+    if isinstance(committed, Mapping) and not graph_scope.sees_all(config):
+        return {name: value for name, value in committed.items() if name != "vocabulary"}
+    return committed
+
+
+def shows_committed_vocabulary(config) -> bool:
+    """True only for an admin: the committed protocol titles and assay connections (``config.PROTOCOL_SCHEMA``,
+    ``config.ASSAY_SAMPLE_CONNECTIONS``) were read over every project, so nobody else is sent them."""
+    return graph_scope.sees_all(config)
 
 
 def cache_state(config) -> dict:
