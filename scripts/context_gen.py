@@ -124,10 +124,12 @@ class Table:
 
     `key` is the natural key: one column, or a tuple of columns that together key a
     row. `key_columns` is always the tuple, and `key` its first column, which is what a
-    message names a row by.
+    message names a row by. `generator_only` are curated keys that are not columns: the
+    generator reads them and `rows_for` strips them before any SQL is rendered.
     """
 
-    def __init__(self, name, source, key, columns, json_columns=(), int_columns=()):
+    def __init__(self, name, source, key, columns, json_columns=(), int_columns=(),
+                 generator_only=()):
         self.name = name
         self.source = Path(source)
         self.key_columns = (key,) if isinstance(key, str) else tuple(key)
@@ -135,6 +137,7 @@ class Table:
         self.columns = tuple(columns)
         self.json_columns = frozenset(json_columns)
         self.int_columns = frozenset(int_columns)
+        self.generator_only = tuple(generator_only)
 
 
 TABLES = {
@@ -178,6 +181,9 @@ TABLES = {
         ),
         json_columns=("alternative_names", "key_data_types"),
         int_columns=("project_id",),
+        # Which instances hold an investigation (spec 2026-09-18, 9.5). It renders
+        # the availability note in capabilities.md and is never written to a database.
+        generator_only=("present_on",),
     ),
 }
 
@@ -209,7 +215,7 @@ def check_columns(table: str, rows: list[dict]) -> None:
     silently dropped at write time, which looks like a successful write.
     """
     spec = TABLES[table]
-    known = set(spec.columns)
+    known = set(spec.columns) | set(spec.generator_only)
     for index, row in enumerate(rows):
         unknown = sorted(set(row) - known)
         if unknown:
@@ -226,6 +232,146 @@ def check_columns(table: str, rows: list[dict]) -> None:
                 f"{spec.source} row {index} ({row.get('name')!r}): entity_type "
                 f"{row['entity_type']!r} is not one of {', '.join(ENTITY_TYPES)}, spelled exactly"
             )
+
+
+# --- the rules a projects row keeps --------------------------------------------
+#
+# A projects row is a project or an investigation (spec 2026-09-18, section 9.2). An
+# investigation row is named by the exact SEEK title that holds the samples, belongs to
+# a project (`parent_project`, and that row's `project_id`), carries a one-line
+# `research_focus` that becomes its bullet in capabilities.md, and leaves the PI, the
+# data types and the links to its project. `present_on` says which instances hold it.
+# `check_project_rows` runs on the curated file before anything is rendered from it.
+
+# The instance profiles `present_on` names, in the order the availability note lists
+# them. The same vocabulary as `./startup.sh --ci-profile`.
+PROFILES = ("local", "dev", "prod")
+
+# The longest `research_focus` an investigation row may carry: it is the bullet.
+RESEARCH_FOCUS_LIMIT = 200
+
+
+class DuplicateAlias(ValueError):
+    """An alternative name that, once folded, also names another row."""
+
+
+def _check_present_on(value, where: str) -> None:
+    """Absent or null: every instance. Otherwise some of the profiles, each once."""
+    if value is None:
+        return
+    if not isinstance(value, list) or not value:
+        raise UnsupportedValue(
+            f"{where}: present_on must be null (every instance) or a non-empty list of "
+            f"{', '.join(PROFILES)}, not {value!r}")
+    unknown = [v for v in value if v not in PROFILES]
+    if unknown:
+        raise UnsupportedValue(
+            f"{where}: present_on names {unknown!r}; the instances are {', '.join(PROFILES)}")
+    if len(set(value)) != len(value):
+        raise UnsupportedValue(f"{where}: present_on names an instance twice: {value!r}")
+    if set(value) == set(PROFILES):
+        raise UnsupportedValue(
+            f"{where}: present_on names every instance; leave it out, which means the same")
+
+
+def _check_investigation(row: dict, where: str, projects: dict) -> None:
+    present_on = row.get("present_on")
+    _check_present_on(present_on, where)
+    focus = row.get("research_focus")
+    if not isinstance(focus, str) or not focus.strip():
+        raise IncompleteInvestigation(
+            f"{where}: an investigation needs a research_focus, which becomes its bullet in "
+            "capabilities.md; a name on its own tells the agent nothing about when to use it")
+    if "\n" in focus or "\r" in focus:
+        raise UnsupportedValue(f"{where}: research_focus must be one line; it is a bullet")
+    if len(focus) > RESEARCH_FOCUS_LIMIT:
+        raise UnsupportedValue(
+            f"{where}: research_focus is {len(focus)} characters and a bullet holds "
+            f"{RESEARCH_FOCUS_LIMIT}; every row reaches the entity agent on every turn")
+    parent = row.get("parent_project")
+    if not isinstance(parent, str) or not parent.strip():
+        raise UnsupportedValue(
+            f"{where}: an investigation names its owning project in parent_project: the "
+            "project row's name, or the SEEK project's title where there is no such row")
+    owner = projects.get(parent)
+    project_id = row.get("project_id")
+    if project_id is None:
+        if owner is not None:
+            raise UnsupportedValue(
+                f"{where}: project_id is null, but the owning project row {parent!r} "
+                f"carries {owner.get('project_id')!r}, which is the investigation's id too")
+        if present_on is None:
+            raise UnsupportedValue(
+                f"{where}: project_id is null, which is allowed only where the owner's id "
+                "differs by instance, and that is said with present_on")
+    elif owner is not None and owner.get("project_id") != project_id:
+        raise UnsupportedValue(
+            f"{where}: project_id {project_id!r} is not the owning project row's "
+            f"{owner.get('project_id')!r}; an investigation carries its owner's id")
+    for column in ("pi", "nih_reporter_link", "fairdomhub_published_link"):
+        if row.get(column) not in (None, ""):
+            raise UnsupportedValue(
+                f"{where}: an investigation leaves {column} to its project row; it is null here")
+    if row.get("key_data_types"):
+        raise UnsupportedValue(
+            f"{where}: an investigation leaves key_data_types to its project row; it is [] here")
+
+
+def _check_aliases(rows: list[dict], projects: dict) -> None:
+    """Refuse an alternative name that, once folded, also names another row (spec 9.4).
+
+    One exception, and it is what bridges what people type to an investigation: an
+    investigation row may repeat its own parent project's name or aliases. The mirror
+    image stays refused: a project row carrying an investigation's exact title as an
+    alias would resolve that title to the whole project.
+    """
+    source = TABLES["projects"].source
+    names = [fold_key(str(row["name"])) for row in rows]
+    aliases = [{fold_key(a) for a in (row.get("alternative_names") or [])} for row in rows]
+
+    def parent_of(child: dict, parent: dict) -> bool:
+        return (child["entity_type"] == "investigation" and parent["entity_type"] == "project"
+                and parent["name"] == child.get("parent_project"))
+
+    for i, row in enumerate(rows):
+        for alias in row.get("alternative_names") or []:
+            folded = fold_key(alias)
+            for j, other in enumerate(rows):
+                if j == i:
+                    continue
+                if folded == names[j]:
+                    allowed = parent_of(row, other)
+                elif folded in aliases[j]:
+                    allowed = parent_of(row, other) or parent_of(other, row)
+                else:
+                    continue
+                if not allowed:
+                    raise DuplicateAlias(
+                        f"{source} row {i} ({row['name']!r}, {row['entity_type']}): the "
+                        f"alternative name {alias!r} also names row {j} ({other['name']!r}, "
+                        f"{other['entity_type']}), so it would resolve to either. Only an "
+                        "investigation may repeat its own parent project's name or aliases.")
+
+
+def check_project_rows(rows: list[dict]) -> None:
+    """Refuse a projects row the conventions do not allow (see the note above)."""
+    check_columns("projects", rows)
+    source = TABLES["projects"].source
+    projects = {row["name"]: row for row in rows if row["entity_type"] == "project"}
+    for index, row in enumerate(rows):
+        where = f"{source} row {index} ({row['name']!r}, {row['entity_type']})"
+        aliases = row.get("alternative_names")
+        if aliases is not None and not (isinstance(aliases, list)
+                                        and all(isinstance(a, str) for a in aliases)):
+            raise UnsupportedValue(
+                f"{where}: alternative_names must be a list of strings, not {aliases!r}")
+        if row["entity_type"] == "investigation":
+            _check_investigation(row, where, projects)
+        elif row.get("present_on") is not None:
+            raise UnsupportedValue(
+                f"{where}: present_on belongs to investigation rows; a project row is on "
+                "every instance")
+    _check_aliases(rows, projects)
 
 
 # --- column widths ----------------------------------------------------------
@@ -1849,11 +1995,29 @@ SEED_DIR = Path("startup/seed/sql")
 CAPABILITIES_PATH = Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md")
 
 
+def curated_rows(table: str) -> list[dict]:
+    """The curated rows for `table` as the file holds them, generator-only keys included.
+
+    The projects rows are checked against their conventions first
+    (`check_project_rows`), so nothing is rendered from a file that breaks them.
+    """
+    rows = load_source(TABLES[table].source)
+    if table == "projects":
+        check_project_rows(rows)
+    return rows
+
+
 def rows_for(table: str) -> list[dict]:
-    """The curated rows for `table`, with everything the generator adds."""
+    """The curated rows for `table` as the database will hold them.
+
+    `curated_rows`, with the generator-only keys (`present_on`) stripped, so no SQL is
+    ever rendered from one. The mapping operations are read as they are.
+    """
     if table in TABLES_EXTRA:
         return load_source(TABLES_EXTRA[table])
-    return load_source(TABLES[table].source)
+    rows = curated_rows(table)
+    drop = TABLES[table].generator_only
+    return [{k: v for k, v in row.items() if k not in drop} for row in rows]
 
 
 def _emit(text: str, out) -> None:

@@ -626,6 +626,157 @@ def test_a_same_named_project_and_investigation_round_trip_and_rerun_to_nothing(
                                                              ("Zephyr", "investigation")]
 
 
+# --- the rules a projects row keeps --------------------------------------------
+#
+# Investigations become rows of `projects_context` (spec 2026-09-18, section 9), with
+# conventions of their own, and `present_on` is the one curated key that is not a
+# column: it says which instances hold an investigation and is never written to a
+# database. `check_project_rows` refuses what the conventions do not allow; the
+# generator runs it on the curated file before any SQL or block is rendered.
+
+def _project(name, **extra):
+    row = {"name": name, "entity_type": "project", "project_id": 4, "parent_project": None,
+           "alternative_names": [], "research_focus": f"What {name} studies."}
+    row.update(extra)
+    return row
+
+
+def _inquiry(name, **extra):
+    """An investigation row of the invented project Zephyr."""
+    row = {"name": name, "entity_type": "investigation", "project_id": 4,
+           "parent_project": "Zephyr", "alternative_names": [], "pi": None,
+           "research_focus": f"What {name} holds."}
+    row.update(extra)
+    return row
+
+
+def test_present_on_is_a_curated_key_and_never_a_column():
+    import pytest
+
+    rows = [_project("Zephyr"), _inquiry("Atlas", project_id=None, parent_project="Atlas",
+                                         present_on=["local", "dev"])]
+    cg.check_columns("projects", rows)                     # accepted as a key
+    assert "present_on" not in cg.COLUMNS["projects"]
+    assert "present_on" not in cg.DDL["projects"]
+    for render in (cg.render_update, cg.render_seed):
+        assert "present_on" not in render("projects", rows)
+    with pytest.raises(cg.UnknownColumn):                  # a key of projects only
+        cg.check_columns("assays", [{"assay_name": "X", "present_on": ["dev"]}])
+
+
+def test_rows_for_strips_what_only_the_generator_reads(monkeypatch):
+    rows = [_project("Zephyr"), _inquiry("Atlas", project_id=None, parent_project="Atlas",
+                                         present_on=["local", "dev"])]
+    monkeypatch.setattr(cg, "load_source", lambda path: [dict(r) for r in rows])
+    stripped = cg.rows_for("projects")
+    assert all("present_on" not in row for row in stripped)
+    assert cg.curated_rows("projects")[1]["present_on"] == ["local", "dev"]
+
+
+def test_the_real_curated_projects_keep_every_rule():
+    cg.check_project_rows(cg.load_source(cg.TABLES["projects"].source))
+
+
+def test_present_on_names_some_instances_and_only_on_an_investigation():
+    import pytest
+
+    base = [_project("Zephyr")]
+    for bad in ([], ["staging"], ["local", "local"], ["local", "dev", "prod"], "local",
+                [None], ["Local"]):
+        with pytest.raises(cg.UnsupportedValue) as excinfo:
+            cg.check_project_rows(base + [_inquiry("Atlas", present_on=bad)])
+        assert "present_on" in str(excinfo.value), bad
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows([_project("Zephyr", present_on=["dev"])])
+    for good in (None, ["local"], ["local", "dev"], ["dev", "prod"]):
+        cg.check_project_rows(base + [_inquiry("Atlas", present_on=good)])
+
+
+def test_an_investigation_needs_a_short_one_line_research_focus():
+    import pytest
+
+    base = [_project("Zephyr")]
+    for focus in (None, "", "   "):
+        with pytest.raises(cg.IncompleteInvestigation):
+            cg.check_project_rows(base + [_inquiry("Atlas", research_focus=focus)])
+    for focus in ("x" * 201, "two\nlines"):
+        with pytest.raises(cg.UnsupportedValue) as excinfo:
+            cg.check_project_rows(base + [_inquiry("Atlas", research_focus=focus)])
+        assert "research_focus" in str(excinfo.value)
+    cg.check_project_rows(base + [_inquiry("Atlas", research_focus="x" * 200)])
+
+
+def test_an_investigation_belongs_to_a_project():
+    """`parent_project` names the owning project row; `project_id` is that row's id, and
+    null only where the id differs by instance, which `present_on` has to say."""
+    import pytest
+
+    base = [_project("Zephyr")]
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows(base + [_inquiry("Atlas", parent_project=None)])
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows(base + [_inquiry("Atlas", project_id=5)])
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows(base + [_inquiry("Atlas", project_id=None)])
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows(base + [_inquiry("Atlas", project_id=None, present_on=["dev"])])
+    # No project row of that name: the owner is named by its SEEK title, and the id is
+    # the instance's own.
+    cg.check_project_rows(base + [_inquiry("Atlas", project_id=None, parent_project="Atlas",
+                                           present_on=["local", "dev"])])
+
+
+def test_an_investigation_leaves_the_pi_and_the_data_types_to_its_project():
+    import pytest
+
+    base = [_project("Zephyr")]
+    for extra in ({"pi": "Doe, Jane"}, {"key_data_types": ["RNA sequencing"]},
+                  {"nih_reporter_link": "https://example.org/x"},
+                  {"fairdomhub_published_link": "https://example.org/y"}):
+        with pytest.raises(cg.UnsupportedValue):
+            cg.check_project_rows(base + [_inquiry("Atlas", **extra)])
+    cg.check_project_rows(base + [_inquiry("Atlas", key_data_types=[], pi=None)])
+
+
+def test_an_alias_names_one_row_only():
+    """Once folded, an alias may not equal another row's name or alias (spec 9.4).
+
+    The exception is what bridges what users type to an investigation: an investigation row
+    may repeat its own parent project's name or aliases. The mirror image is refused: a
+    project row carrying an investigation's exact title as an alias, which is why the five
+    investigation titles leave the project rows.
+    """
+    import pytest
+
+    parent = _project("Zephyr", alternative_names=["ZPH", "Zephyr Center"])
+    other = _project("Yarrow", project_id=7, alternative_names=["Yarrow Lab"])
+    # The investigation repeats its parent's name and alias: accepted.
+    cg.check_project_rows([parent, other, _inquiry("Atlas", alternative_names=["Zephyr", "zph"])])
+    for rows in (
+        # a project alias that is an investigation's title
+        [dict(parent, alternative_names=["ATLAS"]), other, _inquiry("Atlas")],
+        # an investigation alias that is another project's name or alias
+        [parent, other, _inquiry("Atlas", alternative_names=["Yarrow"])],
+        [parent, other, _inquiry("Atlas", alternative_names=["yarrow lab"])],
+        # two projects sharing an alias, folded
+        [parent, dict(other, alternative_names=["Zéphyr Center"])],
+        # two investigations of one parent sharing an alias
+        [parent, other, _inquiry("Atlas", alternative_names=["Wind"]),
+         _inquiry("Breeze", alternative_names=["WIND"])],
+    ):
+        with pytest.raises(cg.DuplicateAlias):
+            cg.check_project_rows(rows)
+
+
+def test_rows_for_projects_refuses_what_the_rules_refuse(monkeypatch):
+    import pytest
+
+    rows = [_project("Zephyr", alternative_names=["Atlas"]), _inquiry("Atlas")]
+    monkeypatch.setattr(cg, "load_source", lambda path: [dict(r) for r in rows])
+    with pytest.raises(cg.DuplicateAlias):
+        cg.rows_for("projects")
+
+
 # --- column widths -----------------------------------------------------------
 #
 # The defect that shipped, and the check that could have seen it. `projects.json`'s
