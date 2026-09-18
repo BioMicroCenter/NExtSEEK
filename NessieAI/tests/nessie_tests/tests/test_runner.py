@@ -1150,6 +1150,7 @@ def test_arm_presets_force_ns_and_name_their_parser_mode():
     assert runner.ARM_PRESETS == {
         "graph": {"force_route": "ns", "force_parser_mode": "graph"},
         "api": {"force_route": "ns", "force_parser_mode": "api"},
+        "auto": {"force_route": "ns", "force_parser_mode": None},  # the parser unforced
     }
 
 

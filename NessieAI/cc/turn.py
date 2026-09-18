@@ -29,6 +29,8 @@ from pathlib import Path
 from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSession
 
 from chat_nextseek.agents.parser import FORCE_MODES as PARSER_FORCE_MODES
+from chat_nextseek import prompt_variants
+from chat_nextseek.prompt_variants import VARIANT_NAMES as PROMPT_VARIANT_NAMES
 from chat_nextseek.chat_memory import next_turn_id
 from chat_nextseek.orchestrator import run_query, run_query_plan
 
@@ -57,8 +59,9 @@ logger = logging.getLogger(__name__)
 MAX_CC_CHAT_LOG_TURNS = 50  # match chat_nextseek/chat_memory.py MAX_TURNS
 
 # Evaluation only (the graph_search Nessie POC): the process flag that lets a
-# superuser's QueryRequest.force_parser_mode reach the NS parser. The venue sets
-# it; no compose file or env template does.
+# superuser's QueryRequest.force_parser_mode reach the NS parser, and its
+# QueryRequest.prompt_variant reach the NS agents. The venue sets it; no compose
+# file or env template does.
 EVAL_PARSER_FORCE_ENV = "NEXTSEEK_EVAL_PARSER_FORCE"
 
 
@@ -292,6 +295,32 @@ def _with_parser_force(chat_config, user, req):
     return forced
 
 
+def _with_prompt_variant(chat_config, user, req):
+    """Evaluation only: hand the NS engine a config copy running an alternative prompt set.
+
+    The same gate as ``_with_parser_force``, and independent of it: returns ``chat_config`` itself unless the
+    request carries a known ``prompt_variant`` (``chat_nextseek.prompt_variants.VARIANT_NAMES``), the process
+    sets NEXTSEEK_EVAL_PARSER_FORCE=1, and the caller is a superuser (``is_superuser`` alone). Then it returns
+    ``prompt_variants.apply_variant``'s shallow copy; the singleton is never mutated. A variant that cannot be
+    loaded is logged and the defaults run: the turn then records ``prompt_variant: null``, which the harness
+    preflight refuses, so a broken variant cannot pass for a measured one.
+    """
+    name = getattr(req, "prompt_variant", None)
+    if (name not in PROMPT_VARIANT_NAMES or os.environ.get(EVAL_PARSER_FORCE_ENV) != "1"
+            or not bool(getattr(user, "is_superuser", False))):
+        return chat_config
+    try:
+        return prompt_variants.apply_variant(chat_config, name)
+    except prompt_variants.VariantError as exc:
+        logger.error("prompt_variant %r could not be applied; this turn runs the default prompts: %s", name, exc)
+        return chat_config
+
+
+def _eval_config(chat_config, user, req):
+    """Both evaluation switches on one per-request copy: the parser force, then the prompt variant."""
+    return _with_prompt_variant(_with_parser_force(chat_config, user, req), user, req)
+
+
 def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                send_event, adapter, api_user, api_pass,
                resolved_session_id: str) -> None:
@@ -367,11 +396,12 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 creds = {"api_user": api_user, "api_pass": api_pass}
                 try:
                     if mode == "plan":
-                        run_query_plan(adapter, chat_config, req.query, send_event, credentials=creds)
+                        run_query_plan(adapter, _with_prompt_variant(chat_config, request.user, req),
+                                       req.query, send_event, credentials=creds)
                     else:
-                        # The evaluation switch: a per-request copy, made after the
+                        # The evaluation switches: a per-request copy, made after the
                         # PROD identity check above has compared the singleton.
-                        run_query(adapter, _with_parser_force(chat_config, request.user, req),
+                        run_query(adapter, _eval_config(chat_config, request.user, req),
                                   req.query, send_event, credentials=creds)
                 finally:
                     # In a `finally` deliberately. run_query resolves

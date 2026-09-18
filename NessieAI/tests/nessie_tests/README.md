@@ -607,6 +607,10 @@ a turn; the tests of everything below drive fakes.
   (only the venue sets it), and dropped without a word otherwise. A landed force
   appends a note containing `by the evaluation switch`, and the parser's own choice,
   to `parser_plan.notes`.
+- `prompt_variant` (`v2` or `v2_apoc`) runs the NS agents on an alternative prompt set,
+  `NessieAI/chat_nextseek/src/chat_nextseek/prompts/variants/<name>/`, with or without
+  `force_parser_mode`. Same gate and same silent drop. A turn that ran it records
+  `debug.prompt_variant` and `debug.prompt_variant_files`.
 
 **The flags.**
 
@@ -614,7 +618,8 @@ a turn; the tests of everything below drive fakes.
 |---|---|---|
 | `--force-route {ns,cc}` | both | forces every turn of a normal run; the `route`, `engine` and `route_source` criteria are stripped (`runner.STRIPPED_UNDER_FORCING`) |
 | `--force-parser-mode {graph,api}` | both | needs `--force-route ns`; the module CLI refuses both force flags with `--bayesian` |
-| `--arms graph,api` or `--arms graph` | `manage.py nessie` | calls `runner.run_arms`; needs `--cases`, `--force-route ns` and `--tier full`, and excludes `--force-parser-mode` |
+| `--prompt-variant {v2,v2_apoc}` | both | needs `--force-route ns`; with `--arms` it rides on every arm and the preflight's parser probes, is recorded in `arms.json` `run_meta.prompt_variant` and every payload, and a `--resume` with another variant is refused |
+| `--arms graph,api`, `--arms graph` or `--arms auto` | `manage.py nessie` | calls `runner.run_arms`; needs `--cases`, `--force-route ns` and `--tier full`, and excludes `--force-parser-mode`. `auto` forces the route only: the parser picks graph or API per question, and `debug.parser_plan.mode` in each payload says which |
 | `--resume` | `manage.py nessie`, with `--arms` | continues the run in `--out`, skipping every (question, arm) it holds except a provider outage; refuses a changed cases file or arm list |
 | `--max-turns N` | `manage.py nessie`, with `--arms` | the turns this invocation may drive; it stops before a question that would exceed it, and 0 runs only the preflight |
 | `--password-env NAME` | `manage.py nessie` | reads the password from that environment variable and never prints it |

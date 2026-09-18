@@ -132,7 +132,7 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
     QUERY_TIMEOUT_S timeout.
     """
     # Refuse writes before anything else: a refused statement never opens a driver.
-    clause = write_clause(cypher)
+    clause = write_clause(cypher, extra_procedures=getattr(config, "EXTRA_ALLOWED_PROCEDURES", ()))
     if clause is not None:
         print(f"[DEBUG][GRAPHDB] Blocked write query ({clause}): {cypher!r}")
         return {"ok": False, "error": f"{_WRITE_REFUSED} Refused: {clause}.", "data": None, "cypher": cypher}

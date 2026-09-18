@@ -13,6 +13,11 @@ except `db.index.fulltext.queryNodes`, the read-only fulltext search graph_searc
 `CALL { }` and `CALL (x) { }` subqueries are allowed; their bodies are scanned like
 the rest of the text. The check is the first line only: the tool also runs every
 statement in a READ transaction, so the server refuses a write the check misses.
+
+`extra_procedures` widens the allowlist for one call and nothing else: an evaluation
+prompt variant's `allowed_procedures` (`prompt_variants.py`), which the variant's
+config copy carries as `EXTRA_ALLOWED_PROCEDURES`. `ALLOWED_PROCEDURES` itself never
+changes, so a turn without the variant refuses exactly what it always did.
 """
 from __future__ import annotations
 
@@ -111,8 +116,9 @@ def _matching_paren(masked: str, i: int) -> int:
     return -1
 
 
-def _call_problem(masked: str, original: str, end: int) -> str | None:
-    """None for a subquery or the allowed procedure; else the refused clause."""
+def _call_problem(masked: str, original: str, end: int,
+                  allowed: frozenset[str] = ALLOWED_PROCEDURES) -> str | None:
+    """None for a subquery or an allowed procedure; else the refused clause."""
     i = _skip_space(masked, original, end)
     if i >= len(masked):
         return "CALL"
@@ -133,31 +139,39 @@ def _call_problem(masked: str, original: str, end: int) -> str | None:
     name = m.group(0)
     k = _skip_space(masked, original, m.end())
     follows = original[k] if k < len(original) else ""
-    if name in ALLOWED_PROCEDURES and follows not in (".", "`"):
+    if name in allowed and follows not in (".", "`"):
         return None
     if follows == "`":
         return "CALL with a backticked procedure name"
     return f"CALL {name.rstrip('.')}"
 
 
-def write_clause(text: str | None) -> str | None:
+def _extra(extra_procedures) -> frozenset[str]:
+    """Names from a real collection of strings; anything else (a bare string, a mock's attribute) adds none."""
+    if not isinstance(extra_procedures, (set, frozenset, tuple, list)):
+        return frozenset()
+    return frozenset(p for p in extra_procedures if isinstance(p, str))
+
+
+def write_clause(text: str | None, extra_procedures=()) -> str | None:
     """
     The first clause that makes `text` more than a read, or None.
 
     Masks the text first (masking masked text changes nothing), then refuses write
     clauses, administration commands, `LOAD CSV`, `FOREACH`, `USE`, batched
-    `IN TRANSACTIONS`, and every procedure call except `db.index.fulltext.queryNodes`,
-    including one whose name is backticked. A `CALL { }` or `CALL (x) { }` subquery is
-    allowed, and its body is checked like the rest.
+    `IN TRANSACTIONS`, and every procedure call except `db.index.fulltext.queryNodes`
+    and any named in `extra_procedures`, including one whose name is backticked. A
+    `CALL { }` or `CALL (x) { }` subquery is allowed, and its body is checked like the rest.
     """
     if not text:
         return None
+    allowed = ALLOWED_PROCEDURES | _extra(extra_procedures)
     masked = mask_cypher(text)
     for m in _CLAUSE_RE.finditer(masked):
         if _is_name_not_clause(masked, m.start(), m.end()):
             continue
         if m.group("call"):
-            problem = _call_problem(masked, text, m.end())
+            problem = _call_problem(masked, text, m.end(), allowed)
             if problem is None:
                 continue
             return problem
