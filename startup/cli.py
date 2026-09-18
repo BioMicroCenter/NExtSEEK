@@ -761,11 +761,13 @@ def rebuild(
     # Stack health, step 1 of CI. Every first-party image, not just this
     # component's: a bare `rebuild` builds only the app image, so the routine
     # deploy is exactly the one that can leave cc-agent's image absent for weeks,
-    # and the smoke suite never requests the Container-CC routes. Reported here,
-    # at the top of the output. A down app or front door stops the suite before
-    # it starts; anything else is exited on at the end, so it never costs the run.
+    # or baking context files the app has moved past, and the smoke suite never
+    # requests the Container-CC routes. That context is compared with the tree
+    # this rebuild built from, not the runtime checkout. Reported here, at the
+    # top of the output. A down app or front door stops the suite before it
+    # starts; anything else is exited on at the end, so it never costs the run.
     health = validate.stack_health(REPO_ROOT, state.compose_env(),
-                                   state.compose_project_name)
+                                   state.compose_project_name, checkout=build_root)
     _report_health(health)
 
     # Does the graph the site searches still equal MySQL (CI-4)? Advisory, like
@@ -859,8 +861,8 @@ def rebuild(
 
 
 def _report_health(health: "validate.StackHealth") -> None:
-    for result in health.results:
-        (ui.ok if result.ok else ui.fail)(f"{result.name}: {result.detail}")
+    # A check that compared nothing (warn) must not print as a green tick.
+    _print_health_results(list(health.results))
 
 
 def _health_rows(health: "validate.StackHealth") -> list[tuple[str, bool, str]]:

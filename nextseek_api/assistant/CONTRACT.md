@@ -130,6 +130,32 @@ plus `NEXTSEEK_OUTPUTS_DIR` only, **not** `BASE_DIR`/home, with `Path.resolve`
 canonicalizing symlinks. (The `sample_counts_by_type` chart type from the original spec was
 dropped: no chart generator exists anywhere in the pipeline.)
 
+## Downloading a whole session (one zip)
+
+`GET /assistant/sessions/{sid}/download/` streams everything one chat produced as a single
+`application/zip`, for the owner (a superuser may download anyone's). It is the delivery path for a
+caller who wants every turn rather than one `{bid}/artifacts/{key}` at a time. Built by
+`nextseek_api/assistant/session_export.py`:
+
+| Member | Holds |
+|---|---|
+| `transcript.md`, `transcript.json` | the turns exactly as the chat UI lists them (`turn_rows`, the walk `?include=turns` uses), each with the folder its files are in |
+| `turn-NN/` | the files of the NN-th turn on screen: the bundle's `files` manifest and payload pointer (the UI's hidden `graph` and `memory` kinds excluded), every path of every `report_saved_files` key, `report_<bid>.xlsx` when the bundle has report tables, and a Container-CC turn's published files |
+| `bundle-N/` | the files of a bundle no turn points at, which is how granular-op bundles (above) arrive |
+| `manifest.json`, always last | every member with its size, and every file left out with a reason code: `outside_artifact_root`, `missing_on_disk`, `cc_owner_only`, `cc_tree_unresolved`, `generation_failed`, `read_failed`. It never carries a server path |
+
+The two artifact roots keep their own guards. NS files go through `_safe_artifact_path` (above). A
+Container-CC turn's files are read from `<CC tree>/output/artifacts/<cc_run_id>/`, located the way the
+per-turn CC download locates it (the SEEK project resolved with the caller's own login), and each file
+passes `resolve_artifact_path`; links are never followed, and the engine's own `artifacts.zip` is left
+out when the turn's files sit beside it. Because the tree is found through the login that asks, a
+superuser downloading another user's chat gets those turns as `cc_owner_only`, and a failed SEEK
+lookup costs only the CC files (`cc_tree_unresolved`), never the download.
+
+Every path is checked before the first byte is sent. The zip is then written piece by piece with data
+descriptors, as an asynchronous iterator under ASGI and a synchronous one under WSGI, because Django
+reads an iterator of the other kind into one list before sending anything.
+
 ## Tests
 
 - Free, no LLM: `NessieAI/tests/ns/` for the ops (the `test_granular_*.py` modules,

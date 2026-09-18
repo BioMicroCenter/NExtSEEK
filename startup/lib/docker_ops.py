@@ -194,6 +194,40 @@ def image_exists(name: str) -> bool:
     return bool(result.stdout.strip())
 
 
+def copy_from_image(image: str, src: str, dest: str | Path) -> None:
+    """Copy ``src`` out of ``image`` to ``dest`` on the host, running nothing.
+
+    ``docker create`` makes a container that is never started, ``docker cp``
+    reads the image's filesystem through it, and the container is removed
+    whether or not the copy worked. No process in the image executes and no
+    running container is touched: the trailing ``true`` is never run either,
+    it is there only so an image without a CMD can still be created.
+    """
+    created = subprocess.run(
+        ["docker", "create", image, "true"],
+        capture_output=True,
+        text=True,
+    )
+    _check(created, f"docker create {image}")
+    container = created.stdout.strip()
+    try:
+        copied = subprocess.run(
+            ["docker", "cp", f"{container}:{src}", str(dest)],
+            capture_output=True,
+            text=True,
+        )
+        _check(copied, f"docker cp {image}:{src}")
+    finally:
+        removed = subprocess.run(
+            ["docker", "rm", container],
+            capture_output=True,
+            text=True,
+        )
+    # Reached only when the copy worked, so this is never the error that hides
+    # another one. A container left behind is named, so it can be removed.
+    _check(removed, f"docker rm {container} (created from {image})")
+
+
 def volume_exists(name: str) -> bool:
     """True if `docker volume inspect <name>` succeeds."""
     result = subprocess.run(

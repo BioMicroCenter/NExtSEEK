@@ -12,7 +12,7 @@ import { DebugPanel } from "@/components/DebugPanel/DebugPanel";
 import { RouteOverrideSelect } from "./RouteOverrideSelect";
 import { ProdToggle } from "./ProdToggle";
 import { MaxTurnLengthInput } from "./MaxTurnLengthInput";
-import { Download } from "lucide-react";
+import { Download, FolderDown } from "lucide-react";
 import type { DebugData } from "@/lib/types/chat";
 
 interface RightSidebarProps {
@@ -20,6 +20,9 @@ interface RightSidebarProps {
   onOpenChange: (open: boolean) => void;
   debugData: DebugData;
   onDownload: (format: string) => void;
+  /** The chat on screen. "All files" keys on it, never on `debugData.bundleId`. */
+  activeSessionId?: string | null;
+  onDownloadAll?: () => void;
   isAdmin?: boolean;
 }
 
@@ -28,9 +31,15 @@ export function RightSidebar({
   onOpenChange,
   debugData,
   onDownload,
+  activeSessionId = null,
+  onDownloadAll,
   isAdmin = false,
 }: RightSidebarProps) {
   const hasBundle = debugData.bundleId !== null;
+  // Not hasBundle: the panel is anchored to the newest turn (debugForTurns), so
+  // a chat whose newest turn wrote no bundle would get a dead button while its
+  // older turns still hold files.
+  const canDownloadAll = Boolean(activeSessionId && onDownloadAll);
 
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
@@ -70,6 +79,17 @@ export function RightSidebar({
           >
             <Download className="mr-1 h-3 w-3" />
             Metadata
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!canDownloadAll}
+            onClick={() => onDownloadAll?.()}
+            title="This chat's transcript and every file its turns produced, as one zip"
+            data-testid="session-download"
+          >
+            <FolderDown className="mr-1 h-3 w-3" />
+            All files
           </Button>
         </div>
       </SheetContent>

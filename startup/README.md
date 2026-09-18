@@ -279,3 +279,16 @@ On a graph that `graph_sync --full` has not yet written at the writer's schema v
 After the first full sync it reports no drift, or names the checks that failed. The check families are in
 `nextseek_api/graph_sync/README.md` "What the drift check compares".
 
+## cc-agent context after every rebuild
+
+The six chat_nextseek context files listed in `startup/lib/layout.py` are baked into both
+the app image and the cc-agent image, so an edit to one of them needs `./startup.sh rebuild`
+and `./startup.sh rebuild --component cc-agent`. Stack health checks the second half: after
+every `rebuild`, whatever the component and with or without `--no-ci`, and before every `ci`,
+it reads `/app/plugins/nextseek/context/` out of `dmac-assistant:poc` without starting a
+container and compares each file's bytes with the checkout (`validate.check_cc_agent_context`).
+A difference fails the line, names every file that differs or is missing, and prints the
+command that fixes it. `rebuild` then exits non-zero at the end, after the smoke suite has
+run, and `ci` only prints it. A `--source-tree` rebuild is compared with the clean tree it
+built, not the runtime checkout. The files in the checkout are guarded separately, by
+`NessieAI/tests/cc/test_cc_context_drift_guard.py`.

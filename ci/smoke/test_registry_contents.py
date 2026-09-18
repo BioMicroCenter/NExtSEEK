@@ -36,14 +36,16 @@ from ci.smoke.test_reachability import _callable_routes
 # on 2026-09-14 for /nextseek_api/samples/graph_search/, then 169 -> 170 on
 # 2026-09-15 for the /seek/graph/search/ page, then 170 -> 171 the same day for
 # /nextseek_api/admin/graph-sync/status/ (GraphSyncStatusViewSet likewise defines
-# no list method, so that registration adds one route, not two). Each step was
+# no list method, so that registration adds one route, not two), then 172 -> 173
+# for /nextseek_api/assistant/sessions/{sid}/download/, an action on the existing
+# AssistantViewSet. Each step was
 # confirmed by the completeness gate passing against the live resolver on the
 # branch that added them. When the application gains or loses a route this number
 # moves, and the COMPLETENESS GATE (ci/gate/test_route_registry.py) is the
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
 # runs, which happen in a different environment.
-OWNED_ROUTE_COUNT = 172
+OWNED_ROUTE_COUNT = 173
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset and the Django admin login page.
