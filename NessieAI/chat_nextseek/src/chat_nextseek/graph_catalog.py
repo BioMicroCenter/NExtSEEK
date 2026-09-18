@@ -13,7 +13,8 @@ one driver per key:
 - the snapshot re-reads ``GraphMeta`` at most every ``HASH_RECHECK_S``, and the index and the guard only when
   ``catalog_hash`` has changed (a new hash also drops the cached type details);
 - a type detail lives ``DETAIL_TTL_S`` per (hash, title), because statistics can change without the hash;
-- the vocabulary lives ``VOCAB_TTL_S``; a source that failed is left empty and read again after ``FAILURE_MEMORY_S``;
+- the vocabulary lives ``VOCAB_TTL_S``, a caller's scoped vocabulary ``SCOPED_VOCAB_TTL_S``; a source that failed is
+  left empty and read again after ``FAILURE_MEMORY_S``;
 - no ``GraphMeta``, a ``schema_version`` below ``SCHEMA_VERSION`` (or not a version at all), or a failed read raises
   ``CatalogUnavailable``, remembered for ``FAILURE_MEMORY_S`` so an outage costs one timeout a minute. A failed read
   also closes and forgets the driver. The caller then uses the committed ``context/neo4j_schema.json``. A later
@@ -57,6 +58,11 @@ SCHEMA_VERSION = "1.1"
 HASH_RECHECK_S, DETAIL_TTL_S, VOCAB_TTL_S, FAILURE_MEMORY_S, QUERY_TIMEOUT_S = 60, 600, 3600, 60, 10
 # How many callers' project sets keep a scoped vocabulary at once; the oldest read is dropped first.
 SCOPED_VOCAB_MAX = 256
+# How long a caller's scoped vocabulary lives. A sample-level sync stamps nothing the cache could watch (only a full
+# sync, a drift run and a relabel write GraphMeta), so after a sample leaves a caller's project the title, DOI and
+# PMID of its study stay visible to that caller for this long. The scoped reads cost tens of milliseconds each on a
+# 120,000-sample graph (7.1 red team, finding N4), so minutes, not the admin form's hour.
+SCOPED_VOCAB_TTL_S = 300
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)$")
 
@@ -516,7 +522,8 @@ EMPTY_VOCABULARY = Vocabulary((), (), (), (), (), (), ())
 
 def get_vocabulary(config) -> Vocabulary:
     """Investigation, project and study titles, published studies, and the DERIVED_FROM assay and protocol titles and
-    assay connections that ``config``'s caller may see, cached ``VOCAB_TTL_S``.
+    assay connections that ``config``'s caller may see, cached ``VOCAB_TTL_S`` for an admin and ``SCOPED_VOCAB_TTL_S``
+    per set of project ids for anyone else.
 
     An admin gets every project's; a caller limited to a set of projects gets what its projects reach, read through the
     ``VOCAB_*_SCOPED`` statements and cached per set of ids; anyone else (an empty set, no scope, anything that is not
@@ -550,7 +557,7 @@ def get_vocabulary(config) -> Vocabulary:
         entry.scoped_vocab.pop(ids, None)
         while len(entry.scoped_vocab) >= SCOPED_VOCAB_MAX:
             entry.scoped_vocab.pop(min(entry.scoped_vocab, key=lambda k: entry.scoped_vocab[k][0]))
-        entry.scoped_vocab[ids] = (now, FAILURE_MEMORY_S if failed else VOCAB_TTL_S, vocab)
+        entry.scoped_vocab[ids] = (now, FAILURE_MEMORY_S if failed else SCOPED_VOCAB_TTL_S, vocab)
         return vocab
 
 

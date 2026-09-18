@@ -573,7 +573,7 @@ An admin gets the `VOCAB_*` statements over every project. A caller limited to a
 `VOCAB_*_SCOPED`, bound to its project ids as `$__scope_projects` and filtered with `SCOPE_CLAUSE_TEMPLATE`: a study
 that holds a visible sample (with its DOI and PMID), an investigation `IN_PROJECT` one of the caller's projects or
 holding such a study, the caller's own projects, and the assay titles, protocol titles and type connections of
-`DERIVED_FROM` relationships whose two ends are visible. Each set of ids is cached apart (`SCOPED_VOCAB_MAX` sets).
+`DERIVED_FROM` relationships whose two ends are visible. Each set of ids is cached apart (`SCOPED_VOCAB_MAX` sets) for `SCOPED_VOCAB_TTL_S` (300 s), not the admin form's hour: a sample-level sync invalidates nothing the cache watches, so this bounds how long a study stays visible after its sample leaves the caller's project (red team finding N4).
 An empty set, no scope, or anything that is not a `GraphScope` gets an empty vocabulary and runs no statement. The
 lane module `graph_scope/test_catalog_vocabulary_lane.py` checks both consumers against the fixture's markers.
 
