@@ -188,8 +188,8 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/samples/{uid}/` | `SampleProxyViewSet.retrieve` | `IsAuthenticated` (`services/samples.py:74`) | Delegated to SEEK under the caller's creds (`services/samples.py:129` -> `helpers.py:135-148`) | project-scoped (already, upstream) |
 | `GET /nextseek_api/sample_types/` | `SampleTypeProxyViewSet.list` | `IsAuthenticated` (`services/sample_types.py:58`) | Delegated to SEEK (`services/sample_types.py:89`) | public-to-authenticated |
 | `GET /nextseek_api/sample_types/{uid}/` | `SampleTypeProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/sample_types.py:120`) | public-to-authenticated |
-| `GET /nextseek_api/sampletypes/{uid}/child_types/` | `SampleTypeChildrenViewSet.child_types` | `IsAuthenticated` (`services/sample_types.py:216`) | **None.** Raw Neo4j at `services/sample_types.py:265-277`. See note C | project-scoped |
-| `POST /nextseek_api/sample_types/get_parents/parents_by_child_types/` | `SamplesByChildTypesViewSet.parents_by_child_types` | `IsAuthenticated` (`services/sample_types.py:328`) | **None.** Raw Neo4j at `services/sample_types.py:400-434`. See note C | project-scoped |
+| `GET /nextseek_api/sampletypes/{uid}/child_types/` | `SampleTypeChildrenViewSet.child_types` | `IsAuthenticated` (`services/sample_types.py`) | **Yes** (2026-09-18): the sample and every sample on the lineage path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; a sample outside the caller's projects answers 404; superuser unscoped. See note C | project-scoped (done) |
+| `POST /nextseek_api/sample_types/get_parents/parents_by_child_types/` | `SamplesByChildTypesViewSet.parents_by_child_types` | `IsAuthenticated` (`services/sample_types.py`) | **Yes** (2026-09-18): parent, child and every sample on the path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; superuser unscoped. See note C | project-scoped (done) |
 | `GET /nextseek_api/entity_tree/nodes/` | `EntityTreeViewSet.list_nodes` | `IsAuthenticated` (`services/entity_tree.py:85`) | **None.** `SELECT ... FROM dmac.sample_types_context` at `services/entity_tree.py:138-148`. See note D | public-to-authenticated |
 | `GET /nextseek_api/entity_tree/edges/` | `EntityTreeViewSet.list_edges` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:303-311` | public-to-authenticated |
 | `GET /nextseek_api/entity_tree/edge_attributes/` | `EntityTreeViewSet.list_edge_attributes` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:388-397` | public-to-authenticated |
@@ -363,6 +363,12 @@ scoping in NExtSEEK's own query layer (`getChildrenUIDs` in `seek/sample/trees.p
 `nextseek_api/views.py:717-729`), and that scoping is what the headline open question is about.
 
 ### Note C: two unscoped Neo4j traversals in `sample_types.py`
+
+**Resolved 2026-09-18.** Both actions now resolve the caller with `graph_search/scope.py::resolve_scope` and,
+for anyone but a superuser, require graph_search's scope clause on the named sample (`child_types`) and on
+every sample of the `DERIVED_FROM` path (both), so lineage stops at the edge of the caller's projects. A caller
+whose scope cannot be resolved, or who has no projects, reads nothing. `parents_by_child_types` no longer
+post-filters through SEEK. The text below describes the code before that change.
 
 `grep -in project nextseek_api/services/sample_types.py` returns **zero** hits (verified,
 exit 1). Both actions call `resolve_seek_auth(request, ["BASIC", "SESSION"])` at

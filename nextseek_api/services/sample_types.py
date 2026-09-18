@@ -14,62 +14,82 @@ from pydantic import ValidationError
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
 from nextseek_api.graph_sync import hooks
+from nextseek_api.graph_search.query import _LINEAGE_PATH_SCOPE, _SCOPE_MATCH
+from nextseek_api.graph_search.scope import Scope, resolve_scope
 import logging
-from django.db import connections
-from seek.seekdb import SeekDB
 
 
-def _scope_graph_rows_to_caller_projects(request, basic_tuple, rows, uuid_key="uuid"):
-    """Drop graph rows whose sample is not in one of the caller's SEEK projects.
+def _caller_scope(request) -> Optional[Scope]:
+    """The caller's project scope, as graph_search resolves it, or None when it cannot be resolved.
 
-    The graph cannot be scoped in Cypher: Sample nodes carry only
-    Parent/Protocol/UID/id/parent_titles/type/uuid, with no project membership
-    (verified against the live graph 2026-08-20). So the authoritative membership
-    table in MySQL, projects_samples, is consulted after the fact instead.
-
-    is_superuser ALONE is the admin predicate, never is_staff -- dmac/views.py:80,97
-    sets is_staff on every SEEK user at login, so it admits everyone.
-
-    Fails closed: if the caller's projects cannot be resolved, nothing is returned
-    rather than everything.
+    A superuser is unscoped; anyone else sees the samples whose ``project_ids`` meet their projects (``is_staff`` is
+    never read: the SEEK login sets it on everyone). None, like an empty project set, sees nothing.
     """
-    if bool(getattr(request.user, "is_superuser", False)):
-        return rows
-    if not (basic_tuple and basic_tuple[0] and basic_tuple[1]):
-        # See samples.py: a Token-authenticated caller resolves no Basic pair, so the
-        # SEEK project lookup cannot run. Return nothing rather than everything.
-        logging.getLogger(__name__).warning(
-            "No SEEK credentials resolved for caller; scoping to no projects")
-        return []
     try:
-        seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
-        projects = seekdb.getCurrentUser()["data"]["relationships"]["projects"]["data"]
-        project_ids = [str(p["id"]) for p in projects]
-    except Exception:
-        logging.getLogger(__name__).exception(
-            "Could not resolve SEEK projects for the caller; scoping to none")
-        project_ids = []
-    if not project_ids:
-        return []
+        return resolve_scope(request.user)
+    except Exception as exc:  # noqa: BLE001 (ScopeUnavailable or a membership read failure: fail closed)
+        logging.getLogger(__name__).warning("sample type lineage: the caller's project scope could not be "
+                                            "resolved (%s); returning nothing", type(exc).__name__)
+        return None
 
-    uuids = [r.get(uuid_key) for r in rows if r.get(uuid_key)]
-    if not uuids:
-        return []
-    up = ", ".join(["%s"] * len(uuids))
-    pp = ", ".join(["%s"] * len(project_ids))
-    sql = (
-        "SELECT DISTINCT s.uuid FROM samples s "
-        "JOIN projects_samples ps ON ps.sample_id = s.id "
-        f"WHERE s.uuid IN ({up}) AND ps.project_id IN ({pp})"
-    )
-    try:
-        with connections[settings.SEEK_DATABASE].cursor() as cursor:
-            cursor.execute(sql, list(uuids) + project_ids)
-            visible = {row[0] for row in cursor.fetchall()}
-    except Exception:
-        logging.getLogger(__name__).exception("Project scope lookup failed; scoping to none")
-        return []
-    return [r for r in rows if r.get(uuid_key) in visible]
+
+def _sees_nothing(scope: Optional[Scope]) -> bool:
+    return scope is None or (not scope.is_admin and not scope.project_ids)
+
+
+# The lineage statements. A superuser's are unchanged. For anyone else the sample named in the request and every
+# sample on the DERIVED_FROM path must pass graph_search's scope clause, so lineage stops at the edge of the caller's
+# projects (docs/superpowers/specs/2026-09-18-graph-cypher-scope.md, decision 3).
+_CHILD_TYPES_CYPHER = """
+                    MATCH (s: Sample {id: toInteger($id)})
+                    MATCH (s)<-[:DERIVED_FROM*1..]-(child)
+                    RETURN DISTINCT child.type AS type
+                    ORDER BY type
+                    """
+# One row per visible child type; a single row whose type is null when the sample is visible and has no visible
+# child; no row when the sample itself is not visible.
+_CHILD_TYPES_SCOPED_CYPHER = f"""
+                    MATCH (s: Sample {{id: toInteger($id)}})
+                    WHERE {_SCOPE_MATCH}
+                    OPTIONAL MATCH lineage_path = (s)<-[:DERIVED_FROM*1..]-(child)
+                    WHERE {_LINEAGE_PATH_SCOPE}
+                    RETURN DISTINCT child.type AS type
+                    ORDER BY type
+                    """
+
+
+def _parents_cypher(with_parent_filter: bool, scoped: bool) -> str:
+    """The parents-by-child-types statement; ``scoped`` adds the caller's scope on every node of the path."""
+    head = "WITH $types AS input_types, $parent_types AS parent_types" if with_parent_filter \
+        else "WITH $types AS input_types"
+    parent_where = "WHERE p.type IN parent_types" if with_parent_filter else ""
+    if not scoped:
+        return f"""
+                {head}
+                MATCH (p:Sample)
+                {parent_where}
+                MATCH (c:Sample)-[:DERIVED_FROM*1..]->(p)
+                WHERE c.type IN input_types
+                WITH p, collect(DISTINCT c.type) AS matched_types, input_types
+                WHERE size(matched_types) = size(input_types)
+                RETURN p.id AS id, p.uuid AS uuid, p.type AS type
+                ORDER BY id
+            """
+    parent_scope = "any(q IN p.project_ids WHERE q IN $projects)"
+    parent_where = f"{parent_where} AND {parent_scope}" if with_parent_filter else f"WHERE {parent_scope}"
+    return f"""
+                {head}
+                MATCH (p:Sample)
+                {parent_where}
+                MATCH lineage_path = (c:Sample)-[:DERIVED_FROM*1..]->(p)
+                WHERE c.type IN input_types AND {_LINEAGE_PATH_SCOPE}
+                WITH p, collect(DISTINCT c.type) AS matched_types, input_types
+                WHERE size(matched_types) = size(input_types)
+                RETURN p.id AS id, p.uuid AS uuid, p.type AS type
+                ORDER BY id
+            """
+
+
 from nextseek_api.endpoint_descriptions import (
     SAMPLETYPE_LIST_DESC,
     SAMPLETYPE_FETCH_DESC,
@@ -342,20 +362,22 @@ class SampleTypeChildrenViewSet(viewsets.GenericViewSet):
         if seek_id is None:
             return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        # A sample outside the caller's projects reads as one that does not exist.
+        scope = _caller_scope(request)
+        if _sees_nothing(scope):
+            return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
+        if scope.is_admin:
+            query, query_params = _CHILD_TYPES_CYPHER, {"id": int(seek_id)}
+        else:
+            query = _CHILD_TYPES_SCOPED_CYPHER
+            query_params = {"id": int(seek_id), "projects": list(scope.project_ids)}
+
         NEO4J_DATABASE = settings.NEO4J_DATABASE
         try:
             with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
-                query = (
-                    """
-                    MATCH (s: Sample {id: toInteger($id)})
-                    MATCH (s)<-[:DERIVED_FROM*1..]-(child)
-                    RETURN DISTINCT child.type AS type
-                    ORDER BY type
-                    """
-                )
                 records, summary, keys = driver.execute_query(
                     query,
-                    id=int(seek_id),
+                    **query_params,
                     database_=NEO4J_DATABASE['NAME']
                 )
                 # Deduplicate and sort types (Neo4j DISTINCT may not work with variable-length paths)
@@ -364,6 +386,8 @@ class SampleTypeChildrenViewSet(viewsets.GenericViewSet):
             return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception:
             return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
+        if not scope.is_admin and not records:
+            return Response({"detail": "Sample not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # Look up sample type details (id, description) from database
         type_details: dict = {}
@@ -479,52 +503,32 @@ class SamplesByChildTypesViewSet(viewsets.GenericViewSet):
                 elif isinstance(item, str):
                     parent_types.append(item.strip().upper())
 
-        # Build Cypher query with optional parent type filtering
-        if parent_types:
-            cypher = """
-                WITH $types AS input_types, $parent_types AS parent_types
-                MATCH (p:Sample)
-                WHERE p.type IN parent_types
-                MATCH (c:Sample)-[:DERIVED_FROM*1..]->(p)
-                WHERE c.type IN input_types
-                WITH p, collect(DISTINCT c.type) AS matched_types, input_types
-                WHERE size(matched_types) = size(input_types)
-                RETURN p.id AS id, p.uuid AS uuid, p.type AS type
-                ORDER BY id
-            """
-        else:
-            cypher = """
-                WITH $types AS input_types
-                MATCH (p:Sample)
-                MATCH (c:Sample)-[:DERIVED_FROM*1..]->(p)
-                WHERE c.type IN input_types
-                WITH p, collect(DISTINCT c.type) AS matched_types, input_types
-                WHERE size(matched_types) = size(input_types)
-                RETURN p.id AS id, p.uuid AS uuid, p.type AS type
-                ORDER BY id
-            """
-
-        NEO4J_DATABASE = settings.NEO4J_DATABASE
-        try:
-            with GraphDatabase.driver(NEO4J_DATABASE["URI"], auth=NEO4J_DATABASE["AUTH"]) as driver:
-                query_params = {"types": input_types}
-                if parent_types:
-                    query_params["parent_types"] = parent_types
-                records, summary, keys = driver.execute_query(
-                    cypher,
-                    **query_params,
-                    database_=NEO4J_DATABASE["NAME"],
-                )
-        except Neo4jError:
-            return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
-        except Exception:
-            return Response({"errors": [{"title": "Invalid upstream response"}]}, status=status.HTTP_502_BAD_GATEWAY)
-
-        # Data scope. This endpoint returns real sample UUIDs, so it is a data path,
-        # not schema metadata -- it previously returned parents from every project to
-        # any authenticated caller. See the helper for why this filters after the
-        # Cypher rather than inside it.
-        records = _scope_graph_rows_to_caller_projects(request, basic_tuple, records)
+        # Data scope. This endpoint returns real sample UUIDs: a caller who is not a superuser reads only parents,
+        # children and path samples in their own projects, so a visible parent is never returned because of a
+        # descendant the caller cannot see.
+        scope = _caller_scope(request)
+        records = []
+        if not _sees_nothing(scope):
+            cypher = _parents_cypher(with_parent_filter=bool(parent_types), scoped=not scope.is_admin)
+            query_params = {"types": input_types}
+            if parent_types:
+                query_params["parent_types"] = parent_types
+            if not scope.is_admin:
+                query_params["projects"] = list(scope.project_ids)
+            NEO4J_DATABASE = settings.NEO4J_DATABASE
+            try:
+                with GraphDatabase.driver(NEO4J_DATABASE["URI"], auth=NEO4J_DATABASE["AUTH"]) as driver:
+                    records, summary, keys = driver.execute_query(
+                        cypher,
+                        **query_params,
+                        database_=NEO4J_DATABASE["NAME"],
+                    )
+            except Neo4jError:
+                return Response({"errors": [{"title": "Invalid upstream response"}]},
+                                status=status.HTTP_502_BAD_GATEWAY)
+            except Exception:
+                return Response({"errors": [{"title": "Invalid upstream response"}]},
+                                status=status.HTTP_502_BAD_GATEWAY)
 
         # Collect unique sample types from results for description lookup
         unique_types = set()
