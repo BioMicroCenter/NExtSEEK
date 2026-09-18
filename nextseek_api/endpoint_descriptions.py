@@ -842,7 +842,7 @@ GRAPH_SEARCH_DESC = (
     "`attribute`, `attribute_logic`, `filter_matchType` (`PARTIAL`/`EXACT`). Plus an optional `extensions` object: "
     "`where`, a list of `{sample_type, attribute, op, value}` ANDed on one sample type, `op` one of `=`, `<>`, `<`, "
     "`<=`, `>`, `>=`, `IN` (a list value), `CONTAINS`, `STARTS WITH`, exact and case-sensitive, the value cast by the "
-    "attribute's type; and `lineage`, `{direction: ancestor or descendant, sample_type, max_hops: 1 to 4}`. Query "
+    "attribute's type (the string operators compare the stored value's text); and `lineage`, `{direction: ancestor or descendant, sample_type, max_hops: 1 to 4}`. Query "
     "parameters: `page` (1-based), `page_size` (default 100, max 1000), `debug_meta=1`.\n\n"
     "**RETURNS:** advanced_search's envelope: `total` (every match), `rows` (one page in ascending sample id order, "
     "each with `json_metadata`, `sample_type`, `uuid` and `assays`), `sampleTypes` and `noSampleTypes` (over every "

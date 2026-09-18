@@ -192,7 +192,8 @@ maximum 1,000), plus one optional field:
 
 `op` is one of `=`, `<>`, `<`, `<=`, `>`, `>=`, `IN`, `CONTAINS`, `STARTS WITH`. Every `where` item must name a
 sample type and an attribute that exists on it in the catalog (422 otherwise). Items are ANDed. Values are cast by the
-attribute's `value_type`. `lineage` keeps a sample only when a sample of that type lies within `max_hops` (1 to 4)
+attribute's `value_type`; `CONTAINS` and `STARTS WITH` compare the stored value's text (`toString`), so a number held by
+a string attribute matches by its digits, as advanced_search's Contain did. `lineage` keeps a sample only when a sample of that type lies within `max_hops` (1 to 4)
 DERIVED_FROM hops in that direction; ancestors and descendants are not returned, so they need no scoping.
 
 **Scope:**

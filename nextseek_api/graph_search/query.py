@@ -20,7 +20,8 @@ nextseek_api/services/samples.py::SampleAdvancedSearchViewSet.create:
   whitespace set (``btrim(..., $ws)``, because Cypher's ``trim`` keeps a no-break space); names are combined by
   ``attribute_logic`` (the first name alone when it is unset), terms by ``searchText_logic``.
 
-``extensions`` are graph_search's own: exact, typed, case-sensitive conditions, validated against the catalog.
+``extensions`` are graph_search's own: exact, typed, case-sensitive conditions, validated against the catalog. The
+string operators compare the value's text (``toString``), as advanced_search's Contain compared ``str(value)``.
 
 Every value is a parameter. The only text interpolated into Cypher is a catalog title or label (backtick-quoted,
 backticks doubled), an operator from a fixed set, and a hop count checked to be an integer from 1 to 4.
@@ -234,7 +235,10 @@ def _where(items: list, catalog: Catalog, params: dict) -> tuple[Optional[str], 
         cast = _where_value(value, catalog.value_type.get((sample_type, attribute), "string"), op)
         _check_int64(cast)
         params[f"w{i}"] = cast
-        predicates.append(f"{_prop(attribute)} {op} $w{i}")
+        # A string operator reads the value's text: a string attribute can hold a JSON number, which the graph keeps
+        # as a number, and advanced_search's Contain compared str(value).
+        prop = f"toString({_prop(attribute)})" if op in _STRING_OPS else _prop(attribute)
+        predicates.append(f"{prop} {op} $w{i}")
     return label, predicates
 
 

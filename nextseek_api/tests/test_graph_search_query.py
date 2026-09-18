@@ -451,9 +451,19 @@ def test_where_string_operators_take_the_value_as_text():
     q = _build({"filter_searchText": "", "extensions": {"where": [
         {"sample_type": "TIS", "attribute": "CellCount", "op": "STARTS WITH", "value": 12},
         {"sample_type": "TIS", "attribute": "Organ", "op": "CONTAINS", "value": "Lu"}]}})
-    assert "s.`CellCount` STARTS WITH $w0" in _where_line(q)
-    assert "s.`Organ` CONTAINS $w1" in _where_line(q)
+    assert "toString(s.`CellCount`) STARTS WITH $w0" in _where_line(q)
+    assert "toString(s.`Organ`) CONTAINS $w1" in _where_line(q)
     assert q.params["w0"] == "12" and q.params["w1"] == "Lu"
+
+
+def test_where_string_operators_read_the_text_of_a_value_stored_as_a_number():
+    # The Simple box's Contain was `From in str(value).strip()` (seek/dbtable_sampleattribute.py STRING_RULES), so a
+    # number held by a string attribute matched by its digits. The graph keeps such a value as a number, and Cypher's
+    # CONTAINS on a number is null, so the operator reads the property through toString().
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "D.SEQ", "attribute": "Reads", "op": "CONTAINS", "value": "12"}]}})
+    assert _where_line(q) == "toString(s.`Reads`) CONTAINS $w0"
+    assert q.params["w0"] == "12"
 
 
 def test_where_items_are_anded():
