@@ -62,6 +62,27 @@ ASSISTANT_BUNDLE_DOWNLOAD_DESC = (
     "- `GET /nextseek_api/assistant/sessions/abc123/bundles/1/?part=metadata`\n"
 )
 
+ASSISTANT_SESSION_DOWNLOAD_DESC = (
+    "**SUMMARY:** Download a whole chat session as one zip: the transcript and every turn's files.\n\n"
+    "**USE WHEN:** The user wants everything a chat produced in one file, including turns older than the "
+    "one the Debug panel shows.\n\n"
+    "**DO NOT USE WHEN:** One file of one turn is enough; use "
+    "`GET /assistant/sessions/{sid}/bundles/{bid}/artifacts/{key}/` or the Container-CC per-turn download.\n\n"
+    "**ACCEPTS:** `session_id` as a path parameter (UUID). The caller must own the session; a superuser may "
+    "download anyone's.\n\n"
+    "**RETURNS:** A streamed `application/zip` attachment holding `transcript.md` and `transcript.json` "
+    "(the turns as the chat shows them), one `turn-NN/` folder per turn with files, one `bundle-N/` folder "
+    "per bundle that belongs to no turn (granular ops), and `manifest.json` last. NS files are served only "
+    "from inside the outputs roots; Container-CC files only from the owner's CC tree, which is resolved "
+    "through the owner's own SEEK login, so a superuser's download of another user's chat lists those "
+    "files as skipped. `manifest.json` names every file shipped and every file left out, with a reason "
+    "code, never a server path.\n\n"
+    "**ERROR CODES:** 401 unauthenticated; 403 not the owner; 404 no such session.\n\n"
+    "**TRIGGER PHRASES:** download all, download chat, export session, all assets, zip of the chat\n\n"
+    "**EXAMPLES:**\n"
+    "- `GET /nextseek_api/assistant/sessions/abc123-def456/download/`\n"
+)
+
 ASSISTANT_TEST_CASES_DESC = (
     "**SUMMARY:** List all configured test cases for the NExtSEEK assistant.\n\n"
     "**USE WHEN:** An admin wants to see available test prompts for validation.\n\n"

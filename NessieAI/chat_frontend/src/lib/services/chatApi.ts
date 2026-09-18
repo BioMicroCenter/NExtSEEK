@@ -429,4 +429,35 @@ export class NextseekApiService {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
+
+  /**
+   * The whole chat as one zip: the transcript plus every turn's files, from
+   * both the NS and the Container-CC artifact roots. Keyed on the session only,
+   * so a turn older than the Debug panel's bundle is included too.
+   */
+  async downloadSession(sessionId: string): Promise<void> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/${sessionId}/download/`,
+      { headers: { ...this.auth.getAuthHeaders() } },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to download the chat: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition");
+    const filenameMatch = disposition?.match(/filename="?(.+?)"?$/);
+    const filename = filenameMatch?.[1] ?? `nessie-chat-${sessionId.slice(0, 8)}.zip`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 }
