@@ -11,7 +11,7 @@
     },
     {
       "label": "Investigation",
-      "description": "A project grouping one or more studies. Property 'title'. Known values: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet."
+      "description": "A project grouping one or more studies. Property 'title'. Known values: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, and TCGA, which is not on every instance (loaded on local and dev only)."
     }
   ],
   "relationships": [
@@ -60,7 +60,7 @@
     "If the query involves project-level upload counts or statistics over time \u2192 reporter (not graph_query)",
     "If the query filters or reports on a descriptive sample attribute (Scientist, Notes, Name, storage, treatment, concentration, dates, shipping, imaging fields) \u2192 API. The advanced_search endpoint filters and reports sample attributes directly.",
     "If the query concerns lineage structure (parents, children, ancestry, derivation chains, any 'Parent' property) \u2192 graph_query, even when a specific UID is present.",
-    "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet",
+    "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, TCGA (TCGA is not on every instance)",
     "If the query mentions a DOI, a PMID, a paper, or a publication \u2192 graph_query (DOI/PMID live on Study nodes and no REST endpoint filters samples by them)"
   ]
 }

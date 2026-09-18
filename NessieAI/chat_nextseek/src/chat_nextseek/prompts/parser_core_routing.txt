@@ -19,7 +19,7 @@ The Neo4j knowledge graph stores biological entities and the relationships betwe
 Node types: Sample, with property "type" for the sample type code; Study, with "title"; Investigation, project-level grouping with "title".
 Relationships: DERIVED_FROM between samples, carrying assay and protocol metadata on the relationship itself; IN_STUDY from sample to study; IN_INVESTIGATION from study to investigation.
 
-Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet.
+Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, and TCGA, which is not on every instance (loaded on local and dev only): where a query scoped to it finds no samples, it is not loaded here.
 Note: "GBM" is a study inside the GBM_BTC investigation. Most other study titles are
 full paper titles, not short codes, because in this instance a study IS a published paper.
 
@@ -43,7 +43,7 @@ sample field, use new_search.
 
 Do NOT use graph_query when:
 - The scope is a research lab or PI. A lab/PI is NOT a graph node — it is encoded in the
-  sample UID as a 3-letter code (ENTITY_RESULT.lab_codes, e.g. Kamm -> KAM). A lab-scoped
+  sample UID as a 3-letter code (ENTITY_RESULT.lab_codes, matched from SEEK's lab records). A lab-scoped
   query is a UID/attribute filter: use new_search and copy ENTITY_RESULT.lab_codes into
   filters.lab_codes. This holds even for "how many ... in the X lab" counts.
 - The user is filtering samples purely by attributes with no organizational scope, no named Study or Investigation, no relationship traversal, no graph aggregation, and no assay/protocol metadata on relationships. If the query can be fully answered by filtering on sample record fields, use new_search.
@@ -280,9 +280,9 @@ Include a filters object for the chosen route. In ParserPlan, this is the top-le
   "assay_codes": [string],
   "keywords": [string],
   "uids": [string],
-  "lab_codes": ["<3-letter UID code, e.g. KAM>"]
+  "lab_codes": ["<3-letter UID code>"]
 }
 
-For a lab/PI-scoped query, copy ENTITY_RESULT.lab_codes into filters.lab_codes — these match the lab's 3-letter code inside the sample UID (e.g. Kamm -> KAM) and the api_agent injects them into the UID search.
+For a lab/PI-scoped query, copy ENTITY_RESULT.lab_codes into filters.lab_codes exactly as given. Never derive a code from a name: the codes come only from SEEK's lab records, and code drops any other. They match the lab's 3-letter code inside the sample UID, and the api_agent injects them into the UID search. A lab does not imply a project scope.
 If the chosen endpoint requires identifiers, filters.uids must be populated.
 If an entity is present but not usable by the chosen path, keep it in resolved and note it briefly in the notes or rationale field.

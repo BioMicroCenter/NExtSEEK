@@ -20,7 +20,7 @@ Node types: Sample, carrying every metadata attribute of the sample as a propert
 Relationships: DERIVED_FROM between samples, child to parent across any number of steps, carrying assay and protocol metadata on the relationship itself; IN_STUDY from sample to study; IN_INVESTIGATION from study to investigation; IN_PROJECT from sample to project.
 The graph agent writes Cypher over all of this, so it can filter on any attribute or on text anywhere in a sample, combine conditions with AND, OR and NOT, compare numbers and dates, count, group and break down, list the distinct values of an attribute, match a lab code inside UIDs, and follow lineage in either direction.
 
-Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet.
+Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, and TCGA, which is not on every instance (loaded on local and dev only): where a query scoped to it finds no samples, it is not loaded here.
 Note: "GBM" is a study inside the GBM_BTC investigation. Most other study titles are
 full paper titles, not short codes, because in this instance a study IS a published paper.
 
@@ -45,8 +45,8 @@ files, a metadata export of samples named by UID, and the lineage tree view of o
 
 - A person's name in a sample question is sample metadata. A lab head or PI
   (ENTITY_RESULT.labs, with its code in ENTITY_RESULT.lab_codes) scopes samples by the lab
-  code inside their UIDs; any other person is the Scientist recorded on the samples. Both
-  are graph_query. Never use /people/ for this: it lists registered SEEK user accounts, not
+  code inside their UIDs; any other person (ENTITY_RESULT.scientists) is the Scientist
+  recorded on the samples. Both are graph_query. A lab does not imply a project scope. Never use /people/ for this: it lists registered SEEK user accounts, not
   the people who made the samples.
 - Questions about how values or keys are written across records (spelling variants, likely
   duplicates, which records use a key, which values an attribute holds) are graph_query,
@@ -287,6 +287,6 @@ Include a filters object for the chosen route. In ParserPlan, this is the top-le
   "lab_codes": ["<3-letter UID code>"]
 }
 
-For a lab/PI-scoped query, copy ENTITY_RESULT.lab_codes into filters.lab_codes — these match the lab's 3-letter code inside the sample UID (TYPE-YYMMDDLAB-n), which is where the graph agent matches them.
+For a lab/PI-scoped query, copy ENTITY_RESULT.lab_codes into filters.lab_codes exactly as given, never deriving a code from a name: the codes come only from SEEK's lab records. They match the lab's 3-letter code inside the sample UID (TYPE-YYMMDDLAB-n), which is where the graph agent matches them.
 If the chosen endpoint requires identifiers, filters.uids must be populated.
 If an entity is present but not usable by the chosen path, keep it in resolved and note it briefly in the notes or rationale field.

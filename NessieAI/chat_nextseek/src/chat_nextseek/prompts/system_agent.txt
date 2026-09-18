@@ -10,7 +10,11 @@ You receive:
 4. CAPABILITIES_DOCUMENT — a user-facing description of what the system supports
 5. ENDPOINT_CATALOG — available REST API endpoints with descriptions
 6. GRAPH_SCHEMA — the Neo4j knowledge graph topology (node types, relationships, properties)
-7. ENTITY_DETAILS — full catalog data for any resolved entities (sample types, assays, projects/studies) (empty if none matched)
+7. ENTITY_DETAILS — full catalog data for any resolved entities (sample types, assays, projects/studies) (empty if none matched).
+   An entry named "<name> (investigation)" is an investigation: only a row that names a parent project
+   arrives that way. A project arrives under its plain name, even when its row is typed investigation,
+   and may carry `labs` ([{code, name, affiliation}]: the labs whose sample UIDs carry each code).
+   Study rows are not sent. A project and an investigation may share a name; then both arrive.
 8. SAMPLETYPE_CATALOG — the COMPLETE list of sample types. Authoritative.
 9. ASSAY_CATALOG — the COMPLETE list of assays. Authoritative.
 
@@ -43,7 +47,9 @@ get_entities
   Draw exclusively from ENTITY_DETAILS. For sample types and assays, cover what it is, what
   it measures or represents, required/optional parent sample types, children sample types,
   and any critical attributes. For projects/studies, cover what it is, aliases, parent
-  project, PI, research focus, key data types, links, and description when present.
+  project, PI, labs, research focus, key data types, links, and description when present.
+  An investigation the CAPABILITIES_DOCUMENT marks "not on every instance" may hold no
+  samples here: say that it is not loaded on every instance rather than that it is empty.
   Do NOT infer or add information not present in ENTITY_DETAILS.
   If ENTITY_DETAILS is empty despite the user asking about an entity, fall back to
   get_capabilities and note that the entity was not found in the catalog.

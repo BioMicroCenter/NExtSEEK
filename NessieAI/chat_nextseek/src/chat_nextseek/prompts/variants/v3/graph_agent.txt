@@ -8,7 +8,7 @@ Work through the steps below before you write the query. Every question about sa
 
 - **GRAPH SCHEMA**: the structure of the graph (labels, relationships, system properties, rules), an index of every sample type, and a section for each resolved sample type listing its attributes that hold values. This is the schema. When the live catalog is unavailable you get a JSON schema instead; use it the same way.
 - **GRAPH VOCABULARY**: investigation and project titles, and, when the question mentions them, study titles, published studies, assay titles, assay-sample connections and protocol titles.
-- **The resolved entities and filters** from the upstream steps: `resolved.sampletypes` (type codes), `resolved.assays`, `resolved.keywords`, `resolved.projects`, `resolved.labs` (people named as a lab or PI) and `resolved.lab_codes` / `filters.lab_codes` (their three-letter UID codes), and `filters.uids`. These are hints about intent, and they over-resolve: an assay, project or sample type the question does not mention is the entity step's guess. The question itself decides what is asked; the schema decides how it is stored. Never add a filter the question does not ask for, and never widen a search to a guessed entity.
+- **The resolved entities and filters** from the upstream steps: `resolved.sampletypes` (type codes), `resolved.assays`, `resolved.keywords`, `resolved.projects`, `resolved.labs` (people named as a lab or PI, as SEEK's lab records spell them) and `resolved.lab_codes` / `filters.lab_codes` (their three-letter UID codes, matched from those records; `resolved.lab_matches` names each lab for the explanation), `resolved.scientists` (people named as who made, collected or handled samples), and `filters.uids`. These are hints about intent, and they over-resolve: an assay, project or sample type the question does not mention is the entity step's guess. The question itself decides what is asked; the schema decides how it is stored. Never add a filter the question does not ask for, and never widen a search to a guessed entity.
 - **A UID CHECK block**, when the question names a UID: whether each UID is in the graph and under which spelling (a -PUB suffix is sometimes stored, sometimes not). Use the stored spelling it gives.
 - **The question.**
 
@@ -90,7 +90,7 @@ When a UID CHECK block is present, use the UID as it says the graph stores it; a
 
 **A person's name**:
 - a lab head or PI (the name is in `resolved.labs`, or the question says "the X lab", "X's lab", "from X's group"): the lab code in the UID, as above. If the project the PI leads is also named, that is a separate project scope (STEP 5).
-- anyone else (the question says who made, collected, handled or is the scientist for the samples, or the name is in `resolved.keywords`): the `Scientist` attribute, which holds a full name: `toLower(toString(s.Scientist)) CONTAINS toLower($person)`, so a surname also matches the full name.
+- anyone else (the question says who made, collected, handled or is the scientist for the samples, or the name is in `resolved.scientists`, which is also copied into `resolved.keywords`): the `Scientist` attribute, which holds a full name: `toLower(toString(s.Scientist)) CONTAINS toLower($person)`, so a surname also matches the full name.
 - Never use `Person` nodes for a name: they carry no names.
 
 ---
@@ -173,6 +173,7 @@ WHERE toLower(st.title) CONTAINS toLower($project)
                WHERE toLower(inv.title) CONTAINS toLower($project) }
 ```
   A `WHERE` directly after an `OPTIONAL MATCH` becomes part of the optional pattern instead of filtering rows, so every row survives and the filter is silently lost. If you must use `OPTIONAL MATCH`, put a `WITH <all bound variables>` between it and any filter on earlier variables. When the name is one of the PROJECT TITLES and none of the INVESTIGATION TITLES, use `(s:Sample)-[:IN_PROJECT]->(p:Project)` matched on `p.title`.
+- An investigation marked not on every instance (TCGA) that a scoped query finds nothing in is not loaded on this instance: say so rather than reporting zero.
 - If the scope matches nothing, the name may be recorded only as a sample value (a Study or Cohort attribute): say so in the explanation, and match it in `search_text` on the retry rather than reporting zero as settled.
 - **Papers**: DOI and PMID are properties of Study, UPPERCASE, and the unset value is an empty string, not null. `WHERE st.DOI IS NOT NULL` is true for every study; test `coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> ''`. Match a DOI with `toLower(st.DOI) = toLower($doi)` (DOIs are stored lowercased) and a PMID as a string. Most studies are unpublished; "not published" is a correct answer, not a failed lookup.
 

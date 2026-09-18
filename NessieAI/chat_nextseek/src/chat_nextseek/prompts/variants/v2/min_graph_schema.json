@@ -15,7 +15,7 @@
     },
     {
       "label": "Investigation",
-      "description": "A project grouping one or more studies. Property 'title'. Known values: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet."
+      "description": "A project grouping one or more studies. Property 'title'. Known values: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, and TCGA, which is not on every instance (loaded on local and dev only)."
     },
     {
       "label": "Project",
@@ -78,7 +78,7 @@
     "If the query involves project-level upload counts or statistics over time \u2192 reporter (not graph_query)",
     "If the query filters or reports on a descriptive sample attribute (Scientist, Notes, Name, storage, treatment, concentration, dates, shipping, imaging fields) \u2192 graph_query. The attribute is a property of the Sample node; advanced_search matches text anywhere in a record and cannot restrict it to one attribute, compare numbers, AND two terms or aggregate.",
     "If the query concerns lineage structure (parents, children, ancestry, derivation chains, any 'Parent' property) \u2192 graph_query, even when a specific UID is present.",
-    "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet",
+    "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, TCGA (TCGA is not on every instance)",
     "If the query mentions a DOI, a PMID, a paper, or a publication \u2192 graph_query (DOI/PMID live on Study nodes and no REST endpoint filters samples by them)",
     "If the query is a plain keyword or attribute search with no scope at all ('find X samples', 'samples mentioning Y') \u2192 graph_query; REST sample searches serve only refinements of a result that came from REST",
     "If the query names a person: a lab or PI (ENTITY_RESULT.labs / lab_codes) \u2192 graph_query on the lab code inside UIDs; anyone else \u2192 graph_query on the Scientist attribute. Never /people/, which lists registered user accounts"
