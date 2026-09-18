@@ -362,11 +362,6 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="skipped wherever assay_slug is None, i.e. wherever the list page "
                "rendered no assays to scrape a link from"),
-    Route(pattern=r"^seek/^graph/search/", path="/seek/graph/search/",
-          effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=200,
-          note="Sample Search whose results come from POST /nextseek_api/samples/graph_search/, "
-               "which is local,dev only, so the page is too"),
     Route(pattern=r"^seek/^help/$", path="/seek/help/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200),
@@ -444,7 +439,8 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^search/", path="/seek/search/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="the daily driver"),
+          note="the daily driver; both of its search boxes POST to "
+               "/nextseek_api/samples/graph_search/ from the browser"),
     Route(pattern=r"^seek/^sop/query/", path="/seek/sop/query/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
@@ -570,12 +566,12 @@ REGISTRY: list[Route] = [
                 "seek/views/search.py::searchingAdvanced, whose filter builder indexes "
                 "the query string for required parameters with no default, so a bare "
                 "GET is a 500 rather than a 400",
-          note="the JSON behind the advanced-search grid. Read-only, and prod-enabled "
-               "for that reason: it is where the sample fixtures find a real sample id "
-               "and UID, so without it the sample pages and the sample-page flow have "
-               "nothing to ask for under prod. The bare GET T0 sends is pinned by the "
-               "xfail above; the parameterised query is the one discovery and the "
-               "flows make"),
+          note="the JSON the Sample Search page's Advanced box read before both of its "
+               "boxes moved to graph_search; no page calls it now. Read-only, and "
+               "prod-enabled for that reason: it is where the sample fixtures find a real "
+               "sample id and UID, so without it the sample pages and the sample-page flow "
+               "have nothing to ask for under prod. The bare GET T0 sends is pinned by the "
+               "xfail above; the parameterised query is the one discovery makes"),
     Route(pattern=r"^seek/^searchUIDs/", path="/seek/searchUIDs/",
           effect="reads",
           methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),

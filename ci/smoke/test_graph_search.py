@@ -11,10 +11,10 @@ is a 200 with total 0. Local and dev only, like the route: under prod the guard
 refuses the POST before it is sent.
 
 Two things about the request are deliberate. `page` and `page_size` go in the query
-string, the way the Graph Search page sends them: the body is advanced_search's
+string, the way the Sample Search page sends them: the body is advanced_search's
 model, which forbids unknown keys, so either one in the body is a 422. And
 `filter_searchText` is required by that model, so a search for every sample of one
-type sends it empty, as the page's Simple tab does.
+type sends it empty, as the page's Simple box does.
 """
 from __future__ import annotations
 

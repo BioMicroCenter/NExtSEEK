@@ -343,14 +343,15 @@ Passing both exits 2 rather than deciding which one wins.
 
 The profile gates whole tests as well as routes. A test marked
 `@pytest.mark.profiles("local", "dev")` is **skipped** under any other profile.
-Five places carry it today. Two are browser flows. The first submits an upload for
-validation, the only flow in `test_flows.py` that makes the page issue a POST. Under `prod`
-the browser guard aborts that POST at the network layer, correctly, and the page
-would then wait out its own response timeout — five red minutes for a rule the
-suite had just enforced. Skipping says the same thing in a line.
+Six places carry it today. Three are browser flows, each because the page issues a
+POST. The first submits an upload for validation. Under `prod` the browser guard
+aborts that POST at the network layer, correctly, and the page would then wait out
+its own response timeout — five red minutes for a rule the suite had just enforced.
+Skipping says the same thing in a line.
 
-The second flow drives the Graph Search page, whose route and endpoint are themselves
-declared `local,dev`. The other three places are whole modules: `test_nessie.py`, which
+The other two flows drive the Sample Search page's Advanced and Simple boxes, which
+search by POSTing to graph_search, an endpoint itself declared `local,dev`. The other
+three places are whole modules: `test_nessie.py`, which
 writes a chat and pays for model turns; `test_graph_search.py`; and
 `test_graph_sync_status.py`, whose endpoint exists only where migration 0021 has been
 applied.

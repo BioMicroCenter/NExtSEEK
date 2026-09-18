@@ -116,13 +116,3 @@ def smartSearch(request):
 @requires_seek_login_redirect()
 def newSearch(request):
     return render(request, "newSearch.html")
-
-@requires_seek_login_redirect('/seek/graph/search/')
-def graphSearch(request):
-    '''Sample Search with its results served by POST /nextseek_api/samples/graph_search/.
-
-    The page makes those calls from the browser (seek/templates/graphSearch.html), so
-    the view only supplies the sample type list the forms offer.
-    '''
-    report = {'type_options': DBtable_sampletype().getSampleTypes()}
-    return render(request, "graphSearch.html", {'report': report})

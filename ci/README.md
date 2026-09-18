@@ -125,14 +125,14 @@ docstring lists the rules and what each skips.
 
 `ci/blocking_lanes.py` names, as globs in `BLOCKING_GLOBS`, the unit tests
 whose failure fails `ci-pytest.yml`: the graph_sync and graph_search tests
-under `nextseek_api/tests/`, and the Graph Search page's view and JavaScript
-tests under `seek/tests/`. It needs only the standard library. It prints the
+under `nextseek_api/tests/`, and the Sample Search page's view and JavaScript
+tests under `seek/tests/`, whose two search boxes call graph_search. It needs only the standard library. It prints the
 matched test paths, one per line, and exits 1 with nothing on stdout when a glob
 matches no file, because pytest given no path walks the whole tree;
 `ci/gate/test_blocking_lanes.py` holds the same rule in the gate. A new module
 joins by its name alone, so it has to pass where the workflow runs it: SQLite in
-memory, no network, no MySQL, no Neo4j. `seek/tests/test_graph_search_js.py`
-runs `seek/tests/js/graph_search_cases.js` under `node` and skips where node is
+memory, no network, no MySQL, no Neo4j. `seek/tests/test_sample_search_js.py`
+runs `seek/tests/js/sample_search_cases.js` under `node` and skips where node is
 missing, which is why the workflow step checks for node before it runs pytest.
 
 ### The baseline differ
@@ -226,7 +226,7 @@ directions), the docs map, and the check that every blocking glob matches a file
 (`ci/gate/test_blocking_lanes.py`).
 The blocking unit tests step fails when the runner has no `node`, when a
 blocking glob matches no file, and when any test `ci/blocking_lanes.py` names
-fails: the graph_sync and graph_search unit tests and the Graph Search page's
+fails: the graph_sync and graph_search unit tests and the Sample Search page's
 tests. A red pytest lane is a report about known-failing tests; lanes that did
 not run, an undeclared route, a docs-map failure or a failing blocking unit test
 is a stop. Neither step checks for missing migrations; `ci/CLAUDE.md`
@@ -291,7 +291,7 @@ docker run --rm -i --network none -e LOG_DIR=/tmp/nextseek-logs \
   /app/.venv/bin/python -m pytest $paths -q -p no:cacheprovider
 ```
 
-The image has no `node`, so `seek/tests/test_graph_search_js.py` skips there;
+The image has no `node`, so `seek/tests/test_sample_search_js.py` skips there;
 `ci/CLAUDE.md` "Landmines" says where to run it.
 
 **The docs map.** On the host, from the repo root, with only python3 and git:

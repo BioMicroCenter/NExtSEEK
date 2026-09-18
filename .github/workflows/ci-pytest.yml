@@ -118,7 +118,7 @@ jobs:
         run: uv run pytest ci/gate -q
 
       # The second blocking step: the unit tests ci/blocking_lanes.py names by
-      # glob (the graph_sync and graph_search tests, and the Graph Search page's
+      # glob (the graph_sync and graph_search tests, and the Sample Search page's
       # view and JavaScript tests). They also run in the lanes above, where a
       # failure is only a report; here any failure fails the job. A new module
       # joins by its name. The page's JavaScript module skips wherever node is
@@ -154,7 +154,7 @@ jobs:
           LOG_DIR: ${{ runner.temp }}/logs
         run: |
           if ! command -v node >/dev/null; then
-            echo "::error::node is not on this runner, so seek/tests/test_graph_search_js.py would skip every test instead of running them"
+            echo "::error::node is not on this runner, so seek/tests/test_sample_search_js.py would skip every test instead of running them"
             exit 1
           fi
           paths=$(python ci/blocking_lanes.py)

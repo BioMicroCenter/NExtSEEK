@@ -26,13 +26,6 @@ def test_every_glob_matches_at_least_one_file():
     )
 
 
-def test_the_graph_search_page_tests_block():
-    assert "seek/tests/test_graph_search_*.py" in blocking_lanes.BLOCKING_GLOBS
-    paths = blocking_lanes.expand(ROOT)
-    assert "seek/tests/test_graph_search_js.py" in paths
-    assert "seek/tests/test_graph_search_page.py" in paths
-
-
 def test_the_sample_search_page_tests_block():
     assert "seek/tests/test_sample_search_*.py" in blocking_lanes.BLOCKING_GLOBS
     paths = blocking_lanes.expand(ROOT)
@@ -64,7 +57,7 @@ def test_main_fails_and_prints_no_path_when_a_glob_matches_nothing():
             rc = blocking_lanes.main(Path(empty))
     assert rc == 1
     assert out.getvalue() == ""
-    assert "seek/tests/test_graph_search_*.py" in err.getvalue()
+    assert "seek/tests/test_sample_search_*.py" in err.getvalue()
 
 
 def test_the_blocking_job_checks_for_missing_migrations():

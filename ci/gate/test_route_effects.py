@@ -32,7 +32,7 @@ from ci.gate import writer_scan  # noqa: E402
 from ci.gate.live_routes import live_patterns, live_views  # noqa: E402
 from ci.routes import REGISTRY  # noqa: E402
 
-GRAPH_SEARCH_PAGE = r"^seek/^graph/search/"
+SAMPLE_SEARCH_PAGE = r"^seek/^search/"
 
 # Writers with a hook that no URL enters: the entry point is a command line, not a
 # route. Everything else that calls a hook is reached through a route, so it must
@@ -218,17 +218,18 @@ def test_every_view_site_is_a_file_of_this_repository():
             assert (ROOT / path).is_file(), f"{pattern}: {site} is not a file of this tree"
 
 
-def test_the_graph_search_page_resolves_to_its_own_view_and_reads():
-    """The page dev-graph added: spec 19.1 declares it read-only, and this pins it."""
-    assert live_views()[GRAPH_SEARCH_PAGE] == ("seek/views/search.py::graphSearch",)
-    page = [r for r in REGISTRY if r.pattern == GRAPH_SEARCH_PAGE]
+def test_the_sample_search_page_resolves_to_its_own_view_and_reads():
+    """Its view renders the forms and the sample type list and writes nothing; both of its
+    search boxes call graph_search from the browser. This pins it read-only."""
+    assert live_views()[SAMPLE_SEARCH_PAGE] == ("seek/views/search.py::searchAdvanced",)
+    page = [r for r in REGISTRY if r.pattern == SAMPLE_SEARCH_PAGE]
     assert [(r.effect, r.writers) for r in page] == [("reads", ())]
 
 
 def test_the_tripwire_reports_reads_routes_that_reach_a_writer():
     """Report-only, with one assertion. See this module's docstring for why.
 
-    The Graph Search page is the assertion because its view is known to read only:
+    The Sample Search page is the assertion because its view is known to read only:
     it asks DBtable_sampletype for the type list, which is a SELECT through
     DBtable.getComboboxOptions, and renders. A walk that reports that page is
     over-reaching badly enough that its output would not be worth reading.
@@ -245,7 +246,7 @@ def test_the_tripwire_reports_reads_routes_that_reach_a_writer():
         print(f"\ntripwire: {len(listed)} route(s) declared 'reads' reach a writer site")
         for pattern in sorted(listed):
             print(f"  {pattern}  ->  {', '.join(listed[pattern])}")
-    assert GRAPH_SEARCH_PAGE not in listed, (
-        f"the tripwire reports the Graph Search page as reaching {listed.get(GRAPH_SEARCH_PAGE)}, "
+    assert SAMPLE_SEARCH_PAGE not in listed, (
+        f"the tripwire reports the Sample Search page as reaching {listed.get(SAMPLE_SEARCH_PAGE)}, "
         "which its view does not: the walk has become too loose to read"
     )

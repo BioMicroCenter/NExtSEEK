@@ -140,3 +140,45 @@ def test_the_boxes_keep_the_request_shapes_graph_search_takes():
                   "numberSamplesFound", "numberSampleTypesFound"):
         assert f'id="{field}"' in advanced + (PAGES / "searchAdvanced_stable.embed.html").read_text(), field
     assert "function searchAdd()" in advanced
+
+
+# ---- the separate Graph Search page is retired: Sample Search is the one search page ----
+
+def test_the_graph_search_page_is_gone():
+    """/seek/graph/search/ was a second copy of this page, answered by graph_search. This page
+    is now answered by graph_search, so the copy, its view and its templates are retired;
+    the graph_search endpoint itself stays."""
+    import pytest
+    from django.urls import NoReverseMatch
+
+    import seek.views
+
+    with pytest.raises(NoReverseMatch):
+        reverse("graphSearch")
+    # Mezzanine's catch-all page view takes any path left over, so the old URL still
+    # resolves, to a page lookup that 404s; what matters is that no seek view answers it.
+    match = resolve("/seek/graph/search/")
+    assert match.url_name != "graphSearch"
+    assert not match.func.__module__.startswith("seek."), match.func.__module__
+    assert not hasattr(seek.views, "graphSearch")
+    assert not hasattr(seek.views.search, "graphSearch")
+    for name in ("graphSearch.html", "pages/graphSearch_core.embed.html",
+                 "pages/graphSearch_simple.embed.html", "pages/graphSearch_advanced.embed.html"):
+        assert not (ROOT / "seek" / "templates" / name).exists(), name
+    assert resolve(GRAPH_SEARCH).func is not None  # the endpoint stays; raises Resolver404 if not
+
+
+def test_the_sidebar_has_one_sample_search_link_to_this_page():
+    """As on origin/dev: Sample Search is one link, not a group of JSON and Graph Search."""
+    nav = (ROOT / "themes/NextSeek/templates/nav.embed.html").read_text()
+    assert "/seek/graph/search/" not in nav
+    assert "sampleSearchSubmenu" not in nav
+    link = re.search(r'<a href="([^"]*)" class="nav-link">\s*<i class="bi bi-collection"[^>]*></i>'
+                     r'<span>\{% trans "Sample Search" %\}</span>', nav)
+    assert link and link.group(1) == "/seek/search/"
+
+
+def test_no_template_links_to_the_retired_page():
+    for folder in (ROOT / "seek" / "templates", ROOT / "themes" / "NextSeek" / "templates"):
+        for path in folder.rglob("*.html"):
+            assert "/seek/graph/search/" not in path.read_text(errors="replace"), path

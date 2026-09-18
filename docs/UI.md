@@ -107,9 +107,8 @@ Every URL below is unprefixed: `USE_I18N = False` (`dmac/settings.py:56`), so th
 
 | Page | URL | View | Template | Embeds |
 |------|-----|------|----------|--------|
-| Sample Search (main) | `/seek/search/` | `views.searchAdvanced` (`seek/views/search.py:94`) | `seek/templates/searchAdvanced.html` (`seek/views/search.py:100`) | `pages/samples_search`, `samples_stable`, `searchAdvanced_search`, `searchAdvanced_stable`, `searchAdvanced_deletion` |
+| Sample Search (main) | `/seek/search/` | `views.searchAdvanced` (`seek/views/search.py:94`) | `seek/templates/searchAdvanced.html` (`seek/views/search.py:100`) | `pages/sampleSearch_core` (the page logic, tested under node by `seek/tests/js/sample_search_cases.js`), `samples_search`, `samples_stable`, `searchAdvanced_search`, `searchAdvanced_stable`, `searchAdvanced_deletion`; both search boxes and the phone form POST to `/nextseek_api/samples/graph_search/`, a page at a time |
 | Sample Search (legacy) | `/seek/samples/search/` | `views.sampleSearch` (`seek/views/search.py:13`) | **none: 302 to `/seek/search/`** (`seek/views/search.py:20`) | - |
-| Graph Search | `/seek/graph/search/` | `views.graphSearch` (`seek/views/search.py`) | `seek/templates/graphSearch.html` | `pages/graphSearch_core` (the page logic, tested under node by `seek/tests/js/graph_search_cases.js`), `graphSearch_simple`, `graphSearch_advanced`; results from `POST /nextseek_api/samples/graph_search/`, paged in the database |
 | New Search | `/seek/newsearch/` | `views.newSearch` (`seek/views/search.py:117`) | `seek/templates/newSearch.html` (`seek/views/search.py:118`) | six `pages/*_new*` embeds |
 | Data File Query | `/seek/datafile/query/` | `views.datafileQuery` (`seek/views/assets.py:57`) | `seek/templates/dataFilesPage.html` (`seek/views/assets.py:60`) | `pages/datafile_table.embed.html` |
 | Protocol (SOP) Query | `/seek/sop/query/` | `views.sopQuery` (`seek/views/assets.py:51`) | `seek/templates/sopsPage.html` (`seek/views/assets.py:54`) | `pages/sops_table.embed.html` |
