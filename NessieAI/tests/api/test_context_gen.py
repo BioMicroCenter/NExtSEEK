@@ -89,16 +89,13 @@ def _projects_ddl_columns() -> set[str]:
 
 
 def test_columns_match_the_fixtures_that_define_them():
-    """The DDL check. Two of the three fixtures are the generator's own output now.
+    """The DDL check, against fixtures this module does not write.
 
-    `cg.DDL["assays"]` and `cg.DDL["projects"]` ARE those two committed CREATE
-    TABLEs since phase 6, and `test_seed_matches_the_committed_files_shape` pins
-    the files to that output, so for those two this reads the module back to
-    itself. It still catches a spelling that drifts between `cg.TABLES` and
-    `cg.DDL`, which is worth having, but it is not independent evidence and the
-    comment above must not be read as claiming it is. The independent one is
-    `test_every_column_is_one_the_runtime_actually_reads`, below, whose fixture is
-    a consumer this module does not own.
+    The installer's startup/seed/sql/assay_context.sql and projects_context.sql
+    are the pre-generator files (the generator's own output is held in the
+    `.curated.sql` files beside them), and the model is Django's, so all three
+    are independent of `cg.DDL`. `test_every_column_is_one_the_runtime_actually_reads`,
+    below, checks the same columns against the consumer.
     """
     assert set(cg.COLUMNS["assays"]) == _assay_seed_columns()
     assert set(cg.COLUMNS["sample_types"]) == _model_columns() | {"repository_attributes"}
@@ -633,11 +630,7 @@ def test_no_curated_value_needs_a_backslash():
 # newlines as `\n` the way MySQL reads them. The update SQL deliberately does not
 # (see cg.literal), because that spelling means something else in SQLite.
 
-SEED_PATHS = {
-    "sample_types": Path("startup/seed/sql/sample_types_context.sql"),
-    "assays": Path("startup/seed/sql/assay_context.sql"),
-    "projects": Path("startup/seed/sql/projects_context.sql"),
-}
+SEED_PATHS = {table: cg.SEED_DIR / name for table, name in cg.SEED_FILES.items()}
 
 
 def test_seed_ddl_declares_exactly_the_columns_the_module_writes():
@@ -682,16 +675,33 @@ def test_seed_matches_the_committed_files_shape():
         assert committed == rendered, f"{path} is stale; regenerate it"
 
 
-def test_the_retired_assay_seed_generator_is_gone():
-    """Decided at 6.10: retired, not repointed.
+def test_no_seed_file_has_two_writers():
+    """Two programs writing one file from different sources is how it goes stale.
 
-    scripts/generate_assay_context_seed.py wrote the same file from a committed
-    JSON export of production. Two programs writing startup/seed/sql/
-    assay_context.sql from different sources is how the file goes stale without
-    anyone noticing, and context/ is now the source of truth.
+    Until the curated seeds are signed off, scripts/generate_assay_context_seed.py
+    keeps writing the installer's startup/seed/sql/assay_context.sql and this
+    module writes only the held `.curated.sql` files, so the two never share one.
     """
-    assert not (Path(cg.REPO_ROOT) / "scripts/generate_assay_context_seed.py").exists()
-    assert "context_gen.py" in _repo(Path("scripts/README.md"))
+    old = _repo(Path("scripts/generate_assay_context_seed.py"))
+    assert 'DEST = ROOT / "startup/seed/sql/assay_context.sql"' in old
+    assert all(name.endswith(".curated.sql") for name in cg.SEED_FILES.values())
+    assert "assay_context.sql" not in cg.SEED_FILES.values()
+
+
+def test_the_curated_seeds_are_held_until_sign_off():
+    """No install step reads the generated seeds until the content is signed off.
+
+    A fresh `install` or any `reset` runs the schema fixups, so registering a
+    `.curated.sql` file there would load the curated content on every new stack
+    before anyone had reviewed it. Switching them on is one reviewed commit
+    (scripts/README.md group C), and that commit inverts this test.
+    """
+    fixups = _repo(Path("startup/steps/schema_fixups.py"))
+    for name in cg.SEED_FILES.values():
+        assert name not in fixups, name
+    assert 'table="sample_types_context"' not in fixups
+    for path in SEED_PATHS.values():
+        assert "HELD: no install step reads this file" in _repo(path), path
 
 
 def test_render_seed_refuses_the_mapping_operations():

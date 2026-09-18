@@ -15,14 +15,12 @@ repo-root evidence tree they read and wrote are archived in `NessieAI/history/pl
 `NessieAI/tests/nessie_tests/scripts/nessie`, and `post_uv_sync.sh` is retired to
 `NessieAI/history/retired/scripts/`.
 
-`generate_assay_context_seed.py` is **retired**, not repointed. It regenerated
-`startup/seed/sql/assay_context.sql` from a committed JSON export of production, which
-was an export of the same table it was seeding. `context_gen.py` now writes that file
-from the hand-owned source in `context/`, and two programs writing one file from
-different sources is how the file goes stale without anyone noticing. Its column
-spellings survive where they always mattered: in that file's `CREATE TABLE`, which
-`NessieAI/tests/api/test_context_gen.py` reads as the fixture the generator is checked
-against.
+`generate_assay_context_seed.py` still writes the installer's
+`startup/seed/sql/assay_context.sql` from a committed JSON export, and `context_gen.py`
+writes only the held `*.curated.sql` seeds, so no file has two writers. The old
+generator retires when the curated seeds are switched on (group C). Until then its
+file's `CREATE TABLE` is the independent fixture `NessieAI/tests/api/test_context_gen.py`
+checks the generator's assay columns against.
 
 Almost nothing here is imported the ordinary way. The one exception is
 `nextseek_api/tests/test_attribute_api_db_lane.py:43`, which imports
@@ -43,7 +41,7 @@ groups, each defined by what it reads and what it writes.
 |---|---|---|---|
 | A. Repo-convention validators | `validate_issue.py`, `validate_viewset_conventions.py`, `seed_issue_labels.sh`, `dump_routes.py` | repo source, `docs/ISSUE-CONVENTIONS.md` | stdout, GitHub labels |
 | B. Test wrapper | `run_tests.sh` | this checkout | a pytest run inside the stack image |
-| C. The context generator | `context_gen.py` | `context/*.json` | update SQL for a live database, `startup/seed/sql/{sample_types_context,assay_context,projects_context}.sql`, the generated investigation block in `capabilities.md` |
+| C. The context generator | `context_gen.py`, `generate_assay_context_seed.py` | `context/*.json`; a committed JSON export | update SQL for a live database, the held `startup/seed/sql/*_context.curated.sql` seeds, the generated investigation block in `capabilities.md`; the installer's `startup/seed/sql/assay_context.sql` |
 | D. Attribute-API verification lane | `attribute_api_test.sh`, `attribute_pytest_reporter.py`, `freeze_attribute_baseline.py`, `run_attribute_coverage.py`, `run_attribute_mutants.py`, `select_attribute_chunk_defaults.py`, `select_attribute_evidence.py`, `validate_attribute_api_evidence.py` | an out-of-repo state root | an out-of-repo evidence root |
 | E. Live batch-upload E2E | `test_batch_upload_e2e.py` | the SEEK database, a deployed host | Neo4j, the upload API |
 | F. NessieAI codemod | `nessieai_codemod.py` | every tracked `*.py` outside `NessieAI/history/` | those files, in place |
@@ -78,10 +76,21 @@ python scripts/context_gen.py --emit capabilities --counts /tmp/investigations.j
 idempotent, including the ones that delete rows the curated source no longer names and
 collapse duplicate keys, so applying it twice leaves the table holding exactly the
 curated rows. The deletes and the upserts run in one transaction, so a value the server
-refuses rolls the change back rather than leaving the table half migrated. `--emit seed`
-rewrites the three files under `startup/seed/sql/` in place. Nothing here connects to a
-database; the operator applies the SQL. `context/README.md` owns the source conventions
-and the review gate.
+refuses rolls the change back rather than leaving the table half migrated. Nothing here
+connects to a database; the operator applies the SQL. `context/README.md` owns the source
+conventions and the review gate.
+
+**The curated seeds are held.** `--emit seed` writes
+`startup/seed/sql/{sample_types_context,assay_context,projects_context}.curated.sql`, and
+no install step reads them: `startup/steps/schema_fixups.py` still registers the
+pre-generator `assay_context.sql` and the empty `projects_context.sql`, so `install` and
+`reset` load exactly what they loaded before this generator existed. The files are
+committed so the review sees what a fresh install would get, and
+`test_seed_matches_the_committed_files_shape` keeps them byte-identical to `--emit seed`.
+Switching them on after the content is signed off is one reviewed commit: point the
+`assay_context` and `projects_context` fixups at the `.curated.sql` files, add a
+`sample_types_context` fixup, retire `generate_assay_context_seed.py` with its output, and
+invert `test_the_curated_seeds_are_held_until_sign_off`.
 
 Apply it with the charset named, even though the file names it too:
 
@@ -94,7 +103,7 @@ set — which is the case inside the `db` container, so every apply path that do
 otherwise double-encodes each non-ASCII value. Both emitted artifacts open with
 `SET NAMES utf8mb4;` for that reason, and the flag above is the belt to its braces.
 
-Do not hand-apply a `startup/seed/sql/*_context.sql` file to a stack that already has the
+Do not hand-apply a `startup/seed/sql/*_context.curated.sql` file to a stack that already has the
 table: `CREATE TABLE IF NOT EXISTS` skips, so the unique key is never created and the
 INSERTs land on top of the rows already there. `--emit update` is what brings an existing
 instance to the curated content.

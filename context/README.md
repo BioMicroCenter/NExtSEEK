@@ -12,8 +12,8 @@ python scripts/context_gen.py --emit seed --table all
 ```
 
 `--emit update` writes re-runnable SQL for a live database; the operator applies it.
-`--emit seed` rewrites the three files under `startup/seed/sql/` in place, which is what a
-fresh install reads. Nessie's JSON exports need no generator: `_fetch_context_files_from_db`
+`--emit seed` rewrites the held `startup/seed/sql/*_context.curated.sql` files, which no
+install step reads until the content is signed off (`scripts/README.md` group C). Nessie's JSON exports need no generator: `_fetch_context_files_from_db`
 rewrites them from these tables once per UTC day, which is also why editing an export
 changes nothing that survives a day. `scripts/README.md` group C is the generator's
 reference and `NessieAI/tests/api/test_context_gen.py` is its test lane.

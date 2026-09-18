@@ -14,9 +14,11 @@ how it reaches a database.
     python scripts/context_gen.py --emit capabilities --counts /tmp/investigations.json
 
 `--emit update` writes one re-runnable script (stdout when `--out` is left off),
-`--emit seed` rewrites the files under `startup/seed/sql/` in place, `--out` naming
-the directory rather than a file, and `--emit capabilities` rewrites the generated
-investigation block in `capabilities.md` from the live sample counts.
+`--emit seed` rewrites the held `startup/seed/sql/*.curated.sql` seeds in place,
+`--out` naming the directory rather than a file, and `--emit capabilities` rewrites
+the generated investigation block in `capabilities.md` from the live sample counts.
+No install step reads the `.curated.sql` files until the curated content is signed
+off; `scripts/README.md` group C says what switching them on takes.
 
 `--emit capabilities` refuses today, and that is the point rather than a gap: every
 `projects_context` row is still a project, and `capabilities.md` carries no
@@ -663,17 +665,18 @@ def render_update(table: str, rows: list[dict]) -> str:
 
 # --- the seed files ----------------------------------------------------------
 #
-# A fresh install gets these three tables from here, not from
-# startup/seed/dmac.sql.gz: none of them has a Django migration, and regenerating
-# that dump needs maintainer credentials for a remote host
-# (startup/seed/README.md). assay_context.sql is the template every header
-# follows, so a regenerated file is a diff of rows rather than of shape.
+# The seed a fresh install would load for each table, written to
+# startup/seed/sql/<table>.curated.sql. HELD: no install step reads those files
+# until the curated content is signed off. startup/steps/schema_fixups.py still
+# registers the pre-generator assay_context.sql and the empty projects_context.sql,
+# so `install` and `reset` load what they loaded before this module existed;
+# scripts/README.md group C says what switching them on takes. The files are
+# committed so the review sees exactly what an install would get, and the test
+# lane pins them byte for byte to what this module renders.
 #
 # Column types come from seek/models/nextseek.py::Sample_types_context for the
-# sample types and from the committed DDL for the other two. The unique key on
-# each natural key is what `ON DUPLICATE KEY UPDATE` fires against; before this
-# change no context table had one, and `assay_context` could not have had one
-# while its rows were two unreconciled sources merged.
+# sample types and from the live tables for the other two. The unique key on
+# each natural key is declared here; `--emit update` adds it to an existing table.
 
 DDL = {
     "sample_types": """\
@@ -682,25 +685,24 @@ DDL = {
 -- context/sample_types.json by scripts/context_gen.py --emit seed; regenerate
 -- rather than hand-editing.
 --
--- Created in SQL because no Django migration references it. Unlike assay_context
--- and projects_context, startup/seed/dmac.sql.gz DOES create and populate this
--- table (measured 2026-09-17: one CREATE at line 2024, 101 rows, no
--- repository_attributes column and no unique key), so on a seeded install
--- startup/steps/schema_fixups.py finds the table present and this file is a
--- no-op. It earns its place where the dump does not run -- `--no-seed`, and any
--- box whose dump predates the table.
+-- HELD: no install step reads this file until the curated content is signed off
+-- (scripts/README.md group C).
 --
--- Do NOT hand-apply this file to a stack that already has the table. CREATE TABLE
--- IF NOT EXISTS skips, so the unique key below is never created, and the INSERTs
--- then land on top of the existing rows instead of replacing them: 101 + 109 =
--- 202 rows with 101 duplicated sample_type codes. Bringing an existing instance
--- up to the curated content is `--emit update`'s job, which adds the columns, the
--- unique key and upserts.
+-- Created in SQL because no Django migration references the table. The seeded
+-- dump startup/seed/dmac.sql.gz DOES create and populate it, in an older shape
+-- with no repository_attributes column and no unique key, so this file would
+-- matter only where the dump does not run.
+--
+-- It is not an update. Against a table that already exists CREATE TABLE IF NOT
+-- EXISTS skips, and the INSERTs then either fail (a column the table lacks, or the
+-- unique key this file declares) or, on a table with every column and no unique
+-- key, land on top of the rows already there. `--emit update` is what brings an
+-- existing table to the curated content.
 --
 -- Column types follow seek/models/nextseek.py::Sample_types_context, which is
 -- how the application reads and writes these rows. `Tags` is capitalised: it is
--- that model's one db_column override. `repository_attributes` is newer than the
--- model and is read as JSON text, like the JSON columns of projects_context.
+-- that model's one db_column override. `repository_attributes` is JSON text and
+-- nothing reads it yet.
 SET NAMES utf8mb4;
 CREATE TABLE IF NOT EXISTS sample_types_context (
   id                        INT AUTO_INCREMENT PRIMARY KEY,
@@ -727,25 +729,26 @@ CREATE TABLE IF NOT EXISTS sample_types_context (
 -- called. Generated from context/assays.json by
 -- scripts/context_gen.py --emit seed; regenerate rather than hand-editing.
 --
--- Created in SQL like sample_types_context and for the same reason: no Django
--- migration references it, and it is absent from dmac.sql.gz because
--- regenerating that seed needs maintainer credentials for a remote host.
--- Production has its own copy of this table; this file is what gives the local
--- and dev stacks one.
+-- HELD: no install step reads this file until the curated content is signed off
+-- (scripts/README.md group C).
 --
--- One row per internal assay, `assay_name` unique. Production's copy is still two
--- unreconciled sources merged, 217 rows with 22 duplicated names; the curated
--- source is what reconciles them, and the update SQL collapses the duplicates
--- before it adds the unique key. Do not hand-apply this file to a stack that
--- already has the table: CREATE TABLE IF NOT EXISTS skips, so the unique key is
--- never created and the INSERTs land on top of the existing rows. Use
--- `--emit update` for that.
+-- Created in SQL because no Django migration references the table and the seeded
+-- dump startup/seed/dmac.sql.gz does not carry it. One row per internal assay,
+-- `assay_name` unique.
 --
--- The three widths below are production's, not a guess: the live assay_context
--- declares Parent_Clade_Type and Child_Clade_Type varchar(128) and
--- AssaySheet_Link varchar(512). A fresh install narrower than every upgraded
--- instance is a divergence nothing would notice until a value did not fit on one
--- of them.
+-- internal_assay_id is the id production gives each internal assay. A stack whose
+-- internal_assays was not copied from production numbers them differently, so on
+-- such a stack these ids point at nothing or at the wrong assay; `--emit update`
+-- links each row by its title instead.
+--
+-- It is not an update. Against a table that already exists CREATE TABLE IF NOT
+-- EXISTS skips, and the INSERTs then either fail (a column the table lacks, or the
+-- unique key this file declares) or, on a table with every column and no unique
+-- key, land on top of the rows already there. `--emit update` is what brings an
+-- existing table to the curated content.
+--
+-- The three widths below are the live table's: Parent_Clade_Type and
+-- Child_Clade_Type varchar(128), AssaySheet_Link varchar(512).
 SET NAMES utf8mb4;
 CREATE TABLE IF NOT EXISTS assay_context (
   id                           INT AUTO_INCREMENT PRIMARY KEY,
@@ -772,6 +775,9 @@ CREATE TABLE IF NOT EXISTS assay_context (
 -- studies, where it is published. Generated from context/projects.json by
 -- scripts/context_gen.py --emit seed; regenerate rather than hand-editing.
 --
+-- HELD: no install step reads this file until the curated content is signed off
+-- (scripts/README.md group C).
+--
 -- Read by the project page header; every field is optional and the header falls
 -- back to the SEEK title and description when the row is absent. The lookup is
 -- `SELECT * FROM projects_context WHERE project_id = %s`
@@ -789,9 +795,7 @@ CREATE TABLE IF NOT EXISTS assay_context (
 -- free-text pi field by scripts/context_gen.py::parse_pi, never hand-written.
 --
 -- pi, nih_reporter_link and fairdomhub_published_link are TEXT, which is what the
--- live column is in all three cases. pi was VARCHAR(255) and one curated value is
--- 276 characters, which aborted the load at error 1406 after four rows; see the
--- column widths note above check_widths.
+-- live column is in all three cases; a curated pi is longer than VARCHAR(255).
 SET NAMES utf8mb4;
 CREATE TABLE IF NOT EXISTS projects_context (
   id                        INT AUTO_INCREMENT PRIMARY KEY,
@@ -1311,9 +1315,12 @@ def replace_capabilities_block(text: str, block: str) -> str:
 
 # --- the command line --------------------------------------------------------
 
-SEED_FILES = {"sample_types": "sample_types_context.sql",
-              "assays": "assay_context.sql",
-              "projects": "projects_context.sql"}
+# `.curated.sql`, not the names startup/steps/schema_fixups.py registers: these are
+# held out of install until the curated content is signed off. See the note above
+# DDL and scripts/README.md group C.
+SEED_FILES = {"sample_types": "sample_types_context.curated.sql",
+              "assays": "assay_context.curated.sql",
+              "projects": "projects_context.curated.sql"}
 SEED_DIR = Path("startup/seed/sql")
 
 # The file `--emit capabilities` rewrites in place.

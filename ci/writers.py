@@ -360,16 +360,17 @@ WRITERS: tuple[Writer, ...] = (
            note="hand SQL kept in the tree; nothing in the code applies any of these five files"),
     Writer(id="WR-21",
            sites=("scripts/context_gen.py::render_mappings",
-                  "startup/seed/sql/sample_types_context.sql"),
+                  "startup/seed/sql/sample_types_context.curated.sql"),
            tables=("sample_types_context", "internal_assays", "assays_internal_assays"),
            how=("sql_file", "sql", "external"),
            reconcile="RECONCILE_OPERATOR",
            note="the curated context tables. scripts/context_gen.py turns context/*.json into SQL but never "
                 "connects to a database, so the write is always an operator applying that SQL by hand; "
                 "render_update and render_seed build the table name at run time and are in UNRESOLVED_SITES. "
-                "The seed file reaches a fresh install through the schema fixups instead (WR-19's mechanism), "
-                "before any full sync. Every one of these tables feeds the graph catalog, so the sync that "
-                "repairs them is the nightly or a full run, never the writer"),
+                "The .curated.sql seed files are held: no install step reads them until the curated content is "
+                "signed off, and switching them on registers them as schema fixups (WR-19's mechanism). Every one "
+                "of these tables feeds the graph catalog, so the sync that repairs them is the nightly or a full "
+                "run, never the writer"),
     Writer(id="WR-22",
            sites=(),
            tables=("samples", "sample_types", "sample_attributes", "sample_attribute_types", "projects_samples",
