@@ -186,9 +186,10 @@ gitignored: each box records its own runs.
 Before the suite, both `./startup.sh ci` and the rebuild hook run a stack-health
 step (`startup/steps/validate.py:stack_health`) and print one ✓/✗ line per check.
 A stopped app or `nextseek_nginx` container stops the run there, since every
-smoke test would fail the same way; an absent first-party image or a stopped CC
-service is printed and written into the run record but does not stop it, because
-the suite never requests what those serve.
+smoke test would fail the same way; an absent first-party image, a stopped CC
+service or a cc-agent image baking context files that differ from the checkout is
+printed and written into the run record but does not stop it, because the suite
+never requests what those serve.
 
 **The rebuild hook** runs that same command with the readiness gate on after a
 successful `./startup.sh rebuild` unless `--no-ci` is passed
