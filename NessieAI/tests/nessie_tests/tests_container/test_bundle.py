@@ -32,3 +32,15 @@ def test_summary_for_session_reads_orm():
     sess = ChatSession.objects.create(user=u, results_history=[THIN, RICH])
     s = bundle.summary_for_session(sess.session_id)
     assert s["has_json_metadata"] is True  # latest bundle is RICH
+
+
+@pytest.mark.django_db
+def test_preflight_passes_inside_a_configured_django():
+    """8.4: the check the runner makes before the first full-tier turn. Inside the
+    app (where `manage.py nessie` runs) Django is already set up, so the preflight
+    must configure nothing and read the real table without error."""
+    bundle.preflight()
+
+
+def test_the_reader_carries_the_preflight_the_runner_looks_for():
+    assert bundle.summary_for_session.preflight is bundle.preflight

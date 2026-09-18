@@ -1202,3 +1202,80 @@ def test_the_snapshot_file_is_at_the_repository_root():
     assert runner.SNAPSHOT_FILE.name == "SNAPSHOT"
     assert (runner.SNAPSHOT_FILE.parent / "manage.py").exists()
     assert (runner.SNAPSHOT_FILE.parent / "NessieAI").is_dir()
+
+
+# ── 8.4: a full-tier run must prove its bundle reader before the first turn ──
+
+
+class _Reader:
+    """A bundle reader carrying the preflight hook the runner calls, recording order."""
+
+    def __init__(self, log, *, fail=None):
+        self.log, self.fail = log, fail
+
+    def __call__(self, session_id):
+        self.log.append("read")
+        return None
+
+    def preflight(self):
+        self.log.append("preflight")
+        if self.fail:
+            raise self.fail
+
+
+def _logging_post(log):
+    def post_query(body):
+        log.append("post")
+        return {"task_id": "t", "session_id": "s"}
+    return post_query
+
+
+def test_a_full_tier_run_whose_bundle_reader_cannot_read_is_refused_before_any_turn(tmp_path):
+    log = []
+    with pytest.raises(runner.BundleReaderUnavailable) as e:
+        runner.run_suite(
+            base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+            corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+            post_query=_logging_post(log), get_progress=lambda tid: NS_DONE,
+            bundle_reader=_Reader(log, fail=RuntimeError("no database here")),
+            sleep=lambda s: None, clock=lambda: 0.0)
+    assert log == ["preflight"], "a turn was posted before the reader was proven"
+    assert "no database here" in str(e.value) and "nothing was billed" in str(e.value)
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_the_bundle_preflight_runs_once_and_before_the_first_turn(tmp_path):
+    log = []
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: NS_DONE,
+        bundle_reader=_Reader(log), sleep=lambda s: None, clock=lambda: 0.0)
+    assert log[0] == "preflight" and log.count("preflight") == 1
+    assert "post" in log and "read" in log
+    assert m.entries[0].status != "error", m.entries[0].reason
+
+
+def test_the_route_tier_never_calls_the_bundle_preflight(tmp_path):
+    log = []
+    runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: CC_ROUTED,
+        bundle_reader=_Reader(log, fail=RuntimeError("never asked")),
+        sleep=lambda s: None, clock=lambda: 0.0)
+    assert "preflight" not in log
+
+
+def test_the_real_bundle_reader_carries_its_preflight():
+    from NessieAI.tests.nessie_tests import bundle
+    assert bundle.summary_for_session.preflight is bundle.preflight
+
+
+def test_the_real_bundle_preflight_names_the_entry_point_that_works(monkeypatch):
+    import sys
+    from NessieAI.tests.nessie_tests import bundle
+    monkeypatch.setitem(sys.modules, "django", None)
+    with pytest.raises(bundle.BundleReaderUnavailable) as e:
+        bundle.preflight()
+    assert "manage.py nessie" in str(e.value)

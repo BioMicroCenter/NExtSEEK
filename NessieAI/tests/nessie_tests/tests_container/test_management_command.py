@@ -45,3 +45,17 @@ def test_nessie_command_exits_nonzero_on_real_failure(monkeypatch):
     with pytest.raises(SystemExit) as ei:
         call_command("nessie", "--tier", "route", "--out", "/tmp/nessie_out_test")
     assert ei.value.code == 1
+
+
+def test_nessie_command_reports_an_unreadable_bundle_as_a_free_refusal(monkeypatch):
+    """8.4: the runner refuses before the first turn; the command must say so rather
+    than print a traceback."""
+    from django.core.management.base import CommandError
+
+    def refusing_run_suite(**kw):
+        raise runner.BundleReaderUnavailable("refused, nothing was billed: no database")
+
+    monkeypatch.setattr(runner, "run_suite", refusing_run_suite)
+    with pytest.raises(CommandError) as e:
+        call_command("nessie", "--tier", "full", "--out", "/tmp/nessie_out_test")
+    assert "nothing was billed" in str(e.value)
