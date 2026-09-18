@@ -243,6 +243,7 @@ def test_the_422_names_what_the_model_rejected(mock_scope, mock_neo4j):
     {"filter_searchText": "", "sampletype": "NO-SUCH-TYPE"},
     {"filter_searchText": "", "extensions": {"where": []}},
     {"filter_searchText": "", "extensions": {"lineage": {"direction": "descendant", "sample_type": "D.SEQ"}}},
+    {"filter_searchText": "", "extensions": {"query": "  "}},
 ])
 @patch(RESOLVE, side_effect=_resolver)
 @patch(NEO4J)
@@ -253,6 +254,7 @@ def test_a_search_with_nothing_to_search_on_is_refused(mock_scope, mock_neo4j, _
     assert resp.status_code == 422, resp.content
     assert b"sampletype" in resp.content, f"the refusal must say what to add: {resp.content!r}"
     assert b"extensions.where" in resp.content
+    assert b"extensions.query" in resp.content
     mock_scope.assert_not_called()
     mock_neo4j.assert_not_called()
 
@@ -403,6 +405,24 @@ def test_extensions_where_searches_without_a_term():
     assert "MATCH (s:`T_TIS`)" in text
     assert params["w0"] == "Lung"
     assert params["w1"] == 10000000.0
+
+
+def test_extensions_query_searches_without_a_term():
+    body = {"filter_searchText": "", "extensions": {"query": "lung NOT granuloma[TIS]"}}
+    resp, driver, _ = _happy(body)
+
+    assert resp.status_code == 200, resp.content
+    text, params = driver.statements[0]
+    assert "NOT (toLower(s.search_text) CONTAINS $q1)" in text
+    assert params["q0"] == "lung" and params["qt1"] == "TIS"
+
+
+def test_query_text_the_parser_cannot_read_is_422_with_the_reason():
+    resp, driver, _ = _happy({"filter_searchText": "", "extensions": {"query": "lung OR liver NOT kidney"}})
+
+    assert resp.status_code == 422, resp.content
+    assert "Use parentheses to combine OR with AND or NOT" in _json(resp)["errors"][0]["detail"]
+    assert driver.statements == []
 
 
 def test_an_out_of_range_page_returns_empty_rows_and_the_total():

@@ -23,6 +23,12 @@ nextseek_api/services/samples.py::SampleAdvancedSearchViewSet.create:
 ``extensions`` are graph_search's own: exact, typed, case-sensitive conditions, validated against the catalog. The
 string operators compare the value's text (``toString``), as advanced_search's Contain compared ``str(value)``.
 
+``extensions.query`` is the Sample Search page's query text (``text_query`` parses it), matched with advanced_search's
+two stages (this package's README, "How graph_search expresses them"): each term holds when the sample's JSON text holds
+it, which the graph reads as a value in ``search_text`` or, through the catalog, a key name of the sample's type; the
+terms combine as the text says, a tag adds the sample type outside any negation; then one of the text's positive terms
+must be in (PARTIAL) or equal to (EXACT) one of the values.
+
 Every value is a parameter. The only text interpolated into Cypher is a catalog title or label (backtick-quoted,
 backticks doubled), an operator from a fixed set, and a hop count checked to be an integer from 1 to 4.
 """
@@ -33,7 +39,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from nextseek_api.batch_upload.helpers import UID_RE
-from nextseek_api.graph_search import lucene
+from nextseek_api.graph_search import lucene, text_query
 from nextseek_api.graph_search.scope import Scope
 from nextseek_api.graph_sync.projection import SKIPPED_METADATA_KEYS, cast_value
 
@@ -59,6 +65,7 @@ _FULLTEXT_SOURCE = f"CALL db.index.fulltext.queryNodes('{FULLTEXT_INDEX}', $luce
 _UID_SOURCE = "MATCH (s:Sample) WHERE s.uuid IN $uids"
 _TYPE_SOURCE = "MATCH (s:Sample) WHERE s.type IN $types"
 _ALL_SOURCE = "MATCH (s:Sample)"
+_QUERY_TYPE_SOURCE = "MATCH (s:Sample) WHERE s.type IN $query_types"
 
 _UID_MATCH = "s.uuid IN $uids"
 _TYPES_MATCH = "s.type IN $types"
@@ -74,7 +81,7 @@ PY_WHITESPACE = (
 )
 
 _NOTHING_TO_SEARCH = (
-    "Give a filter_searchText, a sampletype that exists on this instance, or extensions.where. "
+    "Give a filter_searchText, a sampletype that exists on this instance, extensions.where or extensions.query. "
     "A search with none of them would read every sample."
 )
 
@@ -297,6 +304,155 @@ def _lineage(lineage, catalog: Catalog) -> Optional[str]:
     return pattern.format(hops=int(hops), label=quote_name(label))
 
 
+def _tag_title(tag: str, catalog: Catalog) -> Optional[str]:
+    """The sample type a ``term[TYPE]`` tag names, looked up as advanced_search looked it up, or None.
+
+    ``DBtable_sampletype.getSampleTypeID`` cuts the (upper-cased) tag at its first ``_``, and ``getPrimarykey`` wants
+    exactly one title equal to it under MySQL's case-insensitive, trailing-space-insensitive collation; empty and
+    ``NA`` are refused. Anything else is id -1, which matches nothing.
+    """
+    code = tag.split("_")[0].strip().upper()
+    if not code or code == "NA":
+        return None
+    titles = set(catalog.titles_by_type) | set(catalog.label_by_title) | set(catalog.type_title_by_id.values())
+    found = [title for title in titles if title.rstrip(" ").upper() == code]
+    return found[0] if len(found) == 1 else None
+
+
+def _key_types(text: str, catalog: Catalog) -> list[str]:
+    """The sample types with an attribute title holding ``text`` (case-insensitive): SEEK writes every declared key into
+    ``json_metadata``, so advanced_search's LIKE found the term in each of their samples."""
+    needle = text.lower()
+    return sorted(t for t, titles in catalog.titles_by_type.items() if any(needle in title.lower() for title in titles))
+
+
+@dataclass(frozen=True)
+class _QueryStage:
+    predicate: str
+    candidates: Optional[str]            # a fulltext query every match satisfies, or None
+    types: Optional[list[str]]           # sample types every match has, or None when the text does not bound them
+
+
+def _query_stage(text: str, exact: bool, catalog: Catalog, params: dict) -> _QueryStage:
+    """``extensions.query`` as one predicate, its fulltext candidates and the sample types it is bounded to."""
+    try:
+        tree = text_query.parse(text)
+    except text_query.QueryTextInvalid as exc:
+        raise GraphSearchInvalid(f"query: {exc}") from None
+    leaves = text_query.terms(tree)
+    titles: dict[int, Optional[str]] = {}
+    keyed: set[int] = set()
+    for leaf in leaves:
+        i = leaf.index
+        if leaf.tag is not None:
+            titles[i] = _tag_title(leaf.tag, catalog)
+            if titles[i] is not None:
+                params[f"qt{i}"] = titles[i]
+        if leaf.text:
+            params[f"q{i}"] = leaf.text.lower()
+            keys = _key_types(leaf.text, catalog)
+            if keys:
+                keyed.add(i)
+                params[f"qk{i}"] = keys
+
+    def void(leaf) -> bool:
+        """A tag that names no sample type: advanced_search's id -1 made the term, negated or not, match nothing."""
+        return leaf.tag is not None and titles[leaf.index] is None
+
+    def holds(leaf) -> list[str]:
+        parts = [f"toLower(s.search_text) CONTAINS $q{leaf.index}"]
+        if leaf.index in keyed:
+            parts.append(f"s.type IN $qk{leaf.index}")
+        return parts
+
+    def of_type(leaf) -> list[str]:
+        return [f"s.type = $qt{leaf.index}"] if leaf.tag is not None else []
+
+    def compile_(node) -> str:
+        if isinstance(node, text_query.Term):
+            if void(node):
+                return "false"
+            parts = ([_join(holds(node), "OR")] if node.text else []) + of_type(node)
+            return _join(parts, "AND") if parts else "true"
+        if isinstance(node, text_query.Not):
+            inner = node.operand
+            if isinstance(inner, text_query.Term):
+                # The tag stays outside the negation: `NOT LIKE ... AND sample_type_id = ...`. Every JSON text holds
+                # the empty term, so negating it (`NOT [TIS]`) matches nothing.
+                if void(inner) or not inner.text:
+                    return "false"
+                return _join([f"NOT ({' OR '.join(holds(inner))})"] + of_type(inner), "AND")
+            return f"NOT ({compile_(inner)})"
+        joined = [compile_(operand) for operand in node.operands]
+        return _join(joined, "AND" if isinstance(node, text_query.All) else "OR")
+
+    def positive(node, negated=False) -> list:
+        """The terms under an even number of NOTs, with text: those advanced_search's value stage could match."""
+        if isinstance(node, text_query.Term):
+            return [] if negated or not node.text else [node]
+        if isinstance(node, text_query.Not):
+            return positive(node.operand, not negated)
+        return [leaf for operand in node.operands for leaf in positive(operand, negated)]
+
+    def implies_value(node) -> bool:
+        """Whether the combined terms can hold only through a positive term found in a value (PARTIAL)."""
+        if isinstance(node, text_query.Term):
+            return void(node) or (bool(node.text) and node.index not in keyed)
+        if isinstance(node, text_query.Not):
+            return False
+        results = [implies_value(operand) for operand in node.operands]
+        return any(results) if isinstance(node, text_query.All) else all(results)
+
+    def candidates(node) -> Optional[str]:
+        if isinstance(node, text_query.Term):
+            if void(node) or not node.text or node.index in keyed:
+                return None
+            return lucene.candidate_query(node.text)
+        if isinstance(node, text_query.Not):
+            return None
+        found = [candidates(operand) for operand in node.operands]
+        if isinstance(node, text_query.All):
+            found = [c for c in found if c is not None]
+        elif any(c is None for c in found):
+            return None
+        if not found:
+            return None
+        logic = " AND " if isinstance(node, text_query.All) else " OR "
+        return found[0] if len(found) == 1 else logic.join(f"({c})" for c in found)
+
+    def bound(node) -> Optional[frozenset]:
+        if isinstance(node, text_query.Not) and isinstance(node.operand, text_query.Term):
+            node = node.operand
+        if isinstance(node, text_query.Term):
+            if node.tag is None:
+                return None
+            return frozenset() if void(node) else frozenset({titles[node.index]})
+        if isinstance(node, text_query.Not):
+            return None
+        found = [bound(operand) for operand in node.operands]
+        if isinstance(node, text_query.All):
+            known = [b for b in found if b is not None]
+            return frozenset.intersection(*known) if known else None
+        return None if any(b is None for b in found) else frozenset().union(*found)
+
+    predicate = compile_(tree)
+    values = positive(tree)
+    if values and (exact or not implies_value(tree)):
+        if exact:
+            stage = [f"$q{leaf.index} IN split(toLower(s.search_text), '\\n')" for leaf in values]
+        else:
+            stage = [f"toLower(s.search_text) CONTAINS $q{leaf.index}" for leaf in values]
+        predicate = _join([predicate, _join(stage, "OR")], "AND")
+    found = candidates(tree)
+    if found is None and values:
+        # The value stage needs one positive term in a value, so their candidates, ORed, cover every match.
+        each = [lucene.candidate_query(leaf.text) for leaf in values]
+        if all(c is not None for c in each):
+            found = each[0] if len(each) == 1 else " OR ".join(f"({c})" for c in each)
+    types = bound(tree)
+    return _QueryStage(predicate, found, None if types is None else sorted(types))
+
+
 def build(filters: dict, extensions, scope: Scope, catalog: Catalog, page: int, page_size: int) -> BuiltQuery:
     """Turn ``SampleAdvancedSearchRequest.to_db_filters(...)``'s output, ``extensions`` and scope into Cypher.
 
@@ -317,32 +473,44 @@ def build(filters: dict, extensions, scope: Scope, catalog: Catalog, page: int, 
     types = _type_titles(filters, catalog)
     where_label, where_predicates = _where(list(_get(extensions, "where", None) or []), catalog, params)
     lineage_predicate = _lineage(_get(extensions, "lineage", None), catalog)
+    query_text = _get(extensions, "query", None)
+    query = None
+    if query_text is not None and str(query_text).strip():
+        query = _query_stage(str(query_text), exact, catalog, params)
 
-    if not terms and types is None and where_label is None:
+    if not terms and types is None and where_label is None and query is None:
         raise GraphSearchInvalid(_NOTHING_TO_SEARCH)
 
     # Candidate source, most selective first.
     label_source = f"MATCH (s:{quote_name(where_label)})" if where_label else None
     scan = label_source or (_TYPE_SOURCE if types is not None else None)
-    source = None
+    if scan is None and query is not None and query.types is not None:
+        scan = _QUERY_TYPE_SOURCE
+        params["query_types"] = query.types
+    text_lucene = None
     if text_idx:
         queries = [lucene.candidate_query(terms[i]) for i in text_idx]
         usable = [q for q in queries if q is not None]
         # OR needs every term's candidates; AND is narrowed by any one term's.
         if usable and (logic == "AND" or len(usable) == len(queries)):
-            params["lucene"] = usable[0] if len(usable) == 1 else f" {logic} ".join(f"({q})" for q in usable)
-            source = _FULLTEXT_SOURCE
-            if uid_idx:
-                source = f"CALL () {{ {_FULLTEXT_SOURCE} RETURN s UNION {_UID_SOURCE} RETURN s }}"
-        elif scan is not None:
-            source = scan
-        else:
-            source = _ALL_SOURCE
-            log.warning("graph_search: no term has a fulltext candidate query and no type narrows it; full scan")
-    elif uid_idx:
+            text_lucene = usable[0] if len(usable) == 1 else f" {logic} ".join(f"({q})" for q in usable)
+    query_lucene = query.candidates if query is not None else None
+    if uid_idx and not text_idx:
         source = _UID_SOURCE
-    else:
+    elif text_lucene or query_lucene:
+        # Both are supersets of the matches, so their intersection is too.
+        params["lucene"] = (f"({text_lucene}) AND ({query_lucene})" if text_lucene and query_lucene
+                            else text_lucene or query_lucene)
+        source = _FULLTEXT_SOURCE
+        if uid_idx and text_lucene:
+            source = f"CALL () {{ {_FULLTEXT_SOURCE} RETURN s UNION {_UID_SOURCE} RETURN s }}"
+    elif scan is not None:
         source = scan
+    else:
+        source = _ALL_SOURCE
+        log.warning("graph_search: no term has a fulltext candidate query and no type narrows it; full scan")
+    if source != _QUERY_TYPE_SOURCE:
+        params.pop("query_types", None)
 
     predicates: list[str] = []
     if types is not None:
@@ -376,6 +544,8 @@ def build(filters: dict, extensions, scope: Scope, catalog: Catalog, page: int, 
             params["ws"] = PY_WHITESPACE
         predicates.append(stage)
 
+    if query is not None:
+        predicates.append(query.predicate)
     predicates.extend(where_predicates)
     if lineage_predicate:
         predicates.append(lineage_predicate)

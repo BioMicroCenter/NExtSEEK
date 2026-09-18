@@ -20,7 +20,7 @@ The modules, one concern each; `git ls-files nextseek_api/graph_search` lists wh
 | Module | Holds |
 |---|---|
 | `scope.py` | `resolve_scope(user)`: superuser, or the caller's project ids read from MySQL membership |
-| `query.py`, `lucene.py` | the pure query builder: validated request plus scope to one page statement and one count statement; fulltext escaping |
+| `query.py`, `lucene.py`, `text_query.py` | the pure query builder: validated request plus scope to one page statement and one count statement; fulltext escaping; the Sample Search page's query text parsed into a tree |
 | `catalog_cache.py`, `hydrate.py` | the catalog read from the graph and cached; the page's rows read from MySQL by primary key |
 | `service.py` | `search(...)` for the ViewSet and `all_ids(...)` for the parity harness |
 
@@ -114,6 +114,52 @@ a number. Where the rows can still differ from advanced_search's:
 - True reads only ASCII digits; Python's `int()` also reads other Unicode digits (`"１"`). A float `inf` made
   advanced_search raise; graph_search calls it false.
 - The page trims From before sending it; the old page sent it as typed.
+
+### NOT, AND/OR and tags: `extensions.query`
+
+`extensions.query` takes the Advanced box's text. `text_query.parse` reads it and `query.py` matches it with
+advanced_search's two stages, ANDed with the rest of the body (scope first, so a negation only ever narrows the
+caller's visible set):
+
+1. Each term holds when the sample's JSON text holds it: `toLower(s.search_text) CONTAINS $q` (the values), or
+   `s.type IN $qk`, the sample types whose catalog attribute titles hold the term (the key names SEEK writes into
+   every sample's `json_metadata`). A tag adds `s.type = $qt` outside the term's negation; a tag naming no sample
+   type, found as advanced_search found it, makes the term `false`. The terms combine as the text says.
+2. One positive term (under an even number of `NOT`s) must be in (PARTIAL) or equal to (EXACT) one of the values.
+   It is left out when stage 1 already implies it (PARTIAL, and no term can hold through a key name alone).
+
+Every shape advanced_search read correctly gives its rows, with the residual differences below. Where graph_search
+reads the text differently, on purpose:
+
+- **advanced_search's parser defects are not kept.** `a NOT (b OR c)` negates the group; a level that is one group,
+  and two groups on one level, match what they say; unbalanced parentheses are a 422, not every sample.
+- **Shapes advanced_search matched as a literal phrase** (so, in practice, nothing) are read as operators: the same
+  operator repeated (`a AND b AND c`), `AND` with `NOT` (`a AND b NOT c`, `a AND NOT b`), a leading `NOT a`, and any
+  whitespace (a newline too) around an operator. `OR` on one level with `AND` or `NOT` is a 422 that asks for
+  parentheses, as is an operator with no term beside it, empty parentheses, or a term or group directly beside a
+  group.
+
+Residual differences, where the same text can still give other rows:
+
+- The JSON text is more than the values and the catalog's key names: JSON syntax (`null`, `true`, `false`) and JSON
+  escapes (a non-ASCII character or a quote stored escaped) are text to advanced_search's `LIKE`, and a term can
+  run across a key and its value. The collation also folds accents (`é` is `e`), which `toLower` does not.
+- A key name is read per sample type from the catalog, which also lists keys some samples of a type carry and others
+  do not (`declared: false`); advanced_search read each sample's own keys.
+- A term with `&`, `^` or `:` had extra rules in advanced_search's value stage (`_highlightKeyValues`): parts of the
+  term could match on their own.
+- advanced_search's value stage also counted negated terms; a negated term cannot hold on a row stage 1 kept, except
+  when its only occurrence in the JSON text is escaped.
+- `filter_searchText` does not change: its terms still match values only (design section 7, "key names do not
+  count"), so `["lung", "organ"]` with `AND` and the query `lung AND organ` can differ on the samples whose only
+  `organ` is a key name.
+
+**What a broad negation costs.** Lucene lists the samples that hold a word, not those that lack one, so a negated term
+never narrows the candidates. The source is the most selective of: the fulltext candidates of the positive terms (the
+query's own, or the union its value stage needs), a sample type (`sampletype`, a `where` label, or the tags that bound
+every match), and only then every `Sample` node, which is logged as a full scan. A text of nothing but negations and no
+type (`NOT granuloma`) therefore reads the `search_text` of every sample, once for the page and once for the count,
+under the 60 second timeout (504).
 
 ## Running and testing
 

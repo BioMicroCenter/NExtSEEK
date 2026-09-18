@@ -227,6 +227,20 @@ def test_extensions_default_to_no_conditions():
     ext = GraphSearchExtensions.model_validate({})
     assert ext.where == []
     assert ext.lineage is None
+    assert ext.query is None
+
+
+def test_extensions_take_the_sample_search_query_text():
+    req = GraphSearchRequest.model_validate({"filter_searchText": "", "extensions": {"query": "lung NOT granuloma"}})
+    assert req.extensions.query == "lung NOT granuloma"
+
+
+def test_the_query_text_is_bounded():
+    GraphSearchExtensions.model_validate({"query": "x" * 2000})
+    with pytest.raises(ValidationError):
+        GraphSearchExtensions.model_validate({"query": "x" * 2001})
+    with pytest.raises(ValidationError):
+        GraphSearchExtensions.model_validate({"query": ["lung"]})
 
 
 def test_extensions_forbid_unknown_keys():

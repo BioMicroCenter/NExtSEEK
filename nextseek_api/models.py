@@ -1961,6 +1961,16 @@ class GraphSearchExtensions(BaseModel):
         default_factory=list, description='Attribute conditions, ANDed, all on one sample type'
     )
     lineage: Optional[GraphSearchLineage] = Field(default=None, description='One lineage condition')
+    query: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description=(
+            "The Sample Search page's query text, matched as advanced_search matched it: terms joined by the "
+            "upper-case words AND, OR and NOT (a NOT b is a AND NOT b; a leading NOT negates what follows), grouped "
+            "by parentheses, OR never on one level with AND or NOT; term[TYPE] limits a term to a sample type. "
+            "ANDed with everything else in the body"
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 

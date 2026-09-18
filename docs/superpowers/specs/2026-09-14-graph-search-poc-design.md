@@ -186,7 +186,8 @@ maximum 1,000), plus one optional field:
     {"sample_type": "TIS", "attribute": "Organ", "op": "=", "value": "Lung"},
     {"sample_type": "TIS", "attribute": "CellCount", "op": ">=", "value": 10000000}
   ],
-  "lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 4}
+  "lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 4},
+  "query": "(lung[TIS] OR liver[TIS]) NOT granuloma"
 }
 ```
 
@@ -195,7 +196,10 @@ maximum 1,000), plus one optional field:
 with advanced_search's rows: `nextseek_api/graph_search/README.md`). Every `where` item must name a
 sample type and an attribute that exists on it in the catalog (422 otherwise). Items are ANDed. Values are cast by the
 attribute's `value_type`; `CONTAINS` and `STARTS WITH` compare the stored value's text (`toString`), so a number held by
-a string attribute matches by its digits, as advanced_search's Contain did. `lineage` keeps a sample only when a sample of that type lies within `max_hops` (1 to 4)
+a string attribute matches by its digits, as advanced_search's Contain did. `query` is the Sample Search page's query text
+(upper-case `AND`, `OR` and `NOT`, parentheses, `term[TYPE]` tags) matched with advanced_search's two stages; its
+grammar, its rows and where they can still differ are in `nextseek_api/graph_search/README.md`, "How graph_search
+expresses them". `lineage` keeps a sample only when a sample of that type lies within `max_hops` (1 to 4)
 DERIVED_FROM hops in that direction; ancestors and descendants are not returned, so they need no scoping.
 
 **Scope:**
@@ -234,7 +238,9 @@ validated by `SampleAdvancedSearchResult`. `?debug_meta=1` appends `{"debug": {"
 **Declared differences from advanced_search** (excluded from parity):
 1. Rows are in global `id` order; a mixed UID-plus-text search has `footer` and `sampleTypes` (advanced_search puts
    UID rows first and drops both).
-2. PubMed syntax inside one string (parentheses, `NOT`, `term[TYPE]`) is not supported; the string is one term.
+2. PubMed syntax inside `filter_searchText` (parentheses, `NOT`, `term[TYPE]`) is not parsed; the string is one term.
+   The same text sent as `extensions.query` is parsed, with advanced_search's rows except where its parser was
+   defective (`nextseek_api/graph_search/README.md`).
 3. `sampleTypes` is computed after every filter.
 4. An out-of-range page returns an empty page, not every row.
 5. A caller with no SEEK person is 403 even when Basic credentials are present; Token authentication is not offered.
