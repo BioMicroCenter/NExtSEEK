@@ -226,6 +226,65 @@ def _call_llm_with_timeout(
             pass
 
 
+def _structured_via(resp, client, response_format, thinking_budget) -> str | None:
+    """How a response's structure was obtained, from what the call site holds.
+
+      "tool_use"        a forced tool call, answered with the tool
+      "tool_use_prose"  a forced tool call the model answered in text anyway: the
+                        client hands the text back and still stamps its metadata
+                        tool_use, so the returned blocks decide
+      "json_mode"       a plain call with the provider's JSON mode on
+      "prompt"          a plain call with JSON asked for in the prompt only
+                        (BedrockClient.chat takes response_format and never sends it)
+      None              a free-text call, which asked for no structure
+    """
+    meta = getattr(resp, "metadata", None) or {}
+    via = meta.get("structured_via")
+    if via == "tool_use":
+        raw = getattr(resp, "raw", None)
+        blocks = raw.get("content") if isinstance(raw, dict) else None
+        if isinstance(blocks, list) and not any(
+            isinstance(b, dict) and b.get("type") == "tool_use" for b in blocks
+        ):
+            return "tool_use_prose"
+        return "tool_use"
+    if via:
+        return str(via)
+    if not (isinstance(response_format, dict) and response_format.get("type") == "json_object"):
+        return None
+    provider = getattr(client, "provider", None)
+    if provider in ("gcp", "openai"):
+        return "json_mode"
+    if (
+        provider == "anthropic"
+        and thinking_budget is None
+        and getattr(client, "_supports_response_format", None) is True
+    ):
+        return "json_mode"
+    return "prompt"
+
+
+def _reasoning_present(resp) -> bool | None:
+    """Whether the response carried a reasoning (thinking) block; None when it cannot say.
+
+    This is a block in the response, not whether the model thought: a provider that
+    hides its reasoning reads as False or None.
+    """
+    meta = getattr(resp, "metadata", None) or {}
+    count = meta.get("reasoning_blocks")
+    if isinstance(count, int):
+        return count > 0
+    raw = getattr(resp, "raw", None)
+    content = getattr(raw, "content", None)  # Anthropic Messages
+    if isinstance(content, list):
+        return any(getattr(b, "type", None) in ("thinking", "redacted_thinking") for b in content)
+    candidates = getattr(raw, "candidates", None)  # Gemini, with thoughts included
+    if isinstance(candidates, list) and candidates:
+        parts = getattr(getattr(candidates[0], "content", None), "parts", None) or []
+        return any(bool(getattr(p, "thought", False)) for p in parts)
+    return None
+
+
 def _ledger_entry(
     agent,
     model_name,
@@ -238,8 +297,16 @@ def _ledger_entry(
     thinking_budget=None,
     resp=None,
     err=None,
+    response_format=None,
+    repair_turn=False,
 ):
-    """Build one LLM-ledger record (latency, provider metadata, outcome). Never raises."""
+    """Build one LLM-ledger record (latency, provider metadata, outcome). Never raises.
+
+    A record that has a response also says how its structure was obtained
+    (``structured_via``), whether the request carried a repair turn after a rejected
+    output (``repair_turn``), and whether the response held a reasoning block
+    (``reasoning_present``).
+    """
     entry: dict[str, Any] = {
         "agent": agent,
         "provider": getattr(client, "provider", None),
@@ -260,6 +327,9 @@ def _ledger_entry(
             entry["bedrock_latency_ms"] = meta.get("bedrock_latency_ms")
             entry["request_id"] = meta.get("request_id")
             entry["stop_reason"] = meta.get("stop_reason")
+            entry["structured_via"] = _structured_via(resp, client, response_format, thinking_budget)
+            entry["repair_turn"] = bool(repair_turn)
+            entry["reasoning_present"] = _reasoning_present(resp)
         if err is not None:
             entry["error"] = f"{type(err).__name__}: {err}"
     except Exception:
@@ -406,6 +476,8 @@ def _call_with_recovery(
                     agent_label, target_model_name, target_client, attempt,
                     "empty_completion", _t0, timeout_seconds=timeout_seconds,
                     thinking_budget=target_thinking_budget, resp=resp,
+                    response_format=response_format,
+                    repair_turn=attempt_messages is not base_messages,
                 ))
                 raise LLMServiceUnavailableError(
                     f"empty completion (0 text tokens) from "
@@ -504,6 +576,8 @@ def _call_with_recovery(
             agent_label, target_model_name, target_client, attempt,
             "ok", _t0, timeout_seconds=timeout_seconds,
             thinking_budget=target_thinking_budget, resp=resp,
+            response_format=response_format,
+            repair_turn=attempt_messages is not base_messages,
         ))
         if usage_label:
             log_usage(resp, usage_label)

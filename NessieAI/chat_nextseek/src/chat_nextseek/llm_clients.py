@@ -498,15 +498,23 @@ def _converse_metadata(resp: dict) -> dict | None:
 
     `stop_reason` is the field that would have named production turn 406's cause; the
     enum now includes `malformed_model_output` and `model_context_window_exceeded`.
+
+    `reasoning_blocks` counts the response's reasoning (thinking) blocks. Both `chat`
+    and `chat_with_tools` drop those blocks from what they return, so this count is the
+    only place a caller can see that the model reasoned before it answered.
     """
     try:
         rmeta = resp.get("ResponseMetadata") or {}
+        blocks = ((resp.get("output") or {}).get("message") or {}).get("content") or []
         return {
             "request_id": rmeta.get("RequestId"),
             "http_status": rmeta.get("HTTPStatusCode"),
             "retry_attempts": rmeta.get("RetryAttempts"),
             "bedrock_latency_ms": (resp.get("metrics") or {}).get("latencyMs"),
             "stop_reason": resp.get("stopReason"),
+            "reasoning_blocks": sum(
+                1 for b in blocks if isinstance(b, dict) and "reasoningContent" in b
+            ),
         }
     except Exception:
         return None
