@@ -60,6 +60,7 @@ from .helpers import (
     matched_nothing,
     tool_neo4j_query,
 )
+from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .session import SessionState
 from .tee import Tee
@@ -504,8 +505,20 @@ def _execute_graph_turn(
 ):
     send_event("agent_started", {"agent": "graph", "mode": "graph_query"})
     _t0 = time.perf_counter()
+
+    # B2 (Pilot A v2, 2026-09-18): a UID the user names is looked up before the agent
+    # writes a query, with and without a -PUB suffix. Two turns asked about -PUB UIDs the
+    # graph stores without the suffix, matched nothing, and one reply said "0 samples are
+    # directly derived" about a sample the query never found.
+    turn_uids = uids_in(user_text, getattr(getattr(plan, "filters", None), "uids", None))
+    uid_checks = check_uids(config, turn_uids, run=tool_neo4j_query) if turn_uids else []
+    uid_agent_note, uid_reply_notes = uid_notes(uid_checks)
+    if uid_agent_note:
+        debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
+    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
+
     print("\n[GRAPH] Running graph agent...")
-    graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=refine_context)
+    graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=agent_context)
     debug_payload["graph_context"] = graph_plan.context_mode
     print(f"[DEBUG][GRAPH] Explanation: {graph_plan.explanation}")
     print(f"[DEBUG][GRAPH] Cypher:\n{graph_plan.cypher}")
@@ -553,15 +566,22 @@ def _execute_graph_turn(
         elif matched_nothing(graph_result) and not zero_row_retry_used:
             zero_row_retry_used = True
             print("[GRAPH] Query ran but matched nothing, retrying once with that context")
+            # Pilot A v2 (2026-09-18), ChIP-seq: this message used to say "use the closest
+            # value that really exists". The first query had correctly found nothing; the
+            # agent took the invitation, swapped in every Chromatin Sequencing Analysis
+            # sample, and the reply led with 12 Hi-C samples. A retry may repair a guess.
+            # It may not answer a different question.
             retry_ctx = (
                 "Your previous Cypher query ran without error and matched 0 records:\n"
                 f"{graph_plan.cypher}\n\n"
-                "If a value you filtered on may not appear verbatim in the graph (an assay "
-                "or sample-type code you inferred rather than read from the catalog, a name "
-                "with different capitalisation or punctuation), use the closest value that "
-                "really exists and try again. If the filters are all real and the answer is "
-                "genuinely zero, return the SAME query unchanged - zero is a valid answer and "
-                "a second guess would be worse than it."
+                "Find the one filter that was a guess and change only that one: a field you "
+                "inferred, a whole-value match on free text, a code or name you did not read "
+                "from the catalog, a capitalisation or punctuation you assumed. Keep every "
+                "term the user actually wrote, and never replace the thing the user asked for "
+                "with a different one: not another technique, assay, sample type, person or "
+                "sample. A named technique, product or UID that matches nothing under its own "
+                "spellings is a real zero. If every filter was certain, return the SAME query "
+                "unchanged - zero is a valid answer and a second guess would be worse than it."
             )
             reason = "zero_rows"
         else:
@@ -569,7 +589,7 @@ def _execute_graph_turn(
 
         graph_plan_retry = graph_agent(
             config, user_text, entity_result, plan,
-            retry_context=retry_ctx, refine_context=refine_context,
+            retry_context=retry_ctx, refine_context=agent_context,
         )
         if not graph_plan_retry.cypher:
             break
@@ -594,7 +614,7 @@ def _execute_graph_turn(
     # nothing and the filter was changed to get it. Recording it in debug_payload was
     # not enough: nothing read the flag, so the reply never carried the caveat. It now
     # goes to the chatter as a query note as well.
-    query_notes: list[str] = []
+    query_notes: list[str] = list(uid_reply_notes)
     if first_ok_empty and not matched_nothing(graph_result):
         debug_payload["graph_retry_changed_answer"] = True
         query_notes.append(

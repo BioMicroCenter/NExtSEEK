@@ -251,3 +251,24 @@ def test_a_first_time_answer_carries_no_such_note(monkeypatch, tmp_path):
 
     assert "graph_retry_changed_answer" not in debug
     assert not (calls["chatter_kwargs"].get("query_notes") or [])
+
+
+def test_the_zero_row_retry_does_not_invite_a_substitute_answer(monkeypatch, tmp_path):
+    """ChIP-seq, Pilot A v2: the first query correctly found nothing; the retry message
+    said "use the closest value that really exists", the agent swapped in every Chromatin
+    Sequencing Analysis sample, and the reply led with 12 Hi-C samples."""
+    _, _, calls = _run(
+        monkeypatch, tmp_path,
+        plans=[
+            GraphAgentPlan(cypher="MATCH (s:Sample) WHERE s.search_text CONTAINS 'chip-seq' RETURN count(*)",
+                           context_mode="catalog"),
+            GraphAgentPlan(cypher="MATCH (s:Sample) WHERE s.search_text CONTAINS 'chip-seq' RETURN count(*)",
+                           context_mode="catalog"),
+        ],
+        results=[_ok(0), _ok(0)],
+    )
+    ctx = calls["retry_contexts"][0]
+
+    assert "closest value that really exists" not in ctx
+    assert "never replace the thing the user asked for" in ctx
+    assert "SAME query unchanged" in ctx
