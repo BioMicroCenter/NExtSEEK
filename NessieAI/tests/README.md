@@ -167,7 +167,8 @@ NessieAI/tests/chat_nextseek/graph_scope/lane.sh <dir> <outdir> -k prover  # the
   (`graph_scope/generator.py`).
 - Assertions: every accepted statement's rows equal what the original returns on the graph with everything the
   caller cannot see deleted; no row carries a marker the caller may not read; refusals carry their expected codes;
-  admin runs the submitted text; every write is refused and the graph is unchanged.
+  admin runs the submitted text; every write is refused and the graph is unchanged; the prover never reads as a
+  comment what the server runs as code.
 - The tool arm (`test_tool_*`) goes through `tool_neo4j_query` and reads its result's `scope` field.
 - Without `GRAPH_SCOPE_NEO4J_URI` and `GRAPH_SCOPE_NEO4J_PASSWORD` every test in the folder skips, so the Django lane
   reports them skipped.
