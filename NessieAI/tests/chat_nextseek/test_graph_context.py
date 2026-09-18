@@ -453,12 +453,6 @@ def test_vocabulary_protocols_on_protocol_words(question):
     assert '"P.ABC-protocol.pdf"' in gc.render_vocabulary(vocab(), question)
 
 
-def test_vocabulary_word_lists_match_the_graph_agent():
-    assert gc.PROTOCOL_WORDS == ("protocol", "method", "procedure", "technique")
-    assert gc.ASSAY_WORDS == ("assay", "sequencing", "cytometry", "spectrometry", "imaging", "data", "processed",
-                              "associated", "underwent", "via", "collection", "extraction")
-
-
 def test_vocabulary_omits_empty_blocks():
     text = gc.render_vocabulary(vocab(investigation_titles=(), project_titles=(), study_titles=(),
                                       published_studies=(), assay_titles=(), protocol_titles=(),

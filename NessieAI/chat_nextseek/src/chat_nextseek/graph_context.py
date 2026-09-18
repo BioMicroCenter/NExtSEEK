@@ -29,10 +29,11 @@ MAX_TYPES, MEANING_MAX, VALUE_MAX = 3, 120, 60
 TOP_VALUES = 10  # values rendered per attribute at most (the catalog stores up to 10)
 SUMMARY_MAX = 240  # a summary's first sentence is cut here, so one long summary cannot outgrow the budget
 
-# The keyword gates the graph agent used before the catalog (agents/graph.py), kept word for word.
+# The keyword gates of the protocol and assay blocks, on both the catalog path and the committed-files path
+# (agents/graph.py), matched by ``mentions``. "dataset" is here because "data" no longer fires inside "datasets".
 PROTOCOL_WORDS = ("protocol", "method", "procedure", "technique")
-ASSAY_WORDS = ("assay", "sequencing", "cytometry", "spectrometry", "imaging", "data", "processed", "associated",
-               "underwent", "via", "collection", "extraction")
+ASSAY_WORDS = ("assay", "sequencing", "cytometry", "spectrometry", "imaging", "data", "dataset", "processed",
+               "associated", "underwent", "via", "collection", "extraction")
 # Studies and published studies: study, paper, publication (and publish), DOI, PMID, as whole words.
 STUDY_WORDS_RE = re.compile(r"\b(?:stud(?:y|ies)|papers?|publications?|publish\w*|doi|pmid)\b", re.IGNORECASE)
 
@@ -41,6 +42,29 @@ _SKIPPED_ATTRIBUTES = frozenset({"UID"})
 _ABBREVIATIONS = frozenset({"e.g", "i.e", "etc", "vs", "approx", "cf", "ca", "no", "fig", "resp", "incl", "esp"})
 _STOP_RE = re.compile(r"[.;!?](?=\s|$)")
 _KEY_PREFIX_RE = re.compile(r"^\d+:")
+
+
+def _gate_pattern(words: tuple[str, ...]) -> re.Pattern:
+    alternation = "|".join(re.escape(word) for word in words)
+    return re.compile(rf"\b(?:re|sub)?(?:{alternation})(?:s|es|ed|ing)?\b", re.IGNORECASE)
+
+
+# The two lists every turn uses, compiled once. Any other list is compiled per call, so nothing grows here.
+_KNOWN_GATES = {PROTOCOL_WORDS: _gate_pattern(PROTOCOL_WORDS), ASSAY_WORDS: _gate_pattern(ASSAY_WORDS)}
+
+
+def mentions(words, text: Any) -> bool:
+    """True when ``text`` uses one of ``words`` as a whole word, a gate word never matching inside another word.
+
+    A substring test fired "data" inside "database" and "via" inside "trivial". The word may carry an
+    inflection (-s, -es, -ed, -ing: "assays", "assayed") or a re- or sub- prefix ("resequencing", "subassays"),
+    which the substring test also caught. An empty list or an empty text matches nothing.
+    """
+    words = tuple(words or ())
+    if not words or not text:
+        return False
+    gate = _KNOWN_GATES.get(words) or _gate_pattern(words)
+    return bool(gate.search(str(text)))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -435,10 +459,10 @@ def render_vocabulary(vocab, question: str) -> str:
     """The keyword-gated vocabulary blocks, blank-line separated ("" when there is nothing to send).
 
     Investigation and project titles always; study titles and published studies when the question names a
-    study, paper, publication, DOI or PMID; assay titles and assay connections on the assay words; protocol
-    titles on the protocol words (the last two gates are the graph agent's existing word lists).
+    study, paper, publication, DOI or PMID; assay titles and assay connections on ``ASSAY_WORDS``; protocol
+    titles on ``PROTOCOL_WORDS`` (both matched as whole words by ``mentions``).
     """
-    q = (question or "").lower()
+    q = question or ""
     blocks = [
         _title_block("INVESTIGATION TITLES (Investigation.title)", _get(vocab, "investigation_titles")),
         _title_block("PROJECT TITLES (Project.title)", _get(vocab, "project_titles")),
@@ -446,11 +470,11 @@ def render_vocabulary(vocab, question: str) -> str:
     if STUDY_WORDS_RE.search(q):
         blocks.append(_title_block("STUDY TITLES (Study.title)", _get(vocab, "study_titles")))
         blocks.append(_published_block(_get(vocab, "published_studies")))
-    if any(word in q for word in ASSAY_WORDS):
+    if mentions(ASSAY_WORDS, q):
         blocks.append(_title_block("ASSAY TITLES (DERIVED_FROM.internal_assay_title values)",
                                    _get(vocab, "assay_titles")))
         blocks.append(_connections_block(_get(vocab, "assay_connections")))
-    if any(word in q for word in PROTOCOL_WORDS):
+    if mentions(PROTOCOL_WORDS, q):
         blocks.append(_title_block("PROTOCOL TITLES (DERIVED_FROM.protocol_title values)",
                                    _get(vocab, "protocol_titles")))
     return "\n\n".join(block for block in blocks if block)
