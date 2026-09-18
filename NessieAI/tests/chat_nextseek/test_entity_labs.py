@@ -161,14 +161,16 @@ def test_the_projects_catalog_passed_in_is_the_one_read():
 def test_resolution_also_runs_after_the_raw_fallback():
     config = _config()
     client = MagicMock()
-    client.chat.return_value = MagicMock(content='{"labs": ["Ashgrove"]}')
+    client.chat.return_value = MagicMock(content='{"labs": ["Jane Ashgrove"]}')
     config.get_agent_model.return_value = (client, "model", None)
     with patch("chat_nextseek.agents.entity.call_llm_structured", side_effect=ValueError("bad json")), \
             patch("chat_nextseek.agents.entity.log_usage"):
-        out = entity_agent(config, user_query="RNA from the Ashgrove lab")
+        out = entity_agent(config, user_query="RNA from Jane Ashgrove")
 
+    # A first-three-letters rule would say JAN; the record says ASH.
     assert out.lab_codes == ["ASH"]
     assert out.labs == ["Ashgrove"]
+    assert [m.rule for m in out.lab_matches] == ["name"]
 
 
 # --------------------------------------------------------------------------
