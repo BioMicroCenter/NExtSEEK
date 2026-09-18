@@ -542,6 +542,64 @@ def test_lineage_ancestor_points_the_other_way_and_defaults_to_4_hops():
     assert "EXISTS { (s)-[:DERIVED_FROM*1..4]->(:`T_MUS`) }" in _where_line(q)
 
 
+# An admin's lineage statement is today's text, byte for byte (the parity harness runs as admin).
+ADMIN_LINEAGE_PAGE = (
+    "CYPHER 25\n"
+    "MATCH (s:Sample) WHERE s.type IN $types\n"
+    "WITH s WHERE EXISTS { (s)<-[:DERIVED_FROM*1..3]-(:`T_D_SEQ`) }\n"
+    "WITH s ORDER BY s.id SKIP $skip LIMIT $limit RETURN s.id AS id"
+)
+
+LINEAGE_PATH_SCOPE = "WHERE all(n IN nodes(lineage_path) WHERE any(q IN n.project_ids WHERE q IN $projects)) }"
+
+
+def test_an_admins_lineage_statement_is_unchanged():
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 3}}})
+    assert q.page_cypher == ADMIN_LINEAGE_PAGE
+    assert "lineage_path" not in q.count_cypher and "lineage_path" not in q.ids_cypher
+
+
+def test_a_non_admin_lineage_scopes_every_node_on_the_descendant_path():
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 3}}},
+               scope=MEMBER)
+    where = _where_line(q)
+    assert ("EXISTS { MATCH lineage_path = (s)<-[:DERIVED_FROM*1..3]-(:`T_D_SEQ`) " + LINEAGE_PATH_SCOPE) in where
+    assert "EXISTS { (s)<-" not in where
+    assert "any(p IN s.project_ids WHERE p IN $projects)" in where, "the sample itself keeps graph_search's clause"
+    assert q.params["projects"] == [2, 6]
+
+
+def test_a_non_admin_lineage_scopes_every_node_on_the_ancestor_path():
+    q = _build({"sampletype": "D.SEQ", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "ancestor", "sample_type": "MUS"}}}, scope=MEMBER)
+    assert ("EXISTS { MATCH lineage_path = (s)-[:DERIVED_FROM*1..4]->(:`T_MUS`) " + LINEAGE_PATH_SCOPE) in _where_line(q)
+
+
+def test_a_non_admin_with_no_projects_gets_the_path_form_over_an_empty_list():
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "ancestor", "sample_type": "MUS", "max_hops": 1}}},
+               scope=Scope(False, 144, ()))
+    assert LINEAGE_PATH_SCOPE in _where_line(q)
+    assert q.params["projects"] == []
+
+
+def test_the_path_clause_is_graph_search_scope_clause_on_each_node():
+    from nextseek_api.graph_search.query import _SCOPE_MATCH
+
+    assert "any(q IN n.project_ids WHERE q IN $projects)" == (
+        _SCOPE_MATCH.replace("p IN", "q IN").replace("s.project_ids", "n.project_ids"))
+
+
+def test_the_lineage_scope_is_in_every_statement():
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 2}}},
+               scope=MEMBER)
+    for statement in (q.page_cypher, q.count_cypher, q.ids_cypher):
+        assert LINEAGE_PATH_SCOPE in statement
+
+
 @pytest.mark.parametrize("lineage", [
     {"direction": "descendant", "sample_type": "NOPE", "max_hops": 2},
     {"direction": "sideways", "sample_type": "MUS", "max_hops": 2},
@@ -552,8 +610,9 @@ def test_lineage_ancestor_points_the_other_way_and_defaults_to_4_hops():
 ])
 def test_lineage_rechecks_what_it_interpolates(lineage):
     filters = _req({"sampletype": "TIS", "filter_searchText": ""}).to_db_filters(sampletype_resolver=_resolver)
-    with pytest.raises(GraphSearchInvalid):
-        build(filters, {"lineage": lineage}, ADMIN, CATALOG, 1, 100)
+    for scope in (ADMIN, MEMBER):
+        with pytest.raises(GraphSearchInvalid):
+            build(filters, {"lineage": lineage}, scope, CATALOG, 1, 100)
 
 
 # --- nothing to search on ---------------------------------------------------------------------------------------------------
