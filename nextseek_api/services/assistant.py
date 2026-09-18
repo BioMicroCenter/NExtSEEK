@@ -63,7 +63,6 @@ from nextseek_api.assistant.models_api import (
     TaskProgressResponse,
     TestCaseItem,
     TestCaseListResponse,
-    Turn,
 )
 from nextseek_api.assistant.models_api import (
     ApiReadRequest,
@@ -90,7 +89,6 @@ from NessieAI.ns.granular import OpValidationError, run_op
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
 from nextseek_api.permissions import may_read_any_users_data
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
-from NessieAI.ns.debug_projection import bundle_debug_entries
 from NessieAI.ns.bundle_download import bundle_metadata
 # Moved to NessieAI/ns/ (NessieAI Phase B): the NS turn in turn.py, the on-disk
 # artifact helpers in artifacts.py. The endpoints below call them; the pipeline
@@ -107,7 +105,7 @@ from NessieAI.ns.artifacts import (
     _resolve_saved_path,
     _safe_artifact_path,
 )
-from nextseek_api.assistant.excel_export import build_artifacts
+from nextseek_api.assistant.session_export import turn_rows
 from rest_framework.authentication import (
     BasicAuthentication,
     TokenAuthentication,
@@ -437,60 +435,8 @@ class AssistantViewSet(viewsets.ViewSet):
         include_set = {p.strip() for p in include.split(",") if p.strip()}
         if "turns" in include_set:
             payload["title"] = session.title or "New chat"
-            chat_log = (session.extra_state or {}).get("chat_log") or []
-            bundles_by_id = {b.get("id"): b for b in history if isinstance(b, dict)}
-            turns: list[dict[str, Any]] = []
-            if chat_log:
-                for entry in chat_log:
-                    if not (entry or {}).get("user_query"):
-                        continue
-                    bid = entry.get("bundle_id")
-                    bundle = bundles_by_id.get(bid) if bid is not None else None
-                    if not (entry.get("assistant_reply")
-                            or entry.get("assistant_reply_preview")
-                            or bundle):
-                        # PD-6: hide ONLY true non-answer entries (unrelated/error,
-                        # F §12.3). Legacy preview-only turns keep rendering.
-                        continue
-                    # Prefer the full reply stored directly on the chat_log entry
-                    # (wizard turns don't produce bundles, so this is the only
-                    # full-text source for them). Fall back to the bundle's
-                    # terminal_reply for legacy entries written before
-                    # assistant_reply existed, then to the 280-char preview.
-                    reply = (
-                        entry.get("assistant_reply")
-                        or (bundle.get("terminal_reply") or bundle.get("reply") if bundle else None)
-                        or entry.get("assistant_reply_preview", "")
-                    ) or ""
-                    artifacts = entry.get("artifacts") or (build_artifacts(bundle) if bundle else None)
-                    turns.append(
-                        Turn(
-                            bundle_id=bid if bid is not None else 0,
-                            turn_id=entry.get("turn_id") if isinstance(entry.get("turn_id"), int) else None,
-                            user_query=entry.get("user_query", ""),
-                            reply=reply,
-                            mode=entry.get("mode", ""),
-                            ts=entry.get("ts"),
-                            artifacts=artifacts or None,
-                            cc_traces=entry.get("cc_traces"),
-                            debug_entries=bundle_debug_entries(bundle) or None,
-                        ).model_dump(mode="json")
-                    )
-            else:
-                turns = [
-                    Turn(
-                        bundle_id=b.get("id", 0),
-                        user_query=b.get("user_query", ""),
-                        reply=b.get("terminal_reply") or b.get("reply") or "",
-                        mode=b.get("mode", ""),
-                        ts=b.get("ts"),
-                        artifacts=(build_artifacts(b) or None),
-                        debug_entries=bundle_debug_entries(b) or None,
-                    ).model_dump(mode="json")
-                    for b in history
-                    if (b or {}).get("user_query")
-                ]
-            payload["turns"] = turns
+            # One turn walk, shared with anything that exports a session.
+            payload["turns"] = [row.payload for row in turn_rows(session)]
 
         return Response(payload, status=status.HTTP_200_OK)
 
