@@ -345,8 +345,15 @@ def _coerce_json_list(value) -> list[str]:
 
 
 def _project_context_row(project_id: int) -> dict | None:
-    """The projects_context row for a SEEK project id, or None."""
-    rows = _query("SELECT * FROM projects_context WHERE project_id = %s LIMIT 1",
+    """The projects_context PROJECT row for a SEEK project id, or None.
+
+    The table also holds investigation rows, and each carries its owning project's
+    `project_id`, so without the filter an investigation could render as the project's
+    header. A NULL `entity_type` predates investigation rows and reads as a project.
+    Ordered by name so that two project rows for one id resolve the same way every time.
+    """
+    rows = _query("SELECT * FROM projects_context WHERE project_id = %s "
+                  "AND (entity_type = 'project' OR entity_type IS NULL) ORDER BY name LIMIT 1",
                   [project_id])
     return rows[0] if rows else None
 
