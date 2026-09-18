@@ -105,3 +105,85 @@ def test_auto_gen_sentinel_block_intact():
     assert begin_idx < end_idx, (
         f"BEGIN sentinel (idx {begin_idx}) must precede END sentinel (idx {end_idx})."
     )
+
+
+# --------------------------------------------------------------------------
+# Runtime claims: what the file tells the agent about its own runtime must
+# match what the CC engine actually does. Checked against cc_engine itself,
+# imported lazily so the content-only checks above still run where docker-py
+# is absent.
+# --------------------------------------------------------------------------
+
+_MOUNT_LINE = re.compile(r"^\s*- `(/[^`]+)` \((read-only|read-write)\)", re.MULTILINE)
+
+
+def _engine():
+    return pytest.importorskip("NessieAI.cc.cc_engine")
+
+
+def _every_agent_mount():
+    """Every mount a turn can get, optional ones included."""
+    cc_engine = _engine()
+    from NessieAI.cc.cc_config import CCPaths
+
+    return cc_engine._build_volumes(
+        paths=CCPaths(users_volume="dmac-cc-users", user_root_mount="/dmac/users"),
+        project_dirname="42-px", user_id="alice", cc_state_key="S1", run_id="R1",
+        transcripts_subpath="42-px/alice/_memory/S1/transcripts",
+    )
+
+
+def test_container_claude_md_lists_exactly_the_agent_mounts_with_their_modes():
+    """The mount list names every mount _build_volumes gives the agent, each
+    with its real mode, and no other."""
+    text = CLAUDE_MD.read_text()
+    documented = {path: mode for path, mode in _MOUNT_LINE.findall(text)}
+    actual = {
+        m["Target"]: ("read-only" if m["ReadOnly"] else "read-write")
+        for m in _every_agent_mount()
+    }
+    assert documented == actual
+
+
+def test_container_claude_md_names_no_data_path_that_is_not_mounted():
+    """A /data path the agent is told about must exist in its container."""
+    text = CLAUDE_MD.read_text()
+    targets = {m["Target"] for m in _every_agent_mount()}
+    named = {p.rstrip("/.") for p in re.findall(r"/data/[\w.-]+", text)}
+    assert named - targets == set()
+
+
+def test_container_claude_md_names_no_dmac_switch_the_agent_never_gets():
+    """Every DMAC_* variable the file names is one build_agent_environment
+    sets. The agent never gets DMAC_ROUTER_ENABLED or DMAC_RUNTIME_MODE."""
+    env = _engine().build_agent_environment(
+        source={}, api_user="u", api_pass="p", path_mappings={}, chat_session_id="c",
+    )
+    named = set(re.findall(r"\bDMAC_[A-Z0-9_]+\b", CLAUDE_MD.read_text()))
+    assert named - set(env) == set()
+
+
+def test_container_claude_md_describes_one_container_per_turn():
+    """A turn is a fresh container fed one message on stdin and removed after,
+    never a docker exec into an idle, long-lived container."""
+    cc_engine = _engine()
+    kwargs = cc_engine._run_kwargs(
+        image="img", command=["claude"], environment={}, mounts=None,
+        run_id="0123abcd", user_id="alice",
+    )
+    assert kwargs["stdin_open"] is True
+    assert kwargs["auto_remove"] is True
+    text = CLAUDE_MD.read_text()
+    for stale in ("docker exec", "idle mode", "long-lived"):
+        assert stale not in text, f"container/CLAUDE.md still says {stale!r}"
+
+
+def test_container_claude_md_turn_limit_matches_the_engine_default():
+    """The documented wall-clock limit is the engine's default ceiling. Read
+    from source: the running process may carry a deployment override."""
+    src = Path(_engine().__file__).read_text(encoding="utf-8")
+    default = re.search(r'"NEXTSEEK_CC_TIMEOUT_HARD_MAX", "(\d+)"', src)
+    assert default, "cc_engine no longer defaults NEXTSEEK_CC_TIMEOUT_HARD_MAX"
+    documented = re.search(r"stopped after (\d+) seconds", CLAUDE_MD.read_text())
+    assert documented, "container/CLAUDE.md does not state the turn's time limit"
+    assert documented.group(1) == default.group(1)
