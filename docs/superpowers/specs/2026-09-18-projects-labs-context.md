@@ -385,6 +385,14 @@ A `lab_codes` consumer, and the one place the reply is told which constraints th
 - `_is_applied` is left alone: making it see graph type labels is a fix already queued elsewhere, so this unit edits
   `_asked_for` only.
 
+### 7.8 No other way in (added at integration)
+
+The entity agent is not the only writer of lab codes. The parser LLM writes `filters.lab_codes` and echoes the entity
+result into `resolved`, and the summary reporter used to fall back to the plan's codes when the entity agent's list was
+empty. So the orchestrator clamps the parser's plan to the entity agent's `lab_codes` straight after the parser (in
+plan mode, every candidate too), and `run_reporter_summary` falls back to the plan's codes only when its caller passed
+none: an empty list is the entity agent's answer. `helpers/lab_code.py::clamp_lab_codes` is the one clamp.
+
 ## 8. `pi`, `parse_pi` and `pi_names`
 
 - **`pi` stays**, as curated display prose. The project page shows it (`context_catalog.load_project_context`) and the
@@ -749,7 +757,9 @@ None of these files is edited by this work.
 2. **`prompts/parser_core_routing.txt` and `prompts/variants/v2/parser_core_routing.txt`**, for 13c.2: the "Known
    investigation titles" line gains TCGA with the not-on-every-instance note, and keeps BioMicroCenter only if the
    counts keep it. `ENTITY_RESULT.scientists` becomes a `Scientist` predicate. `lab_codes` now come only from labs
-   SEEK knows. A lab does not imply a project scope. An option is to stop hand-listing and have config inject the
+   SEEK knows: drop the surname-to-code example (`e.g. <surname> -> <code>`, in the lab-scope rule and in the
+   filters section) and say `filters.lab_codes` is a copy of `ENTITY_RESULT.lab_codes`, never derived from a name. Code drops
+   any other code since 7.8, so the example now only misleads. A lab does not imply a project scope. An option is to stop hand-listing and have config inject the
    generated block through a placeholder; that is a code change the prompt chat would request.
 3. **`context/min_graph_schema.json`** (NS) and **`prompts/variants/v2/min_graph_schema.json`**: the same investigation
    list change.
