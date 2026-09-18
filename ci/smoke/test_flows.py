@@ -20,6 +20,14 @@ pytestmark = pytest.mark.flow
 
 UID_RE = re.compile(r"\A([A-Z]\.)?[A-Z]{2,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?\Z")
 
+# Both search boxes of the Sample Search page, and the graph search flow below, POST here.
+GRAPH_SEARCH_PATH = "/nextseek_api/samples/graph_search/"
+
+
+def _is_graph_search(response) -> bool:
+    return (response.url.split("?", 1)[0].endswith(GRAPH_SEARCH_PATH)
+            and response.request.method == "POST")
+
 
 @pytest.fixture(scope="session")
 def a_sample(discovered):
@@ -39,8 +47,13 @@ def a_sample(discovered):
 # Flow A: advanced search
 # --------------------------------------------------------------------------- #
 
+@pytest.mark.profiles("local", "dev")
 def test_advanced_search_returns_rendered_results(page, base_url):
-    """The daily driver.
+    """The daily driver, whose Advanced box searches through graph_search.
+
+    Local and dev only: the box sends its search as a POST to graph_search, which the
+    prod guard aborts at the network layer (see test_upload_validate_reports_a_result),
+    as it does for graph_search's own Route.
 
     Two things here are easy to get wrong and are deliberate:
 
@@ -64,20 +77,21 @@ def test_advanced_search_returns_rendered_results(page, base_url):
     page.click('a.easyui-linkbutton[onclick="searchAdd()"]')
     assert page.evaluate("() => $('#input_searchText').textbox('getText')") == SMOKE_SEARCH_TERM
 
-    with page.expect_response(
-        lambda r: "/seek/searchAdvanced/" in r.url, timeout=180_000
-    ) as got:
+    with page.expect_response(_is_graph_search, timeout=180_000) as got:
         # Scope by onclick: the simple tab has its own a.ns-btn-search.
         page.click('a.ns-btn-search[onclick*="searchAdvanced"]')
-    assert got.value.status == 200
+    assert got.value.status == 200, f"graph_search answered {got.value.status}"
 
     page.wait_for_selector("div.window-mask", state="hidden", timeout=60_000)
 
     reported = page.inner_text("#numberSamplesFound").strip()
     assert reported.isdigit() and int(reported) > 0, f"result count was {reported!r}"
+    assert int(reported) == got.value.json()["total"], (
+        f"the page reports {reported} samples; graph_search answered {got.value.json()['total']}"
+    )
 
-    # The grid paginates at pageSize 100 (searchAdvanced_stable.embed.html:194-195),
-    # so it holds one page, not the whole result set. Never assert equality here,
+    # graph_search pages in the database and the grid holds one page (#advanced_pager
+    # asks for the others), not the whole result set. Never assert equality here,
     # and never assert a literal count: totals are environment-specific.
     n_rows = page.evaluate("() => $('#advanced_dgtable').datagrid('getRows').length")
     assert 0 < n_rows <= int(reported), (

@@ -1,6 +1,20 @@
 <script type="text/javascript">
 	var type_options = {{report.type_options|safe}};
 
+	/* The value type of the chosen attribute ('numeric', 'date', 'string' or 'bool'), from
+	   /seek/operators/; SampleSearchCore.simpleBody sends numbers as numbers. */
+	var simple_filterType = '';
+
+	/* Clears a combobox and empties its list, but only once EasyUI has built it: a call on
+	   an unbuilt box throws, and a throw while EasyUI parses the page stops it building
+	   every tab and grid after it. */
+	function simple_comboReset(id) {
+		var box = $(id);
+		if (!box.data('combobox')) { return; }
+		box.combobox('clear');
+		box.combobox('loadData', []);
+	}
+
 	function simple_getAttributes(rec) {
 		if (rec.id == 0) {
 			return;
@@ -13,6 +27,10 @@
 			var status = obj.status;
 			if (status == 1) {
 				var attr_options = obj.attrOptions;
+				// The previous type's attribute and rule do not exist on this one.
+				simple_comboReset('#simple_sample_attribute');
+				simple_comboReset('#filter_rule');
+				simple_filterType = '';
 				$('#simple_sample_attribute').combobox('loadData', attr_options);
 			} else {
 				alert(msg);
@@ -23,6 +41,7 @@
 
 	function simple_getOperators(rec) {
 		if (rec.attribute == 'none') {
+			simple_filterType = '';
 			return;
 		} else {
 		}
@@ -37,7 +56,11 @@
 			var msg = obj.msg;
 			var status = obj.status;
 			if (status == 1) {
-				var filter_rule = obj.filter_rule;
+				// Only the rules graph_search can express; the first one offered is selected.
+				simple_filterType = obj.filter_type || '';
+				var offered = SampleSearchCore.offeredRules((obj.filter_rule || []).map(function (r) { return r.name; }));
+				var filter_rule = (obj.filter_rule || []).filter(function (r) { return offered.indexOf(r.name) >= 0; });
+				filter_rule.forEach(function (r, i) { r.selected = (i === 0); });
 				$('#filter_rule').combobox('loadData', filter_rule);
 				var placeholder_start = obj.placeholder_start;
 				document.getElementById("input_valueFrom").setAttribute('placeholder', placeholder_start);
@@ -73,50 +96,19 @@
 		return jsontry;
 	}
 
+	/* Sends the box to POST /nextseek_api/samples/graph_search/ (nsSearchRun in
+	   searchAdvanced.html): the chosen type by title, the attribute and rule as typed
+	   conditions, a page at a time into #simple_dgtable. */
 	function simple_searchSamples() {
-		var sampletype_id = $('#simple_sample_type').combobox('getValue');
-		if (sampletype_id == 0) {
-			alert('No sample type is selected.');
-			return;
-		}
-		var win = $.messager.progress({
-			title: 'Please waiting',
-			msg: 'Searching for samples...'
+		var built = SampleSearchCore.simpleBody({
+			sampletype: SampleSearchCore.typeTitle(type_options, $('#simple_sample_type').combobox('getValue')),
+			attribute: $('#simple_sample_attribute').combobox('getValue'),
+			rule: $('#filter_rule').combobox('getValue'),
+			from: document.getElementById("input_valueFrom").value,
+			to: document.getElementById("input_valueTo").value,
+			filterType: simple_filterType
 		});
-
-		var attribute = $('#simple_sample_attribute').combobox('getValue');
-		var filter_rule = $('#filter_rule').combobox('getValue');
-		var filter_valueFrom = document.getElementById("input_valueFrom").value;
-		var filter_valueTo = document.getElementById("input_valueTo").value;
-		$.get('/seek/samples/searching/', {
-			'sampletype_id': sampletype_id,
-			'attribute': attribute,
-			'filter_rule': filter_rule,
-			'filter_valueFrom': filter_valueFrom,
-			'filter_valueTo': filter_valueTo
-		}, function(data) {
-			$.messager.progress('close');
-			var obj = jQuery.parseJSON(data);
-			var msg = obj.msg;
-			var status = obj.status;
-			if (status == 1) {
-				var datanow = obj.rows;
-				var total = obj.total;
-				$('#simple_dgtable').datagrid('loadData', datanow);
-				var pager = $('#simple_dgtable').datagrid('getPager');
-				pager.pagination({
-					showRefresh: false
-				});
-				pager.pagination({
-					total: total,
-					pageSize: total,
-					pageList: [total]
-				});
-			} else {
-				alert(msg);
-			}
-			return;
-		});
+		nsSearchRun('simple', built, 1, nsSearchPageSize('simple'));
 	}
 </script>
 
