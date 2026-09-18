@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { Database, Moon, PanelLeft, PanelRightOpen, Sun } from "lucide-react";
+import { CircleHelp, Database, Moon, PanelLeft, PanelRightOpen, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface HeaderBarProps {
   onRightToggle: () => void;
   onLeftToggle: () => void;
+  onAboutOpen: () => void;
 }
 
-export function HeaderBar({ onRightToggle, onLeftToggle }: HeaderBarProps) {
+export function HeaderBar({ onRightToggle, onLeftToggle, onAboutOpen }: HeaderBarProps) {
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -42,6 +43,10 @@ export function HeaderBar({ onRightToggle, onLeftToggle }: HeaderBarProps) {
       </div>
 
       <div className="flex items-center gap-1">
+        <Button variant="ghost" size="sm" onClick={onAboutOpen} aria-label="About Nessie">
+          <span className="mr-1 hidden sm:inline text-base">About</span>
+          <CircleHelp className="h-5 w-5" />
+        </Button>
         <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle dark mode">
           {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>

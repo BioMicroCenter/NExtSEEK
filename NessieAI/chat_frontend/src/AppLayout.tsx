@@ -3,7 +3,7 @@ import { useMessages, useProcessingState, useChatApi } from "@/hooks";
 import { useChatRoute } from "@/hooks/useChatRoute";
 import { useSessions } from "@/hooks/useSessions";
 import { ChatPanel } from "@/components/ChatPanel";
-import { HeaderBar, RightSidebar } from "@/components/Layout";
+import { AboutDialog, HeaderBar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
 import { getForceRoute } from "@/lib/forceRoute";
 import { getUseProd } from "@/lib/useProd";
@@ -32,6 +32,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) {
   const [rightOpen, setRightOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("chat.sidebar.collapsed") === "1";
   });
@@ -250,7 +251,11 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <HeaderBar onRightToggle={() => setRightOpen(!rightOpen)} onLeftToggle={toggleSidebar} />
+      <HeaderBar
+        onRightToggle={() => setRightOpen(!rightOpen)}
+        onLeftToggle={toggleSidebar}
+        onAboutOpen={() => setAboutOpen(true)}
+      />
       <div className="flex flex-1 overflow-hidden">
         <SessionSidebar
           sessions={sessions.sessions}
@@ -279,6 +284,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         onDownload={handleDownload}
         isAdmin={isAdmin}
       />
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { NextseekApiService } from "@/lib/services/chatApi";
 import { SessionAuthService } from "@/lib/services/sessionAuth";
 import { ChatPanel } from "@/components/ChatPanel";
-import { CompactToolbar, RightSidebar } from "@/components/Layout";
+import { AboutDialog, CompactToolbar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
 import { getForceRoute } from "@/lib/forceRoute";
 import { getUseProd } from "@/lib/useProd";
@@ -29,6 +29,7 @@ import { debugForTurns } from "@/lib/debugForTurns";
 
 export function EmbeddedApp() {
   const [rightOpen, setRightOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("chat.sidebar.collapsed") === "1";
   });
@@ -258,6 +259,7 @@ export function EmbeddedApp() {
       <CompactToolbar
         onRightToggle={() => setRightOpen(!rightOpen)}
         onLeftToggle={toggleSidebar}
+        onAboutOpen={() => setAboutOpen(true)}
       />
       <div className="flex flex-1 overflow-hidden">
         <SessionSidebar
@@ -287,6 +289,7 @@ export function EmbeddedApp() {
         onDownload={handleDownload}
         isAdmin={isAdmin}
       />
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
     </div>
   );
 }

@@ -18,6 +18,7 @@ describe("HeaderBar", () => {
       <HeaderBar
         onRightToggle={vi.fn()}
         onLeftToggle={vi.fn()}
+        onAboutOpen={vi.fn()}
       />,
     );
     expect(screen.getByText("NExtSEEK Chat")).toBeInTheDocument();
@@ -29,6 +30,7 @@ describe("HeaderBar", () => {
       <HeaderBar
         onRightToggle={onRight}
         onLeftToggle={vi.fn()}
+        onAboutOpen={vi.fn()}
       />,
     );
 
@@ -41,10 +43,25 @@ describe("HeaderBar", () => {
       <HeaderBar
         onRightToggle={vi.fn()}
         onLeftToggle={vi.fn()}
+        onAboutOpen={vi.fn()}
       />,
     );
 
     fireEvent.click(screen.getByLabelText("Toggle dark mode"));
     expect(document.documentElement.classList.contains("dark")).toBe(true);
+  });
+
+  it("opens the About page, mirroring the shipped toolbar", () => {
+    const onAbout = vi.fn();
+    render(
+      <HeaderBar
+        onRightToggle={vi.fn()}
+        onLeftToggle={vi.fn()}
+        onAboutOpen={onAbout}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "About Nessie" }));
+    expect(onAbout).toHaveBeenCalledTimes(1);
   });
 });
