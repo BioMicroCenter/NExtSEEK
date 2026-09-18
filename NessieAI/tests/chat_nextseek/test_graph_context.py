@@ -238,7 +238,20 @@ def test_k_most_filled_in_full_then_one_also_filled_line():
     attributes.reverse()  # the renderer orders by fill, not by input order
     text = gc.render_type_section(detail("TIS", attributes), 25)
     assert [line.split()[1] for line in attribute_lines(text)] == [f"A{i:02d}" for i in range(25)]
+    assert "also filled: A25 n=975, A26 n=974, A27 n=973, A28 n=972, A29 n=971" in text.splitlines()
+
+
+def test_the_names_only_tail_can_leave_its_counts_off():
+    attributes = [attr(f"A{i:02d}", sample_count=1000 - i) for i in range(30)]
+    text = gc.render_type_section(detail("TIS", attributes), 25, tail_counts=False)
     assert "also filled: A25, A26, A27, A28, A29" in text.splitlines()
+
+
+def test_a_tail_attribute_with_no_known_count_is_a_bare_name():
+    attributes = [attr(f"A{i:02d}", sample_count=1000 - i) for i in range(25)]
+    attributes += [attr("Sparse", sample_count=12), attr("Unknown", sample_count=None)]
+    text = gc.render_type_section(detail("TIS", attributes), 25)
+    assert "also filled: Sparse n=12, Unknown" in text.splitlines()
 
 
 def test_no_also_filled_line_when_everything_fits():
@@ -251,7 +264,7 @@ def test_names_only_at_k_zero():
                                                                         sample_count=3)]
     text = gc.render_type_section(detail("TIS", attributes), 0)
     assert attribute_lines(text) == []
-    assert "filled: Organ, `Catalog#`" in text.splitlines()
+    assert "filled: Organ n=9, `Catalog#` n=3" in text.splitlines()
 
 
 def test_never_filled_count_line():
@@ -275,7 +288,7 @@ def test_only_catalog_attributes_appear():
     text = gc.render_type_section(d, 25)
     rendered = {line.split()[1] for line in attribute_lines(text)}
     also = next(line for line in text.splitlines() if line.startswith("also filled: "))
-    rendered |= set(also[len("also filled: "):].split(", "))
+    rendered |= {entry.split(" n=")[0] for entry in also[len("also filled: "):].split(", ")}
     assert rendered == names
 
 
@@ -453,12 +466,6 @@ def test_vocabulary_protocols_on_protocol_words(question):
     assert '"P.ABC-protocol.pdf"' in gc.render_vocabulary(vocab(), question)
 
 
-def test_vocabulary_word_lists_match_the_graph_agent():
-    assert gc.PROTOCOL_WORDS == ("protocol", "method", "procedure", "technique")
-    assert gc.ASSAY_WORDS == ("assay", "sequencing", "cytometry", "spectrometry", "imaging", "data", "processed",
-                              "associated", "underwent", "via", "collection", "extraction")
-
-
 def test_vocabulary_omits_empty_blocks():
     text = gc.render_vocabulary(vocab(investigation_titles=(), project_titles=(), study_titles=(),
                                       published_studies=(), assay_titles=(), protocol_titles=(),
@@ -554,3 +561,105 @@ def test_structure_node_properties_are_in_the_doc():
 
 def test_structure_is_compact():
     assert len(gc.STRUCTURE_PATH.read_bytes()) <= 4096
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The names-only tail's counts, on a heavy synthetic triple
+# ---------------------------------------------------------------------------------------------------------------
+
+VENUE_RESOLVED_RE = re.compile(r"^## Resolved sample types: .*?\((?:the (\d+) most-filled|(attribute names only))",
+                               re.M)  # scripts/graph_search/nessie_venue_check.py reads K back with this
+
+
+def heavy_type(code, n_attributes):
+    """A synthetic type shaped like the heaviest: a full head of 25 lines, then a long, sparse named tail."""
+    attributes = [
+        attr(f"{code}_Measured_Property_{i:03d}", sample_count=50_000 - i, meaning="Synthetic meaning of it. More.",
+             top_values=("value 00", "value 01"), top_counts=(900, 899))
+        for i in range(25)
+    ]
+    attributes += [attr(f"{code}_Sparse_{i:03d}", sample_count=900 - i) for i in range(n_attributes - 25)]
+    return detail(code, attributes, name=f"Heavy {code}", clade="Source", sample_count=50_000,
+                  summary="A synthetic heavy type.", curated_parents="NHP", curated_children="DNA", never_filled=9)
+
+
+def heavy_triple():
+    details = [heavy_type("HVA", 180), heavy_type("HVB", 140), heavy_type("HVC", 80)]
+    snap = snapshot(full_index([index_row(d.title, sample_count=50_000, attributes_with_values=len(d.attributes))
+                                for d in details]))
+    return snap, details
+
+
+def test_the_heading_says_the_tail_carries_counts_and_the_venue_check_still_reads_k():
+    attributes = [attr(f"A{i:02d}", sample_count=100 - i) for i in range(30)]
+    snap = snapshot([index_row("TIS", sample_count=100)])
+    text = gc.render_graph_context(snap, [detail("TIS", attributes)])
+    assert "(the 25 most-filled attributes in full, then the rest by name with n; per attribute:" in text
+    assert VENUE_RESOLVED_RE.search(text).group(1) == "25"
+    names_only = gc.render_graph_context(snap, [detail("TIS", attributes)], k=0)
+    assert "(attribute names only, with n; per attribute:" in names_only
+    assert VENUE_RESOLVED_RE.search(names_only).group(2) == "attribute names only"
+
+
+def test_the_tail_counts_go_before_k_steps_down():
+    snap, details = heavy_triple()
+    whole = gc.render_graph_context(snap, details, budget=10**9)
+    text = gc.render_graph_context(snap, details, budget=len(whole.encode("utf-8")) - 1)
+    assert set(section_attribute_counts(text).values()) == {25}
+    assert "HVA_Sparse_000, HVA_Sparse_001" in text
+    assert "(the 25 most-filled attributes in full, then the rest by name; per attribute:" in text
+
+
+def test_k_steps_down_when_the_counts_alone_do_not_fit_it():
+    snap, details = heavy_triple()
+    whole = gc.render_graph_context(snap, details, budget=10**9)
+    no_counts = gc.render_graph_context(snap, details, budget=len(whole.encode("utf-8")) - 1)
+    text = gc.render_graph_context(snap, details, budget=len(no_counts.encode("utf-8")) - 1)
+    counts = section_attribute_counts(text)
+    assert set(counts) == {"HVA", "HVB", "HVC"} and set(counts.values()) == {15}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# How the context fit: reported and printed, and pinned on the heavy triple
+# ---------------------------------------------------------------------------------------------------------------
+
+def test_fit_reports_how_the_context_fit():
+    attributes = [attr(f"A{i:02d}", sample_count=100 - i) for i in range(30)]
+    snap, details = snapshot([index_row("TIS", sample_count=100)]), [detail("TIS", attributes)]
+    fit = gc.fit_graph_context(snap, details)
+    assert fit.text == gc.render_graph_context(snap, details)
+    assert (fit.requested_k, fit.k, fit.tail_counts, fit.omitted, fit.budget) == (25, 25, True, (), gc.BUDGET_BYTES)
+    assert fit.size == len(fit.text.encode("utf-8")) and not fit.stepped_down
+
+
+def test_a_heavy_triple_renders_at_k_25_with_its_tail_counts():
+    """The pin the verifier asked for: a triple this heavy still gets K 25 and every count, nothing left out."""
+    snap, details = heavy_triple()
+    fit = gc.fit_graph_context(snap, details)
+    assert fit.size > 0.85 * gc.BUDGET_BYTES  # genuinely near the budget, or the pin proves nothing
+    assert (fit.k, fit.tail_counts, fit.omitted, fit.stepped_down) == (25, True, (), False)
+    assert fit.size <= gc.BUDGET_BYTES
+    assert "HVA_Sparse_000 n=900" in fit.text
+
+
+def test_a_step_down_is_printed(capsys):
+    snap, details = heavy_triple()
+    capsys.readouterr()
+    gc.fit_graph_context(snap, details, budget=20_000)
+    out = capsys.readouterr().out
+    assert "[DEBUG][GRAPH] Schema context stepped down to fit 20,000 bytes: K 25 -> " in out
+
+
+def test_nothing_is_printed_when_the_context_fits(capsys):
+    snap, details = heavy_triple()
+    capsys.readouterr()
+    gc.fit_graph_context(snap, details)
+    assert "stepped down" not in capsys.readouterr().out
+
+
+def test_a_left_out_section_is_reported():
+    details = [big_type("TIS"), big_type("D.SEQ"), big_type("A.VCF")]
+    snap = snapshot([])
+    one_names_only = gc.render_graph_context(snap, details[:1], k=0, budget=10**9)
+    fit = gc.fit_graph_context(snap, details, budget=len(one_names_only.encode("utf-8")) + 200)
+    assert fit.omitted == ("D.SEQ", "A.VCF") and fit.k == 0 and fit.stepped_down

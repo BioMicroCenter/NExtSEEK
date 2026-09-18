@@ -1139,22 +1139,27 @@ def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list
 
 
 def _fallback_vocabulary(config: ChatConfig, user_query: str) -> list[str]:
-    """The committed protocol and assay-connection blocks, keyword-gated as before the catalog."""
+    """The committed protocol and assay-connection blocks, gated and bounded as on the catalog path.
+
+    The gate is ``graph_context.mentions`` and the bound ``graph_context.fit_vocabulary``: the blocks together stay
+    within ``VOCAB_BUDGET_BYTES``, and an entry sharing a word with the question is never cut for one that does not.
+    """
     blocks = []
-    query = user_query.lower()
-    if any(kw in query for kw in graph_context.PROTOCOL_WORDS) and getattr(config, "PROTOCOL_SCHEMA", None):
+    query = user_query or ""
+    if graph_context.mentions(graph_context.PROTOCOL_WORDS, query) and getattr(config, "PROTOCOL_SCHEMA", None):
         protocol_titles = config.PROTOCOL_SCHEMA.get("protocol_titles", [])
         if protocol_titles:
-            blocks.append("PROTOCOL VOCABULARY (DERIVED_FROM.protocol_title values):\n"
-                          + json.dumps(protocol_titles, indent=2))
+            blocks.append(graph_context.json_list_block("PROTOCOL VOCABULARY (DERIVED_FROM.protocol_title values):",
+                                                        protocol_titles))
             print(f"[DEBUG][GRAPH] Including protocol vocabulary ({len(protocol_titles)} titles)")
-    if any(kw in query for kw in graph_context.ASSAY_WORDS) and getattr(config, "ASSAY_SAMPLE_CONNECTIONS", None):
+    if graph_context.mentions(graph_context.ASSAY_WORDS, query) and getattr(config, "ASSAY_SAMPLE_CONNECTIONS", None):
         connections = config.ASSAY_SAMPLE_CONNECTIONS.get("connections", [])
         if connections:
-            blocks.append("ASSAY-SAMPLE CONNECTIONS (assay → parent_type → child_type, use to determine which side "
-                          "a sample type sits on for a given assay):\n" + json.dumps(connections, indent=2))
+            blocks.append(graph_context.json_list_block(
+                "ASSAY-SAMPLE CONNECTIONS (assay → parent_type → child_type, use to determine which side a sample "
+                "type sits on for a given assay):", connections))
             print(f"[DEBUG][GRAPH] Including assay-sample connections ({len(connections)} entries)")
-    return blocks
+    return graph_context.fit_vocabulary(blocks, query)
 
 
 # --------------------------------------------------------------------------- #
