@@ -241,12 +241,12 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
 
   const handleDownloadAll = useCallback(() => {
     // The chat on screen, whatever its newest turn wrote. Kept in step with EmbeddedApp.
+    // Returned so the button stays pending until the download is handed over.
     const sid = sessions.activeSessionId;
-    if (sid) {
-      apiService
-        .downloadSession(sid)
-        .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
-    }
+    if (!sid) return;
+    return apiService
+      .downloadSession(sid)
+      .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
   }, [apiService, sessions.activeSessionId, addSystemMessage]);
 
   const toggleSidebar = useCallback(() => {

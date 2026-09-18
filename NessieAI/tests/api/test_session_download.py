@@ -6,9 +6,11 @@ roots with two different guards, and one session can hold both:
 * NS turns register files in their bundle (``files``, ``raw_result_path``,
   ``report_saved_files``). They are served only from inside the outputs roots,
   through ``_safe_artifact_path``.
-* Container-CC turns publish into ``<owner's CC tree>/output/artifacts/<run id>/``,
-  which is found through the owner's SEEK project and guarded by
-  ``resolve_artifact_path``.
+* Container-CC turns publish into ``<owner's CC tree>/output/artifacts/<run id>/``.
+  That tree is the project folder the turns ran in, which the session saves as
+  ``extra_state['cc_project_dirname']``, plus the owner's username: no SEEK call,
+  so neither a later project rename nor the caller's own login can move it. Each
+  file is guarded by ``resolve_artifact_path``.
 
 The response is streamed: a bundle's files run to megabytes, and the ASGI server
 this app runs under would otherwise read a synchronous iterator into one list
@@ -32,11 +34,14 @@ from django.contrib.auth.models import User
 from django.test import AsyncClient, TestCase
 from rest_framework.test import APIClient
 
-from NessieAI.cc.cc_provision import ProjectIdentity, ProjectResolutionError
+from NessieAI.cc.cc_provision import ProjectIdentity
 from nextseek_api.assistant.models_db import ChatSession
+from nextseek_api.assistant.session_export import CHUNK_BYTES
 
 CC_RUN = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
 PROJECT = ProjectIdentity(id="7", title="Test Lab", slug="test-lab")
+# What SEEK would say the owner's project is today: renamed since the CC turns ran.
+RENAMED = ProjectIdentity(id="7", title="Test Lab Renamed", slug="test-lab-renamed")
 NO_SUCH_SESSION = "2f1e0d3c-4b5a-6978-8796-a5b4c3d2e1f0"
 
 
@@ -82,8 +87,10 @@ class _DownloadBase(TestCase):
         })
         env.start()
         self.addCleanup(env.stop)
+        # A tripwire: the export must never ask SEEK where the CC tree is. If it
+        # did, it would be told the renamed folder and find nothing there.
         resolver = patch("NessieAI.cc.cc_provision.resolve_user_project",
-                         return_value=PROJECT)
+                         return_value=RENAMED)
         self.resolve = resolver.start()
         self.addCleanup(resolver.stop)
 
@@ -101,11 +108,15 @@ class _DownloadBase(TestCase):
         path.write_bytes(content if isinstance(content, bytes) else content.encode())
         return path
 
-    def session(self, *, chat_log=None, bundles=None, user=None, title="Mouse counts"):
+    def session(self, *, chat_log=None, bundles=None, user=None, title="Mouse counts",
+                cc_dirname=None):
+        """``cc_dirname`` is the project folder the CC turns ran in, saved by the turn."""
+        extra = {"chat_log": chat_log} if chat_log else {}
+        if cc_dirname is not None:
+            extra["cc_project_dirname"] = cc_dirname
         return ChatSession.objects.create(
             user=user or self.owner, title=title,
-            results_history=bundles or [],
-            extra_state={"chat_log": chat_log} if chat_log else {},
+            results_history=bundles or [], extra_state=extra,
         )
 
     # -- reading the response ---------------------------------------------
@@ -306,6 +317,24 @@ class DownloadContentTests(_DownloadBase):
         self.assertEqual(zf.read("bundle-2/geo_1.xlsx"), b"PK-one")
         self.assertEqual(zf.read("bundle-2/geo_2.xlsx"), b"PK-two")
 
+    def test_a_saved_url_is_not_reported_as_a_refused_path(self):
+        """Some report_saved_files keys hold links (nf-core Tower runs, Tower
+        datasets), not files. They are not files to ship, and not refusals either."""
+        path = self.ns_file("samplesheet.csv", "sample\n")
+        cs = self.session(
+            chat_log=[_ns_entry(1, 1)],
+            bundles=[{"id": 1, "mode": "nfcore",
+                      "report_saved_files": {
+                          "nfcore_samplesheet": path,
+                          "nfcore_tower_run_urls": ["https://tower.example.org/runs/1"],
+                          "tower_dataset_samplesheet": "https://tower.example.org/ds/2"}}],
+        )
+
+        zf = self.unzip(self.download(cs))
+
+        self.assertEqual(zf.read("turn-01/samplesheet.csv"), b"sample\n")
+        self.assertEqual(self.manifest(zf)["skipped"], [])
+
     def test_report_tables_become_one_workbook(self):
         cs = self.session(
             chat_log=[_ns_entry(1, 1, query="report on project 2")],
@@ -327,22 +356,25 @@ class DownloadContentTests(_DownloadBase):
 
 class DownloadContainerCCTests(_DownloadBase):
 
-    def test_cc_files_come_from_the_owner_cc_tree_without_the_turn_zip(self):
+    def test_cc_files_come_from_the_folder_the_turns_used_without_the_turn_zip(self):
+        """The owner's SEEK project has been renamed since the turn ran; the files
+        are still where the turn put them, and that is where they are read from."""
         self.cc_file("summary.csv", "a,b\n1,2\n")
         self.cc_file("plots/counts.png", b"\x89PNG")
         self.cc_file("artifacts.zip", b"PK-bundled-copy")
-        cs = self.session(chat_log=[_cc_entry(1)])
+        cs = self.session(chat_log=[_cc_entry(1)], cc_dirname=PROJECT.dirname)
 
         zf = self.unzip(self.download(cs))
 
         self.assertEqual(zf.read("turn-01/summary.csv"), b"a,b\n1,2\n")
         self.assertEqual(zf.read("turn-01/plots/counts.png"), b"\x89PNG")
         self.assertNotIn("turn-01/artifacts.zip", zf.namelist())
-        self.resolve.assert_called_once()
+        self.assertEqual(self.manifest(zf)["skipped"], [])
+        self.resolve.assert_not_called()
 
     def test_a_turn_whose_only_file_is_named_artifacts_zip_keeps_it(self):
         self.cc_file("artifacts.zip", b"PK-the-deliverable")
-        cs = self.session(chat_log=[_cc_entry(1)])
+        cs = self.session(chat_log=[_cc_entry(1)], cc_dirname=PROJECT.dirname)
 
         zf = self.unzip(self.download(cs))
 
@@ -353,10 +385,11 @@ class DownloadContainerCCTests(_DownloadBase):
         secret.write_text("do not ship")
         real = self.cc_file("real.csv", "x\n")
         (real.parent / "leak.txt").symlink_to(secret)
-        cs = self.session(chat_log=[_cc_entry(1)])
+        cs = self.session(chat_log=[_cc_entry(1)], cc_dirname=PROJECT.dirname)
 
         zf = self.unzip(self.download(cs))
 
+        self.assertIn("turn-01/real.csv", zf.namelist())
         self.assertNotIn("turn-01/leak.txt", zf.namelist())
         self.assertNotIn(b"do not ship", b"".join(zf.read(n) for n in zf.namelist()))
 
@@ -368,6 +401,7 @@ class DownloadContainerCCTests(_DownloadBase):
             bundles=[{"id": 1, "mode": "new_search",
                       "files": [{"key": "api_result", "path": path,
                                  "filename": "api_result_bundle_1.json", "kind": "api"}]}],
+            cc_dirname=PROJECT.dirname,
         )
 
         zf = self.unzip(self.download(cs))
@@ -375,8 +409,10 @@ class DownloadContainerCCTests(_DownloadBase):
         self.assertEqual(zf.read("turn-01/api_result_bundle_1.json"), b'{"n": 3}')
         self.assertEqual(zf.read("turn-02/summary.csv"), b"a\n")
 
-    def test_an_unresolvable_cc_tree_still_ships_everything_else(self):
-        self.resolve.side_effect = ProjectResolutionError("SEEK unreachable")
+    def test_a_cc_turn_with_no_saved_folder_is_listed_and_the_rest_still_ships(self):
+        """Nothing records where the turn ran, so its files are named as skipped
+        rather than looked for in whatever project SEEK names today."""
+        self.cc_file("summary.csv", "a\n")
         path = self.ns_file("api_result_bundle_1.json", "{}")
         cs = self.session(
             chat_log=[_ns_entry(1, 1), _cc_entry(2)],
@@ -390,6 +426,22 @@ class DownloadContainerCCTests(_DownloadBase):
         self.assertIn("turn-01/api_result_bundle_1.json", zf.namelist())
         self.assertEqual([(s["folder"], s["reason"]) for s in self.manifest(zf)["skipped"]],
                          [("turn-02", "cc_tree_unresolved")])
+        self.resolve.assert_not_called()
+
+    def test_a_saved_folder_that_is_not_one_plain_segment_is_refused(self):
+        """The saved folder name goes through the CC layout's own segment check,
+        so a value that climbs out of the users mount names nothing."""
+        escaped = (self.tmp / PROJECT.dirname / "owner" / "output" / "artifacts" / CC_RUN
+                   / "summary.csv")
+        escaped.parent.mkdir(parents=True)
+        escaped.write_text("outside the users mount")
+        cs = self.session(chat_log=[_cc_entry(1)], cc_dirname=f"../{PROJECT.dirname}")
+
+        zf = self.unzip(self.download(cs))
+
+        self.assertNotIn("turn-01/summary.csv", zf.namelist())
+        self.assertEqual([s["reason"] for s in self.manifest(zf)["skipped"]],
+                         ["cc_tree_unresolved"])
 
     def test_an_ns_only_session_never_asks_seek_for_the_cc_tree(self):
         path = self.ns_file("a.json", "{}")
@@ -404,27 +456,78 @@ class DownloadContainerCCTests(_DownloadBase):
 
         self.resolve.assert_not_called()
 
-    def test_a_superuser_gets_another_users_ns_files_but_not_their_cc_tree(self):
-        """The CC tree is found through the owner's own SEEK login, which an
-        operator does not hold, so those files are named as skipped, not guessed."""
+    def test_a_superuser_gets_another_users_cc_files_from_the_owners_tree(self):
+        """The tree is the owner's, named by the session, so an operator's download
+        carries it too, and never reads the operator's own tree instead."""
         root = User.objects.create_superuser("root", "root@example.com", "pw")
         self.client.force_authenticate(user=root)
         path = self.ns_file("api_result_bundle_1.json", "{}")
-        self.cc_file("summary.csv", "a\n")
+        self.cc_file("summary.csv", "owner's\n")
+        self.cc_file("decoy.csv", "operator's own\n", user="root")
         cs = self.session(
             chat_log=[_ns_entry(1, 1), _cc_entry(2)],
             bundles=[{"id": 1, "mode": "new_search",
                       "files": [{"key": "api_result", "path": path,
                                  "filename": "api_result_bundle_1.json", "kind": "api"}]}],
+            cc_dirname=PROJECT.dirname,
         )
 
         zf = self.unzip(self.download(cs))
 
         self.assertIn("turn-01/api_result_bundle_1.json", zf.namelist())
-        self.assertNotIn("turn-02/summary.csv", zf.namelist())
-        self.assertEqual([s["reason"] for s in self.manifest(zf)["skipped"]],
-                         ["cc_owner_only"])
+        self.assertEqual(zf.read("turn-02/summary.csv"), b"owner's\n")
+        self.assertNotIn("turn-02/decoy.csv", zf.namelist())
+        self.assertEqual(self.manifest(zf)["skipped"], [])
         self.resolve.assert_not_called()
+
+
+class _CountingFile:
+    """A file opened for reading whose ``read`` calls add to a counter."""
+
+    def __init__(self, fh, counter):
+        self._fh = fh
+        self._counter = counter
+
+    def read(self, size=-1):
+        data = self._fh.read(size)
+        self._counter.read += len(data)
+        return data
+
+    def __getattr__(self, name):
+        return getattr(self._fh, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._fh.close()
+
+
+class _ReadCounter:
+    """How many bytes of ``target`` have been read so far, through ``Path.open``.
+
+    A test ends by checking that the counter saw the whole file, so a reader that
+    stopped going through ``Path.open`` fails loudly instead of counting nothing.
+    """
+
+    def __init__(self, target: Path):
+        self.target = target.resolve()
+        self.read = 0
+
+    def patch(self):
+        counter, real_open = self, Path.open
+
+        def counting_open(path, *args, **kwargs):
+            fh = real_open(path, *args, **kwargs)
+            return _CountingFile(fh, counter) if Path(path).resolve() == counter.target else fh
+
+        return patch.object(Path, "open", counting_open)
+
+
+#: How far reading the file may run ahead of what has been sent: one read step
+#: plus what the compressor holds back. Holding a whole file, or the whole zip,
+#: overshoots it by megabytes.
+READ_AHEAD_BOUND = 3 * CHUNK_BYTES
 
 
 class DownloadStreamingTests(_DownloadBase):
@@ -432,6 +535,7 @@ class DownloadStreamingTests(_DownloadBase):
     def _big_session(self):
         payload = os.urandom(1_500_000)  # incompressible, so the zip is as big
         path = self.ns_file("big.bin", payload)
+        self.big_path = Path(path)
         cs = self.session(
             chat_log=[_ns_entry(1, 1)],
             bundles=[{"id": 1, "mode": "new_search",
@@ -472,3 +576,45 @@ class DownloadStreamingTests(_DownloadBase):
     async def _abig_session(self):
         from asgiref.sync import sync_to_async
         return await sync_to_async(self._big_session)()
+
+    # The two tests above count and size the pieces, which a server that builds the
+    # whole zip and then slices it also passes. These two watch the file itself:
+    # when the first piece leaves, the big file has not been read to its end, and
+    # at no point has reading it run far ahead of what has been sent.
+
+    def assert_read_keeps_pace(self, counter, n, sent, size):
+        if n == 0:
+            self.assertLess(counter.read, size,
+                            "the whole file was read before the first piece left")
+        self.assertLessEqual(counter.read - sent, READ_AHEAD_BOUND,
+                             f"{counter.read} bytes read with only {sent} sent")
+
+    def test_the_file_is_read_only_as_the_zip_is_sent_under_wsgi(self):
+        cs, payload = self._big_session()
+        counter = _ReadCounter(self.big_path)
+
+        with counter.patch():
+            resp = self.download(cs)
+            sent = 0
+            for n, piece in enumerate(resp.streaming_content):
+                sent += len(piece)
+                self.assert_read_keeps_pace(counter, n, sent, len(payload))
+
+        self.assertEqual(counter.read, len(payload))
+
+    async def test_the_file_is_read_only_as_the_zip_is_sent_under_asgi(self):
+        cs, payload = await self._abig_session()
+        client = AsyncClient()
+        await client.aforce_login(self.owner)
+        counter = _ReadCounter(self.big_path)
+
+        with counter.patch():
+            resp = await client.get(_url(cs.session_id))
+            self.assertTrue(resp.is_async)
+            sent, n = 0, 0
+            async for piece in resp.streaming_content:
+                sent += len(piece)
+                self.assert_read_keeps_pace(counter, n, sent, len(payload))
+                n += 1
+
+        self.assertEqual(counter.read, len(payload))

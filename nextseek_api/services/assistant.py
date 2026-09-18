@@ -1072,24 +1072,10 @@ class AssistantViewSet(viewsets.ViewSet):
         if not is_owner and not may_read_any_users_data(request.user):
             return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
 
-        # The CC tree is found through the SEEK project of the login that asks,
-        # exactly as the per-turn CC download finds it, so only the owner's own
-        # request can name the owner's tree. A superuser reading someone else's
-        # chat gets those turns listed as skipped, never files from their own tree.
-        resolve_cc_root = None
-        if is_owner:
-            basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-            if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-                api_user, api_pass = basic_tuple
-            else:
-                api_user = request.session.get("username")
-                api_pass = request.session.get("password")
-            username = request.user.username
-
-            def resolve_cc_root():
-                return session_export.cc_artifacts_root(api_user, api_pass, username)
-
-        plan = session_export.plan_export(chat_session, resolve_cc_root=resolve_cc_root)
+        # The CC tree comes from the session itself (the project folder its CC turns
+        # ran in, and the owner's username), never from the login that asks, so a
+        # superuser reading someone else's chat gets the owner's files too.
+        plan = session_export.plan_export(chat_session)
         # Match the iterator to the server: handed a synchronous iterator, Django's
         # ASGI response (daphne is this app's default server) reads all of it into a
         # list before sending a byte, and a WSGI response does the same to an

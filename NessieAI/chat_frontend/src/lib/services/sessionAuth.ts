@@ -6,6 +6,10 @@ function getCsrfToken(): string | null {
 }
 
 export class SessionAuthService implements AuthService {
+  // Django's session cookie authenticates every same-origin request, a plain
+  // link included; the CSRF header below is needed only for unsafe methods.
+  readonly browserCarriesCredentials = true;
+
   getAuthHeaders(): HeadersInit {
     const token = getCsrfToken();
     return token ? { "X-CSRFToken": token } : {};

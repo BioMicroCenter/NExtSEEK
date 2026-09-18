@@ -434,13 +434,27 @@ export class NextseekApiService {
    * The whole chat as one zip: the transcript plus every turn's files, from
    * both the NS and the Container-CC artifact roots. Keyed on the session only,
    * so a turn older than the Debug panel's bundle is included too.
+   *
+   * The zip has no size bound (it carries every turn's raw API result). When the
+   * browser holds the credential itself (the embedded shell's session cookie) it
+   * is handed a plain link, so it streams the file to disk with its own progress
+   * and this tab never holds the body; a refused download then shows as a failed
+   * download in the browser. Basic auth needs a header no link can carry, so the
+   * standalone shell still fetches the body and saves it as a blob.
    */
   async downloadSession(sessionId: string): Promise<void> {
-    const baseUrl = this.auth.getApiBaseUrl();
-    const response = await fetch(
-      `${baseUrl}/nextseek_api/assistant/sessions/${sessionId}/download/`,
-      { headers: { ...this.auth.getAuthHeaders() } },
-    );
+    const endpoint =
+      `${this.auth.getApiBaseUrl()}/nextseek_api/assistant/sessions/${sessionId}/download/`;
+    const fallbackName = `nessie-chat-${sessionId.slice(0, 8)}.zip`;
+
+    if (this.auth.browserCarriesCredentials) {
+      // download keeps the page where it is; the server's Content-Disposition
+      // name takes precedence over this fallback.
+      saveVia(endpoint, fallbackName);
+      return;
+    }
+
+    const response = await fetch(endpoint, { headers: { ...this.auth.getAuthHeaders() } });
 
     if (!response.ok) {
       throw new Error(`Failed to download the chat: ${response.status}`);
@@ -449,15 +463,20 @@ export class NextseekApiService {
     const blob = await response.blob();
     const disposition = response.headers.get("Content-Disposition");
     const filenameMatch = disposition?.match(/filename="?(.+?)"?$/);
-    const filename = filenameMatch?.[1] ?? `nessie-chat-${sessionId.slice(0, 8)}.zip`;
+    const filename = filenameMatch?.[1] ?? fallbackName;
 
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    saveVia(url, filename);
     URL.revokeObjectURL(url);
   }
+}
+
+/** Click a temporary download link to `href`. */
+function saveVia(href: string, filename: string): void {
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }

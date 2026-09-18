@@ -248,12 +248,12 @@ export function EmbeddedApp() {
 
   const handleDownloadAll = useCallback(() => {
     // The chat on screen, whatever its newest turn wrote. Kept in step with AppLayout.
+    // Returned so the button stays pending until the download is handed over.
     const sid = sessions.activeSessionId;
-    if (sid) {
-      serviceRef.current
-        .downloadSession(sid)
-        .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
-    }
+    if (!sid) return;
+    return serviceRef.current
+      .downloadSession(sid)
+      .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
   }, [sessions.activeSessionId, addSystemMessage]);
 
   const toggleSidebar = useCallback(() => {
