@@ -107,19 +107,36 @@ class MySQL:
     def scalar(self, db: str, query: str):
         return self.value(db, f"SELECT JSON_ARRAY(({query}))")[0]
 
-    def snapshot(self, db: str, *, auto_increment: bool = True, ddl: bool = True) -> str:
+    def data(self, db: str, like: dict | None = None) -> dict:
+        """Every table's rows, over the columns each table has now or had in `like`.
+
+        What "no row changed" compares. A refused apply may still have run its
+        schema step, which only adds, widens or re-charsets columns; reading the
+        rows over the columns they had before is what shows that no value moved.
+        """
+        state = {}
+        for table in TABLES:
+            if like is not None:
+                columns = like[table]["columns"]
+            else:
+                columns = self.value(db, "SELECT JSON_ARRAYAGG(COLUMN_NAME) FROM information_schema.COLUMNS "
+                                          f"WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{table}'")
+            rows = self.rows(db, table, columns) if columns else []
+            state[table] = {"columns": columns,
+                            "rows": sorted(json.dumps(r, sort_keys=True) for r in rows)}
+        return state
+
+    def snapshot(self, db: str, *, auto_increment: bool = True) -> str:
         """Every table's DDL and rows, in primary-key order.
 
-        With `auto_increment=False` the tables' next AUTO_INCREMENT value is left out,
-        which is the one thing a re-run may consume without changing any row. With
-        `ddl=False` only the rows are compared.
+        With `auto_increment=False` the tables' next AUTO_INCREMENT value is left out.
         """
         present = [t for t in TABLES if self.scalar(
             db, "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = "
                 f"DATABASE() AND TABLE_NAME = '{t}'")]
         done = self._exec(["mysqldump", "-uroot", "--compact", "--skip-extended-insert",
                            "--order-by-primary", "--default-character-set=utf8mb4",
-                           *([] if ddl else ["--no-create-info"]), db, *present])
+                           db, *present])
         assert done.returncode == 0, done.stderr.decode()
         text = done.stdout.decode("utf-8")
         return text if auto_increment else re.sub(r" AUTO_INCREMENT=\d+", "", text)
@@ -361,13 +378,13 @@ def test_a_value_the_target_cannot_take_is_refused_before_any_row_changes(mysql)
     declares NOT NULL. The generator's own DDL allows it, so only the target can
     say no, and it has to say so before the delete runs, not halfway through."""
     db = load_prestate(mysql, "notnull")
-    before = mysql.snapshot(db, ddl=False)
+    before = mysql.data(db)
     rows = [dict(row) for row in cg.rows_for("projects")]
     rows[0]["entity_type"] = None
     code, out, err = mysql.apply(cg.render_update("projects", rows), db)
     assert code != 0
     assert "context_gen REFUSED" in err and "entity_type" in out + err
-    assert mysql.snapshot(db, ddl=False) == before
+    assert mysql.data(db, like=before) == before
 
 
 # --- one transaction, and a second run that changes nothing ----------------------
@@ -386,13 +403,13 @@ def test_a_failure_anywhere_in_the_rows_leaves_every_table_as_it_was(mysql):
     the duplicate assay rows carrying the internal assay link deleted. Now one
     transaction holds every row change, so a failure anywhere changes no row."""
     db = load_prestate(mysql, "midfail")
-    before = mysql.snapshot(db, ddl=False)
+    before = mysql.data(db)
     script = update_sql()
     for point in ("-- ---- projects_context ----", cg.CHECKS_MARKER):
         broken = script.replace(point, "SELECT * FROM `nextseek_no_such_table`;\n" + point, 1)
         code, _, err = mysql.apply(broken, db)
         assert code != 0 and "nextseek_no_such_table" in err, point
-        assert mysql.snapshot(db, ddl=False) == before, point
+        assert mysql.data(db, like=before) == before, point
 
 
 def test_the_second_run_changes_no_row_and_consumes_no_id(mysql):
@@ -457,12 +474,12 @@ def test_the_unique_keys_are_added_once_and_never_beside_a_primary_key(mysql):
 # --- drift is refused, loudly, and nothing is committed ----------------------------
 
 
-def _refused(mysql, db: str, script: str, before: str, *, force: bool = False) -> str:
+def _refused(mysql, db: str, script: str, before: dict, *, force: bool = False) -> str:
     code, out, err = mysql.apply(script, db, force=force)
     if not force:
         assert code != 0, out
     assert "context_gen REFUSED" in err, err
-    assert mysql.snapshot(db, ddl=False) == before
+    assert mysql.data(db, like=before) == before
     return out + err
 
 
@@ -480,7 +497,7 @@ def test_a_target_retitled_upstream_is_refused_and_rolled_back(mysql):
     db = load_prestate(mysql, "drift", extra=(
         "UPDATE internal_assays SET internal_assay_title = CONCAT(internal_assay_title, ' (retitled)') "
         f"WHERE internal_assay_title = {_q(title)};\n"))
-    before = mysql.snapshot(db, ddl=False)
+    before = mysql.data(db)
     text = _refused(mysql, db, update_sql(), before)
     assert "SEEK assays not on their curated internal assay" in text
 
@@ -492,7 +509,7 @@ def test_a_merge_a_new_seek_assay_still_points_at_is_refused(mysql):
     merged = next(m["internal_assay_id"] for m in mappings if m["action"] == "merge_internal")
     db = load_prestate(mysql, "blocked", extra=(
         f"INSERT INTO assays_internal_assays (assay_id, internal_assay_id) VALUES (990002, {merged});\n"))
-    before = mysql.snapshot(db, ddl=False)
+    before = mysql.data(db)
     text = _refused(mysql, db, update_sql(), before)
     assert "merged internal assays still present" in text
 
@@ -501,7 +518,7 @@ def test_a_stack_numbered_differently_is_refused_rather_than_mislinked(mysql):
     """Production's internal assay ids, written as literals, pointed rows of a stack
     whose internal_assays came from elsewhere at the wrong assays, with exit 0."""
     db = load_prestate(mysql, "renumbered", id_offset=1000)
-    before = mysql.snapshot(db, ddl=False)
+    before = mysql.data(db)
     _refused(mysql, db, update_sql(), before)
 
 
@@ -509,7 +526,7 @@ def test_force_cannot_commit_a_partial_apply(mysql):
     """`mysql --force` runs on past a failed statement and used to reach COMMIT. The
     commit is now conditional on the checks, so a skipped row rolls everything back."""
     db = load_prestate(mysql, "force")
-    before = mysql.snapshot(db, ddl=False)
+    before = mysql.data(db)
     first = cg.rows_for("projects")[0]["name"]
     script = update_sql()
     statement = f"UPDATE `projects_context` SET `name` = {cg.literal(first)},"

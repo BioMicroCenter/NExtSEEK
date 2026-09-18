@@ -881,8 +881,8 @@ def content_digest(table: str, rows: list[dict]) -> str:
         for column in columns:
             value = db_value(table, column, row.get(column))
             fields.append(_NULL if value is None else str(value))
-        records.append(_FIELD.join(fields))
-    return hashlib.sha256(_RECORD.join(records).encode("utf-8")).hexdigest()
+        records.append(_RECORD + _FIELD.join(fields))
+    return hashlib.sha256("".join(records).encode("utf-8")).hexdigest()
 
 
 def _sql_digest(table: str) -> str:
@@ -891,9 +891,12 @@ def _sql_digest(table: str) -> str:
         f"COALESCE(CONVERT(`{c}` USING utf8mb4), CHAR(29 USING utf8mb4))"
         for c in _digest_columns(table)
     )
-    return (f"SHA2(GROUP_CONCAT(CONCAT_WS(CHAR(31 USING utf8mb4), {fields}) "
+    # GROUP_CONCAT's SEPARATOR takes a string literal only, so the record separator
+    # opens each record instead and the separator is empty.
+    return (f"SHA2(GROUP_CONCAT(CONCAT(CHAR(30 USING utf8mb4), "
+            f"CONCAT_WS(CHAR(31 USING utf8mb4), {fields})) "
             f"ORDER BY CONVERT(`{spec.key}` USING utf8mb4) COLLATE utf8mb4_bin "
-            f"SEPARATOR CHAR(30 USING utf8mb4)), 256)")
+            f"SEPARATOR ''), 256)")
 
 
 def _exact(column_sql: str, text_sql: str) -> str:
