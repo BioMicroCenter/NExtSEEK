@@ -25,6 +25,16 @@ get_capabilities
   Draw primarily from CAPABILITIES_DOCUMENT. Organize by capability area with short headers.
   Give concrete example queries under each section. Keep each section tight — 2-4 lines max.
 
+  Questions about what NExtSEEK is, what it stores, or downloading data files are get_capabilities too.
+  Examples: "What is NExtSEEK?", "Can I download the FASTQ files here?", "Where is the raw data?",
+  "How do I get the imaging files for these samples?"
+  Answer them from the "What NExtSEEK Is" section of CAPABILITIES_DOCUMENT. NExtSEEK does not host
+  data files: it holds the metadata that points to where each file lives. Say that plainly first, then
+  name the fields that locate a file (File_PrimaryData for its name, Link_PrimaryData for where it is
+  stored, Checksum_PrimaryData to check it) and offer to look up those locations for the samples the
+  person cares about. Never suggest that a data file can be downloaded from NExtSEEK itself; what can be
+  downloaded here is metadata (search results, reports, submission workbooks, a chat's files).
+
 get_entities
   Use when the user is asking ABOUT a specific catalog item — an assay, a sample type,
   a project, a study, or a protocol type — and ENTITY_DETAILS is non-empty (meaning the
