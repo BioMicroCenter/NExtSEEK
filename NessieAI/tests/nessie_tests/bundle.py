@@ -105,3 +105,30 @@ def preflight() -> None:
 # itself so that every entry point wiring this reader gets the check without having
 # to remember it; the module CLI and `manage.py nessie` both wire this function.
 summary_for_session.preflight = preflight
+
+
+class BundleReaderOtherInstance(BundleReaderUnavailable):
+    """The reader can read, but not the database of the instance the turns run on.
+
+    Raised by `runner.check_bundle_reader` when an empty chat it opened on the turns'
+    `--base-url` is not in the database this process reads. Every turn of such a run
+    bills on that instance and every bundle read here misses, so it is refused before
+    the first one.
+    """
+
+
+def session_exists(session_id) -> bool:
+    """Whether the database this process reads holds the chat `session_id`.
+
+    The reader's half of the proof that it reads the instance the turns run on: the
+    runner opens a chat on `--base-url` and asks this. `preflight` alone cannot tell,
+    because it proves only that some database is readable. Free: one read-only query.
+    """
+    ensure_django()
+    from nextseek_api.assistant.models_db import ChatSession
+    return ChatSession.objects.filter(session_id=session_id).exists()
+
+
+# The second hook `runner.check_bundle_reader` looks for, riding on the reader for the
+# reason given above `summary_for_session.preflight`.
+summary_for_session.holds_session = session_exists

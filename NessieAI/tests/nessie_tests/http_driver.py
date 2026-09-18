@@ -54,6 +54,35 @@ def make_default_clients(base_url: str, auth_header: str, timeout_s: float = SOC
     return post_query, get_progress
 
 
+# A plain chat create and delete: no turn, no router, no model, so no spend.
+SESSIONS_PATH = "/nextseek_api/assistant/sessions/"
+
+
+def make_session_clients(base_url: str, auth_header: str, timeout_s: float = SOCKET_TIMEOUT_S):
+    """Open and close an empty chat on the instance at `base_url`, as the harness user.
+
+    `runner.check_bundle_reader` opens one before a full-tier run's first turn and asks
+    the bundle reader whether its database holds it: the proof that the reader reads
+    the instance the paid turns run on. Both calls are free.
+    """
+    def open_session() -> str:
+        req = urllib.request.Request(
+            f"{base_url}{SESSIONS_PATH}", data=b"{}",
+            headers={"Authorization": auth_header, "Content-Type": "application/json"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            return str(json.loads(r.read().decode())["session_id"])
+
+    def close_session(session_id: str) -> None:
+        req = urllib.request.Request(
+            f"{base_url}{SESSIONS_PATH}{session_id}/",
+            headers={"Authorization": auth_header}, method="DELETE")
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            r.read()
+
+    return open_session, close_session
+
+
 def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           get_progress: Callable[[str], dict], session_id: str | None = None,
           force_new: bool = False,

@@ -24,7 +24,9 @@ EXIT_CODES = """exit codes
   8  --bayesian: refused, --resume was given but --out holds no paired run to
      continue. Nothing was billed.
   9  --tier full: refused, the bundle reader cannot read here (on the host,
-     Django is not installed). Nothing was billed. Run it in the app container.
+     Django is not installed), or it reads a different instance's database from
+     the one --base-url names. Nothing was billed. Run it in the app container of
+     the instance --base-url names.
 """
 
 # Its own code, not 1: 1 means "the product failed a case", and this run never
@@ -304,7 +306,8 @@ def main(argv=None) -> int:
     except runner.BundleReaderUnavailable as e:
         print(f"nessie: {e}")
         print(f"nessie: exit {EXIT_BUNDLE_READER_UNAVAILABLE}. The full tier works inside the "
-              f"app container: `docker exec nextseek uv run manage.py nessie --tier full ...`.")
+              f"app container of the instance --base-url names: "
+              f"`docker exec nextseek uv run manage.py nessie --tier full ...`.")
         return EXIT_BUNDLE_READER_UNAVAILABLE
     summary = runner.classify_entries(manifest)
     fails = runner.gate_failed(manifest)
