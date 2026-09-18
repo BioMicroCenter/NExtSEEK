@@ -59,6 +59,7 @@ from .helpers import (
     matched_nothing,
     tool_neo4j_query,
 )
+from .helpers.lab_code import clamp_lab_codes
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .session import SessionState
 from .tee import Tee
@@ -481,6 +482,47 @@ def _followup_examples(rows: list, limit: int = 3) -> list[str]:
     return out
 
 
+def _clamp_lab_codes_to_entity(plan, entity_result):
+    """``plan`` with every lab code the entity agent did not match removed (OD4).
+
+    The entity agent emits ``lab_codes`` only from SEEK lab records it matched, so its list
+    is empty exactly when nothing matched. The parser LLM writes its own ``filters.lab_codes``
+    (per candidate in plan mode) and echoes the entity result into ``resolved``, and its
+    prompt still teaches a surname-to-code rule: a scientist, or a lab whose SEEK title did
+    not parse, could come back as a guessed code. Everything downstream (the API and graph
+    agents, the empty-result retry ladder, the reply's scope note) reads the plan, so the
+    clamp runs once, straight after the parser. Nothing but the codes changes.
+    """
+    if isinstance(entity_result, dict):
+        matched = entity_result.get("lab_codes")
+    else:
+        matched = getattr(entity_result, "lab_codes", None)
+    dropped: list[str] = []
+
+    def _clamp(codes):
+        kept = clamp_lab_codes(codes, matched)
+        dropped.extend(c for c in (codes or []) if isinstance(c, str)
+                       and c.strip().upper() not in kept and c not in dropped)
+        return kept
+
+    def _clamp_filters(filters):
+        return filters.model_copy(update={"lab_codes": _clamp(filters.lab_codes)})
+
+    updates: dict[str, Any] = {
+        "resolved": plan.resolved.model_copy(update={"lab_codes": _clamp(plan.resolved.lab_codes)}),
+    }
+    if hasattr(plan, "candidates"):
+        updates["candidates"] = [
+            c.model_copy(update={"filters": _clamp_filters(c.filters)}) for c in plan.candidates
+        ]
+    else:
+        updates["filters"] = _clamp_filters(plan.filters)
+    if dropped:
+        print(f"[DEBUG][PARSER] dropped lab codes no matched lab record gave: {dropped} "
+              f"(entity lab_codes={list(matched or [])})")
+    return plan.model_copy(update=updates)
+
+
 #: How many times the graph turn may generate-execute-read before it settles.
 #: Bounded on purpose: each try is a model call plus a Neo4j round trip on the user's
 #: latency budget, and the measured graph stage already runs at a p90 of 18.9 s.
@@ -835,6 +877,7 @@ def run_query(
         plan = parser_agent(session, config, user_text, entity_result)
         print(f"[TIMING][PARSER] {time.perf_counter() - _t0:.2f}s")
         plan = ParserPlan.model_validate(fix_sample_endpoint(plan.model_dump()))
+        plan = _clamp_lab_codes_to_entity(plan, entity_result)
         mode = plan.mode
         send_event(
             "agent_complete",
@@ -1084,7 +1127,9 @@ def run_query(
                 # "an annual progress report for the Kamm project" resolves Kamm as a
                 # LAB, so reporter_plan.project stays null and the report would run
                 # across every project while describing itself as Kamm's. Hand the
-                # resolved lab codes down so the summary can scope itself instead.
+                # resolved lab codes down so the summary can scope itself instead. An
+                # empty list is the entity agent's answer (no lab record matched), and
+                # run_reporter_summary does not replace it with the plan's codes.
                 _lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
                 reporter_result, saved_files, reporter_summary = run_reporter_summary(
                     config, reporter_plan, log_dir, lab_codes=_lab_codes)
@@ -1638,6 +1683,7 @@ def run_query_plan(
         send_event("agent_started", {"agent": "parser", "mode": "plan"})
         _t0 = time.perf_counter()
         multi_parser_plan = multi_parser_agent(session, config, user_text, entity_result)
+        multi_parser_plan = _clamp_lab_codes_to_entity(multi_parser_plan, entity_result)
         print(f"[TIMING][MULTI_PARSER] {time.perf_counter() - _t0:.2f}s")
         send_event(
             "agent_complete",

@@ -21,7 +21,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-__all__ = ["LabResolution", "fold", "resolve_labs"]
+__all__ = ["LabResolution", "clamp_lab_codes", "fold", "resolve_labs"]
 
 # ---------------------------------------------------------------------------
 # 7.2 normalisation
@@ -599,3 +599,22 @@ def resolve_labs(
     _extend_unique(keywords, scientists)  # E4
     return LabResolution(available=True, labs=labs, lab_codes=codes, lab_matches=matches,
                          scientists=scientists, keywords=keywords)
+
+
+def clamp_lab_codes(codes: Any, matched: Any) -> list[str]:
+    """``codes`` less every code that is not in ``matched``, in ``codes``' order, each once.
+
+    OD4: a lab code may scope a query only when the entity agent emitted it from a lab record
+    it matched. The parser LLM writes its own ``filters.lab_codes`` and echoes the entity
+    result into ``resolved``; this is the clamp both pass through, with the entity agent's
+    ``lab_codes`` as ``matched``. Codes compare in capitals, as the records spell them.
+    """
+    allowed = {c.strip().upper() for c in _as_sequence(matched) if isinstance(c, str)}
+    out: list[str] = []
+    for code in _as_sequence(codes):
+        if not isinstance(code, str):
+            continue
+        code = code.strip().upper()
+        if code and code in allowed and code not in out:
+            out.append(code)
+    return out

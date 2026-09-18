@@ -1116,11 +1116,12 @@ def run_reporter_summary(
     # A scoped request whose project did not resolve would otherwise silently run
     # across every project. Fall back to the lab codes the entity agent resolved.
     #
-    # Read them from the plan when the caller did not pass any: planner/tools.py:305
-    # and granular.py:132 both call this without lab_codes, so once scoping worked
-    # they would have gone on reporting the whole database. Task 812 shows the
-    # reporter already populates reporter_context.lab_codes.
-    if not lab_codes:
+    # Read them from the plan only when the caller did not pass any: planner/tools.py
+    # calls this without lab_codes. A list the caller passed, even an empty one, is
+    # the entity agent's answer: it emits a code only from a lab record it matched
+    # (spec 2026-09-18-projects-labs-context OD4), so an empty list means no lab
+    # matched, and the plan's LLM-written codes must not stand in for it.
+    if lab_codes is None:
         ctx = getattr(reporter_plan, "reporter_context", None)
         lab_codes = list(getattr(ctx, "lab_codes", None) or []) if ctx is not None else []
         if lab_codes:
