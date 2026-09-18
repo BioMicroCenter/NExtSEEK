@@ -91,6 +91,10 @@ class ParserForceRejected(PreflightRefused):
     """The evaluation switch did not land, or the probe could not show that it did."""
 
 
+class PromptVariantRejected(PreflightRefused):
+    """The prompt variant did not land: the finished turn does not record it in `debug.prompt_variant`."""
+
+
 def assert_force_route_works(post_query, get_progress, *, sleep=time.sleep,
                              clock=time.monotonic, poll_interval_s: float = 2.0,
                              ns_run_root_timeout_s: float = NS_RUN_ROOT_TIMEOUT_S
@@ -231,7 +235,8 @@ def _last_event_data(payload, name: str) -> dict:
 
 def assert_parser_force_works(post_query, get_progress, arms, *, sleep=time.sleep,
                               clock=time.monotonic,
-                              timeout_s: float = NS_RUN_ROOT_TIMEOUT_S) -> None:
+                              timeout_s: float = NS_RUN_ROOT_TIMEOUT_S,
+                              prompt_variant: str | None = None) -> None:
     """One full forced turn per arm proves the evaluation switch landed. Raises on any arm.
 
     Run after `assert_force_route_works`. Each arm's probe is checked in this
@@ -247,6 +252,11 @@ def assert_parser_force_works(post_query, get_progress, arms, *, sleep=time.slee
     5. on the graph arm, `debug.graph_context` is `catalog` (spec D15). `fallback`
        means the graph agent read the committed JSON, not the live catalog, which
        voids every graph-arm question.
+
+    The unforced arm (`auto`, no `force_parser_mode`) skips 3 and 4, since the parser
+    routes on its own and writes no note; it still needs a plan, and 5 applies when the
+    parser chose the graph. With `prompt_variant`, every probe carries it and every
+    finished turn must record it in `debug.prompt_variant` (`PromptVariantRejected`).
 
     A full turn, not a route-tier one: the note and the context arrive with
     `query_complete`, long after `route_decided`. `timeout_s` is the run's own
@@ -266,13 +276,15 @@ def assert_parser_force_works(post_query, get_progress, arms, *, sleep=time.slee
             PARSER_FORCE_PROBE_QUERY, tier="full", post_query=post_query,
             get_progress=get_progress, force_new=True, force_route=preset["force_route"],
             force_parser_mode=preset["force_parser_mode"], full_timeout_s=timeout_s,
-            sleep=sleep, clock=clock)
-        _check_parser_force(arm, preset["force_parser_mode"], res, timeout_s)
+            prompt_variant=prompt_variant, sleep=sleep, clock=clock)
+        _check_parser_force(arm, preset["force_parser_mode"], res, timeout_s,
+                            prompt_variant=prompt_variant)
 
 
-def _check_parser_force(arm, force_mode, res, timeout_s) -> None:
+def _check_parser_force(arm, force_mode, res, timeout_s, prompt_variant=None) -> None:
     where = (f"parser-force probe for arm {arm!r} (force_parser_mode={force_mode!r}, "
-             f"task {res.task_id!r})")
+             + (f"prompt_variant={prompt_variant!r}, " if prompt_variant else "")
+             + f"task {res.task_id!r})")
     route, source = res.route_obs.route, res.route_obs.source
     if source != "forced" or route != ro.ROUTE_NS:
         if not ro.has_route_decided(res.payload):
@@ -310,7 +322,15 @@ def _check_parser_force(arm, force_mode, res, timeout_s) -> None:
     mode = plan.get("mode")
     notes = plan.get("notes")
     notes_text = notes if isinstance(notes, str) else " | ".join(str(n) for n in notes or [])
-    if FORCE_NOTE_MARKER not in notes_text:
+    if force_mode is None:
+        # The unforced arm: the parser routes on its own and writes no switch note.
+        if mode is None:
+            raise ParserForceRejected(
+                f"{where}: INCONCLUSIVE, the finished turn carries no "
+                f"`debug.parser_plan`.\n"
+                f"The NS pipeline stopped before its parser ran, or the reply is an error. "
+                f"Read the turn's reply and the venue's log for the task.")
+    elif FORCE_NOTE_MARKER not in notes_text:
         if mode is None:
             raise ParserForceRejected(
                 f"{where}: INCONCLUSIVE, the finished turn carries no "
@@ -343,7 +363,7 @@ def _check_parser_force(arm, force_mode, res, timeout_s) -> None:
             f"parser's guardrails, so either code after it changed the mode or the "
             f"snapshot's switch is not this branch's. Compare the venue's SNAPSHOT with "
             f"this branch's HEAD before any paid run.")
-    if force_mode != "graph" and mode == "graph_query":
+    if force_mode is not None and force_mode != "graph" and mode == "graph_query":
         raise ParserForceRejected(
             f"{where}: the switch's note is present but the plan stayed on "
             f"'graph_query'.\n"
@@ -351,7 +371,7 @@ def _check_parser_force(arm, force_mode, res, timeout_s) -> None:
             f"switch sent it back to the graph, or the snapshot's switch is not this "
             f"branch's; compare the venue's SNAPSHOT with this branch's HEAD.")
 
-    if force_mode == "graph":
+    if force_mode == "graph" or (force_mode is None and mode == "graph_query"):
         context = debug.get("graph_context")
         if context is None:
             raise ParserForceRejected(
@@ -369,3 +389,32 @@ def _check_parser_force(arm, force_mode, res, timeout_s) -> None:
                 f"GraphMeta with schema_version 1.1. Every graph-arm question would be void "
                 f"(spec E6). Run scripts/graph_search/nessie_venue.sh check, which reads the "
                 f"catalog the same way.")
+
+    if prompt_variant is not None:
+        _check_prompt_variant(where, prompt_variant, debug)
+
+
+_NO_FIELD = object()
+
+
+def _check_prompt_variant(where, prompt_variant, debug) -> None:
+    """The finished turn ran the variant: `debug.prompt_variant` names it (orchestrator.run_query)."""
+    got = debug.get("prompt_variant", _NO_FIELD)
+    if got is _NO_FIELD:
+        raise PromptVariantRejected(
+            f"{where}: the turn's debug payload has no `prompt_variant` field at all, so the "
+            f"served image predates the prompt-variant switch.\n"
+            f"Rebuild the app image from this branch (./startup.sh rebuild --no-ci) and run the "
+            f"preflight again.")
+    if got != prompt_variant:
+        raise PromptVariantRejected(
+            f"{where}: the prompt variant did not land: debug.prompt_variant is {got!r}, not "
+            f"{prompt_variant!r}, so this turn ran the default prompts.\n"
+            f"The server drops prompt_variant without a word in these cases; check each:\n"
+            f"  1. the server process lacks {EVAL_PARSER_FORCE_ENV}=1 (exactly \"1\");\n"
+            f"  2. the account is not a superuser (is_staff alone is ignored);\n"
+            f"  3. the variant failed to load: the app log says \"prompt_variant {prompt_variant!r} "
+            f"could not be applied\" and why; check chat_nextseek/prompts/variants/"
+            f"{prompt_variant}/ in the image;\n"
+            f"  4. the image predates the variant's files: rebuild the app image "
+            f"(./startup.sh rebuild --no-ci).")

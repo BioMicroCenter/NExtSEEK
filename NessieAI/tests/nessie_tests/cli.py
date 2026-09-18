@@ -57,6 +57,7 @@ _PAIRED_ONLY_FLAGS = (
 # itself, so it refuses these as it refuses a second selection source.
 _FORCE_FLAGS = (
     ("--force-route", "force_route"), ("--force-parser-mode", "force_parser_mode"),
+    ("--prompt-variant", "prompt_variant"),
 )
 
 
@@ -134,6 +135,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "NS parser to the graph or the API path. Honoured only for a "
                         "superuser on a server that sets NEXTSEEK_EVAL_PARSER_FORCE=1, and "
                         "ignored without a word otherwise.")
+    p.add_argument("--prompt-variant", choices=list(runner.PROMPT_VARIANTS), default=None,
+                   help="Normal run only, with --force-route ns. Evaluation only: run every turn "
+                        "on that alternative prompt set (chat_nextseek/prompts/variants/<name>/), "
+                        "with or without --force-parser-mode. Same gate as --force-parser-mode; "
+                        "the turn's debug.prompt_variant says whether it landed.")
     return p
 
 
@@ -268,6 +274,11 @@ def main(argv=None) -> int:
             "--force-parser-mode needs --force-route ns: the switch lives in the NS "
             "parser, and an unforced turn may be routed to Container-CC, where the field "
             "is ignored without a word.")
+    if a.prompt_variant and a.force_route != "ns":
+        build_parser().error(
+            "--prompt-variant needs --force-route ns: the variant changes the NS agents' "
+            "prompts, and an unforced turn may be routed to Container-CC, where the field is "
+            "ignored without a word.")
 
     bundle_reader = None
     if a.tier == "full":
@@ -279,7 +290,8 @@ def main(argv=None) -> int:
         family=a.family, variant_id=a.variant, corpus_path=_CORPUS,
         out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
         run_consistency=run_consistency, sample=a.sample, seed=a.seed,
-        force_route=a.force_route, force_parser_mode=a.force_parser_mode)
+        force_route=a.force_route, force_parser_mode=a.force_parser_mode,
+        prompt_variant=a.prompt_variant)
     summary = runner.classify_entries(manifest)
     fails = runner.gate_failed(manifest)
     # Outages get their own clause rather than vanishing: they are excluded from

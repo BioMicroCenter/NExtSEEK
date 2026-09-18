@@ -60,6 +60,7 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           fresh_session: bool = True,
           force_route: str | None = None,
           force_parser_mode: str | None = None,
+          prompt_variant: str | None = None,
           mode: str = "standard", poll_interval_s: float = 2.0,
           route_timeout_s: float = 60.0, full_timeout_s: float = 600.0,
           max_consecutive_poll_errors: int = MAX_CONSECUTIVE_POLL_ERRORS,
@@ -112,6 +113,12 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
         # dropped silently otherwise; `preflight.assert_parser_force_works` proves it
         # landed before a paid run. Omitted when unset, like force_route.
         body["force_parser_mode"] = force_parser_mode
+    if prompt_variant:
+        # The prompt-variant switch: an alternative Nessie prompt set for this turn,
+        # with or without a parser force. Same gate and the same silent drop as
+        # force_parser_mode; `preflight.assert_parser_force_works` reads
+        # `debug.prompt_variant` back to prove it landed. Omitted when unset.
+        body["prompt_variant"] = prompt_variant
     if session_id:
         body["session_id"] = session_id
     elif force_new:

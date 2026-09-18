@@ -17,6 +17,12 @@ Forced runs (the graph_search Nessie POC, all PAID at ``--tier full``):
     manage.py nessie --tier full --cases C --force-route ns --force-parser-mode graph
     manage.py nessie --tier full --cases C --force-route ns --arms graph,api
     manage.py nessie --tier full --cases C --force-route ns --arms graph,api --resume --max-turns 60
+    manage.py nessie --tier full --cases C --force-route ns --arms auto --prompt-variant v2
+
+``--arms auto`` forces the NS route and NOT the parser, so the parser routes each question
+itself; its payloads land under ``<out>/auto/payloads/`` like any arm's. ``--prompt-variant``
+runs every turn (the preflight probes included) on an alternative prompt set, with or without a
+parser force; the preflight refuses the run unless the turns record it in ``debug.prompt_variant``.
 
 ``--arms`` calls ``runner.run_arms``: a preflight that proves both forces land,
 then every question through each arm back to back, with a manifest and a report
@@ -79,8 +85,15 @@ class Command(BaseCommand):
                                  "the graph or the API path. Honoured only for a superuser on a "
                                  "server that sets NEXTSEEK_EVAL_PARSER_FORCE=1, and ignored "
                                  "without a word otherwise.")
+        parser.add_argument("--prompt-variant", choices=["v2", "v2_apoc"], default=None,
+                            help="With --force-route ns. Evaluation only: run every turn on that "
+                                 "alternative prompt set (chat_nextseek/prompts/variants/<name>/), "
+                                 "with or without a parser force. Honoured only for a superuser "
+                                 "on a server that sets NEXTSEEK_EVAL_PARSER_FORCE=1; with --arms "
+                                 "the preflight proves it landed.")
         parser.add_argument("--arms", default=None, metavar="NAMES",
-                            help="PAID. Comma-separated forced NS arms (graph,api or graph): every "
+                            help="PAID. Comma-separated NS arms (graph,api, graph, or auto, the "
+                                 "unforced parser): every "
                                  "--cases question through each arm back to back, after a "
                                  "preflight that proves both forces land. Needs --cases, "
                                  "--force-route ns and --tier full; excludes --force-parser-mode.")
@@ -128,6 +141,7 @@ class Command(BaseCommand):
             cases_path=opts["cases"],
             force_route=opts["force_route"],
             force_parser_mode=opts["force_parser_mode"],
+            prompt_variant=opts["prompt_variant"],
         )
         self._summarize(manifest, tier, opts["scope"], opts["out"], runner)
 
@@ -144,6 +158,11 @@ class Command(BaseCommand):
             raise CommandError(
                 "--force-parser-mode needs --force-route ns: the switch lives in the NS "
                 "parser, and an unforced turn may be routed to Container-CC, where the field "
+                "is ignored without a word.")
+        if opts["prompt_variant"] and opts["force_route"] != "ns":
+            raise CommandError(
+                "--prompt-variant needs --force-route ns: the variant changes the NS agents' "
+                "prompts, and an unforced turn may be routed to Container-CC, where the field "
                 "is ignored without a word.")
 
     @staticmethod
@@ -189,7 +208,7 @@ class Command(BaseCommand):
                 base_url=opts["base_url"], auth_header=auth_header, corpus_path=_CORPUS,
                 cases_path=opts["cases"], out_dir=Path(opts["out"]), arms=arms,
                 resume=opts["resume"], max_turns=opts["max_turns"],
-                bundle_reader=summary_for_session)
+                bundle_reader=summary_for_session, prompt_variant=opts["prompt_variant"])
         except preflight.PreflightRefused as e:
             raise CommandError(
                 f"the preflight refused the run: its probe turns were sent and billed, no "
@@ -210,6 +229,8 @@ class Command(BaseCommand):
         w("")
         w(f"Nessie arms  state={progress.get('state')}  "
           f"turns driven by this invocation: {progress.get('turns_driven')}")
+        variant = (result.get("run_meta") or {}).get("prompt_variant")
+        w(f"  prompt variant: {variant or 'none (the default prompts)'}")
         for arm, manifest in result["manifests"].items():
             summary = runner.classify_entries(manifest)
             count = summary["counts"]

@@ -141,7 +141,7 @@ def _criterion_field(c):
 
 def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
              pace_s=0.0, force_route=None, force_parser_mode=None,
-             strip_route_criteria=False, payload_dir=None,
+             strip_route_criteria=False, payload_dir=None, prompt_variant=None,
              full_timeout_s=600.0, sleep=time.sleep, clock=time.monotonic
              ) -> NessieManifestEntry:
     """Drive one variant to an entry. The body `run_suite` used to inline.
@@ -267,6 +267,7 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
                                     force_new=(session_id is None),
                                     force_route=force_route,
                                     force_parser_mode=force_parser_mode,
+                                    prompt_variant=prompt_variant,
                                     full_timeout_s=full_timeout_s,
                                     sleep=sleep, clock=clock)
             session_id = res.session_id
@@ -300,7 +301,7 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
                 _write_turn_payload(
                     payload_dir, v.id, turn, res, qc, payload_names,
                     force_route=force_route, force_parser_mode=force_parser_mode,
-                    elapsed_s=round(clock() - t_turn, 3))
+                    elapsed_s=round(clock() - t_turn, 3), prompt_variant=prompt_variant)
             v_cost = qc.get("total_cost_usd", v_cost)
             bundle_summary = None
             if case_tier == "full" and bundle_reader is not None and session_id is not None:
@@ -410,7 +411,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
               corpus_path, out_dir, post_query=None, get_progress=None, bundle_reader=None,
               pace_s=0.0, run_consistency: bool = False, sample: float = 1.0, seed: int = 0,
               cases_path=None, force_route=None, force_parser_mode=None,
-              sleep=time.sleep, clock=time.monotonic) -> NessieManifest:
+              sleep=time.sleep, clock=time.monotonic, prompt_variant=None) -> NessieManifest:
     """One whole run.
 
     `force_route` forces every turn, the consistency groups' included (a normal run
@@ -419,7 +420,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     needs the ns route. Neither is set by default, so a router-decided run is
     unchanged.
     """
-    _check_force(force_route, force_parser_mode)
+    _check_force(force_route, force_parser_mode, prompt_variant)
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
     if cases_path:
@@ -454,7 +455,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
         entries.append(run_case(
             v, tier=tier, post_query=post_query, get_progress=get_progress,
             bundle_reader=bundle_reader, pace_s=pace_s, force_route=force_route,
-            force_parser_mode=force_parser_mode,
+            force_parser_mode=force_parser_mode, prompt_variant=prompt_variant,
             strip_route_criteria=force_route is not None, sleep=sleep, clock=clock))
     if run_consistency:
         from NessieAI.tests.nessie_tests import consistency
@@ -470,6 +471,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                                       post_query=post_query, get_progress=get_progress,
                                       force_new=True, force_route=force_route,
                                       force_parser_mode=force_parser_mode,
+                                      prompt_variant=prompt_variant,
                                       sleep=sleep, clock=clock)
                 # `reply` is what lets run_group see a provider outage. Without it
                 # the group only ever saw {route, count}, so an outage surfaced as
@@ -681,7 +683,16 @@ def gate_failed(manifest: NessieManifest) -> int:
 ARM_PRESETS = {
     "graph": {"force_route": "ns", "force_parser_mode": "graph"},
     "api": {"force_route": "ns", "force_parser_mode": "api"},
+    # The NS route forced, the parser NOT: it picks graph or API itself, and the
+    # payload's debug.parser_plan.mode records which. The unforced arm of a
+    # prompt-variant comparison (`prompt_variant` on run_arms).
+    "auto": {"force_route": "ns", "force_parser_mode": None},
 }
+
+# The evaluation prompt variants, `chat_nextseek.prompt_variants.VARIANT_NAMES`.
+# Pinned against that file's and the request model's source text by
+# tests/test_prompt_variant_harness.py: the host lane cannot import the engine.
+PROMPT_VARIANTS = ("v2", "v2_apoc")
 
 ARMS_FILE = "arms.json"
 PAYLOADS_DIR = "payloads"
@@ -717,12 +728,24 @@ class ArmsChanged(ArmsRunRefused):
     """The arm list differs from the run being resumed; the rotation depends on it."""
 
 
-def _check_force(force_route, force_parser_mode) -> None:
+class PromptVariantChanged(ArmsRunRefused):
+    """The prompt variant differs from the run being resumed; the run would mix two prompt sets."""
+
+
+def _check_force(force_route, force_parser_mode, prompt_variant=None) -> None:
     if force_parser_mode is not None and force_route != "ns":
         raise ValueError(
             f"force_parser_mode={force_parser_mode!r} needs force_route='ns' (got "
             f"{force_route!r}): the switch lives in the NS parser, and an unforced turn "
             f"may be routed to Container-CC, where the field is ignored without a word.")
+    if prompt_variant is not None and prompt_variant not in PROMPT_VARIANTS:
+        raise ValueError(f"unknown prompt variant {prompt_variant!r}; the variants are "
+                         f"{list(PROMPT_VARIANTS)}")
+    if prompt_variant is not None and force_route != "ns":
+        raise ValueError(
+            f"prompt_variant={prompt_variant!r} needs force_route='ns' (got {force_route!r}): "
+            f"the variant changes the NS agents' prompts, and an unforced turn may be routed "
+            f"to Container-CC, where the field is ignored without a word.")
 
 
 def _safe_name(text) -> str:
@@ -759,7 +782,7 @@ def _utc_now() -> str:
 
 
 def _write_turn_payload(payload_dir, variant_id, turn, res, qc, used, *, force_route,
-                        force_parser_mode, elapsed_s) -> None:
+                        force_parser_mode, elapsed_s, prompt_variant=None) -> None:
     """One driven turn's final payload, for `run_case`'s `payload_dir`."""
     case_dir = _private_dir(_private_dir(payload_dir) / _safe_name(variant_id))
     name = _safe_name(turn.label)
@@ -770,6 +793,7 @@ def _write_turn_payload(payload_dir, variant_id, turn, res, qc, used, *, force_r
         "variant_id": variant_id, "turn": turn.label, "query": turn.query,
         "task_id": res.task_id, "session_id": res.session_id, "status": res.status,
         "force_route": force_route, "force_parser_mode": force_parser_mode,
+        "prompt_variant": prompt_variant,
         "route_obs": dataclasses.asdict(res.route_obs),
         "query_complete": qc, "elapsed_s": elapsed_s,
     }
@@ -797,7 +821,7 @@ def _arm_done(entry) -> bool:
 def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
              resume=False, max_turns=None, full_timeout_s=600.0, skip_preflight=False,
              post_query=None, get_progress=None, bundle_reader=None,
-             sleep=time.sleep, clock=time.monotonic) -> dict:
+             sleep=time.sleep, clock=time.monotonic, prompt_variant=None) -> dict:
     """Every question of a cases file through each forced NS arm (spec E1).
 
     Per question, every arm back to back, the first arm rotating with the
@@ -826,6 +850,11 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
     `assert_force_route_works`, then `assert_parser_force_works(arms)`, and a
     refusal stops the run before any question and before arms.json is written.
 
+    `prompt_variant` runs every turn, the preflight probes included, on that
+    evaluation prompt set; it is recorded in `run_meta.prompt_variant` and in every
+    payload, and a resume with a different one is refused. The arm `auto` forces
+    the NS route only, so the parser routes each question itself.
+
     Returns the arms.json document plus `manifests` ({arm: NessieManifest}) and
     `arms_file`.
     """
@@ -833,6 +862,7 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
     from NessieAI.tests.nessie_tests import preflight
 
     arms = _validate_arms(arms)
+    _check_force("ns", None, prompt_variant)
     if max_turns is not None and max_turns < 0:
         raise ValueError(f"max_turns must be 0 or more; got {max_turns}")
     out_dir = Path(out_dir)
@@ -863,6 +893,11 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
                 f"the arms {arms} differ from the run being resumed "
                 f"({prior_meta.get('arms')}); each question's first arm depends on the "
                 f"list and its order. Resume with the same --arms, or give a new --out.")
+        if prior_meta.get("prompt_variant") != prompt_variant:
+            raise PromptVariantChanged(
+                f"the prompt variant {prompt_variant!r} differs from the run being resumed "
+                f"({prior_meta.get('prompt_variant')!r}); the run would mix two prompt sets. "
+                f"Resume with the same --prompt-variant, or give a new --out.")
         if prior_meta.get("cases_sha256") != cases_sha:
             raise CasesChanged(
                 f"the cases file {cases_path} is not the one this run was started with "
@@ -886,7 +921,8 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
         preflight.assert_force_route_works(post_query, get_progress, sleep=sleep,
                                            clock=clock, ns_run_root_timeout_s=full_timeout_s)
         preflight.assert_parser_force_works(post_query, get_progress, arms, sleep=sleep,
-                                            clock=clock, timeout_s=full_timeout_s)
+                                            clock=clock, timeout_s=full_timeout_s,
+                                            prompt_variant=prompt_variant)
         preflight_record = {"passed_at": _utc_now(), "git_sha": sha}
 
     _private_dir(out_dir)
@@ -917,7 +953,7 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
             "git_sha": sha, "corpus_fingerprint": fingerprint, "cases_sha256": cases_sha,
             "cases_file": str(cases_path), "arms": arms, "base_url": base_url,
             "preflight": preflight_record, "full_timeout_s": full_timeout_s,
-            "resumed": prior is not None,
+            "resumed": prior is not None, "prompt_variant": prompt_variant,
         },
         "progress": progress,
         "questions": questions,
@@ -958,7 +994,8 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
                     bundle_reader=bundle_reader, force_route=preset["force_route"],
                     force_parser_mode=preset["force_parser_mode"],
                     strip_route_criteria=True, payload_dir=out_dir / arm / PAYLOADS_DIR,
-                    full_timeout_s=full_timeout_s, sleep=sleep, clock=clock)
+                    full_timeout_s=full_timeout_s, sleep=sleep, clock=clock,
+                    prompt_variant=prompt_variant)
                 driven += len(v.turns)
                 entries[arm][v.id] = entry
                 rec["arms"][arm] = {"status": entry.status, "outage": entry.outage,
