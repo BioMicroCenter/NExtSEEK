@@ -8,7 +8,10 @@ viewset module stays import-light and unit tests can patch the agents.
 
 The single intentional **superset** of dmac behavior is ``graph``: per the design
 decision for this work it ALSO executes the Cypher plan via Neo4j and returns the
-rows alongside the plan (dmac returns the plan only).
+rows alongside the plan (dmac returns the plan only). The Neo4j tool holds that
+statement to the caller's project scope, which the view puts on the config; a
+statement refused for its scope comes back with an error that names graph_search,
+the project-scoped sample search, so the CC agent can ask it instead.
 
 Error taxonomy (mirrors dmac _ws_contract.ERROR_EXIT):
 * :class:`OpValidationError` -> VALIDATION
@@ -69,6 +72,13 @@ def _parse(args, config, session, write_gate, neo4j_exec, outputs_dir):
     return _dump(parser_agent(session, config, args["query"], entity_out))
 
 
+#: Added to a ``graph`` op result refused for its project scope: the CC agent's way forward.
+GRAPH_SCOPE_FALLBACK_HINT = (
+    "Search with nextseek-api-read against /nextseek_api/samples/graph_search/ instead; it applies the "
+    "caller's project scope on the server."
+)
+
+
 def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
     from chat_nextseek.portable import entity_agent, graph_agent, parser_agent
     entity_out = entity_agent(config, args["query"])
@@ -91,6 +101,9 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
         result = exec_fn(config, cypher, params)
     else:
         result = {"ok": False, "error": "graph agent produced no cypher", "data": []}
+    from chat_nextseek.helpers.tools.neo4j import is_scope_refusal
+    if is_scope_refusal(result):
+        result = {**result, "error": f"{result.get('error') or ''} {GRAPH_SCOPE_FALLBACK_HINT}".strip()}
     return {"plan": plan_dump, "result": result}
 
 

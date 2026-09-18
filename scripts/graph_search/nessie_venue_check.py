@@ -985,6 +985,29 @@ def _check_graph(report: _Report, config, remeasure_timeout: float) -> None:
                ", ".join(f"{n} {kind}" for kind, n in sorted(kinds.items())) or "no transaction observed")
 
 
+def venue_graph_config(config, environ=None):
+    """The check's own copy of the venue's config, carrying the operator's graph scope.
+
+    The check reads the catalog and runs the tool probe over every project, so it needs the operator's explicit
+    opt-in: ``CHAT_NEXTSEEK_GRAPH_ADMIN=1``, which ``nessie_venue.sh check`` exports for this step only. Without it the
+    copy carries no scope and the tool refuses. The Django singleton is never changed.
+    """
+    from chat_nextseek.graph_scope import operator_scope_from_env, with_scope  # noqa: PLC0415 (only in the venue)
+
+    return with_scope(config, operator_scope_from_env("venue-check", environ))
+
+
+def _check_graph_scope(report: _Report, config):
+    from chat_nextseek.graph_scope import scope_of  # noqa: PLC0415 (only in the venue)
+
+    config = venue_graph_config(config)
+    scope = scope_of(config)
+    report.add("graph_scope", scope is not None and scope.is_admin,
+               "admin, by the operator's opt-in" if scope is not None
+               else "no scope: the check step needs CHAT_NEXTSEEK_GRAPH_ADMIN=1 (nessie_venue.sh check sets it)")
+    return config
+
+
 def run_check(out: Path | None, remeasure_timeout: float = 120.0) -> int:
     """The venue check (plan task T8): every result is in ``out``; prints overrides-ok, one line per check, PASS."""
     report = _Report()
@@ -992,6 +1015,7 @@ def run_check(out: Path | None, remeasure_timeout: float = 120.0) -> int:
         _check_process(report)
         config = _check_django(report)
         if config is not None:
+            config = _check_graph_scope(report, config)
             _check_graph(report, config, remeasure_timeout)
     except Exception as exc:  # noqa: BLE001 (the report says where the check itself broke)
         report.add("check", False, f"the check broke: {_short(exc)}")
@@ -1566,6 +1590,8 @@ class ScriptTests(unittest.TestCase):
                 result = self.run_script(gswork, "--dry-run", *args)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(want, result.stdout)
+                # The operator's graph opt-in reaches the check step and nothing else.
+                self.assertEqual("CHAT_NEXTSEEK_GRAPH_ADMIN=1" in result.stdout, args == ["check"])
         self.assertEqual(len(self.docker_calls(gswork)), before)
 
 

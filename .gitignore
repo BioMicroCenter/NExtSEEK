@@ -238,6 +238,7 @@ docs/superpowers/specs/*
 !docs/superpowers/specs/2026-09-15-graph-search-sync-inventory.md
 !docs/superpowers/specs/2026-09-16-graph-behaviour-tests-design.md
 !docs/superpowers/specs/2026-09-16-ci-coverage-gaps-design.md
+!docs/superpowers/specs/2026-09-18-graph-cypher-scope.md
 !docs/superpowers/plans/
 docs/superpowers/plans/*
 # Exception: the implementation plan for the Nessie lane spec is tracked alongside it, so the

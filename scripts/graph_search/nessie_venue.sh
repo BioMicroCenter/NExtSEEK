@@ -11,7 +11,8 @@
 #
 #   prepare                    snapshot HEAD into $GS_WORK/nessie/venue/src, with SNAPSHOT and the rendered settings
 #   up                         start the venue; refuses in the benchmark window or under GS_VENUE_MIN_GIB GiB available
-#   check                      the venue check: overrides-ok and PASS; writes $GS_WORK/nessie/runs/venue_check.json
+#   check                      the venue check: overrides-ok and PASS; writes $GS_WORK/nessie/runs/venue_check.json;
+#                              runs with the operator's graph admin opt-in, for this step only
 #   exec <python args>         run a Python program in the venue (the ground-truth oracles)
 #   run <name> <nessie args>   a harness run in the foreground, into $GS_WORK/nessie/runs/<name>
 #   bg <name> <nessie args>    the same, detached, logging to $GS_WORK/nessie/runs/<name>.console.log
@@ -191,7 +192,8 @@ cmd_check() {
     need_running
     image=$(docker inspect -f '{{.Image}}' "$NAME")
   fi
-  run_or_show docker exec -i -w /src -e "GS_VENUE_IMAGE_ID=$image" "$NAME" sh -c "$WRAP" venue-check \
+  run_or_show docker exec -i -w /src -e "GS_VENUE_IMAGE_ID=$image" -e CHAT_NEXTSEEK_GRAPH_ADMIN=1 "$NAME" \
+    sh -c "$WRAP" venue-check \
     "$PY" "$VENUE_HELPER" check --out /venue/runs/venue_check.json || rc=$?
   (( ! DRY )) || return 0
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "http://127.0.0.1:$PORT/nextseek_api/" || true)

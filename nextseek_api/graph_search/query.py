@@ -47,6 +47,15 @@ _LINEAGE_PATTERNS = {
     "descendant": "EXISTS {{ (s)<-[:DERIVED_FROM*1..{hops}]-(:{label}) }}",
     "ancestor": "EXISTS {{ (s)-[:DERIVED_FROM*1..{hops}]->(:{label}) }}",
 }
+# For a caller who is not an admin, lineage stops at the caller's project edge: every node on the path, not only
+# ``s``, must pass the scope clause (docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 7.3).
+_LINEAGE_PATH_SCOPE = "WHERE all(n IN nodes(lineage_path) WHERE any(q IN n.project_ids WHERE q IN $projects))"
+_SCOPED_LINEAGE_PATTERNS = {
+    "descendant": "EXISTS {{ MATCH lineage_path = (s)<-[:DERIVED_FROM*1..{hops}]-(:{label}) " + _LINEAGE_PATH_SCOPE
+                  + " }}",
+    "ancestor": "EXISTS {{ MATCH lineage_path = (s)-[:DERIVED_FROM*1..{hops}]->(:{label}) " + _LINEAGE_PATH_SCOPE
+                + " }}",
+}
 _INT64_MIN, _INT64_MAX = -(2 ** 63), 2 ** 63 - 1
 
 _FULLTEXT_SOURCE = f"CALL db.index.fulltext.queryNodes('{FULLTEXT_INDEX}', $lucene) YIELD node AS s"
@@ -238,12 +247,13 @@ def _where(items: list, catalog: Catalog, params: dict) -> tuple[Optional[str], 
     return label, predicates
 
 
-def _lineage(lineage, catalog: Catalog) -> Optional[str]:
+def _lineage(lineage, catalog: Catalog, scope: Scope) -> Optional[str]:
+    """The lineage predicate; for a caller who is not an admin, the path form that scopes every node on the path."""
     if lineage is None:
         return None
     direction, sample_type = _get(lineage, "direction"), _get(lineage, "sample_type")
     hops = _get(lineage, "max_hops", MAX_HOPS)
-    pattern = _LINEAGE_PATTERNS.get(direction)
+    pattern = (_LINEAGE_PATTERNS if scope.is_admin else _SCOPED_LINEAGE_PATTERNS).get(direction)
     if pattern is None:
         raise GraphSearchInvalid(f"lineage: unsupported direction {direction!r}")
     if isinstance(hops, bool) or not isinstance(hops, int) or not 1 <= hops <= MAX_HOPS:
@@ -273,7 +283,7 @@ def build(filters: dict, extensions, scope: Scope, catalog: Catalog, page: int, 
     exact = str(filters.get("filter_matchType") or "PARTIAL").upper() == "EXACT"
     types = _type_titles(filters, catalog)
     where_label, where_predicates = _where(list(_get(extensions, "where", None) or []), catalog, params)
-    lineage_predicate = _lineage(_get(extensions, "lineage", None), catalog)
+    lineage_predicate = _lineage(_get(extensions, "lineage", None), catalog, scope)
 
     if not terms and types is None and where_label is None:
         raise GraphSearchInvalid(_NOTHING_TO_SEARCH)

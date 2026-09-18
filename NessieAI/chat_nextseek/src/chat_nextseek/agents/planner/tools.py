@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 from ...session import SessionState
 from ...config import ChatConfig
 from ...artifacts import ArtifactStore
+from ...helpers.tools.neo4j import is_scope_refusal
 from ...helpers import (
     _retry_advanced_search_if_empty,
     build_memory_data_profile,
@@ -37,6 +38,11 @@ from ..memory import memory_agent_answer, memory_coder_agent
 from ..reporter import reporter_agent, report_writer_agent
 from ..system import system_agent
 
+#: Added to a planner graph step refused for its project scope (legacy plan mode has no automatic fallback).
+SCOPE_REFUSAL_HINT = (
+    "Use the project-scoped sample search, /nextseek_api/samples/graph_search/, for this step instead."
+)
+
 
 def _plan_tool_graph_query(
     config: ChatConfig,
@@ -47,7 +53,11 @@ def _plan_tool_graph_query(
     log_dir: str | None,
     enriched_context: "dict[int, ContextEngineerOutput]",
 ) -> dict:
-    """Execute a planner graph step, including one retry with error-informed Cypher regeneration."""
+    """Execute a planner graph step, including one retry with error-informed Cypher regeneration.
+
+    A statement refused for its project scope is not retried (another query would be refused the
+    same way); the step's error names graph_search instead.
+    """
     query = step.execution.tool_query or query
     candidate_metadata = dict(step.execution.metadata or {})
     entity_payload = entity_result if isinstance(entity_result, dict) else entity_result.model_dump()
@@ -65,7 +75,7 @@ def _plan_tool_graph_query(
     if not graph_plan.cypher:
         return {"ok": False, "tool": "graph_query", "output": {}, "error": "graph_agent produced no cypher"}
     result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-    if not result.get("ok"):
+    if not result.get("ok") and not is_scope_refusal(result):
         retry_ctx = (
             f"Your previous Cypher failed:\n{result.get('error', '')}\n\n"
             "Check schema, property types, relationship directions, and retry."
@@ -73,6 +83,9 @@ def _plan_tool_graph_query(
         graph_plan = graph_agent(config, query, entity_result, parser_plan=graph_parser_plan, retry_context=retry_ctx)
         if graph_plan.cypher:
             result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+    error = result.get("error") if not result.get("ok") else None
+    if is_scope_refusal(result):
+        error = f"{error} {SCOPE_REFUSAL_HINT}"
     return {
         "ok": result.get("ok", False),
         "tool": "graph_query",
@@ -81,7 +94,7 @@ def _plan_tool_graph_query(
             "count": result.get("count", 0),
             "graph_plan": graph_plan.model_dump(),
         },
-        "error": result.get("error") if not result.get("ok") else None,
+        "error": error,
     }
 
 

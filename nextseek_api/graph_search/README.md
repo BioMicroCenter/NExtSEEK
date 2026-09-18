@@ -19,7 +19,7 @@ The modules, one concern each; `git ls-files nextseek_api/graph_search` lists wh
 
 | Module | Holds |
 |---|---|
-| `scope.py` | `resolve_scope(user)`: superuser, or the caller's project ids read from MySQL membership |
+| `scope.py` | `resolve_scope(user)`: superuser, or the caller's project ids read from MySQL membership; `plain_scope(user)`, the same as plain data for the assistant's graph queries |
 | `query.py`, `lucene.py` | the pure query builder: validated request plus scope to one page statement and one count statement; fulltext escaping |
 | `catalog_cache.py`, `hydrate.py` | the catalog read from the graph and cached; the page's rows read from MySQL by primary key |
 | `service.py` | `search(...)` for the ViewSet and `all_ids(...)` for the parity harness |
@@ -27,6 +27,8 @@ The modules, one concern each; `git ls-files nextseek_api/graph_search` lists wh
 Rules every module keeps:
 
 - Scope is added by the query builder from the server-side `Scope`, never from the request or from generated Cypher.
+  For a caller who is not an admin, a lineage condition scopes every node on its path, so lineage stops at the
+  caller's project edge; an admin's statement is unchanged.
 - Every value is a query parameter; property names come from the catalog and are backtick-quoted.
 - Queries run in `session.execute_read` with a timeout, and page with `ORDER BY s.id SKIP $skip LIMIT $limit`.
 

@@ -15,6 +15,7 @@ import pytest
 
 from chat_nextseek import prompt_variants as pv
 from chat_nextseek.cypher_text import ALLOWED_PROCEDURES, write_clause
+from chat_nextseek.graph_scope import SCOPE_ATTR, GraphScope
 from chat_nextseek.helpers.tools.neo4j import tool_neo4j_query
 
 APOC = ("MATCH (s:T_TIS {uuid: $uid}) "
@@ -25,7 +26,8 @@ NO_PASSWORD = "NEO4J_PASSWORD not configured"
 
 
 def _config(**attrs):
-    return SimpleNamespace(NEO4J_PASSWORD=None, NEO4J_URI="bolt://nowhere:7687", NEO4J_USER="neo4j", **attrs)
+    return SimpleNamespace(NEO4J_PASSWORD=None, NEO4J_URI="bolt://nowhere:7687", NEO4J_USER="neo4j",
+                           **{SCOPE_ATTR: GraphScope.admin("test")}, **attrs)
 
 
 def test_the_default_allowlist_is_unchanged():
