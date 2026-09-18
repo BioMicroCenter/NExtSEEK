@@ -1116,7 +1116,9 @@ def reporter_reply_footer(
              or {})
     if isinstance(scope, dict) and scope.get("kind") == "lab":
         codes = ", ".join(scope.get("lab_codes") or [])
-        known = sorted(getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {})
+        # Investigation titles are every project's; only an admin is shown them. The config does not record which
+        # investigations a caller's projects hold, so anyone else is shown none.
+        known = sorted(getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {}) if graph_scope.sees_all(config) else []
         note = (
             f"- **Scope:** this report covers lab {codes}, not a project. "
             "The name you gave is recorded as a lab code rather than an investigation"
