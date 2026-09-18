@@ -152,9 +152,9 @@ projection comes out byte for byte identical
 (`test_regenerating_the_block_leaves_the_ns_projection_identical`). The step that carries
 a new list to the agent is the image COPY and rebuild.
 
-`--emit capabilities` refuses today and is meant to: every `projects_context` row is
-still a project and `capabilities.md` carries no CONTEXT-GEN markers, so the five dead
-names are still committed. Task 6.15c adds the rows and the markers.
+`--emit capabilities` refuses today and is meant to: `context/projects.json` carries the
+investigation rows, but `capabilities.md` carries no CONTEXT-GEN markers yet, so the five
+dead names are still committed. Task 6.15c places the markers.
 
 **D. Attribute-API verification lane.** `scripts/attribute_api_test.sh:4-5` dispatches
 twelve named lanes, several of which shell out to `scripts/run_attribute_coverage.py` and

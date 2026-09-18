@@ -223,9 +223,9 @@ def production_like_rows(*, id_offset: int = 0) -> str:
     sample_types = cg.load_source(cg.TABLES["sample_types"].source)
     out.append("INSERT INTO `sample_types_context` (`sample_type`, `name`, `description`) VALUES "
                f"({_q(sample_types[0]['sample_type'])}, 'Older name', 'Older text.');")
-    projects = cg.load_source(cg.TABLES["projects"].source)
+    project = next(r for r in cg.rows_for("projects") if r["entity_type"] == "project")
     out.append("INSERT INTO `projects_context` (`name`, `entity_type`, `description`) VALUES "
-               f"({_q(projects[0]['name'])}, 'project', 'Older text.');")
+               f"({_q(project['name'])}, 'project', 'Older text.');")
     return "\n".join(out) + "\n"
 
 
@@ -605,7 +605,7 @@ def test_force_cannot_commit_a_partial_apply(mysql):
     commit is now conditional on the checks, so a skipped row rolls everything back."""
     db = load_prestate(mysql, "force")
     before = mysql.data(db)
-    first = cg.rows_for("projects")[0]["name"]
+    first = next(r for r in cg.rows_for("projects") if r["entity_type"] == "project")["name"]
     script = update_sql()
     where = f"`name` = {cg.literal(first)} AND `entity_type` = 'project'"
     statement = f"UPDATE `projects_context` SET `name` = {cg.literal(first)},"

@@ -160,8 +160,11 @@ def test_every_curated_key_maps_to_a_known_column():
         assert rows, table
         cg.check_columns(table, rows)          # raises if any key is unknown
         keys = {k for row in rows for k in row}
-        assert keys <= set(cg.COLUMNS[table]), table
+        # present_on is the one curated key that is not a column: generator-only.
+        assert keys <= set(cg.COLUMNS[table]) | set(cg.TABLES[table].generator_only), table
         assert "id" not in keys, table          # the autoincrement is the database's
+    assert cg.TABLES["projects"].generator_only == ("present_on",)
+    assert all(not spec.generator_only for name, spec in cg.TABLES.items() if name != "projects")
 
 
 def test_an_unknown_key_raises_naming_the_key_and_the_table():
@@ -249,7 +252,7 @@ def _rows_for(table: str) -> list[dict]:
 
 
 def test_update_writes_one_update_and_one_guarded_insert_per_row():
-    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 12)):
+    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 21)):
         spec = cg.TABLES[table]
         sql = cg.render_update(table, _rows_for(table))
         assert len(INSERT_RE.findall(sql)) == expected, table
@@ -924,7 +927,7 @@ def test_seed_ddl_declares_the_unique_key_the_upsert_needs():
 
 
 def test_seed_writes_the_ddl_then_one_insert_per_line():
-    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 12)):
+    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 21)):
         sql = cg.render_seed(table, _rows_for(table))
         assert sql.startswith("-- ")                      # the header comment
         assert cg.DDL[table] in sql
@@ -1413,6 +1416,88 @@ def test_update_sql_drops_a_stale_row_and_updates_an_existing_one_in_place():
     assert len(stored) == len(rows)
 
 
+# --- the curated investigation rows (spec 2026-09-18, section 9.3) -------------
+#
+# Nine investigations become rows of projects_context: the plan's eight plus
+# BioMicroCenter. Each is named by the exact SEEK title that holds the samples, owned by
+# a project row (TCGA's project exists only on the local and dev instances, with a
+# different id on each, so its id is null and present_on says where it is). The five
+# investigation titles the project rows carried as aliases leave them, so an exact title
+# resolves to one row.
+
+INVESTIGATION_ROWS = {   # name: (project_id, parent_project, present_on)
+    "BioMicroCenter": (5, "MIT-Koch", None),
+    "CSBC": (10, "CSBC", None),
+    "Collagen Study": (11, "Shoulders", None),
+    "Endometriosis": (7, "Griffith", None),
+    "GBM_BTC": (9, "Break Through Cancer", None),
+    "Impactb Investigation": (2, "Impact", None),
+    "MIT_SRP": (3, "SRP", None),
+    "MetNet": (4, "MetNet", None),
+    "TCGA": (None, "TCGA", ["local", "dev"]),
+}
+
+
+def _curated_investigations() -> dict:
+    return {r["name"]: r for r in cg.curated_rows("projects") if r["entity_type"] == "investigation"}
+
+
+def test_the_nine_investigation_rows_are_curated():
+    investigations = _curated_investigations()
+    assert {name: (r["project_id"], r["parent_project"], r.get("present_on"))
+            for name, r in investigations.items()} == INVESTIGATION_ROWS
+    assert len(cg.curated_rows("projects")) == 12 + 9
+
+
+def test_an_investigation_is_owned_by_a_project_row_where_one_exists():
+    rows = cg.curated_rows("projects")
+    projects = {r["name"]: r for r in rows if r["entity_type"] == "project"}
+    for name, row in _curated_investigations().items():
+        owner = projects.get(row["parent_project"])
+        if owner is None:
+            assert row.get("present_on"), name          # only TCGA's owner has no row
+        else:
+            assert owner["project_id"] == row["project_id"], name
+
+
+def test_a_project_and_its_same_named_investigation_are_both_curated():
+    keys = {cg.key_of("projects", r) for r in cg.curated_rows("projects")}
+    for name in ("CSBC", "MetNet"):
+        assert {(name, "project"), (name, "investigation")} <= keys, name
+
+
+def test_the_investigation_titles_left_the_project_rows_aliases():
+    """An exact investigation title now resolves to its own row, not a whole project."""
+    for row in cg.curated_rows("projects"):
+        if row["entity_type"] == "project":
+            folded = {cg.fold_key(a) for a in row.get("alternative_names") or []}
+            assert not folded & {cg.fold_key(name) for name in INVESTIGATION_ROWS}, row["name"]
+
+
+def test_what_people_type_reaches_the_investigation():
+    investigations = _curated_investigations()
+    for alias, name in (("Impact", "Impactb Investigation"), ("IMPAcTb", "Impactb Investigation"),
+                        ("SRP", "MIT_SRP"), ("Superfund", "MIT_SRP"), ("BTC-GBM", "GBM_BTC"),
+                        ("The Cancer Genome Atlas", "TCGA"), ("BioMicro Center", "BioMicroCenter")):
+        assert alias in investigations[name]["alternative_names"], alias
+    assert investigations["CSBC"]["alternative_names"] == []
+    assert investigations["MetNet"]["alternative_names"] == []
+
+
+def test_the_curated_projects_file_is_in_its_documented_order():
+    """By name, folded; a project row before an investigation row of the same name."""
+    rows = cg.load_source(cg.TABLES["projects"].source)
+    assert rows == sorted(rows, key=lambda r: (r["name"].casefold(), r["entity_type"] != "project"))
+
+
+def test_the_curated_rows_render_the_block_drift_will_read():
+    block = cg.render_capabilities_text(cg.curated_rows("projects"))
+    document = f"{cg.DRIFT_SECTION_HEADING}\n\n{block}"
+    assert cg.listed_investigations(document) == [
+        (name, INVESTIGATION_ROWS[name][2] is None) for name in sorted(INVESTIGATION_ROWS)]
+    assert "(not on every instance: loaded on local and dev only)" in block
+
+
 # --- 6.15 the generated investigation block ----------------------------------
 #
 # capabilities.md's "Known Projects and Investigations" section listed eight names and
@@ -1817,15 +1902,22 @@ def _counts_file(tmp_path, name, doc):
 
 
 def test_the_capabilities_mode_exists_and_refuses_today(tmp_path):
-    """The refusal is only real if something can reach it. Every curated row is still a
-    project, so the first refusal fires; and --counts is required."""
+    """The refusal is only real if something can reach it. With counts that clear every
+    curated investigation row, what still refuses is the committed file: it carries no
+    CONTEXT-GEN markers yet. And --counts is required."""
     import pytest
 
     parser_text = _repo(Path("scripts/context_gen.py"))
     assert '"update", "seed", "capabilities"' in parser_text
-    counts = _counts_file(tmp_path, "local.json", _doc({"TCGA": 7008}))
-    with pytest.raises(cg.NoInvestigations):
-        cg.emit_capabilities([counts])
+    names = [r["name"] for r in cg.curated_rows("projects") if r["entity_type"] == "investigation"]
+    counts = _counts_file(tmp_path, "local.json", _doc({name: 5 for name in names}))
+    target = tmp_path / "capabilities.md"
+    committed = _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"))
+    target.write_text(committed)
+    with pytest.raises(ValueError) as excinfo:
+        cg.emit_capabilities([counts], out=target)
+    assert cg.CAPABILITIES_BEGIN in str(excinfo.value)
+    assert target.read_text() == committed
     with pytest.raises(SystemExit):
         cg.main(["--emit", "capabilities"])
     with pytest.raises(SystemExit):
