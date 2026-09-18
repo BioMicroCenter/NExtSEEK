@@ -390,6 +390,8 @@ class _Scan:
     samples: set[str] = field(default_factory=set)  # variables that hold a Sample node
     paths: set[str] = field(default_factory=set)  # path variables over Sample nodes
     clauses: list[tuple[str, int, int, int]] = field(default_factory=list)
+    # every node and relationship pattern, sorted: (start, end, 'node'|'rel', var, labels or types)
+    elements: list[tuple[int, int, str, str | None, list[str]]] = field(default_factory=list)
     # Filled only when the turn's variant allows procedures (_scan_procedure_yields):
     proc_paths: set[str] = field(default_factory=set)  # a procedure's YIELD path (apoc.path.spanningTree, ...)
     node_lists: set[str] = field(default_factory=set)  # a procedure's YIELD nodes (apoc.path.subgraphAll)
@@ -634,6 +636,7 @@ def _scan(cypher: str, procedures: frozenset[str] = frozenset()) -> _Scan:
     scan.samples = {v for v, labels in scan.node_labels.items()
                     if "Sample" in labels or any(label.startswith("T_") for label in labels)}
     elements.sort()
+    scan.elements = elements
     for i in range(1, len(elements) - 1):
         left, rel, right = elements[i - 1], elements[i], elements[i + 1]
         if left[2] != "node" or rel[2] != "rel" or right[2] != "node" or len(rel[4]) != 1:
@@ -975,8 +978,15 @@ def _call_lines(calls: list[str]) -> list[str]:
     return ["- procedure calls that cannot run as written: " + "; ".join(calls), _CALL_RULE]
 
 
-def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot, calls: list[str] = ()) -> str:
-    """The one repair prompt: every problem once, and the property names valid for each label involved."""
+def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot, calls: list[str] = (),
+                            shapes: list = ()) -> str:
+    """The one repair prompt: every problem once, and the property names valid for each label involved.
+
+    ``shapes`` are the query-shape guard's problems (P6a, P6b), repaired in the same round: alone they get their own
+    message, beside catalog problems their lines join this one. With none, the message is exactly what it was.
+    """
+    if shapes and not (problems or whole or calls):
+        return _shape_repair_message(list(shapes))
     titles = {row.label: row.title for row in snapshot.index}
     properties = [p.text for p in problems if p.kind == "property"]
     labels = [p.text for p in problems if p.kind == "label"]
@@ -990,6 +1000,7 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
         lines.append("- " + ", ".join(f"whole node {v}" for v in whole) + ": never return or collect a whole "
                      f"Sample node; {_WHOLE_NODE_ALTERNATIVE}")
     lines += _call_lines(list(calls))
+    lines += _shape_lines(list(shapes))
     owners = list(dict.fromkeys(owner for p in problems if p.kind == "property" for owner in p.owners))
     for owner in owners:
         if owner in snapshot.guard:
@@ -1008,7 +1019,7 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
     return "\n".join(lines)
 
 
-def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str] = ()) -> str:
+def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str] = (), shapes: list = ()) -> str:
     parts = []
     properties = [p.text for p in problems if p.kind == "property"]
     labels = [p.text for p in problems if p.kind == "label"]
@@ -1020,7 +1031,859 @@ def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str
         parts.append("it returns whole Sample nodes (" + ", ".join(f"whole node {v}" for v in whole) + ")")
     if calls:
         parts.append("procedure calls cannot run as written (" + "; ".join(calls) + ")")
+    parts += _shape_refusal_parts(list(shapes))
     return "Graph agent could not produce valid Cypher; " + "; ".join(parts) + "."
+
+
+# --------------------------------------------------------------------------- #
+# The query-shape guards: P6a and P6b (NESSIE-MASTER-PLAN phase 9)
+#
+# Both refuse a shape, not a name, and both read only the Cypher text and the plan's parameters.
+# graph_agent runs them in the catalog guard's single repair round, so one repair is re-checked by
+# every guard at once and cannot trade one problem for another unchecked one.
+#
+# P6a, a variable-length path: `-[:DERIVED_FROM*1..8]->`, and the Cypher 5 quantified forms
+# `-[:DERIVED_FROM]->{1,8}`, `->+` and `((a)-[:DERIVED_FROM]->(b)){1,8}`.
+#   - A literal maximum from 1 to cypher_text.APOC_PATH_MAX_LEVEL passes when at least one end is
+#     anchored (_WEAK or better, see below).
+#   - No maximum, a parameter maximum or a maximum above it passes only when BOTH ends carry a sample
+#     type or a pin (_STRONG): the expansion is then between two known sets rather than out of every
+#     sample a filter happens to leave.
+# The bound is 12, not 8: the longest DERIVED_FROM chain in the graph is 11 hops (the constant carries
+# the measurement), so *1..12 reaches every ancestor and every descendant and the repair that complies
+# truncates nothing.
+#
+# P6b, an unscoped fulltext call. The index analyses its term: it lowercases it, splits it at spaces
+# and punctuation and matches each word anywhere in a sample's text. So a term of two or more words
+# cannot keep them side by side, whether they are written side by side, joined by a hyphen or joined
+# by AND, && or +, and unscoped the call answers from the whole database. It passes when its hits are
+# scoped (_WEAK or better, a fulltext hit not counting as its own scope), or when the term is one word,
+# one quoted phrase, or an explicit OR of those: an OR asks for the union and has no adjacency to lose.
+# The term is resolved through a literal, a parameter, `WITH $q AS t`, `UNWIND $terms AS t`,
+# `$terms[0]`, `+` concatenation and the case and trim functions. An unscoped call whose term is none
+# of those is refused, not trusted: the guard cannot see what it would search.
+#
+# Anchors. _STRONG: a T_ label (in the pattern, or `WHERE a:T_X`), a `type` equality or IN, a uuid or
+# id equality or IN, or the same keys in the pattern's map. _WEAK: any other comparison of a property
+# with a value, an EXISTS or pattern predicate, a fulltext hit, a filtered relationship's ends, and a
+# fixed-length neighbour of an anchored node. A variable carries what the query says about it anywhere,
+# through a bare `WITH x AS a`, `a = b`, `a.uuid = b.uuid` and `(s {uuid: node.uuid})`. Nothing is an
+# anchor under NOT, and `IS NOT NULL`, `IS NULL`, `<>`, `CONTAINS ''` and `=~ '.*'` narrow nothing. A
+# disjunction anchors only what every branch anchors.
+# --------------------------------------------------------------------------- #
+
+_MAX_HOPS = cypher_text.APOC_PATH_MAX_LEVEL
+_WEAK, _STRONG = 1, 2
+_PIN_KEYS = frozenset({"uuid", "id"})
+_FULLTEXT_PROCEDURE = "db.index.fulltext.querynodes"
+_ARROW_LEFT_RE = re.compile(r"\s*<?\s*-\s*")
+_ARROW_RIGHT_RE = re.compile(r"\s*-\s*>?\s*")
+_QUANTIFIER = r"(?P<q>\{\s*(?P<lo>\d*)\s*(?P<comma>,)?\s*(?P<hi>\d*)\s*\}|\+|\*)"
+# `(a)-[:R]->{1,8}(b)`, `(a)-->+(b)`: a quantifier between a relationship and the next node pattern.
+_REL_QUANTIFIER_RE = re.compile(rf"(?<=\))(?P<arrow>\s*<?\s*-\s*(?:\[[^\[\]]*\]\s*)?-\s*>?)\s*{_QUANTIFIER}(?=\s*\()")
+# `((a)-[:R]->(b)){1,8}`: a quantifier after a parenthesised path pattern.
+_GROUP_QUANTIFIER_RE = re.compile(rf"\)\s*{_QUANTIFIER}")
+_GROUP_ARROW_RE = re.compile(r"-\s*\[|->|<-|--")
+_BOOLEAN_WORD_RE = re.compile(r"(AND|OR|XOR)\b", re.IGNORECASE)
+_COMPARISON_RE = re.compile(r"=~|<>|!=|<=|>=|=|<|>|\bIN\b|\bCONTAINS\b|\bSTARTS\s+WITH\b|\bENDS\s+WITH\b"
+                            r"|\bIS\s+NOT\s+NULL\b|\bIS\s+NULL\b", re.IGNORECASE)
+_NARROWS_NOTHING = frozenset({"<>", "!=", "IS NOT NULL", "IS NULL"})
+_STRING_TESTS = frozenset({"CONTAINS", "STARTS WITH", "ENDS WITH", "=~"})
+_MATCH_ANYTHING = frozenset({".*", "(?i).*", "(?s).*", "^.*$", ".*?", "(?i)^.*$"})
+_UNWRAP_RE = re.compile(r"(?P<fn>toLower|toUpper|lower|upper|trim|ltrim|rtrim|toString|coalesce)\s*\(", re.IGNORECASE)
+_TERM_FUNCTIONS = frozenset({"TOLOWER", "TOUPPER", "LOWER", "UPPER", "TRIM", "LTRIM", "RTRIM"})
+_LUCENE_WORD_RE = re.compile(r"\w+(?:[.'\u2019]\w+)*")  # \u2019 is the typographic apostrophe
+
+
+class _Shape(NamedTuple):
+    pos: int
+    kind: str  # 'unbounded_path' | 'unanchored_path' | 'unscoped_fulltext'
+    text: str  # the offending fragment, verbatim from the Cypher
+    detail: str  # why it is one: the bound, the ends, the words the index would search
+
+
+def _label_anchor(labels: str | None) -> int:
+    """_STRONG for a label expression every alternative of which names a sample type (`:T_X`, `:T_X|T_Y`)."""
+    if not labels or "!" in labels:
+        return 0
+    alternatives = [_label_names(alt) for alt in labels.split("|")]
+    return _STRONG if alternatives and all(any(n.startswith("T_") for n in alt) for alt in alternatives) else 0
+
+
+def _split_boolean(masked: str, start: int, end: int, words: frozenset[str]) -> list[tuple[int, int]]:
+    """``masked[start:end]`` split at its depth-0 boolean operators named in ``words``."""
+    spans, depth, item_start, i = [], 0, start, start
+    while i < end:
+        ch = masked[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch.isalpha() or ch == "_":
+            j = i
+            while j < end and (masked[j].isalnum() or masked[j] == "_"):
+                j += 1
+            word = _BOOLEAN_WORD_RE.fullmatch(masked[i:j])
+            if depth == 0 and word and word.group(1).upper() in words and (i == 0 or masked[i - 1] != "."):
+                spans.append((item_start, i))
+                item_start = j
+            i = j
+            continue
+        i += 1
+    spans.append((item_start, end))
+    return spans
+
+
+def _predicate_end(masked: str, start: int, stops: set[int]) -> int:
+    """Where the WHERE predicate starting at ``start`` ends: the next clause at its depth, or its bracket's end."""
+    depth = 0
+    for i in range(start, len(masked)):
+        if depth == 0 and i in stops:
+            return i
+        ch = masked[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif ch == "|" and depth == 0 and not re.search(rf":\s*!?\s*{_NAME}\s*$", masked[start:i]):
+            return i  # `[x IN xs WHERE p | e]`, not a label disjunction
+    return len(masked)
+
+
+def _matching_open(masked: str, close: int) -> int:
+    """Index of the `(` opening the `)` at ``close``, or -1."""
+    depth = 0
+    for j in range(close, -1, -1):
+        if masked[j] == ")":
+            depth += 1
+        elif masked[j] == "(":
+            depth -= 1
+            if depth == 0:
+                return j
+    return -1
+
+
+def _strip(masked: str, original: str, s: int, e: int) -> tuple[int, int]:
+    return cypher_text._strip_span(masked, original, s, e)
+
+
+# A word that may stand right before a node pattern's `(`; any other word before it makes `(x)` a function's argument.
+_PATTERN_WORDS = frozenset({"MATCH", "MERGE", "CREATE", "EXISTS", "WHERE", "AND", "OR", "XOR", "NOT",
+                            "SHORTESTPATH", "ALLSHORTESTPATHS", "SHORTEST", "PATHS", "GROUPS"})
+
+
+def _node_patterns(scan: _Scan) -> list[tuple[int, int, str, str | None, list[str]]]:
+    """The scan's node elements that are node patterns: `(s:T_X)`, not the argument of `size(x)` or `count(node)`."""
+    out = []
+    for element in scan.elements:
+        if element[2] != "node":
+            continue
+        word = re.search(r"(\w+)\s*$", scan.masked[:element[0]])
+        if word and not word.group(1).isdigit() and word.group(1).upper() not in _PATTERN_WORDS:
+            continue
+        out.append(element)
+    return out
+
+
+def _clause_stops(scan: _Scan) -> set[int]:
+    """Where each clause but WHERE starts; `STARTS WITH` and `ENDS WITH` are operators, not WITH clauses."""
+    return {kw_start for keyword, kw_start, _, _ in scan.clauses if keyword != "WHERE"
+            and not (keyword == "WITH" and re.search(r"\b(?:STARTS|ENDS)\s*$", scan.masked[:kw_start], re.I))}
+
+
+class _Anchors:
+    """How strongly each node pattern of one query is anchored: 0, _WEAK or _STRONG (see the section comment).
+
+    ``fulltext_hits`` says whether a fulltext hit anchors its variable: yes for a path's end, no for the
+    fulltext call's own scope.
+    """
+
+    def __init__(self, scan: _Scan, cypher: str, *, fulltext_hits: bool):
+        self.scan, self.cypher, self.masked = scan, cypher, scan.masked
+        masked = self.masked
+        self.parent: dict[str, str] = {}
+        direct: dict[str, int] = {}
+        joins: list[tuple[str, str]] = []
+
+        def lift(key, level):
+            if level:
+                direct[key] = max(direct.get(key, 0), level)
+
+        self.calls = _procedure_yields(scan)
+        self.nodes = _node_patterns(scan)
+        self.node_vars = {e[3] for e in self.nodes if e[3]}
+        self.node_vars |= {hit for *_, hit, _ in self.calls if hit}
+        self.rel_vars = {e[3] for e in scan.elements if e[2] == "rel" and e[3]}
+        sources: dict[str, set[str]] = {}
+        for source, alias in scan.aliases:
+            sources.setdefault(alias, set()).add(source)
+        for _ in range(3):  # an alias of an alias, in any order
+            for alias, found in sources.items():
+                if len(found) == 1 and found <= self.node_vars and alias not in found:
+                    self.node_vars.add(alias)
+        for alias, found in sources.items():
+            if len(found) == 1 and alias in self.node_vars and alias not in found:
+                joins.append((alias, next(iter(found))))  # two sources (UNION branches) are two nodes, not one
+
+        self.hops: set[int] = set()
+        patterns = {e[0] for e in self.nodes}
+        for start, end, kind, var, _names in scan.elements:
+            key = self.key(start, var)
+            if kind == "node" and start not in patterns:
+                continue
+            if kind == "node":
+                m = _NODE_PATTERN_RE.match(masked, start)
+                lift(key, _label_anchor(m.group("labels")) if m else 0)
+                if m and m.group("props"):
+                    for item_key, level, joined in self._map_items(m.start("props"), m.end("props")):
+                        lift(key, level)
+                        if joined:
+                            joins.append((key, joined))
+            else:
+                m = _REL_PATTERN_RE.match(masked, start)
+                if m and m.group("hops"):
+                    self.hops.add(start)
+                if m and m.group("props") and self._map_items(m.start("props"), m.end("props")):
+                    lift(key, _WEAK)
+
+        stops = _clause_stops(scan)
+        for keyword, kw_start, body_start, _ in scan.clauses:
+            if kw_start in stops or keyword != "WHERE":
+                continue
+            for var, level in self._predicate(body_start, _predicate_end(masked, body_start, stops), joins).items():
+                lift(var, level)
+        if fulltext_hits:
+            for *_, hit, fulltext in self.calls:
+                if hit and fulltext:
+                    lift(hit, _WEAK)
+
+        for a, b in joins:
+            ra, rb = self.find(a), self.find(b)
+            if ra != rb:
+                self.parent[ra] = rb
+        self.strength: dict[str, int] = {}
+        for key, level in direct.items():
+            root = self.find(key)
+            self.strength[root] = max(self.strength.get(root, 0), level)
+        self._propagate()
+
+    @staticmethod
+    def key(start: int, var: str | None) -> str:
+        return var or f"#{start}"
+
+    def find(self, key: str) -> str:
+        while self.parent.get(key, key) != key:
+            key = self.parent[key]
+        return key
+
+    def of(self, element) -> int:
+        """The strength of a node pattern ``(start, end, 'node', var, labels)``; 0 for None."""
+        return self.strength.get(self.find(self.key(element[0], element[3])), 0) if element else 0
+
+    def _propagate(self) -> None:
+        """A fixed-length neighbour of an anchored node, and either end of a filtered relationship, is _WEAK."""
+        masked = self.masked
+        patterns = {e[0] for e in self.nodes}
+        elements = [e for e in self.scan.elements if e[2] == "rel" or e[0] in patterns]
+        triples = []
+        for i in range(1, len(elements) - 1):
+            left, rel, right = elements[i - 1], elements[i], elements[i + 1]
+            if left[2] != "node" or rel[2] != "rel" or right[2] != "node" or rel[0] in self.hops:
+                continue
+            if _ARROW_LEFT_RE.fullmatch(masked[left[1]:rel[0]]) and _ARROW_RIGHT_RE.fullmatch(masked[rel[1]:right[0]]):
+                triples.append((self.key(left[0], left[3]), self.key(rel[0], rel[3]), self.key(right[0], right[3])))
+        for _ in range(len(triples) + 1):
+            changed = False
+            for left, rel, right in triples:
+                a, r, b = self.find(left), self.find(rel), self.find(right)
+                for this, other in ((a, b), (b, a)):
+                    if self.strength.get(this, 0) < _WEAK and (
+                            self.strength.get(other, 0) >= _WEAK or self.strength.get(r, 0) >= _WEAK):
+                        self.strength[this] = _WEAK
+                        changed = True
+            if not changed:
+                return
+
+    # ------------------------------------------------------------------ pattern maps
+
+    def _map_items(self, start: int, end: int) -> list[tuple[str, int, str | None]]:
+        """``(key, strength, joined variable)`` for each entry of the map whose braces span ``start:end``."""
+        masked, cypher = self.masked, self.cypher
+        out = []
+        for s, e in _items(masked, start + 1, end - 1):
+            i = _skip_blank(masked, cypher, s, e)
+            name, j = _name_at(masked, cypher, i, e)
+            while j < e and masked[j].isspace():
+                j += 1
+            if not name or j >= e or masked[j] != ":":
+                continue
+            vs, ve = _strip(masked, cypher, j + 1, e)
+            if self._refs(vs, ve):
+                same = self._identity(vs, ve)  # {uuid: node.uuid} is the same node, not a value
+                out.append((name, 0, same[0] if same and name in _PIN_KEYS and same[1] == name else None))
+            elif vs < ve and cypher_text._string_value(cypher[vs:ve]) != "":
+                out.append((name, _STRONG if name in _PIN_KEYS or name == "type" else _WEAK, None))
+        return out
+
+    # ------------------------------------------------------------------ WHERE predicates
+
+    def _refs(self, s: int, e: int) -> set[str]:
+        """The node and relationship variables read in ``masked[s:e]`` (not property names, not functions)."""
+        text = self.masked[s:e]
+        found = set()
+        for m in re.finditer(rf"(?<![\w.$])({_NAME})(?!\w)", text):
+            if re.match(r"\s*\(", text[m.end():]):
+                continue
+            if m.group(1) in self.node_vars or m.group(1) in self.rel_vars:
+                found.add(m.group(1))
+        return found
+
+    def _identity(self, s: int, e: int) -> tuple[str, str] | None:
+        """``(var, 'node'|'uuid'|'id')`` when ``masked[s:e]`` is a node itself, its uuid or its id; else None."""
+        text = self.masked[s:e].strip()
+        m = (re.fullmatch(rf"({_NAME})", text) or re.fullmatch(rf"(?:id|elementId)\s*\(\s*({_NAME})\s*\)", text, re.I))
+        if m and m.group(1) in self.node_vars:
+            return m.group(1), "node"
+        m = re.fullmatch(rf"({_NAME})\s*\.\s*({_NAME})", text)
+        if m and m.group(1) in self.node_vars and m.group(2) in _PIN_KEYS:
+            return m.group(1), m.group(2)
+        return None
+
+    def _property(self, s: int, e: int) -> str | None:
+        """The property a comparison's subject reads, through the case, trim and coalesce functions; else None."""
+        masked = self.masked
+        s, e = _strip(masked, self.cypher, s, e)
+        while s < e:
+            m = _UNWRAP_RE.match(masked, s)
+            if not m or cypher_text._matching_paren(masked, m.end() - 1) != e - 1:
+                break
+            s, e = _strip(masked, self.cypher, *_items(masked, m.end(), e - 1)[0])
+        text = masked[s:e]
+        if re.fullmatch(rf"(?:id|elementId)\s*\(\s*{_NAME}\s*\)", text, re.I):
+            return "id"
+        m = re.fullmatch(rf"{_NAME}\s*\.\s*({_NAME})", text)
+        return m.group(1) if m else None
+
+    def _narrows(self, s: int, e: int, op: str) -> bool:
+        """Whether the value side ``s:e`` of a comparison can leave out anything at all."""
+        s, e = _strip(self.masked, self.cypher, s, e)
+        if s >= e:
+            return False
+        value = cypher_text._string_value(self.cypher[s:e])
+        if op in _STRING_TESTS and value == "":
+            return False
+        return not (op == "=~" and value in _MATCH_ANYTHING)
+
+    def _predicate(self, s: int, e: int, joins: list | None) -> dict[str, int]:
+        """Anchors a boolean expression gives: a conjunction the most any part gives, a disjunction the least."""
+        disjuncts = _split_boolean(self.masked, s, e, frozenset({"OR", "XOR"}))
+        if len(disjuncts) > 1:
+            results = [self._predicate(ds, de, None) for ds, de in disjuncts]
+            common = set.intersection(*(set(r) for r in results))
+            return {var: min(r[var] for r in results) for var in common}
+        out: dict[str, int] = {}
+        for cs, ce in _split_boolean(self.masked, s, e, frozenset({"AND"})):
+            for var, level in self._atom(cs, ce, joins).items():
+                out[var] = max(out.get(var, 0), level)
+        return out
+
+    def _atom(self, s: int, e: int, joins: list | None) -> dict[str, int]:
+        masked = self.masked
+        s, e = _strip(masked, self.cypher, s, e)
+        text = masked[s:e]
+        if not text.strip() or re.match(r"NOT\b", text, re.IGNORECASE):
+            return {}
+        if text[0] == "(" and cypher_text._matching_paren(masked, s) == e - 1:
+            return self._predicate(s + 1, e - 1, joins)
+        if re.match(r"(?:EXISTS|COUNT)\s*\{", text, re.IGNORECASE) or any(
+                kind == "rel" and s <= start < e for start, _, kind, _, _ in self.scan.elements):
+            return {var: _WEAK for var in self._refs(s, e) if var in self.node_vars}
+        label = re.fullmatch(rf"(?P<var>{_NAME})\s*(?P<labels>{_LABEL_EXPR})", text)
+        if label:
+            level = _label_anchor(label.group("labels")) if label.group("var") in self.node_vars else 0
+            return {label.group("var"): level} if level else {}
+        op = next((m for m in _COMPARISON_RE.finditer(masked, s, e) if _depth(masked[s:m.start()], m.start() - s) == 0),
+                  None)
+        if op is None:
+            return {}
+        name = " ".join(op.group(0).upper().split())
+        if name in _NARROWS_NOTHING:
+            return {}
+        left, right = (s, op.start()), (op.end(), e)
+        lrefs, rrefs = self._refs(*left), self._refs(*right)
+        if lrefs and rrefs:
+            a, b = self._identity(*left), self._identity(*right)
+            if name == "=" and joins is not None and a and b and a[1] == b[1]:
+                joins.append((a[0], b[0]))
+            return {}
+        refs = lrefs or rrefs
+        if len(refs) != 1:
+            return {}
+        var = next(iter(refs))
+        subject, value = (left, right) if lrefs else (right, left)
+        if not self._narrows(*value, name):
+            return {}
+        if var not in self.node_vars:
+            return {var: _WEAK}  # a filtered relationship: _propagate anchors its ends
+        prop = self._property(*subject)
+        pinned = prop in _PIN_KEYS or prop == "type"
+        if pinned and (name == "=" or (name == "IN" and subject == left)):
+            return {var: _STRONG}
+        return {var: _WEAK}
+
+
+def _procedure_yields(scan: _Scan) -> list[tuple[int, int, int, str | None, bool]]:
+    """Per procedure call: the positions of CALL, `(` and `)`, the yielded node variable or None, and whether the
+    call is the fulltext procedure."""
+    masked = scan.masked
+    out = []
+    for m in _PROC_CALL_RE.finditer(masked):
+        close = cypher_text._matching_paren(masked, m.end() - 1)
+        if close == -1:
+            continue
+        hit = None
+        yielded = re.match(r"\s*YIELD\b", masked[close + 1:], re.IGNORECASE)
+        if yielded:
+            start = close + 1 + yielded.end()
+            stop = _YIELD_END_RE.search(masked, start)
+            for s, e in _items(masked, start, stop.start() if stop else len(masked)):
+                item = _YIELD_ITEM_RE.match(masked[s:e].strip())
+                if item and item.group("field").lower() in ("node", "*"):
+                    hit = item.group("alias") or "node"
+        out.append((m.start(), m.end() - 1, close, hit, m.group("name").lower() == _FULLTEXT_PROCEDURE))
+    return out
+
+
+# ------------------------------------------------------------------------------- P6a: the paths
+
+
+def _hop_range(hops: str) -> tuple[int, int | None] | None:
+    """``(min, max)`` for `*`, `*3`, `*1..8`, `*..8` or `*2..`; max None when there is none. None when unreadable."""
+    body = hops.lstrip("*").replace(" ", "")
+    try:
+        if not body:
+            return 1, None
+        if ".." in body:
+            low, _, high = body.partition("..")
+            return (int(low) if low else 1), (int(high) if high else None)
+        return int(body), int(body)
+    except ValueError:
+        return None
+
+
+def _quantifier_range(m: re.Match) -> tuple[int, int | None] | None:
+    if m.group("q") == "+":
+        return 1, None
+    if m.group("q") == "*":
+        return 0, None
+    low, high = m.group("lo"), m.group("hi")
+    if not m.group("comma"):
+        return (int(low), int(low)) if low else None
+    return (int(low) if low else 0), (int(high) if high else None)
+
+
+def _variable_paths(scan: _Scan, cypher: str):
+    """Every variable-length path: ``(pos, fragment, (min, max), max is a parameter, left end, right end)``."""
+    masked = scan.masked
+    nodes = _node_patterns(scan)
+    by_end = {e[1]: e for e in nodes}
+    by_start = {e[0]: e for e in nodes}
+
+    def before(pos):
+        k = pos
+        while k > 0 and masked[k - 1].isspace():
+            k -= 1
+        return by_end.get(k)
+
+    def after(pos):
+        k = pos
+        while k < len(masked) and masked[k].isspace():
+            k += 1
+        return by_start.get(k)
+
+    def fragment(s, e):
+        return " ".join(cypher[s:e].split())
+
+    for m in _REL_PATTERN_RE.finditer(masked):
+        k = m.start() - 1
+        while k >= 0 and masked[k].isspace():
+            k -= 1
+        if not m.group("hops") or k < 0 or masked[k] != "-":
+            continue
+        bounds = _hop_range(m.group("hops"))
+        if bounds is None:
+            continue
+        left = next((n for n in reversed(nodes) if n[1] <= m.start()
+                     and _ARROW_LEFT_RE.fullmatch(masked[n[1]:m.start()])), None)
+        right = next((n for n in nodes if n[0] >= m.end() and _ARROW_RIGHT_RE.fullmatch(masked[m.end():n[0]])), None)
+        yield m.start(), fragment(m.start(), m.end()), bounds, "$" in cypher[m.start("hops"):m.end("hops")], left, right
+    for m in _REL_QUANTIFIER_RE.finditer(masked):
+        bounds = _quantifier_range(m)
+        if bounds is not None:
+            yield (m.start("arrow"), fragment(m.start("arrow"), m.end()), bounds, False,
+                   by_end.get(m.start()), after(m.end()))
+    for m in _GROUP_QUANTIFIER_RE.finditer(masked):
+        open_ = _matching_open(masked, m.start())
+        inner = masked[open_ + 1:m.start()] if open_ != -1 else ""
+        bounds = _quantifier_range(m)
+        if bounds is None or not inner.lstrip().startswith("(") or not _GROUP_ARROW_RE.search(inner):
+            continue
+        inside = [n for n in nodes if open_ < n[0] and n[1] <= m.start()]
+        left = before(open_) or (inside[0] if inside else None)
+        right = after(m.end()) or (inside[-1] if inside else None)
+        yield open_, fragment(open_, m.end()), bounds, False, left, right
+
+
+def _path_problems(scan: _Scan, cypher: str) -> list[_Shape]:
+    """P6a: every variable-length path whose bound and ends cannot run safely (the section comment has the rule)."""
+    anchors = _Anchors(scan, cypher, fulltext_hits=True)
+    problems: list[_Shape] = []
+
+    def end_text(end) -> str:
+        return " ".join(cypher[end[0]:end[1]].split()) if end else "an unnamed end"
+
+    for pos, text, (_low, high), parameter, left, right in _variable_paths(scan, cypher):
+        levels = anchors.of(left), anchors.of(right)
+        if high is not None and high <= _MAX_HOPS and not parameter:
+            if max(levels) == 0:
+                problems.append(_Shape(pos, "unanchored_path", text,
+                                       f"neither end ({end_text(left)} and {end_text(right)}) has a sample type, a "
+                                       "pinned uuid or a predicate that narrows it"))
+            continue
+        if min(levels) >= _STRONG:
+            continue
+        if parameter:
+            bound = "has a parameter for its maximum, which cannot be checked before the query runs"
+        elif high is None:
+            bound = "has no maximum hop count"
+        else:
+            bound = f"has a maximum of {high} hops, above {_MAX_HOPS}"
+        strong = [end_text(end) for end, level in zip((left, right), levels) if level >= _STRONG]
+        ends = (f"only {strong[0]} is anchored by a sample type or a pinned uuid" if strong
+                else "neither end is anchored by a sample type or a pinned uuid")
+        problems.append(_Shape(pos, "unbounded_path", text, f"{bound}, and {ends}"))
+    return problems
+
+
+# ------------------------------------------------------------------------------ P6b: fulltext calls
+
+
+def _lucene_items(text: str) -> list[tuple[str, str]]:
+    """The top-level items of a Lucene query string.
+
+    ``('word'|'phrase'|'group', text)``, ``('op', 'AND'|'OR'|'NOT')`` and ``('prefix', '+'|'-'|'!')``.
+    """
+    items: list[tuple[str, str]] = []
+    i, n = 0, len(text)
+
+    def skip_suffix(j):  # a boost or a slop: ^2, ~3
+        m = re.match(r"[~^][\d.]*", text[j:])
+        return j + (m.end() if m else 0)
+
+    while i < n:
+        c = text[i]
+        if c.isspace():
+            i += 1
+        elif c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            items.append(("phrase", text[i + 1:j]))
+            i = skip_suffix(j + 1)
+        elif c == "(":
+            depth, j, quoted = 0, i, False
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == '"':
+                    quoted = not quoted
+                elif not quoted and text[j] == "(":
+                    depth += 1
+                elif not quoted and text[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            items.append(("group", text[i + 1:j]))
+            i = skip_suffix(j + 1)
+        elif text.startswith("&&", i) or text.startswith("||", i):
+            items.append(("op", "AND" if c == "&" else "OR"))
+            i += 2
+        elif c in "+-!":
+            items.append(("prefix", c))
+            i += 1
+        else:
+            j = i
+            while j < n and not text[j].isspace() and text[j] not in '()"':
+                j += 2 if text[j] == "\\" else 1
+            word = text[i:j]
+            items.append(("op", word) if word in ("AND", "OR", "NOT") else ("word", word))
+            i = j
+    return items
+
+
+def _analysed_words(text: str) -> list[str]:
+    """The words the index's analyser makes of ``text``: lowercased, split at spaces and punctuation."""
+    return [w.lower() for w in _LUCENE_WORD_RE.findall(text)]
+
+
+def _unit_words(kind: str, text: str) -> list[str]:
+    if kind == "word":
+        text = re.sub(rf"^{_NAME}:(?=\S)", "", text)  # a field prefix, search_text:foo
+        text = re.sub(r"[~^][\d.]*$", "", text)  # a fuzzy or boost suffix, foo~2, foo^2
+        if re.search(r"(?<!\\)[*?]", text):
+            return [text.lower()]  # a wildcard term is not analysed: it stays one term
+    return _analysed_words(text)
+
+
+def _splits_words(term: str) -> bool:
+    """Whether the index would search ``term`` as separate words, losing their adjacency.
+
+    It would not for one word, one quoted phrase, or an explicit OR of those. It would for two words side by side,
+    one word the analyser splits (a hyphen, a slash), and any AND, &&, +, NOT, - or ! combination of two units.
+    """
+    items = _lucene_items(term)
+    units = [(kind, text) for kind, text in items if kind in ("word", "phrase", "group")]
+    if len(units) == 1:
+        kind, text = units[0]
+        return _splits_words(text) if kind == "group" else (kind == "word" and len(_unit_words(kind, text)) > 1)
+    if not units:
+        return False
+    gaps: list[list[tuple[str, str]]] = []
+    for kind, text in items:
+        if kind in ("word", "phrase", "group"):
+            gaps.append([])
+        elif gaps:
+            gaps[-1].append((kind, text))
+    if any(kind == "prefix" for kind, _ in items) or any(gap != [("op", "OR")] for gap in gaps[:-1]) or gaps[-1]:
+        return True
+    return any(_splits_words(text) if kind == "group" else (kind == "word" and len(_unit_words(kind, text)) > 1)
+               for kind, text in units)
+
+
+def _term_words(term: str) -> list[str]:
+    words = [w for kind, text in _lucene_items(term) if kind in ("word", "phrase", "group")
+             for w in (_term_words(text) if kind == "group" else _unit_words(kind, text))]
+    return list(dict.fromkeys(words))
+
+
+def _term_bindings(scan: _Scan, name: str) -> list[tuple[str, int, int]]:
+    """``(WITH|UNWIND, expression start, expression end)`` for each `... AS name` in a WITH or UNWIND clause."""
+    masked, out, stops = scan.masked, [], _clause_stops(scan)
+    for keyword, kw_start, body_start, body_end in scan.clauses:
+        if keyword not in ("WITH", "UNWIND") or kw_start not in stops:
+            continue
+        for s, e in _items(masked, body_start, body_end):
+            m = re.search(rf"\bAS\s+({_NAME})\s*$", masked[s:e], re.IGNORECASE)
+            if m and m.group(1) == name:
+                d = re.match(r"\s*DISTINCT\b", masked[s:s + m.start()], re.IGNORECASE)
+                out.append((keyword, s + (d.end() if d else 0), s + m.start()))
+    return out
+
+
+def _split_plus(masked: str, s: int, e: int) -> list[tuple[int, int]]:
+    spans, depth, start = [], 0, s
+    for i in range(s, e):
+        if masked[i] in "([{":
+            depth += 1
+        elif masked[i] in ")]}":
+            depth -= 1
+        elif masked[i] == "+" and depth == 0:
+            spans.append((start, i))
+            start = i + 1
+    spans.append((start, e))
+    return spans
+
+
+def _term_values(scan: _Scan, cypher: str, parameters, s: int, e: int, depth: int = 0) -> list[str] | None:
+    """Every string the expression ``cypher[s:e]`` can be, or None when the guard cannot read it."""
+    masked = scan.masked
+    s, e = _strip(masked, cypher, s, e)
+    if s >= e or depth > 8:
+        return None
+    original = cypher[s:e]
+    literal = cypher_text._string_value(original)
+    if literal is not None:
+        return [literal]
+    if masked[s] == "(" and cypher_text._matching_paren(masked, s) == e - 1:
+        return _term_values(scan, cypher, parameters, s + 1, e - 1, depth + 1)
+    parts = _split_plus(masked, s, e)
+    if len(parts) > 1:
+        values = [""]
+        for ps, pe in parts:
+            got = _term_values(scan, cypher, parameters, ps, pe, depth + 1)
+            if got is None:
+                return None
+            values = [v + g for v in values for g in got][:64]
+        return values
+    param = re.fullmatch(rf"\$({_NAME})(?:\s*\[\s*(-?\d+)\s*\])?", original)
+    if param:
+        value = parameters.get(param.group(1)) if isinstance(parameters, dict) else None
+        if param.group(2) is not None:
+            if not isinstance(value, list) or not -len(value) <= int(param.group(2)) < len(value):
+                return None
+            value = value[int(param.group(2))]
+        return [value] if isinstance(value, str) else None
+    call = re.match(rf"({_NAME})\s*\(", masked[s:e])
+    if call and call.group(1).upper() in _TERM_FUNCTIONS and \
+            cypher_text._matching_paren(masked, s + call.end() - 1) == e - 1:
+        return _term_values(scan, cypher, parameters, s + call.end(), e - 1, depth + 1)
+    if _NAME_RE.fullmatch(masked[s:e]) and masked[s:e] == original:
+        bindings = _term_bindings(scan, original)
+        values: list[str] = []
+        for keyword, bs, be in bindings:
+            got = (_term_values(scan, cypher, parameters, bs, be, depth + 1) if keyword == "WITH"
+                   else _list_values(scan, cypher, parameters, bs, be, depth + 1))
+            if got is None:
+                return None
+            values += got
+        return values or None
+    return None
+
+
+def _list_values(scan: _Scan, cypher: str, parameters, s: int, e: int, depth: int) -> list[str] | None:
+    """Every element of the list expression an UNWIND reads, or None when the guard cannot read it."""
+    masked = scan.masked
+    s, e = _strip(masked, cypher, s, e)
+    if s >= e:
+        return None
+    param = re.fullmatch(rf"\$({_NAME})", cypher[s:e])
+    if param:
+        value = parameters.get(param.group(1)) if isinstance(parameters, dict) else None
+        ok = isinstance(value, list) and all(isinstance(v, str) for v in value)
+        return list(value) if ok else None
+    if masked[s] == "[" and _matching_close_bracket(masked, s) == e - 1:
+        values: list[str] = []
+        for is_, ie in _items(masked, s + 1, e - 1):
+            got = _term_values(scan, cypher, parameters, is_, ie, depth + 1)
+            if got is None:
+                return None
+            values += got
+        return values
+    return None
+
+
+def _fulltext_problems(scan: _Scan, cypher: str, parameters) -> list[_Shape]:
+    """P6b: every fulltext call whose hits are unscoped and whose term the index would split into separate words."""
+    masked = scan.masked
+    anchors = None
+    problems: list[_Shape] = []
+    for start, open_, close, hit, fulltext in _procedure_yields(scan):
+        if not fulltext:
+            continue
+        if hit is not None:
+            anchors = anchors or _Anchors(scan, cypher, fulltext_hits=False)
+            if anchors.strength.get(anchors.find(hit), 0) >= _WEAK:
+                continue
+        text = " ".join(cypher[start + len("CALL"):close + 1].split())
+        arguments = _items(masked, open_ + 1, close)
+        terms = _term_values(scan, cypher, parameters, *arguments[1]) if len(arguments) >= 2 else None
+        if terms is None:
+            problems.append(_Shape(start, "unscoped_fulltext", text,
+                                   "has a search term that cannot be read before the query runs, and nothing scopes "
+                                   "its hits to a sample type or a filter"))
+            continue
+        split = [term for term in terms if _splits_words(term)]
+        if split:
+            words = ", ".join(repr(w) for w in _term_words(split[0]))
+            problems.append(_Shape(start, "unscoped_fulltext", text,
+                                   f"searches the term {split[0]!r} as the separate words {words}, each anywhere in a "
+                                   "sample's text, and nothing scopes its hits to a sample type or a filter"))
+    return problems
+
+
+# ------------------------------------------------------------------------------ the guard's surface
+
+
+def query_shape_problems(cypher: str | None, parameters=None) -> list[_Shape]:
+    """P6a and P6b: the shapes this graph must not be asked to run, in the order they appear in the Cypher.
+
+    ``parameters`` is the plan's parameter map, which the fulltext check reads the search term from. A guard that
+    breaks on a query says nothing about it rather than refusing it.
+    """
+    if not cypher or not cypher.strip():
+        return []
+    try:
+        scan = _scan(cypher)
+        problems = _path_problems(scan, cypher) + _fulltext_problems(scan, cypher, parameters)
+    except Exception as e:  # noqa: BLE001 (never refuse a query because the guard itself broke)
+        print(f"[DEBUG][GRAPH][SHAPE_GUARD] guard failed, allowing the query: {e!r}")
+        return []
+    return sorted(problems)
+
+
+def refused_query_shapes(cypher: str | None, parameters=None) -> list[str]:
+    """One line per problem: ``["unbounded path [:DERIVED_FROM*]: has no maximum hop count, ..."]``."""
+    return [f"{p.kind.replace('_', ' ')} {p.text}: {p.detail}" for p in query_shape_problems(cypher, parameters)]
+
+
+def _shape_lines(shapes: list[_Shape]) -> list[str]:
+    """The repair lines for shape problems: each problem, then the rule for each kind present."""
+    if not shapes:
+        return []
+    lines = [f"- {p.text}: {p.detail}" for p in shapes]
+    kinds = {p.kind for p in shapes}
+    if "unbounded_path" in kinds:
+        lines.append(
+            f"Give every variable-length path a literal maximum from 1 to {_MAX_HOPS}: "
+            f"`[:DERIVED_FROM*1..{_MAX_HOPS}]`, "
+            f"or `*0..{_MAX_HOPS}` when the starting sample itself counts; use the number of steps the question names "
+            f"when it names one. The longest DERIVED_FROM chain in this graph is 11 hops, so *1..{_MAX_HOPS} reaches "
+            f"every ancestor and every descendant. A path with no maximum, or a maximum above {_MAX_HOPS}, runs only "
+            "when both of its ends are anchored by a sample type (`(d:T_D_SEQ)` or `d.type = $type`) or a pinned "
+            "uuid (`{uuid: $uid}` or `d.uuid IN $uids`).")
+    if "unanchored_path" in kinds:
+        lines.append(
+            "Anchor at least one end of the path: a sample type (`(d:T_D_SEQ)`), a pinned uuid (`{uuid: $uid}`), or "
+            "a predicate that compares a property of that end with a value. `IS NOT NULL`, `IS NULL`, `<>` and a "
+            "predicate under NOT narrow nothing, and plain `(:Sample)` ends expand from every sample in the graph.")
+    fulltext = [p for p in shapes if p.kind == "unscoped_fulltext"]
+    if fulltext:
+        lines.append(
+            "The fulltext index matches whole words: it lowercases the term, splits it at spaces and punctuation, and "
+            "matches each word separately, anywhere in a sample's text. Unscoped, a term of two or more words (side "
+            "by side, joined by a hyphen, or joined by AND, && or +) cannot keep them side by side and is answered "
+            "from the whole database. Do one of these instead:\n"
+            "  - match the text directly, which keeps adjacency and punctuation and also matches inside longer words: "
+            "WHERE toLower(s.search_text) CONTAINS toLower($term), one per word or phrase, joined by AND or OR as the "
+            "question means;\n"
+            "  - or keep the index and scope its hits to the sample type the question is about: "
+            "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node WHERE node:T_<code>.\n"
+            "An unscoped call is fine for one word, one quoted phrase (\"...\" inside the term), or an explicit OR of "
+            "those.")
+        if any("cannot be read" in p.detail for p in fulltext):
+            lines.append("Pass the search term as one parameter the plan binds, or as a literal string, so it can be "
+                         "checked before the query runs.")
+    return lines
+
+
+def _shape_repair_message(shapes: list[_Shape]) -> str:
+    """The one repair prompt when the only problems are shapes."""
+    return "\n".join(["The previous Cypher is well formed, but its shape cannot run safely on this graph:"]
+                     + _shape_lines(shapes)
+                     + ["Regenerate the Cypher, or return an empty cypher and say why if the question cannot be "
+                        "answered from the graph."])
+
+
+def _shape_refusal_parts(shapes: list[_Shape]) -> list[str]:
+    parts = []
+    for p in shapes:
+        if p.kind == "unbounded_path":
+            parts.append(f"the path {p.text} {p.detail}; a path runs with a maximum from 1 to {_MAX_HOPS} or with "
+                         f"both ends anchored (bound it at *1..{_MAX_HOPS})")
+        elif p.kind == "unanchored_path":
+            parts.append(f"the path {p.text} expands from every sample: {p.detail}")
+        else:
+            parts.append(f"the unscoped fulltext call {p.text} {p.detail}")
+    return parts
+
+
+def _shape_refusal(shapes: list[_Shape]) -> str:
+    """The user-facing reason, when the one repair kept a refused shape."""
+    return "Graph agent could not produce valid Cypher; " + "; ".join(_shape_refusal_parts(shapes)) + "."
 
 
 # --------------------------------------------------------------------------- #
@@ -1299,39 +2162,47 @@ def graph_agent(
         if catalog is not None:
             # Catalog guard (spec 4.3): names checked per label against the live catalog, and no whole Sample
             # node returned (D13). One repair naming each problem; then the empty plan naming what is left.
-            # A variant that allows procedures adds the procedure guard to the same round, and the repair is
-            # re-checked by all three, so a repair cannot trade one problem for another unchecked one.
+            # A variant that allows procedures adds the procedure guard to the same round, and the query-shape
+            # guard (P6a, P6b) joins it on every turn. The repair is re-checked by all of them, so a repair
+            # cannot trade one problem for another unchecked one.
             problems = _property_problems(result.cypher, catalog.snapshot)
             whole = whole_node_returns(result.cypher, procedures)
             calls = _procedure_problems(result.cypher, procedures)
-            if problems or whole or calls:
+            shapes = query_shape_problems(result.cypher, result.parameters)
+            if problems or whole or calls or shapes:
                 print(f"[DEBUG][GRAPH] Catalog guard: {[p.text for p in problems]} whole nodes {whole}"
-                      + (f" calls {calls}" if calls else "") + "; attempting repair")
-                messages.append({"role": "system",
-                                 "content": _catalog_repair_message(problems, whole, catalog.snapshot, calls)})
+                      + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
+                      + "; attempting repair")
+                messages.append({"role": "system", "content": _catalog_repair_message(
+                    problems, whole, catalog.snapshot, calls, shapes)})
                 result = call("Regenerate the Cypher.", "graph_agent_repair")
                 result.cypher, _ = canonicalize_sample_uid_property(result.cypher)
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
                 problems = _property_problems(result.cypher, catalog.snapshot)
                 whole = whole_node_returns(result.cypher, procedures)
                 calls = _procedure_problems(result.cypher, procedures)
-                if problems or whole or calls:
+                shapes = query_shape_problems(result.cypher, result.parameters)
+                if problems or whole or calls or shapes:
                     print(f"[DEBUG][GRAPH] Repair still fails the catalog guard: {[p.text for p in problems]} "
-                          f"whole nodes {whole}" + (f" calls {calls}" if calls else "") + "; returning empty plan")
-                    return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole, calls),
+                          f"whole nodes {whole}" + (f" calls {calls}" if calls else "")
+                          + (f" shapes {[p.kind for p in shapes]}" if shapes else "") + "; returning empty plan")
+                    return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole, calls, shapes),
                                           parameters={}, context_mode=context_mode)
         else:
             # Schema guard: reject Cypher that filters on properties no node actually has
             # (e.g. a hallucinated `s.Lab`). Re-prompt once with the error + valid props;
             # if the repair still references unknown properties, return a graceful empty plan
             # rather than running a query that can only match nothing. A variant that allows
-            # procedures adds the procedure guard to the same round.
+            # procedures adds the procedure guard to the same round, the query-shape guard
+            # (P6a, P6b) joins it on every turn, and the repair is re-checked by all of them.
             known = known_node_properties(config.NEO4J_SCHEMA) | known_relationship_properties(config.NEO4J_SCHEMA)
             unknown = unknown_cypher_properties(result.cypher, known)
             calls = _procedure_problems(result.cypher, procedures)
-            if unknown or calls:
+            shapes = query_shape_problems(result.cypher, result.parameters)
+            if unknown or calls or shapes:
                 print(f"[DEBUG][GRAPH] Unknown properties in cypher: {unknown}"
-                      + (f" calls {calls}" if calls else "") + "; attempting repair")
+                      + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
+                      + "; attempting repair")
                 parts = []
                 if unknown:
                     parts.append(
@@ -1342,19 +2213,24 @@ def graph_agent(
                     )
                 if calls:
                     parts.append("\n".join(["The previous Cypher cannot run as written:"] + _call_lines(calls)))
+                if shapes:
+                    parts.append(_shape_repair_message(shapes))
                 messages.append({"role": "system", "content": "\n".join(parts)})
                 result = call("Regenerate the Cypher.", "graph_agent_repair")
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
                 still = unknown_cypher_properties(result.cypher, known)
                 calls = _procedure_problems(result.cypher, procedures)
-                if still or calls:
+                shapes = query_shape_problems(result.cypher, result.parameters)
+                if still or calls or shapes:
                     print(f"[DEBUG][GRAPH] Repair still references unknown properties: {still}"
-                          + (f" calls {calls}" if calls else "") + "; returning empty plan")
+                          + (f" calls {calls}" if calls else "")
+                          + (f" shapes {[p.kind for p in shapes]}" if shapes else "") + "; returning empty plan")
                     reasons = []
                     if still:
                         reasons.append(f"properties {still} do not exist on any node in the schema")
                     if calls:
                         reasons.append("procedure calls cannot run as written (" + "; ".join(calls) + ")")
+                    reasons += _shape_refusal_parts(shapes)
                     return GraphAgentPlan(
                         cypher="",
                         explanation="Graph agent could not produce valid Cypher; " + "; ".join(reasons) + ".",
