@@ -64,7 +64,7 @@ REASONS = (
 
 # Dashes that are not the ASCII hyphen-minus: hyphen, non-breaking hyphen, figure dash,
 # en dash, em dash, horizontal bar, minus sign, small and fullwidth hyphen-minus.
-_NON_ASCII_DASHES = "‐‑‒–—―−﹘﹣－"
+_NON_ASCII_DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d"
 # The code-prefix position: a run of letters, then a dash of any kind, spaces allowed so
 # they can be reported. Only an exact "<CODE>-" with no space fits the grammar.
 _PREFIX = re.compile(rf"^(?P<letters>[^\W\d_]+)(?P<pre>\s*)(?P<dash>[-{_NON_ASCII_DASHES}])(?P<post>\s*)")
@@ -72,7 +72,7 @@ _PREFIX = re.compile(rf"^(?P<letters>[^\W\d_]+)(?P<pre>\s*)(?P<dash>[-{_NON_ASCI
 _LAB_WORD = re.compile(r"(?:^|(?<= ))Lab(?=$|[\s(])")
 _AFFILIATION = re.compile(r"^ \((?P<affiliation>[^()]*[^\s()][^()]*)\)(?P<tail>.*)$")
 # Apostrophes a surname may carry: ASCII, right single quotation mark, modifier letter.
-_NAME_PUNCTUATION = frozenset(" -.'’ʼ")
+_NAME_PUNCTUATION = frozenset(" -.'\u2019\u02bc")
 
 
 def normalise_title(title) -> str | None:
@@ -200,7 +200,7 @@ def fetch_institution_rows(conn) -> list[tuple[int | None, str | None, int | Non
 def fold_name(name: str) -> str:
     """Compare surnames as the entity agent does: NFKC, apostrophes, no accents, casefold."""
     text = unicodedata.normalize("NFKC", name)
-    text = text.replace("’", "'").replace("‘", "'").replace("ʼ", "'")
+    text = text.replace("\u2019", "'").replace("\u2018", "'").replace("\u02bc", "'")
     text = "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
     return re.sub(r"\s+", " ", text.casefold()).strip()
 
