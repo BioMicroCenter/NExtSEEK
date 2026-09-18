@@ -203,8 +203,15 @@ class ChatConfig:
         self.FULL_ASSAYS_MAP: dict = {
             item["Name"]: item for item in self.FULL_ASSAYS if item.get("Name")
         }
+        # projects_db.json holds project AND investigation rows (spec 2026-09-18, section 6.5), and
+        # an investigation may share a project's exact name, so each name-keyed map reads one kind:
+        # built from every row, a same-named investigation would silently replace the project row.
+        # MIN_PROJECTS, below, keeps every row for the entity agent; each row says its entity_type.
         self.FULL_PROJECTS_MAP: dict = {
-            item["name"]: item for item in self.FULL_PROJECTS if item.get("name")
+            item["name"]: item for item in self.FULL_PROJECTS if is_project_row(item) and item.get("name")
+        }
+        self.FULL_INVESTIGATIONS_MAP: dict = {
+            item["name"]: item for item in self.FULL_PROJECTS if is_investigation_row(item) and item.get("name")
         }
         # Dynamic maps from the live DB (replace the removed hardcoded literal):
         # projects and investigations kept in SEPARATE maps.
@@ -1177,10 +1184,14 @@ class ChatConfig:
     def _merge_project_name_to_id(self, base_map: dict[str, int], projects: list[dict]) -> dict[str, int]:
         """
         Extend the existing project-name lookup with canonical names and aliases from projects_db.json.
-        Entries without a numeric Project ID are skipped.
+        Project rows only (entity_type 'project' or missing): an investigation row carries its
+        owner's project_id, so merging it would turn an investigation's name or alias into a
+        whole-project report scope. Entries without a numeric Project ID are skipped.
         """
         merged = dict(base_map)
         for project in projects:
+            if not is_project_row(project):
+                continue
             project_id = project.get("project_id")
             if not isinstance(project_id, int):
                 continue
