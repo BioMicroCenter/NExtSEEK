@@ -74,13 +74,17 @@ nextseek-graph --query "Which NHP samples have both CT scan data and sequencing 
   written; anyone else's is checked to stay inside their projects before it runs. Never try to
   widen it.
 - **`fallback`.** A query that could not be confirmed to stay inside the user's projects is not
-  run. The op then answers the question itself through the project-scoped sample search
-  (`/nextseek_api/samples/graph_search/`) and returns that answer under `fallback`: when
-  `fallback.ok` is true, answer from `fallback.response` (`total` is the count; `rows` is one
-  page) and say so in one sentence, as `fallback.note` asks: the answer came from the
-  project-scoped sample search, and which conditions of the question it could not apply. When
-  `fallback.ok` is false, report the refusal and `fallback.error`; do not re-ask the question
-  through another op.
+  run. The op then asks the project-scoped sample search (`/nextseek_api/samples/graph_search/`)
+  instead and returns its answer under `fallback`:
+  - `fallback.ok` true: answer from `fallback.data` (`total` is the count of every match, `rows`
+    is one page of records, `rows_missing` is how many counted matches it could not show), and say
+    so in one sentence, as `fallback.note` asks: the answer came from the project-scoped sample
+    search, and which conditions of the question it could not apply.
+  - `fallback.ok` false: `fallback.error` says why (the op ran out of time before asking, or the
+    search answered with an error). Ask it once yourself with the plan the op hands back:
+    `nextseek-api-read --parser-plan '<fallback.parser_plan, as JSON>'`, then answer from its
+    `response.data` with the same disclosure. If that fails too, report the refusal and both
+    errors, and stop.
 - **Read `result.ok` and `result.data`.** An empty `data` is an answer: state it plainly.
 - **Refinement** ("which of those…", "only the female ones"): ask `nextseek-graph` again with the
   whole refined question, the earlier conditions restated plus the new one. To reuse rows a prior
@@ -89,12 +93,19 @@ nextseek-graph --query "Which NHP samples have both CT scan data and sequencing 
   lineage endpoints (advanced_search, parents_by_child_types, entity_tree/lineage, the sample list)
   are not on the read-safe list, so `api-read` refuses them.
 
-**Records, people, files and writes — the REST API, parse then read.** A REST lookup is two
-stages: parse the question into a plan, then execute the plan. Use it for what the graph does
-not hold: a catalog record as a record (a sample type's definition, an assay, a project, an
-investigation, a protocol, a data file's metadata: read the baked catalogs below first), the
-registered SEEK users (`/nextseek_api/people/`), files and their downloads, one sample's full
-record export by UID (`/nextseek_api/admin/samples/retrieve/`, superusers only), and every write.
+**Catalog lists, people, downloads and writes — the REST API, parse then read.** A REST lookup
+is two stages: parse the question into a plan, then execute the plan. `nextseek-api-read` runs
+only the read-safe endpoints (`context/read_safe_endpoints.json`), which are: the lists of
+projects, investigations, sample types, assays, protocols (`/nextseek_api/sops/`) and registered
+SEEK users (`/nextseek_api/people/`); downloading a data file or a protocol document
+(`/nextseek_api/data_files/download/`, `/nextseek_api/sops/download/`); one sample's full record
+export by UID (`/nextseek_api/admin/samples/retrieve/`, superusers only); checking an upload
+workbook (`/nextseek_api/batch-upload/validate/`); and graph_search. Read the baked catalogs below
+before any of the lists. Single-record endpoints (`.../{uid}/`) and the sample tree view are not
+read-safe, and `api-read` refuses them: find the record in its list instead, and ask
+`nextseek-graph` for a sample's lineage or the files a sample points to (its `File_PrimaryData`,
+`Link_PrimaryData` and `Checksum_PrimaryData` attributes). Every write goes through
+`nextseek-api-write`.
 
 ```bash
 nextseek-parse --query "Show me the protocol documents registered for the MetNet project."

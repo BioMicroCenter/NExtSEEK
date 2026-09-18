@@ -43,8 +43,8 @@ discovery.
   Scientist is Smith"): run `nextseek-graph --query "UIDs of <the curator's request
   verbatim>"`. The graph holds every sample attribute, and the op is held to the
   curator's projects; its `result.data` carries each matching sample's UID (under
-  `fallback.response.rows` when the op answered through graph_search, see the
-  `nextseek` skill). Then fetch the current rows of those UIDs with
+  `fallback.data.rows` when the op answered through graph_search; the `nextseek` skill
+  says what to do when `fallback.ok` is false). Then fetch the current rows of those UIDs with
   `nextseek-sample-search --uid ...` (step 3): the graph is only as fresh as its last
   sync, the database rows are what an update edits. If `nextseek-graph` returns
   `AGENT_FAILED`, retry the identical call once; if it fails again, stop and tell the

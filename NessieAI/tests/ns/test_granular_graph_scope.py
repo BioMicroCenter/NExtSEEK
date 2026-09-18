@@ -9,6 +9,7 @@ any driver opens.
 
 Every agent and the REST call are patched; no model, database or server is reached.
 """
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +18,7 @@ from django.test import SimpleTestCase
 from chat_nextseek.graph_scope import GraphScope, with_scope
 from chat_nextseek.helpers.tools.neo4j import NO_SCOPE_REFUSED, SCOPE_REFUSED
 from chat_nextseek.schemas import ParserPlan
+from NessieAI.ns import granular
 from NessieAI.ns.granular import run_op
 from NessieAI.ns.write_gate import WriteBlockedError
 
@@ -43,7 +45,8 @@ def _api_plan(endpoint=GRAPH_SEARCH, method="POST"):
     )
 
 
-GRAPH_SEARCH_ROWS = {"ok": True, "data": {"total": 2, "rows": [{"uuid": "TIS-1"}, {"uuid": "TIS-2"}]}}
+GRAPH_SEARCH_ROWS = {"ok": True, "status_code": 200,
+                     "data": {"total": 2, "rows": [{"uuid": "TIS-1"}, {"uuid": "TIS-2"}], "rows_missing": 0}}
 
 
 class GraphOpScopeTests(SimpleTestCase):
@@ -83,8 +86,50 @@ class GraphOpScopeTests(SimpleTestCase):
         self.assertTrue(fallback["ok"])
         self.assertEqual(fallback["endpoint"], GRAPH_SEARCH)
         self.assertEqual(fallback["codes"], ["label_not_allowed"])
-        self.assertEqual(fallback["response"], GRAPH_SEARCH_ROWS)
+        self.assertEqual(fallback["status_code"], 200)
+        self.assertEqual(fallback["data"], GRAPH_SEARCH_ROWS["data"])
+        self.assertNotIn("error", fallback)
         self.assertIn("project-scoped sample search", fallback["note"])
+        self.assertEqual(fallback["parser_plan"]["target_endpoint"], GRAPH_SEARCH)
+        self.assertEqual(fallback["parser_plan"]["mode"], "new_search")
+        json.dumps(fallback)  # the op's result crosses the wire as JSON
+
+    def test_a_graph_search_error_answer_is_a_failed_fallback(self):
+        self.rest.return_value = {"ok": False, "status_code": 422,
+                                  "data": {"detail": "where: unknown attribute 'Sexx' for T_MUS"}}
+
+        out = self._run(SimpleNamespace(), neo4j_exec=MagicMock(return_value=_refused()))
+
+        fallback = out["fallback"]
+        self.assertFalse(fallback["ok"])
+        self.assertEqual(fallback["status_code"], 422)
+        self.assertIn("422", fallback["error"])
+        self.assertIn("unknown attribute", fallback["error"])
+        self.assertNotIn("data", fallback)
+        self.assertEqual(fallback["parser_plan"]["target_endpoint"], GRAPH_SEARCH)
+        self.assertNotIn("answer is under fallback", out["result"]["error"])
+        self.assertIn("nextseek-api-read", out["result"]["error"])
+
+    def test_a_refusal_late_in_the_op_hands_the_plan_back_instead_of_running_it(self):
+        clock = iter([0.0, granular.GRAPH_FALLBACK_START_BUDGET_S + 1.0])
+        with patch("NessieAI.ns.granular._monotonic", lambda: next(clock)):
+            out = self._run(SimpleNamespace(), neo4j_exec=MagicMock(return_value=_refused()))
+
+        fallback = out["fallback"]
+        self.assertFalse(fallback["ok"])
+        self.assertFalse(fallback["ran"])
+        self.assertIn("nextseek-api-read", fallback["error"])
+        self.assertEqual(fallback["parser_plan"]["target_endpoint"], GRAPH_SEARCH)
+        self.build.assert_not_called()
+        self.rest.assert_not_called()
+
+    def test_a_refusal_early_in_the_op_runs_the_fallback(self):
+        clock = iter([0.0, granular.GRAPH_FALLBACK_START_BUDGET_S - 1.0])
+        with patch("NessieAI.ns.granular._monotonic", lambda: next(clock)):
+            out = self._run(SimpleNamespace(), neo4j_exec=MagicMock(return_value=_refused()))
+
+        self.assertTrue(out["fallback"]["ran"])
+        self.assertTrue(out["fallback"]["ok"])
 
     def test_the_parser_plan_is_not_mutated_by_the_retarget(self):
         self._run(SimpleNamespace(), neo4j_exec=MagicMock(return_value=_refused()))

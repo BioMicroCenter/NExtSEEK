@@ -408,6 +408,27 @@ def test_enforced_and_baked_allowlists_agree_on_endpoint_methods():
     )
 
 
+def test_every_endpoint_the_cc_guidance_names_is_read_safe():
+    """The skill, the manifest and the command text may name only endpoints api-read runs.
+
+    NessieAI/docker/CLAUDE.md: an endpoint the skill sends the agent to must be read-safe. A named
+    endpoint the gate refuses costs the agent a WRITE_BLOCKED and one of its two attempts, as the
+    single-record and tree-view endpoints did when the skill first promised them (2026-09-18
+    review). Writes are named without the /nextseek_api/ prefix, so they are not caught here.
+    """
+    import re
+
+    guidance = [*paths.CC_PLUGIN_DIR.glob("skills/*/SKILL.md"), BAKED_DIR / "MANIFEST.md",
+                *paths.CC_PLUGIN_DIR.glob("commands/*.md")]
+    named = {m for f in guidance for m in re.findall(r"/nextseek_api/[A-Za-z0-9_./{}-]+/",
+                                                   f.read_text(encoding="utf-8"))}
+    read_safe = {e["endpoint"] for e in json.loads(ENFORCED_ALLOWLIST.read_text(encoding="utf-8"))}
+    assert named, "the guidance names no endpoint at all; the pattern above has gone stale"
+    assert not named - read_safe, (
+        f"the CC guidance names endpoints api-read refuses: {sorted(named - read_safe)}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # #65a: the specific privilege the drift leaked
 # ---------------------------------------------------------------------------
