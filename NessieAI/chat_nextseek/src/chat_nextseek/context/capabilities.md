@@ -37,7 +37,7 @@ The knowledge graph captures organizational structure and biological relationshi
   sample inherits the paper of every study it belongs to. You can ask which paper
   a sample appears in, or which samples a paper used, by title, DOI or PMID. Most
   studies are unpublished; that is expected, not a gap.
-- **Investigation** — a project-level grouping of studies (e.g., "Griffith", "Impact", "GBM"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
+- **Investigation** — a project-level grouping of studies (e.g., "Impactb Investigation", "MIT_SRP", "GBM_BTC"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
 
 Derivation (lineage) between samples is encoded on the `DERIVED_FROM` relationship, which also carries assay and protocol metadata.
 
@@ -47,7 +47,7 @@ Use graph queries when your question involves named studies or investigations, c
 - "What samples are in the GBM study?"
 - "What studies exist in the Griffith project?"
 - "How many TIS samples are across all studies?"
-- "Show me all NHP samples in the SRP investigation."
+- "Show me all NHP samples in the MIT_SRP investigation."
 - "What projects have mouse samples?"
 - "Find all samples that underwent single cell sequencing."
 - "How many studies are in the CSBC project?"
@@ -70,7 +70,7 @@ A SQL-backed reporting system answers questions about sample upload history and 
 **Upload statistics examples:**
 - "How many samples were uploaded for Impact from 2023 to 2025?"
 - "How many samples did the Griffith lab upload last year?"
-- "Show me upload counts by sample type for the GBM project in Q1 2024."
+- "Show me upload counts by sample type for the Break Through Cancer project in Q1 2024."
 
 **Repository submission generation:**
 - "Build me a GEO submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB."
@@ -103,7 +103,7 @@ You can ask for detailed information about specific catalog items — what a sam
 **Example queries:**
 - "What is a TIS sample type?"
 - "Tell me about the SRS assay."
-- "Explain the GBM investigation."
+- "Explain the GBM_BTC investigation."
 - "What does the D.FLOW sample type contain?"
 - "What assays are available in the system?"
 - "What sample types can I search for?"
@@ -219,7 +219,7 @@ The system retrieves, filters, and summarizes data from NExtSEEK. It does not pe
 
 **Be specific about sample type.** The clearest queries name the kind of thing you want: "Find NHP samples with sequencing data" is more precise than "Find samples with sequencing data." If you are unsure of the sample type name, ask "What sample types are available?"
 
-**Use investigation names for project-scoped questions.** When you want results scoped to a particular project or study, use the known investigation names (CSBC, GBM, Griffith, Impact, MetNet, SRP, Shoulders) and phrase the query explicitly: "What samples are in the GBM investigation?"
+**Use investigation names for project-scoped questions.** When you want results scoped to a particular project or study, use an exact name from the list under Known Projects and Investigations and phrase the query explicitly: "What samples are in the GBM_BTC investigation?"
 
 **Use "refine" or "try that again" to adjust your last search.** If you want to change a filter on an existing query, say so explicitly: "Try that again but only for 2024" or "Same search but add a flow cytometry filter." This preserves your prior context and avoids starting from scratch.
 

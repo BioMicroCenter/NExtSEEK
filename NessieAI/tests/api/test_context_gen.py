@@ -2106,3 +2106,48 @@ def test_the_availability_phrase_is_the_one_drift_keys_on():
     expected = [("CSBC", True), ("MetNet", False), ("TCGA", False)]
     assert drift.assistant_investigation_entries(document) == expected
     assert cg.listed_investigations(document) == expected
+
+
+# --- the investigation names outside the block (spec 2026-09-18, section 10.7) ---
+#
+# Only the list is generated. The example queries around it are prose, and they named
+# the dead investigations too: "the SRP investigation", "the GBM project", a tip listing
+# seven names. They are edited by hand, and these pin them to the curated rows: an
+# investigation is named by its exact title, a project by a project row's name or alias.
+
+import re as _re
+
+_CAPABILITIES_FILE = Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md")
+
+
+def _outside_the_block() -> str:
+    text = _repo(_CAPABILITIES_FILE)
+    return text.split(cg.CAPABILITIES_BEGIN, 1)[0] + text.split(cg.CAPABILITIES_END, 1)[1]
+
+
+def test_the_prose_names_an_investigation_by_its_exact_title():
+    titles = set(INVESTIGATION_ROWS)
+    prose = _outside_the_block()
+    named = _re.findall(r"\bthe ((?:[\w-]+ ){0,2}[\w-]+) investigation\b", prose)
+    assert named, "no example names an investigation any more"
+    assert [n for n in named if n not in titles] == []
+    entry = next(line for line in prose.splitlines() if line.startswith("- **Investigation**"))
+    examples = _re.findall(r'"([^"]+)"', entry)
+    assert examples and set(examples) <= titles, examples
+
+
+def test_the_prose_names_a_project_by_a_project_row():
+    rows = cg.curated_rows("projects")
+    known = {cg.fold_key(r["name"]) for r in rows if r["entity_type"] == "project"}
+    known |= {cg.fold_key(a) for r in rows if r["entity_type"] == "project"
+              for a in r.get("alternative_names") or []}
+    named = _re.findall(r"\bthe ((?:[\w-]+ ){0,2}[\w-]+) project\b", _outside_the_block())
+    assert named and [n for n in named if cg.fold_key(n) not in known] == []
+
+
+def test_the_tip_points_at_the_generated_list_instead_of_keeping_one():
+    prose = _outside_the_block()
+    tip = next(p for p in prose.split("\n\n") if "Use investigation names" in p)
+    assert cg.DRIFT_SECTION_HEADING.lstrip("# ") in tip
+    assert "GBM_BTC investigation" in tip
+    assert not _re.search(r"\((?:[\w-]+, ){2,}", tip), tip
