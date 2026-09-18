@@ -11,7 +11,17 @@
 -- One row per internal assay, `assay_name` unique. Production's copy is still two
 -- unreconciled sources merged, 217 rows with 22 duplicated names; the curated
 -- source is what reconciles them, and the update SQL collapses the duplicates
--- before it adds the unique key.
+-- before it adds the unique key. Do not hand-apply this file to a stack that
+-- already has the table: CREATE TABLE IF NOT EXISTS skips, so the unique key is
+-- never created and the INSERTs land on top of the existing rows. Use
+-- `--emit update` for that.
+--
+-- The three widths below are production's, not a guess: the live assay_context
+-- declares Parent_Clade_Type and Child_Clade_Type varchar(128) and
+-- AssaySheet_Link varchar(512). A fresh install narrower than every upgraded
+-- instance is a divergence nothing would notice until a value did not fit on one
+-- of them.
+SET NAMES utf8mb4;
 CREATE TABLE IF NOT EXISTS assay_context (
   id                           INT AUTO_INCREMENT PRIMARY KEY,
   assay_name                   VARCHAR(255) NULL,
@@ -21,9 +31,9 @@ CREATE TABLE IF NOT EXISTS assay_context (
   Required_Parent_Sample_Types TEXT         NULL,
   Optional_Parent_Sample_Types TEXT         NULL,
   Children_Sample_Types        TEXT         NULL,
-  Parent_Clade_Type            VARCHAR(64)  NULL,
-  Child_Clade_Type             VARCHAR(64)  NULL,
-  AssaySheet_Link              VARCHAR(255) NULL,
+  Parent_Clade_Type            VARCHAR(128) NULL,
+  Child_Clade_Type             VARCHAR(128) NULL,
+  AssaySheet_Link              VARCHAR(512) NULL,
   AssociatedRepository         VARCHAR(255) NULL,
   Critical_Attributes          TEXT         NULL,
   Protocols_Phrases            TEXT         NULL,

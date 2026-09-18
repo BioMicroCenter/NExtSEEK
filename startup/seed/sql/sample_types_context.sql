@@ -3,15 +3,26 @@
 -- context/sample_types.json by scripts/context_gen.py --emit seed; regenerate
 -- rather than hand-editing.
 --
--- Created in SQL like assay_context and for the same reason: no Django migration
--- references it, and it is absent from dmac.sql.gz because regenerating that seed
--- needs maintainer credentials for a remote host. Production has its own copy of
--- this table; this file is what gives the local and dev stacks one.
+-- Created in SQL because no Django migration references it. Unlike assay_context
+-- and projects_context, startup/seed/dmac.sql.gz DOES create and populate this
+-- table (measured 2026-09-17: one CREATE at line 2024, 101 rows, no
+-- repository_attributes column and no unique key), so on a seeded install
+-- startup/steps/schema_fixups.py finds the table present and this file is a
+-- no-op. It earns its place where the dump does not run -- `--no-seed`, and any
+-- box whose dump predates the table.
+--
+-- Do NOT hand-apply this file to a stack that already has the table. CREATE TABLE
+-- IF NOT EXISTS skips, so the unique key below is never created, and the INSERTs
+-- then land on top of the existing rows instead of replacing them: 101 + 109 =
+-- 202 rows with 101 duplicated sample_type codes. Bringing an existing instance
+-- up to the curated content is `--emit update`'s job, which adds the columns, the
+-- unique key and upserts.
 --
 -- Column types follow seek/models/nextseek.py::Sample_types_context, which is
 -- how the application reads and writes these rows. `Tags` is capitalised: it is
 -- that model's one db_column override. `repository_attributes` is newer than the
 -- model and is read as JSON text, like the JSON columns of projects_context.
+SET NAMES utf8mb4;
 CREATE TABLE IF NOT EXISTS sample_types_context (
   id                        INT AUTO_INCREMENT PRIMARY KEY,
   sample_type               VARCHAR(32)  NULL,

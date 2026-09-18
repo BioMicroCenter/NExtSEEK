@@ -66,19 +66,38 @@ stack image and runs pytest against it, defaulting to `nextseek_api/tests`
 tables, rewritten in place once per UTC day by `_fetch_context_files_from_db`
 (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:717-725`), so editing an export
 changes nothing that survives a day. `context/` is the hand-owned source and
-`scripts/context_gen.py` is the only way it reaches a database. It emits two things:
+`scripts/context_gen.py` is the only way it reaches a database. It emits three things:
 
 ```
 python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
 python scripts/context_gen.py --emit seed --table all
+python scripts/context_gen.py --emit capabilities --counts /tmp/investigations.json
 ```
 
 `--emit update` writes re-runnable SQL for a live database; every statement is
 idempotent, including the ones that delete rows the curated source no longer names and
 collapse duplicate keys, so applying it twice leaves the table holding exactly the
-curated rows. `--emit seed` rewrites the three files under `startup/seed/sql/` in place.
-Nothing here connects to a database; the operator applies the SQL. `context/README.md`
-owns the source conventions and the review gate.
+curated rows. The deletes and the upserts run in one transaction, so a value the server
+refuses rolls the change back rather than leaving the table half migrated. `--emit seed`
+rewrites the three files under `startup/seed/sql/` in place. Nothing here connects to a
+database; the operator applies the SQL. `context/README.md` owns the source conventions
+and the review gate.
+
+Apply it with the charset named, even though the file names it too:
+
+```
+mysql --default-character-set=utf8mb4 -u<user> -p <database> < /tmp/context.sql
+```
+
+The client default is `auto`, which resolves to **latin1** wherever no UTF-8 locale is
+set — which is the case inside the `db` container, so every apply path that does not say
+otherwise double-encodes each non-ASCII value. Both emitted artifacts open with
+`SET NAMES utf8mb4;` for that reason, and the flag above is the belt to its braces.
+
+Do not hand-apply a `startup/seed/sql/*_context.sql` file to a stack that already has the
+table: `CREATE TABLE IF NOT EXISTS` skips, so the unique key is never created and the
+INSERTs land on top of the rows already there. `--emit update` is what brings an existing
+instance to the curated content.
 
 It also owns `capabilities.md`'s "Known Projects and Investigations" list.
 `render_capabilities_block` builds that section from the `projects_context` rows whose
@@ -89,9 +108,21 @@ investigation that resolves to no samples, which is the point of generating the 
 all — five of the eight hand-written names resolve to nothing, because SEEK carries two
 parallel investigation systems and the list named the paper-tracking copies.
 `catalog.assistant_investigations` in `nextseek_api/graph_sync/drift.py` stays the runtime
-backstop, and it is also where the sample counts the refusal reads come from. The chain
-has an order: write the block, then `gen_op_surfaces --write`, then both image rebuilds.
-Out of order ships a `route_capabilities.json` built from the old list.
+backstop, and it is also where the sample counts the refusal reads come from — pass them
+to `--emit capabilities --counts` as a JSON object, or as drift's whole
+`assistant_investigations` stat. The block must sit under the exact H2 heading drift keys
+on, and `replace_capabilities_block` refuses otherwise: with no such heading drift finds
+no names and its check *passes*, so the backstop would be off with nothing saying so.
+
+Regenerating the block does **not** make `route_capabilities.json` stale, contrary to an
+earlier note here: the NS projection reads only the three required H2 sections, so the
+projection comes out byte for byte identical
+(`test_regenerating_the_block_leaves_the_ns_projection_identical`). The step that carries
+a new list to the agent is the image COPY and rebuild.
+
+`--emit capabilities` refuses today and is meant to: every `projects_context` row is
+still a project and `capabilities.md` carries no CONTEXT-GEN markers, so the five dead
+names are still committed. Task 6.15c adds the rows and the markers.
 
 **D. Attribute-API verification lane.** `scripts/attribute_api_test.sh:4-5` dispatches
 twelve named lanes, several of which shell out to `scripts/run_attribute_coverage.py` and

@@ -89,6 +89,17 @@ def _projects_ddl_columns() -> set[str]:
 
 
 def test_columns_match_the_fixtures_that_define_them():
+    """The DDL check. Two of the three fixtures are the generator's own output now.
+
+    `cg.DDL["assays"]` and `cg.DDL["projects"]` ARE those two committed CREATE
+    TABLEs since phase 6, and `test_seed_matches_the_committed_files_shape` pins
+    the files to that output, so for those two this reads the module back to
+    itself. It still catches a spelling that drifts between `cg.TABLES` and
+    `cg.DDL`, which is worth having, but it is not independent evidence and the
+    comment above must not be read as claiming it is. The independent one is
+    `test_every_column_is_one_the_runtime_actually_reads`, below, whose fixture is
+    a consumer this module does not own.
+    """
     assert set(cg.COLUMNS["assays"]) == _assay_seed_columns()
     assert set(cg.COLUMNS["sample_types"]) == _model_columns() | {"repository_attributes"}
     assert set(cg.COLUMNS["projects"]) == _projects_ddl_columns() | {"pi_names"}
@@ -96,6 +107,52 @@ def test_columns_match_the_fixtures_that_define_them():
     assert set(cg.ADDED_COLUMNS) == {"sample_types", "projects"}
     assert set(cg.ADDED_COLUMNS["sample_types"]) == {"repository_attributes"}
     assert set(cg.ADDED_COLUMNS["projects"]) == {"pi_names"}
+
+
+CONFIG = Path("NessieAI/chat_nextseek/src/chat_nextseek/config.py")
+
+
+def _reader_columns(mapper: str) -> set[str]:
+    """The raw column spellings one of config.py's mappers reads.
+
+    `map_sampletype`, `map_assay` and `map_project` each lowercase the row and then
+    name every column they want, which is why the names come back lowercase and the
+    comparison below folds both sides: the one column whose live spelling is
+    capitalised, `Tags`, is read as `tags`. That list is written in a file this
+    module does not own, by the code that actually consumes these tables, so it is
+    the fixture `test_columns_match_the_fixtures_that_define_them` can no longer be.
+    """
+    body = _repo(CONFIG).split(f"def {mapper}(row: dict) -> dict:", 1)[1]
+    body = body.split("\n            def ", 1)[0]
+    return set(re.findall(r'lower\.get\("(\w+)"\)', body))
+
+
+def test_every_column_is_one_the_runtime_actually_reads():
+    """A column dropped from the module would otherwise pass every test.
+
+    `check_columns` raises on an UNKNOWN key, never on a missing one, so deleting a
+    column from `cg.TABLES` regenerates a DDL without it, keeps the whole suite
+    green, and makes the production upsert quietly stop setting it -- the apply
+    reports success while production keeps a stale value there forever. This is the
+    check that sees it, because its fixture is the consumer.
+
+    The two exceptions are named rather than subtracted, because each is a real
+    open gap and not a convention: `pi_names` and `repository_attributes` are
+    written to the database and read by nothing. `map_project` builds
+    projects_db.json from a fixed key list ending at `tags`, so pi_names never
+    reaches the entity agent, and `map_sampletype` drops repository_attributes the
+    same way. Wiring pi_names up is plan task 13c's; repository_attributes has no
+    named consumer at all.
+    """
+    unread = {"projects": {"pi_names"}, "sample_types": {"repository_attributes"},
+              "assays": set()}
+    for table, mapper in (("sample_types", "map_sampletype"), ("assays", "map_assay"),
+                          ("projects", "map_project")):
+        reads = _reader_columns(mapper)
+        assert reads, mapper
+        declared = {c.lower() for c in cg.COLUMNS[table]}
+        assert declared - reads == unread[table], table    # nothing written unread
+        assert reads - declared == set(), table            # nothing read unwritten
 
 
 def test_every_curated_key_maps_to_a_known_column():
@@ -150,19 +207,51 @@ PI_RMS = ("Koehler, Angela N. (MIT Koch Institute and Broad Institute, contact P
 
 
 def test_parse_pi_yields_every_surname_and_every_full_name():
-    assert cg.parse_pi(PI_CSBC) == ["White", "Forest M. White", "Michor", "Franziska Michor"]
+    assert cg.parse_pi(PI_CSBC) == [
+        "White", "Forest M. White", "Forest White", "Michor", "Franziska Michor",
+    ]
+
+
+def test_parse_pi_yields_the_spelling_a_question_actually_uses():
+    """The initial-free full name, which is the one a person types.
+
+    The curated file writes a middle initial for most PIs and nobody asking a
+    question does, and neither exact nor substring matching bridges the two:
+    "Roger Kamm" is not a substring of "Roger D. Kamm" or the reverse. Before this
+    the column carried only the surname and the middle-initial spelling, so 18 of
+    the 21 curated PI entries had no form a question could match. That the plain
+    form is the live one is measurable in the repo: the CSBC row's own `tags` carry
+    "Forest White" and MetNet's description says "led by Roger Kamm (MIT)".
+    """
+    rows = {r["name"]: r["pi_names"] for r in cg.rows_for("projects")}
+    assert "Roger Kamm" in rows["MetNet"]
+    assert "Forest White" in rows["CSBC"]
+    assert "Linda Griffith" in rows["Griffith"]
+    for name in ("Sarah Fortune", "JoAnne Flynn", "Alex Shalek", "Douglas Lauffenburger"):
+        assert name in rows["Impact"], name
+    # The middle-initial spelling is kept, not replaced.
+    assert "Roger D. Kamm" in rows["MetNet"]
+
+
+def test_a_multi_word_surname_keeps_every_word_when_the_initials_go():
+    assert cg.parse_pi("van der Meer, Jos W. M. (Radboud)") == [
+        "van der Meer", "Jos W. M. van der Meer", "Jos van der Meer",
+    ]
 
 
 def test_parse_pi_ignores_a_semicolon_inside_the_parenthetical():
     assert cg.parse_pi(PI_GRIFFITH) == [
-        "Griffith", "Linda G. Griffith", "Goods", "Brittany A. Goods",
+        "Griffith", "Linda G. Griffith", "Linda Griffith",
+        "Goods", "Brittany A. Goods", "Brittany Goods",
     ]
 
 
 def test_parse_pi_reads_a_pi_with_no_parenthetical():
     assert cg.parse_pi(PI_RMS) == [
-        "Koehler", "Angela N. Koehler", "Burgin", "Alex B. Burgin",
-        "Gould", "Alexandra E. Gould", "Linardic", "Corinne M. Linardic",
+        "Koehler", "Angela N. Koehler", "Angela Koehler",
+        "Burgin", "Alex B. Burgin", "Alex Burgin",
+        "Gould", "Alexandra E. Gould", "Alexandra Gould",
+        "Linardic", "Corinne M. Linardic", "Corinne Linardic",
         "Nomura", "Daniel Nomura",
     ]
 
@@ -170,6 +259,27 @@ def test_parse_pi_reads_a_pi_with_no_parenthetical():
 def test_parse_pi_of_nothing_is_empty():
     for empty in ("None", "none", "", "   ", None):
         assert cg.parse_pi(empty) == [], repr(empty)
+
+
+def test_an_unclosed_parenthesis_is_refused_rather_than_swallowing_the_rest():
+    """One missing `)` silently deleted every PI after it.
+
+    `_split_outside_parens` never returns depth to 0 once a `(` is unclosed, so
+    every later semicolon is swallowed. Measured:
+    `parse_pi("Kamm, Roger D. (MIT, contact PI; Shenoy, Vivek B. (UPenn, co-PI)")`
+    returned `['Kamm', 'Roger D. Kamm']` -- Shenoy gone, no exception, and the
+    rendered INSERT reporting success. This module refuses rather than guesses
+    everywhere else a value is ambiguous, and the output is SQL bound for
+    production.
+    """
+    import pytest
+
+    with pytest.raises(cg.UnsupportedValue) as excinfo:
+        cg.parse_pi("Kamm, Roger D. (MIT, contact PI; Shenoy, Vivek B. (UPenn, co-PI)")
+    assert "unclosed" in str(excinfo.value)
+    # Balanced nesting, which the Griffith row has, still parses.
+    assert cg.parse_pi("Kamm, Roger D. (MIT (Mech E), PI)") == [
+        "Kamm", "Roger D. Kamm", "Roger Kamm"]
 
 
 def test_parse_pi_of_a_single_name_does_not_repeat_it():
@@ -191,7 +301,9 @@ def test_pi_names_is_emitted_alongside_the_free_text_pi():
     rows = cg.with_pi_names(cg.load_source(cg.TABLES["projects"].source))
     csbc = next(r for r in rows if r["name"] == "CSBC")
     assert csbc["pi"] == PI_CSBC                      # free text kept for display
-    assert csbc["pi_names"] == ["White", "Forest M. White", "Michor", "Franziska Michor"]
+    assert csbc["pi_names"] == [
+        "White", "Forest M. White", "Forest White", "Michor", "Franziska Michor",
+    ]
     bprc = next(r for r in rows if r["name"] == "BPRC")
     assert bprc["pi_names"] == []
     # Every row gains the column, so the write never leaves it undefined.
@@ -262,6 +374,62 @@ def test_update_removes_rows_the_source_no_longer_names():
     assert "DELETE `a` FROM `projects_context` `a`" in sql
 
 
+def test_a_row_with_no_key_at_all_is_deleted_too():
+    """`NULL NOT IN (...)` is NULL, not TRUE, so the plain delete never saw one.
+
+    A unique key permits any number of NULLs and no upsert matches one either, so
+    such a row survived every run untouched while the script's own header promised
+    the table would hold exactly the curated rows. Proven on MySQL: a preloaded
+    `(assay_name=NULL)` row came back after run 1 and run 2 unchanged.
+    """
+    for table, spec in cg.TABLES.items():
+        sql = cg.render_update(table, _rows_for(table))
+        assert f"OR `{spec.key}` IS NULL;" in sql, table
+
+
+def test_the_dedupe_runs_only_where_there_is_an_id_to_order_by():
+    """The statement that aborted the apply on the table it was written for.
+
+    `dmac.projects_context` has NO `id` column -- measured on the running stack,
+    where its PRIMARY KEY is `name`, and confirmed by the 2026-09-11 production
+    pull, whose projects_context rows carry no `id` key while sample_types_context
+    and assay_context both do. Emitted unconditionally, `DELETE a ... AND a.id >
+    b.id` answered `ERROR 1054 Unknown column 'a.id' in 'on clause'` AFTER step 2
+    had deleted GBM and before a single curated row was written, and every re-run
+    repeated it. So it has to be conditional on the column existing, not merely
+    present.
+    """
+    for table, spec in cg.TABLES.items():
+        sql = cg.render_update(table, _rows_for(table))
+        dedupe = f"DELETE `a` FROM `{spec.name}` `a`"
+        assert dedupe in sql, table
+        # The guard is what precedes it: information_schema.COLUMNS for `id`, and
+        # the statement runs when it is FOUND rather than when it is missing.
+        head = sql.split(dedupe, 1)[0].rsplit("SET @nextseek_found", 1)[1]
+        assert "COLUMN_NAME = 'id'" in head, table
+        assert "IF(@nextseek_found," in head, table
+
+
+def test_the_destructive_half_is_one_transaction():
+    """A value the server refuses must not leave the DELETE committed.
+
+    That is not hypothetical: an over-long `pi` aborted the upserts with error 1406
+    having already committed the delete, so the table was left with GBM gone, 0 of
+    12 rows written and no way back. DDL commits implicitly in MySQL, so the ALTERs
+    cannot join the transaction -- they are idempotent and non-destructive instead,
+    and the delete plus the upserts are what is wrapped. Reproduced on MySQL after
+    the fix: the same 1406 rolled back and GBM was still there.
+    """
+    for table, spec in cg.TABLES.items():
+        sql = cg.render_update(table, _rows_for(table))
+        begin, commit = sql.index("START TRANSACTION;"), sql.rindex("COMMIT;")
+        delete = sql.index(f"DELETE FROM `{spec.name}` WHERE")
+        last_upsert = sql.rindex("ON DUPLICATE KEY UPDATE")
+        assert begin < delete < last_upsert < commit, table
+        # And the ALTERs stay outside it, where an implicit commit cannot break it.
+        assert sql.index("ALTER TABLE") < begin, table
+
+
 def test_update_adds_the_unique_key_the_upsert_needs_and_any_new_column():
     sql = cg.render_update("projects", _rows_for("projects"))
     assert "uq_projects_context_name" in sql
@@ -290,7 +458,8 @@ def test_update_refuses_a_backslash_rather_than_corrupting_it():
 def test_update_writes_json_columns_as_json_text():
     sql = cg.render_update("projects", _rows_for("projects"))
     assert '\'["BTC", "Breakthrough Cancer"' in sql
-    assert '\'["White", "Forest M. White", "Michor", "Franziska Michor"]\'' in sql
+    assert ('\'["White", "Forest M. White", "Forest White", "Michor", '
+            '"Franziska Michor"]\'') in sql
 
 
 def test_update_is_deterministic():
@@ -304,6 +473,138 @@ def test_update_refuses_a_duplicate_key_in_the_source():
     rows = [{"name": "CSBC"}, {"name": "csbc "}]
     with pytest.raises(cg.DuplicateKey):
         cg.render_update("projects", cg.with_pi_names(rows))
+
+
+def test_a_collision_only_utf8mb4_unicode_ci_would_see_is_refused_too():
+    """The collision class that ends in a silently lost row rather than an error.
+
+    utf8mb4_unicode_ci does more than lowercase and strip: on MySQL 8.0.46
+    `SELECT 'u' = _utf8mb4'ü' COLLATE utf8mb4_unicode_ci` is 1, and so is the
+    `ss`/`ß` pair, while Python's `.lower()` keeps them apart. Two such rows passed
+    the old check, and then ON DUPLICATE KEY UPDATE did not raise 1062 -- it
+    absorbed the collision. Proven against a utf8mb4_unicode_ci table carrying the
+    unique key render_update adds: the two upserts exited 0 and left ONE row, so a
+    curated row disappeared with no failed statement. `ü` already appears in
+    context/assays.json, in a Description rather than a key.
+    """
+    import pytest
+
+    for first, second in (("Müller", "Muller"), ("Strauß", "Strauss")):
+        with pytest.raises(cg.DuplicateKey):
+            cg.render_update("projects", cg.with_pi_names(
+                [{"name": first}, {"name": second}]))
+    assert cg.fold_key("Müller") == cg.fold_key("Muller")
+
+
+def test_the_real_curated_keys_do_not_collide_under_that_wider_fold():
+    """The wider net must not refuse data that is already there."""
+    for table in ("sample_types", "assays", "projects"):
+        rows = cg.load_source(cg.TABLES[table].source)
+        cg._checked_keys(table, rows)           # raises on a collision
+
+
+# --- column widths -----------------------------------------------------------
+#
+# The defect that shipped, and the check that could have seen it. `projects.json`'s
+# `Impact` row carries a 276 character `pi`; `pi` was declared VARCHAR(255). Against
+# mysql:8.0.46 at the image's default sql_mode (docker-compose.yml sets none) the
+# committed seed answered `ERROR 1406 (22001) at line 35: Data too long for column
+# 'pi' at row 1`, exit 1, 4 of 12 rows loaded -- and that is `./startup.sh install`
+# dying, because schema_fixups pipes the file into `mysql` on stdin and compose_exec
+# raises on a non-zero exit. The 58-test suite was green throughout, because the
+# round trip's engine is SQLite and SQLite ignores a VARCHAR width outright.
+
+WIDTH_ERROR_EXAMPLE = "a" * 300
+
+
+def test_no_curated_value_exceeds_its_declared_column_width():
+    """Every value measured against the table's own DDL, not against a restatement."""
+    for table in ("sample_types", "assays", "projects"):
+        cg.check_widths(table, _rows_for(table))    # raises on the first overflow
+
+
+def test_an_over_long_value_is_refused_by_both_emitters():
+    """Both artifacts, because both aborted on it and for the same reason."""
+    import pytest
+
+    rows = cg.with_pi_names([{"name": WIDTH_ERROR_EXAMPLE, "description": "x"}])
+    for render in (cg.render_update, cg.render_seed):
+        with pytest.raises(cg.ValueTooLong) as excinfo:
+            render("projects", rows)
+        message = str(excinfo.value)
+        assert "name" in message and "255" in message and "1406" in message
+
+
+def test_the_column_that_aborted_the_load_is_wide_enough_now():
+    """`pi` is TEXT, which is what the live column is, not VARCHAR(255)."""
+    limits = cg.declared_limits("projects")
+    assert limits["pi"] == ("bytes", cg.TEXT_BYTES)
+    longest = max(len(str(r.get("pi") or "")) for r in _rows_for("projects"))
+    assert longest == 276                      # the Impact row, unchanged
+    assert "`pi` VARCHAR" not in cg.DDL["projects"]
+
+
+def test_the_declared_widths_are_read_off_the_ddl_and_not_restated():
+    """A column widened in the DDL widens the check, with no second edit."""
+    limits = cg.declared_limits("assays")
+    assert limits["assay_name"] == ("characters", 255)
+    # Production's widths, which the DDL was narrower than: measured on the live
+    # assay_context, varchar(128) / varchar(128) / varchar(512).
+    assert limits["Parent_Clade_Type"] == ("characters", 128)
+    assert limits["Child_Clade_Type"] == ("characters", 128)
+    assert limits["AssaySheet_Link"] == ("characters", 512)
+    assert "internal_assay_id" not in limits    # an INT has no length limit
+
+
+def test_a_text_column_is_measured_in_bytes_because_mysql_measures_it_in_bytes():
+    """TEXT holds 65,535 BYTES and these columns are utf8mb4."""
+    import pytest
+
+    four_byte = "\U0001F9EA" * 20000          # 20,000 characters, 80,000 bytes
+    rows = cg.with_pi_names([{"name": "Emoji", "description": four_byte}])
+    with pytest.raises(cg.ValueTooLong) as excinfo:
+        cg.render_update("projects", rows)
+    assert "bytes" in str(excinfo.value)
+
+
+# --- the connection charset --------------------------------------------------
+
+
+def test_every_artifact_pins_the_connection_charset():
+    """Without it the installer's own apply path double-encodes every non-ASCII value.
+
+    `schema_fixups._create_table` pipes the file into `mysql` with no
+    `--default-character-set`, and the db container has no UTF-8 locale, so the
+    client default resolves to latin1 -- measured on the real compose db container,
+    `SELECT @@character_set_client` answers `latin1`. Applying assay_context.sql
+    that way stored the gamma of "Antibody-Dependent NK Cell Activation Assay" as
+    HEX C38EC2B3 where the file holds CEB3: latin1 -> utf8mb4 double encoding. With
+    the line below, the same apply stored CEB3.
+    """
+    for table in cg.TABLES:
+        assert cg.CHARSET_PREAMBLE in cg.render_seed(table, _rows_for(table)), table
+        assert cg.CHARSET_PREAMBLE in cg.render_update(table, _rows_for(table)), table
+    assert cg.CHARSET_PREAMBLE in cg.render_update(
+        "mappings", cg.load_source(cg.TABLES_EXTRA["mappings"]))
+    # And in the files an install actually reads.
+    for path in SEED_PATHS.values():
+        assert cg.CHARSET_PREAMBLE in _repo(path), path
+
+
+def test_a_column_added_to_a_live_table_carries_its_own_charset():
+    """`ADD COLUMN c TEXT NULL` inherits the table default, and the live
+    dmac.projects_context is DEFAULT CHARSET=latin1 (measured 2026-09-17: 10 of its
+    12 columns are latin1). The bare form would create a column narrower than the
+    DDL declares, on the instances that matter and nowhere the SQLite lane can see:
+    on MySQL 8.0.46 a four-byte character into such a column answers `ERROR 1366
+    Incorrect string value`. json_text passes one through raw (ensure_ascii=False)
+    and literal accepts it, so nothing else would stop one."""
+    for definitions in cg.ADDED_COLUMNS.values():
+        for definition in definitions.values():
+            assert "CHARACTER SET utf8mb4" in definition
+            assert "COLLATE utf8mb4_unicode_ci" in definition
+    sql = cg.render_update("projects", _rows_for("projects"))
+    assert "ADD COLUMN `pi_names` TEXT CHARACTER SET utf8mb4" in sql
 
 
 def test_no_curated_value_needs_a_backslash():
@@ -367,7 +668,10 @@ def test_seed_escapes_a_newline_so_every_insert_is_one_line():
     body = sql.split(");", 1)[1]                            # past the CREATE TABLE
     assert "\\n" in sql
     for line in body.splitlines():
-        assert line.startswith(("INSERT INTO ", "--", "")) or not line.strip(), line
+        # `startswith(("INSERT INTO ", "--", ""))` was the old form, and `""` makes
+        # every string match, so it asserted nothing at all.
+        assert not line.strip() or line.startswith(("INSERT INTO ", "--")), line
+    assert any(line.startswith("INSERT INTO ") for line in body.splitlines())
 
 
 def test_seed_matches_the_committed_files_shape():
@@ -437,9 +741,87 @@ def test_a_map_only_fills_a_null_and_a_remap_only_moves_the_stated_id():
     assert ("UPDATE `assays_internal_assays` SET `internal_assay_id` = "
             "(SELECT `id` FROM `internal_assays` WHERE `internal_assay_title` = "
             "'Library Creation' ORDER BY `id` LIMIT 1)\n"
-            "  WHERE `assay_id` = 466 AND `internal_assay_id` IS NULL;") in sql
+            "  WHERE `assay_id` = 466 AND `internal_assay_id` IS NULL\n"
+            "  AND EXISTS (SELECT 1 FROM `internal_assays` WHERE "
+            "`internal_assay_title` = 'Library Creation');") in sql
     # remap: seek assay 37 moves off 130, and re-running is a no-op
     assert "WHERE `assay_id` = 37 AND `internal_assay_id` IN (130, (SELECT `id`" in sql
+
+
+def test_a_moved_target_writes_nothing_rather_than_a_null():
+    """The guard that turns upstream drift into a no-op instead of damage.
+
+    `_by_title` returns NULL when nothing carries the title, and `SET col = NULL`
+    is a write. Worse, the remap's own `WHERE col IN (<from_id>, <subquery>)` is
+    still TRUE on the from_id arm, so the row MATCHES and is blanked. Measured on
+    mysql:8.0.46: retitling one remap target upstream and applying the mappings
+    once moved assay_ids 367 and 490 from internal assay 196 to NULL, and a second
+    run did not heal them, because NULL is not matched by the IN. 14 of the remap
+    target titles are produced by no create_internal and no rename_internal, so
+    they must already exist in production -- which is exactly the drift this is
+    against. After the guard, the same run left both rows at 196.
+    """
+    rows = cg.load_source(cg.TABLES_EXTRA["mappings"])
+    sql = cg.render_update("mappings", rows)
+    targets = {r["internal_assay_title"] for r in rows if r["action"] in ("map", "remap")}
+    assert len(targets) > 1
+    for statement in sql.split("UPDATE `assays_internal_assays`")[1:]:
+        statement = statement.split(";", 1)[0]
+        title = statement.split("`internal_assay_title` = '", 1)[1].split("'", 1)[0]
+        assert ("AND EXISTS (SELECT 1 FROM `internal_assays` WHERE "
+                f"`internal_assay_title` = '{title}')") in statement, title
+
+
+def test_the_created_internal_assays_are_backfilled_into_assay_context():
+    """The 14 assay_context rows whose internal_assay_id nothing else ever writes.
+
+    They are exactly the 14 create_internal titles (check_mapping_consistency
+    enforces that), their ids are assigned by AUTO_INCREMENT, and before this the
+    emitted script held zero `UPDATE assay_context` statements -- so the column
+    stayed NULL forever while context/README.md said the generator assigns it and
+    chat_nextseek publishes it to the agent as "Internal Assay ID". It has to live
+    with the mappings, not with --table assays, because the ids do not exist until
+    the creates above have run and the assay rows are emitted first.
+    """
+    mappings = cg.load_source(cg.TABLES_EXTRA["mappings"])
+    sql = cg.render_update("mappings", mappings)
+    created = [m["internal_assay_title"] for m in mappings
+               if m["action"] == "create_internal"]
+    assert len(created) == 14
+    assert sql.count("UPDATE `assay_context` SET `internal_assay_id`") == 14
+    for title in created:
+        assert (f"  WHERE `assay_name` = '{title}' AND `internal_assay_id` IS NULL;"
+                ) in sql, title
+    # After the creates, or it would resolve to nothing.
+    assert sql.index("INSERT INTO `internal_assays`") < sql.index("UPDATE `assay_context`")
+
+
+def test_a_mapping_comment_refuses_a_newline_rather_than_emitting_a_statement():
+    """`seek_title` and `into_internal_assay_title` go into `--` comments raw.
+
+    A `--` comment ends at the newline, so a newline in either value makes the rest
+    of it an executable statement in a script the operator runs against production.
+    Proven before the fix: a seek_title of "Harmless title\nDROP TABLE
+    `internal_assays`; -- " rendered that DROP as live SQL. These two fields exist
+    only for the comment, so they are the only values in a hand-edited
+    assay_mappings.json that no consumer would otherwise reject: every other value
+    in the same statements goes through literal() or int().
+    """
+    import pytest
+
+    injected = "Harmless title\nDROP TABLE `internal_assays`; -- "
+    cases = (
+        {"action": "map", "seek_assay_id": 7, "seek_title": injected,
+         "internal_assay_title": "RNA-Seq"},
+        {"action": "remap", "seek_assay_id": 7, "seek_title": injected,
+         "from_internal_assay_id": 1, "internal_assay_title": "RNA-Seq"},
+        {"action": "merge_internal", "internal_assay_id": 1, "from_title": "Old",
+         "into_internal_assay_title": injected},
+    )
+    for row in cases:
+        with pytest.raises(cg.UnsupportedValue) as excinfo:
+            cg.render_mappings([row])
+        assert "newline" in str(excinfo.value), row["action"]
 
 
 def test_a_create_is_a_no_op_on_a_second_run():
@@ -522,15 +904,30 @@ def test_a_created_internal_assay_with_no_assays_row_is_refused():
 # safe to point at production: everything above checks the shape of the text, and
 # only this one checks that a value survives becoming a SQL literal.
 #
-# The engine is SQLite because the lane has no database. Two things are translated
-# and nothing else, both named here so it is clear what is NOT being tested:
+# The engine is SQLite because the lane has no database, and what that engine
+# CANNOT see is now written down here rather than left implied, because it is what
+# let a seed file that aborts the installer at line 35 through a green suite:
 #
-#   1. the schema, built from cg.TABLES[...].columns rather than from cg.DDL,
-#      because MySQL column types would have to be translated too and
-#      test_seed_ddl_declares_exactly_the_columns_the_module_writes already pins
-#      the two against each other;
-#   2. the upsert tail, `ON DUPLICATE KEY UPDATE c=VALUES(c)` ->
-#      `ON CONFLICT(key) DO UPDATE SET c=excluded.c`.
+#   * a VARCHAR width. SQLite ignores one, so the 276 character `pi` that MySQL
+#     refuses with error 1406 round-trips byte for byte here. `check_widths` and
+#     `test_no_curated_value_exceeds_its_declared_column_width` are what cover
+#     that, statically, against the DDL.
+#   * a charset. There is none, so the latin1 double encoding cannot occur here
+#     either; `test_every_artifact_pins_the_connection_charset` covers it.
+#   * a collation. SQLite's default is BINARY and case-sensitive, so `Müller` and
+#     `Muller` are simply distinct keys;
+#     `test_a_collision_only_utf8mb4_unicode_ci_would_see_is_refused_too` covers it.
+#   * the instance's real column list. Every fixture here has an `id`;
+#     `dmac.projects_context` does not, which is
+#     `test_the_dedupe_runs_only_where_there_is_an_id_to_order_by`.
+#
+# What it DOES cover, and what changed: the schema is now built from cg.DDL, the
+# committed CREATE TABLE, rather than from a synthetic all-TEXT one; the fixture no
+# longer declares the unique key, so the preamble's ADD UNIQUE KEY has to create it
+# or the upsert cannot work; and the whole preamble runs, translated statement by
+# statement, instead of one hand-picked DELETE. Previously three of the four
+# preamble steps -- the two ALTERs, the dedupe and the key -- were executed by
+# nothing in any dialect.
 #
 # The VALUES list, which is the part under test, passes through untouched. That is
 # why cg.literal doubles quotes and keeps newlines literal instead of using MySQL's
@@ -539,18 +936,38 @@ def test_a_created_internal_assay_with_no_assays_row_is_refused():
 
 import sqlite3
 
+# The MySQL column types cg.DDL uses, and what SQLite is given for each. SQLite has
+# no width and no charset, which is exactly the note above.
+_SQLITE_TYPE = {"INT": "INTEGER", "VARCHAR": "TEXT", "TEXT": "TEXT"}
+
 
 def _sqlite_schema(table: str) -> str:
+    """The committed CREATE TABLE, with only its types translated.
+
+    Built from cg.DDL rather than from cg.TABLES[...].columns, so this fixture is
+    the shape the module actually ships. The UNIQUE KEY is deliberately dropped:
+    preamble step 3 is responsible for adding it, and a fixture that supplies it
+    proves the upsert against a schema the untested step was assumed to produce.
+    """
     spec = cg.TABLES[table]
-    columns = ["`id` INTEGER PRIMARY KEY AUTOINCREMENT"]
-    for column in spec.columns:
-        columns.append(f"`{column}` " + ("INTEGER" if column in spec.int_columns else "TEXT"))
-    columns.append(f"UNIQUE(`{spec.key}`)")
+    body = cg.DDL[table].split(f"CREATE TABLE IF NOT EXISTS {spec.name} (", 1)[1]
+    body = body.rsplit(") ENGINE", 1)[0]
+    columns = []
+    for line in body.splitlines():
+        match = re.match(r"\s{2}`?(\w+)`?\s+(\w+)", line)
+        if not match or match.group(1) in {"KEY", "PRIMARY", "UNIQUE"}:
+            continue
+        name, declared = match.group(1), match.group(2).upper()
+        if name == "id":
+            columns.append("`id` INTEGER PRIMARY KEY AUTOINCREMENT")
+            continue
+        columns.append(f"`{name}` {_SQLITE_TYPE[declared]}")
+    assert len(columns) == len(spec.columns) + 1, table   # every column, plus id
     return f"CREATE TABLE `{spec.name}` (\n  " + ",\n  ".join(columns) + "\n);"
 
 
 def _translate(sql: str, table: str) -> str:
-    """The two named substitutions, and a count so nothing else slipped through."""
+    """The upsert tail, and a count so nothing else slipped through."""
     spec = cg.TABLES[table]
     assignments = ", ".join(f"`{c}`=excluded.`{c}`" for c in spec.columns)
     out = sql.replace(
@@ -561,17 +978,62 @@ def _translate(sql: str, table: str) -> str:
     return out
 
 
-def _apply(conn, table: str, rows: list[dict], *, preload=()) -> None:
+def _translate_preamble(head: str, table: str) -> list[str]:
+    """Every preamble statement, as the SQLite equivalent, with none dropped.
+
+    The preamble is three conditional blocks: add a column if it is missing,
+    collapse duplicates if there is an `id`, add the unique key if it is missing.
+    Each is `information_schema` + PREPARE + EXECUTE, which SQLite has no form of,
+    so the CONDITION is evaluated here in Python against the fixture and the
+    STATEMENT is translated and run. That is the honest split: the guard mechanism
+    is MySQL's and is verified against MySQL, and what this covers is that the
+    statements themselves do what the module says they do.
+
+    Nothing is skipped silently: an unrecognised block raises.
+    """
+    spec = cg.TABLES[table]
+    statements = []
+    for block in head.split("SET @nextseek_found")[1:]:
+        inner = block.split("IF(", 1)[1].split("', '", 1)[0].split(", '", 1)[1]
+        if inner.startswith(f"ALTER TABLE `{spec.name}` ADD COLUMN "):
+            # SQLite has no charset, which is the note at the top of this section.
+            statements.append(
+                re.sub(r" CHARACTER SET \w+ COLLATE \w+", "", inner) + ";")
+        elif inner.startswith(f"ALTER TABLE `{spec.name}` ADD UNIQUE KEY "):
+            index = f"uq_{spec.name}_{spec.key}"
+            statements.append(
+                f"CREATE UNIQUE INDEX `{index}` ON `{spec.name}` (`{spec.key}`);")
+        elif inner.startswith(f"DELETE `a` FROM `{spec.name}` `a`"):
+            statements.append(
+                f"DELETE FROM `{spec.name}` WHERE `rowid` NOT IN "
+                f"(SELECT MIN(`rowid`) FROM `{spec.name}` GROUP BY `{spec.key}`);")
+        else:
+            raise AssertionError(f"unrecognised preamble statement: {inner[:80]!r}")
+    assert len(statements) == len(cg.ADDED_COLUMNS.get(table, {})) + 2, table
+    return statements
+
+
+def _apply(conn, table: str, rows: list[dict], *, preload=(), fresh=True) -> None:
+    """Apply the whole script: the translated preamble, then the rows.
+
+    `fresh` builds the fixture WITHOUT the columns render_update adds, so the
+    preamble's ADD COLUMN has something to do, exactly as a table that predates
+    them would.
+    """
     sql = cg.render_update(table, rows)
     head, marker, body = sql.partition(cg.ROWS_MARKER)
     assert marker, "render_update stopped emitting the rows marker"
-    conn.executescript(_sqlite_schema(table))
-    for statement in preload:
-        conn.execute(statement)
-    # The only statement from the preamble that is not MySQL-only: it is what
-    # removes the rows the curated source no longer names.
-    delete = next(line for line in head.splitlines() if line.startswith("DELETE FROM "))
-    conn.executescript(_translate(delete + "\n" + body, table))
+    if fresh:
+        schema = _sqlite_schema(table)
+        for column in cg.ADDED_COLUMNS.get(table, {}):
+            schema = re.sub(rf"\n  `{column}` \w+,", "", schema)
+        conn.executescript(schema)
+        for statement in preload:
+            conn.execute(statement)
+        for statement in _translate_preamble(head, table):
+            conn.executescript(statement)
+    body = body.replace("START TRANSACTION;", "BEGIN;")   # the one dialect word
+    conn.executescript(_translate(body, table))
 
 
 def _read_back(conn, table: str) -> list[dict]:
@@ -636,12 +1098,63 @@ def test_update_sql_is_a_no_op_on_a_second_run():
     with sqlite3.connect(":memory:") as conn:
         _apply(conn, table, rows)
         once = _read_back(conn, table)
-        head, _, body = cg.render_update(table, rows).partition(cg.ROWS_MARKER)
-        delete = next(line for line in head.splitlines() if line.startswith("DELETE FROM "))
-        conn.executescript(_translate(delete + "\n" + body, table))
+        _apply(conn, table, rows, fresh=False)
         twice = _read_back(conn, table)
     assert once == twice
     assert len(twice) == 138
+
+
+def test_the_preamble_adds_the_columns_and_the_key_it_is_responsible_for():
+    """The steps that used to be executed by nothing, in any dialect.
+
+    The fixture starts without the added columns and without the unique key, so if
+    the preamble does not create them the upserts cannot run at all. Previously
+    only step 2's DELETE was executed and the fixture declared the key itself, so
+    the ALTERs, the dedupe and the key add were string-checked only -- and they are
+    the first statements to touch production and the only ones that delete rows
+    there.
+    """
+    for table, added in (("projects", "pi_names"), ("sample_types", "repository_attributes")):
+        rows = _rows_for(table)
+        with sqlite3.connect(":memory:") as conn:
+            _apply(conn, table, rows)
+            names = {row[1] for row in conn.execute(
+                f"PRAGMA table_info(`{cg.TABLES[table].name}`)")}
+            indexes = {row[1] for row in conn.execute(
+                f"PRAGMA index_list(`{cg.TABLES[table].name}`)")}
+        assert added in names, table
+        assert f"uq_{cg.TABLES[table].name}_{cg.TABLES[table].key}" in indexes, table
+
+
+def test_the_dedupe_keeps_the_lowest_id_when_it_runs():
+    """Production's assay_context has 22 duplicated assay_name values."""
+    rows = _rows_for("assays")
+    name = rows[0]["assay_name"]
+    with sqlite3.connect(":memory:") as conn:
+        _apply(conn, "assays", rows, preload=(
+            f"INSERT INTO `assay_context` (`assay_name`, `Description`) "
+            f"VALUES ('{name}', 'first');",
+            f"INSERT INTO `assay_context` (`assay_name`, `Description`) "
+            f"VALUES ('{name}', 'second');",
+        ))
+        stored = _read_back(conn, "assays")
+    kept = [row for row in stored if row["assay_name"] == name]
+    assert len(kept) == 1
+    assert kept[0]["id"] == 1                      # the lowest, not the later one
+    assert len(stored) == 138
+
+
+def test_a_row_with_no_key_does_not_survive_the_round_trip():
+    """`NULL NOT IN (...)` is NULL, so the plain delete left it there forever."""
+    rows = _rows_for("assays")
+    with sqlite3.connect(":memory:") as conn:
+        _apply(conn, "assays", rows, preload=(
+            "INSERT INTO `assay_context` (`assay_name`, `Description`) "
+            "VALUES (NULL, 'nameless row');",
+        ))
+        stored = _read_back(conn, "assays")
+    assert not [row for row in stored if row["assay_name"] is None]
+    assert len(stored) == 138
 
 
 def test_update_sql_drops_a_stale_row_and_updates_an_existing_one_in_place():
@@ -696,6 +1209,17 @@ LIVE_COUNTS = {
 DEAD_NAMES = ("Impact", "SRP", "GBM", "Griffith", "Shoulders")
 
 
+def _counts_for(*names):
+    """The measured counts for exactly these names.
+
+    Passing the whole LIVE_COUNTS map beside one row is now a refusal rather than a
+    convenience: a name the counts prove answers, with no curated row, would be
+    dropped from the agent's only list silently. See
+    test_the_block_refuses_to_drop_an_investigation_that_answers.
+    """
+    return {name: LIVE_COUNTS[name] for name in names}
+
+
 def _investigation(name, **extra):
     row = {"name": name, "entity_type": "investigation", "parent_project": "MIT-Koch",
            "project_id": 5, "research_focus": f"What {name} studies.",
@@ -726,12 +1250,56 @@ def test_capabilities_block_lists_investigations_and_skips_projects():
 def test_capabilities_block_carries_no_counts():
     """A baked count rots the day the next sync runs, and the repo's doc rules
     forbid a dated count in a README or CLAUDE file. Live counts reach the graph
-    agent through the catalog reader instead."""
-    rows = [_investigation(name) for name in sorted(LIVE_COUNTS)]
+    agent through the catalog reader instead.
+
+    The "no digit at all" rule this used to assert was vacuous AND unusable: every
+    synthetic row's description was `What {name} studies.`, so nothing could ever
+    fail it, and real curated descriptions already carry digits that must stay
+    ("PAX3-FOXO1" in RMS-NGC, "COL2A1" in Shoulders). So the rule is the narrow one
+    a count actually satisfies: four or more consecutive digits, or a comma-grouped
+    number. Checked here against descriptions that DO carry digits.
+    """
+    rows = [_investigation(name, research_focus=f"{name} studies PAX3-FOXO1 and COL2A1.")
+            for name in sorted(LIVE_COUNTS)]
     block = cg.render_capabilities_block(rows, LIVE_COUNTS)
-    assert not re.search(r"\d", block), "the block must carry no digits at all"
+    assert "PAX3-FOXO1" in block                  # a gene is not a count
+    assert not cg._COUNT_LIKE.search(block)
     for count in LIVE_COUNTS.values():
         assert str(count) not in block and f"{count:,}" not in block
+
+
+def test_a_count_in_a_curated_description_is_refused():
+    """The one field an author types free text into, and the only way a count
+    could still reach the block. The counts path itself is clean -- they decide
+    what is emitted and are then discarded -- but nothing stopped
+    `research_focus` from carrying one, and a baked count rots on the next sync."""
+    import pytest
+
+    for focus in ("Pan-cancer atlas of 1,084,754 samples across 33 cohorts.",
+                  "Holds 84394 samples today."):
+        row = _investigation("TCGA", research_focus=focus)
+        with pytest.raises(cg.BakedCount):
+            cg.render_capabilities_block([row], _counts_for("TCGA"))
+
+
+def test_the_block_refuses_to_drop_an_investigation_that_answers():
+    """Silently under-reporting is the mirror of the zero-sample refusal.
+
+    Only the curated rows were iterated, and `counts` was read solely through
+    `counts.get(...)`, so a name the measurement proves holds samples but that no
+    row carries was simply left out -- with no refusal, no warning, and nothing on
+    drift's side either, because drift only checks names already present in the
+    file. The agent would never learn the investigation exists.
+    """
+    import pytest
+
+    rows = [_investigation("TCGA")]
+    with pytest.raises(cg.UnlistedInvestigation) as excinfo:
+        cg.render_capabilities_block(rows, {"TCGA": 918519, "MetNet": 10379})
+    assert "MetNet" in str(excinfo.value)
+    assert "TCGA" not in str(excinfo.value)
+    # A name that answers nothing is not surplus; it is the other refusal's case.
+    cg.render_capabilities_block(rows, {"TCGA": 918519, "GBM": 0})
 
 
 def test_capabilities_block_refuses_an_investigation_with_no_samples():
@@ -787,14 +1355,14 @@ def test_capabilities_block_bridges_what_users_type_to_the_exact_title():
     row = _investigation("Impactb Investigation",
                          research_focus="Tuberculosis in non-human primates.",
                          alternative_names=["Impact", "IMPAcTb"])
-    block = cg.render_capabilities_block([row], LIVE_COUNTS)
+    block = cg.render_capabilities_block([row], _counts_for("Impactb Investigation"))
     assert "**Impactb Investigation**" in block
     assert "Impact" in block and "IMPAcTb" in block
 
 
 def test_capabilities_block_sorts_by_name_and_one_bullet_per_row():
     rows = [_investigation(name) for name in ("TCGA", "CSBC", "MetNet")]
-    block = cg.render_capabilities_block(rows, LIVE_COUNTS)
+    block = cg.render_capabilities_block(rows, _counts_for("TCGA", "CSBC", "MetNet"))
     bullets = [line for line in block.splitlines() if line.startswith("- **")]
     assert len(bullets) == 3
     assert [b.split("**")[1] for b in bullets] == ["CSBC", "MetNet", "TCGA"]
@@ -803,7 +1371,7 @@ def test_capabilities_block_sorts_by_name_and_one_bullet_per_row():
 def test_capabilities_block_falls_back_to_the_first_sentence_of_the_description():
     row = _investigation("TCGA", research_focus=None,
                          description="Public pan-cancer atlas. Many more sentences follow.")
-    block = cg.render_capabilities_block([row], LIVE_COUNTS)
+    block = cg.render_capabilities_block([row], _counts_for("TCGA"))
     assert "Public pan-cancer atlas." in block
     assert "Many more sentences" not in block
 
@@ -824,12 +1392,17 @@ def test_the_drift_check_reads_exactly_the_names_the_block_emits():
 
 
 def test_the_block_replaces_the_section_body_between_its_markers():
-    """The substitution the chain needs, as text: context_gen writes the block into
-    capabilities.md, then gen_op_surfaces reads capabilities.md to regenerate
-    route_capabilities.json. Running those out of order ships a
-    route_capabilities.json built from the old list."""
+    """The substitution as text: context_gen writes the block into capabilities.md,
+    which the image then COPYs and both images rebuild.
+
+    Not, as this used to say, that running it before `gen_op_surfaces` ships a
+    stale route_capabilities.json: the NS projection reads only the three required
+    H2 sections ("Overview", "What You Can Ask", "What the System Cannot Do"), so
+    regenerating this block leaves the projection and the route-level object byte
+    for byte identical. That claim is checked below rather than repeated.
+    """
     block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 918519})
-    before = ("## Known Projects and Investigations\n\n"
+    before = (f"{cg.DRIFT_SECTION_HEADING}\n\n"
               f"{cg.CAPABILITIES_BEGIN}\nold text\n{cg.CAPABILITIES_END}\n\n---\n")
     after = cg.replace_capabilities_block(before, block)
     assert "old text" not in after
@@ -837,6 +1410,117 @@ def test_the_block_replaces_the_section_body_between_its_markers():
     assert after.count(cg.CAPABILITIES_BEGIN) == 1
     assert after.endswith("\n---\n")
     assert cg.replace_capabilities_block(after, block) == after      # idempotent
+
+
+def test_the_block_refuses_to_sit_anywhere_drift_would_not_read_it():
+    """Generation and the runtime backstop share a blind spot without this.
+
+    drift keys on the exact line `## Known Projects and Investigations`
+    (`_CAPABILITIES_SECTION`), and when it finds no such line
+    `assistant_investigation_names` returns [] and
+    `_check_assistant_investigations` then PASSES, with the detail "capabilities.md
+    has no Known Projects and Investigations section". So renaming or moving the
+    heading turns the backstop off silently while the generator keeps writing. The
+    heading is owned by neither side, so this is where they are tied together.
+    """
+    import pytest
+    from nextseek_api.graph_sync import drift
+
+    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 918519})
+    renamed = (f"## Known Investigations\n\n"
+               f"{cg.CAPABILITIES_BEGIN}\nold\n{cg.CAPABILITIES_END}\n\n---\n")
+    # This is the failure it prevents, shown with drift's real parser.
+    assert drift.assistant_investigation_names(
+        renamed.replace(f"{cg.CAPABILITIES_BEGIN}\nold\n{cg.CAPABILITIES_END}", block)
+    ) == []
+    with pytest.raises(ValueError) as excinfo:
+        cg.replace_capabilities_block(renamed, block)
+    assert cg.DRIFT_SECTION_HEADING in str(excinfo.value)
+    assert drift._CAPABILITIES_SECTION.pattern.strip("^$\\s+").startswith("##")
+
+
+def test_regenerating_the_block_leaves_the_ns_projection_identical():
+    """The documented ordering hazard is false, and this is the measurement.
+
+    `replace_capabilities_block`'s note used to say that regenerating the block
+    before `gen_op_surfaces --write` ships a route_capabilities.json built from the
+    old list. `project_ns_capabilities` reads only REQUIRED_H2 -- "Overview", "What
+    You Can Ask", "What the System Cannot Do" -- and never this section, so the
+    projection cannot move. Run against the REAL committed capabilities.md, with
+    the markers inserted the way 6.15c will insert them, so this is the file the
+    claim is about rather than a fixture chosen to agree with it. The step that
+    carries a new list to the agent is the image COPY and rebuild.
+    """
+    import importlib.util
+    import sys
+
+    # Loaded by path: NessieAI is not on the test lane's sys.path, and the module
+    # is standard-library only, so there is nothing else to resolve.
+    location = Path(cg.REPO_ROOT) / "NessieAI/cc/op_registry/ns_capabilities.py"
+    spec = importlib.util.spec_from_file_location("ns_capabilities_for_test", location)
+    ns_capabilities = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = ns_capabilities      # its @dataclass looks itself up
+    spec.loader.exec_module(ns_capabilities)
+    assert ns_capabilities.REQUIRED_H2 == (
+        "Overview", "What You Can Ask", "What the System Cannot Do")
+
+    text = _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"))
+    head, _, rest = text.partition(cg.DRIFT_SECTION_HEADING + "\n")
+    assert rest, "capabilities.md no longer carries the heading drift keys on"
+    body, _, tail = rest.partition("\n---\n")
+    marked = (f"{head}{cg.DRIFT_SECTION_HEADING}\n{cg.CAPABILITIES_BEGIN}\n"
+              f"{body}\n{cg.CAPABILITIES_END}\n---\n{tail}")
+
+    before = ns_capabilities.project_ns_capabilities(marked)
+    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 918519})
+    after = ns_capabilities.project_ns_capabilities(
+        cg.replace_capabilities_block(marked, block))
+    assert before == after
+    assert before.route_level_object() == after.route_level_object()
+
+
+def test_the_capabilities_mode_exists_and_refuses_today():
+    """The refusal is only real if something can reach it.
+
+    As shipped the renderer had no --emit mode and no caller anywhere in the tree,
+    no CI or test guard on the committed file, and capabilities.md carries no
+    CONTEXT-GEN markers -- so the five dead investigation names are still committed
+    and nothing but a live rebuild could see them. The mode is what makes the
+    refusal reachable; it raises today, and that is the point rather than a gap.
+    """
+    import json as _json
+    import tempfile
+
+    import pytest
+
+    # The mode is declared, so `--emit capabilities` is a real entry point.
+    parser_text = _repo(Path("scripts/context_gen.py"))
+    assert '"update", "seed", "capabilities"' in parser_text
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+        _json.dump({"TCGA": 918519}, handle)
+        counts = handle.name
+    # Every projects_context row is still a project, so the first refusal fires.
+    with pytest.raises(cg.NoInvestigations):
+        cg.emit_capabilities(counts)
+    # And --counts is required: no evidence, nothing told to the agent.
+    with pytest.raises(SystemExit):
+        cg.main(["--emit", "capabilities"])
+
+
+def test_the_committed_capabilities_file_still_names_the_dead_investigations():
+    """What is true today, pinned so 6.15c's change is visible rather than assumed.
+
+    The generator cannot repair this yet: the markers are not in the file, the
+    investigation rows are not in context/projects.json, and the prose around the
+    section names the dead investigations outside any block drift reads. This is
+    the record that the refusal has not yet been applied, not a claim that it has.
+    """
+    from nextseek_api.graph_sync import drift
+
+    text = _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"))
+    assert cg.CAPABILITIES_BEGIN not in text        # 6.15c adds the markers
+    names = drift.assistant_investigation_names(text)
+    assert set(DEAD_NAMES) <= set(names), names
 
 
 def test_replacing_the_block_refuses_a_document_with_no_markers():
@@ -859,7 +1543,7 @@ def test_a_dead_name_may_survive_as_an_alternative_but_never_as_a_checked_name()
 
     row = _investigation("MIT_SRP", research_focus="Environmental exposure and DNA damage.",
                          alternative_names=["SRP"])
-    block = cg.render_capabilities_block([row], LIVE_COUNTS)
+    block = cg.render_capabilities_block([row], _counts_for("MIT_SRP"))
     assert "[also: SRP]" in block
     document = "## Known Projects and Investigations\n\n" + block + "\n---\n"
     assert drift.assistant_investigation_names(document) == ["MIT_SRP"]
@@ -867,10 +1551,41 @@ def test_a_dead_name_may_survive_as_an_alternative_but_never_as_a_checked_name()
         assert name not in drift.assistant_investigation_names(document)
 
 
-def test_an_alternative_name_never_carries_markdown_that_would_split_the_bold_run():
+def test_a_title_never_carries_markdown_that_would_split_the_bold_run():
     """The regex captures `[^*]+`, so a `*` in a name would truncate it."""
     import pytest
 
     row = _investigation("Bad*Name", research_focus="Anything.")
     with pytest.raises(cg.UnsupportedValue):
         cg.render_capabilities_block([row], {"Bad*Name": 1})
+
+
+def test_an_alternative_name_is_sanitised_exactly_like_a_title():
+    """The test above passes a TITLE, so the aliases were covered in name only.
+
+    An alias was `.strip()`ed and nothing more, and a newline in one opens a bullet
+    of its own. Proven with drift's real parser: the row
+    `{name: "MIT_SRP", alternative_names: ["SRP", "x]\\n- **GBM**"]}` rendered two
+    bullets and `drift.assistant_investigation_names` then answered
+    `['MIT_SRP', 'GBM']` -- a retired name back in the checked list, from a row
+    nobody would read as declaring it.
+    """
+    import pytest
+    from nextseek_api.graph_sync import drift
+
+    row = _investigation("MIT_SRP", research_focus="Anything.",
+                         alternative_names=["SRP", "x]\n- **GBM**"])
+    with pytest.raises(cg.UnsupportedValue) as excinfo:
+        cg.render_capabilities_block([row], _counts_for("MIT_SRP"))
+    assert "alternative name" in str(excinfo.value)
+    # And an asterisk in an alias, for the same reason as in a title.
+    starred = _investigation("MIT_SRP", research_focus="Anything.",
+                             alternative_names=["S*RP"])
+    with pytest.raises(cg.UnsupportedValue):
+        cg.render_capabilities_block([starred], _counts_for("MIT_SRP"))
+    # The clean row still renders and drift still reads exactly one name.
+    clean = _investigation("MIT_SRP", research_focus="Anything.",
+                           alternative_names=["SRP"])
+    block = cg.render_capabilities_block([clean], _counts_for("MIT_SRP"))
+    document = "## Known Projects and Investigations\n\n" + block + "\n---\n"
+    assert drift.assistant_investigation_names(document) == ["MIT_SRP"]

@@ -92,7 +92,7 @@ generator applies them grouped in this order: renames, creates, maps and remaps,
 | `action` | keys | meaning |
 |---|---|---|
 | `rename_internal` | `internal_assay_id`, `from_title`, `internal_assay_title` | retitle an internal assay |
-| `create_internal` | `internal_assay_title` | new internal assay; the generator assigns its id |
+| `create_internal` | `internal_assay_title` | new internal assay; AUTO_INCREMENT assigns its id and the emitted SQL copies it back into the matching `assay_context` row, whose `internal_assay_id` is `null` here |
 | `map` | `seek_assay_id`, `seek_title`, `internal_assay_title` | a SEEK assay with no internal assay (NULL today) gets one |
 | `remap` | `seek_assay_id`, `seek_title`, `from_internal_assay_id`, `internal_assay_title` | a SEEK assay moves to another internal assay |
 | `merge_internal` | `internal_assay_id`, `from_title`, `into_internal_assay_title` | delete an internal assay whose SEEK assays were all remapped into the survivor |

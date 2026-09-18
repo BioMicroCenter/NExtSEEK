@@ -55,6 +55,81 @@ def test_the_table_that_ships_empty_carries_no_inserts():
     assert "INSERT INTO" not in (SQL / "project_template_bundles.sql").read_text()
 
 
+def test_the_header_agrees_with_what_the_dump_actually_contains():
+    """sample_types_context.sql said the opposite of the truth, in the same commit.
+
+    Its header said the table "is absent from dmac.sql.gz" and that this file "is
+    what gives the local and dev stacks one". Measured: `zcat startup/seed/dmac.sql.gz
+    | grep -nE 'CREATE TABLE.*(sample_types_context|assay_context|projects_context)'`
+    returns exactly one hit, a CREATE TABLE for sample_types_context, with
+    AUTO_INCREMENT=102 and 101 data rows -- which is what
+    startup/steps/schema_fixups.py, added in the same commit, already said. Following
+    the header and hand-applying this file to a seeded stack doubles the catalog:
+    CREATE TABLE IF NOT EXISTS skips, so the unique key is never created, and the 109
+    INSERTs land on top of the existing 101.
+    """
+    import gzip
+
+    dump = gzip.open(ROOT / "startup" / "seed" / "dmac.sql.gz", "rt",
+                     encoding="utf-8", errors="replace").read()
+    creates = {table for table in ("sample_types_context", "assay_context",
+                                   "projects_context")
+               if f"CREATE TABLE `{table}`" in dump}
+    assert creates == {"sample_types_context"}, creates
+
+    header = (SQL / "sample_types_context.sql").read_text().split("CREATE TABLE", 1)[0]
+    header = " ".join(header.replace("\n--", "").split())      # unwrap the comment
+    assert "absent from dmac.sql.gz" not in header
+    assert "startup/seed/dmac.sql.gz DOES create and populate this table" in header
+    assert "Do NOT hand-apply this file" in header
+
+    # And assay_context, which the dump really does not carry, still says so.
+    other = (SQL / "assay_context.sql").read_text().split("CREATE TABLE", 1)[0]
+    assert "absent from" in other and "dmac.sql.gz" in other
+
+
+def test_the_projects_seed_warns_that_its_project_ids_are_productions():
+    """The rows are keyed to production's SEEK ids and nothing checks them.
+
+    `nextseek_api/services/context_catalog.py` looks a row up with
+    `WHERE project_id = %s`, the SEEK project id, and there is no fallback by name.
+    The committed seek seed carries exactly one project, `Published Data` at id 1,
+    while this file ships ids 2 to 15 -- so on a fresh install every row matches no
+    project, and on a stack whose projects were created in a different order a row
+    renders another program's PI and links on the wrong project page. The generator
+    cannot know a target stack's ids, so the file says so.
+    """
+    header = (SQL / "projects_context.sql").read_text().split("CREATE TABLE", 1)[0]
+    header = " ".join(header.replace("\n--", "").split())      # unwrap the comment
+    assert "PRODUCTION's SEEK ids" in header
+    assert "project_id = %s" in header
+    assert "Check the ids against the target stack's `projects` table" in header
+
+    ids = {int(m) for m in re.findall(r"VALUES \('[^']*', '[^']*', '[^']*', (\d+),",
+                                      (SQL / "projects_context.sql").read_text())}
+    assert 1 not in ids          # the one project the committed seek seed has
+
+
+def test_every_seed_pins_the_connection_charset():
+    """Without it the installer's own apply path double-encodes every non-ASCII value.
+
+    `schema_fixups._create_table` pipes the file into `mysql` with no
+    `--default-character-set`, and the db container has no UTF-8 locale, so the
+    client resolves to latin1. Applying assay_context.sql that way stored a gamma as
+    HEX C38EC2B3 where the file holds CEB3. sample_types_context.sql is new in this
+    change and carries three non-ASCII lines of its own.
+    """
+    for name, table in (("sample_types_context.sql", "sample_types_context"),
+                        ("assay_context.sql", "assay_context"),
+                        ("projects_context.sql", "projects_context")):
+        sql = (SQL / name).read_text()
+        assert "SET NAMES utf8mb4;" in sql, name
+        # Before the DDL, so it covers the CREATE as well as the INSERTs. Anchored
+        # on the real statement, not on the phrase where a comment mentions one.
+        create = sql.index(f"CREATE TABLE IF NOT EXISTS {table} (")
+        assert sql.index("SET NAMES utf8mb4;") < create, name
+
+
 def test_schema_fixups_declares_all_four():
     from startup.steps.schema_fixups import KNOWN_TABLE_FIXUPS
 
