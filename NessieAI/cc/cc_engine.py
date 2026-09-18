@@ -1219,14 +1219,13 @@ def run_cc_turn(
                 break
 
         _done.set()
-        if _timed_out.is_set():
-            send_event("query_error", {
-                "error": f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped.",
-                "reason": "exec_timeout", "agent": "container_cc",
-                "cc_session_id": translator.session_id,
-            })
-            return
-        if terminal is None:
+        # 13b.1: a turn the watchdog stopped goes on through the sweep and the
+        # publish below before it reports. Its scratch subtree is per-turn and
+        # no later turn mounts it, so what it wrote before the limit is
+        # published now or lost, and its staged downloads carry this turn's
+        # timestamp, which later in-turn sweeps skip.
+        timed_out = _timed_out.is_set()
+        if terminal is None and not timed_out:
             for event, data in translator.finalize():
                 terminal = (event, data)
 
@@ -1260,11 +1259,34 @@ def run_cc_turn(
                 )
 
         # Post-turn publish: diff scratch, split deliverables from scratch/raw/.
-        result = _publish_artifacts(
-            scratch_mount, output_mount,
-            turn_id=str(run_id),
-            output_logical_root=dirs.output_mnt, before=before,
-        )
+        try:
+            result = _publish_artifacts(
+                scratch_mount, output_mount,
+                turn_id=str(run_id),
+                output_logical_root=dirs.output_mnt, before=before,
+            )
+        except Exception:
+            if not timed_out:
+                raise
+            # A failed salvage must not replace the timeout the user is owed.
+            logger.exception("cc: publishing a timed-out turn's files failed "
+                             "(run_id=%s)", run_id)
+            result = {"artifacts": [], "raw": []}
+
+        if timed_out:
+            # Still a query_error with the same text, never a query_complete: the
+            # user is told the turn timed out, and on_turn_complete is not called
+            # (it writes a "completed" chat_log entry, which the sticky-CC rule
+            # reads). The transcript row and raw/ copy come from the #68 fallback
+            # in the finally, as for every turn that did not complete.
+            send_event("query_error", {
+                "error": f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped.",
+                "reason": "exec_timeout", "agent": "container_cc",
+                "cc_session_id": translator.session_id,
+                "artifacts": result["artifacts"] or None,
+                "cc_raw_files": result["raw"],
+            })
+            return
 
         if terminal is None:
             terminal = ("query_complete", {"reply": "(no response)", "bundle_id": None,
