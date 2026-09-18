@@ -2,7 +2,7 @@
   "routes": [
     {
       "route_name": "nextseek_query",
-      "description": "The NExtSEEK Chat Assistant lets you query the NExtSEEK biological sample repository using plain English. Under the hood it translates your questions into NExtSEEK REST API calls and Neo4j graph database queries, then summarizes the results for you. The repository holds biological samples, experimental data files, metadata records, and organizational structures (projects, investigations, studies) from across multiple research programs. You do not need to know any API syntax, Cypher, or SQL — just describe what you want.",
+      "description": "The NExtSEEK Chat Assistant lets you query the NExtSEEK biological sample repository using plain English. Under the hood it translates your questions into NExtSEEK REST API calls and Neo4j graph database queries, then summarizes the results for you. The repository holds the metadata of biological samples and of the data made from them, the links between them, and organizational structures (projects, investigations, studies) from across multiple research programs. You do not need to know any API syntax, Cypher, or SQL — just describe what you want.",
       "tools": [
         "entity_agent",
         "parser_agent",
