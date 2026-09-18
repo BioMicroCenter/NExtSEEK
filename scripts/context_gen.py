@@ -532,6 +532,25 @@ class EmptySource(ValueError):
     """A curated source has no rows, which the update would read as "delete them all"."""
 
 
+def check_text(text: str, where: str = "a value") -> str:
+    """`text`, or a refusal if it carries a control character other than \\n or \\t.
+
+    A NUL passed every renderer, and the mysql client then refused the statement --
+    partway through the artifact, after earlier statements had run. A carriage
+    return was silently rewritten to a newline (by `seed_literal`, and by the mysql
+    client inside an update literal), so the stored value never equalled the
+    curated one and no later comparison could settle. The rest of C0 has no place
+    in catalog text and is refused with them.
+    """
+    for char in text:
+        if ord(char) < 32 and char not in "\n\t":
+            raise UnsupportedValue(
+                f"{text[:60]!r} ({where}) contains the control character "
+                f"U+{ord(char):04X}; only a newline or a tab may appear in a value"
+            )
+    return text
+
+
 def json_text(value) -> str:
     """A JSON column's stored text.
 
@@ -550,7 +569,17 @@ def db_value(table: str, column: str, value):
     """
     spec = TABLES[table]
     if column in spec.json_columns:
-        return None if value is None else json_text(value)
+        if value is None:
+            return None
+        text = json_text(value)
+        if "\\" in text:
+            raise UnsupportedValue(
+                f"{table}.{column} = {text[:60]!r}: json.dumps escapes a double quote, a "
+                "backslash or a control character with a backslash, and no literal this "
+                "module writes carries one (they mean different things under MySQL's two "
+                "backslash modes). Rephrase the value without that character."
+            )
+        return text
     if value is None or value == "":
         return None
     if column in spec.int_columns:
@@ -578,7 +607,7 @@ def literal(value) -> str:
         raise UnsupportedValue(f"boolean {value!r}: no context column is boolean")
     if isinstance(value, int):
         return str(value)
-    text = str(value)
+    text = check_text(str(value))
     if "\\" in text:
         raise UnsupportedValue(
             f"{text[:60]!r} contains a backslash; MySQL and SQLite disagree about "
@@ -601,12 +630,17 @@ def fold_key(key: str) -> str:
     two upserts left one row.
 
     NFKD with the combining marks dropped, then `casefold`, which is what folds
-    `ß` to `ss`. That is not byte-for-byte the DUCET collation -- it is a
+    `ß` to `ss`, and every supplementary character folded to one placeholder. That is not byte-for-byte the DUCET collation -- it is a
     deliberately wider net, because the cost of refusing two keys MySQL would have
     kept apart is an error message, and the cost of missing a pair it merges is a
     row lost in production.
     """
-    decomposed = unicodedata.normalize("NFKD", key.strip())
+    # Every character above U+FFFF has one weight in utf8mb4_unicode_ci, so any two
+    # compare equal (two different emoji: 1 on mysql:8.0.46), though not equal to
+    # U+FFFD. They fold to one placeholder no curated key can contain, before NFKD
+    # can turn a mathematical letter into a plain one.
+    key = "".join("\x00" if ord(c) > 0xFFFF else c for c in key.strip())
+    decomposed = unicodedata.normalize("NFKD", key)
     return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
 
 
@@ -623,6 +657,12 @@ def _checked_keys(table: str, rows: list[dict]) -> list[str]:
     keys, seen = [], {}
     for index, row in enumerate(rows):
         key = str(row[spec.key])
+        if key != key.strip():
+            raise UnsupportedValue(
+                f"{spec.source} row {index}: the key {key!r} starts or ends with "
+                "whitespace, which MySQL ignores when it compares a key and keeps when "
+                "it stores one"
+            )
         folded = fold_key(key)
         if folded in seen:
             raise DuplicateKey(
@@ -1132,27 +1172,30 @@ CREATE TABLE IF NOT EXISTS projects_context (
 
 
 def seed_literal(value) -> str:
-    """A MySQL literal in the committed seed files' style.
+    """A MySQL literal in the committed seed files' one-line style.
 
-    Newlines are escaped rather than emitted raw so every INSERT is exactly one
-    line: 79 curated sample type values and 30 assay values run to a dozen
-    sentences with embedded newlines, and a statement that spans lines makes the
-    file painful to diff and to count. Carried over verbatim from the retired
-    scripts/generate_assay_context_seed.py, which is why these files' shape did
-    not change when this module took them over.
-
-    This is MySQL-only, on purpose: `\\n` in a literal means a newline to MySQL and
-    two characters to SQLite. `literal` above is the portable one.
+    It means the same thing whether or not the server runs NO_BACKSLASH_ESCAPES,
+    because it carries no backslash: a quote is doubled, and a newline becomes
+    `CHAR(10 USING utf8mb4)` inside a CONCAT, so every INSERT stays one line. The
+    backslash escapes this used to write (`\\'`, `\\n`) end a string under that
+    mode, and then the rest of the line runs as SQL: measured, the seeds stopped
+    after 1 of 12 and 13 of 138 rows, and a crafted value dropped a table. A
+    backslash in a value is refused, as `literal` refuses it.
     """
     if value is None:
         return "NULL"
     if isinstance(value, int) and not isinstance(value, bool):
         return str(value)
-    text = str(value)
-    # Backslash first, or it would double-escape everything added after it.
-    text = text.replace("\\", "\\\\").replace("'", "\\'")
-    text = text.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n")
-    return "'" + text + "'"
+    text = check_text(str(value))
+    if "\\" in text:
+        raise UnsupportedValue(
+            f"{text[:60]!r} contains a backslash, which means one thing to MySQL by "
+            "default and another under NO_BACKSLASH_ESCAPES"
+        )
+    parts = ["'" + part.replace("'", "''") + "'" for part in text.split("\n")]
+    if len(parts) == 1:
+        return parts[0]
+    return "CONCAT(" + ", CHAR(10 USING utf8mb4), ".join(parts) + ")"
 
 
 def render_seed(table: str, rows: list[dict]) -> str:
@@ -1261,7 +1304,7 @@ def _comment(text: str) -> str:
             f"{value[:60]!r} contains a newline, which would end the SQL comment it "
             "is written into and make the rest of it an executable statement"
         )
-    return value
+    return check_text(value, "a mapping comment")
 
 
 def check_mapping_consistency(assays: list[dict], mappings: list[dict]) -> None:

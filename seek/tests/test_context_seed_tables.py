@@ -139,6 +139,14 @@ def test_a_curated_seed_pins_the_connection_charset_before_its_ddl(table):
     assert sql.index("SET NAMES utf8mb4;") < sql.index(f"CREATE TABLE IF NOT EXISTS {table} (")
 
 
+@pytest.mark.parametrize("table", sorted(CURATED))
+def test_a_curated_seed_uses_no_backslash_escape(table):
+    """A backslash escape means one thing under the default sql_mode and another
+    under NO_BACKSLASH_ESCAPES, where `\\'` ends the string and the rest of the
+    line runs as SQL. Doubled quotes and `CHAR(10 ...)` mean the same in both."""
+    assert "\\" not in (SQL / CURATED[table][0]).read_text()
+
+
 def test_the_curated_sample_types_header_tells_the_truth_about_the_dump():
     """The seeded dump DOES create and populate sample_types_context.
 

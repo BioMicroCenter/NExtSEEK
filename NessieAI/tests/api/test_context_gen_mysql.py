@@ -520,3 +520,33 @@ def test_force_cannot_commit_a_partial_apply(mysql):
         f"SELECT 1 FROM `projects_context` WHERE `name` = {cg.literal(first)});",
         "SELECT 1 FROM `projects_context`);", 1)
     _refused(mysql, db, broken, before, force=True)
+
+
+# --- what the key collation and the seed parser do ---------------------------------
+
+
+def test_the_key_collation_equates_two_emoji_as_fold_key_says(mysql):
+    db = mysql.fresh("collation")
+    equal = mysql.scalar(db, "SELECT _utf8mb4 X'F09FA7AA' = _utf8mb4 X'F09FA7AC' "
+                             "COLLATE utf8mb4_unicode_ci")
+    assert equal == 1
+    assert cg.fold_key("\U0001F9EA") == cg.fold_key("\U0001F9EC")
+
+
+@pytest.mark.parametrize("table", sorted(cg.SEED_FILES))
+def test_each_curated_seed_loads_identically_under_no_backslash_escapes(mysql, table):
+    """A server running NO_BACKSLASH_ESCAPES read the old seeds' backslash-quote as the
+    end of a string. The mode is switched on for the session first, which is what
+    such a server does for every session, and the mysql client follows it."""
+    db = mysql.fresh(f"nbe_{table}")
+    sql = (Path(cg.REPO_ROOT) / cg.SEED_DIR / cg.SEED_FILES[table]).read_text(encoding="utf-8")
+    code, _, err = mysql.apply(
+        "SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES');\n" + sql, db)
+    assert code == 0, err
+    spec = cg.TABLES[table]
+    stored = {row[spec.key]: row for row in mysql.rows(db, spec.name, spec.columns)}
+    curated = cg.rows_for(table)
+    assert len(stored) == len(curated)
+    for row in curated:
+        for column in spec.columns:
+            assert stored[row[spec.key]][column] == cg.db_value(table, column, row.get(column))

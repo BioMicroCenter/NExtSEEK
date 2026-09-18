@@ -514,7 +514,7 @@ def test_an_empty_source_is_refused_rather_than_emptying_the_table():
 def test_update_refuses_a_duplicate_key_in_the_source():
     import pytest
 
-    rows = [{"name": "CSBC"}, {"name": "csbc "}]
+    rows = [{"name": "CSBC"}, {"name": "csbc"}]
     with pytest.raises(cg.DuplicateKey):
         cg.render_update("projects", cg.with_pi_names(rows))
 
@@ -538,6 +538,52 @@ def test_a_collision_only_utf8mb4_unicode_ci_would_see_is_refused_too():
             cg.render_update("projects", cg.with_pi_names(
                 [{"name": first}, {"name": second}]))
     assert cg.fold_key("Müller") == cg.fold_key("Muller")
+
+
+def test_two_supplementary_characters_collide_as_the_key_collation_compares_them():
+    """utf8mb4_unicode_ci gives every character above U+FFFF the same weight, so two
+    different emoji compare equal: `SELECT _utf8mb4 X'F09FA7AA' = _utf8mb4 X'F09FA7AC'
+    COLLATE utf8mb4_unicode_ci` is 1 on mysql:8.0.46. Two keys differing only there
+    passed the check, and the second write then landed on the first row: one row
+    gone, exit 0. The MySQL lane checks the collation itself."""
+    import pytest
+
+    assert cg.fold_key("Lab \U0001F9EA") == cg.fold_key("Lab \U0001F9EC")
+    assert cg.fold_key("Lab \U0001F9EA") != cg.fold_key("Lab \ufffd")
+    with pytest.raises(cg.DuplicateKey):
+        cg.render_update("projects", cg.with_pi_names(
+            [{"name": "Lab \U0001F9EA", "entity_type": "project"},
+             {"name": "Lab \U0001F9EC", "entity_type": "project"}]))
+
+
+def test_a_key_with_surrounding_whitespace_is_refused():
+    """MySQL ignores trailing spaces when it compares a key and not when it stores
+    one, so such a key is two things at once; refused rather than normalised."""
+    import pytest
+
+    for key in (" CSBC", "CSBC ", "CSBC\t"):
+        with pytest.raises(cg.UnsupportedValue):
+            cg.render_update("projects", cg.with_pi_names([{"name": key, "entity_type": "project"}]))
+
+
+def test_a_control_character_is_refused_in_every_literal_and_comment():
+    """A NUL got through every renderer and the mysql client then refused the
+    statement, partway through the artifact. A carriage return was silently
+    rewritten to a newline, so the stored value never equalled the curated one.
+    Newline and tab are the only control characters a value may carry."""
+    import pytest
+
+    for bad in ("a\x00b", "a\rb", "a\x1bb", "a\x1fb"):
+        with pytest.raises(cg.UnsupportedValue):
+            cg.literal(bad)
+        with pytest.raises(cg.UnsupportedValue):
+            cg.seed_literal(bad)
+        with pytest.raises(cg.UnsupportedValue):
+            cg.render_mappings([{"action": "map", "seek_assay_id": 7, "seek_title": bad,
+                                 "internal_assay_title": "RNA-Seq"}], assays=[])
+    for fine in ("a\nb", "a\tb", "caf\u00e9 \u03b3 \U0001F9EA"):
+        cg.literal(fine)
+        cg.seed_literal(fine)
 
 
 def test_the_real_curated_keys_do_not_collide_under_that_wider_fold():
@@ -702,11 +748,28 @@ def test_seed_writes_the_ddl_then_one_insert_per_line():
         assert sql.endswith("\n")
 
 
+def test_a_seed_literal_means_the_same_with_and_without_backslash_escapes():
+    """A backslash-quote ends the string under NO_BACKSLASH_ESCAPES, so the rest of
+    the line ran as SQL: the committed seeds stopped after 1 of 12 and 13 of 138
+    rows there, and a crafted value dropped a table. A seed now carries no backslash
+    at all: quotes are doubled and a newline is `CHAR(10 USING utf8mb4)` inside
+    CONCAT, which both modes read the same way. The MySQL lane loads the seeds
+    under that mode."""
+    import pytest
+
+    assert cg.seed_literal("O'Neill") == "'O''Neill'"
+    assert cg.seed_literal("one\ntwo's") == "CONCAT('one', CHAR(10 USING utf8mb4), 'two''s')"
+    with pytest.raises(cg.UnsupportedValue):
+        cg.seed_literal("back\\slash")
+    for table in cg.TABLES:
+        assert "\\" not in cg.render_seed(table, _rows_for(table)), table
+
+
 def test_seed_escapes_a_newline_so_every_insert_is_one_line():
     # 79 curated sample type values and 30 assay values contain a newline.
     sql = cg.render_seed("sample_types", _rows_for("sample_types"))
     body = sql.split(");", 1)[1]                            # past the CREATE TABLE
-    assert "\\n" in sql
+    assert "CHAR(10 USING utf8mb4)" in sql
     for line in body.splitlines():
         # `startswith(("INSERT INTO ", "--", ""))` was the old form, and `""` makes
         # every string match, so it asserted nothing at all.
