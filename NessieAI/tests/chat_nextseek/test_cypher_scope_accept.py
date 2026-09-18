@@ -173,6 +173,9 @@ def test_function_allowlist_pin():
     })
     assert PURE_APOC_FAMILIES == ("apoc.text.", "apoc.coll.", "apoc.number.", "apoc.math.", "apoc.date.",
                                   "apoc.temporal.")
+    # Inside the pure families, the functions that read a property by a name given as data are refused.
+    assert cypher_scope.APOC_PROPERTY_READERS == frozenset({"apoc.coll.sortnodes", "apoc.coll.sortmaps",
+                                                            "apoc.coll.sortmulti"})
     for refused in ("properties", "exists", "randomuuid", "timestamp"):
         assert refused not in FUNCTION_ALLOWLIST
 

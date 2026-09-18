@@ -94,6 +94,8 @@ FUNCTION_NAMESPACE_ALLOWLIST = frozenset({
 })
 # APOC function families that only compute over their arguments (when APOC is loaded at all).
 PURE_APOC_FAMILIES = ("apoc.text.", "apoc.coll.", "apoc.number.", "apoc.math.", "apoc.date.", "apoc.temporal.")
+# ... except the ones that read a property by a name given as data, which is a dynamic property read (section 5.7).
+APOC_PROPERTY_READERS = frozenset({"apoc.coll.sortnodes", "apoc.coll.sortmaps", "apoc.coll.sortmulti"})
 
 _HIDDEN = frozenset(name.lower() for name in HIDDEN_SAMPLE_PROPERTIES)
 
@@ -1606,7 +1608,8 @@ class _Parser:
     @staticmethod
     def allowed(lowered: str) -> bool:
         return (lowered in FUNCTION_ALLOWLIST or lowered in FUNCTION_NAMESPACE_ALLOWLIST
-                or any(lowered.startswith(family) for family in PURE_APOC_FAMILIES))
+                or (any(lowered.startswith(family) for family in PURE_APOC_FAMILIES)
+                    and lowered not in APOC_PROPERTY_READERS))
 
     def quantifier(self, names: _Names) -> None:
         self.enter()
