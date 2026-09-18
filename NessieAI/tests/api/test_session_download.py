@@ -34,6 +34,7 @@ from rest_framework.test import APIClient
 
 from NessieAI.cc.cc_provision import ProjectIdentity, ProjectResolutionError
 from nextseek_api.assistant.models_db import ChatSession
+from nextseek_api.assistant.session_export import CHUNK_BYTES
 
 CC_RUN = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
 PROJECT = ProjectIdentity(id="7", title="Test Lab", slug="test-lab")
@@ -427,11 +428,61 @@ class DownloadContainerCCTests(_DownloadBase):
         self.resolve.assert_not_called()
 
 
+class _CountingFile:
+    """A file opened for reading whose ``read`` calls add to a counter."""
+
+    def __init__(self, fh, counter):
+        self._fh = fh
+        self._counter = counter
+
+    def read(self, size=-1):
+        data = self._fh.read(size)
+        self._counter.read += len(data)
+        return data
+
+    def __getattr__(self, name):
+        return getattr(self._fh, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._fh.close()
+
+
+class _ReadCounter:
+    """How many bytes of ``target`` have been read so far, through ``Path.open``.
+
+    A test ends by checking that the counter saw the whole file, so a reader that
+    stopped going through ``Path.open`` fails loudly instead of counting nothing.
+    """
+
+    def __init__(self, target: Path):
+        self.target = target.resolve()
+        self.read = 0
+
+    def patch(self):
+        counter, real_open = self, Path.open
+
+        def counting_open(path, *args, **kwargs):
+            fh = real_open(path, *args, **kwargs)
+            return _CountingFile(fh, counter) if Path(path).resolve() == counter.target else fh
+
+        return patch.object(Path, "open", counting_open)
+
+
+#: How far reading the file may run ahead of what has been sent: one read step
+#: plus what the compressor holds back. Holding a whole file, or the whole zip,
+#: overshoots it by megabytes.
+READ_AHEAD_BOUND = 3 * CHUNK_BYTES
+
+
 class DownloadStreamingTests(_DownloadBase):
 
     def _big_session(self):
         payload = os.urandom(1_500_000)  # incompressible, so the zip is as big
         path = self.ns_file("big.bin", payload)
+        self.big_path = Path(path)
         cs = self.session(
             chat_log=[_ns_entry(1, 1)],
             bundles=[{"id": 1, "mode": "new_search",
@@ -472,3 +523,45 @@ class DownloadStreamingTests(_DownloadBase):
     async def _abig_session(self):
         from asgiref.sync import sync_to_async
         return await sync_to_async(self._big_session)()
+
+    # The two tests above count and size the pieces, which a server that builds the
+    # whole zip and then slices it also passes. These two watch the file itself:
+    # when the first piece leaves, the big file has not been read to its end, and
+    # at no point has reading it run far ahead of what has been sent.
+
+    def assert_read_keeps_pace(self, counter, n, sent, size):
+        if n == 0:
+            self.assertLess(counter.read, size,
+                            "the whole file was read before the first piece left")
+        self.assertLessEqual(counter.read - sent, READ_AHEAD_BOUND,
+                             f"{counter.read} bytes read with only {sent} sent")
+
+    def test_the_file_is_read_only_as_the_zip_is_sent_under_wsgi(self):
+        cs, payload = self._big_session()
+        counter = _ReadCounter(self.big_path)
+
+        with counter.patch():
+            resp = self.download(cs)
+            sent = 0
+            for n, piece in enumerate(resp.streaming_content):
+                sent += len(piece)
+                self.assert_read_keeps_pace(counter, n, sent, len(payload))
+
+        self.assertEqual(counter.read, len(payload))
+
+    async def test_the_file_is_read_only_as_the_zip_is_sent_under_asgi(self):
+        cs, payload = await self._abig_session()
+        client = AsyncClient()
+        await client.aforce_login(self.owner)
+        counter = _ReadCounter(self.big_path)
+
+        with counter.patch():
+            resp = await client.get(_url(cs.session_id))
+            self.assertTrue(resp.is_async)
+            sent, n = 0, 0
+            async for piece in resp.streaming_content:
+                sent += len(piece)
+                self.assert_read_keeps_pace(counter, n, sent, len(payload))
+                n += 1
+
+        self.assertEqual(counter.read, len(payload))
