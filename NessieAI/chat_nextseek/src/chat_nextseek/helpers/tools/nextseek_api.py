@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+from ...chat_memory import MEMORY_WINDOW
 from ...config import ChatConfig
 from ...cypher_text import mask_cypher
 from ...session import SessionState
@@ -416,15 +417,16 @@ def _bundle_total(bundle: dict) -> tuple[Any, dict | None]:
     return total, None
 
 
-def build_recent_results_summary(session: SessionState, max_results: int = 8) -> str:
+def build_recent_results_summary(session: SessionState, max_results: int = MEMORY_WINDOW) -> str:
     """
     Build a short summary of recent result bundles for prompt conditioning.
     Includes bundle IDs, user queries, endpoints, totals and the predicate each search
     ran, to guide refinement or follow-up questions.
 
-    Now defaults to 8 bundles (up from 3) — long sessions hit a recall cliff if older
-    bundles fall out of view. Parser can then pick `target_result_id` for any bundle
-    in the visible window when the user uses "first", "originally", "earlier", etc.
+    Defaults to `chat_memory.MEMORY_WINDOW` bundles (8, up from 3) — long sessions hit
+    a recall cliff if older bundles fall out of view — the same window the parser's
+    chat log shows. Parser can then pick `target_result_id` for any bundle in the
+    visible window when the user uses "first", "originally", "earlier", etc.
 
     The predicate is what lets a follow-up know what the previous search constrained
     (and tell two searches of the same endpoint apart): the filters a REST search sent,

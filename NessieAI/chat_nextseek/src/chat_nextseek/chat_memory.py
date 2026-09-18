@@ -4,8 +4,8 @@ A compact, token-cheap turn log kept in the existing session_state store. Every
 successful `run_query` / `run_query_plan` appends one entry; agents that need
 conversational context (parser, multi_parser, chatter, wizard) read the tail.
 
-Each turn is a *summary* — not the full bundle — small enough that 5 turns fit
-in a few hundred tokens. `bundle_id` cross-references `results_history` for any
+Each turn is a *summary* — not the full bundle — small enough that
+`MEMORY_WINDOW` turns fit in a few thousand tokens. `bundle_id` cross-references `results_history` for any
 agent that needs to drill into full payloads (memory_coder).
 """
 from __future__ import annotations
@@ -23,7 +23,14 @@ if TYPE_CHECKING:
 
 CHAT_LOG_KEY = "chat_log"
 MAX_TURNS = 50
-DEFAULT_TAIL = 5
+#: How far back the parser looks in both of its memories of the conversation: the
+#: answered turns of this log (`history_block`) and the result bundles of the
+#: recent-results summary (`build_recent_results_summary`). They used to be 5 turns
+#: against 8 bundles, so a bundle the summary listed could come from a turn the log no
+#: longer showed. 8 because the bundle window was widened from 3 to 8 to cure a recall
+#: cliff in long sessions; the chatter reads the same default.
+MEMORY_WINDOW = 8
+DEFAULT_TAIL = MEMORY_WINDOW
 REPLY_PREVIEW_CHARS = 280
 MAX_UID_EXAMPLES = 5
 
