@@ -552,3 +552,22 @@ def test_the_module_does_nothing_without_report(monkeypatch, capsys):
     _fake_mysql(monkeypatch, raises=AssertionError("must not connect"))
     assert labs.main([], env=dict(_PROD_ENV)) == 1
 
+
+# --------------------------------------------------------------------------------------
+# 6.1 Runtime-only: never committed, never baked
+# --------------------------------------------------------------------------------------
+
+def test_the_labs_file_is_gitignored_in_the_context_dir():
+    lines = (CONTEXT_DIR / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert any(l.strip().lstrip("/") == "labs_db.json" for l in lines)
+
+
+def test_the_labs_file_is_kept_out_of_the_app_build_context():
+    lines = [l.strip() for l in (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()]
+    assert "NessieAI/chat_nextseek/src/chat_nextseek/context/labs_db.json" in lines
+
+
+def test_the_labs_file_is_not_baked_into_the_cc_agent_image():
+    from NessieAI.build_tools.gen_op_surfaces.constants import CANONICAL_CONTEXT_FILES
+
+    assert "labs_db.json" not in CANONICAL_CONTEXT_FILES

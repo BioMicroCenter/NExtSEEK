@@ -59,3 +59,9 @@ docker/nextseek.env*
 .env
 **/.env
 **/*.env.bak*
+
+# Runtime-only context file: the labs the daily context export mines from SEEK institution
+# titles (chat_nextseek.labs), and the temporary file of its atomic write. A host
+# checkout's copy holds real lab titles and must never be baked into the app image.
+NessieAI/chat_nextseek/src/chat_nextseek/context/labs_db.json
+NessieAI/chat_nextseek/src/chat_nextseek/context/.labs_db.json.*.tmp
