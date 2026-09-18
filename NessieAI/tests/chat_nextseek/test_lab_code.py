@@ -300,6 +300,74 @@ def test_m4_llm_matches_already_found_by_the_scan_add_no_second_match():
 
 
 # --------------------------------------------------------------------------
+# M2, M3 and M4: a name is the surname only as the last token of a full name
+# --------------------------------------------------------------------------
+
+WITH_WHITCOMB = LABS + [_rec("WHT", "Whitcomb", "MIT", 47, [])]
+
+
+@pytest.mark.parametrize("question, llm_labs", [
+    ("samples from Dr. Ashby Jones", ["Ashby Jones"]),
+    ("samples from Dr. Ashby Jones", []),
+    ("samples from Dr. Ashby Jones", ["Ashby"]),
+    ("the group of Dr. Ashby Jones", []),
+    ("the lab of Ashby Jones", []),
+    ("samples from the lab of Ashby Jones", ["lab of Ashby Jones"]),
+])
+def test_a_lab_surname_used_as_a_first_name_is_not_that_lab(question, llm_labs):
+    res = resolve(question, llm_labs)
+    assert res.lab_codes == [], (question, llm_labs)
+    assert res.lab_matches == [], (question, llm_labs)
+    assert res.labs == [], (question, llm_labs)
+
+
+def test_a_full_name_whose_first_name_is_a_lab_is_a_scientist():
+    res = resolve("samples from Dr. Ashby Jones", ["Ashby Jones"])
+    assert res.scientists == ["Ashby Jones"]
+    assert res.keywords == ["Ashby Jones"]
+
+
+def test_the_surname_after_a_first_name_that_is_also_a_lab_is_the_match():
+    res = resolve("the lab of Prof. Ashgrove Fenwick", [])
+    assert res.lab_codes == ["FEN", "FEW"]
+    assert rules(res) == [("FEN", "lab_phrase"), ("FEW", "lab_phrase")]
+
+    res = resolve("the lab of Dana Ashgrove Whitcomb", [], records=WITH_WHITCOMB)
+    assert rules(res) == [("WHT", "lab_phrase")]
+
+    res = resolve("tubes Dr. Ashgrove Whitcomb sent", [], records=WITH_WHITCOMB)
+    assert rules(res) == [("WHT", "honorific")]
+    assert res.lab_matches[0]["text"] == "Dr. Ashgrove Whitcomb"
+
+
+def test_an_llm_lab_phrase_entry_names_its_last_token():
+    question = "RNA from Whitcomb's lab"
+    res = resolve(question, ["lab of Dana Ashgrove Whitcomb"], records=WITH_WHITCOMB)
+    assert res.lab_codes == ["WHT"]
+    res = resolve("RNA from Ashgrove and Whitcomb samples",
+                  ["lab of Dana Ashgrove Whitcomb"], records=WITH_WHITCOMB)
+    assert res.lab_codes == ["WHT"]
+
+
+@pytest.mark.parametrize("question, codes", [
+    ("Dr. Ashgrove's samples", ["ASH"]),
+    ("samples Dr. Ashgrove sent", ["ASH"]),
+    ("Dr. Ashgrove, Dr. Whitcomb", ["ASH", "WHT"]),
+    ("samples from Dr. Ashgrove. Jones wants them", ["ASH"]),
+    ("samples from Dr. Ashgrove\nJones wants them", ["ASH"]),
+    ("Dr. Ashgrove RNA samples", ["ASH"]),          # an acronym
+    ("Dr. Ashgrove DNase samples", ["ASH"]),        # two leading capitals
+    ("Dr. Ashgrove T cells", ["ASH"]),              # a lone capital
+    ("Dr. Ashgrove Mouse samples", ["ASH"]),        # a catalog word
+    ("Prof. Fenwick Harvard samples", ["FEW"]),     # an affiliation
+    ("Dr. Ashgrove Lab samples", ["ASH"]),          # a lab word
+    ("the lab of Dana Ashgrove samples", ["ASH"]),  # lower case follows
+])
+def test_a_word_after_the_name_that_is_not_a_name_keeps_the_match(question, codes):
+    assert resolve(question, [], records=WITH_WHITCOMB).lab_codes == codes
+
+
+# --------------------------------------------------------------------------
 # M5 catalog word
 # --------------------------------------------------------------------------
 

@@ -114,6 +114,10 @@ _NOT_A_PERSON = {
 }
 _SENTENCE_START = re.compile(r"(?:^|[.!?\n])[\s\"'(\[\u201c\u2018]*$")
 
+# M2, M3, M4: the token after a name, on the same line and separated only by spaces.
+_NEXT_TOKEN = re.compile(r"[^\S\n]+(?P<tok>[^\W\d_](?:[^\W\d_]|['\u2019\u02bc-](?=[^\W\d_]))*)")
+_LAB_WORDS = {"lab", "labs", "laboratory", "group"}
+
 
 # ---------------------------------------------------------------------------
 # Records
@@ -209,9 +213,13 @@ class _Matcher:
         self.records = records
         self.by_name: dict[str, list[_Record]] = {}
         self.by_code: dict[str, list[_Record]] = {}
+        self.affiliation_words: set[str] = set()
         for rec in records:
             self.by_name.setdefault(rec.folded_name, []).append(rec)
             self.by_code.setdefault(rec.code, []).append(rec)
+            if rec.affiliation:
+                self.affiliation_words.update(re.findall(rf"{_A}+", fold(rec.affiliation)))
+        self.name_heads = {name.split(" ")[0] for name in self.by_name}
         self._catalog_rows = list(catalogs or [])
         self._catalog: tuple[set[str], str] | None = None
         self._projects = list(projects or [])
@@ -242,9 +250,40 @@ class _Matcher:
     def _sentence_initial(self, start: int) -> bool:
         return _SENTENCE_START.search(self.question[:start]) is not None
 
-    def _capital_evidence(self, rec_name: str, folded_name: str) -> tuple[bool, int | None]:
+    def _followed_by_a_name(self, text: str, end: int) -> bool:
+        """The name ending at ``end`` in ``text`` is followed by another name token, so it
+        stands in a first-name position: "Dr. Ashby Jones" names Jones, never Ashby. A
+        surname is the last token of a full name, the same position M4 reads in an entry.
+
+        The next token, on the same line after spaces only, continues the name when it is
+        written like a name: a capital, then at least one lower-case letter, and not two
+        leading capitals (so not RNA, DNase or a lone initial). A lab word, a catalog word
+        and an affiliation word do not continue it unless a record starts with them. In
+        lower case nothing continues it: "the lab of dana ashgrove samples" cannot be told
+        from a full name, so the match stands."""
+        m = _NEXT_TOKEN.match(text, end)
+        if m is None:
+            return False
+        tok = m.group("tok")
+        if not tok[:1].isupper() or tok[1:2].isupper() or not any(c.islower() for c in tok):
+            return False
+        word = fold(tok)
+        if word in self.name_heads:
+            return True
+        return not (word in _LAB_WORDS or word in self.affiliation_words
+                    or self.is_catalog_word(word))
+
+    def _surname_occurrences(self, folded_name: str) -> list[tuple[int, int]]:
+        """``_name_occurrences`` less those in a first-name position."""
+        return [(start, end) for start, end in self._name_occurrences(folded_name)
+                if not self._followed_by_a_name(self.question, end)]
+
+    def _capital_evidence(self, rec_name: str, folded_name: str,
+                          occurrences: list[tuple[int, int]] | None = None) -> tuple[bool, int | None]:
         """M5: a capitalised occurrence that is not merely a sentence's first word."""
-        for start, end in self._name_occurrences(folded_name):
+        if occurrences is None:
+            occurrences = self._name_occurrences(folded_name)
+        for start, end in occurrences:
             if self._capitalised(self.question[start:end], rec_name) and not self._sentence_initial(start):
                 return True, start
         return False, None
@@ -314,15 +353,19 @@ class _Matcher:
             spelled = recs[0].name
             n = rf"(?P<name>{re.escape(folded_name)})"
             poss = r"(?P<poss>'s|s'" + (r"|'" if folded_name.endswith("s") else "") + r")"
+            # The third element marks a pattern that reads the name after optional first
+            # names: there the name must be the last token of the run, not a first name.
             patterns = (
-                ("lab_phrase", rf"{_LB}{n}{poss}? (?P<word>{_LAB_AFTER})(?!{_A})"),
-                ("lab_phrase", rf"(?<!{_A})(?P<word>{_LAB_BEFORE}) of (?:{_HONORIFIC} )?(?:{_FIRST} ){{0,2}}{n}{_RB}"),
-                ("honorific", rf"(?<!{_A}){_HONORIFIC} (?:{_FIRST} ){{0,2}}{n}{_RB}"),
-                ("possessive", rf"{_LB}{n}{poss} (?={_L})"),
+                ("lab_phrase", rf"{_LB}{n}{poss}? (?P<word>{_LAB_AFTER})(?!{_A})", False),
+                ("lab_phrase", rf"(?<!{_A})(?P<word>{_LAB_BEFORE}) of (?:{_HONORIFIC} )?(?:{_FIRST} ){{0,2}}{n}{_RB}", True),
+                ("honorific", rf"(?<!{_A}){_HONORIFIC} (?:{_FIRST} ){{0,2}}{n}{_RB}", True),
+                ("possessive", rf"{_LB}{n}{poss} (?={_L})", False),
             )
-            for rule, pattern in patterns:
+            for rule, pattern, full_name in patterns:
                 for m in re.finditer(pattern, self.fq):
                     name_start, name_end = self._orig(m.start("name"), m.end("name"))
+                    if full_name and self._followed_by_a_name(self.question, name_end):
+                        continue
                     written = self.question[name_start:name_end]
                     if rule == "lab_phrase" and m.group("word") == "group" and self.is_catalog_word(folded_name):
                         # "the bone marrow group" is a sample group: for a catalog word,
@@ -371,15 +414,18 @@ class _Matcher:
             m = next(m for m in _CODE_TOKEN.finditer(self.question) if m.group(1) == core)
             return _Hit(m.start(), "code", entry.strip(), list(self.by_code[core]), False), False
 
-        folded_entry = fold(entry)
+        folded_entry, entry_index = _fold_map(entry)
         folded_core = fold(core)
         candidates: list[tuple[str, str]] = []  # (folded name, rule)
         for folded_name in self.by_name:
             n = re.escape(folded_name)
             poss = r"(?:'s|s'" + (r"|'" if folded_name.endswith("s") else "") + r")?"
-            if (re.search(rf"{_LB}{n}{poss} {_LAB_AFTER}(?!{_A})", folded_entry)
-                    or re.search(rf"(?<!{_A}){_LAB_BEFORE} of (?:{_HONORIFIC} )?(?:{_FIRST} ){{0,2}}{n}{_RB}",
-                                 folded_entry)):
+            if re.search(rf"{_LB}{n}{poss} {_LAB_AFTER}(?!{_A})", folded_entry) or any(
+                not self._followed_by_a_name(entry, entry_index[m.end("name") - 1] + 1)
+                for m in re.finditer(
+                    rf"(?<!{_A}){_LAB_BEFORE} of (?:{_HONORIFIC} )?(?:{_FIRST} ){{0,2}}(?P<name>{n}){_RB}",
+                    folded_entry)
+            ):
                 candidates.append((folded_name, "lab_phrase"))
         if not candidates:
             # M4: the surname position, i.e. the part before a comma ("Last, First") or the
@@ -395,15 +441,17 @@ class _Matcher:
 
         failed_m5 = False
         for folded_name, rule in candidates:
-            occurrences = self._name_occurrences(folded_name)
+            # The name must occur in the question, and as a surname there: the LLM may not
+            # introduce a lab the user never named, nor read one out of a full name.
+            occurrences = self._surname_occurrences(folded_name)
             if not occurrences:
-                continue  # the LLM may not introduce a lab the user never named
+                continue
             recs = self.by_name[folded_name]
             pos = occurrences[0][0]
             if self.is_catalog_word(folded_name):
                 # M5: a catalog word matches through the user's own lab phrase (the question
                 # scan) or a capitalised mention; the LLM's phrase alone is not evidence.
-                ok, where = self._capital_evidence(recs[0].name, folded_name)
+                ok, where = self._capital_evidence(recs[0].name, folded_name, occurrences)
                 if not ok:
                     failed_m5 = True
                     continue

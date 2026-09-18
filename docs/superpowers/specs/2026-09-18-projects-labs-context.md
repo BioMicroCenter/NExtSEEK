@@ -294,6 +294,12 @@ multi-word and hyphenated surnames match only whole.
 | **M6** shared surname | When a matched name belongs to more than one record, keep the records whose `affiliation` occurs in the question as a whole word. If none does, keep all of them, and mark each match `ambiguous: true`. | | |
 | **M7** never | A bare surname in running text with no lab phrase, possessive, honorific or LLM entry. A code inside a UID. | | |
 
+A name read after optional first names (M2's `of` form, M3's honorific) is the surname only as the last token of the
+run, and M4's question occurrence counts only in that position too: in "Dr. Ashby Jones" the lab is Jones, never
+Ashby. The next token on the same line continues the name when it is written like one (a capital, then lower case;
+not an acronym or a lone initial), unless it is a lab word, a catalog word or an affiliation word that no record's
+name starts with. In lower case nothing continues a name, so "the lab of dana ashgrove samples" still matches.
+
 ### 7.4 What happens to an LLM `labs` entry nothing matched
 
 | Id | The entry | Goes to |
