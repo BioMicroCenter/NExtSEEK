@@ -148,7 +148,7 @@
   {
     "path": "/nextseek_api/samples/graph_search/",
     "method": "POST",
-    "description": "Search and filter samples from the Neo4j sample graph. Takes advanced_search's request body and returns its envelope (total, rows), with the same keyword matching, much faster, plus optional exact conditions: extensions.where (attribute comparisons on one sample type, including numeric and date ranges) and extensions.lineage (samples with an ancestor or descendant of a given type within 1 to 4 hops). total is the graph's count of every match; rows are one page read from the database, and can hold fewer samples than the page size when the graph still holds a sample the database no longer has.",
+    "description": "Search and filter samples from the Neo4j sample graph, limited to the caller's projects. Takes advanced_search's request body and returns its envelope (total, rows), with the same keyword matching and visibility, plus optional exact conditions: extensions.where (typed attribute comparisons on one sample type: =, <>, <, <=, >, >=, IN, CONTAINS, NOT CONTAINS, STARTS WITH, IS TRUE, IS FALSE) and extensions.lineage (samples with an ancestor, a descendant, or either, of a given type within 1 to 12 hops; for a caller who is not a superuser the related sample must be in one of their projects). total is the graph's count of every match; rows are one page read from the database, and can hold fewer samples than the page size when the graph still holds a sample the database no longer has.",
     "category": "sample_search",
     "requires_uids": false,
     "supports_free_text": true,
@@ -162,7 +162,9 @@
       "between",
       "descendant",
       "ancestor",
-      "within"
+      "within",
+      "not containing",
+      "either direction"
     ],
     "llm_hint": "REST-path sample search for what advanced_search cannot express: a numeric or date comparison on a named attribute, a whole-value match on a named attribute, or a lineage condition by sample type. A new question about sample metadata is routed to graph_query; use this endpoint when the turn must stay on REST, for example a refinement of a REST result that adds such a condition.",
     "example_intents": [
@@ -185,7 +187,7 @@
         "lineage": {
           "direction": "descendant",
           "sample_type": "<sample type code>",
-          "max_hops": 4
+          "max_hops": 12
         }
       }
     }
@@ -243,8 +245,7 @@
     "intent_patterns": [
       "researchers",
       "people",
-      "who",
-      "scientists"
+      "user accounts"
     ],
     "llm_hint": "Use only when the user wants the list of registered SEEK user accounts themselves. A person named in a sample question (a lab or PI, or the Scientist who made or handled samples) is sample metadata and is routed to graph_query, never to this endpoint.",
     "example_intents": [

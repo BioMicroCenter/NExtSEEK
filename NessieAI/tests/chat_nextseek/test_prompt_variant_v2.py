@@ -118,7 +118,8 @@ def test_the_json_overrides_parse_and_keep_the_default_shape():
     endpoints = json.loads(v2("min_api_endpoints_enriched.json"))
     default_endpoints = json.loads(read(DEFAULTS["min_api_endpoints_enriched.json"]))
     assert all(isinstance(e, dict) and e.get("path") and e.get("method") for e in endpoints)
-    assert [e["path"] for e in default_endpoints] == [e["path"] for e in endpoints if e["path"] != GRAPH_SEARCH]
+    # Both catalogs carry graph_search now: 7.1 falls back to it from the default prompts too.
+    assert [e["path"] for e in default_endpoints] == [e["path"] for e in endpoints]
     assert {e["path"]: e["method"] for e in default_endpoints}.items() <= \
         {e["path"]: e["method"] for e in endpoints}.items()
 

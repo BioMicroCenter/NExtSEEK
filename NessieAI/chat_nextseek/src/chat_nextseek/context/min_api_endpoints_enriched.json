@@ -148,6 +148,53 @@
     ]
   },
   {
+    "path": "/nextseek_api/samples/graph_search/",
+    "method": "POST",
+    "description": "Search and filter samples from the Neo4j sample graph, limited to the caller's projects. Takes advanced_search's request body and returns its envelope (total, rows), with the same keyword matching and visibility, plus optional exact conditions: extensions.where (typed attribute comparisons on one sample type: =, <>, <, <=, >, >=, IN, CONTAINS, NOT CONTAINS, STARTS WITH, IS TRUE, IS FALSE) and extensions.lineage (samples with an ancestor, a descendant, or either, of a given type within 1 to 12 hops; for a caller who is not a superuser the related sample must be in one of their projects). total is the graph's count of every match; rows are one page read from the database, and can hold fewer samples than the page size when the graph still holds a sample the database no longer has.",
+    "category": "sample_search",
+    "requires_uids": false,
+    "supports_free_text": true,
+    "primary_entities": [
+      "sampletypes",
+      "keywords"
+    ],
+    "intent_patterns": [
+      "greater than",
+      "at least",
+      "between",
+      "descendant",
+      "ancestor",
+      "within",
+      "not containing",
+      "either direction"
+    ],
+    "llm_hint": "Use for a sample search that needs what advanced_search cannot express: a numeric or date comparison on a named attribute, a whole-value match on a named attribute, NOT CONTAINS or a true/false attribute, or a lineage condition by sample type. A graph question refused for its project scope falls back to this endpoint.",
+    "example_intents": [
+      "Find slides whose PercentNecrosis is at least 40",
+      "Find chemical samples that have an NMR data sample derived from them"
+    ],
+    "request_body": {
+      "sampletype": "<sample type code, or a list of codes>",
+      "filter_searchText": "<one term or phrase, or \"\" when extensions or sampletype carry the search>",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "<one sample type code>",
+            "attribute": "<exact attribute title>",
+            "op": ">=",
+            "value": 40
+          }
+        ],
+        "lineage": {
+          "direction": "descendant",
+          "sample_type": "<sample type code>",
+          "max_hops": 12
+        }
+      }
+    }
+  },
+  {
     "path": "/nextseek_api/investigations/",
     "method": "GET",
     "description": "List all investigations (research themes) you have access to. Returns titles, descriptions, and IDs for their child studies. Use when the user wants to enumerate available investigations at the SEEK level.",
@@ -200,13 +247,12 @@
     "intent_patterns": [
       "researchers",
       "people",
-      "who",
-      "scientists"
+      "user accounts"
     ],
-    "llm_hint": "Use when the user wants to list researchers or users in the system.",
+    "llm_hint": "Use only when the user wants the list of registered SEEK user accounts themselves. A person named in a sample question (a lab or PI, or the Scientist who made or handled samples) is a sample search, never this endpoint.",
     "example_intents": [
       "Show me all researchers in the system",
-      "Who are the scientists working on primate studies?"
+      "List the registered user accounts in the system"
     ]
   },
   {
