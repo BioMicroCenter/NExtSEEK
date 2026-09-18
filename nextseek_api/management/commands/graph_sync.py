@@ -58,7 +58,7 @@ MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "
 # The modes that may reach the live graph without the flag: the three that only read, and the loop itself.
 LIVE_OK_MODES = frozenset({"verify", "drift", "investigation_counts", "loop"})
 LABEL_CHANGE_MODES = frozenset({"full", "reconcile", "samples"})
-DRIFT_FILE = "drift.json"
+DRIFT_FILE = drift.RESULT_FILE
 TRIGGER_CHARS = 64
 
 # A by-id sync that could not take the lock, like one refused for the graph's version, wrote nothing at all.

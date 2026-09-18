@@ -79,8 +79,10 @@ about the sync can end the container. `NEXTSEEK_GRAPH_SYNC_LOOP=0` is the off sw
 `GRAPH_SYNC_RESTART_DELAY` the seconds between restarts. One pass does housekeeping (abandoned runs, expired
 leases, old run directories), puts the slots the schedule owes into the outbox, and drains what it can claim. The
 light kinds run in process; `full`, `reconcile` and `drift` run as child `manage.py graph_sync` processes, so their
-memory returns when they end and a crash cannot take the loop with it. The newest 20 run directories per kind are
-kept.
+memory returns when they end and a crash cannot take the loop with it. A child's exit status decides its row: 0 and
+2 (a refusal) are done, anything else backs off, except a `drift` child that exits 1 having saved a result that
+reports drift: that check did its job, so its row is done and the drift is in its run record, never retried into the
+same answer. The newest 20 run directories per kind are kept.
 
 | Cadence | When (UTC) | Fresh for |
 |---|---|---|
