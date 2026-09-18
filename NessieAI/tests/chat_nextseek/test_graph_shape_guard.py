@@ -1,4 +1,4 @@
-"""P6a: a query shape the graph agent's Cypher must not run, checked before the query does.
+"""P6a and P6b: two query shapes the graph agent's Cypher must not run, checked before the query does.
 
 P6a, a variable-length path over DERIVED_FROM (``-[:DERIVED_FROM*1..8]->``, and the quantified forms
 ``-[:DERIVED_FROM]->{1,8}`` and ``->+``). The bound is ``cypher_text.APOC_PATH_MAX_LEVEL`` (12): the longest
@@ -11,6 +11,16 @@ that complies loses nothing. The rule:
 - no maximum, a parameter maximum or a maximum above 12 passes only when BOTH ends carry a type or a pin;
 - ``IS NOT NULL``, ``IS NULL``, ``<>`` and anything under ``NOT`` narrow nothing, and a disjunction narrows only when
   every branch does.
+
+P6b, an unscoped fulltext call. The index analyses its term: it lowercases it, splits it at spaces and punctuation
+and matches each word anywhere in a sample's text, so a term of two or more words cannot keep them side by side,
+whether they are written side by side, joined by a hyphen or joined by ``AND``, ``&&`` or ``+``. Unscoped, the call
+answers from the whole database. It passes when its hits are scoped (a type, a pin or a narrowing predicate on the
+hit or on a variable equated with it) or when its term is one word, one quoted phrase, or an explicit ``OR`` of those
+(which asks for the union and loses no adjacency). A term the guard cannot read (a parameter the plan does not bind,
+an expression it cannot evaluate) is refused when the call is unscoped: it is resolved through a literal, a
+parameter, ``WITH $q AS t``, ``UNWIND $terms AS t``, ``$terms[0]``, string concatenation and
+``toLower``/``toUpper``/``trim``, and refused otherwise.
 
 Every shape here is synthetic.
 """
@@ -316,3 +326,160 @@ def test_the_path_refusal_says_what_was_wrong_without_claiming_the_query_cannot_
 def test_refused_query_shapes_is_one_line_per_problem():
     lines = graph_mod.refused_query_shapes("MATCH (a:Sample)-[:DERIVED_FROM*]->(b:Sample) RETURN count(*)")
     assert len(lines) == 1 and lines[0].startswith("unbounded path [:DERIVED_FROM*]")
+
+
+# -------------------------------------------------------------------------------- P6b: the term
+
+
+FT = "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node RETURN count(node) AS n"
+
+
+@pytest.mark.parametrize("term", [
+    "foo-bar", "foo bar", "foo AND bar", "foo && bar", "+foo +bar", "foo-bar OR foobar", "(foo AND bar) OR baz",
+    "foo NOT bar", "foo -bar", "\"foo bar\" AND baz", "foo  OR  bar baz",
+])
+def test_an_unscoped_term_of_several_words_is_refused(term):
+    assert kinds(FT, {"q": term}) == ["unscoped_fulltext"]
+
+
+@pytest.mark.parametrize("term", [
+    "foo", "Foo", "foo*", "foo~", "foo~2", "foo^2", "fo?o", "search_text:foo", "foo_bar", "\"foo bar\"",
+    "\"foo-bar\"", "\"foo bar\"~2", "foo OR bar", "foo || bar", "foo OR bar OR baz",
+    "\"foo bar\" OR \"foo-bar\" OR foobar", "(foo OR bar)", "  foo  ",
+])
+def test_an_unscoped_term_of_one_word_one_phrase_or_an_or_of_those_passes(term):
+    assert passes(FT, {"q": term})
+
+
+def test_an_inline_literal_term_is_read():
+    assert kinds("CALL db.index.fulltext.queryNodes('sample_search_text', 'foo-bar') YIELD node "
+                 "RETURN count(node) AS n") == ["unscoped_fulltext"]
+    assert passes("CALL db.index.fulltext.queryNodes(\"sample_search_text\", \"foo\") YIELD node "
+                  "RETURN count(node) AS n")
+
+
+@pytest.mark.parametrize("cypher, params, expected", [
+    ("WITH $q AS t CALL db.index.fulltext.queryNodes('sample_search_text', t) YIELD node RETURN count(node)",
+     {"q": "foo bar"}, ["unscoped_fulltext"]),
+    ("WITH $q AS t CALL db.index.fulltext.queryNodes('sample_search_text', t) YIELD node RETURN count(node)",
+     {"q": "foo"}, []),
+    ("CALL db.index.fulltext.queryNodes('sample_search_text', $terms[0]) YIELD node RETURN count(node)",
+     {"terms": ["foo-bar", "baz"]}, ["unscoped_fulltext"]),
+    ("CALL db.index.fulltext.queryNodes('sample_search_text', $terms[1]) YIELD node RETURN count(node)",
+     {"terms": ["foo-bar", "baz"]}, []),
+    ("CALL db.index.fulltext.queryNodes('sample_search_text', $a + ' ' + $b) YIELD node RETURN count(node)",
+     {"a": "foo", "b": "bar"}, ["unscoped_fulltext"]),
+    ("CALL db.index.fulltext.queryNodes('sample_search_text', '\"' + $p + '\"') YIELD node RETURN count(node)",
+     {"p": "foo bar"}, []),
+    ("CALL db.index.fulltext.queryNodes('sample_search_text', toLower($q)) YIELD node RETURN count(node)",
+     {"q": "Foo-Bar"}, ["unscoped_fulltext"]),
+    ("UNWIND $terms AS t CALL db.index.fulltext.queryNodes('sample_search_text', t) YIELD node "
+     "RETURN t, count(node)", {"terms": ["foo", "bar baz"]}, ["unscoped_fulltext"]),
+    ("UNWIND $terms AS t CALL db.index.fulltext.queryNodes('sample_search_text', t) YIELD node "
+     "RETURN t, count(node)", {"terms": ["foo", "bar"]}, []),
+    ("WITH $q AS t WITH t AS u CALL db.index.fulltext.queryNodes('sample_search_text', u) YIELD node "
+     "RETURN count(node)", {"q": "foo bar"}, ["unscoped_fulltext"]),
+])
+def test_a_term_reached_through_an_expression_is_resolved(cypher, params, expected):
+    assert kinds(cypher, params) == expected
+
+
+@pytest.mark.parametrize("cypher, params", [
+    (FT, None),
+    (FT, {"other": "foo"}),
+    (FT, {"q": ["foo"]}),
+    ("CALL db.index.fulltext.queryNodes('sample_search_text', apoc.text.join($ts, ' ')) YIELD node "
+     "RETURN count(node)", {"ts": ["foo"]}),
+    ("MATCH (s:T_TIS) WITH s.Organ AS t CALL db.index.fulltext.queryNodes('sample_search_text', t) YIELD node "
+     "RETURN count(node)", {}),
+])
+def test_an_unscoped_term_the_guard_cannot_read_is_refused(cypher, params):
+    problems = graph_mod.query_shape_problems(cypher, params)
+    assert [p.kind for p in problems] == ["unscoped_fulltext"]
+    assert "cannot be read" in problems[0].detail
+
+
+def test_a_scoped_call_passes_whatever_its_term():
+    cypher = FT.replace("YIELD node", "YIELD node WHERE node:T_D_SEQ")
+    assert passes(cypher, {"q": "foo-bar"}) and passes(cypher, None)
+
+
+# -------------------------------------------------------------------------------- P6b: the scope
+
+
+@pytest.mark.parametrize("cypher", [
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node, score WHERE node:T_D_IMG RETURN node.id",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD score, node WHERE node:T_D_IMG RETURN node.id",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node AS s, score WHERE s:T_AB RETURN s.id",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node, score MATCH (s:T_D_IMG) WHERE s = node "
+    "RETURN s.id",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node, score MATCH (s:T_D_IMG {uuid: node.uuid}) "
+    "RETURN s.id",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node WHERE node:T_D_SEQ OR node:T_D_PCR "
+    "RETURN count(DISTINCT node)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node AS s WHERE s.type IN ['TIS', 'CEL'] "
+    "RETURN count(DISTINCT s)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node WHERE node.type = $t RETURN count(node)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node "
+    "WHERE toLower(node.search_text) CONTAINS toLower($p) RETURN count(node)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node "
+    "MATCH (node)-[:IN_STUDY]->(st:Study) WHERE st.id = $sid RETURN count(node)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node MATCH (node:T_TIS) RETURN count(node)",
+])
+def test_a_scoped_call_passes(cypher):
+    assert passes(cypher, {"q": "foo bar", "t": "TIS", "p": "foo bar", "sid": 3})
+
+
+@pytest.mark.parametrize("cypher", [
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node, score RETURN node.id",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD score, node RETURN node.id",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node WHERE node.uuid IS NOT NULL "
+    "RETURN count(node)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node WHERE node:Sample RETURN count(node)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node, score MATCH (s:Sample) WHERE s = node "
+    "RETURN s.id",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node "
+    "MATCH (node)-[:IN_PROJECT]->(p:Project) RETURN count(node)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD score RETURN count(*)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q)",
+    "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node "
+    "WHERE node:T_TIS OR node.uuid IS NOT NULL RETURN count(node)",
+])
+def test_an_unscoped_call_is_refused(cypher):
+    assert kinds(cypher, {"q": "foo bar"}) == ["unscoped_fulltext"]
+
+
+def test_a_query_with_no_fulltext_call_is_not_a_fulltext_problem():
+    assert passes("MATCH (s:Sample) WHERE toLower(s.search_text) CONTAINS 'foo-bar' RETURN count(s) AS n")
+
+
+def test_a_fulltext_call_inside_a_union_subquery_is_checked():
+    cypher = ("CALL () { CALL db.index.fulltext.queryNodes('sample_search_text', 'foo bar') YIELD node "
+              "RETURN node AS s UNION MATCH (a:T_TIS) RETURN a AS s } WITH DISTINCT s RETURN count(s) AS n")
+    assert kinds(cypher) == ["unscoped_fulltext"]
+
+
+# ----------------------------------------------------------------------------------------- P6b: the messages
+
+
+def test_the_fulltext_repair_names_the_words_and_both_ways_out():
+    message = _message(FT, {"q": "Foo-Bar"})
+    assert "'foo', 'bar'" in message
+    assert "toLower(s.search_text) CONTAINS" in message
+    assert "YIELD node WHERE node:T_" in message
+    assert "OR" in message and "quoted phrase" in message
+
+
+def test_the_fulltext_repair_for_an_unreadable_term_says_how_to_make_it_readable():
+    message = _message(FT, {})
+    assert "cannot be read" in message and "parameter" in message
+
+
+def test_the_fulltext_repair_ends_by_asking_for_the_query_again():
+    assert "Regenerate the Cypher" in _message(FT, {"q": "a b"})
+
+
+def test_the_fulltext_refusal_names_the_call_and_the_words():
+    refusal = graph_mod._shape_refusal(graph_mod.query_shape_problems(FT, {"q": "foo bar"}))
+    assert refusal.startswith("Graph agent could not produce valid Cypher")
+    assert "queryNodes" in refusal and "'foo', 'bar'" in refusal

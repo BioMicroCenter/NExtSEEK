@@ -1027,9 +1027,9 @@ def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str
 
 
 # --------------------------------------------------------------------------- #
-# The query-shape guards: P6a (NESSIE-MASTER-PLAN phase 9)
+# The query-shape guards: P6a and P6b (NESSIE-MASTER-PLAN phase 9)
 #
-# It refuses a shape, not a name, and reads only the Cypher text.
+# Both refuse a shape, not a name, and both read only the Cypher text and the plan's parameters.
 #
 # P6a, a variable-length path: `-[:DERIVED_FROM*1..8]->`, and the Cypher 5 quantified forms
 # `-[:DERIVED_FROM]->{1,8}`, `->+` and `((a)-[:DERIVED_FROM]->(b)){1,8}`.
@@ -1041,6 +1041,16 @@ def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str
 # The bound is 12, not 8: the longest DERIVED_FROM chain in the graph is 11 hops (the constant carries
 # the measurement), so *1..12 reaches every ancestor and every descendant and the repair that complies
 # truncates nothing.
+#
+# P6b, an unscoped fulltext call. The index analyses its term: it lowercases it, splits it at spaces
+# and punctuation and matches each word anywhere in a sample's text. So a term of two or more words
+# cannot keep them side by side, whether they are written side by side, joined by a hyphen or joined
+# by AND, && or +, and unscoped the call answers from the whole database. It passes when its hits are
+# scoped (_WEAK or better, a fulltext hit not counting as its own scope), or when the term is one word,
+# one quoted phrase, or an explicit OR of those: an OR asks for the union and has no adjacency to lose.
+# The term is resolved through a literal, a parameter, `WITH $q AS t`, `UNWIND $terms AS t`,
+# `$terms[0]`, `+` concatenation and the case and trim functions. An unscoped call whose term is none
+# of those is refused, not trusted: the guard cannot see what it would search.
 #
 # Anchors. _STRONG: a T_ label (in the pattern, or `WHERE a:T_X`), a `type` equality or IN, a uuid or
 # id equality or IN, or the same keys in the pattern's map. _WEAK: any other comparison of a property
@@ -1070,13 +1080,15 @@ _NARROWS_NOTHING = frozenset({"<>", "!=", "IS NOT NULL", "IS NULL"})
 _STRING_TESTS = frozenset({"CONTAINS", "STARTS WITH", "ENDS WITH", "=~"})
 _MATCH_ANYTHING = frozenset({".*", "(?i).*", "(?s).*", "^.*$", ".*?", "(?i)^.*$"})
 _UNWRAP_RE = re.compile(r"(?P<fn>toLower|toUpper|lower|upper|trim|ltrim|rtrim|toString|coalesce)\s*\(", re.IGNORECASE)
+_TERM_FUNCTIONS = frozenset({"TOLOWER", "TOUPPER", "LOWER", "UPPER", "TRIM", "LTRIM", "RTRIM"})
+_LUCENE_WORD_RE = re.compile(r"\w+(?:[.'\u2019]\w+)*")  # \u2019 is the typographic apostrophe
 
 
 class _Shape(NamedTuple):
     pos: int
-    kind: str  # 'unbounded_path' | 'unanchored_path'
+    kind: str  # 'unbounded_path' | 'unanchored_path' | 'unscoped_fulltext'
     text: str  # the offending fragment, verbatim from the Cypher
-    detail: str  # why it is one: the bound and the ends
+    detail: str  # why it is one: the bound, the ends, the words the index would search
 
 
 def _label_anchor(labels: str | None) -> int:
@@ -1173,7 +1185,8 @@ def _clause_stops(scan: _Scan) -> set[int]:
 class _Anchors:
     """How strongly each node pattern of one query is anchored: 0, _WEAK or _STRONG (see the section comment).
 
-    ``fulltext_hits`` says whether a fulltext hit anchors its variable, as it does a path's end.
+    ``fulltext_hits`` says whether a fulltext hit anchors its variable: yes for a path's end, no for the
+    fulltext call's own scope.
     """
 
     def __init__(self, scan: _Scan, cypher: str, *, fulltext_hits: bool):
@@ -1543,20 +1556,248 @@ def _path_problems(scan: _Scan, cypher: str) -> list[_Shape]:
     return problems
 
 
+# ------------------------------------------------------------------------------ P6b: fulltext calls
+
+
+def _lucene_items(text: str) -> list[tuple[str, str]]:
+    """The top-level items of a Lucene query string.
+
+    ``('word'|'phrase'|'group', text)``, ``('op', 'AND'|'OR'|'NOT')`` and ``('prefix', '+'|'-'|'!')``.
+    """
+    items: list[tuple[str, str]] = []
+    i, n = 0, len(text)
+
+    def skip_suffix(j):  # a boost or a slop: ^2, ~3
+        m = re.match(r"[~^][\d.]*", text[j:])
+        return j + (m.end() if m else 0)
+
+    while i < n:
+        c = text[i]
+        if c.isspace():
+            i += 1
+        elif c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            items.append(("phrase", text[i + 1:j]))
+            i = skip_suffix(j + 1)
+        elif c == "(":
+            depth, j, quoted = 0, i, False
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == '"':
+                    quoted = not quoted
+                elif not quoted and text[j] == "(":
+                    depth += 1
+                elif not quoted and text[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            items.append(("group", text[i + 1:j]))
+            i = skip_suffix(j + 1)
+        elif text.startswith("&&", i) or text.startswith("||", i):
+            items.append(("op", "AND" if c == "&" else "OR"))
+            i += 2
+        elif c in "+-!":
+            items.append(("prefix", c))
+            i += 1
+        else:
+            j = i
+            while j < n and not text[j].isspace() and text[j] not in '()"':
+                j += 2 if text[j] == "\\" else 1
+            word = text[i:j]
+            items.append(("op", word) if word in ("AND", "OR", "NOT") else ("word", word))
+            i = j
+    return items
+
+
+def _analysed_words(text: str) -> list[str]:
+    """The words the index's analyser makes of ``text``: lowercased, split at spaces and punctuation."""
+    return [w.lower() for w in _LUCENE_WORD_RE.findall(text)]
+
+
+def _unit_words(kind: str, text: str) -> list[str]:
+    if kind == "word":
+        text = re.sub(rf"^{_NAME}:(?=\S)", "", text)  # a field prefix, search_text:foo
+        text = re.sub(r"[~^][\d.]*$", "", text)  # a fuzzy or boost suffix, foo~2, foo^2
+        if re.search(r"(?<!\\)[*?]", text):
+            return [text.lower()]  # a wildcard term is not analysed: it stays one term
+    return _analysed_words(text)
+
+
+def _splits_words(term: str) -> bool:
+    """Whether the index would search ``term`` as separate words, losing their adjacency.
+
+    It would not for one word, one quoted phrase, or an explicit OR of those. It would for two words side by side,
+    one word the analyser splits (a hyphen, a slash), and any AND, &&, +, NOT, - or ! combination of two units.
+    """
+    items = _lucene_items(term)
+    units = [(kind, text) for kind, text in items if kind in ("word", "phrase", "group")]
+    if len(units) == 1:
+        kind, text = units[0]
+        return _splits_words(text) if kind == "group" else (kind == "word" and len(_unit_words(kind, text)) > 1)
+    if not units:
+        return False
+    gaps: list[list[tuple[str, str]]] = []
+    for kind, text in items:
+        if kind in ("word", "phrase", "group"):
+            gaps.append([])
+        elif gaps:
+            gaps[-1].append((kind, text))
+    if any(kind == "prefix" for kind, _ in items) or any(gap != [("op", "OR")] for gap in gaps[:-1]) or gaps[-1]:
+        return True
+    return any(_splits_words(text) if kind == "group" else (kind == "word" and len(_unit_words(kind, text)) > 1)
+               for kind, text in units)
+
+
+def _term_words(term: str) -> list[str]:
+    words = [w for kind, text in _lucene_items(term) if kind in ("word", "phrase", "group")
+             for w in (_term_words(text) if kind == "group" else _unit_words(kind, text))]
+    return list(dict.fromkeys(words))
+
+
+def _term_bindings(scan: _Scan, name: str) -> list[tuple[str, int, int]]:
+    """``(WITH|UNWIND, expression start, expression end)`` for each `... AS name` in a WITH or UNWIND clause."""
+    masked, out, stops = scan.masked, [], _clause_stops(scan)
+    for keyword, kw_start, body_start, body_end in scan.clauses:
+        if keyword not in ("WITH", "UNWIND") or kw_start not in stops:
+            continue
+        for s, e in _items(masked, body_start, body_end):
+            m = re.search(rf"\bAS\s+({_NAME})\s*$", masked[s:e], re.IGNORECASE)
+            if m and m.group(1) == name:
+                d = re.match(r"\s*DISTINCT\b", masked[s:s + m.start()], re.IGNORECASE)
+                out.append((keyword, s + (d.end() if d else 0), s + m.start()))
+    return out
+
+
+def _split_plus(masked: str, s: int, e: int) -> list[tuple[int, int]]:
+    spans, depth, start = [], 0, s
+    for i in range(s, e):
+        if masked[i] in "([{":
+            depth += 1
+        elif masked[i] in ")]}":
+            depth -= 1
+        elif masked[i] == "+" and depth == 0:
+            spans.append((start, i))
+            start = i + 1
+    spans.append((start, e))
+    return spans
+
+
+def _term_values(scan: _Scan, cypher: str, parameters, s: int, e: int, depth: int = 0) -> list[str] | None:
+    """Every string the expression ``cypher[s:e]`` can be, or None when the guard cannot read it."""
+    masked = scan.masked
+    s, e = _strip(masked, cypher, s, e)
+    if s >= e or depth > 8:
+        return None
+    original = cypher[s:e]
+    literal = cypher_text._string_value(original)
+    if literal is not None:
+        return [literal]
+    if masked[s] == "(" and cypher_text._matching_paren(masked, s) == e - 1:
+        return _term_values(scan, cypher, parameters, s + 1, e - 1, depth + 1)
+    parts = _split_plus(masked, s, e)
+    if len(parts) > 1:
+        values = [""]
+        for ps, pe in parts:
+            got = _term_values(scan, cypher, parameters, ps, pe, depth + 1)
+            if got is None:
+                return None
+            values = [v + g for v in values for g in got][:64]
+        return values
+    param = re.fullmatch(rf"\$({_NAME})(?:\s*\[\s*(-?\d+)\s*\])?", original)
+    if param:
+        value = parameters.get(param.group(1)) if isinstance(parameters, dict) else None
+        if param.group(2) is not None:
+            if not isinstance(value, list) or not -len(value) <= int(param.group(2)) < len(value):
+                return None
+            value = value[int(param.group(2))]
+        return [value] if isinstance(value, str) else None
+    call = re.match(rf"({_NAME})\s*\(", masked[s:e])
+    if call and call.group(1).upper() in _TERM_FUNCTIONS and \
+            cypher_text._matching_paren(masked, s + call.end() - 1) == e - 1:
+        return _term_values(scan, cypher, parameters, s + call.end(), e - 1, depth + 1)
+    if _NAME_RE.fullmatch(masked[s:e]) and masked[s:e] == original:
+        bindings = _term_bindings(scan, original)
+        values: list[str] = []
+        for keyword, bs, be in bindings:
+            got = (_term_values(scan, cypher, parameters, bs, be, depth + 1) if keyword == "WITH"
+                   else _list_values(scan, cypher, parameters, bs, be, depth + 1))
+            if got is None:
+                return None
+            values += got
+        return values or None
+    return None
+
+
+def _list_values(scan: _Scan, cypher: str, parameters, s: int, e: int, depth: int) -> list[str] | None:
+    """Every element of the list expression an UNWIND reads, or None when the guard cannot read it."""
+    masked = scan.masked
+    s, e = _strip(masked, cypher, s, e)
+    if s >= e:
+        return None
+    param = re.fullmatch(rf"\$({_NAME})", cypher[s:e])
+    if param:
+        value = parameters.get(param.group(1)) if isinstance(parameters, dict) else None
+        ok = isinstance(value, list) and all(isinstance(v, str) for v in value)
+        return list(value) if ok else None
+    if masked[s] == "[" and _matching_close_bracket(masked, s) == e - 1:
+        values: list[str] = []
+        for is_, ie in _items(masked, s + 1, e - 1):
+            got = _term_values(scan, cypher, parameters, is_, ie, depth + 1)
+            if got is None:
+                return None
+            values += got
+        return values
+    return None
+
+
+def _fulltext_problems(scan: _Scan, cypher: str, parameters) -> list[_Shape]:
+    """P6b: every fulltext call whose hits are unscoped and whose term the index would split into separate words."""
+    masked = scan.masked
+    anchors = None
+    problems: list[_Shape] = []
+    for start, open_, close, hit, fulltext in _procedure_yields(scan):
+        if not fulltext:
+            continue
+        if hit is not None:
+            anchors = anchors or _Anchors(scan, cypher, fulltext_hits=False)
+            if anchors.strength.get(anchors.find(hit), 0) >= _WEAK:
+                continue
+        text = " ".join(cypher[start + len("CALL"):close + 1].split())
+        arguments = _items(masked, open_ + 1, close)
+        terms = _term_values(scan, cypher, parameters, *arguments[1]) if len(arguments) >= 2 else None
+        if terms is None:
+            problems.append(_Shape(start, "unscoped_fulltext", text,
+                                   "has a search term that cannot be read before the query runs, and nothing scopes "
+                                   "its hits to a sample type or a filter"))
+            continue
+        split = [term for term in terms if _splits_words(term)]
+        if split:
+            words = ", ".join(repr(w) for w in _term_words(split[0]))
+            problems.append(_Shape(start, "unscoped_fulltext", text,
+                                   f"searches the term {split[0]!r} as the separate words {words}, each anywhere in a "
+                                   "sample's text, and nothing scopes its hits to a sample type or a filter"))
+    return problems
+
+
 # ------------------------------------------------------------------------------ the guard's surface
 
 
 def query_shape_problems(cypher: str | None, parameters=None) -> list[_Shape]:
-    """P6a: the shapes this graph must not be asked to run, in the order they appear in the Cypher.
+    """P6a and P6b: the shapes this graph must not be asked to run, in the order they appear in the Cypher.
 
-    ``parameters`` is the plan's parameter map; the path check reads nothing from it. A guard that breaks on a
-    query says nothing about it rather than refusing it.
+    ``parameters`` is the plan's parameter map, which the fulltext check reads the search term from. A guard that
+    breaks on a query says nothing about it rather than refusing it.
     """
     if not cypher or not cypher.strip():
         return []
     try:
         scan = _scan(cypher)
-        problems = _path_problems(scan, cypher)
+        problems = _path_problems(scan, cypher) + _fulltext_problems(scan, cypher, parameters)
     except Exception as e:  # noqa: BLE001 (never refuse a query because the guard itself broke)
         print(f"[DEBUG][GRAPH][SHAPE_GUARD] guard failed, allowing the query: {e!r}")
         return []
@@ -1588,6 +1829,23 @@ def _shape_lines(shapes: list[_Shape]) -> list[str]:
             "Anchor at least one end of the path: a sample type (`(d:T_D_SEQ)`), a pinned uuid (`{uuid: $uid}`), or "
             "a predicate that compares a property of that end with a value. `IS NOT NULL`, `IS NULL`, `<>` and a "
             "predicate under NOT narrow nothing, and plain `(:Sample)` ends expand from every sample in the graph.")
+    fulltext = [p for p in shapes if p.kind == "unscoped_fulltext"]
+    if fulltext:
+        lines.append(
+            "The fulltext index matches whole words: it lowercases the term, splits it at spaces and punctuation, and "
+            "matches each word separately, anywhere in a sample's text. Unscoped, a term of two or more words (side "
+            "by side, joined by a hyphen, or joined by AND, && or +) cannot keep them side by side and is answered "
+            "from the whole database. Do one of these instead:\n"
+            "  - match the text directly, which keeps adjacency and punctuation and also matches inside longer words: "
+            "WHERE toLower(s.search_text) CONTAINS toLower($term), one per word or phrase, joined by AND or OR as the "
+            "question means;\n"
+            "  - or keep the index and scope its hits to the sample type the question is about: "
+            "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node WHERE node:T_<code>.\n"
+            "An unscoped call is fine for one word, one quoted phrase (\"...\" inside the term), or an explicit OR of "
+            "those.")
+        if any("cannot be read" in p.detail for p in fulltext):
+            lines.append("Pass the search term as one parameter the plan binds, or as a literal string, so it can be "
+                         "checked before the query runs.")
     return lines
 
 
@@ -1607,6 +1865,8 @@ def _shape_refusal_parts(shapes: list[_Shape]) -> list[str]:
                          f"both ends anchored (bound it at *1..{_MAX_HOPS})")
         elif p.kind == "unanchored_path":
             parts.append(f"the path {p.text} expands from every sample: {p.detail}")
+        else:
+            parts.append(f"the unscoped fulltext call {p.text} {p.detail}")
     return parts
 
 
