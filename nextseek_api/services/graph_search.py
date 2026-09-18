@@ -10,7 +10,8 @@ body plus an optional ``extensions`` block; the response is advanced_search's en
 4. resolves the caller's scope from MySQL (403 when the caller maps to no SEEK person);
 5. answers ``total: 0`` without touching the graph when a non-superuser belongs to no project;
 6. runs the page and count statements through ``graph_search.service.search`` (READ transactions, 60 s timeout);
-7. hydrates the page's rows from MySQL and validates the envelope with ``SampleAdvancedSearchResult``.
+7. hydrates the page's rows from MySQL and validates the envelope with ``GraphSearchResult``: advanced_search's, plus
+   ``rows_missing``, the page's matches whose row has left MySQL (``total`` counts them; ``rows`` cannot show them).
 
 Unlike advanced_search, no SEEK password is needed (scope is read from MySQL), and paging happens in the database: a
 page past the end returns empty ``rows`` with the real ``total``.
@@ -40,7 +41,7 @@ from nextseek_api.graph_search import service as gs_service
 from nextseek_api.graph_search.query import GraphSearchInvalid, split_terms
 from nextseek_api.graph_search.scope import ScopeUnavailable, resolve_scope
 from nextseek_api.helpers import StandardResultsSetPagination
-from nextseek_api.models import GraphSearchRequest, JsonApiErrorResponse, SampleAdvancedSearchResult
+from nextseek_api.models import GraphSearchRequest, GraphSearchResult, JsonApiErrorResponse
 
 log = logging.getLogger(__name__)
 
@@ -165,7 +166,7 @@ class GraphSearchViewSet(viewsets.ViewSet):
         ],
         request=GraphSearchRequest,
         responses={
-            200: SampleAdvancedSearchResult,
+            200: GraphSearchResult,
             403: JsonApiErrorResponse,
             422: JsonApiErrorResponse,
             502: JsonApiErrorResponse,
@@ -258,6 +259,25 @@ class GraphSearchViewSet(viewsets.ViewSet):
                     "noSampleTypes": 1,
                     "msg": "okay",
                     "status": 1,
+                    "rows_missing": 0,
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="A page with a match that has no row",
+                description=(
+                    "total is counted in the graph and rows are read from the database, so a sample deleted since the "
+                    "graph last caught up is counted but cannot be shown: rows_missing says how many on this page."
+                ),
+                value={
+                    "total": 2,
+                    "rows": [_EXAMPLE_ROW],
+                    "footer": [],
+                    "sampleTypes": ["TIS"],
+                    "noSampleTypes": 1,
+                    "msg": "okay",
+                    "status": 1,
+                    "rows_missing": 1,
                 },
                 response_only=True,
             ),
@@ -335,6 +355,8 @@ class GraphSearchViewSet(viewsets.ViewSet):
                 return _error(502, "Invalid upstream response")
             timings["hydrate_ms"] = _ms(start)
 
+        # The graph still holds these ids and counts them in total, but their rows have left MySQL.
+        rows_missing = len({int(i) for i in result["ids"]} - {int(row["id"]) for row in rows})
         sample_types = list(result["sample_types"])
         data = {
             "total": int(result["total"]),
@@ -344,12 +366,13 @@ class GraphSearchViewSet(viewsets.ViewSet):
             "noSampleTypes": len(sample_types),
             "msg": "okay",
             "status": 1,
+            "rows_missing": rows_missing,
         }
         if debug:
             data["footer"].append({"debug": {**timings, "total_ms": _ms(started)}})
 
         try:
-            SampleAdvancedSearchResult.model_validate(data)
+            GraphSearchResult.model_validate(data)
         except ValidationError as exc:
             log.warning("graph_search: the envelope failed validation: %s", _describe(exc))
             return _error(502, "Invalid upstream response")

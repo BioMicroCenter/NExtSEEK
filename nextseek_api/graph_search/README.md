@@ -31,6 +31,9 @@ Rules every module keeps:
   caller's project edge; an admin's statement is unchanged.
 - Every value is a query parameter; property names come from the catalog and are backtick-quoted.
 - Queries run in `session.execute_read` with a timeout, and page with `ORDER BY s.id SKIP $skip LIMIT $limit`.
+- `total` is counted in the graph and `rows` are hydrated from MySQL, so a node whose row has left MySQL (a delete the
+  sync has not applied yet) is counted and not shown. The response says so: `rows_missing` is how many of the page's
+  ids `hydrate` found no row for (`GraphSearchResult` in `nextseek_api/models.py`).
 
 ## What advanced_search returned for NOT, AND/OR, tags, Not Contain and True/False
 

@@ -271,14 +271,14 @@ assert the outbox holds no dead rows, because `wait_for_drain` reports a drain w
 
 ### Three things that will mislead you
 
-All three were measured on 2026-09-17 by running the lane, and each one reads as a product defect
-until you know about it.
+Each one reads as a product defect until you know about it.
 
 - **`total` and `rows` can disagree, and only `total` is the graph's answer.** `total` is counted in
   Cypher; `rows` are that page hydrated from MySQL. A node the graph still holds whose MySQL row is
-  gone answers `total: 1, rows: []`. So `graph_holds` is for **presence** only, and every absence
-  assertion reads `graph_total`/`wait_for_total`. An absence assertion built on the rows passes on
-  exactly the failure it exists to catch.
+  gone answers `total: 1, rows: []`, and the response's `rows_missing` counts such matches on the
+  page. So `graph_holds` is for **presence** only, and every absence assertion reads
+  `graph_total`/`wait_for_total`. An absence assertion built on the rows passes on exactly the
+  failure it exists to catch.
 - **`graph_meta` is as fresh as the last drift run, and no fresher.** The status endpoint does not
   query Neo4j. Asserting that `catalog_hash` moved after a write compares a cached value with itself.
 - **`graph_search` caches the catalog** for `RECHECK_SECONDS` (60) and re-reads it only when

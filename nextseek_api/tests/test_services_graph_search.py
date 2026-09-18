@@ -16,7 +16,7 @@ from nextseek_api.graph_search import catalog_cache
 from nextseek_api.graph_search import service
 from nextseek_api.graph_search.query import Catalog
 from nextseek_api.graph_search.scope import Scope, ScopeUnavailable
-from nextseek_api.models import GraphSearchRequest, SampleAdvancedSearchResult
+from nextseek_api.models import GraphSearchRequest, GraphSearchResult, SampleAdvancedSearchResult
 
 PATH = "/nextseek_api/samples/graph_search/"
 SCOPE = "nextseek_api.services.graph_search.resolve_scope"
@@ -306,7 +306,7 @@ def test_a_member_of_no_project_gets_total_0_and_no_cypher(mock_scope, mock_neo4
     data = _json(resp)
     assert data["total"] == 0
     assert data["rows"] == []
-    SampleAdvancedSearchResult.model_validate(data)
+    GraphSearchResult.model_validate(data)
     mock_neo4j.assert_not_called()
     mock_catalog.assert_not_called()
     mock_hydrate.assert_not_called()
@@ -334,7 +334,9 @@ def test_the_happy_path_returns_advanced_searchs_envelope():
 
     assert resp.status_code == 200, resp.content
     data = _json(resp)
-    SampleAdvancedSearchResult.model_validate(data)
+    GraphSearchResult.model_validate(data)
+    # advanced_search's envelope exactly, once graph_search's one addition is set aside.
+    SampleAdvancedSearchResult.model_validate({k: v for k, v in data.items() if k != "rows_missing"})
     assert data["total"] == 2
     assert [r["id"] for r in data["rows"]] == [3, 7]
     assert data["sampleTypes"] == ["TIS"]
@@ -343,6 +345,37 @@ def test_the_happy_path_returns_advanced_searchs_envelope():
     assert data["status"] == 1
     assert data["footer"] == []
     mock_hydrate.assert_called_once_with([3, 7])
+
+
+def test_a_fully_hydrated_page_reports_no_missing_rows():
+    resp, _driver, _ = _happy({"sampletype": "TIS", "filter_searchText": "lung"})
+
+    data = _json(resp)
+    assert data["rows_missing"] == 0
+    GraphSearchResult.model_validate(data)
+
+
+def test_a_page_id_mysql_no_longer_holds_is_counted_in_rows_missing():
+    """total comes from Cypher and rows from MySQL: a node whose row is gone is in the total but cannot be shown.
+
+    The response says so instead of leaving a caller to read ``total: 2`` against one row as a paging bug.
+    """
+    driver = FakeDriver(ids=[3, 7], total=2, types=["TIS"])
+    resp, _driver, _ = _happy({"sampletype": "TIS", "filter_searchText": "lung"}, driver=driver, rows=[_row(3)])
+
+    assert resp.status_code == 200, resp.content
+    data = _json(resp)
+    assert data["total"] == 2
+    assert [r["id"] for r in data["rows"]] == [3]
+    assert data["rows_missing"] == 1
+    GraphSearchResult.model_validate(data)
+
+
+def test_a_member_of_no_project_reports_no_missing_rows():
+    with patch(SCOPE, return_value=NOBODY), patch(NEO4J), patch(CATALOG), patch(HYDRATE):
+        resp = _post({"filter_searchText": "lung"}, superuser=False)
+
+    assert _json(resp)["rows_missing"] == 0
 
 
 def test_both_statements_run_in_read_transactions_with_a_60_second_timeout():
@@ -433,14 +466,14 @@ def test_an_out_of_range_page_returns_empty_rows_and_the_total():
     data = _json(resp)
     assert data["total"] == 2
     assert data["rows"] == []
-    SampleAdvancedSearchResult.model_validate(data)
+    GraphSearchResult.model_validate(data)
 
 
 def test_debug_meta_appends_the_timings_to_the_footer():
     resp, _driver, _ = _happy({"filter_searchText": "lung"}, query="debug_meta=1")
 
     data = _json(resp)
-    SampleAdvancedSearchResult.model_validate(data)
+    GraphSearchResult.model_validate(data)
     debug = data["footer"][-1]["debug"]
     assert set(debug) == {"cypher_ms", "count_ms", "hydrate_ms", "total_ms"}
     assert all(isinstance(v, (int, float)) and v >= 0 for v in debug.values())
@@ -594,3 +627,14 @@ def test_the_path_and_the_request_model_are_in_the_openapi_schema():
     assert len(examples) >= 3
     params = {p["name"] for p in op.get("parameters", [])}
     assert {"page", "page_size", "debug_meta"} <= params
+
+
+@pytest.mark.django_db
+def test_the_response_model_declares_rows_missing_in_the_openapi_schema():
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    ref = schema["paths"][PATH]["post"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+    assert ref.endswith("/GraphSearchResult")
+    props = schema["components"]["schemas"]["GraphSearchResult"]["properties"]
+    assert "rows_missing" in props and {"total", "rows"} <= set(props)
