@@ -334,6 +334,9 @@ ACCEPTED: list[Case] = [
     Case("trailing_semicolon",
          "MATCH (s:T_TIS) RETURN count(*) AS n;",
          {}, S),
+    Case("line_comment_ending_in_crlf",
+         "MATCH (s:T_SLD) // one line\r\nRETURN s.uuid AS uuid ORDER BY uuid",
+         {}, S),
 ]
 
 # The one taught shape that reads the catalog, whose statistics are computed over every project (decision 4).
@@ -354,6 +357,7 @@ REFUSALS: list[Refusal] = [
             "MATCH (s:Sample) WHERE s.`x\\` = 1 RETURN s.id AS id //`", ("lexer",)),
     Refusal("lexer.unterminated_string", "MATCH (s:Sample) WHERE s.x = 'abc RETURN s.id AS id", ("lexer",)),
     Refusal("lexer.unterminated_comment", "MATCH (s:Sample) /* RETURN s.id AS id", ("lexer",)),
+    Refusal("lexer.carriage_return_in_line_comment", "MATCH (s:Sample) // note\r MATCH (x)\nRETURN *", ("lexer",)),
     Refusal("lexer.backticked_parameter", "MATCH (s:Sample) WHERE s.x = $`p` RETURN s.id AS id", ("lexer",)),
     Refusal("lexer.stray_character", "MATCH (s:Sample) WHERE s.x = 1 # RETURN s.id AS id", ("lexer",)),
     Refusal("syntax.no_return", "MATCH (s:Sample)", ("syntax",)),

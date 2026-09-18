@@ -312,7 +312,13 @@ def _lex(text: str) -> list[_Tok]:
             continue
         if text.startswith("//", i):
             j = text.find("\n", i)
-            i = n if j == -1 else j
+            end = n if j == -1 else j
+            # Neo4j ends a line comment at a carriage return as well as at a line feed, so text after a lone carriage
+            # return is code to the server. Refuse it rather than read it as comment; CR LF means the same to both.
+            cr = text.find("\r", i, end)
+            if cr != -1 and not (j != -1 and cr == end - 1):
+                raise _LexError(cr, "a carriage return inside a line comment")
+            i = end
             continue
         if text.startswith("/*", i):
             j = text.find("*/", i + 2)

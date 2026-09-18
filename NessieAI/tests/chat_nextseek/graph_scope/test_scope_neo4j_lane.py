@@ -255,6 +255,22 @@ def test_prover_refuses_writes_and_the_graph_is_unchanged(lane):
     _run_writes(lane, run_one)
 
 
+def test_prover_never_reads_as_a_comment_what_neo4j_runs(lane):
+    """Neo4j ends a // comment at a carriage return as well as at a line feed, so text after a lone carriage return
+    inside a line comment is code to the server. The prover refuses that text rather than read it as comment; a
+    comment ending in CR LF means the same to both and is accepted."""
+    lone_cr = "RETURN 1 AS a // note\r, 2 AS b"
+    crlf = "RETURN 1 AS a // note\r\n, 2 AS b"
+    assert list(lane.read(lone_cr)[0].keys()) == ["a", "b"]
+    assert list(lane.read(crlf)[0].keys()) == ["a", "b"]
+    caller = GraphScope.for_projects([1], source="test")
+    refused = scope_cypher(lone_cr, {}, caller)
+    assert isinstance(refused, Refused) and refused.codes == ("lexer",), refused
+    accepted = scope_cypher(crlf, {}, caller)
+    assert isinstance(accepted, Scoped) and accepted.cypher == crlf, accepted
+    assert list(lane.read(accepted.cypher, accepted.parameters)[0].keys()) == ["a", "b"]
+
+
 # --------------------------------------------------------------------------- #
 # The tool arm (needs the plumbing unit: tool_neo4j_query's result["scope"])
 # --------------------------------------------------------------------------- #
