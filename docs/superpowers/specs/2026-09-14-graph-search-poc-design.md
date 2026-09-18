@@ -245,6 +245,9 @@ validated by `SampleAdvancedSearchResult`. `?debug_meta=1` appends `{"debug": {"
 4. An out-of-range page returns an empty page, not every row.
 5. A caller with no SEEK person is 403 even when Basic credentials are present; Token authentication is not offered.
 6. No highlight HTML.
+7. The Simple box's own path (`/seek/samples/searching/`, compared through `extensions.where`) judges each row after a
+   sample that passes the rule without holding the attribute by the result of the row before it: `_filterSamples`
+   skips its index there (`nextseek_api/graph_search/README.md`). graph_search judges each row by its own value.
 
 Gate E:
 1. Unit tests for the query builder (every filter shape, scope, escaping, catalog validation), the scope resolver and

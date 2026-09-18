@@ -104,6 +104,138 @@
     "note": "50 UIDs, 25 TCGA then 25 production, the first by CRC32(id) order among uuids that match UID_RE and are not duplicated (production ones also belong to a project). Every term is a UID, so both engines take the uuid path: exact, byte-for-byte, no case folding. MySQL: 50."
   },
   {
+    "name": "query_not",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung NOT granuloma",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung NOT granuloma"
+      }
+    },
+    "note": "The Advanced box's NOT. advanced_search gets the text in filter_searchText and parses it (a NOT b is LIKE a AND NOT LIKE b over the JSON text, then any term in a value); graph_search gets it in extensions.query. Declared difference 2 does not apply: the two forms must give the same rows."
+  },
+  {
+    "name": "query_grouped_or",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "(lung AND granuloma) OR liver",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "(lung AND granuloma) OR liver"
+      }
+    },
+    "note": "AND and OR mixed through the parentheses the Add button writes, one operator per level."
+  },
+  {
+    "name": "query_tagged_not",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung[TIS] NOT granuloma",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung[TIS] NOT granuloma"
+      }
+    },
+    "note": "A term[TYPE] tag limits its term to the sample type; the NOT applies across every type."
+  },
+  {
+    "name": "query_not_key_name",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung NOT organ",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung NOT organ"
+      }
+    },
+    "note": "A negated term that is a key name: advanced_search's NOT LIKE drops every sample whose type has an Organ attribute, which graph_search reads from the catalog."
+  },
+  {
+    "name": "query_exact_or",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "Lung OR Liver",
+      "filter_matchType": "EXACT"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "EXACT",
+      "extensions": {
+        "query": "Lung OR Liver"
+      }
+    },
+    "note": "EXACT through the query text: a term equal to a value, case-insensitive; stage 1 stays a substring."
+  },
+  {
+    "name": "filtering_not_contain",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Organ",
+      "filter_rule": "Not Contain",
+      "filter_valueFrom": "Lung",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Organ",
+            "op": "NOT CONTAINS",
+            "value": "Lung"
+          }
+        ]
+      }
+    },
+    "note": "The Simple box's Not Contain: advanced_search's own FILTERING path (/seek/samples/searching/) against the where operator NOT CONTAINS. Case-sensitive, over samples that hold Organ."
+  },
+  {
+    "name": "filtering_contain",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Organ",
+      "filter_rule": "Contain",
+      "filter_valueFrom": "Lung",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Organ",
+            "op": "CONTAINS",
+            "value": "Lung"
+          }
+        ]
+      }
+    },
+    "note": "The Simple box's Contain through the same path, now that CONTAINS reads the value's text. True and False have no fixture here: the Simple box offers them for attribute type 15, and no attribute has that type in production (scripts/graph_search/synthetic_queries.json has them)."
+  },
+  {
     "name": "where_paired",
     "kind": "graph_only",
     "body": {

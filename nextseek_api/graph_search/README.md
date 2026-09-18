@@ -84,7 +84,9 @@ The parser also has defects, and these are the rows they gave:
 With an attribute chosen (`searchType` FILTERING), the SQL keeps the chosen sample type inside the caller's scope;
 `_filterSamples` then reads the attribute's value by exact key, applies the rule, and keeps a row only when the key is
 present with a non-null value (`_highlightKeyValues` with the attribute). The rules a type offers are
-`OPERATOR_SETS`: strings get Contain and Not Contain, attribute type 15 (Boolean) gets True and False.
+`OPERATOR_SETS`: strings get Contain and Not Contain, attribute type id 15 gets True and False. In the seeded schema
+type 15 is `ENA custom date` and `Boolean` is 16 (which gets Contain and Not Contain), and no seeded attribute has type
+15, so on that data the page offers True and False nowhere.
 
 - **Contain / Not Contain:** `From in str(value).strip()`, case-sensitive, and its negation. An empty From keeps
   every row with a value under Contain and none under Not Contain.
@@ -92,6 +94,11 @@ present with a non-null value (`_highlightKeyValues` with the attribute). The ru
   to but not including 2 (`int()` truncates), a string `int()` reads as 1 (`"1"`, `"01"`, `" +1 "`, `"0_1"`), or
   `true` or `yes` in any case, trimmed.
 - **False:** every other present value, `""`, `" "`, `0` and `no` included.
+
+That path has a defect too. `_filterSamples` judges row *n* by the *n*-th rule result, but after a row that passes the
+rule without holding the attribute it `continue`s before `index += 1`, so every later row is judged by the result of
+the row before it. The rules a missing value passes set it off: Not Contain, False, Contain with an empty From, date Not
+Equal, and the numeric rules 0 satisfies (a missing number reads as 0). The synthetic check below reproduces it.
 
 ## How graph_search expresses them
 
@@ -114,6 +121,8 @@ a number. Where the rows can still differ from advanced_search's:
 - True reads only ASCII digits; Python's `int()` also reads other Unicode digits (`"１"`). A float `inf` made
   advanced_search raise; graph_search calls it false.
 - The page trims From before sending it; the old page sent it as typed.
+- `_filterSamples`' index slip (above): graph_search judges every row by its own value. The parity harness declares
+  this difference 7 when the engine's rows, judged without the slip, equal graph_search's.
 
 ### NOT, AND/OR and tags: `extensions.query`
 
@@ -158,8 +167,18 @@ Residual differences, where the same text can still give other rows:
 never narrows the candidates. The source is the most selective of: the fulltext candidates of the positive terms (the
 query's own, or the union its value stage needs), a sample type (`sampletype`, a `where` label, or the tags that bound
 every match), and only then every `Sample` node, which is logged as a full scan. A text of nothing but negations and no
-type (`NOT granuloma`) therefore reads the `search_text` of every sample, once for the page and once for the count,
-under the 60 second timeout (504).
+type (`NOT granuloma`) therefore reads the `search_text` of every sample the caller could see, once for the page and
+once for the count, under the 60 second timeout (504): a label scan and a filter (`NodeByLabelScan`, `Filter` in its
+plan), linear in the number of samples and the length of their text. The synthetic proof below prints that plan
+and, with `--scale N`, times such a negation over N extra samples.
+
+### Proof
+
+`scripts/graph_search/synthetic_parity.sh` loads synthetic rows into an empty MySQL and, through graph_sync's own
+writer, an empty Neo4j, then runs the parity harness over `scripts/graph_search/synthetic_queries.json` in every
+scope: each query text through advanced_search's view and `extensions.query`, each Simple box rule through its own
+FILTERING path and `extensions.where`. It passes when every difference is a declared one, and it checks the residual
+(the empty-string value) and each parser defect above against their expected rows.
 
 ## Running and testing
 
