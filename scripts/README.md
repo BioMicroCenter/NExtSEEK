@@ -27,7 +27,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is seven purpose
+The surface is not a set of entry points behind a package boundary. It is eight purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -39,6 +39,7 @@ groups, each defined by what it reads and what it writes.
 | E. Live batch-upload E2E | `test_batch_upload_e2e.py` | the SEEK database, a deployed host | Neo4j, the upload API |
 | F. NessieAI codemod | `nessieai_codemod.py` | every tracked `*.py` outside `NessieAI/history/` | those files, in place |
 | G. graph_search lane | `graph_search/` (see [its README](graph_search/README.md)) | the scratch MySQL, a throwaway Neo4j, seeds outside the repository | throwaway `gs-*` containers, reports outside the repository |
+| H. APOC schema prototype | `graph_schema_from_apoc.py` | a live Neo4j with APOC (read only), the committed graph schema files | one JSON file you name |
 
 **A. Repo-convention validators.** `scripts/validate_issue.py:4-6` and
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of
@@ -88,6 +89,14 @@ concept's throwaway lane: the scratch MySQL, a memory-capped Neo4j and the app i
 a read-only mount of this checkout, with secrets and memory caps read from a work
 directory outside the repository. The folder's other scripts (the TCGA merge, graph
 load and dump, parity, the benchmark) run through it. Its README is the reference.
+
+**H. APOC schema prototype.** `scripts/graph_schema_from_apoc.py` is a prototype, not
+wired into the product: it builds the graph's structural schema from `apoc.meta.stats`,
+`apoc.meta.schema` and `apoc.meta.nodeTypeProperties` (`--full` scans every node), reads
+the catalog graph_sync writes, and compares both with `graph_schema_structure.txt`,
+`min_graph_schema.json` and the guard's property sets in `agents/graph.py`. Every
+statement is a READ transaction with a timeout, and it calls no path procedure. Its
+docstring has the `docker run` line.
 
 ## Running and testing
 
