@@ -29,6 +29,13 @@ gate actually loads to permit or block an ``api-read`` op (#83).
 
 These tests are the missing sync check. Hermetic: stdlib only, no docker, no
 network, no DB.
+
+What they cannot see is the built image itself. They read the files a build
+WOULD bake, so an edit to a canonical file followed by an app rebuild alone
+(no ``./startup.sh rebuild --component cc-agent``) passes here while the agent
+keeps its old copy. The bytes actually baked into the image are compared with
+the checkout by the ``cc-agent context`` stack-health check
+(``check_cc_agent_context`` in ``startup/steps/validate.py``), after every rebuild.
 """
 
 import ast
