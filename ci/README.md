@@ -45,6 +45,7 @@ mechanically rather than recalled:
 | `ci/gate/test_docs_map.py` | runs the docs map check in the blocking gate step |
 | `ci/blocking_lanes.py` | `BLOCKING_GLOBS`, `expand()`, `unmatched()`, `main()`: the unit tests whose failure fails `ci-pytest.yml` |
 | `ci/gate/test_blocking_lanes.py` | every blocking glob matches a file, and the expansion is never empty |
+| `ci/gate/test_context_capabilities_markers.py` | the CONTEXT-GEN markers in `capabilities.md` are absent or one well-formed pair in the section drift reads |
 | `ci/diff_baseline.py` | `extract()`, `load_baseline()`, `main()`, and `--emit-baseline` |
 | `ci/pytest-baseline.txt` | known-failing test ids, plus the command that produced them |
 | `ci/smoke/` | the post-deploy suite. See `ci/smoke/README.md`, which documents it in full |

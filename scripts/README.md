@@ -3,7 +3,7 @@
 ## What this is
 
 `scripts/` holds one-off programs, not a package: the repo-convention validators, one
-test wrapper, a seed regenerator, the attribute-API verification lane, a live
+test wrapper, the context generator, the attribute-API verification lane, a live
 batch-upload program, and the NessieAI codemod. `git ls-files scripts` lists them. There
 is no `__init__.py`, and the CI plan that proposed adding one
 (`docs/archive/2026-09/2026-09-01-ci-increment-1-skeleton-and-safety.md:389`) was never
@@ -14,6 +14,13 @@ repo-root evidence tree they read and wrote are archived in `NessieAI/history/pl
 (`NessieAI/history/INDEX.md`). The `nessie` harness wrapper is now
 `NessieAI/tests/nessie_tests/scripts/nessie`, and `post_uv_sync.sh` is retired to
 `NessieAI/history/retired/scripts/`.
+
+`generate_assay_context_seed.py` still writes the installer's
+`startup/seed/sql/assay_context.sql` from a committed JSON export, and `context_gen.py`
+writes only the held `*.curated.sql` seeds, so no file has two writers. The old
+generator retires when the curated seeds are switched on (group C). Until then its
+file's `CREATE TABLE` is the independent fixture `NessieAI/tests/api/test_context_gen.py`
+checks the generator's assay columns against.
 
 Almost nothing here is imported the ordinary way. The one exception is
 `nextseek_api/tests/test_attribute_api_db_lane.py:43`, which imports
@@ -34,7 +41,7 @@ groups, each defined by what it reads and what it writes.
 |---|---|---|---|
 | A. Repo-convention validators | `validate_issue.py`, `validate_viewset_conventions.py`, `seed_issue_labels.sh`, `dump_routes.py` | repo source, `docs/ISSUE-CONVENTIONS.md` | stdout, GitHub labels |
 | B. Test wrapper | `run_tests.sh` | this checkout | a pytest run inside the stack image |
-| C. Seed regeneration | `generate_assay_context_seed.py` | a committed JSON export | `startup/seed/sql/assay_context.sql` |
+| C. The context generator | `context_gen.py`, `generate_assay_context_seed.py` | `context/*.json`; a committed JSON export | update SQL for a live database, the held `startup/seed/sql/*_context.curated.sql` seeds, the generated investigation block in `capabilities.md`; the installer's `startup/seed/sql/assay_context.sql` |
 | D. Attribute-API verification lane | `attribute_api_test.sh`, `attribute_pytest_reporter.py`, `freeze_attribute_baseline.py`, `run_attribute_coverage.py`, `run_attribute_mutants.py`, `select_attribute_chunk_defaults.py`, `select_attribute_evidence.py`, `validate_attribute_api_evidence.py` | an out-of-repo state root | an out-of-repo evidence root |
 | E. Live batch-upload E2E | `test_batch_upload_e2e.py` | the SEEK database, a deployed host | Neo4j, the upload API |
 | F. NessieAI codemod | `nessieai_codemod.py` | every tracked `*.py` outside `NessieAI/history/` | those files, in place |
@@ -54,9 +61,85 @@ at `scripts/dump_routes.py:26-27`.
 stack image and runs pytest against it, defaulting to `nextseek_api/tests`
 (`scripts/run_tests.sh:22`).
 
-**C. Seed regeneration.** `scripts/generate_assay_context_seed.py:2-8` rebuilds a
-committed SQL seed from a committed JSON export, and the generated file names it back at
-`startup/seed/sql/assay_context.sql:3`.
+**C. The context generator.** The five JSON files Nessie reads are exports of three MySQL
+tables, rewritten in place once per UTC day by `_fetch_context_files_from_db`
+(`NessieAI/chat_nextseek/src/chat_nextseek/config.py:717-725`), so editing an export
+changes nothing that survives a day. `context/` is the hand-owned source and
+`scripts/context_gen.py` is the only way it reaches a database. It emits three things:
+
+```
+python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
+python scripts/context_gen.py --emit seed --table all
+python scripts/context_gen.py --emit capabilities --counts /tmp/investigations.json
+```
+
+`--emit update` writes one re-runnable script for a live database. Its schema part adds
+missing columns, widens narrower ones and moves text columns to utf8mb4, removing nothing.
+Then every row change of every section runs in ONE transaction, and checks at its end
+(row counts, a digest of every curated value, every assay's internal assay link, every
+mapping operation's post-condition) decide whether it commits. On any problem the client
+stops at `ERROR 1231 ... context_gen REFUSED ...`, the full list printed above it, and
+nothing was committed. A second run changes no row. `assay_context` rows are linked to
+`internal_assays` by title at apply time, never by the curated number, so a stack whose
+internal assays are numbered differently is refused rather than mislinked. Nothing here
+connects to a database: the operator applies the SQL, after a restore-tested backup, and
+never with `mysql --force` (the commit is conditional, so `--force` rolls back too, but it
+exits 0). `context/README.md` owns the source conventions and the review gate.
+
+**The curated seeds are held.** `--emit seed` writes
+`startup/seed/sql/{sample_types_context,assay_context,projects_context}.curated.sql`, and
+no install step reads them: `startup/steps/schema_fixups.py` still registers the
+pre-generator `assay_context.sql` and the empty `projects_context.sql`, so `install` and
+`reset` load exactly what they loaded before this generator existed. The files are
+committed so the review sees what a fresh install would get, and
+`test_seed_matches_the_committed_files_shape` keeps them byte-identical to `--emit seed`.
+Switching them on after the content is signed off is one reviewed commit: point the
+`assay_context` and `projects_context` fixups at the `.curated.sql` files, add a
+`sample_types_context` fixup, retire `generate_assay_context_seed.py` with its output, and
+invert `test_the_curated_seeds_are_held_until_sign_off`.
+
+Apply it with the charset named, even though the file names it too:
+
+```
+mysql --default-character-set=utf8mb4 -u<user> -p <database> < /tmp/context.sql
+```
+
+The client default is `auto`, which resolves to **latin1** wherever no UTF-8 locale is
+set — which is the case inside the `db` container, so every apply path that does not say
+otherwise double-encodes each non-ASCII value. Both emitted artifacts open with
+`SET NAMES utf8mb4;` for that reason, and the flag above is the belt to its braces.
+
+Do not hand-apply a `startup/seed/sql/*_context.curated.sql` file to a stack that already has the
+table: `CREATE TABLE IF NOT EXISTS` skips, so the unique key is never created and the
+INSERTs land on top of the rows already there. `--emit update` is what brings an existing
+instance to the curated content.
+
+It also owns `capabilities.md`'s "Known Projects and Investigations" list.
+`render_capabilities_block` builds that section from the `projects_context` rows whose
+`entity_type` is `investigation`, as a marked `<!-- BEGIN CONTEXT-GEN:investigations -->`
+block, and `replace_capabilities_block` swaps it in. Names and a short description only:
+a baked sample count rots the day the next sync runs. The generator **refuses** an
+investigation that resolves to no samples, which is the point of generating the list at
+all — five of the eight hand-written names resolve to nothing, because SEEK carries two
+parallel investigation systems and the list named the paper-tracking copies.
+`catalog.assistant_investigations` in `nextseek_api/graph_sync/drift.py` stays the runtime
+backstop, and it is also where the sample counts the refusal reads come from — pass them
+to `--emit capabilities --counts` as a JSON object, or as drift's whole
+`assistant_investigations` stat. The markers must be exactly one BEGIN then one END, in
+the section under the exact H2 heading drift keys on, with no heading or `---` line
+between them, and `replace_capabilities_block` refuses otherwise: reversed or duplicated
+markers duplicated text, an END placed too low deleted the sections after it, and a block
+outside drift's section leaves drift no names, so its check *passes* with the backstop off.
+
+Regenerating the block does **not** make `route_capabilities.json` stale, contrary to an
+earlier note here: the NS projection reads only the three required H2 sections, so the
+projection comes out byte for byte identical
+(`test_regenerating_the_block_leaves_the_ns_projection_identical`). The step that carries
+a new list to the agent is the image COPY and rebuild.
+
+`--emit capabilities` refuses today and is meant to: every `projects_context` row is
+still a project and `capabilities.md` carries no CONTEXT-GEN markers, so the five dead
+names are still committed. Task 6.15c adds the rows and the markers.
 
 **D. Attribute-API verification lane.** `scripts/attribute_api_test.sh:4-5` dispatches
 twelve named lanes, several of which shell out to `scripts/run_attribute_coverage.py` and
@@ -112,7 +195,17 @@ from outside, and CLAUDE.md gives the one command that runs those tests:
 - `scripts/dump_routes.py`, by nothing directly: it shares its resolver walk with the
   blocking route gate (`ci/gate/live_routes.py:3-6`).
 
-Groups B, C, E, F and G are run by hand. `scripts/validate_viewset_conventions.py` with no
+Group C is tested three ways. `NessieAI/tests/api/test_context_gen.py` needs no
+database: it re-derives every expected column from files the generator does not own, and
+runs the plain row statements on an in-memory SQLite to check the curated values come back
+field for field. `NessieAI/tests/api/test_context_gen_mysql.py` is the real lane: it
+applies the update (twice) and each seed file to a throwaway `mysql:8.0` over a
+production-shaped pre-state, including drift, a differently numbered stack, a mid-apply
+failure and `--force`. It starts a container, so it runs only with `CONTEXT_GEN_MYSQL=1`
+and skips otherwise. `ci/gate/test_context_capabilities_markers.py` keeps the markers in
+the committed `capabilities.md` well formed, in the blocking gate.
+
+Groups B, E, F and G are run by hand. `scripts/validate_viewset_conventions.py` with no
 arguments exits 0 and prints its clean-run line when the tree has no violations.
 `scripts/run_tests.sh` refuses to start from a fresh worktree, for two separate reasons;
 see CLAUDE.md.
@@ -144,6 +237,8 @@ Depended on by:
 
 - The GitHub pytest job, which names this directory as a collection root
   (`.github/workflows/ci-pytest.yml:72`).
+- `NessieAI/tests/api/test_context_gen.py`, which imports `scripts.context_gen` through
+  the namespace-package spelling.
 - The route-registry gate, which documents `scripts/dump_routes.py` as one of the two
   callers of its resolver walk (`ci/gate/live_routes.py:3-6`); `ci/README.md` records that
   the dumper is the only file outside `ci/` that imports anything from it

@@ -187,13 +187,17 @@ Breaking one is a regression, not a refactor.
   watching an install sees green and concludes the indexes were created. The flag is
   read at `startup/steps/schema_fixups.py:995` and is true only for `1/true/yes/on`;
   its own docstring calls it opt-in, default off (`startup/steps/schema_fixups.py:979-994`).
-- **Three of the eight DDL files in `startup/seed/sql/` are wired to nothing.** A
+- **Three of the eleven DDL files in `startup/seed/sql/` are wired to nothing.** A
   recursive grep of the worktree for the three basenames
   `sample_attributes_description.sql`, `sample_attributes_unique_data.sql` and
   `ROLLBACK_sample_attributes_description.sql`, excluding `.git/`, `node_modules/`,
   `.venv/` and this pair's own files, matches nothing outside `startup/seed/sql/`: no
   fixup entry lists them (`startup/steps/schema_fixups.py:109-152`), no test reads them
   and no script applies them. They are hand-applied or unused.
+- **Three more, the `*.curated.sql` files, are held out of install on purpose.**
+  `scripts/context_gen.py --emit seed` writes them from `context/`, and no fixup names
+  them until the curated content is signed off. Switching them on is the reviewed change
+  `scripts/README.md` group C describes, never a quiet edit to the fixup list.
 - **The default credentials are committed, not generated.** `startup/steps/config.py:121-123`
   hardcodes the MySQL root password, the MySQL user password and the Neo4j password into
   every rendered install, and only the Django key is random. An install exposed beyond
