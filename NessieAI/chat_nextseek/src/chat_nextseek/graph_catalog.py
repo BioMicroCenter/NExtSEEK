@@ -19,8 +19,13 @@ one driver per key:
   also closes and forgets the driver. The caller then uses the committed ``context/neo4j_schema.json``. A later
   version is read as it is: the snapshot records it in ``schema_version``.
 
-This is the admin form (node-level statistics over every project). A non-admin form needs per-project usage and the
-caller's scope (spec D10, stage A1).
+The cache holds the admin form: node-level statistics (sample counts, most frequent values and their counts, numeric
+and date ranges) computed over every project. ``get_snapshot`` and ``get_type_details`` return the cached objects
+only when ``graph_scope.sees_all(config)``; any other config (a non-admin scope, no scope, anything that is not a
+``GraphScope``) gets copies with those statistics emptied and each type's attributes listed by title, since the fill
+order is itself a count. Names, labels, value types, meanings, structure, the guard map, the hash and the vocabulary
+are the same for every caller, and a redaction never changes the cache
+(``docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`` section 8).
 
 Tests replace ``_make_driver`` and ``_now``.
 """
@@ -33,6 +38,8 @@ import time
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
+
+from . import graph_scope
 
 log = logging.getLogger(__name__)
 
@@ -367,25 +374,46 @@ def _snapshot_locked(entry: _Entry, key: tuple[str, str], config) -> CatalogSnap
     return snapshot
 
 
+# --- redaction for a caller who is not a superuser (spec 2026-09-18-graph-cypher-scope, section 8) -----------------
+# Copies only: the cached objects are shared by every caller of this process, so they are never changed.
+
+
+def _redacted_attribute(attribute: AttributeRow) -> AttributeRow:
+    return replace(attribute, sample_count=None, top_values=(), top_counts=(),
+                   num_min=None, num_max=None, date_min=None, date_max=None)
+
+
+def _redacted_detail(detail: TypeDetail) -> TypeDetail:
+    attributes = sorted((_redacted_attribute(a) for a in detail.attributes), key=lambda a: a.title)
+    return replace(detail, sample_count=None, attributes=tuple(attributes))
+
+
+def _redacted_snapshot(snapshot: CatalogSnapshot) -> CatalogSnapshot:
+    return replace(snapshot, index=tuple(replace(row, sample_count=None) for row in snapshot.index))
+
+
 # --- the interface --------------------------------------------------------------------------------------------------
 
 
 def get_snapshot(config) -> CatalogSnapshot:
     """The catalog snapshot for ``config``'s graph, re-validated against ``GraphMeta.catalog_hash``.
 
+    The cached snapshot for an admin config; for any other config a copy with every sample count removed.
     Raises ``CatalogUnavailable`` when the graph cannot serve the v1.1 catalog; the caller falls back.
     """
     key = _key(config)
     entry = _entry_for(key)
     with entry.lock:
-        return _snapshot_locked(entry, key, config)
+        snapshot = _snapshot_locked(entry, key, config)
+    return snapshot if graph_scope.sees_all(config) else _redacted_snapshot(snapshot)
 
 
 def get_type_details(config, titles: Iterable[str]) -> list[TypeDetail]:
-    """The admin form of each requested type the index knows, in the order asked; unknown titles are ignored.
+    """Each requested type the index knows, in the order asked; unknown titles are ignored.
 
-    One statement reads every title not cached for the current hash within ``DETAIL_TTL_S``. Raises
-    ``CatalogUnavailable`` like ``get_snapshot``, and when the read fails.
+    The cached admin form for an admin config; for any other config a copy without counts, top values or ranges,
+    its attributes listed by title. One statement reads every title not cached for the current hash within
+    ``DETAIL_TTL_S``. Raises ``CatalogUnavailable`` like ``get_snapshot``, and when the read fails.
     """
     key = _key(config)
     entry = _entry_for(key)
@@ -413,7 +441,8 @@ def get_type_details(config, titles: Iterable[str]) -> list[TypeDetail]:
                 detail = _type_detail(row)
                 entry.details[detail.title] = (snapshot.catalog_hash, now, detail)
         found = (entry.details.get(t) for t in wanted)
-        return [cached[2] for cached in found if cached is not None and cached[0] == snapshot.catalog_hash]
+        details = [cached[2] for cached in found if cached is not None and cached[0] == snapshot.catalog_hash]
+    return details if graph_scope.sees_all(config) else [_redacted_detail(detail) for detail in details]
 
 
 def get_vocabulary(config) -> Vocabulary:
