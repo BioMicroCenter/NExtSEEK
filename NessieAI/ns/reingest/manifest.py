@@ -119,17 +119,25 @@ class RunManifest(BaseModel):
     # key (see the 2026-09-16 whole-branch review that found this).
     outputs: list[OutputRecord] = Field(default_factory=list)
     named_outputs: dict[str, str] = Field(default_factory=dict)
-    # {OutputRecord.path: hex md5 digest}, filled in by run-checksum
-    # (granular.py's `_run_checksum` with `--manifest-id`), never by harvest --
-    # hashing is deliberately its own op (see `_run_checksum`'s docstring), so
-    # a freshly harvested manifest always has this empty. Keyed by the SAME
+    # {OutputRecord.path: hex md5 digest}. Filled in two ways, both measured
+    # by us (there is no separate provenance to track -- see the removed
+    # `.md5`-sibling design in this branch's history for why that distinction
+    # was deliberately dropped): (1) `harvest.harvest_local`, folding in
+    # run-harvest's own automatic hash of any inventoried output cheap
+    # enough to fit under granular.py's `_HARVEST_CHECKSUM_MAX_FILE_BYTES` /
+    # `_HARVEST_CHECKSUM_MAX_TOTAL_BYTES` ceilings, computed during the same
+    # SSH staging call that already produced the inventory -- never a second
+    # round trip; and (2) `granular._run_checksum` with `--manifest-id`, an
+    # explicit caller-requested hash of a caller-named set of files (e.g. a
+    # multi-GB BAM too large for the automatic ceiling). Keyed by the SAME
     # run-relative path string as `OutputRecord.path` / `outputs[].path`, not
-    # by a canonical name like `named_outputs` -- `--paths` is a caller-named,
-    # arbitrary subset of the inventory, so there is no fixed set of keys to
-    # name in advance. `mapper.apply` looks a row's own primary-output path up
-    # here to fill `Checksum_PrimaryData`; a path with no entry (not yet
-    # checksummed) simply contributes nothing, the same as any other
-    # unresolved optional attribute.
+    # by a canonical name like `named_outputs` -- an arbitrary subset of the
+    # inventory may be hashed, so there is no fixed set of keys to name in
+    # advance. `mapper.apply` looks a row's own primary-output path up here
+    # to fill `Checksum_PrimaryData`; a path with no entry (too large for
+    # both the automatic ceiling and an explicit run-checksum call, or not
+    # yet checksummed at all) simply contributes nothing, the same as any
+    # other unresolved optional attribute.
     checksums: dict[str, str] = Field(default_factory=dict)
     execution: ExecutionInfo = Field(default_factory=ExecutionInfo)
     sources: dict[str, str] = Field(default_factory=dict)

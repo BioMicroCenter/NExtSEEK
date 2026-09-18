@@ -489,6 +489,45 @@ def test_a_checksummed_manifest_puts_checksum_primarydata_in_the_rendered_cell(
 
 
 @patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_gate_measured_manifest_renders_checksum_with_no_qa_flag(rows, tmp_path, monkeypatch):
+    """End to end (the size-gate feature): a manifest whose checksums came
+    from run-harvest's own automatic hash (never a separate run-checksum
+    call) must render an A.* workbook with `Checksum_PrimaryData` populated
+    in the cell AND clear the CATALOG_REQUIRED_MISSING soft flag that a
+    checksum-less manifest trips (see
+    test_a_manifest_with_no_checksums_still_renders_a_workbook directly
+    below, and _A_ALN_ROW/_A_GEX_ROW's required_metadata, which names
+    Checksum_PrimaryData as catalog-required)."""
+    from NessieAI.ns.reingest_qa import CATALOG_REQUIRED_MISSING
+
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    aln_path = "star_salmon/SAMPLE_1.markdup.sorted.bam"
+    gex_path = "star_salmon/all.merged.gene_counts.tsv"
+    manifest_id = _save_manifest(
+        tmp_path, monkeypatch,
+        outputs=[
+            manifest_mod.OutputRecord(path=aln_path, bytes=123, sample="SAMPLE_1"),
+            manifest_mod.OutputRecord(path=gex_path, bytes=456, sample=None),
+        ],
+        checksums={aln_path: "gate0measured0aaa", gex_path: "gate0measured0bbb"})
+
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                        outputs_dir=str(tmp_path))
+
+    # Checksum_PrimaryData populated in the actual rendered cell.
+    wb_aln = openpyxl.load_workbook(result["saved_files"]["reingest_A_ALN"])
+    aln_checksums = _cell_by_header(wb_aln["Samples"], "Checksum_PrimaryData")
+    assert set(aln_checksums.values()) == {"gate0measured0aaa"}
+
+    # No checksum flag in the QA verdict for either sample type.
+    for st in ("A.ALN", "A.GEX"):
+        soft = result["qa"][st]["soft"]
+        assert not any(
+            CATALOG_REQUIRED_MISSING in s and "Checksum_PrimaryData" in s for s in soft
+        ), soft
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
 def test_a_manifest_with_no_checksums_still_renders_a_workbook(rows, tmp_path, monkeypatch):
     """Negative control: checksumming is advisory, never a hard dependency
     (mapper._attach_checksum's own docstring). A manifest that never ran
