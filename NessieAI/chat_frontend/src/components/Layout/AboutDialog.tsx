@@ -19,7 +19,9 @@ import {
  * The timing copy promises a stop at about three minutes. That is the Container
  * turn ceiling (NEXTSEEK_CC_TIMEOUT_HARD_MAX, default 180 s, in
  * NessieAI/cc/cc_engine.py), kept by operator decision; the unit test reads that
- * default and fails if it moves, so the copy changes with it.
+ * default and fails if it moves, so the copy changes with it. A search turn has
+ * no ceiling at all (it runs in a thread with no time limit and the client polls
+ * until it ends), so the copy does not promise that a search ends in a minute.
  */
 
 interface AboutDialogProps {
@@ -166,7 +168,11 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
 
           <Section title="How long an answer takes">
             <ul className={LIST}>
-              <li>A search, a count or a catalog question usually answers in under a minute.</li>
+              <li>
+                A search, a count or a catalog question usually answers in under a minute. A search
+                that gathers a very large set, such as everything derived from one animal, can take
+                several minutes.
+              </li>
               <li>
                 A step-by-step task takes longer and can run for up to about three minutes. At
                 three minutes it is stopped, and the chat shows an error saying the turn

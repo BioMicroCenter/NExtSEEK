@@ -62,6 +62,15 @@ describe("AboutDialog", () => {
     expect(text).not.toMatch(/can take a while/i);
   });
 
+  it("does not promise that every search ends within a minute", () => {
+    render(<AboutDialog open onOpenChange={vi.fn()} />);
+    const text = section("How long an answer takes").textContent ?? "";
+    // Only a step-by-step task has a ceiling. A search has none, and one that
+    // gathers a whole lineage runs for minutes, so the copy has to say so.
+    expect(text).toContain("under a minute");
+    expect(text).toContain("several minutes");
+  });
+
   it("closes through onOpenChange", () => {
     const onOpenChange = vi.fn();
     render(<AboutDialog open onOpenChange={onOpenChange} />);
