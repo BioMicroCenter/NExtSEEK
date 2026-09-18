@@ -54,7 +54,6 @@ from nextseek_api.graph_search.scope import plain_scope
 from nextseek_api.services.assistant import (
     CsrfExemptSessionAuthentication,
     _error_response,
-    _most_recent_session,
 )
 
 # The turn body and its helpers live in NessieAI/cc/turn.py (NessieAI Phase B).
@@ -103,12 +102,18 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
     # ------------------------------------------------------------------ session
     def _resolve_session(self, request, req) -> ChatSession:
+        """The chat this turn runs in: the caller's own ``session_id``, else a new one.
+
+        A turn never falls back to the caller's most recently updated chat. That
+        chat's state steers the turn (sticky CC, an open pipeline wizard, its
+        results_history and pinned bundles), so a session-less API call used to
+        land on Container-CC, or refine another conversation's results, for a
+        reason the caller could not see. ``force_new`` is accepted and changes
+        nothing here; the legacy ``assistant/query/`` routes keep the fallback.
+        """
         if req.session_id:
             return ChatSession.objects.get(session_id=req.session_id, user=request.user)
-        if getattr(req, "force_new", False):
-            return ChatSession.objects.create(user=request.user)
-        existing = _most_recent_session(request.user)
-        return existing or ChatSession.objects.create(user=request.user)
+        return ChatSession.objects.create(user=request.user)
 
     def _resolve_credentials(self, request):
         basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])

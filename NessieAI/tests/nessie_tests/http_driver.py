@@ -68,11 +68,11 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           clock: Callable[[], float] = time.monotonic) -> DriveResult:
     """Drive one turn to completion (full tier) or to route_decided (route tier).
 
-    ``force_new`` asks the server for a fresh ChatSession. Without it the API
-    falls back to the caller's most recently updated session, which silently
-    joins every case into one conversation and leaks results_history, pinned
-    bundles and pipeline state across cases. It is ignored once ``session_id``
-    is known, so a case's later turns stay in the session its seed opened.
+    ``force_new`` asks the server for a fresh ChatSession. The routed endpoint
+    now opens one for every session-less body anyway; an older server instead
+    falls back to the caller's most recently updated session, joining every case
+    into one conversation and leaking results_history, bundles and pipeline state.
+    It is ignored once ``session_id`` is known, so later turns keep the seed's chat.
 
     ``fresh_session`` closes the OTHER half of that isolation, and defaults to
     True because per-case isolation is this harness's whole premise.

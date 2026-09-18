@@ -1362,7 +1362,13 @@ class MostRecentSessionSortBufferTests(TestCase):
         self.assertEqual(len(calls), 1, "expected exactly one PK fetch")
         self.assertIsNone(got)
 
-    def test_cc_resolve_session_keeps_results_history_out_of_the_sort(self):
+    def test_cc_resolve_session_makes_no_most_recent_lookup(self):
+        """The routed endpoint never reuses the caller's latest chat.
+
+        With no session_id it opens a new chat, so it has no most-recent
+        lookup to keep off the blob: it sorts nothing at all, and none of the
+        caller's existing chats is handed to the turn.
+        """
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
@@ -1374,15 +1380,15 @@ class MostRecentSessionSortBufferTests(TestCase):
         req = MagicMock()
         req.session_id = None
         req.force_new = False
+        existing = set(
+            ChatSession.objects.filter(user=self.user).values_list("session_id", flat=True))
 
         with CaptureQueriesContext(connection) as ctx:
             got = vs._resolve_session(request, req)
 
-        self.assertEqual(got.session_id, self.newest.session_id)
-        ordering = self._ordering_queries(ctx.captured_queries)
-        self.assertTrue(ordering, "expected an ORDER BY query")
-        for sql in ordering:
-            self.assertNotIn("results_history", sql, f"sorted over the blob: {sql}")
+        self.assertNotIn(got.session_id, existing, "a session-less turn reused an existing chat")
+        self.assertEqual(got.user, self.user)
+        self.assertEqual(self._ordering_queries(ctx.captured_queries), [])
 
     def test_no_naive_most_recent_lookup_survives_in_either_module(self):
         """Source guard: the three sites that used to do a bare
