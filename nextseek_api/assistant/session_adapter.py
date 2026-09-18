@@ -117,6 +117,11 @@ class DictSessionAdapter:
         """
         from django.db import transaction  # local: keeps import cost off module load
 
+        # The module-level import is TYPE_CHECKING only, so the model must be imported
+        # here too. Without it the locked path raised NameError on every save, and every
+        # turn fell through to the unlocked, unmerged write below.
+        from .models_db import ChatSession
+
         cached_history = self._cache.get("results_history", [])
         last_debug = self._cache.get("last_debug", {})
         extra_state = {k: v for k, v in self._cache.items() if k not in _TYPED_KEYS}
