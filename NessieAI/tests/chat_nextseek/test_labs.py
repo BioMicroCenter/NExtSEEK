@@ -18,7 +18,7 @@ import os
 import re
 import sys
 import types
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
@@ -292,6 +292,19 @@ def test_a_name_conflict_ignores_case_and_accents():
     assert doc["conflicts"] == [{"kind": "name_shared", "name": "Mülwood", "codes": ["MUL", "MUW"]}]
 
 
+def test_a_multi_word_name_is_kept_and_reported_for_review():
+    """The grammar allows a multi-word surname, but also takes a first name plus a surname, or two
+    surnames. The record matches only as the whole phrase, so the report names each one."""
+    rows = [(1, "JSM-Jane Smith Lab (MIT)", 4), (2, "VDB-Van der Birch Lab (MIT)", 4),
+            (3, "VDB-Van der Birch Lab (MIT)", 5), (4, "ASH-Ashgrove Lab (BWH)", 4)]
+    doc = labs.build_labs_document(rows, fetched_at=FETCHED_AT)
+    assert [r["name"] for r in doc["labs"]] == ["Ashgrove", "Jane Smith", "Van der Birch", "Van der Birch"]
+    assert [c for c in doc["conflicts"] if c["kind"] == "multi_word_name"] == [
+        {"kind": "multi_word_name", "code": "JSM", "name": "Jane Smith"},
+        {"kind": "multi_word_name", "code": "VDB", "name": "Van der Birch"},
+    ]
+
+
 def test_an_unparsed_title_is_reported_never_guessed():
     rows = [(9, "OAK\u2013Oakley Lab (MIT)", 3), (8, None, None)]
     doc = labs.build_labs_document(rows, fetched_at=FETCHED_AT)
@@ -473,6 +486,62 @@ def test_refresh_keeps_the_fetched_document_when_the_write_fails(tmp_path, monke
     assert [r["code"] for r in doc["labs"]] == ["ASH"]
 
 
+# An answer that names no lab is a failed read, not news that SEEK's labs are gone: a live SEEK
+# always holds institutions, and one with labs keeps them. Written over labs_db.json it would
+# empty ChatConfig.LABS and turn every lab name into a Scientist. So it is refused, loudly, and
+# the last good file stays.
+
+def _refresh(conn, context_dir):
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        result = labs.refresh_labs_file(conn, context_dir)
+    return result, out.getvalue() + err.getvalue()
+
+
+def test_refresh_refuses_an_empty_answer_and_keeps_the_last_good_file(tmp_path):
+    previous = labs.build_labs_document([(41, "ASH-Ashgrove Lab (BWH)", 4)], fetched_at=FETCHED_AT)
+    labs.write_labs_file(previous, tmp_path)
+
+    (doc, source), said = _refresh(_Conn([]), tmp_path)
+
+    assert (doc, source) == (previous, "previous_file")
+    assert labs.load_labs_file(tmp_path) == previous, "the last good file is not overwritten"
+    refused = [line for line in said.splitlines() if "REFUSED" in line]
+    assert len(refused) == 1 and "no institution" in refused[0]
+
+
+def test_refresh_refuses_an_answer_in_which_no_title_parses(tmp_path):
+    previous = labs.build_labs_document([(41, "ASH-Ashgrove Lab (BWH)", 4)], fetched_at=FETCHED_AT)
+    labs.write_labs_file(previous, tmp_path)
+    conn = _Conn([(7, "Example Institute of Technology", 2), (9, "OAK\u2013Oakley Lab (MIT)", 3)])
+
+    (doc, source), said = _refresh(conn, tmp_path)
+
+    assert (doc, source) == (previous, "previous_file")
+    assert labs.load_labs_file(tmp_path) == previous
+    refused = [line for line in said.splitlines() if "REFUSED" in line]
+    assert len(refused) == 1 and "none of the 2 institution titles parses" in refused[0]
+
+
+def test_a_refused_answer_with_no_last_good_file_is_unavailable_and_writes_nothing(tmp_path):
+    for rows in ([], [(7, "Example Institute of Technology", 2)]):
+        (doc, source), said = _refresh(_Conn(rows), tmp_path)
+        assert (doc, source) == (None, "unavailable")
+        assert "REFUSED" in said
+        assert not (tmp_path / "labs_db.json").exists()
+
+
+def test_one_parsed_lab_is_enough_to_replace_the_file(tmp_path):
+    previous = labs.build_labs_document([(41, "ASH-Ashgrove Lab (BWH)", 4)], fetched_at=FETCHED_AT)
+    labs.write_labs_file(previous, tmp_path)
+    conn = _Conn([(7, "Example Institute of Technology", 2), (43, "BRK-Birchwood Lab (MIT)", 4)])
+
+    (doc, source), said = _refresh(conn, tmp_path)
+
+    assert source == "fetched" and "REFUSED" not in said
+    assert [r["code"] for r in labs.load_labs_file(tmp_path)["labs"]] == ["BRK"]
+
+
 # --------------------------------------------------------------------------------------
 # 4.5 python -m chat_nextseek.labs --report: read only, prints, writes nothing
 # --------------------------------------------------------------------------------------
@@ -546,6 +615,40 @@ def test_report_exits_1_when_the_read_fails(monkeypatch, capsys):
     _fake_mysql(monkeypatch, _Conn(fail_on_execute=RuntimeError("no such table")))
     assert labs.main(["--report"], env=dict(_PROD_ENV)) == 1
     assert capsys.readouterr().out == ""
+
+
+def test_report_says_it_refuses_an_empty_answer(monkeypatch, capsys):
+    _fake_mysql(monkeypatch, _Conn([]))
+
+    assert labs.main(["--report"], env=dict(_PROD_ENV)) == 1
+
+    printed = capsys.readouterr()
+    doc = json.loads(printed.out)
+    assert doc["refused"] == "the read returned no institution"
+    assert doc["labs"] == [] and doc["unparsed"] == []
+    assert "REFUSED" in printed.err
+
+
+def test_report_prints_every_title_of_a_refused_answer(monkeypatch, capsys):
+    """The operator still sees why each title failed: that is what gets fixed in SEEK."""
+    _fake_mysql(monkeypatch, _Conn([(7, "Example Institute of Technology", 2)]))
+
+    assert labs.main(["--report"], env=dict(_PROD_ENV)) == 1
+
+    printed = capsys.readouterr()
+    doc = json.loads(printed.out)
+    assert doc["refused"] == "none of the 1 institution titles parses as a lab"
+    assert doc["unparsed"] == [{"institution_id": 7, "title": "Example Institute of Technology",
+                                "project_ids": [2], "reason": "no_code_prefix"}]
+    assert "REFUSED" in printed.err
+
+
+def test_report_of_a_usable_answer_carries_no_refusal(monkeypatch, capsys):
+    _fake_mysql(monkeypatch, _Conn([(41, "ASH-Ashgrove Lab (BWH)", 4)]))
+    assert labs.main(["--report"], env=dict(_PROD_ENV)) == 0
+    printed = capsys.readouterr()
+    assert "refused" not in json.loads(printed.out)
+    assert "REFUSED" not in printed.err
 
 
 def test_the_module_does_nothing_without_report(monkeypatch, capsys):

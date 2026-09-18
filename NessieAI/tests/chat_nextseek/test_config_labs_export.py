@@ -209,6 +209,20 @@ def test_a_failed_read_falls_back_to_the_previous_labs_file(tmp_path):
         "a failed labs read never blocks the export"
 
 
+def test_an_empty_answer_is_a_failed_read_and_keeps_the_last_good_labs(tmp_path):
+    previous = labs.build_labs_document([(50, "DUN-Dunmore Lab (MIT)", 30)], fetched_at="2026-09-18T06:00:00Z")
+    labs.write_labs_file(previous, tmp_path)
+    cfg = _bare(tmp_path, _Conn(institutions=[]))
+
+    cfg._fetch_context_files_from_db(env="prod")
+    records, status = cfg._load_labs()
+
+    assert labs.load_labs_file(tmp_path) == previous, "zero rows never overwrite a good labs file"
+    assert _projects(tmp_path)["Gamma"]["labs"] == [{"code": "DUN", "name": "Dunmore", "affiliation": "MIT"}]
+    assert [r["code"] for r in records] == ["DUN"]
+    assert status["source"] == "previous_file"
+
+
 def test_a_failed_read_with_no_previous_file_gives_every_project_row_empty_labs(tmp_path):
     cfg = _bare(tmp_path, _Conn(labs_error=RuntimeError("no such schema")))
 

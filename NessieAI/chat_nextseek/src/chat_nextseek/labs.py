@@ -18,6 +18,9 @@ context directory. The design is ``docs/superpowers/specs/2026-09-18-projects-la
   never guessed.
 * **The file** is runtime-only: gitignored, excluded from the build context and never
   baked into the cc-agent image, because it holds real lab titles.
+* **Refusal.** An answer with no institution, or with none whose title parses, is a failed
+  read, never a reason to empty the labs: the last good file stays and the refusal is logged
+  loudly (``refusal``).
 * ``python -m chat_nextseek.labs --report`` runs the same read and prints the document
   without writing anything. It is the operator's first look at every title's fate.
 """
@@ -253,7 +256,8 @@ def build_labs_document(rows, fetched_at: str | None = None) -> dict:
 
 
 def _conflicts(records: list[dict]) -> list[dict]:
-    """``name_shared``: one surname under several codes. ``code_shared``: one code, several institutions."""
+    """``name_shared``: one surname under several codes. ``code_shared``: one code, several
+    institutions. ``multi_word_name``: a name of several words, listed for the operator's review."""
     by_name: dict[str, dict] = {}
     by_code: dict[str, set] = {}
     for record in records:
@@ -272,6 +276,9 @@ def _conflicts(records: list[dict]) -> list[dict]:
         for code, ids in sorted(by_code.items())
         if len(ids) > 1
     ]
+    # A multi-word name may be a first name plus a surname, or two surnames: it matches only whole.
+    conflicts += [{"kind": "multi_word_name", "code": code, "name": name}
+                  for code, name in sorted({(r["code"], r["name"]) for r in records if " " in r["name"]})]
     return conflicts
 
 
@@ -368,23 +375,52 @@ def log_line(doc: dict) -> str:
     )
 
 
+def refusal(doc: dict) -> str | None:
+    """Why a fetched document must not replace the last good labs file; ``None`` when it may.
+
+    A live SEEK always holds institutions, and one with labs keeps them, so an answer with no
+    institution, or with institutions none of whose titles parses, is a failed read (a wrong or
+    half-restored schema, a driver returning rows of another shape), not news that the labs
+    are gone. Written over ``labs_db.json`` it would empty ``ChatConfig.LABS`` and turn every
+    lab name into a Scientist.
+    """
+    if doc.get("labs"):
+        return None
+    unparsed = doc.get("unparsed") or []
+    if not unparsed:
+        return "the read returned no institution"
+    return f"none of the {len(unparsed)} institution titles parses as a lab"
+
+
+def _keep_previous(context_dir, why: str) -> tuple[dict | None, str]:
+    previous = load_labs_file(context_dir)
+    source = "previous_file" if previous is not None else "unavailable"
+    print(f"[CONFIG][LABS] {why}; labs from: {source}")
+    return previous, source
+
+
 def refresh_labs_file(conn, context_dir) -> tuple[dict | None, str]:
-    """Fetch, build and write the labs file; on a failed read fall back to the file on disk.
+    """Fetch, build and write the labs file; on a failed read keep the file on disk.
 
     Returns ``(document, source)`` with ``source`` one of ``fetched``, ``previous_file``
     or ``unavailable``. Never raises: a SEEK read that fails (no such schema, no such table,
-    a timeout) is logged once and the export carries on. A fetched document whose write
-    fails is still returned, so this process uses it.
+    a timeout) is logged once and the export carries on. An answer ``refusal`` rejects (no
+    institution, or no title that parses) is a failed read too: the last good file stays,
+    and one ``REFUSED`` line goes to stderr as well as the usual log. A fetched document whose
+    write fails is still returned, so this process uses it.
     """
     try:
         doc = build_labs_document(fetch_institution_rows(conn))
     except Exception as exc:
-        previous = load_labs_file(context_dir)
-        source = "previous_file" if previous is not None else "unavailable"
-        print(f"[CONFIG][LABS] SEEK institution read failed: {exc!r}; labs from: {source}")
-        return previous, source
+        return _keep_previous(context_dir, f"SEEK institution read failed: {exc!r}")
 
     print(log_line(doc))
+    refused = refusal(doc)
+    if refused is not None:
+        loud = (f"[CONFIG][LABS] REFUSED the SEEK institution read: {refused}. "
+                f"{LABS_FILE_NAME} is left as it was; see python -m chat_nextseek.labs --report")
+        print(loud, file=sys.stderr)
+        return _keep_previous(context_dir, f"refused the SEEK institution read ({refused})")
     try:
         write_labs_file(doc, context_dir)
     except Exception as exc:
@@ -432,8 +468,9 @@ def connect_prod(env=None):
 def main(argv=None, env=None) -> int:
     """Print the labs document built from a live read. Writes nothing.
 
-    Exit 0 when printed, 1 without ``--report`` or when the read fails, 2 when it cannot
-    connect.
+    Exit 0 when printed, 1 without ``--report``, when the read fails, or when the answer is
+    one the daily export refuses (``refusal``), 2 when it cannot connect. A refused answer is
+    still printed, with a ``refused`` key, so every title's reason code is visible.
     """
     parser = argparse.ArgumentParser(
         prog="python -m chat_nextseek.labs",
@@ -466,8 +503,13 @@ def main(argv=None, env=None) -> int:
         except Exception:
             pass
     print(log_line(doc), file=sys.stderr)
+    refused = refusal(doc)
+    if refused is not None:
+        print(f"[LABS] REFUSED: {refused}. The daily export would keep the last good "
+              f"{LABS_FILE_NAME} rather than write this document.", file=sys.stderr)
+        doc = {**doc, "refused": refused}
     print(json.dumps(doc, indent=2, ensure_ascii=False))
-    return 0
+    return 0 if refused is None else 1
 
 
 if __name__ == "__main__":
