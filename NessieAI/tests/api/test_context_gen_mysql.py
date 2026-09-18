@@ -549,6 +549,37 @@ def test_the_new_seed_shape_takes_the_update_without_a_second_key(mysql):
     assert _pairs(mysql, db) == sorted(cg.key_of("projects", r) for r in rows)
 
 
+def _legacy_rows() -> str:
+    """Production's projects_context before 6.16, in its own shape.
+
+    Production types most PROJECT rows 'investigation' with no parent_project, one sub-project
+    row 'study', and a few rows 'project'. Here every curated project row but the one the
+    pre-state already holds is typed the legacy way, and an invented study row sits under it.
+    With the live PRIMARY KEY (name), a legacy row and a curated investigation of one name (the
+    real CSBC and MetNet) are one row until the key becomes the pair.
+    """
+    projects = [r for r in cg.rows_for("projects") if r["entity_type"] == "project"]
+    values = [f"({_q(r['name'])}, 'investigation', {r['project_id']}, NULL, 'Legacy text.')"
+              for r in projects[1:]]
+    values.append(f"('Synthetic Core Study', 'study', {projects[0]['project_id']}, "
+                  f"{_q(projects[0]['name'])}, 'Legacy text.')")
+    return ("INSERT INTO `projects_context` (`name`, `entity_type`, `project_id`, `parent_project`, "
+            "`description`) VALUES " + ", ".join(values) + ";\n")
+
+
+def test_the_legacy_shape_becomes_exactly_the_curated_rows(mysql):
+    """What 6.16 meets on production: the update leaves exactly the curated (name, entity_type)
+    pairs, no legacy-typed project row and no study row, and a second run changes nothing."""
+    db = load_prestate(mysql, "legacy", extra=_legacy_rows())
+    assert mysql.scalar(db, "SELECT COUNT(*) FROM projects_context WHERE entity_type = 'investigation' "
+                            "AND parent_project IS NULL") > 1
+    _twice(mysql, db, update_sql())
+    assert _pairs(mysql, db) == sorted(cg.key_of("projects", r) for r in cg.rows_for("projects"))
+    assert mysql.scalar(db, "SELECT COUNT(*) FROM projects_context WHERE entity_type = 'investigation' "
+                            "AND (parent_project IS NULL OR parent_project = '')") == 0
+    assert mysql.scalar(db, "SELECT COUNT(*) FROM projects_context WHERE description = 'Legacy text.'") == 0
+
+
 # --- drift is refused, loudly, and nothing is committed ----------------------------
 
 
