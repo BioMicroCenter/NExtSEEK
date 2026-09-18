@@ -317,6 +317,24 @@ class DownloadContentTests(_DownloadBase):
         self.assertEqual(zf.read("bundle-2/geo_1.xlsx"), b"PK-one")
         self.assertEqual(zf.read("bundle-2/geo_2.xlsx"), b"PK-two")
 
+    def test_a_saved_url_is_not_reported_as_a_refused_path(self):
+        """Some report_saved_files keys hold links (nf-core Tower runs, Tower
+        datasets), not files. They are not files to ship, and not refusals either."""
+        path = self.ns_file("samplesheet.csv", "sample\n")
+        cs = self.session(
+            chat_log=[_ns_entry(1, 1)],
+            bundles=[{"id": 1, "mode": "nfcore",
+                      "report_saved_files": {
+                          "nfcore_samplesheet": path,
+                          "nfcore_tower_run_urls": ["https://tower.example.org/runs/1"],
+                          "tower_dataset_samplesheet": "https://tower.example.org/ds/2"}}],
+        )
+
+        zf = self.unzip(self.download(cs))
+
+        self.assertEqual(zf.read("turn-01/samplesheet.csv"), b"sample\n")
+        self.assertEqual(self.manifest(zf)["skipped"], [])
+
     def test_report_tables_become_one_workbook(self):
         cs = self.session(
             chat_log=[_ns_entry(1, 1, query="report on project 2")],

@@ -267,7 +267,7 @@ def _ns_candidates(bundle: dict[str, Any]) -> list[tuple[Any, Any, Any]]:
     for key, value in (bundle.get("report_saved_files") or {}).items():
         paths = [value] if isinstance(value, str) else (
             list(value) if isinstance(value, (list, tuple)) else [])
-        out.extend((key, p, None) for p in paths if isinstance(p, str) and p)
+        out.extend((key, p, None) for p in paths if isinstance(p, str) and p and "://" not in p)
     return out
 
 
