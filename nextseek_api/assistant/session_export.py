@@ -16,7 +16,9 @@ session can hold both:
   roots, through ``_safe_artifact_path`` in ``NessieAI/ns/artifacts.py``.
 * Container-CC files are published to ``<CC tree>/output/artifacts/<run id>/``
   (``_publish_artifacts`` in ``NessieAI/cc/cc_engine.py``) and served through
-  ``resolve_artifact_path``, the guard of the per-turn CC download.
+  ``resolve_artifact_path``, the guard of the per-turn CC download. The tree is
+  the project folder the session's CC turns ran in, which the turn saves as
+  ``extra_state['cc_project_dirname']``, plus the owner's username; no SEEK call.
 
 Every path is checked while planning, before the response starts, so a refusal
 is a manifest line and never a half-sent zip. The zip itself is written through
@@ -64,7 +66,6 @@ _UNSAFE_SEGMENT = re.compile(r"[^A-Za-z0-9._-]")
 # Why a file named by the session is not in the zip. Recorded in manifest.json.
 OUTSIDE_ROOT = "outside_artifact_root"
 MISSING = "missing_on_disk"
-CC_OWNER_ONLY = "cc_owner_only"
 CC_UNRESOLVED = "cc_tree_unresolved"
 GENERATION_FAILED = "generation_failed"
 READ_FAILED = "read_failed"
@@ -146,19 +147,27 @@ def turn_rows(session) -> list[TurnRow]:
 # The CC tree
 # ----------------------------------------------------------------------
 
-def cc_artifacts_root(api_user: str | None, api_pass: str | None, username: str) -> Path:
-    """``<CC tree>/output/artifacts`` of ``username``, found the way the per-turn
-    CC download finds it: the SEEK project resolved with the caller's own
-    credentials, then the validated volume layout of ``build_user_dirs``.
+def cc_artifacts_root(session) -> Path:
+    """``<CC tree>/output/artifacts`` of the session's owner, as the turns used it.
 
-    Raises whatever those raise (``ProjectResolutionError``, ``ValueError``);
+    The CC turn path saves the project folder it ran in as
+    ``extra_state['cc_project_dirname']`` on the first CC turn, and refuses a later
+    turn whose resolved project differs, so that folder plus the owner's username
+    names every CC turn's tree. Asking SEEK instead would find the owner's project
+    as it is now: after a rename, or a change of first project, files still on disk
+    would be reported missing. Nothing here depends on who is asking.
+
+    Raises ``ValueError`` when no folder was saved, or when the saved one or the
+    username is not a plain path segment (``build_user_dirs`` checks both);
     ``plan_export`` turns that into a manifest line.
     """
     from NessieAI.cc.cc_config import CCPaths
-    from NessieAI.cc.cc_provision import build_user_dirs, resolve_user_project
+    from NessieAI.cc.cc_provision import build_user_dirs
 
-    project = resolve_user_project(api_user, api_pass)
-    dirs = build_user_dirs(CCPaths.from_env(), project.dirname, username)
+    dirname = (session.extra_state or {}).get("cc_project_dirname")
+    if not dirname:
+        raise ValueError("the session saved no CC project folder")
+    dirs = build_user_dirs(CCPaths.from_env(), dirname, session.user.username)
     return Path(dirs.output_mnt) / "artifacts"
 
 
@@ -323,14 +332,12 @@ def _segment(value: Any) -> str:
     return _UNSAFE_SEGMENT.sub("_", str(value)) or "_"
 
 
-def plan_export(session, *, resolve_cc_root: Callable[[], Path] | None) -> ExportPlan:
+def plan_export(session) -> ExportPlan:
     """Decide every member of the zip and every refusal, before streaming starts.
 
-    ``resolve_cc_root`` returns the owner's CC artifacts root. It is called at
-    most once, and only when a turn published CC files, so an NS-only session
-    never costs a SEEK lookup. ``None`` means the caller may not resolve the
-    owner's tree (it is found through the owner's own SEEK login); those turns
-    are then listed as skipped rather than looked up in the caller's tree.
+    The owner's CC artifacts root (``cc_artifacts_root``) is located at most once,
+    and only when a turn published CC files. It comes from the session alone, so
+    an operator downloading someone else's chat gets the same files the owner does.
     """
     sid = str(session.session_id)
     planner = _Planner(sid)
@@ -339,7 +346,6 @@ def plan_export(session, *, resolve_cc_root: Callable[[], Path] | None) -> Expor
 
     turn_folders: list[str | None] = []
     cc_root: Path | None = None
-    cc_failure: str | None = None if resolve_cc_root is not None else CC_OWNER_ONLY
     cc_resolved = False
     claimed: set[int] = set()
 
@@ -350,16 +356,15 @@ def plan_export(session, *, resolve_cc_root: Callable[[], Path] | None) -> Expor
             _plan_ns_bundle(planner, folder, row.bundle)
         entry = row.entry or {}
         if entry.get("cc_run_id") and entry.get("artifacts"):
-            if not cc_resolved and resolve_cc_root is not None:
+            if not cc_resolved:
                 cc_resolved = True
                 try:
-                    cc_root = resolve_cc_root()
-                except Exception:  # noqa: BLE001 - a SEEK hiccup must not fail the rest
+                    cc_root = cc_artifacts_root(session)
+                except ValueError:
                     logger.warning("session export: CC tree of %s unresolved", sid,
                                    exc_info=True)
-                    cc_failure = CC_UNRESOLVED
             if cc_root is None:
-                planner.skip(folder, "cc", entry.get("cc_run_id"), cc_failure)
+                planner.skip(folder, "cc", entry.get("cc_run_id"), CC_UNRESOLVED)
             else:
                 _plan_cc_turn(planner, folder, entry.get("cc_run_id"), cc_root)
         turn_folders.append(folder if planner.folder_has_files(folder) else None)
