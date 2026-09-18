@@ -1651,10 +1651,20 @@ class BakedCount(ValueError):
     """A curated description carries a number that reads as a sample count."""
 
 
-# A count, as opposed to a gene or a protein. `PAX3-FOXO1` and `COL2A1` are real
-# curated content and must pass; `1,084,754` and `84394` must not. Four or more
-# consecutive digits, or any comma-grouped number.
-_COUNT_LIKE = re.compile(r"\d{4,}|\d{1,3}(?:,\d{3})+")
+# A count, as opposed to a gene, a protein or a year. `PAX3-FOXO1`, `COL2A1` and
+# `2019-2023` are ordinary curated text and must pass. A number standing on its own
+# is a count when it is comma-grouped, five digits or more, four digits and not a
+# year, scaled (`84k`, `1.2 million`), or followed by what it counts (`568 samples`).
+_COUNT_LIKE = re.compile(
+    r"(?<![\w.-])(?:"
+    r"\d{1,3}(?:,\d{3})+"
+    r"|\d{5,}"
+    r"|(?!(?:19|20)\d\d\b)\d{4}\b"
+    r"|\d+(?:\.\d+)?\s*(?:k|K|M|thousand|million|billion)\b"
+    r"|\d+(?=\s+(?:samples?|donors?|patients?|subjects?|specimens?|cells?|individuals?"
+    r"|animals?|mice|participants?|biopsies)\b))",
+    re.I,
+)
 
 # Markdown a name or an alias may not carry. `drift.assistant_investigation_names`
 # captures the bold term as `[^*]+`, so an asterisk truncates the name it then looks
@@ -1712,10 +1722,26 @@ def render_capabilities_block(rows: list[dict], sample_counts=None) -> str:
     evidence that a name answers, nothing may be told to the agent.
     """
     counts = dict(sample_counts or {})
+    for name, count in counts.items():
+        if not isinstance(name, str) or isinstance(count, bool) or not isinstance(count, int):
+            raise UnsupportedValue(
+                f"sample count {name!r}: {count!r}. The counts are a JSON object mapping an "
+                "investigation title to a whole number of samples"
+            )
+    check_columns("projects", rows)
     investigations = sorted(
         (r for r in rows if (r.get("entity_type") or "").strip().lower() == "investigation"),
         key=lambda r: str(r.get("name") or ""),
     )
+    for row in investigations:
+        aliases = row.get("alternative_names")
+        if aliases is not None and not (isinstance(aliases, list)
+                                        and all(isinstance(a, str) for a in aliases)):
+            raise UnsupportedValue(
+                f"{row.get('name')!r}: alternative_names must be a list of strings, "
+                f"not {aliases!r}"
+            )
+    _checked_keys("projects", investigations)
     if not investigations:
         raise NoInvestigations(
             "no row has entity_type 'investigation', so this block would empty the "
@@ -1759,14 +1785,15 @@ def render_capabilities_block(rows: list[dict], sample_counts=None) -> str:
             if str(a).strip() and str(a).strip() != name
         ]
         description = _short_description(row)
-        found = _COUNT_LIKE.search(description)
-        if found:
-            raise BakedCount(
-                f"{name}: its description carries {found.group(0)!r}, which reads as a "
-                "count. A count baked into this block rots the day the next sync runs, "
-                "and live counts already reach the agent through the catalog reader. "
-                "Rewrite the research_focus without it."
-            )
+        for text in [description, *alternatives]:
+            found = _COUNT_LIKE.search(text)
+            if found:
+                raise BakedCount(
+                    f"{name}: {text[:60]!r} carries {found.group(0)!r}, which reads as a "
+                    "count. A count baked into this block rots the day the next sync runs, "
+                    "and live counts already reach the agent through the catalog reader. "
+                    "Rewrite the research_focus or the alternative name without it."
+                )
         bullet = f"- **{name}** — {description}"
         if alternatives:
             bullet += f" [also: {', '.join(alternatives)}]"
@@ -1784,19 +1811,51 @@ def render_capabilities_block(rows: list[dict], sample_counts=None) -> str:
 DRIFT_SECTION_HEADING = "## Known Projects and Investigations"
 
 
+def check_capabilities_markers(text: str) -> list[str]:
+    """What is wrong with the CONTEXT-GEN markers in `text`; empty when nothing is.
+
+    No markers at all is well formed: they are placed by hand once (task 6.15c),
+    and until then there is nothing to check. Otherwise there must be exactly one
+    BEGIN and one END, in that order, inside the section drift reads, with nothing
+    between them that ends a section. Each rule is a measured failure of the old
+    presence-only check: reversed markers duplicated the text between them on every
+    run, a second pair left a stale block drift still read, an END placed after
+    later sections deleted them with exit 0, and a `---` or a later heading above
+    BEGIN put the block where drift read no names -- so its check passed.
+    """
+    begins = [m.start() for m in re.finditer(re.escape(CAPABILITIES_BEGIN), text)]
+    ends = [m.start() for m in re.finditer(re.escape(CAPABILITIES_END), text)]
+    if not begins and not ends:
+        return []
+    if len(begins) != 1 or len(ends) != 1:
+        return [f"{len(begins)} BEGIN and {len(ends)} END markers; there must be exactly one of each"]
+    begin, end = begins[0], ends[0]
+    if end < begin:
+        return ["the END marker comes before the BEGIN marker"]
+    problems = []
+    head, inner = text[:begin], text[begin:end]
+    headings = re.findall(r"^## .*$", head, re.M)
+    if not headings or headings[-1].strip() != DRIFT_SECTION_HEADING:
+        problems.append(
+            f"the block is not in the `{DRIFT_SECTION_HEADING}` section, which is where "
+            "nextseek_api/graph_sync/drift.py reads the names; with no names its check passes"
+        )
+    elif re.search(r"^---\s*$", head[head.rindex(headings[-1]):], re.M):
+        problems.append("a `---` line between the heading and BEGIN ends drift's section before the block")
+    if re.search(r"^(?:#{1,6} |---\s*$)", inner, re.M):
+        problems.append("a heading or `---` line sits between BEGIN and END, so regenerating "
+                        "the block would delete it")
+    return problems
+
+
 def replace_capabilities_block(text: str, block: str) -> str:
     """`text` with everything between the markers replaced by `block`.
 
-    The generated block is placed under the H2 heading `drift.py` keys on, and this
-    refuses if it is not: see `DRIFT_SECTION_HEADING`.
-
-    What this does NOT need to enforce, contrary to an earlier note here: writing
-    the block does not make `route_capabilities.json` stale. The NS projection reads
-    only the three required H2 sections ("Overview", "What You Can Ask", "What the
-    System Cannot Do"), so regenerating this block leaves the projection and the
-    route-level object byte for byte identical -- measured by regenerating the block
-    and re-projecting. The step that actually carries a new list to the agent is the
-    image COPY and rebuild, not `gen_op_surfaces`.
+    Refuses unless the markers are well formed (`check_capabilities_markers`),
+    and checks its own result the same way. Writing the block does not make
+    `route_capabilities.json` stale: the NS projection reads only the three
+    required H2 sections, so it comes out byte for byte identical. The step that
+    carries a new list to the agent is the image COPY and rebuild.
     """
     if CAPABILITIES_BEGIN not in text or CAPABILITIES_END not in text:
         raise ValueError(
@@ -1804,16 +1863,16 @@ def replace_capabilities_block(text: str, block: str) -> str:
             "markers are added to capabilities.md once, by hand, around the section "
             "body; after that this function owns what is between them."
         )
+    problems = check_capabilities_markers(text)
+    if problems:
+        raise ValueError("refusing to rewrite the capabilities block: " + "; ".join(problems))
     head = text.split(CAPABILITIES_BEGIN, 1)[0]
-    if not re.search(rf"^{re.escape(DRIFT_SECTION_HEADING)}\s*$", head, re.M):
-        raise ValueError(
-            f"the block would not sit under `{DRIFT_SECTION_HEADING}`, which is the "
-            "heading nextseek_api/graph_sync/drift.py reads the names from. With no "
-            "such heading above it drift finds no names and its check PASSES, so the "
-            "runtime backstop would be off and nothing would say so."
-        )
     tail = text.split(CAPABILITIES_END, 1)[1]
-    return head + block.rstrip("\n") + tail
+    result = head + block.rstrip("\n") + tail
+    problems = check_capabilities_markers(result)
+    if problems or result.count(CAPABILITIES_BEGIN) != 1:
+        raise ValueError("the rewritten block is malformed: " + "; ".join(problems))
+    return result
 
 
 # --- the command line --------------------------------------------------------
@@ -1865,8 +1924,14 @@ def emit_capabilities(counts_path, out=None) -> int:
     `capabilities.md` still names five investigations that answer nothing.
     """
     counts = json.loads(Path(counts_path).read_text(encoding="utf-8"))
-    if isinstance(counts, dict) and "samples" in counts:      # drift's stat, whole
-        counts = counts["samples"]
+    if isinstance(counts, dict) and isinstance(counts.get("samples"), dict):
+        counts = counts["samples"]                            # drift's stat, whole
+    if not isinstance(counts, dict) or any(isinstance(v, (dict, list)) for v in counts.values()):
+        raise UnsupportedValue(
+            f"{counts_path}: expected a flat JSON object mapping an investigation title "
+            "to its sample count, or drift's assistant_investigations stat whole; this "
+            "is nested differently"
+        )
     block = render_capabilities_block(rows_for("projects"), counts)
     target = Path(out) if out else (REPO_ROOT / CAPABILITIES_PATH)
     text = target.read_text(encoding="utf-8")

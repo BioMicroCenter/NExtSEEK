@@ -1312,12 +1312,13 @@ def test_update_sql_drops_a_stale_row_and_updates_an_existing_one_in_place():
 # consumer audit is 6.15d, both gated on the operator's xlsx review, and nothing
 # here edits capabilities.md.
 
-# The five that resolve to nothing today, and what they should say, from the plan's
-# measured table. Sample counts are used to DECIDE, never emitted.
+# The names the plan's table says should replace the five that resolve to nothing.
+# The counts are synthetic: they are used to DECIDE, never emitted, and only their
+# sign matters here.
 LIVE_COUNTS = {
-    "Impactb Investigation": 84394, "MIT_SRP": 56004, "GBM_BTC": 4564,
-    "Endometriosis": 3247, "Collagen Study": 568, "CSBC": 3643, "MetNet": 10379,
-    "TCGA": 918519,
+    "Impactb Investigation": 7001, "MIT_SRP": 7002, "GBM_BTC": 7003,
+    "Endometriosis": 7004, "Collagen Study": 7005, "CSBC": 7006, "MetNet": 7007,
+    "TCGA": 7008,
 }
 DEAD_NAMES = ("Impact", "SRP", "GBM", "Griffith", "Shoulders")
 
@@ -1342,7 +1343,7 @@ def _investigation(name, **extra):
 
 
 def test_capabilities_block_is_one_marked_generated_block():
-    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 918519})
+    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 7008})
     assert block.startswith(cg.CAPABILITIES_BEGIN)
     assert block.rstrip("\n").endswith(cg.CAPABILITIES_END)
     assert "BEGIN" in cg.CAPABILITIES_BEGIN and "END" in cg.CAPABILITIES_END
@@ -1355,7 +1356,7 @@ def test_capabilities_block_lists_investigations_and_skips_projects():
     drift check fail for a row that is perfectly correct."""
     rows = [_investigation("TCGA"),
             {"name": "MIT-Koch", "entity_type": "project", "research_focus": "A program."}]
-    block = cg.render_capabilities_block(rows, {"TCGA": 918519})
+    block = cg.render_capabilities_block(rows, {"TCGA": 7008})
     assert "**TCGA**" in block
     assert "MIT-Koch" not in block
 
@@ -1388,8 +1389,8 @@ def test_a_count_in_a_curated_description_is_refused():
     `research_focus` from carrying one, and a baked count rots on the next sync."""
     import pytest
 
-    for focus in ("Pan-cancer atlas of 1,084,754 samples across 33 cohorts.",
-                  "Holds 84394 samples today."):
+    for focus in ("Pan-cancer atlas of 1,234,567 samples across 33 cohorts.",
+                  "Holds 76543 samples today."):
         row = _investigation("TCGA", research_focus=focus)
         with pytest.raises(cg.BakedCount):
             cg.render_capabilities_block([row], _counts_for("TCGA"))
@@ -1408,11 +1409,11 @@ def test_the_block_refuses_to_drop_an_investigation_that_answers():
 
     rows = [_investigation("TCGA")]
     with pytest.raises(cg.UnlistedInvestigation) as excinfo:
-        cg.render_capabilities_block(rows, {"TCGA": 918519, "MetNet": 10379})
+        cg.render_capabilities_block(rows, {"TCGA": 7008, "MetNet": 7007})
     assert "MetNet" in str(excinfo.value)
     assert "TCGA" not in str(excinfo.value)
     # A name that answers nothing is not surplus; it is the other refusal's case.
-    cg.render_capabilities_block(rows, {"TCGA": 918519, "GBM": 0})
+    cg.render_capabilities_block(rows, {"TCGA": 7008, "GBM": 0})
 
 
 def test_capabilities_block_refuses_an_investigation_with_no_samples():
@@ -1433,7 +1434,7 @@ def test_capabilities_block_refuses_a_name_the_counts_do_not_mention():
     import pytest
 
     with pytest.raises(cg.ZeroSampleInvestigation):
-        cg.render_capabilities_block([_investigation("Nowhere")], {"TCGA": 918519})
+        cg.render_capabilities_block([_investigation("Nowhere")], {"TCGA": 7008})
 
 
 def test_capabilities_block_refuses_with_no_counts_at_all():
@@ -1460,7 +1461,7 @@ def test_capabilities_block_refuses_an_investigation_with_nothing_to_say():
 
     row = _investigation("TCGA", research_focus=None, description=None)
     with pytest.raises(cg.IncompleteInvestigation):
-        cg.render_capabilities_block([row], {"TCGA": 918519})
+        cg.render_capabilities_block([row], {"TCGA": 7008})
 
 
 def test_capabilities_block_bridges_what_users_type_to_the_exact_title():
@@ -1514,7 +1515,7 @@ def test_the_block_replaces_the_section_body_between_its_markers():
     regenerating this block leaves the projection and the route-level object byte
     for byte identical. That claim is checked below rather than repeated.
     """
-    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 918519})
+    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 7008})
     before = (f"{cg.DRIFT_SECTION_HEADING}\n\n"
               f"{cg.CAPABILITIES_BEGIN}\nold text\n{cg.CAPABILITIES_END}\n\n---\n")
     after = cg.replace_capabilities_block(before, block)
@@ -1539,7 +1540,7 @@ def test_the_block_refuses_to_sit_anywhere_drift_would_not_read_it():
     import pytest
     from nextseek_api.graph_sync import drift
 
-    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 918519})
+    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 7008})
     renamed = (f"## Known Investigations\n\n"
                f"{cg.CAPABILITIES_BEGIN}\nold\n{cg.CAPABILITIES_END}\n\n---\n")
     # This is the failure it prevents, shown with drift's real parser.
@@ -1585,7 +1586,7 @@ def test_regenerating_the_block_leaves_the_ns_projection_identical():
               f"{body}\n{cg.CAPABILITIES_END}\n---\n{tail}")
 
     before = ns_capabilities.project_ns_capabilities(marked)
-    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 918519})
+    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 7008})
     after = ns_capabilities.project_ns_capabilities(
         cg.replace_capabilities_block(marked, block))
     assert before == after
@@ -1610,7 +1611,7 @@ def test_the_capabilities_mode_exists_and_refuses_today():
     parser_text = _repo(Path("scripts/context_gen.py"))
     assert '"update", "seed", "capabilities"' in parser_text
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
-        _json.dump({"TCGA": 918519}, handle)
+        _json.dump({"TCGA": 7008}, handle)
         counts = handle.name
     # Every projects_context row is still a project, so the first refusal fires.
     with pytest.raises(cg.NoInvestigations):
@@ -1634,6 +1635,50 @@ def test_the_committed_capabilities_file_still_names_the_dead_investigations():
     assert cg.CAPABILITIES_BEGIN not in text        # 6.15c adds the markers
     names = drift.assistant_investigation_names(text)
     assert set(DEAD_NAMES) <= set(names), names
+
+
+_SECTION = f"{cg.DRIFT_SECTION_HEADING}\n\n"
+_AFTER = "\n---\n\n## What the System Cannot Do\n\n- **Charts** no\n\n## Tips\n\n- tip\n"
+_PAIR = f"{cg.CAPABILITIES_BEGIN}\nold\n{cg.CAPABILITIES_END}\n"
+
+MALFORMED_MARKERS = {
+    # END above BEGIN: the text between them was duplicated on every run.
+    "reversed": _SECTION + f"{cg.CAPABILITIES_END}\nold\n{cg.CAPABILITIES_BEGIN}\n" + _AFTER,
+    # A second pair: the stale second block survived and drift read its names.
+    "duplicated": _SECTION + _PAIR + "\n" + _PAIR + _AFTER,
+    # END at the end of the file: every section after BEGIN was deleted, exit 0.
+    "END past later sections": (_SECTION + f"{cg.CAPABILITIES_BEGIN}\nold\n" + _AFTER
+                                + f"{cg.CAPABILITIES_END}\n"),
+    # A rule between the heading and BEGIN ends drift's section before the block,
+    # so drift read no names and its check passed.
+    "rule before BEGIN": _SECTION + "---\n\n" + _PAIR + _AFTER,
+    # Under a later heading: drift kept reading the hand-kept list above.
+    "under a later heading": _SECTION + "- **Old** x\n" + _AFTER + "\n" + _PAIR,
+    "BEGIN only": _SECTION + f"{cg.CAPABILITIES_BEGIN}\nold\n" + _AFTER,
+}
+
+
+def test_malformed_markers_are_refused_and_named():
+    """Only the presence of each marker was checked, and the first of each was used."""
+    import pytest
+
+    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 10})
+    for case, text in MALFORMED_MARKERS.items():
+        assert cg.check_capabilities_markers(text), case
+        with pytest.raises(ValueError):
+            cg.replace_capabilities_block(text, block)
+    good = _SECTION + _PAIR + _AFTER
+    assert cg.check_capabilities_markers(good) == []
+    after = cg.replace_capabilities_block(good, block)
+    assert cg.check_capabilities_markers(after) == []
+    assert after.split(cg.CAPABILITIES_END, 1)[1] == good.split(cg.CAPABILITIES_END, 1)[1]
+    assert cg.replace_capabilities_block(after, block) == after
+
+
+def test_a_document_with_no_markers_is_well_formed_until_someone_places_them():
+    """Where the markers go is the operator's call (6.15c); until then the committed
+    file has none, and that is not a defect the guard should report."""
+    assert cg.check_capabilities_markers(_SECTION + "- **Old** x\n" + _AFTER) == []
 
 
 def test_replacing_the_block_refuses_a_document_with_no_markers():
@@ -1662,6 +1707,56 @@ def test_a_dead_name_may_survive_as_an_alternative_but_never_as_a_checked_name()
     assert drift.assistant_investigation_names(document) == ["MIT_SRP"]
     for name in DEAD_NAMES:
         assert name not in drift.assistant_investigation_names(document)
+
+
+def test_the_block_checks_its_rows_and_its_counts_like_every_other_table():
+    """The block path skipped the column check, so a misspelt `alternative_name`
+    dropped its aliases silently; a string alias list rendered letter by letter; a
+    string count raised TypeError; two rows named alike gave two bullets."""
+    import pytest
+
+    with pytest.raises(cg.UnknownColumn):
+        cg.render_capabilities_block(
+            [_investigation("TCGA", alternative_name=["x"])], {"TCGA": 10})
+    with pytest.raises(cg.UnsupportedValue):
+        cg.render_capabilities_block(
+            [_investigation("TCGA", alternative_names="Impact")], {"TCGA": 10})
+    for counts in ({"TCGA": "10"}, {"TCGA": None}, {"TCGA": True}, {"TCGA": 10, "X": "3"}):
+        with pytest.raises(cg.UnsupportedValue):
+            cg.render_capabilities_block([_investigation("TCGA")], counts)
+    with pytest.raises(cg.DuplicateKey):
+        cg.render_capabilities_block([_investigation("TCGA"), _investigation("tcga")],
+                                     {"TCGA": 10, "tcga": 10})
+    with pytest.raises(cg.UnsupportedValue):
+        cg.render_capabilities_block([_investigation(" TCGA ")], {" TCGA ": 10})
+
+
+def test_a_counts_file_that_is_not_a_flat_title_to_count_map_is_refused(tmp_path):
+    """`graph_sync --drift --json` nests the stat; passed whole it was refused with
+    the misleading "resolve to no samples"."""
+    import json as _json
+
+    import pytest
+
+    counts = tmp_path / "counts.json"
+    counts.write_text(_json.dumps({"stats": {"assistant_investigations": {"samples": {}}}}))
+    with pytest.raises(cg.UnsupportedValue) as excinfo:
+        cg.emit_capabilities(counts, out=tmp_path / "caps.md")
+    assert "title" in str(excinfo.value)
+
+
+def test_a_count_in_an_alias_or_with_a_count_noun_is_refused_but_a_year_is_not():
+    import pytest
+
+    for row in (_investigation("TCGA", research_focus="Holds 321 samples."),
+                _investigation("TCGA", research_focus="About 84k samples."),
+                _investigation("TCGA", research_focus="Over 900 donors."),
+                _investigation("TCGA", alternative_names=["TCGA 123456 samples"])):
+        with pytest.raises(cg.BakedCount):
+            cg.render_capabilities_block([row], {"TCGA": 10})
+    cg.render_capabilities_block(
+        [_investigation("TCGA", research_focus="Samples collected 2019-2023, PAX3-FOXO1.")],
+        {"TCGA": 10})
 
 
 def test_a_title_never_carries_markdown_that_would_split_the_bold_run():
