@@ -90,6 +90,7 @@ import types as _types
 
 import neo4j as _real_neo4j
 
+from chat_nextseek.graph_scope import SCOPE_ATTR, GraphScope
 from chat_nextseek.helpers.tools.neo4j import tool_neo4j_query
 
 
@@ -159,7 +160,8 @@ def _install_fake_driver(monkeypatch, session):
 
 def _cfg():
     return _types.SimpleNamespace(
-        NEO4J_URI="bolt://x", NEO4J_USER="u", NEO4J_PASSWORD="p", NEO4J_DATABASE="neo4j"
+        NEO4J_URI="bolt://x", NEO4J_USER="u", NEO4J_PASSWORD="p", NEO4J_DATABASE="neo4j",
+        **{SCOPE_ATTR: GraphScope.admin("test")},
     )
 
 
