@@ -75,11 +75,14 @@ GENERIC_GLOBS: tuple[str, ...] = (
 
 # A sibling to GENERIC_GLOBS, but for a completely different purpose:
 # GENERIC_GLOBS is small QC/metadata TEXT that gets staged (copied) and read
-# for content; INVENTORY_GLOBS is never staged and never read -- it is only
+# for content; INVENTORY_GLOBS is never staged (never copied back) -- it is
 # LISTED (name + real size) by granular.py's _STAGE_SCRIPT, which walks the
 # run directory remotely and emits one inventory entry per match, subject to
 # the SAME containment guards (no symlinks, no escapes, no hardlinks) as
-# staging, plus its own file-count cap (MAX_INVENTORY_FILES).
+# staging, plus its own file-count cap (MAX_INVENTORY_FILES). A match small
+# enough to fit granular.py's hashing ceilings is additionally read in place
+# to md5 it -- read remotely, never transferred. See MAX_INVENTORY_FILES
+# below for the ceilings, and _stage_run_dir's docstring for why.
 #
 # Covers the file classes that can become primary data (A.ALN, A.GEX, ...)
 # or a named single-file link (multiqc_report_html, kraken2_report,
