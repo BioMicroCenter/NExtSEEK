@@ -1998,3 +1998,17 @@ def test_curated_text_may_not_carry_a_marker_or_the_availability_phrase():
                 _investigation("TCGA", alternative_names=["<!-- note -->"])):
         with pytest.raises(cg.UnsupportedValue):
             cg.render_capabilities_text([row])
+
+
+def test_the_availability_phrase_is_the_one_drift_keys_on():
+    """The generator writes the phrase and drift reads it; neither owns it, so this ties them,
+    as DRIFT_SECTION_HEADING is tied, and holds the two parsers to one reading of a block."""
+    from nextseek_api.graph_sync import drift
+
+    assert cg.NOT_EVERYWHERE_MARK == drift.NOT_EVERYWHERE_MARK
+    rows = [_investigation("CSBC"), _tcga(), _investigation("MetNet", present_on=["prod"])]
+    document = ("## Known Projects and Investigations\n\n" + cg.render_capabilities_text(rows)
+                + "\n---\n")
+    expected = [("CSBC", True), ("MetNet", False), ("TCGA", False)]
+    assert drift.assistant_investigation_entries(document) == expected
+    assert cg.listed_investigations(document) == expected

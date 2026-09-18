@@ -292,18 +292,22 @@ def _check_detection(driver, db, chunk: int, checks: list, stats: dict):
 # not repair that, so nothing caught it and the agent answered a confident zero. Raised by the graph-evidence POC.
 ASSISTANT_CAPABILITIES = ("NessieAI", "chat_nextseek", "src", "chat_nextseek", "context", "capabilities.md")
 _CAPABILITIES_SECTION = re.compile(r"^##\s+Known Projects and Investigations\s*$", re.M)
-_CAPABILITIES_NAME = re.compile(r"^-\s+\*\*([^*]+)\*\*", re.M)
+_CAPABILITIES_NAME = re.compile(r"^-\s+\*\*([^*]+)\*\*(.*)$", re.M)
+# The phrase the generated block (scripts/context_gen.py) appends to the bullet of a name that is not on every
+# instance. The generator writes the same string; NessieAI/tests/api/test_context_gen.py ties the two.
+NOT_EVERYWHERE_MARK = "(not on every instance:"
 
 ASSISTANT_INVESTIGATIONS = """
 UNWIND $titles AS title
 OPTIONAL MATCH (i:Investigation {title: title})
 OPTIONAL MATCH (i)<-[:IN_INVESTIGATION]-(:Study)<-[:IN_STUDY]-(s:Sample)
-RETURN title AS title, count(DISTINCT s) AS samples
+RETURN title AS title, count(DISTINCT i) AS nodes, count(DISTINCT s) AS samples
 """
 
 
-def assistant_investigation_names(text: str) -> list[str]:
-    """The investigation names under "Known Projects and Investigations", in file order.
+def assistant_investigation_entries(text: str) -> list[tuple[str, bool]]:
+    """The investigation names under "Known Projects and Investigations", in file order, each with whether it is
+    on every instance: False when its bullet carries NOT_EVERYWHERE_MARK.
 
     Only that section is read: the file carries bulleted bold terms elsewhere that are not investigations. The
     section ends at the next horizontal rule or heading.
@@ -313,7 +317,13 @@ def assistant_investigation_names(text: str) -> list[str]:
         return []
     rest = text[start.end():]
     end = re.search(r"^(?:---\s*|##\s+)", rest, re.M)
-    return [m.group(1).strip() for m in _CAPABILITIES_NAME.finditer(rest[:end.start()] if end else rest)]
+    body = rest[:end.start()] if end else rest
+    return [(m.group(1).strip(), NOT_EVERYWHERE_MARK not in m.group(2)) for m in _CAPABILITIES_NAME.finditer(body)]
+
+
+def assistant_investigation_names(text: str) -> list[str]:
+    """The investigation names under "Known Projects and Investigations", in file order."""
+    return [name for name, _ in assistant_investigation_entries(text)]
 
 
 def _capabilities_text(repo_root=None) -> str | None:
@@ -324,22 +334,37 @@ def _capabilities_text(repo_root=None) -> str | None:
         return None
 
 
-def _check_assistant_investigations(driver, db, names: list[str], checks: list, stats: dict) -> None:
+def _check_assistant_investigations(driver, db, entries, checks: list, stats: dict) -> None:
     """Every investigation name the assistant is told to use must resolve to one that answers (CI-4, the POC).
 
-    An empty node is worse than a missing one: the agent scopes to it and gets a confident zero rather than an
-    error. So a name fails when no Investigation carries it AND when the one that does holds no samples.
+    ``entries`` are ``assistant_investigation_entries``; a plain name is read as on every instance. An empty node is
+    worse than a missing one: the agent scopes to it and gets a confident zero rather than an error. So a name on
+    every instance fails when no Investigation carries it AND when the one that does holds no samples. A name the
+    block marks as not on every instance fails only as an empty node (nodes but no samples): absent here is what
+    its mark says, so it passes and is listed under ``absent_here``.
     """
+    entries = [(entry, True) if isinstance(entry, str) else tuple(entry) for entry in entries]
+    names = [name for name, _ in entries]
     if not names:
-        stats["assistant_investigations"] = {"names": 0, "unresolved": [], "note": "no names found to check"}
+        stats["assistant_investigations"] = {"names": 0, "unresolved": [], "absent_here": [],
+                                             "note": "no names found to check"}
         _check(checks, "catalog.assistant_investigations", 0, 0,
                detail="capabilities.md has no Known Projects and Investigations section")
         return
     rows = _records(_run(driver, db, ASSISTANT_INVESTIGATIONS, {"titles": names}, read=True))
     samples = {r["title"]: int(r["samples"] or 0) for r in rows}
-    unresolved = [name for name in names if samples.get(name, 0) == 0]
-    stats["assistant_investigations"] = {"names": len(names), "unresolved": unresolved,
-                                         "samples": {k: samples.get(k, 0) for k in names}}
+    nodes = {r["title"]: int(r.get("nodes") or 0) for r in rows}
+    unresolved, absent_here = [], []
+    for name, everywhere in entries:
+        if samples.get(name, 0) > 0:
+            continue
+        if everywhere or nodes.get(name, 0) > 0:
+            unresolved.append(name)
+        else:
+            absent_here.append(name)
+    stats["assistant_investigations"] = {"names": len(names), "unresolved": unresolved, "absent_here": absent_here,
+                                         "samples": {k: samples.get(k, 0) for k in names},
+                                         "nodes": {k: nodes.get(k, 0) for k in names}}
     _check(checks, "catalog.assistant_investigations", 0, len(unresolved),
            detail={"unresolved": unresolved[:EXAMPLES],
                    "hint": "capabilities.md names these but the graph answers nothing for them"})
@@ -417,7 +442,7 @@ def _drift(driver, db, sample_size: int, seed, chunk: int, now) -> dict:
     text = _capabilities_text()
     if text is not None:
         _timed(timings, "assistant_investigations", _check_assistant_investigations,
-               driver, db, assistant_investigation_names(text), checks, stats)
+               driver, db, assistant_investigation_entries(text), checks, stats)
     _timed(timings, "freshness", _check_freshness, now, checks, stats)
     gate = _timed(timings, "gate_g", verify.gate_g, driver, db, sample_size, seed=seed, accounts=(), chunk=chunk)
     checks.extend(gate["checks"])

@@ -117,7 +117,8 @@ class DriftGraph:
             # Every name the assistant is told to use resolves in this world, so the check passes and
             # these cases stay about what they are named for. The real repository's capabilities.md is
             # what supplies the names; TestTheAssistantsInvestigationNamesMustResolve covers failure.
-            return [{"title": title, "samples": self.investigation_samples} for title in params["titles"]]
+            return [{"title": title, "nodes": 1, "samples": self.investigation_samples}
+                    for title in params["titles"]]
         raise AssertionError(f"unexpected statement: {query}")
 
 
@@ -540,10 +541,12 @@ class TestTheNamesTheAssistantIsToldToUseAreParsed:
 
 
 def _investigation_reader(populated):
-    """Answers the resolve query: populated maps a title to its sample count."""
+    """Answers the resolve query: populated maps a title with a node to its sample count;
+    a title it does not name has no node."""
     def respond(query, params):
         if query == drift.ASSISTANT_INVESTIGATIONS:
-            return [{"title": t, "samples": populated.get(t, 0)} for t in params["titles"]]
+            return [{"title": t, "nodes": 1 if t in populated else 0, "samples": populated.get(t, 0)}
+                    for t in params["titles"]]
         raise AssertionError(f"unexpected statement: {query}")
     return FakeDriver(respond)
 
@@ -578,3 +581,86 @@ class TestTheAssistantsInvestigationNamesMustResolve:
         checks, stats = _run_investigation_check([], {})
         assert checks["catalog.assistant_investigations"]["pass"]
         assert stats["assistant_investigations"]["names"] == 0
+
+
+# --- names that are not on every instance (spec 2026-09-18, section 10.4) ---------------------------
+
+# The generated block marks a name the graph of some instances does not hold. On an instance
+# without it the name is absent, which is correct; an empty node there is still the confident zero.
+MARKED_SAMPLE = """
+## Known Projects and Investigations
+
+<!-- BEGIN CONTEXT-GEN:investigations -->
+
+- **Alder Study**: an investigation on every instance
+- **Birch Atlas**: an investigation on two instances (not on every instance: loaded on local and dev only)
+
+<!-- END CONTEXT-GEN:investigations -->
+
+---
+"""
+
+
+class TestNamesNotOnEveryInstance:
+    def test_the_entries_say_which_names_are_on_every_instance(self):
+        assert drift.assistant_investigation_entries(MARKED_SAMPLE) == [
+            ("Alder Study", True), ("Birch Atlas", False)]
+        assert drift.assistant_investigation_names(MARKED_SAMPLE) == ["Alder Study", "Birch Atlas"]
+        assert drift.assistant_investigation_entries(CAPABILITIES_SAMPLE) == [
+            ("CSBC", True), ("GBM", True), ("MetNet", True)]
+
+    def test_the_query_counts_the_nodes_as_well_as_the_samples(self):
+        assert "count(DISTINCT i) AS nodes" in drift.ASSISTANT_INVESTIGATIONS
+        assert "count(DISTINCT s) AS samples" in drift.ASSISTANT_INVESTIGATIONS
+
+    def _check(self, populated):
+        entries = drift.assistant_investigation_entries(MARKED_SAMPLE)
+        checks, stats = [], {}
+        drift._check_assistant_investigations(_investigation_reader(populated), "neo4j", entries,
+                                              checks, stats)
+        return {c["name"]: c for c in checks}["catalog.assistant_investigations"], \
+            stats["assistant_investigations"]
+
+    def test_a_marked_name_absent_here_passes_and_is_listed(self):
+        check, stats = self._check({"Alder Study": 5})
+        assert check["pass"]
+        assert stats["absent_here"] == ["Birch Atlas"] and stats["unresolved"] == []
+
+    def test_a_marked_name_on_an_empty_node_fails(self):
+        check, stats = self._check({"Alder Study": 5, "Birch Atlas": 0})
+        assert not check["pass"]
+        assert stats["unresolved"] == ["Birch Atlas"] and stats["absent_here"] == []
+
+    def test_a_marked_name_holding_samples_passes(self):
+        check, stats = self._check({"Alder Study": 5, "Birch Atlas": 7})
+        assert check["pass"] and stats["absent_here"] == []
+
+    def test_a_name_on_every_instance_still_fails_absent_or_empty(self):
+        for populated in ({"Birch Atlas": 7}, {"Alder Study": 0, "Birch Atlas": 7}):
+            check, stats = self._check(populated)
+            assert not check["pass"] and stats["unresolved"] == ["Alder Study"]
+
+    def test_plain_names_are_read_as_on_every_instance(self):
+        checks, stats = [], {}
+        drift._check_assistant_investigations(_investigation_reader({}), "neo4j", ["Birch Atlas"],
+                                              checks, stats)
+        assert not checks[0]["pass"]
+        assert stats["assistant_investigations"]["unresolved"] == ["Birch Atlas"]
+
+
+@pytest.mark.django_db
+def test_the_drift_check_passes_a_marked_name_this_instance_lacks(mysql_rows, gate, catalog, monkeypatch):
+    """A fresh local install without the marked investigation passes; the name is reported."""
+    monkeypatch.setattr(drift, "_capabilities_text", lambda repo_root=None: MARKED_SAMPLE)
+    graph = DriftGraph()
+
+    def respond(query, params):
+        if query == drift.ASSISTANT_INVESTIGATIONS:
+            return [{"title": t, "nodes": int(t == "Alder Study"), "samples": 3 if t == "Alder Study" else 0}
+                    for t in params["titles"]]
+        return graph(query, params)
+
+    _fresh_runs()
+    result, _ = _check_drift(respond)
+    assert _named(result, "catalog.assistant_investigations")["pass"]
+    assert result["stats"]["assistant_investigations"]["absent_here"] == ["Birch Atlas"]
