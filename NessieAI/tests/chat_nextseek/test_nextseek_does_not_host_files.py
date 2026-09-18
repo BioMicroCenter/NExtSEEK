@@ -112,10 +112,11 @@ def _path_section(text: str, name: str) -> str:
     return text[start:min(ends)]
 
 
-ROUTING_CORES = [PROMPTS / "parser_core_routing.txt", PROMPTS / "variants" / "v2" / "parser_core_routing.txt"]
+ROUTING_CORES = [PROMPTS / "parser_core_routing.txt", PROMPTS / "variants" / "v2" / "parser_core_routing.txt",
+                 PROMPTS / "variants" / "v3" / "parser_core_routing.txt"]
 
 
-@pytest.mark.parametrize("core_path", ROUTING_CORES, ids=["default", "v2"])
+@pytest.mark.parametrize("core_path", ROUTING_CORES, ids=["default", "v2", "v3"])
 def test_the_parser_sends_a_general_download_question_to_system_question(core_path):
     section = _path_section(read(core_path), "system_question")
     rule = re.search(r"(?s)[^\n]*(?:download|data files)[^\n]*(?:\n[^\n]+)*", section, re.IGNORECASE)
@@ -123,7 +124,7 @@ def test_the_parser_sends_a_general_download_question_to_system_question(core_pa
     assert re.search(r"what NExtSEEK is", section, re.IGNORECASE)
 
 
-@pytest.mark.parametrize("core_path", ROUTING_CORES, ids=["default", "v2"])
+@pytest.mark.parametrize("core_path", ROUTING_CORES, ids=["default", "v2", "v3"])
 def test_the_parser_sends_the_files_of_named_samples_to_a_search_for_their_locations(core_path):
     core = read(core_path)
     section = _path_section(core, "system_question")
@@ -131,7 +132,7 @@ def test_the_parser_sends_the_files_of_named_samples_to_a_search_for_their_locat
     assert re.search(r"never unsupported|not unsupported", section, re.IGNORECASE)
 
 
-@pytest.mark.parametrize("core_path", ROUTING_CORES, ids=["default", "v2"])
+@pytest.mark.parametrize("core_path", ROUTING_CORES, ids=["default", "v2", "v3"])
 def test_the_parser_step_about_the_system_itself_covers_what_nextseek_is(core_path):
     core = read(core_path)
     step = core[core.index("3. Is the user asking about the system itself"):]

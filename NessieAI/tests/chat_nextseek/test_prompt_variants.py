@@ -87,7 +87,7 @@ def _state(obj) -> dict:
 
 
 def test_the_variant_names_are_the_contract():
-    assert pv.VARIANT_NAMES == ("v2", "v2_apoc")
+    assert pv.VARIANT_NAMES == ("v2", "v2_apoc", "v3")
 
 
 def test_the_variants_live_under_the_package_prompts_directory():
@@ -124,9 +124,9 @@ def test_the_repository_variant_tree_is_valid():
 
 
 def test_an_unknown_name_is_refused(root):
-    _variant(root, "v3")
-    with pytest.raises(pv.VariantError, match="unknown prompt variant 'v3'"):
-        pv.load_variant("v3", variants_dir=root)
+    _variant(root, "v9")
+    with pytest.raises(pv.VariantError, match="unknown prompt variant 'v9'"):
+        pv.load_variant("v9", variants_dir=root)
 
 
 def test_a_missing_directory_is_refused(root):
@@ -181,7 +181,7 @@ def test_a_malformed_manifest_is_refused(root, manifest, match):
 
 
 @pytest.mark.parametrize("inherits, match", [
-    ("v3", "unknown prompt variant 'v3'"),
+    ("v9", "unknown prompt variant 'v9'"),
     ("v2_apoc", "inherits itself"),
 ])
 def test_a_bad_inherits_is_refused(root, inherits, match):

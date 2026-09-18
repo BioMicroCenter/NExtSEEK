@@ -342,3 +342,94 @@ def test_the_prompt_still_forbids_naming_the_mechanics():
 
     assert "endpoint" in text and "cypher" in text
     assert "http method" in text or "verb" in text
+
+
+# --------------------------------------------------------------------------
+# Pilot A v2 (2026-09-18): the writer saw too little of a right result.
+#
+# * Scientist duplicates: the query returned all 216 stored names with counts; the
+#   writer was handed the first 20 and said the top 20 show no duplicates.
+# * A Scientist-by-type breakdown: the rows carried type codes only and the writer invented
+#   names for them ("Mass Spectrometry Peptide" for D.MSP).
+# * Lung spellings: three rows, one per spelling; the reply listed them and never
+#   gave the total the question asked for.
+# --------------------------------------------------------------------------
+
+class _CatalogConfig(_StubConfig):
+    MIN_SAMPLETYPES = [
+        {"SampleType": "D.MSP", "Name": "Mass Spectrometry Data"},
+        {"SampleType": "BAC", "Name": "Bacteria Sample"},
+        {"SampleType": "TIS", "Name": "Tissue Sample"},
+    ]
+
+
+def _graph_turn(captured, *, question, rows, total=None, entity=None, config=None,
+                cypher="MATCH (s:Sample) RETURN s.Scientist AS value, count(*) AS n"):
+    chatter_mod.chatter_agent_answer(
+        config or _StubConfig(), question, entity or _entity(), _plan(mode="graph_query"),
+        graph_plan={"cypher": cypher, "parameters": {}, "explanation": ""},
+        graph_result={"ok": True, "count": len(rows), "total": total if total is not None else len(rows),
+                      "truncated": False, "data": rows},
+        log_dir="",
+    )
+    return captured["user_content"]
+
+
+def test_a_value_list_reaches_the_writer_whole(captured):
+    rows = [{"scientist": f"Person {i}", "n": 1000 - i} for i in range(216)]
+    text = _graph_turn(captured, question="Which Scientist entries are duplicates?", rows=rows)
+
+    assert '"Person 215"' in text
+    assert "all 216 rows" in text
+
+
+def test_a_sample_list_is_still_previewed_at_twenty_rows(captured):
+    rows = [{"id": i, "uuid": f"TIS-200901ENG-{i}", "type": "TIS"} for i in range(500)]
+    text = _graph_turn(captured, question="Find tissue samples", rows=rows,
+                       cypher="MATCH (s:T_TIS) RETURN s.id AS id, s.uuid AS uuid, s.type AS type")
+
+    assert '"TIS-200901ENG-19"' in text
+    assert '"TIS-200901ENG-20"' not in text
+
+
+def test_a_value_list_too_large_to_send_whole_says_it_is_partial(captured):
+    rows = [{"value": f"spelling number {i:05d}", "n": 1} for i in range(5000)]
+    text = _graph_turn(captured, question="Which values does Notes hold?", rows=rows)
+
+    assert '"spelling number 04999"' not in text
+    assert "of 5000 rows" in text
+
+
+def test_type_codes_in_the_rows_come_with_their_catalog_names(captured):
+    rows = [{"type": "D.MSP", "n": 218}, {"type": "BAC", "n": 3}]
+    text = _graph_turn(captured, question="One scientist's samples by type", rows=rows, config=_CatalogConfig(),
+                       cypher="MATCH (s:Sample) RETURN s.type AS type, count(*) AS n")
+
+    assert "D.MSP = Mass Spectrometry Data" in text
+    assert "BAC = Bacteria Sample" in text
+    assert "TIS = Tissue Sample" not in text
+
+
+def test_a_breakdown_carries_its_total(captured):
+    rows = [{"value": "Lung", "n": 16841}, {"value": "lung", "n": 3361}, {"value": "LUNG", "n": 2532}]
+    text = _graph_turn(captured, question="How many tissue samples have Organ set to lung?", rows=rows)
+
+    assert "22,734" in text
+
+
+def test_a_single_count_row_gets_no_sum_line(captured):
+    text = _graph_turn(captured, question="How many samples?", rows=[{"n": 1084754}],
+                       cypher="MATCH (s:Sample) RETURN count(*) AS n")
+
+    assert "Sum of" not in text
+
+
+def test_an_assay_the_question_never_named_raises_no_not_applied_line(captured):
+    text = _graph_turn(
+        captured, question="Find me samples associated with cd8 depletion",
+        rows=[{"id": 1, "uuid": "TIS-201214SHA-1", "type": "TIS"}],
+        entity=_entity(assays=[{"code": "Antibody Treatment", "name": "Antibody Treatment"}]),
+        cypher="MATCH (s:Sample) WHERE toLower(s.search_text) CONTAINS 'cd8' RETURN s.id AS id",
+    )
+
+    assert "NOT APPLIED" not in text

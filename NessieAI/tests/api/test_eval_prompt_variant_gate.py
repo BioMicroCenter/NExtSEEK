@@ -68,12 +68,12 @@ def test_prompt_variant_defaults_to_none():
     assert QueryRequest(query="hi", mode="standard").prompt_variant is None
 
 
-@pytest.mark.parametrize("val", ["v2", "v2_apoc"])
-def test_prompt_variant_accepts_the_two_variants(val):
+@pytest.mark.parametrize("val", ["v2", "v2_apoc", "v3"])
+def test_prompt_variant_accepts_the_known_variants(val):
     assert QueryRequest(query="hi", mode="standard", prompt_variant=val).prompt_variant == val
 
 
-@pytest.mark.parametrize("val", ["v3", "apoc", "rewrite", "V2", "", "default"])
+@pytest.mark.parametrize("val", ["v4", "apoc", "rewrite", "V2", "", "default"])
 def test_prompt_variant_rejects_anything_else(val):
     with pytest.raises(ValidationError):
         QueryRequest(query="hi", mode="standard", prompt_variant=val)
@@ -146,7 +146,7 @@ def test_without_the_flag_the_value_is_ignored(monkeypatch, variants, flag):
     None,
     SimpleNamespace(query="q"),
     SimpleNamespace(query="q", prompt_variant=None),
-    SimpleNamespace(query="q", prompt_variant="v3"),        # an unknown name, past the model
+    SimpleNamespace(query="q", prompt_variant="v9"),        # an unknown name, past the model
     SimpleNamespace(query="q", prompt_variant="rewrite"),
 ])
 def test_a_missing_or_unknown_name_is_a_no_op(monkeypatch, variants, req):

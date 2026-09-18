@@ -45,6 +45,79 @@ def _scrub_plumbing(payload: dict | None, keys: frozenset[str]) -> dict:
     return {k: v for k, v in payload.items() if k not in keys}
 
 
+#: A graph row is a sample record when it carries a sample identity key; any other row is an
+#: aggregate (a value and its count, a type and its count). Pilot A v2 (2026-09-18): the
+#: Scientist-duplicates query returned all 216 stored names with counts and the writer was
+#: handed 20 of them, so it could not see a single duplicate pair.
+_PREVIEW_ROWS = 20
+_AGGREGATE_ROWS_MAX = 500
+_AGGREGATE_CHARS_MAX = 24_000
+
+
+def _is_sample_key(key: Any) -> bool:
+    k = str(key).lower()
+    return k in {"id", "uuid", "uid"} or k.endswith(("_id", "_uuid", "_uid"))
+
+
+def _graph_rows_for_writer(rows: list) -> list:
+    """The graph rows the writer is shown: an aggregate whole, up to a size cap; a list of
+    sample records as its first 20."""
+    rows = list(rows or [])
+    aggregate = bool(rows) and all(
+        isinstance(r, dict) and not any(_is_sample_key(k) for k in r) for r in rows
+    )
+    if not aggregate:
+        return rows[:_PREVIEW_ROWS]
+    shown: list = []
+    size = 2
+    for row in rows[:_AGGREGATE_ROWS_MAX]:
+        size += len(json.dumps(row, separators=(",", ":"), default=str)) + 1
+        if size > _AGGREGATE_CHARS_MAX:
+            break
+        shown.append(row)
+    return shown or rows[:_PREVIEW_ROWS]
+
+
+def _breakdown_sum(rows: list) -> tuple[str, int | float] | None:
+    """``(column, sum)`` when every row carries exactly the same one numeric column, over two
+    or more rows: a breakdown whose total the question may ask for (Lung / lung / LUNG)."""
+    if len(rows) < 2 or not all(isinstance(r, dict) for r in rows):
+        return None
+    numeric = [
+        {k for k, v in r.items() if isinstance(v, (int, float)) and not isinstance(v, bool)} for r in rows
+    ]
+    if any(len(cols) != 1 for cols in numeric) or len(set.union(*numeric)) != 1:
+        return None
+    col = next(iter(numeric[0]))
+    return col, sum(r[col] for r in rows)
+
+
+def _type_names_block(config: Any, rows: list) -> str:
+    """Catalog names for the sample type codes in the rows, so the writer does not invent them
+    (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
+    catalog = getattr(config, "MIN_SAMPLETYPES", None)
+    if not isinstance(catalog, list):
+        return ""
+    names = {
+        str(item.get("SampleType")): str(item.get("Name"))
+        for item in catalog
+        if isinstance(item, dict) and item.get("SampleType") and item.get("Name")
+    }
+    seen: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            k = str(key).lower()
+            if (k == "type" or k.endswith("_type")) and isinstance(value, str) and value in names:
+                if value not in seen:
+                    seen.append(value)
+    if not seen:
+        return ""
+    return ("Sample type names for the codes in these rows (use these names; never invent one):\n"
+            + "\n".join(f"- {code} = {names[code]}" for code in seen) + "\n")
+
+
 def chatter_agent_answer(
     config: ChatConfig,
     user_query: str,
@@ -157,6 +230,7 @@ def chatter_agent_answer(
         api_plan=api_plan if not (is_graph or is_reporter) else None,
         graph_plan=graph_plan,
         extra_notes=query_notes,
+        user_query=user_query,
     )
 
     def _fmt_entities(items: Any) -> str:
@@ -218,7 +292,8 @@ def chatter_agent_answer(
         graph_limit = (graph_result or {}).get("limit")
         probed_total = (graph_result or {}).get("total")
         total_matches = probed_total if probed_total is not None else (graph_result or {}).get("count")
-        preview_count = len(graph_data[:20])
+        graph_rows_shown = _graph_rows_for_writer(graph_data)
+        preview_count = len(graph_rows_shown)
         example_ids = _harvest_ids(graph_data)
     elif is_reporter and isinstance(reporter_summary, dict):
         total_matches = (
@@ -250,13 +325,24 @@ def chatter_agent_answer(
 
     # Mode-specific data section (the actual answer payload).
     if is_graph:
-        records = ((graph_result or {}).get("data") or [])[:20]
+        all_rows = (graph_result or {}).get("data") or []
+        records = _graph_rows_for_writer(all_rows)
         preview_json = json.dumps(records, separators=(",", ":"), default=str)
         ok = (graph_result or {}).get("ok", False)
         error_str = (graph_result or {}).get("error", "")
+        row_total = total_matches if isinstance(total_matches, int) else len(all_rows)
+        complete = bool(records) and len(records) == len(all_rows) == row_total and not graph_truncated
+        if complete:
+            heading = f"Graph result (all {len(records)} rows):"
+        else:
+            heading = f"Graph result preview (first {len(records)} of {row_total} rows):"
+        breakdown = _breakdown_sum(records) if complete else None
         data_section = (
-            f"Graph result preview (up to 20 records):\n{preview_json}\n"
-            f"Query status: {'success' if ok else 'failed'}"
+            f"{heading}\n{preview_json}\n"
+            + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. When the question "
+               "asks how many, give this total first, then the breakdown.\n" if breakdown else "")
+            + _type_names_block(config, records)
+            + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")
         )
         mode_label = "graph_query"

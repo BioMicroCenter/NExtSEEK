@@ -85,7 +85,7 @@ class Command(BaseCommand):
                                  "the graph or the API path. Honoured only for a superuser on a "
                                  "server that sets NEXTSEEK_EVAL_PARSER_FORCE=1, and ignored "
                                  "without a word otherwise.")
-        parser.add_argument("--prompt-variant", choices=["v2", "v2_apoc"], default=None,
+        parser.add_argument("--prompt-variant", choices=["v2", "v2_apoc", "v3"], default=None,
                             help="With --force-route ns. Evaluation only: run every turn on that "
                                  "alternative prompt set (chat_nextseek/prompts/variants/<name>/), "
                                  "with or without a parser force. Honoured only for a superuser "
