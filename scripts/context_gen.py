@@ -11,12 +11,16 @@ how it reaches a database.
 
     python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
     python scripts/context_gen.py --emit seed --table all
-    python scripts/context_gen.py --emit capabilities --counts /tmp/investigations.json
+    python scripts/context_gen.py --emit capabilities --counts /tmp/counts-local.json
 
 `--emit update` writes one re-runnable script (stdout when `--out` is left off),
 `--emit seed` rewrites the held `startup/seed/sql/*.curated.sql` seeds in place,
 `--out` naming the directory rather than a file, and `--emit capabilities` rewrites
-the generated investigation block in `capabilities.md` from the live sample counts.
+the generated investigation block in `capabilities.md` from the investigation rows,
+refusing unless every counts file agrees with them. A counts file comes from
+`manage.py graph_sync --investigation-counts --instance <profile> --json`, one per
+instance, each passed with its own `--counts`; `--ignore-investigation TITLE` leaves
+a title out of the unlisted-investigation refusal.
 No install step reads the `.curated.sql` files until the curated content is signed
 off; `scripts/README.md` group C says what switching them on takes.
 
@@ -1696,35 +1700,37 @@ def render_mappings(rows: list[dict], assays=None) -> str:
 
 # --- the generated investigation block ---------------------------------------
 #
-# capabilities.md's "Known Projects and Investigations" section lists eight names
-# and tells the agent to "use these names exactly". Five of the eight return
-# nothing: SEEK carries two parallel investigation systems, and the list names the
-# paper-tracking copies in TestProject_250820 (38 bibliographic studies, zero
-# samples) rather than the real investigations that hold the samples. Measured on
-# the live 1.2 graph and confirmed against the 2026-09-11 production pull. It is
-# not repaired by a sync and it is not a local artifact.
+# capabilities.md's "Known Projects and Investigations" section listed eight names
+# and told the agent to "use these names exactly". Five of the eight returned
+# nothing: SEEK carries two parallel investigation systems, and the list named the
+# paper-tracking copies rather than the real investigations that hold the samples.
 #
 # Operator decision, 2026-09-17: do not hand-edit that list, generate it. The
-# section becomes a marked generated block filled from projects_context rows whose
-# entity_type is "investigation", following the repo's existing
-# `<!-- BEGIN DOCS-MAP:... -->` precedent. The marker is CONTEXT-GEN rather than
-# DOCS-MAP because ci/docs_map.py owns that namespace and does not own this block.
+# section is a marked generated block filled from the projects_context rows whose
+# entity_type is "investigation", following the repo's `<!-- BEGIN DOCS-MAP:... -->`
+# precedent. The marker is CONTEXT-GEN rather than DOCS-MAP because ci/docs_map.py
+# owns that namespace and does not own this block.
 #
-# Two rules the block keeps, and one refusal:
+# Generation is split in two (spec 2026-09-18, section 10.2):
 #
-#   * **No counts.** The repo's doc rules forbid a dated count in a README or CLAUDE
-#     file, and a baked count rots the day the next sync runs. Names and a short
-#     description. Live counts reach the graph agent through the catalog reader.
-#   * **Investigations only.** `catalog.assistant_investigations` checks every name
-#     in the section against Investigation nodes, so a project row that is not also
-#     an investigation title would fail a check for a perfectly correct row.
-#   * **Refuse at generation, not at rebuild.** An investigation that resolves to
-#     zero samples is not emitted, so the defect cannot be committed in the first
-#     place. `drift.py` stays the runtime backstop for the case where the data moves
-#     under a correct file.
+#   * `render_capabilities_text(rows)` is pure and graph-free. It makes every check a
+#     row allows and writes the text. No counts: a baked count rots the day the next
+#     sync runs, and live counts reach the graph agent through the catalog reader.
+#   * `check_investigation_counts(rows, docs)` holds the refusals that need a
+#     measurement: one counts file per instance, each naming where it was measured.
+#     Counts only refuse; they never change the text.
+#
+# An investigation that is not on every instance carries `present_on`, and its bullet
+# says so. drift.py keys on the same phrase (`NOT_EVERYWHERE_MARK`), and stays the
+# runtime backstop for the case where the data moves under a correct file.
 
 CAPABILITIES_BEGIN = "<!-- BEGIN CONTEXT-GEN:investigations -->"
 CAPABILITIES_END = "<!-- END CONTEXT-GEN:investigations -->"
+
+# The phrase that marks a bullet's name as not on every instance.
+# `nextseek_api/graph_sync/drift.py` keys on the same string; a test that imports
+# both ties them, as DRIFT_SECTION_HEADING is tied.
+NOT_EVERYWHERE_MARK = "(not on every instance:"
 
 _CAPABILITIES_INTRO = (
     "The graph database organizes samples into studies grouped under named "
@@ -1735,10 +1741,15 @@ _CAPABILITIES_OUTRO = (
     "investigation. The names in brackets are what people call them; the bold name "
     "is what the graph answers to."
 )
+_AVAILABILITY_OUTRO = (
+    'A name marked "not on every instance" is loaded only on the instances it lists. '
+    "Where a query scoped to it finds no samples, it is not loaded on this instance: "
+    "say so rather than reporting zero."
+)
 
 
 class ZeroSampleInvestigation(ValueError):
-    """An investigation in the catalog resolves to no samples in the graph."""
+    """An investigation in the catalog resolves to no samples where it should hold them."""
 
 
 class NoInvestigations(ValueError):
@@ -1746,11 +1757,15 @@ class NoInvestigations(ValueError):
 
 
 class IncompleteInvestigation(ValueError):
-    """An investigation row carries no description to tell the agent what it is."""
+    """An investigation row carries no research_focus to tell the agent what it is."""
 
 
 class UnlistedInvestigation(ValueError):
     """The counts prove an investigation answers, and no curated row names it."""
+
+
+class AvailabilityMismatch(ValueError):
+    """An investigation holds samples on an instance its present_on leaves out."""
 
 
 class BakedCount(ValueError):
@@ -1778,25 +1793,13 @@ _COUNT_LIKE = re.compile(
 # of its own that drift reads as a curated investigation name.
 _BULLET_BREAKING = "*\n\r"
 
-
-def _short_description(row: dict) -> str:
-    """One line saying what an investigation studies.
-
-    `research_focus` when it is there, else the first sentence of `description`.
-    Both are single lines by the time they reach the block: a bullet that wraps
-    would end the list as far as a Markdown reader is concerned.
-    """
-    focus = (row.get("research_focus") or "").strip()
-    if not focus:
-        text = " ".join((row.get("description") or "").split())
-        focus = text.split(". ", 1)[0].strip()
-        if focus and not focus.endswith("."):
-            focus += "."
-    return " ".join(focus.split())
+# Text curated prose may not carry: a marker would end the block early, and the
+# availability phrase would mark a name as not on every instance that is.
+_BLOCK_SYNTAX = ("<!--", "-->", NOT_EVERYWHERE_MARK)
 
 
 def _bullet_safe(value: str, what: str) -> str:
-    """`value`, or a refusal if it carries Markdown that would break the bullet.
+    """`value`, or a refusal if it carries text that would break the bullet.
 
     Applied to aliases as well as titles, which is not symmetry for its own sake.
     An alias is only `.strip()`ed otherwise, and a newline in one opens a bullet of
@@ -1809,89 +1812,65 @@ def _bullet_safe(value: str, what: str) -> str:
             f"{what} {value!r} contains Markdown that would split the bold run the "
             "drift check reads; rename it or the check fails on a name nobody wrote"
         )
+    for syntax in _BLOCK_SYNTAX:
+        if syntax in value:
+            raise UnsupportedValue(
+                f"{what} {value!r} contains {syntax!r}, which is the generated block's own "
+                "syntax; a marker would end the block early and the availability phrase "
+                "would mark the name as not on every instance"
+            )
     return value
 
 
-def render_capabilities_block(rows: list[dict], sample_counts=None) -> str:
-    """The generated "Known Projects and Investigations" block.
+def availability_note(present_on) -> str | None:
+    """The bullet's note for an investigation not on every instance, or None.
 
-    `rows` are `projects_context` rows; only the investigations are listed.
-    `sample_counts` maps an investigation title to its live sample count and is
-    what the refusal is decided on. `nextseek_api/graph_sync/drift.py` already
-    produces exactly that mapping, in the `assistant_investigations` stat, from the
-    same Cypher its runtime check uses, so generation and the backstop are decided
-    on one measurement.
-
-    No counts are written. They decide what is emitted and are then discarded.
-
-    Passing no counts refuses everything, which is the honest reading: without
-    evidence that a name answers, nothing may be told to the agent.
+    Profiles in the fixed order local, dev, prod, whatever order the row lists them.
     """
-    counts = dict(sample_counts or {})
-    for name, count in counts.items():
-        if not isinstance(name, str) or isinstance(count, bool) or not isinstance(count, int):
-            raise UnsupportedValue(
-                f"sample count {name!r}: {count!r}. The counts are a JSON object mapping an "
-                "investigation title to a whole number of samples"
-            )
-    check_columns("projects", rows)
-    investigations = sorted(
-        (r for r in rows if (r.get("entity_type") or "").strip().lower() == "investigation"),
-        key=lambda r: str(r.get("name") or ""),
-    )
-    for row in investigations:
-        aliases = row.get("alternative_names")
-        if aliases is not None and not (isinstance(aliases, list)
-                                        and all(isinstance(a, str) for a in aliases)):
-            raise UnsupportedValue(
-                f"{row.get('name')!r}: alternative_names must be a list of strings, "
-                f"not {aliases!r}"
-            )
-    _checked_keys("projects", investigations)
+    if not present_on:
+        return None
+    listed = [profile for profile in PROFILES if profile in present_on]
+    where = listed[0] if len(listed) == 1 else ", ".join(listed[:-1]) + " and " + listed[-1]
+    return f"{NOT_EVERYWHERE_MARK} loaded on {where} only)"
+
+
+def _investigation_rows(rows: list[dict]) -> list[dict]:
+    """The investigation rows of checked projects rows, sorted by name."""
+    check_project_rows(rows)
+    investigations = sorted((r for r in rows if r["entity_type"] == "investigation"),
+                            key=lambda r: str(r["name"]))
     if not investigations:
         raise NoInvestigations(
             "no row has entity_type 'investigation', so this block would empty the "
             "section and take the agent's only list of investigations with it. Add "
             "the rows to context/projects.json first (plan task 6.15c)."
         )
+    _checked_keys("projects", investigations)
+    return investigations
 
-    dead = [str(r.get("name")) for r in investigations if counts.get(str(r.get("name")), 0) <= 0]
-    if dead:
-        raise ZeroSampleInvestigation(
-            f"{len(dead)} investigation(s) resolve to no samples: {', '.join(sorted(dead))}. "
-            "An empty investigation is worse than a missing one: the agent scopes to it "
-            "and gets a confident zero rather than an error. Point the row at the "
-            "investigation that holds the samples, or drop it."
-        )
 
-    listed = {str(r.get("name")) for r in investigations}
-    surplus = sorted(name for name, count in counts.items()
-                     if count > 0 and str(name) not in listed)
-    if surplus:
-        raise UnlistedInvestigation(
-            f"{len(surplus)} investigation(s) hold samples and no curated row names "
-            f"them: {', '.join(surplus)}. Emitting the block would drop them from the "
-            "only list the agent has, silently, so the agent would never learn they "
-            "exist. Add a row to context/projects.json, or stop measuring them."
-        )
+def render_capabilities_text(rows: list[dict]) -> str:
+    """The generated "Known Projects and Investigations" block, from the rows alone.
 
-    missing = [str(r.get("name")) for r in investigations if not _short_description(r)]
-    if missing:
-        raise IncompleteInvestigation(
-            f"no research_focus or description for: {', '.join(sorted(missing))}. "
-            "A name on its own tells the agent nothing about when to use it."
-        )
+    `rows` are the curated projects rows, `present_on` included (`curated_rows`); only
+    the investigations are listed, sorted by name, one bullet each:
 
+        - **<name>**: <research_focus> [also: <aliases>] (not on every instance: ...)
+
+    Pure and graph-free: every refusal here is decided by the rows. The refusals that
+    need a measurement are `check_investigation_counts`'s.
+    """
     lines = [CAPABILITIES_BEGIN, "", _CAPABILITIES_INTRO, ""]
-    for row in investigations:
+    marked = False
+    for row in _investigation_rows(rows):
         name = _bullet_safe(str(row["name"]), "investigation title")
         alternatives = [
             _bullet_safe(str(a).strip(), f"alternative name of {name!r}")
             for a in (row.get("alternative_names") or [])
             if str(a).strip() and str(a).strip() != name
         ]
-        description = _short_description(row)
-        for text in [description, *alternatives]:
+        focus = _bullet_safe(" ".join(row["research_focus"].split()), f"research_focus of {name!r}")
+        for text in [focus, *alternatives]:
             found = _COUNT_LIKE.search(text)
             if found:
                 raise BakedCount(
@@ -1900,12 +1879,160 @@ def render_capabilities_block(rows: list[dict], sample_counts=None) -> str:
                     "and live counts already reach the agent through the catalog reader. "
                     "Rewrite the research_focus or the alternative name without it."
                 )
-        bullet = f"- **{name}** — {description}"
+        bullet = f"- **{name}**: {focus}"
         if alternatives:
             bullet += f" [also: {', '.join(alternatives)}]"
+        note = availability_note(row.get("present_on"))
+        if note:
+            bullet += f" {note}"
+            marked = True
         lines.append(bullet)
-    lines += ["", _CAPABILITIES_OUTRO, "", CAPABILITIES_END, ""]
+    outro = _CAPABILITIES_OUTRO + (f" {_AVAILABILITY_OUTRO}" if marked else "")
+    lines += ["", outro, "", CAPABILITIES_END, ""]
     return "\n".join(lines)
+
+
+# --- the counts the refusal reads ----------------------------------------------
+#
+# One file per instance, written by `manage.py graph_sync --investigation-counts
+# --instance <profile> --json` (`drift.measure_investigations`):
+#
+#   {"measured_on": "local", "measured_at": "2026-09-19T06:10:00Z",
+#    "investigations": {"<title>": {"nodes": 1, "samples": 1000}, ...}}
+#
+# `investigations` enumerates every Investigation title in that graph, so a title
+# the file lacks is absent from that instance. That is what lets a name that is not
+# on every instance be told apart from one that is there and empty. The old flat
+# `{title: count}` shape, and drift's stat, are refused: neither says where it was
+# measured, and neither can tell absent from empty.
+
+_COUNTS_KEYS = frozenset({"measured_on", "measured_at", "investigations"})
+_COUNTS_COMMAND = "manage.py graph_sync --investigation-counts --instance <profile> --json"
+
+
+def check_counts_document(doc, where: str = "a counts file") -> None:
+    """Refuse a counts file that is not the shape above."""
+    if not isinstance(doc, dict) or set(doc) != _COUNTS_KEYS:
+        keys = sorted(doc) if isinstance(doc, dict) else type(doc).__name__
+        raise UnsupportedValue(
+            f"{where}: a counts file is exactly {{measured_on, measured_at, investigations}}, "
+            f"as `{_COUNTS_COMMAND}` writes it; this has {keys}. The flat title-to-count "
+            "shape says neither where it was measured nor whether a name is absent or empty"
+        )
+    if doc["measured_on"] not in PROFILES:
+        raise UnsupportedValue(
+            f"{where}: measured_on is {doc['measured_on']!r}; it names one of {', '.join(PROFILES)}")
+    if not isinstance(doc["measured_at"], str) or not doc["measured_at"].strip():
+        raise UnsupportedValue(f"{where}: measured_at must say when it was measured")
+    investigations = doc["investigations"]
+    if not isinstance(investigations, dict):
+        raise UnsupportedValue(f"{where}: investigations must map a title to its counts")
+    for title, entry in investigations.items():
+        if (not isinstance(title, str) or not isinstance(entry, dict)
+                or set(entry) != {"nodes", "samples"}
+                or any(isinstance(v, bool) or not isinstance(v, int) or v < 0
+                       for v in entry.values())):
+            raise UnsupportedValue(
+                f"{where}: {title!r}: {entry!r}. Each title maps to "
+                "{\"nodes\": <whole number>, \"samples\": <whole number>}")
+
+
+def load_counts(path) -> dict:
+    """One counts file, read and checked."""
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    check_counts_document(doc, str(path))
+    return doc
+
+
+def check_investigation_counts(rows: list[dict], docs, ignore=()) -> None:
+    """Refuse the block when a counts file contradicts the rows (spec 10.3).
+
+    For each counts file, and each investigation row:
+
+      * measured on an instance the row is on (its `present_on`, or every instance):
+        refused when the title is absent or holds no samples;
+      * measured on an instance its `present_on` leaves out: accepted when the title is
+        absent, refused when it is an empty node (a confident zero) and when it holds
+        samples (then `present_on` is wrong).
+
+    And every title that holds samples on an instance, that no row names and no
+    `ignore` entry covers, is refused: the agent would never learn it exists. Two
+    files may not name one instance. No files at all is no evidence, and refused.
+    """
+    investigations = _investigation_rows(rows)
+    docs = list(docs or [])
+    if not docs:
+        raise ZeroSampleInvestigation(
+            "no counts: without evidence that a name answers, nothing may be told to the "
+            f"agent. Measure with `{_COUNTS_COMMAND}` and pass the file with --counts."
+        )
+    seen = set()
+    for number, doc in enumerate(docs, 1):
+        check_counts_document(doc, f"counts file {number}")
+        if doc["measured_on"] in seen:
+            raise UnsupportedValue(
+                f"two counts files were measured on {doc['measured_on']}; pass one per instance")
+        seen.add(doc["measured_on"])
+
+    listed = {str(row["name"]) for row in investigations}
+    ignored = set(ignore or ())
+    zero, wrong, unlisted = [], [], []
+    for doc in docs:
+        here, counts = doc["measured_on"], doc["investigations"]
+        for row in investigations:
+            name, present_on = str(row["name"]), row.get("present_on")
+            entry = counts.get(name)
+            if present_on is None or here in present_on:
+                if entry is None:
+                    zero.append(f"{name} (absent on {here})")
+                elif entry["samples"] == 0:
+                    zero.append(f"{name} (no samples on {here})")
+            elif entry is not None:
+                if entry["samples"] == 0:
+                    zero.append(f"{name} (an empty node on {here}, which its present_on leaves out)")
+                else:
+                    wrong.append(f"{name} (holds samples on {here})")
+        unlisted += [f"{title} (on {here})" for title, entry in sorted(counts.items())
+                     if entry["samples"] > 0 and title not in listed and title not in ignored]
+    if zero:
+        raise ZeroSampleInvestigation(
+            f"{len(zero)} investigation(s) resolve to no samples where they should hold "
+            f"them: {', '.join(zero)}. An empty investigation is worse than a missing one: "
+            "the agent scopes to it and gets a confident zero rather than an error. Point "
+            "the row at the investigation that holds the samples, fix its present_on, or drop it."
+        )
+    if wrong:
+        raise AvailabilityMismatch(
+            f"{', '.join(wrong)}: the row's present_on leaves that instance out, so the block "
+            "would tell the agent the name is not loaded where it is. Fix present_on."
+        )
+    if unlisted:
+        raise UnlistedInvestigation(
+            f"{len(unlisted)} investigation(s) hold samples and no curated row names "
+            f"them: {', '.join(unlisted)}. Emitting the block would drop them from the "
+            "only list the agent has, silently, so the agent would never learn they "
+            "exist. Add a row to context/projects.json, or pass --ignore-investigation."
+        )
+
+
+# The block's names as drift reads them, for the standard-library gate, which cannot
+# import drift: the same section rule and the same bold-term capture, plus whether the
+# bullet carries NOT_EVERYWHERE_MARK. A test holds the two parsers together.
+_SECTION_LINE = re.compile(r"^##\s+Known Projects and Investigations\s*$", re.M)
+_BULLET_ENTRY = re.compile(r"^-\s+\*\*([^*]+)\*\*(.*)$", re.M)
+
+
+def listed_investigations(text: str) -> list[tuple[str, bool]]:
+    """The names under "Known Projects and Investigations", in file order, each with
+    whether it is on every instance. The section ends at the next `---` or heading."""
+    start = _SECTION_LINE.search(text)
+    if start is None:
+        return []
+    rest = text[start.end():]
+    end = re.search(r"^(?:---\s*|##\s+)", rest, re.M)
+    body = rest[:end.start()] if end else rest
+    return [(m.group(1).strip(), NOT_EVERYWHERE_MARK not in m.group(2))
+            for m in _BULLET_ENTRY.finditer(body)]
 
 
 # The heading drift keys on. `drift.assistant_investigation_names` finds this exact
@@ -2032,30 +2159,22 @@ def _emit(text: str, out) -> None:
     print(f"wrote {out} ({len(text.splitlines())} lines)")
 
 
-def emit_capabilities(counts_path, out=None) -> int:
+def emit_capabilities(counts_paths, out=None, ignore=()) -> int:
     """Rewrite the generated investigation block in `capabilities.md`.
 
-    `counts_path` is a JSON object mapping an investigation title to its live
-    sample count -- `drift`'s `assistant_investigations` stat, whose `samples` key
-    is exactly that shape. The counts are read from a file rather than measured
-    here because this module connects to nothing: no database, no graph.
-
-    Until task 6.15c adds the investigation rows and the markers, this raises. That
-    is the mode earning its place rather than failing to: the refusals in
-    `render_capabilities_block` are stricter and earlier than the runtime backstop,
-    and with no entry point at all nothing could reach them, so today's committed
-    `capabilities.md` still names five investigations that answer nothing.
+    `counts_paths` are counts files, one per instance (`load_counts`); every one must
+    pass `check_investigation_counts`. They are read from files rather than measured
+    here because this module connects to nothing: no database, no graph. `ignore`
+    names titles the unlisted-investigation refusal leaves alone. The rows are checked
+    and the text rendered before the counts are read against them, and nothing is
+    written unless both pass.
     """
-    counts = json.loads(Path(counts_path).read_text(encoding="utf-8"))
-    if isinstance(counts, dict) and isinstance(counts.get("samples"), dict):
-        counts = counts["samples"]                            # drift's stat, whole
-    if not isinstance(counts, dict) or any(isinstance(v, (dict, list)) for v in counts.values()):
-        raise UnsupportedValue(
-            f"{counts_path}: expected a flat JSON object mapping an investigation title "
-            "to its sample count, or drift's assistant_investigations stat whole; this "
-            "is nested differently"
-        )
-    block = render_capabilities_block(rows_for("projects"), counts)
+    if isinstance(counts_paths, (str, Path)):
+        counts_paths = [counts_paths]
+    docs = [load_counts(path) for path in counts_paths]
+    rows = curated_rows("projects")
+    block = render_capabilities_text(rows)
+    check_investigation_counts(rows, docs, ignore)
     target = Path(out) if out else (REPO_ROOT / CAPABILITIES_PATH)
     text = target.read_text(encoding="utf-8")
     target.write_text(replace_capabilities_block(text, block), encoding="utf-8")
@@ -2073,10 +2192,12 @@ def main(argv=None) -> int:
     parser.add_argument("--table", default="all",
                         choices=("all",) + tuple(TABLES) + tuple(TABLES_EXTRA),
                         help="which table, or all of them")
-    parser.add_argument("--counts", default=None,
-                        help="for --emit capabilities: a JSON file mapping an "
-                             "investigation title to its live sample count, as drift's "
-                             "assistant_investigations stat reports it")
+    parser.add_argument("--counts", action="append", default=None, metavar="FILE",
+                        help="for --emit capabilities, once per instance: a counts file "
+                             f"as `{_COUNTS_COMMAND}` writes it; every one must pass")
+    parser.add_argument("--ignore-investigation", action="append", default=[], metavar="TITLE",
+                        help="for --emit capabilities: a title the unlisted-investigation "
+                             "refusal leaves alone (repeatable)")
     parser.add_argument("--out", default=None,
                         help="a file for --emit update (default stdout), or the seed "
                              f"directory for --emit seed (default {SEED_DIR}), or the "
@@ -2087,7 +2208,9 @@ def main(argv=None) -> int:
         if not args.counts:
             parser.error("--emit capabilities needs --counts: without evidence that a "
                          "name answers, nothing may be told to the agent")
-        return emit_capabilities(args.counts, args.out)
+        return emit_capabilities(args.counts, args.out, ignore=args.ignore_investigation)
+    if args.counts or args.ignore_investigation:
+        parser.error("--counts and --ignore-investigation belong to --emit capabilities")
 
     if args.table == "all":
         tables = list(UPDATE_ORDER) if args.emit == "update" else list(TABLES)
