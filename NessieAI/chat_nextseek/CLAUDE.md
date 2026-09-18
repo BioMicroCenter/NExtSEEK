@@ -69,11 +69,17 @@ without an error at the point of the change.
   anything else (such as `labs`) from the enclosing scope. No nested `def` follows it
   today, so a `lower.get("...")` added anywhere later in `config.py` also counts as a
   column read.
-- **projects_db.json holds project and investigation rows.** `FULL_PROJECTS_MAP` and the
-  `PROJECT_NAME_TO_ID` merge read project rows only (`entity_type` `project` or missing),
-  and `FULL_INVESTIGATIONS_MAP` the investigation rows, because an investigation carries
-  its owner's `project_id` and may share a project's exact name. `MIN_PROJECTS`, which the
-  entity agent reads, keeps every row. Only project rows carry `labs`.
+- **projects_db.json holds project and investigation rows, in two shapes.** Which a row is
+  comes only from `chat_nextseek.context_rows`: an investigation is typed `investigation`
+  AND names its `parent_project`; a project is typed `project`, untyped, or a legacy
+  `investigation` row with no `parent_project`, which is how production's table types most
+  of its projects until the gated 6.16 write; anything else (`study`) is neither.
+  `FULL_PROJECTS_MAP`, the `PROJECT_NAME_TO_ID` merge and the `labs` injection read project
+  rows only, and `FULL_INVESTIGATIONS_MAP` the investigation rows, because an investigation
+  carries its owner's `project_id` and may share a project's exact name. `MIN_PROJECTS`,
+  which the entity agent reads, keeps every row. Never test `entity_type` alone: the SEEK
+  project page (`nextseek_api/services/context_catalog.py`) filters with the same module's
+  `PROJECT_ROW_SQL`.
 
 ## Landmines
 
@@ -90,10 +96,13 @@ without an error at the point of the change.
   of `projects_db.json`. `labs_db.json` is gitignored, dockerignored and never baked;
   `projects_db.json` is tracked and baked, so after a run against a checkout it carries
   real lab codes and surnames until you restore it. A failed read keeps the previous
-  `labs_db.json`; with none, `ChatConfig.LABS` is `None` (unavailable), which is not `[]`
-  (SEEK has no parseable lab). A title that breaks the grammar is reported, never guessed:
-  see every title's fate, read only, with `python -m chat_nextseek.labs --report` inside
-  the app container. The first live read is the operator's.
+  `labs_db.json`; with none, `ChatConfig.LABS` is `None` (unavailable). An answer with no
+  institution, or with none whose title parses, counts as a failed read and is logged as
+  `REFUSED`: it never replaces the file, so a box whose SEEK holds no lab-shaped title (the
+  committed seed's) has `LABS` `None`, not `[]`. A title that breaks the grammar is
+  reported, never guessed: see every title's fate, read only, with
+  `python -m chat_nextseek.labs --report` inside the app container. The first live read is
+  the operator's.
 - **One graph file is not baked from here.** The plugin tree keeps its own
   `min_graph_schema.json`, which differs from the one here and does reach the agent
   (`NessieAI/docker/CLAUDE.md`). `neo4j_schema.json` is no longer baked into the cc-agent
