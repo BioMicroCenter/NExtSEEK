@@ -200,23 +200,21 @@ def check_columns(table: str, rows: list[dict]) -> None:
             raise MissingKey(f"{spec.source} row {index}: no {spec.key}, which rows are keyed on")
 
 
-# --- column widths -----------------------------------------------------------
+# --- column widths ----------------------------------------------------------
 #
 # MySQL 8 under its default strict mode refuses a value longer than its column and
-# the client stops at the first error, so one over-long value aborts the whole
-# artifact partway through. Measured 2026-09-17 against mysql:8.0.46 with
-# `sql_mode` at the image default (docker-compose.yml sets none): `projects.json`'s
-# `Impact` row carries a 276 character `pi`, `pi` was declared VARCHAR(255), and
-# `mysql < startup/seed/sql/projects_context.sql` answered
-# `ERROR 1406 (22001) at line 35: Data too long for column 'pi' at row 1`, exit 1,
-# with 4 of 12 rows loaded -- which is `./startup.sh install` dying, because
-# `_create_table` pipes the file in on stdin and `compose_exec` raises on a
-# non-zero exit. `--emit update` failed the same way after its DELETEs had already
-# committed. Nothing in the test lane could see it: the round trip's engine is
-# SQLite, which ignores a VARCHAR width outright.
+# the client stops at the first error, so one over-long value aborts the artifact
+# partway. A curated `pi` is longer than VARCHAR(255): the seed file that declared
+# that width died at ERROR 1406 after four rows, and SQLite, the old round trip's
+# engine, ignores a VARCHAR width outright, so nothing in the test lane saw it.
 #
-# So `pi` is TEXT now, matching the live column, and every value is measured
-# against the DDL before either artifact is written.
+# Two checks, because there are two tables to be wrong about. `check_widths` below
+# measures every value against the generator's own DDL before anything is written,
+# which is what the seed files load into. But `--emit update` writes into a table
+# that already exists, whose widths are whatever created it: every install since
+# the pre-generator projects seed has `pi VARCHAR(255)`. So the update also widens
+# any narrower target column and then measures the curated values against the
+# target itself, at apply time (`_pin_columns`, `_target_problems`).
 
 # `(?!\w)` rather than `\b`: a VARCHAR width ends in `)`, and `\b` after a
 # non-word character never matches, so `\b` here silently found no VARCHAR at all.
@@ -240,6 +238,16 @@ def declared_limits(table: str) -> dict[str, tuple[str, int]]:
             continue
         limits[column] = ("characters", int(width)) if width else ("bytes", TEXT_BYTES)
     return limits
+
+
+def declared_types(table: str) -> dict[str, str]:
+    """Each text column's type as `DDL[table]` declares it: `VARCHAR(n)` or `TEXT`."""
+    types: dict[str, str] = {}
+    for column, declared, width in _DDL_TYPE.findall(DDL[table]):
+        if column == "id" or declared.upper() == "INT":
+            continue
+        types[column] = f"VARCHAR({width})" if width else "TEXT"
+    return types
 
 
 def check_widths(table: str, rows: list[dict]) -> None:
@@ -271,6 +279,127 @@ def check_widths(table: str, rows: list[dict]) -> None:
                     f"artifact would load partway and stop. Widen the column in "
                     f"DDL[{table!r}] or shorten the value."
                 )
+
+
+# --- the target table, measured at apply time ---------------------------------
+#
+# Everything below reads information_schema on the instance the script is applied
+# to, because the generator cannot know that table: its widths, its charsets and
+# which of its columns refuse a NULL all depend on what created it.
+
+_CHAR_TYPES = "('char', 'varchar')"
+_TEXT_TYPES = "('tinytext', 'text', 'mediumtext', 'longtext')"
+
+
+def _too_narrow(declared: str) -> str:
+    """The information_schema.COLUMNS test for a column narrower than `declared`."""
+    if declared == "TEXT":
+        return (f"(DATA_TYPE IN {_CHAR_TYPES} OR DATA_TYPE = 'tinytext') "
+                f"AND CHARACTER_OCTET_LENGTH < {TEXT_BYTES}")
+    width = int(declared[len("VARCHAR("):-1])
+    return f"DATA_TYPE IN {_CHAR_TYPES} AND CHARACTER_MAXIMUM_LENGTH < {width}"
+
+
+_NOT_UTF8MB4 = "CHARACTER_SET_NAME IS NOT NULL AND CHARACTER_SET_NAME <> 'utf8mb4'"
+
+
+def _pin_columns(table: str) -> str:
+    """One ALTER that widens and re-charsets the target's written text columns.
+
+    A column narrower than the DDL declares is widened to the declared type, and a
+    text column in any charset but utf8mb4 is converted, keeping its type. Both
+    were measured failures, not hypotheses. `pi VARCHAR(255)` is what the
+    pre-generator projects seed created, and a curated `pi` does not fit: ERROR
+    1406 on every run. The live `projects_context` is latin1: a gamma answered
+    ERROR 1366 under strict mode and was stored as `?` with exit 0 without it.
+
+    NULL-ability is kept as the target has it, and so is a utf8mb4 column's own
+    collation (the live JSON columns are utf8mb4_bin). The statement is assembled
+    from information_schema by the server, so it only names columns that exist and
+    only when one needs it; otherwise it is `DO 0`.
+    """
+    spec = TABLES[table]
+    types = declared_types(table)
+    cases = " ".join(
+        f"WHEN COLUMN_NAME = '{column}' AND {_too_narrow(declared)} THEN '{declared}'"
+        for column, declared in types.items()
+    )
+    wanted = " OR ".join(
+        f"(COLUMN_NAME = '{column}' AND (({_too_narrow(declared)}) OR {_NOT_UTF8MB4}))"
+        for column, declared in types.items()
+    )
+    return (
+        "SET @nextseek_stmt := (SELECT CONCAT("
+        f"'ALTER TABLE `{spec.name}` ', GROUP_CONCAT(CONCAT("
+        "'MODIFY COLUMN `', COLUMN_NAME, '` ', "
+        f"CASE {cases} ELSE COLUMN_TYPE END, "
+        "' CHARACTER SET utf8mb4 COLLATE ', "
+        "IF(CHARACTER_SET_NAME = 'utf8mb4', COLLATION_NAME, 'utf8mb4_unicode_ci'), "
+        "IF(IS_NULLABLE = 'NO', ' NOT NULL', ' NULL')) "
+        "ORDER BY ORDINAL_POSITION SEPARATOR ', '))\n"
+        f"  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{spec.name}'\n"
+        f"  AND ({wanted}));\n"
+        "SET @nextseek_stmt := COALESCE(@nextseek_stmt, 'DO 0');\n"
+        "PREPARE nextseek_stmt FROM @nextseek_stmt;\n"
+        "EXECUTE nextseek_stmt;\n"
+        "DEALLOCATE PREPARE nextseek_stmt;\n"
+    )
+
+
+def _target_problems(table: str, rows: list[dict]) -> str:
+    """A SQL expression naming each target column that cannot take what is written.
+
+    Run after `_pin_columns`, so on a healthy instance it names nothing. What it is
+    for: a width the widening could not reach, a charset it could not convert, and
+    a column the target declares NOT NULL where a curated row carries NULL -- which
+    the generator's DDL allows and the live `projects_context.entity_type` refuses
+    with ERROR 1048 halfway through the rows. NULL when there is no problem.
+    """
+    spec = TABLES[table]
+    types = declared_types(table)
+    clauses = []
+    for column in spec.columns:
+        values = [db_value(table, column, row.get(column)) for row in rows]
+        texts = [str(v) for v in values if v is not None and not isinstance(v, int)]
+        tests = []
+        if column in types:
+            tests.append(_NOT_UTF8MB4)
+            if texts:
+                chars = max(len(t) for t in texts)
+                octets = max(len(t.encode("utf-8")) for t in texts)
+                tests.append(f"(DATA_TYPE IN {_CHAR_TYPES} AND CHARACTER_MAXIMUM_LENGTH < {chars})")
+                tests.append(f"(DATA_TYPE IN {_TEXT_TYPES} AND CHARACTER_OCTET_LENGTH < {octets})")
+        if any(v is None for v in values):
+            tests.append("(IS_NULLABLE = 'NO' AND COLUMN_DEFAULT IS NULL)")
+        if tests:
+            clauses.append(f"(COLUMN_NAME = '{column}' AND ({' OR '.join(tests)}))")
+    return (
+        "(SELECT GROUP_CONCAT(CONCAT("
+        f"'{spec.name}.', COLUMN_NAME, ' is ', COLUMN_TYPE, "
+        "IF(IS_NULLABLE = 'NO', ' NOT NULL', ''), IFNULL(CONCAT(' ', CHARACTER_SET_NAME), ''), "
+        "' and cannot take what the curated rows write') SEPARATOR ' | ')\n"
+        f"  FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{spec.name}'\n"
+        f"  AND ({' OR '.join(clauses) or 'FALSE'}))"
+    )
+
+
+def _refuse(when: str) -> str:
+    """Stop the script, loudly, when `@nextseek_problems` names anything.
+
+    SIGNAL is the natural statement and cannot be used here: it is legal only in a
+    stored program, and `PREPARE` refuses it (ERROR 1295, measured on mysql:8.0.46).
+    Setting `sql_mode` to a value that is not a mode is an ordinary statement that
+    fails with the value in its message -- `ERROR 1231 ... can't be set to the value
+    of 'context_gen REFUSED ...'` -- and when there is no problem it sets the mode
+    to itself. A comma would end the quoted value early, because sql_mode is a list,
+    so commas are replaced. The server cuts that message at about 200 characters,
+    so the full list is printed first.
+    """
+    return (
+        "SELECT @nextseek_problems AS context_gen_problems FROM DUAL WHERE @nextseek_problems <> '';\n"
+        "SET SESSION sql_mode = IF(@nextseek_problems = '', CONVERT(@@SESSION.sql_mode USING utf8mb4), "
+        f"CONCAT('context_gen REFUSED {when}: ', REPLACE(@nextseek_problems, ',', ';')));\n"
+    )
 
 
 # --- the PI field ------------------------------------------------------------
@@ -637,15 +766,24 @@ def render_update(table: str, rows: list[dict]) -> str:
         "",
         CHARSET_PREAMBLE,
         "",
-        "-- 1. columns this instance's table may predate",
+        "SET SESSION group_concat_max_len = 1048576;",
+        "",
     ]
-    for column, definition in ADDED_COLUMNS.get(table, {}).items():
-        out.append(_add_column(spec.name, column, definition))
+    added = ADDED_COLUMNS.get(table, {})
+    if added:
+        out.append("-- 1. columns this instance's table may predate")
+        for column, definition in added.items():
+            out.append(_add_column(spec.name, column, definition))
     out += [
+        "-- 1b. text columns narrower than the curated values need, or not utf8mb4",
+        _pin_columns(table),
         f"-- 2. duplicate `{spec.key}` values, keeping the lowest id",
         _collapse_duplicates(spec.name, spec.key),
         "-- 3. the unique key the upsert fires against",
         _add_unique_key(spec.name, spec.key),
+        "-- 3b. refuse, before any row changes, what this table still cannot take",
+        f"SET @nextseek_problems := CONCAT_WS(' | ', {_target_problems(table, rows)});",
+        _refuse("before writing anything"),
         ROWS_MARKER,
         "START TRANSACTION;",
         "",

@@ -107,18 +107,19 @@ class MySQL:
     def scalar(self, db: str, query: str):
         return self.value(db, f"SELECT JSON_ARRAY(({query}))")[0]
 
-    def snapshot(self, db: str, *, auto_increment: bool = True) -> str:
+    def snapshot(self, db: str, *, auto_increment: bool = True, ddl: bool = True) -> str:
         """Every table's DDL and rows, in primary-key order.
 
         With `auto_increment=False` the tables' next AUTO_INCREMENT value is left out,
-        which is the one thing a re-run may consume without changing any row.
+        which is the one thing a re-run may consume without changing any row. With
+        `ddl=False` only the rows are compared.
         """
         present = [t for t in TABLES if self.scalar(
             db, "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = "
                 f"DATABASE() AND TABLE_NAME = '{t}'")]
         done = self._exec(["mysqldump", "-uroot", "--compact", "--skip-extended-insert",
                            "--order-by-primary", "--default-character-set=utf8mb4",
-                           db, *present])
+                           *([] if ddl else ["--no-create-info"]), db, *present])
         assert done.returncode == 0, done.stderr.decode()
         text = done.stdout.decode("utf-8")
         return text if auto_increment else re.sub(r" AUTO_INCREMENT=\d+", "", text)
@@ -302,3 +303,68 @@ def test_each_curated_seed_loads_the_installers_way(mysql, table):
         for column in spec.columns:
             assert stored[row[spec.key]][column] == cg.db_value(table, column, row.get(column)), \
                 f"{table}.{column} of {row[spec.key]!r}"
+
+
+# --- the target's own columns ----------------------------------------------------
+
+
+def _installer_ddl(name: str) -> str:
+    """The CREATE TABLE a pre-generator install ran, without any of its rows."""
+    text = (Path(cg.REPO_ROOT) / "startup/seed/sql" / name).read_text(encoding="utf-8")
+    return text.split("\nINSERT INTO ", 1)[0].rstrip() + "\n"
+
+
+def test_a_table_the_old_installer_created_is_widened_rather_than_refused(mysql):
+    """The blocker. The pre-generator seed declares `pi VARCHAR(255)`, a curated pi is
+    longer, and every install since that seed was added created exactly that table.
+    The update used to widen nothing and measure only against its own DDL, so it
+    aborted at ERROR 1406 on every run. The old assay widths get the same treatment."""
+    db = mysql.fresh("oldinstall")
+    prestate = PRESTATE.read_text(encoding="utf-8")
+    for table, name in (("assay_context", "assay_context.sql"),
+                        ("projects_context", "projects_context.sql")):
+        start = prestate.index(f"CREATE TABLE `{table}`")
+        prestate = prestate[:start] + _installer_ddl(name) + prestate[prestate.index(";", start) + 1:]
+    mysql.must(prestate + production_like_rows(), db)
+    assert mysql.scalar(db, "SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = "
+                            "DATABASE() AND TABLE_NAME = 'projects_context' AND COLUMN_NAME = 'pi'") == "varchar"
+    code, _, err = mysql.apply(update_sql(), db)
+    assert code == 0, err
+    assert mysql.scalar(db, "SELECT COUNT(*) FROM projects_context") == len(cg.rows_for("projects"))
+    widths = mysql.value(db, (
+        "SELECT JSON_OBJECTAGG(CONCAT(TABLE_NAME, '.', COLUMN_NAME), COLUMN_TYPE) "
+        "FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME IN "
+        "('pi', 'Parent_Clade_Type', 'AssaySheet_Link')"))
+    assert widths == {"projects_context.pi": "text",
+                      "assay_context.Parent_Clade_Type": "varchar(128)",
+                      "assay_context.AssaySheet_Link": "varchar(512)"}
+
+
+@pytest.mark.parametrize("sql_mode", ["STRICT_TRANS_TABLES", "NO_ENGINE_SUBSTITUTION"])
+def test_a_character_latin1_cannot_hold_reaches_a_latin1_table_intact(mysql, sql_mode):
+    """The live projects_context is latin1. Strict mode refused a gamma with 1366;
+    a non-strict server stored it as `?` and exited 0. Either way the curated text
+    did not arrive, so the update moves every written text column to utf8mb4."""
+    db = load_prestate(mysql, "latin1")
+    rows = cg.with_pi_names([{"name": "Synthetic Gamma Study", "entity_type": "project",
+                              "description": "IFN-γ response, 4-byte \U0001F9EA too."}])
+    script = f"SET SESSION sql_mode = '{sql_mode}';\n" + cg.render_update("projects", rows)
+    code, _, err = mysql.apply(script, db)
+    assert code == 0, err
+    stored = mysql.rows(db, "projects_context", ["name", "description"])
+    assert stored == [{"name": "Synthetic Gamma Study",
+                       "description": "IFN-γ response, 4-byte \U0001F9EA too."}]
+
+
+def test_a_value_the_target_cannot_take_is_refused_before_any_row_changes(mysql):
+    """What the widening cannot fix: a curated NULL for a column the live table
+    declares NOT NULL. The generator's own DDL allows it, so only the target can
+    say no, and it has to say so before the delete runs, not halfway through."""
+    db = load_prestate(mysql, "notnull")
+    before = mysql.snapshot(db, ddl=False)
+    rows = [dict(row) for row in cg.rows_for("projects")]
+    rows[0]["entity_type"] = None
+    code, out, err = mysql.apply(cg.render_update("projects", rows), db)
+    assert code != 0
+    assert "context_gen REFUSED" in err and "entity_type" in out + err
+    assert mysql.snapshot(db, ddl=False) == before
