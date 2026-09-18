@@ -13,6 +13,9 @@ The text has three parts (spec section 4.2):
 
 ``render_graph_context`` holds the whole text within ``BUDGET_BYTES``: when it is over, K steps down through
 ``K_STEPS`` (0 means names only) before a resolved section is dropped, the last one first.
+
+The vocabulary, a separate message, is gated by question words (``mentions``) and held within
+``VOCAB_BUDGET_BYTES`` by ``fit_vocabulary``, which trims the entries the question does not name first.
 """
 
 from __future__ import annotations
@@ -20,11 +23,17 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 STRUCTURE_PATH: Path = Path(__file__).resolve().parent / "prompts" / "graph_schema_structure.txt"
 BUDGET_BYTES = 32_768
 K_STEPS = (25, 15, 10, 0)  # 0 means names only
+# The vocabulary blocks' own bound (render_vocabulary, and the committed-files path in agents/graph.py). Set from
+# a replay of the evaluation questions against a vocabulary the size of the live one: the largest rendering of
+# a question firing one or two gated groups sits just under 28 KiB, so every such question renders whole, and
+# what the bound trims today is a question firing all three groups at once. It trims what the question does not
+# name, never what it does (fit_vocabulary).
+VOCAB_BUDGET_BYTES = 28_672
 MAX_TYPES, MEANING_MAX, VALUE_MAX = 3, 120, 60
 TOP_VALUES = 10  # values rendered per attribute at most (the catalog stores up to 10)
 SUMMARY_MAX = 240  # a summary's first sentence is cut here, so one long summary cannot outgrow the budget
@@ -42,6 +51,20 @@ _SKIPPED_ATTRIBUTES = frozenset({"UID"})
 _ABBREVIATIONS = frozenset({"e.g", "i.e", "etc", "vs", "approx", "cf", "ca", "no", "fig", "resp", "incl", "esp"})
 _STOP_RE = re.compile(r"[.;!?](?=\s|$)")
 _KEY_PREFIX_RE = re.compile(r"^\d+:")
+_BLOCK_JOIN = "\n\n"
+_WORD_RE = re.compile(r"[a-z0-9]+")
+# Words that name no vocabulary entry: the English glue of a question, and the words nearly every question
+# uses to ask for a block at all (sample, data, study, assay, protocol and the like).
+_PLAIN_WORDS = frozenset("""
+    about across after all also amount and any are available been before being between both but can could count
+    did does doing done each either every exist exists find first for from get give had has have having her here
+    his how into its just last like list look made make making many may might more most much must need not number
+    only other our over per see shall she should show some such tell than that the their them then there these
+    they this those too total under use used using very want was were what when where whether which while who
+    whom whose why will with within without would you your
+    assay data database dataset investigation method procedure project protocol publication published sample
+    study studies technique type kind associated underwent processed paper
+""".split())
 
 
 def _gate_pattern(words: tuple[str, ...]) -> re.Pattern:
@@ -403,11 +426,159 @@ def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET
 # Vocabulary
 # ---------------------------------------------------------------------------------------------------------------
 
-def _title_block(heading: str, titles) -> str | None:
+class VocabularyBlock(NamedTuple):
+    """One vocabulary block as parts, so a trim can keep some entries and still say what it left out.
+
+    Whole, it renders ``head + sep.join(entries) + tail``. ``keys`` is the text each entry is matched against the
+    question on (the entries themselves when empty).
+    """
+
+    head: str  # the heading, and whatever opens the list
+    entries: tuple[str, ...]  # rendered, in list order
+    sep: str  # between two entries
+    tail: str = ""  # closes the list (a JSON list's bracket)
+    keys: tuple[str, ...] = ()
+
+    def render(self) -> str:
+        return self.head + self.sep.join(self.entries) + self.tail
+
+
+def json_list_block(heading: str, items) -> VocabularyBlock | None:
+    """``heading`` over ``json.dumps(items, indent=2)`` as a block, byte for byte when nothing is trimmed."""
+    items = list(items or ())
+    if not items:
+        return None
+    entries = tuple("\n".join("  " + line for line in json.dumps(item, indent=2).splitlines()) for item in items)
+    keys = tuple(" ".join(str(v) for v in item.values()) if isinstance(item, dict) else str(item) for item in items)
+    return VocabularyBlock(heading + "\n[\n", entries, ",\n", "\n]", keys)
+
+
+def question_words(question: Any) -> frozenset[str]:
+    """The words of a question that can name a vocabulary entry: lower case, a plural -s cut, at least three
+    characters, and none of ``_PLAIN_WORDS``."""
+    words = set()
+    for raw in _WORD_RE.findall(str(question or "").lower()):
+        stem = _stem(raw)
+        if len(stem) >= 3 and raw not in _PLAIN_WORDS and stem not in _PLAIN_WORDS:
+            words.add(stem)
+    return frozenset(words)
+
+
+def _stem(word: str) -> str:
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _uses(word: str, token: str) -> bool:
+    """Whether an entry's token uses a question word: one stem, one five-letter root ("collected" and
+    "collection"), or, for a word of four letters or more, the word inside the token, since a filename runs its
+    words together ("3DOpticalFlowAlgorithm"). Keeping a spare entry costs bytes; dropping a named one costs the
+    match the agent is told to make."""
+    return word == token or (len(word) >= 5 and len(token) >= 5 and word[:5] == token[:5]) or (
+        len(word) >= 4 and word in token)
+
+
+def _named_by(key: str, words: frozenset[str]) -> int:
+    """How many of the question's words an entry uses; 0 means the question does not name it."""
+    if not words:
+        return 0
+    stems = {_stem(token) for token in _WORD_RE.findall(key.lower())}
+    return sum(1 for word in words if any(_uses(word, stem) for stem in stems))
+
+
+def _left_out_note(left_out: int, named: int) -> str:
+    if not left_out:
+        return ""
+    if not named:
+        return f"\n(and {_count(left_out)} more not shown here; none of them shares a word with the question)"
+    return f"\n(and {_count(left_out)} more not shown here, {_count(named)} of them sharing a word with the question)"
+
+
+class _Trim:
+    """A block being trimmed: the entries it keeps, and its size in bytes, kept by arithmetic."""
+
+    def __init__(self, block: VocabularyBlock, words: frozenset[str]):
+        self.block = block
+        self.scores = [_named_by(key, words) for key in (block.keys or block.entries)]
+        self.sizes = [len(entry.encode("utf-8")) for entry in block.entries]
+        self.kept = list(range(len(block.entries)))
+        self.kept_bytes = sum(self.sizes)
+        self.named_out = 0
+        self.fixed = len(block.head.encode("utf-8")) + len(block.tail.encode("utf-8"))
+        self.sep = len(block.sep.encode("utf-8"))
+
+    def note(self) -> str:
+        return _left_out_note(len(self.block.entries) - len(self.kept), self.named_out)
+
+    @property
+    def bytes(self) -> int:
+        return self.fixed + self.kept_bytes + self.sep * (len(self.kept) - 1) + len(self.note().encode("utf-8"))
+
+    def unnamed_victim(self) -> int | None:
+        """The last kept entry the question does not name, while the block keeps another entry."""
+        if len(self.kept) > 1:
+            for i in reversed(self.kept):
+                if not self.scores[i]:
+                    return i
+        return None
+
+    def named_victim(self) -> int | None:
+        """The kept entry using the fewest of the question's words (the later on a tie), leaving one entry."""
+        if len(self.kept) > 1:
+            return min(self.kept, key=lambda i: (self.scores[i], -i))
+        return None
+
+    def drop(self, i: int) -> None:
+        self.kept.remove(i)
+        self.kept_bytes -= self.sizes[i]
+        self.named_out += bool(self.scores[i])
+
+    def render(self) -> str:
+        block = self.block
+        return block.head + block.sep.join(block.entries[i] for i in self.kept) + block.tail + self.note()
+
+
+def fit_vocabulary(blocks, question: str, *, budget: int = VOCAB_BUDGET_BYTES) -> list[str]:
+    """The blocks as text, their blank-line join within ``budget`` bytes, keeping what the question names.
+
+    Under budget every block renders whole. Over it, the largest block loses its last entry that shares no word
+    with the question (``question_words``), again and again, so a block is cut only once it is the largest. Only
+    when every block is down to entries the question names (or to one entry) do those go, the ones using the
+    fewest of its words first. Each block keeps at least one entry; after that whole blocks go, the last first.
+    A trimmed block ends on a line counting what it left out, and whether any of that shares a word with the
+    question.
+    """
+    blocks = [block for block in blocks or () if block is not None and block.entries]
+    whole = [block.render() for block in blocks]
+    if _fits(_BLOCK_JOIN.join(whole), budget):
+        return whole
+
+    words = question_words(question)
+    trims = [_Trim(block, words) for block in blocks]
+
+    def total() -> int:
+        return sum(trim.bytes for trim in trims) + len(_BLOCK_JOIN) * max(len(trims) - 1, 0)
+
+    for victim in (_Trim.unnamed_victim, _Trim.named_victim):
+        while total() > budget:
+            candidates = [trim for trim in trims if victim(trim) is not None]
+            if not candidates:
+                break
+            largest = max(candidates, key=lambda trim: trim.bytes)
+            largest.drop(victim(largest))
+    while trims and total() > budget:
+        trims.pop()
+    return [trim.render() for trim in trims]
+
+
+def _title_block(heading: str, titles) -> VocabularyBlock | None:
     titles = [t for t in titles or () if t not in (None, "")]
     if not titles:
         return None
-    return f"{heading}:\n" + ", ".join(_quote(t) for t in titles)
+    return VocabularyBlock(f"{heading}:\n", tuple(_quote(t) for t in titles), ", ", "", tuple(map(str, titles)))
 
 
 def _field_ci(record: Any, name: str) -> Any:
@@ -419,7 +590,7 @@ def _field_ci(record: Any, name: str) -> Any:
     return _get(record, name) or _get(record, name.lower())
 
 
-def _published_block(studies) -> str | None:
+def _published_block(studies) -> VocabularyBlock | None:
     lines = []
     for study in studies or ():
         title = _field_ci(study, "title")
@@ -431,10 +602,10 @@ def _published_block(studies) -> str | None:
         lines.append("- " + ", ".join(bits))
     if not lines:
         return None
-    return "PUBLISHED STUDIES (Study nodes with a DOI or PMID):\n" + "\n".join(lines)
+    return VocabularyBlock("PUBLISHED STUDIES (Study nodes with a DOI or PMID):\n", tuple(lines), "\n")
 
 
-def _connections_block(connections) -> str | None:
+def _connections_block(connections) -> VocabularyBlock | None:
     grouped: dict[str, list[str]] = {}
     for conn in connections or ():
         assay = _get(conn, "assay")
@@ -451,16 +622,18 @@ def _connections_block(connections) -> str | None:
         return None
     lines = [f"- {_quote(assay)}: {', '.join(pairs)}" if assay else f"- {', '.join(pairs)}"
              for assay, pairs in grouped.items()]
-    return ("ASSAY-SAMPLE CONNECTIONS (assay: parent type -> child type; shows which side of an assay a sample "
-            "type sits on):\n" + "\n".join(lines))
+    return VocabularyBlock("ASSAY-SAMPLE CONNECTIONS (assay: parent type -> child type; shows which side of an assay "
+                           "a sample type sits on):\n", tuple(lines), "\n")
 
 
-def render_vocabulary(vocab, question: str) -> str:
+def render_vocabulary(vocab, question: str, *, budget: int = VOCAB_BUDGET_BYTES) -> str:
     """The keyword-gated vocabulary blocks, blank-line separated ("" when there is nothing to send).
 
     Investigation and project titles always; study titles and published studies when the question names a
     study, paper, publication, DOI or PMID; assay titles and assay connections on ``ASSAY_WORDS``; protocol
-    titles on ``PROTOCOL_WORDS`` (both matched as whole words by ``mentions``).
+    titles on ``PROTOCOL_WORDS`` (both matched as whole words by ``mentions``). The text is held within
+    ``budget`` bytes by ``fit_vocabulary``, which never cuts an entry sharing a word with the question while
+    one that does not is still sent.
     """
     q = question or ""
     blocks = [
@@ -477,4 +650,4 @@ def render_vocabulary(vocab, question: str) -> str:
     if mentions(PROTOCOL_WORDS, q):
         blocks.append(_title_block("PROTOCOL TITLES (DERIVED_FROM.protocol_title values)",
                                    _get(vocab, "protocol_titles")))
-    return "\n\n".join(block for block in blocks if block)
+    return _BLOCK_JOIN.join(fit_vocabulary(blocks, q, budget=budget))
