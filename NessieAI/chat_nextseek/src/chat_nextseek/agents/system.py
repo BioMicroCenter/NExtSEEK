@@ -78,7 +78,7 @@ def system_agent(
     endpoints_json = json.dumps(config.MIN_API_ENDPOINTS, indent=2)
     # The graph agent's own rendering when the v1.1 catalog is live (structure, type index, the resolved types and
     # the question's vocabulary blocks); the committed JSON schema otherwise.
-    catalog = live_catalog_context(config, user_query, entity_dict, plan_dict)
+    catalog = live_catalog_context(config, user_query, entity_dict, plan_dict, reader="system agent")
     if catalog is not None:
         schema_json = catalog.schema + (f"\n{catalog.vocabulary}\n" if catalog.vocabulary else "")
     else:

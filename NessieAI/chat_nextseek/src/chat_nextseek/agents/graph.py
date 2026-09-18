@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
@@ -13,6 +14,8 @@ from ..schemas import (
     GraphAgentPlan,
     ParserPlan,
 )
+
+log = logging.getLogger(__name__)
 
 
 # Matches `<ident>.<Prop>` property reads (e.g. s.Lab). Cypher functions like
@@ -1914,8 +1917,34 @@ def _variant_structure(config) -> str | None:
     return structure if isinstance(structure, str) else None
 
 
-def live_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan) -> CatalogContext | None:
-    """The rendered v1.1 catalog for this question, or None when the committed JSON must be used (spec D7).
+class CatalogFallback(NamedTuple):
+    """Why the committed schema stands in for the live catalog, and when that file was captured.
+
+    ``_asdict()`` is what a turn records: ``GraphAgentPlan.context_fallback``, then ``debug.graph_context_fallback``.
+    """
+
+    unavailable_reason: str
+    fallback_fetched_at: str | None
+
+
+def _catalog_fallback(config, reason: str, reader: str) -> CatalogFallback:
+    """Log a fallback to the committed schema as a WARNING naming why and how old the file is, and return both.
+
+    A fallback is survivable; a silent one is not, because every answer after it is shaped by a capture of a graph
+    that may no longer exist. The reason is ``CatalogUnavailable``'s text (no URI or password, Neo4j unreachable, no
+    GraphMeta, a schema version the reader does not accept) or the defect that broke the rendering.
+    """
+    committed = getattr(config, "NEO4J_SCHEMA", None)
+    fetched_at = committed.get("fetched_at") if isinstance(committed, dict) else None
+    log.warning("%s is using the committed graph schema (captured %s), not the live catalog: %s",
+                reader, fetched_at or "on an unknown date", reason)
+    return CatalogFallback(reason, fetched_at)
+
+
+def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,
+                            reader: str = "graph agent") -> CatalogContext | CatalogFallback:
+    """The rendered v1.1 catalog for this question, or the ``CatalogFallback`` saying why the committed JSON must be
+    used (spec D7). ``reader`` names the caller in the WARNING every fallback logs.
 
     The resolved types are the parser plan's first, then the entity output's (``resolved_type_codes``). Any catalog
     failure, ``CatalogUnavailable`` or not, means the fallback: the committed schema always works.
@@ -1928,14 +1957,20 @@ def live_catalog_context(config: ChatConfig, user_query: str, entity_result, par
         schema = graph_context.render_graph_context(snapshot, details, structure=_variant_structure(config))
         vocabulary = graph_context.render_vocabulary(graph_catalog.get_vocabulary(config), user_query or "")
     except graph_catalog.CatalogUnavailable as exc:
-        print(f"[DEBUG][GRAPH] Catalog unavailable, using the committed schema: {exc}")
-        return None
+        return _catalog_fallback(config, str(exc), reader)
     except Exception as exc:  # noqa: BLE001 (a catalog defect must cost the context, not the turn)
-        print(f"[DEBUG][GRAPH] Catalog context failed ({type(exc).__name__}: {exc}); using the committed schema")
-        return None
+        return _catalog_fallback(config, f"graph catalog context failed: {type(exc).__name__}: {exc}", reader)
     print(f"[DEBUG][GRAPH] Catalog context: {len(schema.encode('utf-8'))} bytes, types {codes}, "
           f"catalog_hash {str(snapshot.catalog_hash)[:12]}")
     return CatalogContext(snapshot, schema, vocabulary)
+
+
+def live_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,
+                         reader: str = "graph agent") -> CatalogContext | None:
+    """``resolve_catalog_context`` for a caller that needs only the catalog: None when the committed JSON must be
+    used. The fallback is still logged as a WARNING naming ``reader`` and the reason."""
+    context = resolve_catalog_context(config, user_query, entity_result, parser_plan, reader=reader)
+    return context if isinstance(context, CatalogContext) else None
 
 
 def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -> dict:
@@ -1983,12 +2018,11 @@ def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -
 
 
 def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list[str], reason: str) -> dict:
-    """The committed ``neo4j_schema.json`` as the answer, saying so and saying why."""
-    committed = getattr(config, "NEO4J_SCHEMA", None) or {}
+    """The committed ``neo4j_schema.json`` as the answer, saying so and saying why (and logging it as a WARNING)."""
+    fallback = _catalog_fallback(config, reason, "graph-schema op")
     shown = graph_catalog.committed_schema(config) or {}  # without its vocabulary for a caller who is not an admin
     vocabulary = (_fallback_vocabulary(config, question or "")
                   if graph_catalog.shows_committed_vocabulary(config) else [])
-    print(f"[DEBUG][GRAPH] graph-schema falling back to the committed schema: {reason}")
     return {
         "source": CONTEXT_FALLBACK,
         "schema_version": None,
@@ -2000,7 +2034,7 @@ def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list
         "schema": json.dumps(shown, indent=2) if shown else "{}",
         "vocabulary": "\n\n".join(vocabulary),
         "unavailable_reason": reason,
-        "fallback_fetched_at": committed.get("fetched_at") if isinstance(committed, dict) else None,
+        "fallback_fetched_at": fallback.fallback_fetched_at,
     }
 
 
@@ -2087,15 +2121,19 @@ def graph_agent(
     The schema is the live v1.1 catalog rendered as text when it is available (with the
     per-label property guard and the whole-node guard), else the committed JSON schema
     with the type-blind guard (spec D7). Every returned plan records which in
-    ``context_mode`` (spec D15).
+    ``context_mode`` (spec D15), and a fallback plan records why and how old the committed
+    schema is in ``context_fallback``; the fallback is also logged as a WARNING.
     """
     print("\n[DEBUG][GRAPH] User query:", user_query)
 
     entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else entity_result
     plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else (parser_plan or {})
 
-    catalog = live_catalog_context(config, user_query, entity_dict, plan_dict)
+    context = resolve_catalog_context(config, user_query, entity_dict, plan_dict)
+    catalog = context if isinstance(context, CatalogContext) else None
     context_mode = CONTEXT_CATALOG if catalog is not None else CONTEXT_FALLBACK
+    # Why the committed schema stands in, and how old it is; logged already, carried on every plan returned below.
+    context_fallback = None if catalog is not None else context._asdict()
     if catalog is not None:
         schema_message = ("GRAPH SCHEMA (v1.1 structure, sample type index and the resolved sample types; this is "
                           "the schema):\n" + catalog.schema)
@@ -2193,7 +2231,8 @@ def graph_agent(
                           f"whole nodes {whole}" + (f" calls {calls}" if calls else "")
                           + (f" shapes {[p.kind for p in shapes]}" if shapes else "") + "; returning empty plan")
                     return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole, calls, shapes),
-                                          parameters={}, context_mode=context_mode)
+                                          parameters={}, context_mode=context_mode,
+                                          context_fallback=context_fallback)
         else:
             # Schema guard: reject Cypher that filters on properties no node actually has
             # (e.g. a hallucinated `s.Lab`). Re-prompt once with the error + valid props;
@@ -2242,6 +2281,7 @@ def graph_agent(
                         explanation="Graph agent could not produce valid Cypher; " + "; ".join(reasons) + ".",
                         parameters={},
                         context_mode=context_mode,
+                        context_fallback=context_fallback,
                     )
 
         # Filter guard: an OPTIONAL MATCH immediately followed by WHERE folds the
@@ -2257,8 +2297,9 @@ def graph_agent(
             ).strip()
             print(f"[DEBUG][GRAPH] Guarded cypher: {result.cypher!r}")
         result.context_mode = context_mode
+        result.context_fallback = context_fallback
         return result
     except Exception as e:
         print(f"[DEBUG][GRAPH] graph_agent failed: {e!r}")
         return GraphAgentPlan(cypher="", explanation=f"Graph agent error: {e}", parameters={},
-                              context_mode=context_mode)
+                              context_mode=context_mode, context_fallback=context_fallback)

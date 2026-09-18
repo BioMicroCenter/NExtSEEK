@@ -128,11 +128,15 @@ without an error at the point of the change.
   `ASSAY_SAMPLE_CONNECTIONS`); nothing refreshes them from Neo4j any more, so a hand edit
   is the only way they change. The graph agent reads the live v1.1 catalog through
   `graph_catalog.get_snapshot`, cached per process on `GraphMeta.catalog_hash`, and falls
-  back to those committed files on any catalog failure (`live_catalog_context` in
+  back to those committed files on any catalog failure (`resolve_catalog_context` in
   `NessieAI/chat_nextseek/src/chat_nextseek/agents/graph.py`). `graph_schema_snapshot`, beside
   it, is the same read as a plain dict for the `graph-schema` op, and names which of the two it
   answered from. A graph turn records which
-  one it read in `debug.graph_context` (`catalog` or `fallback`). The parser and the older
+  one it read in `debug.graph_context` (`catalog` or `fallback`). Every fallback, the graph
+  agent's, the system agent's and the op's, logs a WARNING naming the reason and the committed
+  file's `fetched_at`, and a graph turn that fell back also carries both in
+  `debug.graph_context_fallback` and in the graph agent's debug-panel summary
+  (`schema_fallback`). Nothing else may fall back silently. The parser and the older
   property guard read the committed files either way. `_ensure_context_files` still
   rewrites the database exports of the bullet above once a day: only the Neo4j-derived
   files stopped changing.
