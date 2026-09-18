@@ -1,3 +1,4 @@
+import { useCallback, useRef, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -15,6 +16,14 @@ import { MaxTurnLengthInput } from "./MaxTurnLengthInput";
 import { Download, FolderDown } from "lucide-react";
 import type { DebugData } from "@/lib/types/chat";
 
+/**
+ * How long "All files" stays disabled once its download has been handed over.
+ * The embedded shell hands the browser a link and returns at once, while the
+ * server is still planning the zip, so this hold is what makes a double click
+ * one download there.
+ */
+export const DOWNLOAD_ALL_HOLD_MS = 3000;
+
 interface RightSidebarProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
@@ -22,7 +31,8 @@ interface RightSidebarProps {
   onDownload: (format: string) => void;
   /** The chat on screen. "All files" keys on it, never on `debugData.bundleId`. */
   activeSessionId?: string | null;
-  onDownloadAll?: () => void;
+  /** Settles once the download is handed over; the button stays disabled until then. */
+  onDownloadAll?: () => Promise<unknown> | void;
   isAdmin?: boolean;
 }
 
@@ -40,6 +50,23 @@ export function RightSidebar({
   // a chat whose newest turn wrote no bundle would get a dead button while its
   // older turns still hold files.
   const canDownloadAll = Boolean(activeSessionId && onDownloadAll);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  // The state reaches the button a render later; the ref stops a second click now.
+  const downloadingAllRef = useRef(false);
+
+  const handleDownloadAll = useCallback(() => {
+    if (!onDownloadAll || downloadingAllRef.current) return;
+    downloadingAllRef.current = true;
+    setDownloadingAll(true);
+    const release = () => {
+      setTimeout(() => {
+        downloadingAllRef.current = false;
+        setDownloadingAll(false);
+      }, DOWNLOAD_ALL_HOLD_MS);
+    };
+    // The shells report a failure themselves; here the button only has to come back.
+    new Promise((resolve) => resolve(onDownloadAll())).then(release, release);
+  }, [onDownloadAll]);
 
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
@@ -83,13 +110,14 @@ export function RightSidebar({
           <Button
             variant="outline"
             size="sm"
-            disabled={!canDownloadAll}
-            onClick={() => onDownloadAll?.()}
+            disabled={!canDownloadAll || downloadingAll}
+            aria-busy={downloadingAll}
+            onClick={handleDownloadAll}
             title="This chat's transcript and every file its turns produced, as one zip"
             data-testid="session-download"
           >
             <FolderDown className="mr-1 h-3 w-3" />
-            All files
+            {downloadingAll ? "Downloading…" : "All files"}
           </Button>
         </div>
       </SheetContent>
