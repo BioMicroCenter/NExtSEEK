@@ -390,6 +390,9 @@ class _Scan:
     samples: set[str] = field(default_factory=set)  # variables that hold a Sample node
     paths: set[str] = field(default_factory=set)  # path variables over Sample nodes
     clauses: list[tuple[str, int, int, int]] = field(default_factory=list)
+    # Filled only when the turn's variant allows procedures (_scan_procedure_yields):
+    proc_paths: set[str] = field(default_factory=set)  # a procedure's YIELD path (apoc.path.spanningTree, ...)
+    node_lists: set[str] = field(default_factory=set)  # a procedure's YIELD nodes (apoc.path.subgraphAll)
 
 
 def _label_names(text: str | None) -> list[str]:
@@ -533,7 +536,8 @@ def _brace_kinds(masked: str) -> list[tuple[int, int, str]]:
     return spans
 
 
-def _scan(cypher: str) -> _Scan:
+def _scan(cypher: str, procedures: frozenset[str] = frozenset()) -> _Scan:
+    """What `cypher` binds and reads. `procedures` (a variant's allowed procedures) adds _scan_procedure_yields."""
     masked = _mask_cypher(cypher)
     scan = _Scan(masked=masked, blanked=masked)
     elements: list[tuple[int, int, str, str | None, list[str]]] = []  # (start, end, 'node'|'rel', var, names)
@@ -658,7 +662,166 @@ def _scan(cypher: str) -> _Scan:
                or (e[2] == "rel" and set(e[4]) & ({"DERIVED_FROM"} | _SAMPLE_SOURCE_RELATIONSHIPS))
                for e in span):
             scan.paths.add(m.group("var"))
+    if procedures:
+        _scan_procedure_yields(scan, cypher)
     return scan
+
+
+# --------------------------------------------------------------------------- #
+# Procedures a prompt variant allows (v2_apoc): what their YIELD binds
+# --------------------------------------------------------------------------- #
+#
+# Only for a turn whose variant allows procedures (cypher_text.variant_procedures), so the default path is
+# unchanged. A procedure's YIELD field says what it binds: `node` a Sample node (apoc.path.subgraphNodes), `nodes`
+# a list of them (apoc.path.subgraphAll), `path` a path over samples (apoc.path.spanningTree, expandConfig, expand).
+# The fulltext procedure keeps its own rule in _scan. An UNWIND of a node list, or of nodes(path), binds a Sample.
+
+_PROC_CALL_RE = re.compile(rf"\bCALL\s+(?P<name>{_NAME}(?:\.{_NAME})+)\s*\(", re.IGNORECASE)
+_YIELD_END_RE = re.compile(r"\b(?:WHERE|RETURN|WITH|MATCH|OPTIONAL|CALL|UNWIND|ORDER|SKIP|LIMIT|UNION|FOREACH)\b"
+                           r"|[{}]", re.IGNORECASE)
+_UNWIND_RE = re.compile(rf"\bUNWIND\s+(?:(?P<list>{_NAME})|nodes\s*\(\s*(?P<path>{_NAME})\s*\))\s+AS\s+"
+                        rf"(?P<alias>{_NAME})\b", re.IGNORECASE)
+_YIELD_ITEM_RE = re.compile(rf"^(?P<field>{_NAME}|\*)(?:\s+AS\s+(?P<alias>{_NAME}))?$", re.IGNORECASE)
+_NODE_FIELDS, _NODE_LIST_FIELDS, _PATH_FIELDS = frozenset({"node"}), frozenset({"nodes"}), frozenset({"path", "paths"})
+
+
+def _scan_procedure_yields(scan: _Scan, cypher: str) -> None:
+    masked = scan.masked
+    for m in _PROC_CALL_RE.finditer(masked):
+        if m.group("name") == "db.index.fulltext.queryNodes":
+            continue
+        close = cypher_text._matching_paren(masked, m.end() - 1)
+        if close == -1:
+            continue
+        rest = masked[close + 1:]
+        yielded = re.match(r"\s*YIELD\b", rest, re.IGNORECASE)
+        if not yielded:
+            continue
+        start = close + 1 + yielded.end()
+        stop = _YIELD_END_RE.search(masked, start)
+        for s, e in _items(masked, start, stop.start() if stop else len(masked)):
+            item = _YIELD_ITEM_RE.match(masked[s:e].strip())
+            if not item:
+                continue
+            fields = ((_NODE_FIELDS | _NODE_LIST_FIELDS | _PATH_FIELDS) if item.group("field") == "*"
+                      else {item.group("field").lower()})
+            for fld in fields:
+                alias = item.group("alias") or fld
+                if fld in _NODE_FIELDS:
+                    scan.node_labels.setdefault(alias, {})["Sample"] = None
+                    scan.samples.add(alias)
+                elif fld in _NODE_LIST_FIELDS:
+                    scan.node_lists.add(alias)
+                elif fld in _PATH_FIELDS:
+                    scan.proc_paths.add(alias)
+    for m in _UNWIND_RE.finditer(masked):
+        if (m.group("list") or "") in scan.node_lists or (m.group("path") or "") in scan.proc_paths:
+            scan.samples.add(m.group("alias"))
+    for _ in range(2):  # WITH x AS y, in the order written; twice covers a chain written out of order
+        for source, alias in scan.aliases:
+            for pool in (scan.samples, scan.proc_paths, scan.node_lists):
+                if source in pool:
+                    pool.add(alias)
+
+
+# APOC functions that hand back a whole node or all of its properties. The first group is refused when applied to a
+# Sample variable (as properties(s) is); the second builds node or path structures and is refused wherever it is used.
+_APOC_NODE_ARG_RE = re.compile(
+    rf"(?<![\w$])apoc\.(?:any\.properties|convert\.(?:toJson|toSortedJsonMap|toMap)"
+    rf"|agg\.(?:first|last|nth|slice|maxItems|minItems))\s*\(\s*(?:DISTINCT\s+)?(?P<var>{_NAME})\s*[,)]",
+    re.IGNORECASE)
+_APOC_NODE_BUILDER_RE = re.compile(
+    r"(?<![\w$])(?P<fn>apoc\.(?:map\.fromNodes|agg\.graph|coll\.sortNodes|convert\.toNode|convert\.toNodeList"
+    r"|path\.create|path\.combine|path\.slice|path\.elements|nodes\.get|get\.nodes))\s*\(", re.IGNORECASE)
+_NODES_OF_RE = re.compile(rf"(?<![\w.$])nodes\s*\(\s*(?P<var>{_NAME})\s*\)", re.IGNORECASE)
+_PREDICATE_FUNCTIONS = frozenset({"ANY", "ALL", "NONE", "SINGLE", "REDUCE"})
+
+
+def _enclosing_open(masked: str, pos: int) -> int:
+    """Index of the innermost `(` or `[` still open at `pos`, or -1."""
+    depth = 0
+    for j in range(pos - 1, -1, -1):
+        ch = masked[j]
+        if ch in ")]}":
+            depth += 1
+        elif ch in "([{":
+            if depth == 0:
+                return j if ch in "([" else -1
+            depth -= 1
+    return -1
+
+
+def _nodes_of_path_is_named(masked: str, start: int, end: int, var: str) -> bool:
+    """Whether `nodes(var)` at `masked[start:end]` is used for names or counts rather than returned as nodes.
+
+    Allowed: `size(nodes(p))`, `last(nodes(p)).uuid` / `head(...)`, `nodes(p)[i].uuid`, a comprehension that projects
+    (`[n IN nodes(p) | n.uuid]`), a predicate or reduce over it (`any(n IN nodes(p) WHERE ...)`), and an UNWIND (whose
+    alias the scan then tracks as a Sample).
+    """
+    before = masked[:start].rstrip()
+    after = masked[end:]
+    if re.search(r"\bsize\s*\($", before, re.IGNORECASE):
+        return True
+    if re.search(r"\b(?:last|head)\s*\($", before, re.IGNORECASE) and re.match(rf"\s*\)\s*\.\s*{_NAME}", after):
+        return True
+    if re.match(rf"\s*\[[^\]]*\]\s*\.\s*{_NAME}", after):
+        return True
+    if re.search(r"\bUNWIND$", before, re.IGNORECASE):
+        return True
+    loop = re.search(rf"({_NAME})\s+IN$", before, re.IGNORECASE)
+    if not loop:
+        return False
+    opener = _enclosing_open(masked, start)
+    if opener == -1:
+        return False
+    if masked[opener] == "(":
+        word = re.search(rf"({_NAME})\s*$", masked[:opener])
+        return bool(word) and word.group(1).upper() in _PREDICATE_FUNCTIONS
+    closer = _matching_close_bracket(masked, opener)
+    if closer == -1:
+        return False
+    tail = masked[end:closer]
+    bar = next((i for i, ch in enumerate(tail) if ch == "|" and _depth(tail, i) == 0), -1)
+    if bar == -1:
+        return False  # `[n IN nodes(p) WHERE ...]` keeps the nodes
+    projection = tail[bar + 1:].strip()
+    return bool(projection) and projection != loop.group(1)
+
+
+def _matching_close_bracket(masked: str, i: int) -> int:
+    depth = 0
+    for j in range(i, len(masked)):
+        if masked[j] == "[":
+            depth += 1
+        elif masked[j] == "]":
+            depth -= 1
+            if depth == 0:
+                return j
+    return -1
+
+
+def _depth(text: str, i: int) -> int:
+    depth = 0
+    for ch in text[:i]:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+    return depth
+
+
+def _procedure_whole_nodes(scan: _Scan) -> list[tuple[int, str]]:
+    """The whole-node uses only a turn whose variant allows procedures can write (see whole_node_returns)."""
+    masked = scan.masked
+    found: list[tuple[int, str]] = []
+    for m in _NODES_OF_RE.finditer(masked):
+        if m.group("var") in scan.proc_paths and not _nodes_of_path_is_named(masked, m.start(), m.end(),
+                                                                               m.group("var")):
+            found.append((m.start(), m.group("var")))
+    pool = scan.samples | scan.proc_paths | scan.node_lists
+    found += [(m.start(), m.group("var")) for m in _APOC_NODE_ARG_RE.finditer(masked) if m.group("var") in pool]
+    found += [(m.start(), m.group("fn") + "(...)") for m in _APOC_NODE_BUILDER_RE.finditer(masked)]
+    return found
 
 
 class _Problem(NamedTuple):
@@ -733,22 +896,34 @@ def catalog_unknown_properties(cypher: str, snapshot) -> list[str]:
     return [problem.text for problem in _property_problems(cypher, snapshot)]
 
 
-def whole_node_returns(cypher: str) -> list[str]:
+def whole_node_returns(cypher: str, procedures=()) -> list[str]:
     """Variables whose whole Sample node (or a path over samples) the query returns or collects: ``["s", ...]``.
 
     ``RETURN s``, ``RETURN *``, ``collect(s)`` anywhere, ``s {.*}``, ``properties(s)`` and ``nodes(p)``; a RETURN
     inside a CALL or EXISTS subquery is not sent to the caller and does not count. A Sample variable is one labelled
     ``Sample`` or ``T_<code>``, an end of DERIVED_FROM, the source of IN_STUDY or OF_TYPE, a fulltext hit, or a bare
     alias of one of these.
+
+    ``procedures`` is the turn's variant allowlist (``cypher_text.variant_procedures``). When it names any procedure,
+    a procedure's ``YIELD node`` / ``nodes`` / ``path`` count as well (``apoc.path.subgraphNodes(...) YIELD node
+    RETURN node`` otherwise ships every attribute of every node it reaches), and so do the APOC functions that return
+    a node or its properties (``apoc.any.properties(s)``, ``apoc.convert.toJson(s)``, ``apoc.agg.first(s)``,
+    ``apoc.map.fromNodes(...)``, ...). A procedure's path may be read for names: ``[n IN nodes(path) | n.uuid]``,
+    ``last(nodes(path)).uuid``, ``length(path)``. With no procedures the answer is exactly what it always was.
     """
     if not cypher or not cypher.strip():
         return []
-    scan = _scan(cypher)
-    masked, shipped = scan.masked, scan.samples | scan.paths
+    extra = cypher_text._extra(procedures)
+    aware = bool(extra)
+    scan = _scan(cypher, extra)
+    masked = scan.masked
+    shipped = scan.samples | scan.paths | scan.proc_paths | scan.node_lists
     found: list[tuple[int, str]] = []
     for regex, pool in ((_COLLECT_RE, shipped), (_PROPERTIES_RE, scan.samples), (_NODES_RE, scan.paths)):
         found += [(m.start(), m.group("var")) for m in regex.finditer(masked) if m.group("var") in pool]
     found += [(pos, var) for pos, var in scan.stars if var in scan.samples]
+    if aware:
+        found += _procedure_whole_nodes(scan)
 
     hidden = [(start, end) for start, end, kind in _brace_kinds(masked) if kind != "collect"]
     for keyword, kw_start, body_start, body_end in scan.clauses:
@@ -758,8 +933,9 @@ def whole_node_returns(cypher: str) -> list[str]:
             item = _ITEM_ALIAS_RE.match(masked[s:e].strip())
             expr = item.group("expr").strip() if item else ""
             if expr == "*":
-                order = sorted(scan.samples, key=lambda v: (re.search(rf"\b{re.escape(v)}\b", masked) or
-                                                            re.search(r"$", masked)).start())
+                starred = scan.samples | scan.proc_paths | scan.node_lists
+                order = sorted(starred, key=lambda v: (re.search(rf"\b{re.escape(v)}\b", masked) or
+                                                       re.search(r"$", masked)).start())
                 found += [(s, var) for var in order]
             elif _NAME_RE.fullmatch(expr) and expr in shipped:
                 found.append((s, expr))
@@ -771,6 +947,11 @@ def whole_node_returns(cypher: str) -> list[str]:
     return out
 
 
+def _procedure_problems(cypher: str, procedures: frozenset[str]) -> list[str]:
+    """``cypher_text.procedure_call_problems`` for a turn whose variant allows procedures; [] on every other turn."""
+    return cypher_text.procedure_call_problems(cypher, procedures) if procedures else []
+
+
 def _names(names, limit: int = 200) -> str:
     rendered = [n if _NAME_RE.fullmatch(n) else "`" + n.replace("`", "``") + "`" for n in sorted(names)]
     if len(rendered) > limit:
@@ -778,7 +959,23 @@ def _names(names, limit: int = 200) -> str:
     return ", ".join(rendered) if rendered else "(none)"
 
 
-def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot) -> str:
+#: What every procedure-call repair says, after the problems themselves (cypher_text._apoc_path_reasons has the why).
+_CALL_RULE = (
+    "Every apoc.path call needs a literal configuration map with relationshipFilter naming only DERIVED_FROM "
+    "('DERIVED_FROM>' walks to ancestors, '<DERIVED_FROM' to descendants), a literal integer maxLevel from 1 to "
+    f"{cypher_text.APOC_PATH_MAX_LEVEL} (12 reaches every ancestor; use the number of steps the question names when "
+    "it names one), and, on apoc.path.expandConfig, uniqueness: 'NODE_GLOBAL'. Or write the same lineage as a "
+    "bounded pattern: (s)-[:DERIVED_FROM*1..12]->(a).")
+
+
+def _call_lines(calls: list[str]) -> list[str]:
+    """The repair lines for procedure-call problems (only a variant that allows procedures produces any)."""
+    if not calls:
+        return []
+    return ["- procedure calls that cannot run as written: " + "; ".join(calls), _CALL_RULE]
+
+
+def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot, calls: list[str] = ()) -> str:
     """The one repair prompt: every problem once, and the property names valid for each label involved."""
     titles = {row.label: row.title for row in snapshot.index}
     properties = [p.text for p in problems if p.kind == "property"]
@@ -792,6 +989,7 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
     if whole:
         lines.append("- " + ", ".join(f"whole node {v}" for v in whole) + ": never return or collect a whole "
                      f"Sample node; {_WHOLE_NODE_ALTERNATIVE}")
+    lines += _call_lines(list(calls))
     owners = list(dict.fromkeys(owner for p in problems if p.kind == "property" for owner in p.owners))
     for owner in owners:
         if owner in snapshot.guard:
@@ -810,7 +1008,7 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
     return "\n".join(lines)
 
 
-def _catalog_refusal(problems: list[_Problem], whole: list[str]) -> str:
+def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str] = ()) -> str:
     parts = []
     properties = [p.text for p in problems if p.kind == "property"]
     labels = [p.text for p in problems if p.kind == "label"]
@@ -820,6 +1018,8 @@ def _catalog_refusal(problems: list[_Problem], whole: list[str]) -> str:
         parts.append(f"labels {labels} name no sample type")
     if whole:
         parts.append("it returns whole Sample nodes (" + ", ".join(f"whole node {v}" for v in whole) + ")")
+    if calls:
+        parts.append("procedure calls cannot run as written (" + "; ".join(calls) + ")")
     return "Graph agent could not produce valid Cypher; " + "; ".join(parts) + "."
 
 
@@ -1059,6 +1259,9 @@ def graph_agent(
     messages.append({"role": "user", "content": user_query})
 
     graph_client, graph_model, graph_budget = config.get_agent_model("graph")
+    # An evaluation prompt variant's allowed procedures (v2_apoc); empty on every other turn, which leaves the
+    # guards below exactly as they were.
+    procedures = cypher_text.variant_procedures(config)
 
     def call(prompt: str, log_label: str) -> GraphAgentPlan:
         return call_llm_structured(
@@ -1091,48 +1294,65 @@ def graph_agent(
         if catalog is not None:
             # Catalog guard (spec 4.3): names checked per label against the live catalog, and no whole Sample
             # node returned (D13). One repair naming each problem; then the empty plan naming what is left.
+            # A variant that allows procedures adds the procedure guard to the same round, and the repair is
+            # re-checked by all three, so a repair cannot trade one problem for another unchecked one.
             problems = _property_problems(result.cypher, catalog.snapshot)
-            whole = whole_node_returns(result.cypher)
-            if problems or whole:
-                print(f"[DEBUG][GRAPH] Catalog guard: {[p.text for p in problems]} whole nodes {whole}; "
-                      "attempting repair")
+            whole = whole_node_returns(result.cypher, procedures)
+            calls = _procedure_problems(result.cypher, procedures)
+            if problems or whole or calls:
+                print(f"[DEBUG][GRAPH] Catalog guard: {[p.text for p in problems]} whole nodes {whole}"
+                      + (f" calls {calls}" if calls else "") + "; attempting repair")
                 messages.append({"role": "system",
-                                 "content": _catalog_repair_message(problems, whole, catalog.snapshot)})
+                                 "content": _catalog_repair_message(problems, whole, catalog.snapshot, calls)})
                 result = call("Regenerate the Cypher.", "graph_agent_repair")
                 result.cypher, _ = canonicalize_sample_uid_property(result.cypher)
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
                 problems = _property_problems(result.cypher, catalog.snapshot)
-                whole = whole_node_returns(result.cypher)
-                if problems or whole:
+                whole = whole_node_returns(result.cypher, procedures)
+                calls = _procedure_problems(result.cypher, procedures)
+                if problems or whole or calls:
                     print(f"[DEBUG][GRAPH] Repair still fails the catalog guard: {[p.text for p in problems]} "
-                          f"whole nodes {whole}; returning empty plan")
-                    return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole), parameters={},
-                                          context_mode=context_mode)
+                          f"whole nodes {whole}" + (f" calls {calls}" if calls else "") + "; returning empty plan")
+                    return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole, calls),
+                                          parameters={}, context_mode=context_mode)
         else:
             # Schema guard: reject Cypher that filters on properties no node actually has
             # (e.g. a hallucinated `s.Lab`). Re-prompt once with the error + valid props;
             # if the repair still references unknown properties, return a graceful empty plan
-            # rather than running a query that can only match nothing.
+            # rather than running a query that can only match nothing. A variant that allows
+            # procedures adds the procedure guard to the same round.
             known = known_node_properties(config.NEO4J_SCHEMA) | known_relationship_properties(config.NEO4J_SCHEMA)
             unknown = unknown_cypher_properties(result.cypher, known)
-            if unknown:
-                print(f"[DEBUG][GRAPH] Unknown properties in cypher: {unknown}; attempting repair")
-                repair = (
-                    f"The previous Cypher referenced properties that do not exist on any node or relationship: "
-                    f"{unknown}. Valid properties are: {sorted(known)}. "
-                    "Regenerate the Cypher using ONLY existing properties, or return an empty "
-                    "cypher if the question cannot be answered from the graph."
-                )
-                messages.append({"role": "system", "content": repair})
+            calls = _procedure_problems(result.cypher, procedures)
+            if unknown or calls:
+                print(f"[DEBUG][GRAPH] Unknown properties in cypher: {unknown}"
+                      + (f" calls {calls}" if calls else "") + "; attempting repair")
+                parts = []
+                if unknown:
+                    parts.append(
+                        f"The previous Cypher referenced properties that do not exist on any node or relationship: "
+                        f"{unknown}. Valid properties are: {sorted(known)}. "
+                        "Regenerate the Cypher using ONLY existing properties, or return an empty "
+                        "cypher if the question cannot be answered from the graph."
+                    )
+                if calls:
+                    parts.append("\n".join(["The previous Cypher cannot run as written:"] + _call_lines(calls)))
+                messages.append({"role": "system", "content": "\n".join(parts)})
                 result = call("Regenerate the Cypher.", "graph_agent_repair")
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
                 still = unknown_cypher_properties(result.cypher, known)
-                if still:
-                    print(f"[DEBUG][GRAPH] Repair still references unknown properties: {still}; returning empty plan")
+                calls = _procedure_problems(result.cypher, procedures)
+                if still or calls:
+                    print(f"[DEBUG][GRAPH] Repair still references unknown properties: {still}"
+                          + (f" calls {calls}" if calls else "") + "; returning empty plan")
+                    reasons = []
+                    if still:
+                        reasons.append(f"properties {still} do not exist on any node in the schema")
+                    if calls:
+                        reasons.append("procedure calls cannot run as written (" + "; ".join(calls) + ")")
                     return GraphAgentPlan(
                         cypher="",
-                        explanation=f"Graph agent could not produce valid Cypher; properties "
-                                    f"{still} do not exist on any node in the schema.",
+                        explanation="Graph agent could not produce valid Cypher; " + "; ".join(reasons) + ".",
                         parameters={},
                         context_mode=context_mode,
                     )

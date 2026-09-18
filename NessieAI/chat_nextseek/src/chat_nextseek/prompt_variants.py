@@ -90,7 +90,8 @@ DENIED_PROCEDURE_PREFIXES: tuple[str, ...] = (
     "apoc.export.", "apoc.bolt.", "apoc.custom.", "apoc.trigger.", "apoc.systemdb.", "apoc.create.",
     "apoc.merge.", "apoc.refactor.", "apoc.atomic.", "apoc.lock.", "apoc.schema.assert", "apoc.nodes.delete",
     "apoc.util.sleep", "apoc.log.", "apoc.config.", "apoc.uuid.", "apoc.ttl.", "apoc.graph.fromCypher",
-    "apoc.redis.", "apoc.mongo", "apoc.es.", "apoc.couchbase.", "apoc.warmup.",
+    "apoc.redis.", "apoc.mongo", "apoc.es.", "apoc.couchbase.", "apoc.warmup.", "apoc.convert.setJsonProperty",
+    "apoc.nodes.link",
     "dbms.", "db.create", "db.drop", "db.clear", "tx.",
 )
 
