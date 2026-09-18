@@ -13,6 +13,11 @@ from ..schemas import (
 from .graph import live_catalog_context
 
 
+def _as_map(value) -> dict:
+    """`value` when it is a dict, else an empty one."""
+    return value if isinstance(value, dict) else {}
+
+
 def system_agent(
     config: ChatConfig,
     user_query: str,
@@ -40,9 +45,18 @@ def system_agent(
         code = assay.get("code")
         if code and code in config.FULL_ASSAYS_MAP:
             entity_details[code] = config.FULL_ASSAYS_MAP[code]
+    # A project and an investigation may share a name (the real CSBC and MetNet do), so
+    # they live in two maps and both are sent, the investigation under its own label.
+    # A map that is not a dict (a MagicMock config in tests) reads as empty.
+    projects_map = _as_map(getattr(config, "FULL_PROJECTS_MAP", None))
+    investigations_map = _as_map(getattr(config, "FULL_INVESTIGATIONS_MAP", None))
     for project_name in entity_dict.get("projects", []):
-        if project_name and project_name in config.FULL_PROJECTS_MAP:
-            entity_details[project_name] = config.FULL_PROJECTS_MAP[project_name]
+        if not project_name:
+            continue
+        if project_name in projects_map:
+            entity_details[project_name] = projects_map[project_name]
+        if project_name in investigations_map:
+            entity_details[f"{project_name} (investigation)"] = investigations_map[project_name]
 
     # The full catalogs, not just the codes the entity agent happened to resolve.
     # Without these the only enumerable list in context is the representative
