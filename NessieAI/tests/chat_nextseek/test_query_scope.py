@@ -242,3 +242,116 @@ def test_an_unmeasurable_scope_renders_no_gap_line_at_all():
     block = render_query_scope(scope)
 
     assert "NOT APPLIED" not in block
+
+
+# --------------------------------------------------------------------------
+# Pilot A v2 (2026-09-18): the graph writes a sample type as a label.
+#
+# 19 of the 30 v2 replies opened by saying the sample type was not applied, on queries
+# that were nothing but that type ("Although I could not restrict the search to NHP",
+# on MATCH (s:T_NHP)). The graph agent writes a type as the label T_<code>, with every
+# character outside [A-Za-z0-9_] replaced by _, and the containment test only looked
+# for the bare code, which the label hides behind an identifier character.
+# --------------------------------------------------------------------------
+
+def test_a_sample_type_written_as_a_graph_label_is_applied():
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code="RNA", name="RNA Sample"),
+                                           EntityItem(code="D.WBLT", name="Western Blot Data File")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_RNA) WHERE s.RIN > $x RETURN count(*) AS n "
+                              "UNION MATCH (d:T_D_WBLT) RETURN count(*) AS n",
+                    "parameters": {"x": 7}},
+    )
+
+    assert scope.not_applied == []
+    assert any("RNA" in item for item in scope.applied)
+    assert any("D.WBLT" in item for item in scope.applied)
+
+
+def test_a_label_counts_only_as_a_whole_label():
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code="SEQ", name="Sequence")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_SEQ) RETURN count(*) AS n"},
+    )
+
+    assert any("SEQ" in item for item in scope.not_applied)
+
+
+# --------------------------------------------------------------------------
+# Entities the question never named. The entity step over-resolves: an "Antibody
+# Treatment" assay for "cd8 depletion", a "Published Data" project read into a -PUB
+# UID, "Chromatin Sequencing Analysis" for "ChIP-seq". A query that rightly ignored
+# them was reported as having dropped them. With the question in hand, an assay,
+# project or keyword that the question does not mention is not treated as asked for.
+# Sample types, UIDs and lab codes are always checked: "monkeys" names NHP without
+# saying it.
+# --------------------------------------------------------------------------
+
+def test_an_entity_the_question_never_named_is_not_reported_as_dropped():
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code="Antibody Treatment", name="Antibody Treatment")],
+                              projects=["Published Data"], keywords=["Published Data"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE toLower(s.search_text) CONTAINS $a RETURN s.id AS id",
+                    "parameters": {"a": "cd8"}},
+        user_query="Find me samples associated with cd8 depletion",
+    )
+
+    assert scope.not_applied == []
+
+
+def test_an_assay_the_question_names_is_still_reported_when_dropped():
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code="Western Blot", name="Western Blot")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_TIS) RETURN count(*) AS n"},
+        user_query="Which tissues underwent western blot?",
+    )
+
+    assert any("Western Blot" in item for item in scope.not_applied)
+
+
+def test_an_assay_named_without_its_generic_last_word_still_counts_as_named():
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code="CometChip Assay", name="CometChip Assay")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_IMG) RETURN count(*) AS n"},
+        user_query="How many CometChip imaging datasets are there?",
+    )
+
+    assert any("CometChip Assay" in item for item in scope.not_applied)
+
+
+def test_a_sample_type_is_checked_even_when_the_question_uses_another_word():
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code="NHP", name="Non Human Primate")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_MUS) RETURN count(*) AS n"},
+        user_query="Find me monkeys",
+    )
+
+    assert any("NHP" in item for item in scope.not_applied)
+
+
+def test_without_the_question_every_resolved_entity_is_still_checked():
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code="Antibody Treatment", name="Antibody Treatment")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) RETURN count(*) AS n"},
+    )
+
+    assert any("Antibody Treatment" in item for item in scope.not_applied)
+
+
+def test_a_multiword_keyword_counts_as_applied_when_one_of_its_words_is_used():
+    # "RIN score": the query compares s.RIN; "score" is the user's word, not a field.
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["RIN score"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_RNA) WHERE s.RIN > $x RETURN count(*) AS n", "parameters": {"x": 7}},
+        user_query="Find RNA samples with a RIN score greater than 7.",
+    )
+
+    assert scope.not_applied == []

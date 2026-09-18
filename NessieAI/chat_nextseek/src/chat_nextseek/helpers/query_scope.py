@@ -118,21 +118,34 @@ def _label(kind: str, value: str, name: str | None = None) -> str:
     return f"{kind} {value}"
 
 
-def _asked_for(entity_result: dict, parser_plan: dict) -> list[tuple[str, str]]:
-    """Every constraint the turn asked for, as ``(value, label)``.
+def _asked_for(
+    entity_result: dict, parser_plan: dict, user_query: str | None = None,
+) -> list[tuple[str, str, str]]:
+    """Every constraint the turn asked for, as ``(kind, value, label)``.
 
     Both the entity agent's resolution and the parser's filters are read: the parser
     can add a filter the entity agent never resolved (a UID, a lab code) and the
     entity agent can resolve one the parser dropped, and a reply that misses either
     is the failure this exists to catch.
+
+    With the question in hand, an assay, project or keyword the question never
+    mentions is not counted as asked for: the entity step over-resolves ("Antibody
+    Treatment" for "cd8 depletion", a "Published Data" project read into a -PUB UID),
+    and a query that rightly ignored such a guess was reported as having dropped it.
+    Sample types, UIDs and lab codes are always counted: "monkeys" asks for NHP
+    without saying it.
     """
     filters = parser_plan.get("filters") or {}
-    asked: list[tuple[str, str]] = []
+    asked: list[tuple[str, str, str]] = []
+    _guessable = {"assay", "project", "keyword"}
 
     def _add(kind: str, value: str, name: str | None = None) -> None:
         label = _label(kind, value, name)
-        if value and all(label != existing for _, existing in asked):
-            asked.append((value, label))
+        if not value or any(label == existing for _, _, existing in asked):
+            return
+        if user_query is not None and kind in _guessable and not _named_in(user_query, value, name):
+            return
+        asked.append((kind, value, label))
 
     for code, name in _codes_and_names(entity_result.get("sampletypes")):
         _add("sample type", code, name)
@@ -191,6 +204,64 @@ def _is_applied(value: str, haystack: str) -> bool:
     return re.search(pattern, haystack, re.IGNORECASE) is not None
 
 
+def _type_label(code: str) -> str:
+    """The graph's label for a sample type code: ``T_`` plus the code with every character
+    outside [A-Za-z0-9_] replaced by ``_`` (``RNA`` is ``T_RNA``, ``D.SEQ`` is ``T_D_SEQ``).
+
+    The label hides the bare code behind an identifier character, so ``_is_applied``
+    alone read ``MATCH (s:T_RNA)`` as not constraining RNA: 19 of the 30 Pilot A v2
+    replies (2026-09-18) opened by saying the sample type was not applied.
+    """
+    return "T_" + re.sub(r"[^A-Za-z0-9_]", "_", code)
+
+
+def _type_is_applied(code: str, haystack: str) -> bool:
+    return _is_applied(code, haystack) or _is_applied(_type_label(code), haystack)
+
+
+def _keyword_is_applied(keyword: str, haystack: str) -> bool:
+    """A keyword counts as applied when it, or any of its words of three or more
+    characters, is in the query: "RIN score" is constrained by ``s.RIN > 7``. Looser
+    than the other kinds on purpose, in the direction this module errs in: it can miss
+    a dropped keyword, never invent one."""
+    if _is_applied(keyword, haystack):
+        return True
+    words = [w for w in re.split(r"[^A-Za-z0-9]+", keyword) if len(w) >= 3]
+    return len(words) > 1 and any(_is_applied(w, haystack) for w in words)
+
+
+def _folded(text: str) -> str:
+    return " " + " ".join(re.split(r"[^a-z0-9]+", str(text or "").lower())).strip() + " "
+
+
+#: A trailing word an entity name carries that a question drops ("CometChip Assay",
+#: asked as "CometChip").
+_GENERIC_LAST_WORDS = frozenset({"assay", "assays", "analysis", "data", "sample", "samples", "file", "files"})
+
+
+def _named_in(question: str, value: str, name: str | None = None) -> bool:
+    """Whether the question itself mentions this entity, by code or by name.
+
+    Case, punctuation and spacing are folded (``western blot``, ``Western-Blot``,
+    ``CometChip`` and ``Comet Chip`` all match), and a generic last word of the name
+    may be missing.
+    """
+    q = _folded(question)
+    q_compact = q.replace(" ", "")
+    for candidate in (value, name):
+        if not candidate:
+            continue
+        folded = _folded(candidate)
+        words = folded.split()
+        forms = [folded]
+        if len(words) > 1 and words[-1] in _GENERIC_LAST_WORDS:
+            forms.append(" " + " ".join(words[:-1]) + " ")
+        for form in forms:
+            if form.strip() and (form in q or form.replace(" ", "") in q_compact):
+                return True
+    return False
+
+
 def _search_kind(parser_plan: dict, api_plan: dict | None, graph_plan: dict | None) -> str:
     if graph_plan:
         return _GRAPH_SEARCH_KIND
@@ -221,8 +292,13 @@ def describe_query_scope(
     api_plan: dict | None = None,
     graph_plan: dict | None = None,
     extra_notes: list[str] | None = None,
+    user_query: str | None = None,
 ) -> QueryScope:
-    """Split the turn's constraints into the ones the query carried and the rest."""
+    """Split the turn's constraints into the ones the query carried and the rest.
+
+    ``user_query``, when given, drops the assays, projects and keywords the question
+    never mentions from what counts as asked for (see ``_asked_for``).
+    """
     entity_result = entity_result if isinstance(entity_result, dict) else {}
     parser_plan = parser_plan if isinstance(parser_plan, dict) else {}
 
@@ -243,8 +319,14 @@ def describe_query_scope(
         return scope
 
     scope.measurable = True
-    for value, label in _asked_for(entity_result, parser_plan):
-        (scope.applied if _is_applied(value, haystack) else scope.not_applied).append(label)
+    for kind, value, label in _asked_for(entity_result, parser_plan, user_query):
+        if kind == "sample type":
+            applied = _type_is_applied(value, haystack)
+        elif kind == "keyword":
+            applied = _keyword_is_applied(value, haystack)
+        else:
+            applied = _is_applied(value, haystack)
+        (scope.applied if applied else scope.not_applied).append(label)
     return scope
 
 

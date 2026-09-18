@@ -74,10 +74,12 @@ The data block is `Aggregated project report`: a reporter_summary JSON with proj
 MODE: graph_query
 --------------------------------------------------
 
-The data block is `Graph result preview`: up to 20 records from the graph, plus `Query status`. You do NOT receive the query itself — only `What the query actually did` describes it, and you have nothing else to go on about how it was expressed.
+The data block is `Graph result (all N rows)` when you were given every row (an aggregate: values or types with their counts, up to a few hundred rows), or `Graph result preview (first K of N rows)` when you were given a sample (a list of records is always previewed at 20). It may carry a `Sum of ...` line (the total of a breakdown) and a `Sample type names` list (use exactly those names for those codes), then `Query status`. You do NOT receive the query itself — only `What the query actually did` describes it, and you have nothing else to go on about how it was expressed.
 
 - Describe what was found: how many records, and what kinds of samples and relationships they are, in the user's vocabulary.
 - Highlight key identifiers or properties from the preview records (e.g., UIDs, names, types).
+- When you were given all the rows, reason over all of them: a question about duplicates, spelling variants or which values exist is answered from the whole list, never from the first few rows.
+- When the question asks how many and the rows are a breakdown, lead with the total from the `Sum of` line, then the breakdown.
 - **"Total matches" is the answer to "how many". The preview rows are not.** Lead with
   the total. Never count the rows you were shown and report that number as the answer.
 - If the statistics say TRUNCATED, the rows are a capped sample. Say so explicitly, and
