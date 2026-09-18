@@ -11,6 +11,20 @@ import type { AuthService } from "./authTypes";
 
 const POLL_INTERVAL = 2000;
 
+/**
+ * How long a poll waits for a new progress event before it stops. Every event a
+ * turn emits touches its task, and this is the server's own rule for a pending or
+ * running task that has stopped moving: an orphan, not a turn in flight
+ * (STALE_TASK_SECONDS, nextseek_api/assistant/session_debug.py). It measures
+ * silence, not age, because an NS turn has no overall wall clock, and it sits above
+ * the longest single silent step the engine allows (a 600 s report-writer call
+ * with its one timeout retry).
+ */
+const POLL_SILENCE_LIMIT_MS = 30 * 60 * 1000;
+const POLL_GAVE_UP =
+  "No progress on this answer for 30 minutes, so the chat stopped waiting. " +
+  "It may still appear if you reload the page.";
+
 /** What the user is told while a dropped progress socket's turn is read by polling. */
 const STREAM_LOST_NOTICE = "Connection lost. Still waiting for the answer.";
 
@@ -211,6 +225,7 @@ export class NextseekApiService {
   ): Promise<void> {
     // Events before startIndex already reached the caller over the socket.
     let lastIndex = startIndex;
+    let lastNewEventAt = Date.now();
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -229,6 +244,7 @@ export class NextseekApiService {
 
         const data = await response.json();
         const events: ProgressEvent[] = data.progress ?? [];
+        if (events.length > lastIndex) lastNewEventAt = Date.now();
 
         for (let i = lastIndex; i < events.length; i++) {
           onProgress(events[i]);
@@ -242,6 +258,13 @@ export class NextseekApiService {
         }
 
         lastIndex = Math.max(lastIndex, events.length);
+
+        // The turn's thread died, or its final write failed, while the server
+        // kept answering: without this the turn stays in flight for good.
+        if (Date.now() - lastNewEventAt >= POLL_SILENCE_LIMIT_MS) {
+          onError(POLL_GAVE_UP);
+          return;
+        }
       } catch (err) {
         onError(
           err instanceof Error ? err.message : "Polling failed",

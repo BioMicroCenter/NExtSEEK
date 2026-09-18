@@ -47,7 +47,9 @@ Break one of these and the failure is silent: a page that renders, returns HTTP
   hang forever on such an instance. A socket that opens and then drops before the
   turn's final event hands over to the same poll, which resumes after the events the
   socket already delivered; once it has handed over the socket must deliver nothing
-  more, or the answer reaches the user twice.
+  more, or the answer reaches the user twice. Either poll gives up after 30 minutes
+  without a new event, the server's own orphan threshold (`STALE_TASK_SECONDS` in
+  `nextseek_api/assistant/session_debug.py`); change the two together.
 - **The embedded stylesheet must not pull in Tailwind's preflight.**
   `NessieAI/chat_frontend/src/index.embedded.css:1-2` imports only the theme and the
   utilities, where the standalone sheet takes the whole framework

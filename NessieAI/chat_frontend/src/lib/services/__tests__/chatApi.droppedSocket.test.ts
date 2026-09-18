@@ -292,3 +292,98 @@ describe("a progress socket that finishes the turn", () => {
     expect(names(delivered)).toEqual(["agent_started", "query_complete"]);
   });
 });
+
+// A poll that took over a dropped stream used to wait forever when the turn's
+// thread never wrote its final event while the server kept answering. It now
+// gives up after 30 minutes without a new progress event: the server's own rule
+// for a pending or running task that has stopped moving (STALE_TASK_SECONDS).
+const MINUTE = 60_000;
+
+/** fetch whose progress list grows with fake time: `at` gives each event's minute. */
+function stubTimedFetch(at: Array<[number, ProgressEvent]>) {
+  const start = Date.now();
+  const progressGets: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, json: async () => ({ task_id: TASK, session_id: "sess-1" }) };
+      }
+      progressGets.push(url);
+      const elapsed = Date.now() - start;
+      const progress = at.filter(([min]) => elapsed >= min * MINUTE).map(([, e]) => e);
+      return { ok: true, json: async () => ({ status: "running", progress }) };
+    }),
+  );
+  return progressGets;
+}
+
+describe("the poll that takes over a turn", () => {
+  let service: NextseekApiService;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ControlledSocket.instances = [];
+    vi.stubGlobal("WebSocket", ControlledSocket);
+    service = new NextseekApiService(createMockAuth());
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("gives up after 30 minutes without a new event, saying a reload may still show the answer", async () => {
+    const gets = stubTimedFetch([[0, STARTED]]);
+    const { done, sock, onError } = await startTurn(service);
+
+    sock.open();
+    sock.receive(STARTED.event, STARTED.data);
+    sock.drop(1006);
+    await vi.advanceTimersByTimeAsync(29 * MINUTE);
+    expect(onError).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1 * MINUTE);
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toMatch(/30 minutes/);
+    expect(onError.mock.calls[0][0]).toMatch(/reload/i);
+    await done;
+    const polled = gets.length;
+    await vi.advanceTimersByTimeAsync(10 * MINUTE);
+    expect(gets).toHaveLength(polled);
+  });
+
+  it("never cuts off a turn that keeps moving, however long it runs", async () => {
+    stubTimedFetch([
+      [0, STARTED],
+      [20, DONE_ENTITY],
+      [45, { event: "agent_started", data: { agent: "chatter", mode: "new_search" } }],
+      [70, ANSWER],
+    ]);
+    const { done, sock, delivered, onError } = await startTurn(service);
+
+    sock.open();
+    sock.receive(STARTED.event, STARTED.data);
+    sock.drop(1006);
+    await vi.advanceTimersByTimeAsync(71 * MINUTE);
+    await done;
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(delivered.at(-1)).toEqual(ANSWER);
+  });
+
+  it("gives up the same way when the socket never opened", async () => {
+    stubTimedFetch([[0, STARTED]]);
+    const { done, sock, delivered, onError } = await startTurn(service);
+
+    sock.fail();
+    sock.drop(1006);
+    await vi.advanceTimersByTimeAsync(30 * MINUTE);
+
+    expect(names(delivered)).toEqual(["agent_started"]);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toMatch(/reload/i);
+    await done;
+  });
+});
