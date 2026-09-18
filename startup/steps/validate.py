@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,12 +16,16 @@ from startup.steps.config import read_rendered_seek_public_url
 from startup.lib.docker_ops import (
     compose_exec,
     compose_ps_running,
+    copy_from_image,
     image_exists,
     DockerOpsError,
 )
 from startup.lib.rebuild_policy import app_runtime_services, component_policies
 from startup.lib.env import read_env
 from startup.lib.layout import (
+    CANONICAL_CONTEXT_DIR,
+    CANONICAL_CONTEXT_FILES,
+    CC_AGENT_CONTEXT_DIR,
     LEGACY_PROXY_SECRET_ENV,
     PROXY_SECRET_ENV,
     legacy_proxy_secret_env,
@@ -383,6 +388,83 @@ def check_first_party_images(compose_project_name: str = "nextseek") -> HealthRe
         )
     return HealthResult(
         name=name, ok=True, detail=f"all {len(owner)} present ({', '.join(owner)})"
+    )
+
+
+def _cc_agent_image(compose_project_name: str) -> str:
+    """The image ``./startup.sh rebuild --component cc-agent`` builds."""
+    (image,) = component_policies(compose_project_name)["cc-agent"].images
+    return image.local_image
+
+
+def _context_mismatches(checkout_dir: Path, baked_dir: Path) -> list[str]:
+    """Each canonical file whose baked bytes are not the checkout's, with why."""
+    stale: list[str] = []
+    for name in CANONICAL_CONTEXT_FILES:
+        source, baked = checkout_dir / name, baked_dir / name
+        if not source.is_file():
+            stale.append(f"{name} (absent from the checkout)")
+        elif not baked.is_file():
+            stale.append(f"{name} (absent from the image)")
+        elif source.read_bytes() != baked.read_bytes():
+            stale.append(f"{name} (differs)")
+    return stale
+
+
+def check_cc_agent_context(
+    checkout: Path, compose_project_name: str = "nextseek"
+) -> HealthResult:
+    """Whether the cc-agent image still bakes the checkout's canonical context.
+
+    The six chat_nextseek context files (``startup/lib/layout.py``) are baked
+    into the app image and, through the Compose named context
+    ``chat_nextseek``, into the cc-agent image. A bare ``./startup.sh rebuild``
+    builds only the first, so editing one of them and skipping
+    ``--component cc-agent`` leaves the CC agent reading its old copy for as
+    long as the image lives, and every guard that compares files in the
+    checkout stays green. This reads the files out of the built image, without
+    running it, and compares bytes with ``checkout``: the tree the images were
+    built from.
+
+    Advisory, like the rest of stack health: the smoke suite never asks the
+    agent anything, so its result still stands, and ``rebuild`` exits non-zero
+    at the end. An absent image is a warning, not a second failure: first-party
+    images already names it and says how to build it.
+    """
+    name = "cc-agent context"
+    image = _cc_agent_image(compose_project_name)
+    try:
+        present = image_exists(image)
+    except (DockerOpsError, OSError) as exc:
+        return HealthResult(name=name, ok=False, detail=str(exc))
+    if not present:
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail=(f"skipped: {image} is absent, so there is no baked context to "
+                    "compare (first-party images says how to build it)"),
+        )
+    with tempfile.TemporaryDirectory(prefix="cc-agent-context-") as tmp:
+        baked = Path(tmp) / "context"
+        try:
+            copy_from_image(image, CC_AGENT_CONTEXT_DIR, baked)
+        except (DockerOpsError, OSError) as exc:
+            return HealthResult(
+                name=name, ok=False,
+                detail=f"could not read {CC_AGENT_CONTEXT_DIR} out of {image}: {exc}",
+            )
+        stale = _context_mismatches(checkout / CANONICAL_CONTEXT_DIR, baked)
+    total = len(CANONICAL_CONTEXT_FILES)
+    if stale:
+        return HealthResult(
+            name=name, ok=False,
+            detail=(f"STALE: {image} bakes {len(stale)} of {total} canonical context "
+                    f"files unlike the checkout: {', '.join(stale)}. The CC agent "
+                    "reads its baked copy until you run: "
+                    "./startup.sh rebuild --component cc-agent"),
+        )
+    return HealthResult(
+        name=name, ok=True,
+        detail=f"{image} bakes all {total} canonical context files as the checkout has them",
     )
 
 
