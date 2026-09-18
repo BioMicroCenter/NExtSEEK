@@ -1,7 +1,7 @@
 """
 DRF ViewSet for the NExtSEEK Assistant (chat) endpoints.
 
-Provides 8 actions:
+Provides 9 actions:
   GET  /assistant/me/
   POST /assistant/sessions/
   GET  /assistant/sessions/{session_id}/
@@ -9,6 +9,7 @@ Provides 8 actions:
   POST /assistant/query/async/                   (async, returns task_id)
   GET  /assistant/tasks/{task_id}/progress/      (polling for progress)
   GET  /assistant/sessions/{sid}/bundles/{bid}/
+  GET  /assistant/sessions/{sid}/download/       (the whole chat as one zip)
   GET  /assistant/test-cases/
 """
 
@@ -33,6 +34,8 @@ from pydantic import ValidationError
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.handlers.asgi import ASGIRequest
 
 ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
 TEST_CASES = settings.TEST_CASES
@@ -45,6 +48,7 @@ from nextseek_api.assistant.descriptions import (
     ASSISTANT_SESSION_CREATE_DESC,
     ASSISTANT_SESSION_DELETE_DESC,
     ASSISTANT_SESSION_DETAIL_DESC,
+    ASSISTANT_SESSION_DOWNLOAD_DESC,
     ASSISTANT_SESSION_PATCH_DESC,
     ASSISTANT_SESSIONS_LIST_DESC,
     ASSISTANT_TASK_PROGRESS_DESC,
@@ -105,7 +109,7 @@ from NessieAI.ns.artifacts import (
     _resolve_saved_path,
     _safe_artifact_path,
 )
-from nextseek_api.assistant.session_export import turn_rows
+from nextseek_api.assistant import session_export
 from rest_framework.authentication import (
     BasicAuthentication,
     TokenAuthentication,
@@ -436,7 +440,7 @@ class AssistantViewSet(viewsets.ViewSet):
         if "turns" in include_set:
             payload["title"] = session.title or "New chat"
             # One turn walk, shared with anything that exports a session.
-            payload["turns"] = [row.payload for row in turn_rows(session)]
+            payload["turns"] = [row.payload for row in session_export.turn_rows(session)]
 
         return Response(payload, status=status.HTTP_200_OK)
 
@@ -1040,6 +1044,64 @@ class AssistantViewSet(viewsets.ViewSet):
             )
 
         return _error_response("Not found", f"Artifact '{artifact_key}' not found.", status.HTTP_404_NOT_FOUND)
+
+    # ------------------------------------------------------------------
+    # 9. GET /assistant/sessions/{sid}/download/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Download Session",
+        description=ASSISTANT_SESSION_DOWNLOAD_DESC,
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"sessions/(?P<session_id>[0-9a-f-]+)/download",
+    )
+    def download_session(self, request, session_id=None):
+        """The whole chat as one zip, streamed (``session_export``)."""
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        try:
+            chat_session = ChatSession.objects.get(session_id=session_id)
+        except (ChatSession.DoesNotExist, DjangoValidationError):
+            return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
+
+        is_owner = chat_session.user_id == request.user.pk
+        if not is_owner and not may_read_any_users_data(request.user):
+            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+
+        # The CC tree is found through the SEEK project of the login that asks,
+        # exactly as the per-turn CC download finds it, so only the owner's own
+        # request can name the owner's tree. A superuser reading someone else's
+        # chat gets those turns listed as skipped, never files from their own tree.
+        resolve_cc_root = None
+        if is_owner:
+            basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+            if basic_tuple and basic_tuple[0] and basic_tuple[1]:
+                api_user, api_pass = basic_tuple
+            else:
+                api_user = request.session.get("username")
+                api_pass = request.session.get("password")
+            username = request.user.username
+
+            def resolve_cc_root():
+                return session_export.cc_artifacts_root(api_user, api_pass, username)
+
+        plan = session_export.plan_export(chat_session, resolve_cc_root=resolve_cc_root)
+        # Match the iterator to the server: handed a synchronous iterator, Django's
+        # ASGI response (daphne is this app's default server) reads all of it into a
+        # list before sending a byte, and a WSGI response does the same to an
+        # asynchronous one.
+        if isinstance(getattr(request, "_request", request), ASGIRequest):
+            content = session_export.astream_export(plan)
+        else:
+            content = session_export.stream_export(plan)
+        response = StreamingHttpResponse(content, content_type="application/zip")
+        response["Content-Disposition"] = f'attachment; filename="{plan.filename}"'
+        response["X-Accel-Buffering"] = "no"
+        return response
 
     # ------------------------------------------------------------------
     # 6. GET /assistant/test-cases/

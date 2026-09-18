@@ -724,6 +724,12 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("GET",), profiles="local,dev", auth="smoke", expect=404,
           note="unknown id: proves the route resolves and denies"),
+    Route(pattern=r"^nextseek_api/^^assistant/sessions/(?P<session_id>[0-9a-f-]+)/download/$",
+          path="/nextseek_api/assistant/sessions/" + _NO_SUCH_UUID + "/download/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev", auth="smoke", expect=404,
+          note="unknown id: proves the route resolves and denies. For a real session "
+               "it streams a zip of the transcript and every turn's files"),
     Route(pattern=r"^nextseek_api/^^assistant/tasks/(?P<task_id>[0-9a-f-]+)/progress/$",
           path="/nextseek_api/assistant/tasks/" + _NO_SUCH_UUID + "/progress/",
           effect="reads",
