@@ -14,7 +14,7 @@ The text has three parts (spec section 4.2):
 
 ``render_graph_context`` holds the whole text within ``BUDGET_BYTES``: when it is over, the tail's counts go,
 then K steps down through ``K_STEPS`` (0 means names only), before a resolved section is dropped, the last one
-first.
+first. ``fit_graph_context`` returns the same text with what it gave up, and prints any step down.
 
 The vocabulary, a separate message, is gated by question words (``mentions``) and held within
 ``VOCAB_BUDGET_BYTES`` by ``fit_vocabulary``, which trims the entries the question does not name first.
@@ -403,15 +403,47 @@ def _fits(text: str, budget: int) -> bool:
     return len(text.encode("utf-8")) <= budget
 
 
-def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET_BYTES,
-                         structure: str | None = None) -> str:
-    """Structure, type index and at most ``MAX_TYPES`` resolved sections, within ``budget`` bytes.
+class GraphContext(NamedTuple):
+    """What ``fit_graph_context`` sent and how it fit, for a caller or a debug payload to record."""
+
+    text: str
+    requested_k: int
+    k: int  # the K the resolved sections were rendered at; 0 means names only
+    tail_counts: bool  # whether the names-only tail carries each attribute's sample count
+    omitted: tuple[str, ...]  # resolved types left out to fit, in order
+    budget: int
+
+    @property
+    def size(self) -> int:
+        return len(self.text.encode("utf-8"))
+
+    @property
+    def stepped_down(self) -> bool:
+        """Whether the text gave anything up to fit: the tail counts, a K step or a section."""
+        return self.k < self.requested_k or not self.tail_counts or bool(self.omitted)
+
+
+def _reported(fit: GraphContext) -> GraphContext:
+    if fit.stepped_down:
+        gave_up = [f"K {fit.requested_k} -> {fit.k}"]
+        if not fit.tail_counts:
+            gave_up.append("tail counts off")
+        if fit.omitted:
+            gave_up.append("left out " + ", ".join(fit.omitted))
+        print(f"[DEBUG][GRAPH] Schema context stepped down to fit {_count(fit.budget)} bytes: "
+              f"{'; '.join(gave_up)} ({_count(fit.size)} bytes)")
+    return fit
+
+
+def fit_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET_BYTES,
+                      structure: str | None = None) -> GraphContext:
+    """Structure, type index and at most ``MAX_TYPES`` resolved sections within ``budget`` bytes, and how they fit.
 
     Over the budget, the sections give things up in this order, for every section at once, stopping at the
     first rendering that fits: the sample counts on the names-only tail, then a K step (``k``, then each smaller
     step of ``K_STEPS``, 0 meaning names only) with the counts back on, and so on down; only at names only are
     sections dropped, the last one first. The structure and the index are always sent, so the text exceeds the
-    budget only when they alone do.
+    budget only when they alone do. Anything given up is in the result (``stepped_down``) and printed.
 
     ``structure`` replaces the hand-owned structure file for one call: an evaluation prompt variant's
     ``graph_schema_structure.txt`` (``prompt_variants.py``). None, the default, reads the file.
@@ -420,15 +452,19 @@ def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET
     index = render_type_index(_get(snapshot, "index") or ())
     details = list(details or ())[:MAX_TYPES]
     titles = [str(_get(d, "title")) for d in details]
+    requested = max(int(k), 0)
+    if not details:
+        return GraphContext(_assemble(structure, index, [], [], requested, True, []), requested, requested, True,
+                            (), budget)
 
-    steps = [max(int(k), 0)] + [step for step in K_STEPS if step < k]
+    steps = [requested] + [step for step in K_STEPS if step < requested]
     text = ""
     for step in steps:
         for counts in (True, False):
             text = _assemble(structure, index, titles,
                              [render_type_section(d, step, tail_counts=counts) for d in details], step, counts, [])
             if _fits(text, budget):
-                return text
+                return _reported(GraphContext(text, requested, step, counts, (), budget))
 
     last_step = steps[-1]
     kept = list(details)
@@ -440,8 +476,14 @@ def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET
                              [render_type_section(d, last_step, tail_counts=counts) for d in kept], last_step,
                              counts, omitted)
             if _fits(text, budget):
-                return text
-    return text
+                return _reported(GraphContext(text, requested, last_step, counts, tuple(omitted), budget))
+    return _reported(GraphContext(text, requested, last_step, False, tuple(omitted), budget))
+
+
+def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET_BYTES,
+                         structure: str | None = None) -> str:
+    """The text of ``fit_graph_context``: structure, type index and the resolved sections within ``budget``."""
+    return fit_graph_context(snapshot, details, k=k, budget=budget, structure=structure).text
 
 
 # ---------------------------------------------------------------------------------------------------------------

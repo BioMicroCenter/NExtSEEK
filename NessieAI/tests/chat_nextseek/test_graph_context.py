@@ -617,3 +617,49 @@ def test_k_steps_down_when_the_counts_alone_do_not_fit_it():
     text = gc.render_graph_context(snap, details, budget=len(no_counts.encode("utf-8")) - 1)
     counts = section_attribute_counts(text)
     assert set(counts) == {"HVA", "HVB", "HVC"} and set(counts.values()) == {15}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# How the context fit: reported and printed, and pinned on the heavy triple
+# ---------------------------------------------------------------------------------------------------------------
+
+def test_fit_reports_how_the_context_fit():
+    attributes = [attr(f"A{i:02d}", sample_count=100 - i) for i in range(30)]
+    snap, details = snapshot([index_row("TIS", sample_count=100)]), [detail("TIS", attributes)]
+    fit = gc.fit_graph_context(snap, details)
+    assert fit.text == gc.render_graph_context(snap, details)
+    assert (fit.requested_k, fit.k, fit.tail_counts, fit.omitted, fit.budget) == (25, 25, True, (), gc.BUDGET_BYTES)
+    assert fit.size == len(fit.text.encode("utf-8")) and not fit.stepped_down
+
+
+def test_a_heavy_triple_renders_at_k_25_with_its_tail_counts():
+    """The pin the verifier asked for: a triple this heavy still gets K 25 and every count, nothing left out."""
+    snap, details = heavy_triple()
+    fit = gc.fit_graph_context(snap, details)
+    assert fit.size > 0.85 * gc.BUDGET_BYTES  # genuinely near the budget, or the pin proves nothing
+    assert (fit.k, fit.tail_counts, fit.omitted, fit.stepped_down) == (25, True, (), False)
+    assert fit.size <= gc.BUDGET_BYTES
+    assert "HVA_Sparse_000 n=900" in fit.text
+
+
+def test_a_step_down_is_printed(capsys):
+    snap, details = heavy_triple()
+    capsys.readouterr()
+    gc.fit_graph_context(snap, details, budget=20_000)
+    out = capsys.readouterr().out
+    assert "[DEBUG][GRAPH] Schema context stepped down to fit 20,000 bytes: K 25 -> " in out
+
+
+def test_nothing_is_printed_when_the_context_fits(capsys):
+    snap, details = heavy_triple()
+    capsys.readouterr()
+    gc.fit_graph_context(snap, details)
+    assert "stepped down" not in capsys.readouterr().out
+
+
+def test_a_left_out_section_is_reported():
+    details = [big_type("TIS"), big_type("D.SEQ"), big_type("A.VCF")]
+    snap = snapshot([])
+    one_names_only = gc.render_graph_context(snap, details[:1], k=0, budget=10**9)
+    fit = gc.fit_graph_context(snap, details, budget=len(one_names_only.encode("utf-8")) + 200)
+    assert fit.omitted == ("D.SEQ", "A.VCF") and fit.k == 0 and fit.stepped_down
