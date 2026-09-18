@@ -7,6 +7,8 @@ The assistant_prefix (with/without the i18n locale segment) is resolved by T0a.
 """
 from __future__ import annotations
 
+import math
+import os
 import time
 from collections.abc import Callable
 
@@ -25,9 +27,41 @@ from _assistant_models import (
 # runner_ns._STREAM_ENDED_WITHOUT_TERMINAL must equal this value (drift-pinned in test_runner_ns.py).
 STREAM_ENDED_SENTINEL = "stream ended without terminal event"
 
-# Module-level sleep and monotonic clock so tests can monkeypatch them.
+# Module-level sleep and clocks so tests can monkeypatch them.
 _sleep = time.sleep
 _monotonic = time.monotonic
+_wallclock = time.time
+
+# 13b.2: the host stops a Container-CC turn at a fixed moment and hands it to the
+# agent here, as Unix seconds (NessieAI/cc/cc_engine.py build_agent_environment,
+# from the turn's own clamped timeout; the default ceiling is 180 s). Polling
+# must end before it, or a long query is killed along with the turn and the
+# agent never gets to say what happened. The engine uses the same name.
+_TURN_DEADLINE_ENV = "NEXTSEEK_CC_TURN_DEADLINE_EPOCH"
+# Seconds kept back from the turn deadline. The loop checks its deadline before
+# each progress GET, so one GET can run a full request_timeout (30 s) past it;
+# the rest is for the agent to act on the failed query and finish its turn.
+_TURN_DEADLINE_HEADROOM_S: float = 45.0
+# Used when the deadline is absent or unreadable (a host older than 13b.2, or
+# the bin run by hand): below the default 180 s turn ceiling, with room for the
+# work a turn does before its first query.
+_FALLBACK_POLL_TIMEOUT_S: float = 120.0
+# Never poll for less than this, so a query issued late in a turn still gets one
+# short chance to return.
+_MIN_POLL_TIMEOUT_S: float = 10.0
+
+
+def poll_timeout_from_env() -> float:
+    """Seconds run_query may poll: the time left in this turn, less headroom."""
+    raw = os.environ.get(_TURN_DEADLINE_ENV, "").strip()
+    try:
+        deadline = float(raw)
+    except ValueError:
+        return _FALLBACK_POLL_TIMEOUT_S
+    if not math.isfinite(deadline):
+        return _FALLBACK_POLL_TIMEOUT_S
+    left = deadline - _wallclock() - _TURN_DEADLINE_HEADROOM_S
+    return max(_MIN_POLL_TIMEOUT_S, left)
 
 _DEFAULT_POLL_INTERVAL: float = 0.5
 
@@ -40,8 +74,8 @@ _DEFAULT_POLL_INTERVAL: float = 0.5
 # (W3 deferred follow-up.)
 # NOTE: retry count and request_timeout are COUPLED. A fully-stalled link burns
 # up to _PROGRESS_GET_MAX_RETRIES * request_timeout (4 * 30s = 120s) per poll
-# iteration, plus backoff, against the 300s poll deadline. Raising this without
-# revisiting request_timeout shrinks the polling headroom.
+# iteration, plus backoff, against the poll deadline (poll_timeout_from_env).
+# Raising this without revisiting request_timeout shrinks the polling headroom.
 _PROGRESS_GET_MAX_RETRIES: int = 4
 # Linear backoff base between progress-GET retry attempts (seconds). Kept well
 # under the poll deadline; injectable via the module-level _sleep so tests
@@ -51,14 +85,17 @@ _PROGRESS_GET_RETRY_BACKOFF: float = 0.5
 
 class AssistantClient:
     def __init__(self, *, base_url: str, assistant_prefix: str, auth: tuple[str, str],
-                 timeout: float = 300.0, request_timeout: float = 30.0,
+                 timeout: float | None = None, request_timeout: float = 30.0,
                  transport: httpx.BaseTransport | None = None,
                  poll_interval: float = _DEFAULT_POLL_INTERVAL) -> None:
         """Create an AssistantClient.
 
         Args:
             timeout: Total polling deadline in seconds. The run_query loop gives up
-                after this many seconds have elapsed since the POST (default 300).
+                after this many seconds have elapsed since the POST. None (the
+                default) derives it after the POST from the turn's deadline
+                (poll_timeout_from_env), so it always ends before the host stops
+                the turn.
             request_timeout: Per-request httpx timeout in seconds applied to every
                 individual HTTP call -- POST query/async/, GET progress, and the
                 session/bundle/artifact helpers (default 30). Kept short so a single
@@ -114,7 +151,8 @@ class AssistantClient:
 
             # Step 2: Poll loop
             seen_count = 0  # index into the append-only progress list
-            deadline = _monotonic() + self._timeout
+            budget = self._timeout if self._timeout is not None else poll_timeout_from_env()
+            deadline = _monotonic() + budget
 
             while True:
                 if _monotonic() >= deadline:

@@ -84,6 +84,12 @@ _DEFAULT_TURN_TIMEOUT = min(
     int(os.environ.get("NEXTSEEK_CC_TIMEOUT_SECONDS", str(_TIMEOUT_HARD_MAX))),
     _TIMEOUT_HARD_MAX,
 )
+# 13b.2: the agent env carries the Unix time (whole seconds) by which this turn
+# will have been stopped, so the plugin's nextseek-query stops polling while the
+# agent can still report back, instead of being killed along with the turn. The
+# plugin reads the same name (``_assistant_client._TURN_DEADLINE_ENV``); a test
+# pins the two together.
+_TURN_DEADLINE_ENV = "NEXTSEEK_CC_TURN_DEADLINE_EPOCH"
 
 # #73 (production DoS): hard cgroup ceilings for the per-turn sibling container.
 # Cost/turn/time caps above bound spend and wall-clock, but NOT RAM/CPU/PIDs/disk
@@ -286,6 +292,7 @@ def build_agent_environment(
     api_pass: str | None,
     path_mappings: Mapping[str, Any],
     chat_session_id: str | None = None,
+    turn_deadline: float | None = None,
 ) -> dict[str, str]:
     """The COMPLETE env for the sandboxed Container-CC agent (OI-3).
 
@@ -296,7 +303,9 @@ def build_agent_environment(
     reaches Bedrock only through the auth-proxy, and NExtSEEK data only through
     the authenticated REST API as the user. ``source`` is the Django/process env
     to read non-secret topology from (defaults to os.environ; the canary passes a
-    hostile source to prove nothing leaks).
+    hostile source to prove nothing leaks). ``turn_deadline`` is the Unix time by
+    which the turn will have been stopped; only the turn driver knows it, so it
+    is never read from ``source``.
     """
     src = os.environ if source is None else source
     env: dict[str, str] = {
@@ -341,6 +350,9 @@ def build_agent_environment(
     # §4.C: the live chat session id for nextseek-recall/query — not a credential.
     if chat_session_id:
         env["NEXTSEEK_CHAT_SESSION_ID"] = chat_session_id
+    # 13b.2: rounded down, so the agent never believes it has longer than it does.
+    if turn_deadline is not None:
+        env[_TURN_DEADLINE_ENV] = str(int(turn_deadline))
     return env
 
 
@@ -1124,6 +1136,9 @@ def run_cc_turn(
         source=os.environ, api_user=api_user, api_pass=api_pass,
         path_mappings=path_mappings,
         chat_session_id=chat_session_id,
+        # 13b.2: from THIS turn's clamped timeout, and taken before the spawn, so
+        # it is never later than the watchdog's, which starts after the spawn.
+        turn_deadline=time.time() + turn_timeout,
     )
 
     command = _build_command(

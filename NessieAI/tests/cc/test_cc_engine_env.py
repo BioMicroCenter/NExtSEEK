@@ -232,6 +232,7 @@ def test_agent_env_has_no_shared_cred_keys_or_values():
     env = cc_engine.build_agent_environment(
         source=hostile, api_user="demo", api_pass="userpw",
         path_mappings={"scratch": {"x": "y"}},
+        turn_deadline=1_800_000_000.0,
     )
     assert _shared_cred_hits(env) == []
     # positive control: non-secret topology DOES pass (scan isn't vacuously empty)
@@ -257,15 +258,101 @@ def test_agent_env_exact_key_set():
     env = cc_engine.build_agent_environment(
         source={"AWS_REGION": "us-east-1", "NEXTSEEK_INTERNAL_BASE_URL": "http://x:8000"},
         api_user="u", api_pass="p", path_mappings={"a": 1},
-        chat_session_id="abc")
+        chat_session_id="abc", turn_deadline=1_800_000_000.0)
     assert set(env) == {
         "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_BEDROCK_BASE_URL",
         "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "CLAUDE_CODE_ENABLE_AUTO_MODE",
         "NEXTSEEK_USERNAME", "API_USER", "NEXTSEEK_PASSWORD", "API_PASS",
         "AWS_REGION", "NEXTSEEK_BASE_URL", "NEXTSEEK_URL",
         "NEXTSEEK_SIDECAR_HOST", "NEXTSEEK_SIDECAR_PORT", "DMAC_PATH_MAPPINGS",
-        "NEXTSEEK_CHAT_SESSION_ID",
+        "NEXTSEEK_CHAT_SESSION_ID", "NEXTSEEK_CC_TURN_DEADLINE_EPOCH",
     }
+
+
+# --- 13b.2: the agent learns when the host will stop its turn -----------------
+
+def test_turn_deadline_env_is_whole_unix_seconds_rounded_down():
+    """Rounded DOWN, so the agent never believes it has longer than it does."""
+    env = cc_engine.build_agent_environment(
+        source={}, api_user="u", api_pass="p", path_mappings={},
+        turn_deadline=1_800_000_000.9)
+    assert env["NEXTSEEK_CC_TURN_DEADLINE_EPOCH"] == "1800000000"
+
+
+def test_turn_deadline_env_absent_when_not_passed():
+    env = cc_engine.build_agent_environment(
+        source={}, api_user="u", api_pass="p", path_mappings={})
+    assert "NEXTSEEK_CC_TURN_DEADLINE_EPOCH" not in env
+
+
+def test_turn_deadline_is_not_read_from_the_source_env():
+    """Only the turn driver knows the turn's clamped timeout; a stray process
+    value must not stand in for it."""
+    env = cc_engine.build_agent_environment(
+        source={"NEXTSEEK_CC_TURN_DEADLINE_EPOCH": "9999999999"},
+        api_user="u", api_pass="p", path_mappings={})
+    assert "NEXTSEEK_CC_TURN_DEADLINE_EPOCH" not in env
+
+
+def _spawned_env(tmp_path, monkeypatch, **kwargs):
+    import docker as docker_mod
+    from docker.errors import APIError
+
+    from NessieAI.cc.cc_config import CCPaths
+
+    class _SpyContainers:
+        run_kwargs = None
+
+        def run(self, **kw):
+            _SpyContainers.run_kwargs = kw
+            raise APIError("spawn intercepted by test")
+
+    class _SpyClient:
+        containers = _SpyContainers()
+
+    monkeypatch.setattr(docker_mod, "from_env", lambda: _SpyClient())
+    cc_engine.run_cc_turn(
+        query="q", model_id="m", api_user="u", api_pass="p",
+        send_event=lambda *a, **k: None,
+        user_id="alice", project_dirname="proj",
+        run_id="a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)),
+        **kwargs,
+    )
+    assert _SpyContainers.run_kwargs is not None
+    return _SpyContainers.run_kwargs["environment"]
+
+
+@pytest.mark.parametrize("turn_timeout", [45, 180])
+def test_run_cc_turn_hands_the_agent_the_moment_its_turn_is_stopped(
+        tmp_path, monkeypatch, turn_timeout):
+    """The turn's OWN clamped timeout, so a Debug-panel override below the
+    ceiling moves the agent's deadline with it. Taken before the spawn, so it
+    can only be earlier than the watchdog's, never later."""
+    import time
+
+    before = time.time()
+    env = _spawned_env(tmp_path, monkeypatch, turn_timeout=turn_timeout)
+    after = time.time()
+    deadline = int(env["NEXTSEEK_CC_TURN_DEADLINE_EPOCH"])
+    assert int(before) + turn_timeout - 1 <= deadline <= after + turn_timeout
+
+
+def test_engine_and_plugin_agree_on_the_turn_deadline_env_name():
+    """The plugin cannot import the engine, so the name lives in both. If they
+    drift, every nextseek-query silently falls back to the fixed poll budget."""
+    import importlib
+    import sys
+
+    from NessieAI import paths
+
+    sys.path.insert(0, str(paths.CC_PLUGIN_BIN))
+    try:
+        client_mod = importlib.import_module("_assistant_client")
+    finally:
+        sys.path.remove(str(paths.CC_PLUGIN_BIN))
+    assert cc_engine._TURN_DEADLINE_ENV == "NEXTSEEK_CC_TURN_DEADLINE_EPOCH"
+    assert client_mod._TURN_DEADLINE_ENV == cc_engine._TURN_DEADLINE_ENV
 
 
 def test_run_cc_turn_threads_session_id_into_container_env(tmp_path, monkeypatch):
