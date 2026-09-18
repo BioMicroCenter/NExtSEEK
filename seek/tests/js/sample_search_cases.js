@@ -138,6 +138,41 @@ var cases = {
             C.typeTitle(TYPES, 'lung'), C.typeTitle(null, '26')];
   },
 
+  // ---- Associated with: graph_search's extensions.lineage ----
+  associated_options: function () {
+    return C.associatedOptions([
+      { id: 26, title: 'TIS', group: 'Experimental type', name: 'Tissue' },
+      { id: 11, title: 'D.SEQ', group: 'Data type', name: '  ' },
+      { id: 12, title: 'RNA', group: 'Experimental type' }
+    ]);
+  },
+  associated_options_without_types: function () { return C.associatedOptions(null); },
+  lineage_none: function () { return C.lineage({ sampletype: '  ', direction: 'ancestor' }); },
+  lineage_either_by_default: function () { return C.lineage({ sampletype: ' D.SEQ ', direction: '' }); },
+  lineage_ancestors: function () { return C.lineage({ sampletype: 'MUS', direction: 'ancestor' }); },
+  lineage_descendants: function () { return C.lineage({ sampletype: 'D.SEQ', direction: 'descendant' }); },
+  lineage_unknown_direction_is_either: function () { return C.lineage({ sampletype: 'MUS', direction: 'sideways' }); },
+  associated_with_the_simple_box: function () {
+    var built = C.simpleBody({ sampletype: 'TIS', attribute: 'Organ', rule: 'Not Contain', from: 'Lung', to: '', filterType: 'string' });
+    var joined = C.withLineage(built, C.lineage({ sampletype: 'D.SEQ', direction: '' }));
+    return { joined: joined, untouched: built.body.extensions.lineage === undefined };
+  },
+  associated_with_a_whole_type: function () {
+    return C.withLineage(C.simpleBody({ sampletype: 'TIS', attribute: 'none', rule: '', from: '', to: '', filterType: '' }),
+                         C.lineage({ sampletype: 'D.SEQ', direction: 'descendant' }));
+  },
+  associated_with_the_query_text: function () {
+    return C.withLineage(C.queryBody({ text: 'lung NOT granuloma', matchType: 'PARTIAL', sampletype: '' }),
+                         C.lineage({ sampletype: 'MUS', direction: 'ancestor' }));
+  },
+  associated_with_nothing_chosen: function () {
+    return C.withLineage(C.queryBody({ text: 'lung', matchType: 'PARTIAL', sampletype: '' }), C.lineage({ sampletype: '' }));
+  },
+  associated_with_a_refusal: function () {
+    return C.withLineage(C.queryBody({ text: ' ', matchType: 'PARTIAL', sampletype: '' }),
+                         C.lineage({ sampletype: 'MUS', direction: 'ancestor' }));
+  },
+
   // ---- paging, rows and cells ----
   url_page_3: function () { return C.searchUrl(3, 100); },
   uid_link: function () { return C.uidLink({ id: 5, uuid: 'TIS-1<b>' }); },

@@ -231,7 +231,8 @@ def test_the_tripwire_reports_reads_routes_that_reach_a_writer():
 
     The Sample Search page is the assertion because its view is known to read only:
     it asks DBtable_sampletype for the type list, which is a SELECT through
-    DBtable.getComboboxOptions, and renders. A walk that reports that page is
+    DBtable.getComboboxOptions, adds each type's name from the sample type catalog
+    (context_catalog.load_sample_types, another SELECT), and renders. A walk that reports that page is
     over-reaching badly enough that its output would not be worth reading.
     """
     views = live_views()

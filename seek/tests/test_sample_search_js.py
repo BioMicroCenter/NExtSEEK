@@ -194,6 +194,54 @@ def test_the_simple_box_sends_the_title_of_the_chosen_type_id(r):
     assert r["type_title_of_a_chosen_id"] == ["D.SEQ", "TIS", "", "", "", ""]
 
 
+# ---- Associated with: graph_search's extensions.lineage ----
+
+LINEAGE = {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}
+
+
+def test_the_associated_with_dropdown_shows_each_types_name_and_code(r):
+    assert r["associated_options"] == [
+        {"title": "TIS", "label": "Tissue (TIS)", "group": "Experimental type"},
+        {"title": "D.SEQ", "label": "D.SEQ", "group": "Data type"},
+        {"title": "RNA", "label": "RNA", "group": "Experimental type"},
+    ]
+    assert r["associated_options_without_types"] == []
+
+
+def test_the_lineage_condition_covers_the_whole_tree_in_the_chosen_direction(r):
+    """12 hops is the whole tree: the longest DERIVED_FROM chain is 11. Either is the default."""
+    assert r["lineage_none"] is None
+    assert r["lineage_either_by_default"] == LINEAGE
+    assert r["lineage_ancestors"] == {"direction": "ancestor", "sample_type": "MUS", "max_hops": 12}
+    assert r["lineage_descendants"] == {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 12}
+    assert r["lineage_unknown_direction_is_either"]["direction"] == "either"
+
+
+def test_associated_with_joins_the_simple_box_search_without_changing_it(r):
+    assert r["associated_with_the_simple_box"]["joined"] == {
+        "body": {"filter_searchText": "", "extensions": {
+            "where": [{"sample_type": "TIS", "attribute": "Organ", "op": "NOT CONTAINS", "value": "Lung"}],
+            "lineage": LINEAGE}},
+        "highlight": {"terms": [], "matchType": None, "attribute": "Organ"}}
+    assert r["associated_with_the_simple_box"]["untouched"] is True
+    assert r["associated_with_a_whole_type"]["body"] == {
+        "sampletype": "TIS", "filter_searchText": "",
+        "extensions": {"lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 12}}}
+
+
+def test_associated_with_joins_the_advanced_box_query(r):
+    assert r["associated_with_the_query_text"]["body"] == {
+        "filter_searchText": "", "filter_matchType": "PARTIAL",
+        "extensions": {"query": "lung NOT granuloma",
+                       "lineage": {"direction": "ancestor", "sample_type": "MUS", "max_hops": 12}}}
+
+
+def test_no_associated_type_leaves_the_search_alone_and_a_refusal_stays_one(r):
+    assert r["associated_with_nothing_chosen"]["body"] == {
+        "filter_searchText": "", "filter_matchType": "PARTIAL", "extensions": {"query": "lung"}}
+    assert r["associated_with_a_refusal"] == {"error": "No search term entered."}
+
+
 # ---- paging, rows and cells ----
 
 def test_each_page_is_its_own_request(r):

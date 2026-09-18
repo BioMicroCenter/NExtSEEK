@@ -14,6 +14,7 @@ The page is rendered with the real template, so a template syntax error fails he
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory
@@ -41,9 +42,13 @@ def _get():
     return req
 
 
+CURATED = [SimpleNamespace(code="TIS", name="Tissue")]
+
+
+@patch("seek.views.search.load_sample_types", return_value=CURATED)
 @patch("seek.views.search.DBtable_sampletype")
 @patch("seek.decorators.SeekDB")
-def _render(mock_db, mock_types):
+def _render(mock_db, mock_types, _curated):
     mock_db.return_value = _db(True)
     mock_types.return_value.getSampleTypes.return_value = TYPES
     resp = seek.views.search.searchAdvanced(_get())
@@ -140,6 +145,57 @@ def test_the_boxes_keep_the_request_shapes_graph_search_takes():
                   "numberSamplesFound", "numberSampleTypesFound"):
         assert f'id="{field}"' in advanced + (PAGES / "searchAdvanced_stable.embed.html").read_text(), field
     assert "function searchAdd()" in advanced
+
+
+# ---- Associated with: a sample type anywhere in the lineage tree (graph_search's extensions.lineage) ----
+
+DIRECTIONS = [("", "Either"), ("ancestor", "Ancestors only"), ("descendant", "Descendants only")]
+
+
+def test_both_boxes_offer_associated_with_a_sample_type_and_a_direction():
+    _, body = _render()
+    for box in ("simple", "advanced"):
+        assert re.search(r'<input id="%s_assoc_type" class="easyui-combobox"[^>]*'
+                         r"data: SampleSearchCore\.associatedOptions\(type_options\), valueField:'title', "
+                         r"textField:'label'" % box, body), box
+        select = re.search(r'<select id="%s_assoc_direction"[^>]*>(.*?)</select>' % box, body, re.S)
+        assert select, box
+        assert re.findall(r'<option value="([^"]*)"[^>]*>([^<]*)</option>', select.group(1)) == DIRECTIONS, box
+
+
+def test_both_boxes_join_associated_with_to_their_search():
+    _, body = _render()
+    assert body.count("SampleSearchCore.withLineage(") == 2
+    for box in ("simple", "advanced"):
+        assert f"$('#{box}_assoc_type').combobox('getValue')" in body, box
+        assert f"$('#{box}_assoc_direction').val()" in body, box
+
+
+def test_reset_clears_associated_with():
+    _, body = _render()
+    for box in ("simple", "advanced"):
+        reset = re.search(r"nsResetSearch\(\$\('#%s_dgtable'\), \[([^\]]*)\]\)" % box, body)
+        assert reset, box
+        assert f"'#{box}_assoc_type'" in reset.group(1) and f"'#{box}_assoc_direction'" in reset.group(1), box
+
+
+def test_the_sample_type_options_carry_each_types_curated_name():
+    """The dropdown shows a type's name and code; the name comes from the sample type catalog
+    (nextseek_api/services/context_catalog.py), and a type without one keeps its code alone."""
+    _, body = _render()
+    options = json.loads(re.search(r"var type_options = (\[.*?\]);", body).group(1))
+    assert {o["title"]: o["name"] for o in options} == {"TIS": "Tissue", "D.SEQ": ""}
+
+
+@patch("seek.views.search.load_sample_types", return_value=[])
+@patch("seek.views.search.DBtable_sampletype")
+@patch("seek.decorators.SeekDB")
+def test_without_the_catalog_the_page_still_renders_with_codes(mock_db, mock_types, _curated):
+    mock_db.return_value = _db(True)
+    mock_types.return_value.getSampleTypes.return_value = TYPES
+    resp = seek.views.search.searchAdvanced(_get())
+    options = json.loads(re.search(r"var type_options = (\[.*?\]);", resp.content.decode()).group(1))
+    assert resp.status_code == 200 and [o["name"] for o in options] == ["", ""]
 
 
 # ---- the separate Graph Search page is retired: Sample Search is the one search page ----

@@ -91,6 +91,11 @@
 			text: $("#input_searchText").textbox('getText'),
 			matchType: $('input[name=matchType]:checked').val()
 		});
+		// Associated with: only samples with a sample of that type in their lineage tree.
+		built = SampleSearchCore.withLineage(built, SampleSearchCore.lineage({
+			sampletype: $('#advanced_assoc_type').combobox('getValue'),
+			direction: $('#advanced_assoc_direction').val()
+		}));
 		nsSearchRun('advanced', built, 1, nsSearchPageSize('advanced'));
 	}
 
@@ -193,6 +198,11 @@
 								<td><br></td>
 								<td></td>
 							</tr>
+							<tr>
+								<td>Associated with (optional) <a href="/seek/sampletypes/" title="Keep only samples with a sample of this type somewhere in their lineage tree: an ancestor it came from, or a descendant made from it" style="color:var(--ns-muted);text-decoration:none;"><i class="bi bi-info-circle"></i></a>:</td>
+								<td><input id="advanced_assoc_type" class="easyui-combobox" name="advanced_assoc_type" style="width:250px;" data-options="showItemIcon: true, data: SampleSearchCore.associatedOptions(type_options), valueField:'title', textField:'label', groupField:'group', editable: true, filter: function(q, row) { var opts = $(this).combobox('options'); return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0; }, panelHeight:'auto', label: '', labelPosition: 'top'"></td>
+								<td colspan="2"><select id="advanced_assoc_direction" name="advanced_assoc_direction" style="height:30px;" title="Where in the lineage tree the sample of that type may be"><option value="">Either</option><option value="ancestor">Ancestors only</option><option value="descendant">Descendants only</option></select></td>
+							</tr>
 						</tbody>
 					</table>
 				</div>
@@ -206,7 +216,7 @@
 			<div class="row show-grid">
 				<div class="col-xs-12" style="text-align:right; padding-right:24px;">
 					<span class="ns-search-actions">
-						<a href="javascript:void(0)" class="ns-btn-reset" onclick="nsResetSearch($('#advanced_dgtable'), ['#input_searchValue','#input_logic','#advanced_sample_type','#input_searchText']); document.getElementById('id_partial').checked = true;">Reset</a>
+						<a href="javascript:void(0)" class="ns-btn-reset" onclick="nsResetSearch($('#advanced_dgtable'), ['#input_searchValue','#input_logic','#advanced_sample_type','#input_searchText','#advanced_assoc_type','#advanced_assoc_direction']); document.getElementById('id_partial').checked = true;">Reset</a>
 						<a href="javascript:void(0)" class="ns-btn-search" onclick="searchAdvanced(0)"><span class="glyphicon glyphicon-search"></span> Search</a>
 					</span>
 				</div>

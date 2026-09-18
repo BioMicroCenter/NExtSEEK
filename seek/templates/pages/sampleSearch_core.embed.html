@@ -170,6 +170,43 @@ var SampleSearchCore = (function () {
              highlight: highlight([], null, attribute) };
   }
 
+  /* Associated with: keep only the samples with a sample of the chosen type somewhere in their
+     lineage tree, as graph_search's extensions.lineage. 12 hops is the whole tree (the longest
+     DERIVED_FROM chain is 11); graph_search keeps a non-superuser's path inside their projects.
+     The direction control's empty value is Either, so the page's Reset (which empties it)
+     puts it back to the default. */
+  var LINEAGE_HOPS = 12;
+  var DIRECTIONS = { '': 'either', 'either': 'either', 'ancestor': 'ancestor', 'descendant': 'descendant' };
+
+  /* The Associated with dropdown: every sample type the page loads, by name and code. */
+  function associatedOptions(typeOptions) {
+    return (typeOptions || []).map(function (o) {
+      var code = String(o.title);
+      var name = trim(o.name);
+      return { title: code, label: name ? name + ' (' + code + ')' : code, group: o.group };
+    });
+  }
+
+  function lineage(state) {
+    var type = trim(state && state.sampletype);
+    if (!type) {
+      return null;
+    }
+    var direction = has(DIRECTIONS, trim(state.direction)) ? DIRECTIONS[trim(state.direction)] : 'either';
+    return { direction: direction, sample_type: type, max_hops: LINEAGE_HOPS };
+  }
+
+  /* A box's built request with the lineage condition added; a refusal, or no condition, as it came. */
+  function withLineage(built, condition) {
+    if (!built || built.error || !condition) {
+      return built;
+    }
+    var body = JSON.parse(JSON.stringify(built.body));
+    body.extensions = body.extensions || {};
+    body.extensions.lineage = condition;
+    return { body: body, highlight: built.highlight };
+  }
+
   function searchUrl(page, size) {
     return ENDPOINT + '?page=' + page + '&page_size=' + size;
   }
@@ -274,6 +311,9 @@ var SampleSearchCore = (function () {
     typeTitle: typeTitle,
     queryBody: queryBody,
     simpleBody: simpleBody,
+    associatedOptions: associatedOptions,
+    lineage: lineage,
+    withLineage: withLineage,
     searchUrl: searchUrl,
     uidLink: uidLink,
     attributeValueHtml: attributeValueHtml,
