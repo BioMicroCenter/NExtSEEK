@@ -2151,3 +2151,17 @@ def test_the_tip_points_at_the_generated_list_instead_of_keeping_one():
     assert cg.DRIFT_SECTION_HEADING.lstrip("# ") in tip
     assert "GBM_BTC investigation" in tip
     assert not _re.search(r"\((?:[\w-]+, ){2,}", tip), tip
+
+
+def test_the_cc_manifest_points_at_the_generated_list_instead_of_keeping_one():
+    """The CC plugin's MANIFEST.md listed five dead names as the investigations; its
+    capabilities.md row now points at the generated list, and its projects_db.json row says
+    what the rows carry (spec 2026-09-18, section 10.7)."""
+    md = _repo(Path("NessieAI/docker/cc-runtime/build_context/plugins/nextseek/context/MANIFEST.md"))
+    lines = md.splitlines()
+    capabilities = next(line for line in lines if line.startswith("| `capabilities.md`"))
+    for name in (*DEAD_NAMES, *INVESTIGATION_ROWS):
+        assert not _re.search(rf"\b{_re.escape(name)}\b", capabilities), name
+    assert "Known Projects and Investigations" in capabilities
+    projects = next(line for line in lines if line.startswith("| `projects_db.json`"))
+    assert "entity_type" in projects and "labs" in projects
