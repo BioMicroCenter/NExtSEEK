@@ -145,8 +145,8 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
               <li>
                 <strong>Every field, with the whole lineage.</strong> A table in an answer holds
                 what that answer needed. For every field of a set of samples, plus everything above
-                and below them in the lineage, open Sample Search, then Graph Search, in the site
-                menu, tick the rows you want and click Download samples. You get one workbook with
+                and below them in the lineage, open Sample Search in the site menu, tick the rows
+                you want and click Download samples. You get one workbook with
                 a sheet per sample type and a README sheet. A sample&rsquo;s own page has the same
                 download, as Download All Samples.
               </li>
