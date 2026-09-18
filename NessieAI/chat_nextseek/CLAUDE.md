@@ -61,6 +61,19 @@ without an error at the point of the change.
   cc-agent rebuild, and a new file here reaches it only once it is added to that list;
   `NessieAI/tests/cc/test_cc_context_drift_guard.py` fails until the file is baked or
   declared source-only.
+- **Another unit's test parses `map_project`.** `_reader_columns` in
+  `NessieAI/tests/api/test_context_gen.py` reads the column list out of
+  `config.py`'s source: from `def map_project(row: dict) -> dict:` to the next
+  12-space `def`, every `lower.get("<column>")`. Keep `map_project` nested in
+  `_fetch_context_files_from_db`, read each curated column through `lower.get`, and add
+  anything else (such as `labs`) from the enclosing scope. No nested `def` follows it
+  today, so a `lower.get("...")` added anywhere later in `config.py` also counts as a
+  column read.
+- **projects_db.json holds project and investigation rows.** `FULL_PROJECTS_MAP` and the
+  `PROJECT_NAME_TO_ID` merge read project rows only (`entity_type` `project` or missing),
+  and `FULL_INVESTIGATIONS_MAP` the investigation rows, because an investigation carries
+  its owner's `project_id` and may share a project's exact name. `MIN_PROJECTS`, which the
+  entity agent reads, keeps every row. Only project rows carry `labs`.
 
 ## Landmines
 
@@ -71,6 +84,16 @@ without an error at the point of the change.
   those tracked files change in place; the next cc-agent build then ships the refreshed
   bytes, exactly as the app image build does. Check `git status` on this directory before
   a cc-agent rebuild.
+- **That refresh also reads SEEK, and writes real lab data into the checkout.** Its first
+  statement is the read-only SELECT over SEEK's institutions in `chat_nextseek.labs`, which
+  writes `labs_db.json` into the context directory and adds `labs` to every project row
+  of `projects_db.json`. `labs_db.json` is gitignored, dockerignored and never baked;
+  `projects_db.json` is tracked and baked, so after a run against a checkout it carries
+  real lab codes and surnames until you restore it. A failed read keeps the previous
+  `labs_db.json`; with none, `ChatConfig.LABS` is `None` (unavailable), which is not `[]`
+  (SEEK has no parseable lab). A title that breaks the grammar is reported, never guessed:
+  see every title's fate, read only, with `python -m chat_nextseek.labs --report` inside
+  the app container. The first live read is the operator's.
 - **One graph file is not baked from here.** The plugin tree keeps its own
   `min_graph_schema.json`, which differs from the one here and does reach the agent
   (`NessieAI/docker/CLAUDE.md`). `neo4j_schema.json` is no longer baked into the cc-agent
