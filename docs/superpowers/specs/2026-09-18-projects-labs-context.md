@@ -789,8 +789,11 @@ None of these files is edited by this work.
    (surname, full name, "X lab" or a three-letter code), because code resolves it against SEEK's labs. Project rows now
    carry `labs: [{code, name, affiliation}]`. A person named as who made, collected or handled samples, or any person
    the question does not frame as a lab or PI, goes in the new `scientists` field. Leave `lab_codes` and `lab_matches`
-   empty. Rows with `entity_type: "investigation"` are investigations: emit their exact `name` in `projects` when the
-   user names one or its alias. A project and an investigation may share a name (CSBC, MetNet).
+   empty. A row is an investigation only when `entity_type` is `"investigation"` AND it names a `parent_project`
+   (section 11.1): emit its exact `name` in `projects` when the user names one or its alias. A row typed
+   `"investigation"` with no `parent_project` is a PROJECT: that is how production's table types its projects until
+   6.16, so the prompt must not teach "`entity_type` investigation means investigation". A `"study"` row is a study
+   inside a project. A project and an investigation may share a name (CSBC, MetNet).
 2. **`prompts/parser_core_routing.txt` and `prompts/variants/v2/parser_core_routing.txt`**, for 13c.2: the "Known
    investigation titles" line gains TCGA with the not-on-every-instance note, and keeps BioMicroCenter only if the
    counts keep it. `ENTITY_RESULT.scientists` becomes a `Scientist` predicate. `lab_codes` now come only from labs
@@ -804,8 +807,9 @@ None of these files is edited by this work.
    reads `resolved.keywords` today, which keeps working because of E4. `resolved.lab_matches` names the lab for the
    explanation. A scoped query that finds nothing on a name marked not on every instance means the investigation is not
    loaded there.
-5. **`prompts/system_agent.txt`**: ENTITY_DETAILS may carry `"<name> (investigation)"` entries, project rows carry
-   `labs`, and the capabilities block carries the availability note.
+5. **`prompts/system_agent.txt`**: ENTITY_DETAILS may carry `"<name> (investigation)"` entries (only rows that name a
+   parent project; a legacy project row typed `investigation` arrives under its plain name, and a `study` row is not
+   sent), project rows carry `labs`, and the capabilities block carries the availability note.
 6. **The CC plugin's `min_graph_schema.json`**: its investigation titles line (phase 12 owns its drift).
 7. **6.14**, the `/people/` example intent in `min_api_endpoints_enriched.json`, is unchanged and still theirs.
 8. **The 13c workflow (`phase13c-person-names`)** will stop at its Check, which requires `pi_names`. It should check for
