@@ -456,3 +456,62 @@ def test_the_force_flags_take_only_their_choices(extra):
     with pytest.raises(SystemExit) as e:
         cli.build_parser().parse_args(["--base-url", "http://x", *extra])
     assert e.value.code == 2
+
+
+# ── 8.4: the full tier must be able to score before it is allowed to bill ─────
+
+
+_NS_DONE = {"status": "completed", "progress": [
+    {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml"}},
+    {"event": "query_complete", "data": {"reply": "There are 1,084,754 samples.",
+                                          "debug": {"parser_plan": {"mode": "new_search"}}}}]}
+
+
+def _counting_endpoint(monkeypatch):
+    """Stands in for the live endpoint behind the REAL runner and driver: every body
+    posted here is a turn a live run would have billed. Nothing reaches a network."""
+    posted = []
+
+    def fake_clients(base_url, auth_header, *a, **k):
+        def post_query(body):
+            posted.append(body)
+            return {"task_id": "t", "session_id": "00000000-0000-0000-0000-000000000001"}
+        return post_query, (lambda task_id: _NS_DONE)
+
+    monkeypatch.setattr(cli.http_driver, "make_default_clients", fake_clients)
+    return posted
+
+
+def test_full_tier_without_django_refuses_before_the_first_paid_turn(monkeypatch, tmp_path,
+                                                                      capsys):
+    """Plan task 8.4. `--tier full` wires `bundle.summary_for_session`, which needs
+    Django, and nothing on the module CLI's path configured it. The runner drove the
+    paid turn first and read the bundle second, so every full-depth case billed, then
+    died on the import, evaluated zero criteria and recorded `error`.
+
+    Django is made unimportable here, as it is on the host. `green.global_count` is a
+    full-depth case, not a route gate, so it is the shape that used to bill."""
+    import sys
+    monkeypatch.setitem(sys.modules, "django", None)  # `import django` now raises
+    posted = _counting_endpoint(monkeypatch)
+
+    rc = cli.main(["--base-url", "http://h:8000", "--tier", "full",
+                   "--variant", "green.global_count", "--out", str(tmp_path)])
+
+    assert posted == [], f"{len(posted)} turn(s) were sent, and billed, before the refusal"
+    assert rc == cli.EXIT_BUNDLE_READER_UNAVAILABLE
+    out = capsys.readouterr().out
+    assert "nothing was billed" in out
+    assert "django" in out.lower() and "manage.py nessie" in out
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_route_tier_without_django_still_runs(monkeypatch, tmp_path):
+    """The route tier never reads a bundle, so the host must keep running it."""
+    import sys
+    monkeypatch.setitem(sys.modules, "django", None)
+    _counting_endpoint(monkeypatch)
+    rc = cli.main(["--base-url", "http://h:8000", "--tier", "route",
+                   "--variant", "green.global_count", "--out", str(tmp_path)])
+    assert rc == 0
+    assert (tmp_path / "manifest.json").exists()

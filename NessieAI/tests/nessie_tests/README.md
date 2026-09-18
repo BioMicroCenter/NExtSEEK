@@ -54,8 +54,8 @@ deliberate edit.
   see "Cadence".
 - **full** (paid, nightly): runs the turn to completion; asserts counts + bundle
   richness. Requires an instance **seeded with the dataset the corpus's ground
-  truth was verified against**, and it only works through `manage.py nessie`;
-  see "Two entry points" below, **before** spending money.
+  truth was verified against**, and it runs only inside the application
+  container; see "Two entry points" below, **before** spending money.
 
 ### What the route tier can and cannot observe
 
@@ -103,7 +103,7 @@ The surface has three different shapes, so it is described three ways.
 | `NessieAI/tests/nessie_tests/collect.py:377` | post-hoc artifact collection for a paired run |
 | `NessieAI/tests/nessie_tests/sources.py:407` | the container-backed reads `collect` needs |
 | `NessieAI/tests/nessie_tests/v4_2_verifier.py:330` | replay verifier over a delivered result set |
-| `NessieAI/tests/nessie_tests/bundle.py:30-36` | full-tier bundle richness; its Django import is lazy |
+| `NessieAI/tests/nessie_tests/bundle.py:46-107` | full-tier bundle richness; its Django import is lazy, and its `preflight` runs before the first full-tier turn |
 
 Invoked as `python -m NessieAI.tests.nessie_tests` through `NessieAI/tests/nessie_tests/__main__.py:2`, or
 in-container as a Django management command
@@ -140,40 +140,46 @@ They read and write `NessieAI/tests/nessie_tests/corpus.json` in place, so a nar
 run-time state to be reverted, never committed. `NessieAI/tests/nessie_tests/scripts/nessie`
 is a thin shell entry point and names no path.
 
-## Two entry points, and the paid tier only works from one
+## Two entry points, and the full tier needs the app's Django
 
 `python -m NessieAI.tests.nessie_tests` (the module CLI, `cli.py`) and `manage.py nessie`
 (`nextseek_api/management/commands/nessie.py`, run inside the application
-container) drive the same runner. They are NOT interchangeable:
+container) drive the same runner. At `--tier full` both wire the same
+bundle-richness reader, `bundle.summary_for_session`, which reads `ChatSession`
+rows through Django. So **the full tier runs only where the app's Django and
+database are: inside the application container**, from either entry point.
 
-**The full tier cannot be run via `python -m NessieAI.tests.nessie_tests`, and it fails only
-after spending the money.** At `--tier full` the CLI wires the bundle-richness
-reader (`cli.py:272-275` → `bundle.summary_for_session`), which lazily imports
-Django models (`bundle.py:30`), and nothing on that path ever calls
-`django.setup()`. The only `django.setup()` in the whole package sits inside
-`sources.py`'s `_CONTAINER_PY` string (`sources.py:250-251`), which the
-collector docker-execs into a separate process; it never runs here. So:
+**It used to fail only after spending the money (plan task 8.4, fixed
+2026-09-17).** Nothing on the module CLI's path configured Django, and the
+runner drives each paid turn (`runner.py:267`) BEFORE it reads the bundle
+(`runner.py:309`), inside a catch that records any exception as infrastructure
+(`runner.py:363`). So every full-depth case billed its turn, evaluated zero
+criteria and recorded `status="error"`: `No module named 'django'` on the host,
+`AppRegistryNotReady` inside the container. Both shapes were hit in the week of
+2026-08-17, and both runs billed in full. The tell was every full-depth case
+carrying the same one-line reason naming django, while the `route_gate` cases
+and the consistency groups looked normal.
 
-- on the host, every case dies `ModuleNotFoundError: No module named 'django'`;
-- inside the app container, even with `DJANGO_SETTINGS_MODULE` set, every case
-  dies `AppRegistryNotReady: Apps aren't loaded yet`.
+Two changes close it:
 
-Both shapes were hit in the week of 2026-08-17, and both runs billed in full.
-The order of operations is the expensive part: the runner drives the paid turn
-to completion (`runner.py:265`) BEFORE it reads the bundle (`runner.py:307`),
-the raise lands in the infrastructure catch (`runner.py:361`), and
-`evaluate_turn` (`runner.py:315`) is never reached, so every full-depth case
-bills its first turn, evaluates ZERO criteria, and records `status="error"`.
-The run reads as a catastrophic product failure and is actually a harness
-bootstrap failure. **The tell:** every full-depth case carries the same
-one-line reason naming django, while the `route_gate` cases and the consistency
-groups, the only entries that never touch the bundle reader, look normal.
+- **The reader configures Django itself when nothing has.** `bundle.ensure_django`
+  (`bundle.py:46-72`) sets `DJANGO_SETTINGS_MODULE` to `dmac.settings` if it is
+  unset and calls `django.setup()`; inside `manage.py nessie` it does nothing.
+  So the module CLI's full tier now works inside the container too.
+- **A full-depth run proves its reader before the first turn.** The reader
+  carries a `preflight()` (`bundle.py:86-107`) that configures Django and reads
+  the real table for a session that cannot exist. `runner.check_bundle_reader`
+  (`runner.py:728`) calls it at the top of `run_suite` at `--tier full`
+  (`runner.py:430`) and in `run_arms` before the arms preflight, which bills its
+  probe turns (`runner.py:914`). A reader that cannot read raises
+  `BundleReaderUnavailable` with nothing sent: the module CLI exits 9
+  (`cli.py:32`), `manage.py nessie` raises a `CommandError`, and both say
+  nothing was billed. On the host that is the expected outcome of `--tier full`.
 
-`manage.py nessie` runs inside the already-configured Django process, so the
-bundle reader needs no separate bootstrap: its module docstring says exactly
-this, and it is the entry point verified to produce real per-criterion
-expected/observed grading. It also exposes `--cases` (run an explicit
-hand-authored case list), which the module CLI deliberately does not.
+`manage.py nessie` is still the entry point to use for paid runs. It is the one
+verified to produce real per-criterion expected/observed grading, and it also
+exposes `--cases` (run an explicit hand-authored case list), which the module CLI
+deliberately does not.
 
 **The route tier is fine from either entry point.** Below `--tier full` the
 CLI leaves `bundle_reader` as `None`, and nothing else on the route path
@@ -184,15 +190,15 @@ manifest, all host-safe under the unit lane's `--with` list.
 
 - **Full tier: inside (or with the environment of) the application container**,
   via `manage.py nessie`. It needs Django, the app settings and the database
-  all reachable, which is why it cannot run from a developer laptop: "Two
-  entry points" above is what happens when that is tried anyway.
+  all reachable, which is why it cannot run from a developer laptop: tried
+  there, it refuses before the first turn (see "Two entry points" above).
 - **Route tier: anywhere that can reach the base URL**, via the module CLI.
 - `--base-url` names the instance under test. From inside the application
   container that is the app's own bind address (the management command defaults
   to `http://localhost:8000` for exactly this case); from outside, it is
   whatever URL fronts the instance.
 - **The bundle reader reads `ChatSession` rows from the database its own
-  environment is configured for** (`bundle.py:30-31`), not from anything behind
+  environment is configured for** (`bundle.py:75-83`), not from anything behind
   `--base-url`. So driving instance A's endpoint from instance B's environment
   cannot work: the session ids A's turns create exist only in A's database, and
   every bundle read misses. Environment and endpoint must belong to the SAME
@@ -408,8 +414,8 @@ harness at `/app/NessieAI/tests/nessie_tests/`.
 
 ### Live runs
 
-**Read "Two entry points" above first: the full tier does not work from
-`python -m NessieAI.tests.nessie_tests`, and finds out only after billing every case.**
+**Read "Two entry points" above first: the full tier needs the app container's
+Django. Anywhere else it now refuses before the first turn instead of billing every case.**
 
 The route gate runs from either entry point. The full pass is paid and runs ONLY via
 the management command, inside the application container. Both commands are in
@@ -695,7 +701,7 @@ longer govern it.
 - The E2E criterion DSL in `NessieAI/tests/e2e/`, imported by package (`NessieAI/tests/nessie_tests/corpus.py:7-8`, `NessieAI/tests/nessie_tests/evaluate.py:7`).
 - `pydantic`, at module scope in the two manifest models and the verifier (`NessieAI/tests/nessie_tests/manifest.py:4`, `NessieAI/tests/nessie_tests/bayes_manifest.py:13`, `NessieAI/tests/nessie_tests/v4_2_verifier.py:15`).
 - `orjson`, at module scope in the verifier only (`NessieAI/tests/nessie_tests/v4_2_verifier.py:14`).
-- Three heavy dependencies are deliberately lazy, imported inside the function that needs them: Django models (`NessieAI/tests/nessie_tests/bundle.py:30`), `openpyxl` (`NessieAI/tests/nessie_tests/evaluate.py:148`) and `zstandard` (`NessieAI/tests/nessie_tests/collect.py:177`).
+- Three heavy dependencies are deliberately lazy, imported inside the function that needs them: Django models (`NessieAI/tests/nessie_tests/bundle.py:56`, `NessieAI/tests/nessie_tests/bundle.py:77`), `openpyxl` (`NessieAI/tests/nessie_tests/evaluate.py:148`) and `zstandard` (`NessieAI/tests/nessie_tests/collect.py:177`).
 - The live HTTP endpoint and its progress route, by string rather than by import (`NessieAI/tests/nessie_tests/http_driver.py:7`, `NessieAI/tests/nessie_tests/http_driver.py:41`, `NessieAI/tests/nessie_tests/http_driver.py:49`).
 - The `nextseek` container and the `docker` binary, for the paired run's post-hoc reads only (`NessieAI/tests/nessie_tests/sources.py:104-105`).
 

@@ -464,3 +464,22 @@ def test_an_unknown_arm_names_itself_and_the_known_ones(tmp_path):
     with pytest.raises(runner.UnknownArm) as e:
         _run(tmp_path, Endpoint(), arms=("graph", "cypher"))
     assert "cypher" in str(e.value) and "api" in str(e.value)
+
+
+def test_a_bundle_reader_that_cannot_read_stops_the_run_before_the_preflight(tmp_path):
+    """8.4. The arms preflight bills its probe turns, so an unreadable bundle must stop
+    the run before them, not after them and not after the first question."""
+
+    def reader(session_id):
+        return None
+
+    def cannot_read():
+        raise RuntimeError("no database here")
+
+    reader.preflight = cannot_read
+    ep = Endpoint()
+    out = tmp_path / "run"
+    with pytest.raises(runner.BundleReaderUnavailable):
+        _run(tmp_path, ep, out=out, bundle_reader=reader)
+    assert ep.bodies == []
+    assert not (out / runner.ARMS_FILE).exists()

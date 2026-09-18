@@ -23,7 +23,13 @@ EXIT_CODES = """exit codes
   7  --bayesian: could not talk to --base-url. Any completed arms are on disk.
   8  --bayesian: refused, --resume was given but --out holds no paired run to
      continue. Nothing was billed.
+  9  --tier full: refused, the bundle reader cannot read here (on the host,
+     Django is not installed). Nothing was billed. Run it in the app container.
 """
+
+# Its own code, not 1: 1 means "the product failed a case", and this run never
+# asked the product anything.
+EXIT_BUNDLE_READER_UNAVAILABLE = 9
 
 # The default per-turn deadline. It is a named constant so the parser's help and
 # this module agree on one value; it is NOT how the mutual-exclusion checks tell a
@@ -271,15 +277,23 @@ def main(argv=None) -> int:
 
     bundle_reader = None
     if a.tier == "full":
+        # Configures Django itself when nothing has (bundle.ensure_django), and the
+        # runner proves it can read before the first turn (runner.check_bundle_reader).
         from NessieAI.tests.nessie_tests.bundle import summary_for_session
         bundle_reader = summary_for_session
     run_consistency = a.consistency or (a.tier == "full")
-    manifest = runner.run_suite(
-        base_url=a.base_url, auth_header=auth, tier=a.tier, scope=a.scope,
-        family=a.family, variant_id=a.variant, corpus_path=_CORPUS,
-        out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
-        run_consistency=run_consistency, sample=a.sample, seed=a.seed,
-        force_route=a.force_route, force_parser_mode=a.force_parser_mode)
+    try:
+        manifest = runner.run_suite(
+            base_url=a.base_url, auth_header=auth, tier=a.tier, scope=a.scope,
+            family=a.family, variant_id=a.variant, corpus_path=_CORPUS,
+            out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
+            run_consistency=run_consistency, sample=a.sample, seed=a.seed,
+            force_route=a.force_route, force_parser_mode=a.force_parser_mode)
+    except runner.BundleReaderUnavailable as e:
+        print(f"nessie: {e}")
+        print(f"nessie: exit {EXIT_BUNDLE_READER_UNAVAILABLE}. The full tier works inside the "
+              f"app container: `docker exec nextseek uv run manage.py nessie --tier full ...`.")
+        return EXIT_BUNDLE_READER_UNAVAILABLE
     summary = runner.classify_entries(manifest)
     fails = runner.gate_failed(manifest)
     # Outages get their own clause rather than vanishing: they are excluded from

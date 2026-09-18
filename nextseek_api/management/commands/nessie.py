@@ -112,23 +112,28 @@ class Command(BaseCommand):
             from NessieAI.tests.nessie_tests.bundle import summary_for_session
             bundle_reader = summary_for_session
 
-        manifest = runner.run_suite(
-            base_url=opts["base_url"],
-            auth_header=auth_header,
-            tier=tier,
-            scope=opts["scope"],
-            family=opts["family"],
-            variant_id=opts["variant"],
-            corpus_path=_CORPUS,
-            out_dir=Path(opts["out"]),
-            bundle_reader=bundle_reader,
-            pace_s=opts["pace"],
-            run_consistency=run_consistency,
-            sample=opts["sample"], seed=opts["seed"],
-            cases_path=opts["cases"],
-            force_route=opts["force_route"],
-            force_parser_mode=opts["force_parser_mode"],
-        )
+        try:
+            manifest = runner.run_suite(
+                base_url=opts["base_url"],
+                auth_header=auth_header,
+                tier=tier,
+                scope=opts["scope"],
+                family=opts["family"],
+                variant_id=opts["variant"],
+                corpus_path=_CORPUS,
+                out_dir=Path(opts["out"]),
+                bundle_reader=bundle_reader,
+                pace_s=opts["pace"],
+                run_consistency=run_consistency,
+                sample=opts["sample"], seed=opts["seed"],
+                cases_path=opts["cases"],
+                force_route=opts["force_route"],
+                force_parser_mode=opts["force_parser_mode"],
+            )
+        except runner.BundleReaderUnavailable as e:
+            # Raised before the first turn (runner.check_bundle_reader), e.g. when the
+            # app database is unreachable from this process.
+            raise CommandError(str(e)) from e
         self._summarize(manifest, tier, opts["scope"], opts["out"], runner)
 
     @staticmethod
@@ -196,6 +201,9 @@ class Command(BaseCommand):
                 f"question was.\n{e}") from e
         except runner.ArmsRunRefused as e:
             raise CommandError(f"refused, nothing was billed: {e}") from e
+        except runner.BundleReaderUnavailable as e:
+            # Checked before the preflight, so not even a probe turn was sent.
+            raise CommandError(str(e)) from e
         except ValueError as e:
             raise CommandError(str(e)) from e
         except urllib.error.URLError as e:

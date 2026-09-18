@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from NessieAI.tests.nessie_tests import corpus, evaluate, http_driver, report
 from NessieAI.tests.nessie_tests import route_observer as ro
+# Django-free at import time; re-exported so callers catch one class from here.
+from NessieAI.tests.nessie_tests.bundle import BundleReaderUnavailable
 from NessieAI.tests.nessie_tests.manifest import (
     CriterionObservation, NessieManifest, NessieManifestEntry, cost_summary,
     load_manifest, write_manifest,
@@ -418,8 +420,14 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     exactly as `run_paired` does. `force_parser_mode` adds the evaluation switch and
     needs the ns route. Neither is set by default, so a router-decided run is
     unchanged.
+
+    At `tier="full"` the bundle reader is proven before the first turn
+    (`check_bundle_reader`), and a reader that cannot read raises
+    BundleReaderUnavailable with nothing sent.
     """
     _check_force(force_route, force_parser_mode)
+    if tier == "full":
+        check_bundle_reader(bundle_reader)
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
     if cases_path:
@@ -717,6 +725,30 @@ class ArmsChanged(ArmsRunRefused):
     """The arm list differs from the run being resumed; the rotation depends on it."""
 
 
+def check_bundle_reader(bundle_reader) -> None:
+    """Refuse a full-depth run whose bundle reader cannot read, before any turn is sent.
+
+    `run_case` drives the paid turn first and reads the bundle second, and it catches
+    every exception as infrastructure. So a reader that cannot read turns every
+    full-depth case into a billed turn, zero evaluated criteria and `status="error"`:
+    the 8.4 defect, hit twice in the week of 2026-08-17 on the module CLI, which never
+    configured Django. Proving the reader first makes that a refusal that costs nothing.
+
+    The check is the reader's own `preflight()` (see `bundle.summary_for_session`), so
+    each reader says what reading needs. A reader without one is not checked: test
+    doubles, and any reader with nothing to set up.
+    """
+    check = getattr(bundle_reader, "preflight", None)
+    if check is None:
+        return
+    try:
+        check()
+    except Exception as exc:
+        raise BundleReaderUnavailable(
+            f"refused, nothing was billed: no full-tier turn could be scored, because {exc}"
+        ) from exc
+
+
 def _check_force(force_route, force_parser_mode) -> None:
     if force_parser_mode is not None and force_route != "ns":
         raise ValueError(
@@ -825,6 +857,8 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
     and no question. Unless `skip_preflight`, the preflight runs first:
     `assert_force_route_works`, then `assert_parser_force_works(arms)`, and a
     refusal stops the run before any question and before arms.json is written.
+    Before either, `check_bundle_reader` proves the bundle reader (always, since
+    it costs no turn), and raises BundleReaderUnavailable with nothing sent.
 
     Returns the arms.json document plus `manifests` ({arm: NessieManifest}) and
     `arms_file`.
@@ -874,6 +908,10 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
                 f"started (fingerprint {prior_meta.get('corpus_fingerprint')!r}, now "
                 f"{fingerprint!r}), so those questions may have changed. Restore the "
                 f"corpus, or give a new --out.")
+
+    # Before the preflight, which bills its probe turns: an arms run scores every
+    # question from its bundle, so a reader that cannot read stops it here, free.
+    check_bundle_reader(bundle_reader)
 
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
