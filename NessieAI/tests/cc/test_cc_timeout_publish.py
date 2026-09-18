@@ -141,13 +141,29 @@ def test_an_overrun_turn_publishes_the_file_it_wrote(tmp_path, monkeypatch):
     }]
 
 
-def test_an_overrun_turn_publishes_its_raw_files(tmp_path, monkeypatch):
-    events = _run(tmp_path, monkeypatch, _writes(tmp_path, {"raw/rows.json": b"[1, 2]"}))
+def test_an_overrun_turn_publishes_no_raw_files(tmp_path, monkeypatch):
+    """raw/ is ONE directory shared by every turn of the user (unlike
+    artifacts/<turn_id>/), and an earlier completed turn's chat_log entry still
+    names its path. A stopped turn's raw file may be half-written, so publishing
+    it would overwrite that turn's good copy with a truncated one."""
+    earlier = _output(tmp_path) / "raw" / "rows.json"
+    earlier.parent.mkdir(parents=True)
+    earlier.write_bytes(b"[1, 2, 3]")
 
-    [(_, data)] = _terminals(events)
-    assert (_output(tmp_path) / "raw" / "rows.json").read_bytes() == b"[1, 2]"
-    assert data["cc_raw_files"] == [str(_output(tmp_path) / "raw" / "rows.json")]
-    assert data["artifacts"] is None
+    events = _run(tmp_path, monkeypatch, _writes(tmp_path, {
+        "raw/rows.json": b"[1, 2",
+        "report.csv": b"a,b\n",
+    }))
+
+    [(event, data)] = _terminals(events)
+    assert event == "query_error" and data["reason"] == "exec_timeout"
+    assert earlier.read_bytes() == b"[1, 2, 3]", (
+        "a timed-out turn must not overwrite an earlier turn's raw file"
+    )
+    assert data["cc_raw_files"] == []
+    # The deliverables still go out: they land in this turn's own directory.
+    assert (_output(tmp_path) / "artifacts" / RUN_ID / "report.csv").read_bytes() == b"a,b\n"
+    assert data["artifacts"][0]["key"] == f"{RUN_ID}/report.csv"
 
 
 def test_an_overrun_turn_sweeps_what_the_sidecar_staged_for_it(tmp_path, monkeypatch):

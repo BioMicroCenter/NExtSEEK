@@ -1279,6 +1279,9 @@ def run_cc_turn(
                 scratch_mount, output_mount,
                 turn_id=str(run_id),
                 output_logical_root=dirs.output_mnt, before=before,
+                # A stopped turn keeps its raw/ files in its own scratch only:
+                # output/raw/ is not per-turn (see _publish_artifacts).
+                include_raw=not timed_out,
             )
         except Exception:
             if not timed_out:
@@ -1882,10 +1885,15 @@ def _publish_artifacts(
     turn_id: str,
     output_logical_root: str,
     before: dict[str, tuple[int, int]],
+    include_raw: bool = True,
 ) -> dict:
     """Diff scratch; split deliverables (artifacts) from scratch/raw/ (raw).
     Artifacts -> output/artifacts/<turn_id>/ (zipped if >1 per turn, downloadable);
-    raw -> output/raw/ (on disk, not bundled). Keys are turn-scoped: "<turn_id>/<relpath>"."""
+    raw -> output/raw/ (on disk, not bundled). Keys are turn-scoped: "<turn_id>/<relpath>".
+
+    ``include_raw=False`` publishes the artifacts only. output/raw/ is shared by
+    every turn of the user, so a turn stopped mid-write must not copy a possibly
+    truncated file over an earlier turn's same-named one (13b.1)."""
     from dmac_assistant.run_tracker import diff_files
     from . import cc_artifacts
 
@@ -1918,7 +1926,7 @@ def _publish_artifacts(
         return written
 
     art_files = _copy(art_rels, art_dir)
-    raw_files = _copy(raw_rels, raw_dir, strip_raw_prefix=True)
+    raw_files = _copy(raw_rels, raw_dir, strip_raw_prefix=True) if include_raw else []
 
     artifacts: list[dict] = []
     if len(art_files) > 1:
