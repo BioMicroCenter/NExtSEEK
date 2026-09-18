@@ -339,6 +339,17 @@ services:
       NEO4J_server_memory_heap_initial__size: "${NEO4J_HEAP:-2g}"
       NEO4J_server_memory_heap_max__size: "${NEO4J_HEAP:-2g}"
       NEO4J_server_memory_pagecache_size: "${NEO4J_PAGECACHE:-2g}"
+      # Optional plugins, off unless a box opts in from its project-root .env. The image
+      # ships APOC core in /var/lib/neo4j/labs at its own version and copies it into
+      # plugins/ at start when named here, so enabling it needs no download:
+      #   NEO4J_PLUGINS=["apoc"]
+      # An empty value loads nothing, which is how every box ran before this line.
+      NEO4J_PLUGINS: "${NEO4J_PLUGINS:-}"
+      # Which plugin procedures and functions load. Unset, the image loads every one it
+      # finds. A box that enables APOC should name the read-only families it wants here
+      # (see .env.example) rather than take the loaders, periodic writers and dynamic
+      # Cypher runners with them.
+      NEO4J_dbms_security_procedures_allowlist: "${NEO4J_PROCEDURES_ALLOWLIST:-*}"
     ports:
       - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
       - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
