@@ -93,6 +93,28 @@ present with a non-null value (`_highlightKeyValues` with the attribute). The ru
   `true` or `yes` in any case, trimmed.
 - **False:** every other present value, `""`, `" "`, `0` and `no` included.
 
+## How graph_search expresses them
+
+### Not Contain, True and False: `extensions.where` operators
+
+| Simple box rule | `where` item | Cypher over the stored property `p` |
+|---|---|---|
+| Contain | `op: "CONTAINS"`, `value` | `toString(p) CONTAINS $w` |
+| Not Contain | `op: "NOT CONTAINS"`, `value` | `p IS NOT NULL AND NOT (toString(p) CONTAINS $w)` |
+| True | `op: "IS TRUE"`, no value | `toBinaryTinyInt` as a `CASE` on the stored type: a boolean, an integer equal to 1, a float in [1, 2), or a string that is `[+]?(0_?)*1` or `true`/`yes` after Python's `strip()` (`$ws`) |
+| False | `op: "IS FALSE"`, no value | `p IS NOT NULL AND NOT` the True test |
+
+The string operators read `toString(p)` because a string attribute can hold a JSON number, which the graph stores as
+a number. Where the rows can still differ from advanced_search's:
+
+- A value stored as an empty string. The graph does not store empty values (schema v1.1 rule 2), so Contain with an
+  empty From, Not Contain and False miss the samples whose value is exactly `""`; advanced_search kept them. A blank
+  written as `" "` is stored and behaves the same in both.
+- A string attribute holding a JSON boolean: Python's `str(True)` is `True`, Cypher's `toString(true)` is `true`.
+- True reads only ASCII digits; Python's `int()` also reads other Unicode digits (`"１"`). A float `inf` made
+  advanced_search raise; graph_search calls it false.
+- The page trims From before sending it; the old page sent it as typed.
+
 ## Running and testing
 
 Unit tests run in the Django unit lane (`ci/README.md` "Running and testing"), test files

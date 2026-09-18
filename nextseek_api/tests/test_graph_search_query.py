@@ -29,7 +29,7 @@ CATALOG = Catalog(
     type_title_by_id={v: k for k, v in TYPE_IDS.items()},
     label_by_title={"TIS": "T_TIS", "MUS": "T_MUS", "D.SEQ": "T_D_SEQ", "Odd`Type": "T_Odd_Type"},
     titles_by_type={
-        "TIS": frozenset({"UID", "Organ", "organ", "Media supplement ", "CellCount", "Collected", "Name`x"}),
+        "TIS": frozenset({"UID", "Organ", "organ", "Media supplement ", "CellCount", "Collected", "Name`x", "Viable"}),
         "MUS": frozenset({"UID", "Sex", "Strain", "Organ"}),
         "D.SEQ": frozenset({"UID", "Parent", "Reads"}),
         "Odd`Type": frozenset(),
@@ -466,6 +466,55 @@ def test_where_string_operators_read_the_text_of_a_value_stored_as_a_number():
     assert q.params["w0"] == "12"
 
 
+def test_where_not_contains_is_the_negation_of_contains_over_samples_that_hold_the_value():
+    # advanced_search's Not Contain: `From not in str(value).strip()`, and only on rows whose metadata holds the
+    # attribute with a non-null value (_filterSamples keeps a row only when _highlightKeyValues finds it).
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "TIS", "attribute": "Organ", "op": "NOT CONTAINS", "value": "Lung"}]}})
+    assert _where_line(q) == "(s.`Organ` IS NOT NULL AND NOT (toString(s.`Organ`) CONTAINS $w0))"
+    assert q.params["w0"] == "Lung"
+
+
+def test_where_not_contains_takes_a_number_as_text():
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "D.SEQ", "attribute": "Reads", "op": "NOT CONTAINS", "value": 12}]}})
+    assert q.params["w0"] == "12"
+
+
+TRUTHY = (
+    "CASE WHEN s.`Viable` IS :: BOOLEAN NOT NULL THEN s.`Viable` "
+    "WHEN s.`Viable` IS :: INTEGER NOT NULL THEN s.`Viable` = 1 "
+    "WHEN s.`Viable` IS :: FLOAT NOT NULL THEN s.`Viable` >= 1.0 AND s.`Viable` < 2.0 "
+    "WHEN s.`Viable` IS :: STRING NOT NULL THEN btrim(s.`Viable`, $ws) =~ '[+]?(0_?)*1' "
+    "OR toLower(btrim(s.`Viable`, $ws)) IN ['true', 'yes'] "
+    "ELSE false END"
+)
+
+
+def test_where_is_true_is_advanced_searchs_to_binary_tiny_int_rule():
+    # dmac/conversion.py::toBinaryTinyInt(value) == 1: int(value) is 1 (a boolean true, the integer 1, a float that
+    # truncates to 1, a string int() reads as 1), or the trimmed, lower-cased text is "true" or "yes".
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "TIS", "attribute": "Viable", "op": "IS TRUE"}]}})
+    assert _where_line(q) == TRUTHY
+    assert q.params == {"ws": PY_WHITESPACE, "skip": 0, "limit": 100}
+
+
+def test_where_is_false_is_every_other_value_the_sample_holds():
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "TIS", "attribute": "Viable", "op": "IS FALSE"}]}})
+    assert _where_line(q) == f"(s.`Viable` IS NOT NULL AND NOT ({TRUTHY}))"
+    assert "w0" not in q.params and q.params["ws"] == PY_WHITESPACE
+
+
+def test_where_truth_and_value_operators_mix():
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "TIS", "attribute": "Organ", "op": "CONTAINS", "value": "Lu"},
+        {"sample_type": "TIS", "attribute": "Viable", "op": "IS TRUE"}]}})
+    assert _where_line(q) == f"toString(s.`Organ`) CONTAINS $w0 AND {TRUTHY}"
+    assert q.params["w0"] == "Lu" and "w1" not in q.params
+
+
 def test_where_items_are_anded():
     q = _build({"filter_searchText": "", "extensions": {"where": [
         {"sample_type": "TIS", "attribute": "Organ", "op": "=", "value": "Lung"},
@@ -519,6 +568,10 @@ def test_where_rechecks_what_it_interpolates():
         {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "IN", "value": "x"}]},
         {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "=", "value": ["x"]}]},
         {"where": [{"sample_type": "D.SEQ", "attribute": "Reads", "op": "=", "value": 2 ** 70}]},
+        {"where": [{"sample_type": "TIS", "attribute": "Viable", "op": "IS TRUE", "value": "yes"}]},
+        {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "NOT CONTAINS", "value": ["x"]}]},
+        {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "=", "value": None}]},
+        {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "="}]},
         {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "=", "value": "a"},
                    {"sample_type": "MUS", "attribute": "Sex", "op": "=", "value": "F"}]},
     ):

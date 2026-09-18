@@ -99,7 +99,7 @@ def test_where_items_keep_their_value_types():
     assert type(values[2]) is float
 
 
-@pytest.mark.parametrize("op", ["=", "<>", "<", "<=", ">", ">=", "CONTAINS", "STARTS WITH"])
+@pytest.mark.parametrize("op", ["=", "<>", "<", "<=", ">", ">=", "CONTAINS", "NOT CONTAINS", "STARTS WITH"])
 def test_every_scalar_operator_accepts_a_scalar(op):
     assert GraphSearchWhere.model_validate(_where(op=op)).op == op
 
@@ -114,13 +114,36 @@ def test_in_with_a_scalar_fails():
         GraphSearchWhere.model_validate(_where(op="IN", value="Lung"))
 
 
-@pytest.mark.parametrize("op", ["=", "<>", "<", "<=", ">", ">=", "CONTAINS", "STARTS WITH"])
+@pytest.mark.parametrize("op", ["=", "<>", "<", "<=", ">", ">=", "CONTAINS", "NOT CONTAINS", "STARTS WITH"])
 def test_scalar_operator_with_a_list_fails(op):
     with pytest.raises(ValidationError, match="scalar"):
         GraphSearchWhere.model_validate(_where(op=op, value=["Lung", "Liver"]))
 
 
-@pytest.mark.parametrize("op", ["==", "LIKE", "in", "contains", "=~", ""])
+@pytest.mark.parametrize("op", ["IS TRUE", "IS FALSE"])
+def test_the_truth_operators_take_no_value(op):
+    """The Simple box's True and False rules (seek/dbtable_sampleattribute.py BOOL_RULES) name no value."""
+    item = _where(op=op)
+    del item["value"]
+    assert GraphSearchWhere.model_validate(item).value is None
+
+
+@pytest.mark.parametrize("value", ["true", 1, ["x"]])
+@pytest.mark.parametrize("op", ["IS TRUE", "IS FALSE"])
+def test_a_truth_operator_with_a_value_fails(op, value):
+    with pytest.raises(ValidationError, match="takes no value"):
+        GraphSearchWhere.model_validate(_where(op=op, value=value))
+
+
+@pytest.mark.parametrize("op", ["=", "CONTAINS", "NOT CONTAINS", "IN"])
+def test_every_other_operator_needs_a_value(op):
+    item = _where(op=op)
+    del item["value"]
+    with pytest.raises(ValidationError, match="requires a value"):
+        GraphSearchWhere.model_validate(item)
+
+
+@pytest.mark.parametrize("op", ["==", "LIKE", "in", "contains", "=~", "", "NOT", "not contains", "IS NULL"])
 def test_unknown_operator_fails(op):
     with pytest.raises(ValidationError):
         GraphSearchWhere.model_validate(_where(op=op))

@@ -1908,20 +1908,36 @@ class SampleAdvancedSearchResult(BaseModel):
 # against the graph catalog by the query builder (nextseek_api/graph_search/query.py).
 
 
+GRAPH_SEARCH_TRUTH_OPS = ("IS TRUE", "IS FALSE")
+
+
 class GraphSearchWhere(BaseModel):
     sample_type: str = Field(..., description='Sample type title the attribute belongs to, for example "TIS"')
     attribute: str = Field(..., description='Attribute title on that sample type, exact and case-sensitive')
-    op: Literal["=", "<>", "<", "<=", ">", ">=", "IN", "CONTAINS", "STARTS WITH"] = Field(
-        ..., description='Comparison operator; IN takes a list, every other operator a single value'
+    op: Literal["=", "<>", "<", "<=", ">", ">=", "IN", "CONTAINS", "NOT CONTAINS", "STARTS WITH",
+                "IS TRUE", "IS FALSE"] = Field(
+        ...,
+        description=(
+            'Comparison operator. IN takes a list; IS TRUE and IS FALSE take no value (the Sample Search page\'s '
+            'True and False rules); every other operator a single value. CONTAINS, NOT CONTAINS and STARTS WITH '
+            'compare the stored value\'s text; NOT CONTAINS keeps only samples that hold the attribute'
+        ),
     )
-    value: Union[str, int, float, List[Union[str, int, float]]] = Field(
-        ..., description="Value to compare with, cast by the attribute's value_type"
+    value: Optional[Union[str, int, float, List[Union[str, int, float]]]] = Field(
+        default=None,
+        description="Value to compare with, cast by the attribute's value_type; omitted for IS TRUE and IS FALSE",
     )
 
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def _value_shape_matches_op(self) -> "GraphSearchWhere":
+        if self.op in GRAPH_SEARCH_TRUTH_OPS:
+            if self.value is not None:
+                raise ValueError(f"op '{self.op}' takes no value")
+            return self
+        if self.value is None:
+            raise ValueError(f"op '{self.op}' requires a value")
         is_list = isinstance(self.value, list)
         if self.op == "IN" and not is_list:
             raise ValueError("op 'IN' requires a list value")

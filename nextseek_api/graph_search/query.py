@@ -42,8 +42,13 @@ log = logging.getLogger(__name__)
 FULLTEXT_INDEX = "sample_search_text"
 MAX_PAGE_SIZE = 1000
 MAX_HOPS = 4
-WHERE_OPS = frozenset({"=", "<>", "<", "<=", ">", ">=", "IN", "CONTAINS", "STARTS WITH"})
-_STRING_OPS = frozenset({"CONTAINS", "STARTS WITH"})
+WHERE_OPS = frozenset({"=", "<>", "<", "<=", ">", ">=", "IN", "CONTAINS", "NOT CONTAINS", "STARTS WITH",
+                       "IS TRUE", "IS FALSE"})
+_STRING_OPS = frozenset({"CONTAINS", "NOT CONTAINS", "STARTS WITH"})
+_TRUTH_OPS = frozenset({"IS TRUE", "IS FALSE"})
+# The text of an integer that Python's int() reads as 1, after strip(): an optional plus, zeros with single
+# underscores between digits, then 1. No backslash, so it needs no escaping inside a Cypher string.
+_ONE_RE = "[+]?(0_?)*1"
 _LINEAGE_PATTERNS = {
     "descendant": "EXISTS {{ (s)<-[:DERIVED_FROM*1..{hops}]-(:{label}) }}",
     "ancestor": "EXISTS {{ (s)-[:DERIVED_FROM*1..{hops}]->(:{label}) }}",
@@ -211,6 +216,23 @@ def _where_value(value, value_type: str, op: str):
     return cast_value(value, value_type)[0]
 
 
+def _truthy(prop: str) -> str:
+    """advanced_search's True rule, ``toBinaryTinyInt(value) == 1`` (dmac/conversion.py), over a stored value.
+
+    ``int(value)`` is 1 for a boolean true, the integer 1, a float that truncates to 1 and a string ``int()`` reads as
+    1 (Python whitespace trimmed); otherwise the trimmed, lower-cased text must be ``true`` or ``yes``. A date, a
+    missing value or anything else is not true. Uses ``$ws``.
+    """
+    return (
+        f"CASE WHEN {prop} IS :: BOOLEAN NOT NULL THEN {prop} "
+        f"WHEN {prop} IS :: INTEGER NOT NULL THEN {prop} = 1 "
+        f"WHEN {prop} IS :: FLOAT NOT NULL THEN {prop} >= 1.0 AND {prop} < 2.0 "
+        f"WHEN {prop} IS :: STRING NOT NULL THEN btrim({prop}, $ws) =~ '{_ONE_RE}' "
+        f"OR toLower(btrim({prop}, $ws)) IN ['true', 'yes'] "
+        "ELSE false END"
+    )
+
+
 def _where(items: list, catalog: Catalog, params: dict) -> tuple[Optional[str], list[str]]:
     """The where items' label and predicates. Items are ANDed and must all name the same sample type."""
     if not items:
@@ -230,15 +252,32 @@ def _where(items: list, catalog: Catalog, params: dict) -> tuple[Optional[str], 
             raise GraphSearchInvalid(f"where: attribute {attribute!r} does not exist on sample type {sample_type!r}")
         if op not in WHERE_OPS:
             raise GraphSearchInvalid(f"where: unsupported op {op!r}")
+        prop = _prop(attribute)
+        if op in _TRUTH_OPS:
+            # The Simple box's True and False rules. False is every other value the sample holds: advanced_search kept
+            # only rows whose metadata has the attribute with a non-null value.
+            if value is not None:
+                raise GraphSearchInvalid(f"where: op {op!r} takes no value")
+            params["ws"] = PY_WHITESPACE
+            truthy = _truthy(prop)
+            predicates.append(truthy if op == "IS TRUE" else f"({prop} IS NOT NULL AND NOT ({truthy}))")
+            continue
+        if value is None:
+            raise GraphSearchInvalid(f"where: op {op!r} needs a value")
         if (op == "IN") != isinstance(value, list):
             raise GraphSearchInvalid(f"where: op {op!r} needs {'a list' if op == 'IN' else 'a single'} value")
         cast = _where_value(value, catalog.value_type.get((sample_type, attribute), "string"), op)
         _check_int64(cast)
         params[f"w{i}"] = cast
-        # A string operator reads the value's text: a string attribute can hold a JSON number, which the graph keeps
-        # as a number, and advanced_search's Contain compared str(value).
-        prop = f"toString({_prop(attribute)})" if op in _STRING_OPS else _prop(attribute)
-        predicates.append(f"{prop} {op} $w{i}")
+        if op == "NOT CONTAINS":
+            # The Simple box's Not Contain: the negation of CONTAINS, over samples that hold the attribute.
+            predicates.append(f"({prop} IS NOT NULL AND NOT (toString({prop}) CONTAINS $w{i}))")
+        elif op in _STRING_OPS:
+            # A string operator reads the value's text: a string attribute can hold a JSON number, which the graph
+            # keeps as a number, and advanced_search's Contain compared str(value).
+            predicates.append(f"toString({prop}) {op} $w{i}")
+        else:
+            predicates.append(f"{prop} {op} $w{i}")
     return label, predicates
 
 
