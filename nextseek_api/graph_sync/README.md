@@ -103,14 +103,15 @@ logs its failure and returns, and the status endpoint answers 503 rather than 50
 **`graph_sync_outbox`**, one row per unit of work. `(kind, key)` is unique, so repeated hook writes coalesce and a
 scheduled slot is inserted once. A claim is a compare-and-set that counts an attempt; a lease that expires makes
 the row claimable again; a failure backs off (6 hours for a full sync, an hour otherwise); a row at
-`state.MAX_ATTEMPTS` is dead until a new write resets it. A successful full sync closes every row enqueued before
-it started, because it read them all.
+`state.MAX_ATTEMPTS` is dead until a new write resets it. A writer that cannot tell whether its write has landed yet
+enqueues with a delay (`delay_s`), which holds the row back the way a back-off does. A successful full sync closes
+every row enqueued before it started, because it read them all.
 
 | Kind | Key | Enqueued by | The drain calls |
 |---|---|---|---|
 | `samples` | `sample:<id>`, or `batch:<name>` with the ids in `payload` | the sample hooks, batch upload stage 5, orphan resolution, assay registration, the publication backfill | `targeted.sync_samples` |
 | `samples_of_type` | `type:<id>` | the attribute API, the legacy attribute editor, the sample-type proxy | `targeted.sync_samples_of_type` |
-| `retire` | `sample:<id>` | the proxy destroy, the legacy delete | `targeted.retire_samples` |
+| `retire` | `sample:<id>` | the proxy destroy (delayed when SEEK did not answer), the legacy delete | `targeted.retire_samples`, which leaves an id MySQL still holds alone |
 | `catalog` | `*` | the attribute API, the legacy attribute editor, the sample-type proxy, the clade admin | `run.catalog_sync` |
 | `assay_map`, `protocol_map` | `*` | the internal-assay admin and the assay proxy; the SOP proxy | `targeted.relabel_for_maps` |
 | `isa`, `membership` | `*` | the project, investigation and study proxies; the users API | `targeted.sync_small_tables` |

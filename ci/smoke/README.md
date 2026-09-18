@@ -265,7 +265,7 @@ assert the outbox holds no dead rows, because `wait_for_drain` reports a drain w
 | attribute create and delete | WR-05 | the graph's **catalog** declares the attribute, then stops declaring it |
 | sample update | WR-07 PATCH | the node matches the new value and stops matching the old one |
 | delete | WR-13 | the node comes down by the retire rule |
-| delete, through the API | WR-07 destroy | **strict xfail**: see below |
+| delete, through the API | WR-07 destroy | the node comes down even when SEEK outruns the proxy: see below |
 | sample joins a project | WR-01, WR-02 | a scoped account that could not see the sample now can |
 | person change | WR-10 | the `membership` row drains rather than dead-lettering |
 
@@ -300,15 +300,15 @@ through the ORM) and memberships through `/nextseek_api/people/<id>/` (the full 
 shared session, and six calls alternating the two smoke accounts answered with one identity for
 both. A lookup that names its subject in the path is unaffected.
 
-### The API-proxy delete xfail
+### The API-proxy delete is slow on purpose
 
-`DELETE /nextseek_api/samples/<id>/` answered 500 after 20.13 s three times out of three: SEEK's own
-delete outruns `SeekAPIClient.timeout_s = 20`. Rails completes the delete, so the row leaves MySQL,
-but WR-07's retire hook is guarded by `200 <= code < 300` and never runs — leaving a node
-`graph_search` counts and cannot show. It is a strict xfail for the reason `ci/routes.py` gives for a
-route that is broken today: the defect stays visible, and the day it is fixed the lane goes red and
-tells whoever fixed it to remove the marker. The product's own UI does not use this path; the Sample
-Deletion tab posts `alluids` to `/seek/samples/delete/` (WR-13), which the lane proves works.
+SEEK's own delete can outrun `SeekAPIClient.timeout_s`, and Rails then completes it after the proxy
+has given up. The proxy used to answer 500 and enqueue nothing, leaving a node `graph_search` counts
+and cannot show. When SEEK does not answer in time the proxy now answers 202 with
+`status: unconfirmed` and enqueues the retire held back by `UNCONFIRMED_RETIRE_DELAY_S`
+(`nextseek_api/services/samples.py`), so the retire reads MySQL after Rails has finished. The case
+therefore waits out that delay in its drain. The product's own UI does not use this path; the Sample
+Deletion tab posts `alluids` to `/seek/samples/delete/` (WR-13).
 
 ### `/seek/samples/delete/` is enabled for `local` only
 

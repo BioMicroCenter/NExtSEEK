@@ -7,6 +7,7 @@ sample ids. ``(kind, key)`` is unique, so repeated hook writes coalesce and a sc
 
 - ``enqueue`` inserts the row or resets it to pending (not done, no attempts, the new payload) and always moves
   ``enqueued_at`` forward, by a microsecond when the clock has not. It leaves a live claim and a back-off in place.
+  ``delay_s`` holds the row back from any worker for that long, as a back-off would.
 - ``claim_next`` is a compare-and-set over the row as it was read: two workers never hold one row, and the claim counts
   an attempt. A row at ``MAX_ATTEMPTS`` is dead: no worker claims it until a new write resets it.
 - ``finish_done`` marks the row done only if ``enqueued_at`` is unchanged since the claim. A row re-enqueued meanwhile
@@ -150,37 +151,51 @@ def check_item(kind: str, key: str, payload: Any = None) -> None:
         raise ValueError(f"{key!r} carries no payload, not {payload!r}")
 
 
-def _reopen(kind: str, key: str, payload: Any, now: datetime) -> bool:
-    """Reset an existing row to pending, under its row lock. False when there is no such row."""
+def _reopen(kind: str, key: str, payload: Any, now: datetime, not_before: datetime | None) -> bool:
+    """Reset an existing row to pending, under its row lock. False when there is no such row.
+
+    ``not_before`` pushes the row's back-off out to that time unless a longer one is already running, and is ignored
+    for a row under a live claim: ``finish_done`` finds its claim by the lease, so moving it would take the row from
+    its worker."""
     found = (_outbox().select_for_update().filter(kind=kind, key=key)
-             .values("id", "enqueued_at").first())
+             .values("id", "enqueued_at", "claimed_by", "lease_expires_at").first())
     if found is None:
         return False
     stamp = max(now, found["enqueued_at"] + _TICK)
-    _outbox().filter(pk=found["id"]).update(enqueued_at=stamp, done_at=None, attempts=0, payload=payload)
+    fields = {"enqueued_at": stamp, "done_at": None, "attempts": 0, "payload": payload}
+    lease = found["lease_expires_at"]
+    live_claim = found["claimed_by"] is not None and lease is not None and lease > now
+    if not_before is not None and not live_claim and (lease is None or lease < not_before):
+        fields["lease_expires_at"] = not_before
+    _outbox().filter(pk=found["id"]).update(**fields)
     return True
 
 
-def enqueue(kind: str, key: str, payload: Any = None, *, now: datetime | None = None) -> None:
+def enqueue(kind: str, key: str, payload: Any = None, *, now: datetime | None = None, delay_s: float = 0) -> None:
     """Insert the row, or reset it to pending with ``payload``. Raises ValueError on a malformed item and a database
     error as it comes; ``hooks.enqueue`` is the one that never raises.
+
+    ``delay_s`` keeps the row from being claimed for that many seconds, through the same ``lease_expires_at`` a
+    back-off uses: for work that must not run before the write it follows has landed. The row counts as pending
+    meanwhile. A longer back-off already on the row stands, and so does a live claim.
 
     Inside a caller's transaction on the dmac database the row commits with it, and a failure rolls back to this
     function's own savepoint. The existing row is read first, so two writers of an existing key queue on its row lock
     instead of both failing an insert."""
     check_item(kind, key, payload)
     now = now or timezone.now()
+    not_before = now + timedelta(seconds=delay_s) if delay_s and delay_s > 0 else None
     db = _db()
     with transaction.atomic(using=db):
-        if _reopen(kind, key, payload, now):
+        if _reopen(kind, key, payload, now, not_before):
             return
         try:
             with transaction.atomic(using=db):
-                _outbox().create(kind=kind, key=key, payload=payload, enqueued_at=now)
+                _outbox().create(kind=kind, key=key, payload=payload, enqueued_at=now, lease_expires_at=not_before)
             return
         except IntegrityError:
             # Another writer inserted it since the read above.
-            if not _reopen(kind, key, payload, now):
+            if not _reopen(kind, key, payload, now, not_before):
                 raise
 
 

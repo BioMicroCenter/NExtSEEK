@@ -316,10 +316,9 @@ def _legacy_delete(wweb, base_url, uids):
     and deletes through DBtable_sample._deleteOneSample, whose hook enqueues the retire row.
 
     NOT the API proxy. Measured 2026-09-17, three deletes for three: DELETE /nextseek_api/samples/<id>/
-    answered 500 after 20.13 s every time, a SEEK read timeout at the client's timeout_s = 20
-    (nextseek_api/helpers.py). Rails had completed the delete, so MySQL lost the row while WR-07's
-    hook -- guarded by `200 <= code < 300` -- never ran, and the node survived. That is the proxy's
-    defect, reported separately; it is not this lane's cleanup path and it is not what the UI calls.
+    answered after the client's timeout_s = 20 (nextseek_api/helpers.py) every time, with Rails still
+    deleting. The proxy now answers that 202 and retires the node only after a delay (the proxy case
+    below), which is too slow for a cleanup path, and it is not what the UI calls.
 
     Returns the view's parsed JSON body.
     """
@@ -513,26 +512,20 @@ def test_a_delete_takes_the_node_out_of_the_graph(wapi, wweb, base_url, a_throwa
 
 
 @destructive
-@pytest.mark.xfail(strict=True, reason=(
-    "measured 2026-09-17, three for three: DELETE /nextseek_api/samples/<id>/ answers 500 after "
-    "20.13 s, a SEEK read timeout at SeekAPIClient.timeout_s = 20 (nextseek_api/helpers.py). Rails "
-    "completes the delete, so the row leaves MySQL, but WR-07's retire hook is guarded by "
-    "`200 <= code < 300` and never runs. Remove this marker when the proxy either survives a slow "
-    "SEEK delete or enqueues the retire when it cannot confirm one."))
 def test_the_api_proxy_delete_also_takes_the_node_down(wapi, wweb, base_url, a_throwaway_sample):
     """WR-07's destroy, the API surface, as distinct from WR-13's page above.
 
-    Kept as a strict xfail rather than dropped, for the reason ci/routes.py gives for a route that is
-    broken today: the defect stays visible, and the day it is fixed this goes XPASS and tells whoever
-    fixed it to delete the marker. It is a real gap even though the UI does not use this path --
-    anything driving the API deletes samples and leaves their nodes standing.
+    Measured 2026-09-17, three for three: SEEK's own delete outruns SeekAPIClient.timeout_s = 20
+    (nextseek_api/helpers.py) and Rails completes it after the proxy has given up. This was a strict
+    xfail until the proxy learned to answer that timeout with 202 and enqueue the retire anyway, held
+    back by UNCONFIRMED_RETIRE_DELAY_S (nextseek_api/services/samples.py) so it reads MySQL after Rails
+    has finished. So a 202 here is the slow path working, and the drain below waits out that delay.
     """
     seek_id, uid, marker = a_throwaway_sample
     try:
         r = wapi.delete(f"{base_url}{SAMPLES_PATH}{seek_id}/", timeout=300)
         assert r.status_code in (200, 202, 204), (
-            f"the proxy delete answered {r.status_code} (SEEK's own delete outran the proxy's "
-            f"{20}s read timeout): {r.text[:200]}"
+            f"the proxy delete answered {r.status_code}: {r.text[:200]}"
         )
         wait_for_drain(wapi, base_url, timeout_s=600)
         left = wait_for_total(wapi, base_url, sample_type=MARKER_TYPE, attribute=MARKER_ATTRIBUTE,

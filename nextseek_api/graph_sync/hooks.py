@@ -37,10 +37,13 @@ def _count_failure(kind: Any) -> None:
         _failures[name] += 1
 
 
-def enqueue(kind: str, key: str, payload: Any = None) -> bool:
-    """``state.enqueue`` that never raises. True when the row was written; False, logged and counted, when not."""
+def enqueue(kind: str, key: str, payload: Any = None, *, delay_s: float = 0) -> bool:
+    """``state.enqueue`` that never raises. True when the row was written; False, logged and counted, when not.
+
+    ``delay_s`` keeps the row from any worker for that long: for a writer that cannot tell whether its write has
+    landed yet (``state.enqueue``)."""
     try:
-        state.enqueue(kind, key, payload)
+        state.enqueue(kind, key, payload, delay_s=delay_s)
         return True
     except Exception:  # noqa: BLE001
         # Swallowed on purpose: this is the one place in graph_sync that does, because the caller's write stands.
