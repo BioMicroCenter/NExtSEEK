@@ -380,6 +380,35 @@ def test_fingerprint_only_passes_on_the_same_graph_and_fails_on_a_changed_hash(t
     assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
 
 
+def test_fingerprint_only_ignores_a_moved_synced_at(tmp_path, capsys):
+    """D16: GraphMeta.synced_at moves on every full, catalog or label-map sync, including the
+    nightly reconcile and syncs that change nothing, so it is recorded but never compared."""
+    stamped = et.Fingerprint(derived_at=NOW, **LIVE)
+    _write(tmp_path / "a_x.json", _truth(_question("q1", oracle=None), fingerprint=stamped))
+    resynced = FakeExecutors({}, fingerprint={**LIVE, "synced_at": "2026-09-17T20:32:19"})
+    assert dt.main(["--fingerprint-only", "--truth", str(tmp_path)],
+                   executors=resynced, now=NOW) == 0
+    assert "differs" not in capsys.readouterr().out
+
+
+def test_fingerprint_only_still_fails_on_a_changed_sample_count(tmp_path, capsys):
+    stamped = et.Fingerprint(derived_at=NOW, **LIVE)
+    _write(tmp_path / "a_x.json", _truth(_question("q1", oracle=None), fingerprint=stamped))
+    grown = FakeExecutors({}, fingerprint={**LIVE, "sample_count": LIVE["sample_count"] + 1})
+    assert dt.main(["--fingerprint-only", "--truth", str(tmp_path)],
+                   executors=grown, now=NOW) != 0
+    assert "sample_count" in capsys.readouterr().out
+
+
+def test_a_refill_records_the_new_synced_at_without_calling_it_a_move():
+    previous = et.Fingerprint(derived_at=NOW, **{**LIVE, "synced_at": "2026-09-17T19:26:41"})
+    truth = _truth(_question("q1", oracle=et.Oracle(engine="cypher", statement="C1")),
+                   fingerprint=previous)
+    report = dt.fill_truth(truth, FakeExecutors({"C1": [{"n": 1}]}), now=NOW)
+    assert report["fingerprint_changed"] is None
+    assert truth.fingerprint.synced_at == LIVE["synced_at"]
+
+
 def test_fingerprint_only_fails_on_an_unstamped_file(tmp_path):
     _write(tmp_path / "a_x.json", _truth(_question("q1", oracle=None)))
     assert dt.main(["--fingerprint-only", "--truth", str(tmp_path)],

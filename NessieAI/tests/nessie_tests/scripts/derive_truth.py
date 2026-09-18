@@ -56,7 +56,13 @@ MAX_AUTO_ITEMS = 25
 FINGERPRINT_META = ("MATCH (m:GraphMeta) RETURN m.catalog_hash AS catalog_hash, "
                     "m.synced_at AS synced_at, m.schema_version AS schema_version")
 FINGERPRINT_COUNT = "MATCH (s:Sample) RETURN count(s) AS n"
-FINGERPRINT_FIELDS = ("sample_count", "catalog_hash", "synced_at")
+# What --fingerprint-only and a refill's fingerprint_changed compare: the data identity.
+FINGERPRINT_FIELDS = ("sample_count", "catalog_hash")
+# Stamped as well, for information only. GraphMeta.synced_at moves on every full, catalog or
+# label-map sync, the nightly reconcile and syncs that change nothing among them, so comparing it
+# failed the gate on a graph whose data had not moved (D16). The two fields above do not see an
+# edge relabel or a new Study node either: re-derive after any full sync before a scored run.
+STAMP_FIELDS = FINGERPRINT_FIELDS + ("synced_at",)
 
 
 class OracleRefused(ValueError):
@@ -276,7 +282,7 @@ def fill_truth(truth: et.TruthFile, executors, *, only=None, now=None, base_dir=
         report["errors"].append({"id": None, "error": f"fingerprint: {type(exc).__name__}: {exc}"})
         return report
     previous = truth.fingerprint
-    truth.fingerprint = et.Fingerprint(derived_at=now, **{k: live.get(k) for k in FINGERPRINT_FIELDS})
+    truth.fingerprint = et.Fingerprint(derived_at=now, **{k: live.get(k) for k in STAMP_FIELDS})
     if previous is not None:
         moved = _fingerprint_diff(previous, truth.fingerprint)
         report["fingerprint_changed"] = moved or None
