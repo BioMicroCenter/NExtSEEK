@@ -9,6 +9,7 @@ from typing import Any
 import requests
 
 from ...config import ChatConfig
+from ...cypher_text import mask_cypher
 from ...session import SessionState
 from ..results import DEFAULT_API_PAGE_SIZE
 
@@ -268,14 +269,107 @@ def fix_sample_endpoint(plan: dict) -> dict:
     return plan
 
 
+#: Request fields that page or format a result rather than constrain it.
+_NON_PREDICATE_KEYS = frozenset({"page", "page_size", "limit", "offset", "format", "ordering"})
+
+#: The longest predicate one summary line carries; a longer one is cut and ends in "…".
+PREDICATE_MAX_CHARS = 240
+
+#: A list-valued filter shows this many values, then how many more there were.
+PREDICATE_MAX_LIST = 5
+
+_RETURN_RE = re.compile(r"\bRETURN\b", re.IGNORECASE)
+
+
+def _is_empty(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _compact_value(value: Any) -> Any:
+    if isinstance(value, list) and len(value) > PREDICATE_MAX_LIST:
+        return value[:PREDICATE_MAX_LIST] + [f"+{len(value) - PREDICATE_MAX_LIST} more"]
+    return value
+
+
+def _cut(text: str) -> str:
+    return text if len(text) <= PREDICATE_MAX_CHARS else text[: PREDICATE_MAX_CHARS - 1] + "…"
+
+
+def _rest_predicate(bundle: dict) -> dict[str, Any]:
+    """The filter fields a REST search sent: query parameters and request body, paging and empties dropped.
+
+    The bundle's top-level ``request_body``/``query_params`` are what ran (after the
+    retry ladder, whose substituted search is the body it keeps); an older bundle
+    without them still has the api_plan's copy.
+    """
+    api_plan = bundle.get("api_plan") if isinstance(bundle.get("api_plan"), dict) else {}
+    params = bundle.get("query_params") or api_plan.get("queryParameters") or {}
+    body = bundle.get("request_body") or api_plan.get("requestBody") or {}
+    predicate: dict[str, Any] = {}
+    for source in (params, body):
+        if not isinstance(source, dict):
+            continue
+        for key, value in source.items():
+            if key in _NON_PREDICATE_KEYS or _is_empty(value):
+                continue
+            predicate[key] = _compact_value(value)
+    return predicate
+
+
+def _graph_predicate(graph_plan: Any) -> tuple[str | None, dict[str, Any]]:
+    """A graph query's Cypher up to its final RETURN, and its parameters.
+
+    This is the query as the graph agent wrote it, before the tool inserted the
+    caller's project scope: the scope is who asked, not what was asked. What comes
+    after RETURN (the projection, ORDER BY, LIMIT) shapes the rows but constrains
+    nothing. The cut is found on the masked text, so a RETURN inside a string literal
+    or a backticked name is not mistaken for the clause.
+    """
+    if not isinstance(graph_plan, dict):
+        return None, {}
+    cypher = graph_plan.get("cypher")
+    if not isinstance(cypher, str) or not cypher.strip():
+        return None, {}
+    returns = list(_RETURN_RE.finditer(mask_cypher(cypher)))
+    head = cypher[: returns[-1].start()] if returns else cypher
+    head = " ".join(head.split())
+    params = graph_plan.get("parameters") if isinstance(graph_plan.get("parameters"), dict) else {}
+    params = {k: _compact_value(v) for k, v in params.items() if not _is_empty(v)}
+    return (head or None), params
+
+
+def _bundle_predicate(bundle: dict) -> str | None:
+    """``predicate=...`` for one summary line, or None when the bundle ran no search.
+
+    A graph query's predicate is its Cypher; a REST search's is the filters it sent.
+    A planner bundle can hold both and shows the REST one, as its ``endpoint`` does.
+    """
+    rest = _rest_predicate(bundle)
+    cypher, params = _graph_predicate(bundle.get("graph_plan"))
+    if cypher and (bundle.get("mode") == "graph_query" or not rest):
+        text = "predicate=" + json.dumps(_cut(cypher), ensure_ascii=False)
+        if params:
+            text += " params=" + json.dumps(params, ensure_ascii=False, default=str)
+        return text
+    if rest:
+        return "predicate=" + _cut(json.dumps(rest, ensure_ascii=False, default=str))
+    return None
+
+
 def build_recent_results_summary(session: SessionState, max_results: int = 8) -> str:
     """
     Build a short summary of recent result bundles for prompt conditioning.
-    Includes bundle IDs, user queries, endpoints, and totals to guide refinement or follow-up questions.
+    Includes bundle IDs, user queries, endpoints, totals and the predicate each search
+    ran, to guide refinement or follow-up questions.
 
     Now defaults to 8 bundles (up from 3) — long sessions hit a recall cliff if older
     bundles fall out of view. Parser can then pick `target_result_id` for any bundle
     in the visible window when the user uses "first", "originally", "earlier", etc.
+
+    The predicate is what lets a follow-up know what the previous search constrained
+    (and tell two searches of the same endpoint apart): the filters a REST search sent,
+    the Cypher up to RETURN plus its parameters for a graph query. It is the last
+    field on the line and is capped (``PREDICATE_MAX_CHARS``, ``PREDICATE_MAX_LIST``).
     """
     history = session.get("results_history", [])
     if not history:
@@ -296,13 +390,17 @@ def build_recent_results_summary(session: SessionState, max_results: int = 8) ->
                     or data["data"].get("total_samples")
                     or data["data"].get("total_nodes")
                 )
-        lines.append(
+        line = (
             f"- id={bundle.get('id')}, "
             f"mode={bundle.get('mode')}, "
             f"query={bundle.get('user_query')!r}, "
             f"endpoint={bundle.get('endpoint')}, "
             f"total={total}"
         )
+        predicate = _bundle_predicate(bundle)
+        if predicate:
+            line += f", {predicate}"
+        lines.append(line)
     if len(history) > max_results:
         lines.append(
             f"(NOTE: {len(history) - max_results} older bundle(s) exist but are not shown. "
