@@ -70,7 +70,7 @@ changes nothing that survives a day. `context/` is the hand-owned source and
 ```
 python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
 python scripts/context_gen.py --emit seed --table all
-python scripts/context_gen.py --emit capabilities --counts /tmp/investigations.json
+python scripts/context_gen.py --emit capabilities --counts /tmp/counts-local.json
 ```
 
 `--emit update` writes one re-runnable script for a live database. Its schema part adds
@@ -81,7 +81,13 @@ mapping operation's post-condition) decide whether it commits. On any problem th
 stops at `ERROR 1231 ... context_gen REFUSED ...`, the full list printed above it, and
 nothing was committed. A second run changes no row. `assay_context` rows are linked to
 `internal_assays` by title at apply time, never by the curated number, so a stack whose
-internal assays are numbered differently is refused rather than mislinked. Nothing here
+internal assays are numbered differently is refused rather than mislinked.
+`projects_context` is keyed on `(name, entity_type)`, because a project and an
+investigation may share a name: the schema part turns the live table's `PRIMARY KEY (name)`
+into the pair and drops the old held seed's unique key on `name`, each step conditional
+on the shape it finds, and the keys part adds `uq_projects_context_name_type` where the
+primary key is `id`. `pi` is display prose that nothing parses; `present_on` is a curated
+key the generator reads and never writes (`context/README.md`). Nothing here
 connects to a database: the operator applies the SQL, after a restore-tested backup, and
 never with `mysql --force` (the commit is conditional, so `--force` rolls back too, but it
 exits 0). `context/README.md` owns the source conventions and the review gate.
@@ -114,19 +120,29 @@ table: `CREATE TABLE IF NOT EXISTS` skips, so the unique key is never created an
 INSERTs land on top of the rows already there. `--emit update` is what brings an existing
 instance to the curated content.
 
-It also owns `capabilities.md`'s "Known Projects and Investigations" list.
-`render_capabilities_block` builds that section from the `projects_context` rows whose
-`entity_type` is `investigation`, as a marked `<!-- BEGIN CONTEXT-GEN:investigations -->`
-block, and `replace_capabilities_block` swaps it in. Names and a short description only:
-a baked sample count rots the day the next sync runs. The generator **refuses** an
-investigation that resolves to no samples, which is the point of generating the list at
-all — five of the eight hand-written names resolve to nothing, because SEEK carries two
-parallel investigation systems and the list named the paper-tracking copies.
-`catalog.assistant_investigations` in `nextseek_api/graph_sync/drift.py` stays the runtime
-backstop, and it is also where the sample counts the refusal reads come from — pass them
-to `--emit capabilities --counts` as a JSON object, or as drift's whole
-`assistant_investigations` stat. The markers must be exactly one BEGIN then one END, in
-the section under the exact H2 heading drift keys on, with no heading or `---` line
+It also owns `capabilities.md`'s "Known Projects and Investigations" list, as a marked
+`<!-- BEGIN CONTEXT-GEN:investigations -->` block built from the `context/projects.json`
+rows whose `entity_type` is `investigation`. `render_capabilities_text` writes one bullet
+per row, sorted by name: the exact title in bold, a colon, its `research_focus`, the names
+people use in brackets, and `(not on every instance: loaded on local and dev only)` for a
+row whose `present_on` lists instances. Names and a short description only: a baked sample
+count rots the day the next sync runs. It needs no graph. `check_investigation_counts`
+holds the refusals that do, and `--emit capabilities` runs both and writes nothing unless
+both pass; the counts only refuse, they never change the text.
+
+The counts come from `manage.py graph_sync --investigation-counts --instance <profile>
+--json`, one file per instance, each passed with its own `--counts`. A file names the
+instance it was measured on and enumerates every Investigation title in that graph with its
+nodes and samples. On an instance a row is on (every instance, unless its `present_on` says
+otherwise) its title must hold samples; on an instance its `present_on` leaves out, the
+title must be absent, and an empty node there is refused as the confident zero it would
+answer. A title that holds samples and that no row names is refused as well, unless
+`--ignore-investigation TITLE` names it. The flat `{title: count}` shape and drift's stat
+are refused: neither says where it was measured, and neither can tell an absent
+investigation from an empty one. `catalog.assistant_investigations` in
+`nextseek_api/graph_sync/drift.py` stays the runtime backstop, with the same absent-versus-
+empty rule for a name the block marks. The markers must be exactly one BEGIN then one END,
+in the section under the exact H2 heading drift keys on, with no heading or `---` line
 between them, and `replace_capabilities_block` refuses otherwise: reversed or duplicated
 markers duplicated text, an END placed too low deleted the sections after it, and a block
 outside drift's section leaves drift no names, so its check *passes* with the backstop off.
@@ -137,9 +153,9 @@ projection comes out byte for byte identical
 (`test_regenerating_the_block_leaves_the_ns_projection_identical`). The step that carries
 a new list to the agent is the image COPY and rebuild.
 
-`--emit capabilities` refuses today and is meant to: every `projects_context` row is
-still a project and `capabilities.md` carries no CONTEXT-GEN markers, so the five dead
-names are still committed. Task 6.15c adds the rows and the markers.
+The markers are placed around the section in `capabilities.md` (task 6.15c): the BEGIN
+line directly under the heading's blank line, the END line directly after the outro, with
+nothing between the heading and BEGIN. What sits between them is the generator's.
 
 **D. Attribute-API verification lane.** `scripts/attribute_api_test.sh:4-5` dispatches
 twelve named lanes, several of which shell out to `scripts/run_attribute_coverage.py` and

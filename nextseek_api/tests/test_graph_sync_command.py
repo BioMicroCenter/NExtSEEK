@@ -917,6 +917,59 @@ def test_no_record_keeps_the_drift_run_out_of_the_run_records(graphdb, modes):
     assert modes["trigger"] is None
 
 
+# --- --investigation-counts -------------------------------------------------------------------------
+
+COUNTS = {"measured_on": "local", "measured_at": "2026-09-19T06:10:00Z",
+          "investigations": {"Alder Study": {"nodes": 1, "samples": 3}}}
+
+
+def _counts(monkeypatch):
+    seen = {}
+
+    def fake(driver, db, instance, now=None):
+        seen.update(db=db, instance=instance)
+        return dict(COUNTS, measured_on=instance)
+
+    monkeypatch.setattr(drift, "investigation_counts", fake)
+    return seen
+
+
+def test_investigation_counts_prints_the_counts_file(graphdb, monkeypatch):
+    seen = _counts(monkeypatch)
+    out = StringIO()
+    call_command("graph_sync", "--investigation-counts", "--instance", "dev", "--json",
+                 stdout=out, stderr=StringIO())
+    assert json.loads(out.getvalue()) == dict(COUNTS, measured_on="dev")
+    assert seen == {"db": "neo4j", "instance": "dev"}
+
+
+def test_investigation_counts_without_json_prints_a_line_per_title(graphdb, monkeypatch):
+    _counts(monkeypatch)
+    out = StringIO()
+    call_command("graph_sync", "--investigation-counts", "--instance", "local", stdout=out, stderr=StringIO())
+    assert "Alder Study" in out.getvalue() and "samples 3" in out.getvalue()
+
+
+def test_investigation_counts_reads_the_live_graph_without_the_flag(graphdb, settings, monkeypatch):
+    """It only reads, and measuring the live graph is what it is for (the operator's step)."""
+    _counts(monkeypatch)
+    settings.NEO4J_DATABASE = dict(LIVE)
+    call_command("graph_sync", "--investigation-counts", "--instance", "local", "--json",
+                 stdout=StringIO(), stderr=StringIO())
+    assert graphdb.uris == ["neo4j://neo4j:7687"]
+
+
+@pytest.mark.parametrize("args", [("--investigation-counts",),
+                                  ("--investigation-counts", "--instance", "staging"),
+                                  ("--verify", "--instance", "local")])
+def test_the_instance_is_required_named_and_only_for_the_counts(graphdb, monkeypatch, args):
+    """No default: a counts file that does not say where it was measured cannot clear anything."""
+    _counts(monkeypatch)
+    with pytest.raises(CommandError):
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert graphdb.uris == []
+
+
 # --- --reconcile ----------------------------------------------------------------------------------
 
 def test_reconcile_passes_its_options_and_a_run_directory_under_the_run_root(graphdb, modes, tmp_path):

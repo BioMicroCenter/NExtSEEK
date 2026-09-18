@@ -14,11 +14,67 @@ from ..helpers import (
     log_usage,
     safe_parse_json,
 )
-from ..helpers.lab_code import lab_code
+from ..helpers.lab_code import resolve_labs
 from ..schemas.schema_helper import StructuredOutputError, call_llm_structured
 from ..schemas import (
     EntityAgentOutput,
 )
+from ..schemas.entity import LabMatch
+
+
+def _as_list(value: Any) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _resolve_lab_names(
+    config: ChatConfig,
+    user_query: str,
+    result: EntityAgentOutput,
+    sampletypes: Any,
+    assays: Any,
+    projects: Any,
+) -> None:
+    """Resolve the LLM's lab and person names against SEEK's lab records, in place.
+
+    ``labs`` becomes the matched labs' surnames as SEEK spells them, ``lab_codes`` only
+    matched codes, ``lab_matches`` what matched and how, and ``scientists`` gains person
+    names that matched no lab (also appended to ``keywords``). ``config.LABS`` that is not
+    a list means no labs document: ``labs`` then passes through unresolved, with no codes.
+    Spec: docs/superpowers/specs/2026-09-18-projects-labs-context.md section 7.
+    """
+    records = getattr(config, "LABS", None)
+    # M5 reads the whole catalogs the config holds; a caller's shortlist is only a fallback.
+    catalog_sampletypes = getattr(config, "MIN_SAMPLETYPES", None)
+    catalog_assays = getattr(config, "MIN_ASSAYS", None)
+    catalogs = (
+        (catalog_sampletypes if isinstance(catalog_sampletypes, list) else _as_list(sampletypes))
+        + (catalog_assays if isinstance(catalog_assays, list) else _as_list(assays))
+    )
+    try:
+        resolution = resolve_labs(
+            user_query,
+            result.labs,
+            records=records,
+            llm_scientists=result.scientists,
+            llm_keywords=result.keywords,
+            catalogs=catalogs,
+            projects=_as_list(projects),
+        )
+    except Exception as exc:  # a matcher bug must not fail the turn, nor guess a code
+        print(f"[WARN][ENTITY] Lab resolution failed, labs left unresolved: {exc!r}")
+        result.lab_codes = []
+        result.lab_matches = []
+        return
+    if not resolution.available:
+        print(
+            "[WARN][ENTITY] No lab records (config.LABS is "
+            f"{type(records).__name__}): labs passed through unresolved, no lab codes."
+        )
+    result.labs = resolution.labs
+    result.lab_codes = resolution.lab_codes
+    result.lab_matches = [LabMatch(**match) for match in resolution.lab_matches]
+    result.scientists = resolution.scientists
+    result.keywords = resolution.keywords
 
 
 def entity_agent(
@@ -148,14 +204,7 @@ def entity_agent(
                 print("[DEBUG][ENTITY] Fallback exception:", repr(e_fallback))
                 result = EntityAgentOutput()
 
-    seen: set[str] = set()
-    codes: list[str] = []
-    for name in result.labs:
-        code = lab_code(name)
-        if code and code not in seen:
-            seen.add(code)
-            codes.append(code)
-    result.lab_codes = codes
+    _resolve_lab_names(config, user_query, result, sampletypes, assays, projects)
 
     print("[DEBUG][ENTITY] Parsed entity result:", json.dumps(result.model_dump(), indent=2))
     return result

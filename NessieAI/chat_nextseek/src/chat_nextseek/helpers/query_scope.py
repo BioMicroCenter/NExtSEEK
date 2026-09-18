@@ -46,6 +46,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .lab_code import fold
+
 #: One English phrase per endpoint, for the single sentence the reply may say about
 #: how the answer was obtained. Display only: nothing here routes, and the generic
 #: fallback is what an endpoint added later gets until someone writes it a phrase.
@@ -125,6 +127,14 @@ def _asked_for(entity_result: dict, parser_plan: dict) -> list[tuple[str, str]]:
     can add a filter the entity agent never resolved (a UID, a lab code) and the
     entity agent can resolve one the parser dropped, and a reply that misses either
     is the failure this exists to catch.
+
+    A scientist is asked for as ``scientist <name>`` and its value is the surname (the
+    part before a comma in ``Last, First``, else the last token): a graph query may
+    match the surname alone, and wherever the full name appears the surname does too, so
+    this reads "the full name or its surname appears" and can only under-report. The
+    entity agent also appends every scientist to ``keywords``, so a keyword equal to a
+    scientist once folded is skipped rather than counted twice. A lab is labelled with
+    the name ``lab_matches`` gives its code, whichever side asked for it.
     """
     filters = parser_plan.get("filters") or {}
     asked: list[tuple[str, str]] = []
@@ -133,6 +143,27 @@ def _asked_for(entity_result: dict, parser_plan: dict) -> list[tuple[str, str]]:
         label = _label(kind, value, name)
         if value and all(label != existing for _, existing in asked):
             asked.append((value, label))
+
+    def _surname(name: str) -> str:
+        family = name.split(",", 1)[0] if "," in name else name
+        tokens = family.split()
+        return tokens[-1].strip(".,") if tokens else ""
+
+    scientists: list[str] = []
+    scientist_keys: set[str] = set()
+    for name in _uniq(entity_result.get("scientists")):
+        if fold(name) not in scientist_keys:
+            scientist_keys.add(fold(name))
+            scientists.append(name)
+
+    lab_names: dict[str, list[str]] = {}
+    for match in entity_result.get("lab_matches") or []:
+        if not isinstance(match, dict):
+            continue
+        code = str(match.get("code") or "").strip()
+        name = str(match.get("name") or "").strip()
+        if code and name and name not in lab_names.setdefault(code, []):
+            lab_names[code].append(name)
 
     for code, name in _codes_and_names(entity_result.get("sampletypes")):
         _add("sample type", code, name)
@@ -145,13 +176,20 @@ def _asked_for(entity_result: dict, parser_plan: dict) -> list[tuple[str, str]]:
         _add("assay", code)
 
     for value in _uniq(entity_result.get("keywords")) + _uniq(filters.get("keywords")):
+        if fold(value) in scientist_keys:
+            continue
         _add("keyword", value)
+    for name in scientists:
+        label = f"scientist {name}"
+        surname = _surname(name)
+        if surname and all(label != existing for _, existing in asked):
+            asked.append((surname, label))
     for value in _uniq(filters.get("uids")):
         _add("sample", value)
     for value in _uniq(entity_result.get("projects")):
         _add("project", value)
     for value in _uniq(entity_result.get("lab_codes")) + _uniq(filters.get("lab_codes")):
-        _add("lab", value)
+        _add("lab", value, " or ".join(lab_names.get(value, [])) or None)
 
     return asked
 

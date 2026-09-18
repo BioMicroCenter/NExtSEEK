@@ -9,13 +9,16 @@ database will hold.
 ```
 python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
 python scripts/context_gen.py --emit seed --table all
+python scripts/context_gen.py --emit capabilities --counts /tmp/counts-local.json
 ```
 
 `--emit update` writes re-runnable SQL for a live database; the operator applies it.
 `--emit seed` rewrites the held `startup/seed/sql/*_context.curated.sql` files, which no
 install step reads until the content is signed off (`scripts/README.md` group C). Nessie's JSON exports need no generator: `_fetch_context_files_from_db`
 rewrites them from these tables once per UTC day, which is also why editing an export
-changes nothing that survives a day. `scripts/README.md` group C is the generator's
+changes nothing that survives a day. `--emit capabilities` writes the investigation list in
+`NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md` from the investigation
+rows of `projects.json`. `scripts/README.md` group C is the generator's
 reference and `NessieAI/tests/api/test_context_gen.py` is its test lane.
 
 **Review gate:** nothing from these files is written to any database (local, fairdata-dev or
@@ -26,25 +29,60 @@ production) until the user has reviewed them as an xlsx workbook and signed off.
 | `sample_types.json` | `dmac.sample_types_context` | sample type (`sample_type` code) |
 | `assays.json` | `dmac.assay_context` | internal assay (`internal_assay_id`) |
 | `assay_mappings.json` | `dmac.internal_assays` + `dmac.assays_internal_assays` | SEEK assay that needs an internal assay |
-| `projects.json` | `dmac.projects_context` | project, investigation or study |
+| `projects.json` | `dmac.projects_context` | project or investigation (`name`, `entity_type`) |
 
 ## Conventions
 
 - Keys are the database column names, spelled exactly (`Tags` is capitalised on both
   sample types and assays). The autoincrement `id` is left out; the generator owns it. A key
   that is not a column of its table fails at generation, so a typo here never reaches a
-  write. `projects.json` has one generated column it must NOT carry: `pi_names`, which
-  `context_gen.py::parse_pi` derives from the free-text `pi` field.
-- Sample types sort by `sample_type`, assays by `assay_name`, projects by `name`.
+  write. The one exception is `present_on` in `projects.json` (below), which the generator
+  reads and never writes to a database.
+- Sample types sort by `sample_type`, assays by `assay_name`, projects by `name` case-folded,
+  a project row before an investigation row of the same name.
 - Written with `json.dumps(rows, indent=2, ensure_ascii=False)` plus a trailing newline.
 - List-like text columns (`Tags`, metadata fields, parents, children, associated assays) stay
   comma-separated strings. The website and Nessie split them on commas.
 - `projects.json` `alternative_names` and `key_data_types` are real JSON arrays here; the
   database stores them as JSON text under CHECK constraints. `project_id` is always a SEEK
-  project id (the website and Nessie read it that way), and every row is `entity_type`
-  "project". Alternative names are what users type for the program (Nessie matches them as
-  substrings, so short or common words such as "RMS", "BMC" or "White" go in `tags`);
-  `key_data_types` lists only data the project holds.
+  project id (the website and Nessie read it that way). Alternative names are what users
+  type for the program (Nessie matches them as substrings, so short or common words such as
+  "RMS", "BMC" or "White" go in `tags`); `key_data_types` lists only data the project holds.
+- `pi` is display prose: the project page shows it and the entity agent reads it as context.
+  Nothing parses it. Lab codes and lab heads' surnames come from SEEK's institution titles,
+  never from this file.
+- A `projects.json` row is keyed on `(name, entity_type)`, and `entity_type` is exactly
+  `project` or `investigation`: a project and an investigation may share a name (CSBC and
+  MetNet do). An alternative name may not, once folded (case, accents, surrounding space),
+  equal another row's name or alternative name, with one exception: an investigation row
+  may repeat its own parent project's name or aliases. That is what bridges "Impact" to
+  `Impactb Investigation`, and it is why an investigation's exact title is never a project
+  row's alias.
+
+## Investigation rows (`projects.json`)
+
+An investigation row stands for the SEEK investigation that holds the samples, and its rows
+are what the investigation list in `capabilities.md` is generated from
+(`scripts/context_gen.py --emit capabilities`).
+
+| key | rule |
+|---|---|
+| `entity_type` | `investigation` |
+| `name` | the exact SEEK investigation title that holds the samples, byte for byte, never a paper-tracking copy's |
+| `project_id` | the owning project's SEEK id, which equals the parent project row's `project_id`; `null` only when that id differs by instance, which requires `present_on` |
+| `parent_project` | the owning project row's `name`; with no such row, the owning SEEK project's title. Required: it is what makes the row an investigation to every reader (`chat_nextseek.context_rows`), because production's table, until the 6.16 write, types its project rows `investigation` with none |
+| `alternative_names` | what users type for it; may repeat the parent project's name or aliases |
+| `present_on` | generator-only, below |
+| `research_focus` | required, one line, at most 200 characters, no count; it becomes the bullet |
+| `description`, `tags` | curated prose; keep them short, since every row reaches the entity agent on every turn |
+| `pi`, `key_data_types`, links | `null` / `[]`: they belong to the project row |
+
+`present_on` says which instances hold the investigation. Absent or `null` means every
+instance. Otherwise it is a non-empty list drawn from `local`, `dev` and `prod` (the
+`--ci-profile` vocabulary), each once and not all three, and only an investigation row may
+carry it. It renders `(not on every instance: loaded on local and dev only)` after the
+bullet, and the generator refuses a counts file that contradicts it. It is never written to
+a database: its readers are served by the generated list.
 - Field names in metadata columns must match the SEEK attribute titles of that type exactly.
 - The three metadata lists together name every SEEK attribute of the type, each exactly once:
   `required_metadata`, then `standard_metadata` (collected routinely), then

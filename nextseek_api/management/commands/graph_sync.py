@@ -1,6 +1,7 @@
 """Keep the Neo4j sample graph in step with MySQL, or check that it is (graph schema v1.2).
 
-    manage.py graph_sync (--full | --catalog | --reconcile | --samples IDS | --verify | --drift | --loop | --once)
+    manage.py graph_sync (--full | --catalog | --reconcile | --samples IDS | --verify | --drift | --loop | --once
+                          | --investigation-counts --instance {local,dev,prod})
                          [--json] [--dry-run] [--chunk N] [--run-dir PATH] [--run-root PATH] [--seed N]
                          [--bench-keys FILE] [--apply-label-changes] [--no-record] [--trigger NAME]
                          [--interval S] [--i-mean-the-live-graph]
@@ -15,6 +16,7 @@
 | ``--drift`` | the drift check: does the graph still equal MySQL | no |
 | ``--loop`` | the schedule and the outbox drain, pass after pass, for ever (``graph_sync/loop.py``) | yes |
 | ``--once`` | one pass of that loop | yes |
+| ``--investigation-counts`` | every Investigation title with its nodes and samples, the counts file that ``scripts/context_gen.py --emit capabilities --counts`` reads; ``--instance`` names where it was measured and has no default | no |
 
 ``--dry-run`` makes ``--full``, ``--catalog`` and ``--reconcile`` read without writing and print their counts.
 ``--apply-label-changes`` (``--full``, ``--reconcile``, ``--samples``) is the operator's approval to write the
@@ -22,8 +24,9 @@ DERIVED_FROM labels that differ from the rule, which are otherwise only counted 
 takes that approval from ``NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`` instead. ``--no-record`` keeps the run out of
 ``graph_sync_run``, and ``--trigger`` names who started it there (the loop passes ``loop``).
 
-``--verify``, ``--drift`` and ``--loop`` run against the live stack's Neo4j without ``--i-mean-the-live-graph``:
-the first two only read, and the loop is what the app container runs against its own graph. Every other mode still
+``--verify``, ``--drift``, ``--investigation-counts`` and ``--loop`` run against the live stack's Neo4j without
+``--i-mean-the-live-graph``: the first three only read, and the loop is what the app container runs against its own
+graph. Every other mode still
 needs the flag by hand, and the loop passes it to its children.
 
 Exit status: 0 on success; 1 when a check fails or a run failed part way; 2 on a refusal, which means nothing was
@@ -51,9 +54,9 @@ from nextseek_api.graph_sync import drift, loop, reconcile, run, state, targeted
 LIVE_NEO4J_HOSTS = frozenset({"neo4j"})
 PROGRESS_LOGGER = "nextseek_api.graph_sync"
 
-MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "once")
-# The modes that may reach the live graph without the flag: the two that only read, and the loop itself.
-LIVE_OK_MODES = frozenset({"verify", "drift", "loop"})
+MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "once", "investigation_counts")
+# The modes that may reach the live graph without the flag: the three that only read, and the loop itself.
+LIVE_OK_MODES = frozenset({"verify", "drift", "investigation_counts", "loop"})
 LABEL_CHANGE_MODES = frozenset({"full", "reconcile", "samples"})
 DRIFT_FILE = "drift.json"
 TRIGGER_CHARS = 64
@@ -170,6 +173,11 @@ class Command(BaseCommand):
         mode.add_argument("--loop", action="store_true",
                           help="Run the schedule and drain the outbox, pass after pass, for ever.")
         mode.add_argument("--once", action="store_true", help="Make one pass of that loop and exit.")
+        mode.add_argument("--investigation-counts", action="store_true",
+                          help="Print every Investigation title with its nodes and samples (read-only), as the "
+                               "counts file scripts/context_gen.py --emit capabilities --counts reads.")
+        parser.add_argument("--instance", choices=drift.INSTANCES,
+                            help="--investigation-counts: the instance this graph is (no default).")
         parser.add_argument("--json", action="store_true", help="Print the result as JSON on stdout.")
         parser.add_argument("--dry-run", action="store_true",
                             help="With --full, --catalog or --reconcile: read MySQL and the graph, write nothing, "
@@ -203,6 +211,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         mode = _mode(options)
+        if mode == "investigation_counts" and not options["instance"]:
+            raise CommandError("--investigation-counts needs --instance local, dev or prod: a counts file that does "
+                               "not say where it was measured cannot clear a name")
+        if options["instance"] and mode != "investigation_counts":
+            raise CommandError("--instance belongs to --investigation-counts")
         if options["apply_label_changes"] and mode not in LABEL_CHANGE_MODES:
             raise CommandError(
                 "--apply-label-changes belongs to " + ", ".join(f"--{m}" for m in sorted(LABEL_CHANGE_MODES))
@@ -224,6 +237,8 @@ class Command(BaseCommand):
             return self._gate(driver, db, options)
         if mode == "drift":
             return self._drift(driver, db, options)
+        if mode == "investigation_counts":
+            return self._investigation_counts(driver, db, options)
         if mode in ("loop", "once"):
             return self._loop(driver, db, mode, options)
         if mode == "samples":
@@ -308,6 +323,15 @@ class Command(BaseCommand):
             failed = [c.get("name", "?") for c in checks if not c.get("pass")]
             raise CommandError(f"the graph has drifted: {len(failed)} of {len(checks)} checks failed: "
                                + ", ".join(failed), returncode=1)
+
+    def _investigation_counts(self, driver, db, options):
+        result = drift.investigation_counts(driver, db, options["instance"])
+        if options["json"]:
+            self.stdout.write(json.dumps(result, indent=2, sort_keys=True))
+            return
+        self.stdout.write(f"measured on {result['measured_on']} at {result['measured_at']}")
+        for title, counts in sorted(result["investigations"].items()):
+            self.stdout.write(f"{title}  nodes {counts['nodes']}  samples {counts['samples']}")
 
     # --- the loop ---------------------------------------------------------------------------------
 
