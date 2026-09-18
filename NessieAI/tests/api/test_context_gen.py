@@ -1866,7 +1866,7 @@ def test_the_block_refuses_to_sit_anywhere_drift_would_not_read_it():
 def test_regenerating_the_block_leaves_the_ns_projection_identical():
     """The NS projection reads only REQUIRED_H2, never this section, so regenerating the
     block cannot move route_capabilities.json. Run against the REAL committed
-    capabilities.md, with the markers inserted the way 6.15c inserts them."""
+    capabilities.md, whose markers are placed, and the block of the real curated rows."""
     import importlib.util
     import sys
 
@@ -1879,16 +1879,9 @@ def test_regenerating_the_block_leaves_the_ns_projection_identical():
         "Overview", "What You Can Ask", "What the System Cannot Do")
 
     text = _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"))
-    head, _, rest = text.partition(cg.DRIFT_SECTION_HEADING + "\n")
-    assert rest, "capabilities.md no longer carries the heading drift keys on"
-    body, _, tail = rest.partition("\n---\n")
-    marked = (f"{head}{cg.DRIFT_SECTION_HEADING}\n{cg.CAPABILITIES_BEGIN}\n"
-              f"{body}\n{cg.CAPABILITIES_END}\n---\n{tail}")
-
-    before = ns_capabilities.project_ns_capabilities(marked)
-    block = cg.render_capabilities_text([_investigation("TCGA")])
-    after = ns_capabilities.project_ns_capabilities(
-        cg.replace_capabilities_block(marked, block))
+    block = cg.render_capabilities_text(cg.curated_rows("projects"))
+    before = ns_capabilities.project_ns_capabilities(text)
+    after = ns_capabilities.project_ns_capabilities(cg.replace_capabilities_block(text, block))
     assert before == after
     assert before.route_level_object() == after.route_level_object()
 
@@ -1901,23 +1894,26 @@ def _counts_file(tmp_path, name, doc):
     return str(path)
 
 
-def test_the_capabilities_mode_exists_and_refuses_today(tmp_path):
-    """The refusal is only real if something can reach it. With counts that clear every
-    curated investigation row, what still refuses is the committed file: it carries no
-    CONTEXT-GEN markers yet. And --counts is required."""
+def test_the_capabilities_mode_writes_the_block_between_the_committed_markers(tmp_path):
+    """The markers are placed, so with counts that clear every curated investigation row
+    the mode writes the rows' block between them and leaves every other byte alone. It
+    writes into a copy here; the committed file is the operator's to regenerate. And
+    --counts is still required."""
     import pytest
 
     parser_text = _repo(Path("scripts/context_gen.py"))
     assert '"update", "seed", "capabilities"' in parser_text
-    names = [r["name"] for r in cg.curated_rows("projects") if r["entity_type"] == "investigation"]
-    counts = _counts_file(tmp_path, "local.json", _doc({name: 5 for name in names}))
+    rows = cg.curated_rows("projects")
+    local = {r["name"]: 5 for r in rows if r["entity_type"] == "investigation"}
+    counts = _counts_file(tmp_path, "local.json", _doc(local))
     target = tmp_path / "capabilities.md"
     committed = _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"))
     target.write_text(committed)
-    with pytest.raises(ValueError) as excinfo:
-        cg.emit_capabilities([counts], out=target)
-    assert cg.CAPABILITIES_BEGIN in str(excinfo.value)
-    assert target.read_text() == committed
+    assert cg.emit_capabilities([counts], out=target) == 0
+    written = target.read_text()
+    assert written == cg.replace_capabilities_block(committed, cg.render_capabilities_text(rows))
+    assert written.split(cg.CAPABILITIES_BEGIN)[0] == committed.split(cg.CAPABILITIES_BEGIN)[0]
+    assert written.split(cg.CAPABILITIES_END)[1] == committed.split(cg.CAPABILITIES_END)[1]
     with pytest.raises(SystemExit):
         cg.main(["--emit", "capabilities"])
     with pytest.raises(SystemExit):
@@ -1951,14 +1947,20 @@ def test_the_capabilities_mode_takes_a_counts_file_per_instance(tmp_path, monkey
     assert target.read_text() == written
 
 
-def test_the_committed_capabilities_file_still_names_the_dead_investigations():
-    """What is true today, pinned so 6.15c's change is visible rather than assumed."""
+def test_the_committed_capabilities_file_carries_one_marker_pair_around_drifts_names():
+    """6.15c's markers, placed: one well-formed pair, inside the section drift reads, and
+    every name drift reads sits between them, so the generated block is the whole list."""
     from nextseek_api.graph_sync import drift
 
     text = _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"))
-    assert cg.CAPABILITIES_BEGIN not in text        # 6.15c adds the markers
+    assert text.count(cg.CAPABILITIES_BEGIN) == 1 and text.count(cg.CAPABILITIES_END) == 1
+    assert cg.check_capabilities_markers(text) == []
+    inside = text.split(cg.CAPABILITIES_BEGIN, 1)[1].split(cg.CAPABILITIES_END, 1)[0]
     names = drift.assistant_investigation_names(text)
-    assert set(DEAD_NAMES) <= set(names), names
+    assert names
+    assert drift.assistant_investigation_names(f"{cg.DRIFT_SECTION_HEADING}\n{inside}") == names
+    head = text.split(cg.CAPABILITIES_BEGIN, 1)[0]
+    assert head.rstrip("\n").endswith(cg.DRIFT_SECTION_HEADING)
 
 
 _SECTION = f"{cg.DRIFT_SECTION_HEADING}\n\n"

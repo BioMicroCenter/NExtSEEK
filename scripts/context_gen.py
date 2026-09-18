@@ -24,9 +24,8 @@ a title out of the unlisted-investigation refusal.
 No install step reads the `.curated.sql` files until the curated content is signed
 off; `scripts/README.md` group C says what switching them on takes.
 
-`--emit capabilities` refuses today, and that is the point rather than a gap:
-`capabilities.md` carries no CONTEXT-GEN markers yet, so there is nowhere to write
-the block the investigation rows now render. Task 6.15c places the markers.
+`capabilities.md` carries the CONTEXT-GEN markers around its "Known Projects and
+Investigations" section (task 6.15c); what sits between them is this module's.
 
 Nothing here connects to a database. It reads committed JSON and writes SQL text;
 the operator applies it. `scripts/README.md` group C is the reference.

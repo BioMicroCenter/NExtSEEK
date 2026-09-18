@@ -183,6 +183,7 @@ You can ask **"What assays are available?"** to retrieve the full assay catalog 
 
 ## Known Projects and Investigations
 
+<!-- BEGIN CONTEXT-GEN:investigations -->
 The graph database organizes samples into studies grouped under named investigations. The currently known investigations are:
 
 - **CSBC** — Cancer Systems Biology Consortium
@@ -195,6 +196,7 @@ The graph database organizes samples into studies grouped under named investigat
 - **Shoulders** — Shoulders lab investigation
 
 Use these names exactly when asking graph questions scoped to a specific project. For example: "What TIS samples are in the Impact investigation?" or "How many studies are in the CSBC project?"
+<!-- END CONTEXT-GEN:investigations -->
 
 ---
 
