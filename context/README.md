@@ -70,7 +70,7 @@ are what the investigation list in `capabilities.md` is generated from
 | `entity_type` | `investigation` |
 | `name` | the exact SEEK investigation title that holds the samples, byte for byte, never a paper-tracking copy's |
 | `project_id` | the owning project's SEEK id, which equals the parent project row's `project_id`; `null` only when that id differs by instance, which requires `present_on` |
-| `parent_project` | the owning project row's `name`; with no such row, the owning SEEK project's title |
+| `parent_project` | the owning project row's `name`; with no such row, the owning SEEK project's title. Required: it is what makes the row an investigation to every reader (`chat_nextseek.context_rows`), because production's table, until the 6.16 write, types its project rows `investigation` with none |
 | `alternative_names` | what users type for it; may repeat the parent project's name or aliases |
 | `present_on` | generator-only, below |
 | `research_focus` | required, one line, at most 200 characters, no count; it becomes the bullet |
