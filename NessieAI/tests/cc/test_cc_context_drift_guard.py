@@ -190,12 +190,22 @@ EXPECTED_SOURCE_ONLY = frozenset({
 # in issue #102.
 _DERIVED_SUFFIXES = frozenset({".npz"})
 
+# Files the config WRITES into the context directory at runtime, excused by exact name.
+#
+# `labs_db.json` is the labs the daily context export mines from SEEK institution titles
+# (chat_nextseek.labs, spec 2026-09-18 section 6.1). It holds real lab titles, so it is
+# gitignored (context/.gitignore), excluded from the app build context (.dockerignore) and
+# deliberately NOT in CANONICAL_CONTEXT_FILES: the CC route gets lab resolution through the
+# entity op, which runs in the app. A checkout that has run the config holds the file, and
+# without this exclusion the source-only pin would fail there and pass on a fresh checkout.
+_RUNTIME_ONLY_NAMES = frozenset({"labs_db.json"})
+
 
 def _files(directory: Path) -> set[str]:
     return {
         p.name
         for p in directory.iterdir()
-        if p.is_file() and p.suffix not in _DERIVED_SUFFIXES
+        if p.is_file() and p.suffix not in _DERIVED_SUFFIXES and p.name not in _RUNTIME_ONLY_NAMES
     }
 
 
@@ -668,3 +678,26 @@ def test_the_real_context_dir_has_no_undeclared_generated_files(tmp_path):
         "Decide whether it belongs in the pack (bake it) or is derived "
         "(add it to _DERIVED_SUFFIXES with the reason)."
     )
+
+
+def test_the_runtime_labs_file_does_not_count_as_a_context_file(tmp_path):
+    """labs_db.json is written into CONTEXT_DIR by the daily export and never baked.
+
+    It carries real lab titles mined from SEEK, so it is gitignored and excluded from
+    the build context (spec 2026-09-18, section 6.1). A checkout that has run the config
+    holds it, and without the name exclusion in `_files` the source-only pin fails there
+    and passes on a fresh checkout, exactly as the `.npz` caches once did.
+    """
+    (tmp_path / "capabilities.md").write_text("authored")
+    (tmp_path / "labs_db.json").write_text('{"version": 1, "labs": []}')
+
+    assert _files(tmp_path) == {"capabilities.md"}
+
+
+def test_the_labs_file_is_excused_by_name_only(tmp_path):
+    """The exclusion is one runtime-only name, not every `*_db.json`."""
+    (tmp_path / "labs_db.json").write_text("{}")
+    (tmp_path / "projects_db.json").write_text("[]")
+    (tmp_path / "other_labs_db.json").write_text("{}")
+
+    assert _files(tmp_path) == {"projects_db.json", "other_labs_db.json"}
