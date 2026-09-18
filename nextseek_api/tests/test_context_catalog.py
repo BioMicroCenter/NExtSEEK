@@ -332,8 +332,9 @@ class TestTheProjectPageReadsProjectRowsOnly:
 
         conn = sqlite3.connect(":memory:")
         conn.execute("CREATE TABLE projects_context (name TEXT, entity_type TEXT, "
-                     "project_id INTEGER, research_focus TEXT)")
-        conn.executemany("INSERT INTO projects_context VALUES (?, ?, ?, ?)", rows)
+                     "project_id INTEGER, research_focus TEXT, parent_project TEXT)")
+        conn.executemany("INSERT INTO projects_context VALUES (?, ?, ?, ?, ?)",
+                         [tuple(row) + (None,) * (5 - len(row)) for row in rows])
         return conn
 
     def _load(self, monkeypatch, rows, project_id):
@@ -348,22 +349,40 @@ class TestTheProjectPageReadsProjectRowsOnly:
         return context_catalog.load_project_context(project_id)
 
     def test_an_investigation_sharing_the_project_id_is_never_the_header(self, monkeypatch):
-        rows = [("Alder Study", "investigation", 4, "An investigation of project 4."),
+        rows = [("Alder Study", "investigation", 4, "An investigation of project 4.", "Zephyr"),
                 ("Zephyr", "project", 4, "The project itself.")]
         assert self._load(monkeypatch, rows, 4)["name"] == "Zephyr"
 
     def test_a_same_named_investigation_is_not_read_for_the_project(self, monkeypatch):
-        rows = [("Zephyr", "investigation", 4, "The investigation."),
+        rows = [("Zephyr", "investigation", 4, "The investigation.", "Zephyr"),
                 ("Zephyr", "project", 4, "The project.")]
         assert self._load(monkeypatch, rows, 4)["research_focus"] == "The project."
 
     def test_a_row_with_no_entity_type_still_counts_as_a_project(self, monkeypatch):
         """The installer's table allows a NULL entity_type; such a row predates investigations."""
-        rows = [("Alder Study", "investigation", 4, "x"), ("Zephyr", None, 4, "legacy")]
+        rows = [("Alder Study", "investigation", 4, "x", "Zephyr"), ("Zephyr", None, 4, "legacy")]
         assert self._load(monkeypatch, rows, 4)["name"] == "Zephyr"
 
     def test_only_an_investigation_for_the_id_means_no_curated_header(self, monkeypatch):
-        assert self._load(monkeypatch, [("Alder Study", "investigation", 4, "x")], 4) is None
+        assert self._load(monkeypatch, [("Alder Study", "investigation", 4, "x", "Zephyr")], 4) is None
+
+    # Production's table, and every box restored from it, types most PROJECT rows
+    # 'investigation' with no parent_project, and one sub-project row 'study'. Until the gated
+    # 6.16 write, those rows are the only curated header those projects have.
+
+    def test_a_legacy_project_row_typed_investigation_is_the_header(self, monkeypatch):
+        rows = [("Zephyr", "investigation", 4, "The project, typed the legacy way.", None)]
+        assert self._load(monkeypatch, rows, 4)["research_focus"] == "The project, typed the legacy way."
+
+    def test_a_legacy_project_row_with_an_empty_parent_is_the_header(self, monkeypatch):
+        rows = [("Zephyr", "investigation", 4, "legacy", "")]
+        assert self._load(monkeypatch, rows, 4)["name"] == "Zephyr"
+
+    def test_a_study_row_is_never_the_header(self, monkeypatch):
+        rows = [("Alder Core", "study", 4, "A study inside the project.", "Zephyr"),
+                ("Zephyr", "investigation", 4, "The project.", None)]
+        assert self._load(monkeypatch, rows, 4)["name"] == "Zephyr"
+        assert self._load(monkeypatch, [("Alder Core", "study", 4, "x", "Zephyr")], 4) is None
 
     def test_two_project_rows_for_one_id_resolve_by_name_not_by_storage_order(self, monkeypatch):
         rows = [("Zephyr", "project", 4, "z"), ("Birch", "project", 4, "b")]

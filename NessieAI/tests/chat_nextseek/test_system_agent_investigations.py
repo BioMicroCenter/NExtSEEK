@@ -79,3 +79,34 @@ def test_maps_that_are_not_dicts_read_as_empty(monkeypatch):
 def test_a_name_in_neither_map_adds_nothing(monkeypatch):
     config = _config({"Zephyr": PROJECT}, {"Zephyr": INVESTIGATION})
     assert _entity_details(monkeypatch, config, ["Nowhere"]) == {}
+
+
+# --- the legacy shape: production's rows before the gated 6.16 write ---------------------
+#
+# Production's projects_context types most PROJECT rows 'investigation' with no
+# parent_project, and one sub-project row 'study'. Whatever map a row arrives in, the system
+# agent is told what chat_nextseek.context_rows says it is: a row with no parent_project is a
+# project, never "<name> (investigation)", and a 'study' row is neither.
+
+LEGACY = {"name": "Zephyr", "entity_type": "investigation", "parent_project": None, "project_id": 4,
+          "research_focus": "A project, typed the legacy way."}
+STUDY = {"name": "Alder Core", "entity_type": "study", "parent_project": "Zephyr", "project_id": 4,
+         "research_focus": "A study inside the project."}
+
+
+def test_a_legacy_project_row_is_sent_as_a_project(monkeypatch):
+    config = _config({"Zephyr": LEGACY}, {})
+    assert _entity_details(monkeypatch, config, ["Zephyr"]) == {"Zephyr": LEGACY}
+
+
+def test_a_legacy_project_row_is_never_labelled_an_investigation(monkeypatch):
+    """A map built by testing entity_type alone files it as an investigation: the label must not follow."""
+    config = _config({"Zephyr": LEGACY}, {"Zephyr": LEGACY})
+    details = _entity_details(monkeypatch, config, ["Zephyr"])
+    assert details == {"Zephyr": LEGACY}
+    assert "Zephyr (investigation)" not in details
+
+
+def test_a_study_row_is_sent_as_neither(monkeypatch):
+    config = _config({"Alder Core": STUDY}, {"Alder Core": STUDY})
+    assert _entity_details(monkeypatch, config, ["Alder Core"]) == {}
