@@ -141,7 +141,7 @@ USER user
 WORKDIR /home/user
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-# NOTE: cosmetic in router mode -- the bridge starts the container in idle
-# mode (entrypoint runs `sleep infinity`) and every turn is a fresh
-# `docker exec`. This CMD only runs on a bare `docker run`.
+# NOTE: cosmetic for a routed turn -- NessieAI/cc/cc_engine.py starts one fresh
+# container per turn (containers.run with attached stdin) and passes its own
+# command, so this CMD only runs on a bare `docker run`.
 CMD ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto"]
