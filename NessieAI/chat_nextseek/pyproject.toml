@@ -33,7 +33,7 @@ dependencies = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-"chat_nextseek.prompts" = ["*"]
+"chat_nextseek.prompts" = ["*", "variants/*/*"]
 "chat_nextseek.context" = ["*"]
 "chat_nextseek.evaluator" = ["baml_src/*.baml", "*.md", "docs/*.md"]
 "chat_nextseek.evaluator.dashboard" = ["*.html"]

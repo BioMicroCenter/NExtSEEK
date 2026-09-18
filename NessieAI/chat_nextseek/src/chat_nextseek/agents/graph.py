@@ -842,6 +842,15 @@ def _plain(value) -> dict:
     return value.model_dump() if hasattr(value, "model_dump") else dict(value)
 
 
+def _variant_structure(config) -> str | None:
+    """An evaluation prompt variant's graph_schema_structure.txt text, or None for the file (prompt_variants.py).
+
+    Type-checked because tests hand the graph agent a MagicMock config, whose every attribute exists.
+    """
+    structure = getattr(config, "GRAPH_SCHEMA_STRUCTURE", None)
+    return structure if isinstance(structure, str) else None
+
+
 def live_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan) -> CatalogContext | None:
     """The rendered v1.1 catalog for this question, or None when the committed JSON must be used (spec D7).
 
@@ -853,7 +862,7 @@ def live_catalog_context(config: ChatConfig, user_query: str, entity_result, par
         snapshot = graph_catalog.get_snapshot(config)
         codes = graph_context.resolved_type_codes(plan_dict, entity_dict, {row.title for row in snapshot.index})
         details = graph_catalog.get_type_details(config, codes) if codes else []
-        schema = graph_context.render_graph_context(snapshot, details)
+        schema = graph_context.render_graph_context(snapshot, details, structure=_variant_structure(config))
         vocabulary = graph_context.render_vocabulary(graph_catalog.get_vocabulary(config), user_query or "")
     except graph_catalog.CatalogUnavailable as exc:
         print(f"[DEBUG][GRAPH] Catalog unavailable, using the committed schema: {exc}")
@@ -888,7 +897,7 @@ def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -
         known = {row.title for row in snapshot.index}
         wanted = [code for code in requested if code in known]
         details = graph_catalog.get_type_details(config, wanted) if wanted else []
-        schema = graph_context.render_graph_context(snapshot, details)
+        schema = graph_context.render_graph_context(snapshot, details, structure=_variant_structure(config))
         vocabulary = graph_context.render_vocabulary(graph_catalog.get_vocabulary(config), question or "")
     except graph_catalog.CatalogUnavailable as exc:
         return _fallback_schema_snapshot(config, question, requested, str(exc))

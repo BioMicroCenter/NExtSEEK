@@ -42,6 +42,7 @@ from .agents import (
 )
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
+from .prompt_variants import variant_record
 from .llm_clients import LLMFatalError
 from .helpers import (
     _extract_required_paths,
@@ -857,6 +858,7 @@ def run_query(
             "api_result_full": None,
             "raw_json_path": None,
             "error_context": None,
+            **variant_record(config),  # prompt_variant + prompt_variant_files; parser_plan.mode is the route
         }
 
         if mode == "unsupported":
@@ -1660,6 +1662,7 @@ def run_query_plan(
             "replan_reason": None,
             "termination_reason": None,
             "step_budget": {"max_steps": 5, "used_steps": 0},
+            **variant_record(config),  # prompt_variant + prompt_variant_files
         }
 
         def _step_summary(sr: dict) -> dict:

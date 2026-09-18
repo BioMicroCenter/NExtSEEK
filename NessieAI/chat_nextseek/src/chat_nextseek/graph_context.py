@@ -340,14 +340,18 @@ def _fits(text: str, budget: int) -> bool:
     return len(text.encode("utf-8")) <= budget
 
 
-def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET_BYTES) -> str:
+def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET_BYTES,
+                         structure: str | None = None) -> str:
     """Structure, type index and at most ``MAX_TYPES`` resolved sections, within ``budget`` bytes.
 
     When the text is over the budget, K steps down (``k``, then each smaller step of ``K_STEPS``, 0 meaning
     names only) for every section at once; only at names only are sections dropped, the last one first. The
     structure and the index are always sent, so the text exceeds the budget only when they alone do.
+
+    ``structure`` replaces the hand-owned structure file for one call: an evaluation prompt variant's
+    ``graph_schema_structure.txt`` (``prompt_variants.py``). None, the default, reads the file.
     """
-    structure = load_structure()
+    structure = load_structure() if structure is None else structure
     index = render_type_index(_get(snapshot, "index") or ())
     details = list(details or ())[:MAX_TYPES]
     titles = [str(_get(d, "title")) for d in details]

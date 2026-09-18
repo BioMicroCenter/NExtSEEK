@@ -122,6 +122,15 @@ def live_db_conn(config, env: str = "prod"):
     return conn
 
 
+#: Where a parser wrapper prompt takes the shared routing core (``prompts/parser_core_routing.txt``).
+PARSER_CORE_PLACEHOLDER = "{{PARSER_CORE_ROUTING}}"
+
+
+def compose_parser_prompt(wrapper: str, core: str) -> str:
+    """A parser wrapper prompt with the routing core injected. ChatConfig and ``prompt_variants`` both use it."""
+    return wrapper.replace(PARSER_CORE_PLACEHOLDER, core)
+
+
 class ChatConfig:
     def __init__(self, config_map={}):
         """Load configuration, provider clients, prompts, and cached context for one process."""
@@ -437,7 +446,7 @@ class ChatConfig:
     def _load_composed_parser_prompt(self, name: str) -> str:
         """Load a parser wrapper prompt and inject the shared parser routing core."""
         wrapper = self._load_prompt(name)
-        return wrapper.replace("{{PARSER_CORE_ROUTING}}", self.PARSER_CORE_ROUTING_PROMPT)
+        return compose_parser_prompt(wrapper, self.PARSER_CORE_ROUTING_PROMPT)
 
     def _load_capabilities_doc(self) -> str:
         """Load capabilities.md from the context directory. Returns empty string if not found."""

@@ -98,7 +98,13 @@ without an error at the point of the change.
   the evaluation venue does (`scripts/graph_search/nessie_venue.sh`). When it lands,
   `_force_parser_mode` in `agents/parser.py` overrides the parser's choice last and says
   so in `parser_plan.notes`. Set the flag on a served instance and any superuser's
-  request can overrule the parser.
+  request can overrule the parser. The same flag and gate govern `prompt_variant`
+  (`v2` or `v2_apoc`, `_with_prompt_variant`): the turn runs on the prompt and context
+  files in `prompts/variants/<name>/`, looked up there, then in the variant it
+  `inherits`, then in the defaults (`prompt_variants.py` names every file and the
+  `variant.json` keys). It needs no parser force, and the turn's debug payload records
+  `prompt_variant` and `prompt_variant_files` beside `parser_plan.mode`. A variant
+  directory with an unexpected file fails `test_prompt_variants.py`.
 - **This directory's own `.gitignore` still governs it inside the monorepo.**
   `NessieAI/chat_nextseek/.gitignore:25` ignores any `docs/` directory and
   `NessieAI/chat_nextseek/.gitignore:33` ignores `.claude`, so a design note or a skill
