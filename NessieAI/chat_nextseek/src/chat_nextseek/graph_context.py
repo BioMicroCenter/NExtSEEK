@@ -9,10 +9,12 @@ The text has three parts (spec section 4.2):
 1. the structure, hand-owned text in ``prompts/graph_schema_structure.txt``, kept consistent with
    ``docs/neo4j-schema.md`` v1.1 by a test;
 2. the type index, one line per non-deprecated sample type;
-3. at most ``MAX_TYPES`` resolved types, each with its K most-filled attributes in full and the rest by name.
+3. at most ``MAX_TYPES`` resolved types, each with its K most-filled attributes in full and the rest by name,
+   each with its sample count.
 
-``render_graph_context`` holds the whole text within ``BUDGET_BYTES``: when it is over, K steps down through
-``K_STEPS`` (0 means names only) before a resolved section is dropped, the last one first.
+``render_graph_context`` holds the whole text within ``BUDGET_BYTES``: when it is over, the tail's counts go,
+then K steps down through ``K_STEPS`` (0 means names only), before a resolved section is dropped, the last one
+first.
 
 The vocabulary, a separate message, is gated by question words (``mentions``) and held within
 ``VOCAB_BUDGET_BYTES`` by ``fit_vocabulary``, which trims the entries the question does not name first.
@@ -321,8 +323,21 @@ def _attribute_line(attribute: Any) -> str:
     return " | ".join(parts)
 
 
-def render_type_section(detail, k: int) -> str:
-    """One resolved type: header, summary sentence, curated lines, K attributes in full, the rest by name."""
+def _tail_entry(attribute: Any, with_count: bool) -> str:
+    """A names-only entry: the property name, then ``n=`` the samples holding a value when the catalog knows it.
+
+    ``_filled`` orders attributes by fill, so the names-only tail holds a type's sparsest attributes. A bare name
+    there does not say that only some of the type's samples hold a value, so a filter on it that returns nothing
+    can be reported as a finding; the count says how many samples it could have matched at most.
+    """
+    name = _property_name(str(_get(attribute, "title")), bool(_get(attribute, "needs_backticks")))
+    count = _get(attribute, "sample_count")
+    return f"{name} n={_count(count)}" if with_count and count is not None else name
+
+
+def render_type_section(detail, k: int, *, tail_counts: bool = True) -> str:
+    """One resolved type: header, summary sentence, curated lines, K attributes in full, the rest by name (with
+    each one's sample count unless ``tail_counts`` is False)."""
     head = f"### {_get(detail, 'title')} :{_get(detail, 'label')}"
     if _get(detail, "name"):
         head += " " + _quote(_get(detail, "name"))
@@ -347,7 +362,7 @@ def render_type_section(detail, k: int) -> str:
     lines += [_attribute_line(a) for a in filled[:k]]
     rest = filled[k:]
     if rest:
-        names = ", ".join(_property_name(str(_get(a, "title")), bool(_get(a, "needs_backticks"))) for a in rest)
+        names = ", ".join(_tail_entry(a, tail_counts) for a in rest)
         lines.append(f"{'also filled' if k else 'filled'}: {names}")
     if not filled:
         lines.append("(no attribute holds a value)")
@@ -366,14 +381,15 @@ def load_structure() -> str:
     return STRUCTURE_PATH.read_text(encoding="utf-8").strip()
 
 
-def _assemble(structure: str, index: str, titles: list[str], sections: list[str], k: int,
+def _assemble(structure: str, index: str, titles: list[str], sections: list[str], k: int, tail_counts: bool,
               omitted: list[str]) -> str:
     parts = [structure, index]
     if sections:
+        with_n = " with n" if tail_counts else ""
         if k:
-            how = f"the {k} most-filled attributes in full, then the rest by name"
+            how = f"the {k} most-filled attributes in full, then the rest by name{with_n}"
         else:
-            how = "attribute names only"
+            how = "attribute names only" + ("," + with_n if with_n else "")
         parts.append(
             f"## Resolved sample types: {', '.join(titles)} ({how}; per attribute: [value type] n=samples "
             "holding a value | range | most frequent values with their sample counts | meaning)")
@@ -391,9 +407,11 @@ def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET
                          structure: str | None = None) -> str:
     """Structure, type index and at most ``MAX_TYPES`` resolved sections, within ``budget`` bytes.
 
-    When the text is over the budget, K steps down (``k``, then each smaller step of ``K_STEPS``, 0 meaning
-    names only) for every section at once; only at names only are sections dropped, the last one first. The
-    structure and the index are always sent, so the text exceeds the budget only when they alone do.
+    Over the budget, the sections give things up in this order, for every section at once, stopping at the
+    first rendering that fits: the sample counts on the names-only tail, then a K step (``k``, then each smaller
+    step of ``K_STEPS``, 0 meaning names only) with the counts back on, and so on down; only at names only are
+    sections dropped, the last one first. The structure and the index are always sent, so the text exceeds the
+    budget only when they alone do.
 
     ``structure`` replaces the hand-owned structure file for one call: an evaluation prompt variant's
     ``graph_schema_structure.txt`` (``prompt_variants.py``). None, the default, reads the file.
@@ -406,19 +424,23 @@ def render_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET
     steps = [max(int(k), 0)] + [step for step in K_STEPS if step < k]
     text = ""
     for step in steps:
-        text = _assemble(structure, index, titles, [render_type_section(d, step) for d in details], step, [])
-        if _fits(text, budget):
-            return text
+        for counts in (True, False):
+            text = _assemble(structure, index, titles,
+                             [render_type_section(d, step, tail_counts=counts) for d in details], step, counts, [])
+            if _fits(text, budget):
+                return text
 
     last_step = steps[-1]
     kept = list(details)
     omitted: list[str] = []
     while kept:
         omitted.insert(0, str(_get(kept.pop(), "title")))
-        text = _assemble(structure, index, [str(_get(d, "title")) for d in kept],
-                         [render_type_section(d, last_step) for d in kept], last_step, omitted)
-        if _fits(text, budget):
-            return text
+        for counts in (True, False):
+            text = _assemble(structure, index, [str(_get(d, "title")) for d in kept],
+                             [render_type_section(d, last_step, tail_counts=counts) for d in kept], last_step,
+                             counts, omitted)
+            if _fits(text, budget):
+                return text
     return text
 
 
