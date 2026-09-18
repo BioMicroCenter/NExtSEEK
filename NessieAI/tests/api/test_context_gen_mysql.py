@@ -363,8 +363,8 @@ def test_a_character_latin1_cannot_hold_reaches_a_latin1_table_intact(mysql, sql
     a non-strict server stored it as `?` and exited 0. Either way the curated text
     did not arrive, so the update moves every written text column to utf8mb4."""
     db = load_prestate(mysql, "latin1")
-    rows = cg.with_pi_names([{"name": "Synthetic Gamma Study", "entity_type": "project",
-                              "description": "IFN-γ response, 4-byte \U0001F9EA too."}])
+    rows = [{"name": "Synthetic Gamma Study", "entity_type": "project",
+             "description": "IFN-γ response, 4-byte \U0001F9EA too."}]
     script = f"SET SESSION sql_mode = '{sql_mode}';\n" + cg.render_update("projects", rows)
     code, _, err = mysql.apply(script, db)
     assert code == 0, err

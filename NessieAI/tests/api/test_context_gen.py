@@ -103,11 +103,10 @@ def test_columns_match_the_fixtures_that_define_them():
     """
     assert set(cg.COLUMNS["assays"]) == _assay_seed_columns()
     assert set(cg.COLUMNS["sample_types"]) == _model_columns() | {"repository_attributes"}
-    assert set(cg.COLUMNS["projects"]) == _projects_ddl_columns() | {"pi_names"}
+    assert set(cg.COLUMNS["projects"]) == _projects_ddl_columns()
     # Everything the fixtures do not name is declared as new, with a reason.
-    assert set(cg.ADDED_COLUMNS) == {"sample_types", "projects"}
+    assert set(cg.ADDED_COLUMNS) == {"sample_types"}
     assert set(cg.ADDED_COLUMNS["sample_types"]) == {"repository_attributes"}
-    assert set(cg.ADDED_COLUMNS["projects"]) == {"pi_names"}
 
 
 CONFIG = Path("NessieAI/chat_nextseek/src/chat_nextseek/config.py")
@@ -137,15 +136,14 @@ def test_every_column_is_one_the_runtime_actually_reads():
     reports success while production keeps a stale value there forever. This is the
     check that sees it, because its fixture is the consumer.
 
-    The two exceptions are named rather than subtracted, because each is a real
-    open gap and not a convention: `pi_names` and `repository_attributes` are
-    written to the database and read by nothing. `map_project` builds
-    projects_db.json from a fixed key list ending at `tags`, so pi_names never
-    reaches the entity agent, and `map_sampletype` drops repository_attributes the
-    same way. Wiring pi_names up is plan task 13c's; repository_attributes has no
-    named consumer at all.
+    The one exception is named rather than subtracted, because it is a real open
+    gap and not a convention: `repository_attributes` is written to the database
+    and read by nothing, since `map_sampletype` builds its export from a fixed key
+    list, and it has no named consumer at all. Projects have none: the generated
+    `pi_names` column, which nothing read, is retired (spec 2026-09-18, section 8),
+    and `present_on` is a generator-only key, never a column.
     """
-    unread = {"projects": {"pi_names"}, "sample_types": {"repository_attributes"},
+    unread = {"projects": set(), "sample_types": {"repository_attributes"},
               "assays": set()}
     for table, mapper in (("sample_types", "map_sampletype"), ("assays", "map_assay"),
                           ("projects", "map_project")):
@@ -183,168 +181,32 @@ def test_a_missing_natural_key_raises():
         cg.check_columns("projects", [{"pi": "Kamm, Roger D. (MIT, contact PI)"}])
 
 
-# --- 6.7 parse_pi ------------------------------------------------------------
+# --- pi is display prose ------------------------------------------------------
 #
-# Per plan D7 the generator parses the free-text `pi` field into structured names
-# so the person-name rule (13c) matches deterministically instead of asking an
-# LLM to read `Last, First M. (Affiliation, role); ...`. The free-text field
-# survives for display.
-#
-# The format, measured across all 12 curated rows: 9 carry PI names and 3 carry
-# nothing; PIs are semicolon-separated; a PI is `Last, First M.` with an optional
-# `(Affiliation, role)` suffix. Two hazards the format description hides:
-#
-#   1. a semicolon can appear INSIDE the parentheses (Griffith's row), so
-#      splitting on every semicolon invents a PI called
-#      "Scientific Director, Center for Gynepathology Research"
-#   2. several PIs in one row carry no parenthetical at all (RMS-NGC's row)
-
-PI_CSBC = "White, Forest M. (MIT, contact PI); Michor, Franziska (Dana-Farber, co-PI)"
-PI_GRIFFITH = ("Griffith, Linda G. (MIT, PI; Scientific Director, Center for Gynepathology "
-               "Research); Goods, Brittany A. (University of Melbourne, partner lab)")
-PI_RMS = ("Koehler, Angela N. (MIT Koch Institute and Broad Institute, contact PI); "
-          "Burgin, Alex B.; Gould, Alexandra E.; Linardic, Corinne M.; "
-          "Nomura, Daniel (multi-PIs)")
+# `pi` stays as curated display prose: the project page shows it and the entity LLM
+# reads it as context. Nothing parses it any more (spec 2026-09-18, section 8). Lab
+# codes and lab heads' surnames come from SEEK's institution titles instead, so the
+# parser, `with_pi_names` and the generated `pi_names` column are retired: a second
+# source parsed from free text would disagree with the first. No database ever had
+# the column (the gated write never ran), so retiring it costs no migration.
 
 
-def test_parse_pi_yields_every_surname_and_every_full_name():
-    assert cg.parse_pi(PI_CSBC) == [
-        "White", "Forest M. White", "Forest White", "Michor", "Franziska Michor",
-    ]
+def test_pi_is_display_prose_and_nothing_parses_it():
+    assert not hasattr(cg, "parse_pi")
+    assert not hasattr(cg, "with_pi_names")
+    assert "pi_names" not in cg.COLUMNS["projects"]
+    assert "pi_names" not in cg.DDL["projects"]
+    assert "pi_names" not in cg.ADDED_COLUMNS.get("projects", {})
+    assert "pi" in cg.COLUMNS["projects"]
 
 
-def test_parse_pi_yields_the_spelling_a_question_actually_uses():
-    """The initial-free full name, which is the one a person types.
-
-    The curated file writes a middle initial for most PIs and nobody asking a
-    question does, and neither exact nor substring matching bridges the two:
-    "Roger Kamm" is not a substring of "Roger D. Kamm" or the reverse. Before this
-    the column carried only the surname and the middle-initial spelling, so 18 of
-    the 21 curated PI entries had no form a question could match. That the plain
-    form is the live one is measurable in the repo: the CSBC row's own `tags` carry
-    "Forest White" and MetNet's description says "led by Roger Kamm (MIT)".
-    """
-    rows = {r["name"]: r["pi_names"] for r in cg.rows_for("projects")}
-    assert "Roger Kamm" in rows["MetNet"]
-    assert "Forest White" in rows["CSBC"]
-    assert "Linda Griffith" in rows["Griffith"]
-    for name in ("Sarah Fortune", "JoAnne Flynn", "Alex Shalek", "Douglas Lauffenburger"):
-        assert name in rows["Impact"], name
-    # The middle-initial spelling is kept, not replaced.
-    assert "Roger D. Kamm" in rows["MetNet"]
-
-
-def test_a_multi_word_surname_keeps_every_word_when_the_initials_go():
-    assert cg.parse_pi("van der Meer, Jos W. M. (Radboud)") == [
-        "van der Meer", "Jos W. M. van der Meer", "Jos van der Meer",
-    ]
-
-
-def test_parse_pi_ignores_a_semicolon_inside_the_parenthetical():
-    assert cg.parse_pi(PI_GRIFFITH) == [
-        "Griffith", "Linda G. Griffith", "Linda Griffith",
-        "Goods", "Brittany A. Goods", "Brittany Goods",
-    ]
-
-
-def test_parse_pi_reads_a_pi_with_no_parenthetical():
-    assert cg.parse_pi(PI_RMS) == [
-        "Koehler", "Angela N. Koehler", "Angela Koehler",
-        "Burgin", "Alex B. Burgin", "Alex Burgin",
-        "Gould", "Alexandra E. Gould", "Alexandra Gould",
-        "Linardic", "Corinne M. Linardic", "Corinne Linardic",
-        "Nomura", "Daniel Nomura",
-    ]
-
-
-def test_parse_pi_of_nothing_is_empty():
-    for empty in ("None", "none", "", "   ", None):
-        assert cg.parse_pi(empty) == [], repr(empty)
-
-
-def test_an_unclosed_parenthesis_is_refused_rather_than_swallowing_the_rest():
-    """One missing `)` silently deleted every PI after it.
-
-    `_split_outside_parens` never returns depth to 0 once a `(` is unclosed, so
-    every later semicolon is swallowed. Measured:
-    `parse_pi("Kamm, Roger D. (MIT, contact PI; Shenoy, Vivek B. (UPenn, co-PI)")`
-    returned `['Kamm', 'Roger D. Kamm']` -- Shenoy gone, no exception, and the
-    rendered INSERT reporting success. This module refuses rather than guesses
-    everywhere else a value is ambiguous, and the output is SQL bound for
-    production.
-    """
+def test_a_curated_pi_names_is_refused_as_an_unknown_column():
+    """No special case: once the column is gone, the ordinary column check refuses it."""
     import pytest
 
-    with pytest.raises(cg.UnsupportedValue) as excinfo:
-        cg.parse_pi("Kamm, Roger D. (MIT, contact PI; Shenoy, Vivek B. (UPenn, co-PI)")
-    assert "unclosed" in str(excinfo.value)
-    # Balanced nesting, which the Griffith row has, still parses.
-    assert cg.parse_pi("Kamm, Roger D. (MIT (Mech E), PI)") == [
-        "Kamm", "Roger D. Kamm", "Roger Kamm"]
-
-
-def test_an_initial_without_a_period_or_a_spelled_out_middle_name_still_gives_first_last():
-    """The plain form hung on the curator typing a period after each initial.
-
-    `Doe, Jane Q` gave `Jane Q Doe` and no `Jane Doe`; `Doe, Jane Quinn` gave only
-    `Jane Quinn Doe`. A question says "Jane Doe" either way. A hyphenated initial
-    produced junk (`- Kim`)."""
-    assert cg.parse_pi("Doe, Jane Q (MIT)") == ["Doe", "Jane Q Doe", "Jane Doe"]
-    assert cg.parse_pi("Doe, Jane Quinn (MIT)") == ["Doe", "Jane Quinn Doe", "Jane Doe"]
-    assert cg.parse_pi("Doe, Jane Quinn R.") == [
-        "Doe", "Jane Quinn R. Doe", "Jane Quinn Doe", "Jane Doe"]
-    assert cg.parse_pi("Kim, J.-H.") == ["Kim", "J.-H. Kim"]
-    assert cg.parse_pi("Roe, W. Rick") == ["Roe", "W. Rick Roe", "Rick Roe"]
-
-
-def test_a_pi_list_that_would_lose_or_invent_a_name_is_refused():
-    """Every one of these used to parse, silently dropping a PI or inventing one.
-
-    Everything after an entry's first `(` was thrown away, so a PI separated by a
-    comma, a newline or a forgotten `;` vanished; a bracket or a stray `)` turned
-    affiliation text into a name. The module refuses rather than guesses."""
-    import pytest
-
-    for value in (
-        "Doe, Jane Q. (MIT), Roe, Rick B. (UPenn)",             # comma between PIs
-        "Doe, Jane Q. (MIT)\nRoe, Rick B. (UPenn)",            # newline between PIs
-        "Doe, Jane Q. (MIT, PI) Roe, Rick B. (UPenn)",          # a forgotten semicolon
-        "Doe, Jane (MIT, contact PI), Roe, Rick (UPenn, co-PI); Poe, Pat",
-        "Doe, Jane Q. [MIT; contact PI]",                        # brackets
-        "Doe, Jane Q. MIT); Roe, Rick",                          # a stray ')'
-        "Doe, Jane (Janie) (MIT)",                               # two parentheticals
-        "Doe, Jane Q., Director, Some Center",                   # a title after the name
-        "Doe, Jane Q., Jr.",                                     # a suffix
-        "Jane Q. Doe (MIT)",                                     # natural order
-        "Dr. Doe, Jane",                                         # an honorific
-        'Doe, Jane "JJ"',                                        # a quoted nickname
-    ):
-        with pytest.raises(cg.UnsupportedValue):
-            cg.parse_pi(value)
-
-
-def test_a_pi_that_is_not_text_is_refused():
-    import pytest
-
-    for value in (["Doe, Jane"], [], 0, True):
-        with pytest.raises(cg.UnsupportedValue):
-            cg.parse_pi(value)
-
-
-def test_parse_pi_normalises_unicode_and_spacing():
-    """An NFD-encoded accent never equals a question's NFC one, and a no-break space
-    survived into the initialled form."""
-    assert cg.parse_pi("Mu\u0308ller, Jane\u00a0Q.") == [
-        "M\u00fcller", "Jane Q. M\u00fcller", "Jane M\u00fcller"]
-
-
-def test_a_curated_pi_names_is_refused_rather_than_overwritten():
-    """context/README.md says projects.json must not carry pi_names; it was accepted
-    and silently replaced, so a hand-added spelling vanished."""
-    import pytest
-
-    with pytest.raises(cg.UnsupportedValue):
-        cg.with_pi_names([{"name": "X", "pi": "Doe, Jane", "pi_names": ["J. Doe"]}])
+    with pytest.raises(cg.UnknownColumn) as excinfo:
+        cg.check_columns("projects", [{"name": "X", "entity_type": "project", "pi_names": ["Doe"]}])
+    assert "pi_names" in str(excinfo.value)
 
 
 def test_a_pi_spelled_as_nothing_is_stored_as_null():
@@ -353,32 +215,12 @@ def test_a_pi_spelled_as_nothing_is_stored_as_null():
     assert cg.db_value("projects", "pi", "Doe, Jane") == "Doe, Jane"
 
 
-def test_parse_pi_of_a_single_name_does_not_repeat_it():
-    assert cg.parse_pi("Levine (MIT)") == ["Levine"]
-
-
-def test_every_curated_project_row_parses():
-    rows = cg.load_source(cg.TABLES["projects"].source)
-    with_names = [r for r in rows if cg.parse_pi(r.get("pi"))]
-    assert len(rows) == 12
-    assert len(with_names) == 9
-    # A surname is never dropped: every parsed name is non-empty and stripped.
-    for row in rows:
-        for name in cg.parse_pi(row.get("pi")):
-            assert name == name.strip() and name
-
-
-def test_pi_names_is_emitted_alongside_the_free_text_pi():
-    rows = cg.with_pi_names(cg.load_source(cg.TABLES["projects"].source))
-    csbc = next(r for r in rows if r["name"] == "CSBC")
-    assert csbc["pi"] == PI_CSBC                      # free text kept for display
-    assert csbc["pi_names"] == [
-        "White", "Forest M. White", "Forest White", "Michor", "Franziska Michor",
-    ]
-    bprc = next(r for r in rows if r["name"] == "BPRC")
-    assert bprc["pi_names"] == []
-    # Every row gains the column, so the write never leaves it undefined.
-    assert all("pi_names" in r for r in rows)
+def test_the_curated_pi_text_is_written_unchanged():
+    """The free text reaches the database as curated, whatever shape it has."""
+    rows = [{"name": "Zephyr", "entity_type": "project",
+             "pi": "Doe, Jane (Example Institute, PI; Director, Example Center)"}]
+    sql = cg.render_update("projects", rows)
+    assert "'Doe, Jane (Example Institute, PI; Director, Example Center)'" in sql
 
 
 # --- 6.9 the update SQL ------------------------------------------------------
@@ -403,7 +245,7 @@ INSERT_RE = re.compile(r"^INSERT INTO ", re.M)
 
 def _rows_for(table: str) -> list[dict]:
     rows = cg.load_source(cg.TABLES[table].source)
-    return cg.with_pi_names(rows) if table == "projects" else rows
+    return cg.rows_for(table) if table == "projects" else rows
 
 
 def test_update_writes_one_update_and_one_guarded_insert_per_row():
@@ -520,32 +362,30 @@ def test_update_adds_the_unique_key_and_any_new_column():
     sql = cg.render_update("projects", _rows_for("projects"))
     assert "uq_projects_context_name" in sql
     assert "information_schema" in sql          # the idempotent add, not a bare ALTER
-    assert f"`pi_names` {cg.ADDED_COLUMNS['projects']['pi_names']}" in sql
+    assert "ADD COLUMN" not in sql              # projects_context gains no column
     sample = cg.render_update("sample_types", _rows_for("sample_types"))
     added = cg.ADDED_COLUMNS["sample_types"]["repository_attributes"]
     assert f"`repository_attributes` {added}" in sample
 
 
 def test_update_escapes_a_quote_by_doubling_it():
-    rows = [{"name": "Griffith", "pi": "O'Neill, Pat (MIT)"}]
-    sql = cg.render_update("projects", cg.with_pi_names(rows))
-    assert "'O''Neill, Pat (MIT)'" in sql
+    rows = [{"name": "Zephyr", "entity_type": "project", "pi": "O'Neill, Pat (Example)"}]
+    sql = cg.render_update("projects", rows)
+    assert "'O''Neill, Pat (Example)'" in sql
     assert "\\'" not in sql                     # no backslash escapes: see literal()
 
 
 def test_update_refuses_a_backslash_rather_than_corrupting_it():
     import pytest
 
-    rows = [{"name": "Backslash", "description": r"a\b"}]
+    rows = [{"name": "Backslash", "entity_type": "project", "description": r"a\b"}]
     with pytest.raises(cg.UnsupportedValue):
-        cg.render_update("projects", cg.with_pi_names(rows))
+        cg.render_update("projects", rows)
 
 
 def test_update_writes_json_columns_as_json_text():
     sql = cg.render_update("projects", _rows_for("projects"))
     assert '\'["BTC", "Breakthrough Cancer"' in sql
-    assert ('\'["White", "Forest M. White", "Forest White", "Michor", '
-            '"Franziska Michor"]\'') in sql
 
 
 def _update_all() -> str:
@@ -588,9 +428,9 @@ def test_an_empty_source_is_refused_rather_than_emptying_the_table():
 def test_update_refuses_a_duplicate_key_in_the_source():
     import pytest
 
-    rows = [{"name": "CSBC"}, {"name": "csbc"}]
+    rows = [{"name": "CSBC", "entity_type": "project"}, {"name": "csbc", "entity_type": "project"}]
     with pytest.raises(cg.DuplicateKey):
-        cg.render_update("projects", cg.with_pi_names(rows))
+        cg.render_update("projects", rows)
 
 
 def test_a_collision_only_utf8mb4_unicode_ci_would_see_is_refused_too():
@@ -609,8 +449,8 @@ def test_a_collision_only_utf8mb4_unicode_ci_would_see_is_refused_too():
 
     for first, second in (("Müller", "Muller"), ("Strauß", "Strauss")):
         with pytest.raises(cg.DuplicateKey):
-            cg.render_update("projects", cg.with_pi_names(
-                [{"name": first}, {"name": second}]))
+            cg.render_update("projects", [{"name": first, "entity_type": "project"},
+                                          {"name": second, "entity_type": "project"}])
     assert cg.fold_key("Müller") == cg.fold_key("Muller")
 
 
@@ -625,9 +465,8 @@ def test_two_supplementary_characters_collide_as_the_key_collation_compares_them
     assert cg.fold_key("Lab \U0001F9EA") == cg.fold_key("Lab \U0001F9EC")
     assert cg.fold_key("Lab \U0001F9EA") != cg.fold_key("Lab \ufffd")
     with pytest.raises(cg.DuplicateKey):
-        cg.render_update("projects", cg.with_pi_names(
-            [{"name": "Lab \U0001F9EA", "entity_type": "project"},
-             {"name": "Lab \U0001F9EC", "entity_type": "project"}]))
+        cg.render_update("projects", [{"name": "Lab \U0001F9EA", "entity_type": "project"},
+                                      {"name": "Lab \U0001F9EC", "entity_type": "project"}])
 
 
 def test_a_key_with_surrounding_whitespace_is_refused():
@@ -637,7 +476,7 @@ def test_a_key_with_surrounding_whitespace_is_refused():
 
     for key in (" CSBC", "CSBC ", "CSBC\t"):
         with pytest.raises(cg.UnsupportedValue):
-            cg.render_update("projects", cg.with_pi_names([{"name": key, "entity_type": "project"}]))
+            cg.render_update("projects", [{"name": key, "entity_type": "project"}])
 
 
 def test_a_control_character_is_refused_in_every_literal_and_comment():
@@ -691,7 +530,7 @@ def test_an_over_long_value_is_refused_by_both_emitters():
     """Both artifacts, because both aborted on it and for the same reason."""
     import pytest
 
-    rows = cg.with_pi_names([{"name": WIDTH_ERROR_EXAMPLE, "description": "x"}])
+    rows = [{"name": WIDTH_ERROR_EXAMPLE, "entity_type": "project", "description": "x"}]
     for render in (cg.render_update, cg.render_seed):
         with pytest.raises(cg.ValueTooLong) as excinfo:
             render("projects", rows)
@@ -725,7 +564,7 @@ def test_a_text_column_is_measured_in_bytes_because_mysql_measures_it_in_bytes()
     import pytest
 
     four_byte = "\U0001F9EA" * 20000          # 20,000 characters, 80,000 bytes
-    rows = cg.with_pi_names([{"name": "Emoji", "description": four_byte}])
+    rows = [{"name": "Emoji", "entity_type": "project", "description": four_byte}]
     with pytest.raises(cg.ValueTooLong) as excinfo:
         cg.render_update("projects", rows)
     assert "bytes" in str(excinfo.value)
@@ -767,8 +606,8 @@ def test_a_column_added_to_a_live_table_carries_its_own_charset():
         for definition in definitions.values():
             assert "CHARACTER SET utf8mb4" in definition
             assert "COLLATE utf8mb4_unicode_ci" in definition
-    sql = cg.render_update("projects", _rows_for("projects"))
-    assert "ADD COLUMN `pi_names` TEXT CHARACTER SET utf8mb4" in sql
+    sql = cg.render_update("sample_types", _rows_for("sample_types"))
+    assert "ADD COLUMN `repository_attributes` TEXT CHARACTER SET utf8mb4" in sql
 
 
 def test_no_curated_value_needs_a_backslash():
@@ -1224,17 +1063,17 @@ def test_a_value_with_a_newline_and_an_apostrophe_survives_byte_for_byte():
     """Named values rather than a normalizer, so this cannot agree with itself."""
     rows = [{
         "name": "Quote and newline",
+        "entity_type": "project",
         "description": "It's two lines.\nSecond line, with 'quotes' and a % sign.",
         "pi": "O'Neill, Pat (MIT)",
         "alternative_names": ["a'b", "plain"],
     }]
     with sqlite3.connect(":memory:") as conn:
-        _apply(conn, "projects", cg.with_pi_names(rows))
+        _apply(conn, "projects", rows)
         back = _read_back(conn, "projects")[0]
     assert back["description"] == "It's two lines.\nSecond line, with 'quotes' and a % sign."
     assert back["pi"] == "O'Neill, Pat (MIT)"
     assert back["alternative_names"] == '["a\'b", "plain"]'
-    assert back["pi_names"] == '["O\'Neill", "Pat O\'Neill"]'
 
 
 def test_a_newline_inside_a_json_column_is_refused_and_says_why():
@@ -1248,7 +1087,7 @@ def test_a_newline_inside_a_json_column_is_refused_and_says_why():
     """
     import pytest
 
-    rows = cg.with_pi_names([{"name": "Wrapped", "alternative_names": ["two\nlines"]}])
+    rows = [{"name": "Wrapped", "entity_type": "project", "alternative_names": ["two\nlines"]}]
     with pytest.raises(cg.UnsupportedValue) as excinfo:
         cg.render_update("projects", rows)
     assert "backslash" in str(excinfo.value)
