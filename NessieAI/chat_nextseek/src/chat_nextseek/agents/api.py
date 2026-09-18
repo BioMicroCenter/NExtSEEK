@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from ..config import ChatConfig
-from ..schemas.schema_helper import call_llm_structured
+from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
     APIRequestPlan,
     ParserPlan,
@@ -140,6 +140,10 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
             usage_label="API_AGENT",
             thinking_budget=api_budget,
             client=api_client,
+            # An empty plan used to be filled below with the parser's endpoint and the
+            # method default and sent, bypassing the refusal in the except path for an
+            # endpoint that needs a body. Now it is a failed parse like any other.
+            result_check=empty_output_problem,
         )
     except Exception as e:
         print("[DEBUG][API_AGENT] Exception or parse error:", repr(e))

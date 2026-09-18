@@ -109,4 +109,8 @@ class MultiParserPlan(BaseModel):
     candidates: list[ParserCandidate] = Field(default_factory=list)
     notes: str = ""
 
-    model_config = ConfigDict(extra="ignore")
+    # As for ParserPlan: every field keeps its default, because the multi-parser's
+    # fallback builds this from parts, but the published schema says what the prompt
+    # says ("Include all keys"), so `{}` is not a valid answer to the forced tool call.
+    # The parser's result check is the backstop.
+    model_config = ConfigDict(extra="ignore", json_schema_extra={"required": ["intent_summary", "candidates"]})

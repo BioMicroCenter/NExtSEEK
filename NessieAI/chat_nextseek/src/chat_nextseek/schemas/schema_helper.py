@@ -137,6 +137,28 @@ def _normalize_parsed_output(parsed: Any) -> Any:
     return parsed
 
 
+def empty_output_problem(value: BaseModel) -> str | None:
+    """A ``result_check`` for a schema whose every field has a default.
+
+    Such a schema validates ``{}``, and with extra keys ignored it also validates an
+    object nested under a key it does not have and one passed as a string under such a
+    key. Every one of those comes back as the defaults with ``model_fields_set`` empty:
+    the output named none of the schema's fields, so it carries no answer, and a
+    forced tool call on Bedrock can return exactly that. An output that names a field,
+    even to say it is empty, is an answer and passes. Returns the reason for the repair
+    turn, or None.
+    """
+    if getattr(value, "model_fields_set", None):
+        return None
+    name = type(value).__name__
+    return (
+        f"The output set none of the {name} fields: it was an empty object, or the "
+        f"object was nested under a key {name} does not have. Return the {name} object "
+        "itself with its keys at the top level; write a field that has nothing in it as "
+        "an empty value rather than leaving it out."
+    )
+
+
 def _parse_model_output(raw_output: str, model: Type[BaseModel]) -> BaseModel:
     """
     Attempt to parse raw model text into a Pydantic model.
