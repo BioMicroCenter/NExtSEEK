@@ -26,7 +26,7 @@ never sees endpoint names, Cypher, requestBody or filter operators. That still h
 from __future__ import annotations
 
 from chat_nextseek.helpers.query_scope import describe_query_scope, render_query_scope
-from chat_nextseek.schemas.entity import EntityAgentOutput, EntityItem
+from chat_nextseek.schemas.entity import EntityAgentOutput, EntityItem, LabMatch
 from chat_nextseek.schemas.router import ParserPlan
 
 
@@ -242,3 +242,117 @@ def test_an_unmeasurable_scope_renders_no_gap_line_at_all():
     block = render_query_scope(scope)
 
     assert "NOT APPLIED" not in block
+
+
+# --------------------------------------------------------------------------
+# Scientists and labs (spec 2026-09-18-projects-labs-context.md section 7.7). The
+# entity agent appends every scientist to keywords too (E4), so the scientist must not
+# be counted twice, and a graph query may carry the surname alone. Invented names only.
+# --------------------------------------------------------------------------
+
+_ASH = LabMatch(text="Ashgrove lab", code="ASH", name="Ashgrove", affiliation="BWH",
+                project_ids=[4], rule="lab_phrase")
+
+
+def test_a_scientist_the_query_dropped_is_reported_once_as_a_scientist():
+    scope = describe_query_scope(
+        entity_result=_entity(scientists=["Dana Example"], keywords=["Dana Example"]),
+        parser_plan=_plan(mode="graph_query", filters={"keywords": ["dana example"]}),
+        graph_plan={"cypher": "MATCH (s:Sample {SampleType: 'MUS'}) RETURN s", "explanation": ""},
+    )
+
+    mentions = [item for item in scope.applied + scope.not_applied if "Dana Example" in item
+                or "dana example" in item]
+    assert mentions == ["scientist Dana Example"]
+    assert mentions[0] in scope.not_applied
+
+
+def test_a_scientist_counts_as_applied_when_the_surname_alone_is_in_the_query():
+    scope = describe_query_scope(
+        entity_result=_entity(scientists=["Dana Example"], keywords=["Dana Example"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE toLower(s.Scientist) CONTAINS 'example' "
+                              "RETURN s", "explanation": ""},
+    )
+
+    assert "scientist Dana Example" in scope.applied
+    assert scope.not_applied == []
+
+
+def test_a_scientist_counts_as_applied_when_the_full_name_is_in_the_query():
+    scope = describe_query_scope(
+        entity_result=_entity(scientists=["Dana Example"], keywords=["Dana Example"]),
+        parser_plan=_plan(mode="new_search", target_endpoint="/nextseek_api/samples/advanced_search/"),
+        api_plan={"endpoint": "/nextseek_api/samples/advanced_search/", "method": "POST",
+                  "requestBody": {"filter_searchText": "Dana Example"}, "queryParameters": {}},
+    )
+
+    assert scope.applied == ["scientist Dana Example"]
+    assert scope.not_applied == []
+
+
+def test_a_last_comma_first_scientist_is_matched_by_the_surname():
+    scope = describe_query_scope(
+        entity_result=_entity(scientists=["Example, D."]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE s.Scientist CONTAINS 'Example' RETURN s",
+                    "explanation": ""},
+    )
+
+    assert scope.applied == ["scientist Example, D."]
+
+
+def test_a_keyword_that_is_not_a_scientist_is_still_a_keyword():
+    scope = describe_query_scope(
+        entity_result=_entity(scientists=["Dana Example"], keywords=["Dana Example", "CC"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": _B13_CYPHER, "explanation": ""},
+    )
+
+    assert 'keyword "CC"' in scope.not_applied
+    assert "scientist Dana Example" in scope.not_applied
+
+
+def test_a_lab_is_labelled_by_its_name_and_counted_once():
+    scope = describe_query_scope(
+        entity_result=_entity(labs=["Ashgrove"], lab_codes=["ASH"], lab_matches=[_ASH]),
+        parser_plan=_plan(mode="graph_query", filters={"lab_codes": ["ASH"]}),
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE s.uuid CONTAINS 'ASH' RETURN s",
+                    "explanation": ""},
+    )
+
+    assert scope.applied == ["lab ASH (Ashgrove)"]
+    assert scope.not_applied == []
+
+
+def test_a_dropped_lab_is_named_in_the_gap():
+    scope = describe_query_scope(
+        entity_result=_entity(labs=["Ashgrove"], lab_codes=["ASH"], lab_matches=[_ASH]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) RETURN s", "explanation": ""},
+    )
+
+    assert scope.not_applied == ["lab ASH (Ashgrove)"]
+    assert "lab ASH (Ashgrove)" in render_query_scope(scope).split("NOT APPLIED", 1)[1]
+
+
+def test_a_code_two_labs_share_names_both():
+    other = LabMatch(text="ASH lab", code="ASH", name="Hollins", rule="code")
+    scope = describe_query_scope(
+        entity_result=_entity(lab_codes=["ASH"], lab_matches=[_ASH, other]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) RETURN s", "explanation": ""},
+    )
+
+    assert scope.not_applied == ["lab ASH (Ashgrove or Hollins)"]
+
+
+def test_a_lab_code_with_no_match_record_keeps_the_bare_label():
+    """A parser-only lab code (no lab_matches) is labelled as before."""
+    scope = describe_query_scope(
+        entity_result=_entity(),
+        parser_plan=_plan(mode="graph_query", filters={"lab_codes": ["XYZ"]}),
+        graph_plan={"cypher": "MATCH (s:Sample) RETURN s", "explanation": ""},
+    )
+
+    assert scope.not_applied == ["lab XYZ"]
