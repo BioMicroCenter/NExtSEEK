@@ -238,6 +238,16 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
     [sessions.activeSessionId, sessionId, debugData.bundleId, downloadBundle],
   );
 
+  const handleDownloadAll = useCallback(() => {
+    // The chat on screen, whatever its newest turn wrote. Kept in step with EmbeddedApp.
+    const sid = sessions.activeSessionId;
+    if (sid) {
+      apiService
+        .downloadSession(sid)
+        .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
+    }
+  }, [apiService, sessions.activeSessionId, addSystemMessage]);
+
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -277,6 +287,8 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         onOpenChange={setRightOpen}
         debugData={debugData}
         onDownload={handleDownload}
+        activeSessionId={sessions.activeSessionId}
+        onDownloadAll={handleDownloadAll}
         isAdmin={isAdmin}
       />
     </div>

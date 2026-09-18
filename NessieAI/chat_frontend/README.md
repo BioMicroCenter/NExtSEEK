@@ -114,6 +114,7 @@ session strategy above, the Basic-auth one at
 | Two-second HTTP poll fallback | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:169-215` |
 | Session list, rename, delete, rehydrate | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:319-374` |
 | Bundle and artifact downloads | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:235-300` |
+| The whole chat as one zip (the Debug sheet's "All files") | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:438` |
 | Agent file upload and its job poll | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:388-410` |
 
 Eight hooks plus a barrel live in `NessieAI/chat_frontend/src/hooks/`. The load-bearing
@@ -133,7 +134,7 @@ toggle (`NessieAI/chat_frontend/src/lib/useProd.ts:7`) and per-turn wall clock
 (`NessieAI/chat_frontend/src/components/Layout/RouteOverrideSelect.tsx:17`,
 `NessieAI/chat_frontend/src/components/Layout/ProdToggle.tsx:14`,
 `NessieAI/chat_frontend/src/components/Layout/MaxTurnLengthInput.tsx:16`) and are mounted
-together in the Debug sheet (`NessieAI/chat_frontend/src/components/Layout/RightSidebar.tsx:43-45`).
+together in the Debug sheet (`NessieAI/chat_frontend/src/components/Layout/RightSidebar.tsx:52-54`).
 
 Components sit in six directories under `NessieAI/chat_frontend/src/components/`, beside
 a seventh holding shared tests: `ChatPanel/` (the transcript, composer, stepper,
