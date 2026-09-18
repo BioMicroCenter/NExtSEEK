@@ -55,7 +55,10 @@ docker/db.env*
 docker/nextseek.env*
 !docker/nextseek.env.example
 **/proxy-secret.env*
-!**/proxy-secret.env.example
+# Re-include the one committed example by its exact path. A "!**/" exception makes BuildKit walk into every
+# excluded directory looking for a match, and the harness writes root-only (0700) run folders under outputs/,
+# so the whole app build failed with "open outputs/...: permission denied".
+!NessieAI/docker/bedrock-proxy/proxy-secret.env.example
 .env
 **/.env
 **/*.env.bak*

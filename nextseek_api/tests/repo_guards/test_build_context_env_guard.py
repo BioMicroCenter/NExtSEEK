@@ -123,6 +123,16 @@ MUST_BE_INCLUDED = [
 ]
 
 
+def test_no_exception_makes_the_build_walk_excluded_directories():
+    """A "!**/..." or "!*/..." exception can match below any excluded directory, so BuildKit walks into every
+    one of them to look (outputs/ included). The harness writes root-only run folders there, and the app build
+    then fails with "open outputs/...: permission denied" (2026-09-18). Re-include files by exact path."""
+    exceptions = [line.strip() for line in DOCKERIGNORE.read_text().splitlines() if line.strip().startswith("!")]
+    assert exceptions, "the committed templates are re-included by exception rules"
+    for rule in exceptions:
+        assert not rule.startswith(("!**", "!*/")), rule
+
+
 @pytest.mark.parametrize("path", MUST_BE_EXCLUDED)
 def test_secretish_paths_excluded_from_build_context(path):
     assert _excluded(path), f"{path} would enter the docker build context"
