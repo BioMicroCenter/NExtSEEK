@@ -20,6 +20,7 @@ import types
 
 import pytest
 
+from chat_nextseek.graph_scope import GraphScope
 from chat_nextseek.reports.runners import (
     _drop_uuid_list,
     _lab_of,
@@ -67,11 +68,18 @@ class _FakeConn:
         return _FakeCursor(self._rows)
 
 
+def _admin_config(rows):
+    """A runner config over `rows`, as an admin: the runners refuse a config without a scope, and scope is not what
+    these tests are about (test_report_runner_scope.py is)."""
+    return types.SimpleNamespace(_db_conn=_FakeConn(rows), _connect_db=lambda **k: None,
+                                 GRAPH_SCOPE=GraphScope.admin("test"))
+
+
 @pytest.fixture
 def all_projects(tmp_path):
     """The genuine return value of run_project_sample_report, not a hand-written dict."""
     rows = [{"project_id": 1, "sample_id": i, "uuid": u} for i, u in enumerate(UIDS)]
-    config = types.SimpleNamespace(_db_conn=_FakeConn(rows), _connect_db=lambda **k: None)
+    config = _admin_config(rows)
     return run_project_sample_report(config, None, outputs_root=tmp_path)
 
 
@@ -198,7 +206,7 @@ def test_run_reporter_summary_does_not_leak_the_uuid_list(tmp_path):
     list there would land in a UI payload and any LLM context built from it.
     """
     rows = [{"project_id": 1, "sample_id": i, "uuid": u} for i, u in enumerate(UIDS)]
-    config = types.SimpleNamespace(_db_conn=_FakeConn(rows), _connect_db=lambda **k: None)
+    config = _admin_config(rows)
     plan = types.SimpleNamespace(
         project=None, years=[], month_range=None, day_range=None, summary_mode="samples",
         reporter_context=None,
@@ -364,7 +372,7 @@ def test_scope_reaches_the_chatter_payload(tmp_path):
     """_sub_summary dropped `scope`, so the chatter reconciled the contradictory
     blocks by narrating the global one."""
     rows = [{"project_id": 1, "sample_id": i, "uuid": u} for i, u in enumerate(UIDS)]
-    config = types.SimpleNamespace(_db_conn=_FakeConn(rows), _connect_db=lambda **k: None)
+    config = _admin_config(rows)
     plan = types.SimpleNamespace(
         project=None, years=[], month_range=None, day_range=None,
         summary_mode="samples", reporter_context=None,
@@ -381,7 +389,7 @@ def test_scope_reaches_the_chatter_payload(tmp_path):
 def test_lab_codes_are_taken_from_the_plan_when_the_caller_passes_none(tmp_path):
     """planner/tools.py:305 and granular.py:132 call without lab_codes."""
     rows = [{"project_id": 1, "sample_id": i, "uuid": u} for i, u in enumerate(UIDS)]
-    config = types.SimpleNamespace(_db_conn=_FakeConn(rows), _connect_db=lambda **k: None)
+    config = _admin_config(rows)
     plan = types.SimpleNamespace(
         project=None, years=[], month_range=None, day_range=None, summary_mode="samples",
         reporter_context=types.SimpleNamespace(lab_codes=["KAM"]),
