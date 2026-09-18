@@ -31,7 +31,7 @@ nextseek-build-upload-xlsx	build-upload-xlsx	**Reingest step 2** — render NExt
 nextseek-entity-extract	entity	Resolve NL terms to NExtSEEK vocabulary.
 nextseek-extract-text	extract	Extract text from a file.
 nextseek-generate-submission	generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.
-nextseek-graph	graph	Run a Neo4j lineage/graph query from NL.
+nextseek-graph	graph	Answer any question about samples from the graph (find, filter, count, break down, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback.
 nextseek-graph-schema	graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.
 nextseek-parse	parse	Turn an NL question into a parser plan.
 nextseek-pipeline	pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.
@@ -76,7 +76,6 @@ Files (the `min_*` variants are the compact forms — prefer them when grounding
 - `projects_db.json` — projects / investigations (name, id, description).
 - `min_api_endpoints.json` / `min_api_endpoints_enriched.json` — REST endpoint catalog.
 - `read_safe_endpoints.json` — the read-safe endpoint allowlist.
-- `min_graph_schema.json` — routing guidance for the graph: which filters it supports.
 
 Read-only.
 

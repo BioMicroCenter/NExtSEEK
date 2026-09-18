@@ -17,8 +17,7 @@ live privilege regression (#65a).
 
 Since NessieAI Phase C there is one copy of each shared file: the Dockerfile COPYs
 it from the Compose named context ``chat_nextseek`` to its in-image path, and the
-plugin tree keeps only the files without a source twin plus min_graph_schema.json,
-whose source twin has drifted (below). ``image_context.py`` beside this module replays the
+plugin tree keeps only the files without a source twin. ``image_context.py`` beside this module replays the
 Dockerfile's COPY lines, so every check here reads the file the image really
 bakes, whichever directory that is.
 
@@ -89,7 +88,6 @@ EXPECTED_BAKED_FILES = frozenset({
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
     "min_assays_db.json",
-    "min_graph_schema.json",
     "min_sampletypes_db.json",
     "ops.json",
     "projects_db.json",
@@ -107,9 +105,7 @@ EXPECTED_FROM_SOURCE = frozenset({
     "projects_db.json",
 })
 
-# What the plugin tree's context directory itself holds: the baked-only files and
-# min_graph_schema.json, whose source twin has drifted (phase 12 owns that file; it is
-# hand-authored routing prose rather than a schema capture, despite the name).
+# What the plugin tree's context directory itself holds: the baked-only files.
 EXPECTED_PLUGIN_TREE_FILES = EXPECTED_BAKED_FILES - EXPECTED_FROM_SOURCE
 
 # Baked-only by design — these have no counterpart in the source pack because
@@ -156,6 +152,11 @@ EXPECTED_SOURCE_ONLY = frozenset({
     "neo4j_schema.json",
     "neo4j_schema_dev.json",          # per-environment snapshots, read by nothing on a turn
     "neo4j_schema_prod.json",
+    # The NS parser's graph-routing prose. The CC agent does not write Cypher (the
+    # nextseek-graph op's server-side graph agent does, from the live catalog), and its
+    # own op choice is the plugin skill's; the stale plugin-tree copy that contradicted
+    # that skill was removed on 2026-09-18.
+    "min_graph_schema.json",
 })
 
 # ---------------------------------------------------------------------------

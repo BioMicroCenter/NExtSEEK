@@ -2,8 +2,8 @@
 name: nextseek
 description: >
   This skill should be used when the user asks to query NExtSEEK — "find/list/show/count
-  samples", "retrieve a sample by UID", "show the sample tree / lineage", "run a graph
-  query", "refine that search", "what sampletypes/assays exist", "build a project report
+  samples", "break samples down by type/attribute/project", "retrieve a sample by UID",
+  "show the sample tree / lineage", "run a graph query", "refine that search", "what sampletypes/assays exist", "build a project report
   (samples/protocols/published/rppr)", "generate a GEO/SRA/nf-core/PRIDE submission workbook",
   "launch/run/submit an nf-core pipeline (rnaseq/scrnaseq) on the cluster for these samples",
   "plan a multi-step lookup", or "create/update/delete NExtSEEK data". Do NOT trigger on general
@@ -45,7 +45,7 @@ is the complete contract; there are no hidden flags.
 | `nextseek-parse` | Turn an NL question into a parser plan. | `--query "<text>"` | parser plan `{mode, target_endpoint, filters, ...}` |
 | `nextseek-api-read` | Execute a read-safe REST call from a parser plan. | `--parser-plan '<json>'` | API response |
 | `nextseek-api-write` | Execute a write (POST/PUT/DELETE) from a parser plan. | `--parser-plan '<json>' --confirmed-write` | API response |
-| `nextseek-graph` | Run a Neo4j lineage/graph query from NL. | `--query "<text>"` | `{cypher, result}` |
+| `nextseek-graph` | Answer any question about samples from the graph: find, filter, count, break down, lineage, attribute values. Held to the user's projects; a query refused for its scope is answered through graph_search under `fallback`. | `--query "<text>"` | `{plan, result, fallback?}` |
 | `nextseek-report` | Project summary report. | `--mode {samples,protocols,published,rppr} --project <name>` | report `{summary, saved_files, rows}` |
 | `nextseek-generate-submission` | Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline. | `--type {GEO,SRA,NFCORE_RNASEQ,NFCORE_SCRNASEQ,PRIDE} --uids <csv>` | `{report, type}` |
 | `nextseek-pipeline` | **Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard. | `--message "<summary: explicit UIDs + species/genome + metadata + pipeline>"` | `{reply, debug, bundle_id}` |
@@ -57,19 +57,55 @@ is the complete contract; there are no hidden flags.
 
 ## Choosing the op for a task
 
-**Search / find / list / count / retrieve / sample-tree — parse, then read.** A lookup is two
-stages: parse the question into a plan, then execute the plan.
+**Every question about samples — `nextseek-graph`.** Finding, filtering and counting samples;
+breaking them down by sample type, attribute value, keyword, assay, project or person; UIDs and
+lab codes; lineage (parents, children, what was derived from what, in either direction); and which
+values an attribute holds. The graph holds every sample's metadata as properties, not only its
+lineage, so one call answers the whole question. Ask it in full, in plain words:
 
 ```bash
-nextseek-parse --query "Find cell samples with CellType set to T Cell."
+nextseek-graph --query "How many mouse samples treated with NDMA are female?"
+nextseek-graph --query "Count TIS samples by Organ in the MetNet project."
+nextseek-graph --query "Which NHP samples have both CT scan data and sequencing data derived from them?"
+# -> {"plan": {...}, "result": {"ok": true, "data": [...], "count": N, "scope": {...}}}
+```
+
+- **Scope.** The op is held to the user's projects on the server: a superuser's query runs as
+  written; anyone else's is checked to stay inside their projects before it runs. Never try to
+  widen it.
+- **`fallback`.** A query that could not be confirmed to stay inside the user's projects is not
+  run. The op then answers the question itself through the project-scoped sample search
+  (`/nextseek_api/samples/graph_search/`) and returns that answer under `fallback`: when
+  `fallback.ok` is true, answer from `fallback.response` (`total` is the count; `rows` is one
+  page) and say so in one sentence, as `fallback.note` asks: the answer came from the
+  project-scoped sample search, and which conditions of the question it could not apply. When
+  `fallback.ok` is false, report the refusal and `fallback.error`; do not re-ask the question
+  through another op.
+- **Read `result.ok` and `result.data`.** An empty `data` is an answer: state it plainly.
+- **Refinement** ("which of those…", "only the female ones"): ask `nextseek-graph` again with the
+  whole refined question, the earlier conditions restated plus the new one. To reuse rows a prior
+  turn already returned, use `nextseek-recall --turn N` instead of re-querying.
+- **Never search samples through `nextseek-parse` + `nextseek-api-read`.** The sample-search and
+  lineage endpoints (advanced_search, parents_by_child_types, entity_tree/lineage, the sample list)
+  are not on the read-safe list, so `api-read` refuses them.
+
+**Records, people, files and writes — the REST API, parse then read.** A REST lookup is two
+stages: parse the question into a plan, then execute the plan. Use it for what the graph does
+not hold: a catalog record as a record (a sample type's definition, an assay, a project, an
+investigation, a protocol, a data file's metadata: read the baked catalogs below first), the
+registered SEEK users (`/nextseek_api/people/`), files and their downloads, one sample's full
+record export by UID (`/nextseek_api/admin/samples/retrieve/`, superusers only), and every write.
+
+```bash
+nextseek-parse --query "Show me the protocol documents registered for the MetNet project."
 # -> parser plan JSON: {"mode": "new_search", "target_endpoint": "...", "filters": {...}}
 nextseek-api-read --parser-plan '<the parser plan from the previous step>'
 # -> API results; compose the user-facing answer from these
 ```
 
-`mode` values include `new_search`, `refine_last_search`, `ask_about_last_results`. Refinement
-and recall ("which of those…", "what sampletypes were in those results") use the same two-stage
-flow — parse the follow-up verbatim; the parser resolves prior context from session state.
+**People are not samples.** `/nextseek_api/people/` lists registered SEEK users (accounts). The
+person who produced or owns a sample is the sample's `Scientist` attribute, which is a graph
+question: "samples collected by Smith" is `nextseek-graph`, never `/people/`.
 
 **Entity / vocabulary resolution — `nextseek-entity-extract`.** To answer or double-check how a
 term maps to NExtSEEK codes (e.g. "CD8 antibodies" → `AB`):
@@ -83,12 +119,6 @@ endpoint, filters) for a question without executing it:
 
 ```bash
 nextseek-parse --query "Find bacteria samples with strain mTB."
-```
-
-**Lineage / relationships — `nextseek-graph`.** Multi-hop traversals in the Neo4j graph:
-
-```bash
-nextseek-graph --query "Show me all NHPs in the SRP project."
 ```
 
 **Project summary report — `nextseek-report`.** When a project (and, if stated, a mode) is named:
@@ -135,10 +165,11 @@ upload sheet for the user to REVIEW and upload — it does **not** write to NExt
 1. `nextseek-run-ls --run-dir <finished run dir>` → the recursive `ls -laR` tree of the outputs.
 2. Reason over the tree + the sample-type catalog. Decide, per output, which `A.*` analysis type it
    is (BAM → `A.ALN`; count/expression matrix → `A.SCXP`/`A.GEX`; VCF → `A.VCF`). Get the input
-   cohort's `Scientist`, project, and how existing `A.*` rows cite `Parent` with **`nextseek-api-read`
-   on a `D.SEQ` sample** — these are sample *attributes*, so use `api-read` (a REST fetch), NOT
-   `nextseek-graph`. Graph is for lineage traversal only; asked for metadata it returns empty Cypher.
-   Only if a value genuinely can't be fetched, mark it `*** PLACEHOLDER ***` — do not block on it.
+   cohort's `Scientist`, project, and how existing `A.*` rows cite `Parent` with **one
+   `nextseek-graph` call over the input `D.SEQ` UIDs** (e.g. "Scientist, project and Parent of
+   D.SEQ-240101ABC-1 to -4, and the Parent of any A.* sample derived from them"): every sample
+   attribute is a property in the graph. Only if a value genuinely can't be fetched, mark it
+   `*** PLACEHOLDER ***` — do not block on it.
 3. Compose one row per output sample: `{"SampleType": "A.SCXP", "json_metadata": {"Parent": "<input
    D.SEQ UID>", "Scientist": "<carried from the input D.SEQ>", "Pipeline": "...", "ReferenceGenome":
    "...", "Aligner": "...", "File_PrimaryData": "...", ...}, "assay_ids": [<int>...]}`. `Parent` is the
@@ -182,7 +213,8 @@ nextseek-plan --query "Find me mouse samples in the Kamm project, then filter th
 
 `nextseek-plan` is read-only: it executes the read-safe steps and returns recommended actions. If
 the plan advises a write, stop and route that write through `nextseek-api-write` under Layer 3 —
-the planner never writes. For a single non-compound lookup, use `nextseek-parse` → `nextseek-api-read`.
+the planner never writes. For a single non-compound question about samples, use `nextseek-graph`; for a record,
+people, file or write lookup, `nextseek-parse` → `nextseek-api-read`.
 
 ## Composing the reply
 
@@ -231,7 +263,7 @@ After a `nextseek-*` tool returns nulls, empty data, or a non-zero exit, you MUS
 - call `--help` repeatedly looking for hidden flags — the matrix above is the complete contract; there are no hidden flags
 - call a sibling `nextseek-*` tool to attempt to "fetch what the failed tool needed"
 
-The only legitimate chaining is the documented recipes above (`nextseek-parse` → `nextseek-api-read`, `nextseek-parse` → `nextseek-api-write`); do not invent others.
+The only legitimate chaining is the documented recipes above (`nextseek-parse` → `nextseek-api-read`, `nextseek-parse` → `nextseek-api-write`); do not invent others. A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op.
 
 ## Errors
 
@@ -256,7 +288,7 @@ api-write	nextseek-api-write	Execute a write (POST/PUT/DELETE) from a parser pla
 build-upload-xlsx	nextseek-build-upload-xlsx	**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK.	sidecar	read	true	true
 entity	nextseek-entity-extract	Resolve NL terms to NExtSEEK vocabulary.	sidecar	read	true	true
 generate-submission	nextseek-generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.	sidecar	read	true	true
-graph	nextseek-graph	Run a Neo4j lineage/graph query from NL.	sidecar	read	true	true
+graph	nextseek-graph	Answer any question about samples from the graph (find, filter, count, break down, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback.	sidecar	read	true	true
 graph-schema	nextseek-graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.	sidecar	read	true	true
 parse	nextseek-parse	Turn an NL question into a parser plan.	sidecar	read	true	true
 pipeline	nextseek-pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.	viewset	unrouted	true	true

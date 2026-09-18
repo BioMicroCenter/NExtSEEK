@@ -40,13 +40,18 @@ granular ops return a plan and rows you can inspect directly; use them for targe
 discovery.
 
 - **Curator described the samples by attribute** (e.g. "every TIS sample whose
-  Scientist is Owen Leddy"): run `nextseek-parse --query "<the curator's request
-  verbatim>"` to turn it into an `advanced_search` plan, then
-  `nextseek-api-read --parser-plan "<plan JSON>" --query "<same request>"` to
-  execute it. The response rows carry each matching sample's UID and metadata.
-  If `nextseek-parse` returns `AGENT_FAILED`, retry the identical call once; if it
-  fails again, stop and tell the curator. Do not fall back to `nextseek-query`.
-- **Curator already gave explicit UIDs**: skip parse/api-read and go straight to
+  Scientist is Smith"): run `nextseek-graph --query "UIDs of <the curator's request
+  verbatim>"`. The graph holds every sample attribute, and the op is held to the
+  curator's projects; its `result.data` carries each matching sample's UID (under
+  `fallback.response.rows` when the op answered through graph_search, see the
+  `nextseek` skill). Then fetch the current rows of those UIDs with
+  `nextseek-sample-search --uid ...` (step 3): the graph is only as fresh as its last
+  sync, the database rows are what an update edits. If `nextseek-graph` returns
+  `AGENT_FAILED`, retry the identical call once; if it fails again, stop and tell the
+  curator. Do not fall back to `nextseek-query`, and do not search through
+  `nextseek-parse` + `nextseek-api-read`: the sample-search endpoints are not
+  read-safe for the agent, so `api-read` refuses them.
+- **Curator already gave explicit UIDs**: skip the search and go straight to
   `nextseek-sample-search --uid <UID> [--uid <UID> ...]`. This op is UID-only; it
   does not search by attribute.
 

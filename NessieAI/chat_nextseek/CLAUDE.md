@@ -116,10 +116,10 @@ without an error at the point of the change.
   reported, never guessed: see every title's fate, read only, with
   `python -m chat_nextseek.labs --report` inside the app container. The first live read is
   the operator's.
-- **One graph file is not baked from here.** The plugin tree keeps its own
-  `min_graph_schema.json`, which differs from the one here and does reach the agent
-  (`NessieAI/docker/CLAUDE.md`). `neo4j_schema.json` is no longer baked into the cc-agent
-  image at all: that agent calls the `nextseek-graph-schema` op, which serves
+- **The graph files here are not baked.** `min_graph_schema.json` is the NS parser's
+  routing prose only: the cc-agent image carries no copy, and the CC agent's routing rule
+  lives in the plugin skill (`NessieAI/docker/CLAUDE.md`). `neo4j_schema.json` is not baked
+  either: that agent calls the `nextseek-graph-schema` op, which serves
   `graph_schema_snapshot` from this package. The copy here stays as the NS engine's
   fallback.
 - **The graph schema is no longer written into `context/`.** `neo4j_schema.json`,
