@@ -20,7 +20,10 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 # it stood before this change (last touched in bd663c24):
 #   {"disambiguation_rules_except_descriptive": every disambiguation rule but the descriptive-attribute one,
 #    "graph_query_triggers": ..., "api_preferred_triggers": ...}
-FROZEN_ROUTING_SHA256 = "bc8391287bc866bf1429c340177457713ef82acd6268fe05a8e6a68e8bedb0ef"
+# Re-pinned once, reviewed: the "Investigation titles to recognize" rule gained TCGA (not on every instance), as the
+# generated capabilities block and spec 2026-09-18-projects-labs-context.md section 13.3 have it. No other rule or
+# trigger changed (was bc8391287bc866bf1429c340177457713ef82acd6268fe05a8e6a68e8bedb0ef).
+FROZEN_ROUTING_SHA256 = "bd507252054c17c8332fd306db5112a6711754038ceb789bed43519c8c3be0ea"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 
