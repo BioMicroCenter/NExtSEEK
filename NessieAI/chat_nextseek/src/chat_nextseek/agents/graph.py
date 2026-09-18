@@ -978,8 +978,15 @@ def _call_lines(calls: list[str]) -> list[str]:
     return ["- procedure calls that cannot run as written: " + "; ".join(calls), _CALL_RULE]
 
 
-def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot, calls: list[str] = ()) -> str:
-    """The one repair prompt: every problem once, and the property names valid for each label involved."""
+def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot, calls: list[str] = (),
+                            shapes: list = ()) -> str:
+    """The one repair prompt: every problem once, and the property names valid for each label involved.
+
+    ``shapes`` are the query-shape guard's problems (P6a, P6b), repaired in the same round: alone they get their own
+    message, beside catalog problems their lines join this one. With none, the message is exactly what it was.
+    """
+    if shapes and not (problems or whole or calls):
+        return _shape_repair_message(list(shapes))
     titles = {row.label: row.title for row in snapshot.index}
     properties = [p.text for p in problems if p.kind == "property"]
     labels = [p.text for p in problems if p.kind == "label"]
@@ -993,6 +1000,7 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
         lines.append("- " + ", ".join(f"whole node {v}" for v in whole) + ": never return or collect a whole "
                      f"Sample node; {_WHOLE_NODE_ALTERNATIVE}")
     lines += _call_lines(list(calls))
+    lines += _shape_lines(list(shapes))
     owners = list(dict.fromkeys(owner for p in problems if p.kind == "property" for owner in p.owners))
     for owner in owners:
         if owner in snapshot.guard:
@@ -1011,7 +1019,7 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
     return "\n".join(lines)
 
 
-def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str] = ()) -> str:
+def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str] = (), shapes: list = ()) -> str:
     parts = []
     properties = [p.text for p in problems if p.kind == "property"]
     labels = [p.text for p in problems if p.kind == "label"]
@@ -1023,6 +1031,7 @@ def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str
         parts.append("it returns whole Sample nodes (" + ", ".join(f"whole node {v}" for v in whole) + ")")
     if calls:
         parts.append("procedure calls cannot run as written (" + "; ".join(calls) + ")")
+    parts += _shape_refusal_parts(list(shapes))
     return "Graph agent could not produce valid Cypher; " + "; ".join(parts) + "."
 
 
@@ -1030,6 +1039,8 @@ def _catalog_refusal(problems: list[_Problem], whole: list[str], calls: list[str
 # The query-shape guards: P6a and P6b (NESSIE-MASTER-PLAN phase 9)
 #
 # Both refuse a shape, not a name, and both read only the Cypher text and the plan's parameters.
+# graph_agent runs them in the catalog guard's single repair round, so one repair is re-checked by
+# every guard at once and cannot trade one problem for another unchecked one.
 #
 # P6a, a variable-length path: `-[:DERIVED_FROM*1..8]->`, and the Cypher 5 quantified forms
 # `-[:DERIVED_FROM]->{1,8}`, `->+` and `((a)-[:DERIVED_FROM]->(b)){1,8}`.
@@ -2146,39 +2157,47 @@ def graph_agent(
         if catalog is not None:
             # Catalog guard (spec 4.3): names checked per label against the live catalog, and no whole Sample
             # node returned (D13). One repair naming each problem; then the empty plan naming what is left.
-            # A variant that allows procedures adds the procedure guard to the same round, and the repair is
-            # re-checked by all three, so a repair cannot trade one problem for another unchecked one.
+            # A variant that allows procedures adds the procedure guard to the same round, and the query-shape
+            # guard (P6a, P6b) joins it on every turn. The repair is re-checked by all of them, so a repair
+            # cannot trade one problem for another unchecked one.
             problems = _property_problems(result.cypher, catalog.snapshot)
             whole = whole_node_returns(result.cypher, procedures)
             calls = _procedure_problems(result.cypher, procedures)
-            if problems or whole or calls:
+            shapes = query_shape_problems(result.cypher, result.parameters)
+            if problems or whole or calls or shapes:
                 print(f"[DEBUG][GRAPH] Catalog guard: {[p.text for p in problems]} whole nodes {whole}"
-                      + (f" calls {calls}" if calls else "") + "; attempting repair")
-                messages.append({"role": "system",
-                                 "content": _catalog_repair_message(problems, whole, catalog.snapshot, calls)})
+                      + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
+                      + "; attempting repair")
+                messages.append({"role": "system", "content": _catalog_repair_message(
+                    problems, whole, catalog.snapshot, calls, shapes)})
                 result = call("Regenerate the Cypher.", "graph_agent_repair")
                 result.cypher, _ = canonicalize_sample_uid_property(result.cypher)
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
                 problems = _property_problems(result.cypher, catalog.snapshot)
                 whole = whole_node_returns(result.cypher, procedures)
                 calls = _procedure_problems(result.cypher, procedures)
-                if problems or whole or calls:
+                shapes = query_shape_problems(result.cypher, result.parameters)
+                if problems or whole or calls or shapes:
                     print(f"[DEBUG][GRAPH] Repair still fails the catalog guard: {[p.text for p in problems]} "
-                          f"whole nodes {whole}" + (f" calls {calls}" if calls else "") + "; returning empty plan")
-                    return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole, calls),
+                          f"whole nodes {whole}" + (f" calls {calls}" if calls else "")
+                          + (f" shapes {[p.kind for p in shapes]}" if shapes else "") + "; returning empty plan")
+                    return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole, calls, shapes),
                                           parameters={}, context_mode=context_mode)
         else:
             # Schema guard: reject Cypher that filters on properties no node actually has
             # (e.g. a hallucinated `s.Lab`). Re-prompt once with the error + valid props;
             # if the repair still references unknown properties, return a graceful empty plan
             # rather than running a query that can only match nothing. A variant that allows
-            # procedures adds the procedure guard to the same round.
+            # procedures adds the procedure guard to the same round, the query-shape guard
+            # (P6a, P6b) joins it on every turn, and the repair is re-checked by all of them.
             known = known_node_properties(config.NEO4J_SCHEMA) | known_relationship_properties(config.NEO4J_SCHEMA)
             unknown = unknown_cypher_properties(result.cypher, known)
             calls = _procedure_problems(result.cypher, procedures)
-            if unknown or calls:
+            shapes = query_shape_problems(result.cypher, result.parameters)
+            if unknown or calls or shapes:
                 print(f"[DEBUG][GRAPH] Unknown properties in cypher: {unknown}"
-                      + (f" calls {calls}" if calls else "") + "; attempting repair")
+                      + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
+                      + "; attempting repair")
                 parts = []
                 if unknown:
                     parts.append(
@@ -2189,19 +2208,24 @@ def graph_agent(
                     )
                 if calls:
                     parts.append("\n".join(["The previous Cypher cannot run as written:"] + _call_lines(calls)))
+                if shapes:
+                    parts.append(_shape_repair_message(shapes))
                 messages.append({"role": "system", "content": "\n".join(parts)})
                 result = call("Regenerate the Cypher.", "graph_agent_repair")
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
                 still = unknown_cypher_properties(result.cypher, known)
                 calls = _procedure_problems(result.cypher, procedures)
-                if still or calls:
+                shapes = query_shape_problems(result.cypher, result.parameters)
+                if still or calls or shapes:
                     print(f"[DEBUG][GRAPH] Repair still references unknown properties: {still}"
-                          + (f" calls {calls}" if calls else "") + "; returning empty plan")
+                          + (f" calls {calls}" if calls else "")
+                          + (f" shapes {[p.kind for p in shapes]}" if shapes else "") + "; returning empty plan")
                     reasons = []
                     if still:
                         reasons.append(f"properties {still} do not exist on any node in the schema")
                     if calls:
                         reasons.append("procedure calls cannot run as written (" + "; ".join(calls) + ")")
+                    reasons += _shape_refusal_parts(shapes)
                     return GraphAgentPlan(
                         cypher="",
                         explanation="Graph agent could not produce valid Cypher; " + "; ".join(reasons) + ".",

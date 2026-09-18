@@ -26,10 +26,15 @@ Every shape here is synthetic.
 """
 from __future__ import annotations
 
+from types import MappingProxyType
+from unittest.mock import MagicMock
+
 import pytest
 
 from chat_nextseek import cypher_text
+from chat_nextseek import graph_catalog as gcat
 from chat_nextseek.agents import graph as graph_mod
+from chat_nextseek.schemas import GraphAgentPlan
 
 MAX = cypher_text.APOC_PATH_MAX_LEVEL
 
@@ -483,3 +488,151 @@ def test_the_fulltext_refusal_names_the_call_and_the_words():
     refusal = graph_mod._shape_refusal(graph_mod.query_shape_problems(FT, {"q": "foo bar"}))
     assert refusal.startswith("Graph agent could not produce valid Cypher")
     assert "queryNodes" in refusal and "'foo', 'bar'" in refusal
+
+
+# --------------------------------------------------------------------------- the graph agent: one repair round
+
+SNAPSHOT = gcat.CatalogSnapshot(
+    catalog_hash="h1", synced_at=None, has_usage=False,
+    index=(gcat.TypeIndexRow(title="TIS", label="T_TIS", name="Tissue", clade="Source", sample_count=10,
+                             deprecated=False, attributes_with_values=1),
+           gcat.TypeIndexRow(title="NHP", label="T_NHP", name="Primate", clade="Source", sample_count=10,
+                             deprecated=False, attributes_with_values=1)),
+    guard=MappingProxyType({"T_TIS": frozenset({"Organ"}), "T_NHP": frozenset({"Organ"})}),
+)
+VOCAB = gcat.Vocabulary(investigation_titles=(), project_titles=(), study_titles=(), published_studies=(),
+                        assay_titles=(), protocol_titles=(), assay_connections=())
+
+UNBOUNDED = "MATCH (a:Sample)-[:DERIVED_FROM*1..]->(b:T_NHP) RETURN count(DISTINCT a) AS n"
+BOUNDED = f"MATCH (a:Sample)-[:DERIVED_FROM*1..{MAX}]->(b:T_NHP) RETURN count(DISTINCT a) AS n"
+BOUNDED_HALLUCINATED = (f"MATCH (a:T_TIS)-[:DERIVED_FROM*1..{MAX}]->(b:T_NHP) WHERE a.Hallucinated = $o "
+                        "RETURN count(*) AS n")
+UNBOUNDED_HALLUCINATED = "MATCH (a:T_TIS)-[:DERIVED_FROM*1..]->(b:Sample) WHERE a.Hallucinated = $o RETURN count(*)"
+UNSCOPED = "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node RETURN count(node) AS n"
+
+
+@pytest.fixture
+def live(monkeypatch):
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: SNAPSHOT)
+    monkeypatch.setattr(gcat, "get_type_details", lambda config, titles: [])
+    monkeypatch.setattr(gcat, "get_vocabulary", lambda config: VOCAB)
+
+
+@pytest.fixture
+def down(monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise gcat.CatalogUnavailable("down")
+    for name in ("get_snapshot", "get_type_details", "get_vocabulary"):
+        monkeypatch.setattr(gcat, name, unavailable)
+
+
+class FakeLLM:
+    """Answers each call with the next plan; the last one repeats."""
+
+    def __init__(self, *plans):
+        self.plans, self.calls = [p if isinstance(p, tuple) else (p, {}) for p in plans], []
+
+    def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+        cypher, params = self.plans[min(len(self.calls), len(self.plans)) - 1]
+        return GraphAgentPlan(cypher=cypher, explanation="model explanation", parameters=dict(params))
+
+    def repair(self) -> str:
+        return self.calls[1]["messages"][-1]["content"]
+
+
+def _config():
+    c = MagicMock()
+    c.NEO4J_SCHEMA = {"node_properties": {"Sample": ["uuid", "type", "id", "Organ", "search_text"]}}
+    c.GRAPH_AGENT_SYSTEM_PROMPT = "graph system prompt"
+    c.PROTOCOL_SCHEMA = None
+    c.ASSAY_SAMPLE_CONNECTIONS = None
+    c.get_agent_model.return_value = (MagicMock(), "model", None)
+    return c
+
+
+def run(monkeypatch, llm):
+    monkeypatch.setattr(graph_mod, "call_llm_structured", llm)
+    return graph_mod.graph_agent(_config(), "how many samples descend from a primate", {}, None)
+
+
+@pytest.mark.parametrize("mode", ["live", "down"])
+def test_a_well_shaped_query_is_returned_after_one_call(monkeypatch, request, mode):
+    request.getfixturevalue(mode)
+    llm = FakeLLM(BOUNDED)
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 1 and out.cypher == BOUNDED
+
+
+@pytest.mark.parametrize("mode", ["live", "down"])
+def test_an_unbounded_path_is_repaired_once(monkeypatch, request, mode):
+    request.getfixturevalue(mode)
+    llm = FakeLLM(UNBOUNDED, BOUNDED)
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 2 and out.cypher == BOUNDED
+    assert f"*1..{MAX}" in llm.repair() and "11 hops" in llm.repair()
+
+
+@pytest.mark.parametrize("mode", ["live", "down"])
+def test_a_repair_that_keeps_the_shape_is_refused(monkeypatch, request, mode):
+    request.getfixturevalue(mode)
+    llm = FakeLLM(UNBOUNDED, UNBOUNDED)
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 2 and out.cypher == ""
+    assert out.explanation.startswith("Graph agent could not produce valid Cypher")
+    assert "[:DERIVED_FROM*1..]" in out.explanation
+    assert out.context_mode == ("catalog" if mode == "live" else "fallback")
+
+
+@pytest.mark.parametrize("mode", ["live", "down"])
+def test_a_shape_repair_is_rechecked_by_the_property_guard(monkeypatch, request, mode):
+    """The verifier's finding: a repair that bounds the path but invents a property must not reach Neo4j."""
+    request.getfixturevalue(mode)
+    llm = FakeLLM(UNBOUNDED, (BOUNDED_HALLUCINATED, {"o": "x"}))
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 2 and out.cypher == "" and "Hallucinated" in out.explanation
+
+
+@pytest.mark.parametrize("mode", ["live", "down"])
+def test_a_property_repair_is_rechecked_by_the_shape_guard(monkeypatch, request, mode):
+    request.getfixturevalue(mode)
+    llm = FakeLLM(("MATCH (a:T_TIS) WHERE a.Hallucinated = $o RETURN count(*)", {"o": "x"}), UNBOUNDED)
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 2 and out.cypher == "" and "[:DERIVED_FROM*1..]" in out.explanation
+
+
+@pytest.mark.parametrize("mode", ["live", "down"])
+def test_one_repair_names_a_property_problem_and_a_shape_problem(monkeypatch, request, mode):
+    request.getfixturevalue(mode)
+    llm = FakeLLM((UNBOUNDED_HALLUCINATED, {"o": "x"}), BOUNDED)
+    out = run(monkeypatch, llm)
+    repair = llm.repair()
+    assert len(llm.calls) == 2 and out.cypher == BOUNDED
+    assert "Hallucinated" in repair and "[:DERIVED_FROM*1..]" in repair and f"*1..{MAX}" in repair
+
+
+def test_an_unscoped_fulltext_call_is_repaired_with_the_plans_own_parameters(monkeypatch, live):
+    scoped = UNSCOPED.replace("YIELD node", "YIELD node WHERE node:T_TIS")
+    llm = FakeLLM((UNSCOPED, {"q": "foo-bar"}), (scoped, {"q": "foo-bar"}))
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 2 and out.cypher == scoped and "'foo', 'bar'" in llm.repair()
+
+
+def test_an_unscoped_fulltext_call_on_one_word_is_not_repaired(monkeypatch, live):
+    llm = FakeLLM((UNSCOPED, {"q": "foo"}))
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 1 and out.cypher == UNSCOPED
+
+
+def test_the_repair_is_rechecked_with_the_repaired_plans_parameters(monkeypatch, live):
+    llm = FakeLLM((UNSCOPED, {"q": "foo bar"}), (UNSCOPED, {"q": "foo AND bar"}))
+    out = run(monkeypatch, llm)
+    assert out.cypher == "" and "'foo', 'bar'" in out.explanation
+
+
+def test_a_repair_message_with_no_shape_problem_is_the_catalog_message_unchanged(monkeypatch, live):
+    bad = "MATCH (a:T_TIS) WHERE a.Hallucinated = 1 RETURN count(*)"
+    llm = FakeLLM(bad, BOUNDED)
+    run(monkeypatch, llm)
+    problems = graph_mod._property_problems(bad, SNAPSHOT)
+    assert llm.repair() == graph_mod._catalog_repair_message(problems, [], SNAPSHOT, [])
