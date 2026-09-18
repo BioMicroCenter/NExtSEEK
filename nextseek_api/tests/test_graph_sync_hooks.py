@@ -36,6 +36,13 @@ def test_enqueue_passes_the_payload():
 
 
 @pytest.mark.django_db
+def test_enqueue_passes_the_delay():
+    assert hooks.enqueue("retire", "sample:7", delay_s=300) is True
+    r = GraphSyncOutbox.objects.get(kind="retire", key="sample:7")
+    assert r.lease_expires_at is not None and r.lease_expires_at > r.enqueued_at
+
+
+@pytest.mark.django_db
 def test_enqueue_swallows_a_database_error(monkeypatch, caplog):
     def broken(*args, **kwargs):
         raise OperationalError("(2006, 'MySQL server has gone away')")

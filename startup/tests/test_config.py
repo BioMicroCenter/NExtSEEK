@@ -161,6 +161,18 @@ def test_real_template_internal_url_never_inherits_bumped_port(tmp_path: Path) -
     assert internal_lines == ['NEXTSEEK_INTERNAL_BASE_URL="http://127.0.0.1:8000"']
 
 
+def test_real_template_sets_the_cc_turn_ceiling_to_180(tmp_path: Path) -> None:
+    """13b.2: the Container-CC turn ceiling is rendered, not left to the code
+    default, so a box that renders its env is never silently unset. 180 is the
+    operator's decision and matches the default in NessieAI/cc/cc_engine.py."""
+    rendered = _render_real_template(tmp_path, port=8042)
+    lines = [
+        line for line in rendered.splitlines()
+        if line.startswith("NEXTSEEK_CC_TIMEOUT_HARD_MAX=")
+    ]
+    assert lines == ['NEXTSEEK_CC_TIMEOUT_HARD_MAX="180"']
+
+
 def test_env_example_internal_url_parity_with_template() -> None:
     """Tripwire: the hand-maintained example must carry the same internal URL."""
     example = (_REPO_ROOT / "docker" / "nextseek.env.example").read_text()

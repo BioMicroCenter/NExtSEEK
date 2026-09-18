@@ -160,7 +160,7 @@ criteria and recorded `status="error"`: `No module named 'django'` on the host,
 carrying the same one-line reason naming django, while the `route_gate` cases
 and the consistency groups looked normal.
 
-Two changes close it:
+Two changes close it, and a third closes a related shape found after it:
 
 - **The reader configures Django itself when nothing has.** `bundle.ensure_django`
   (`bundle.py:46-72`) sets `DJANGO_SETTINGS_MODULE` to `dmac.settings` if it is
@@ -175,6 +175,17 @@ Two changes close it:
   `BundleReaderUnavailable` with nothing sent: the module CLI exits 9
   (`cli.py:32`), `manage.py nessie` raises a `CommandError`, and both say
   nothing was billed. On the host that is the expected outcome of `--tier full`.
+- **A full-depth run proves its reader reads the instance the turns run on.**
+  `preflight()` proves only that SOME database is readable: a reader configured
+  for instance B passes it while the turns run on instance A, and then every
+  turn bills on A and every bundle read on B finds nothing. So
+  `runner.check_bundle_reader` next opens an empty chat on `--base-url`
+  (`http_driver.make_session_clients`: a plain session create, no turn and no
+  model, so free), asks the reader whether its database holds it (the reader's
+  `holds_session` hook, `bundle.session_exists`), and deletes it. A reader that
+  does not hold it raises `BundleReaderOtherInstance`, a `BundleReaderUnavailable`,
+  so the same exit 9 or `CommandError` follows with nothing sent; so does a probe
+  chat that cannot be opened. A probe chat that cannot be deleted only warns.
 
 `manage.py nessie` is still the entry point to use for paid runs. It is the one
 verified to produce real per-criterion expected/observed grading, and it also
@@ -202,7 +213,8 @@ manifest, all host-safe under the unit lane's `--with` list.
   `--base-url`. So driving instance A's endpoint from instance B's environment
   cannot work: the session ids A's turns create exist only in A's database, and
   every bundle read misses. Environment and endpoint must belong to the SAME
-  instance.
+  instance, and a full-depth run checks that before its first turn (the probe
+  chat in "Two entry points" above): a mismatched pair is refused, nothing billed.
 - `--out` should be a path that survives the container (a mounted or
   bind-mounted directory), or the run directory must be copied out afterwards
   (`docker cp <app-container>:<out-dir> .`). A path on the container's own

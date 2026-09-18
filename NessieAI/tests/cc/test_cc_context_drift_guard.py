@@ -17,8 +17,7 @@ live privilege regression (#65a).
 
 Since NessieAI Phase C there is one copy of each shared file: the Dockerfile COPYs
 it from the Compose named context ``chat_nextseek`` to its in-image path, and the
-plugin tree keeps only the files without a source twin plus min_graph_schema.json,
-whose source twin has drifted (below). ``image_context.py`` beside this module replays the
+plugin tree keeps only the files without a source twin. ``image_context.py`` beside this module replays the
 Dockerfile's COPY lines, so every check here reads the file the image really
 bakes, whichever directory that is.
 
@@ -89,7 +88,6 @@ EXPECTED_BAKED_FILES = frozenset({
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
     "min_assays_db.json",
-    "min_graph_schema.json",
     "min_sampletypes_db.json",
     "ops.json",
     "projects_db.json",
@@ -107,9 +105,7 @@ EXPECTED_FROM_SOURCE = frozenset({
     "projects_db.json",
 })
 
-# What the plugin tree's context directory itself holds: the baked-only files and
-# min_graph_schema.json, whose source twin has drifted (phase 12 owns that file; it is
-# hand-authored routing prose rather than a schema capture, despite the name).
+# What the plugin tree's context directory itself holds: the baked-only files.
 EXPECTED_PLUGIN_TREE_FILES = EXPECTED_BAKED_FILES - EXPECTED_FROM_SOURCE
 
 # Baked-only by design — these have no counterpart in the source pack because
@@ -156,6 +152,11 @@ EXPECTED_SOURCE_ONLY = frozenset({
     "neo4j_schema.json",
     "neo4j_schema_dev.json",          # per-environment snapshots, read by nothing on a turn
     "neo4j_schema_prod.json",
+    # The NS parser's graph-routing prose. The CC agent does not write Cypher (the
+    # nextseek-graph op's server-side graph agent does, from the live catalog), and its
+    # own op choice is the plugin skill's; the stale plugin-tree copy that contradicted
+    # that skill was removed on 2026-09-18.
+    "min_graph_schema.json",
 })
 
 # ---------------------------------------------------------------------------
@@ -407,12 +408,33 @@ def test_enforced_and_baked_allowlists_agree_on_endpoint_methods():
     )
 
 
+def test_every_endpoint_the_cc_guidance_names_is_read_safe():
+    """The skill, the manifest and the command text may name only endpoints api-read runs.
+
+    NessieAI/docker/CLAUDE.md: an endpoint the skill sends the agent to must be read-safe. A named
+    endpoint the gate refuses costs the agent a WRITE_BLOCKED and one of its two attempts, as the
+    single-record and tree-view endpoints did when the skill first promised them (2026-09-18
+    review). Writes are named without the /nextseek_api/ prefix, so they are not caught here.
+    """
+    import re
+
+    guidance = [*paths.CC_PLUGIN_DIR.glob("skills/*/SKILL.md"), BAKED_DIR / "MANIFEST.md",
+                *paths.CC_PLUGIN_DIR.glob("commands/*.md")]
+    named = {m for f in guidance for m in re.findall(r"/nextseek_api/[A-Za-z0-9_./{}-]+/",
+                                                   f.read_text(encoding="utf-8"))}
+    read_safe = {e["endpoint"] for e in json.loads(ENFORCED_ALLOWLIST.read_text(encoding="utf-8"))}
+    assert named, "the guidance names no endpoint at all; the pattern above has gone stale"
+    assert not named - read_safe, (
+        f"the CC guidance names endpoints api-read refuses: {sorted(named - read_safe)}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # #65a: the specific privilege the drift leaked
 # ---------------------------------------------------------------------------
-# POST-as-read query endpoints (advanced_search, parents_by_child_types,
-# admin/samples/retrieve) are legitimately advertised and deliberately absent
-# from this list — see read_safe_endpoints.json for their audited rationale.
+# POST-as-read query endpoints (graph_search, admin/samples/retrieve) are
+# legitimately advertised and deliberately absent from this list — see
+# read_safe_endpoints.json for their audited rationale.
 FORBIDDEN_SAMPLE_MUTATIONS = (
     ("POST", "/nextseek_api/samples/"),
     ("PATCH", "/nextseek_api/samples/{uid}/"),
@@ -488,9 +510,12 @@ ADVERTISED_MUTATIONS = {
     ("POST", "/nextseek_api/people/"): WRITE,
     ("POST", "/nextseek_api/projects/"): WRITE,
     ("POST", "/nextseek_api/sample_types/"): WRITE,
-    ("POST", "/nextseek_api/sample_types/get_parents/parents_by_child_types/"): POST_AS_READ,
     ("POST", "/nextseek_api/samples/"): WRITE,
-    ("POST", "/nextseek_api/samples/advanced_search/"): POST_AS_READ,
+    # Sample search answered from the graph, the caller's project scope added on
+    # the server. It replaced advanced_search and parents_by_child_types in the
+    # agent's catalog on 2026-09-18 (sample questions go to the graph; the second
+    # also crossed the project edge on lineage).
+    ("POST", "/nextseek_api/samples/graph_search/"): POST_AS_READ,
     ("POST", "/nextseek_api/schema_rag/ingest/"): WRITE,
     # #86, audited 2026-08-13: WRITE, not post-as-read. See
     # SCHEMA_RAG_RETRIEVE_AUTO_INGEST below for the finding and the evidence.

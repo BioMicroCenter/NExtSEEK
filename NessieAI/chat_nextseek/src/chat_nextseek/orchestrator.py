@@ -666,6 +666,15 @@ def _graph_scope_fallback(graph_plan, graph_result: dict, attempts: list, debug_
     return fallback
 
 
+def _schema_fallback_line(fallback) -> str | None:
+    """The debug panel's line for a graph turn whose schema was the committed file (``GraphAgentPlan.context_fallback``),
+    or None on a turn that read the live catalog."""
+    if not isinstance(fallback, dict):
+        return None
+    return (f"committed graph schema (captured {fallback.get('fallback_fetched_at') or 'on an unknown date'}), "
+            f"not the live catalog: {fallback.get('unavailable_reason')}")
+
+
 def _fall_back_to_graph_search(plan: ParserPlan) -> tuple[ParserPlan, str, list[str]]:
     """The plan, mode and chatter notes that send a refused graph question through the REST branch."""
     plan = plan.model_copy(update={"mode": "new_search", "target_endpoint": GRAPH_SEARCH_ENDPOINT})
@@ -703,21 +712,26 @@ def _execute_graph_turn(
     print("\n[GRAPH] Running graph agent...")
     graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=agent_context)
     debug_payload["graph_context"] = graph_plan.context_mode
+    # A fallback's reason and capture date: the harness reads the payload, the debug panel the summary line.
+    schema_fallback = _schema_fallback_line(graph_plan.context_fallback)
+    if schema_fallback:
+        debug_payload["graph_context_fallback"] = graph_plan.context_fallback
     print(f"[DEBUG][GRAPH] Explanation: {graph_plan.explanation}")
     print(f"[DEBUG][GRAPH] Cypher:\n{graph_plan.cypher}")
 
     if not graph_plan.cypher:
         reply = f"Graph agent could not generate a query.\n\nReason: {graph_plan.explanation}"
         session["last_debug"] = debug_payload
-        send_event("agent_complete", {"agent": "graph", "summary": None})
+        send_event("agent_complete", {"agent": "graph",
+                                      "summary": {"schema_fallback": schema_fallback} if schema_fallback else None})
         print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
         print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
         return _emit_query_complete(send_event, reply, debug_payload, None)
 
-    send_event(
-        "agent_complete",
-        {"agent": "graph", "summary": {"cypher": graph_plan.cypher, "explanation": graph_plan.explanation}},
-    )
+    summary = {"cypher": graph_plan.cypher, "explanation": graph_plan.explanation}
+    if schema_fallback:
+        summary["schema_fallback"] = schema_fallback
+    send_event("agent_complete", {"agent": "graph", "summary": summary})
 
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
     graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
@@ -1503,15 +1517,19 @@ def run_query(
             # Graph-origin refines re-run the graph path (with prior Cypher as context);
             # everything below this is REST refine prep.
             if mode == "refine_last_search":
+                # The stored result the parser named in target_result_id, else the newest.
+                from .chat_memory import select_refine_bundle
+
                 _history = session.get("results_history", []) or []
-                if _history and (_history[-1] or {}).get("mode") == "graph_query":
+                _prior, debug_payload["refine_target"] = select_refine_bundle(_history, plan.target_result_id)
+                if _prior and _prior.get("mode") == "graph_query":
                     current_agent = "graph"
                     outcome = _execute_graph_turn(
                         config=config, session=session, user_text=user_text,
                         entity_result=entity_result, plan=plan,
                         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
                         debug_payload=debug_payload, t_total_start=_t_total_start,
-                        refine_context=_build_graph_refine_context(_history[-1]),
+                        refine_context=_build_graph_refine_context(_prior),
                     )
                     if not isinstance(outcome, GraphScopeFallback):
                         return outcome
@@ -1520,7 +1538,7 @@ def run_query(
                 plan_data = plan.model_dump()
                 history = session.get("results_history", [])
                 if history:
-                    last_bundle = history[-1]
+                    last_bundle = _prior  # chosen above: mode is still a refine only if that block ran
                     prev_plan = last_bundle.get("parser_plan", {}) or {}
                     previous_api_plan = last_bundle.get("api_plan")
                     previous_user_query = last_bundle.get("user_query")

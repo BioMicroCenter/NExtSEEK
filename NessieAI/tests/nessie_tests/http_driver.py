@@ -54,6 +54,35 @@ def make_default_clients(base_url: str, auth_header: str, timeout_s: float = SOC
     return post_query, get_progress
 
 
+# A plain chat create and delete: no turn, no router, no model, so no spend.
+SESSIONS_PATH = "/nextseek_api/assistant/sessions/"
+
+
+def make_session_clients(base_url: str, auth_header: str, timeout_s: float = SOCKET_TIMEOUT_S):
+    """Open and close an empty chat on the instance at `base_url`, as the harness user.
+
+    `runner.check_bundle_reader` opens one before a full-tier run's first turn and asks
+    the bundle reader whether its database holds it: the proof that the reader reads
+    the instance the paid turns run on. Both calls are free.
+    """
+    def open_session() -> str:
+        req = urllib.request.Request(
+            f"{base_url}{SESSIONS_PATH}", data=b"{}",
+            headers={"Authorization": auth_header, "Content-Type": "application/json"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            return str(json.loads(r.read().decode())["session_id"])
+
+    def close_session(session_id: str) -> None:
+        req = urllib.request.Request(
+            f"{base_url}{SESSIONS_PATH}{session_id}/",
+            headers={"Authorization": auth_header}, method="DELETE")
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            r.read()
+
+    return open_session, close_session
+
+
 def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           get_progress: Callable[[str], dict], session_id: str | None = None,
           force_new: bool = False,
@@ -68,11 +97,11 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           clock: Callable[[], float] = time.monotonic) -> DriveResult:
     """Drive one turn to completion (full tier) or to route_decided (route tier).
 
-    ``force_new`` asks the server for a fresh ChatSession. Without it the API
-    falls back to the caller's most recently updated session, which silently
-    joins every case into one conversation and leaks results_history, pinned
-    bundles and pipeline state across cases. It is ignored once ``session_id``
-    is known, so a case's later turns stay in the session its seed opened.
+    ``force_new`` asks the server for a fresh ChatSession. The routed endpoint
+    now opens one for every session-less body anyway; an older server instead
+    falls back to the caller's most recently updated session, joining every case
+    into one conversation and leaking results_history, bundles and pipeline state.
+    It is ignored once ``session_id`` is known, so later turns keep the seed's chat.
 
     ``fresh_session`` closes the OTHER half of that isolation, and defaults to
     True because per-case isolation is this harness's whole premise.

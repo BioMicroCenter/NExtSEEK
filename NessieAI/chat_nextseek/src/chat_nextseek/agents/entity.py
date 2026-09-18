@@ -15,7 +15,7 @@ from ..helpers import (
     safe_parse_json,
 )
 from ..helpers.lab_code import resolve_labs
-from ..schemas.schema_helper import StructuredOutputError, call_llm_structured
+from ..schemas.schema_helper import StructuredOutputError, call_llm_structured, empty_output_problem
 from ..schemas import (
     EntityAgentOutput,
 )
@@ -132,6 +132,7 @@ def entity_agent(
             usage_label="ENTITY",
             thinking_budget=entity_budget,
             client=entity_client,
+            result_check=empty_output_problem,
         )
     except Exception as e:
         print("[DEBUG][ENTITY] Exception or parse error (structured):", repr(e))
@@ -155,6 +156,7 @@ def entity_agent(
                     timeout_retries=0,
                     thinking_budget=entity_budget,
                     client=entity_client,
+                    result_check=empty_output_problem,
                 )
             except Exception as e_retry:
                 print("[DEBUG][ENTITY] Retry after timeout failed:", repr(e_retry))

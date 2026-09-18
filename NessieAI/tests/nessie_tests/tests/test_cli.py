@@ -515,3 +515,34 @@ def test_route_tier_without_django_still_runs(monkeypatch, tmp_path):
                    "--variant", "green.global_count", "--out", str(tmp_path)])
     assert rc == 0
     assert (tmp_path / "manifest.json").exists()
+
+
+def test_full_tier_whose_reader_reads_another_instance_refuses_before_the_first_paid_turn(
+        monkeypatch, tmp_path, capsys):
+    """The pair 8.4 let through: the reader can read (its preflight passes) but reads a
+    different instance's database from the one --base-url names, so every turn billed
+    there and every bundle read found nothing. The real CLI wiring must refuse it, free."""
+    from NessieAI.tests.nessie_tests import bundle
+    monkeypatch.setattr(bundle.summary_for_session, "preflight", lambda: None)
+    monkeypatch.setattr(bundle.summary_for_session, "holds_session", lambda sid: False,
+                        raising=False)
+    opened = []
+
+    def fake_sessions(base_url, auth_header, *a, **k):
+        def open_session():
+            opened.append(base_url)
+            return "0000000000000000000000000000beef"
+        return open_session, (lambda session_id: None)
+
+    monkeypatch.setattr(cli.http_driver, "make_session_clients", fake_sessions, raising=False)
+    posted = _counting_endpoint(monkeypatch)
+
+    rc = cli.main(["--base-url", "http://h:8000", "--tier", "full",
+                   "--variant", "green.global_count", "--out", str(tmp_path)])
+
+    assert opened == ["http://h:8000"], "the probe chat must be opened on --base-url"
+    assert posted == [], f"{len(posted)} turn(s) were sent, and billed, before the refusal"
+    assert rc == cli.EXIT_BUNDLE_READER_UNAVAILABLE
+    out = capsys.readouterr().out
+    assert "nothing was billed" in out and "http://h:8000" in out
+    assert not (tmp_path / "manifest.json").exists()

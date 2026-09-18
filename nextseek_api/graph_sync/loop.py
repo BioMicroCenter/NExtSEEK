@@ -24,13 +24,16 @@ attempts, and released with a short back-off (``DEFER_BACKOFF_S``). A real failu
 
 **A child's exit status decides its row**: 0 done, 2 done with the refusal recorded (nothing was written, and its
 own run record says why), anything else, a timeout included, failed with a back-off. A lock timeout inside a child
-is exit 1, not 2, so it is retried rather than marked done.
+is exit 1, not 2, so it is retried rather than marked done. The one exit 1 that is done is a drift check that ran to
+its end and found drift, proven by the result it saved in its run directory: the check reports and does not repair,
+so a retry would find the same drift an hour later, until the row died, with the outbox reported stale all along.
 
 **Nothing but a signal ends the loop.** A failing pass is logged and the next one runs: a loop that exits on one bad
 row stops draining every other one, and the entrypoint would only restart it into the same failure a minute later.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -48,7 +51,7 @@ from django.conf import settings
 from django.db import DatabaseError
 from django.utils import timezone as dj_timezone
 
-from nextseek_api.graph_sync import run, schedule, state, targeted, writer
+from nextseek_api.graph_sync import drift, run, schedule, state, targeted, writer
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +88,9 @@ _CHILD_TIMEOUT_S = MappingProxyType({"full": 5 * 3600, "reconcile": 2 * 3600, "d
 # The run statuses that count as "this kind ran" for the schedule. A drift check that found drift did its job: it
 # reports, it does not repair, and only a failure leaves its slot owed.
 _SATISFYING_STATUSES = MappingProxyType({"drift": ("ok", "drift")})
+# ``manage.py graph_sync --drift``'s exit when the check ran and found drift (the design, section 13). The drain
+# closes that row, as the schedule counts that run, but only on the result the child saved (``drift_reported``).
+DRIFT_FOUND_EXIT = 1
 
 
 def child_timeout_s(kind: str) -> float:
@@ -104,10 +110,15 @@ def default_run_root() -> str:
     return os.environ.get(RUN_DIR_ENV) or os.path.join(getattr(settings, "LOG_DIR", os.getcwd()), "graph_sync")
 
 
-def run_dir_for(run_root: str, kind: str, now: datetime | None = None) -> str:
-    """``<run root>/<kind>-<UTC time>``. The stamp sorts as it runs, which is what ``prune_run_dirs`` counts on."""
+def run_dir_for(run_root: str, kind: str, now: datetime | None = None, row_id: int | None = None) -> str:
+    """``<run root>/<kind>-<UTC time>``, and ``-<row id>`` for a child the drain launches. The stamp sorts as it
+    runs, which is what ``prune_run_dirs`` counts on.
+
+    The row id is what keeps two children of one pass apart: ``run_pass`` fixes its time once, so two slots of one
+    kind drained in the same pass would otherwise share a directory, write over each other's files, and a drift
+    child that saved nothing would be judged on the other one's result (``drift_reported``)."""
     stamp = (now or datetime.now(UTC)).astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return os.path.join(run_root, f"{kind}-{stamp}")
+    return os.path.join(run_root, f"{kind}-{stamp}" + ("" if row_id is None else f"-{row_id}"))
 
 
 def worker_identity() -> str:
@@ -259,11 +270,33 @@ def _fail(claim, error, entry: dict, *, now: datetime) -> dict:
     return entry
 
 
+def drift_reported(run_dir: str) -> list[str] | None:
+    """The failed checks of a ``--drift`` child that ran to its end and found drift, read from the result it saved in
+    ``run_dir`` before exiting 1; None when there is no such result, so an exit 1 that is a crash stays a failure."""
+    try:
+        with open(os.path.join(run_dir, drift.RESULT_FILE), encoding="utf-8") as fh:
+            result = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(result, dict) or result.get("status") != drift.DRIFT:
+        return None
+    return [str(c.get("name", "?")) for c in result.get("checks") or [] if isinstance(c, dict) and not c.get("pass")]
+
+
 def _child(claim, opts: Options, entry: dict, *, now: datetime, launch) -> dict:
-    run_dir = run_dir_for(opts.run_root, claim.kind, now)
+    run_dir = run_dir_for(opts.run_root, claim.kind, now, row_id=claim.id)
     timeout_s = child_timeout_s(claim.kind)
     code = launch(child_argv(claim.kind, run_dir, opts), timeout_s)
     entry.update(run_dir=run_dir, exit=code, refused=code == 2)
+    found = drift_reported(run_dir) if claim.kind == "drift" and code == DRIFT_FOUND_EXIT else None
+    if found is not None:
+        # The check did its job: it reports and does not repair, so a retry would only find the same drift, and the
+        # row would age the outbox past its threshold and die at the attempt limit (_SATISFYING_STATUSES).
+        state.finish_done(claim, now=now)
+        entry.update(outcome=DONE, drift=found)
+        log.warning("graph_sync: the drift check found drift in %s; its run record and %s say what",
+                    ", ".join(found) or "no named check", os.path.join(run_dir, drift.RESULT_FILE))
+        return entry
     if code in (0, 2):
         state.finish_done(claim, now=now)
         entry["outcome"] = DONE

@@ -53,6 +53,8 @@ DETECTION_CHECKS = ("samples.missing_in_graph", "samples.not_in_mysql", "samples
 
 CHANGED, MISSING_IN_GRAPH, NOT_IN_MYSQL = "changed", "missing_in_graph", "not_in_mysql"
 OK, DRIFT, REFUSED = "ok", "drift", "refused"
+# What ``manage.py graph_sync --drift --run-dir`` saves the result as, before it exits; the loop reads it back.
+RESULT_FILE = "drift.json"
 
 # The uuid on each node of these ids: a changed sample whose node carries another uuid brings a new one.
 NODE_UUIDS = """

@@ -11,10 +11,15 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 class QueryRequest(BaseModel):
     """POST /assistant/query/ request body."""
-    session_id: Optional[UUID] = Field(None, description="Chat session UUID. If omitted (and force_new is False), reuses the most recently updated session or auto-creates one.")
+    session_id: Optional[UUID] = Field(None, description=(
+        "Chat session UUID; it must belong to the caller. If omitted, the routed Nessie endpoints (cc-assistant/query/async/, "
+        "cc-assistant/cc/query/async/, nessie/query/, nessie/query/cc/) always open a new chat, while the legacy assistant/query/ "
+        "and assistant/query/async/ reuse the most recently updated session (unless force_new) or auto-create one."))
     query: str = Field(..., min_length=1, max_length=32000, description="Natural language query")
     mode: str = Field(..., description="What mode to execute the query as. E.g. standard, plan, etc.")
-    force_new: bool = Field(False, description="If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one.")
+    force_new: bool = Field(False, description=(
+        "If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one. Only the "
+        "legacy assistant/query/ routes reuse; on the routed Nessie endpoints an omitted session_id is already a new chat."))
     use_prod: bool = Field(False, description="If true and a NEXTSEEK_CHAT_CONFIG_PROD is configured, route this query through the prod ChatConfig (real production tables) instead of the default dev/docker one. Admin-only on the UI; ignored if a prod config wasn't built.")
     fresh_session: bool = Field(False, description="If true, run this turn as a clean room: skip the Step-1c cross-session memory layer (no rendered ~/.claude/CLAUDE.md, no raw-transcript mount). 1b resume within this chat still applies.")
     force_route: Optional[Literal["auto", "ns", "cc"]] = Field(None, description="Admin-only: supersede the BAML router for this query. 'ns' forces the core chat_nextseek path, 'cc' forces Container-Claude-Code, 'auto'/None uses the router. Ignored for non-admins (the server re-checks is_staff/is_superuser).")

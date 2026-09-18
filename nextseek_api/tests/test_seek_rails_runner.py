@@ -120,3 +120,58 @@ def test_run_seek_rails_runner_unavailable_on_connect_error():
     with patch("docker.from_env", side_effect=OSError("no socket")):
         with pytest.raises(SeekRailsUnavailableError, match="Cannot connect"):
             run_seek_rails_runner("puts '{}'")
+
+
+def _exec_returning(exit_code, stdout=b"", stderr=b""):
+    fake_container = MagicMock()
+    fake_container.exec_run.return_value = (exit_code, (stdout, stderr))
+    fake_client = MagicMock()
+    fake_client.containers.get.return_value = fake_container
+    return fake_client
+
+
+def test_a_runner_killed_with_no_output_says_it_was_killed():
+    """Exit 137 is SIGKILL: the seek container's memory cap killed the fresh Rails boot, and both streams are empty.
+
+    The 502 detail is all an operator sees, so it has to name the kill rather than come back empty.
+    """
+    with patch("docker.from_env", return_value=_exec_returning(137)):
+        with pytest.raises(SeekRailsRunnerError, match="no JSON output") as caught:
+            run_seek_rails_runner("puts '{}'")
+    err = caught.value
+    assert err.exit_code == 137
+    assert "137" in str(err)
+    assert "killed" in err.detail and "out of memory" in err.detail and "seek container" in err.detail
+
+
+def test_a_runner_that_exits_non_zero_with_no_output_reports_its_exit_code():
+    with patch("docker.from_env", return_value=_exec_returning(1)):
+        with pytest.raises(SeekRailsRunnerError) as caught:
+            run_seek_rails_runner("puts '{}'")
+    err = caught.value
+    assert err.exit_code == 1
+    assert "exited 1" in err.detail
+    assert "out of memory" not in err.detail
+
+
+def test_the_exit_code_is_reported_beside_what_the_runner_printed():
+    with patch("docker.from_env", return_value=_exec_returning(1, stderr=b"LoadError: cannot load such file")):
+        with pytest.raises(SeekRailsRunnerError) as caught:
+            run_seek_rails_runner("puts '{}'")
+    assert "exited 1" in caught.value.detail
+    assert "LoadError: cannot load such file" in caught.value.detail
+
+
+def test_a_runner_killed_after_printing_a_line_that_is_not_json_says_it_was_killed():
+    with patch("docker.from_env", return_value=_exec_returning(137, stdout=b"Loading production environment")):
+        with pytest.raises(SeekRailsRunnerError, match="not valid JSON") as caught:
+            run_seek_rails_runner("puts '{}'")
+    assert caught.value.exit_code == 137
+    assert "killed" in caught.value.detail and "Loading production environment" in caught.value.detail
+
+
+def test_a_clean_empty_run_keeps_its_old_message():
+    with patch("docker.from_env", return_value=_exec_returning(0)):
+        with pytest.raises(SeekRailsRunnerError, match="no JSON output") as caught:
+            run_seek_rails_runner("puts ''")
+    assert caught.value.exit_code == 0

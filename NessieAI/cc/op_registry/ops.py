@@ -205,9 +205,11 @@ OPS: list[OpSpec] = [
         response_envelope_fields=["op", "result"],
         skill_name="nextseek",
         skill_row=_row(
-            "Run a Neo4j lineage/graph query from NL.",
+            "Answer any question about samples from the graph (find, filter, count, break down, lineage, "
+            "attribute values), held to the user's projects; a query refused for its scope is answered "
+            "through graph_search under fallback.",
             '--query "<text>"',
-            "{cypher, result}",
+            "{plan, result, fallback?}",
         ),
     ),
     _dispatch(

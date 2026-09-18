@@ -50,8 +50,13 @@ def test_hook_preserves_isolation_no_new_creds_or_network():
 def test_manifest_lists_context_files_and_when_to_consult():
     md = _MANIFEST.read_text(encoding="utf-8")
     for f in ("capabilities.md", "min_sampletypes_db.json",
-              "min_graph_schema.json", "projects_db.json", "min_api_endpoints"):
+              "projects_db.json", "min_api_endpoints"):
         assert f in md, f"manifest missing pointer to {f}"
+    # The plugin's graph-routing prose is gone: the CC agent's op choice is the skill's,
+    # and that file had told it to send metadata filters to advanced_search.
+    assert "min_graph_schema.json" not in md, (
+        "MANIFEST.md still names a context file the image does not bake"
+    )
     # The graph schema is no longer a file in this image; the manifest must send the
     # agent to the op that reads the deployed graph instead of to a stale capture.
     assert "nextseek-graph-schema" in md, (

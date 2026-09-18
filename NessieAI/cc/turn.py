@@ -381,7 +381,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 "route": decision.route, "model_class": decision.model_class,
                 "source": decision.source, "reasoning": decision.reasoning,
             })
-            _record_ledger_row(chat_session, decision)
+            _record_ledger_row(chat_session, decision, query_task=query_task)
 
             if decision.route == cc_router.ROUTE_UNRELATED:
                 from django.utils import timezone

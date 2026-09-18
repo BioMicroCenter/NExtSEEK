@@ -135,11 +135,6 @@
     "description": "Modify an existing sample type's attributes, description, or validation rules. Returns the updated sample type with all current settings. Examples: 'Add a new required field to the tissue sample type'; 'Update the description for sequencing data samples'"
   },
   {
-    "path": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
-    "method": "POST",
-    "description": "Find parent samples that have derived samples of all specified types. Uses AND logic across types, so only samples with descendants matching every requested type are returned. Optionally filter by parent sample type. Returns a list of matching sample IDs, UIDs, sample types, and descriptions. Examples: 'Which monkeys have both imaging data and sequencing results?'; 'Find all animals that have tissue samples and cell line derivatives'"
-  },
-  {
     "path": "/nextseek_api/samples/",
     "method": "POST",
     "description": "Create a new Sample in SEEK. Requires sample type relationship and attributes. Returns the created sample with its assigned ID, UUID, and metadata. Examples: 'Register a new tissue sample for the water study'; 'Add a new blood draw sample for a monkey taken during this visit (PAV-220630FLY-3)'"
@@ -160,14 +155,9 @@
     "description": "Delete a Sample by SEEK id or NExtSEEK UID. Permanently removes the sample from SEEK. Returns confirmation on success. Examples: 'Remove sample NHP-220630FLY-1-PUB from the system'; 'Delete all records for sample 321'"
   },
   {
-    "path": "/nextseek_api/samples/advanced_search/",
+    "path": "/nextseek_api/samples/graph_search/",
     "method": "POST",
-    "description": "Search samples by type, attribute filters, and text matching. Supports multiple sample types, attribute-based filtering, and partial/exact match modes. Returns paginated list of matching samples with full metadata. Can also retrieve all samples of a given type by leaving filter fields empty. Examples: 'Group all monkeys by sex and necropsy date'; 'Find all mice from water study that were treated with NDMA'; 'Show me all samples associated with T cell depletion'; 'Create a barplot comparing the fraction of tumor values for all DFCI3 patient biopsies'; 'How many monkeys have both CT scan data and sequencing data?'"
-  },
-  {
-    "path": "/nextseek_api/sampletypes/{uid}/child_types/",
-    "method": "GET",
-    "description": "Get the distinct types of all samples derived from a given sample. Traverses the sample hierarchy to find all related samples below it. Returns a list of unique sample types with their IDs, titles, and descriptions. Examples: 'What types of samples were collected from NHP-220630FLY-1-PUB?'; 'Does this monkey have any imaging data?'"
+    "description": "Search, filter and count samples from the sample graph, inside the caller's projects: the server adds the caller's project scope (a superuser sees every project), so a non-superuser never sees or counts a sample of another project. The body is a search over sample metadata: sampletype (a sample type code, or a list of codes), filter_searchText (a term or phrase matched against metadata values, or \"\" when the other fields carry the search), filter_matchType (PARTIAL or EXACT), and optional extensions. extensions.where is a list of conditions {sample_type, attribute (the exact attribute title), op, value} on one sample type, with op one of =, <>, <, <=, >, >=, IN, CONTAINS, NOT CONTAINS, STARTS WITH, IS TRUE, IS FALSE (the last two take no value; numbers and dates compare as values). extensions.query is search text with upper-case AND, OR and NOT, parentheses, and a [TYPE] tag on a term to hold it to one sample type; OR on one level with AND or NOT needs parentheses. extensions.lineage {direction: ancestor, descendant or either, sample_type, max_hops from 1 to 12, default 4} keeps a sample only when a sample of that type lies within max_hops derivation steps, and every sample on that path is in the caller's projects. page and page_size (default 100, max 1000) are query parameters. Returns total, the graph's count of every match, and rows, one page of full sample records read from the database; a page can hold fewer rows than expected when the graph still holds a sample the database no longer has. Use it for sample questions when not using the graph op, and whenever a graph query was refused for its project scope. Examples: 'How many tissue samples have PercentNecrosis of at least 40?'; 'Mouse samples treated with NDMA that are not female'; 'Chemical samples with an NMR data sample derived from them'."
   },
   {
     "path": "/nextseek_api/schema/",

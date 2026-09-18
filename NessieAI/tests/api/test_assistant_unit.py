@@ -117,13 +117,20 @@ class SessionAdapterTests(TestCase):
         self.assertNotIn("nonexistent", adapter)
 
     def test_save_persists_to_model(self):
+        """save() merges results_history by bundle id under the row lock, so a bundle
+        already stored is kept. This test used to expect an overwrite, which only held
+        while the locked path raised NameError and every save fell through to the
+        unlocked, unmerged write."""
         adapter = DictSessionAdapter(self.chat_session)
         adapter["results_history"] = [{"id": 99}]
         adapter["last_debug"] = {"updated": True}
         adapter.save()
 
         self.chat_session.refresh_from_db()
-        self.assertEqual(self.chat_session.results_history, [{"id": 99}])
+        self.assertEqual(
+            self.chat_session.results_history,
+            [{"id": 1, "query": "old query"}, {"id": 99}],
+        )
         self.assertEqual(self.chat_session.last_debug, {"updated": True})
 
 

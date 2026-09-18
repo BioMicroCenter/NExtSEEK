@@ -9,9 +9,11 @@ viewset module stays import-light and unit tests can patch the agents.
 The single intentional **superset** of dmac behavior is ``graph``: per the design
 decision for this work it ALSO executes the Cypher plan via Neo4j and returns the
 rows alongside the plan (dmac returns the plan only). The Neo4j tool holds that
-statement to the caller's project scope, which the view puts on the config; a
-statement refused for its scope comes back with an error that names graph_search,
-the project-scoped sample search, so the CC agent can ask it instead.
+statement to the caller's project scope, which the view puts on the config. A
+statement refused for its scope is answered through graph_search, the
+project-scoped sample search, exactly as the NS orchestrator falls back
+(``_fall_back_to_graph_search``): the parser plan retargeted to graph_search, built
+by the API agent, gated as a read and run, returned under ``fallback``.
 
 Error taxonomy (mirrors dmac _ws_contract.ERROR_EXIT):
 * :class:`OpValidationError` -> VALIDATION
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any, Callable
 
 from NessieAI.ns.write_gate import WriteBlockedError  # noqa: F401 (re-exported)
@@ -72,15 +75,93 @@ def _parse(args, config, session, write_gate, neo4j_exec, outputs_dir):
     return _dump(parser_agent(session, config, args["query"], entity_out))
 
 
-#: Added to a ``graph`` op result refused for its project scope: the CC agent's way forward.
+#: The project-scoped sample search a refused graph question is answered through.
+GRAPH_SEARCH_ENDPOINT = "/nextseek_api/samples/graph_search/"
+
+#: Added to the error of a ``graph`` op result refused for its project scope, by whether its fallback answered.
 GRAPH_SCOPE_FALLBACK_HINT = (
-    "Search with nextseek-api-read against /nextseek_api/samples/graph_search/ instead; it applies the "
-    "caller's project scope on the server."
+    f"The op asked {GRAPH_SEARCH_ENDPOINT} instead, which applies the caller's project scope on the server; "
+    "its answer is under fallback."
 )
+GRAPH_SCOPE_FALLBACK_RETRY_HINT = (
+    f"The op's {GRAPH_SEARCH_ENDPOINT} fallback did not answer (fallback.error); nextseek-api-read with "
+    "fallback.parser_plan asks it again."
+)
+
+#: The op runs behind the sidecar's 60 s request timeout (ns-sidecar/app/ns_client.py). The fallback adds an API-agent
+#: model call and a graph_search request, so it runs inline only when the refusal came this early; later, the op hands
+#: back the retargeted plan and the agent runs it with nextseek-api-read, which gets a 60 s budget of its own.
+GRAPH_FALLBACK_START_BUDGET_S = 25.0
+_monotonic = time.monotonic
+
+#: What the CC agent must tell the user when it answers from ``fallback`` (the NS chatter gets the same note).
+GRAPH_SCOPE_FALLBACK_NOTE = (
+    "The graph query written for this question could not be confirmed to stay within the user's projects, so it "
+    "was not run. This answer comes from the project-scoped sample search instead. Say so, and say which "
+    "conditions of the question that search could not apply."
+)
+
+
+def _graph_search_fallback(config, parser_plan, refused: dict, write_gate, elapsed_s: float) -> dict:
+    """Answer a scope-refused graph question through graph_search, as the NS orchestrator does.
+
+    Never raises: a fallback that cannot run reports why, and the refusal it answers stays in the op's ``result``.
+    ``parser_plan`` is always the parser's plan retargeted to graph_search, as JSON, so the agent can ask it
+    through nextseek-api-read when the fallback did not answer here. It runs here only when the op is still inside
+    ``GRAPH_FALLBACK_START_BUDGET_S``. ``ok`` is graph_search's own answer: an error status is a failed fallback.
+    Only graph_search is ever called here, and only through the read gate.
+    """
+    from chat_nextseek import helpers
+    from chat_nextseek.portable import api_agent_build_request
+
+    scope = refused.get("scope") if isinstance(refused.get("scope"), dict) else {}
+    retarget = {"mode": "new_search", "target_endpoint": GRAPH_SEARCH_ENDPOINT}
+    if hasattr(parser_plan, "model_copy"):
+        plan = parser_plan.model_copy(update=retarget)
+    elif isinstance(parser_plan, dict):
+        plan = {**parser_plan, **retarget}
+    else:
+        plan = retarget
+    plan_json = plan.model_dump(mode="json") if hasattr(plan, "model_dump") else json.loads(json.dumps(plan, default=str))
+    out: dict[str, Any] = {
+        "ok": False, "ran": False, "endpoint": GRAPH_SEARCH_ENDPOINT, "note": GRAPH_SCOPE_FALLBACK_NOTE,
+        "codes": list(scope.get("codes") or ()), "reasons": list(scope.get("reasons") or ()),
+        "parser_plan": plan_json,
+    }
+    if elapsed_s > GRAPH_FALLBACK_START_BUDGET_S:
+        out["error"] = (
+            f"not run here: the op had already used {elapsed_s:.0f} s of its 60 s; run nextseek-api-read with "
+            "fallback.parser_plan to ask graph_search"
+        )
+        return out
+    out["ran"] = True
+    try:
+        api_plan = api_agent_build_request(config, plan)
+        endpoint, method = api_plan.endpoint, (api_plan.method or "").upper()
+        out["api_plan"] = _dump(api_plan)
+        if endpoint != GRAPH_SEARCH_ENDPOINT:
+            out["error"] = f"the API agent built a request for {endpoint!r}, not {GRAPH_SEARCH_ENDPOINT}; nothing ran"
+            return out
+        write_gate("api-read", endpoint, method, False)
+        response = helpers.tool_nextseek_api_request(
+            config, endpoint, method, requestBody=api_plan.requestBody, queryParameters=api_plan.queryParameters,
+        )
+    except Exception as exc:  # the refusal is still the op's answer; say why its fallback did not run
+        out["error"] = f"graph_search fallback failed: {type(exc).__name__}: {exc}"
+        return out
+    response = response if isinstance(response, dict) else {}
+    out.update(method=method, status_code=response.get("status_code"))
+    if response.get("ok"):
+        out.update(ok=True, data=response.get("data"))
+    else:
+        detail = response.get("error") or response.get("data")
+        out["error"] = f"graph_search answered {response.get('status_code')}: {str(detail)[:500]}"
+    return out
 
 
 def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
     from chat_nextseek.portable import entity_agent, graph_agent, parser_agent
+    started = _monotonic()
     entity_out = entity_agent(config, args["query"])
     # Run the parser and pass its plan to graph_agent, mirroring the NS
     # orchestrator (orchestrator.py:869 graph_agent(config, query, entity, plan)).
@@ -103,7 +184,10 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
         result = {"ok": False, "error": "graph agent produced no cypher", "data": []}
     from chat_nextseek.helpers.tools.neo4j import is_scope_refusal
     if is_scope_refusal(result):
-        result = {**result, "error": f"{result.get('error') or ''} {GRAPH_SCOPE_FALLBACK_HINT}".strip()}
+        fallback = _graph_search_fallback(config, parser_plan, result, write_gate, _monotonic() - started)
+        hint = GRAPH_SCOPE_FALLBACK_HINT if fallback["ok"] else GRAPH_SCOPE_FALLBACK_RETRY_HINT
+        result = {**result, "error": f"{result.get('error') or ''} {hint}".strip()}
+        return {"plan": plan_dump, "result": result, "fallback": fallback}
     return {"plan": plan_dump, "result": result}
 
 

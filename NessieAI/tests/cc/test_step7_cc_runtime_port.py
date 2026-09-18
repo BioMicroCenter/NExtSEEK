@@ -186,7 +186,7 @@ def test_cc_runtime_plugin_scripts_setup_present():
 
 
 # Since NessieAI Phase C the image's context/ is fed from two trees: the plugin
-# tree's own context/ (files with no chat_nextseek twin, plus min_graph_schema.json)
+# tree's own context/ (files with no chat_nextseek twin)
 # and, through the chat_nextseek named context, the canonical chat_nextseek context
 # files. image_context_source() replays the Dockerfile's COPY lines to name the
 # checkout file each in-image catalog comes from. neo4j_schema.json is deliberately
@@ -197,7 +197,6 @@ def test_cc_runtime_plugin_scripts_setup_present():
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
     "min_assays_db.json",
-    "min_graph_schema.json",
     "min_sampletypes_db.json",
     "projects_db.json",
     "read_safe_endpoints.json",
@@ -214,7 +213,9 @@ def test_cc_runtime_context_min_json_files_are_valid_json():
         path for name, path in sorted(sources.items())
         if name.startswith("min_") and name.endswith(".json")
     ]
-    assert len(min_json) >= 5, f"expected the image's min_*.json catalogs, got {min_json}"
+    # min_sampletypes_db, min_assays_db and the two min_api_endpoints catalogs
+    # (min_graph_schema.json stopped being baked on 2026-09-18).
+    assert len(min_json) >= 4, f"expected the image's min_*.json catalogs, got {min_json}"
     for path in min_json:
         json.loads(path.read_text(encoding="utf-8"))  # raises on malformed JSON
 

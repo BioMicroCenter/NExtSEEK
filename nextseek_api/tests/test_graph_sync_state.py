@@ -80,6 +80,65 @@ def test_enqueue_moves_enqueued_at_forward_even_when_the_clock_does_not():
     assert row("isa", "*").enqueued_at > T0
 
 
+# --- enqueue with a delay: work that must not run before the write it follows has landed -----------
+
+@pytest.mark.django_db
+def test_a_delayed_row_is_pending_but_not_claimable_until_its_delay_passes():
+    state.enqueue("retire", "sample:7", now=T0, delay_s=300)
+    r = row("retire", "sample:7")
+    assert (r.done_at, r.claimed_by, r.attempts, r.lease_expires_at) == (None, None, 0, at(seconds=300))
+    assert state.claim_next("w1", now=at(seconds=299)) is None
+    claim = state.claim_next("w1", now=at(seconds=300))
+    assert claim is not None and claim.key == "sample:7" and claim.attempts == 1
+
+
+@pytest.mark.django_db
+def test_a_delayed_row_counts_as_pending_in_the_outbox_summary():
+    """The lane's wait_for_drain reads ``pending``: a delayed row must keep it waiting, not look drained."""
+    state.enqueue("retire", "sample:7", now=T0, delay_s=300)
+    assert state.outbox_summary(now=at(seconds=1))["pending"] == {"retire": 1}
+
+
+@pytest.mark.django_db
+def test_a_delay_reopens_a_done_row_behind_the_delay():
+    state.enqueue("retire", "sample:7", now=T0)
+    assert state.finish_done(state.claim_next("w1", now=at(seconds=1)), now=at(seconds=2))
+
+    state.enqueue("retire", "sample:7", now=at(minutes=5), delay_s=300)
+    r = row("retire", "sample:7")
+    assert (r.done_at, r.attempts, r.lease_expires_at) == (None, 0, at(minutes=10))
+    assert state.claim_next("w1", now=at(minutes=9)) is None
+    assert state.claim_next("w1", now=at(minutes=10)).key == "sample:7"
+
+
+@pytest.mark.django_db
+def test_a_delay_never_shortens_a_longer_back_off():
+    state.enqueue("retire", "sample:7", now=T0)
+    claim = state.claim_next("w1", now=at(seconds=1))
+    state.finish_failed(claim, "neo4j unavailable", 3600, now=at(seconds=2))
+
+    state.enqueue("retire", "sample:7", now=at(seconds=3), delay_s=300)
+    assert row("retire", "sample:7").lease_expires_at == at(seconds=2, hours=1)
+
+
+@pytest.mark.django_db
+def test_a_delay_leaves_a_live_claim_alone():
+    """Moving the lease of a claimed row would take the row from its worker (``finish_done`` matches the lease)."""
+    state.enqueue("retire", "sample:7", now=T0)
+    claim = state.claim_next("w1", now=at(seconds=1))
+
+    state.enqueue("retire", "sample:7", now=at(seconds=2), delay_s=300)
+    r = row("retire", "sample:7")
+    assert (r.claimed_by, r.lease_expires_at) == ("w1", claim.lease_expires_at)
+
+
+@pytest.mark.django_db
+def test_no_delay_changes_nothing_about_when_a_row_is_claimable():
+    state.enqueue("retire", "sample:7", now=T0, delay_s=0)
+    assert row("retire", "sample:7").lease_expires_at is None
+    assert state.claim_next("w1", now=T0).key == "sample:7"
+
+
 @pytest.mark.parametrize("kind, key, payload", [
     ("samples", "sample:7", None),
     ("samples", "batch:job-1:0", [1, 2]),

@@ -7,6 +7,7 @@ finish is most of what these tests are about.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from dataclasses import replace
@@ -15,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from nextseek_api.graph_sync import loop, run, state, targeted, writer
+from nextseek_api.graph_sync import drift, loop, run, state, targeted, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
 
 DB = "neo4j"
@@ -140,8 +141,8 @@ def test_a_heavy_kind_runs_as_a_child_with_its_run_directory_and_the_live_flag(w
     one_pass(work)
 
     (child,) = [c for c in work.launched if "--full" in c.argv]
-    assert child.argv == [sys.executable, str(loop.MANAGE_PY), "graph_sync", "--full",
-                          "--run-dir", os.path.join(str(work.opts.run_root), f"full-{T0:%Y%m%dT%H%M%SZ}"),
+    run_dir = os.path.join(str(work.opts.run_root), f"full-{T0:%Y%m%dT%H%M%SZ}-{row('full', THIS_WEEK).id}")
+    assert child.argv == [sys.executable, str(loop.MANAGE_PY), "graph_sync", "--full", "--run-dir", run_dir,
                           "--trigger", loop.TRIGGER, "--i-mean-the-live-graph"]
     assert child.timeout_s == loop.child_timeout_s("full")
     assert child.timeout_s < state.lease_s("full")             # the row is not claimable while the child runs
@@ -180,6 +181,96 @@ def test_a_childs_exit_status_decides_its_row(work, code, outcome, done):
         assert r.attempts == 1 and r.claimed_by is None
         assert r.lease_expires_at == T0 + timedelta(seconds=state.backoff_s("drift"))
         assert r.last_error and "graph_sync --drift" in r.last_error
+
+
+def reporting(work, kind: str, saved, code: int = 1):
+    """A launcher whose ``--<kind>`` child saves ``saved`` as the drift result in its run directory, as
+    ``manage.py graph_sync --drift --run-dir`` does before it exits, and answers ``code``; every other child exits 0.
+    ``saved`` None writes no file; a string is written as it is."""
+    def launch(argv, timeout_s):
+        work.launched.append(SimpleNamespace(argv=list(argv), timeout_s=timeout_s))
+        if f"--{kind}" not in argv:
+            return 0
+        if saved is not None:
+            run_dir = argv[argv.index("--run-dir") + 1]
+            os.makedirs(run_dir, exist_ok=True)
+            with open(os.path.join(run_dir, drift.RESULT_FILE), "w", encoding="utf-8") as fh:
+                fh.write(saved if isinstance(saved, str) else json.dumps(saved))
+        return code
+    return launch
+
+
+FOUND_DRIFT = {"status": drift.DRIFT, "pass": False, "checks": [
+    {"name": "catalog.assistant_investigations", "expected": 0, "actual": 1, "pass": False},
+    {"name": "samples.not_in_mysql", "expected": 0, "actual": 0, "pass": True}]}
+
+
+@pytest.mark.django_db
+def test_a_drift_check_that_found_drift_closes_its_row_and_leaves_the_outbox_fresh(work):
+    """Exit 1 from ``--drift`` is the check reporting drift, not failing (the design, section 13): it reports and does
+    not repair, so a retry finds the same drift. Failing it kept the slot open, backed off an hour at a time until it
+    died, and aged the outbox past its one-hour threshold every day the graph had drifted at all."""
+    state.enqueue("drift", TODAY, now=before(minutes=1))
+
+    report = one_pass(work, launch=reporting(work, "drift", FOUND_DRIFT))
+
+    (entry,) = [d for d in report["drained"] if d["kind"] == "drift"]
+    assert (entry["outcome"], entry["exit"], entry["refused"]) == (loop.DONE, 1, False)
+    assert entry["drift"] == ["catalog.assistant_investigations"]
+    r = row("drift", TODAY)
+    assert r.done_at is not None and r.claimed_by is None and r.last_error is None
+    later = T0 + timedelta(hours=2)
+    assert state.outbox_summary(now=later)["oldest_pending"] is None
+    assert state.freshness(now=later)["outbox"]["status"] == "ok"
+
+
+@pytest.mark.django_db
+def test_two_drift_slots_in_one_pass_are_judged_each_by_its_own_report(work):
+    """``run_pass`` fixes ``now`` once, so both children start in the same second. Each gets its own run directory,
+    or the second, exiting 1 before it saved anything, would be closed on the first one's report."""
+    state.enqueue("drift", "slot:2026-09-14", now=before(hours=26))      # an older slot, re-enqueued by hand
+    state.enqueue("drift", TODAY, now=before(minutes=1))
+    answers = [(FOUND_DRIFT, 1), (None, 1)]                           # the second crashes before saving
+
+    def launch(argv, timeout_s):
+        work.launched.append(SimpleNamespace(argv=list(argv), timeout_s=timeout_s))
+        if "--drift" not in argv:
+            return 0
+        saved, code = answers.pop(0)
+        if saved is not None:
+            run_dir = argv[argv.index("--run-dir") + 1]
+            os.makedirs(run_dir, exist_ok=True)
+            with open(os.path.join(run_dir, drift.RESULT_FILE), "w", encoding="utf-8") as fh:
+                json.dump(saved, fh)
+        return code
+
+    report = one_pass(work, launch=launch)
+
+    first, second = [d for d in report["drained"] if d["kind"] == "drift"]
+    assert first["run_dir"] != second["run_dir"]
+    assert (first["outcome"], second["outcome"]) == (loop.DONE, loop.FAILED)
+    assert row("drift", "slot:2026-09-14").done_at is not None
+    assert row("drift", TODAY).done_at is None and row("drift", TODAY).attempts == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind, key, saved", [
+    ("drift", TODAY, None),                                        # exit 1 before the check saved anything
+    ("drift", TODAY, "not json"),
+    ("drift", TODAY, {"status": drift.OK, "pass": True, "checks": []}),
+    ("drift", TODAY, {"status": drift.REFUSED, "reason": "1.1", "checks": []}),
+    ("reconcile", TODAY, FOUND_DRIFT),                             # only a drift check reports drift
+])
+def test_an_exit_1_that_is_not_a_drift_report_still_backs_off(work, kind, key, saved):
+    state.enqueue(kind, key, now=before(minutes=1))
+
+    report = one_pass(work, launch=reporting(work, kind, saved))
+
+    (entry,) = [d for d in report["drained"] if d["kind"] == kind]
+    assert entry["outcome"] == loop.FAILED
+    r = row(kind, key)
+    assert r.done_at is None and r.attempts == 1
+    assert r.lease_expires_at == T0 + timedelta(seconds=state.backoff_s(kind))
 
 
 # --- the in-process kinds -------------------------------------------------------------------------

@@ -84,6 +84,12 @@ _DEFAULT_TURN_TIMEOUT = min(
     int(os.environ.get("NEXTSEEK_CC_TIMEOUT_SECONDS", str(_TIMEOUT_HARD_MAX))),
     _TIMEOUT_HARD_MAX,
 )
+# 13b.2: the agent env carries the Unix time (whole seconds) by which this turn
+# will have been stopped, so the plugin's nextseek-query stops polling while the
+# agent can still report back, instead of being killed along with the turn. The
+# plugin reads the same name (``_assistant_client._TURN_DEADLINE_ENV``); a test
+# pins the two together.
+_TURN_DEADLINE_ENV = "NEXTSEEK_CC_TURN_DEADLINE_EPOCH"
 
 # #73 (production DoS): hard cgroup ceilings for the per-turn sibling container.
 # Cost/turn/time caps above bound spend and wall-clock, but NOT RAM/CPU/PIDs/disk
@@ -286,6 +292,7 @@ def build_agent_environment(
     api_pass: str | None,
     path_mappings: Mapping[str, Any],
     chat_session_id: str | None = None,
+    turn_deadline: float | None = None,
 ) -> dict[str, str]:
     """The COMPLETE env for the sandboxed Container-CC agent (OI-3).
 
@@ -296,7 +303,9 @@ def build_agent_environment(
     reaches Bedrock only through the auth-proxy, and NExtSEEK data only through
     the authenticated REST API as the user. ``source`` is the Django/process env
     to read non-secret topology from (defaults to os.environ; the canary passes a
-    hostile source to prove nothing leaks).
+    hostile source to prove nothing leaks). ``turn_deadline`` is the Unix time by
+    which the turn will have been stopped; only the turn driver knows it, so it
+    is never read from ``source``.
     """
     src = os.environ if source is None else source
     env: dict[str, str] = {
@@ -341,6 +350,9 @@ def build_agent_environment(
     # §4.C: the live chat session id for nextseek-recall/query — not a credential.
     if chat_session_id:
         env["NEXTSEEK_CHAT_SESSION_ID"] = chat_session_id
+    # 13b.2: rounded down, so the agent never believes it has longer than it does.
+    if turn_deadline is not None:
+        env[_TURN_DEADLINE_ENV] = str(int(turn_deadline))
     return env
 
 
@@ -1124,6 +1136,9 @@ def run_cc_turn(
         source=os.environ, api_user=api_user, api_pass=api_pass,
         path_mappings=path_mappings,
         chat_session_id=chat_session_id,
+        # 13b.2: from THIS turn's clamped timeout, and taken before the spawn, so
+        # it is never later than the watchdog's, which starts after the spawn.
+        turn_deadline=time.time() + turn_timeout,
     )
 
     command = _build_command(
@@ -1219,14 +1234,13 @@ def run_cc_turn(
                 break
 
         _done.set()
-        if _timed_out.is_set():
-            send_event("query_error", {
-                "error": f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped.",
-                "reason": "exec_timeout", "agent": "container_cc",
-                "cc_session_id": translator.session_id,
-            })
-            return
-        if terminal is None:
+        # 13b.1: a turn the watchdog stopped goes on through the sweep and the
+        # publish below before it reports. Its scratch subtree is per-turn and
+        # no later turn mounts it, so what it wrote before the limit is
+        # published now or lost, and its staged downloads carry this turn's
+        # timestamp, which later in-turn sweeps skip.
+        timed_out = _timed_out.is_set()
+        if terminal is None and not timed_out:
             for event, data in translator.finalize():
                 terminal = (event, data)
 
@@ -1260,11 +1274,37 @@ def run_cc_turn(
                 )
 
         # Post-turn publish: diff scratch, split deliverables from scratch/raw/.
-        result = _publish_artifacts(
-            scratch_mount, output_mount,
-            turn_id=str(run_id),
-            output_logical_root=dirs.output_mnt, before=before,
-        )
+        try:
+            result = _publish_artifacts(
+                scratch_mount, output_mount,
+                turn_id=str(run_id),
+                output_logical_root=dirs.output_mnt, before=before,
+                # A stopped turn keeps its raw/ files in its own scratch only:
+                # output/raw/ is not per-turn (see _publish_artifacts).
+                include_raw=not timed_out,
+            )
+        except Exception:
+            if not timed_out:
+                raise
+            # A failed salvage must not replace the timeout the user is owed.
+            logger.exception("cc: publishing a timed-out turn's files failed "
+                             "(run_id=%s)", run_id)
+            result = {"artifacts": [], "raw": []}
+
+        if timed_out:
+            # Still a query_error with the same text, never a query_complete: the
+            # user is told the turn timed out, and on_turn_complete is not called
+            # (it writes a "completed" chat_log entry, which the sticky-CC rule
+            # reads). The transcript row and raw/ copy come from the #68 fallback
+            # in the finally, as for every turn that did not complete.
+            send_event("query_error", {
+                "error": f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped.",
+                "reason": "exec_timeout", "agent": "container_cc",
+                "cc_session_id": translator.session_id,
+                "artifacts": result["artifacts"] or None,
+                "cc_raw_files": result["raw"],
+            })
+            return
 
         if terminal is None:
             terminal = ("query_complete", {"reply": "(no response)", "bundle_id": None,
@@ -1845,10 +1885,15 @@ def _publish_artifacts(
     turn_id: str,
     output_logical_root: str,
     before: dict[str, tuple[int, int]],
+    include_raw: bool = True,
 ) -> dict:
     """Diff scratch; split deliverables (artifacts) from scratch/raw/ (raw).
     Artifacts -> output/artifacts/<turn_id>/ (zipped if >1 per turn, downloadable);
-    raw -> output/raw/ (on disk, not bundled). Keys are turn-scoped: "<turn_id>/<relpath>"."""
+    raw -> output/raw/ (on disk, not bundled). Keys are turn-scoped: "<turn_id>/<relpath>".
+
+    ``include_raw=False`` publishes the artifacts only. output/raw/ is shared by
+    every turn of the user, so a turn stopped mid-write must not copy a possibly
+    truncated file over an earlier turn's same-named one (13b.1)."""
     from dmac_assistant.run_tracker import diff_files
     from . import cc_artifacts
 
@@ -1881,7 +1926,7 @@ def _publish_artifacts(
         return written
 
     art_files = _copy(art_rels, art_dir)
-    raw_files = _copy(raw_rels, raw_dir, strip_raw_prefix=True)
+    raw_files = _copy(raw_rels, raw_dir, strip_raw_prefix=True) if include_raw else []
 
     artifacts: list[dict] = []
     if len(art_files) > 1:

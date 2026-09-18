@@ -317,6 +317,24 @@ class TestUsersViewSetCreate:
 
 
     @patch("nextseek_api.services.users.Users")
+    def test_create_runner_killed_502_names_the_kill(self, mock_users):
+        """The seek container's memory cap SIGKILLs bin/rails runner: exit 137, nothing on either stream."""
+        mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
+        container = MagicMock()
+        container.exec_run.return_value = (137, (b"", b""))
+        client = MagicMock()
+        client.containers.get.return_value = container
+        factory = APIRequestFactory()
+        request = _wrap(factory.post("/nextseek_api/users/", CREATE_BODY, format="json"))
+        request.user = _superuser()
+        with patch("docker.from_env", return_value=client):
+            response = UsersViewSet().create(request)
+        assert response.status_code == 502
+        error = json.loads(response.content)["errors"][0]
+        assert error["title"] == "Invalid upstream response"
+        assert "137" in error["detail"] and "killed" in error["detail"] and "out of memory" in error["detail"]
+
+    @patch("nextseek_api.services.users.Users")
     @patch("nextseek_api.services.users.run_seek_rails_runner")
     def test_create_runner_unavailable_503(self, mock_runner, mock_users):
         mock_runner.side_effect = SeekRailsUnavailableError("no docker")

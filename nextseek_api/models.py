@@ -1994,6 +1994,20 @@ class GraphSearchRequest(SampleAdvancedSearchRequest):
     )
 
 
+class GraphSearchResult(SampleAdvancedSearchResult):
+    """advanced_search's envelope plus what graph_search alone can get wrong: ``total`` is counted in the graph and
+    ``rows`` are read from MySQL, so a sample the graph still holds after its row left MySQL is counted and not shown."""
+
+    rows_missing: int = Field(
+        default=0, ge=0,
+        description=(
+            "How many of this page's matches have no row to show: the graph still holds them, so total counts them, "
+            "but their row has left the database (a delete the graph has not caught up with yet). 0 when every "
+            "match on the page is in rows"
+        ),
+    )
+
+
 # -----------------------------
 # Additional request/response models
 # -----------------------------

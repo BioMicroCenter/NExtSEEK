@@ -6,12 +6,15 @@ import os
 import re
 import subprocess
 import time
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from NessieAI.tests.nessie_tests import corpus, evaluate, http_driver, report
 from NessieAI.tests.nessie_tests import route_observer as ro
 # Django-free at import time; re-exported so callers catch one class from here.
-from NessieAI.tests.nessie_tests.bundle import BundleReaderUnavailable
+from NessieAI.tests.nessie_tests.bundle import (
+    BundleReaderOtherInstance, BundleReaderUnavailable,
+)
 from NessieAI.tests.nessie_tests.manifest import (
     CriterionObservation, NessieManifest, NessieManifestEntry, cost_summary,
     load_manifest, write_manifest,
@@ -413,7 +416,8 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
               corpus_path, out_dir, post_query=None, get_progress=None, bundle_reader=None,
               pace_s=0.0, run_consistency: bool = False, sample: float = 1.0, seed: int = 0,
               cases_path=None, force_route=None, force_parser_mode=None,
-              sleep=time.sleep, clock=time.monotonic, prompt_variant=None) -> NessieManifest:
+              sleep=time.sleep, clock=time.monotonic, prompt_variant=None,
+              session_clients=None) -> NessieManifest:
     """One whole run.
 
     `force_route` forces every turn, the consistency groups' included (a normal run
@@ -423,12 +427,16 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     unchanged.
 
     At `tier="full"` the bundle reader is proven before the first turn
-    (`check_bundle_reader`), and a reader that cannot read raises
-    BundleReaderUnavailable with nothing sent.
+    (`check_bundle_reader`): that it can read, and that it reads the database of the
+    instance at `base_url`. A reader that fails either raises BundleReaderUnavailable
+    with nothing sent. `session_clients` is the free chat open/close pair that proof
+    uses; by default `http_driver.make_session_clients(base_url, auth_header)`.
     """
     _check_force(force_route, force_parser_mode, prompt_variant)
     if tier == "full":
-        check_bundle_reader(bundle_reader)
+        check_bundle_reader(
+            bundle_reader, base_url=base_url,
+            sessions=session_clients or http_driver.make_session_clients(base_url, auth_header))
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)
     if cases_path:
@@ -736,8 +744,9 @@ class ArmsChanged(ArmsRunRefused):
     """The arm list differs from the run being resumed; the rotation depends on it."""
 
 
-def check_bundle_reader(bundle_reader) -> None:
-    """Refuse a full-depth run whose bundle reader cannot read, before any turn is sent.
+def check_bundle_reader(bundle_reader, *, sessions, base_url) -> None:
+    """Refuse a full-depth run whose bundle reader cannot read the turns' instance,
+    before any turn is sent.
 
     `run_case` drives the paid turn first and reads the bundle second, and it catches
     every exception as infrastructure. So a reader that cannot read turns every
@@ -745,9 +754,19 @@ def check_bundle_reader(bundle_reader) -> None:
     the 8.4 defect, hit twice in the week of 2026-08-17 on the module CLI, which never
     configured Django. Proving the reader first makes that a refusal that costs nothing.
 
-    The check is the reader's own `preflight()` (see `bundle.summary_for_session`), so
-    each reader says what reading needs. A reader without one is not checked: test
-    doubles, and any reader with nothing to set up.
+    Two checks, each a hook on the reader (see `bundle.summary_for_session`), so each
+    reader says what reading needs:
+
+    - `preflight()`: the reader can read at all. A reader without it is not checked:
+      test doubles, and any reader with nothing to set up.
+    - `holds_session(id)`: the reader reads the instance at `base_url`. `preflight`
+      cannot see that: a reader configured for instance B reads B's database without
+      error while the turns run on A, so each turn billed on A and each read on B found
+      nothing. So an empty chat is opened on `base_url` through `sessions` (the free
+      open/close pair, `http_driver.make_session_clients`), the reader is asked whether
+      its database holds it, and the chat is closed. Not holding it, or not being able
+      to open it, raises (BundleReaderOtherInstance for the first). A chat that cannot
+      be closed only warns: the pairing is proven and the chat is empty.
     """
     check = getattr(bundle_reader, "preflight", None)
     if check is None:
@@ -758,6 +777,37 @@ def check_bundle_reader(bundle_reader) -> None:
         raise BundleReaderUnavailable(
             f"refused, nothing was billed: no full-tier turn could be scored, because {exc}"
         ) from exc
+    holds = getattr(bundle_reader, "holds_session", None)
+    if holds is None:
+        return
+    open_session, close_session = sessions
+    try:
+        probe = open_session()
+    except Exception as exc:
+        raise BundleReaderUnavailable(
+            f"refused, nothing was billed: could not open an empty chat on {base_url} to "
+            f"prove the bundle reader reads that instance's database "
+            f"({type(exc).__name__}: {exc})") from exc
+    try:
+        held = holds(probe)
+    except Exception as exc:
+        held, why = False, f"reading it raised {type(exc).__name__}: {exc}"
+    else:
+        why = "it is not in the database this process reads"
+    finally:
+        try:
+            close_session(probe)
+        except Exception as exc:
+            warnings.warn(f"the empty probe chat {probe} on {base_url} was not deleted "
+                          f"({type(exc).__name__}: {exc}); delete it by hand", stacklevel=2)
+    if not held:
+        raise BundleReaderOtherInstance(
+            f"refused, nothing was billed: the bundle reader does not read the instance the "
+            f"turns run on. An empty chat opened on {base_url} ({probe}) was looked up "
+            f"through the reader, and {why}, so every full-tier turn would bill on "
+            f"{base_url} and its bundle read would find nothing. Run from the app container "
+            f"of the instance {base_url} names, or give --base-url this environment's own "
+            f"instance (inside its app container, http://localhost:8000).")
 
 
 class PromptVariantChanged(ArmsRunRefused):
@@ -853,7 +903,8 @@ def _arm_done(entry) -> bool:
 def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
              resume=False, max_turns=None, full_timeout_s=600.0, skip_preflight=False,
              post_query=None, get_progress=None, bundle_reader=None,
-             sleep=time.sleep, clock=time.monotonic, prompt_variant=None) -> dict:
+             sleep=time.sleep, clock=time.monotonic, prompt_variant=None,
+             session_clients=None) -> dict:
     """Every question of a cases file through each forced NS arm (spec E1).
 
     Per question, every arm back to back, the first arm rotating with the
@@ -882,7 +933,9 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
     `assert_force_route_works`, then `assert_parser_force_works(arms)`, and a
     refusal stops the run before any question and before arms.json is written.
     Before either, `check_bundle_reader` proves the bundle reader (always, since
-    it costs no turn), and raises BundleReaderUnavailable with nothing sent.
+    it costs no turn): that it can read, and that it reads the instance at
+    `base_url` (through `session_clients`, as `run_suite` does). It raises
+    BundleReaderUnavailable with nothing sent.
 
     `prompt_variant` runs every turn, the preflight probes included, on that
     evaluation prompt set; it is recorded in `run_meta.prompt_variant` and in every
@@ -945,8 +998,11 @@ def run_arms(*, base_url, auth_header, corpus_path, cases_path, out_dir, arms,
                 f"corpus, or give a new --out.")
 
     # Before the preflight, which bills its probe turns: an arms run scores every
-    # question from its bundle, so a reader that cannot read stops it here, free.
-    check_bundle_reader(bundle_reader)
+    # question from its bundle, so a reader that cannot read, or reads another
+    # instance's database, stops it here, free.
+    check_bundle_reader(
+        bundle_reader, base_url=base_url,
+        sessions=session_clients or http_driver.make_session_clients(base_url, auth_header))
 
     if post_query is None or get_progress is None:
         post_query, get_progress = http_driver.make_default_clients(base_url, auth_header)

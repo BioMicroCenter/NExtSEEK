@@ -329,6 +329,38 @@ def test_a_vocabulary_is_never_served_to_another_caller(reader):
     assert gc.get_vocabulary(admin()).project_titles == ("Project A", "Project B")
 
 
+def test_a_scoped_vocabulary_is_read_again_after_its_shorter_ttl(reader, monkeypatch):
+    """A caller's vocabulary follows membership churn within minutes, not an hour (7.1 red team, N4).
+
+    Nothing a sample-level sync writes invalidates the cache (only a full sync, a drift run and a relabel stamp
+    GraphMeta), so after a sample leaves a caller's project its study's title, DOI and PMID stay visible to that
+    caller for as long as the scoped entry lives. The admin form keeps the hour: it shows every project anyway.
+    """
+    clock = [1000.0]
+    monkeypatch.setattr(gc, "_now", lambda: clock[0])
+    mine = with_scope(_base(), GraphScope.for_projects([1, 3], source="test"))
+
+    def scoped_reads():
+        return sum(1 for name, _ in reader.vocabulary_reads() if name == "VOCAB_PROJECTS_SCOPED")
+
+    def admin_reads():
+        return sum(1 for name, _ in reader.vocabulary_reads() if name == "VOCAB_PROJECTS")
+
+    gc.get_vocabulary(mine)
+    gc.get_vocabulary(admin())
+    assert (scoped_reads(), admin_reads()) == (1, 1)
+
+    clock[0] += gc.SCOPED_VOCAB_TTL_S - 1
+    gc.get_vocabulary(mine)
+    assert scoped_reads() == 1
+
+    clock[0] += 1
+    gc.get_vocabulary(mine)
+    gc.get_vocabulary(admin())
+    assert (scoped_reads(), admin_reads()) == (2, 1)
+    assert gc.SCOPED_VOCAB_TTL_S < gc.VOCAB_TTL_S
+
+
 def test_the_scoped_statements_carry_graph_searchs_scope_clause():
     def visible(var):
         return SCOPE_CLAUSE_TEMPLATE.format(element="__scope_p", var=var, param=SCOPE_PARAM)

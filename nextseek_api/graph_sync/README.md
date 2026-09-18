@@ -79,8 +79,10 @@ about the sync can end the container. `NEXTSEEK_GRAPH_SYNC_LOOP=0` is the off sw
 `GRAPH_SYNC_RESTART_DELAY` the seconds between restarts. One pass does housekeeping (abandoned runs, expired
 leases, old run directories), puts the slots the schedule owes into the outbox, and drains what it can claim. The
 light kinds run in process; `full`, `reconcile` and `drift` run as child `manage.py graph_sync` processes, so their
-memory returns when they end and a crash cannot take the loop with it. The newest 20 run directories per kind are
-kept.
+memory returns when they end and a crash cannot take the loop with it. A child's exit status decides its row: 0 and
+2 (a refusal) are done, anything else backs off, except a `drift` child that exits 1 having saved a result that
+reports drift: that check did its job, so its row is done and the drift is in its run record, never retried into the
+same answer. The newest 20 run directories per kind are kept.
 
 | Cadence | When (UTC) | Fresh for |
 |---|---|---|
@@ -101,14 +103,15 @@ logs its failure and returns, and the status endpoint answers 503 rather than 50
 **`graph_sync_outbox`**, one row per unit of work. `(kind, key)` is unique, so repeated hook writes coalesce and a
 scheduled slot is inserted once. A claim is a compare-and-set that counts an attempt; a lease that expires makes
 the row claimable again; a failure backs off (6 hours for a full sync, an hour otherwise); a row at
-`state.MAX_ATTEMPTS` is dead until a new write resets it. A successful full sync closes every row enqueued before
-it started, because it read them all.
+`state.MAX_ATTEMPTS` is dead until a new write resets it. A writer that cannot tell whether its write has landed yet
+enqueues with a delay (`delay_s`), which holds the row back the way a back-off does. A successful full sync closes
+every row enqueued before it started, because it read them all.
 
 | Kind | Key | Enqueued by | The drain calls |
 |---|---|---|---|
 | `samples` | `sample:<id>`, or `batch:<name>` with the ids in `payload` | the sample hooks, batch upload stage 5, orphan resolution, assay registration, the publication backfill | `targeted.sync_samples` |
 | `samples_of_type` | `type:<id>` | the attribute API, the legacy attribute editor, the sample-type proxy | `targeted.sync_samples_of_type` |
-| `retire` | `sample:<id>` | the proxy destroy, the legacy delete | `targeted.retire_samples` |
+| `retire` | `sample:<id>` | the proxy destroy (delayed when SEEK did not answer), the legacy delete | `targeted.retire_samples`, which leaves an id MySQL still holds alone |
 | `catalog` | `*` | the attribute API, the legacy attribute editor, the sample-type proxy, the clade admin | `run.catalog_sync` |
 | `assay_map`, `protocol_map` | `*` | the internal-assay admin and the assay proxy; the SOP proxy | `targeted.relabel_for_maps` |
 | `isa`, `membership` | `*` | the project, investigation and study proxies; the users API | `targeted.sync_small_tables` |

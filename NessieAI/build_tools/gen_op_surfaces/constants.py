@@ -23,8 +23,9 @@ NAMED_CAPABILITIES_CONTEXT_PATH = paths.repo_relative(paths.CHAT_NEXTSEEK_DIR)
 # which the generated capabilities-copy block COPYs from the named context to the
 # same in-image path the plugin tree's own copy used to occupy. The plugin tree
 # keeps only the files that have no canonical twin (MANIFEST.md, ops.json,
-# read_safe_endpoints.json) and the two graph snapshots that have drifted from
-# theirs (min_graph_schema.json, neo4j_schema.json).
+# read_safe_endpoints.json). Neither graph file is baked: min_graph_schema.json is
+# the NS parser's routing prose, and the agent reads the live graph schema through
+# the nextseek-graph-schema op instead of neo4j_schema.json.
 CANONICAL_CONTEXT_DIR_IN_CONTEXT = "src/chat_nextseek/context"
 IMAGE_CONTEXT_DIR = "/app/plugins/nextseek/context"
 CANONICAL_CONTEXT_FILES = (

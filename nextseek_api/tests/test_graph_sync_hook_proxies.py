@@ -339,7 +339,7 @@ def test_destroy_enqueues_a_retire_row():
     assert _rows() == {("retire", "sample:321")}
 
 
-@pytest.mark.parametrize("code", [403, 404, 422, 500])
+@pytest.mark.parametrize("code", [403, 404, 422])
 def test_destroy_enqueues_nothing_when_seek_refuses(code):
     _destroy(code=code)
     assert _rows() == set()
@@ -348,6 +348,68 @@ def test_destroy_enqueues_nothing_when_seek_refuses(code):
 def test_destroy_survives_a_failed_enqueue(monkeypatch):
     _broken_enqueue(monkeypatch)
     assert _destroy().status_code == 200
+    assert _rows() == set()
+
+
+# When the proxy cannot confirm the outcome, it still enqueues the retire. That is safe because
+# targeted.retire_samples reads MySQL again and leaves alone an id MySQL still holds.
+
+@pytest.mark.parametrize("code", [500, 502, 503])
+def test_destroy_enqueues_a_retire_when_seek_answers_with_a_server_error(code):
+    """SEEK answered, so its work is over: whether the row went is settled, and the retire may run at once."""
+    response = _destroy(code=code)
+    assert response.status_code == code
+    assert _rows() == {("retire", "sample:321")}
+    assert GraphSyncOutbox.objects.get(kind="retire").lease_expires_at is None
+
+
+def _destroy_raising(error: Exception):
+    viewset = SampleProxyViewSet()
+    viewset.client = MagicMock()
+    viewset.client.delete_sample.side_effect = error
+    return viewset.destroy(_request("delete"), uid="321")
+
+
+def _assert_a_delayed_retire() -> None:
+    from nextseek_api.services.samples import UNCONFIRMED_RETIRE_DELAY_S
+
+    assert _rows() == {("retire", "sample:321")}
+    r = GraphSyncOutbox.objects.get(kind="retire", key="sample:321")
+    assert r.lease_expires_at is not None
+    assert abs((r.lease_expires_at - r.enqueued_at).total_seconds() - UNCONFIRMED_RETIRE_DELAY_S) < 5
+    # Not before SEEK has had time to finish the delete it may still be running.
+    assert state.claim_next("w1", now=r.enqueued_at) is None
+    assert state.claim_next("w1", now=r.lease_expires_at).key == "sample:321"
+
+
+def test_destroy_answers_202_and_enqueues_a_delayed_retire_when_seek_outruns_the_timeout():
+    """Measured: SEEK's own delete outruns SeekAPIClient.timeout_s, and Rails completes it after the proxy gave up."""
+    import requests
+
+    response = _destroy_raising(requests.ReadTimeout("read timed out"))
+    assert response.status_code == 202
+    body = json.loads(response.content)
+    assert body["status"] == "unconfirmed"
+    assert "did not answer" in body["detail"]
+    _assert_a_delayed_retire()
+
+
+def test_destroy_answers_502_and_enqueues_a_delayed_retire_when_seek_cannot_be_reached():
+    import requests
+
+    response = _destroy_raising(requests.ConnectionError("connection reset by peer"))
+    assert response.status_code == 502
+    error = json.loads(response.content)["errors"][0]
+    assert error["title"] == "Upstream connection error"
+    assert "may or may not" in error["detail"]
+    _assert_a_delayed_retire()
+
+
+def test_destroy_survives_a_failed_enqueue_after_a_timeout(monkeypatch):
+    import requests
+
+    _broken_enqueue(monkeypatch)
+    assert _destroy_raising(requests.ReadTimeout("read timed out")).status_code == 202
     assert _rows() == set()
 
 

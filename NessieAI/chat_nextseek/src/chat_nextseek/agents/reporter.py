@@ -12,7 +12,7 @@ from ..helpers import (
     log_prompt,
     normalize_report_type,
 )
-from ..schemas.schema_helper import call_llm_structured
+from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
     ParserPlan,
     ReportCoderOutput,
@@ -168,6 +168,7 @@ def reporter_agent(config: ChatConfig, user_query: str, parser_plan: ParserPlan 
             log_payload_extra={"user_query": user_query},
             usage_label="REPORTER",
             client=reporter_client,
+            result_check=empty_output_problem,
         )
     except Exception as e:
         print("[DEBUG][REPORTER] Exception or parse error:", repr(e))
@@ -329,6 +330,7 @@ def report_writer_agent(
             timeout_seconds=600,
             thinking_budget=writer_budget,
             client=writer_client,
+            result_check=empty_output_problem,
         )
     except Exception as e:
         print("[DEBUG][REPORT_WRITER] Exception or parse error:", repr(e))

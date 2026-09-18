@@ -483,3 +483,29 @@ def test_a_bundle_reader_that_cannot_read_stops_the_run_before_the_preflight(tmp
         _run(tmp_path, ep, out=out, bundle_reader=reader)
     assert ep.bodies == []
     assert not (out / runner.ARMS_FILE).exists()
+
+
+def test_a_bundle_reader_on_a_different_instance_stops_the_run_before_the_preflight(tmp_path):
+    """The reader can read, but not the database behind base_url: an empty chat
+    opened there is not in it. The arms preflight bills its probe turns, so the
+    run stops before them, with nothing sent."""
+    log = []
+
+    def reader(session_id):
+        return None
+
+    reader.preflight = lambda: log.append("preflight")
+    reader.holds_session = lambda session_id: log.append("holds") or False
+
+    def open_session():
+        log.append("open")
+        return "0000000000000000000000000000beef"
+
+    ep = Endpoint()
+    out = tmp_path / "run"
+    with pytest.raises(runner.BundleReaderOtherInstance):
+        _run(tmp_path, ep, out=out, bundle_reader=reader,
+             session_clients=(open_session, lambda sid: log.append("close")))
+    assert log == ["preflight", "open", "holds", "close"], log
+    assert ep.bodies == []
+    assert not (out / runner.ARMS_FILE).exists()

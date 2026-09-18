@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Callable, Type
@@ -20,6 +21,16 @@ from ..llm_clients import (
 
 # Default timeout for LLM calls (5 minutes)
 LLM_CALL_TIMEOUT_SECONDS = 300
+
+# The raw response of every labelled call, one JSON line each, beside the ledger
+# (llm_calls.jsonl) in LOG_DIR. The ledger says a call happened and how it ended; this
+# file says what the model returned, which is the only evidence left when an output
+# validates but carries nothing. It holds responses, not prompts: a prompt carries whole
+# catalogs, several calls run per turn, and one file serves every turn of the process.
+# Both a line and the file are capped; the file rolls over to `.1`, one generation kept.
+RESPONSE_LOG_FILE = "llm_responses.jsonl"
+RESPONSE_LOG_MAX_CHARS = 20_000
+RESPONSE_LOG_MAX_BYTES = 64 * 1024 * 1024
 
 
 class StructuredOutputError(Exception):
@@ -126,6 +137,28 @@ def _normalize_parsed_output(parsed: Any) -> Any:
     return parsed
 
 
+def empty_output_problem(value: BaseModel) -> str | None:
+    """A ``result_check`` for a schema whose every field has a default.
+
+    Such a schema validates ``{}``, and with extra keys ignored it also validates an
+    object nested under a key it does not have and one passed as a string under such a
+    key. Every one of those comes back as the defaults with ``model_fields_set`` empty:
+    the output named none of the schema's fields, so it carries no answer, and a
+    forced tool call on Bedrock can return exactly that. An output that names a field,
+    even to say it is empty, is an answer and passes. Returns the reason for the repair
+    turn, or None.
+    """
+    if getattr(value, "model_fields_set", None):
+        return None
+    name = type(value).__name__
+    return (
+        f"The output set none of the {name} fields: it was an empty object, or the "
+        f"object was nested under a key {name} does not have. Return the {name} object "
+        "itself with its keys at the top level; write a field that has nothing in it as "
+        "an empty value rather than leaving it out."
+    )
+
+
 def _parse_model_output(raw_output: str, model: Type[BaseModel]) -> BaseModel:
     """
     Attempt to parse raw model text into a Pydantic model.
@@ -215,6 +248,65 @@ def _call_llm_with_timeout(
             pass
 
 
+def _structured_via(resp, client, response_format, thinking_budget) -> str | None:
+    """How a response's structure was obtained, from what the call site holds.
+
+      "tool_use"        a forced tool call, answered with the tool
+      "tool_use_prose"  a forced tool call the model answered in text anyway: the
+                        client hands the text back and still stamps its metadata
+                        tool_use, so the returned blocks decide
+      "json_mode"       a plain call with the provider's JSON mode on
+      "prompt"          a plain call with JSON asked for in the prompt only
+                        (BedrockClient.chat takes response_format and never sends it)
+      None              a free-text call, which asked for no structure
+    """
+    meta = getattr(resp, "metadata", None) or {}
+    via = meta.get("structured_via")
+    if via == "tool_use":
+        raw = getattr(resp, "raw", None)
+        blocks = raw.get("content") if isinstance(raw, dict) else None
+        if isinstance(blocks, list) and not any(
+            isinstance(b, dict) and b.get("type") == "tool_use" for b in blocks
+        ):
+            return "tool_use_prose"
+        return "tool_use"
+    if via:
+        return str(via)
+    if not (isinstance(response_format, dict) and response_format.get("type") == "json_object"):
+        return None
+    provider = getattr(client, "provider", None)
+    if provider in ("gcp", "openai"):
+        return "json_mode"
+    if (
+        provider == "anthropic"
+        and thinking_budget is None
+        and getattr(client, "_supports_response_format", None) is True
+    ):
+        return "json_mode"
+    return "prompt"
+
+
+def _reasoning_present(resp) -> bool | None:
+    """Whether the response carried a reasoning (thinking) block; None when it cannot say.
+
+    This is a block in the response, not whether the model thought: a provider that
+    hides its reasoning reads as False or None.
+    """
+    meta = getattr(resp, "metadata", None) or {}
+    count = meta.get("reasoning_blocks")
+    if isinstance(count, int):
+        return count > 0
+    raw = getattr(resp, "raw", None)
+    content = getattr(raw, "content", None)  # Anthropic Messages
+    if isinstance(content, list):
+        return any(getattr(b, "type", None) in ("thinking", "redacted_thinking") for b in content)
+    candidates = getattr(raw, "candidates", None)  # Gemini, with thoughts included
+    if isinstance(candidates, list) and candidates:
+        parts = getattr(getattr(candidates[0], "content", None), "parts", None) or []
+        return any(bool(getattr(p, "thought", False)) for p in parts)
+    return None
+
+
 def _ledger_entry(
     agent,
     model_name,
@@ -227,8 +319,16 @@ def _ledger_entry(
     thinking_budget=None,
     resp=None,
     err=None,
+    response_format=None,
+    repair_turn=False,
 ):
-    """Build one LLM-ledger record (latency, provider metadata, outcome). Never raises."""
+    """Build one LLM-ledger record (latency, provider metadata, outcome). Never raises.
+
+    A record that has a response also says how its structure was obtained
+    (``structured_via``), whether the request carried a repair turn after a rejected
+    output (``repair_turn``), and whether the response held a reasoning block
+    (``reasoning_present``).
+    """
     entry: dict[str, Any] = {
         "agent": agent,
         "provider": getattr(client, "provider", None),
@@ -249,11 +349,47 @@ def _ledger_entry(
             entry["bedrock_latency_ms"] = meta.get("bedrock_latency_ms")
             entry["request_id"] = meta.get("request_id")
             entry["stop_reason"] = meta.get("stop_reason")
+            entry["structured_via"] = _structured_via(resp, client, response_format, thinking_budget)
+            entry["repair_turn"] = bool(repair_turn)
+            entry["reasoning_present"] = _reasoning_present(resp)
         if err is not None:
             entry["error"] = f"{type(err).__name__}: {err}"
     except Exception:
         pass
     return entry
+
+
+def _log_response(config, log_label: str, resp, text: str, attempt: int, msgs, extra) -> None:
+    """Append one call's raw response to ``LOG_DIR/llm_responses.jsonl``. Never raises.
+
+    ``log_prompt`` used to be handed ``config.LOG_DIR`` itself, a directory, so the open
+    failed, the error was swallowed and no response was ever saved.
+    """
+    try:
+        log_dir = getattr(config, "LOG_DIR", None)
+        if not log_dir:
+            return
+        text = text or ""
+        meta = getattr(resp, "metadata", None) or {}
+        payload: dict[str, Any] = {
+            "attempt": attempt,
+            "model": getattr(resp, "model", None),
+            "request_id": meta.get("request_id"),
+            "response": text[:RESPONSE_LOG_MAX_CHARS],
+            "response_chars": len(text),
+            "messages_count": len(msgs or []),
+            "messages_chars": sum(len(str((m or {}).get("content") or "")) for m in (msgs or [])),
+        }
+        if len(text) > RESPONSE_LOG_MAX_CHARS:
+            payload["response_truncated"] = True
+        if extra:
+            payload.update(extra)
+        log_prompt(
+            os.path.join(log_dir, RESPONSE_LOG_FILE), log_label, payload,
+            max_bytes=RESPONSE_LOG_MAX_BYTES,
+        )
+    except Exception as e:  # pragma: no cover - bookkeeping must not fail a turn
+        print(f"[STRUCTURED_PARSE][{log_label}] response log skipped: {e!r}")
 
 
 def _recycle_client_connections(client, label: str = "") -> None:
@@ -362,6 +498,8 @@ def _call_with_recovery(
                     agent_label, target_model_name, target_client, attempt,
                     "empty_completion", _t0, timeout_seconds=timeout_seconds,
                     thinking_budget=target_thinking_budget, resp=resp,
+                    response_format=response_format,
+                    repair_turn=attempt_messages is not base_messages,
                 ))
                 raise LLMServiceUnavailableError(
                     f"empty completion (0 text tokens) from "
@@ -460,6 +598,8 @@ def _call_with_recovery(
             agent_label, target_model_name, target_client, attempt,
             "ok", _t0, timeout_seconds=timeout_seconds,
             thinking_budget=target_thinking_budget, resp=resp,
+            response_format=response_format,
+            repair_turn=attempt_messages is not base_messages,
         ))
         if usage_label:
             log_usage(resp, usage_label)
@@ -531,10 +671,7 @@ def call_llm_structured(
         state["raw_output"] = raw_output
 
         if log_label:
-            payload = {"messages": msgs, "response": raw_output, "attempt": attempt}
-            if log_payload_extra:
-                payload.update(log_payload_extra)
-            log_prompt(config.LOG_DIR, log_label, payload)
+            _log_response(config, log_label, resp, raw_output, attempt, msgs, log_payload_extra)
 
         try:
             value = _parse_model_output(raw_output, model)
@@ -637,10 +774,7 @@ def call_llm_text(
     def _on_response(resp, attempt, msgs):
         text = resp.content or ""
         if log_label:
-            payload = {"messages": msgs, "response": text, "attempt": attempt}
-            if log_payload_extra:
-                payload.update(log_payload_extra)
-            log_prompt(config.LOG_DIR, log_label, payload)
+            _log_response(config, log_label, resp, text, attempt, msgs, log_payload_extra)
         return True, text, None
 
     ok, value = _call_with_recovery(

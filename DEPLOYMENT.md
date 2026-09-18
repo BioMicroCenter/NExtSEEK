@@ -77,7 +77,9 @@ Key facts every operator must internalize:
   with nothing free. The kernel kills a runaway worker inside the container
   instead, and puma respawns it. Raise `SEEK_MEMORY` in the project-root
   `.env` on a box serving real SEEK traffic; the cap takes effect when `seek`
-  is recreated.
+  is recreated. The users admin API writes through a fresh `bin/rails runner`
+  in this container, so near the cap that is killed too: the write answers 502
+  and its detail says the runner exited 137.
 - The `neo4j` container is capped at `${NEO4J_MEMORY:-6G}`, its heap and page
   cache are sized explicitly (`NEO4J_HEAP`, `NEO4J_PAGECACHE`, 2G each), and a
   single transaction may allocate at most `${NEO4J_TRANSACTION_MAX:-1g}`. Before
@@ -624,7 +626,8 @@ definition:
 
 1. **Zero shared credentials in the agent env.** The agent gets only:
    Bedrock-via-proxy pointers, per-request SEEK user credentials, sidecar
-   host/port, non-secret path mappings. The 16 forbidden shared-cred keys
+   host/port, non-secret path mappings, and the turn's stop time
+   (`NEXTSEEK_CC_TURN_DEADLINE_EPOCH`, a number). The 16 forbidden shared-cred keys
    (AWS/Bedrock token, Neo4j, MySQL, GCP, Anthropic) are enumerated in
    `NessieAI/tests/cc/validate_cc_acceptance.py`; the env
    builder is `NessieAI/cc/cc_engine.py` (`build_agent_environment`), the single source

@@ -13,7 +13,7 @@ from ..helpers import (
     build_recent_results_summary,
 )
 from ..llm_clients import LLMTimeoutError
-from ..schemas.schema_helper import call_llm_structured
+from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
     ContextEngineerOutput,
     EntityAgentOutput,
@@ -336,6 +336,28 @@ def _fallback_multi_parser_plan(
     )
 
 
+def _empty_multi_plan_problem(plan: MultiParserPlan) -> str | None:
+    """Why ``plan`` is not a routing decision, or None when it is one.
+
+    The multi-parser's counterpart of ``_empty_plan_problem``. Every MultiParserPlan
+    field has a default, so ``{}`` and a plan nested under an unknown key validate to a
+    plan with no candidates; so does an output that names every key and fills none. A
+    plan with neither a candidate, nor the user's intent, nor a note carries no
+    decision, and goes back through the repair turn. When no attempt carries one, the
+    caller's existing fallback plan runs.
+    """
+    problem = empty_output_problem(plan)
+    if problem:
+        return problem
+    if plan.candidates or (plan.intent_summary or "").strip() or (plan.notes or "").strip():
+        return None
+    return (
+        "The output carried no plan: no candidates, an empty intent_summary and empty "
+        "notes. Return the complete MultiParserPlan with every key filled, including at "
+        "least one candidate and the intent_summary."
+    )
+
+
 def _canonical_multi_parse(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -385,6 +407,7 @@ def _canonical_multi_parse(
             client=mp_client,
             timeout_seconds=35,
             timeout_retry_seconds=60,
+            result_check=_empty_multi_plan_problem,
         )
         normalized_candidates = [_fill_candidate_defaults(c) for c in result.candidates]
         result = result.model_copy(update={"candidates": normalized_candidates})

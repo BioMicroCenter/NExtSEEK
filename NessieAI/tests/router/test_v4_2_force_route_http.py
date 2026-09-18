@@ -220,3 +220,42 @@ def test_http_sticky_cc_applies_without_force_route(regular_user, monkeypatch):
     rd = _route_decided(task)
     assert rd["route"] == cc_router.ROUTE_CC
     assert rd["source"] == "sticky"
+
+
+def test_http_omitted_session_id_does_not_inherit_another_chats_sticky_cc(
+        regular_user, monkeypatch):
+    """A body with no session_id is a new chat, never the caller's latest.
+
+    The caller's most recently updated chat ended on CC. A session-less POST
+    used to land in that chat, so the sticky guard turned an NS-classified
+    question into a CC turn for a reason the caller could not see, and the turn
+    appended to a conversation the caller never named.
+    """
+    client = _client_for(regular_user)
+    monkeypatch.setattr(cc_router, "decide", lambda q, history=None: _baml_ns("fresh-question"))
+
+    cc_chat = ChatSession.objects.create(
+        user=regular_user,
+        extra_state={
+            "chat_log": [{
+                "turn_id": 1,
+                "ts": "t",
+                "mode": "cc",
+                "user_query": "prior cc",
+                "assistant_reply": "done",
+                "router_choice": cc_router.ROUTE_CC,
+                "status": "completed",
+            }],
+        },
+    )
+
+    tid, sid = _post_query(client, "how many mice are there")
+    task = _wait_terminal(tid)
+
+    assert sid != str(cc_chat.session_id), "the session-less turn joined the caller's latest chat"
+    rd = _route_decided(task)
+    assert rd["source"] == "baml"
+    assert rd["route"] == cc_router.ROUTE_NS
+    cc_chat.refresh_from_db()
+    assert len(cc_chat.extra_state["chat_log"]) == 1, "the other chat's log was appended to"
+    assert ChatSession.objects.filter(user=regular_user).count() == 2

@@ -1,21 +1,9 @@
 [
   {
-    "endpoint": "/nextseek_api/samples/advanced_search/",
-    "methods": ["POST"],
-    "source": "min_api_endpoints_enriched.json",
-    "rationale": "Search endpoint; returns data and does not mutate NExtSEEK state."
-  },
-  {
     "endpoint": "/nextseek_api/samples/graph_search/",
     "methods": ["POST"],
     "source": "nextseek_api/graph_search/",
     "rationale": "Search endpoint over the metadata graph; runs in a Neo4j READ transaction and injects the caller's project clause server-side, so it mutates nothing and widens no caller's visibility."
-  },
-  {
-    "endpoint": "/nextseek_api/samples/",
-    "methods": ["GET"],
-    "source": "min_api_endpoints_enriched.json",
-    "rationale": "List samples; read-only GET."
   },
   {
     "endpoint": "/nextseek_api/experiments/",
@@ -46,18 +34,6 @@
     "methods": ["POST"],
     "source": "read_safety_audit_2026-07-06",
     "rationale": "Retrieve/export sample metadata by UID or SEEK ID (incl. parent/child lineage) via dbsample.searchAdvanced; read-only. POST carries the identifier list, not a mutation. Verified non-mutating in AdminSampleViewSet.admin_retrieve_samples."
-  },
-  {
-    "endpoint": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
-    "methods": ["POST"],
-    "source": "read_safety_audit_2026-07-06",
-    "rationale": "Find parent samples with derived samples of all specified child types; read-only search. POST carries the type list. Verified non-mutating in SamplesByChildTypesViewSet.parents_by_child_types."
-  },
-  {
-    "endpoint": "/nextseek_api/entity_tree/lineage/",
-    "methods": ["POST"],
-    "source": "read_safety_audit_2026-07-06",
-    "rationale": "Return full parent/child lineage trees for a list of sample identifiers (Neo4j read); read-only. POST carries the identifier list. Verified non-mutating in EntityTreeViewSet.lineage."
   },
   {
     "endpoint": "/nextseek_api/batch-upload/validate/",

@@ -53,30 +53,41 @@ def _prev_route_was_cc(history: list[router_context.HistoryTurn] | None) -> bool
     return False
 
 
-def _record_ledger_row(chat_session: ChatSession, decision: cc_router.RouteDecision) -> None:
-    """Best-effort ledger write; must not fail the user turn."""
-    from NessieAI.router.turn_ledger import LedgerCollision, record_turn
+def _record_ledger_row(chat_session: ChatSession, decision: cc_router.RouteDecision,
+                       query_task=None) -> None:
+    """Best-effort ledger write; must not fail the user turn.
+
+    ``len(chat_log) + 1`` is only the floor of the turn number: a turn that died before
+    its chat-log append, a chat past the chat-log cap, or a second turn of the chat in
+    flight all read the same length again, and ``record_next_turn`` moves past a number
+    already taken instead of dropping the row. ``query_task`` ties the row to the
+    ``QueryTask`` the turn ran as.
+    """
+    from NessieAI.router.turn_ledger import ALLOCATION_ATTEMPTS, LedgerCollision, record_next_turn
 
     chat_log = (chat_session.extra_state or {}).get("chat_log") or []
     turn_number = len(chat_log) + 1
     try:
-        record_turn(
+        record_next_turn(
             str(chat_session.session_id),
             turn_number,
             decision.route,
             decision.source,
             decision.task_family,
             decision.family_source,
+            query_task=query_task,
             pinned_generation_id=decision.generation_id,
             pinned_generation_hash=decision.generation_hash or "",
             attempted_route=decision.attempted_route,
             attempted_source=decision.attempted_source,
         )
     except LedgerCollision:
-        logger.warning(
-            "ledger collision for session=%s turn=%s",
+        logger.error(
+            "ledger collision for session=%s from turn=%s: all %d numbers tried were taken "
+            "first, so this turn has no ledger row",
             chat_session.session_id,
             turn_number,
+            ALLOCATION_ATTEMPTS,
         )
     except Exception:
         logger.exception(

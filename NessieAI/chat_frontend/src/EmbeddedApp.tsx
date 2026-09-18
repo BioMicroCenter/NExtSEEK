@@ -166,7 +166,13 @@ export function EmbeddedApp() {
         }
         case "query_error": {
           const d = event.data as QueryErrorData;
-          addSystemMessage(`Error: ${d.error}`);
+          // A Container-CC turn stopped at its time limit still publishes what it
+          // wrote, and only CC files ride on an error: show them under the error,
+          // downloaded by the CC route as a completed CC turn's are. Kept in step with AppLayout.
+          addSystemMessage(
+            `Error: ${d.error}`,
+            d.artifacts?.length ? { artifacts: d.artifacts, mode: "cc" } : undefined,
+          );
           const errEntry = makeDebugEntry(d.agent || "error", queryErrorSummary(d));
           pendingDebugRef.current.push(errEntry);
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, errEntry] }));
@@ -204,13 +210,15 @@ export function EmbeddedApp() {
         useProd: isAdmin ? getUseProd() : false,
         maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
       };
+      // The notice (a dropped progress socket, the answer still on its way) is
+      // shown as a system line and leaves the turn in flight. Kept in step with AppLayout.
       serviceRef.current
-        .submitQuery(text, mode, opts, handleProgress, handleQueryError)
+        .submitQuery(text, mode, opts, handleProgress, handleQueryError, addSystemMessage)
         .finally(() => {
           setIsQuerying(false);
         });
     },
-    [addUserMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
+    [addUserMessage, addSystemMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
   );
 
   const handleArtifactDownload = useCallback(

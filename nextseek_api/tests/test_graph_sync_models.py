@@ -97,9 +97,12 @@ def test_makemigrations_finds_no_change_for_the_graph_sync_models():
     assert ours == [], f"makemigrations proposes a change to the graph_sync models:\n{combined}"
 
 
-def test_0021_is_the_single_leaf_of_the_app():
+def test_0021_sits_on_the_single_chain_of_the_app():
+    """The app has one leaf and 0021 is on its chain (0022 links TurnLedger to QueryTask on top of it)."""
     loader = MigrationLoader(None, ignore_no_migrations=True)
-    assert loader.graph.leaf_nodes("nextseek_api") == [("nextseek_api", "0021_graph_sync_outbox_and_run")]
+    leaves = loader.graph.leaf_nodes("nextseek_api")
+    assert len(leaves) == 1, leaves
+    assert ("nextseek_api", "0021_graph_sync_outbox_and_run") in loader.graph.forwards_plan(leaves[0])
     assert loader.get_migration("nextseek_api", "0021_graph_sync_outbox_and_run").dependencies == [
         ("nextseek_api", "0020_assayregistrationjob")
     ]

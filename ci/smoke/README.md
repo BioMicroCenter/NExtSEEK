@@ -96,10 +96,19 @@ It works in three stages, all in that one file:
    ledger the page showed. After a reload the chat reopens with every turn. The
    reported spend stayed under the ceiling.
 
-On a pass the chat is deleted. On a failure it is kept, so that it can be read:
-any failed test in the module counts, stage 1 included, because the failure count
-is taken before the lane's first test. A passing lane whose DELETE does not answer
-204 names the leftover chat as "Cleanup failed" in the CI record's Nessie section,
+The chat is kept whether the lane passed or failed, and the CI record names it as
+the kept session. On a failure it is kept as it is, so that it can be read: any
+failed test in the module counts, stage 1 included, because the failure count is
+taken before the lane's first test. On a pass it is kept so that a later
+intermittent failure has a passing chat to be diffed against: the lane titles it
+`CI Nessie lane passed <UTC time>` (`PASSING_CHAT_TITLE`), then deletes the write
+account's older chats with that title beyond `KEEP_PASSING_CHATS` (3), the one it
+just kept included. So the write account's saved-chats sidebar holds the three
+newest passing chats, plus every failing chat until someone deletes it by hand.
+The lane finds the old ones in `assistant/sessions/`, which lists an account's
+newest 50 chats. A passing chat the lane cannot title is deleted instead, because
+no later run could find it to prune it. Anything that did not work (the title, a
+DELETE, the list) is named as "Cleanup failed" in the CI record's Nessie section,
 and in pytest's warnings summary on a direct run.
 
 ### When it runs
@@ -184,8 +193,10 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with pl
 - **The kept chat.** Open its `/debug/` URL
   (`/nextseek_api/nessie/sessions/<id>/debug/`) as a superuser: it lists every
   turn, the route ledger, the CC transcript, the files and any warnings. The chat
-  also stays in the write account's saved-chats sidebar. Delete it when you are
-  done.
+  also stays in the write account's saved-chats sidebar. To tell an intermittent
+  failure from a steady one, open the newest `CI Nessie lane passed` chat beside
+  it and compare the same turn in both. Delete a failing chat when you are done;
+  the passing ones are pruned by the lane.
 - **The evidence folder**, `startup/ci-reports/<label>-nessie/`, written only on
   a failure: `trace.zip` (a Playwright trace of the whole browser session),
   `page.png` (the page as the lane left it) and `debug.json` (the `/debug/`
@@ -254,20 +265,20 @@ assert the outbox holds no dead rows, because `wait_for_drain` reports a drain w
 | attribute create and delete | WR-05 | the graph's **catalog** declares the attribute, then stops declaring it |
 | sample update | WR-07 PATCH | the node matches the new value and stops matching the old one |
 | delete | WR-13 | the node comes down by the retire rule |
-| delete, through the API | WR-07 destroy | **strict xfail**: see below |
+| delete, through the API | WR-07 destroy | the node comes down even when SEEK outruns the proxy: see below |
 | sample joins a project | WR-01, WR-02 | a scoped account that could not see the sample now can |
 | person change | WR-10 | the `membership` row drains rather than dead-lettering |
 
 ### Three things that will mislead you
 
-All three were measured on 2026-09-17 by running the lane, and each one reads as a product defect
-until you know about it.
+Each one reads as a product defect until you know about it.
 
 - **`total` and `rows` can disagree, and only `total` is the graph's answer.** `total` is counted in
   Cypher; `rows` are that page hydrated from MySQL. A node the graph still holds whose MySQL row is
-  gone answers `total: 1, rows: []`. So `graph_holds` is for **presence** only, and every absence
-  assertion reads `graph_total`/`wait_for_total`. An absence assertion built on the rows passes on
-  exactly the failure it exists to catch.
+  gone answers `total: 1, rows: []`, and the response's `rows_missing` counts such matches on the
+  page. So `graph_holds` is for **presence** only, and every absence assertion reads
+  `graph_total`/`wait_for_total`. An absence assertion built on the rows passes on exactly the
+  failure it exists to catch.
 - **`graph_meta` is as fresh as the last drift run, and no fresher.** The status endpoint does not
   query Neo4j. Asserting that `catalog_hash` moved after a write compares a cached value with itself.
 - **`graph_search` caches the catalog** for `RECHECK_SECONDS` (60) and re-reads it only when
@@ -289,15 +300,15 @@ through the ORM) and memberships through `/nextseek_api/people/<id>/` (the full 
 shared session, and six calls alternating the two smoke accounts answered with one identity for
 both. A lookup that names its subject in the path is unaffected.
 
-### The API-proxy delete xfail
+### The API-proxy delete is slow on purpose
 
-`DELETE /nextseek_api/samples/<id>/` answered 500 after 20.13 s three times out of three: SEEK's own
-delete outruns `SeekAPIClient.timeout_s = 20`. Rails completes the delete, so the row leaves MySQL,
-but WR-07's retire hook is guarded by `200 <= code < 300` and never runs — leaving a node
-`graph_search` counts and cannot show. It is a strict xfail for the reason `ci/routes.py` gives for a
-route that is broken today: the defect stays visible, and the day it is fixed the lane goes red and
-tells whoever fixed it to remove the marker. The product's own UI does not use this path; the Sample
-Deletion tab posts `alluids` to `/seek/samples/delete/` (WR-13), which the lane proves works.
+SEEK's own delete can outrun `SeekAPIClient.timeout_s`, and Rails then completes it after the proxy
+has given up. The proxy used to answer 500 and enqueue nothing, leaving a node `graph_search` counts
+and cannot show. When SEEK does not answer in time the proxy now answers 202 with
+`status: unconfirmed` and enqueues the retire held back by `UNCONFIRMED_RETIRE_DELAY_S`
+(`nextseek_api/services/samples.py`), so the retire reads MySQL after Rails has finished. The case
+therefore waits out that delay in its drain. The product's own UI does not use this path; the Sample
+Deletion tab posts `alluids` to `/seek/samples/delete/` (WR-13).
 
 ### `/seek/samples/delete/` is enabled for `local` only
 
