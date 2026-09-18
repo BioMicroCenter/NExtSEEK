@@ -103,11 +103,10 @@ def test_columns_match_the_fixtures_that_define_them():
     """
     assert set(cg.COLUMNS["assays"]) == _assay_seed_columns()
     assert set(cg.COLUMNS["sample_types"]) == _model_columns() | {"repository_attributes"}
-    assert set(cg.COLUMNS["projects"]) == _projects_ddl_columns() | {"pi_names"}
+    assert set(cg.COLUMNS["projects"]) == _projects_ddl_columns()
     # Everything the fixtures do not name is declared as new, with a reason.
-    assert set(cg.ADDED_COLUMNS) == {"sample_types", "projects"}
+    assert set(cg.ADDED_COLUMNS) == {"sample_types"}
     assert set(cg.ADDED_COLUMNS["sample_types"]) == {"repository_attributes"}
-    assert set(cg.ADDED_COLUMNS["projects"]) == {"pi_names"}
 
 
 CONFIG = Path("NessieAI/chat_nextseek/src/chat_nextseek/config.py")
@@ -137,15 +136,14 @@ def test_every_column_is_one_the_runtime_actually_reads():
     reports success while production keeps a stale value there forever. This is the
     check that sees it, because its fixture is the consumer.
 
-    The two exceptions are named rather than subtracted, because each is a real
-    open gap and not a convention: `pi_names` and `repository_attributes` are
-    written to the database and read by nothing. `map_project` builds
-    projects_db.json from a fixed key list ending at `tags`, so pi_names never
-    reaches the entity agent, and `map_sampletype` drops repository_attributes the
-    same way. Wiring pi_names up is plan task 13c's; repository_attributes has no
-    named consumer at all.
+    The one exception is named rather than subtracted, because it is a real open
+    gap and not a convention: `repository_attributes` is written to the database
+    and read by nothing, since `map_sampletype` builds its export from a fixed key
+    list, and it has no named consumer at all. Projects have none: the generated
+    `pi_names` column, which nothing read, is retired (spec 2026-09-18, section 8),
+    and `present_on` is a generator-only key, never a column.
     """
-    unread = {"projects": {"pi_names"}, "sample_types": {"repository_attributes"},
+    unread = {"projects": set(), "sample_types": {"repository_attributes"},
               "assays": set()}
     for table, mapper in (("sample_types", "map_sampletype"), ("assays", "map_assay"),
                           ("projects", "map_project")):
@@ -162,8 +160,11 @@ def test_every_curated_key_maps_to_a_known_column():
         assert rows, table
         cg.check_columns(table, rows)          # raises if any key is unknown
         keys = {k for row in rows for k in row}
-        assert keys <= set(cg.COLUMNS[table]), table
+        # present_on is the one curated key that is not a column: generator-only.
+        assert keys <= set(cg.COLUMNS[table]) | set(cg.TABLES[table].generator_only), table
         assert "id" not in keys, table          # the autoincrement is the database's
+    assert cg.TABLES["projects"].generator_only == ("present_on",)
+    assert all(not spec.generator_only for name, spec in cg.TABLES.items() if name != "projects")
 
 
 def test_an_unknown_key_raises_naming_the_key_and_the_table():
@@ -183,168 +184,32 @@ def test_a_missing_natural_key_raises():
         cg.check_columns("projects", [{"pi": "Kamm, Roger D. (MIT, contact PI)"}])
 
 
-# --- 6.7 parse_pi ------------------------------------------------------------
+# --- pi is display prose ------------------------------------------------------
 #
-# Per plan D7 the generator parses the free-text `pi` field into structured names
-# so the person-name rule (13c) matches deterministically instead of asking an
-# LLM to read `Last, First M. (Affiliation, role); ...`. The free-text field
-# survives for display.
-#
-# The format, measured across all 12 curated rows: 9 carry PI names and 3 carry
-# nothing; PIs are semicolon-separated; a PI is `Last, First M.` with an optional
-# `(Affiliation, role)` suffix. Two hazards the format description hides:
-#
-#   1. a semicolon can appear INSIDE the parentheses (Griffith's row), so
-#      splitting on every semicolon invents a PI called
-#      "Scientific Director, Center for Gynepathology Research"
-#   2. several PIs in one row carry no parenthetical at all (RMS-NGC's row)
-
-PI_CSBC = "White, Forest M. (MIT, contact PI); Michor, Franziska (Dana-Farber, co-PI)"
-PI_GRIFFITH = ("Griffith, Linda G. (MIT, PI; Scientific Director, Center for Gynepathology "
-               "Research); Goods, Brittany A. (University of Melbourne, partner lab)")
-PI_RMS = ("Koehler, Angela N. (MIT Koch Institute and Broad Institute, contact PI); "
-          "Burgin, Alex B.; Gould, Alexandra E.; Linardic, Corinne M.; "
-          "Nomura, Daniel (multi-PIs)")
+# `pi` stays as curated display prose: the project page shows it and the entity LLM
+# reads it as context. Nothing parses it any more (spec 2026-09-18, section 8). Lab
+# codes and lab heads' surnames come from SEEK's institution titles instead, so the
+# parser, `with_pi_names` and the generated `pi_names` column are retired: a second
+# source parsed from free text would disagree with the first. No database ever had
+# the column (the gated write never ran), so retiring it costs no migration.
 
 
-def test_parse_pi_yields_every_surname_and_every_full_name():
-    assert cg.parse_pi(PI_CSBC) == [
-        "White", "Forest M. White", "Forest White", "Michor", "Franziska Michor",
-    ]
+def test_pi_is_display_prose_and_nothing_parses_it():
+    assert not hasattr(cg, "parse_pi")
+    assert not hasattr(cg, "with_pi_names")
+    assert "pi_names" not in cg.COLUMNS["projects"]
+    assert "pi_names" not in cg.DDL["projects"]
+    assert "pi_names" not in cg.ADDED_COLUMNS.get("projects", {})
+    assert "pi" in cg.COLUMNS["projects"]
 
 
-def test_parse_pi_yields_the_spelling_a_question_actually_uses():
-    """The initial-free full name, which is the one a person types.
-
-    The curated file writes a middle initial for most PIs and nobody asking a
-    question does, and neither exact nor substring matching bridges the two:
-    "Roger Kamm" is not a substring of "Roger D. Kamm" or the reverse. Before this
-    the column carried only the surname and the middle-initial spelling, so 18 of
-    the 21 curated PI entries had no form a question could match. That the plain
-    form is the live one is measurable in the repo: the CSBC row's own `tags` carry
-    "Forest White" and MetNet's description says "led by Roger Kamm (MIT)".
-    """
-    rows = {r["name"]: r["pi_names"] for r in cg.rows_for("projects")}
-    assert "Roger Kamm" in rows["MetNet"]
-    assert "Forest White" in rows["CSBC"]
-    assert "Linda Griffith" in rows["Griffith"]
-    for name in ("Sarah Fortune", "JoAnne Flynn", "Alex Shalek", "Douglas Lauffenburger"):
-        assert name in rows["Impact"], name
-    # The middle-initial spelling is kept, not replaced.
-    assert "Roger D. Kamm" in rows["MetNet"]
-
-
-def test_a_multi_word_surname_keeps_every_word_when_the_initials_go():
-    assert cg.parse_pi("van der Meer, Jos W. M. (Radboud)") == [
-        "van der Meer", "Jos W. M. van der Meer", "Jos van der Meer",
-    ]
-
-
-def test_parse_pi_ignores_a_semicolon_inside_the_parenthetical():
-    assert cg.parse_pi(PI_GRIFFITH) == [
-        "Griffith", "Linda G. Griffith", "Linda Griffith",
-        "Goods", "Brittany A. Goods", "Brittany Goods",
-    ]
-
-
-def test_parse_pi_reads_a_pi_with_no_parenthetical():
-    assert cg.parse_pi(PI_RMS) == [
-        "Koehler", "Angela N. Koehler", "Angela Koehler",
-        "Burgin", "Alex B. Burgin", "Alex Burgin",
-        "Gould", "Alexandra E. Gould", "Alexandra Gould",
-        "Linardic", "Corinne M. Linardic", "Corinne Linardic",
-        "Nomura", "Daniel Nomura",
-    ]
-
-
-def test_parse_pi_of_nothing_is_empty():
-    for empty in ("None", "none", "", "   ", None):
-        assert cg.parse_pi(empty) == [], repr(empty)
-
-
-def test_an_unclosed_parenthesis_is_refused_rather_than_swallowing_the_rest():
-    """One missing `)` silently deleted every PI after it.
-
-    `_split_outside_parens` never returns depth to 0 once a `(` is unclosed, so
-    every later semicolon is swallowed. Measured:
-    `parse_pi("Kamm, Roger D. (MIT, contact PI; Shenoy, Vivek B. (UPenn, co-PI)")`
-    returned `['Kamm', 'Roger D. Kamm']` -- Shenoy gone, no exception, and the
-    rendered INSERT reporting success. This module refuses rather than guesses
-    everywhere else a value is ambiguous, and the output is SQL bound for
-    production.
-    """
+def test_a_curated_pi_names_is_refused_as_an_unknown_column():
+    """No special case: once the column is gone, the ordinary column check refuses it."""
     import pytest
 
-    with pytest.raises(cg.UnsupportedValue) as excinfo:
-        cg.parse_pi("Kamm, Roger D. (MIT, contact PI; Shenoy, Vivek B. (UPenn, co-PI)")
-    assert "unclosed" in str(excinfo.value)
-    # Balanced nesting, which the Griffith row has, still parses.
-    assert cg.parse_pi("Kamm, Roger D. (MIT (Mech E), PI)") == [
-        "Kamm", "Roger D. Kamm", "Roger Kamm"]
-
-
-def test_an_initial_without_a_period_or_a_spelled_out_middle_name_still_gives_first_last():
-    """The plain form hung on the curator typing a period after each initial.
-
-    `Doe, Jane Q` gave `Jane Q Doe` and no `Jane Doe`; `Doe, Jane Quinn` gave only
-    `Jane Quinn Doe`. A question says "Jane Doe" either way. A hyphenated initial
-    produced junk (`- Kim`)."""
-    assert cg.parse_pi("Doe, Jane Q (MIT)") == ["Doe", "Jane Q Doe", "Jane Doe"]
-    assert cg.parse_pi("Doe, Jane Quinn (MIT)") == ["Doe", "Jane Quinn Doe", "Jane Doe"]
-    assert cg.parse_pi("Doe, Jane Quinn R.") == [
-        "Doe", "Jane Quinn R. Doe", "Jane Quinn Doe", "Jane Doe"]
-    assert cg.parse_pi("Kim, J.-H.") == ["Kim", "J.-H. Kim"]
-    assert cg.parse_pi("Roe, W. Rick") == ["Roe", "W. Rick Roe", "Rick Roe"]
-
-
-def test_a_pi_list_that_would_lose_or_invent_a_name_is_refused():
-    """Every one of these used to parse, silently dropping a PI or inventing one.
-
-    Everything after an entry's first `(` was thrown away, so a PI separated by a
-    comma, a newline or a forgotten `;` vanished; a bracket or a stray `)` turned
-    affiliation text into a name. The module refuses rather than guesses."""
-    import pytest
-
-    for value in (
-        "Doe, Jane Q. (MIT), Roe, Rick B. (UPenn)",             # comma between PIs
-        "Doe, Jane Q. (MIT)\nRoe, Rick B. (UPenn)",            # newline between PIs
-        "Doe, Jane Q. (MIT, PI) Roe, Rick B. (UPenn)",          # a forgotten semicolon
-        "Doe, Jane (MIT, contact PI), Roe, Rick (UPenn, co-PI); Poe, Pat",
-        "Doe, Jane Q. [MIT; contact PI]",                        # brackets
-        "Doe, Jane Q. MIT); Roe, Rick",                          # a stray ')'
-        "Doe, Jane (Janie) (MIT)",                               # two parentheticals
-        "Doe, Jane Q., Director, Some Center",                   # a title after the name
-        "Doe, Jane Q., Jr.",                                     # a suffix
-        "Jane Q. Doe (MIT)",                                     # natural order
-        "Dr. Doe, Jane",                                         # an honorific
-        'Doe, Jane "JJ"',                                        # a quoted nickname
-    ):
-        with pytest.raises(cg.UnsupportedValue):
-            cg.parse_pi(value)
-
-
-def test_a_pi_that_is_not_text_is_refused():
-    import pytest
-
-    for value in (["Doe, Jane"], [], 0, True):
-        with pytest.raises(cg.UnsupportedValue):
-            cg.parse_pi(value)
-
-
-def test_parse_pi_normalises_unicode_and_spacing():
-    """An NFD-encoded accent never equals a question's NFC one, and a no-break space
-    survived into the initialled form."""
-    assert cg.parse_pi("Mu\u0308ller, Jane\u00a0Q.") == [
-        "M\u00fcller", "Jane Q. M\u00fcller", "Jane M\u00fcller"]
-
-
-def test_a_curated_pi_names_is_refused_rather_than_overwritten():
-    """context/README.md says projects.json must not carry pi_names; it was accepted
-    and silently replaced, so a hand-added spelling vanished."""
-    import pytest
-
-    with pytest.raises(cg.UnsupportedValue):
-        cg.with_pi_names([{"name": "X", "pi": "Doe, Jane", "pi_names": ["J. Doe"]}])
+    with pytest.raises(cg.UnknownColumn) as excinfo:
+        cg.check_columns("projects", [{"name": "X", "entity_type": "project", "pi_names": ["Doe"]}])
+    assert "pi_names" in str(excinfo.value)
 
 
 def test_a_pi_spelled_as_nothing_is_stored_as_null():
@@ -353,32 +218,12 @@ def test_a_pi_spelled_as_nothing_is_stored_as_null():
     assert cg.db_value("projects", "pi", "Doe, Jane") == "Doe, Jane"
 
 
-def test_parse_pi_of_a_single_name_does_not_repeat_it():
-    assert cg.parse_pi("Levine (MIT)") == ["Levine"]
-
-
-def test_every_curated_project_row_parses():
-    rows = cg.load_source(cg.TABLES["projects"].source)
-    with_names = [r for r in rows if cg.parse_pi(r.get("pi"))]
-    assert len(rows) == 12
-    assert len(with_names) == 9
-    # A surname is never dropped: every parsed name is non-empty and stripped.
-    for row in rows:
-        for name in cg.parse_pi(row.get("pi")):
-            assert name == name.strip() and name
-
-
-def test_pi_names_is_emitted_alongside_the_free_text_pi():
-    rows = cg.with_pi_names(cg.load_source(cg.TABLES["projects"].source))
-    csbc = next(r for r in rows if r["name"] == "CSBC")
-    assert csbc["pi"] == PI_CSBC                      # free text kept for display
-    assert csbc["pi_names"] == [
-        "White", "Forest M. White", "Forest White", "Michor", "Franziska Michor",
-    ]
-    bprc = next(r for r in rows if r["name"] == "BPRC")
-    assert bprc["pi_names"] == []
-    # Every row gains the column, so the write never leaves it undefined.
-    assert all("pi_names" in r for r in rows)
+def test_the_curated_pi_text_is_written_unchanged():
+    """The free text reaches the database as curated, whatever shape it has."""
+    rows = [{"name": "Zephyr", "entity_type": "project",
+             "pi": "Doe, Jane (Example Institute, PI; Director, Example Center)"}]
+    sql = cg.render_update("projects", rows)
+    assert "'Doe, Jane (Example Institute, PI; Director, Example Center)'" in sql
 
 
 # --- 6.9 the update SQL ------------------------------------------------------
@@ -403,11 +248,11 @@ INSERT_RE = re.compile(r"^INSERT INTO ", re.M)
 
 def _rows_for(table: str) -> list[dict]:
     rows = cg.load_source(cg.TABLES[table].source)
-    return cg.with_pi_names(rows) if table == "projects" else rows
+    return cg.rows_for(table) if table == "projects" else rows
 
 
 def test_update_writes_one_update_and_one_guarded_insert_per_row():
-    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 12)):
+    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 21)):
         spec = cg.TABLES[table]
         sql = cg.render_update(table, _rows_for(table))
         assert len(INSERT_RE.findall(sql)) == expected, table
@@ -449,9 +294,12 @@ def test_update_sets_every_column_including_the_key():
 
 
 def test_update_removes_rows_the_source_no_longer_names():
+    sql = cg.render_update("assays", _rows_for("assays"))
+    assert "DELETE FROM `assay_context` WHERE `assay_name` NOT IN (" in sql
+    # projects_context keys on the pair, so its delete names each (name, entity_type).
     sql = cg.render_update("projects", _rows_for("projects"))
-    assert "DELETE FROM `projects_context` WHERE `name` NOT IN (" in sql
-    assert "'CSBC'" in sql.split("NOT IN (", 1)[1].split(")", 1)[0]
+    delete = sql.split("DELETE FROM `projects_context` WHERE NOT (", 1)[1].split(";", 1)[0]
+    assert "(`name` = 'CSBC' AND `entity_type` = 'project')" in delete
     # And collapses duplicate keys, which production's assay_context has 22 of.
     assert "DELETE `a` FROM `projects_context` `a`" in sql
 
@@ -466,7 +314,8 @@ def test_a_row_with_no_key_at_all_is_deleted_too():
     """
     for table, spec in cg.TABLES.items():
         sql = cg.render_update(table, _rows_for(table))
-        assert f"OR `{spec.key}` IS NULL;" in sql, table
+        nulls = " OR ".join(f"`{column}` IS NULL" for column in spec.key_columns)
+        assert f"OR {nulls};" in sql, table
 
 
 def test_the_dedupe_runs_only_where_there_is_an_id_to_order_by():
@@ -518,34 +367,32 @@ def test_every_row_change_is_one_transaction_that_commits_only_when_checked():
 
 def test_update_adds_the_unique_key_and_any_new_column():
     sql = cg.render_update("projects", _rows_for("projects"))
-    assert "uq_projects_context_name" in sql
+    assert "ADD UNIQUE KEY `uq_projects_context_name_type`" in sql
     assert "information_schema" in sql          # the idempotent add, not a bare ALTER
-    assert f"`pi_names` {cg.ADDED_COLUMNS['projects']['pi_names']}" in sql
+    assert "ADD COLUMN" not in sql              # projects_context gains no column
     sample = cg.render_update("sample_types", _rows_for("sample_types"))
     added = cg.ADDED_COLUMNS["sample_types"]["repository_attributes"]
     assert f"`repository_attributes` {added}" in sample
 
 
 def test_update_escapes_a_quote_by_doubling_it():
-    rows = [{"name": "Griffith", "pi": "O'Neill, Pat (MIT)"}]
-    sql = cg.render_update("projects", cg.with_pi_names(rows))
-    assert "'O''Neill, Pat (MIT)'" in sql
+    rows = [{"name": "Zephyr", "entity_type": "project", "pi": "O'Neill, Pat (Example)"}]
+    sql = cg.render_update("projects", rows)
+    assert "'O''Neill, Pat (Example)'" in sql
     assert "\\'" not in sql                     # no backslash escapes: see literal()
 
 
 def test_update_refuses_a_backslash_rather_than_corrupting_it():
     import pytest
 
-    rows = [{"name": "Backslash", "description": r"a\b"}]
+    rows = [{"name": "Backslash", "entity_type": "project", "description": r"a\b"}]
     with pytest.raises(cg.UnsupportedValue):
-        cg.render_update("projects", cg.with_pi_names(rows))
+        cg.render_update("projects", rows)
 
 
 def test_update_writes_json_columns_as_json_text():
     sql = cg.render_update("projects", _rows_for("projects"))
     assert '\'["BTC", "Breakthrough Cancer"' in sql
-    assert ('\'["White", "Forest M. White", "Forest White", "Michor", '
-            '"Franziska Michor"]\'') in sql
 
 
 def _update_all() -> str:
@@ -588,9 +435,9 @@ def test_an_empty_source_is_refused_rather_than_emptying_the_table():
 def test_update_refuses_a_duplicate_key_in_the_source():
     import pytest
 
-    rows = [{"name": "CSBC"}, {"name": "csbc"}]
+    rows = [{"name": "CSBC", "entity_type": "project"}, {"name": "csbc", "entity_type": "project"}]
     with pytest.raises(cg.DuplicateKey):
-        cg.render_update("projects", cg.with_pi_names(rows))
+        cg.render_update("projects", rows)
 
 
 def test_a_collision_only_utf8mb4_unicode_ci_would_see_is_refused_too():
@@ -609,8 +456,8 @@ def test_a_collision_only_utf8mb4_unicode_ci_would_see_is_refused_too():
 
     for first, second in (("Müller", "Muller"), ("Strauß", "Strauss")):
         with pytest.raises(cg.DuplicateKey):
-            cg.render_update("projects", cg.with_pi_names(
-                [{"name": first}, {"name": second}]))
+            cg.render_update("projects", [{"name": first, "entity_type": "project"},
+                                          {"name": second, "entity_type": "project"}])
     assert cg.fold_key("Müller") == cg.fold_key("Muller")
 
 
@@ -625,9 +472,8 @@ def test_two_supplementary_characters_collide_as_the_key_collation_compares_them
     assert cg.fold_key("Lab \U0001F9EA") == cg.fold_key("Lab \U0001F9EC")
     assert cg.fold_key("Lab \U0001F9EA") != cg.fold_key("Lab \ufffd")
     with pytest.raises(cg.DuplicateKey):
-        cg.render_update("projects", cg.with_pi_names(
-            [{"name": "Lab \U0001F9EA", "entity_type": "project"},
-             {"name": "Lab \U0001F9EC", "entity_type": "project"}]))
+        cg.render_update("projects", [{"name": "Lab \U0001F9EA", "entity_type": "project"},
+                                      {"name": "Lab \U0001F9EC", "entity_type": "project"}])
 
 
 def test_a_key_with_surrounding_whitespace_is_refused():
@@ -637,7 +483,7 @@ def test_a_key_with_surrounding_whitespace_is_refused():
 
     for key in (" CSBC", "CSBC ", "CSBC\t"):
         with pytest.raises(cg.UnsupportedValue):
-            cg.render_update("projects", cg.with_pi_names([{"name": key, "entity_type": "project"}]))
+            cg.render_update("projects", [{"name": key, "entity_type": "project"}])
 
 
 def test_a_control_character_is_refused_in_every_literal_and_comment():
@@ -667,6 +513,273 @@ def test_the_real_curated_keys_do_not_collide_under_that_wider_fold():
         cg._checked_keys(table, rows)           # raises on a collision
 
 
+# --- the natural key is (name, entity_type) ------------------------------------
+#
+# The real CSBC and MetNet investigations share their exact SEEK titles with the CSBC
+# and MetNet project rows, so `projects_context` keyed on `name` alone cannot hold both
+# (spec 2026-09-18, section 9.1). Everything that keys a project row keys the pair: the
+# refusals, the delete of rows the source no longer names, the upsert, the dedupe, the
+# digest and the unique key. The live table's PRIMARY KEY (name) is widened in the
+# schema part, before the rows transaction; the MySQL lane proves it on both shapes.
+
+PAIR = [
+    {"name": "Zephyr", "entity_type": "project", "project_id": 4, "research_focus": "A project."},
+    {"name": "Zephyr", "entity_type": "investigation", "project_id": 4,
+     "parent_project": "Zephyr", "research_focus": "Its investigation."},
+]
+
+
+def test_projects_are_keyed_on_name_and_entity_type():
+    assert cg.TABLES["projects"].key_columns == ("name", "entity_type")
+    assert cg.TABLES["assays"].key_columns == ("assay_name",)
+    assert cg.TABLES["sample_types"].key_columns == ("sample_type",)
+    assert cg.key_of("projects", PAIR[1]) == ("Zephyr", "investigation")
+    ddl = cg.DDL["projects"]
+    assert "UNIQUE KEY `uq_projects_context_name_type` (`name`, `entity_type`)" in ddl
+    assert "`uq_projects_context_name` (" not in ddl
+    assert re.search(r"^  entity_type\s+VARCHAR\(64\)\s+NOT NULL,$", ddl, re.M)
+
+
+def test_a_project_and_an_investigation_may_share_a_name():
+    for render in (cg.render_update, cg.render_seed):
+        sql = render("projects", PAIR)
+        assert "'investigation'" in sql and "'project'" in sql
+
+
+def test_one_name_twice_within_one_entity_type_is_still_a_duplicate():
+    import pytest
+
+    for rows in ([PAIR[1], dict(PAIR[1], name="zephyr")], [PAIR[0], dict(PAIR[0])]):
+        with pytest.raises(cg.DuplicateKey):
+            cg.render_update("projects", rows)
+
+
+def test_entity_type_is_project_or_investigation_exactly():
+    import pytest
+
+    for bad in ("Project", "study", " project", "investigation ", "INVESTIGATION"):
+        with pytest.raises(cg.UnsupportedValue) as excinfo:
+            cg.check_columns("projects", [{"name": "Zephyr", "entity_type": bad}])
+        assert "entity_type" in str(excinfo.value)
+    for row in ({"name": "Zephyr"}, {"name": "Zephyr", "entity_type": None},
+                {"name": "Zephyr", "entity_type": ""}):
+        with pytest.raises(cg.MissingKey):
+            cg.check_columns("projects", [row])
+
+
+def test_every_row_statement_keys_on_both_columns():
+    sql = cg.render_update("projects", PAIR)
+    rows_part = sql.split(cg.ROWS_MARKER, 1)[1].split(cg.MYSQL_ONLY_MARKER, 1)[0]
+    assert "  WHERE `name` = 'Zephyr' AND `entity_type` = 'investigation';" in rows_part
+    assert ("WHERE NOT EXISTS (SELECT 1 FROM `projects_context` WHERE `name` = 'Zephyr' "
+            "AND `entity_type` = 'project');") in rows_part
+    delete = rows_part.split("DELETE FROM `projects_context` WHERE ", 1)[1].split(";", 1)[0]
+    assert "(`name` = 'Zephyr' AND `entity_type` = 'project')" in delete
+    assert "(`name` = 'Zephyr' AND `entity_type` = 'investigation')" in delete
+    assert delete.endswith("OR `name` IS NULL OR `entity_type` IS NULL")
+    assert ("ON `a`.`name` = `b`.`name` AND `a`.`entity_type` = `b`.`entity_type` "
+            "AND `a`.`id` > `b`.`id`") in sql
+
+
+def test_the_schema_part_moves_either_old_key_to_the_pair_before_any_row_changes():
+    """Each step conditional on the shape found, and none of them removes a row.
+
+    The live table's PRIMARY KEY is `(name)`; the old held seed's table carries the unique
+    key `uq_projects_context_name`. Either one refuses the second row of a shared name, so
+    both go before the rows transaction. Only relaxing uniqueness, neither can fail on the
+    rows already there.
+    """
+    sql = cg.render_update("projects", PAIR)
+    schema = sql.split(cg.SCHEMA_MARKER, 1)[1].split(cg.ROWS_MARKER, 1)[0]
+    widen = "ALTER TABLE `projects_context` DROP PRIMARY KEY, ADD PRIMARY KEY (`name`, `entity_type`)"
+    assert widen in schema
+    guard = schema.split(widen, 1)[0].rsplit("SET @nextseek_found", 1)[1]
+    assert "INDEX_NAME = 'PRIMARY'" in guard and "= 'name'" in guard
+    drop = "ALTER TABLE `projects_context` DROP INDEX `uq_projects_context_name`"
+    assert drop in schema
+    assert "INDEX_NAME = 'uq_projects_context_name'" in schema.split(drop, 1)[0].rsplit("SET @nextseek_found", 1)[1]
+    keys = sql.split(cg.KEYS_MARKER, 1)[1]
+    add = "ADD UNIQUE KEY `uq_projects_context_name_type` (`name`, `entity_type`)"
+    assert add in keys
+    guard = keys.split(add, 1)[0].rsplit("SET @nextseek_found", 1)[1]
+    assert "INDEX_NAME = 'PRIMARY'" in guard and "'id'" in guard and "'name,entity_type'" in guard
+    # The single-column tables keep their own shape.
+    assays = cg.render_update("assays", _rows_for("assays"))
+    assert "DROP PRIMARY KEY" not in assays and "uq_assay_context_assay_name" in assays
+
+
+def test_the_digest_orders_by_both_key_columns():
+    """Two rows share a name, so ordering by name alone left their order to the engine."""
+    assert cg.content_digest("projects", PAIR) == cg.content_digest("projects", PAIR[::-1])
+    sql = cg.render_update("projects", PAIR)
+    assert ("ORDER BY CONVERT(`name` USING utf8mb4) COLLATE utf8mb4_bin, "
+            "CONVERT(`entity_type` USING utf8mb4) COLLATE utf8mb4_bin") in sql
+
+
+def test_a_same_named_project_and_investigation_round_trip_and_rerun_to_nothing():
+    import sqlite3
+
+    with sqlite3.connect(":memory:") as conn:
+        _apply(conn, "projects", PAIR)
+        once = _read_back(conn, "projects")
+        _apply(conn, "projects", PAIR, fresh=False)
+        twice = _read_back(conn, "projects")
+    assert once == twice
+    assert [(r["name"], r["entity_type"]) for r in once] == [("Zephyr", "project"),
+                                                             ("Zephyr", "investigation")]
+
+
+# --- the rules a projects row keeps --------------------------------------------
+#
+# Investigations become rows of `projects_context` (spec 2026-09-18, section 9), with
+# conventions of their own, and `present_on` is the one curated key that is not a
+# column: it says which instances hold an investigation and is never written to a
+# database. `check_project_rows` refuses what the conventions do not allow; the
+# generator runs it on the curated file before any SQL or block is rendered.
+
+def _project(name, **extra):
+    row = {"name": name, "entity_type": "project", "project_id": 4, "parent_project": None,
+           "alternative_names": [], "research_focus": f"What {name} studies."}
+    row.update(extra)
+    return row
+
+
+def _inquiry(name, **extra):
+    """An investigation row of the invented project Zephyr."""
+    row = {"name": name, "entity_type": "investigation", "project_id": 4,
+           "parent_project": "Zephyr", "alternative_names": [], "pi": None,
+           "research_focus": f"What {name} holds."}
+    row.update(extra)
+    return row
+
+
+def test_present_on_is_a_curated_key_and_never_a_column():
+    import pytest
+
+    rows = [_project("Zephyr"), _inquiry("Atlas", project_id=None, parent_project="Atlas",
+                                         present_on=["local", "dev"])]
+    cg.check_columns("projects", rows)                     # accepted as a key
+    assert "present_on" not in cg.COLUMNS["projects"]
+    assert "present_on" not in cg.DDL["projects"]
+    for render in (cg.render_update, cg.render_seed):
+        assert "present_on" not in render("projects", rows)
+    with pytest.raises(cg.UnknownColumn):                  # a key of projects only
+        cg.check_columns("assays", [{"assay_name": "X", "present_on": ["dev"]}])
+
+
+def test_rows_for_strips_what_only_the_generator_reads(monkeypatch):
+    rows = [_project("Zephyr"), _inquiry("Atlas", project_id=None, parent_project="Atlas",
+                                         present_on=["local", "dev"])]
+    monkeypatch.setattr(cg, "load_source", lambda path: [dict(r) for r in rows])
+    stripped = cg.rows_for("projects")
+    assert all("present_on" not in row for row in stripped)
+    assert cg.curated_rows("projects")[1]["present_on"] == ["local", "dev"]
+
+
+def test_the_real_curated_projects_keep_every_rule():
+    cg.check_project_rows(cg.load_source(cg.TABLES["projects"].source))
+
+
+def test_present_on_names_some_instances_and_only_on_an_investigation():
+    import pytest
+
+    base = [_project("Zephyr")]
+    for bad in ([], ["staging"], ["local", "local"], ["local", "dev", "prod"], "local",
+                [None], ["Local"]):
+        with pytest.raises(cg.UnsupportedValue) as excinfo:
+            cg.check_project_rows(base + [_inquiry("Atlas", present_on=bad)])
+        assert "present_on" in str(excinfo.value), bad
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows([_project("Zephyr", present_on=["dev"])])
+    for good in (None, ["local"], ["local", "dev"], ["dev", "prod"]):
+        cg.check_project_rows(base + [_inquiry("Atlas", present_on=good)])
+
+
+def test_an_investigation_needs_a_short_one_line_research_focus():
+    import pytest
+
+    base = [_project("Zephyr")]
+    for focus in (None, "", "   "):
+        with pytest.raises(cg.IncompleteInvestigation):
+            cg.check_project_rows(base + [_inquiry("Atlas", research_focus=focus)])
+    for focus in ("x" * 201, "two\nlines"):
+        with pytest.raises(cg.UnsupportedValue) as excinfo:
+            cg.check_project_rows(base + [_inquiry("Atlas", research_focus=focus)])
+        assert "research_focus" in str(excinfo.value)
+    cg.check_project_rows(base + [_inquiry("Atlas", research_focus="x" * 200)])
+
+
+def test_an_investigation_belongs_to_a_project():
+    """`parent_project` names the owning project row; `project_id` is that row's id, and
+    null only where the id differs by instance, which `present_on` has to say."""
+    import pytest
+
+    base = [_project("Zephyr")]
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows(base + [_inquiry("Atlas", parent_project=None)])
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows(base + [_inquiry("Atlas", project_id=5)])
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows(base + [_inquiry("Atlas", project_id=None)])
+    with pytest.raises(cg.UnsupportedValue):
+        cg.check_project_rows(base + [_inquiry("Atlas", project_id=None, present_on=["dev"])])
+    # No project row of that name: the owner is named by its SEEK title, and the id is
+    # the instance's own.
+    cg.check_project_rows(base + [_inquiry("Atlas", project_id=None, parent_project="Atlas",
+                                           present_on=["local", "dev"])])
+
+
+def test_an_investigation_leaves_the_pi_and_the_data_types_to_its_project():
+    import pytest
+
+    base = [_project("Zephyr")]
+    for extra in ({"pi": "Doe, Jane"}, {"key_data_types": ["RNA sequencing"]},
+                  {"nih_reporter_link": "https://example.org/x"},
+                  {"fairdomhub_published_link": "https://example.org/y"}):
+        with pytest.raises(cg.UnsupportedValue):
+            cg.check_project_rows(base + [_inquiry("Atlas", **extra)])
+    cg.check_project_rows(base + [_inquiry("Atlas", key_data_types=[], pi=None)])
+
+
+def test_an_alias_names_one_row_only():
+    """Once folded, an alias may not equal another row's name or alias (spec 9.4).
+
+    The exception is what bridges what users type to an investigation: an investigation row
+    may repeat its own parent project's name or aliases. The mirror image is refused: a
+    project row carrying an investigation's exact title as an alias, which is why the five
+    investigation titles leave the project rows.
+    """
+    import pytest
+
+    parent = _project("Zephyr", alternative_names=["ZPH", "Zephyr Center"])
+    other = _project("Yarrow", project_id=7, alternative_names=["Yarrow Lab"])
+    # The investigation repeats its parent's name and alias: accepted.
+    cg.check_project_rows([parent, other, _inquiry("Atlas", alternative_names=["Zephyr", "zph"])])
+    for rows in (
+        # a project alias that is an investigation's title
+        [dict(parent, alternative_names=["ATLAS"]), other, _inquiry("Atlas")],
+        # an investigation alias that is another project's name or alias
+        [parent, other, _inquiry("Atlas", alternative_names=["Yarrow"])],
+        [parent, other, _inquiry("Atlas", alternative_names=["yarrow lab"])],
+        # two projects sharing an alias, folded
+        [parent, dict(other, alternative_names=["Zéphyr Center"])],
+        # two investigations of one parent sharing an alias
+        [parent, other, _inquiry("Atlas", alternative_names=["Wind"]),
+         _inquiry("Breeze", alternative_names=["WIND"])],
+    ):
+        with pytest.raises(cg.DuplicateAlias):
+            cg.check_project_rows(rows)
+
+
+def test_rows_for_projects_refuses_what_the_rules_refuse(monkeypatch):
+    import pytest
+
+    rows = [_project("Zephyr", alternative_names=["Atlas"]), _inquiry("Atlas")]
+    monkeypatch.setattr(cg, "load_source", lambda path: [dict(r) for r in rows])
+    with pytest.raises(cg.DuplicateAlias):
+        cg.rows_for("projects")
+
+
 # --- column widths -----------------------------------------------------------
 #
 # The defect that shipped, and the check that could have seen it. `projects.json`'s
@@ -691,7 +804,7 @@ def test_an_over_long_value_is_refused_by_both_emitters():
     """Both artifacts, because both aborted on it and for the same reason."""
     import pytest
 
-    rows = cg.with_pi_names([{"name": WIDTH_ERROR_EXAMPLE, "description": "x"}])
+    rows = [{"name": WIDTH_ERROR_EXAMPLE, "entity_type": "project", "description": "x"}]
     for render in (cg.render_update, cg.render_seed):
         with pytest.raises(cg.ValueTooLong) as excinfo:
             render("projects", rows)
@@ -725,7 +838,7 @@ def test_a_text_column_is_measured_in_bytes_because_mysql_measures_it_in_bytes()
     import pytest
 
     four_byte = "\U0001F9EA" * 20000          # 20,000 characters, 80,000 bytes
-    rows = cg.with_pi_names([{"name": "Emoji", "description": four_byte}])
+    rows = [{"name": "Emoji", "entity_type": "project", "description": four_byte}]
     with pytest.raises(cg.ValueTooLong) as excinfo:
         cg.render_update("projects", rows)
     assert "bytes" in str(excinfo.value)
@@ -767,8 +880,8 @@ def test_a_column_added_to_a_live_table_carries_its_own_charset():
         for definition in definitions.values():
             assert "CHARACTER SET utf8mb4" in definition
             assert "COLLATE utf8mb4_unicode_ci" in definition
-    sql = cg.render_update("projects", _rows_for("projects"))
-    assert "ADD COLUMN `pi_names` TEXT CHARACTER SET utf8mb4" in sql
+    sql = cg.render_update("sample_types", _rows_for("sample_types"))
+    assert "ADD COLUMN `repository_attributes` TEXT CHARACTER SET utf8mb4" in sql
 
 
 def test_no_curated_value_needs_a_backslash():
@@ -807,11 +920,14 @@ def test_seed_ddl_declares_exactly_the_columns_the_module_writes():
 
 def test_seed_ddl_declares_the_unique_key_the_upsert_needs():
     for table, spec in cg.TABLES.items():
-        assert f"UNIQUE KEY `uq_{spec.name}_{spec.key}` (`{spec.key}`)" in cg.DDL[table], table
+        columns = ", ".join(f"`{c}`" for c in spec.key_columns)
+        assert f"UNIQUE KEY `{cg.unique_key_name(table)}` ({columns})" in cg.DDL[table], table
+    assert cg.unique_key_name("projects") == "uq_projects_context_name_type"
+    assert cg.unique_key_name("assays") == "uq_assay_context_assay_name"
 
 
 def test_seed_writes_the_ddl_then_one_insert_per_line():
-    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 12)):
+    for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 21)):
         sql = cg.render_seed(table, _rows_for(table))
         assert sql.startswith("-- ")                      # the header comment
         assert cg.DDL[table] in sql
@@ -1224,17 +1340,17 @@ def test_a_value_with_a_newline_and_an_apostrophe_survives_byte_for_byte():
     """Named values rather than a normalizer, so this cannot agree with itself."""
     rows = [{
         "name": "Quote and newline",
+        "entity_type": "project",
         "description": "It's two lines.\nSecond line, with 'quotes' and a % sign.",
         "pi": "O'Neill, Pat (MIT)",
         "alternative_names": ["a'b", "plain"],
     }]
     with sqlite3.connect(":memory:") as conn:
-        _apply(conn, "projects", cg.with_pi_names(rows))
+        _apply(conn, "projects", rows)
         back = _read_back(conn, "projects")[0]
     assert back["description"] == "It's two lines.\nSecond line, with 'quotes' and a % sign."
     assert back["pi"] == "O'Neill, Pat (MIT)"
     assert back["alternative_names"] == '["a\'b", "plain"]'
-    assert back["pi_names"] == '["O\'Neill", "Pat O\'Neill"]'
 
 
 def test_a_newline_inside_a_json_column_is_refused_and_says_why():
@@ -1248,7 +1364,7 @@ def test_a_newline_inside_a_json_column_is_refused_and_says_why():
     """
     import pytest
 
-    rows = cg.with_pi_names([{"name": "Wrapped", "alternative_names": ["two\nlines"]}])
+    rows = [{"name": "Wrapped", "entity_type": "project", "alternative_names": ["two\nlines"]}]
     with pytest.raises(cg.UnsupportedValue) as excinfo:
         cg.render_update("projects", rows)
     assert "backslash" in str(excinfo.value)
@@ -1285,40 +1401,118 @@ def test_update_sql_drops_a_stale_row_and_updates_an_existing_one_in_place():
     rows = _rows_for("projects")
     with sqlite3.connect(":memory:") as conn:
         _apply(conn, "projects", rows, preload=(
-            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('Retired', 'stale');",
-            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('CSBC', 'old');",
+            "INSERT INTO `projects_context` (`name`, `entity_type`, `description`) "
+            "VALUES ('Retired', 'project', 'stale');",
+            "INSERT INTO `projects_context` (`name`, `entity_type`, `description`) "
+            "VALUES ('CSBC', 'project', 'old');",
+            # A row with no entity_type has no key, so it goes like any keyless row.
+            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('MetNet', 'untyped');",
         ))
-        stored = {row["name"]: row for row in _read_back(conn, "projects")}
-    assert "Retired" not in stored
-    assert stored["CSBC"]["id"] == 2                      # updated in place, not reinserted
-    assert stored["CSBC"]["description"] != "old"
+        stored = {(row["name"], row["entity_type"]): row for row in _read_back(conn, "projects")}
+    assert ("Retired", "project") not in stored
+    assert stored[("CSBC", "project")]["id"] == 2         # updated in place, not reinserted
+    assert stored[("CSBC", "project")]["description"] != "old"
+    assert ("MetNet", None) not in stored
     assert len(stored) == len(rows)
+
+
+# --- the curated investigation rows (spec 2026-09-18, section 9.3) -------------
+#
+# Nine investigations become rows of projects_context: the plan's eight plus
+# BioMicroCenter. Each is named by the exact SEEK title that holds the samples, owned by
+# a project row (TCGA's project exists only on the local and dev instances, with a
+# different id on each, so its id is null and present_on says where it is). The five
+# investigation titles the project rows carried as aliases leave them, so an exact title
+# resolves to one row.
+
+INVESTIGATION_ROWS = {   # name: (project_id, parent_project, present_on)
+    "BioMicroCenter": (5, "MIT-Koch", None),
+    "CSBC": (10, "CSBC", None),
+    "Collagen Study": (11, "Shoulders", None),
+    "Endometriosis": (7, "Griffith", None),
+    "GBM_BTC": (9, "Break Through Cancer", None),
+    "Impactb Investigation": (2, "Impact", None),
+    "MIT_SRP": (3, "SRP", None),
+    "MetNet": (4, "MetNet", None),
+    "TCGA": (None, "TCGA", ["local", "dev"]),
+}
+
+
+def _curated_investigations() -> dict:
+    return {r["name"]: r for r in cg.curated_rows("projects") if r["entity_type"] == "investigation"}
+
+
+def test_the_nine_investigation_rows_are_curated():
+    investigations = _curated_investigations()
+    assert {name: (r["project_id"], r["parent_project"], r.get("present_on"))
+            for name, r in investigations.items()} == INVESTIGATION_ROWS
+    assert len(cg.curated_rows("projects")) == 12 + 9
+
+
+def test_an_investigation_is_owned_by_a_project_row_where_one_exists():
+    rows = cg.curated_rows("projects")
+    projects = {r["name"]: r for r in rows if r["entity_type"] == "project"}
+    for name, row in _curated_investigations().items():
+        owner = projects.get(row["parent_project"])
+        if owner is None:
+            assert row.get("present_on"), name          # only TCGA's owner has no row
+        else:
+            assert owner["project_id"] == row["project_id"], name
+
+
+def test_a_project_and_its_same_named_investigation_are_both_curated():
+    keys = {cg.key_of("projects", r) for r in cg.curated_rows("projects")}
+    for name in ("CSBC", "MetNet"):
+        assert {(name, "project"), (name, "investigation")} <= keys, name
+
+
+def test_the_investigation_titles_left_the_project_rows_aliases():
+    """An exact investigation title now resolves to its own row, not a whole project."""
+    for row in cg.curated_rows("projects"):
+        if row["entity_type"] == "project":
+            folded = {cg.fold_key(a) for a in row.get("alternative_names") or []}
+            assert not folded & {cg.fold_key(name) for name in INVESTIGATION_ROWS}, row["name"]
+
+
+def test_what_people_type_reaches_the_investigation():
+    investigations = _curated_investigations()
+    for alias, name in (("Impact", "Impactb Investigation"), ("IMPAcTb", "Impactb Investigation"),
+                        ("SRP", "MIT_SRP"), ("Superfund", "MIT_SRP"), ("BTC-GBM", "GBM_BTC"),
+                        ("The Cancer Genome Atlas", "TCGA"), ("BioMicro Center", "BioMicroCenter")):
+        assert alias in investigations[name]["alternative_names"], alias
+    assert investigations["CSBC"]["alternative_names"] == []
+    assert investigations["MetNet"]["alternative_names"] == []
+
+
+def test_the_curated_projects_file_is_in_its_documented_order():
+    """By name, folded; a project row before an investigation row of the same name."""
+    rows = cg.load_source(cg.TABLES["projects"].source)
+    assert rows == sorted(rows, key=lambda r: (r["name"].casefold(), r["entity_type"] != "project"))
+
+
+def test_the_curated_rows_render_the_block_drift_will_read():
+    block = cg.render_capabilities_text(cg.curated_rows("projects"))
+    document = f"{cg.DRIFT_SECTION_HEADING}\n\n{block}"
+    assert cg.listed_investigations(document) == [
+        (name, INVESTIGATION_ROWS[name][2] is None) for name in sorted(INVESTIGATION_ROWS)]
+    assert "(not on every instance: loaded on local and dev only)" in block
 
 
 # --- 6.15 the generated investigation block ----------------------------------
 #
-# capabilities.md's "Known Projects and Investigations" section lists eight names
-# and tells the agent to "use these names exactly". Five of the eight return
-# nothing: SEEK carries two parallel investigation systems, and the list names the
-# paper-tracking copies in TestProject_250820 (38 bibliographic studies, zero
-# samples) rather than the real investigations that hold the samples. Measured on
-# the live 1.2 graph and confirmed against the 2026-09-11 production pull; a sync
-# does not repair it.
+# capabilities.md's "Known Projects and Investigations" section listed eight names and
+# told the agent to "use these names exactly". Five of the eight return nothing: SEEK
+# carries two parallel investigation systems, and the list named the paper-tracking
+# copies rather than the real investigations that hold the samples.
 #
-# Operator decision, 2026-09-17: do not hand-edit that list, generate it. So the
-# section becomes a marked generated block filled from projects_context, and the
-# generator REFUSES an investigation that resolves to zero samples. That refusal is
-# the whole point: the defect cannot be committed in the first place.
-# catalog.assistant_investigations in nextseek_api/graph_sync/drift.py stays as the
-# runtime backstop for the case where the data moves under a correct file.
-#
-# This module owns the renderer only. The investigation rows are 6.15c and the
-# consumer audit is 6.15d, both gated on the operator's xlsx review, and nothing
-# here edits capabilities.md.
+# Operator decision, 2026-09-17: do not hand-edit that list, generate it from the
+# investigation rows of projects_context. The generation is split in two (spec
+# 2026-09-18, section 10.2): `render_capabilities_text(rows)` is pure and graph-free and
+# makes every check a row allows; `check_investigation_counts(rows, docs)` holds the
+# refusals that need a measurement, one counts file per instance. Counts only refuse:
+# they never change the text. drift.py stays the runtime backstop.
 
-# The names the plan's table says should replace the five that resolve to nothing.
-# The counts are synthetic: they are used to DECIDE, never emitted, and only their
-# sign matters here.
+# Synthetic counts: used to DECIDE, never emitted, and only their sign matters here.
 LIVE_COUNTS = {
     "Impactb Investigation": 7001, "MIT_SRP": 7002, "GBM_BTC": 7003,
     "Endometriosis": 7004, "Collagen Study": 7005, "CSBC": 7006, "MetNet": 7007,
@@ -1327,15 +1521,17 @@ LIVE_COUNTS = {
 DEAD_NAMES = ("Impact", "SRP", "GBM", "Griffith", "Shoulders")
 
 
-def _counts_for(*names):
-    """The measured counts for exactly these names.
+def _doc(counts: dict, measured_on: str = "local", nodes: int = 1) -> dict:
+    """A counts file as `graph_sync --investigation-counts --instance <profile> --json`
+    writes it."""
+    return {"measured_on": measured_on, "measured_at": "2026-09-19T06:10:00Z",
+            "investigations": {title: {"nodes": nodes, "samples": samples}
+                               for title, samples in counts.items()}}
 
-    Passing the whole LIVE_COUNTS map beside one row is now a refusal rather than a
-    convenience: a name the counts prove answers, with no curated row, would be
-    dropped from the agent's only list silently. See
-    test_the_block_refuses_to_drop_an_investigation_that_answers.
-    """
-    return {name: LIVE_COUNTS[name] for name in names}
+
+def _counts_for(*names, measured_on="local"):
+    """The measured counts for exactly these names, as one counts file."""
+    return _doc({name: LIVE_COUNTS[name] for name in names}, measured_on)
 
 
 def _investigation(name, **extra):
@@ -1346,12 +1542,57 @@ def _investigation(name, **extra):
     return row
 
 
+def _tcga(**extra):
+    """An investigation that is not on every instance, like the real TCGA."""
+    return _investigation("TCGA", project_id=None, parent_project="TCGA",
+                          present_on=["local", "dev"], **extra)
+
+
 def test_capabilities_block_is_one_marked_generated_block():
-    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 7008})
+    block = cg.render_capabilities_text([_investigation("TCGA")])
     assert block.startswith(cg.CAPABILITIES_BEGIN)
     assert block.rstrip("\n").endswith(cg.CAPABILITIES_END)
     assert "BEGIN" in cg.CAPABILITIES_BEGIN and "END" in cg.CAPABILITIES_END
     assert cg.CAPABILITIES_BEGIN.startswith("<!--") and cg.CAPABILITIES_END.endswith("-->")
+
+
+def test_the_block_is_exactly_the_documented_shape():
+    """Spec 10.2, verbatim, with invented research foci. The separator is a colon."""
+    rows = [_investigation("Impactb Investigation", research_focus="Focus one",
+                           alternative_names=["Impact", "IMPACT", "IMPAcTb"]),
+            _tcga(research_focus="Focus two", alternative_names=["The Cancer Genome Atlas"])]
+    assert cg.render_capabilities_text(rows) == (
+        "<!-- BEGIN CONTEXT-GEN:investigations -->\n"
+        "\n"
+        "The graph database organizes samples into studies grouped under named investigations. "
+        "The investigations that hold samples are:\n"
+        "\n"
+        "- **Impactb Investigation**: Focus one [also: Impact, IMPACT, IMPAcTb]\n"
+        "- **TCGA**: Focus two [also: The Cancer Genome Atlas] "
+        "(not on every instance: loaded on local and dev only)\n"
+        "\n"
+        "Use these names exactly when asking graph questions scoped to one investigation. "
+        "The names in brackets are what people call them; the bold name is what the graph "
+        "answers to. A name marked \"not on every instance\" is loaded only on the instances it "
+        "lists. Where a query scoped to it finds no samples, it is not loaded on this instance: "
+        "say so rather than reporting zero.\n"
+        "\n"
+        "<!-- END CONTEXT-GEN:investigations -->\n"
+    )
+
+
+def test_the_availability_sentence_appears_only_when_a_name_is_marked():
+    block = cg.render_capabilities_text([_investigation("CSBC"), _investigation("MetNet")])
+    assert "not on every instance" not in block
+    assert block.count(" — ") == 0 and "**CSBC**: What CSBC studies." in block
+
+
+def test_the_availability_note_lists_the_instances_in_a_fixed_order():
+    assert cg.availability_note(None) is None
+    assert cg.availability_note(["dev", "local"]) == "(not on every instance: loaded on local and dev only)"
+    assert cg.availability_note(["prod"]) == "(not on every instance: loaded on prod only)"
+    assert cg.availability_note(["prod", "local"]) == "(not on every instance: loaded on local and prod only)"
+    assert cg.availability_note(["dev"]).startswith(cg.NOT_EVERYWHERE_MARK)
 
 
 def test_capabilities_block_lists_investigations_and_skips_projects():
@@ -1359,65 +1600,56 @@ def test_capabilities_block_lists_investigations_and_skips_projects():
     nodes, so a project row that is not also an investigation title would make the
     drift check fail for a row that is perfectly correct."""
     rows = [_investigation("TCGA"),
-            {"name": "MIT-Koch", "entity_type": "project", "research_focus": "A program."}]
-    block = cg.render_capabilities_block(rows, {"TCGA": 7008})
+            {"name": "MIT-Koch", "entity_type": "project", "project_id": 5,
+             "research_focus": "A program."}]
+    block = cg.render_capabilities_text(rows)
     assert "**TCGA**" in block
     assert "MIT-Koch" not in block
 
 
-def test_capabilities_block_carries_no_counts():
+def test_capabilities_block_carries_no_counts_and_counts_never_change_it():
     """A baked count rots the day the next sync runs, and the repo's doc rules
-    forbid a dated count in a README or CLAUDE file. Live counts reach the graph
-    agent through the catalog reader instead.
-
-    The "no digit at all" rule this used to assert was vacuous AND unusable: every
-    synthetic row's description was `What {name} studies.`, so nothing could ever
-    fail it, and real curated descriptions already carry digits that must stay
-    ("PAX3-FOXO1" in RMS-NGC, "COL2A1" in Shoulders). So the rule is the narrow one
-    a count actually satisfies: four or more consecutive digits, or a comma-grouped
-    number. Checked here against descriptions that DO carry digits.
-    """
+    forbid a dated count in a README or CLAUDE file. The counts only refuse."""
     rows = [_investigation(name, research_focus=f"{name} studies PAX3-FOXO1 and COL2A1.")
             for name in sorted(LIVE_COUNTS)]
-    block = cg.render_capabilities_block(rows, LIVE_COUNTS)
+    block = cg.render_capabilities_text(rows)
+    assert cg.check_investigation_counts(rows, [_doc(LIVE_COUNTS)]) is None
     assert "PAX3-FOXO1" in block                  # a gene is not a count
     assert not cg._COUNT_LIKE.search(block)
     for count in LIVE_COUNTS.values():
         assert str(count) not in block and f"{count:,}" not in block
+    assert cg.render_capabilities_text(rows) == block
 
 
 def test_a_count_in_a_curated_description_is_refused():
-    """The one field an author types free text into, and the only way a count
-    could still reach the block. The counts path itself is clean -- they decide
-    what is emitted and are then discarded -- but nothing stopped
-    `research_focus` from carrying one, and a baked count rots on the next sync."""
+    """The one field an author types free text into, and the only way a count could
+    still reach the block."""
     import pytest
 
     for focus in ("Pan-cancer atlas of 1,234,567 samples across 33 cohorts.",
                   "Holds 76543 samples today."):
-        row = _investigation("TCGA", research_focus=focus)
         with pytest.raises(cg.BakedCount):
-            cg.render_capabilities_block([row], _counts_for("TCGA"))
+            cg.render_capabilities_text([_investigation("TCGA", research_focus=focus)])
 
 
 def test_the_block_refuses_to_drop_an_investigation_that_answers():
-    """Silently under-reporting is the mirror of the zero-sample refusal.
-
-    Only the curated rows were iterated, and `counts` was read solely through
-    `counts.get(...)`, so a name the measurement proves holds samples but that no
-    row carries was simply left out -- with no refusal, no warning, and nothing on
-    drift's side either, because drift only checks names already present in the
-    file. The agent would never learn the investigation exists.
-    """
+    """Silently under-reporting is the mirror of the zero-sample refusal: a name the
+    measurement proves holds samples, with no curated row, would never reach the agent."""
     import pytest
 
     rows = [_investigation("TCGA")]
     with pytest.raises(cg.UnlistedInvestigation) as excinfo:
-        cg.render_capabilities_block(rows, {"TCGA": 7008, "MetNet": 7007})
+        cg.check_investigation_counts(rows, [_doc({"TCGA": 7008, "MetNet": 7007})])
     assert "MetNet" in str(excinfo.value)
     assert "TCGA" not in str(excinfo.value)
     # A name that answers nothing is not surplus; it is the other refusal's case.
-    cg.render_capabilities_block(rows, {"TCGA": 7008, "GBM": 0})
+    cg.check_investigation_counts(rows, [_doc({"TCGA": 7008, "GBM": 0})])
+
+
+def test_an_ignored_title_is_not_unlisted():
+    rows = [_investigation("TCGA")]
+    counts = [_doc({"TCGA": 7008, "Paper Copy": 3})]
+    cg.check_investigation_counts(rows, counts, ignore=["Paper Copy"])
 
 
 def test_capabilities_block_refuses_an_investigation_with_no_samples():
@@ -1426,7 +1658,7 @@ def test_capabilities_block_refuses_an_investigation_with_no_samples():
 
     rows = [_investigation("TCGA")] + [_investigation(name) for name in DEAD_NAMES]
     with pytest.raises(cg.ZeroSampleInvestigation) as excinfo:
-        cg.render_capabilities_block(rows, LIVE_COUNTS)
+        cg.check_investigation_counts(rows, [_doc(dict(LIVE_COUNTS, GBM=0))])
     message = str(excinfo.value)
     for name in DEAD_NAMES:
         assert name in message, name
@@ -1434,38 +1666,122 @@ def test_capabilities_block_refuses_an_investigation_with_no_samples():
 
 
 def test_capabilities_block_refuses_a_name_the_counts_do_not_mention():
-    """Absent is not zero, but it is not evidence either."""
+    """Absent is not zero, but for a name on every instance it is not evidence either."""
     import pytest
 
     with pytest.raises(cg.ZeroSampleInvestigation):
-        cg.render_capabilities_block([_investigation("Nowhere")], {"TCGA": 7008})
+        cg.check_investigation_counts([_investigation("Nowhere")], [_doc({"TCGA": 7008})])
 
 
 def test_capabilities_block_refuses_with_no_counts_at_all():
     import pytest
 
     with pytest.raises(cg.ZeroSampleInvestigation):
-        cg.render_capabilities_block([_investigation("TCGA")])
+        cg.check_investigation_counts([_investigation("TCGA")], [])
+
+
+def test_absent_and_empty_are_told_apart_by_where_the_count_was_measured():
+    """Spec 10.3's table. On an instance the row's present_on names, the name must hold
+    samples; on one it does not name, it must be absent: an empty node there is the
+    confident zero, and samples there mean present_on is wrong."""
+    import pytest
+
+    rows = [_tcga()]
+    cg.check_investigation_counts(rows, [_doc({"TCGA": 5}, "local")])
+    cg.check_investigation_counts(rows, [_doc({}, "prod")])
+    for doc in (_doc({}, "local"), _doc({"TCGA": 0}, "local"), _doc({"TCGA": 0}, "prod")):
+        with pytest.raises(cg.ZeroSampleInvestigation) as excinfo:
+            cg.check_investigation_counts(rows, [doc])
+        assert doc["measured_on"] in str(excinfo.value)
+    with pytest.raises(cg.AvailabilityMismatch) as excinfo:
+        cg.check_investigation_counts(rows, [_doc({"TCGA": 5}, "prod")])
+    assert "present_on" in str(excinfo.value)
+    # A name on every instance is held to "holds samples" wherever it was measured.
+    everywhere = [_investigation("CSBC")]
+    for where in cg.PROFILES:
+        cg.check_investigation_counts(everywhere, [_doc({"CSBC": 5}, where)])
+        with pytest.raises(cg.ZeroSampleInvestigation):
+            cg.check_investigation_counts(everywhere, [_doc({}, where)])
+
+
+def test_every_counts_file_must_pass():
+    import pytest
+
+    rows = [_investigation("CSBC")]
+    with pytest.raises(cg.ZeroSampleInvestigation) as excinfo:
+        cg.check_investigation_counts(rows, [_doc({"CSBC": 5}, "local"), _doc({}, "dev")])
+    assert "dev" in str(excinfo.value)
+
+
+def test_a_counts_file_says_where_and_when_it_was_measured():
+    import pytest
+
+    good = _doc({"CSBC": 5})
+    bad = [
+        dict(good, measured_on="staging"), dict(good, measured_on=None),
+        {k: v for k, v in good.items() if k != "measured_on"},
+        dict(good, measured_at=""), {k: v for k, v in good.items() if k != "measured_at"},
+        dict(good, investigations=[]), dict(good, investigations={"CSBC": 5}),
+        dict(good, investigations={"CSBC": {"samples": 5}}),
+        dict(good, investigations={"CSBC": {"nodes": 1, "samples": "5"}}),
+        dict(good, investigations={"CSBC": {"nodes": 1, "samples": True}}),
+        dict(good, investigations={"CSBC": {"nodes": 1, "samples": -1}}),
+        dict(good, extra=1),
+    ]
+    for doc in bad:
+        with pytest.raises(cg.UnsupportedValue):
+            cg.check_investigation_counts([_investigation("CSBC")], [doc])
+    with pytest.raises(cg.UnsupportedValue) as excinfo:     # two files from one instance
+        cg.check_investigation_counts([_investigation("CSBC")], [good, dict(good)])
+    assert "local" in str(excinfo.value)
+
+
+def test_the_flat_shape_and_drifts_stat_are_no_longer_counts(tmp_path):
+    """Neither says where it was measured, and neither can tell an absent investigation
+    from an empty one, so both are refused with the command that writes the new shape."""
+    import json as _json
+
+    import pytest
+
+    for payload in ({"TCGA": 7008}, {"samples": {"TCGA": 7008}},
+                    {"stats": {"assistant_investigations": {"samples": {}}}}):
+        path = tmp_path / "counts.json"
+        path.write_text(_json.dumps(payload))
+        with pytest.raises(cg.UnsupportedValue) as excinfo:
+            cg.load_counts(path)
+        assert "--investigation-counts" in str(excinfo.value)
+    path.write_text(_json.dumps(_doc({"TCGA": 1})))
+    assert cg.load_counts(path) == _doc({"TCGA": 1})
 
 
 def test_capabilities_block_refuses_when_no_row_is_an_investigation():
-    """Today's live state: all 12 projects_context rows are projects.
-
-    Emitting an empty list would silently delete the agent's only list of
-    investigations, so this says to add the rows (6.15c) first.
-    """
+    """Emitting an empty list would silently delete the agent's only list of
+    investigations."""
     import pytest
 
+    rows = [{"name": "Zephyr", "entity_type": "project", "project_id": 4}]
     with pytest.raises(cg.NoInvestigations):
-        cg.render_capabilities_block(_rows_for("projects"), LIVE_COUNTS)
+        cg.render_capabilities_text(rows)
+    with pytest.raises(cg.NoInvestigations):
+        cg.check_investigation_counts(rows, [_doc({})])
 
 
 def test_capabilities_block_refuses_an_investigation_with_nothing_to_say():
     import pytest
 
-    row = _investigation("TCGA", research_focus=None, description=None)
     with pytest.raises(cg.IncompleteInvestigation):
-        cg.render_capabilities_block([row], {"TCGA": 7008})
+        cg.render_capabilities_text([_investigation("TCGA", research_focus=None)])
+
+
+def test_a_description_is_no_substitute_for_a_research_focus():
+    """The block used to fall back to the description's first sentence. research_focus
+    is now required on an investigation row, so the fallback could only hide a gap."""
+    import pytest
+
+    row = _investigation("TCGA", research_focus=None,
+                         description="Public pan-cancer atlas. Many more sentences follow.")
+    with pytest.raises(cg.IncompleteInvestigation):
+        cg.render_capabilities_text([row])
 
 
 def test_capabilities_block_bridges_what_users_type_to_the_exact_title():
@@ -1473,53 +1789,52 @@ def test_capabilities_block_bridges_what_users_type_to_the_exact_title():
     row = _investigation("Impactb Investigation",
                          research_focus="Tuberculosis in non-human primates.",
                          alternative_names=["Impact", "IMPAcTb"])
-    block = cg.render_capabilities_block([row], _counts_for("Impactb Investigation"))
+    block = cg.render_capabilities_text([row])
     assert "**Impactb Investigation**" in block
-    assert "Impact" in block and "IMPAcTb" in block
+    assert "[also: Impact, IMPAcTb]" in block
 
 
 def test_capabilities_block_sorts_by_name_and_one_bullet_per_row():
     rows = [_investigation(name) for name in ("TCGA", "CSBC", "MetNet")]
-    block = cg.render_capabilities_block(rows, _counts_for("TCGA", "CSBC", "MetNet"))
-    bullets = [line for line in block.splitlines() if line.startswith("- **")]
-    assert len(bullets) == 3
+    bullets = [line for line in cg.render_capabilities_text(rows).splitlines()
+               if line.startswith("- **")]
     assert [b.split("**")[1] for b in bullets] == ["CSBC", "MetNet", "TCGA"]
-
-
-def test_capabilities_block_falls_back_to_the_first_sentence_of_the_description():
-    row = _investigation("TCGA", research_focus=None,
-                         description="Public pan-cancer atlas. Many more sentences follow.")
-    block = cg.render_capabilities_block([row], _counts_for("TCGA"))
-    assert "Public pan-cancer atlas." in block
-    assert "Many more sentences" not in block
 
 
 def test_the_drift_check_reads_exactly_the_names_the_block_emits():
     """The generator and the runtime backstop have to agree, so this uses the real
-    parser rather than a copy of its regex. Same function drift.py calls after every
-    ./startup.sh rebuild."""
+    parser rather than a copy of its regex."""
     from nextseek_api.graph_sync import drift
 
     names = ["CSBC", "Collagen Study", "Endometriosis", "GBM_BTC",
              "Impactb Investigation", "MIT_SRP", "MetNet", "TCGA"]
-    rows = [_investigation(name) for name in names]
-    block = cg.render_capabilities_block(rows, LIVE_COUNTS)
-    document = ("## Known Projects and Investigations\n\n" + block +
+    rows = [_investigation(name) for name in names if name != "TCGA"] + [_tcga()]
+    document = ("## Known Projects and Investigations\n\n" + cg.render_capabilities_text(rows) +
                 "\n---\n\n## What the System Cannot Do\n\n- **Generate charts** nope\n")
     assert drift.assistant_investigation_names(document) == sorted(names)
+    assert [name for name, _ in cg.listed_investigations(document)] == sorted(names)
+
+
+def test_the_generators_mirror_of_drifts_parser_reads_what_drift_reads():
+    """The gate is standard library only, so it cannot import drift; it reads the block
+    with `listed_investigations` instead, which has to agree with drift's parser."""
+    from nextseek_api.graph_sync import drift
+
+    documents = [
+        "## Known Projects and Investigations\n\n- **A** x\n- **B**: y\n\n---\n\n- **C** z\n",
+        "# Title\n\n## Known Projects and Investigations\n- **A** x\n## Next\n- **B** y\n",
+        "## Something else\n\n- **A** x\n",
+        _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md")),
+    ]
+    for document in documents:
+        assert [n for n, _ in cg.listed_investigations(document)] == \
+            drift.assistant_investigation_names(document)
 
 
 def test_the_block_replaces_the_section_body_between_its_markers():
     """The substitution as text: context_gen writes the block into capabilities.md,
-    which the image then COPYs and both images rebuild.
-
-    Not, as this used to say, that running it before `gen_op_surfaces` ships a
-    stale route_capabilities.json: the NS projection reads only the three required
-    H2 sections ("Overview", "What You Can Ask", "What the System Cannot Do"), so
-    regenerating this block leaves the projection and the route-level object byte
-    for byte identical. That claim is checked below rather than repeated.
-    """
-    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 7008})
+    which the image then COPYs and both images rebuild."""
+    block = cg.render_capabilities_text([_investigation("TCGA")])
     before = (f"{cg.DRIFT_SECTION_HEADING}\n\n"
               f"{cg.CAPABILITIES_BEGIN}\nold text\n{cg.CAPABILITIES_END}\n\n---\n")
     after = cg.replace_capabilities_block(before, block)
@@ -1531,23 +1846,14 @@ def test_the_block_replaces_the_section_body_between_its_markers():
 
 
 def test_the_block_refuses_to_sit_anywhere_drift_would_not_read_it():
-    """Generation and the runtime backstop share a blind spot without this.
-
-    drift keys on the exact line `## Known Projects and Investigations`
-    (`_CAPABILITIES_SECTION`), and when it finds no such line
-    `assistant_investigation_names` returns [] and
-    `_check_assistant_investigations` then PASSES, with the detail "capabilities.md
-    has no Known Projects and Investigations section". So renaming or moving the
-    heading turns the backstop off silently while the generator keeps writing. The
-    heading is owned by neither side, so this is where they are tied together.
-    """
+    """Generation and the runtime backstop share a blind spot without this: drift keys on
+    the exact heading, and with no such line its check PASSES."""
     import pytest
     from nextseek_api.graph_sync import drift
 
-    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 7008})
+    block = cg.render_capabilities_text([_investigation("TCGA")])
     renamed = (f"## Known Investigations\n\n"
                f"{cg.CAPABILITIES_BEGIN}\nold\n{cg.CAPABILITIES_END}\n\n---\n")
-    # This is the failure it prevents, shown with drift's real parser.
     assert drift.assistant_investigation_names(
         renamed.replace(f"{cg.CAPABILITIES_BEGIN}\nold\n{cg.CAPABILITIES_END}", block)
     ) == []
@@ -1558,22 +1864,12 @@ def test_the_block_refuses_to_sit_anywhere_drift_would_not_read_it():
 
 
 def test_regenerating_the_block_leaves_the_ns_projection_identical():
-    """The documented ordering hazard is false, and this is the measurement.
-
-    `replace_capabilities_block`'s note used to say that regenerating the block
-    before `gen_op_surfaces --write` ships a route_capabilities.json built from the
-    old list. `project_ns_capabilities` reads only REQUIRED_H2 -- "Overview", "What
-    You Can Ask", "What the System Cannot Do" -- and never this section, so the
-    projection cannot move. Run against the REAL committed capabilities.md, with
-    the markers inserted the way 6.15c will insert them, so this is the file the
-    claim is about rather than a fixture chosen to agree with it. The step that
-    carries a new list to the agent is the image COPY and rebuild.
-    """
+    """The NS projection reads only REQUIRED_H2, never this section, so regenerating the
+    block cannot move route_capabilities.json. Run against the REAL committed
+    capabilities.md, whose markers are placed, and the block of the real curated rows."""
     import importlib.util
     import sys
 
-    # Loaded by path: NessieAI is not on the test lane's sys.path, and the module
-    # is standard-library only, so there is nothing else to resolve.
     location = Path(cg.REPO_ROOT) / "NessieAI/cc/op_registry/ns_capabilities.py"
     spec = importlib.util.spec_from_file_location("ns_capabilities_for_test", location)
     ns_capabilities = importlib.util.module_from_spec(spec)
@@ -1583,63 +1879,88 @@ def test_regenerating_the_block_leaves_the_ns_projection_identical():
         "Overview", "What You Can Ask", "What the System Cannot Do")
 
     text = _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"))
-    head, _, rest = text.partition(cg.DRIFT_SECTION_HEADING + "\n")
-    assert rest, "capabilities.md no longer carries the heading drift keys on"
-    body, _, tail = rest.partition("\n---\n")
-    marked = (f"{head}{cg.DRIFT_SECTION_HEADING}\n{cg.CAPABILITIES_BEGIN}\n"
-              f"{body}\n{cg.CAPABILITIES_END}\n---\n{tail}")
-
-    before = ns_capabilities.project_ns_capabilities(marked)
-    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 7008})
-    after = ns_capabilities.project_ns_capabilities(
-        cg.replace_capabilities_block(marked, block))
+    block = cg.render_capabilities_text(cg.curated_rows("projects"))
+    before = ns_capabilities.project_ns_capabilities(text)
+    after = ns_capabilities.project_ns_capabilities(cg.replace_capabilities_block(text, block))
     assert before == after
     assert before.route_level_object() == after.route_level_object()
 
 
-def test_the_capabilities_mode_exists_and_refuses_today():
-    """The refusal is only real if something can reach it.
-
-    As shipped the renderer had no --emit mode and no caller anywhere in the tree,
-    and capabilities.md still carries no CONTEXT-GEN markers -- so the five dead
-    investigation names are still committed, and only a live rebuild's drift check
-    sees them. The mode is what makes the refusal reachable; it raises today, and
-    that is the point rather than a gap. (ci/gate/test_context_capabilities_markers.py
-    guards the markers once they are placed.)
-    """
+def _counts_file(tmp_path, name, doc):
     import json as _json
-    import tempfile
 
+    path = tmp_path / name
+    path.write_text(_json.dumps(doc))
+    return str(path)
+
+
+def test_the_capabilities_mode_writes_the_block_between_the_committed_markers(tmp_path):
+    """The markers are placed, so with counts that clear every curated investigation row
+    the mode writes the rows' block between them and leaves every other byte alone. It
+    writes into a copy here; the committed file is the operator's to regenerate. And
+    --counts is still required."""
     import pytest
 
-    # The mode is declared, so `--emit capabilities` is a real entry point.
     parser_text = _repo(Path("scripts/context_gen.py"))
     assert '"update", "seed", "capabilities"' in parser_text
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
-        _json.dump({"TCGA": 7008}, handle)
-        counts = handle.name
-    # Every projects_context row is still a project, so the first refusal fires.
-    with pytest.raises(cg.NoInvestigations):
-        cg.emit_capabilities(counts)
-    # And --counts is required: no evidence, nothing told to the agent.
+    rows = cg.curated_rows("projects")
+    local = {r["name"]: 5 for r in rows if r["entity_type"] == "investigation"}
+    counts = _counts_file(tmp_path, "local.json", _doc(local))
+    target = tmp_path / "capabilities.md"
+    committed = _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"))
+    target.write_text(committed)
+    assert cg.emit_capabilities([counts], out=target) == 0
+    written = target.read_text()
+    assert written == cg.replace_capabilities_block(committed, cg.render_capabilities_text(rows))
+    assert written.split(cg.CAPABILITIES_BEGIN)[0] == committed.split(cg.CAPABILITIES_BEGIN)[0]
+    assert written.split(cg.CAPABILITIES_END)[1] == committed.split(cg.CAPABILITIES_END)[1]
     with pytest.raises(SystemExit):
         cg.main(["--emit", "capabilities"])
+    with pytest.raises(SystemExit):
+        cg.main(["--emit", "seed", "--ignore-investigation", "X"])
 
 
-def test_the_committed_capabilities_file_still_names_the_dead_investigations():
-    """What is true today, pinned so 6.15c's change is visible rather than assumed.
+def test_the_capabilities_mode_takes_a_counts_file_per_instance(tmp_path, monkeypatch):
+    """`--counts` once per instance, each must pass, `--ignore-investigation` by title;
+    what lands between the markers is `render_capabilities_text` of the rows."""
+    import pytest
 
-    The generator cannot repair this yet: the markers are not in the file, the
-    investigation rows are not in context/projects.json, and the prose around the
-    section names the dead investigations outside any block drift reads. This is
-    the record that the refusal has not yet been applied, not a claim that it has.
-    """
+    rows = [_investigation("CSBC"), _tcga()]
+    monkeypatch.setattr(cg, "curated_rows", lambda table: [dict(r) for r in rows])
+    target = tmp_path / "capabilities.md"
+    original = (f"{cg.DRIFT_SECTION_HEADING}\n\n{cg.CAPABILITIES_BEGIN}\nold\n"
+                f"{cg.CAPABILITIES_END}\n\n---\n\n## Tips\n")
+    target.write_text(original)
+    local = _counts_file(tmp_path, "local.json",
+                         _doc({"CSBC": 3, "TCGA": 4, "Paper Copy": 2}, "local"))
+    prod = _counts_file(tmp_path, "prod.json", _doc({"CSBC": 9}, "prod"))
+    with pytest.raises(cg.UnlistedInvestigation):
+        cg.main(["--emit", "capabilities", "--counts", local, "--counts", prod, "--out", str(target)])
+    assert target.read_text() == original                  # a refusal writes nothing
+    assert cg.main(["--emit", "capabilities", "--counts", local, "--counts", prod,
+                    "--ignore-investigation", "Paper Copy", "--out", str(target)]) == 0
+    written = target.read_text()
+    assert written == cg.replace_capabilities_block(original, cg.render_capabilities_text(rows))
+    dead = _counts_file(tmp_path, "dev.json", _doc({"CSBC": 9, "TCGA": 0}, "dev"))
+    with pytest.raises(cg.ZeroSampleInvestigation):
+        cg.main(["--emit", "capabilities", "--counts", dead, "--out", str(target)])
+    assert target.read_text() == written
+
+
+def test_the_committed_capabilities_file_carries_one_marker_pair_around_drifts_names():
+    """6.15c's markers, placed: one well-formed pair, inside the section drift reads, and
+    every name drift reads sits between them, so the generated block is the whole list."""
     from nextseek_api.graph_sync import drift
 
     text = _repo(Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"))
-    assert cg.CAPABILITIES_BEGIN not in text        # 6.15c adds the markers
+    assert text.count(cg.CAPABILITIES_BEGIN) == 1 and text.count(cg.CAPABILITIES_END) == 1
+    assert cg.check_capabilities_markers(text) == []
+    inside = text.split(cg.CAPABILITIES_BEGIN, 1)[1].split(cg.CAPABILITIES_END, 1)[0]
     names = drift.assistant_investigation_names(text)
-    assert set(DEAD_NAMES) <= set(names), names
+    assert names
+    assert drift.assistant_investigation_names(f"{cg.DRIFT_SECTION_HEADING}\n{inside}") == names
+    head = text.split(cg.CAPABILITIES_BEGIN, 1)[0]
+    assert head.rstrip("\n").endswith(cg.DRIFT_SECTION_HEADING)
 
 
 _SECTION = f"{cg.DRIFT_SECTION_HEADING}\n\n"
@@ -1667,7 +1988,7 @@ def test_malformed_markers_are_refused_and_named():
     """Only the presence of each marker was checked, and the first of each was used."""
     import pytest
 
-    block = cg.render_capabilities_block([_investigation("TCGA")], {"TCGA": 10})
+    block = cg.render_capabilities_text([_investigation("TCGA")])
     for case, text in MALFORMED_MARKERS.items():
         assert cg.check_capabilities_markers(text), case
         with pytest.raises(ValueError):
@@ -1681,8 +2002,6 @@ def test_malformed_markers_are_refused_and_named():
 
 
 def test_a_document_with_no_markers_is_well_formed_until_someone_places_them():
-    """Where the markers go is the operator's call (6.15c); until then the committed
-    file has none, and that is not a defect the guard should report."""
     assert cg.check_capabilities_markers(_SECTION + "- **Old** x\n" + _AFTER) == []
 
 
@@ -1694,19 +2013,13 @@ def test_replacing_the_block_refuses_a_document_with_no_markers():
 
 
 def test_a_dead_name_may_survive_as_an_alternative_but_never_as_a_checked_name():
-    """The trap in the bridging design, pinned.
-
-    `SRP` is one of the five names that resolve to nothing, and it is also what
-    people type for `MIT_SRP`. It has to reach the agent as an alias without
-    becoming a name the drift check then looks up and fails on. Only the bold term
-    is checked, so an alternative in brackets is safe -- as long as it stays out of
-    the bold run.
-    """
+    """`SRP` resolves to nothing and is also what people type for `MIT_SRP`: it reaches
+    the agent as an alias, outside the bold run drift checks."""
     from nextseek_api.graph_sync import drift
 
     row = _investigation("MIT_SRP", research_focus="Environmental exposure and DNA damage.",
                          alternative_names=["SRP"])
-    block = cg.render_capabilities_block([row], _counts_for("MIT_SRP"))
+    block = cg.render_capabilities_text([row])
     assert "[also: SRP]" in block
     document = "## Known Projects and Investigations\n\n" + block + "\n---\n"
     assert drift.assistant_investigation_names(document) == ["MIT_SRP"]
@@ -1714,40 +2027,19 @@ def test_a_dead_name_may_survive_as_an_alternative_but_never_as_a_checked_name()
         assert name not in drift.assistant_investigation_names(document)
 
 
-def test_the_block_checks_its_rows_and_its_counts_like_every_other_table():
-    """The block path skipped the column check, so a misspelt `alternative_name`
-    dropped its aliases silently; a string alias list rendered letter by letter; a
-    string count raised TypeError; two rows named alike gave two bullets."""
+def test_the_block_checks_its_rows_like_every_other_table():
+    """A misspelt `alternative_name` dropped its aliases silently; a string alias list
+    rendered letter by letter; two rows named alike gave two bullets."""
     import pytest
 
     with pytest.raises(cg.UnknownColumn):
-        cg.render_capabilities_block(
-            [_investigation("TCGA", alternative_name=["x"])], {"TCGA": 10})
+        cg.render_capabilities_text([_investigation("TCGA", alternative_name=["x"])])
     with pytest.raises(cg.UnsupportedValue):
-        cg.render_capabilities_block(
-            [_investigation("TCGA", alternative_names="Impact")], {"TCGA": 10})
-    for counts in ({"TCGA": "10"}, {"TCGA": None}, {"TCGA": True}, {"TCGA": 10, "X": "3"}):
-        with pytest.raises(cg.UnsupportedValue):
-            cg.render_capabilities_block([_investigation("TCGA")], counts)
+        cg.render_capabilities_text([_investigation("TCGA", alternative_names="Impact")])
     with pytest.raises(cg.DuplicateKey):
-        cg.render_capabilities_block([_investigation("TCGA"), _investigation("tcga")],
-                                     {"TCGA": 10, "tcga": 10})
+        cg.render_capabilities_text([_investigation("TCGA"), _investigation("tcga")])
     with pytest.raises(cg.UnsupportedValue):
-        cg.render_capabilities_block([_investigation(" TCGA ")], {" TCGA ": 10})
-
-
-def test_a_counts_file_that_is_not_a_flat_title_to_count_map_is_refused(tmp_path):
-    """`graph_sync --drift --json` nests the stat; passed whole it was refused with
-    the misleading "resolve to no samples"."""
-    import json as _json
-
-    import pytest
-
-    counts = tmp_path / "counts.json"
-    counts.write_text(_json.dumps({"stats": {"assistant_investigations": {"samples": {}}}}))
-    with pytest.raises(cg.UnsupportedValue) as excinfo:
-        cg.emit_capabilities(counts, out=tmp_path / "caps.md")
-    assert "title" in str(excinfo.value)
+        cg.render_capabilities_text([_investigation(" TCGA ")])
 
 
 def test_a_count_in_an_alias_or_with_a_count_noun_is_refused_but_a_year_is_not():
@@ -1758,47 +2050,118 @@ def test_a_count_in_an_alias_or_with_a_count_noun_is_refused_but_a_year_is_not()
                 _investigation("TCGA", research_focus="Over 900 donors."),
                 _investigation("TCGA", alternative_names=["TCGA 123456 samples"])):
         with pytest.raises(cg.BakedCount):
-            cg.render_capabilities_block([row], {"TCGA": 10})
-    cg.render_capabilities_block(
-        [_investigation("TCGA", research_focus="Samples collected 2019-2023, PAX3-FOXO1.")],
-        {"TCGA": 10})
+            cg.render_capabilities_text([row])
+    cg.render_capabilities_text(
+        [_investigation("TCGA", research_focus="Samples collected 2019-2023, PAX3-FOXO1.")])
 
 
 def test_a_title_never_carries_markdown_that_would_split_the_bold_run():
     """The regex captures `[^*]+`, so a `*` in a name would truncate it."""
     import pytest
 
-    row = _investigation("Bad*Name", research_focus="Anything.")
     with pytest.raises(cg.UnsupportedValue):
-        cg.render_capabilities_block([row], {"Bad*Name": 1})
+        cg.render_capabilities_text([_investigation("Bad*Name", research_focus="Anything.")])
 
 
 def test_an_alternative_name_is_sanitised_exactly_like_a_title():
-    """The test above passes a TITLE, so the aliases were covered in name only.
-
-    An alias was `.strip()`ed and nothing more, and a newline in one opens a bullet
-    of its own. Proven with drift's real parser: the row
-    `{name: "MIT_SRP", alternative_names: ["SRP", "x]\\n- **GBM**"]}` rendered two
-    bullets and `drift.assistant_investigation_names` then answered
-    `['MIT_SRP', 'GBM']` -- a retired name back in the checked list, from a row
-    nobody would read as declaring it.
-    """
+    """A newline in an alias opened a bullet of its own that drift read as a curated name."""
     import pytest
     from nextseek_api.graph_sync import drift
 
     row = _investigation("MIT_SRP", research_focus="Anything.",
                          alternative_names=["SRP", "x]\n- **GBM**"])
     with pytest.raises(cg.UnsupportedValue) as excinfo:
-        cg.render_capabilities_block([row], _counts_for("MIT_SRP"))
+        cg.render_capabilities_text([row])
     assert "alternative name" in str(excinfo.value)
-    # And an asterisk in an alias, for the same reason as in a title.
-    starred = _investigation("MIT_SRP", research_focus="Anything.",
-                             alternative_names=["S*RP"])
+    starred = _investigation("MIT_SRP", research_focus="Anything.", alternative_names=["S*RP"])
     with pytest.raises(cg.UnsupportedValue):
-        cg.render_capabilities_block([starred], _counts_for("MIT_SRP"))
-    # The clean row still renders and drift still reads exactly one name.
-    clean = _investigation("MIT_SRP", research_focus="Anything.",
-                           alternative_names=["SRP"])
-    block = cg.render_capabilities_block([clean], _counts_for("MIT_SRP"))
-    document = "## Known Projects and Investigations\n\n" + block + "\n---\n"
+        cg.render_capabilities_text([starred])
+    clean = _investigation("MIT_SRP", research_focus="Anything.", alternative_names=["SRP"])
+    document = ("## Known Projects and Investigations\n\n" + cg.render_capabilities_text([clean])
+                + "\n---\n")
     assert drift.assistant_investigation_names(document) == ["MIT_SRP"]
+
+
+def test_curated_text_may_not_carry_a_marker_or_the_availability_phrase():
+    """A marker in curated text would end the block early; the availability phrase in a
+    research_focus would mark a name as not on every instance that is."""
+    import pytest
+
+    for row in (_investigation("TCGA", research_focus="Held (not on every instance: dev)."),
+                _investigation("TCGA", research_focus=f"x {cg.CAPABILITIES_END}"),
+                _investigation("TCGA", alternative_names=["<!-- note -->"])):
+        with pytest.raises(cg.UnsupportedValue):
+            cg.render_capabilities_text([row])
+
+
+def test_the_availability_phrase_is_the_one_drift_keys_on():
+    """The generator writes the phrase and drift reads it; neither owns it, so this ties them,
+    as DRIFT_SECTION_HEADING is tied, and holds the two parsers to one reading of a block."""
+    from nextseek_api.graph_sync import drift
+
+    assert cg.NOT_EVERYWHERE_MARK == drift.NOT_EVERYWHERE_MARK
+    rows = [_investigation("CSBC"), _tcga(), _investigation("MetNet", present_on=["prod"])]
+    document = ("## Known Projects and Investigations\n\n" + cg.render_capabilities_text(rows)
+                + "\n---\n")
+    expected = [("CSBC", True), ("MetNet", False), ("TCGA", False)]
+    assert drift.assistant_investigation_entries(document) == expected
+    assert cg.listed_investigations(document) == expected
+
+
+# --- the investigation names outside the block (spec 2026-09-18, section 10.7) ---
+#
+# Only the list is generated. The example queries around it are prose, and they named
+# the dead investigations too: "the SRP investigation", "the GBM project", a tip listing
+# seven names. They are edited by hand, and these pin them to the curated rows: an
+# investigation is named by its exact title, a project by a project row's name or alias.
+
+import re as _re
+
+_CAPABILITIES_FILE = Path("NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md")
+
+
+def _outside_the_block() -> str:
+    text = _repo(_CAPABILITIES_FILE)
+    return text.split(cg.CAPABILITIES_BEGIN, 1)[0] + text.split(cg.CAPABILITIES_END, 1)[1]
+
+
+def test_the_prose_names_an_investigation_by_its_exact_title():
+    titles = set(INVESTIGATION_ROWS)
+    prose = _outside_the_block()
+    named = _re.findall(r"\bthe ((?:[\w-]+ ){0,2}[\w-]+) investigation\b", prose)
+    assert named, "no example names an investigation any more"
+    assert [n for n in named if n not in titles] == []
+    entry = next(line for line in prose.splitlines() if line.startswith("- **Investigation**"))
+    examples = _re.findall(r'"([^"]+)"', entry)
+    assert examples and set(examples) <= titles, examples
+
+
+def test_the_prose_names_a_project_by_a_project_row():
+    rows = cg.curated_rows("projects")
+    known = {cg.fold_key(r["name"]) for r in rows if r["entity_type"] == "project"}
+    known |= {cg.fold_key(a) for r in rows if r["entity_type"] == "project"
+              for a in r.get("alternative_names") or []}
+    named = _re.findall(r"\bthe ((?:[\w-]+ ){0,2}[\w-]+) project\b", _outside_the_block())
+    assert named and [n for n in named if cg.fold_key(n) not in known] == []
+
+
+def test_the_tip_points_at_the_generated_list_instead_of_keeping_one():
+    prose = _outside_the_block()
+    tip = next(p for p in prose.split("\n\n") if "Use investigation names" in p)
+    assert cg.DRIFT_SECTION_HEADING.lstrip("# ") in tip
+    assert "GBM_BTC investigation" in tip
+    assert not _re.search(r"\((?:[\w-]+, ){2,}", tip), tip
+
+
+def test_the_cc_manifest_points_at_the_generated_list_instead_of_keeping_one():
+    """The CC plugin's MANIFEST.md listed five dead names as the investigations; its
+    capabilities.md row now points at the generated list, and its projects_db.json row says
+    what the rows carry (spec 2026-09-18, section 10.7)."""
+    md = _repo(Path("NessieAI/docker/cc-runtime/build_context/plugins/nextseek/context/MANIFEST.md"))
+    lines = md.splitlines()
+    capabilities = next(line for line in lines if line.startswith("| `capabilities.md`"))
+    for name in (*DEAD_NAMES, *INVESTIGATION_ROWS):
+        assert not _re.search(rf"\b{_re.escape(name)}\b", capabilities), name
+    assert "Known Projects and Investigations" in capabilities
+    projects = next(line for line in lines if line.startswith("| `projects_db.json`"))
+    assert "entity_type" in projects and "labs" in projects

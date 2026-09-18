@@ -223,9 +223,9 @@ def production_like_rows(*, id_offset: int = 0) -> str:
     sample_types = cg.load_source(cg.TABLES["sample_types"].source)
     out.append("INSERT INTO `sample_types_context` (`sample_type`, `name`, `description`) VALUES "
                f"({_q(sample_types[0]['sample_type'])}, 'Older name', 'Older text.');")
-    projects = cg.load_source(cg.TABLES["projects"].source)
+    project = next(r for r in cg.rows_for("projects") if r["entity_type"] == "project")
     out.append("INSERT INTO `projects_context` (`name`, `entity_type`, `description`) VALUES "
-               f"({_q(projects[0]['name'])}, 'project', 'Older text.');")
+               f"({_q(project['name'])}, 'project', 'Older text.');")
     return "\n".join(out) + "\n"
 
 
@@ -268,10 +268,10 @@ def test_every_curated_value_lands_byte_for_byte(mysql):
     for table in ("sample_types", "assays", "projects"):
         spec = cg.TABLES[table]
         curated = cg.rows_for(table)
-        stored = {row[spec.key]: row for row in mysql.rows(db, spec.name, spec.columns)}
+        stored = {cg.key_of(table, row): row for row in mysql.rows(db, spec.name, spec.columns)}
         assert len(stored) == len(curated), table
         for row in curated:
-            back = stored[row[spec.key]]
+            back = stored[cg.key_of(table, row)]
             for column in spec.columns:
                 if column == "internal_assay_id":
                     continue            # the database's id, checked by the next test
@@ -314,11 +314,11 @@ def test_each_curated_seed_loads_the_installers_way(mysql, table):
     assert code == 0, err
     spec = cg.TABLES[table]
     curated = cg.rows_for(table)
-    stored = {row[spec.key]: row for row in mysql.rows(db, spec.name, spec.columns)}
+    stored = {cg.key_of(table, row): row for row in mysql.rows(db, spec.name, spec.columns)}
     assert len(stored) == len(curated)
     for row in curated:
         for column in spec.columns:
-            assert stored[row[spec.key]][column] == cg.db_value(table, column, row.get(column)), \
+            assert stored[cg.key_of(table, row)][column] == cg.db_value(table, column, row.get(column)), \
                 f"{table}.{column} of {row[spec.key]!r}"
 
 
@@ -363,8 +363,8 @@ def test_a_character_latin1_cannot_hold_reaches_a_latin1_table_intact(mysql, sql
     a non-strict server stored it as `?` and exited 0. Either way the curated text
     did not arrive, so the update moves every written text column to utf8mb4."""
     db = load_prestate(mysql, "latin1")
-    rows = cg.with_pi_names([{"name": "Synthetic Gamma Study", "entity_type": "project",
-                              "description": "IFN-γ response, 4-byte \U0001F9EA too."}])
+    rows = [{"name": "Synthetic Gamma Study", "entity_type": "project",
+             "description": "IFN-γ response, 4-byte \U0001F9EA too."}]
     script = f"SET SESSION sql_mode = '{sql_mode}';\n" + cg.render_update("projects", rows)
     code, _, err = mysql.apply(script, db)
     assert code == 0, err
@@ -374,16 +374,20 @@ def test_a_character_latin1_cannot_hold_reaches_a_latin1_table_intact(mysql, sql
 
 
 def test_a_value_the_target_cannot_take_is_refused_before_any_row_changes(mysql):
-    """What the widening cannot fix: a curated NULL for a column the live table
-    declares NOT NULL. The generator's own DDL allows it, so only the target can
-    say no, and it has to say so before the delete runs, not halfway through."""
-    db = load_prestate(mysql, "notnull")
+    """What the widening cannot fix: a curated NULL for a column the target declares
+    NOT NULL. The generator's own DDL allows it, so only the target can say no, and it
+    has to say so before the delete runs, not halfway through. The live table's two
+    NOT NULL columns are now the key, which the generator refuses a NULL for itself,
+    so the target here declares a third one."""
+    extra = ("UPDATE `projects_context` SET `research_focus` = 'x';\n"
+             "ALTER TABLE `projects_context` MODIFY `research_focus` text NOT NULL;\n")
+    db = load_prestate(mysql, "notnull", extra=extra)
     before = mysql.data(db)
     rows = [dict(row) for row in cg.rows_for("projects")]
-    rows[0]["entity_type"] = None
+    rows[0]["research_focus"] = None
     code, out, err = mysql.apply(cg.render_update("projects", rows), db)
     assert code != 0
-    assert "context_gen REFUSED" in err and "entity_type" in out + err
+    assert "context_gen REFUSED" in err and "research_focus" in out + err
     assert mysql.data(db, like=before) == before
 
 
@@ -458,17 +462,122 @@ def test_the_unique_keys_are_added_once_and_never_beside_a_primary_key(mysql):
     db = load_prestate(mysql, "keys")
     code, _, err = mysql.apply(update_sql(), db)
     assert code == 0, err
-    unique = mysql.value(db, (
-        "SELECT JSON_OBJECTAGG(CONCAT(TABLE_NAME, '.', INDEX_NAME), COLUMN_NAME) "
-        "FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND NON_UNIQUE = 0 "
-        "AND TABLE_NAME IN ('sample_types_context', 'assay_context', 'projects_context')"))
-    assert unique == {
+    assert _unique_keys(mysql, db) == {
         "sample_types_context.PRIMARY": "id",
         "sample_types_context.uq_sample_types_context_sample_type": "sample_type",
         "assay_context.PRIMARY": "id",
         "assay_context.uq_assay_context_assay_name": "assay_name",
-        "projects_context.PRIMARY": "name",
+        "projects_context.PRIMARY": "name,entity_type",
     }
+
+
+def _unique_keys(mysql, db, tables=("sample_types_context", "assay_context", "projects_context")):
+    """Every unique index of `tables`, as `table.index` -> its columns in order."""
+    names = ", ".join(f"'{t}'" for t in tables)
+    return mysql.value(db, (
+        "SELECT JSON_OBJECTAGG(`k`, `cols`) FROM (SELECT CONCAT(TABLE_NAME, '.', INDEX_NAME) AS `k`, "
+        "GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') AS `cols` "
+        "FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND NON_UNIQUE = 0 "
+        f"AND TABLE_NAME IN ({names}) GROUP BY TABLE_NAME, INDEX_NAME) `u`"))
+
+
+# --- the (name, entity_type) key, on every shape the table has had --------------------
+#
+# The real CSBC and MetNet investigations share their titles with the project rows, so
+# the key becomes the pair (spec 2026-09-18, section 9.1). Three shapes exist: the live
+# table (no id, PRIMARY KEY (name)), the old held seed's (an id and a unique key on name)
+# and the new DDL's (an id and a unique key on the pair). Each must end keyed on the pair,
+# hold a project and an investigation of one name, and change nothing on a second run.
+
+def _with_a_shared_name() -> list[dict]:
+    """The curated project rows plus an invented investigation named like the first."""
+    rows = [dict(row) for row in cg.rows_for("projects")]
+    first = next(row for row in rows if row["entity_type"] == "project")
+    rows.append({"name": first["name"], "entity_type": "investigation",
+                 "project_id": first["project_id"], "parent_project": first["name"],
+                 "alternative_names": [], "research_focus": "A synthetic investigation."})
+    return rows
+
+
+def _pairs(mysql, db) -> list:
+    return sorted((r["name"], r["entity_type"])
+                  for r in mysql.rows(db, "projects_context", ["name", "entity_type"]))
+
+
+def _twice(mysql, db, script) -> None:
+    code, _, err = mysql.apply(script, db)
+    assert code == 0, err
+    once = mysql.snapshot(db)
+    code, out, err = mysql.apply(script, db, verbose=True)
+    assert code == 0, err
+    assert _rows_changed(out) == []
+    assert mysql.snapshot(db) == once
+
+
+def test_the_live_shape_is_rekeyed_on_the_pair_and_takes_a_shared_name(mysql):
+    db = load_prestate(mysql, "livepair")
+    assert _unique_keys(mysql, db, ("projects_context",)) == {"projects_context.PRIMARY": "name"}
+    rows = _with_a_shared_name()
+    _twice(mysql, db, cg.render_update("projects", rows))
+    assert _unique_keys(mysql, db, ("projects_context",)) == {
+        "projects_context.PRIMARY": "name,entity_type"}
+    assert _pairs(mysql, db) == sorted(cg.key_of("projects", r) for r in rows)
+
+
+def test_the_old_seed_shape_loses_its_name_only_key_and_takes_a_shared_name(mysql):
+    db = mysql.fresh("oldseedpair")
+    mysql.must(cg.DDL["projects"] + (
+        "ALTER TABLE `projects_context` DROP INDEX `uq_projects_context_name_type`, "
+        "ADD UNIQUE KEY `uq_projects_context_name` (`name`), "
+        "MODIFY `entity_type` VARCHAR(64) NULL;\n"), db)
+    rows = _with_a_shared_name()
+    _twice(mysql, db, cg.render_update("projects", rows))
+    assert _unique_keys(mysql, db, ("projects_context",)) == {
+        "projects_context.PRIMARY": "id",
+        "projects_context.uq_projects_context_name_type": "name,entity_type"}
+    assert _pairs(mysql, db) == sorted(cg.key_of("projects", r) for r in rows)
+
+
+def test_the_new_seed_shape_takes_the_update_without_a_second_key(mysql):
+    db = mysql.fresh("newseedpair")
+    rows = _with_a_shared_name()
+    mysql.must(cg.render_seed("projects", rows), db)
+    _twice(mysql, db, cg.render_update("projects", rows))
+    assert _unique_keys(mysql, db, ("projects_context",)) == {
+        "projects_context.PRIMARY": "id",
+        "projects_context.uq_projects_context_name_type": "name,entity_type"}
+    assert _pairs(mysql, db) == sorted(cg.key_of("projects", r) for r in rows)
+
+
+def _legacy_rows() -> str:
+    """Production's projects_context before 6.16, in its own shape.
+
+    Production types most PROJECT rows 'investigation' with no parent_project, one sub-project
+    row 'study', and a few rows 'project'. Here every curated project row but the one the
+    pre-state already holds is typed the legacy way, and an invented study row sits under it.
+    With the live PRIMARY KEY (name), a legacy row and a curated investigation of one name (the
+    real CSBC and MetNet) are one row until the key becomes the pair.
+    """
+    projects = [r for r in cg.rows_for("projects") if r["entity_type"] == "project"]
+    values = [f"({_q(r['name'])}, 'investigation', {r['project_id']}, NULL, 'Legacy text.')"
+              for r in projects[1:]]
+    values.append(f"('Synthetic Core Study', 'study', {projects[0]['project_id']}, "
+                  f"{_q(projects[0]['name'])}, 'Legacy text.')")
+    return ("INSERT INTO `projects_context` (`name`, `entity_type`, `project_id`, `parent_project`, "
+            "`description`) VALUES " + ", ".join(values) + ";\n")
+
+
+def test_the_legacy_shape_becomes_exactly_the_curated_rows(mysql):
+    """What 6.16 meets on production: the update leaves exactly the curated (name, entity_type)
+    pairs, no legacy-typed project row and no study row, and a second run changes nothing."""
+    db = load_prestate(mysql, "legacy", extra=_legacy_rows())
+    assert mysql.scalar(db, "SELECT COUNT(*) FROM projects_context WHERE entity_type = 'investigation' "
+                            "AND parent_project IS NULL") > 1
+    _twice(mysql, db, update_sql())
+    assert _pairs(mysql, db) == sorted(cg.key_of("projects", r) for r in cg.rows_for("projects"))
+    assert mysql.scalar(db, "SELECT COUNT(*) FROM projects_context WHERE entity_type = 'investigation' "
+                            "AND (parent_project IS NULL OR parent_project = '')") == 0
+    assert mysql.scalar(db, "SELECT COUNT(*) FROM projects_context WHERE description = 'Legacy text.'") == 0
 
 
 # --- drift is refused, loudly, and nothing is committed ----------------------------
@@ -527,14 +636,15 @@ def test_force_cannot_commit_a_partial_apply(mysql):
     commit is now conditional on the checks, so a skipped row rolls everything back."""
     db = load_prestate(mysql, "force")
     before = mysql.data(db)
-    first = cg.rows_for("projects")[0]["name"]
+    first = next(r for r in cg.rows_for("projects") if r["entity_type"] == "project")["name"]
     script = update_sql()
+    where = f"`name` = {cg.literal(first)} AND `entity_type` = 'project'"
     statement = f"UPDATE `projects_context` SET `name` = {cg.literal(first)},"
     start = script.index(statement)
-    end = script.index("\n", script.index(f"WHERE `name` = {cg.literal(first)};", start))
+    end = script.index("\n", script.index(f"WHERE {where};", start))
     broken = script[:start] + "UPDATE `projects_context` SET `no_such_column` = 1;" + script[end:]
     broken = broken.replace(
-        f"SELECT 1 FROM `projects_context` WHERE `name` = {cg.literal(first)});",
+        f"SELECT 1 FROM `projects_context` WHERE {where});",
         "SELECT 1 FROM `projects_context`);", 1)
     _refused(mysql, db, broken, before, force=True)
 
@@ -561,9 +671,9 @@ def test_each_curated_seed_loads_identically_under_no_backslash_escapes(mysql, t
         "SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES');\n" + sql, db)
     assert code == 0, err
     spec = cg.TABLES[table]
-    stored = {row[spec.key]: row for row in mysql.rows(db, spec.name, spec.columns)}
+    stored = {cg.key_of(table, row): row for row in mysql.rows(db, spec.name, spec.columns)}
     curated = cg.rows_for(table)
     assert len(stored) == len(curated)
     for row in curated:
         for column in spec.columns:
-            assert stored[row[spec.key]][column] == cg.db_value(table, column, row.get(column))
+            assert stored[cg.key_of(table, row)][column] == cg.db_value(table, column, row.get(column))
