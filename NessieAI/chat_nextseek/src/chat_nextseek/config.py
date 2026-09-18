@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 from . import graph_catalog
 from . import labs as seek_labs
+from .context_rows import is_investigation_row, is_project_row
 from .llm_clients import BaseLLMClient, build_llm_client
 
 
@@ -59,25 +60,6 @@ def build_luria_env(env: dict | None = None) -> dict:
 def luria_env_complete(luria_env: dict) -> bool:
     """True when the required Luria fields are all present."""
     return all(luria_env.get(k) for k in ("user", "key", "working_path"))
-
-
-def _entity_type(row) -> str:
-    value = row.get("entity_type")
-    return value.strip().lower() if isinstance(value, str) else ""
-
-
-def is_project_row(row) -> bool:
-    """A projects_context row that is a project: ``entity_type`` 'project', or missing.
-
-    projects_db.json also holds investigation rows (spec 2026-09-18, section 9), which carry
-    their owner's ``project_id`` and may share a project's exact name.
-    """
-    return isinstance(row, dict) and _entity_type(row) in ("", "project")
-
-
-def is_investigation_row(row) -> bool:
-    """A projects_context row whose ``entity_type`` is 'investigation'."""
-    return isinstance(row, dict) and _entity_type(row) == "investigation"
 
 
 def db_conn_is_alive(conn) -> bool:
@@ -206,6 +188,8 @@ class ChatConfig:
         # projects_db.json holds project AND investigation rows (spec 2026-09-18, section 6.5), and
         # an investigation may share a project's exact name, so each name-keyed map reads one kind:
         # built from every row, a same-named investigation would silently replace the project row.
+        # Which kind a row is comes from chat_nextseek.context_rows, which also reads production's
+        # legacy rows (project rows typed 'investigation' with no parent_project) as projects.
         # MIN_PROJECTS, below, keeps every row for the entity agent; each row says its entity_type.
         self.FULL_PROJECTS_MAP: dict = {
             item["name"]: item for item in self.FULL_PROJECTS if is_project_row(item) and item.get("name")
@@ -1184,7 +1168,7 @@ class ChatConfig:
     def _merge_project_name_to_id(self, base_map: dict[str, int], projects: list[dict]) -> dict[str, int]:
         """
         Extend the existing project-name lookup with canonical names and aliases from projects_db.json.
-        Project rows only (entity_type 'project' or missing): an investigation row carries its
+        Project rows only (``context_rows.is_project_row``): an investigation row carries its
         owner's project_id, so merging it would turn an investigation's name or alias into a
         whole-project report scope. Entries without a numeric Project ID are skipped.
         """

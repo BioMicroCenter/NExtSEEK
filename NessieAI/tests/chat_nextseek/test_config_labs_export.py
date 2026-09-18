@@ -149,6 +149,36 @@ def test_project_rows_carry_their_labs_and_investigation_rows_none(tmp_path):
     assert "labs" not in rows["Alpha Study"], "an investigation's labs are its parent project's"
 
 
+# Production's projects_context, before the gated 6.16 write, types most PROJECT rows
+# 'investigation' with no parent_project, and one sub-project row 'study'. Those project rows
+# must keep their labs on a box that never runs 6.16. Invented names.
+LEGACY_ROWS = [
+    {"name": "Alder", "entity_type": "investigation", "parent_project": None, "project_id": 4,
+     "alternative_names": '["Alder Consortium"]'},
+    {"name": "Birch", "entity_type": "investigation", "parent_project": "", "project_id": 12,
+     "alternative_names": None},
+    {"name": "Alder Core", "entity_type": "study", "parent_project": "Alder", "project_id": 4,
+     "alternative_names": None},
+    {"name": "PUBLISHED", "entity_type": "project", "parent_project": None, "project_id": 30,
+     "alternative_names": None},
+]
+
+
+def test_legacy_project_rows_typed_investigation_carry_their_labs(tmp_path, monkeypatch):
+    monkeypatch.setitem(TABLES, "dmac.projects_context", LEGACY_ROWS)
+    _bare(tmp_path, _Conn())._fetch_context_files_from_db(env="prod")
+    rows = _projects(tmp_path)
+
+    assert rows["Alder"]["labs"] == [
+        {"code": "ASH", "name": "Ashgrove", "affiliation": "BWH"},
+        {"code": "BRK", "name": "Birchwood", "affiliation": "MIT"},
+    ]
+    assert rows["Birch"]["labs"] == [{"code": "ASH", "name": "Ashgrove", "affiliation": "BWH"}]
+    assert rows["PUBLISHED"]["labs"] == []
+    assert "labs" not in rows["Alder Core"], "a study row is not a project row"
+    assert rows["Alder"]["entity_type"] == "investigation", "the export rewrites no row's type"
+
+
 def test_every_existing_key_is_unchanged(tmp_path):
     _bare(tmp_path, _Conn())._fetch_context_files_from_db(env="prod")
     alpha = _projects(tmp_path)["Alpha"]
