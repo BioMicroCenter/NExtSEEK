@@ -528,6 +528,10 @@ class DuplicateKey(ValueError):
     """Two curated rows share a natural key, as MySQL would compare it."""
 
 
+class EmptySource(ValueError):
+    """A curated source has no rows, which the update would read as "delete them all"."""
+
+
 def json_text(value) -> str:
     """A JSON column's stored text.
 
@@ -632,13 +636,36 @@ def _checked_keys(table: str, rows: list[dict]) -> list[str]:
 
 
 # --- the update script -------------------------------------------------------
-
-# The script splits here. Everything ABOVE is schema work: MySQL-only, autocommitted
-# by definition (DDL commits implicitly), and every statement conditional on the
-# shape the instance actually has. Everything BELOW is the data, and it runs in one
-# transaction, so a value the server refuses rolls the whole change back instead of
-# leaving the table half migrated. The round-trip check applies the part below.
+#
+# One script, in four parts, whatever `--table` names:
+#
+#   schema  every ALTER, first. DDL commits implicitly in MySQL, so none of it can
+#           sit inside the transaction; each statement is conditional on the shape
+#           the instance actually has, and none of them removes a row.
+#   rows    ONE transaction for every section: the sample types, the mapping
+#           operations, the assays and the projects together. A value the server
+#           refuses, a killed client, or a failed check leaves every table exactly
+#           as it was. Before this, each section committed on its own, so a failure
+#           in the projects section left the assays section's writes behind.
+#   checks  the verification, still inside the transaction: row counts, a digest
+#           of every curated value, every assay link, every mapping operation's
+#           post-condition. Any problem refuses loudly and nothing is committed;
+#           the COMMIT itself is conditional, so even `mysql --force`, which runs on
+#           past an error, rolls back.
+#   keys    the unique key on each natural key, after the commit.
+#
+# The markers below split it. The SQLite round trip in the test lane runs the part
+# between ROWS_MARKER and the first MYSQL_ONLY_MARKER, which is plain SQL.
+SCHEMA_MARKER = "-- == schema =="
 ROWS_MARKER = "-- == rows =="
+MYSQL_ONLY_MARKER = "-- == mysql only =="
+CHECKS_MARKER = "-- == checks =="
+KEYS_MARKER = "-- == keys =="
+
+# --table all applies the sections in this order. The mapping operations come
+# before the assays so the assay rows are linked against the final internal assay
+# titles; each section also links on its own, so any single section is correct.
+UPDATE_ORDER = ("sample_types", "mappings", "assays", "projects")
 
 _CONDITIONAL = """\
 SET @nextseek_found := (SELECT COUNT(*) > 0 FROM information_schema.{catalog}
@@ -677,29 +704,42 @@ def _add_column(table_name: str, column: str, definition: str) -> str:
 
 
 def _add_unique_key(table_name: str, key: str) -> str:
+    """The unique key on `key`, unless the table already has one.
+
+    Any single-column unique index on the key counts, the PRIMARY KEY included: the
+    live `projects_context` is keyed on `name` already, and adding a second unique
+    index on it was redundant.
+    """
     index = f"uq_{table_name}_{key}"
-    return _conditional(
-        "STATISTICS", table_name, "INDEX_NAME", index,
-        f"ALTER TABLE `{table_name}` ADD UNIQUE KEY `{index}` (`{key}`)",
-        when_present=False,
+    return (
+        "SET @nextseek_found := (SELECT COUNT(*) > 0 FROM information_schema.STATISTICS `s`\n"
+        f"  WHERE `s`.TABLE_SCHEMA = DATABASE() AND `s`.TABLE_NAME = '{table_name}' "
+        f"AND `s`.NON_UNIQUE = 0 AND `s`.COLUMN_NAME = '{key}'\n"
+        "  AND `s`.SEQ_IN_INDEX = 1 AND `s`.SUB_PART IS NULL AND NOT EXISTS (\n"
+        "    SELECT 1 FROM information_schema.STATISTICS `s2` WHERE `s2`.TABLE_SCHEMA = `s`.TABLE_SCHEMA\n"
+        "    AND `s2`.TABLE_NAME = `s`.TABLE_NAME AND `s2`.INDEX_NAME = `s`.INDEX_NAME "
+        "AND `s2`.SEQ_IN_INDEX = 2));\n"
+        f"SET @nextseek_stmt := IF(NOT @nextseek_found, 'ALTER TABLE `{table_name}` "
+        f"ADD UNIQUE KEY `{index}` (`{key}`)', 'DO 0');\n"
+        "PREPARE nextseek_stmt FROM @nextseek_stmt;\n"
+        "EXECUTE nextseek_stmt;\n"
+        "DEALLOCATE PREPARE nextseek_stmt;\n"
     )
 
 
 def _collapse_duplicates(table_name: str, key: str) -> str:
     """Delete every row but the lowest-id one for each `key`, where there is an id.
 
-    The id is the guard, not an assumption. `dmac.projects_context` has NO `id`
-    column: measured on the running local stack and confirmed by the 2026-09-11
-    production pull, whose `projects_context` rows carry no `id` key while
-    `sample_types_context` and `assay_context` both do. Its PRIMARY KEY is `name`,
-    which is also why it cannot hold a duplicate for this statement to collapse.
+    It runs AFTER the curated rows are written, inside the transaction. By then
+    every row carrying a curated key holds the curated values -- the UPDATE matched
+    each duplicate -- so keeping the lowest id loses nothing. Before, it ran first
+    and outside any transaction, and on production's duplicated assay names the
+    lower id was always the older row with no internal assay link: a failure later
+    in the script left exactly the linked rows deleted.
 
-    Emitted unconditionally, this aborted the apply with
-    `ERROR 1054 (42S22) at line 19: Unknown column 'a.id' in 'on clause'` -- after
-    step 2 had already deleted GBM and before a single curated row was written,
-    every re-run repeating it (reproduced on mysql:8.0.46 against that exact
-    shape). So it runs only where there is an id to order by, and where there is
-    not, there is nothing for it to do.
+    The id is the guard, not an assumption: `dmac.projects_context` has NO `id`
+    column (its PRIMARY KEY is `name`, so it cannot hold a duplicate), and the
+    unconditional form aborted there with ERROR 1054.
     """
     return _conditional(
         "COLUMNS", table_name, "COLUMN_NAME", "id",
@@ -709,96 +749,230 @@ def _collapse_duplicates(table_name: str, key: str) -> str:
     )
 
 
-def render_update(table: str, rows: list[dict]) -> str:
-    """The SQL that makes `table` hold exactly these rows, re-runnable.
+# Text written into a row set digest, so that no value can be confused with a
+# separator or with NULL. check_text refuses these characters in curated values.
+_FIELD, _RECORD, _NULL = "\x1f", "\x1e", "\x1d"
 
-    The schema work happens first, and each step is needed against the 2026-09-11
-    production pull rather than hypothetical:
 
-      1. **Add the columns the table may predate.** `repository_attributes` and
-         `pi_names` are newer than every instance's table.
-      2. **Collapse duplicate keys, keeping the lowest id.** Production's
-         `assay_context` has 22 duplicated `assay_name` values, 20 of them names
-         the curated source carries, and the unique key in step 3 cannot be added
-         while they exist. Conditional on the table having an `id`, because
-         `projects_context` does not; see `_collapse_duplicates`.
-      3. **Add the unique key.** `ON DUPLICATE KEY UPDATE` only fires against one,
-         and no context table has one today.
+def _digest_columns(table: str) -> tuple[str, ...]:
+    """The columns whose stored text must equal the curated text.
 
-    Then, in ONE transaction:
-
-      4. **Delete the rows the curated source no longer names.** Production's
-         `assay_context` holds 68 such names and `projects_context` holds one
-         (`GBM`). An upsert alone leaves every one of them in place while
-         reporting success.
-      5. **One upsert per row**, setting every column including the key: MySQL
-         matches the key case-insensitively, so the one case-only correction in
-         the curated data (`Chemical challenge` -> `Chemical Challenge`) needs the
-         key reassigned or production keeps its old spelling.
-
-    Steps 4 and 5 share a transaction because they are the destructive pair, and
-    the failure that motivated it was real: an over-long value aborted the upserts
-    with error 1406 having already committed the DELETE, so the table was left
-    with GBM gone, 0 of 12 rows written, and no way back. DDL commits implicitly
-    in MySQL, so steps 1 to 3 cannot join them -- they are idempotent and
-    non-destructive instead.
-
-    A NULL key is covered explicitly. `NULL NOT IN (...)` is NULL rather than
-    TRUE, MySQL's unique keys permit any number of NULLs, and no upsert matches
-    one, so without `OR IS NULL` such a row survives every run untouched and the
-    header's promise above it is false.
+    Everything written, except `assay_context.internal_assay_id`: that one is the
+    database's id, resolved by title at apply time and checked on its own.
     """
-    if table == "mappings":
-        return render_mappings(rows)
-    spec = TABLES[table]
-    check_columns(table, rows)
-    check_widths(table, rows)
-    keys = _checked_keys(table, rows)
-    columns = ", ".join(f"`{c}`" for c in spec.columns)
-    assignments = ", ".join(f"`{c}`=VALUES(`{c}`)" for c in spec.columns)
+    return tuple(c for c in TABLES[table].columns if c != "internal_assay_id")
 
+
+def content_digest(table: str, rows: list[dict]) -> str:
+    """SHA-256 of the curated rows as the table must hold them, key-ordered.
+
+    The same text the checks rebuild in MySQL with GROUP_CONCAT, so equal digests
+    mean every curated value is stored byte for byte and nothing else is there.
+    Keys sort by code point, which is utf8mb4_bin's order for keys with no control
+    characters or surrounding spaces, both of which are refused.
+    """
+    import hashlib
+
+    spec = TABLES[table]
+    columns = _digest_columns(table)
+    records = []
+    for row in sorted(rows, key=lambda r: str(r[spec.key])):
+        fields = []
+        for column in columns:
+            value = db_value(table, column, row.get(column))
+            fields.append(_NULL if value is None else str(value))
+        records.append(_FIELD.join(fields))
+    return hashlib.sha256(_RECORD.join(records).encode("utf-8")).hexdigest()
+
+
+def _sql_digest(table: str) -> str:
+    spec = TABLES[table]
+    fields = ", ".join(
+        f"COALESCE(CONVERT(`{c}` USING utf8mb4), CHAR(29 USING utf8mb4))"
+        for c in _digest_columns(table)
+    )
+    return (f"SHA2(GROUP_CONCAT(CONCAT_WS(CHAR(31 USING utf8mb4), {fields}) "
+            f"ORDER BY CONVERT(`{spec.key}` USING utf8mb4) COLLATE utf8mb4_bin "
+            f"SEPARATOR CHAR(30 USING utf8mb4)), 256)")
+
+
+def _exact(column_sql: str, text_sql: str) -> str:
+    """`column_sql` equal to `text_sql` byte for byte, whatever either's collation.
+
+    Every comparison of an internal assay title is exact. The tables' own collation
+    is case- and accent-insensitive, and one curated rename is a case-only one.
+    """
+    return f"{column_sql} = CONVERT({text_sql} USING utf8mb4) COLLATE utf8mb4_bin"
+
+
+_RELINK_ASSAYS = (
+    "UPDATE `assay_context` SET `internal_assay_id` = (SELECT MIN(`ia`.`id`) "
+    "FROM `internal_assays` `ia`\n"
+    f"  WHERE {_exact('`ia`.`internal_assay_title`', '`assay_context`.`assay_name`')});"
+)
+
+
+def _table_data(table: str, rows: list[dict]) -> list[str]:
+    """The transaction's statements for one context table."""
+    spec = TABLES[table]
+    keys = _checked_keys(table, rows)
+    written = [c for c in spec.columns if not (table == "assays" and c == "internal_assay_id")]
+    columns = ", ".join(f"`{c}`" for c in written)
     out = [
-        f"-- {spec.name}: {len(rows)} rows generated from {spec.source} by",
-        "-- scripts/context_gen.py --emit update. Regenerate rather than hand-editing.",
-        "--",
-        "-- Re-runnable: every statement below is idempotent, so applying this twice",
-        f"-- leaves {spec.name} holding exactly the {len(rows)} curated rows.",
-        "",
-        CHARSET_PREAMBLE,
-        "",
-        "SET SESSION group_concat_max_len = 1048576;",
-        "",
-    ]
-    added = ADDED_COLUMNS.get(table, {})
-    if added:
-        out.append("-- 1. columns this instance's table may predate")
-        for column, definition in added.items():
-            out.append(_add_column(spec.name, column, definition))
-    out += [
-        "-- 1b. text columns narrower than the curated values need, or not utf8mb4",
-        _pin_columns(table),
-        f"-- 2. duplicate `{spec.key}` values, keeping the lowest id",
-        _collapse_duplicates(spec.name, spec.key),
-        "-- 3. the unique key the upsert fires against",
-        _add_unique_key(spec.name, spec.key),
-        "-- 3b. refuse, before any row changes, what this table still cannot take",
-        f"SET @nextseek_problems := CONCAT_WS(' | ', {_target_problems(table, rows)});",
-        _refuse("before writing anything"),
-        ROWS_MARKER,
-        "START TRANSACTION;",
-        "",
-        f"-- 4. rows {spec.source} no longer names, and any row with no key at all",
+        f"-- {spec.name}: rows {spec.source} no longer names, and any row with no key",
         f"DELETE FROM `{spec.name}` WHERE `{spec.key}` NOT IN "
         f"({', '.join(literal(k) for k in keys)}) OR `{spec.key}` IS NULL;",
         "",
-        "-- 5. the curated rows",
+        f"-- {spec.name}: the {len(rows)} curated rows. The UPDATE sets every column,",
+        "-- the key too, because the key matches case-insensitively and one curated key is",
+        "-- a case-only correction; the INSERT adds the row only where there was none.",
     ]
-    for row in rows:
-        values = ", ".join(literal(db_value(table, c, row.get(c))) for c in spec.columns)
-        out.append(f"INSERT INTO `{spec.name}` ({columns}) VALUES ({values})\n"
-                   f"  ON DUPLICATE KEY UPDATE {assignments};")
-    out += ["", "COMMIT;"]
+    for row, key in zip(rows, keys):
+        values = [literal(db_value(table, c, row.get(c))) for c in written]
+        assignments = ", ".join(f"`{c}` = {v}" for c, v in zip(written, values))
+        out.append(f"UPDATE `{spec.name}` SET {assignments}\n  WHERE `{spec.key}` = {literal(key)};")
+        out.append(f"INSERT INTO `{spec.name}` ({columns}) SELECT {', '.join(values)} FROM DUAL\n"
+                   f"  WHERE NOT EXISTS (SELECT 1 FROM `{spec.name}` WHERE `{spec.key}` = {literal(key)});")
+    out += [
+        "",
+        MYSQL_ONLY_MARKER,
+        f"-- {spec.name}: collapse duplicate keys. Every copy now holds the curated values,",
+        "-- so keeping the lowest id loses nothing.",
+        _collapse_duplicates(spec.name, spec.key),
+    ]
+    if table == "assays":
+        out += [
+            "-- assay_context: link every row to the internal assay whose title is its name.",
+            "-- By title, never by the curated number, which is production's: a stack that",
+            "-- numbers its internal assays differently gets a missing link, not a wrong one.",
+            _RELINK_ASSAYS,
+        ]
+    return out
+
+
+def _table_checks(table: str, rows: list[dict], *, every_assay_linked: bool) -> list[str]:
+    """SQL expressions naming what is wrong with one table, each NULL when nothing is."""
+    spec = TABLES[table]
+    checks = [
+        f"(SELECT IF(COUNT(*) = {len(rows)}, NULL, CONCAT('{spec.name} holds ', COUNT(*), "
+        f"' rows where {spec.source} has {len(rows)}')) FROM `{spec.name}`)",
+        f"(SELECT IF({_sql_digest(table)} = '{content_digest(table, rows)}', NULL, "
+        f"'{spec.name} does not hold exactly the curated values') FROM `{spec.name}`)",
+    ]
+    if table == "assays":
+        own = _exact("`ia`.`internal_assay_title`", "`ac`.`assay_name`")
+        checks += [
+            "(SELECT IF(COUNT(*) = 0, NULL, CONCAT(COUNT(*), ' assay_context rows link to a "
+            "missing internal assay or to one with another title')) FROM `assay_context` `ac`\n"
+            "  LEFT JOIN `internal_assays` `ia` ON `ia`.`id` = `ac`.`internal_assay_id`\n"
+            f"  WHERE `ac`.`internal_assay_id` IS NOT NULL AND (`ia`.`id` IS NULL OR NOT ({own})))",
+            "(SELECT IF(COUNT(*) = 0, NULL, CONCAT(COUNT(*), ' assay_context names are the title "
+            "of more than one internal assay')) FROM `assay_context` `ac`\n"
+            f"  WHERE (SELECT COUNT(*) FROM `internal_assays` `ia` WHERE {own}) > 1)",
+        ]
+        if every_assay_linked:
+            checks.append(
+                "(SELECT IF(COUNT(*) = 0, NULL, CONCAT(COUNT(*), ' assay_context rows have no "
+                "internal assay')) FROM `assay_context` WHERE `internal_assay_id` IS NULL)")
+        else:
+            checks.append(
+                "(SELECT IF(COUNT(*) = 0, NULL, CONCAT(COUNT(*), ' assay_context rows are unlinked "
+                "though an internal assay carries their name')) FROM `assay_context` `ac`\n"
+                "  WHERE `ac`.`internal_assay_id` IS NULL AND EXISTS "
+                f"(SELECT 1 FROM `internal_assays` `ia` WHERE {own}))")
+    return checks
+
+
+def _check_rows(table: str, rows: list[dict]) -> None:
+    check_columns(table, rows)
+    check_widths(table, rows)
+    if not rows:
+        raise EmptySource(
+            f"{TABLES[table].source} has no rows. The update deletes every row the source "
+            "does not name, so an empty source would empty the table; refusing instead."
+        )
+
+
+def render_update_script(sections, *, assays_for_mappings=None) -> str:
+    """The update SQL for `sections`, a list of (table, rows) in apply order.
+
+    One transaction holds every section's rows and checks; see the note above.
+    `assays_for_mappings` is `context/assays.json`'s rows, which the mapping
+    section needs to name each remap's source by title and to check that every
+    curated assay name ends up held by exactly one internal assay.
+    """
+    tables = [table for table, _ in sections]
+    schema, preflight, data, checks, keys = [], [], [], [], []
+    for table, rows in sections:
+        if table == "mappings":
+            ops, op_checks = _mapping_parts(rows, assays_for_mappings)
+            data += ["", "-- ---- the internal assay mapping operations ----", *ops]
+            checks += op_checks
+            continue
+        _check_rows(table, rows)
+        spec = TABLES[table]
+        for column, definition in ADDED_COLUMNS.get(table, {}).items():
+            schema += [f"-- {spec.name}: a column this table may predate",
+                       _add_column(spec.name, column, definition)]
+        schema += [f"-- {spec.name}: text columns narrower than the curated values, or not utf8mb4",
+                   _pin_columns(table)]
+        preflight.append(_target_problems(table, rows))
+        data += ["", f"-- ---- {spec.name} ----", *_table_data(table, rows)]
+        checks += _table_checks(table, rows, every_assay_linked="mappings" in tables)
+        keys += [f"-- {spec.name}: the unique key on `{spec.key}`",
+                 _add_unique_key(spec.name, spec.key)]
+
+    out = [
+        f"-- context_gen --emit update: {', '.join(tables)}. Generated from context/ by",
+        "-- scripts/context_gen.py; regenerate rather than hand-editing.",
+        "--",
+        "-- Apply with `mysql --default-character-set=utf8mb4 <database> < this-file`, and",
+        "-- never with --force. Every row change is one transaction that commits only when",
+        "-- the checks at the end pass; otherwise the client stops at an error reading",
+        "-- `context_gen REFUSED ...` and nothing was committed. A second run changes nothing.",
+        "",
+        CHARSET_PREAMBLE,
+        "SET SESSION group_concat_max_len = 16777216;",
+        "",
+        SCHEMA_MARKER,
+        *schema,
+    ]
+    if preflight:
+        out += [
+            "-- refuse, before any row changes, a value a target column still cannot take",
+            f"SET @nextseek_problems := CONCAT_WS(' | ', {', '.join(preflight)});",
+            _refuse("before writing anything"),
+        ]
+    out += [
+        ROWS_MARKER,
+        "START TRANSACTION;",
+        *data,
+        "",
+        CHECKS_MARKER,
+        f"SET @nextseek_problems := CONCAT_WS(' | ',\n  {(', ' + chr(10) + '  ').join(checks)});",
+        _refuse("and rolled back; nothing was committed"),
+        "SET @nextseek_stmt := IF(@nextseek_problems = '', 'COMMIT', 'ROLLBACK');",
+        "PREPARE nextseek_stmt FROM @nextseek_stmt;",
+        "EXECUTE nextseek_stmt;",
+        "DEALLOCATE PREPARE nextseek_stmt;",
+        "",
+        KEYS_MARKER,
+        *keys,
+        f"SELECT 'context_gen: {', '.join(tables)} verified and committed' AS context_gen;",
+    ]
     return "\n".join(out) + "\n"
+
+
+def render_update(table: str, rows: list[dict]) -> str:
+    """The SQL that makes `table` hold exactly these rows, re-runnable.
+
+    For `mappings`, `rows` are the operations in context/assay_mappings.json.
+    `--emit update --table all` puts every section in one script instead; see
+    `render_update_script`.
+    """
+    if table == "mappings":
+        return render_mappings(rows)
+    return render_update_script([(table, rows)])
 
 
 # --- the seed files ----------------------------------------------------------
@@ -1047,30 +1221,28 @@ class MappingMismatch(ValueError):
 
 
 def _by_title(title: str) -> str:
-    """The subquery that resolves an internal assay title to its id.
+    """The subquery that resolves an internal assay title to its id, exactly.
 
     By title and never by id, because `create_internal` ids are assigned by the
     database, and after the rename group every title is the curated spelling.
+    Exact rather than by the column's case-insensitive collation: one curated
+    rename is a case-only correction, and the checks count exact holders.
     """
-    return (f"(SELECT `id` FROM `internal_assays` WHERE `internal_assay_title` = "
-            f"{literal(title)} ORDER BY `id` LIMIT 1)")
+    return (f"(SELECT MIN(`id`) FROM `internal_assays` WHERE "
+            f"{_exact('`internal_assay_title`', literal(title))})")
 
 
 def _title_exists(title: str) -> str:
     """The guard that makes a moved target a no-op instead of a NULL write.
 
     `_by_title` returns NULL when nothing carries the title, and `SET col = NULL`
-    is a write, not a skip. Worse, the remap's own `WHERE col IN (<from_id>,
-    <subquery>)` is still TRUE on the `from_id` arm, so the row matches and is
-    blanked. Measured on mysql:8.0.46: retitling one remap target upstream and
-    applying the mappings once moved two `assays_internal_assays` rows from
-    internal assay 196 to NULL, and a second run did not heal them, because NULL
-    is not matched by the IN. 14 of the remap targets are titles no `create_internal`
-    or `rename_internal` produces, so they have to already exist in production for
-    the operation to mean anything -- which is exactly the drift this guards.
+    is a write, not a skip. Measured on mysql:8.0.46: retitling one remap target
+    upstream and applying the mappings moved two `assays_internal_assays` rows to
+    NULL, and a second run did not heal them. The checks at the end of the script
+    then refuse the whole apply, so a moved target is loud rather than skipped.
     """
-    return (f"EXISTS (SELECT 1 FROM `internal_assays` WHERE `internal_assay_title` = "
-            f"{literal(title)})")
+    return (f"EXISTS (SELECT 1 FROM `internal_assays` WHERE "
+            f"{_exact('`internal_assay_title`', literal(title))})")
 
 
 def _comment(text: str) -> str:
@@ -1081,8 +1253,7 @@ def _comment(text: str) -> str:
     production. `seek_title` and `into_internal_assay_title` exist only for these
     comments, so they are the two values in `context/assay_mappings.json` that no
     consumer would otherwise reject, and that file is hand-edited. Refused rather
-    than stripped, for the same reason `literal` refuses a backslash: the curated
-    file is wrong and should say so.
+    than stripped: the curated file is wrong and should say so.
     """
     value = str(text)
     if "\n" in value or "\r" in value:
@@ -1123,43 +1294,78 @@ def _check_mapping_rows(rows: list[dict]) -> None:
                 f"assay_mappings.json row {index} ({action}): expected "
                 f"{sorted(expected)}, got {sorted(keys)}"
             )
+        for key in ("seek_title", "into_internal_assay_title"):
+            if key in row:
+                _comment(row[key])
 
 
-def render_mappings(rows: list[dict]) -> str:
-    """The SQL for `context/assay_mappings.json`, grouped and re-runnable.
+def remap_source_titles(mappings: list[dict], assays: list[dict]) -> dict[int, str]:
+    """Each remap's `from_internal_assay_id`, as the title that id carries when it runs.
 
-    One statement here writes to a context table rather than to the two mapping
-    tables: the `assay_context` backfill after the creates. It has to be here and
-    not in `render_update("assays")`, because the ids it copies do not exist until
-    the `create_internal` INSERTs above it have run, and `--emit update --table all`
-    emits the assay rows first. Without it the 14 curated rows whose
-    `internal_assay_id` is null stay null forever -- nothing else in the emitted
-    script ever writes that column -- while `context/README.md` says the generator
-    assigns those ids and `chat_nextseek`'s `map_sampletype` publishes the field to
-    the agent as "Internal Assay ID".
+    A remap names its source by production's number only, and on any other stack
+    that number is some other internal assay. So the source is pinned by title too,
+    derived from the curated files rather than typed a second time: an id a merge
+    deletes carries the merge's `from_title`, an id a rename retitles carries the
+    rename's new title (renames run first), and any other id is an assays.json
+    row's, carrying its `assay_name`. An id none of them names is refused.
     """
+    titles: dict[int, str] = {}
+    for row in assays:
+        if row.get("internal_assay_id") is not None:
+            titles[int(row["internal_assay_id"])] = row["assay_name"]
+    for m in mappings:
+        if m.get("action") == "rename_internal":
+            titles[int(m["internal_assay_id"])] = m["internal_assay_title"]
+    for m in mappings:
+        if m.get("action") == "merge_internal":
+            titles[int(m["internal_assay_id"])] = m["from_title"]
+    sources = {}
+    for m in mappings:
+        if m.get("action") == "remap":
+            source = int(m["from_internal_assay_id"])
+            if source not in titles:
+                raise MappingMismatch(
+                    f"remap of SEEK assay {m['seek_assay_id']} moves it off internal assay "
+                    f"{source}, which no rename, merge or assays.json row names, so its "
+                    "title cannot be pinned"
+                )
+            sources[source] = titles[source]
+    return sources
+
+
+def _union(rows: list[tuple]) -> str:
+    """A derived table of literal rows: `SELECT a AS c1, b AS c2 UNION ALL SELECT ...`."""
+    return " UNION ALL ".join(
+        "SELECT " + ", ".join(f"{literal(value)} AS `c{i}`" for i, value in enumerate(row))
+        for row in rows
+    )
+
+
+def _mapping_parts(rows: list[dict], assays=None) -> tuple[list[str], list[str]]:
+    """The transaction's statements for the mapping operations, and their checks."""
     _check_mapping_rows(rows)
+    if assays is None:
+        assays = load_source(TABLES["assays"].source)
+    sources = remap_source_titles(rows, assays)
     grouped = {action: [r for r in rows if r["action"] == action] for action in MAPPING_ORDER}
 
     out = [
-        f"-- internal_assays and assays_internal_assays: {len(rows)} operations generated",
-        "-- from context/assay_mappings.json by scripts/context_gen.py --emit update.",
-        "--",
-        "-- Grouped in context/README.md's order. Every WHERE clause pins the production",
-        "-- value the operation was written against, so an operation whose target has",
-        "-- moved affects no rows instead of writing the wrong one, and a second run is",
-        "-- a no-op.",
+        "-- Grouped in context/README.md's order. Every WHERE clause pins the value the",
+        "-- operation was written against, so an operation whose target has moved changes",
+        "-- nothing -- and the checks at the end then refuse the whole apply, so a skip is",
+        "-- never silent. A second run changes nothing.",
         "",
-        CHARSET_PREAMBLE,
-        "",
-        f"-- rename_internal: {len(grouped['rename_internal'])}",
+        f"-- rename_internal: {len(grouped['rename_internal'])}. Only while no other internal "
+        "assay already holds the new title.",
     ]
     for row in grouped["rename_internal"]:
+        ident, title = int(row["internal_assay_id"]), row["internal_assay_title"]
         out.append(
-            f"UPDATE `internal_assays` SET `internal_assay_title` = "
-            f"{literal(row['internal_assay_title'])}\n"
-            f"  WHERE `id` = {int(row['internal_assay_id'])} AND `internal_assay_title` IN "
-            f"({literal(row['from_title'])}, {literal(row['internal_assay_title'])});"
+            "SET @nextseek_taken := (SELECT COUNT(*) FROM `internal_assays` WHERE "
+            f"{_exact('`internal_assay_title`', literal(title))} AND `id` <> {ident});\n"
+            f"UPDATE `internal_assays` SET `internal_assay_title` = {literal(title)}\n"
+            f"  WHERE `id` = {ident} AND `internal_assay_title` IN "
+            f"({literal(row['from_title'])}, {literal(title)}) AND @nextseek_taken = 0;"
         )
 
     out += ["", f"-- create_internal: {len(grouped['create_internal'])}. These run AFTER the "
@@ -1174,22 +1380,10 @@ def render_mappings(rows: list[dict]) -> str:
             f"WHERE `internal_assay_title` = {title});"
         )
 
-    out += ["", f"-- the assay_context rows those {len(grouped['create_internal'])} creates "
-                "gave an id. The id is the database's, so",
-            "-- it cannot be written by --table assays, which is emitted before this file.",
-            "-- Only a NULL is filled, so a second run is a no-op."]
-    for row in grouped["create_internal"]:
-        title = row["internal_assay_title"]
-        out.append(
-            f"UPDATE `assay_context` SET `internal_assay_id` = {_by_title(title)}\n"
-            f"  WHERE `assay_name` = {literal(title)} AND `internal_assay_id` IS NULL;"
-        )
-
     out += ["", f"-- map and remap: {len(grouped['map'])} + {len(grouped['remap'])}. A map only "
                 "fills a NULL; a remap only",
-            "-- moves the internal assay it was written against. Both refuse outright when "
-            "the target",
-            "-- title is not there, rather than writing the NULL the subquery would return."]
+            "-- moves the SEEK assay off the internal assay it was written against, pinned by",
+            "-- that assay's id AND title. Both write nothing when the target title is absent."]
     for row in grouped["map"]:
         out.append(
             f"-- {_comment(row['seek_title'])} (SEEK assay {int(row['seek_assay_id'])})\n"
@@ -1200,27 +1394,95 @@ def render_mappings(rows: list[dict]) -> str:
         )
     for row in grouped["remap"]:
         target = _by_title(row["internal_assay_title"])
+        source = int(row["from_internal_assay_id"])
         out.append(
             f"-- {_comment(row['seek_title'])} (SEEK assay {int(row['seek_assay_id'])})\n"
             f"UPDATE `assays_internal_assays` SET `internal_assay_id` = {target}\n"
-            f"  WHERE `assay_id` = {int(row['seek_assay_id'])} AND `internal_assay_id` IN "
-            f"({int(row['from_internal_assay_id'])}, {target})\n"
+            f"  WHERE `assay_id` = {int(row['seek_assay_id'])} AND (`internal_assay_id` <=> {target}\n"
+            f"    OR (`internal_assay_id` = {source} AND EXISTS (SELECT 1 FROM `internal_assays` "
+            f"WHERE `id` = {source}\n"
+            f"      AND {_exact('`internal_assay_title`', literal(sources[source]))})))\n"
             f"  AND {_title_exists(row['internal_assay_title'])};"
         )
 
-    out += ["", f"-- merge_internal: {len(grouped['merge_internal'])}. Each one refuses while any "
-                "SEEK assay still points at it,",
-            "-- which is what makes the remaps above a precondition rather than an intention."]
+    out += ["", f"-- merge_internal: {len(grouped['merge_internal'])}. Each one deletes only "
+                "while no SEEK assay points at it",
+            "-- and its survivor exists, which makes the remaps above a precondition."]
     for row in grouped["merge_internal"]:
         assay_id = int(row["internal_assay_id"])
+        survivor = row["into_internal_assay_title"]
         out.append(
-            f"-- into {_comment(row['into_internal_assay_title'])}\n"
+            f"-- into {_comment(survivor)}\n"
+            "SET @nextseek_survivor := (SELECT COUNT(*) FROM `internal_assays` WHERE "
+            f"{_exact('`internal_assay_title`', literal(survivor))});\n"
             f"DELETE FROM `internal_assays` WHERE `id` = {assay_id} AND "
             f"`internal_assay_title` = {literal(row['from_title'])}\n"
             f"  AND NOT EXISTS (SELECT 1 FROM `assays_internal_assays` "
-            f"WHERE `internal_assay_id` = {assay_id});"
+            f"WHERE `internal_assay_id` = {assay_id}) AND @nextseek_survivor > 0;"
         )
-    return "\n".join(out) + "\n"
+
+    out += ["",
+            "-- assay_context: link every row to the internal assay whose title is its name,",
+            "-- now that the renames and creates have run. Also done by the assays section, so",
+            "-- either one alone leaves the links right.",
+            _RELINK_ASSAYS]
+
+    titles = []
+    for action in ("rename_internal", "create_internal"):
+        titles += [r["internal_assay_title"] for r in grouped[action]]
+    titles += [r["internal_assay_title"] for r in grouped["map"] + grouped["remap"]]
+    titles += [r["into_internal_assay_title"] for r in grouped["merge_internal"]]
+    titles += [r["assay_name"] for r in assays]
+    titles = sorted(set(titles))
+    held = _exact("`ia`.`internal_assay_title`", "`t`.`c0`")
+    checks = [
+        "(SELECT IF(COUNT(*) = 0, NULL, CONCAT(COUNT(*), ' curated internal assay titles are not "
+        "held by exactly one internal assay: ', GROUP_CONCAT(`t`.`c0` SEPARATOR '; ')))\n"
+        f"  FROM ({_union([(t,) for t in titles])}) `t`\n"
+        f"  WHERE (SELECT COUNT(*) FROM `internal_assays` `ia` WHERE {held}) <> 1)",
+    ]
+    if grouped["rename_internal"]:
+        renamed = _exact("`ia`.`internal_assay_title`", "`t`.`c1`")
+        checks.append(
+            "(SELECT IF(COUNT(*) = 0, NULL, CONCAT('renamed internal assays not carrying their new "
+            "title: ', GROUP_CONCAT(`t`.`c0` SEPARATOR '; ')))\n"
+            f"  FROM ({_union([(int(r['internal_assay_id']), r['internal_assay_title']) for r in grouped['rename_internal']])}) `t`\n"
+            f"  WHERE NOT EXISTS (SELECT 1 FROM `internal_assays` `ia` WHERE `ia`.`id` = `t`.`c0` AND {renamed}))")
+    moved = grouped["map"] + grouped["remap"]
+    if moved:
+        target = _exact("`ia`.`internal_assay_title`", "`t`.`c1`")
+        checks.append(
+            "(SELECT IF(COUNT(*) = 0, NULL, CONCAT('SEEK assays not on their curated internal "
+            "assay: ', GROUP_CONCAT(`t`.`c0` SEPARATOR '; ')))\n"
+            f"  FROM ({_union([(int(r['seek_assay_id']), r['internal_assay_title']) for r in moved])}) `t`\n"
+            "  WHERE NOT EXISTS (SELECT 1 FROM `assays_internal_assays` `x` WHERE `x`.`assay_id` = `t`.`c0`)\n"
+            "  OR EXISTS (SELECT 1 FROM `assays_internal_assays` `x` WHERE `x`.`assay_id` = `t`.`c0`\n"
+            "    AND NOT (`x`.`internal_assay_id` <=> (SELECT MIN(`ia`.`id`) FROM `internal_assays` `ia` "
+            f"WHERE {target}))))")
+    if grouped["merge_internal"]:
+        merged = _exact("`ia`.`internal_assay_title`", "`t`.`c1`")
+        checks.append(
+            "(SELECT IF(COUNT(*) = 0, NULL, CONCAT('merged internal assays still present (a SEEK "
+            "assay still points at them): ', GROUP_CONCAT(`t`.`c0` SEPARATOR '; ')))\n"
+            f"  FROM ({_union([(int(r['internal_assay_id']), r['from_title']) for r in grouped['merge_internal']])}) `t`\n"
+            f"  WHERE EXISTS (SELECT 1 FROM `internal_assays` `ia` WHERE `ia`.`id` = `t`.`c0` AND {merged}))")
+    own = _exact("`ia`.`internal_assay_title`", "`ac`.`assay_name`")
+    checks.append(
+        "(SELECT IF(COUNT(*) = 0, NULL, CONCAT(COUNT(*), ' assay_context rows link to a missing "
+        "internal assay or to one with another title')) FROM `assay_context` `ac`\n"
+        "  LEFT JOIN `internal_assays` `ia` ON `ia`.`id` = `ac`.`internal_assay_id`\n"
+        f"  WHERE `ac`.`internal_assay_id` IS NOT NULL AND (`ia`.`id` IS NULL OR NOT ({own})))")
+    return out, checks
+
+
+def render_mappings(rows: list[dict], assays=None) -> str:
+    """The update SQL for `context/assay_mappings.json` alone, grouped and re-runnable.
+
+    Besides the two mapping tables, it links every `assay_context` row to the
+    internal assay carrying its name, because the creates are what give the new
+    names an id. `assays` defaults to `context/assays.json`.
+    """
+    return render_update_script([("mappings", rows)], assays_for_mappings=assays)
 
 
 # --- the generated investigation block ---------------------------------------
@@ -1537,18 +1799,21 @@ def main(argv=None) -> int:
         return emit_capabilities(args.counts, args.out)
 
     if args.table == "all":
-        tables = list(TABLES) + (list(TABLES_EXTRA) if args.emit == "update" else [])
+        tables = list(UPDATE_ORDER) if args.emit == "update" else list(TABLES)
     else:
         tables = [args.table]
-    if {"assays", "mappings"} <= set(tables):
-        # Both files describe the same new internal assays; refuse if they disagree.
-        check_mapping_consistency(rows_for("assays"), rows_for("mappings"))
     if args.emit == "seed":
+        if "mappings" in tables:
+            render_seed("mappings", [])            # raises, saying why
         directory = Path(args.out) if args.out else (REPO_ROOT / SEED_DIR)
         for table in tables:
             _emit(render_seed(table, rows_for(table)), directory / SEED_FILES[table])
         return 0
-    _emit("\n".join(render_update(table, rows_for(table)) for table in tables), args.out)
+    # Both files describe the same new internal assays; refuse if they disagree.
+    assays = rows_for("assays")
+    check_mapping_consistency(assays, rows_for("mappings"))
+    _emit(render_update_script([(table, rows_for(table)) for table in tables],
+                               assays_for_mappings=assays), args.out)
     return 0
 
 

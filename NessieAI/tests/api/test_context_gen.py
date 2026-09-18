@@ -309,20 +309,20 @@ def test_pi_names_is_emitted_alongside_the_free_text_pi():
 
 # --- 6.9 the update SQL ------------------------------------------------------
 #
-# What "idempotent" has to mean here, measured against the 2026-09-11 production
-# pull rather than assumed:
+# What "idempotent" has to mean here:
 #
-#   * one INSERT ... ON DUPLICATE KEY UPDATE per curated row, so re-running the
-#     script is a no-op;
-#   * the upsert only fires against a UNIQUE key, and no context table has one
-#     today, so the script adds it;
-#   * production's assay_context holds 217 rows against the curated 138: 68 names
-#     the curated source no longer carries and 22 duplicated names, 20 of them
-#     names the curated source does carry. projects_context holds a GBM row the
-#     curated source drops. Upserting alone would leave every one of those behind
-#     while reporting success, so the script deletes what the source no longer
-#     names and collapses duplicate keys before it adds the index;
+#   * one UPDATE and one guarded INSERT per curated row, so re-running the script
+#     changes no row. Not INSERT ... ON DUPLICATE KEY UPDATE: that needs the unique
+#     key first, adding the key needs the duplicates gone first, and a dedupe before
+#     the rows ran outside any transaction;
+#   * production's assay_context holds names the curated source no longer carries
+#     and duplicated names, and projects_context a row the source drops. Upserting
+#     alone would leave every one of those behind while reporting success, so the
+#     script deletes what the source no longer names and collapses duplicate keys;
 #   * every value escaped, and no literal autoincrement `id`.
+#
+# test_context_gen_mysql.py applies all of it to a real MySQL; the checks here are
+# on the text.
 
 INSERT_RE = re.compile(r"^INSERT INTO ", re.M)
 
@@ -332,35 +332,46 @@ def _rows_for(table: str) -> list[dict]:
     return cg.with_pi_names(rows) if table == "projects" else rows
 
 
-def test_update_writes_one_upsert_per_row():
+def test_update_writes_one_update_and_one_guarded_insert_per_row():
     for table, expected in (("sample_types", 109), ("assays", 138), ("projects", 12)):
+        spec = cg.TABLES[table]
         sql = cg.render_update(table, _rows_for(table))
         assert len(INSERT_RE.findall(sql)) == expected, table
-        assert sql.count("ON DUPLICATE KEY UPDATE") == expected, table
+        assert len(re.findall(rf"^UPDATE `{spec.name}` SET `{spec.columns[0]}` = ", sql, re.M)) \
+            == expected, table
+        assert sql.count(f"WHERE NOT EXISTS (SELECT 1 FROM `{spec.name}` WHERE") == expected, table
+        assert "ON DUPLICATE KEY UPDATE" not in sql and "VALUES(`" not in sql, table
 
 
 def test_update_never_writes_the_autoincrement_id():
     for table in ("sample_types", "assays", "projects"):
+        spec = cg.TABLES[table]
         sql = cg.render_update(table, _rows_for(table))
-        for statement in sql.split("INSERT INTO ")[1:]:
+        for statement in sql.split(f"INSERT INTO `{spec.name}` ")[1:]:
             columns = statement.split("(", 1)[1].split(")", 1)[0]
             assert "`id`" not in columns, table
+        assert "SET `id`" not in sql and ", `id` =" not in sql, table
 
 
-def test_update_sets_every_column_including_the_key_on_a_duplicate():
+def test_update_sets_every_column_including_the_key():
     """The key is reassigned too, and that is not redundant.
 
-    MySQL matches the unique key case-insensitively and ignores trailing spaces,
-    so a row whose key differs only in case matches and is updated in place. The
-    curated data holds exactly one such correction, `Chemical challenge` ->
-    `Chemical Challenge` in assay_context. Leaving the key out of the SET list
-    keeps production's old spelling while reporting a successful write.
+    The WHERE matches the key case-insensitively, so a row whose key differs only
+    in case is updated in place. The curated data holds exactly one such
+    correction, `Chemical challenge` -> `Chemical Challenge` in assay_context.
+    Leaving the key out of the SET list keeps the old spelling while reporting a
+    successful write.
     """
     spec = cg.TABLES["projects"]
     sql = cg.render_update("projects", _rows_for("projects"))
-    tail = sql.split("ON DUPLICATE KEY UPDATE", 1)[1].split(";", 1)[0]
+    statement = sql.split(f"UPDATE `{spec.name}` SET ", 1)[1].split(";\n", 1)[0]
     for column in spec.columns:
-        assert f"`{column}`=VALUES(`{column}`)" in tail, column
+        assert f"`{column}` = " in statement, column
+    # assay_context's link is the database's, resolved by title, so the row
+    # statements never write the curated number.
+    assays = cg.render_update("assays", _rows_for("assays"))
+    rows_part = assays.split(cg.ROWS_MARKER, 1)[1].split(cg.MYSQL_ONLY_MARKER, 1)[0]
+    assert "`internal_assay_id`" not in rows_part
 
 
 def test_update_removes_rows_the_source_no_longer_names():
@@ -407,27 +418,31 @@ def test_the_dedupe_runs_only_where_there_is_an_id_to_order_by():
         assert "IF(@nextseek_found," in head, table
 
 
-def test_the_destructive_half_is_one_transaction():
-    """A value the server refuses must not leave the DELETE committed.
+def test_every_row_change_is_one_transaction_that_commits_only_when_checked():
+    """Nothing that deletes or writes a row runs outside the transaction.
 
-    That is not hypothetical: an over-long `pi` aborted the upserts with error 1406
-    having already committed the delete, so the table was left with GBM gone, 0 of
-    12 rows written and no way back. DDL commits implicitly in MySQL, so the ALTERs
-    cannot join the transaction -- they are idempotent and non-destructive instead,
-    and the delete plus the upserts are what is wrapped. Reproduced on MySQL after
-    the fix: the same 1406 rolled back and GBM was still there.
+    The dedupe used to run before it, autocommitted, and each section committed on
+    its own: a failure in one left the others written. DDL commits implicitly in
+    MySQL, so the ALTERs stay outside -- before it the ones that add or widen a
+    column, after it the unique key -- and none of them removes a row.
     """
     for table, spec in cg.TABLES.items():
         sql = cg.render_update(table, _rows_for(table))
-        begin, commit = sql.index("START TRANSACTION;"), sql.rindex("COMMIT;")
+        begin, checks = sql.index("START TRANSACTION;"), sql.index(cg.CHECKS_MARKER)
         delete = sql.index(f"DELETE FROM `{spec.name}` WHERE")
-        last_upsert = sql.rindex("ON DUPLICATE KEY UPDATE")
-        assert begin < delete < last_upsert < commit, table
-        # And the ALTERs stay outside it, where an implicit commit cannot break it.
-        assert sql.index("ALTER TABLE") < begin, table
+        last_insert = sql.rindex(f"INSERT INTO `{spec.name}`")
+        dedupe = sql.index(f"DELETE `a` FROM `{spec.name}` `a`")
+        assert begin < delete < last_insert < dedupe < checks, table
+        tail = sql[checks:]
+        assert "IF(@nextseek_problems = '', 'COMMIT', 'ROLLBACK')" in tail, table
+        assert sql.count("START TRANSACTION;") == 1 and "COMMIT;" not in sql, table
+        assert "ALTER TABLE" not in sql[begin:sql.index(cg.KEYS_MARKER)], table
+    everything = _update_all()
+    assert everything.count("START TRANSACTION;") == 1
+    assert "IF(@nextseek_problems = '', 'COMMIT', 'ROLLBACK')" in everything
 
 
-def test_update_adds_the_unique_key_the_upsert_needs_and_any_new_column():
+def test_update_adds_the_unique_key_and_any_new_column():
     sql = cg.render_update("projects", _rows_for("projects"))
     assert "uq_projects_context_name" in sql
     assert "information_schema" in sql          # the idempotent add, not a bare ALTER
@@ -459,9 +474,41 @@ def test_update_writes_json_columns_as_json_text():
             '"Franziska Michor"]\'') in sql
 
 
+def _update_all() -> str:
+    """What `--emit update --table all` writes."""
+    import contextlib
+    import io
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        assert cg.main(["--emit", "update", "--table", "all"]) == 0
+    return buffer.getvalue()
+
+
+def test_update_all_is_one_script_in_the_documented_order():
+    sql = _update_all()
+    order = [sql.index(f"-- ---- {name} ----") for name in (
+        "sample_types_context", "the internal assay mapping operations",
+        "assay_context", "projects_context")]
+    assert order == sorted(order)
+    for marker in (cg.SCHEMA_MARKER, cg.ROWS_MARKER, cg.CHECKS_MARKER, cg.KEYS_MARKER):
+        assert sql.count(marker) == 1, marker
+
+
 def test_update_is_deterministic():
     rows = _rows_for("assays")
     assert cg.render_update("assays", rows) == cg.render_update("assays", rows)
+
+
+def test_an_empty_source_is_refused_rather_than_emptying_the_table():
+    """The update deletes every row the source does not name, and an empty source
+    rendered `NOT IN ()`, which is a syntax error on MySQL today and a delete-all in
+    any dialect that accepts it."""
+    import pytest
+
+    for table in ("sample_types", "assays", "projects"):
+        with pytest.raises(cg.EmptySource):
+            cg.render_update(table, [])
 
 
 def test_update_refuses_a_duplicate_key_in_the_source():
@@ -747,15 +794,19 @@ def test_mappings_render_every_operation_in_the_readme_order():
 def test_a_map_only_fills_a_null_and_a_remap_only_moves_the_stated_id():
     rows = cg.load_source(cg.TABLES_EXTRA["mappings"])
     sql = cg.render_update("mappings", rows)
+    exact = ("`internal_assay_title` = CONVERT('Library Creation' USING utf8mb4) "
+             "COLLATE utf8mb4_bin")
     # map: seek assay 466 -> Library Creation, and only while it is still NULL
     assert ("UPDATE `assays_internal_assays` SET `internal_assay_id` = "
-            "(SELECT `id` FROM `internal_assays` WHERE `internal_assay_title` = "
-            "'Library Creation' ORDER BY `id` LIMIT 1)\n"
+            f"(SELECT MIN(`id`) FROM `internal_assays` WHERE {exact})\n"
             "  WHERE `assay_id` = 466 AND `internal_assay_id` IS NULL\n"
-            "  AND EXISTS (SELECT 1 FROM `internal_assays` WHERE "
-            "`internal_assay_title` = 'Library Creation');") in sql
-    # remap: seek assay 37 moves off 130, and re-running is a no-op
-    assert "WHERE `assay_id` = 37 AND `internal_assay_id` IN (130, (SELECT `id`" in sql
+            f"  AND EXISTS (SELECT 1 FROM `internal_assays` WHERE {exact});") in sql
+    # remap: seek assay 37 moves off 130 only while 130 carries the title it had
+    # when the remap was written, and re-running is a no-op
+    remap = sql.split("WHERE `assay_id` = 37 AND ", 1)[1].split(";", 1)[0]
+    assert remap.startswith("(`internal_assay_id` <=> (SELECT MIN(`id`)")
+    assert ("OR (`internal_assay_id` = 130 AND EXISTS (SELECT 1 FROM `internal_assays` "
+            "WHERE `id` = 130\n      AND `internal_assay_title` = CONVERT(") in remap
 
 
 def test_a_moved_target_writes_nothing_rather_than_a_null():
@@ -777,33 +828,78 @@ def test_a_moved_target_writes_nothing_rather_than_a_null():
     assert len(targets) > 1
     for statement in sql.split("UPDATE `assays_internal_assays`")[1:]:
         statement = statement.split(";", 1)[0]
-        title = statement.split("`internal_assay_title` = '", 1)[1].split("'", 1)[0]
+        title = statement.split("`internal_assay_title` = CONVERT('", 1)[1].split("'", 1)[0]
         assert ("AND EXISTS (SELECT 1 FROM `internal_assays` WHERE "
-                f"`internal_assay_title` = '{title}')") in statement, title
+                f"`internal_assay_title` = CONVERT('{title}' USING utf8mb4) "
+                "COLLATE utf8mb4_bin)") in statement, title
 
 
-def test_the_created_internal_assays_are_backfilled_into_assay_context():
-    """The 14 assay_context rows whose internal_assay_id nothing else ever writes.
+def test_every_assay_row_is_linked_by_title_after_the_creates():
+    """Both sections that can change a link re-link every assay_context row by title.
 
-    They are exactly the 14 create_internal titles (check_mapping_consistency
-    enforces that), their ids are assigned by AUTO_INCREMENT, and before this the
-    emitted script held zero `UPDATE assay_context` statements -- so the column
-    stayed NULL forever while context/README.md said the generator assigns it and
-    chat_nextseek publishes it to the agent as "Internal Assay ID". It has to live
-    with the mappings, not with --table assays, because the ids do not exist until
-    the creates above have run and the assay rows are emitted first.
+    Previously the 14 rows whose curated id is null were filled only by a NULL-only
+    backfill in the mappings section, while the assays section reset them to NULL
+    on every run: `--table assays` alone left them NULL, silently. And the other
+    rows carried production's internal assay numbers as literals, which on a stack
+    numbered differently point at the wrong assay. Now the link is always the id of
+    the internal assay whose title is the row's name, exactly.
     """
     mappings = cg.load_source(cg.TABLES_EXTRA["mappings"])
-    sql = cg.render_update("mappings", mappings)
-    created = [m["internal_assay_title"] for m in mappings
-               if m["action"] == "create_internal"]
-    assert len(created) == 14
-    assert sql.count("UPDATE `assay_context` SET `internal_assay_id`") == 14
-    for title in created:
-        assert (f"  WHERE `assay_name` = '{title}' AND `internal_assay_id` IS NULL;"
-                ) in sql, title
-    # After the creates, or it would resolve to nothing.
-    assert sql.index("INSERT INTO `internal_assays`") < sql.index("UPDATE `assay_context`")
+    relink = "UPDATE `assay_context` SET `internal_assay_id` = (SELECT MIN(`ia`.`id`)"
+    ops = cg.render_update("mappings", mappings)
+    assert ops.count(relink) == 1
+    assert ops.rindex("INSERT INTO `internal_assays`") < ops.index(relink)
+    assert ops.rindex("UPDATE `internal_assays`") < ops.index(relink)
+    assays = cg.render_update("assays", _rows_for("assays"))
+    assert assays.count(relink) == 1
+    assert assays.rindex("INSERT INTO `assay_context`") < assays.index(relink)
+    assert ("CONVERT(`assay_context`.`assay_name` USING utf8mb4) COLLATE utf8mb4_bin"
+            in assays)
+
+
+def test_every_remap_source_is_pinned_by_the_title_it_carries():
+    """A remap names its source by production's number only; the title comes from
+    the curated files, so another stack's number cannot move the wrong SEEK assay."""
+    import pytest
+
+    assays = cg.load_source(cg.TABLES["assays"].source)
+    mappings = cg.load_source(cg.TABLES_EXTRA["mappings"])
+    sources = cg.remap_source_titles(mappings, assays)
+    remaps = [m for m in mappings if m["action"] == "remap"]
+    assert set(sources) == {m["from_internal_assay_id"] for m in remaps}
+    merged = {m["internal_assay_id"]: m["from_title"] for m in mappings
+              if m["action"] == "merge_internal"}
+    for ident, title in merged.items():
+        if ident in sources:
+            assert sources[ident] == title
+    orphan = {"action": "remap", "seek_assay_id": 7, "seek_title": "x",
+              "from_internal_assay_id": 999999, "internal_assay_title": "RNA-Seq"}
+    with pytest.raises(cg.MappingMismatch):
+        cg.remap_source_titles(mappings + [orphan], assays)
+
+
+def test_the_checks_name_every_operation_they_verify():
+    """Drift used to be skipped silently: a moved target wrote nothing and the apply
+    exited 0. The checks at the end of the transaction name every post-condition."""
+    sql = cg.render_update("mappings", cg.load_source(cg.TABLES_EXTRA["mappings"]))
+    checks = sql.split(cg.CHECKS_MARKER, 1)[1]
+    for phrase in ("curated internal assay titles are not held by exactly one internal assay",
+                   "renamed internal assays not carrying their new title",
+                   "SEEK assays not on their curated internal assay",
+                   "merged internal assays still present",
+                   "assay_context rows link to a missing internal assay"):
+        assert phrase in checks, phrase
+    assert "context_gen REFUSED and rolled back; nothing was committed" in checks
+
+
+def test_a_rename_waits_for_its_new_title_to_be_free_and_a_merge_for_its_survivor():
+    """On a stack where another internal assay already held a rename's new title,
+    the rename made two of them; and a merge never checked that its survivor
+    exists."""
+    sql = cg.render_update("mappings", cg.load_source(cg.TABLES_EXTRA["mappings"]))
+    assert sql.count("SET @nextseek_taken := ") == sql.count("UPDATE `internal_assays` SET") == 4
+    assert sql.count("AND @nextseek_taken = 0;") == 4
+    assert sql.count("SET @nextseek_survivor := ") == sql.count("DELETE FROM `internal_assays`") == 13
 
 
 def test_a_mapping_comment_refuses_a_newline_rather_than_emitting_a_statement():
@@ -837,7 +933,7 @@ def test_a_mapping_comment_refuses_a_newline_rather_than_emitting_a_statement():
 def test_a_create_is_a_no_op_on_a_second_run():
     rows = cg.load_source(cg.TABLES_EXTRA["mappings"])
     sql = cg.render_update("mappings", rows)
-    assert sql.count("WHERE NOT EXISTS (SELECT 1 FROM `internal_assays`") == 14
+    assert sql.count("FROM DUAL\n  WHERE NOT EXISTS (SELECT 1 FROM `internal_assays`") == 14
 
 
 def test_the_renames_have_to_run_before_the_creates():
@@ -868,7 +964,7 @@ def test_a_merge_refuses_while_any_seek_assay_still_points_at_it():
     assert ("DELETE FROM `internal_assays` WHERE `id` = 174 AND "
             "`internal_assay_title` = 'Library Preparation'\n"
             "  AND NOT EXISTS (SELECT 1 FROM `assays_internal_assays` "
-            "WHERE `internal_assay_id` = 174);") in sql
+            "WHERE `internal_assay_id` = 174) AND @nextseek_survivor > 0;") in sql
 
 
 def test_mappings_refuse_an_unknown_action():
@@ -909,56 +1005,26 @@ def test_a_created_internal_assay_with_no_assays_row_is_refused():
 
 # --- 6.11 the round trip -----------------------------------------------------
 #
-# Generate the update SQL, apply it to a real engine, SELECT * back and compare
-# field for field with the curated rows. This is the test that makes the generator
-# safe to point at production: everything above checks the shape of the text, and
-# only this one checks that a value survives becoming a SQL literal.
+# The row statements -- the DELETE, one UPDATE and one guarded INSERT per curated
+# row -- are plain SQL, and this runs them on SQLite to check that every value
+# survives becoming a SQL literal, with no Docker. That is ALL it can check. What
+# SQLite does not model is where every defect a verification lens found lived: a
+# column width on the target, a latin1 column, a collation that folds two keys, the
+# information_schema guards, the transaction, the checks, the mysql client itself.
+# All of that is test_context_gen_mysql.py's, against a real mysql:8.0.
 #
-# The engine is SQLite because the lane has no database, and what that engine
-# CANNOT see is now written down here rather than left implied, because it is what
-# let a seed file that aborts the installer at line 35 through a green suite:
-#
-#   * a VARCHAR width. SQLite ignores one, so the 276 character `pi` that MySQL
-#     refuses with error 1406 round-trips byte for byte here. `check_widths` and
-#     `test_no_curated_value_exceeds_its_declared_column_width` are what cover
-#     that, statically, against the DDL.
-#   * a charset. There is none, so the latin1 double encoding cannot occur here
-#     either; `test_every_artifact_pins_the_connection_charset` covers it.
-#   * a collation. SQLite's default is BINARY and case-sensitive, so `Müller` and
-#     `Muller` are simply distinct keys;
-#     `test_a_collision_only_utf8mb4_unicode_ci_would_see_is_refused_too` covers it.
-#   * the instance's real column list. Every fixture here has an `id`;
-#     `dmac.projects_context` does not, which is
-#     `test_the_dedupe_runs_only_where_there_is_an_id_to_order_by`.
-#
-# What it DOES cover, and what changed: the schema is now built from cg.DDL, the
-# committed CREATE TABLE, rather than from a synthetic all-TEXT one; the fixture no
-# longer declares the unique key, so the preamble's ADD UNIQUE KEY has to create it
-# or the upsert cannot work; and the whole preamble runs, translated statement by
-# statement, instead of one hand-picked DELETE. Previously three of the four
-# preamble steps -- the two ALTERs, the dedupe and the key -- were executed by
-# nothing in any dialect.
-#
-# The VALUES list, which is the part under test, passes through untouched. That is
-# why cg.literal doubles quotes and keeps newlines literal instead of using MySQL's
-# backslash escapes: the same text means the same thing to both engines, so this
-# test is not checking an escaper against its own inverse.
+# The VALUES pass through untouched, which is why cg.literal doubles quotes and
+# keeps newlines literal instead of using MySQL's backslash escapes: the same text
+# means the same thing to both engines, so this is not checking an escaper against
+# its own inverse.
 
 import sqlite3
 
-# The MySQL column types cg.DDL uses, and what SQLite is given for each. SQLite has
-# no width and no charset, which is exactly the note above.
 _SQLITE_TYPE = {"INT": "INTEGER", "VARCHAR": "TEXT", "TEXT": "TEXT"}
 
 
 def _sqlite_schema(table: str) -> str:
-    """The committed CREATE TABLE, with only its types translated.
-
-    Built from cg.DDL rather than from cg.TABLES[...].columns, so this fixture is
-    the shape the module actually ships. The UNIQUE KEY is deliberately dropped:
-    preamble step 3 is responsible for adding it, and a fixture that supplies it
-    proves the upsert against a schema the untested step was assumed to produce.
-    """
+    """The committed CREATE TABLE, with only its types translated."""
     spec = cg.TABLES[table]
     body = cg.DDL[table].split(f"CREATE TABLE IF NOT EXISTS {spec.name} (", 1)[1]
     body = body.rsplit(") ENGINE", 1)[0]
@@ -976,74 +1042,21 @@ def _sqlite_schema(table: str) -> str:
     return f"CREATE TABLE `{spec.name}` (\n  " + ",\n  ".join(columns) + "\n);"
 
 
-def _translate(sql: str, table: str) -> str:
-    """The upsert tail, and a count so nothing else slipped through."""
-    spec = cg.TABLES[table]
-    assignments = ", ".join(f"`{c}`=excluded.`{c}`" for c in spec.columns)
-    out = sql.replace(
-        "ON DUPLICATE KEY UPDATE " + ", ".join(f"`{c}`=VALUES(`{c}`)" for c in spec.columns),
-        f"ON CONFLICT(`{spec.key}`) DO UPDATE SET {assignments}",
-    )
-    assert "VALUES(`" not in out                      # every tail was translated
-    return out
-
-
-def _translate_preamble(head: str, table: str) -> list[str]:
-    """Every preamble statement, as the SQLite equivalent, with none dropped.
-
-    The preamble is three conditional blocks: add a column if it is missing,
-    collapse duplicates if there is an `id`, add the unique key if it is missing.
-    Each is `information_schema` + PREPARE + EXECUTE, which SQLite has no form of,
-    so the CONDITION is evaluated here in Python against the fixture and the
-    STATEMENT is translated and run. That is the honest split: the guard mechanism
-    is MySQL's and is verified against MySQL, and what this covers is that the
-    statements themselves do what the module says they do.
-
-    Nothing is skipped silently: an unrecognised block raises.
-    """
-    spec = cg.TABLES[table]
-    statements = []
-    for block in head.split("SET @nextseek_found")[1:]:
-        inner = block.split("IF(", 1)[1].split("', '", 1)[0].split(", '", 1)[1]
-        if inner.startswith(f"ALTER TABLE `{spec.name}` ADD COLUMN "):
-            # SQLite has no charset, which is the note at the top of this section.
-            statements.append(
-                re.sub(r" CHARACTER SET \w+ COLLATE \w+", "", inner) + ";")
-        elif inner.startswith(f"ALTER TABLE `{spec.name}` ADD UNIQUE KEY "):
-            index = f"uq_{spec.name}_{spec.key}"
-            statements.append(
-                f"CREATE UNIQUE INDEX `{index}` ON `{spec.name}` (`{spec.key}`);")
-        elif inner.startswith(f"DELETE `a` FROM `{spec.name}` `a`"):
-            statements.append(
-                f"DELETE FROM `{spec.name}` WHERE `rowid` NOT IN "
-                f"(SELECT MIN(`rowid`) FROM `{spec.name}` GROUP BY `{spec.key}`);")
-        else:
-            raise AssertionError(f"unrecognised preamble statement: {inner[:80]!r}")
-    assert len(statements) == len(cg.ADDED_COLUMNS.get(table, {})) + 2, table
-    return statements
+def _row_statements(table: str, rows: list[dict]) -> str:
+    """The plain-SQL part of the update: from the rows marker to the MySQL-only one."""
+    sql = cg.render_update(table, rows)
+    body = sql.split(cg.ROWS_MARKER, 1)[1].split(cg.MYSQL_ONLY_MARKER, 1)[0]
+    assert "PREPARE" not in body and "information_schema" not in body
+    return (body.replace("START TRANSACTION;", "BEGIN;").replace(" FROM DUAL\n", "\n")
+            + "\nCOMMIT;\n")
 
 
 def _apply(conn, table: str, rows: list[dict], *, preload=(), fresh=True) -> None:
-    """Apply the whole script: the translated preamble, then the rows.
-
-    `fresh` builds the fixture WITHOUT the columns render_update adds, so the
-    preamble's ADD COLUMN has something to do, exactly as a table that predates
-    them would.
-    """
-    sql = cg.render_update(table, rows)
-    head, marker, body = sql.partition(cg.ROWS_MARKER)
-    assert marker, "render_update stopped emitting the rows marker"
     if fresh:
-        schema = _sqlite_schema(table)
-        for column in cg.ADDED_COLUMNS.get(table, {}):
-            schema = re.sub(rf"\n  `{column}` \w+,", "", schema)
-        conn.executescript(schema)
+        conn.executescript(_sqlite_schema(table))
         for statement in preload:
             conn.execute(statement)
-        for statement in _translate_preamble(head, table):
-            conn.executescript(statement)
-    body = body.replace("START TRANSACTION;", "BEGIN;")   # the one dialect word
-    conn.executescript(_translate(body, table))
+    conn.executescript(_row_statements(table, rows))
 
 
 def _read_back(conn, table: str) -> list[dict]:
@@ -1064,6 +1077,8 @@ def test_update_sql_round_trips_every_curated_field():
         for curated, back in zip(rows, stored):
             assert set(back) == set(spec.columns) | {"id"}, table
             for column in spec.columns:
+                if column == "internal_assay_id":
+                    continue       # linked by title in MySQL, after these statements
                 assert back[column] == cg.db_value(table, column, curated.get(column)), \
                     f"{table}.{column} of {curated[spec.key]!r}"
 
@@ -1111,47 +1126,7 @@ def test_update_sql_is_a_no_op_on_a_second_run():
         _apply(conn, table, rows, fresh=False)
         twice = _read_back(conn, table)
     assert once == twice
-    assert len(twice) == 138
-
-
-def test_the_preamble_adds_the_columns_and_the_key_it_is_responsible_for():
-    """The steps that used to be executed by nothing, in any dialect.
-
-    The fixture starts without the added columns and without the unique key, so if
-    the preamble does not create them the upserts cannot run at all. Previously
-    only step 2's DELETE was executed and the fixture declared the key itself, so
-    the ALTERs, the dedupe and the key add were string-checked only -- and they are
-    the first statements to touch production and the only ones that delete rows
-    there.
-    """
-    for table, added in (("projects", "pi_names"), ("sample_types", "repository_attributes")):
-        rows = _rows_for(table)
-        with sqlite3.connect(":memory:") as conn:
-            _apply(conn, table, rows)
-            names = {row[1] for row in conn.execute(
-                f"PRAGMA table_info(`{cg.TABLES[table].name}`)")}
-            indexes = {row[1] for row in conn.execute(
-                f"PRAGMA index_list(`{cg.TABLES[table].name}`)")}
-        assert added in names, table
-        assert f"uq_{cg.TABLES[table].name}_{cg.TABLES[table].key}" in indexes, table
-
-
-def test_the_dedupe_keeps_the_lowest_id_when_it_runs():
-    """Production's assay_context has 22 duplicated assay_name values."""
-    rows = _rows_for("assays")
-    name = rows[0]["assay_name"]
-    with sqlite3.connect(":memory:") as conn:
-        _apply(conn, "assays", rows, preload=(
-            f"INSERT INTO `assay_context` (`assay_name`, `Description`) "
-            f"VALUES ('{name}', 'first');",
-            f"INSERT INTO `assay_context` (`assay_name`, `Description`) "
-            f"VALUES ('{name}', 'second');",
-        ))
-        stored = _read_back(conn, "assays")
-    kept = [row for row in stored if row["assay_name"] == name]
-    assert len(kept) == 1
-    assert kept[0]["id"] == 1                      # the lowest, not the later one
-    assert len(stored) == 138
+    assert len(twice) == len(rows)
 
 
 def test_a_row_with_no_key_does_not_survive_the_round_trip():
@@ -1164,28 +1139,23 @@ def test_a_row_with_no_key_does_not_survive_the_round_trip():
         ))
         stored = _read_back(conn, "assays")
     assert not [row for row in stored if row["assay_name"] is None]
-    assert len(stored) == 138
+    assert len(stored) == len(rows)
 
 
 def test_update_sql_drops_a_stale_row_and_updates_an_existing_one_in_place():
-    """The production case, not a hypothetical one.
-
-    projects_context holds a `GBM` row the curated source drops, and 11 of its 12
-    curated names are already there with older content. So: a row whose key the
-    source no longer names goes, and a row whose key it does name is updated
-    without changing its id.
-    """
+    """A row whose key the source no longer names goes, and a row whose key it does
+    name is updated without changing its id."""
     rows = _rows_for("projects")
     with sqlite3.connect(":memory:") as conn:
         _apply(conn, "projects", rows, preload=(
-            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('GBM', 'stale');",
+            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('Retired', 'stale');",
             "INSERT INTO `projects_context` (`name`, `description`) VALUES ('CSBC', 'old');",
         ))
         stored = {row["name"]: row for row in _read_back(conn, "projects")}
-    assert "GBM" not in stored
+    assert "Retired" not in stored
     assert stored["CSBC"]["id"] == 2                      # updated in place, not reinserted
     assert stored["CSBC"]["description"] != "old"
-    assert len(stored) == 12
+    assert len(stored) == len(rows)
 
 
 # --- 6.15 the generated investigation block ----------------------------------

@@ -72,13 +72,18 @@ python scripts/context_gen.py --emit seed --table all
 python scripts/context_gen.py --emit capabilities --counts /tmp/investigations.json
 ```
 
-`--emit update` writes re-runnable SQL for a live database; every statement is
-idempotent, including the ones that delete rows the curated source no longer names and
-collapse duplicate keys, so applying it twice leaves the table holding exactly the
-curated rows. The deletes and the upserts run in one transaction, so a value the server
-refuses rolls the change back rather than leaving the table half migrated. Nothing here
-connects to a database; the operator applies the SQL. `context/README.md` owns the source
-conventions and the review gate.
+`--emit update` writes one re-runnable script for a live database. Its schema part adds
+missing columns, widens narrower ones and moves text columns to utf8mb4, removing nothing.
+Then every row change of every section runs in ONE transaction, and checks at its end
+(row counts, a digest of every curated value, every assay's internal assay link, every
+mapping operation's post-condition) decide whether it commits. On any problem the client
+stops at `ERROR 1231 ... context_gen REFUSED ...`, the full list printed above it, and
+nothing was committed. A second run changes no row. `assay_context` rows are linked to
+`internal_assays` by title at apply time, never by the curated number, so a stack whose
+internal assays are numbered differently is refused rather than mislinked. Nothing here
+connects to a database: the operator applies the SQL, after a restore-tested backup, and
+never with `mysql --force` (the commit is conditional, so `--force` rolls back too, but it
+exits 0). `context/README.md` owns the source conventions and the review gate.
 
 **The curated seeds are held.** `--emit seed` writes
 `startup/seed/sql/{sample_types_context,assay_context,projects_context}.curated.sql`, and

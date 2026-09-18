@@ -359,7 +359,7 @@ WRITERS: tuple[Writer, ...] = (
            reconcile="RECONCILE_OPERATOR",
            note="hand SQL kept in the tree; nothing in the code applies any of these five files"),
     Writer(id="WR-21",
-           sites=("scripts/context_gen.py::render_mappings",
+           sites=("scripts/context_gen.py::_mapping_parts",
                   "startup/seed/sql/sample_types_context.curated.sql"),
            tables=("sample_types_context", "internal_assays", "assays_internal_assays"),
            how=("sql_file", "sql", "external"),
@@ -509,8 +509,8 @@ UNRESOLVED_SITES: tuple[str, ...] = (
     # table as an argument and read its name off cg.TABLES, so the scan sees a
     # statement with no literal table; and neither writes anything anyway, they
     # return SQL text for an operator to apply.
+    "scripts/context_gen.py::_table_data",
     "scripts/context_gen.py::render_seed",
-    "scripts/context_gen.py::render_update",
     # Install-time helpers, on tables the graph does not read (WR-19 and SEEK's own
     # settings table).
     "startup/steps/schema_fixups.py::_add_and_backfill",

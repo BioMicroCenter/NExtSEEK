@@ -368,3 +368,155 @@ def test_a_value_the_target_cannot_take_is_refused_before_any_row_changes(mysql)
     assert code != 0
     assert "context_gen REFUSED" in err and "entity_type" in out + err
     assert mysql.snapshot(db, ddl=False) == before
+
+
+# --- one transaction, and a second run that changes nothing ----------------------
+
+_CHANGED = re.compile(r"Query OK, [1-9]\d* rows? affected|Changed: [1-9]")
+
+
+def _rows_changed(verbose_output: str) -> list[str]:
+    """The `mysql -vvv` report lines of every statement that changed a row."""
+    return [line for line in verbose_output.splitlines() if _CHANGED.search(line)]
+
+
+def test_a_failure_anywhere_in_the_rows_leaves_every_table_as_it_was(mysql):
+    """Each section used to commit on its own, and the dedupe ran before any of them:
+    a failure in the projects section left the sample types and assays written, and
+    the duplicate assay rows carrying the internal assay link deleted. Now one
+    transaction holds every row change, so a failure anywhere changes no row."""
+    db = load_prestate(mysql, "midfail")
+    before = mysql.snapshot(db, ddl=False)
+    script = update_sql()
+    for point in ("-- ---- projects_context ----", cg.CHECKS_MARKER):
+        broken = script.replace(point, "SELECT * FROM `nextseek_no_such_table`;\n" + point, 1)
+        code, _, err = mysql.apply(broken, db)
+        assert code != 0 and "nextseek_no_such_table" in err, point
+        assert mysql.snapshot(db, ddl=False) == before, point
+
+
+def test_the_second_run_changes_no_row_and_consumes_no_id(mysql):
+    """Not only the same end state: no statement writes anything. The old script
+    reset fourteen assay links to NULL on every run and restored them three
+    sections later, and each upsert took an AUTO_INCREMENT value it never used."""
+    db = load_prestate(mysql, "noop")
+    script = update_sql()
+    code, _, err = mysql.apply(script, db)
+    assert code == 0, err
+    once = mysql.snapshot(db)
+    code, out, err = mysql.apply(script, db, verbose=True)
+    assert code == 0, err
+    assert _rows_changed(out) == []
+    assert mysql.snapshot(db) == once
+
+
+def test_the_assays_section_alone_after_a_full_apply_changes_nothing(mysql):
+    """`--table assays` on its own used to NULL every created assay's link, silently,
+    because only the mappings section filled them in. Each section now links by
+    title itself."""
+    db = load_prestate(mysql, "assaysalone")
+    code, _, err = mysql.apply(update_sql(), db)
+    assert code == 0, err
+    code, out, err = mysql.apply(update_sql("assays"), db, verbose=True)
+    assert code == 0, err
+    assert _rows_changed(out) == []
+    assert mysql.scalar(db, "SELECT COUNT(*) FROM assay_context WHERE internal_assay_id IS NULL") == 0
+
+
+def test_the_dedupe_keeps_the_lowest_id_and_loses_no_value(mysql):
+    """Duplicated names collapse to one row that holds the curated values and the link."""
+    db = load_prestate(mysql, "dedupe")
+    duplicated = [r["assay_name"] for r in cg.rows_for("assays") if r.get("internal_assay_id")][:3]
+    lowest = {name: mysql.scalar(db, f"SELECT MIN(id) FROM assay_context WHERE assay_name = {_q(name)}")
+              for name in duplicated}
+    code, _, err = mysql.apply(update_sql(), db)
+    assert code == 0, err
+    for name in duplicated:
+        kept = mysql.value(db, "SELECT JSON_ARRAYAGG(JSON_OBJECT('id', id, 'link', internal_assay_id)) "
+                               f"FROM assay_context WHERE assay_name = {_q(name)}")
+        assert len(kept) == 1 and kept[0]["id"] == lowest[name] and kept[0]["link"] is not None, name
+
+
+def test_the_unique_keys_are_added_once_and_never_beside_a_primary_key(mysql):
+    db = load_prestate(mysql, "keys")
+    code, _, err = mysql.apply(update_sql(), db)
+    assert code == 0, err
+    unique = mysql.value(db, (
+        "SELECT JSON_OBJECTAGG(CONCAT(TABLE_NAME, '.', INDEX_NAME), COLUMN_NAME) "
+        "FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND NON_UNIQUE = 0 "
+        "AND TABLE_NAME IN ('sample_types_context', 'assay_context', 'projects_context')"))
+    assert unique == {
+        "sample_types_context.PRIMARY": "id",
+        "sample_types_context.uq_sample_types_context_sample_type": "sample_type",
+        "assay_context.PRIMARY": "id",
+        "assay_context.uq_assay_context_assay_name": "assay_name",
+        "projects_context.PRIMARY": "name",
+    }
+
+
+# --- drift is refused, loudly, and nothing is committed ----------------------------
+
+
+def _refused(mysql, db: str, script: str, before: str, *, force: bool = False) -> str:
+    code, out, err = mysql.apply(script, db, force=force)
+    if not force:
+        assert code != 0, out
+    assert "context_gen REFUSED" in err, err
+    assert mysql.snapshot(db, ddl=False) == before
+    return out + err
+
+
+def _a_remap_target_no_operation_creates() -> str:
+    _, mappings = _curated()
+    created = {m["internal_assay_title"] for m in mappings if m["action"] in ("create_internal", "rename_internal")}
+    return next(m["internal_assay_title"] for m in mappings
+                if m["action"] == "remap" and m["internal_assay_title"] not in created)
+
+
+def test_a_target_retitled_upstream_is_refused_and_rolled_back(mysql):
+    """The guards made a moved target a no-op, and the apply then exited 0 with the
+    SEEK assay left where it was: a partial apply nobody would see."""
+    title = _a_remap_target_no_operation_creates()
+    db = load_prestate(mysql, "drift", extra=(
+        "UPDATE internal_assays SET internal_assay_title = CONCAT(internal_assay_title, ' (retitled)') "
+        f"WHERE internal_assay_title = {_q(title)};\n"))
+    before = mysql.snapshot(db, ddl=False)
+    text = _refused(mysql, db, update_sql(), before)
+    assert "SEEK assays not on their curated internal assay" in text
+
+
+def test_a_merge_a_new_seek_assay_still_points_at_is_refused(mysql):
+    """A SEEK assay linked to a merged internal assay after the curation blocks the
+    merge, correctly -- and used to do so with exit 0."""
+    _, mappings = _curated()
+    merged = next(m["internal_assay_id"] for m in mappings if m["action"] == "merge_internal")
+    db = load_prestate(mysql, "blocked", extra=(
+        f"INSERT INTO assays_internal_assays (assay_id, internal_assay_id) VALUES (990002, {merged});\n"))
+    before = mysql.snapshot(db, ddl=False)
+    text = _refused(mysql, db, update_sql(), before)
+    assert "merged internal assays still present" in text
+
+
+def test_a_stack_numbered_differently_is_refused_rather_than_mislinked(mysql):
+    """Production's internal assay ids, written as literals, pointed rows of a stack
+    whose internal_assays came from elsewhere at the wrong assays, with exit 0."""
+    db = load_prestate(mysql, "renumbered", id_offset=1000)
+    before = mysql.snapshot(db, ddl=False)
+    _refused(mysql, db, update_sql(), before)
+
+
+def test_force_cannot_commit_a_partial_apply(mysql):
+    """`mysql --force` runs on past a failed statement and used to reach COMMIT. The
+    commit is now conditional on the checks, so a skipped row rolls everything back."""
+    db = load_prestate(mysql, "force")
+    before = mysql.snapshot(db, ddl=False)
+    first = cg.rows_for("projects")[0]["name"]
+    script = update_sql()
+    statement = f"UPDATE `projects_context` SET `name` = {cg.literal(first)},"
+    start = script.index(statement)
+    end = script.index("\n", script.index(f"WHERE `name` = {cg.literal(first)};", start))
+    broken = script[:start] + "UPDATE `projects_context` SET `no_such_column` = 1;" + script[end:]
+    broken = broken.replace(
+        f"SELECT 1 FROM `projects_context` WHERE `name` = {cg.literal(first)});",
+        "SELECT 1 FROM `projects_context`);", 1)
+    _refused(mysql, db, broken, before, force=True)
