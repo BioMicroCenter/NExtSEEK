@@ -458,3 +458,38 @@ def resolve_bundle_for_recall(
     if best_bundle is None and fallback_to_latest:
         return history[-1]
     return best_bundle
+
+
+def select_refine_bundle(
+    history: Any,
+    target_result_id: Any,
+) -> tuple[dict | None, dict[str, Any]]:
+    """The stored result a refine modifies, and a record of how it was chosen.
+
+    The parser names the result it means in ``target_result_id``, on a refine as on a
+    memory question: the recent-results summary lists every bundle's id for exactly
+    that purpose. The refine branch used to read ``results_history[-1]`` whatever the
+    parser said, so "rerun the first search but only females" refined the newest
+    result. Now the named bundle wins; with no name the newest is still the one a
+    refine means ("same thing but with X").
+
+    An id that is not in the session falls back to the newest rather than failing a
+    turn that worked before, and the record says so (``chosen_by="named_missing"``).
+    No keyword guess: "now only the lung ones" modifies the newest result, whatever
+    an older query happened to mention.
+    """
+    requested = target_result_id
+    bundles = [b for b in history if isinstance(b, dict)] if isinstance(history, list) else []
+    if not bundles:
+        return None, {"bundle_id": None, "requested": requested, "chosen_by": "none"}
+    if requested is not None and not isinstance(requested, bool):
+        named = next((b for b in reversed(bundles) if b.get("id") == requested), None)
+        if named is not None:
+            return named, {"bundle_id": named.get("id"), "requested": requested, "chosen_by": "named"}
+        chosen_by = "named_missing"
+        print(f"[DEBUG][REFINE] parser named bundle id={requested!r}, which this session does not hold; "
+              "refining the newest result instead")
+    else:
+        chosen_by = "newest"
+    newest = bundles[-1]
+    return newest, {"bundle_id": newest.get("id"), "requested": requested, "chosen_by": chosen_by}

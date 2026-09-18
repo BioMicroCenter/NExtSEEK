@@ -1517,15 +1517,19 @@ def run_query(
             # Graph-origin refines re-run the graph path (with prior Cypher as context);
             # everything below this is REST refine prep.
             if mode == "refine_last_search":
+                # The stored result the parser named in target_result_id, else the newest.
+                from .chat_memory import select_refine_bundle
+
                 _history = session.get("results_history", []) or []
-                if _history and (_history[-1] or {}).get("mode") == "graph_query":
+                _prior, debug_payload["refine_target"] = select_refine_bundle(_history, plan.target_result_id)
+                if _prior and _prior.get("mode") == "graph_query":
                     current_agent = "graph"
                     outcome = _execute_graph_turn(
                         config=config, session=session, user_text=user_text,
                         entity_result=entity_result, plan=plan,
                         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
                         debug_payload=debug_payload, t_total_start=_t_total_start,
-                        refine_context=_build_graph_refine_context(_history[-1]),
+                        refine_context=_build_graph_refine_context(_prior),
                     )
                     if not isinstance(outcome, GraphScopeFallback):
                         return outcome
@@ -1534,7 +1538,7 @@ def run_query(
                 plan_data = plan.model_dump()
                 history = session.get("results_history", [])
                 if history:
-                    last_bundle = history[-1]
+                    last_bundle = _prior  # chosen above: mode is still a refine only if that block ran
                     prev_plan = last_bundle.get("parser_plan", {}) or {}
                     previous_api_plan = last_bundle.get("api_plan")
                     previous_user_query = last_bundle.get("user_query")
