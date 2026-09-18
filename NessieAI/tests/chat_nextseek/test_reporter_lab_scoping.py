@@ -323,6 +323,8 @@ def test_published_scoping_leaves_a_failed_block_alone():
 class _FooterCfg:
     INVESTIGATION_NAME_TO_ID = {"CSBC": 1, "GRIFFITH": 2, "IMPACT": 3,
                                 "METNET": 4, "SRP": 6, "SHOULDERS": 7}
+    # The note names investigations only to an admin (test_reporter_names_scope.py covers anyone else).
+    GRAPH_SCOPE = GraphScope.admin("test")
 
 
 def test_footer_reads_the_rppr_row_count_from_the_samples_block():

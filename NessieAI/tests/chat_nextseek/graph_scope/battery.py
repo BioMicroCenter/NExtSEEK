@@ -475,6 +475,9 @@ REFUSALS: list[Refusal] = [
     Refusal("unjoined_node.study_of_a_project_investigation",
             "MATCH (st:Study)-[:IN_INVESTIGATION]->(inv:Investigation)-[:IN_PROJECT]->(p:Project) "
             "RETURN st.title AS t", ("unjoined_node",)),
+    Refusal("unjoined_node.study_of_a_project_investigation_from_the_project",
+            "MATCH (p:Project)<-[:IN_PROJECT]-(i:Investigation)<-[:IN_INVESTIGATION]-(st:Study) "
+            "RETURN st.title AS t", ("unjoined_node",)),
     Refusal("unjoined_node.person_by_a_study",
             "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:MEMBER_OF]-(p:Person) RETURN p.id AS id", ("unjoined_node",)),
     Refusal("relationship_type.untyped_short", "MATCH (s:Sample)-->(p:Sample) RETURN p.id AS id",
