@@ -110,10 +110,15 @@ def default_run_root() -> str:
     return os.environ.get(RUN_DIR_ENV) or os.path.join(getattr(settings, "LOG_DIR", os.getcwd()), "graph_sync")
 
 
-def run_dir_for(run_root: str, kind: str, now: datetime | None = None) -> str:
-    """``<run root>/<kind>-<UTC time>``. The stamp sorts as it runs, which is what ``prune_run_dirs`` counts on."""
+def run_dir_for(run_root: str, kind: str, now: datetime | None = None, row_id: int | None = None) -> str:
+    """``<run root>/<kind>-<UTC time>``, and ``-<row id>`` for a child the drain launches. The stamp sorts as it
+    runs, which is what ``prune_run_dirs`` counts on.
+
+    The row id is what keeps two children of one pass apart: ``run_pass`` fixes its time once, so two slots of one
+    kind drained in the same pass would otherwise share a directory, write over each other's files, and a drift
+    child that saved nothing would be judged on the other one's result (``drift_reported``)."""
     stamp = (now or datetime.now(UTC)).astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return os.path.join(run_root, f"{kind}-{stamp}")
+    return os.path.join(run_root, f"{kind}-{stamp}" + ("" if row_id is None else f"-{row_id}"))
 
 
 def worker_identity() -> str:
@@ -279,7 +284,7 @@ def drift_reported(run_dir: str) -> list[str] | None:
 
 
 def _child(claim, opts: Options, entry: dict, *, now: datetime, launch) -> dict:
-    run_dir = run_dir_for(opts.run_root, claim.kind, now)
+    run_dir = run_dir_for(opts.run_root, claim.kind, now, row_id=claim.id)
     timeout_s = child_timeout_s(claim.kind)
     code = launch(child_argv(claim.kind, run_dir, opts), timeout_s)
     entry.update(run_dir=run_dir, exit=code, refused=code == 2)

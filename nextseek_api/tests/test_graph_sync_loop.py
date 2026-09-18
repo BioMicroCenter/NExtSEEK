@@ -141,8 +141,8 @@ def test_a_heavy_kind_runs_as_a_child_with_its_run_directory_and_the_live_flag(w
     one_pass(work)
 
     (child,) = [c for c in work.launched if "--full" in c.argv]
-    assert child.argv == [sys.executable, str(loop.MANAGE_PY), "graph_sync", "--full",
-                          "--run-dir", os.path.join(str(work.opts.run_root), f"full-{T0:%Y%m%dT%H%M%SZ}"),
+    run_dir = os.path.join(str(work.opts.run_root), f"full-{T0:%Y%m%dT%H%M%SZ}-{row('full', THIS_WEEK).id}")
+    assert child.argv == [sys.executable, str(loop.MANAGE_PY), "graph_sync", "--full", "--run-dir", run_dir,
                           "--trigger", loop.TRIGGER, "--i-mean-the-live-graph"]
     assert child.timeout_s == loop.child_timeout_s("full")
     assert child.timeout_s < state.lease_s("full")             # the row is not claimable while the child runs
@@ -222,6 +222,35 @@ def test_a_drift_check_that_found_drift_closes_its_row_and_leaves_the_outbox_fre
     later = T0 + timedelta(hours=2)
     assert state.outbox_summary(now=later)["oldest_pending"] is None
     assert state.freshness(now=later)["outbox"]["status"] == "ok"
+
+
+@pytest.mark.django_db
+def test_two_drift_slots_in_one_pass_are_judged_each_by_its_own_report(work):
+    """``run_pass`` fixes ``now`` once, so both children start in the same second. Each gets its own run directory,
+    or the second, exiting 1 before it saved anything, would be closed on the first one's report."""
+    state.enqueue("drift", "slot:2026-09-14", now=before(hours=26))      # an older slot, re-enqueued by hand
+    state.enqueue("drift", TODAY, now=before(minutes=1))
+    answers = [(FOUND_DRIFT, 1), (None, 1)]                           # the second crashes before saving
+
+    def launch(argv, timeout_s):
+        work.launched.append(SimpleNamespace(argv=list(argv), timeout_s=timeout_s))
+        if "--drift" not in argv:
+            return 0
+        saved, code = answers.pop(0)
+        if saved is not None:
+            run_dir = argv[argv.index("--run-dir") + 1]
+            os.makedirs(run_dir, exist_ok=True)
+            with open(os.path.join(run_dir, drift.RESULT_FILE), "w", encoding="utf-8") as fh:
+                json.dump(saved, fh)
+        return code
+
+    report = one_pass(work, launch=launch)
+
+    first, second = [d for d in report["drained"] if d["kind"] == "drift"]
+    assert first["run_dir"] != second["run_dir"]
+    assert (first["outcome"], second["outcome"]) == (loop.DONE, loop.FAILED)
+    assert row("drift", "slot:2026-09-14").done_at is not None
+    assert row("drift", TODAY).done_at is None and row("drift", TODAY).attempts == 1
 
 
 @pytest.mark.django_db
