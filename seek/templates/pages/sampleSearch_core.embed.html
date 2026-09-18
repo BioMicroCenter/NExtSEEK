@@ -1,0 +1,304 @@
+<script>
+/* Sample Search page (/seek/search/): every decision that needs no browser.
+
+   Both search boxes send their searches to POST /nextseek_api/samples/graph_search/,
+   which takes advanced_search's body plus an optional `extensions` block and pages in
+   the database. This block builds the body each box sends (the Simple box's rules, the
+   Advanced box's query text), says which Simple rules graph_search can express, builds
+   the paging URL, and turns a page of graph_search rows into what the grids show: the
+   UID link and the Attribute:Value cell the old engine built on the server.
+   No DOM, no jQuery and no template tags here: seek/tests/js/sample_search_cases.js runs
+   this block verbatim under node. */
+var SampleSearchCore = (function () {
+  var ENDPOINT = '/nextseek_api/samples/graph_search/';
+
+  /* The Simple box's rules (seek/dbtable_sampleattribute.py, OPERATOR_SETS) as graph_search
+     operators. Less, Greater, Before and After are inclusive there, so they map to <= and >=.
+     "Not Contain" and the True/False rules have no graph_search operator and are not offered. */
+  var RULES = {
+    'Contain': 'CONTAINS',
+    'Equal': '=',
+    'Not Equal': '<>',
+    'Less': '<=',
+    'Before': '<=',
+    'Greater': '>=',
+    'After': '>=',
+    'Between': 'BETWEEN'
+  };
+  var NUMBER = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
+  var KEY_STYLE = 'color:blue;font-weight:bold;';
+  var HIT_STYLE = 'color:red;';
+  var SEPARATOR = ',   ';
+
+  function trim(s) {
+    return String(s == null ? '' : s).trim();
+  }
+
+  function has(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
+  /* Python's html.escape, which the old engine applied to every highlighted key and value. */
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;' }[c];
+    });
+  }
+
+  function highlight(terms, matchType, attribute) {
+    return { terms: terms, matchType: matchType, attribute: attribute };
+  }
+
+  var NO_HIGHLIGHT = highlight([], null, null);
+
+  function offeredRules(rules) {
+    return (rules || []).filter(function (rule) {
+      return rule === 'No Filter' || has(RULES, rule);
+    });
+  }
+
+  /* The title of the sample type whose id the combobox holds, or '' when it holds none. */
+  function typeTitle(typeOptions, value) {
+    var id = trim(value);
+    if (!id || id === '0') {
+      return '';
+    }
+    var found = (typeOptions || []).filter(function (o) { return o && String(o.id) === id; });
+    return found.length ? String(found[0].title) : '';
+  }
+
+  /* The Advanced box. Its query text is what the Add button builds: terms joined by
+     AND, OR or NOT, grouped in parentheses, a term optionally tagged term[TYPE].
+     graph_search takes a list of terms with ONE logic and one sample type for the
+     whole search, so the text is sent when it says exactly that and refused otherwise.
+     Operators are upper case and space-delimited, as the old parser split them. */
+  function queryBody(state) {
+    var text = trim(state.text);
+    if (!text) {
+      return { error: 'No search term entered.' };
+    }
+    var parts = text.split(/\s+(AND|OR|NOT)\s+/);
+    var logics = {};
+    var terms = [];
+    var tags = [];
+    var untagged = 0;
+    parts.forEach(function (part, i) {
+      if (i % 2 === 1) {
+        logics[part] = true;
+        return;
+      }
+      var term = trim(part.replace(/[()]/g, ''));
+      var tagged = /^(.*?)\[([^\[\]]*)\]$/.exec(term);
+      if (tagged && trim(tagged[2])) {
+        term = trim(tagged[1]);
+        var tag = trim(tagged[2]).toUpperCase();
+        if (tags.indexOf(tag) < 0) {
+          tags.push(tag);
+        }
+      } else {
+        untagged += 1;
+      }
+      if (term) {
+        terms.push(term);
+      }
+    });
+    if (logics.NOT) {
+      return { error: 'NOT is not supported: graph_search combines search terms with AND or OR only.' };
+    }
+    if (logics.AND && logics.OR) {
+      return { error: 'Use AND or OR, not both: graph_search combines every search term the same way.' };
+    }
+    var logic = logics.OR ? 'OR' : 'AND';
+    if (tags.length > 1 && logic === 'AND') {
+      return { error: 'Terms tagged [' + tags.join('] and [') + '] cannot match the same sample: '
+        + 'a sample has one sample type.' };
+    }
+    if (tags.length && logic === 'OR' && (tags.length > 1 || untagged > 0)) {
+      return { error: 'With OR, tag every term with the same sample type or tag none: '
+        + 'graph_search applies one sample type to the whole search.' };
+    }
+    var chosen = trim(state.sampletype);
+    if (chosen && tags.length && tags[0] !== chosen.toUpperCase()) {
+      return { error: 'The sample type chosen (' + chosen + ') and the one in the search text (['
+        + tags[0] + ']) differ.' };
+    }
+    var sampletype = tags.length ? tags[0] : chosen;
+    if (!terms.length) {
+      if (!sampletype) {
+        return { error: 'No search term entered.' };
+      }
+      return { body: { filter_searchText: '', sampletype: sampletype }, highlight: NO_HIGHLIGHT };
+    }
+    var matchType = state.matchType === 'EXACT' ? 'EXACT' : 'PARTIAL';
+    var body = { filter_searchText: terms.length === 1 ? terms[0] : terms, filter_matchType: matchType };
+    if (terms.length > 1) {
+      body.searchText_logic = logic;
+    }
+    if (sampletype) {
+      body.sampletype = sampletype;
+    }
+    return { body: body, highlight: highlight(terms, matchType, null) };
+  }
+
+  /* The Simple box: one sample type (its title), one attribute, one rule, as graph_search
+     typed conditions. No attribute, or "none", searches the value in From across every
+     attribute value of the type's samples, and asks for every sample of the type when From
+     is empty. "No Filter" on a chosen attribute ignores From, as the old engine did. */
+  function simpleBody(state) {
+    var type = trim(state.sampletype);
+    if (!type) {
+      return { error: 'No sample type is selected.' };
+    }
+    var attribute = trim(state.attribute);
+    var rule = trim(state.rule);
+    var typeOnly = { body: { sampletype: type, filter_searchText: '' }, highlight: NO_HIGHLIGHT };
+    if (!attribute || attribute === 'none') {
+      var keyword = trim(state.from);
+      return keyword
+        ? { body: { sampletype: type, filter_searchText: keyword, filter_matchType: 'PARTIAL' },
+            highlight: highlight([keyword], 'PARTIAL', null) }
+        : typeOnly;
+    }
+    if (!rule || rule === 'No Filter') {
+      return typeOnly;
+    }
+    if (!has(RULES, rule)) {
+      return { error: '“' + rule + '” has no graph_search operator.' };
+    }
+    var from = trim(state.from);
+    var to = trim(state.to);
+    if (!from && rule !== 'Contain') {
+      return { error: 'Enter a value in From.' };
+    }
+    if (rule === 'Between' && !to) {
+      return { error: 'Between needs both a From and a To value.' };
+    }
+    var numeric = state.filterType === 'numeric';
+    if (numeric) {
+      var bad = [from].concat(rule === 'Between' ? [to] : []).filter(function (v) { return !NUMBER.test(v); });
+      if (bad.length) {
+        return { error: 'Warning: Not a valid numeric value: ' + bad[0] };
+      }
+    }
+    function condition(op, raw) {
+      return { sample_type: type, attribute: attribute, op: op, value: numeric ? Number(raw) : raw };
+    }
+    var where = rule === 'Between'
+      ? [condition('>=', from), condition('<=', to)]
+      : [condition(RULES[rule], from)];
+    return { body: { filter_searchText: '', extensions: { where: where } },
+             highlight: highlight([], null, attribute) };
+  }
+
+  function searchUrl(page, size) {
+    return ENDPOINT + '?page=' + page + '&page_size=' + size;
+  }
+
+  /* The UID as the old engine linked it (seek/sample/core.py, _getSamplelink). */
+  function uidLink(row) {
+    return '<a href="/seek/sample/id=' + encodeURIComponent(String(row.id)) + '/" target="_blank">'
+      + escapeHtml(row.uuid) + '</a>';
+  }
+
+  function replaceAll(value, find, replacement) {
+    return value.split(find).join(replacement);
+  }
+
+  /* seek/sample/queries.py, _highlightKeyword: escape both, then wrap every occurrence of
+     the keyword, or of the first case-insensitive match of it. */
+  function highlightKeyword(keyword, value, style) {
+    var k = escapeHtml(keyword);
+    var v = escapeHtml(value);
+    var span = function (text) { return '<span style="' + style + '">' + text + '</span>'; };
+    if (k && v.indexOf(k) >= 0) {
+      return replaceAll(v, k, span(k));
+    }
+    var pos = k ? v.toLowerCase().indexOf(k.toLowerCase()) : -1;
+    if (pos >= 0) {
+      var found = v.substr(pos, k.length);
+      return replaceAll(v, found, span(found));
+    }
+    return v;
+  }
+
+  /* The Attribute:Value cell: seek/sample/queries.py, _highlightKeyValues. graph_search
+     returns attributeValue empty, so the page builds it from json_metadata: with an
+     attribute, that attribute's value; with terms, every value holding a term (PARTIAL,
+     case-insensitive) or equal to one (EXACT); with neither, nothing. */
+  function attributeValueHtml(metadata, hl) {
+    hl = hl || NO_HIGHLIGHT;
+    var terms = hl.terms || [];
+    if (!metadata || typeof metadata !== 'object' || (!hl.attribute && !terms.length)) {
+      return '';
+    }
+    var cells = [];
+    Object.keys(metadata).sort().forEach(function (key) {
+      var raw = metadata[key];
+      if (raw == null) {
+        return;
+      }
+      var value = String(raw);
+      var shownKey = highlightKeyword(key, key, KEY_STYLE);
+      if (hl.attribute) {
+        if (key === hl.attribute) {
+          cells.push(shownKey + ':' + highlightKeyword(value, value, HIT_STYLE));
+        }
+        return;
+      }
+      terms.forEach(function (term) {
+        var t = String(term);
+        var hit = hl.matchType === 'EXACT'
+          ? (t === value || t.toUpperCase() === value.toUpperCase())
+          : value.toLowerCase().indexOf(t.toLowerCase()) >= 0;
+        if (hit) {
+          cells.push(shownKey + ':' + highlightKeyword(t, value, HIT_STYLE));
+        }
+      });
+    });
+    return cells.join(SEPARATOR);
+  }
+
+  /* A page of graph_search rows as the grids show them: the UID linked, the cell built,
+     and the plain-text columns escaped (the grids' formatter renders HTML). uuid, id and
+     json_metadata stay as they came: download, delete and export read them. */
+  function prepareRows(rows, hl) {
+    return (rows || []).map(function (row) {
+      var shown = {};
+      Object.keys(row).forEach(function (k) { shown[k] = row[k]; });
+      shown.uid = uidLink(row);
+      shown.sample_type = escapeHtml(row.sample_type);
+      shown.assays = escapeHtml(row.assays);
+      shown.first_name = escapeHtml(row.first_name);
+      shown.attributeValue = attributeValueHtml(row.json_metadata, hl);
+      return shown;
+    });
+  }
+
+  function errorText(status, payload) {
+    var detail = '';
+    var errors = payload && payload.errors;
+    if (errors && errors.length) {
+      detail = errors[0].detail || errors[0].title || '';
+    } else if (payload && payload.msg) {
+      detail = payload.msg;
+    }
+    if (detail && typeof detail !== 'string') {
+      detail = JSON.stringify(detail);
+    }
+    return 'graph_search answered ' + status + (detail ? ': ' + detail : '');
+  }
+
+  return {
+    ENDPOINT: ENDPOINT,
+    offeredRules: offeredRules,
+    typeTitle: typeTitle,
+    queryBody: queryBody,
+    simpleBody: simpleBody,
+    searchUrl: searchUrl,
+    uidLink: uidLink,
+    attributeValueHtml: attributeValueHtml,
+    prepareRows: prepareRows,
+    errorText: errorText
+  };
+})();
+</script>

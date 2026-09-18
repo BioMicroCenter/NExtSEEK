@@ -33,6 +33,11 @@ def test_the_graph_search_page_tests_block():
     assert "seek/tests/test_graph_search_page.py" in paths
 
 
+def test_the_sample_search_page_tests_block():
+    assert "seek/tests/test_sample_search_*.py" in blocking_lanes.BLOCKING_GLOBS
+    assert "seek/tests/test_sample_search_js.py" in blocking_lanes.expand(ROOT)
+
+
 def test_the_expansion_is_sorted_relative_test_modules():
     paths = blocking_lanes.expand(ROOT)
     assert paths == sorted(set(paths))
