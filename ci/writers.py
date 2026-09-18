@@ -461,6 +461,13 @@ WRITERS: tuple[Writer, ...] = (
            reconcile="RECONCILE_INSTALL",
            note="the seed dump regenerator writes the Cypher file WR-18 installs; it reads a live graph and "
                 "writes no graph of its own"),
+    Writer(id="WR-32",
+           sites=("NessieAI/chat_nextseek/src/chat_nextseek/cypher_scope.py::<module>",),
+           tables=(),
+           how=("cypher",),
+           reconcile="NO_GRAPH_EFFECT",
+           note="the graph agent's Cypher scope prover: a pure module with no driver, whose keyword list names "
+                "the write clauses it refuses; it sends no statement"),
 )
 
 
