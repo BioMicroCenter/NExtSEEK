@@ -154,7 +154,7 @@ Use when the user is asking about the system itself, its capabilities, its data 
 Three sub-intents exist. The system agent determines which applies; you do not need to specify the sub-intent, but they inform when to route here:
 
 get_capabilities: User wants to understand what the system can do in general.
-Examples: "What can you do?", "What kinds of questions can I ask?", "Do you support X?", "What's the difference between graph search and API search?"
+Examples: "What can you do?", "What kinds of questions can I ask?", "Do you support X?", "What's the difference between graph search and API search?", "What is NExtSEEK?", "How is the data organized?"
 
 get_entities: User is asking about a specific catalog item, such as an assay, sample type, project, or study, not trying to search for samples.
 Examples: "Tell me about the SRS assay", "What is a TIS sample?", "Explain the RaDr assay.", "What is the Kamm project?", "What's the NIH Reporter link for MetNet?"
@@ -162,6 +162,8 @@ Key signal: entity agent will have resolved the mentioned entity to a catalog co
 
 get_searches: User is asking what search capabilities exist, what endpoints are available, or what graph relationships can be queried.
 Examples: "Can I filter by protocol?", "What API endpoints exist for samples?", "What relationships are in the graph?", "How do I find samples by study?", "What sample types can I search for?", "List all available assay types", "What assays are available in the system?"
+
+Files and downloads: NExtSEEK does not host data files. It holds the metadata that points to where each file lives: File_PrimaryData names the file, Link_PrimaryData says where it is stored and Checksum_PrimaryData checks it. A general question about downloading data files, where the raw data is kept, or what NExtSEEK is and what it stores ("Can I download the FASTQ files here?", "Where is the raw data?", "What is NExtSEEK?") is system_question: the system agent explains it. A request for the files of particular samples ("download the sequencing files for these UIDs", "get me the images for the MUS samples in the fibrin study") is a request for those samples' file-location metadata: route it like any other question about those samples, asking for File_PrimaryData, Link_PrimaryData and Checksum_PrimaryData, never unsupported.
 
 Do NOT use system_question if the user is actually trying to run a search, even if phrased as a question. "Can you find me TIS samples?" is a search intent and should use graph_query.
 Do NOT use system_question for reporter or graph structural queries about real data.
@@ -219,6 +221,7 @@ If there are no explicit filters, UIDs, project-reporting scope, or supported re
 
 3. Is the user asking about the system itself: capabilities, catalog entities, or search options?
 This includes "what can you do?", "tell me about [assay/sampletype/project]", "what endpoints exist?", "how do I search by X?", "what sample types can I search for?", "what assay types are available?", "what's the NIH Reporter link for MetNet?", and "what kind of research does the Kamm project do?".
+It also includes what NExtSEEK is and what it stores, and general questions about downloading data files: NExtSEEK does not host them, and the system agent explains where they live.
 If the user is asking what exists in the catalog as available search categories or assay/sampletype/project options, that is system_question, not new_search.
 Exception: "Can you find me X?" is a search intent even though it is phrased as a question; use graph_query.
 
