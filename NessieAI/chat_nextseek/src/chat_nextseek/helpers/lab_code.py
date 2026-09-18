@@ -551,13 +551,3 @@ def resolve_labs(
     _extend_unique(keywords, scientists)  # E4
     return LabResolution(available=True, labs=labs, lab_codes=codes, lab_matches=matches,
                          scientists=scientists, keywords=keywords)
-
-
-def lab_code(name: str | None) -> str:
-    """Return the first 3 alphabetic characters of ``name``, uppercased.
-
-    Retired by the matcher above; removed once its one caller moves to it."""
-    if not isinstance(name, str):
-        return ""
-    alpha = "".join(ch for ch in name if ch.isalpha())
-    return alpha[:3].upper() if len(alpha) >= 3 else ""
