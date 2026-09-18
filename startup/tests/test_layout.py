@@ -7,6 +7,7 @@ consumes the location.
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -29,6 +30,55 @@ def test_proxy_secret_env_is_the_env_file_compose_gives_bedrock_proxy() -> None:
 
 def test_chat_nextseek_dir_is_where_the_unit_lives() -> None:
     assert (REPO_ROOT / layout.CHAT_NEXTSEEK_DIR / "pyproject.toml").is_file()
+
+
+def _constants_literals() -> dict[str, object]:
+    """The literal assignments in gen_op_surfaces' constants, read without importing it."""
+    path = REPO_ROOT / "NessieAI" / "build_tools" / "gen_op_surfaces" / "constants.py"
+    values: dict[str, object] = {}
+    for node in ast.parse(path.read_text()).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name):
+                try:
+                    values[target.id] = ast.literal_eval(node.value)
+                except ValueError:
+                    continue
+    return values
+
+
+def test_canonical_context_files_are_the_ones_gen_op_surfaces_bakes() -> None:
+    constants = _constants_literals()
+    assert layout.CANONICAL_CONTEXT_FILES == constants["CANONICAL_CONTEXT_FILES"]
+    assert layout.CC_AGENT_CONTEXT_DIR == constants["IMAGE_CONTEXT_DIR"]
+    assert layout.CANONICAL_CONTEXT_DIR == (
+        layout.CHAT_NEXTSEEK_DIR / constants["CANONICAL_CONTEXT_DIR_IN_CONTEXT"]
+    )
+
+
+def test_the_cc_agent_dockerfile_bakes_exactly_these_files_from_the_checkout() -> None:
+    """The image check compares these six paths; the Dockerfile is what fills them.
+
+    Each COPY reads the compose named context ``chat_nextseek``, which must be
+    CHAT_NEXTSEEK_DIR, so the checkout file on one side of the comparison is the
+    file the build copied.
+    """
+    dockerfile = (REPO_ROOT / "NessieAI" / "docker" / "cc-runtime" / "Dockerfile").read_text()
+    copies = re.findall(
+        r"^COPY --from=chat_nextseek src/chat_nextseek/context/(\S+) (\S+)$",
+        dockerfile, re.M,
+    )
+    assert sorted(copies) == sorted(
+        (name, f"{layout.CC_AGENT_CONTEXT_DIR}/{name}")
+        for name in layout.CANONICAL_CONTEXT_FILES
+    )
+    compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    assert f"chat_nextseek: ./{layout.CHAT_NEXTSEEK_DIR.as_posix()}\n" in compose
+    missing = [
+        name for name in layout.CANONICAL_CONTEXT_FILES
+        if not (REPO_ROOT / layout.CANONICAL_CONTEXT_DIR / name).is_file()
+    ]
+    assert missing == []
 
 
 @pytest.mark.parametrize(

@@ -55,14 +55,15 @@ Breaking one is a regression, not a refactor.
   *blocking* check is `check_app_runtimes`: the app and `nextseek_nginx` must each have a
   running container, because every smoke test enters through them and with either down
   the suite spends its whole readiness floor before failing identically. The *advisory*
-  checks are the four first-party images and the two CC services, which the suite cannot
-  see: a bare `rebuild` builds only the app image (`startup/lib/rebuild_policy.py:66`),
-  the smoke suite never requests the Container-CC routes (`ci/routes.py` declares both
-  `path=None`), and `cc-agent` has no container for a compose healthcheck to watch. An
-  advisory failure never stops the run; `rebuild` exits non-zero on it at the end, after
-  the CI hook, and `ci` only prints it. Moving an advisory check to blocking throws away
-  a suite run whose result was still true. `doctor` runs the same checks, but its exit
-  code is read by nothing while the rebuild hook's is. The Nessie lane is a separate
+  checks are the four first-party images, the two CC services and the cc-agent context
+  (below), which the suite cannot see: a bare `rebuild` builds only the app image
+  (`startup/lib/rebuild_policy.py:66`), the smoke suite never requests the Container-CC
+  routes (`ci/routes.py` declares both `path=None`), and `cc-agent` has no container for
+  a compose healthcheck to watch. An advisory failure never stops the run; `rebuild`
+  exits non-zero on it at the end, after the CI hook, and `ci` only prints it. Moving an
+  advisory check to blocking throws away a suite run whose result was still true.
+  `doctor` runs the same checks except the cc-agent context, but its exit code is read
+  by nothing while the rebuild hook's is. The Nessie lane is a separate
   step, not a promotion of these checks: with the lane on (an app rebuild or `ci`, on a
   box declaring `local` or `dev`), `validate.nessie_prerequisites` runs after stack
   health and stops the run before the suite starts when the Bedrock proxy token is
@@ -70,6 +71,19 @@ Breaking one is a regression, not a refactor.
   (`_nessie_prerequisites_or_exit` in `startup/cli.py`), because the lane's CC question
   cannot pass without them. `--no-nessie` skips that step, and a component rebuild
   never runs it.
+- **The cc-agent context check reads the built image and never runs it**
+  (`validate.check_cc_agent_context`, through `docker_ops.copy_from_image`). The six
+  canonical context files (`CANONICAL_CONTEXT_FILES` in `startup/lib/layout.py`, pinned
+  to gen_op_surfaces and the cc-agent Dockerfile by `startup/tests/test_layout.py`) are
+  baked into both the app image and `dmac-assistant:poc`. A bare `rebuild` refreshes only
+  the app's copy, and every guard under `NessieAI/tests/` compares files in the checkout,
+  so this check is the only thing that notices a skipped `--component cc-agent`. It uses
+  `docker create`, `docker cp` and `docker rm` on the image: a `docker run` would execute
+  the agent's entrypoint, and an exec needs a container that `cc-agent` never has. It
+  compares with the tree the images were built from: `rebuild` passes `build_root`, so a
+  `--source-tree` deploy is not failed by edits sitting in the runtime checkout. An absent
+  image is a warning here, not a second failure, because the first-party images check
+  already fails for it.
 - **`rebuild` starts the front door and never recreates it.** After restarting the app it
   runs `up -d --no-deps nextseek_nginx` without `--force-recreate`, which is a no-op on a
   running nginx and a start on a stopped one. nginx needs no restart for a new app

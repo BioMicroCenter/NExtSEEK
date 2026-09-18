@@ -336,7 +336,7 @@ def stack(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 def _stack_is_up(monkeypatch: pytest.MonkeyPatch, *, runtimes_ok: bool = True) -> None:
     monkeypatch.setattr(
         validate, "stack_health",
-        lambda repo_root, env, compose_project_name: validate.StackHealth(
+        lambda repo_root, env, compose_project_name, **kwargs: validate.StackHealth(
             blocking=(validate.HealthResult(
                 "app + front door", runtimes_ok,
                 "nextseek + nextseek_nginx running" if runtimes_ok

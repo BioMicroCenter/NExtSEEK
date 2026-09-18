@@ -753,13 +753,20 @@ def test_check_app_runtimes_reports_a_daemon_outage(monkeypatch):
     assert "daemon unreachable" in result.detail
 
 
-def _stub_checks(monkeypatch, *, runtimes=True, images=True, cc=True):
+def _stub_checks(monkeypatch, *, runtimes=True, images=True, cc=True, context=True):
+    """Answer every stack-health check without docker; return the context check's calls."""
     monkeypatch.setattr(validate, "check_app_runtimes", lambda repo_root, env:
                         validate.HealthResult("app + front door", runtimes, "d"))
     monkeypatch.setattr(validate, "check_first_party_images", lambda name:
                         validate.HealthResult("first-party images", images, "d"))
     monkeypatch.setattr(validate, "check_cc_services", lambda repo_root, env:
                         validate.HealthResult("cc services", cc, "d"))
+    asked: list[tuple] = []
+    monkeypatch.setattr(validate, "check_cc_agent_context",
+                        lambda checkout, compose_project_name:
+                        asked.append((checkout, compose_project_name))
+                        or validate.HealthResult("cc-agent context", context, "d"))
+    return asked
 
 
 def test_stack_health_lets_ci_run_when_only_an_advisory_check_fails(monkeypatch):
@@ -790,9 +797,31 @@ def test_stack_health_reports_every_check_blocking_first(monkeypatch):
     health = validate.stack_health(Path("/repo"), {}, "nextseek")
 
     assert [r.name for r in health.results] == [
-        "app + front door", "first-party images", "cc services",
+        "app + front door", "first-party images", "cc services", "cc-agent context",
     ]
     assert health.ok is True and health.testable is True
+
+
+def test_stack_health_lets_ci_run_when_the_cc_agent_context_is_stale(monkeypatch):
+    """The smoke suite never asks the CC agent anything, so a stale baked copy
+    changes nothing it tests; it is the rebuild's exit code that must say so."""
+    _stub_checks(monkeypatch, context=False)
+
+    health = validate.stack_health(Path("/repo"), {}, "nextseek")
+
+    assert health.testable is True
+    assert health.ok is False
+
+
+def test_stack_health_compares_the_cc_agent_context_with_the_tree_it_is_given(monkeypatch):
+    """A --source-tree rebuild bakes a clean tree, not the runtime checkout, so
+    the comparison is against the tree the images were built from."""
+    asked = _stub_checks(monkeypatch)
+
+    validate.stack_health(Path("/repo"), {}, "nextseek-v2", checkout=Path("/clean"))
+    validate.stack_health(Path("/repo"), {}, "nextseek")
+
+    assert asked == [(Path("/clean"), "nextseek-v2"), (Path("/repo"), "nextseek")]
 
 
 def test_check_cc_runner_runs_deployment_step_6_in_the_app_container(monkeypatch):

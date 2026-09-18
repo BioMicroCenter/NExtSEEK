@@ -50,7 +50,7 @@ def _stub_the_rebuild_ci_hook(monkeypatch: pytest.MonkeyPatch) -> None:
     # Nor may one ask a real docker daemon whether a real stack is up.
     monkeypatch.setattr(
         validate, "stack_health",
-        lambda repo_root, env, compose_project_name: validate.StackHealth(
+        lambda repo_root, env, compose_project_name, **kwargs: validate.StackHealth(
             blocking=(validate.HealthResult("app + front door", True, "running"),),
             advisory=(),
         ),
