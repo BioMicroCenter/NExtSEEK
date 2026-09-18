@@ -21,6 +21,9 @@ let turn: TurnCallbacks | null = null;
 
 beforeEach(() => {
   turn = null;
+  // A terminal event adopts its session and pushes /chat/<id>; start every test
+  // at the root, or the next shell mounts into that chat and rehydrates over the test.
+  window.history.replaceState(null, "", "/");
   // HeaderBar (AppLayout's toolbar) reads the colour-scheme preference on mount.
   vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
   vi.stubGlobal(
@@ -69,5 +72,57 @@ describe.each(SHELLS)("%s during a turn whose progress socket dropped", (_name, 
     expect(await screen.findByText("Connection lost. Still waiting for the answer.")).toBeInTheDocument();
     expect(screen.queryByText(/^Error:/)).toBeNull();
     expect(screen.getByTestId("chat-input")).toBeDisabled();
+  });
+});
+
+// A Container-CC turn stopped at its time limit still publishes what it wrote
+// (NessieAI/cc/cc_engine.py, run_cc_turn), and its query_error carries those files
+// in `artifacts`, in the same shape as a completed CC turn's.
+const TIMED_OUT: ProgressEvent = {
+  event: "query_error",
+  data: {
+    error: "Container-CC turn exceeded the 180s limit and was stopped.",
+    reason: "exec_timeout",
+    agent: "container_cc",
+    cc_session_id: "cc-1",
+    artifacts: [
+      { artifact_type: "file", key: "run-1/report.csv", label: "report.csv", file_format: "csv" },
+    ],
+    cc_raw_files: ["/dmac/users/p/u/output/raw/rows.json"],
+    session_id: "sess-9",
+  },
+};
+
+describe.each(SHELLS)("%s after a Container-CC turn that timed out", (_name, make) => {
+  it("shows the files it published beside the error, downloadable like a completed turn's", async () => {
+    const download = vi
+      .spyOn(NextseekApiService.prototype, "downloadCcArtifact")
+      .mockResolvedValue(undefined);
+    const t = await sendAQuestion(make);
+
+    act(() => t.onProgress(TIMED_OUT));
+
+    expect(
+      await screen.findByText("Error: Container-CC turn exceeded the 180s limit and was stopped."),
+    ).toBeInTheDocument();
+    const link = await screen.findByTestId("artifact-download");
+    expect(link).toHaveTextContent("report.csv");
+
+    fireEvent.click(link);
+    expect(download).toHaveBeenCalledWith("sess-9", "run-1/report.csv");
+  });
+
+  it("shows no download for an error that published nothing", async () => {
+    const t = await sendAQuestion(make);
+
+    act(() =>
+      t.onProgress({
+        event: "query_error",
+        data: { ...TIMED_OUT.data, artifacts: null, cc_raw_files: [] },
+      }),
+    );
+
+    expect(await screen.findByText(/^Error: Container-CC turn exceeded/)).toBeInTheDocument();
+    expect(screen.queryByTestId("artifact-download")).toBeNull();
   });
 });

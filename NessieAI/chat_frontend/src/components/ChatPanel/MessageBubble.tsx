@@ -68,10 +68,22 @@ export function MessageBubble({ message, index, onArtifactDownload, onCcArtifact
     return stripDebugSections(message.content);
   }, [message.content, message.isUser, message.messageType]);
 
+  const handleDl = (key: string) =>
+    message.mode === "cc"
+      ? onCcArtifactDownload?.(key)
+      : onArtifactDownload?.(message.bundleId!, key);
+
   if (message.messageType === "system") {
+    // An error can carry files: a Container-CC turn stopped at its time limit
+    // still publishes what it wrote. They sit under the error line, with the
+    // same download buttons a completed turn's get.
+    const hasArtifacts = (message.artifacts?.length ?? 0) > 0;
     return (
-      <div className="flex justify-center py-1">
+      <div className={cn("flex py-1", hasArtifacts ? "flex-col items-center" : "justify-center")}>
         <p className="text-base italic text-muted-foreground">{message.content}</p>
+        {hasArtifacts && (
+          <ReportArtifacts artifacts={message.artifacts!} onDownloadArtifact={handleDl} />
+        )}
       </div>
     );
   }
@@ -80,11 +92,6 @@ export function MessageBubble({ message, index, onArtifactDownload, onCcArtifact
   const hasExtracted = extractedSections.length > 0;
   const hasCcTrace = !message.isUser && (message.ccTraces?.length ?? 0) > 0;
   const hasSearchDetails = hasDebug || hasExtracted || hasCcTrace;
-
-  const handleDl = (key: string) =>
-    message.mode === "cc"
-      ? onCcArtifactDownload?.(key)
-      : onArtifactDownload?.(message.bundleId!, key);
 
   return (
     <div

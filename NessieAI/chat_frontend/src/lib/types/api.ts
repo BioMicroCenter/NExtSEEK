@@ -97,6 +97,12 @@ export interface QueryErrorData {
   agent?: string;
   session_id?: string;
   reason?: string;
+  /**
+   * Files a Container-CC turn published before its wall clock stopped it
+   * (reason `exec_timeout`), in the shape a completed CC turn's carry. No other
+   * error carries any.
+   */
+  artifacts?: Artifact[] | null;
 }
 
 // GET /assistant/me/ response

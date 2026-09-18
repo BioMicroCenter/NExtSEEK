@@ -44,6 +44,29 @@ describe("MessageBubble", () => {
     expect(container.querySelector(".justify-center")).toBeTruthy();
   });
 
+  it("shows a system message's artifacts under its text, downloading through the CC route", () => {
+    const onCc = vi.fn();
+    const onNative = vi.fn();
+    render(
+      <MessageBubble
+        message={makeMsg({
+          messageType: "system",
+          content: "Error: the turn timed out",
+          mode: "cc",
+          artifacts: [
+            { artifact_type: "file", key: "run-1/report.csv", label: "report.csv", file_format: "csv" },
+          ],
+        })}
+        onArtifactDownload={onNative}
+        onCcArtifactDownload={onCc}
+      />,
+    );
+    expect(screen.getByText("Error: the turn timed out")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("artifact-download"));
+    expect(onCc).toHaveBeenCalledWith("run-1/report.csv");
+    expect(onNative).not.toHaveBeenCalled();
+  });
+
   it("routes CC artifact download through onCcArtifactDownload when mode is cc", () => {
     const onCc = vi.fn();
     const onNative = vi.fn();

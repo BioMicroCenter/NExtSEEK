@@ -165,7 +165,13 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         }
         case "query_error": {
           const d = event.data as QueryErrorData;
-          addSystemMessage(`Error: ${d.error}`);
+          // A Container-CC turn stopped at its time limit still publishes what it
+          // wrote, and only CC files ride on an error: show them under the error,
+          // downloaded by the CC route as a completed CC turn's are. Kept in step with EmbeddedApp.
+          addSystemMessage(
+            `Error: ${d.error}`,
+            d.artifacts?.length ? { artifacts: d.artifacts, mode: "cc" } : undefined,
+          );
           const errEntry = makeDebugEntry(d.agent || "error", queryErrorSummary(d));
           pendingDebugRef.current.push(errEntry);
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, errEntry] }));
