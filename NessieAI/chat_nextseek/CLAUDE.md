@@ -99,7 +99,7 @@ without an error at the point of the change.
   `_force_parser_mode` in `agents/parser.py` overrides the parser's choice last and says
   so in `parser_plan.notes`. Set the flag on a served instance and any superuser's
   request can overrule the parser. The same flag and gate govern `prompt_variant`
-  (`v2` or `v2_apoc`, `_with_prompt_variant`): the turn runs on the prompt and context
+  (`v2`, `v2_apoc` or `v3`, `_with_prompt_variant`): the turn runs on the prompt and context
   files in `prompts/variants/<name>/`, looked up there, then in the variant it
   `inherits`, then in the defaults (`prompt_variants.py` names every file and the
   `variant.json` keys). It needs no parser force, and the turn's debug payload records

@@ -53,7 +53,7 @@ from .config import PARSER_CORE_PLACEHOLDER, compose_parser_prompt
 
 #: The variant names a request may ask for. ``QueryRequest.prompt_variant``'s Literal and the harness's
 #: ``--prompt-variant`` choices are pinned to this tuple by tests.
-VARIANT_NAMES: tuple[str, ...] = ("v2", "v2_apoc")
+VARIANT_NAMES: tuple[str, ...] = ("v2", "v2_apoc", "v3")
 
 VARIANTS_DIR: Path = Path(__file__).resolve().parent / "prompts" / "variants"
 DEFAULT_PROMPTS_DIR: Path = Path(__file__).resolve().parent / "prompts"

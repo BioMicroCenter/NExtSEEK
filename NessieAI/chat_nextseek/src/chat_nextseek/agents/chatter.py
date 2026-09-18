@@ -94,7 +94,7 @@ def _breakdown_sum(rows: list) -> tuple[str, int | float] | None:
 
 def _type_names_block(config: Any, rows: list) -> str:
     """Catalog names for the sample type codes in the rows, so the writer does not invent them
-    (Owen Leddy by type, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
+    (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
     catalog = getattr(config, "MIN_SAMPLETYPES", None)
     if not isinstance(catalog, list):
         return ""

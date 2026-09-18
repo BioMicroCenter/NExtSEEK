@@ -105,7 +105,7 @@ def test_the_harness_variant_names_are_the_engines():
     src = ENGINE_SRC.read_text(encoding="utf-8")
     names = ", ".join(f'"{n}"' for n in runner.PROMPT_VARIANTS)
     assert f"VARIANT_NAMES: tuple[str, ...] = ({names})" in src
-    assert runner.PROMPT_VARIANTS == ("v2", "v2_apoc")
+    assert runner.PROMPT_VARIANTS == ("v2", "v2_apoc", "v3")
 
 
 def test_the_harness_variant_names_are_the_request_models():
@@ -237,8 +237,8 @@ def test_a_resume_of_a_run_that_predates_the_field_is_the_default_prompts(tmp_pa
 
 def test_run_arms_refuses_an_unknown_variant_before_any_turn(tmp_path):
     ep = Endpoint()
-    with pytest.raises(ValueError, match="v3"):
-        _run_arms(tmp_path, ep, prompt_variant="v3")
+    with pytest.raises(ValueError, match="v9"):
+        _run_arms(tmp_path, ep, prompt_variant="v9")
     assert ep.bodies == []
 
 

@@ -1,0 +1,59 @@
+# NExtSEEK graph schema v1.2, for writing read-only Cypher
+
+## Nodes
+(:Sample:T_<code>) one per SEEK sample. System properties: id (SEEK samples.id, an integer), uuid (the sample
+  UID, a string), type (the sample type code, equal to SampleType.title), title, project_ids (sorted list of
+  project ids), search_text (every value of the sample, its UID included, one per line), synced_at, source_hash,
+  parent_titles and parent_title_hashes (lists). Metadata: every non-empty attribute of the sample is a property
+  named exactly as the attribute title (case, spaces and punctuation kept). A property is absent when the value is
+  empty. Type label: T_ plus the code with every character outside [A-Za-z0-9_] replaced by _, so TIS is :T_TIS
+  and D.SEQ is :T_D_SEQ.
+(:SampleType {id, title, label, name, summary, clade, deprecated, sample_count, curated_parents,
+  curated_children})   one per SEEK sample type; title is the code
+(:Attribute {key, title, sample_type, value_type, declared, required, sample_count, meaning, role, unit_key,
+  needs_backticks})   one per attribute of a type, declared in SEEK or found in the data
+(:Study {id, title, description, DOI, PMID, seek_study_id})   paper-level studies carry DOI and PMID, which
+  are '' when unset
+(:Investigation {id, title, description, project_id})
+(:Project {id, title})   (:Person {id})   people carry no name or email
+(:OrphanSample) a former sample with no SEEK row. It is not a :Sample, but DERIVED_FROM edges can still end at
+  it, so label both ends of every lineage pattern :Sample: an unlabelled end also matches OrphanSample nodes.
+
+## Relationships
+(child:Sample)-[:DERIVED_FROM {internal_assay_title, protocol_title}]->(parent:Sample)   child to parent
+(:Sample)-[:OF_TYPE]->(:SampleType)   every sample
+(:SampleType)-[:HAS_ATTRIBUTE]->(:Attribute)
+(:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation)-[:IN_PROJECT]->(:Project)
+(:Sample)-[:IN_PROJECT]->(:Project)   (:Person)-[:MEMBER_OF {has_left, time_left_at}]->(:Project)
+
+## Sample UIDs
+<TYPE>-<YYMMDD><LAB>-<n>, sometimes with a suffix such as -PUB: type code, six-digit date, the lab's three-letter
+code, a number. The stored UID may carry or lack the -PUB suffix; a UID CHECK block gives the stored spelling. The lab code never starts a UID: match it with s.uuid =~ ('(?i)^[^-]+-[0-9]{6}' + $lab + '-.*').
+
+## Rules
+1. On a T_X variable filter only on attributes X's section below lists: MATCH (s:T_TIS) WHERE ... A plain :Sample
+   variable may use any attribute some type carries. Backtick names outside [A-Za-z0-9_]: s.`Catalog#`.
+2. Stored values keep their spelling and case, and one concept is often stored several ways (case variants, a
+   word and its code, an abbreviation and its full name). Compare text as toLower(trim(toString(s.X))), never with
+   a bare =. Never toString a list (project_ids, parent_titles, parent_title_hashes). A section shows value lists
+   and ranges only where the catalog has them; with none shown the spellings are unknown, not absent.
+3. float, integer and date attributes hold typed values (compare with <, >); a value that did not parse stays a
+   string. Every other attribute is a string, so guard a numeric test on one with toFloat(...) IS NOT NULL.
+4. Empty metadata is never stored: test presence with IS NOT NULL, never with = ''.
+5. Text anywhere in a sample: toLower(s.search_text) CONTAINS toLower($term), a substring test that keeps
+   punctuation and word order. The fulltext index sample_search_text
+   (CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node, score) matches whole words only and
+   ORs the words of a query, so it is never a substring or phrase search.
+6. Never add a project filter to limit access. Filter on project_ids or IN_PROJECT only when the question names a
+   project.
+7. Return named properties (s.id, s.uuid, s.type, s.Organ), never a whole node. Count with count(*) and no LIMIT;
+   order a list by s.id. After a pattern that can repeat a sample, count(DISTINCT s) or RETURN DISTINCT: the
+   tool's total counts rows, not samples.
+8. uuid is the sample UID; there is no UID property. Type (a metadata attribute of some types) is not type (the
+   sample type code). CHILD_OF does not exist. A SEEK project is a :Project node, linked to its samples by
+   IN_PROJECT and to its investigations by IN_PROJECT.
+9. Lineage runs child to parent: (child:Sample)-[:DERIVED_FROM]->(parent:Sample), both ends labelled. Bound every variable-length path and anchor
+   one end: the longest chain is 11 hops, so (s)-[:DERIVED_FROM*1..12]->(a:T_X) reaches every ancestor. Read edge
+   properties only on a single hop. Attributes whose title contains Parent hold parent UIDs as text.
+10. Which types have X: MATCH (t:SampleType)-[:HAS_ATTRIBUTE]->(a:Attribute {title: 'X'})
+   WHERE a.sample_count > 0 RETURN t.title, a.sample_count.

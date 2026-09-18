@@ -349,7 +349,7 @@ def test_the_prompt_still_forbids_naming_the_mechanics():
 #
 # * Scientist duplicates: the query returned all 216 stored names with counts; the
 #   writer was handed the first 20 and said the top 20 show no duplicates.
-# * Owen Leddy by type: the rows carried type codes only and the writer invented
+# * A Scientist-by-type breakdown: the rows carried type codes only and the writer invented
 #   names for them ("Mass Spectrometry Peptide" for D.MSP).
 # * Lung spellings: three rows, one per spelling; the reply listed them and never
 #   gave the total the question asked for.
@@ -402,7 +402,7 @@ def test_a_value_list_too_large_to_send_whole_says_it_is_partial(captured):
 
 def test_type_codes_in_the_rows_come_with_their_catalog_names(captured):
     rows = [{"type": "D.MSP", "n": 218}, {"type": "BAC", "n": 3}]
-    text = _graph_turn(captured, question="Owen Leddy's samples by type", rows=rows, config=_CatalogConfig(),
+    text = _graph_turn(captured, question="One scientist's samples by type", rows=rows, config=_CatalogConfig(),
                        cypher="MATCH (s:Sample) RETURN s.type AS type, count(*) AS n")
 
     assert "D.MSP = Mass Spectrometry Data" in text

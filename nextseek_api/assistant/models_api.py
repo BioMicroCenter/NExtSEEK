@@ -22,7 +22,7 @@ class QueryRequest(BaseModel):
     force_parser_mode: Optional[Literal["graph", "api"]] = Field(None, description=(
         "Admin-only and evaluation-only: force the NExtSEEK parser to the graph or the API path for a retrieval question. "
         "Ignored unless the caller is a superuser and the server process sets NEXTSEEK_EVAL_PARSER_FORCE=1."))
-    prompt_variant: Optional[Literal["v2", "v2_apoc"]] = Field(None, description=(
+    prompt_variant: Optional[Literal["v2", "v2_apoc", "v3"]] = Field(None, description=(
         "Admin-only and evaluation-only: run this NExtSEEK turn on an alternative prompt set "
         "(chat_nextseek/prompts/variants/<name>/), with or without force_parser_mode. The turn's debug payload "
         "records it as prompt_variant. Ignored unless the caller is a superuser and the server process sets "
