@@ -1283,15 +1283,16 @@ def render_seed(table: str, rows: list[dict]) -> str:
 # context/assay_mappings.json is not a table. It is a list of operations on rows
 # that already exist in `dmac.internal_assays` and `dmac.assays_internal_assays`,
 # applied grouped in the order context/README.md gives: renames, creates, maps and
-# remaps, merges. Targets are named by title, after renames, and every `from_*`
-# key is a production value so the generator can refuse if production has moved.
-# Each statement's WHERE clause is that refusal and also what makes it a no-op on
-# a second run.
+# remaps, merges. Targets are named by exact title, after renames, and every
+# `from_*` key is a production value, pinned by its title too, so an operation
+# whose target or source has moved writes nothing. Each statement's WHERE clause is
+# that guard and also what makes it a no-op on a second run; the checks at the end
+# of the transaction (`_mapping_parts`) then refuse the whole apply, so a guard that
+# skipped is never silent.
 #
-# Each guard below is there for a measured reason, not a hypothetical one. Against
-# the 2026-09-11 production pull: the 25 `map` ops name exactly the 25
-# `assays_internal_assays` rows whose `internal_assay_id` is NULL; every `remap`
-# matches a row carrying its stated `from_internal_assay_id`; and every
+# Each guard is there for a measured reason, not a hypothetical one: against the
+# 2026-09-11 production pull every `map` names a SEEK assay whose link is NULL,
+# every `remap` source carries the id and the title derived for it, and every
 # `merge_internal` id and `rename_internal` from_title matches.
 #
 # The rename-before-create order is load-bearing, not stylistic. Exactly 2 of the

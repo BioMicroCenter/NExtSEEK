@@ -4,10 +4,14 @@ The five JSON files Nessie reads are exports of three MySQL tables, rewritten in
 place once per UTC day by `_fetch_context_files_from_db`
 (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:717-725`). Editing an export
 changes nothing that survives a day, so the curated content in `context/` reaches
-a database only through this generator. These tests are what make it safe to
-point at a database.
+a database only through this generator.
 
-No database and no Django: everything here reads committed JSON and renders text.
+No database: everything here reads committed JSON and renders text, and the one
+engine it uses is an in-memory SQLite for the plain row statements. Five tests do
+need Django, because they import nextseek_api.graph_sync.drift to check the
+capabilities block against drift's own parser; the rest run under `--noconftest`
+with no Django at all. What only MySQL can prove -- target widths and charsets, the
+guards, the transaction, the checks -- is test_context_gen_mysql.py's.
 """
 from pathlib import Path
 
@@ -1597,10 +1601,11 @@ def test_the_capabilities_mode_exists_and_refuses_today():
     """The refusal is only real if something can reach it.
 
     As shipped the renderer had no --emit mode and no caller anywhere in the tree,
-    no CI or test guard on the committed file, and capabilities.md carries no
-    CONTEXT-GEN markers -- so the five dead investigation names are still committed
-    and nothing but a live rebuild could see them. The mode is what makes the
-    refusal reachable; it raises today, and that is the point rather than a gap.
+    and capabilities.md still carries no CONTEXT-GEN markers -- so the five dead
+    investigation names are still committed, and only a live rebuild's drift check
+    sees them. The mode is what makes the refusal reachable; it raises today, and
+    that is the point rather than a gap. (ci/gate/test_context_capabilities_markers.py
+    guards the markers once they are placed.)
     """
     import json as _json
     import tempfile

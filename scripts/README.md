@@ -124,9 +124,11 @@ parallel investigation systems and the list named the paper-tracking copies.
 `catalog.assistant_investigations` in `nextseek_api/graph_sync/drift.py` stays the runtime
 backstop, and it is also where the sample counts the refusal reads come from — pass them
 to `--emit capabilities --counts` as a JSON object, or as drift's whole
-`assistant_investigations` stat. The block must sit under the exact H2 heading drift keys
-on, and `replace_capabilities_block` refuses otherwise: with no such heading drift finds
-no names and its check *passes*, so the backstop would be off with nothing saying so.
+`assistant_investigations` stat. The markers must be exactly one BEGIN then one END, in
+the section under the exact H2 heading drift keys on, with no heading or `---` line
+between them, and `replace_capabilities_block` refuses otherwise: reversed or duplicated
+markers duplicated text, an END placed too low deleted the sections after it, and a block
+outside drift's section leaves drift no names, so its check *passes* with the backstop off.
 
 Regenerating the block does **not** make `route_capabilities.json` stale, contrary to an
 earlier note here: the NS projection reads only the three required H2 sections, so the
@@ -184,10 +186,15 @@ from outside, and CLAUDE.md gives the one command that runs those tests:
 - `scripts/dump_routes.py`, by nothing directly: it shares its resolver walk with the
   blocking route gate (`ci/gate/live_routes.py:3-6`).
 
-Group C is tested by `NessieAI/tests/api/test_context_gen.py`, which needs no database:
-it re-derives every expected column from files the generator does not own, and applies the
-generated update SQL to an in-memory database to check the curated rows come back field
-for field.
+Group C is tested three ways. `NessieAI/tests/api/test_context_gen.py` needs no
+database: it re-derives every expected column from files the generator does not own, and
+runs the plain row statements on an in-memory SQLite to check the curated values come back
+field for field. `NessieAI/tests/api/test_context_gen_mysql.py` is the real lane: it
+applies the update (twice) and each seed file to a throwaway `mysql:8.0` over a
+production-shaped pre-state, including drift, a differently numbered stack, a mid-apply
+failure and `--force`. It starts a container, so it runs only with `CONTEXT_GEN_MYSQL=1`
+and skips otherwise. `ci/gate/test_context_capabilities_markers.py` keeps the markers in
+the committed `capabilities.md` well formed, in the blocking gate.
 
 Groups B, E, F and G are run by hand. `scripts/validate_viewset_conventions.py` with no
 arguments exits 0 and prints its clean-run line when the tree has no violations.
