@@ -13,6 +13,7 @@ import types
 from unittest.mock import MagicMock, patch
 
 from chat_nextseek import orchestrator
+from chat_nextseek.graph_scope import GraphScope
 from chat_nextseek.helpers.lab_code import clamp_lab_codes
 from chat_nextseek.reports.runners import run_reporter_summary
 from chat_nextseek.schemas import (
@@ -165,7 +166,9 @@ class _FakeConn:
 
 def _summary(tmp_path, **kw):
     rows = [{"project_id": 1, "sample_id": i, "uuid": u} for i, u in enumerate(UIDS)]
-    config = types.SimpleNamespace(_db_conn=_FakeConn(rows), _connect_db=lambda **k: None)
+    # The runners refuse a config without a scope; scope is not what these tests are about.
+    config = types.SimpleNamespace(_db_conn=_FakeConn(rows), _connect_db=lambda **k: None,
+                                   GRAPH_SCOPE=GraphScope.admin("test"))
     plan = types.SimpleNamespace(
         project=None, years=[], month_range=None, day_range=None, summary_mode="samples",
         reporter_context=types.SimpleNamespace(lab_codes=["ASH"]),

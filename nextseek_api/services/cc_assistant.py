@@ -48,6 +48,7 @@ from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.graph_search.scope import plain_scope
 
 # Reuse the existing assistant's helpers (do NOT redefine its behavior).
 from nextseek_api.services.assistant import (
@@ -133,12 +134,15 @@ class CCAssistantViewSet(viewsets.ViewSet):
         api_user, api_pass = self._resolve_credentials(request)
 
         # The turn itself (routing, the NS or CC run, the chat_log writes) runs
-        # on a daemon thread that NessieAI/cc/turn.py starts.
+        # on a daemon thread that NessieAI/cc/turn.py starts. The caller's project
+        # scope for graph queries is resolved here, in the request thread, and
+        # handed down as plain data (None refuses every graph query).
         cc_turn.start_task(
             request, req, force_cc=force_cc, chat_session=chat_session,
             query_task=query_task, send_event=send_event, adapter=adapter,
             api_user=api_user, api_pass=api_pass,
             resolved_session_id=resolved_session_id,
+            graph_scope=plain_scope(request.user),
         )
 
         return Response(

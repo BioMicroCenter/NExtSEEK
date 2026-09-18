@@ -1985,6 +1985,9 @@ def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -
 def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list[str], reason: str) -> dict:
     """The committed ``neo4j_schema.json`` as the answer, saying so and saying why."""
     committed = getattr(config, "NEO4J_SCHEMA", None) or {}
+    shown = graph_catalog.committed_schema(config) or {}  # without its vocabulary for a caller who is not an admin
+    vocabulary = (_fallback_vocabulary(config, question or "")
+                  if graph_catalog.shows_committed_vocabulary(config) else [])
     print(f"[DEBUG][GRAPH] graph-schema falling back to the committed schema: {reason}")
     return {
         "source": CONTEXT_FALLBACK,
@@ -1994,8 +1997,8 @@ def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list
         "sample_types": 0,
         "resolved_types": [],
         "unknown_types": list(requested),
-        "schema": json.dumps(committed, indent=2) if committed else "{}",
-        "vocabulary": "\n\n".join(_fallback_vocabulary(config, question or "")),
+        "schema": json.dumps(shown, indent=2) if shown else "{}",
+        "vocabulary": "\n\n".join(vocabulary),
         "unavailable_reason": reason,
         "fallback_fetched_at": committed.get("fetched_at") if isinstance(committed, dict) else None,
     }
@@ -2099,9 +2102,12 @@ def graph_agent(
         vocabulary_messages = (["GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
                                 + catalog.vocabulary] if catalog.vocabulary else [])
     else:
-        schema_json = json.dumps(config.NEO4J_SCHEMA, indent=2) if config.NEO4J_SCHEMA else "{}"
+        # The committed schema, without its vocabulary for a caller who is not an admin (graph_catalog).
+        committed = graph_catalog.committed_schema(config)
+        schema_json = json.dumps(committed, indent=2) if committed else "{}"
         schema_message = "GRAPH SCHEMA (node labels, relationships, properties, vocabulary):\n" + schema_json
-        vocabulary_messages = _fallback_vocabulary(config, user_query)
+        vocabulary_messages = (_fallback_vocabulary(config, user_query)
+                               if graph_catalog.shows_committed_vocabulary(config) else [])
 
     # Use full parser plan when available (contains resolved entities + routing intent + filters)
     # Fall back to raw entity dict when called without a parser plan

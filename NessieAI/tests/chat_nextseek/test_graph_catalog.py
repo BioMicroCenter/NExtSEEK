@@ -17,6 +17,7 @@ import pytest
 from NessieAI import paths
 from chat_nextseek import graph_catalog as gc
 from chat_nextseek.config import ChatConfig
+from chat_nextseek.graph_scope import GraphScope, with_scope
 
 CONTEXT = paths.CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "context"
 URI_A = "bolt://graph-a:7687"
@@ -210,8 +211,11 @@ class Harness:
 
 
 def cfg(uri: str | None = URI_A, database: str = "neo4j"):
-    return types.SimpleNamespace(NEO4J_URI=uri, NEO4J_DATABASE=database, NEO4J_USER="neo4j",
-                                 NEO4J_PASSWORD="not-a-secret")
+    """A config for one graph, carrying an admin scope: these tests read the stored form (counts, values, ranges),
+    which the getters give an admin only (test_graph_catalog_redaction.py covers everyone else)."""
+    config = types.SimpleNamespace(NEO4J_URI=uri, NEO4J_DATABASE=database, NEO4J_USER="neo4j",
+                                   NEO4J_PASSWORD="not-a-secret")
+    return with_scope(config, GraphScope.admin("test"))
 
 
 @pytest.fixture(autouse=True)

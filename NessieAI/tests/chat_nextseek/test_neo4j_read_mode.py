@@ -20,11 +20,15 @@ from types import SimpleNamespace
 import neo4j as _real_neo4j
 import pytest
 
+from chat_nextseek.graph_scope import SCOPE_ATTR, GraphScope
 from chat_nextseek.helpers.tools import neo4j as tool_module
 from chat_nextseek.helpers.tools.neo4j import tool_neo4j_query
 
-RESULT_KEYS = {"ok", "data", "count", "total", "truncated", "limit", "cypher", "parameters", "counters"}
-FAILURE_KEYS = {"ok", "error", "data", "cypher"}
+# The tool also reports the submitted text, the parameters that ran and the scope decision
+# (test_neo4j_scope_enforcement.py); what is tested here is the transaction, not the scope.
+RESULT_KEYS = {"ok", "data", "count", "total", "truncated", "limit", "cypher", "parameters", "counters",
+               "submitted_cypher", "scope"}
+FAILURE_KEYS = {"ok", "error", "data", "cypher", "submitted_cypher", "parameters", "scope"}
 
 CAPPED = "MATCH (s:T_TIS) RETURN DISTINCT s.id AS id LIMIT 3"
 
@@ -145,6 +149,7 @@ def fake(monkeypatch):
 
 def _cfg(**overrides):
     base = dict(NEO4J_URI="bolt://graph:7687", NEO4J_USER="u", NEO4J_PASSWORD="p", NEO4J_DATABASE="neo4j")
+    base[SCOPE_ATTR] = GraphScope.admin("test")
     base.update(overrides)
     return SimpleNamespace(**base)
 

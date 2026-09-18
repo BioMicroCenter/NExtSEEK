@@ -68,9 +68,11 @@ def mask_cypher(text: str) -> str:
     while i < n:
         ch = text[i]
         if ch in ("'", '"', "`"):
+            # A string literal takes backslash escapes. A backticked name does not: it ends at the first backtick
+            # that is not doubled, and a doubled backtick (two masked spans side by side) is a literal one.
             j = i + 1
             while j < n:
-                if text[j] == "\\":
+                if text[j] == "\\" and ch != "`":
                     j += 2
                     continue
                 if text[j] == ch:

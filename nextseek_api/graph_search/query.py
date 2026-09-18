@@ -62,8 +62,10 @@ _LINEAGE_PATTERNS = {
     "ancestor": "(s)-[:DERIVED_FROM*1..{hops}]->(:{label})",
 }
 _LINEAGE_DIRECTIONS = {"ancestor": ("ancestor",), "descendant": ("descendant",), "either": ("ancestor", "descendant")}
-# Lineage stops at the caller's project edge: every sample on the path, the related one included, must be in scope.
-_PATH_SCOPE = "all(n IN nodes(path) WHERE any(p IN n.project_ids WHERE p IN $projects))"
+# For a caller who is not an admin, lineage stops at the caller's project edge: every sample on the path, the related
+# one included, must pass graph_search's scope clause (_SCOPE_MATCH, on each node), not only ``s``
+# (docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 7.3). An admin's pattern has no such clause.
+_LINEAGE_PATH_SCOPE = "all(n IN nodes(lineage_path) WHERE any(q IN n.project_ids WHERE q IN $projects))"
 _INT64_MIN, _INT64_MAX = -(2 ** 63), 2 ** 63 - 1
 
 _FULLTEXT_SOURCE = f"CALL db.index.fulltext.queryNodes('{FULLTEXT_INDEX}', $lucene) YIELD node AS s"
@@ -315,7 +317,7 @@ def _lineage(lineage, catalog: Catalog, scope: Scope) -> Optional[str]:
         if scope.is_admin:
             exists.append(f"EXISTS {{ {pattern} }}")
         else:
-            exists.append(f"EXISTS {{ MATCH path = {pattern} WHERE {_PATH_SCOPE} }}")
+            exists.append(f"EXISTS {{ MATCH lineage_path = {pattern} WHERE {_LINEAGE_PATH_SCOPE} }}")
     return _join(exists, "OR")
 
 

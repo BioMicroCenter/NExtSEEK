@@ -1,9 +1,15 @@
 """The graph agent's context: the rendered catalog when it is live, the committed JSON when it is not (spec 4.2 to 4.3).
 
+The committed JSON carries a vocabulary read over every project (study, investigation and protocol titles, assay
+connections), so only an admin is sent it; anyone else gets the committed structure alone
+(docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 8). The configs below are admins unless a test says
+otherwise.
+
 Every test drives a fake LLM client and a patched catalog reader; nothing reaches Neo4j or a model.
 """
 
 import importlib.util
+import json
 import re
 import time
 from types import MappingProxyType, SimpleNamespace
@@ -16,6 +22,7 @@ from chat_nextseek import graph_context as gctx
 from chat_nextseek import orchestrator as orch
 from chat_nextseek.agents import graph as graph_mod
 from chat_nextseek.agents import system as system_mod
+from chat_nextseek.graph_scope import GraphScope
 from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan, SystemAgentOutput
 
 FALLBACK_SCHEMA = {
@@ -67,8 +74,19 @@ VOCAB = gcat.Vocabulary(
 GOOD = "MATCH (s:T_TIS) WHERE s.Organ = $organ RETURN s.id AS id, s.uuid AS uuid, s.type AS type"
 
 
-def _config():
+ADMIN = GraphScope.admin("test")
+# Callers who are not admins: a member of one project, a member of none, and a config that carries no scope.
+NOT_ADMIN = {
+    "project_2": GraphScope.for_projects([2], source="test"),
+    "no_projects": GraphScope.for_projects([], source="test"),
+    "no_scope": None,
+}
+COMMITTED_VOCABULARY = ("FallbackOnly", "Old protocol", "Old assay")
+
+
+def _config(scope=ADMIN):
     c = MagicMock()
+    c.GRAPH_SCOPE = scope
     c.NEO4J_SCHEMA = FALLBACK_SCHEMA
     c.GRAPH_AGENT_SYSTEM_PROMPT = "graph system prompt"
     c.PROTOCOL_SCHEMA = {"protocol_titles": ["Old protocol"]}
@@ -121,7 +139,8 @@ class FakeLLM:
 
 def run(monkeypatch, llm, query="how many tissue samples have Organ Lung", **kwargs):
     monkeypatch.setattr(graph_mod, "call_llm_structured", llm)
-    return graph_mod.graph_agent(_config(), query, kwargs.pop("entity", {}), kwargs.pop("plan", None), **kwargs)
+    config = _config(kwargs.pop("scope", ADMIN))
+    return graph_mod.graph_agent(config, query, kwargs.pop("entity", {}), kwargs.pop("plan", None), **kwargs)
 
 
 # --- which context is sent ------------------------------------------------------------------------------------------
@@ -148,7 +167,19 @@ def test_an_unavailable_catalog_sends_the_committed_json(monkeypatch, down):
     blob = llm.blob()
     assert '"node_properties"' in blob
     assert "Old protocol" in blob and "Old assay" in blob
+    assert "FallbackOnly" in blob
     assert "## Sample types" not in blob
+
+
+@pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
+def test_an_unavailable_catalog_sends_a_non_admin_the_committed_structure_only(monkeypatch, down, scope):
+    llm = FakeLLM(GOOD.replace("s:T_TIS", "s:Sample"))
+    out = run(monkeypatch, llm, query="which study, protocol and assay made these samples", scope=scope)
+    assert out.context_mode == "fallback"
+    blob = llm.blob()
+    assert '"node_properties"' in blob and '"relationship_properties"' in blob
+    for value in COMMITTED_VOCABULARY:
+        assert value not in blob, value
 
 
 def test_a_failed_type_detail_read_falls_back_for_the_whole_turn(monkeypatch, live):
@@ -307,8 +338,9 @@ def test_execute_graph_turn_records_the_context_of_a_refused_plan(monkeypatch, t
 # --- the system agent and the MCP resource --------------------------------------------------------------------------
 
 
-def _system_config():
+def _system_config(scope=ADMIN):
     c = MagicMock()
+    c.GRAPH_SCOPE = scope
     c.FULL_SAMPLETYPES_MAP, c.FULL_ASSAYS_MAP, c.FULL_PROJECTS_MAP = {}, {}, {}
     c.MIN_SAMPLETYPES, c.MIN_ASSAYS, c.MIN_API_ENDPOINTS = [], [], []
     c.CAPABILITIES_DOC = "caps"
@@ -318,7 +350,7 @@ def _system_config():
     return c
 
 
-def _system_schema_block(monkeypatch):
+def _system_schema_block(monkeypatch, scope=ADMIN):
     seen = {}
 
     def fake(**kwargs):
@@ -326,7 +358,7 @@ def _system_schema_block(monkeypatch):
         return SystemAgentOutput(mode="get_capabilities", narrative="ok")
 
     monkeypatch.setattr(system_mod, "call_llm_structured", fake)
-    system_mod.system_agent(_system_config(), "what is a tissue sample", {"sampletypes": [{"code": "TIS"}]},
+    system_mod.system_agent(_system_config(scope), "what is a tissue sample", {"sampletypes": [{"code": "TIS"}]},
                             ParserPlan(mode="system_question"))
     return next(m["content"] for m in seen["messages"] if m["content"].startswith("GRAPH_SCHEMA"))
 
@@ -341,6 +373,14 @@ def test_the_system_agent_sends_the_rendering_when_the_catalog_is_live(monkeypat
 def test_the_system_agent_sends_the_json_when_the_catalog_is_down(monkeypatch, down):
     block = _system_schema_block(monkeypatch)
     assert '"node_properties"' in block
+    assert "FallbackOnly" in block
+
+
+@pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
+def test_the_system_agent_sends_a_non_admin_the_committed_structure_only(monkeypatch, down, scope):
+    block = _system_schema_block(monkeypatch, scope)
+    assert '"node_properties"' in block
+    assert "FallbackOnly" not in block
 
 
 def _mcp_server():
@@ -418,6 +458,18 @@ def test_the_schema_snapshot_falls_back_loudly_when_the_graph_is_down(down):
     assert out["resolved_types"] == []
     assert out["unknown_types"] == ["TIS"]
     assert "Old protocol" in out["vocabulary"]
+    assert "FallbackOnly" in out["schema"]
+
+
+@pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
+def test_the_schema_snapshot_fallback_sends_a_non_admin_the_committed_structure_only(down, scope):
+    out = graph_mod.graph_schema_snapshot(_config(scope), types=["TIS"], question="which study, protocol and assay")
+    assert out["source"] == graph_mod.CONTEXT_FALLBACK
+    assert out["fallback_fetched_at"] == "2026-08-21T00:00:00Z"
+    assert '"node_properties"' in out["schema"]
+    assert out["vocabulary"] == ""
+    for value in COMMITTED_VOCABULARY:
+        assert value not in json.dumps(out), value
 
 
 def test_a_catalog_defect_falls_back_rather_than_raising(monkeypatch, live):

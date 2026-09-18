@@ -12,6 +12,7 @@ from aiohttp import web
 from aiohttp_sse import sse_response
 
 from chat_nextseek.config import ChatConfig
+from chat_nextseek.graph_scope import operator_scope_from_env, with_scope
 from chat_nextseek.evaluator.reports import (
     InMemorySessionState,
     build_batch_report,
@@ -333,6 +334,12 @@ async def evaluate_handler(request: web.Request) -> web.StreamResponse | web.Res
         return response
 
 
+def _default_config() -> ChatConfig:
+    """The demo server's own config when none is handed in: graph queries over every project only with
+    CHAT_NEXTSEEK_GRAPH_ADMIN=1; otherwise refused (and fallen back) with the catalog redacted."""
+    return with_scope(ChatConfig(), operator_scope_from_env("evaluator"))
+
+
 def create_app(
     *,
     html_path: Path | None = None,
@@ -343,7 +350,7 @@ def create_app(
     app = web.Application()
     app["html_path"] = html_path or DEFAULT_HTML_PATH
     app["evaluator"] = evaluator or NativeDemoEvaluator(
-        config=config or ChatConfig(),
+        config=config if config is not None else _default_config(),
         workflow=workflow,
     )
     app.router.add_get("/api/health", health_handler)

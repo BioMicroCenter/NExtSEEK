@@ -19,7 +19,7 @@ The modules, one concern each; `git ls-files nextseek_api/graph_search` lists wh
 
 | Module | Holds |
 |---|---|
-| `scope.py` | `resolve_scope(user)`: superuser, or the caller's project ids read from MySQL membership |
+| `scope.py` | `resolve_scope(user)`: superuser, or the caller's project ids read from MySQL membership; `plain_scope(user)`, the same as plain data for the assistant's graph queries |
 | `query.py`, `lucene.py`, `text_query.py` | the pure query builder: validated request plus scope to one page statement and one count statement; fulltext escaping; the Sample Search page's query text parsed into a tree |
 | `catalog_cache.py`, `hydrate.py` | the catalog read from the graph and cached; the page's rows read from MySQL by primary key |
 | `service.py` | `search(...)` for the ViewSet and `all_ids(...)` for the parity harness |
@@ -27,6 +27,8 @@ The modules, one concern each; `git ls-files nextseek_api/graph_search` lists wh
 Rules every module keeps:
 
 - Scope is added by the query builder from the server-side `Scope`, never from the request or from generated Cypher.
+  For a caller who is not an admin, a lineage condition scopes every node on its path, so lineage stops at the
+  caller's project edge; an admin's statement is unchanged.
 - Every value is a query parameter; property names come from the catalog and are backtick-quoted.
 - Queries run in `session.execute_read` with a timeout, and page with `ORDER BY s.id SKIP $skip LIMIT $limit`.
 
@@ -183,10 +185,10 @@ of the given type lies within `max_hops` DERIVED_FROM hops as its `ancestor`, it
   the request models in the proof of concept (`git log -S'le=4'`), and nothing recorded a measured cost behind it. The
   path is always bounded, never `*`.
 - **Scope.** Lineage stops at the caller's project edge: for a non-superuser the pattern is
-  `EXISTS { MATCH path = (s)-[:DERIVED_FROM*1..h]->(:T_x) WHERE all(n IN nodes(path) WHERE any(p IN n.project_ids WHERE
-  p IN $projects)) }`, so the related sample and every sample between must be in one of the caller's projects, and a
-  sample in someone else's project never makes a sample match or reveals that it exists. A superuser's pattern has no
-  such clause.
+  `EXISTS { MATCH lineage_path = (s)-[:DERIVED_FROM*1..h]->(:T_x) WHERE all(n IN nodes(lineage_path) WHERE any(q IN
+  n.project_ids WHERE q IN $projects)) }` (graph_search's scope clause on each node), so the related sample and every
+  sample between must be in one of the caller's projects, and a sample in someone else's project never makes a sample
+  match or reveals that it exists. A superuser's pattern has no such clause.
 - **Cost.** The `EXISTS` runs once per sample the rest of the search kept, from that sample outward: its plan is a
   semi-apply over `VarLengthExpand(All)` with the scope predicate evaluated during the expansion and the type label
   filtered at the far end, stopping at the first match. So a broad text match times a full-tree check costs the

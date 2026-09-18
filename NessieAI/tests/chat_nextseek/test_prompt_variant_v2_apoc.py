@@ -21,6 +21,7 @@ from chat_nextseek import cypher_text
 from chat_nextseek import graph_catalog as gcat
 from chat_nextseek import prompt_variants as pv
 from chat_nextseek.agents.graph import catalog_unknown_properties, whole_node_returns
+from chat_nextseek.graph_scope import SCOPE_ATTR, GraphScope
 from chat_nextseek.helpers.tools.neo4j import tool_neo4j_query
 
 NESSIE = Path(__file__).resolve().parents[2]
@@ -63,6 +64,7 @@ def _config(**attrs):
                 PARSER_CORE_ROUTING_PROMPT="core", PARSER_SYSTEM_PROMPT="parser", MULTI_PARSER_SYSTEM_PROMPT="multi",
                 MIN_GRAPH_SCHEMA={}, MIN_API_ENDPOINTS=[], ENDPOINT_INDEX=None, PROMPTS_DIR=str(PROMPTS),
                 NEO4J_PASSWORD=None, NEO4J_URI="bolt://nowhere:7687", NEO4J_USER="neo4j")
+    base[SCOPE_ATTR] = GraphScope.admin("test")  # what is tested here is the text check, not the scope
     base.update(attrs)
     return SimpleNamespace(**base)
 
