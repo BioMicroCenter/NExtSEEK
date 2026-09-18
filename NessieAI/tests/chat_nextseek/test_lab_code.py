@@ -400,6 +400,14 @@ def test_llm_scientists_stay_scientists_and_reach_keywords():
     assert res.keywords == ["Jane Ashgrove"]
 
 
+def test_the_llms_own_lists_are_kept_as_written():
+    """Only additions are de-duplicated; the LLM's own keywords and scientists are not edited."""
+    res = resolve("RNA from the 2020 batch", [], llm_keywords=["RNA", "rna ", "2020"],
+                  llm_scientists=["Pat Sample", "pat sample"])
+    assert res.keywords == ["RNA", "rna ", "2020", "Pat Sample"]
+    assert res.scientists == ["Pat Sample", "pat sample"]
+
+
 def test_existing_keywords_are_kept_and_not_duplicated():
     res = resolve("samples handled by Dana Example", ["Dana Example"],
                   llm_keywords=["RNA", "dana example"])

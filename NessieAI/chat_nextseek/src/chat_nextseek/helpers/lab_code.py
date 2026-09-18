@@ -189,10 +189,12 @@ def _extend_unique(target: list[str], values: Iterable[str]) -> None:
             target.append(value.strip())
 
 
+def _as_sequence(values: Any) -> list | tuple:
+    return values if isinstance(values, (list, tuple)) else ()
+
+
 def _strings(values: Any) -> list[str]:
-    if not isinstance(values, (list, tuple)):
-        return []
-    return [v for v in values if isinstance(v, str) and v.strip()]
+    return [v for v in _as_sequence(values) if isinstance(v, str) and v.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -479,10 +481,10 @@ def resolve_labs(
     ``keywords`` and ``scientists`` are the LLM's plus what this adds.
     """
     labs_in = _strings(llm_labs)
-    scientists: list[str] = []
-    _extend_unique(scientists, _strings(llm_scientists))
-    keywords: list[str] = []
-    _extend_unique(keywords, _strings(llm_keywords))
+    # The LLM's own scientists and keywords are kept exactly as written; only additions
+    # are de-duplicated against them.
+    scientists = [v for v in _as_sequence(llm_scientists) if isinstance(v, str)]
+    keywords = [v for v in _as_sequence(llm_keywords) if isinstance(v, str)]
 
     if not isinstance(records, list):
         # Without a list "not a lab" cannot be decided, so nothing is moved.
