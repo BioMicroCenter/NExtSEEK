@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from typing import Any, Type
+from typing import Any, Callable, Type
 
 from pydantic import BaseModel, ValidationError
 
@@ -497,6 +497,7 @@ def call_llm_structured(
     client=None,
     agent_label: str | None = None,
     structured_via_tools: bool = True,
+    result_check: Callable[[BaseModel], str | None] | None = None,
 ) -> BaseModel:
     """
     Call the LLM and parse into a structured Pydantic model with a repair loop.
@@ -506,6 +507,11 @@ def call_llm_structured(
     (a forced tool call on Bedrock) instead of asking for JSON in the prompt. It
     degrades to the prompt-shaped request on any provider that will not take it, so
     it is on by default; pass False to pin a call to the old behaviour.
+
+    ``result_check`` is for a model whose fields all have defaults, where ``{}``
+    validates. It gets the parsed result and returns None to accept it, or a reason,
+    which is sent back through the repair turn exactly like a schema error. When no
+    attempt passes, ``StructuredOutputError`` is raised as for any unparseable output.
     """
     base_messages: list[dict[str, str]] = []
     if messages is not None:
@@ -531,27 +537,37 @@ def call_llm_structured(
             log_prompt(config.LOG_DIR, log_label, payload)
 
         try:
-            return True, _parse_model_output(raw_output, model), None
+            value = _parse_model_output(raw_output, model)
         except ValidationError as ve:
             state["errors"] = ve.errors()
-            print(
-                f"[STRUCTURED_PARSE][{model.__name__}] attempt {attempt+1}/{retries+1} "
-                f"validation_errors={state['errors']} raw_output={raw_output!r}"
-            )
-            repair = msgs + [
-                {"role": "assistant", "content": raw_output},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Your previous output did not validate for schema {model.__name__}. "
-                        f"Validation errors: {state['errors']}. "
-                        "Re-output ONLY a corrected JSON object that satisfies the schema. "
-                        "Do not wrap the object in a list or array. "
-                        "Do not add commentary."
-                    ),
-                },
-            ]
-            return False, None, repair
+        else:
+            # A schema whose every field has a default validates `{}`, so "it parsed"
+            # does not mean "it carried an answer". The caller says what an answer
+            # must hold; a result that fails that goes through the same repair turn
+            # as one that failed the schema.
+            problem = result_check(value) if result_check is not None else None
+            if not problem:
+                return True, value, None
+            state["errors"] = [{"type": "result_check", "msg": problem}]
+
+        print(
+            f"[STRUCTURED_PARSE][{model.__name__}] attempt {attempt+1}/{retries+1} "
+            f"validation_errors={state['errors']} raw_output={raw_output!r}"
+        )
+        repair = msgs + [
+            {"role": "assistant", "content": raw_output},
+            {
+                "role": "user",
+                "content": (
+                    f"Your previous output did not validate for schema {model.__name__}. "
+                    f"Validation errors: {state['errors']}. "
+                    "Re-output ONLY a corrected JSON object that satisfies the schema. "
+                    "Do not wrap the object in a list or array. "
+                    "Do not add commentary."
+                ),
+            },
+        ]
+        return False, None, repair
 
     schema = None
     if structured_via_tools:

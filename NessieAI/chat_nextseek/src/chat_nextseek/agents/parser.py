@@ -680,6 +680,27 @@ def _apply_multi_parser_guardrails(user_query: str, plan: MultiParserPlan) -> Mu
     })
 
 
+def _empty_plan_problem(plan: ParserPlan) -> str | None:
+    """Why ``plan`` is not a routing decision, or None when it is one.
+
+    Every ParserPlan field has a default and the default mode is "unsupported", so
+    ``{}``, a plan wrapped under an unknown key and a bare ``{"mode": "unsupported"}``
+    all validate to an unsupported plan with nothing in it. The prompt asks for every
+    key; an unsupported plan that states neither the user's intent nor a reason is
+    what an output without a plan looks like, and it must not reach the user as
+    "your request is not supported" (CI 2026-09-18, task ed4b2e3b).
+    """
+    if plan.mode != "unsupported":
+        return None
+    if (plan.intent_summary or "").strip() or (plan.notes or "").strip():
+        return None
+    return (
+        "The output carried no plan: mode is 'unsupported' with an empty intent_summary "
+        "and empty notes. Return the complete ParserPlan object with every key filled, "
+        "including intent_summary; if the request really cannot be served, say why in notes."
+    )
+
+
 def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, user_query: str, entity_result: EntityAgentOutput | dict) -> ParserPlan:
     """
     Invoke the single-path parser used by the standard pipeline.
@@ -754,6 +775,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             client=parser_client,
             timeout_seconds=35,
             timeout_retry_seconds=60,
+            result_check=_empty_plan_problem,
         )
     except LLMTimeoutError as e:
         # Never reached the model at all. Keep this distinct from a parse failure:

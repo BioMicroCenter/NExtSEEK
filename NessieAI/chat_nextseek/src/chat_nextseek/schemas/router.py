@@ -61,7 +61,11 @@ class ParserPlan(BaseModel):
     report_type: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = ConfigDict(extra="ignore")
+    # Every field keeps its default, because the timeout and parse-error fallbacks build
+    # a ParserPlan from nothing. The published schema still says what the prompt says:
+    # without a required list, `{}` is a valid answer to the forced tool call, and it
+    # validates to an empty "unsupported" plan. The parser's result check is the backstop.
+    model_config = ConfigDict(extra="ignore", json_schema_extra={"required": ["mode", "intent_summary"]})
 
 
 class RouterDecision(BaseModel):
