@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Callable, Type
@@ -20,6 +21,16 @@ from ..llm_clients import (
 
 # Default timeout for LLM calls (5 minutes)
 LLM_CALL_TIMEOUT_SECONDS = 300
+
+# The raw response of every labelled call, one JSON line each, beside the ledger
+# (llm_calls.jsonl) in LOG_DIR. The ledger says a call happened and how it ended; this
+# file says what the model returned, which is the only evidence left when an output
+# validates but carries nothing. It holds responses, not prompts: a prompt carries whole
+# catalogs, several calls run per turn, and one file serves every turn of the process.
+# Both a line and the file are capped; the file rolls over to `.1`, one generation kept.
+RESPONSE_LOG_FILE = "llm_responses.jsonl"
+RESPONSE_LOG_MAX_CHARS = 20_000
+RESPONSE_LOG_MAX_BYTES = 64 * 1024 * 1024
 
 
 class StructuredOutputError(Exception):
@@ -254,6 +265,39 @@ def _ledger_entry(
     except Exception:
         pass
     return entry
+
+
+def _log_response(config, log_label: str, resp, text: str, attempt: int, msgs, extra) -> None:
+    """Append one call's raw response to ``LOG_DIR/llm_responses.jsonl``. Never raises.
+
+    ``log_prompt`` used to be handed ``config.LOG_DIR`` itself, a directory, so the open
+    failed, the error was swallowed and no response was ever saved.
+    """
+    try:
+        log_dir = getattr(config, "LOG_DIR", None)
+        if not log_dir:
+            return
+        text = text or ""
+        meta = getattr(resp, "metadata", None) or {}
+        payload: dict[str, Any] = {
+            "attempt": attempt,
+            "model": getattr(resp, "model", None),
+            "request_id": meta.get("request_id"),
+            "response": text[:RESPONSE_LOG_MAX_CHARS],
+            "response_chars": len(text),
+            "messages_count": len(msgs or []),
+            "messages_chars": sum(len(str((m or {}).get("content") or "")) for m in (msgs or [])),
+        }
+        if len(text) > RESPONSE_LOG_MAX_CHARS:
+            payload["response_truncated"] = True
+        if extra:
+            payload.update(extra)
+        log_prompt(
+            os.path.join(log_dir, RESPONSE_LOG_FILE), log_label, payload,
+            max_bytes=RESPONSE_LOG_MAX_BYTES,
+        )
+    except Exception as e:  # pragma: no cover - bookkeeping must not fail a turn
+        print(f"[STRUCTURED_PARSE][{log_label}] response log skipped: {e!r}")
 
 
 def _recycle_client_connections(client, label: str = "") -> None:
@@ -531,10 +575,7 @@ def call_llm_structured(
         state["raw_output"] = raw_output
 
         if log_label:
-            payload = {"messages": msgs, "response": raw_output, "attempt": attempt}
-            if log_payload_extra:
-                payload.update(log_payload_extra)
-            log_prompt(config.LOG_DIR, log_label, payload)
+            _log_response(config, log_label, resp, raw_output, attempt, msgs, log_payload_extra)
 
         try:
             value = _parse_model_output(raw_output, model)
@@ -637,10 +678,7 @@ def call_llm_text(
     def _on_response(resp, attempt, msgs):
         text = resp.content or ""
         if log_label:
-            payload = {"messages": msgs, "response": text, "attempt": attempt}
-            if log_payload_extra:
-                payload.update(log_payload_extra)
-            log_prompt(config.LOG_DIR, log_label, payload)
+            _log_response(config, log_label, resp, text, attempt, msgs, log_payload_extra)
         return True, text, None
 
     ok, value = _call_with_recovery(
