@@ -356,6 +356,66 @@ def _bundle_predicate(bundle: dict) -> str | None:
     return None
 
 
+#: A one-row result with at most this many columns, every one a number, is an aggregate
+#: (``RETURN count(s) AS n``): its total is one row, and the number asked for is in it.
+_AGGREGATE_MAX_COLUMNS = 6
+
+
+def _first_not_none(data: dict, keys: tuple[str, ...]) -> Any:
+    """The first of ``keys`` that is present and not None: a total of 0 is an answer."""
+    for key in keys:
+        if data.get(key) is not None:
+            return data[key]
+    return None
+
+
+def _graph_total(graph_result: dict) -> Any:
+    """The real total of a graph result, never a capped row count passed off as one.
+
+    ``total`` is the row total the tool probes past a LIMIT; ``count`` is the rows
+    returned, and all a planner graph step records. When the result hit its LIMIT and
+    the probe failed, the count is only a floor.
+    """
+    total = graph_result.get("total")
+    if total is not None:
+        return total
+    count = graph_result.get("count")
+    if count is not None and graph_result.get("truncated"):
+        return f"at least {count} (capped)"
+    return count
+
+
+def _aggregate_values(graph_result: dict) -> dict | None:
+    rows = graph_result.get("data")
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return None
+    row = rows[0]
+    if not row or len(row) > _AGGREGATE_MAX_COLUMNS:
+        return None
+    if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in row.values()):
+        return row
+    return None
+
+
+def _bundle_total(bundle: dict) -> tuple[Any, dict | None]:
+    """``(total, aggregate row or None)`` for one summary line.
+
+    A graph turn keeps its result in ``graph_result``; only a REST turn writes
+    ``api_result_slim``, so reading the slim copy alone gave every graph bundle
+    total=None.
+    """
+    graph_result = bundle.get("graph_result")
+    if isinstance(graph_result, dict) and graph_result:
+        return _graph_total(graph_result), _aggregate_values(graph_result)
+    slim = bundle.get("api_result_slim")
+    if not isinstance(slim, dict):
+        return None, None
+    total = slim.get("total")
+    if total is None and isinstance(slim.get("data"), dict):
+        total = _first_not_none(slim["data"], ("total", "total_samples", "total_nodes"))
+    return total, None
+
+
 def build_recent_results_summary(session: SessionState, max_results: int = 8) -> str:
     """
     Build a short summary of recent result bundles for prompt conditioning.
@@ -380,16 +440,7 @@ def build_recent_results_summary(session: SessionState, max_results: int = 8) ->
         f"Recent results (most recent first; {len(visible)} of {len(history)} bundles shown):"
     ]
     for bundle in reversed(visible):
-        total = None
-        data = bundle.get("api_result_slim", {})
-        if isinstance(data, dict):
-            total = data.get("total")
-            if total is None and isinstance(data.get("data"), dict):
-                total = (
-                    data["data"].get("total")
-                    or data["data"].get("total_samples")
-                    or data["data"].get("total_nodes")
-                )
+        total, values = _bundle_total(bundle)
         line = (
             f"- id={bundle.get('id')}, "
             f"mode={bundle.get('mode')}, "
@@ -397,6 +448,8 @@ def build_recent_results_summary(session: SessionState, max_results: int = 8) ->
             f"endpoint={bundle.get('endpoint')}, "
             f"total={total}"
         )
+        if values:
+            line += ", values=" + json.dumps(values, ensure_ascii=False, default=str)
         predicate = _bundle_predicate(bundle)
         if predicate:
             line += f", {predicate}"

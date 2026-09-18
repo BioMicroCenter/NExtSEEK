@@ -109,3 +109,63 @@ def test_a_long_predicate_is_cut_to_the_cap():
 def test_a_bundle_with_no_search_carries_no_predicate():
     bundle = {"id": 3, "mode": "reporter", "user_query": "report", "endpoint": None, "api_result_slim": None}
     assert "predicate=" not in _line(bundle)
+
+
+# --------------------------------------------------------------------------- #
+# The total
+#
+# Every graph bundle said total=None: the total was read off api_result_slim, which
+# only a REST turn writes. A graph turn keeps its result in graph_result, whose
+# `total` is the real row total (probed past a LIMIT) and `count` the rows returned
+# (all a planner graph step records). A count query answers in ONE row, so its total
+# is 1 and the number the user asked for is in that row: it is shown as values=.
+# A REST total of 0 used to read as None too (`total or total_samples or ...`).
+# --------------------------------------------------------------------------- #
+
+
+def _graph_result(**result):
+    bundle = _graph("MATCH (s:T_TIS) RETURN s.uuid AS uuid")
+    bundle["graph_result"] = {"ok": True, **result}
+    return bundle
+
+
+def test_a_graph_line_reads_the_total_from_the_graph_result():
+    line = _line(_graph_result(total=1234, count=50, truncated=True, data=[{"uuid": "A"}] * 50))
+    assert "total=1234," in line
+
+
+def test_a_graph_result_with_only_a_row_count_reports_that_count():
+    line = _line(_graph_result(count=7, data=[{"uuid": "A"}] * 7))
+    assert "total=7," in line
+
+
+def test_a_capped_graph_result_whose_total_is_unknown_does_not_pass_the_cap_off_as_the_total():
+    line = _line(_graph_result(total=None, count=50, truncated=True, data=[{"uuid": "A"}] * 50))
+    assert "total=at least 50 (capped)," in line
+
+
+def test_a_count_query_shows_the_number_it_answered():
+    line = _line(_graph_result(total=1, count=1, truncated=False, data=[{"n_samples": 4}]))
+    assert 'total=1, values={"n_samples": 4},' in line
+
+
+def test_a_single_row_of_data_is_not_mistaken_for_an_aggregate():
+    line = _line(_graph_result(total=1, count=1, data=[{"uuid": "TIS-1", "age": 4}]))
+    assert "values=" not in line
+
+
+def test_a_failed_graph_query_has_no_total():
+    line = _line(_graph_result(ok=False, error="boom", data=None))
+    assert "total=None," in line
+
+
+def test_a_rest_search_that_found_nothing_reports_zero():
+    bundle = _rest({"filter_searchText": "none"})
+    bundle["api_result_slim"] = {"ok": True, "data": {"total": 0, "results": []}}
+    assert "total=0," in _line(bundle)
+
+
+def test_a_rest_total_is_still_read_from_the_slim_result():
+    bundle = _rest({"filter_searchText": "lung"})
+    bundle["api_result_slim"] = {"ok": True, "data": {"total_samples": 40, "rows": []}}
+    assert "total=40," in _line(bundle)
