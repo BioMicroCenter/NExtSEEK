@@ -14,17 +14,23 @@ var SampleSearchCore = (function () {
 
   /* The Simple box's rules (seek/dbtable_sampleattribute.py, OPERATOR_SETS) as graph_search
      operators. Less, Greater, Before and After are inclusive there, so they map to <= and >=.
-     "Not Contain" and the True/False rules have no graph_search operator and are not offered. */
+     Not Contain, True and False are graph_search's NOT CONTAINS, IS TRUE and IS FALSE, with
+     advanced_search's rows (nextseek_api/graph_search/README.md); True and False take no value. */
   var RULES = {
     'Contain': 'CONTAINS',
+    'Not Contain': 'NOT CONTAINS',
     'Equal': '=',
     'Not Equal': '<>',
     'Less': '<=',
     'Before': '<=',
     'Greater': '>=',
     'After': '>=',
-    'Between': 'BETWEEN'
+    'Between': 'BETWEEN',
+    'True': 'IS TRUE',
+    'False': 'IS FALSE'
   };
+  var NO_VALUE = { 'True': true, 'False': true };
+  var ANY_VALUE = { 'Contain': true, 'Not Contain': true };
   var NUMBER = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
   var KEY_STYLE = 'color:blue;font-weight:bold;';
   var HIT_STYLE = 'color:red;';
@@ -67,83 +73,52 @@ var SampleSearchCore = (function () {
     return found.length ? String(found[0].title) : '';
   }
 
-  /* The Advanced box. Its query text is what the Add button builds: terms joined by
-     AND, OR or NOT, grouped in parentheses, a term optionally tagged term[TYPE].
-     graph_search takes a list of terms with ONE logic and one sample type for the
-     whole search, so the text is sent when it says exactly that and refused otherwise.
-     Operators are upper case and space-delimited, as the old parser split them. */
+  /* A term without its tag: with exactly one [...] pair, the text before it, as graph_search
+     (nextseek_api/graph_search/text_query.py) and the old parser read a term[TYPE] tag. */
+  function untagged(term) {
+    var open = term.indexOf('[');
+    var close = term.indexOf(']');
+    if (open >= 0 && close > open && term.indexOf('[', open + 1) < 0 && term.indexOf(']', close + 1) < 0) {
+      return trim(term.slice(0, open));
+    }
+    return term;
+  }
+
+  /* The terms of a query text, negated ones included, without their tags, in order: what the
+     Attribute:Value cell highlights, as the old engine highlighted every term of the text. */
+  function queryTerms(text) {
+    return String(text == null ? '' : text).replace(/[()]/g, ' ')
+      .split(/(?:^|\s)(?:AND|OR|NOT)(?=\s|$)/)
+      .map(function (part) { return untagged(trim(part)); })
+      .filter(function (term) { return term.length > 0; });
+  }
+
+  /* The Advanced box and the phone form. The query text is what the Add button builds
+     (terms joined by upper-case AND, OR or NOT, grouped in parentheses, a term optionally
+     tagged term[TYPE]) or what the person typed; graph_search reads it as extensions.query
+     with advanced_search's rows, and answers a text it cannot read with a 422 that says why.
+     The phone form's sample type is ANDed with the text. */
   function queryBody(state) {
     var text = trim(state.text);
     if (!text) {
       return { error: 'No search term entered.' };
     }
-    var parts = text.split(/\s+(AND|OR|NOT)\s+/);
-    var logics = {};
-    var terms = [];
-    var tags = [];
-    var untagged = 0;
-    parts.forEach(function (part, i) {
-      if (i % 2 === 1) {
-        logics[part] = true;
-        return;
-      }
-      var term = trim(part.replace(/[()]/g, ''));
-      var tagged = /^(.*?)\[([^\[\]]*)\]$/.exec(term);
-      if (tagged && trim(tagged[2])) {
-        term = trim(tagged[1]);
-        var tag = trim(tagged[2]).toUpperCase();
-        if (tags.indexOf(tag) < 0) {
-          tags.push(tag);
-        }
-      } else {
-        untagged += 1;
-      }
-      if (term) {
-        terms.push(term);
-      }
-    });
-    if (logics.NOT) {
-      return { error: 'NOT is not supported: graph_search combines search terms with AND or OR only.' };
-    }
-    if (logics.AND && logics.OR) {
-      return { error: 'Use AND or OR, not both: graph_search combines every search term the same way.' };
-    }
-    var logic = logics.OR ? 'OR' : 'AND';
-    if (tags.length > 1 && logic === 'AND') {
-      return { error: 'Terms tagged [' + tags.join('] and [') + '] cannot match the same sample: '
-        + 'a sample has one sample type.' };
-    }
-    if (tags.length && logic === 'OR' && (tags.length > 1 || untagged > 0)) {
-      return { error: 'With OR, tag every term with the same sample type or tag none: '
-        + 'graph_search applies one sample type to the whole search.' };
-    }
-    var chosen = trim(state.sampletype);
-    if (chosen && tags.length && tags[0] !== chosen.toUpperCase()) {
-      return { error: 'The sample type chosen (' + chosen + ') and the one in the search text (['
-        + tags[0] + ']) differ.' };
-    }
-    var sampletype = tags.length ? tags[0] : chosen;
-    if (!terms.length) {
-      if (!sampletype) {
-        return { error: 'No search term entered.' };
-      }
-      return { body: { filter_searchText: '', sampletype: sampletype }, highlight: NO_HIGHLIGHT };
-    }
     var matchType = state.matchType === 'EXACT' ? 'EXACT' : 'PARTIAL';
-    var body = { filter_searchText: terms.length === 1 ? terms[0] : terms, filter_matchType: matchType };
-    if (terms.length > 1) {
-      body.searchText_logic = logic;
+    var body = { filter_searchText: '', filter_matchType: matchType, extensions: { query: text } };
+    var chosen = trim(state.sampletype);
+    if (chosen) {
+      body.sampletype = chosen;
     }
-    if (sampletype) {
-      body.sampletype = sampletype;
-    }
-    return { body: body, highlight: highlight(terms, matchType, null) };
+    var terms = queryTerms(text);
+    return { body: body, highlight: terms.length ? highlight(terms, matchType, null) : NO_HIGHLIGHT };
   }
 
   /* The Simple box: one sample type (its title), one attribute, one rule, as graph_search
      typed conditions. No attribute, or "none", searches the value in From across every
      attribute value of the type's samples, and asks for every sample of the type when From
-     is empty. "No Filter" on a chosen attribute ignores From, as the old engine did. */
+     is empty. "No Filter" on a chosen attribute ignores From, as the old engine did; so do
+     True and False. Contain and Not Contain take an empty From as the old engine did: every
+     sample holding the attribute, and none. */
   function simpleBody(state) {
     var type = trim(state.sampletype);
     if (!type) {
@@ -165,9 +140,14 @@ var SampleSearchCore = (function () {
     if (!has(RULES, rule)) {
       return { error: '“' + rule + '” has no graph_search operator.' };
     }
+    if (has(NO_VALUE, rule)) {
+      return { body: { filter_searchText: '', extensions: { where: [
+                 { sample_type: type, attribute: attribute, op: RULES[rule] }] } },
+               highlight: highlight([], null, attribute) };
+    }
     var from = trim(state.from);
     var to = trim(state.to);
-    if (!from && rule !== 'Contain') {
+    if (!from && !has(ANY_VALUE, rule)) {
       return { error: 'Enter a value in From.' };
     }
     if (rule === 'Between' && !to) {

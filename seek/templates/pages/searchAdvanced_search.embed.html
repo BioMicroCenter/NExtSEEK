@@ -83,9 +83,9 @@
 	}
 
 	/* Sends the query box to POST /nextseek_api/samples/graph_search/ (nsSearchRun in
-	   searchAdvanced.html), a page at a time into #advanced_dgtable. graph_search takes a
-	   list of terms with one AND or OR and one sample type for the whole search, so
-	   SampleSearchCore.queryBody reads the box that way and says why when it cannot. */
+	   searchAdvanced.html), a page at a time into #advanced_dgtable. The text goes as
+	   extensions.query: graph_search reads AND, OR, NOT, parentheses and term[TYPE] tags
+	   with advanced_search's rows, and says why when it cannot read a text. */
 	function searchAdvanced(pageNumberSelected) {
 		var built = SampleSearchCore.queryBody({
 			text: $("#input_searchText").textbox('getText'),

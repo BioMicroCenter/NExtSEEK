@@ -49,7 +49,7 @@ function query(text, matchType, sampletype) {
 }
 
 var cases = {
-  // ---- the Advanced box: its query text as one graph_search body ----
+  // ---- the Advanced box: its query text as graph_search's extensions.query ----
   query_one_term: function () { return query('  granuloma  '); },
   query_and_terms: function () { return query('lung AND granuloma'); },
   query_or_terms_exact: function () { return query('lung OR granuloma', 'EXACT'); },
@@ -57,19 +57,20 @@ var cases = {
     // searchAdd() wraps a phrase in parentheses and the text so far when it holds a space.
     return query('((lung AND left lobe) AND granuloma)');
   },
-  query_one_tag_applies_to_the_search: function () { return query('lung[TIS] AND granuloma'); },
-  query_tag_is_upper_cased: function () { return query('lung[tis]'); },
-  query_or_every_term_tagged_alike: function () { return query('lung[TIS] OR granuloma[TIS]'); },
-  query_only_a_tag: function () { return query('[TIS]'); },
-  query_empty: function () { return query('  '); },
   query_not: function () { return query('lung NOT granuloma'); },
+  query_not_a_phrase: function () { return query('lung NOT (left lobe)'); },
   query_mixed_logic: function () { return query('(lung AND granuloma) OR liver'); },
-  query_and_two_types: function () { return query('lung[TIS] AND reads[D.SEQ]'); },
+  query_leading_not: function () { return query('NOT(granuloma)'); },
+  query_tags_of_two_types: function () { return query('lung[TIS] AND reads[D.SEQ]'); },
   query_or_partly_tagged: function () { return query('lung[TIS] OR granuloma'); },
+  query_only_a_tag: function () { return query('[TIS]'); },
+  query_brackets_that_are_not_a_tag: function () { return query('lung[a][b] OR x]'); },
+  query_operators_on_new_lines: function () { return query('lung\nAND\tliver'); },
+  query_empty: function () { return query('  '); },
   query_lower_case_and_is_part_of_the_term: function () { return query('salt and pepper'); },
   query_with_the_chosen_type: function () { return query('lung', 'PARTIAL', 'TIS'); },
-  query_chosen_type_agrees_with_the_tag: function () { return query('lung[TIS]', 'PARTIAL', 'TIS'); },
-  query_chosen_type_disagrees_with_the_tag: function () { return query('lung[TIS]', 'PARTIAL', 'D.SEQ'); },
+  query_chosen_type_and_another_tag: function () { return query('lung[TIS]', 'PARTIAL', 'D.SEQ'); },
+  query_text_graph_search_cannot_read: function () { return query('a OR b AND c'); },
 
   // ---- the Simple box: one sample type, one attribute, one rule ----
   simple_numeric_between: function () {
@@ -97,7 +98,19 @@ var cases = {
     return C.simpleBody({ sampletype: 'TIS', attribute: 'none', rule: '', from: '  Lung ', to: '', filterType: '' });
   },
   simple_not_contain: function () {
-    return C.simpleBody({ sampletype: 'TIS', attribute: 'Organ', rule: 'Not Contain', from: 'Lung', to: '', filterType: 'string' });
+    return C.simpleBody({ sampletype: 'TIS', attribute: 'Organ', rule: 'Not Contain', from: ' Lung ', to: '', filterType: 'string' });
+  },
+  simple_not_contain_without_value: function () {
+    return C.simpleBody({ sampletype: 'TIS', attribute: 'Organ', rule: 'Not Contain', from: '', to: '', filterType: 'string' });
+  },
+  simple_true: function () {
+    return C.simpleBody({ sampletype: 'TIS', attribute: 'Viable', rule: 'True', from: 'ignored', to: '', filterType: 'bool' });
+  },
+  simple_false: function () {
+    return C.simpleBody({ sampletype: 'TIS', attribute: 'Viable', rule: 'False', from: '', to: '', filterType: 'bool' });
+  },
+  simple_unknown_rule: function () {
+    return C.simpleBody({ sampletype: 'TIS', attribute: 'Organ', rule: 'Sounds Like', from: 'Lung', to: '', filterType: 'string' });
   },
   simple_no_type: function () {
     return C.simpleBody({ sampletype: '', attribute: 'Organ', rule: 'Contain', from: 'Lung', to: '', filterType: 'string' });
@@ -115,6 +128,7 @@ var cases = {
     return {
       string: C.offeredRules(['Contain', 'Not Contain', 'No Filter']),
       bool: C.offeredRules(['No Filter', 'True', 'False']),
+      unknown: C.offeredRules(['No Filter', 'Sounds Like', 'Contain']),
       numeric: C.offeredRules(['No Filter', 'Equal', 'Not Equal', 'Less', 'Greater', 'Between']),
       date: C.offeredRules(['No Filter', 'Equal', 'Not Equal', 'Before', 'After', 'Between'])
     };

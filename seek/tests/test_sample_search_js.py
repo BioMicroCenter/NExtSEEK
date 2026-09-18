@@ -38,70 +38,71 @@ def r():
     return json.loads(proc.stdout)
 
 
-# ---- the Advanced box: the query text the Add button builds, as one graph_search body ----
+# ---- the Advanced box: its query text as graph_search's extensions.query ----
 
-def test_one_term_is_sent_as_a_trimmed_string(r):
-    assert r["query_one_term"] == {
-        "body": {"filter_searchText": "granuloma", "filter_matchType": "PARTIAL"},
-        "highlight": {"terms": ["granuloma"], "matchType": "PARTIAL", "attribute": None}}
+def _query(text, match="PARTIAL", **extra):
+    return {"filter_searchText": "", "filter_matchType": match, "extensions": {"query": text}, **extra}
 
 
-def test_terms_joined_by_one_logic_are_a_list_with_that_logic(r):
-    assert r["query_and_terms"]["body"] == {
-        "filter_searchText": ["lung", "granuloma"], "searchText_logic": "AND", "filter_matchType": "PARTIAL"}
-    assert r["query_or_terms_exact"] == {
-        "body": {"filter_searchText": ["lung", "granuloma"], "searchText_logic": "OR", "filter_matchType": "EXACT"},
-        "highlight": {"terms": ["lung", "granuloma"], "matchType": "EXACT", "attribute": None}}
+def _terms(terms, match="PARTIAL"):
+    return {"terms": terms, "matchType": match, "attribute": None}
 
 
-def test_the_parentheses_the_add_button_writes_are_grouping_not_text(r):
-    """searchAdd() wraps a phrase with a space, and the text so far, in parentheses."""
-    assert r["query_as_search_add_builds_it"]["body"] == {
-        "filter_searchText": ["lung", "left lobe", "granuloma"], "searchText_logic": "AND",
-        "filter_matchType": "PARTIAL"}
+def test_the_query_text_is_sent_trimmed_as_extensions_query(r):
+    assert r["query_one_term"] == {"body": _query("granuloma"), "highlight": _terms(["granuloma"])}
+    assert r["query_and_terms"] == {"body": _query("lung AND granuloma"), "highlight": _terms(["lung", "granuloma"])}
+    assert r["query_or_terms_exact"] == {"body": _query("lung OR granuloma", "EXACT"),
+                                         "highlight": _terms(["lung", "granuloma"], "EXACT")}
+
+
+def test_the_add_buttons_parentheses_go_as_written_and_are_not_highlighted(r):
+    assert r["query_as_search_add_builds_it"] == {
+        "body": _query("((lung AND left lobe) AND granuloma)"),
+        "highlight": _terms(["lung", "left lobe", "granuloma"])}
+
+
+def test_not_mixed_logic_and_tags_are_sent_not_refused(r):
+    """graph_search reads NOT, AND and OR together through parentheses, and term[TYPE] tags, with
+    advanced_search's rows; the page no longer refuses them. Every term is highlighted, negated ones
+    too, as the old engine highlighted every keyword of the text."""
+    assert r["query_not"] == {"body": _query("lung NOT granuloma"), "highlight": _terms(["lung", "granuloma"])}
+    assert r["query_not_a_phrase"]["body"] == _query("lung NOT (left lobe)")
+    assert r["query_not_a_phrase"]["highlight"]["terms"] == ["lung", "left lobe"]
+    assert r["query_mixed_logic"] == {"body": _query("(lung AND granuloma) OR liver"),
+                                      "highlight": _terms(["lung", "granuloma", "liver"])}
+    assert r["query_leading_not"] == {"body": _query("NOT(granuloma)"), "highlight": _terms(["granuloma"])}
+    assert r["query_tags_of_two_types"] == {"body": _query("lung[TIS] AND reads[D.SEQ]"),
+                                            "highlight": _terms(["lung", "reads"])}
+    assert r["query_or_partly_tagged"] == {"body": _query("lung[TIS] OR granuloma"),
+                                           "highlight": _terms(["lung", "granuloma"])}
+
+
+def test_a_tag_alone_highlights_nothing(r):
+    assert r["query_only_a_tag"] == {"body": _query("[TIS]"), "highlight": NO_HIGHLIGHT}
+
+
+def test_brackets_that_are_not_one_pair_stay_in_the_highlighted_term(r):
+    assert r["query_brackets_that_are_not_a_tag"]["highlight"]["terms"] == ["lung[a][b]", "x]"]
+
+
+def test_any_whitespace_around_an_operator_splits_the_highlight(r):
+    assert r["query_operators_on_new_lines"]["highlight"]["terms"] == ["lung", "liver"]
 
 
 def test_a_lower_case_and_is_part_of_the_term_as_it_was_for_the_old_parser(r):
-    assert r["query_lower_case_and_is_part_of_the_term"]["body"] == {
-        "filter_searchText": "salt and pepper", "filter_matchType": "PARTIAL"}
-
-
-def test_a_sample_type_tag_becomes_the_searchs_sample_type(r):
-    """term[TYPE] limited that term to the type; with AND that limits the whole search."""
-    assert r["query_one_tag_applies_to_the_search"]["body"] == {
-        "filter_searchText": ["lung", "granuloma"], "searchText_logic": "AND",
-        "filter_matchType": "PARTIAL", "sampletype": "TIS"}
-    assert r["query_tag_is_upper_cased"]["body"] == {
-        "filter_searchText": "lung", "filter_matchType": "PARTIAL", "sampletype": "TIS"}
-    assert r["query_or_every_term_tagged_alike"]["body"] == {
-        "filter_searchText": ["lung", "granuloma"], "searchText_logic": "OR",
-        "filter_matchType": "PARTIAL", "sampletype": "TIS"}
-
-
-def test_a_tag_alone_asks_for_every_sample_of_the_type(r):
-    assert r["query_only_a_tag"] == {"body": {"filter_searchText": "", "sampletype": "TIS"},
-                                     "highlight": NO_HIGHLIGHT}
+    assert r["query_lower_case_and_is_part_of_the_term"]["highlight"]["terms"] == ["salt and pepper"]
 
 
 def test_the_mobile_forms_sample_type_joins_the_search(r):
-    assert r["query_with_the_chosen_type"]["body"] == {
-        "filter_searchText": "lung", "filter_matchType": "PARTIAL", "sampletype": "TIS"}
-    assert r["query_chosen_type_agrees_with_the_tag"]["body"] == r["query_with_the_chosen_type"]["body"]
+    assert r["query_with_the_chosen_type"]["body"] == _query("lung", sampletype="TIS")
+    # The chosen type and a tag are both conditions; graph_search ANDs them.
+    assert r["query_chosen_type_and_another_tag"]["body"] == _query("lung[TIS]", sampletype="D.SEQ")
 
 
-def test_queries_graph_search_cannot_express_are_refused_with_the_reason(r):
+def test_only_an_empty_box_is_refused_on_the_page(r):
+    """Text graph_search cannot read goes to graph_search, whose 422 says why (errorText shows it)."""
     assert r["query_empty"] == {"error": "No search term entered."}
-    assert r["query_not"] == {
-        "error": "NOT is not supported: graph_search combines search terms with AND or OR only."}
-    assert r["query_mixed_logic"] == {
-        "error": "Use AND or OR, not both: graph_search combines every search term the same way."}
-    assert r["query_and_two_types"] == {
-        "error": "Terms tagged [TIS] and [D.SEQ] cannot match the same sample: a sample has one sample type."}
-    assert r["query_or_partly_tagged"] == {
-        "error": "With OR, tag every term with the same sample type or tag none: "
-                 "graph_search applies one sample type to the whole search."}
-    assert r["query_chosen_type_disagrees_with_the_tag"] == {
-        "error": "The sample type chosen (D.SEQ) and the one in the search text ([TIS]) differ."}
+    assert r["query_text_graph_search_cannot_read"]["body"] == _query("a OR b AND c")
 
 
 # ---- the Simple box: one sample type, one attribute, one rule ----
@@ -148,17 +149,41 @@ def test_simple_attribute_none_with_a_value_searches_every_value_of_the_type(r):
         "highlight": {"terms": ["Lung"], "matchType": "PARTIAL", "attribute": None}}
 
 
+def test_simple_not_contain_is_graph_search_not_contains_on_the_trimmed_value(r):
+    assert r["simple_not_contain"] == {
+        "body": {"filter_searchText": "", "extensions": {"where": [
+            {"sample_type": "TIS", "attribute": "Organ", "op": "NOT CONTAINS", "value": "Lung"}]}},
+        "highlight": {"terms": [], "matchType": None, "attribute": "Organ"}}
+
+
+def test_simple_not_contain_with_no_value_is_sent_as_the_old_engine_ran_it(r):
+    """advanced_search: '' is in every value, so Not Contain '' matched nothing; graph_search agrees."""
+    assert r["simple_not_contain_without_value"]["body"]["extensions"]["where"] == [
+        {"sample_type": "TIS", "attribute": "Organ", "op": "NOT CONTAINS", "value": ""}]
+
+
+def test_simple_true_and_false_are_graph_search_is_true_and_is_false_with_no_value(r):
+    """The old engine ignored From for True and False (toBinaryTinyInt of the value alone)."""
+    for case, op in (("simple_true", "IS TRUE"), ("simple_false", "IS FALSE")):
+        assert r[case] == {
+            "body": {"filter_searchText": "", "extensions": {"where": [
+                {"sample_type": "TIS", "attribute": "Viable", "op": op}]}},
+            "highlight": {"terms": [], "matchType": None, "attribute": "Viable"}}, case
+
+
 def test_simple_refuses_what_graph_search_cannot_express_or_is_incomplete(r):
-    assert r["simple_not_contain"] == {"error": "“Not Contain” has no graph_search operator."}
+    assert r["simple_unknown_rule"] == {"error": "“Sounds Like” has no graph_search operator."}
     assert r["simple_no_type"] == {"error": "No sample type is selected."}
     assert r["simple_numeric_not_a_number"] == {"error": "Warning: Not a valid numeric value: high"}
     assert r["simple_between_without_to"] == {"error": "Between needs both a From and a To value."}
 
 
-def test_only_rules_graph_search_can_express_are_offered(r):
+def test_every_rule_the_old_engine_offered_is_offered_again(r):
+    """Not Contain, True and False are back: graph_search has an operator for each."""
     assert r["rules_offered"] == {
-        "string": ["Contain", "No Filter"],
-        "bool": ["No Filter"],
+        "string": ["Contain", "Not Contain", "No Filter"],
+        "bool": ["No Filter", "True", "False"],
+        "unknown": ["No Filter", "Contain"],
         "numeric": ["No Filter", "Equal", "Not Equal", "Less", "Greater", "Between"],
         "date": ["No Filter", "Equal", "Not Equal", "Before", "After", "Between"],
     }

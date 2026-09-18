@@ -1,5 +1,6 @@
 <script type="text/javascript">
-	var type_options = {{report.type_options|safe}};
+
+	var type_options = {{report.type_options|safe}};
 
 	/* The value type of the chosen attribute ('numeric', 'date', 'string' or 'bool'), from
 	   /seek/operators/; SampleSearchCore.simpleBody sends numbers as numbers. */
@@ -56,7 +57,8 @@
 			var msg = obj.msg;
 			var status = obj.status;
 			if (status == 1) {
-				// Only the rules graph_search can express; the first one offered is selected.
+				// Every rule graph_search has an operator for (all of the old engine's, Not Contain,
+				// True and False included); the first one offered is selected.
 				simple_filterType = obj.filter_type || '';
 				var offered = SampleSearchCore.offeredRules((obj.filter_rule || []).map(function (r) { return r.name; }));
 				var filter_rule = (obj.filter_rule || []).filter(function (r) { return offered.indexOf(r.name) >= 0; });
