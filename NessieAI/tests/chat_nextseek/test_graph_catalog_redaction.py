@@ -1,0 +1,350 @@
+"""The live graph catalog for a caller who is not a superuser: names, types and structure, no counts or values.
+
+Spec: ``docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`` sections 3.2 (S8), 8 and 11.3. The catalog's
+counts, top values and ranges are computed over every project, so ``get_snapshot`` and ``get_type_details`` hand
+any config that is not an admin ``GraphScope`` a redacted copy, and never touch the cached objects. A missing scope,
+``None``, a plain dict and a ``MagicMock`` config all redact (fail closed).
+
+Every test stubs the reader (``_make_driver`` and ``_read``): nothing reaches a driver or a Neo4j.
+"""
+from __future__ import annotations
+
+import types
+from unittest.mock import MagicMock
+
+import pytest
+
+from chat_nextseek import graph_catalog as gc
+from chat_nextseek import graph_context
+from chat_nextseek.agents import graph as graph_mod
+from chat_nextseek.graph_scope import SCOPE_ATTR, GraphScope, with_scope
+
+URI = "bolt://catalog-redaction:7687"
+
+# --- the stored catalog ---------------------------------------------------------------------------------------------
+# Every count, top value and range below is a value only an admin may read. Each one is distinctive, so a search of
+# the rendered text for it cannot match anything else.
+
+META = {"schema_version": "1.2", "catalog_hash": "hash-redaction", "synced_at": "2026-01-02T03:04:05Z",
+        "has_usage": False}
+INDEX_ROWS = [
+    {"title": "CEL", "label": "T_CEL", "name": "Cells", "clade": "Source", "sample_count": 1913,
+     "deprecated": False, "attributes_with_values": 0},
+    {"title": "D.SEQ", "label": "T_D_SEQ", "name": "Sequencing Data", "clade": "Data", "sample_count": 6047,
+     "deprecated": False, "attributes_with_values": 1},
+    {"title": "OLD", "label": "T_OLD", "name": None, "clade": None, "sample_count": 0,
+     "deprecated": True, "attributes_with_values": 0},
+    {"title": "TIS", "label": "T_TIS", "name": "Tissue Sample", "clade": "Source", "sample_count": 58731,
+     "deprecated": False, "attributes_with_values": 3},
+]
+GUARD_ROWS = [
+    {"label": "T_TIS", "titles": ["Weight", "Organ", "Collected"]},
+    {"label": "T_D_SEQ", "titles": ["ReadLength"]},
+]
+# Stored most filled first, as TYPES_ADMIN orders them; the titles sort the other way round.
+TYPE_ROWS = {
+    "TIS": {
+        "title": "TIS", "label": "T_TIS", "name": "Tissue Sample", "summary": "A piece of tissue. More text.",
+        "clade": "Source", "sample_count": 58731, "curated_parents": "PAT, MUS", "curated_children": "D.SEQ",
+        "attributes": [
+            {"title": "Weight", "value_type": "number", "declared": True, "needs_backticks": False,
+             "sample_count": 5902, "meaning": "Mass of the piece in milligrams.", "unit_key": "3:WeightUnits",
+             "role": "measurement", "num_min": 0.25, "num_max": 911.5},
+            {"title": "Organ", "value_type": "string", "declared": True, "needs_backticks": False,
+             "sample_count": 4388, "meaning": "The organ the tissue came from.", "unit_key": None,
+             "role": "descriptive", "top_values": ["marker-organ-a", "marker-organ-b"],
+             "top_counts": [3101, 1287]},
+            {"title": "Collected", "value_type": "date", "declared": False, "needs_backticks": False,
+             "sample_count": 3770, "meaning": None, "unit_key": None, "role": None,
+             "date_min": "2011-03-04", "date_max": "2019-08-27"},
+        ],
+        "never_filled": 7,
+    },
+    "D.SEQ": {
+        "title": "D.SEQ", "label": "T_D_SEQ", "name": "Sequencing Data", "summary": None, "clade": "Data",
+        "sample_count": 6047, "curated_parents": ["TIS", "CEL"], "curated_children": None,
+        "attributes": [
+            {"title": "ReadLength", "value_type": "integer", "declared": True, "needs_backticks": False,
+             "sample_count": 4919, "num_min": 47, "num_max": 263},
+        ],
+        "never_filled": 0,
+    },
+}
+VOCAB_ROWS = {
+    "VOCAB_INVESTIGATIONS": [{"title": "Investigation B"}, {"title": "Investigation A"}],
+    "VOCAB_PROJECTS": [{"title": "Project B"}, {"title": "Project A"}],
+    "VOCAB_STUDIES": [{"title": "Study 1"}],
+    "VOCAB_PUBLISHED": [{"title": "Study 1", "doi": "10.1000/example", "pmid": ""}],
+    "VOCAB_EDGES": [{"assay": "Short Read Sequencing", "protocol": "RNA prep", "parent_type": "TIS",
+                     "child_type": "D.SEQ"}],
+}
+
+# How each admin-only value renders (graph_context formats counts with thousands separators).
+ADMIN_ONLY_TEXT = ("58,731", "6,047", "1,913", "5,902", "4,388", "3,770", "4,919", "3,101", "1,287",
+                   "0.25", "911.5", "47..263", "2011-03-04", "2019-08-27", "marker-organ-a", "marker-organ-b")
+# The attribute columns a non-admin must not get.
+COLUMN_TOKENS = ("n=", "values:", "range")
+# The one line that names those columns for every caller: the resolved-types legend in graph_context._assemble.
+LEGEND_PREFIX = "## Resolved sample types:"
+
+STATEMENTS = {getattr(gc, name): name for name in (
+    "META", "INDEX", "GUARD", "TYPES_ADMIN",
+    "VOCAB_INVESTIGATIONS", "VOCAB_PROJECTS", "VOCAB_STUDIES", "VOCAB_PUBLISHED", "VOCAB_EDGES")}
+
+
+class StubReader:
+    """Stands in for ``graph_catalog._read``: rows by statement, and the name of every statement asked for."""
+
+    def __init__(self):
+        self.names: list[str] = []
+
+    def __call__(self, driver, database, statement, params=None):
+        name = STATEMENTS[statement]
+        self.names.append(name)
+        if name == "META":
+            return [dict(META)]
+        if name == "INDEX":
+            return [dict(row) for row in INDEX_ROWS]
+        if name == "GUARD":
+            return [dict(row) for row in GUARD_ROWS]
+        if name == "TYPES_ADMIN":
+            return [TYPE_ROWS[t] for t in (params or {}).get("types", []) if t in TYPE_ROWS]
+        return [dict(row) for row in VOCAB_ROWS[name]]
+
+
+@pytest.fixture(autouse=True)
+def reader(monkeypatch):
+    gc.reset_cache()
+    stub = StubReader()
+    monkeypatch.setattr(gc, "_now", lambda: 1000.0)
+    monkeypatch.setattr(gc, "_make_driver", lambda config: object())
+    monkeypatch.setattr(gc, "_read", stub)
+    yield stub
+    gc.reset_cache()
+
+
+def _base():
+    return types.SimpleNamespace(NEO4J_URI=URI, NEO4J_DATABASE="neo4j", NEO4J_USER="neo4j",
+                                 NEO4J_PASSWORD="not-a-secret")
+
+
+def admin():
+    return with_scope(_base(), GraphScope.admin("test"))
+
+
+def _with_attr(value):
+    config = _base()
+    setattr(config, SCOPE_ATTR, value)
+    return config
+
+
+def _magicmock():
+    config = MagicMock()  # every attribute exists, GRAPH_SCOPE included, and none is a GraphScope
+    config.NEO4J_URI, config.NEO4J_DATABASE = URI, "neo4j"
+    config.NEO4J_USER, config.NEO4J_PASSWORD = "neo4j", "not-a-secret"
+    return config
+
+
+REDACTED = {
+    "non_admin": lambda: with_scope(_base(), GraphScope.for_projects([1, 3], source="test")),
+    "no_projects": lambda: with_scope(_base(), GraphScope.for_projects([], source="test")),
+    "no_scope_attribute": _base,
+    "scope_none": lambda: with_scope(_base(), None),
+    "plain_dict_admin": lambda: _with_attr({"is_admin": True, "project_ids": []}),
+    "string_admin": lambda: _with_attr("admin"),
+    "magicmock_config": _magicmock,
+}
+
+
+@pytest.fixture(params=sorted(REDACTED))
+def redacted(request):
+    return REDACTED[request.param]()
+
+
+# --- admin: the stored values, the cached objects ---------------------------------------------------------------------
+
+
+def test_admin_snapshot_carries_the_stored_counts():
+    snap = gc.get_snapshot(admin())
+
+    assert [(r.title, r.sample_count) for r in snap.index] == [
+        ("CEL", 1913), ("D.SEQ", 6047), ("OLD", 0), ("TIS", 58731)]
+
+
+def test_admin_type_details_carry_the_stored_counts_values_and_ranges():
+    tis, dseq = gc.get_type_details(admin(), ["TIS", "D.SEQ"])
+
+    assert tis.sample_count == 58731
+    weight, organ, collected = tis.attributes  # stored order: most filled first
+    assert (weight.title, weight.sample_count, weight.num_min, weight.num_max) == ("Weight", 5902, 0.25, 911.5)
+    assert (organ.title, organ.sample_count) == ("Organ", 4388)
+    assert (organ.top_values, organ.top_counts) == (("marker-organ-a", "marker-organ-b"), (3101, 1287))
+    assert (collected.date_min, collected.date_max) == ("2011-03-04", "2019-08-27")
+    assert (dseq.sample_count, dseq.attributes[0].num_min, dseq.attributes[0].num_max) == (6047, 47.0, 263.0)
+
+
+def test_admin_gets_the_cached_objects_themselves():
+    config = admin()
+    assert gc.get_snapshot(config) is gc.get_snapshot(config)
+    assert gc.get_type_details(config, ["TIS"])[0] is gc.get_type_details(config, ["TIS"])[0]
+
+
+# --- everyone else: redacted copies ---------------------------------------------------------------------------------
+
+
+def test_snapshot_drops_every_sample_count(redacted):
+    snap = gc.get_snapshot(redacted)
+
+    assert [r.sample_count for r in snap.index] == [None, None, None, None]
+
+
+def test_snapshot_keeps_names_structure_and_the_guard(redacted):
+    snap = gc.get_snapshot(redacted)
+
+    assert [(r.title, r.label, r.name, r.clade, r.deprecated, r.attributes_with_values) for r in snap.index] == [
+        ("CEL", "T_CEL", "Cells", "Source", False, 0),
+        ("D.SEQ", "T_D_SEQ", "Sequencing Data", "Data", False, 1),
+        ("OLD", "T_OLD", None, None, True, 0),
+        ("TIS", "T_TIS", "Tissue Sample", "Source", False, 3),
+    ]
+    assert dict(snap.guard) == {
+        "T_CEL": frozenset(), "T_D_SEQ": frozenset({"ReadLength"}), "T_OLD": frozenset(),
+        "T_TIS": frozenset({"Weight", "Organ", "Collected"}),
+    }
+    assert (snap.catalog_hash, snap.synced_at, snap.schema_version, snap.has_usage) == (
+        "hash-redaction", "2026-01-02T03:04:05Z", "1.2", False)
+
+
+def test_type_details_drop_counts_top_values_and_ranges(redacted):
+    details = gc.get_type_details(redacted, ["TIS", "D.SEQ"])
+
+    assert [d.title for d in details] == ["TIS", "D.SEQ"]
+    for detail in details:
+        assert detail.sample_count is None
+        for attribute in detail.attributes:
+            assert attribute.sample_count is None, attribute.title
+            assert (attribute.top_values, attribute.top_counts) == ((), ()), attribute.title
+            assert (attribute.num_min, attribute.num_max) == (None, None), attribute.title
+            assert (attribute.date_min, attribute.date_max) == (None, None), attribute.title
+
+
+def test_type_details_keep_names_types_meanings_and_structure(redacted):
+    tis, dseq = gc.get_type_details(redacted, ["TIS", "D.SEQ"])
+
+    assert (tis.title, tis.label, tis.name, tis.clade) == ("TIS", "T_TIS", "Tissue Sample", "Source")
+    assert tis.summary == "A piece of tissue. More text."
+    assert (tis.curated_parents, tis.curated_children, tis.never_filled) == ("PAT, MUS", "D.SEQ", 7)
+    assert [(a.title, a.value_type, a.declared, a.needs_backticks, a.meaning, a.unit_key, a.role)
+            for a in tis.attributes] == [
+        ("Collected", "date", False, False, None, None, None),
+        ("Organ", "string", True, False, "The organ the tissue came from.", None, "descriptive"),
+        ("Weight", "number", True, False, "Mass of the piece in milligrams.", "3:WeightUnits", "measurement"),
+    ]
+    assert (dseq.curated_parents, dseq.summary, dseq.never_filled) == ("TIS, CEL", None, 0)
+    assert [(a.title, a.value_type) for a in dseq.attributes] == [("ReadLength", "integer")]
+
+
+def test_attributes_are_listed_by_title_because_fill_order_is_itself_a_count(redacted):
+    (tis,) = gc.get_type_details(redacted, ["TIS"])
+
+    assert [a.title for a in tis.attributes] == ["Collected", "Organ", "Weight"]
+
+
+def test_vocabulary_is_the_same_for_every_caller(redacted):
+    assert gc.get_vocabulary(redacted) == gc.get_vocabulary(admin())
+
+
+# --- the cache ------------------------------------------------------------------------------------------------------
+
+
+def test_an_admin_call_after_a_non_admin_call_still_sees_the_full_values(reader):
+    other = REDACTED["non_admin"]()
+    assert gc.get_snapshot(other).index[3].sample_count is None
+    assert gc.get_type_details(other, ["TIS"])[0].attributes[1].top_values == ()
+
+    snap = gc.get_snapshot(admin())
+    (tis,) = gc.get_type_details(admin(), ["TIS"])
+
+    assert snap.index[3].sample_count == 58731
+    assert tis.sample_count == 58731
+    assert [a.sample_count for a in tis.attributes] == [5902, 4388, 3770]
+    assert tis.attributes[1].top_values == ("marker-organ-a", "marker-organ-b")
+    assert (tis.attributes[0].num_min, tis.attributes[2].date_max) == (0.25, "2019-08-27")
+    # and a non-admin after that is redacted again
+    assert gc.get_snapshot(other).index[3].sample_count is None
+
+
+def test_redaction_is_a_copy_of_the_cache_not_a_second_read(reader):
+    other = REDACTED["non_admin"]()
+    gc.get_snapshot(other)
+    gc.get_type_details(other, ["TIS"])
+    gc.get_snapshot(admin())
+    gc.get_type_details(admin(), ["TIS"])
+    gc.get_type_details(other, ["TIS"])
+
+    assert reader.names == ["META", "INDEX", "GUARD", "TYPES_ADMIN"]
+
+
+def test_a_redacted_snapshot_is_never_the_cached_object():
+    cached = gc.get_snapshot(admin())
+    copy = gc.get_snapshot(REDACTED["non_admin"]())
+
+    assert copy is not cached
+    assert copy.index[0] is not cached.index[0]
+    assert cached.index[3].sample_count == 58731
+
+
+# --- what the graph agent reads -------------------------------------------------------------------------------------
+
+PLAN = {"resolved": {"sampletypes": [{"code": "TIS"}, {"code": "D.SEQ"}]}}
+
+
+def _context(config) -> str:
+    catalog = graph_mod.live_catalog_context(config, "which tissue samples", None, PLAN)
+    assert catalog is not None, "the stubbed catalog must be read live, not the committed fallback"
+    return catalog.schema
+
+
+def _data_lines(text: str) -> list[str]:
+    return [line for line in text.splitlines() if not line.startswith(LEGEND_PREFIX)]
+
+
+def test_the_admin_context_shows_counts_values_and_ranges():
+    # The control: the tokens the next test looks for are really there for an admin.
+    text = _context(admin())
+
+    for token in COLUMN_TOKENS:
+        assert any(token in line for line in _data_lines(text)), token
+    for value in ADMIN_ONLY_TEXT:
+        assert value in text, value
+
+
+def test_the_rendered_context_for_a_non_admin_has_no_counts_values_or_ranges(redacted):
+    text = _context(redacted)
+
+    for line in _data_lines(text):
+        for token in COLUMN_TOKENS:
+            assert token not in line, (token, line)
+    for value in ADMIN_ONLY_TEXT:
+        assert value not in text, value
+    # names, types and structure stay
+    assert "TIS :T_TIS \"Tissue Sample\" clade Source, sample count unknown, 3 attributes with values" in text
+    assert "- Collected [date] (undeclared)" in text
+    assert "- Weight [number] | unit of WeightUnits | Mass of the piece in milligrams" in text
+    assert "- ReadLength [integer]" in text
+
+
+def test_the_legend_is_the_only_line_that_names_the_columns(redacted):
+    text = _context(redacted)
+
+    naming = [line for line in text.splitlines() if any(token in line for token in COLUMN_TOKENS)]
+    assert len(naming) == 1 and naming[0].startswith(LEGEND_PREFIX), naming
+
+
+def test_rendering_the_getters_directly_gives_the_same_redaction(redacted):
+    snap = gc.get_snapshot(redacted)
+    text = graph_context.render_graph_context(snap, gc.get_type_details(redacted, ["TIS", "D.SEQ"]))
+
+    for value in ADMIN_ONLY_TEXT:
+        assert value not in text, value
+    assert "sample count unknown" in graph_context.render_type_index(snap.index)
