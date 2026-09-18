@@ -184,18 +184,21 @@ You can ask **"What assays are available?"** to retrieve the full assay catalog 
 ## Known Projects and Investigations
 
 <!-- BEGIN CONTEXT-GEN:investigations -->
-The graph database organizes samples into studies grouped under named investigations. The currently known investigations are:
 
-- **CSBC** — Cancer Systems Biology Consortium
-- **GBM_BTC** — Glioblastoma / Brain Tumor Center combined program
-- **GBM** — Glioblastoma program
-- **Griffith** — Griffith lab investigation
-- **Impact** — Impact project
-- **MetNet** — Metabolic Network investigation
-- **SRP** — SRP investigation
-- **Shoulders** — Shoulders lab investigation
+The graph database organizes samples into studies grouped under named investigations. The investigations that hold samples are:
 
-Use these names exactly when asking graph questions scoped to a specific project. For example: "What TIS samples are in the Impact investigation?" or "How many studies are in the CSBC project?"
+- **BioMicroCenter**: Sequencing and analysis data generated at the MIT BioMicro Center genomics core, such as alignments, variant calls and mutational spectra [also: BioMicro Center]
+- **CSBC**: Systems biology of glioblastoma, the tumor, neural and immune interactions in its microenvironment, profiled by proteomics, imaging and sequencing
+- **Collagen Study**: Collagen folding and proteostasis in iPSC-derived cartilage models of collagen disease variants [also: Shoulders]
+- **Endometriosis**: Endometriosis and the human endometrium, studied in patient-derived endometrial organoids and co-cultures and by single-cell and proteomic profiling [also: Griffith, CGR-Endo]
+- **GBM_BTC**: Recurrent glioblastoma studied through serial brain biopsies, with cerebrospinal fluid and blood as surrogate markers of drug activity [also: BTC-GBM]
+- **Impactb Investigation**: Protective and non-protective immune responses to Mycobacterium tuberculosis in mice, non-human primates and humans [also: Impact, IMPACT, IMPAcTb]
+- **MIT_SRP**: Health effects of N-nitrosamines and other hazardous chemicals in drinking water, including DNA damage, mutation and cancer risk [also: SRP, MIT SRP, Superfund]
+- **MetNet**: Mechanical determinants of metastatic colonization, dormancy and outgrowth in engineered microvascular and organ-on-chip models
+- **TCGA**: Public pan-cancer reference data from The Cancer Genome Atlas, with patients, tumor and normal tissue samples and their sequencing data [also: The Cancer Genome Atlas] (not on every instance: loaded on local and dev only)
+
+Use these names exactly when asking graph questions scoped to one investigation. The names in brackets are what people call them; the bold name is what the graph answers to. A name marked "not on every instance" is loaded only on the instances it lists. Where a query scoped to it finds no samples, it is not loaded on this instance: say so rather than reporting zero.
+
 <!-- END CONTEXT-GEN:investigations -->
 
 ---

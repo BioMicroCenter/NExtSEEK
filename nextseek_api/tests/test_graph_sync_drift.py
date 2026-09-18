@@ -7,6 +7,7 @@ is passed in, so no test depends on the clock.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from datetime import datetime, timedelta, timezone as dt_timezone
 from types import SimpleNamespace
 
@@ -695,3 +696,14 @@ def test_the_counts_file_names_its_instance_and_is_what_the_generator_reads():
     assert tuple(drift.INSTANCES) == tuple(cg.PROFILES)
     with pytest.raises(ValueError):
         drift.investigation_counts(driver, "neo4j", "staging", now=T0)
+
+
+def test_the_committed_block_lists_exactly_the_investigation_rows():
+    """drift's real parser, on the committed capabilities.md, reads the investigation rows of
+    context/projects.json: every name, and a name not on every instance marked as such."""
+    root = Path(drift.__file__).resolve().parents[2]
+    rows = json.loads((root / "context" / "projects.json").read_text(encoding="utf-8"))
+    expected = sorted((r["name"], r.get("present_on") is None)
+                      for r in rows if r["entity_type"] == "investigation")
+    assert drift.assistant_investigation_entries(drift._capabilities_text()) == expected
+    assert ("TCGA", False) in expected
