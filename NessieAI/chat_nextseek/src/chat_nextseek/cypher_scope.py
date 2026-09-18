@@ -760,7 +760,9 @@ class _Parser:
             self.i += 1
             self.expr(names)
 
-    def call_clause(self, names: _Names) -> _Names:
+    def call_clause(self, names: _Names, in_subquery: bool = False) -> _Names:
+        """A CALL clause. Only the sample fulltext search is accepted, and only as a clause of its own: inside EXISTS
+        or COUNT every procedure call refuses (spec 5.3 admits patterns alone there)."""
         call = self.tok
         self.i += 1
         if self.at_p("{") or self.at_p("("):
@@ -783,9 +785,10 @@ class _Parser:
             parts.append(self.peek(1))
             self.i += 2
         proc = ".".join(p.value for p in parts)
-        if proc == FULLTEXT_PROCEDURE and all(p.kind == "name" for p in parts):
+        if proc == FULLTEXT_PROCEDURE and all(p.kind == "name" for p in parts) and not in_subquery:
             return self.fulltext(names, call)
-        self.refuse("procedure", call.start, f"the procedure {proc} may not be called here")
+        where = " inside EXISTS or COUNT" if in_subquery else " here"
+        self.refuse("procedure", call.start, f"the procedure {proc} may not be called{where}")
         if self.at_p("("):
             self.i += 1
             self.enter()
@@ -1719,7 +1722,7 @@ class _Parser:
                     self.finalize(plist, inner, where)
                     inner = bound
                 elif self.at_kw("CALL"):
-                    inner = self.call_clause(inner)
+                    inner = self.call_clause(inner, in_subquery=True)
                 elif self.at_kw("UNION"):
                     self.refuse("union", self.tok.start, "UNION joins a second statement")
                     self.i += 1

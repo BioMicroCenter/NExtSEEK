@@ -400,6 +400,13 @@ REFUSALS: list[Refusal] = [
             "MATCH (s:Sample) CALL apoc.path.spanningTree(s, {maxLevel: 2}) YIELD path RETURN length(path) AS n",
             ("procedure",)),
     Refusal("procedure.db", "CALL db.labels() YIELD label RETURN label", ("procedure",)),
+    Refusal("procedure.fulltext_in_subquery",
+            "MATCH (s:Sample) WHERE EXISTS { CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node "
+            "WHERE node = s } RETURN s.uuid AS u", ("procedure",), {"q": "alpha"}),
+    Refusal("procedure.fulltext_in_count_subquery",
+            "MATCH (s:Sample) RETURN s.uuid AS u, COUNT { MATCH (s)-[:IN_STUDY]->(st:Study) "
+            "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node } AS n", ("procedure",),
+            {"q": "alpha"}),
     Refusal("fulltext_form.yield_star",
             "CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD * RETURN node.uuid AS u",
             ("fulltext_form",)),
