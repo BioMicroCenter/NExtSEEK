@@ -163,6 +163,7 @@ it is fixture source inside the string literal opened at
 - `NessieAI/ns/retry.py:378` (`_get_orchestrator`) imports the orchestrator inside a function body, for the evaluator retry endpoint in `nextseek_api/services/evaluator.py`.
 - `startup/dev/lane_local_settings.py:19` constructs the Django-wide config singleton at settings-import time, and `startup/dev/lane_local_settings.py:69` optionally builds a second one for the production toggle.
 - `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:35` reads the capabilities document as generator input, not as an import.
+- `_project_context_row` in `nextseek_api/services/context_catalog.py` imports `PROJECT_ROW_SQL` from `chat_nextseek.context_rows` inside the function, so the SEEK project page filters `projects_context` by the same project-row rule as the config's maps and never needs this package to import.
 - See `NessieAI/chat_nextseek/CLAUDE.md` for what breaks when any of these edges moves.
 
 Not a dependency, despite appearances: `NessieAI/dmac_assistant/` does **not** import this

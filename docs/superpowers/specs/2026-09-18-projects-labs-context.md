@@ -60,7 +60,7 @@ present on every instance.
 | **I5** | `drift.py` applies the same absent-versus-empty rule to names the block marks as not on every instance. | Section 10.4. |
 | **I6** | A blocking, graph-free gate pins the committed block to the investigation rows. | Section 10.5. |
 | **I7** | Investigation titles leave the project rows' `alternative_names`. An investigation row may repeat its own parent project's name or aliases; no other alias may be shared across rows. | Section 9.4. |
-| **C1** | Every consumer of `projects_context` gets the filter in section 11 before any database holds an investigation row. | 6.15d. |
+| **C1** | Every consumer of `projects_context` gets the filter in section 11, and every filter reads one definition of a project row and an investigation row (section 11.1), which is right on production's legacy rows as well as the new ones. | 6.15d. Production already types its project rows `investigation` (section 11.1). |
 
 ## 4. SEEK source and cadence
 
@@ -112,6 +112,10 @@ ORDER BY i.id, wg.project_id
   any write. A SELECT-only MySQL account would be stronger; creating one needs root and is the operator's option,
   not a requirement.
 - A failure (no such schema, no such table, a timeout) is logged once and never raises out of the export.
+- An answer that names no lab (no institution at all, or none whose title parses) is a failed read too, never news
+  that the labs are gone: a live SEEK always holds institutions, and one with labs keeps them. `labs.refusal` says
+  why, one `[CONFIG][LABS] REFUSED` line goes to stderr, and the last good `labs_db.json` stays (added at
+  integration: the first build wrote such an answer over a good file, which emptied `LABS`).
 
 ### 4.4 Cadence
 
@@ -138,7 +142,9 @@ file is written atomically (a temporary file, then `os.replace`), so readers nev
 
 `python -m chat_nextseek.labs --report`, run inside the app container, connects exactly as `_connect_db(env="prod")`
 does (`MYSQL_HOST_PROD`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PROD_PASSWORD`), runs the read of 4.3 in its read-only
-transaction, prints the document of 6.2 to stdout, and writes nothing. It exits 2 when it cannot connect. This is
+transaction, prints the document of 6.2 to stdout, and writes nothing. It exits 2 when it cannot connect, and 1 when
+the read fails or the answer is one the export refuses (4.3); a refused answer is still printed, with a `refused` key
+beside the document's own, so every title's reason code is visible. This is
 how the operator sees every title's fate before any file is written.
 
 ## 5. The title grammar
@@ -171,12 +177,15 @@ spelling repair: a title that needs one is reported so it gets fixed in SEEK.
 | `trailing_text` | `PIN-Pinecrest Lab (MIT) old` |
 | `bad_name_characters` | `PIN-Pinecrest2 Lab (MIT)` |
 
-**Conflicts are reported and kept:**
+**Conflicts are reported and kept** (`multi_word_name` added at integration):
 
 - `name_shared`: two records with one surname (`FEN-Fenwick Lab (MIT)`, `FEW-Fenwick Lab (Harvard)`). Both are kept;
   the entity agent disambiguates (rule M6).
 - `code_shared`: two institutions with one code. Both records are kept, because the code scopes the same UIDs
   whichever name owns it.
+- `multi_word_name`: a name of several words (`JSM-Jane Smith Lab (MIT)`, `VDB-Van der Birch Lab (MIT)`). The
+  grammar allows a multi-word surname, but it also takes a first name plus a surname, which then matches only as the
+  whole phrase, so each is listed for the operator to check.
 
 **Where a report goes:** the labs file's `unparsed` and `conflicts` lists, one log line per refresh
 (`[CONFIG][LABS] ... unparsed institution ids [...]`), and the `--report` output. A bad title never raises and never
@@ -229,7 +238,7 @@ project.
 
 ### 6.3 What a project row carries (verbatim)
 
-Every row of `projects_db.json` whose `entity_type` is `project` (or missing) gains one key:
+Every project row of `projects_db.json` (`context_rows.is_project_row`, section 11.1) gains one key:
 
 ```json
 {
@@ -259,10 +268,10 @@ carry no `labs` key: their labs are their parent project's.
 
 | Attribute | Value |
 |---|---|
-| `LABS` | the `labs` list of `labs_db.json`, each record checked (`code` three capitals, `name` non-empty); `None` when no readable file exists. `None` means unavailable; `[]` means SEEK has no parseable lab. |
+| `LABS` | the `labs` list of `labs_db.json`, each record checked (`code` three capitals, `name` non-empty); `None` when no readable file exists. `None` means unavailable. Since the export refuses an answer that names no lab (4.3), a SEEK with no lab-shaped title (the committed seed's) also gives `None`; `[]` arises only from a file written otherwise. |
 | `LABS_STATUS` | `{"source": "fetched" \| "previous_file" \| "unavailable", "fetched_at": ..., "unparsed": <n>}` |
 | `FULL_PROJECTS` / `MIN_PROJECTS` | every row, projects and investigations. The entity agent sees both, and each row says its `entity_type`. |
-| `FULL_PROJECTS_MAP` | project rows only (`entity_type` `project` or missing), keyed by `name`. Built from every row, as today, a same-named investigation row (CSBC, MetNet) would silently replace the project row in this dict. |
+| `FULL_PROJECTS_MAP` | project rows only (`context_rows.is_project_row`, section 11.1), keyed by `name`. Built from every row, as today, a same-named investigation row (CSBC, MetNet) would silently replace the project row in this dict. |
 | `FULL_INVESTIGATIONS_MAP` | new: investigation rows, keyed by `name`. |
 | `PROJECT_NAME_TO_ID` | `_merge_project_name_to_id` merges project rows only. An investigation row carries its owner's `project_id`, so merging it would turn "TCGA" or "Collagen Study" into a whole-project report scope. |
 | `INVESTIGATION_NAME_TO_ID` | unchanged: SEEK investigation titles. |
@@ -639,8 +648,10 @@ owns (P7a, P7b).
 
 ## 11. Every consumer of `projects_context` (6.15d)
 
-Nothing in the table below changes behaviour until a database holds an investigation row, and none will until 6.16,
-which follows the merge of all three units and the xlsx sign-off.
+An earlier draft said nothing below changes behaviour until a database holds an investigation row. That was false:
+production's table already types most of its project rows `investigation`. Section 11.1 is the rule that makes every
+filter below right on that legacy shape as well as on the rows 6.16 writes, so the code is correct on a box that never
+runs 6.16.
 
 | Consumer | Reads | Filter it needs | Unit |
 |---|---|---|---|
@@ -651,7 +662,7 @@ which follows the merge of all three units and the xlsx sign-off.
 | `config.MIN_PROJECTS`, the entity agent's PROJECTS CATALOG (`agents/entity.py`) | every row, every turn | none, deliberately: it must see investigations to resolve "Impact" to `Impactb Investigation`; each row says its type | none |
 | `agents/system.py` ENTITY_DETAILS | `FULL_PROJECTS_MAP[name]` | project row under its `name`, and investigation row from `FULL_INVESTIGATIONS_MAP` under `"<name> (investigation)"`; a non-dict map attribute (a `MagicMock` in tests) reads as empty | investigations |
 | `helpers/dates.py::_normalize_project_id`, `reports/runners.py::_resolve_report_scope` | `PROJECT_NAME_TO_ID`, then `INVESTIGATION_NAME_TO_ID` | inherited from the merge filter; no change | none |
-| `nextseek_api/services/context_catalog.py::_project_context_row` (the project page, `seek/views/projects.py`) | `WHERE project_id = %s LIMIT 1` | `AND (entity_type = 'project' OR entity_type IS NULL) ORDER BY name`: an investigation row shares its owner's `project_id` and could otherwise render as the project's header | investigations |
+| `nextseek_api/services/context_catalog.py::_project_context_row` (the project page, `seek/views/projects.py`) | `WHERE project_id = %s LIMIT 1` | `AND <context_rows.PROJECT_ROW_SQL> ORDER BY name`: an investigation row shares its owner's `project_id` and could otherwise render as the project's header | investigations |
 | `scripts/context_gen.py` | writes the table | the composite key (section 9.1) | investigations |
 | `nextseek_api/graph_sync/drift.py` | the block generated from the rows | section 10.4 | investigations |
 | cc-agent image, `/app/plugins/nextseek/context/projects_db.json` | the committed one-row fallback | none now: this work does not regenerate the committed file; `MANIFEST.md` states that rows carry `entity_type` | investigations (`MANIFEST.md`) |
@@ -659,6 +670,28 @@ which follows the merge of all three units and the xlsx sign-off.
 | `startup/steps/schema_fixups.py` with `startup/seed/sql/projects_context.sql` | install's seed | none: install keeps loading what `origin/dev-graph` loads (OD6) | none |
 | `startup/seed/sql/projects_context.curated.sql` | the held seed, loaded by nothing | regenerated with the composite key and the nine rows | investigations |
 | `CONTEXT_FILES/tools/context_to_xlsx.py`, `validate_context.py` (outside the repository) | `context/projects.json` | the workbook keys rows on `name` alone and would pair a project with its same-named investigation; the validator requires `entity_type == "project"` and a unique, SEEK-known `project_id` on every row. Both need the pair key and the section 9.2 rules before the sign-off | the operator |
+
+### 11.1 One definition of a project row and an investigation row (added at integration)
+
+The live `projects_context` is not in the shape section 9 describes. Production's table, and every box restored from
+it, types most PROJECT rows `investigation` with an empty `parent_project`, one sub-project row `study`, and a few
+rows `project`. Testing `entity_type` alone therefore reads most projects as investigations: the project maps, the
+name-to-id merge and the labs injection lose them, the project page loses its header, and the system agent is told
+they are investigations. The adversarial review found this before the labs and investigations units merged.
+
+`NessieAI/chat_nextseek/src/chat_nextseek/context_rows.py` (standard library only) is the one definition:
+
+- an **investigation** is typed `investigation` AND names a non-empty `parent_project`. The generator already refuses
+  an investigation row without one (9.2), so every row 6.16 writes is classified as its curator meant;
+- a **project** is typed `project`, untyped, or a legacy `investigation` row with no `parent_project`;
+- anything else (`study`) is **neither**: it stays in `MIN_PROJECTS` for the entity agent, and joins no map, merge,
+  labs list, page header or ENTITY_DETAILS entry. On a legacy box that is production's one study row, which the old
+  every-row map carried; after 6.16 no such row exists.
+
+`is_project_row` and `is_investigation_row` serve `config.py` and `agents/system.py`; `PROJECT_ROW_SQL` is the same rule
+as one SQL condition for the project page, and a test evaluates it against the predicates on every shape. The system
+agent classifies each row it sends, whichever map holds it. The MySQL lane applies the 6.16 update to the legacy shape
+and requires exactly the curated pairs afterwards.
 
 ## 12. The three units
 
@@ -743,6 +776,10 @@ consistent on each branch and after the merge because:
 - `investigations` retires `pi_names` from the declared columns and makes `present_on` generator-only.
 
 So `unread["projects"]` becomes the empty set on the `investigations` branch and stays correct after the merge.
+
+A second shared file came with the repair (section 11.1): `context_rows.py` and its test
+(`NessieAI/tests/chat_nextseek/test_context_rows.py`) were committed once on the `labs` branch and cherry-picked, byte
+for byte, onto the `investigations` branch, so each branch was green on its own and the merge holds one copy.
 
 ## 13. What the prompt chat needs to change
 
