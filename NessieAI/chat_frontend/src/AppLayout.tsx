@@ -202,9 +202,11 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         useProd: isAdmin ? getUseProd() : false,
         maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
       };
-      submitQuery(text, mode, opts, handleProgress, handleQueryError);
+      // The notice (a dropped progress socket, the answer still on its way) is
+      // shown as a system line and leaves the turn in flight. Kept in step with EmbeddedApp.
+      submitQuery(text, mode, opts, handleProgress, handleQueryError, addSystemMessage);
     },
-    [addUserMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
+    [addUserMessage, addSystemMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
   );
 
   const handleArtifactDownload = useCallback(

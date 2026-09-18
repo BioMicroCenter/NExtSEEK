@@ -204,13 +204,15 @@ export function EmbeddedApp() {
         useProd: isAdmin ? getUseProd() : false,
         maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
       };
+      // The notice (a dropped progress socket, the answer still on its way) is
+      // shown as a system line and leaves the turn in flight. Kept in step with AppLayout.
       serviceRef.current
-        .submitQuery(text, mode, opts, handleProgress, handleQueryError)
+        .submitQuery(text, mode, opts, handleProgress, handleQueryError, addSystemMessage)
         .finally(() => {
           setIsQuerying(false);
         });
     },
-    [addUserMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
+    [addUserMessage, addSystemMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
   );
 
   const handleArtifactDownload = useCallback(

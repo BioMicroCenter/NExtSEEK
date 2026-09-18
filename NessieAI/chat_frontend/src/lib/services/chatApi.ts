@@ -11,6 +11,17 @@ import type { AuthService } from "./authTypes";
 
 const POLL_INTERVAL = 2000;
 
+/** What the user is told while a dropped progress socket's turn is read by polling. */
+const STREAM_LOST_NOTICE = "Connection lost. Still waiting for the answer.";
+
+/** How a progress socket that opened came to its end. */
+interface StreamOutcome {
+  /** The turn's final event came through the socket. */
+  finished: boolean;
+  /** Progress events the socket delivered; a poll that takes over resumes after them. */
+  delivered: number;
+}
+
 async function readErrorDetail(response: Response): Promise<string | null> {
   try {
     const body = await response.json();
@@ -42,6 +53,7 @@ export class NextseekApiService {
     opts: { sessionId?: string | null; forceNew?: boolean; forceRoute?: "auto" | "ns" | "cc"; useProd?: boolean; maxTurnLengthS?: number | null },
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
+    onNotice?: (message: string) => void,
   ): Promise<void> {
     const baseUrl = this.auth.getApiBaseUrl();
 
@@ -105,43 +117,65 @@ export class NextseekApiService {
 
     // 2. Open WS for progress
     const wsBase = this.auth.getWsBaseUrl();
+    let stream: StreamOutcome;
     try {
-      await this.streamProgress(
+      stream = await this.streamProgress(
         `${wsBase}/ws/assistant/progress/${taskId}/`,
         onProgress,
-        onError,
       );
     } catch {
       // WS failed, fall back to polling
       await this.pollProgress(baseUrl, taskId, onProgress, onError);
+      return;
+    }
+    if (!stream.finished) {
+      // The socket opened, then dropped before the turn's final event. The turn
+      // goes on server-side and its answer lands in the task either way, so read
+      // the rest by polling, starting after the events the socket delivered so
+      // that none of them, the answer included, reaches the user twice.
+      onNotice?.(STREAM_LOST_NOTICE);
+      await this.pollProgress(baseUrl, taskId, onProgress, onError, stream.delivered);
     }
   }
 
+  /**
+   * Stream a task's progress over the WebSocket. Rejects only when the socket
+   * never opens. Once it has opened it resolves exactly once: at the turn's
+   * final event, or at the first error or close before it (whatever the close
+   * code). From then on the socket delivers nothing more, so the poll that takes
+   * over a dropped stream cannot repeat an event.
+   */
   private streamProgress(
     url: string,
     onProgress: (event: ProgressEvent) => void,
-    onError: (error: string) => void,
-  ): Promise<void> {
+  ): Promise<StreamOutcome> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
       let opened = false;
+      let settled = false;
+      let delivered = 0;
+
+      const settle = (finished: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve({ finished, delivered });
+      };
 
       ws.onopen = () => {
         opened = true;
       };
 
       ws.onmessage = (event: MessageEvent) => {
+        if (settled) return;
         try {
           const parsed: ProgressEvent = JSON.parse(event.data as string);
+          // The server's closing "done" frame is not one of the task's events.
+          if (parsed.event !== "done") delivered += 1;
+          const final =
+            parsed.event === "query_complete" || parsed.event === "query_error";
+          if (final) settle(true);
           onProgress(parsed);
-
-          if (
-            parsed.event === "query_complete" ||
-            parsed.event === "query_error"
-          ) {
-            ws.close(1000);
-            resolve();
-          }
+          if (final) ws.close(1000);
         } catch {
           // ignore non-JSON
         }
@@ -150,17 +184,19 @@ export class NextseekApiService {
       ws.onerror = () => {
         if (!opened) {
           reject(new Error("WebSocket connection failed"));
+        } else if (!settled) {
+          // A browser follows this with a close; hand over now, and close so
+          // that nothing more can arrive.
+          settle(false);
+          ws.close();
         }
       };
 
-      ws.onclose = (event: CloseEvent) => {
+      ws.onclose = () => {
         if (!opened) {
           reject(new Error("WebSocket connection failed"));
-        } else if (event.code !== 1000) {
-          onError("Connection closed unexpectedly");
-          resolve();
         } else {
-          resolve();
+          settle(false);
         }
       };
     });
@@ -171,8 +207,10 @@ export class NextseekApiService {
     taskId: string,
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
+    startIndex = 0,
   ): Promise<void> {
-    let lastIndex = 0;
+    // Events before startIndex already reached the caller over the socket.
+    let lastIndex = startIndex;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -203,7 +241,7 @@ export class NextseekApiService {
           }
         }
 
-        lastIndex = events.length;
+        lastIndex = Math.max(lastIndex, events.length);
       } catch (err) {
         onError(
           err instanceof Error ? err.message : "Polling failed",

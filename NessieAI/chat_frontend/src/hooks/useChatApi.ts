@@ -24,6 +24,7 @@ interface UseChatApiReturn {
     opts: SubmitQueryOpts,
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
+    onNotice?: (message: string) => void,
   ) => void;
   fetchTestCases: () => Promise<TestCase[]>;
   downloadBundle: (sessionId: string, bundleId: number, format: string) => Promise<void>;
@@ -41,11 +42,12 @@ export function useChatApi(): UseChatApiReturn {
       opts: SubmitQueryOpts,
       onProgress: (event: ProgressEvent) => void,
       onError: (error: string) => void,
+      onNotice?: (message: string) => void,
     ) => {
       setIsQuerying(true);
 
       serviceRef.current
-        .submitQuery(query, mode, opts, onProgress, onError)
+        .submitQuery(query, mode, opts, onProgress, onError, onNotice)
         .finally(() => {
           setSessionId(serviceRef.current.sessionId);
           setIsQuerying(false);
