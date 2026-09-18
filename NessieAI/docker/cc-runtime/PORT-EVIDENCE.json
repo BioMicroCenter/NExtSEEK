@@ -29,7 +29,7 @@
   ],
   "context_file_inventory": [
     {"path": "build_context/plugins/nextseek/context/min_graph_schema.json", "size_bytes": 4165, "sha256": "8884fe59a0edfb46acc0374fbd99b881639a67c3c2e611aaa67af9b3affc40c7"},
-    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 3860, "sha256": "216144b92545339ade4cc15e1478519c1fa0318101cccdd2125425477ec54ef8"},
+    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 3088, "sha256": "af540e5ffb108bd73a02891c2c667789ce3a1f6ca3d7feadcca9cf537570d457"},
     {"path": "docs/nextseek/.content-hash", "size_bytes": 65, "sha256": "63bf80efdd5a692e50f9661b19ef9e35082935f62a3ed3a8687e31bc6cbd5059"},
     {"path": "docs/nextseek/01-overview.md", "size_bytes": 3414, "sha256": "1eafd47790d10dc6b7fe85d617d2c803aa6f0c3e1e9d85362c6d61a7bbfbea68"},
     {"path": "docs/nextseek/02-using-seek-and-nextseek.md", "size_bytes": 11052, "sha256": "f0d86d1eb7dbe745781f1713f7df00cc1f0ee48397b3de02aaa43d4cfd7e994e"},
@@ -101,6 +101,19 @@
         "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_cc_runtime_named_context_catalog_copies_exist_in_chat_nextseek",
         "NessieAI/tests/build_tools/unit/test_gen_op_surfaces.py::test_capabilities_copy_matches_canonical_bytes",
         "NessieAI/tests/build_tools/unit/test_gen_op_surfaces_dockerfile.py"
+      ],
+      "context_file_inventory_affected": true
+    },
+    {
+      "date": "2026-09-18",
+      "path": "build_context/plugins/nextseek/context/read_safe_endpoints.json",
+      "change": "Four endpoints left the read-safe list, byte-identical in both copies (NessieAI/ns/read_safe_endpoints.json, which the write gate enforces, and this baked copy): POST /nextseek_api/samples/advanced_search/, POST /nextseek_api/sample_types/get_parents/parents_by_child_types/, POST /nextseek_api/entity_tree/lineage/ and GET /nextseek_api/samples/. The CC agent's api-read op now refuses them. In the same change the canonical min_api_endpoints.json swapped advanced_search for graph_search and dropped parents_by_child_types and sampletypes/{uid}/child_types. The endpoints themselves stay, since pages and smoke tests call them.",
+      "why": "Operator ruling of 2026-09-18 for both engines: every sample question (find, filter, count, break down, lineage, attribute values) goes to the graph, through the nextseek-graph op or graph_search, which apply the caller's project scope. parents_by_child_types and child_types were also shown to cross the project edge on lineage (the 7.1 red team's finding N3).",
+      "guards": [
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_enforced_allowlist_matches_the_baked_agent_copy",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_advertised_mutating_endpoints_are_pinned",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_post_as_read_endpoints_are_attested_in_the_read_safety_audit",
+        "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_port_evidence_context_file_inventory_matches_ported_files"
       ],
       "context_file_inventory_affected": true
     }

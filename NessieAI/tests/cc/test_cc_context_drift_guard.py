@@ -410,9 +410,9 @@ def test_enforced_and_baked_allowlists_agree_on_endpoint_methods():
 # ---------------------------------------------------------------------------
 # #65a: the specific privilege the drift leaked
 # ---------------------------------------------------------------------------
-# POST-as-read query endpoints (advanced_search, parents_by_child_types,
-# admin/samples/retrieve) are legitimately advertised and deliberately absent
-# from this list — see read_safe_endpoints.json for their audited rationale.
+# POST-as-read query endpoints (graph_search, admin/samples/retrieve) are
+# legitimately advertised and deliberately absent from this list — see
+# read_safe_endpoints.json for their audited rationale.
 FORBIDDEN_SAMPLE_MUTATIONS = (
     ("POST", "/nextseek_api/samples/"),
     ("PATCH", "/nextseek_api/samples/{uid}/"),
@@ -488,9 +488,12 @@ ADVERTISED_MUTATIONS = {
     ("POST", "/nextseek_api/people/"): WRITE,
     ("POST", "/nextseek_api/projects/"): WRITE,
     ("POST", "/nextseek_api/sample_types/"): WRITE,
-    ("POST", "/nextseek_api/sample_types/get_parents/parents_by_child_types/"): POST_AS_READ,
     ("POST", "/nextseek_api/samples/"): WRITE,
-    ("POST", "/nextseek_api/samples/advanced_search/"): POST_AS_READ,
+    # Sample search answered from the graph, the caller's project scope added on
+    # the server. It replaced advanced_search and parents_by_child_types in the
+    # agent's catalog on 2026-09-18 (sample questions go to the graph; the second
+    # also crossed the project edge on lineage).
+    ("POST", "/nextseek_api/samples/graph_search/"): POST_AS_READ,
     ("POST", "/nextseek_api/schema_rag/ingest/"): WRITE,
     # #86, audited 2026-08-13: WRITE, not post-as-read. See
     # SCHEMA_RAG_RETRIEVE_AUTO_INGEST below for the finding and the evidence.
