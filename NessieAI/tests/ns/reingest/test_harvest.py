@@ -338,6 +338,38 @@ def test_inventory_entry_carries_the_real_file_size_not_a_decoded_text_length():
     assert got.outputs[0].bytes == 4823019283
 
 
+def test_inventory_checksum_folds_into_the_manifests_own_dict():
+    """granular.py's `_STAGE_SCRIPT` computes "checksum" on an inventory
+    entry (an automatic hash under its own per-file/total-byte ceiling --
+    see test_run_harvest_op.py); `harvest_local` is the layer that folds
+    that into `RunManifest.checksums`, keyed by the same run-relative path
+    `mapper._attach_checksum` looks up."""
+    got = harvest.harvest_local(
+        "/nonexistent-root-never-read",
+        inventory=[
+            {"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 100,
+             "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            {"path": "star_salmon/salmon.merged.gene_counts.tsv", "bytes": 200,
+             "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+        ],
+        lookup_by_fastq=lambda p, types=None: [])
+    assert got.checksums == {
+        "star_salmon/CONTROL_REP1.markdup.sorted.bam": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "star_salmon/salmon.merged.gene_counts.tsv": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    }
+
+
+def test_an_inventory_entry_with_no_checksum_key_folds_nothing():
+    """An inventory entry from an older caller, or one the remote script
+    could not checksum at all (over the ceiling or budget), must not
+    fabricate an entry."""
+    got = harvest.harvest_local(
+        "/nonexistent-root-never-read",
+        inventory=[{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 100}],
+        lookup_by_fastq=lambda p, types=None: [])
+    assert got.checksums == {}
+
+
 def test_inventory_entries_are_attributed_to_a_sample_when_derivable(tmp_path):
     root = tmp_path / "run"
     _minimal_run(root)

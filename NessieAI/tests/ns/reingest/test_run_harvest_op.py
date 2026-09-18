@@ -85,7 +85,8 @@ def test_run_harvest_is_registered_and_takes_no_write_gate():
 
 def _run_stage_script_locally(run_dir: str, patterns, *, runs_root=None, max_file_bytes=None,
                                max_total_bytes=None, max_files=None, inventory_patterns=(),
-                               max_inventory_files=None) -> bytes:
+                               max_inventory_files=None, max_checksum_file_bytes=None,
+                               max_checksum_total_bytes=None) -> bytes:
     """Stand-in for ssh_run_bytes: runs the exact remote script we ship
     (g._STAGE_SCRIPT) via a local subprocess against `run_dir`, exactly as it
     would run on the cluster host over SSH. Returns the tar bytes it writes
@@ -113,6 +114,8 @@ def _run_stage_script_locally(run_dir: str, patterns, *, runs_root=None, max_fil
          str(max_total_bytes if max_total_bytes is not None else harvest.MAX_TOTAL_BYTES),
          str(max_files if max_files is not None else harvest.MAX_FILES),
          str(max_inventory_files if max_inventory_files is not None else harvest.MAX_INVENTORY_FILES),
+         str(max_checksum_file_bytes if max_checksum_file_bytes is not None else g._HARVEST_CHECKSUM_MAX_FILE_BYTES),
+         str(max_checksum_total_bytes if max_checksum_total_bytes is not None else g._HARVEST_CHECKSUM_MAX_TOTAL_BYTES),
          g._STAGE_REPORT_NAME, str(len(patterns)), *patterns, *inventory_patterns],
         capture_output=True, check=True)
     return proc.stdout
@@ -431,9 +434,14 @@ def test_stage_run_dir_emits_an_inventory_entry_for_each_output_glob_match(tmp_p
         _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
 
     # Listing-only: the matched file is never staged, unlike a GENERIC_GLOBS
-    # match -- the inventory names it and its real size, nothing more.
+    # match -- the inventory names it and its real size. It also carries an
+    # auto-hashed checksum: 4096 bytes is comfortably under the default
+    # auto-hash ceiling (see the checksum-ceiling/budget tests below).
+    import hashlib
+    expected_digest = hashlib.md5(b"x" * 4096).hexdigest()
     assert not (staged / "star_salmon" / "CONTROL_REP1.markdup.sorted.bam").exists()
-    assert inventory == [{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 4096}]
+    assert inventory == [{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 4096,
+                          "checksum": expected_digest}]
     assert skipped == []
 
 
@@ -569,6 +577,87 @@ def test_stage_run_dir_enforces_the_inventory_file_count_cap(tmp_path, monkeypat
 
     assert len(inventory) == 2
     assert any("exceeds max inventory file count" in item["reason"] for item in skipped), skipped
+
+
+# ---------------------------------------------------------------------------
+# Checksum_PrimaryData for free: an automatic hash of the cheap ones,
+# bounded by a per-file ceiling and a running total budget across the run.
+# Happens inside the SAME already-guarded remote inventory walk, never a
+# second SSH round trip.
+# ---------------------------------------------------------------------------
+
+def _bam_with_inventory(run_dir, name="CONTROL_REP1.markdup.sorted.bam", content=b"x" * 100):
+    bam_dir = run_dir / "star_salmon"
+    bam_dir.mkdir(parents=True, exist_ok=True)
+    bam = bam_dir / name
+    bam.write_bytes(content)
+    return bam
+
+
+def test_a_file_under_the_ceiling_is_hashed_with_the_correct_digest(tmp_path, monkeypatch):
+    """The digest must be the file's REAL md5 -- checked against a known md5
+    of known bytes, not merely "a 32-char string is present"."""
+    import hashlib
+    run_dir = tmp_path / "runs" / "a_run"
+    bam = _bam_with_inventory(run_dir, content=b"w" * 50)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.INVENTORY_GLOBS))
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(tmp_path / "staged"), "/dev/null")
+
+    entry = next(i for i in inventory if i["path"] == "star_salmon/" + bam.name)
+    assert entry["checksum"] == hashlib.md5(b"w" * 50).hexdigest()
+    assert skipped == []
+
+
+def test_a_file_over_the_auto_hash_ceiling_is_not_hashed_and_the_reason_is_visible(tmp_path, monkeypatch):
+    run_dir = tmp_path / "runs" / "a_run"
+    bam = _bam_with_inventory(run_dir, content=b"x" * 1000)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.INVENTORY_GLOBS,
+            max_checksum_file_bytes=100, max_checksum_total_bytes=1_000_000))
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(tmp_path / "staged"), "/dev/null")
+
+    entry = next(i for i in inventory if i["path"] == "star_salmon/" + bam.name)
+    assert "checksum" not in entry
+    assert any(
+        item["path"] == "star_salmon/" + bam.name and "exceeds max checksum file bytes" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_the_total_checksum_budget_stops_hashing_but_the_manifest_is_still_usable(tmp_path, monkeypatch):
+    import hashlib
+    run_dir = tmp_path / "runs" / "a_run"
+    first = _bam_with_inventory(run_dir, name="a.bam", content=b"a" * 100)
+    second = _bam_with_inventory(run_dir, name="b.bam", content=b"b" * 100)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.INVENTORY_GLOBS,
+            max_checksum_file_bytes=1000, max_checksum_total_bytes=150))
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(tmp_path / "staged"), "/dev/null")
+
+    by_path = {i["path"]: i for i in inventory}
+    # Glob order is alphabetical (sorted(run_dir.glob(pattern))): a.bam (100
+    # bytes) fits under the 150 budget; b.bam would push the running total to
+    # 200 > 150, so it is skipped, unhashed -- but the inventory entry for it
+    # still exists (bytes are still listed), and the run overall is usable.
+    assert by_path["star_salmon/a.bam"]["checksum"] == hashlib.md5(b"a" * 100).hexdigest()
+    assert "checksum" not in by_path["star_salmon/b.bam"]
+    assert any(
+        item["path"] == "star_salmon/b.bam" and "exceeds checksum byte budget" in item["reason"]
+        for item in skipped
+    ), skipped
 
 
 # ---------------------------------------------------------------------------

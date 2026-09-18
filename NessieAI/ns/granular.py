@@ -355,8 +355,32 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
 #    `.named_outputs` for the two different consumers this feeds.
 _STAGE_REPORT_NAME = "__nextseek_stage_report__.json"
 
+# Auto-hash the cheap ones: thresholds for hashing an inventoried output
+# during run-harvest's existing staging SSH call -- never a second round
+# trip. Deliberately separate module constants from run-checksum's own
+# `_CHECKSUM_MAX_FILE_BYTES` / `_CHECKSUM_MAX_TOTAL_BYTES` below: those bound
+# an EXPLICIT, caller-requested hash of files the caller already knows are
+# worth the wait (up to 10 GB each, 20 GB aggregate); these bound an
+# AUTOMATIC, no-one-asked-for-it hash that happens on every run-harvest call,
+# so they must be small enough that harvest_local's own
+# `_HARVEST_SSH_TIMEOUT_S` (150s, itself under the 180s CC-turn hard cap) is
+# never meaningfully at risk from hashing alone -- getting a manifest back at
+# all matters far more than getting a checksum for free. At a conservative
+# shared-cluster-disk throughput of ~150 MB/s (the same figure run-checksum's
+# own comment uses), the 500 MB aggregate ceiling hashes in a bit over 3
+# seconds -- negligible next to the tar transfer and local extraction that
+# already dominate a harvest call's wall clock. The 100 MB per-file ceiling
+# covers a typical MultiQC html report, a small per-sample count matrix, or a
+# modest BAM; it deliberately excludes the multi-GB primary alignment files
+# this whole feature exists to avoid blocking on -- those still need
+# `run-checksum` explicitly.
+_HARVEST_CHECKSUM_MAX_FILE_BYTES = int(
+    os.environ.get("NEXTSEEK_HARVEST_CHECKSUM_MAX_FILE_BYTES", 100_000_000))
+_HARVEST_CHECKSUM_MAX_TOTAL_BYTES = int(
+    os.environ.get("NEXTSEEK_HARVEST_CHECKSUM_MAX_TOTAL_BYTES", 500_000_000))
+
 _STAGE_SCRIPT = """\
-import io, json, pathlib, sys, tarfile
+import hashlib, io, json, pathlib, sys, tarfile
 run_dir = pathlib.Path(sys.argv[1])
 runs_root = pathlib.Path(sys.argv[2])
 resolved_runs_root = runs_root.resolve()
@@ -365,10 +389,12 @@ max_file_bytes = int(sys.argv[3])
 max_total_bytes = int(sys.argv[4])
 max_files = int(sys.argv[5])
 max_inventory_files = int(sys.argv[6])
-report_name = sys.argv[7]
-n_patterns = int(sys.argv[8])
-patterns = sys.argv[9:9 + n_patterns]
-inventory_patterns = sys.argv[9 + n_patterns:]
+max_checksum_file_bytes = int(sys.argv[7])
+max_checksum_total_bytes = int(sys.argv[8])
+report_name = sys.argv[9]
+n_patterns = int(sys.argv[10])
+patterns = sys.argv[11:11 + n_patterns]
+inventory_patterns = sys.argv[11 + n_patterns:]
 skipped = []
 total_bytes = 0
 files_added = 0
@@ -444,6 +470,7 @@ if not run_dir_escapes_runs_root:
             files_added += 1
 
     seen_inventory = set()
+    checksum_bytes_used = 0
     for pattern in inventory_patterns:
         for path in sorted(run_dir.glob(pattern)):
             rel = str(path.relative_to(run_dir))
@@ -456,7 +483,28 @@ if not run_dir_escapes_runs_root:
             if len(inventory) >= max_inventory_files:
                 skipped.append({"path": rel, "reason": "exceeds max inventory file count (%d)" % max_inventory_files})
                 continue
-            inventory.append({"path": rel, "bytes": st.st_size})
+            entry = {"path": rel, "bytes": st.st_size}
+
+            # Checksum_PrimaryData, for free where possible (nfcore-reingest
+            # addendum): hash the file itself, bounded twice (a per-file
+            # ceiling and a running total budget across the whole run -- see
+            # _HARVEST_CHECKSUM_MAX_FILE_BYTES/_HARVEST_CHECKSUM_MAX_TOTAL_BYTES
+            # above for why these numbers). Exhausting either bound is a
+            # reported `skipped` entry, never a failure -- getting the rest
+            # of the manifest back matters more than one more checksum.
+            if st.st_size > max_checksum_file_bytes:
+                skipped.append({"path": rel, "reason": "exceeds max checksum file bytes (%d > %d); use run-checksum explicitly" % (st.st_size, max_checksum_file_bytes)})
+            elif checksum_bytes_used + st.st_size > max_checksum_total_bytes:
+                skipped.append({"path": rel, "reason": "exceeds checksum byte budget (%d + %d > %d); use run-checksum explicitly" % (checksum_bytes_used, st.st_size, max_checksum_total_bytes)})
+            else:
+                h = hashlib.md5()
+                with open(path, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                        h.update(chunk)
+                entry["checksum"] = h.hexdigest()
+                checksum_bytes_used += st.st_size
+
+            inventory.append(entry)
 
 report = json.dumps({
     "skipped": skipped,
@@ -491,8 +539,11 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
     ``{"path", "reason"}`` entries the remote script skipped (symlinks,
     escapes, hardlinks, or cap hits -- from either half) so the caller can
     surface them rather than let the omission pass silently; ``inventory``
-    is the list of ``{"path", "bytes"}`` entries for ``harvest_local``'s
-    ``inventory`` parameter.
+    is the list of ``{"path", "bytes"}`` entries -- plus an optional
+    ``"checksum"`` key when the file was cheap enough to hash under
+    ``_HARVEST_CHECKSUM_MAX_FILE_BYTES``/``_HARVEST_CHECKSUM_MAX_TOTAL_BYTES``
+    (see the checksum block in ``_STAGE_SCRIPT`` above) -- for
+    ``harvest_local``'s ``inventory`` parameter.
     """
     import io
     import shlex
@@ -506,7 +557,9 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
     remote_cmd = " ".join([
         "python3", "-c", shlex.quote(_STAGE_SCRIPT), shlex.quote(run_dir), shlex.quote(runs_root),
         shlex.quote(str(MAX_FILE_BYTES)), shlex.quote(str(MAX_TOTAL_BYTES)), shlex.quote(str(MAX_FILES)),
-        shlex.quote(str(MAX_INVENTORY_FILES)), shlex.quote(_STAGE_REPORT_NAME), shlex.quote(str(len(GENERIC_GLOBS))),
+        shlex.quote(str(MAX_INVENTORY_FILES)),
+        shlex.quote(str(_HARVEST_CHECKSUM_MAX_FILE_BYTES)), shlex.quote(str(_HARVEST_CHECKSUM_MAX_TOTAL_BYTES)),
+        shlex.quote(_STAGE_REPORT_NAME), shlex.quote(str(len(GENERIC_GLOBS))),
         *(shlex.quote(pattern) for pattern in GENERIC_GLOBS),
         *(shlex.quote(pattern) for pattern in INVENTORY_GLOBS),
     ])
@@ -695,6 +748,8 @@ try:
     resolved_run_dir.relative_to(resolved_runs_root)
 except ValueError:
     run_dir_escapes_runs_root = True
+
+
 for rel in rels:
     if run_dir_escapes_runs_root:
         escaped.append({"path": rel, "reason": "run_dir resolves outside the runs root"})

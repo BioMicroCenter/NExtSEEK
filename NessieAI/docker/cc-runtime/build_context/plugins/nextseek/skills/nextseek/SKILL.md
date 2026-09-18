@@ -147,28 +147,30 @@ user to REVIEW and upload — it does **not** write to NExtSEEK. Workflow:
    artifact and the `proposals` return field, for a superuser to rule on later. Relay what's there;
    do not resolve it yourself.
 3. **`nextseek-run-checksum --run-dir <same run dir as step 1> --manifest-id <id from step 1>
-   --paths <comma-separated paths>` — conditional, and usually skip it.** `build-upload-xlsx`
-   fills each row's `File_PrimaryData` on its own, from the SAME harvested output `run-harvest`
-   already found in step 1 — you do NOT need this step just to get a workbook to render.
-   `Checksum_PrimaryData` is the one thing this step adds: a catalog expectation on
-   `A.GEX`/`A.ALN` (and any future map that names `primary_data`); SEEK itself does not enforce it
-   there today, so a missing checksum SOFT-flags the row rather than blocking the workbook.
-   **Skip this step** unless the user explicitly asks for a checksum, or explicitly wants that
-   soft flag cleared: it SSHes the cluster to md5 files that can be many GB each, and can by
-   itself consume most of the CC turn's 180s hard cap (`NEXTSEEK_CC_TIMEOUT_HARD_MAX`), leaving no
-   budget for the harvest and `build-upload-xlsx` calls that actually produce a workbook. If the
-   user does ask for it: pass `--run-dir` as the EXACT SAME run dir you passed to `run-harvest` in
-   step 1 — the op refuses when the manifest's own run_dir does not match the run_dir you are
-   hashing, so a stale manifest_id from a different, earlier run is caught rather than silently
-   attaching this run's digest to that other run's row. Pass `--paths` as the comma-separated
-   `path` values from `manifest.outputs` (relative to `--run-dir`) — there is no other source for
-   them; `run-ls` is not part of this workflow. **Always pass `--manifest-id`** (step 1's id):
-   without it the checksums are computed and returned but never persisted anywhere step 4 can see,
-   which is a wasted SSH call. **The result's `manifest_id` is a NEW id — manifests are
-   content-addressed, so folding in checksums produces a different one.** Use THAT new id, not
-   step 1's, in step 4. A checksum only reaches a row when it is the file that sample type's
-   committed map rule already names as primary data (e.g. A.ALN's aligned BAM, A.GEX's merged
-   gene-counts matrix) — a path you hashed that no rule points at contributes nothing.
+   --paths <comma-separated paths>` — usually unnecessary now.** Step 1 already fills in
+   `Checksum_PrimaryData` for free wherever it can: run-harvest auto-hashes any inventoried output
+   under a small per-file/total-byte ceiling (cheap files only — a MultiQC report, a small matrix),
+   inside its existing staging call — no second SSH round trip. Check `manifest.warnings` and the
+   harvest result's `skipped` list: an auto-hash that got skipped for exceeding the ceiling or the
+   run's byte budget says so there, by name. **Only call this op when a specific file you actually
+   need checksummed — almost always a multi-GB primary alignment BAM — did not fit under
+   run-harvest's auto-hash ceiling.** A genuine SSH hash of a large file can by itself consume most
+   of the CC turn's 180s hard cap (`NEXTSEEK_CC_TIMEOUT_HARD_MAX`), leaving no budget for the harvest
+   and `build-upload-xlsx` calls that actually produce a workbook — so do not call it speculatively
+   "just in case", and do not call it for a file the manifest already carries a checksum for (check
+   `manifest.checksums` first). If you do call it: pass `--run-dir` as the EXACT SAME run dir you
+   passed to `run-harvest` in step 1 — the op refuses when the manifest's own run_dir does not match
+   the run_dir you are hashing, so a stale manifest_id from a different, earlier run is caught
+   rather than silently attaching this run's digest to that other run's row. Pass `--paths` as the
+   comma-separated `path` values from `manifest.outputs` (relative to `--run-dir`) — there is no
+   other source for them; `run-ls` is not part of this workflow. **Always pass `--manifest-id`**
+   (step 1's id, or a later one if you've already run this step once): without it the checksums are
+   computed and returned but never persisted anywhere step 4 can see, which is a wasted SSH call.
+   **The result's `manifest_id` is a NEW id — manifests are content-addressed, so folding in
+   checksums produces a different one.** Use THAT new id, not step 1's, in step 4. A checksum only
+   reaches a row when it is the file that sample type's committed map rule already names as primary
+   data (e.g. A.ALN's aligned BAM, A.GEX's merged gene-counts matrix) — a path you hashed that no
+   rule points at contributes nothing.
 4. `nextseek-build-upload-xlsx --manifest-id <id — step 3's id if you ran it, else step 1's>
    --mode new` for the analysis children, then `--mode update` for the D.SEQ backfill.
 5. **Relay the `reply` field of the result VERBATIM.** It is already written for the user;

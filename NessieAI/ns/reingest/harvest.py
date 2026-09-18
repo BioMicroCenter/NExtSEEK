@@ -119,9 +119,12 @@ INVENTORY_GLOBS: tuple[str, ...] = (
 MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILE_BYTES", 4_000_000))
 MAX_TOTAL_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_TOTAL_BYTES", 32_000_000))
 MAX_FILES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILES", 500))
-# The inventory lists names and sizes only -- nothing is transferred or read
-# -- so it needs no byte ceiling, only a count cap, the same idiom as the
-# other caps above.
+# The inventory lists names and sizes for every match; nothing is
+# transferred, but a match cheap enough to fit under granular.py's own
+# `_HARVEST_CHECKSUM_MAX_FILE_BYTES`/`_HARVEST_CHECKSUM_MAX_TOTAL_BYTES`
+# ceilings IS read and hashed in place (see `_stage_run_dir`'s docstring and
+# `_STAGE_SCRIPT`). The inventory listing itself still needs no byte ceiling
+# of its own, only this count cap, the same idiom as the other caps above.
 MAX_INVENTORY_FILES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_INVENTORY_FILES", 500))
 
 # MultiQC's per-read rows (`<sample>_1`, `<sample>_2`) populate only these
@@ -473,6 +476,19 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
         out.outputs.append(manifest.OutputRecord(
             path=rel, bytes=int((entry or {}).get("bytes") or 0),
             sample=_sample_for_output_path(rel, sample_names)))
+        # granular.py's `_STAGE_SCRIPT` computes "checksum" for any
+        # inventoried output cheap enough to fit under its own per-file/
+        # total-byte hashing budget, during this same remote inventory walk
+        # -- never a second round trip -- and this folds it straight into
+        # `RunManifest.checksums`, keyed by the SAME run-relative path as
+        # `OutputRecord.path` -- exactly like `granular._run_checksum`'s own
+        # merge, so `mapper._attach_checksum` reads it the same way
+        # regardless of which op actually produced the digest. A missing
+        # "checksum" key (over the auto-hash ceiling, or the budget already
+        # spent) means nothing to fold -- never a guess.
+        checksum = (entry or {}).get("checksum")
+        if checksum:
+            out.checksums[rel] = checksum
     out.named_outputs = _resolve_named_outputs(out.outputs)
 
     # Complete requires BOTH the versions file present AND the trace showing
