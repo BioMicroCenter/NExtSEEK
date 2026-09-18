@@ -5,9 +5,13 @@
 -- HELD: no install step reads this file until the curated content is signed off
 -- (scripts/README.md group C).
 --
+-- A row is a project or an investigation (`entity_type`), and the two may share a
+-- name, so a row is keyed on (name, entity_type). An investigation row carries its
+-- owning project's id.
+--
 -- Read by the project page header; every field is optional and the header falls
 -- back to the SEEK title and description when the row is absent. The lookup is
--- `SELECT * FROM projects_context WHERE project_id = %s`
+-- `SELECT * FROM projects_context WHERE project_id = %s` over project rows only
 -- (nextseek_api/services/context_catalog.py), keyed on the SEEK project id and
 -- with no fallback by name. The project_id values below are PRODUCTION's SEEK
 -- ids. The committed seek seed carries exactly one project, `Published Data` at
@@ -27,7 +31,7 @@ CREATE TABLE IF NOT EXISTS projects_context (
   id                        INT AUTO_INCREMENT PRIMARY KEY,
   name                      VARCHAR(255) NULL,
   alternative_names         TEXT         NULL,
-  entity_type               VARCHAR(64)  NULL,
+  entity_type               VARCHAR(64)  NOT NULL,
   project_id                INT          NULL,
   parent_project            VARCHAR(255) NULL,
   pi                        TEXT         NULL,
@@ -38,7 +42,7 @@ CREATE TABLE IF NOT EXISTS projects_context (
   fairdomhub_published_link TEXT         NULL,
   tags                      TEXT         NULL,
   KEY idx_project_id (project_id),
-  UNIQUE KEY `uq_projects_context_name` (`name`)
+  UNIQUE KEY `uq_projects_context_name_type` (`name`, `entity_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO `projects_context` (`name`, `alternative_names`, `entity_type`, `project_id`, `parent_project`, `pi`, `research_focus`, `key_data_types`, `description`, `nih_reporter_link`, `fairdomhub_published_link`, `tags`) VALUES ('BPRC', '["Biomedical Primate Research Centre", "Biomedical Primate Research Center"]', 'project', 15, NULL, NULL, 'Non-human primate models of tuberculosis; testing of BCG and new tuberculosis vaccine and therapy candidates in macaques', '[]', 'The Biomedical Primate Research Centre (BPRC) in Rijswijk, the Netherlands, is a not-for-profit research institute that works with non-human primate models. Its tuberculosis research uses macaques to test new tuberculosis vaccines and treatments against the current BCG vaccine, measuring safety, immune responses and protection. Its macaque tuberculosis work is related to the IMPAcTb program.', NULL, NULL, 'BPRC, Biomedical Primate Research Centre, Rijswijk, macaque, rhesus macaque, non-human primate, NHP, tuberculosis, TB, BCG, vaccine');

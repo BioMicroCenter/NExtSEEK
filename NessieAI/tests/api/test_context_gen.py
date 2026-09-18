@@ -291,9 +291,12 @@ def test_update_sets_every_column_including_the_key():
 
 
 def test_update_removes_rows_the_source_no_longer_names():
+    sql = cg.render_update("assays", _rows_for("assays"))
+    assert "DELETE FROM `assay_context` WHERE `assay_name` NOT IN (" in sql
+    # projects_context keys on the pair, so its delete names each (name, entity_type).
     sql = cg.render_update("projects", _rows_for("projects"))
-    assert "DELETE FROM `projects_context` WHERE `name` NOT IN (" in sql
-    assert "'CSBC'" in sql.split("NOT IN (", 1)[1].split(")", 1)[0]
+    delete = sql.split("DELETE FROM `projects_context` WHERE NOT (", 1)[1].split(";", 1)[0]
+    assert "(`name` = 'CSBC' AND `entity_type` = 'project')" in delete
     # And collapses duplicate keys, which production's assay_context has 22 of.
     assert "DELETE `a` FROM `projects_context` `a`" in sql
 
@@ -308,7 +311,8 @@ def test_a_row_with_no_key_at_all_is_deleted_too():
     """
     for table, spec in cg.TABLES.items():
         sql = cg.render_update(table, _rows_for(table))
-        assert f"OR `{spec.key}` IS NULL;" in sql, table
+        nulls = " OR ".join(f"`{column}` IS NULL" for column in spec.key_columns)
+        assert f"OR {nulls};" in sql, table
 
 
 def test_the_dedupe_runs_only_where_there_is_an_id_to_order_by():
@@ -360,7 +364,7 @@ def test_every_row_change_is_one_transaction_that_commits_only_when_checked():
 
 def test_update_adds_the_unique_key_and_any_new_column():
     sql = cg.render_update("projects", _rows_for("projects"))
-    assert "uq_projects_context_name" in sql
+    assert "ADD UNIQUE KEY `uq_projects_context_name_type`" in sql
     assert "information_schema" in sql          # the idempotent add, not a bare ALTER
     assert "ADD COLUMN" not in sql              # projects_context gains no column
     sample = cg.render_update("sample_types", _rows_for("sample_types"))
@@ -506,6 +510,122 @@ def test_the_real_curated_keys_do_not_collide_under_that_wider_fold():
         cg._checked_keys(table, rows)           # raises on a collision
 
 
+# --- the natural key is (name, entity_type) ------------------------------------
+#
+# The real CSBC and MetNet investigations share their exact SEEK titles with the CSBC
+# and MetNet project rows, so `projects_context` keyed on `name` alone cannot hold both
+# (spec 2026-09-18, section 9.1). Everything that keys a project row keys the pair: the
+# refusals, the delete of rows the source no longer names, the upsert, the dedupe, the
+# digest and the unique key. The live table's PRIMARY KEY (name) is widened in the
+# schema part, before the rows transaction; the MySQL lane proves it on both shapes.
+
+PAIR = [
+    {"name": "Zephyr", "entity_type": "project", "project_id": 4, "research_focus": "A project."},
+    {"name": "Zephyr", "entity_type": "investigation", "project_id": 4,
+     "parent_project": "Zephyr", "research_focus": "Its investigation."},
+]
+
+
+def test_projects_are_keyed_on_name_and_entity_type():
+    assert cg.TABLES["projects"].key_columns == ("name", "entity_type")
+    assert cg.TABLES["assays"].key_columns == ("assay_name",)
+    assert cg.TABLES["sample_types"].key_columns == ("sample_type",)
+    assert cg.key_of("projects", PAIR[1]) == ("Zephyr", "investigation")
+    ddl = cg.DDL["projects"]
+    assert "UNIQUE KEY `uq_projects_context_name_type` (`name`, `entity_type`)" in ddl
+    assert "`uq_projects_context_name` (" not in ddl
+    assert re.search(r"^  entity_type\s+VARCHAR\(64\)\s+NOT NULL,$", ddl, re.M)
+
+
+def test_a_project_and_an_investigation_may_share_a_name():
+    for render in (cg.render_update, cg.render_seed):
+        sql = render("projects", PAIR)
+        assert "'investigation'" in sql and "'project'" in sql
+
+
+def test_one_name_twice_within_one_entity_type_is_still_a_duplicate():
+    import pytest
+
+    for rows in ([PAIR[1], dict(PAIR[1], name="zephyr")], [PAIR[0], dict(PAIR[0])]):
+        with pytest.raises(cg.DuplicateKey):
+            cg.render_update("projects", rows)
+
+
+def test_entity_type_is_project_or_investigation_exactly():
+    import pytest
+
+    for bad in ("Project", "study", " project", "investigation ", "INVESTIGATION"):
+        with pytest.raises(cg.UnsupportedValue) as excinfo:
+            cg.check_columns("projects", [{"name": "Zephyr", "entity_type": bad}])
+        assert "entity_type" in str(excinfo.value)
+    for row in ({"name": "Zephyr"}, {"name": "Zephyr", "entity_type": None},
+                {"name": "Zephyr", "entity_type": ""}):
+        with pytest.raises(cg.MissingKey):
+            cg.check_columns("projects", [row])
+
+
+def test_every_row_statement_keys_on_both_columns():
+    sql = cg.render_update("projects", PAIR)
+    rows_part = sql.split(cg.ROWS_MARKER, 1)[1].split(cg.MYSQL_ONLY_MARKER, 1)[0]
+    assert "  WHERE `name` = 'Zephyr' AND `entity_type` = 'investigation';" in rows_part
+    assert ("WHERE NOT EXISTS (SELECT 1 FROM `projects_context` WHERE `name` = 'Zephyr' "
+            "AND `entity_type` = 'project');") in rows_part
+    delete = rows_part.split("DELETE FROM `projects_context` WHERE ", 1)[1].split(";", 1)[0]
+    assert "(`name` = 'Zephyr' AND `entity_type` = 'project')" in delete
+    assert "(`name` = 'Zephyr' AND `entity_type` = 'investigation')" in delete
+    assert delete.endswith("OR `name` IS NULL OR `entity_type` IS NULL")
+    assert ("ON `a`.`name` = `b`.`name` AND `a`.`entity_type` = `b`.`entity_type` "
+            "AND `a`.`id` > `b`.`id`") in sql
+
+
+def test_the_schema_part_moves_either_old_key_to_the_pair_before_any_row_changes():
+    """Each step conditional on the shape found, and none of them removes a row.
+
+    The live table's PRIMARY KEY is `(name)`; the old held seed's table carries the unique
+    key `uq_projects_context_name`. Either one refuses the second row of a shared name, so
+    both go before the rows transaction. Only relaxing uniqueness, neither can fail on the
+    rows already there.
+    """
+    sql = cg.render_update("projects", PAIR)
+    schema = sql.split(cg.SCHEMA_MARKER, 1)[1].split(cg.ROWS_MARKER, 1)[0]
+    widen = "ALTER TABLE `projects_context` DROP PRIMARY KEY, ADD PRIMARY KEY (`name`, `entity_type`)"
+    assert widen in schema
+    guard = schema.split(widen, 1)[0].rsplit("SET @nextseek_found", 1)[1]
+    assert "INDEX_NAME = 'PRIMARY'" in guard and "= 'name'" in guard
+    drop = "ALTER TABLE `projects_context` DROP INDEX `uq_projects_context_name`"
+    assert drop in schema
+    assert "INDEX_NAME = 'uq_projects_context_name'" in schema.split(drop, 1)[0].rsplit("SET @nextseek_found", 1)[1]
+    keys = sql.split(cg.KEYS_MARKER, 1)[1]
+    add = "ADD UNIQUE KEY `uq_projects_context_name_type` (`name`, `entity_type`)"
+    assert add in keys
+    guard = keys.split(add, 1)[0].rsplit("SET @nextseek_found", 1)[1]
+    assert "INDEX_NAME = 'PRIMARY'" in guard and "'id'" in guard and "'name,entity_type'" in guard
+    # The single-column tables keep their own shape.
+    assays = cg.render_update("assays", _rows_for("assays"))
+    assert "DROP PRIMARY KEY" not in assays and "uq_assay_context_assay_name" in assays
+
+
+def test_the_digest_orders_by_both_key_columns():
+    """Two rows share a name, so ordering by name alone left their order to the engine."""
+    assert cg.content_digest("projects", PAIR) == cg.content_digest("projects", PAIR[::-1])
+    sql = cg.render_update("projects", PAIR)
+    assert ("ORDER BY CONVERT(`name` USING utf8mb4) COLLATE utf8mb4_bin, "
+            "CONVERT(`entity_type` USING utf8mb4) COLLATE utf8mb4_bin") in sql
+
+
+def test_a_same_named_project_and_investigation_round_trip_and_rerun_to_nothing():
+    import sqlite3
+
+    with sqlite3.connect(":memory:") as conn:
+        _apply(conn, "projects", PAIR)
+        once = _read_back(conn, "projects")
+        _apply(conn, "projects", PAIR, fresh=False)
+        twice = _read_back(conn, "projects")
+    assert once == twice
+    assert [(r["name"], r["entity_type"]) for r in once] == [("Zephyr", "project"),
+                                                             ("Zephyr", "investigation")]
+
+
 # --- column widths -----------------------------------------------------------
 #
 # The defect that shipped, and the check that could have seen it. `projects.json`'s
@@ -646,7 +766,10 @@ def test_seed_ddl_declares_exactly_the_columns_the_module_writes():
 
 def test_seed_ddl_declares_the_unique_key_the_upsert_needs():
     for table, spec in cg.TABLES.items():
-        assert f"UNIQUE KEY `uq_{spec.name}_{spec.key}` (`{spec.key}`)" in cg.DDL[table], table
+        columns = ", ".join(f"`{c}`" for c in spec.key_columns)
+        assert f"UNIQUE KEY `{cg.unique_key_name(table)}` ({columns})" in cg.DDL[table], table
+    assert cg.unique_key_name("projects") == "uq_projects_context_name_type"
+    assert cg.unique_key_name("assays") == "uq_assay_context_assay_name"
 
 
 def test_seed_writes_the_ddl_then_one_insert_per_line():
@@ -1124,13 +1247,18 @@ def test_update_sql_drops_a_stale_row_and_updates_an_existing_one_in_place():
     rows = _rows_for("projects")
     with sqlite3.connect(":memory:") as conn:
         _apply(conn, "projects", rows, preload=(
-            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('Retired', 'stale');",
-            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('CSBC', 'old');",
+            "INSERT INTO `projects_context` (`name`, `entity_type`, `description`) "
+            "VALUES ('Retired', 'project', 'stale');",
+            "INSERT INTO `projects_context` (`name`, `entity_type`, `description`) "
+            "VALUES ('CSBC', 'project', 'old');",
+            # A row with no entity_type has no key, so it goes like any keyless row.
+            "INSERT INTO `projects_context` (`name`, `description`) VALUES ('MetNet', 'untyped');",
         ))
-        stored = {row["name"]: row for row in _read_back(conn, "projects")}
-    assert "Retired" not in stored
-    assert stored["CSBC"]["id"] == 2                      # updated in place, not reinserted
-    assert stored["CSBC"]["description"] != "old"
+        stored = {(row["name"], row["entity_type"]): row for row in _read_back(conn, "projects")}
+    assert ("Retired", "project") not in stored
+    assert stored[("CSBC", "project")]["id"] == 2         # updated in place, not reinserted
+    assert stored[("CSBC", "project")]["description"] != "old"
+    assert ("MetNet", None) not in stored
     assert len(stored) == len(rows)
 
 

@@ -120,12 +120,18 @@ class ValueTooLong(ValueError):
 
 
 class Table:
-    """One context table: where its rows come from and how they are written."""
+    """One context table: where its rows come from and how they are written.
+
+    `key` is the natural key: one column, or a tuple of columns that together key a
+    row. `key_columns` is always the tuple, and `key` its first column, which is what a
+    message names a row by.
+    """
 
     def __init__(self, name, source, key, columns, json_columns=(), int_columns=()):
         self.name = name
         self.source = Path(source)
-        self.key = key
+        self.key_columns = (key,) if isinstance(key, str) else tuple(key)
+        self.key = self.key_columns[0]
         self.columns = tuple(columns)
         self.json_columns = frozenset(json_columns)
         self.int_columns = frozenset(int_columns)
@@ -159,10 +165,12 @@ TABLES = {
         ),
         int_columns=("internal_assay_id",),
     ),
+    # Keyed on the pair: the real CSBC and MetNet investigations share their exact
+    # SEEK titles with the CSBC and MetNet project rows (spec 2026-09-18, 9.1).
     "projects": Table(
         name="projects_context",
         source="context/projects.json",
-        key="name",
+        key=("name", "entity_type"),
         columns=(
             "name", "alternative_names", "entity_type", "project_id",
             "parent_project", "pi", "research_focus", "key_data_types",
@@ -174,6 +182,24 @@ TABLES = {
 }
 
 COLUMNS = {name: table.columns for name, table in TABLES.items()}
+
+# What a projects row may be. Anything else is refused, however it is spelled.
+ENTITY_TYPES = ("project", "investigation")
+
+
+def key_of(table: str, row: dict) -> tuple:
+    """The row's natural key, as a tuple over the table's key columns."""
+    return tuple(row.get(column) for column in TABLES[table].key_columns)
+
+
+# A key of more than one column is named here; a one-column key is `uq_<table>_<column>`.
+_UNIQUE_KEY_NAMES = {"projects": "uq_projects_context_name_type"}
+
+
+def unique_key_name(table: str) -> str:
+    """The name of the unique key on the table's natural key."""
+    spec = TABLES[table]
+    return _UNIQUE_KEY_NAMES.get(table, f"uq_{spec.name}_{spec.key}")
 
 
 def check_columns(table: str, rows: list[dict]) -> None:
@@ -192,8 +218,14 @@ def check_columns(table: str, rows: list[dict]) -> None:
                 f"{'is not a column' if len(unknown) == 1 else 'are not columns'} "
                 f"of {table} ({spec.name})"
             )
-        if not row.get(spec.key):
-            raise MissingKey(f"{spec.source} row {index}: no {spec.key}, which rows are keyed on")
+        for column in spec.key_columns:
+            if not row.get(column):
+                raise MissingKey(f"{spec.source} row {index}: no {column}, which rows are keyed on")
+        if table == "projects" and row["entity_type"] not in ENTITY_TYPES:
+            raise UnsupportedValue(
+                f"{spec.source} row {index} ({row.get('name')!r}): entity_type "
+                f"{row['entity_type']!r} is not one of {', '.join(ENTITY_TYPES)}, spelled exactly"
+            )
 
 
 # --- column widths ----------------------------------------------------------
@@ -540,35 +572,45 @@ def fold_key(key: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
 
 
-def _checked_keys(table: str, rows: list[dict]) -> list[str]:
-    """The rows' natural keys, refusing any collision MySQL would see.
+def _checked_keys(table: str, rows: list[dict]) -> list[tuple[str, ...]]:
+    """The rows' natural keys, one tuple per row, refusing any collision MySQL would see.
 
     `sample_types_context`, `assay_context` and `projects_context` are all
     utf8mb4_unicode_ci, which compares case-insensitively, ignores trailing spaces
     and equates an accented letter with its base one. Two curated rows that differ
     only that way would collide in the unique key below, so they are refused here
-    instead. `fold_key` is where that comparison lives.
+    instead. `fold_key` is where that comparison lives. A key of two columns collides
+    only when both columns do: a project and an investigation may share a name.
     """
     spec = TABLES[table]
     keys, seen = [], {}
     for index, row in enumerate(rows):
-        key = str(row[spec.key])
-        if key != key.strip():
-            raise UnsupportedValue(
-                f"{spec.source} row {index}: the key {key!r} starts or ends with "
-                "whitespace, which MySQL ignores when it compares a key and keeps when "
-                "it stores one"
-            )
-        folded = fold_key(key)
+        key = tuple(str(row[column]) for column in spec.key_columns)
+        for part in key:
+            if part != part.strip():
+                raise UnsupportedValue(
+                    f"{spec.source} row {index}: the key {part!r} starts or ends with "
+                    "whitespace, which MySQL ignores when it compares a key and keeps when "
+                    "it stores one"
+                )
+        folded = tuple(fold_key(part) for part in key)
         if folded in seen:
+            shown = key[0] if len(key) == 1 else key
             raise DuplicateKey(
                 f"{spec.source}: rows {seen[folded]} and {index} both key on "
-                f"{key!r} as MySQL compares it (case-insensitive, trailing space "
+                f"{shown!r} as MySQL compares it (case-insensitive, trailing space "
                 f"ignored, accents folded)"
             )
         seen[folded] = index
         keys.append(key)
     return keys
+
+
+def _key_where(spec: Table, key: tuple, alias: str = "") -> str:
+    """`key` as a WHERE condition: each key column equal to its value."""
+    prefix = f"`{alias}`." if alias else ""
+    return " AND ".join(f"{prefix}`{column}` = {literal(value)}"
+                        for column, value in zip(spec.key_columns, key))
 
 
 # --- the update script -------------------------------------------------------
@@ -663,7 +705,64 @@ def _add_unique_key(table_name: str, key: str) -> str:
     )
 
 
-def _collapse_duplicates(table_name: str, key: str) -> str:
+def _add_unique_pair_key(table_name: str, index: str, columns: tuple[str, ...]) -> str:
+    """The unique key on `columns`, where the table's primary key is `id` and no unique
+    index already covers exactly those columns.
+
+    The live `projects_context` has no id: its primary key becomes the pair in the
+    schema part (`_rekey_projects`), so this adds nothing there.
+    """
+    wanted = ",".join(columns)
+    listed = ", ".join(f"`{c}`" for c in columns)
+    return (
+        "SET @nextseek_found := (SELECT (SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX "
+        "SEPARATOR ',')\n"
+        "    FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
+        f"AND TABLE_NAME = '{table_name}' AND INDEX_NAME = 'PRIMARY') = 'id'\n"
+        "  AND NOT EXISTS (SELECT 1 FROM (SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY "
+        "SEQ_IN_INDEX SEPARATOR ',') AS `cols`,\n"
+        "      SUM(SUB_PART IS NOT NULL) AS `partial` FROM information_schema.STATISTICS\n"
+        f"      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{table_name}' AND NON_UNIQUE = 0\n"
+        f"      GROUP BY INDEX_NAME) `u` WHERE `u`.`cols` = '{wanted}' AND `u`.`partial` = 0));\n"
+        f"SET @nextseek_stmt := IF(@nextseek_found, 'ALTER TABLE `{table_name}` "
+        f"ADD UNIQUE KEY `{index}` ({listed})', 'DO 0');\n"
+        "PREPARE nextseek_stmt FROM @nextseek_stmt;\n"
+        "EXECUTE nextseek_stmt;\n"
+        "DEALLOCATE PREPARE nextseek_stmt;\n"
+    )
+
+
+def _rekey_projects() -> list[str]:
+    """The schema steps that let `projects_context` hold two rows of one name.
+
+    Each is conditional on the shape found, and each only relaxes uniqueness, so it
+    cannot fail on the rows already there and removes none. The live table's PRIMARY
+    KEY is exactly `(name)`: it becomes `(name, entity_type)`. The old held seed
+    created the unique key `uq_projects_context_name`: it is dropped, and the keys part
+    adds the pair's key after the commit. Both have to go before the rows transaction,
+    because either one refuses the second row of a shared name.
+    """
+    name = TABLES["projects"].name
+    widen = (
+        "SET @nextseek_found := (SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX "
+        "SEPARATOR ',') = 'name'\n"
+        "  FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
+        f"AND TABLE_NAME = '{name}' AND INDEX_NAME = 'PRIMARY');\n"
+        f"SET @nextseek_stmt := IF(@nextseek_found, 'ALTER TABLE `{name}` DROP PRIMARY KEY, "
+        "ADD PRIMARY KEY (`name`, `entity_type`)', 'DO 0');\n"
+        "PREPARE nextseek_stmt FROM @nextseek_stmt;\n"
+        "EXECUTE nextseek_stmt;\n"
+        "DEALLOCATE PREPARE nextseek_stmt;\n"
+    )
+    drop = _conditional(
+        "STATISTICS", name, "INDEX_NAME", f"uq_{name}_name",
+        f"ALTER TABLE `{name}` DROP INDEX `uq_{name}_name`", when_present=True,
+    )
+    return [f"-- {name}: a primary key on `name` alone becomes one on the pair", widen,
+            f"-- {name}: the old seed's unique key on `name` alone goes", drop]
+
+
+def _collapse_duplicates(table_name: str, key) -> str:
     """Delete every row but the lowest-id one for each `key`, where there is an id.
 
     It runs AFTER the curated rows are written, inside the transaction. By then
@@ -677,10 +776,12 @@ def _collapse_duplicates(table_name: str, key: str) -> str:
     column (its PRIMARY KEY is `name`, so it cannot hold a duplicate), and the
     unconditional form aborted there with ERROR 1054.
     """
+    columns = (key,) if isinstance(key, str) else tuple(key)
+    same = " AND ".join(f"`a`.`{c}` = `b`.`{c}`" for c in columns)
     return _conditional(
         "COLUMNS", table_name, "COLUMN_NAME", "id",
         f"DELETE `a` FROM `{table_name}` `a` JOIN `{table_name}` `b` "
-        f"ON `a`.`{key}` = `b`.`{key}` AND `a`.`id` > `b`.`id`",
+        f"ON {same} AND `a`.`id` > `b`.`id`",
         when_present=True,
     )
 
@@ -705,14 +806,15 @@ def content_digest(table: str, rows: list[dict]) -> str:
     The same text the checks rebuild in MySQL with GROUP_CONCAT, so equal digests
     mean every curated value is stored byte for byte and nothing else is there.
     Keys sort by code point, which is utf8mb4_bin's order for keys with no control
-    characters or surrounding spaces, both of which are refused.
+    characters or surrounding spaces, both of which are refused, and a key of two
+    columns sorts by the first and then the second: two rows may share a name.
     """
     import hashlib
 
     spec = TABLES[table]
     columns = _digest_columns(table)
     records = []
-    for row in sorted(rows, key=lambda r: str(r[spec.key])):
+    for row in sorted(rows, key=lambda r: tuple(str(r[c]) for c in spec.key_columns)):
         fields = []
         for column in columns:
             value = db_value(table, column, row.get(column))
@@ -729,9 +831,10 @@ def _sql_digest(table: str) -> str:
     )
     # GROUP_CONCAT's SEPARATOR takes a string literal only, so the record separator
     # opens each record instead and the separator is empty.
+    order = ", ".join(f"CONVERT(`{c}` USING utf8mb4) COLLATE utf8mb4_bin" for c in spec.key_columns)
     return (f"SHA2(GROUP_CONCAT(CONCAT(CHAR(30 USING utf8mb4), "
             f"CONCAT_WS(CHAR(31 USING utf8mb4), {fields})) "
-            f"ORDER BY CONVERT(`{spec.key}` USING utf8mb4) COLLATE utf8mb4_bin "
+            f"ORDER BY {order} "
             f"SEPARATOR ''), 256)")
 
 
@@ -757,10 +860,17 @@ def _table_data(table: str, rows: list[dict]) -> list[str]:
     keys = _checked_keys(table, rows)
     written = [c for c in spec.columns if not (table == "assays" and c == "internal_assay_id")]
     columns = ", ".join(f"`{c}`" for c in written)
+    nulls = " OR ".join(f"`{c}` IS NULL" for c in spec.key_columns)
+    if len(spec.key_columns) == 1:
+        named = f"`{spec.key}` NOT IN ({', '.join(literal(k[0]) for k in keys)})"
+    else:
+        # A row value on the left of IN needs a subquery on the right in SQLite, which
+        # the round trip runs, so the pairs are spelled out. Plain literals, so the
+        # column's collation decides each comparison, exactly as it does for NOT IN.
+        named = "NOT (" + "\n  OR ".join(f"({_key_where(spec, k)})" for k in keys) + ")"
     out = [
         f"-- {spec.name}: rows {spec.source} no longer names, and any row with no key",
-        f"DELETE FROM `{spec.name}` WHERE `{spec.key}` NOT IN "
-        f"({', '.join(literal(k) for k in keys)}) OR `{spec.key}` IS NULL;",
+        f"DELETE FROM `{spec.name}` WHERE {named} OR {nulls};",
         "",
         f"-- {spec.name}: the {len(rows)} curated rows. The UPDATE sets every column,",
         "-- the key too, because the key matches case-insensitively and one curated key is",
@@ -769,15 +879,16 @@ def _table_data(table: str, rows: list[dict]) -> list[str]:
     for row, key in zip(rows, keys):
         values = [literal(db_value(table, c, row.get(c))) for c in written]
         assignments = ", ".join(f"`{c}` = {v}" for c, v in zip(written, values))
-        out.append(f"UPDATE `{spec.name}` SET {assignments}\n  WHERE `{spec.key}` = {literal(key)};")
+        where = _key_where(spec, key)
+        out.append(f"UPDATE `{spec.name}` SET {assignments}\n  WHERE {where};")
         out.append(f"INSERT INTO `{spec.name}` ({columns}) SELECT {', '.join(values)} FROM DUAL\n"
-                   f"  WHERE NOT EXISTS (SELECT 1 FROM `{spec.name}` WHERE `{spec.key}` = {literal(key)});")
+                   f"  WHERE NOT EXISTS (SELECT 1 FROM `{spec.name}` WHERE {where});")
     out += [
         "",
         MYSQL_ONLY_MARKER,
         f"-- {spec.name}: collapse duplicate keys. Every copy now holds the curated values,",
         "-- so keeping the lowest id loses nothing.",
-        _collapse_duplicates(spec.name, spec.key),
+        _collapse_duplicates(spec.name, spec.key_columns),
     ]
     if table == "assays":
         out += [
@@ -855,11 +966,18 @@ def render_update_script(sections, *, assays_for_mappings=None) -> str:
                        _add_column(spec.name, column, definition)]
         schema += [f"-- {spec.name}: text columns narrower than the curated values, or not utf8mb4",
                    _pin_columns(table)]
+        if table == "projects":
+            schema += _rekey_projects()
         preflight.append(_target_problems(table, rows))
         data += ["", f"-- ---- {spec.name} ----", *_table_data(table, rows)]
         checks += _table_checks(table, rows, every_assay_linked="mappings" in tables)
-        keys += [f"-- {spec.name}: the unique key on `{spec.key}`",
-                 _add_unique_key(spec.name, spec.key)]
+        if len(spec.key_columns) == 1:
+            keys += [f"-- {spec.name}: the unique key on `{spec.key}`",
+                     _add_unique_key(spec.name, spec.key)]
+        else:
+            keys += [f"-- {spec.name}: the unique key on "
+                     + ", ".join(f"`{c}`" for c in spec.key_columns),
+                     _add_unique_pair_key(spec.name, unique_key_name(table), spec.key_columns)]
 
     out = [
         f"-- context_gen --emit update: {', '.join(tables)}. Generated from context/ by",
@@ -1029,9 +1147,13 @@ CREATE TABLE IF NOT EXISTS assay_context (
 -- HELD: no install step reads this file until the curated content is signed off
 -- (scripts/README.md group C).
 --
+-- A row is a project or an investigation (`entity_type`), and the two may share a
+-- name, so a row is keyed on (name, entity_type). An investigation row carries its
+-- owning project's id.
+--
 -- Read by the project page header; every field is optional and the header falls
 -- back to the SEEK title and description when the row is absent. The lookup is
--- `SELECT * FROM projects_context WHERE project_id = %s`
+-- `SELECT * FROM projects_context WHERE project_id = %s` over project rows only
 -- (nextseek_api/services/context_catalog.py), keyed on the SEEK project id and
 -- with no fallback by name. The project_id values below are PRODUCTION's SEEK
 -- ids. The committed seek seed carries exactly one project, `Published Data` at
@@ -1051,7 +1173,7 @@ CREATE TABLE IF NOT EXISTS projects_context (
   id                        INT AUTO_INCREMENT PRIMARY KEY,
   name                      VARCHAR(255) NULL,
   alternative_names         TEXT         NULL,
-  entity_type               VARCHAR(64)  NULL,
+  entity_type               VARCHAR(64)  NOT NULL,
   project_id                INT          NULL,
   parent_project            VARCHAR(255) NULL,
   pi                        TEXT         NULL,
@@ -1062,7 +1184,7 @@ CREATE TABLE IF NOT EXISTS projects_context (
   fairdomhub_published_link TEXT         NULL,
   tags                      TEXT         NULL,
   KEY idx_project_id (project_id),
-  UNIQUE KEY `uq_projects_context_name` (`name`)
+  UNIQUE KEY `uq_projects_context_name_type` (`name`, `entity_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 """,
 }
