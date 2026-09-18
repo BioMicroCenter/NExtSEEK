@@ -12,6 +12,7 @@ import requests
 from dotenv import load_dotenv
 
 from . import graph_catalog
+from . import labs as seek_labs
 from .llm_clients import BaseLLMClient, build_llm_client
 
 
@@ -58,6 +59,25 @@ def build_luria_env(env: dict | None = None) -> dict:
 def luria_env_complete(luria_env: dict) -> bool:
     """True when the required Luria fields are all present."""
     return all(luria_env.get(k) for k in ("user", "key", "working_path"))
+
+
+def _entity_type(row) -> str:
+    value = row.get("entity_type")
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
+def is_project_row(row) -> bool:
+    """A projects_context row that is a project: ``entity_type`` 'project', or missing.
+
+    projects_db.json also holds investigation rows (spec 2026-09-18, section 9), which carry
+    their owner's ``project_id`` and may share a project's exact name.
+    """
+    return isinstance(row, dict) and _entity_type(row) in ("", "project")
+
+
+def is_investigation_row(row) -> bool:
+    """A projects_context row whose ``entity_type`` is 'investigation'."""
+    return isinstance(row, dict) and _entity_type(row) == "investigation"
 
 
 def db_conn_is_alive(conn) -> bool:
@@ -166,6 +186,12 @@ class ChatConfig:
         # First merge, then get connections
         self._db_conn = self._connect_db(env="prod")
         self.CONTEXT_JSON_PATHS = self._ensure_context_files(env="prod")
+        # SEEK's labs (spec 2026-09-18, section 6.5), which the entity agent resolves lab and
+        # person names against: a list of {code, name, affiliation, ...} records, or None when
+        # no labs document is available ([] means SEEK has no parseable lab). LABS_STATUS says
+        # where they came from: this process's own read, the labs_db.json already on disk, or
+        # neither. Reading only: nothing here writes a file.
+        self.LABS, self.LABS_STATUS = self._load_labs()
 
         # Full JSON (generated from DB) — list form and code-keyed dict for fast lookup
         self.FULL_SAMPLETYPES: list = self._load_json("sampletypes_db.json", "full sampletypes (db)") or []
@@ -718,10 +744,13 @@ class ChatConfig:
         """
         Pull context tables from MySQL and write them to JSON files under context/.
         Currently exports:
+          - SEEK's labs, first: seek_production.institutions LEFT JOIN work_groups, one
+            read-only SELECT (chat_nextseek.labs) -> labs_db.json, runtime-only
           - dmac.sample_types_context -> full + min JSON
           - dmac.assay_context -> full + min JSON
-          - dmac.projects_context -> full JSON
-        Returns a dict of {name: Path} for successfully written files.
+          - dmac.projects_context -> full JSON, every project row carrying its labs
+        Returns a dict of {name: Path} for successfully written table exports. labs_db.json is
+        not among them, so a labs read alone never marks the day's refresh as done.
         """
         exports: dict[str, Path] = {}
         conn = self._live_db_conn(env=env)
@@ -729,6 +758,18 @@ class ChatConfig:
             return exports
 
         try:
+            # SEEK's labs first (spec 2026-09-18, sections 4.4 and 6.4), over the connection this
+            # export already holds, so the read runs exactly as often as the export: at most once
+            # per UTC day per starting process, never per turn. A failed read falls back to the
+            # labs_db.json already on disk, so a transient failure does not strip the labs from
+            # the project rows; with neither, every project row gets labs: []. Never raises.
+            labs_doc, labs_source = seek_labs.refresh_labs_file(conn, self.CONTEXT_DIR)
+            self._labs_refresh = (labs_doc, labs_source)
+            labs_for_project = {
+                str(project_id): project_labs
+                for project_id, project_labs in seek_labs.labs_by_project(labs_doc).items()
+            }
+
             try:
                 cursor = conn.cursor(dictionary=True)
             except Exception:
@@ -877,7 +918,7 @@ class ChatConfig:
                     or lower.get("key_data_types")
                     or []
                 )
-                return {
+                mapped = {
                     "name": row.get("name") or row.get("Name") or lower.get("name"),
                     "alternative_names": alt_names,
                     "entity_type": row.get("entity_type") or row.get("Entity_Type") or lower.get("entity_type"),
@@ -891,6 +932,11 @@ class ChatConfig:
                     "fairdomhub_published_link": row.get("fairdomhub_published_link") or row.get("Fairdomhub_Published_Link") or lower.get("fairdomhub_published_link"),
                     "tags": row.get("tags") or row.get("Tags") or lower.get("tags"),
                 }
+                # Project rows carry their labs, from the enclosing scope and never from a column
+                # (spec 6.3 and 6.4): an investigation row's labs are its parent project's.
+                if is_project_row(mapped):
+                    mapped["labs"] = [dict(lab) for lab in labs_for_project.get(str(mapped["project_id"]).strip(), [])]
+                return mapped
 
             sample_paths = export_table(
                 "dmac.sample_types_context",
@@ -1104,6 +1150,29 @@ class ChatConfig:
         except Exception as e:
             print(f"[CONFIG][DB] name->id load failed for {table}: {e!r}")
         return mapping
+
+    def _load_labs(self) -> tuple[list[dict] | None, dict]:
+        """``(LABS, LABS_STATUS)`` for this process (spec 2026-09-18, section 6.5).
+
+        ``source`` is ``fetched`` when this process's own export read SEEK, ``previous_file``
+        when the records come from the labs_db.json already on disk (written by an earlier or
+        sibling process, or kept after a failed read), and ``unavailable`` when neither exists.
+        Records are checked: a three-capital ``code`` and a non-empty ``name``.
+        """
+        refresh = getattr(self, "_labs_refresh", None)
+        if isinstance(refresh, tuple) and len(refresh) == 2 and refresh[1] == "fetched":
+            doc, source = refresh[0], "fetched"
+        else:
+            doc, source = seek_labs.load_labs_file(self.CONTEXT_DIR), "previous_file"
+        records = seek_labs.checked_labs(doc)
+        if records is None:
+            return None, {"source": "unavailable", "fetched_at": None, "unparsed": None}
+        unparsed = doc.get("unparsed")
+        return records, {
+            "source": source,
+            "fetched_at": doc.get("fetched_at"),
+            "unparsed": len(unparsed) if isinstance(unparsed, list) else 0,
+        }
 
     def _merge_project_name_to_id(self, base_map: dict[str, int], projects: list[dict]) -> dict[str, int]:
         """
