@@ -42,6 +42,6 @@
    (the sample type code). CHILD_OF does not exist. A SEEK project is a :Project node, linked to its samples
    by IN_PROJECT and to its investigations by IN_PROJECT.
 9. Lineage runs child to parent: (child)-[:DERIVED_FROM]->(parent); ancestors are
-   (s)-[:DERIVED_FROM*1..]->(a). Attributes whose title contains Parent hold parent UIDs as text.
+   (s)-[:DERIVED_FROM*1..12]->(a). Attributes whose title contains Parent hold parent UIDs as text.
 10. Which types have X: MATCH (t:SampleType)-[:HAS_ATTRIBUTE]->(a:Attribute {title: 'X'})
    WHERE a.sample_count > 0 RETURN t.title, a.sample_count.
