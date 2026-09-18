@@ -7,6 +7,8 @@ import re
 import shutil
 import sys
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -42,6 +44,7 @@ from .agents import (
 )
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
+from .graph_scope import SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
 from .llm_clients import LLMFatalError
 from .helpers import (
@@ -60,6 +63,7 @@ from .helpers import (
     matched_nothing,
     tool_neo4j_query,
 )
+from .helpers.tools.neo4j import is_scope_refusal
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .session import SessionState
 from .tee import Tee
@@ -130,6 +134,69 @@ _IDENTITY_REFUSAL_REPLY = (
 )
 
 
+# --------------------------------------------------------------------------
+# Turn graph scope
+# --------------------------------------------------------------------------
+#
+# Every graph statement is held to the caller's project scope by the Neo4j tool, which
+# reads a GraphScope off the config (graph_scope.py; spec
+# docs/superpowers/specs/2026-09-18-graph-cypher-scope.md). The request-scoped callers
+# resolve it on the server and hand it to the entry points below as `graph_scope`
+# (plain data, {"is_admin", "project_ids"}); the gate puts it on the per-request copy.
+# A caller that leaves the keyword out keeps whatever its own config carries: that is
+# how the single-operator surfaces (CLI, MCP, evaluator) set theirs.
+
+
+class _Unset:
+    def __repr__(self) -> str:
+        return "_UNSET"
+
+
+_UNSET: Any = _Unset()
+
+#: The project-scoped sample search a refused graph question falls back to.
+GRAPH_SEARCH_ENDPOINT = "/nextseek_api/samples/graph_search/"
+
+#: Told to the chatter when a graph question was answered by the fallback.
+SCOPE_FALLBACK_NOTE = (
+    "The graph query written for this question could not be confirmed to stay within the user's projects, so it "
+    "was not run. This answer comes from the project-scoped sample search instead. Say so, and say which "
+    "conditions of the question that search could not apply."
+)
+
+#: Appended to the reply of a fallback turn, so the disclosure never depends on the model.
+SCOPE_FALLBACK_FOOTER = (
+    "Note: this answer comes from the project-scoped sample search, because the graph query for it could not be "
+    "confirmed to stay within your projects. That search cannot express every condition a graph query can."
+)
+
+
+@dataclass(frozen=True)
+class GraphScopeFallback:
+    """A graph turn whose final query was refused for its scope: answer it through graph_search instead."""
+
+    codes: tuple[str, ...]
+    reasons: tuple[str, ...]
+    submitted_cypher: str | None
+    attempts: tuple[dict[str, Any], ...]
+
+
+def _coerce_graph_scope(graph_scope: Any, *, entry_point: str) -> GraphScope | None:
+    """A GraphScope as it is, a mapping through GraphScope.from_plain, anything else None (which refuses)."""
+    if isinstance(graph_scope, GraphScope):
+        return graph_scope
+    if isinstance(graph_scope, Mapping):
+        try:
+            return GraphScope.from_plain(graph_scope)
+        except ValueError as exc:
+            _LOG.warning("%s: malformed graph scope, no graph query will run: %s", entry_point, exc)
+            return None
+    if graph_scope is not None:
+        _LOG.warning("%s: graph scope of type %s ignored, no graph query will run", entry_point,
+                     type(graph_scope).__name__)
+    return None
+
+
 def _coerce_setting_bool(value: Any, *, default: bool) -> bool:
     """Mirror ChatConfig._coerce_bool so a string 'false' from a config_map stays false."""
     if value is None:
@@ -181,6 +248,32 @@ def _service_account_fallback_allowed(config: ChatConfig) -> bool:
 
 
 def _identity_gate(
+    session: SessionState | SessionStateProxy,
+    config: ChatConfig,
+    credentials: dict[str, str] | None,
+    send_event: SendEvent | None,
+    *,
+    entry_point: str,
+    graph_scope: Any = _UNSET,
+) -> tuple[ChatConfig, dict[str, Any] | None]:
+    """Bind the turn to the caller's identity and graph scope, or refuse to impersonate.
+
+    The identity half is ``_bind_identity``. When ``graph_scope`` is given (anything but
+    ``_UNSET``), the turn runs on a per-request copy whose ``GRAPH_SCOPE`` is that scope:
+    a ``GraphScope`` as it is, a mapping through ``GraphScope.from_plain``, anything else
+    (``None``, a malformed mapping) as ``None``, which refuses every graph query. The shared
+    config is never mutated. ``_UNSET`` leaves the config's own scope in place.
+    """
+    bound, refusal = _bind_identity(session, config, credentials, send_event, entry_point=entry_point)
+    if refusal is not None or graph_scope is _UNSET:
+        return bound, refusal
+    if bound is config:
+        bound = copy.copy(config)
+    setattr(bound, SCOPE_ATTR, _coerce_graph_scope(graph_scope, entry_point=entry_point))
+    return bound, None
+
+
+def _bind_identity(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
     credentials: dict[str, str] | None,
@@ -300,6 +393,7 @@ def run_pipeline_launch(
     send_event: SendEvent | None = None,
     *,
     credentials: dict[str, str] | None = None,
+    graph_scope: Any = _UNSET,
 ) -> dict[str, Any]:
     """Deterministic CC → pipeline_agent bridge entry (query/async mode='pipeline').
 
@@ -312,7 +406,7 @@ def run_pipeline_launch(
     the turn rather than launching a pipeline as the service account.
     """
     config, identity_refusal = _identity_gate(
-        session, config, credentials, send_event, entry_point="run_pipeline_launch",
+        session, config, credentials, send_event, entry_point="run_pipeline_launch", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
@@ -488,6 +582,53 @@ def _followup_examples(rows: list, limit: int = 3) -> list[str]:
 GRAPH_MAX_TRIES = 3
 
 
+def _graph_attempt(cypher: str | None, result: dict, reason: str) -> dict[str, Any]:
+    """One generate-execute round for debug.graph_attempts: what was written, what ran, and the decision."""
+    scope = result.get("scope")
+    return {
+        "cypher": cypher, "ok": result.get("ok"),
+        "count": result.get("count"), "error": result.get("error"),
+        "reason": reason,
+        "executed_cypher": result.get("cypher"),
+        "scope_decision": scope.get("decision") if isinstance(scope, dict) else None,
+    }
+
+
+def _graph_scope_fallback(graph_plan, graph_result: dict, attempts: list, debug_payload: dict,
+                          send_event) -> GraphScopeFallback:
+    """Record a refused graph turn and hand it back to run_query, which answers through graph_search.
+
+    No bundle is stored and the chatter is not called: the refused query produced nothing to
+    remember or narrate, and a graph bundle would make the next refine re-run the graph path.
+    """
+    scope = graph_result.get("scope") if isinstance(graph_result.get("scope"), dict) else {}
+    submitted = graph_result.get("submitted_cypher", graph_plan.cypher)
+    fallback = GraphScopeFallback(
+        codes=tuple(scope.get("codes") or ()),
+        reasons=tuple(scope.get("reasons") or ()),
+        submitted_cypher=submitted,
+        attempts=tuple(attempts),
+    )
+    debug_payload["graph_plan"] = graph_plan.model_dump()
+    debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+    debug_payload["graph_scope_fallback"] = {
+        "endpoint": GRAPH_SEARCH_ENDPOINT,
+        "codes": list(fallback.codes),
+        "reasons": list(fallback.reasons),
+        "submitted_cypher": submitted,
+    }
+    print(f"[GRAPH] Query refused for its project scope {list(fallback.codes)}; falling back to "
+          f"{GRAPH_SEARCH_ENDPOINT}")
+    send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
+    return fallback
+
+
+def _fall_back_to_graph_search(plan: ParserPlan) -> tuple[ParserPlan, str, list[str]]:
+    """The plan, mode and chatter notes that send a refused graph question through the REST branch."""
+    plan = plan.model_copy(update={"mode": "new_search", "target_endpoint": GRAPH_SEARCH_ENDPOINT})
+    return plan, "new_search", [SCOPE_FALLBACK_NOTE]
+
+
 def _execute_graph_turn(
     *,
     config: ChatConfig,
@@ -532,15 +673,15 @@ def _execute_graph_turn(
     # zero and the zero was reported as the answer). A zero-row result now gets exactly
     # one more go, and if the second query also finds nothing the FIRST result stands:
     # reporting a different query's number would be worse than reporting zero.
-    attempts: list[dict[str, Any]] = [{
-        "cypher": graph_plan.cypher, "ok": graph_result.get("ok"),
-        "count": graph_result.get("count"), "error": graph_result.get("error"),
-        "reason": "initial",
-    }]
+    attempts: list[dict[str, Any]] = [_graph_attempt(graph_plan.cypher, graph_result, "initial")]
     first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
 
     for _ in range(GRAPH_MAX_TRIES - 1):
+        if is_scope_refusal(graph_result):
+            # Final for the turn: another model call can only write another query the
+            # prover cannot prove. The turn falls back to graph_search below.
+            break
         if not graph_result.get("ok"):
             neo4j_error = graph_result.get("error", "Unknown error")
             print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
@@ -574,11 +715,7 @@ def _execute_graph_turn(
         if not graph_plan_retry.cypher:
             break
         retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, graph_plan_retry.parameters)
-        attempts.append({
-            "cypher": graph_plan_retry.cypher, "ok": retry_result.get("ok"),
-            "count": retry_result.get("count"), "error": retry_result.get("error"),
-            "reason": reason,
-        })
+        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason))
         # Keep the retry only when it is an improvement. A retry that errors, or that
         # also finds nothing after a zero-row first attempt, leaves the original alone.
         if not retry_result.get("ok"):
@@ -590,6 +727,9 @@ def _execute_graph_turn(
         graph_result = retry_result
 
     debug_payload["graph_attempts"] = attempts
+    debug_payload["graph_scope"] = graph_result.get("scope")
+    if is_scope_refusal(graph_result):
+        return _graph_scope_fallback(graph_plan, graph_result, attempts, debug_payload, send_event)
     # The user must not be told a number without being told the first query found
     # nothing and the filter was changed to get it. Recording it in debug_payload was
     # not enough: nothing read the flag, so the reply never carried the caveat. It now
@@ -625,6 +765,8 @@ def _execute_graph_turn(
                 "count": graph_result.get("count"),
                 "error": graph_result.get("error"),
                 "counters": graph_result.get("counters"),
+                "cypher": graph_result.get("cypher"),
+                "scope": graph_result.get("scope"),
                 "data_preview": (graph_result.get("data") or [])[:20],
             },
         },
@@ -765,6 +907,7 @@ def run_query(
     send_event: SendEvent | None = None,
     *,
     credentials: dict[str, str] | None = None,
+    graph_scope: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Shared query orchestrator for Streamlit, CLI, and async/SSE consumers.
@@ -775,9 +918,13 @@ def run_query(
     all LLM clients, catalogs, and prompts remain shared by reference.  Anything less
     than a complete pair is an unresolved identity: see _identity_gate, which warns and
     (by default) refuses the turn rather than running it as the service account.
+
+    graph_scope — the caller's project scope for graph queries, as plain data
+    ({"is_admin", "project_ids"}) or a GraphScope; see _identity_gate. Left out, the
+    config's own scope stands (single-operator surfaces).
     """
     config, identity_refusal = _identity_gate(
-        session, config, credentials, send_event, entry_point="run_query",
+        session, config, credentials, send_event, entry_point="run_query", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
@@ -1272,14 +1419,20 @@ def run_query(
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
             return _emit_query_complete(send_event, reply, debug_payload, None)
 
+        # A graph query refused for its project scope is answered by graph_search through
+        # the REST branch below; these notes go to its chatter and set the reply's footer.
+        scope_notes: list[str] = []
         if mode == "graph_query":
             current_agent = "graph"
-            return _execute_graph_turn(
+            outcome = _execute_graph_turn(
                 config=config, session=session, user_text=user_text,
                 entity_result=entity_result, plan=plan, log_dir=log_dir,
                 artifact_store=artifact_store, send_event=send_event,
                 debug_payload=debug_payload, t_total_start=_t_total_start,
             )
+            if not isinstance(outcome, GraphScopeFallback):
+                return outcome
+            plan, mode, scope_notes = _fall_back_to_graph_search(plan)
 
         if mode in ("new_search", "refine_last_search"):
             # Graph-origin refines re-run the graph path (with prior Cypher as context);
@@ -1288,13 +1441,16 @@ def run_query(
                 _history = session.get("results_history", []) or []
                 if _history and (_history[-1] or {}).get("mode") == "graph_query":
                     current_agent = "graph"
-                    return _execute_graph_turn(
+                    outcome = _execute_graph_turn(
                         config=config, session=session, user_text=user_text,
                         entity_result=entity_result, plan=plan,
                         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
                         debug_payload=debug_payload, t_total_start=_t_total_start,
                         refine_context=_build_graph_refine_context(_history[-1]),
                     )
+                    if not isinstance(outcome, GraphScopeFallback):
+                        return outcome
+                    plan, mode, scope_notes = _fall_back_to_graph_search(plan)
             if mode == "refine_last_search":
                 plan_data = plan.model_dump()
                 history = session.get("results_history", [])
@@ -1507,7 +1663,10 @@ def run_query(
                 debug_payload["error_context"],
                 log_dir=log_dir,
                 session=session,
+                query_notes=scope_notes or None,
             )
+            if scope_notes:
+                answer = f"{answer}\n\n{SCOPE_FALLBACK_FOOTER}"
             print(f"[TIMING][CHATTER] {time.perf_counter() - _t0:.2f}s")
             send_event("agent_complete", {"agent": "chatter", "summary": None})
             bundle["terminal_reply"] = answer
@@ -1588,15 +1747,16 @@ def run_query_plan(
     send_event: SendEvent | None = None,
     *,
     credentials: dict[str, str] | None = None,
+    graph_scope: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Planner-based orchestrator: entity -> parser -> planner -> executor -> chatter -> evaluator.
     Parallel structure to `run_query`, using the same result contract.
 
-    credentials — same shallow-copy and identity-gate semantics as run_query.
+    credentials, graph_scope — same shallow-copy and identity-gate semantics as run_query.
     """
     config, identity_refusal = _identity_gate(
-        session, config, credentials, send_event, entry_point="run_query_plan",
+        session, config, credentials, send_event, entry_point="run_query_plan", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
