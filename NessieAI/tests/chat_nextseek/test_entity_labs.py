@@ -190,6 +190,19 @@ def test_unavailable_labs_pass_through_with_one_warning(capsys):
     assert printed.count("[WARN][ENTITY]") == 1
 
 
+def test_a_matcher_failure_degrades_to_unresolved_labs_never_a_guessed_code(capsys):
+    """The entity agent degrades gracefully; a lab resolution bug must not fail the turn."""
+    with patch("chat_nextseek.agents.entity.resolve_labs", side_effect=RuntimeError("boom")):
+        out = _run("RNA from the Ashgrove lab",
+                   EntityAgentOutput(labs=["Ashgrove"], lab_codes=["ASH"], keywords=["RNA"]))
+
+    assert out.labs == ["Ashgrove"]
+    assert out.lab_codes == []
+    assert out.lab_matches == []
+    assert out.keywords == ["RNA"]
+    assert "[WARN][ENTITY]" in capsys.readouterr().out
+
+
 def test_the_first_three_letters_rule_is_gone():
     """E5: lab_code() derived a code from any name; its only caller now uses the matcher."""
     assert not hasattr(lab_code_module, "lab_code")

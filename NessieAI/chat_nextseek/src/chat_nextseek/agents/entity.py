@@ -50,15 +50,21 @@ def _resolve_lab_names(
         (catalog_sampletypes if isinstance(catalog_sampletypes, list) else _as_list(sampletypes))
         + (catalog_assays if isinstance(catalog_assays, list) else _as_list(assays))
     )
-    resolution = resolve_labs(
-        user_query,
-        result.labs,
-        records=records,
-        llm_scientists=result.scientists,
-        llm_keywords=result.keywords,
-        catalogs=catalogs,
-        projects=_as_list(projects),
-    )
+    try:
+        resolution = resolve_labs(
+            user_query,
+            result.labs,
+            records=records,
+            llm_scientists=result.scientists,
+            llm_keywords=result.keywords,
+            catalogs=catalogs,
+            projects=_as_list(projects),
+        )
+    except Exception as exc:  # a matcher bug must not fail the turn, nor guess a code
+        print(f"[WARN][ENTITY] Lab resolution failed, labs left unresolved: {exc!r}")
+        result.lab_codes = []
+        result.lab_matches = []
+        return
     if not resolution.available:
         print(
             "[WARN][ENTITY] No lab records (config.LABS is "
