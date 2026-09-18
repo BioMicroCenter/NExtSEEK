@@ -563,12 +563,26 @@ tests and the parity harness (which runs as admin) do not move.
 | `AttributeRow.top_values`, `top_counts` | `()` |
 | `AttributeRow.num_min`, `num_max`, `date_min`, `date_max` | `None` |
 | names, labels, clades, summaries, curated parents and children, value types, meanings, `declared`, `attributes_with_values`, `never_filled`, the guard map, `catalog_hash`, `schema_version`, `synced_at` | unchanged: names, types and structure |
-| `Vocabulary` (investigation, project and study titles, published studies, assay and protocol titles, assay-sample connections) | unchanged: names and structure |
+| `Vocabulary` (investigation, project and study titles, published studies with DOI and PMID, assay and protocol titles, assay-sample connections) | read through the caller's scope (below); empty for a caller who sees no project |
 
 Both consumers read through these getters with the per-request config: the graph agent's `live_catalog_context` and
-`graph_schema_snapshot` (the CC `nextseek-graph-schema` op) in `agents/graph.py`, and `mcp_server.py`. Neither file
-changes. The committed fallback files (`neo4j_schema.json`, `neo4j_protocol_schema.json`,
-`neo4j_assay-sample-conn.json`) carry no counts or values, so the fallback context needs nothing.
+`graph_schema_snapshot` (the CC `nextseek-graph-schema` op) in `agents/graph.py`, and `mcp_server.py`.
+
+**The vocabulary is scoped, not redacted.** Its entries are record values, so `get_vocabulary` reads it per caller.
+An admin gets the `VOCAB_*` statements over every project. A caller limited to a set of projects gets
+`VOCAB_*_SCOPED`, bound to its project ids as `$__scope_projects` and filtered with `SCOPE_CLAUSE_TEMPLATE`: a study
+that holds a visible sample (with its DOI and PMID), an investigation `IN_PROJECT` one of the caller's projects or
+holding such a study, the caller's own projects, and the assay titles, protocol titles and type connections of
+`DERIVED_FROM` relationships whose two ends are visible. Each set of ids is cached apart (`SCOPED_VOCAB_MAX` sets).
+An empty set, no scope, or anything that is not a `GraphScope` gets an empty vocabulary and runs no statement. The
+lane module `graph_scope/test_catalog_vocabulary_lane.py` checks both consumers against the fixture's markers.
+
+**The committed fallback files are admin only for their values.** `neo4j_schema.json` carries a `vocabulary` block
+(study, investigation and assay titles read over every project), and `neo4j_protocol_schema.json` and
+`neo4j_assay-sample-conn.json` are protocol titles and assay connections read the same way. When the live catalog is
+unavailable, a caller who is not an admin gets the committed schema without its `vocabulary` block
+(`graph_catalog.committed_schema`) and no protocol or connection block (`graph_catalog.shows_committed_vocabulary`),
+in the graph agent, the `graph-schema` op and the system agent.
 
 ## 9. Debug payload
 
@@ -776,7 +790,7 @@ are not superusers (their graph answers change from this commit on).
 - Prompt changes (another chat owns `prompts/**`). The agent is not told about the scope; it keeps writing Cypher
   as taught, and a refused shape falls back.
 - An agent repair round on a scope refusal (a possible later refinement, measured first).
-- The report runners' MySQL reads (section 14).
+- A MySQL read other than the report runners' (section 14).
 - APOC on any box beyond the operator's workstation.
 - A rebuild, a deploy, and the live acceptance run (the operator's).
 
@@ -790,11 +804,14 @@ are not superusers (their graph answers change from this commit on).
    comparisons as well as Cypher can. The lane generator's acceptance ratio and the debug field `graph_scope` give
    the first numbers; if the rate is high, the next step is an agent repair round fed the refusal reasons.
 3. **Accepted residuals (by rule):** a visible sample's own `project_ids` names the foreign projects it also belongs
-   to; a Study or Investigation joined to a visible sample is shown whole even when another project owns it;
-   fulltext scores use corpus-wide term statistics; query timing still varies with foreign volume.
-4. **The report runners read MySQL directly** (`reports/runners.py` project and protocol reports query
-   `seek_production` tables with no caller scope). This design scopes their Cypher only; the SQL half is a separate
-   exposure and needs its own task.
+   to; a Study or Investigation joined to a visible sample is shown whole even when another project owns it, and so
+   is its title in the vocabulary; fulltext scores use corpus-wide term statistics; query timing still varies with
+   foreign volume.
+4. **The report runners read MySQL directly** (`reports/runners.py`: the sample, protocols and published reports
+   query `seek_production`). They carry the same scope on their SQL (`_report_projects`): an admin reads every
+   project; anyone else reads `ps.project_id IN` its own ids (nothing for an empty set), and a named project outside
+   them, or a config with no scope, is refused before any statement runs. The reporter summary names the caller's
+   projects (`project_scope`) so an unnamed project is not narrated as every project.
 5. **Harness accounts.** Any evaluation or CI account that is not a superuser sees scoped answers and fallbacks after
    this lands; `plumbing` lists them so no measurement compares across the change by accident.
 6. **The CC agent must make its own fallback** on a refused `graph` op; its guidance lives in the plugin tree, which

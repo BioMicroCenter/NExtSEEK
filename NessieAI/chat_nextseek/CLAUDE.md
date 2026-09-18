@@ -30,7 +30,11 @@ without an error at the point of the change.
   is not an admin runs only what `cypher_scope.scope_cypher` proves, with the scope inserted;
   a refused graph question falls back to graph_search. A new path that runs Cypher any other
   way, or builds its own config, bypasses the scope or refuses every graph query
-  (spec `docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`).
+  (spec `docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`). The same scope decides
+  what the catalog's vocabulary reads (`graph_catalog.get_vocabulary`, and the committed
+  fallback files through `committed_schema`) and what the report runners' SQL reads
+  (`reports/runners.py::_report_projects`); a new catalog read or relational report that
+  skips it shows a caller other projects' records.
 - **Half an identity is treated as none.** `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py:155-164`
   refuses a credential pair with one side missing, because applying only the
   supplied half leaves the other on the service account and issues the request
