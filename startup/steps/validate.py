@@ -295,9 +295,10 @@ class StackHealth:
 
     ``blocking`` holds the checks without which every smoke test fails the same
     way, so the suite is not started. ``advisory`` holds the ones the suite
-    cannot see -- the CC image and services are never requested by it -- which
-    are reported, recorded, and make a rebuild exit non-zero, but do not stop
-    the run, because its result still says something true about the deploy.
+    cannot see -- the CC image, the context it bakes and the CC services are
+    never requested by it -- which are reported, recorded, and make a rebuild
+    exit non-zero, but do not stop the run, because its result still says
+    something true about the deploy.
     """
     blocking: tuple[HealthResult, ...]
     advisory: tuple[HealthResult, ...]
@@ -316,13 +317,21 @@ class StackHealth:
 
 
 def stack_health(
-    repo_root: Path, env: dict[str, str], compose_project_name: str
+    repo_root: Path,
+    env: dict[str, str],
+    compose_project_name: str,
+    *,
+    checkout: Path | None = None,
 ) -> StackHealth:
+    """``checkout`` is the tree the images were built from, which the cc-agent's
+    baked context is compared with. It defaults to ``repo_root``, the runtime
+    checkout; a ``--source-tree`` rebuild passes the clean tree it built."""
     return StackHealth(
         blocking=(check_app_runtimes(repo_root, env),),
         advisory=(
             check_first_party_images(compose_project_name),
             check_cc_services(repo_root, env),
+            check_cc_agent_context(checkout or repo_root, compose_project_name),
         ),
     )
 
