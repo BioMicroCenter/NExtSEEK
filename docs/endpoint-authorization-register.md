@@ -422,7 +422,7 @@ all of them the mechanism is the same and it is sound:
 **There is no shared or service SEEK account on any read path.** Verified by grep for
 `SEEK_USERNAME`/`SEEK_PASSWORD`-style settings (none exist) and by the hard 401s at
 `helpers.py:136-138` and `helpers.py:334-336`. The one full-privilege escape hatch,
-`run_seek_rails_runner` (`nextseek_api/services/seek_rails_runner.py:60`), is reachable only
+`run_seek_rails_runner` (`nextseek_api/services/seek_rails_runner.py:85`), is reachable only
 from `users.py` write actions behind `IsDjangoSuperuser`.
 
 The `sops/download/` and `data_files/download/` actions genuinely stream file blobs

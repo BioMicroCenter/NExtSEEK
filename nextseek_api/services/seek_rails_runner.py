@@ -21,11 +21,14 @@ DEFAULT_TIMEOUT_SECONDS = 120
 
 
 class SeekRailsRunnerError(Exception):
-    """Rails runner returned a structured failure or unparseable output."""
+    """Rails runner returned a structured failure or unparseable output.
 
-    def __init__(self, message: str, *, detail: Optional[str] = None):
+    ``exit_code`` is the exec's exit status once the runner has run, and None before that."""
+
+    def __init__(self, message: str, *, detail: Optional[str] = None, exit_code: Optional[int] = None):
         super().__init__(message)
         self.detail = detail
+        self.exit_code = exit_code
 
 
 class SeekRailsUnavailableError(SeekRailsRunnerError):
@@ -43,6 +46,28 @@ class SeekRailsRunnerConfig:
             container_name=os.environ.get("SEEK_CONTAINER_NAME", DEFAULT_SEEK_CONTAINER),
             timeout_seconds=int(os.environ.get("SEEK_RAILS_RUNNER_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)),
         )
+
+
+# 128 + 9: the kernel's SIGKILL, which is how a container's memory cap ends a process. A fresh ``bin/rails runner``
+# boots the whole Rails app beside SEEK's running puma workers, so a seek container near its cap kills the runner.
+SIGKILL_EXIT = 137
+
+
+def _exit_note(exit_code: Optional[int]) -> str:
+    """What the exec's exit status says, for an error detail; empty for a clean exit."""
+    if exit_code == SIGKILL_EXIT:
+        return (f"bin/rails runner exited {SIGKILL_EXIT}: it was killed (SIGKILL), most likely out of memory in the "
+                "seek container. Check that container's memory use against its cap, SEEK_MEMORY (DEPLOYMENT.md).")
+    if exit_code is None or exit_code == 0:
+        return ""
+    if exit_code > 128:
+        return f"bin/rails runner exited {exit_code}: it was killed by signal {exit_code - 128}."
+    return f"bin/rails runner exited {exit_code}."
+
+
+def _detail(exit_code: Optional[int], output: str) -> str:
+    """The exit status first, when it says anything, then what the runner printed."""
+    return "\n".join(part for part in (_exit_note(exit_code), output) if part)
 
 
 def _import_docker():
@@ -126,24 +151,27 @@ def run_seek_rails_runner(
             break
 
     if not last_line:
-        raise SeekRailsRunnerError(
-            "SEEK rails runner produced no JSON output",
-            detail=stderr_text or stdout_text,
-        )
+        message = "SEEK rails runner produced no JSON output"
+        if exit_code:
+            message += f" (exit code {exit_code})"
+        raise SeekRailsRunnerError(message, detail=_detail(exit_code, stderr_text or stdout_text),
+                                   exit_code=exit_code)
 
     try:
         result = json.loads(last_line)
     except json.JSONDecodeError as exc:
         raise SeekRailsRunnerError(
             "SEEK rails runner last stdout line is not valid JSON",
-            detail=last_line,
+            detail=_detail(exit_code, last_line),
+            exit_code=exit_code,
         ) from exc
 
     if not isinstance(result, dict):
-        raise SeekRailsRunnerError("SEEK rails runner JSON must be an object", detail=last_line)
+        raise SeekRailsRunnerError("SEEK rails runner JSON must be an object", detail=_detail(exit_code, last_line),
+                                   exit_code=exit_code)
 
     if exit_code != 0 or not result.get("ok"):
         message = str(result.get("error") or result.get("message") or "SEEK rails runner failed")
-        raise SeekRailsRunnerError(message, detail=result.get("detail") or stderr_text)
+        raise SeekRailsRunnerError(message, detail=result.get("detail") or stderr_text, exit_code=exit_code)
 
     return result
