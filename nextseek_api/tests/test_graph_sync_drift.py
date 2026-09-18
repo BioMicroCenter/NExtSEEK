@@ -664,3 +664,34 @@ def test_the_drift_check_passes_a_marked_name_this_instance_lacks(mysql_rows, ga
     result, _ = _check_drift(respond)
     assert _named(result, "catalog.assistant_investigations")["pass"]
     assert result["stats"]["assistant_investigations"]["absent_here"] == ["Birch Atlas"]
+
+
+# --- the counts the capabilities generator reads (spec 2026-09-18, section 10.3) --------------------
+
+def test_measure_investigations_enumerates_every_title_with_its_nodes_and_samples():
+    """Grouped by title, as the drift check counts: two nodes of one title are one entry."""
+    def respond(query, params):
+        assert query == drift.MEASURE_INVESTIGATIONS
+        return [{"title": "Alder Study", "nodes": 2, "samples": 40},
+                {"title": "Birch Atlas", "nodes": 1, "samples": 0}]
+
+    driver = FakeDriver(respond)
+    assert drift.measure_investigations(driver, "neo4j") == {
+        "Alder Study": {"nodes": 2, "samples": 40}, "Birch Atlas": {"nodes": 1, "samples": 0}}
+    assert [c.kwargs.get("routing_") for c in driver.calls] == [RoutingControl.READ]
+    assert "MATCH (i:Investigation)" in drift.MEASURE_INVESTIGATIONS
+    assert "RETURN i.title AS title, count(DISTINCT i) AS nodes, count(DISTINCT s) AS samples" \
+        in drift.MEASURE_INVESTIGATIONS
+
+
+def test_the_counts_file_names_its_instance_and_is_what_the_generator_reads():
+    import scripts.context_gen as cg
+
+    driver = FakeDriver(lambda query, params: [{"title": "Alder Study", "nodes": 1, "samples": 3}])
+    doc = drift.investigation_counts(driver, "neo4j", "local", now=T0)
+    assert doc == {"measured_on": "local", "measured_at": "2026-09-15T02:30:00Z",
+                   "investigations": {"Alder Study": {"nodes": 1, "samples": 3}}}
+    cg.check_counts_document(doc)
+    assert tuple(drift.INSTANCES) == tuple(cg.PROFILES)
+    with pytest.raises(ValueError):
+        drift.investigation_counts(driver, "neo4j", "staging", now=T0)

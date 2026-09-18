@@ -33,6 +33,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Iterator, NamedTuple
 
@@ -324,6 +325,37 @@ def assistant_investigation_entries(text: str) -> list[tuple[str, bool]]:
 def assistant_investigation_names(text: str) -> list[str]:
     """The investigation names under "Known Projects and Investigations", in file order."""
     return [name for name, _ in assistant_investigation_entries(text)]
+
+
+# Every Investigation title in the graph with its node and sample counts, grouped by title as the resolve query
+# above counts them: a real investigation and its paper copy share a title and are one entry.
+MEASURE_INVESTIGATIONS = """
+MATCH (i:Investigation)
+WHERE i.title IS NOT NULL
+OPTIONAL MATCH (i)<-[:IN_INVESTIGATION]-(:Study)<-[:IN_STUDY]-(s:Sample)
+RETURN i.title AS title, count(DISTINCT i) AS nodes, count(DISTINCT s) AS samples
+ORDER BY title
+"""
+# The instance profiles a counts file may be measured on: the ``--ci-profile`` vocabulary, and the one
+# scripts/context_gen.py (``PROFILES``) reads ``present_on`` in.
+INSTANCES = ("local", "dev", "prod")
+
+
+def measure_investigations(driver, db) -> dict:
+    """Every Investigation title in the graph, as ``{title: {"nodes": n, "samples": n}}``. Reads only."""
+    rows = _records(_run(driver, db, MEASURE_INVESTIGATIONS, read=True))
+    return {r["title"]: {"nodes": int(r["nodes"] or 0), "samples": int(r["samples"] or 0)} for r in rows}
+
+
+def investigation_counts(driver, db, instance: str, now=None) -> dict:
+    """The counts file ``scripts/context_gen.py --emit capabilities --counts`` reads: which instance it was measured
+    on, when, and ``measure_investigations``. A title the file lacks is absent from that graph, which is how the
+    generator tells a name not loaded here from one loaded and empty. Raises ValueError on an unknown instance."""
+    if instance not in INSTANCES:
+        raise ValueError(f"instance must be one of {', '.join(INSTANCES)}, got {instance!r}")
+    when = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return {"measured_on": instance, "measured_at": when.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "investigations": measure_investigations(driver, db)}
 
 
 def _capabilities_text(repo_root=None) -> str | None:
