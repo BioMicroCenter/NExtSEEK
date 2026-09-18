@@ -13,7 +13,7 @@ stays in `nextseek_api/`.
 | `family_labels.py` | the classifier label space, read from `NessieAI/tests/nessie_tests/corpus.json` through `NessieAI/paths.py` |
 | `router_context.py`, `baml_introspect.py`, `transport_trace.py` | the context fed to BAML and the traces of each call |
 | `risk_overlay.py`, `route_monitoring.py` | telemetry overlays: they observe the outcome and never change it |
-| `turn_ledger.py` | writes one routing row per turn, through `nextseek_api.assistant.models_db` |
+| `turn_ledger.py` | writes one routing row per turn, failed turns included, under the chat's next free turn number and linked to the turn's `QueryTask`, through `nextseek_api.assistant.models_db` |
 | `policy.py` | `_decide_route`, the override precedence around `decide()` (see Overrides), and `_record_ledger_row`, which writes the turn's row through `turn_ledger.py` |
 
 ## How a route is chosen

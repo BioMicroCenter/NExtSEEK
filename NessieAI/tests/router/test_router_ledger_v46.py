@@ -49,7 +49,7 @@ def test_ledger_collision_does_not_raise():
         source="baml",
     )
     policy._record_ledger_row(session, decision)
-    policy._record_ledger_row(session, decision)  # duplicate turn_number — swallowed
+    policy._record_ledger_row(session, decision)  # same chat_log length: takes the next number
 
 
 def test_sticky_override_persists_attempted_route_and_source():
