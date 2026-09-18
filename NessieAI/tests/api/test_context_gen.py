@@ -279,6 +279,76 @@ def test_an_unclosed_parenthesis_is_refused_rather_than_swallowing_the_rest():
         "Kamm", "Roger D. Kamm", "Roger Kamm"]
 
 
+def test_an_initial_without_a_period_or_a_spelled_out_middle_name_still_gives_first_last():
+    """The plain form hung on the curator typing a period after each initial.
+
+    `Doe, Jane Q` gave `Jane Q Doe` and no `Jane Doe`; `Doe, Jane Quinn` gave only
+    `Jane Quinn Doe`. A question says "Jane Doe" either way. A hyphenated initial
+    produced junk (`- Kim`)."""
+    assert cg.parse_pi("Doe, Jane Q (MIT)") == ["Doe", "Jane Q Doe", "Jane Doe"]
+    assert cg.parse_pi("Doe, Jane Quinn (MIT)") == ["Doe", "Jane Quinn Doe", "Jane Doe"]
+    assert cg.parse_pi("Doe, Jane Quinn R.") == [
+        "Doe", "Jane Quinn R. Doe", "Jane Quinn Doe", "Jane Doe"]
+    assert cg.parse_pi("Kim, J.-H.") == ["Kim", "J.-H. Kim"]
+    assert cg.parse_pi("Roe, W. Rick") == ["Roe", "W. Rick Roe", "Rick Roe"]
+
+
+def test_a_pi_list_that_would_lose_or_invent_a_name_is_refused():
+    """Every one of these used to parse, silently dropping a PI or inventing one.
+
+    Everything after an entry's first `(` was thrown away, so a PI separated by a
+    comma, a newline or a forgotten `;` vanished; a bracket or a stray `)` turned
+    affiliation text into a name. The module refuses rather than guesses."""
+    import pytest
+
+    for value in (
+        "Doe, Jane Q. (MIT), Roe, Rick B. (UPenn)",             # comma between PIs
+        "Doe, Jane Q. (MIT)\nRoe, Rick B. (UPenn)",            # newline between PIs
+        "Doe, Jane Q. (MIT, PI) Roe, Rick B. (UPenn)",          # a forgotten semicolon
+        "Doe, Jane (MIT, contact PI), Roe, Rick (UPenn, co-PI); Poe, Pat",
+        "Doe, Jane Q. [MIT; contact PI]",                        # brackets
+        "Doe, Jane Q. MIT); Roe, Rick",                          # a stray ')'
+        "Doe, Jane (Janie) (MIT)",                               # two parentheticals
+        "Doe, Jane Q., Director, Some Center",                   # a title after the name
+        "Doe, Jane Q., Jr.",                                     # a suffix
+        "Jane Q. Doe (MIT)",                                     # natural order
+        "Dr. Doe, Jane",                                         # an honorific
+        'Doe, Jane "JJ"',                                        # a quoted nickname
+    ):
+        with pytest.raises(cg.UnsupportedValue):
+            cg.parse_pi(value)
+
+
+def test_a_pi_that_is_not_text_is_refused():
+    import pytest
+
+    for value in (["Doe, Jane"], [], 0, True):
+        with pytest.raises(cg.UnsupportedValue):
+            cg.parse_pi(value)
+
+
+def test_parse_pi_normalises_unicode_and_spacing():
+    """An NFD-encoded accent never equals a question's NFC one, and a no-break space
+    survived into the initialled form."""
+    assert cg.parse_pi("Mu\u0308ller, Jane\u00a0Q.") == [
+        "M\u00fcller", "Jane Q. M\u00fcller", "Jane M\u00fcller"]
+
+
+def test_a_curated_pi_names_is_refused_rather_than_overwritten():
+    """context/README.md says projects.json must not carry pi_names; it was accepted
+    and silently replaced, so a hand-added spelling vanished."""
+    import pytest
+
+    with pytest.raises(cg.UnsupportedValue):
+        cg.with_pi_names([{"name": "X", "pi": "Doe, Jane", "pi_names": ["J. Doe"]}])
+
+
+def test_a_pi_spelled_as_nothing_is_stored_as_null():
+    assert cg.db_value("projects", "pi", "None") is None
+    assert cg.db_value("projects", "pi", " n/a ") is None
+    assert cg.db_value("projects", "pi", "Doe, Jane") == "Doe, Jane"
+
+
 def test_parse_pi_of_a_single_name_does_not_repeat_it():
     assert cg.parse_pi("Levine (MIT)") == ["Levine"]
 
@@ -1382,7 +1452,7 @@ def test_capabilities_block_refuses_when_no_row_is_an_investigation():
     import pytest
 
     with pytest.raises(cg.NoInvestigations):
-        cg.render_capabilities_block(cg.with_pi_names(_rows_for("projects")), LIVE_COUNTS)
+        cg.render_capabilities_block(_rows_for("projects"), LIVE_COUNTS)
 
 
 def test_capabilities_block_refuses_an_investigation_with_nothing_to_say():

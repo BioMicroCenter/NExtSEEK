@@ -416,25 +416,28 @@ def _split_outside_parens(value: str, separator: str = ";") -> list[str]:
     `Griffith, Linda G. (MIT, PI; Scientific Director, Center for Gynepathology
     Research); Goods, Brittany A. (...)`. Splitting on every semicolon invents a
     PI called "Scientific Director, Center for Gynepathology Research".
+
+    Unbalanced parentheses are refused either way round. An unclosed `(` swallowed
+    every later separator, so the PIs after it vanished with a successful-looking
+    INSERT; a stray `)` was ignored, and the text before it became part of a name.
     """
     parts, current, depth = [], [], 0
     for char in value:
         if char == "(":
             depth += 1
         elif char == ")":
-            depth = max(0, depth - 1)
+            depth -= 1
+            if depth < 0:
+                raise UnsupportedValue(
+                    f"{value[:80]!r} closes a parenthesis it never opened, so the text "
+                    "before it would be read as part of a name"
+                )
         if char == separator and depth == 0:
             parts.append("".join(current))
             current = []
         else:
             current.append(char)
     if depth:
-        # An unclosed "(" swallows every later separator, so the PIs after it
-        # simply vanish: `Kamm, Roger D. (MIT, contact PI; Shenoy, Vivek B. (UPenn,
-        # co-PI)` parsed to Kamm alone, with no exception and a successful-looking
-        # INSERT. This module refuses rather than guesses everywhere else a value
-        # is ambiguous (`literal` on a backslash), and the output is SQL bound for
-        # production, so it refuses here too.
         raise UnsupportedValue(
             f"{value[:80]!r} has {depth} unclosed parenthes{'is' if depth == 1 else 'es'}; "
             "every PI after it would be silently dropped rather than parsed"
@@ -443,18 +446,44 @@ def _split_outside_parens(value: str, separator: str = ";") -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
-# A middle initial, as the curated file spells one: a single letter and a period.
-# `Roger D.`, `Alex K.`, and `Jos W. M.` (two of them).
-_INITIAL = re.compile(r"\b[A-Za-z]\.")
+# A given-name token that is only initials: `D`, `D.`, `J.-H.`, `J-H`.
+_INITIAL_TOKEN = re.compile(r"^[A-Za-z]\.?(?:-[A-Za-z]\.?)*$")
+
+# Written before a surname, it would become part of it: `Dr. Kamm` as a surname.
+_HONORIFIC = re.compile(r"^(?:dr|prof|professor|mr|mrs|ms|mx|sir|dame)\b\.?\s", re.I)
+
+# Characters the `Last, First M. (Affiliation, role); ...` format has no use for.
+# A bracket carried a semicolon past the parenthesis check and invented a PI; a
+# double quote comes back out of json.dumps as a backslash the SQL refuses.
+_PI_REFUSED_CHARS = '[]{}"'
 
 
-def _without_initials(given: str) -> str:
-    """`given` with its middle initials dropped: `Roger D.` -> `Roger`.
+def _pi_entry(entry: str, value: str) -> str:
+    """One PI entry with its single trailing parenthetical removed.
 
-    Only whole single-letter-plus-period tokens go, so a spelled-out middle name
-    and a multi-word surname particle both survive.
+    Anything after the parenthetical means a separator was wrong: a comma, a
+    newline or a missing `;` between two PIs, all of which used to drop every PI
+    after the first silently. A second parenthetical is refused for the same
+    reason: the text between them was discarded.
     """
-    return " ".join(_INITIAL.sub("", given).split())
+    if "(" not in entry:
+        return entry
+    name, _, rest = entry.partition("(")
+    depth, close = 1, None
+    for index, char in enumerate(rest):
+        depth += char == "("
+        depth -= char == ")"
+        if depth == 0:
+            close = index
+            break
+    trailing = rest[close + 1:].strip() if close is not None else ""
+    if trailing:
+        raise UnsupportedValue(
+            f"{value[:80]!r}: {trailing[:40]!r} follows a PI's parenthetical. Separate "
+            "PIs with ';' and give each at most one parenthetical, or the ones after "
+            "the first are dropped"
+        )
+    return name
 
 
 def parse_pi(value) -> list[str]:
@@ -468,41 +497,64 @@ def parse_pi(value) -> list[str]:
         >>> parse_pi("White, Forest M. (MIT, contact PI); Michor, Franziska (Dana-Farber, co-PI)")
         ['White', 'Forest M. White', 'Forest White', 'Michor', 'Franziska Michor']
 
-    Both full spellings are emitted, and the initial-free one is the load-bearing
-    addition. The curated files write a middle initial for most PIs; nobody asking
-    a question does. `Roger D. Kamm` is not a substring of `Roger Kamm` or the
-    reverse, so neither exact nor substring matching recovers it, and 18 of the 21
-    curated PI entries carried no matchable plain form before this. That the plain
-    form is the live spelling is not a guess: the curated CSBC row's own `tags`
-    carry "Forest White", MetNet's description says "led by Roger Kamm (MIT)", and
-    every Scientist attribute value in the repo's live evidence is initial-free
-    ("Bryan Bryson", "JoAnne Flynn", "Alex Shalek").
+    The first-and-last form is the load-bearing one. The curated files write a
+    middle initial or a middle name for most PIs; nobody asking a question does,
+    and `Roger D. Kamm` is not a substring of `Roger Kamm` or the reverse. So the
+    given names without their initials are emitted, and the first given name alone,
+    whether or not the initial carries a period. That the plain form is the live
+    spelling is not a guess: the curated CSBC row's own `tags` carry "Forest White".
 
     `Last, First` is deliberately NOT emitted: that is the spelling the free-text
     `pi` column already holds for display, and it is not how a question names a
-    person.
+    person. The shape of this list is task 13c's to change, not this parser's.
+
+    Anything the format does not describe is refused rather than guessed at: a
+    separator other than `;`, text after a parenthetical, a bracket or a stray
+    `)`, an honorific, a suffix or title after the given names, a name in natural
+    order, and a value that is not text.
     """
     if value is None:
         return []
-    text = str(value).strip()
+    if not isinstance(value, str):
+        raise UnsupportedValue(f"pi must be text or null, not {type(value).__name__} {value!r}")
+    if "\n" in value or "\r" in value:
+        raise UnsupportedValue(
+            f"{value[:80]!r} spans lines; separate PIs with ';', or the ones after the "
+            "first line are dropped"
+        )
+    text = " ".join(unicodedata.normalize("NFC", value).split())
     if text.lower() in _NO_PI:
         return []
+    refused = sorted(set(text) & set(_PI_REFUSED_CHARS))
+    if refused:
+        raise UnsupportedValue(f"{value[:80]!r} contains {''.join(refused)!r}, which the PI format has no use for")
 
     names: list[str] = []
     for entry in _split_outside_parens(text):
-        # Drop the affiliation and role, which are not names.
-        bare = entry.split("(", 1)[0].strip().rstrip(",").strip()
+        bare = _pi_entry(entry, value).strip().rstrip(",").strip()
         if not bare or bare.lower() in _NO_PI:
             continue
-        surname, _, given = (part.strip() for part in bare.partition(","))
+        if _HONORIFIC.match(bare):
+            raise UnsupportedValue(f"{bare!r}: write the name without an honorific, as 'Last, First'")
+        if bare.count(",") > 1:
+            raise UnsupportedValue(
+                f"{bare!r} has more than one comma. A PI is 'Last, First M.'; a title or "
+                "suffix after the given names would be read as part of them"
+            )
+        surname, comma, given = (part.strip() for part in bare.partition(","))
+        if not comma and len(surname.split()) > 1:
+            raise UnsupportedValue(
+                f"{bare!r} has no comma, so the surname cannot be told from the given "
+                "names; write it as 'Last, First'"
+            )
         spellings = [surname]
         if given:
             spellings.append(f"{given} {surname}")
-            plain = _without_initials(given)
-            if plain and plain != given:
-                spellings.append(f"{plain} {surname}")
+            plain = [token for token in given.split() if not _INITIAL_TOKEN.match(token)]
+            if plain:
+                spellings.append(f"{' '.join(plain)} {surname}")
+                spellings.append(f"{plain[0]} {surname}")
         for name in spellings:
-            name = name.strip()
             if name and name not in names:
                 names.append(name)
     return names
@@ -514,6 +566,12 @@ def with_pi_names(rows: list[dict]) -> list[dict]:
     Every row gains the column, including the ones with no PI, so the write never
     leaves it undefined. This happens before the database write, not after.
     """
+    for index, row in enumerate(rows):
+        if "pi_names" in row:
+            raise UnsupportedValue(
+                f"{TABLES['projects'].source} row {index} carries pi_names, which is "
+                "generated from pi and never curated; it would be silently replaced"
+            )
     return [{**row, "pi_names": parse_pi(row.get("pi"))} for row in rows]
 
 
@@ -582,6 +640,8 @@ def db_value(table: str, column: str, value):
         return text
     if value is None or value == "":
         return None
+    if table == "projects" and column == "pi" and str(value).strip().lower() in _NO_PI:
+        return None          # parse_pi reads these as "no PI"; store them the same way
     if column in spec.int_columns:
         return int(value)
     return value
