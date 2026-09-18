@@ -29,7 +29,7 @@ CATALOG = Catalog(
     type_title_by_id={v: k for k, v in TYPE_IDS.items()},
     label_by_title={"TIS": "T_TIS", "MUS": "T_MUS", "D.SEQ": "T_D_SEQ", "Odd`Type": "T_Odd_Type"},
     titles_by_type={
-        "TIS": frozenset({"UID", "Organ", "organ", "Media supplement ", "CellCount", "Collected", "Name`x"}),
+        "TIS": frozenset({"UID", "Organ", "organ", "Media supplement ", "CellCount", "Collected", "Name`x", "Viable"}),
         "MUS": frozenset({"UID", "Sex", "Strain", "Organ"}),
         "D.SEQ": frozenset({"UID", "Parent", "Reads"}),
         "Odd`Type": frozenset(),
@@ -451,9 +451,68 @@ def test_where_string_operators_take_the_value_as_text():
     q = _build({"filter_searchText": "", "extensions": {"where": [
         {"sample_type": "TIS", "attribute": "CellCount", "op": "STARTS WITH", "value": 12},
         {"sample_type": "TIS", "attribute": "Organ", "op": "CONTAINS", "value": "Lu"}]}})
-    assert "s.`CellCount` STARTS WITH $w0" in _where_line(q)
-    assert "s.`Organ` CONTAINS $w1" in _where_line(q)
+    assert "toString(s.`CellCount`) STARTS WITH $w0" in _where_line(q)
+    assert "toString(s.`Organ`) CONTAINS $w1" in _where_line(q)
     assert q.params["w0"] == "12" and q.params["w1"] == "Lu"
+
+
+def test_where_string_operators_read_the_text_of_a_value_stored_as_a_number():
+    # The Simple box's Contain was `From in str(value).strip()` (seek/dbtable_sampleattribute.py STRING_RULES), so a
+    # number held by a string attribute matched by its digits. The graph keeps such a value as a number, and Cypher's
+    # CONTAINS on a number is null, so the operator reads the property through toString().
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "D.SEQ", "attribute": "Reads", "op": "CONTAINS", "value": "12"}]}})
+    assert _where_line(q) == "toString(s.`Reads`) CONTAINS $w0"
+    assert q.params["w0"] == "12"
+
+
+def test_where_not_contains_is_the_negation_of_contains_over_samples_that_hold_the_value():
+    # advanced_search's Not Contain: `From not in str(value).strip()`, and only on rows whose metadata holds the
+    # attribute with a non-null value (_filterSamples keeps a row only when _highlightKeyValues finds it).
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "TIS", "attribute": "Organ", "op": "NOT CONTAINS", "value": "Lung"}]}})
+    assert _where_line(q) == "(s.`Organ` IS NOT NULL AND NOT (toString(s.`Organ`) CONTAINS $w0))"
+    assert q.params["w0"] == "Lung"
+
+
+def test_where_not_contains_takes_a_number_as_text():
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "D.SEQ", "attribute": "Reads", "op": "NOT CONTAINS", "value": 12}]}})
+    assert q.params["w0"] == "12"
+
+
+TRUTHY = (
+    "CASE WHEN s.`Viable` IS :: BOOLEAN NOT NULL THEN s.`Viable` "
+    "WHEN s.`Viable` IS :: INTEGER NOT NULL THEN s.`Viable` = 1 "
+    "WHEN s.`Viable` IS :: FLOAT NOT NULL THEN s.`Viable` >= 1.0 AND s.`Viable` < 2.0 "
+    "WHEN s.`Viable` IS :: STRING NOT NULL THEN btrim(s.`Viable`, $ws) =~ '[+]?(0_?)*1' "
+    "OR toLower(btrim(s.`Viable`, $ws)) IN ['true', 'yes'] "
+    "ELSE false END"
+)
+
+
+def test_where_is_true_is_advanced_searchs_to_binary_tiny_int_rule():
+    # dmac/conversion.py::toBinaryTinyInt(value) == 1: int(value) is 1 (a boolean true, the integer 1, a float that
+    # truncates to 1, a string int() reads as 1), or the trimmed, lower-cased text is "true" or "yes".
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "TIS", "attribute": "Viable", "op": "IS TRUE"}]}})
+    assert _where_line(q) == TRUTHY
+    assert q.params == {"ws": PY_WHITESPACE, "skip": 0, "limit": 100}
+
+
+def test_where_is_false_is_every_other_value_the_sample_holds():
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "TIS", "attribute": "Viable", "op": "IS FALSE"}]}})
+    assert _where_line(q) == f"(s.`Viable` IS NOT NULL AND NOT ({TRUTHY}))"
+    assert "w0" not in q.params and q.params["ws"] == PY_WHITESPACE
+
+
+def test_where_truth_and_value_operators_mix():
+    q = _build({"filter_searchText": "", "extensions": {"where": [
+        {"sample_type": "TIS", "attribute": "Organ", "op": "CONTAINS", "value": "Lu"},
+        {"sample_type": "TIS", "attribute": "Viable", "op": "IS TRUE"}]}})
+    assert _where_line(q) == f"toString(s.`Organ`) CONTAINS $w0 AND {TRUTHY}"
+    assert q.params["w0"] == "Lu" and "w1" not in q.params
 
 
 def test_where_items_are_anded():
@@ -509,6 +568,10 @@ def test_where_rechecks_what_it_interpolates():
         {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "IN", "value": "x"}]},
         {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "=", "value": ["x"]}]},
         {"where": [{"sample_type": "D.SEQ", "attribute": "Reads", "op": "=", "value": 2 ** 70}]},
+        {"where": [{"sample_type": "TIS", "attribute": "Viable", "op": "IS TRUE", "value": "yes"}]},
+        {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "NOT CONTAINS", "value": ["x"]}]},
+        {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "=", "value": None}]},
+        {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "="}]},
         {"where": [{"sample_type": "TIS", "attribute": "Organ", "op": "=", "value": "a"},
                    {"sample_type": "MUS", "attribute": "Sex", "op": "=", "value": "F"}]},
     ):
@@ -542,10 +605,59 @@ def test_lineage_ancestor_points_the_other_way_and_defaults_to_4_hops():
     assert "EXISTS { (s)-[:DERIVED_FROM*1..4]->(:`T_MUS`) }" in _where_line(q)
 
 
+def test_lineage_reaches_the_whole_tree_within_12_hops():
+    # The longest DERIVED_FROM chain in the graph is 11 hops; 12 is the bound the Nessie graph guard uses too.
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 12}}})
+    assert "EXISTS { (s)<-[:DERIVED_FROM*1..12]-(:`T_D_SEQ`) }" in _where_line(q)
+
+
+def test_lineage_either_direction_is_an_ancestor_or_a_descendant():
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}}})
+    assert _where_line(q) == ("(EXISTS { (s)-[:DERIVED_FROM*1..12]->(:`T_D_SEQ`) } "
+                              "OR EXISTS { (s)<-[:DERIVED_FROM*1..12]-(:`T_D_SEQ`) })")
+
+
+PATH_SCOPE = "all(n IN nodes(path) WHERE any(p IN n.project_ids WHERE p IN $projects))"
+
+
+@pytest.mark.parametrize("direction, pattern", [
+    ("ancestor", "(s)-[:DERIVED_FROM*1..12]->(:`T_D_SEQ`)"),
+    ("descendant", "(s)<-[:DERIVED_FROM*1..12]-(:`T_D_SEQ`)"),
+])
+def test_lineage_for_a_member_needs_every_sample_on_the_path_visible(direction, pattern):
+    # Lineage stops at the caller's project edge: the related sample, and every sample between, must be in one of the
+    # caller's projects, so a sample in someone else's project never makes a sample match.
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": direction, "sample_type": "D.SEQ", "max_hops": 12}}},
+               scope=MEMBER)
+    assert _where_line(q).endswith(f"EXISTS {{ MATCH path = {pattern} WHERE {PATH_SCOPE} }}")
+    assert q.params["projects"] == [2, 6]
+
+
+def test_lineage_either_for_a_member_scopes_both_directions():
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}}},
+               scope=MEMBER)
+    assert _where_line(q).endswith(
+        f"(EXISTS {{ MATCH path = (s)-[:DERIVED_FROM*1..12]->(:`T_D_SEQ`) WHERE {PATH_SCOPE} }} "
+        f"OR EXISTS {{ MATCH path = (s)<-[:DERIVED_FROM*1..12]-(:`T_D_SEQ`) WHERE {PATH_SCOPE} }})")
+
+
+def test_lineage_scope_is_in_every_statement_and_the_admin_gets_none():
+    body = {"sampletype": "TIS", "filter_searchText": "",
+            "extensions": {"lineage": {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}}}
+    member = _build(body, scope=MEMBER)
+    for statement in (member.page_cypher, member.count_cypher, member.ids_cypher):
+        assert statement.count(PATH_SCOPE) == 2
+    assert "nodes(path)" not in _build(body, scope=ADMIN).page_cypher
+
+
 @pytest.mark.parametrize("lineage", [
     {"direction": "descendant", "sample_type": "NOPE", "max_hops": 2},
     {"direction": "sideways", "sample_type": "MUS", "max_hops": 2},
-    {"direction": "ancestor", "sample_type": "MUS", "max_hops": 5},
+    {"direction": "ancestor", "sample_type": "MUS", "max_hops": 13},
     {"direction": "ancestor", "sample_type": "MUS", "max_hops": 0},
     {"direction": "ancestor", "sample_type": "MUS", "max_hops": "2"},
     {"direction": "ancestor", "sample_type": "MUS", "max_hops": True},
@@ -554,6 +666,194 @@ def test_lineage_rechecks_what_it_interpolates(lineage):
     filters = _req({"sampletype": "TIS", "filter_searchText": ""}).to_db_filters(sampletype_resolver=_resolver)
     with pytest.raises(GraphSearchInvalid):
         build(filters, {"lineage": lineage}, ADMIN, CATALOG, 1, 100)
+
+
+# --- extensions.query: the Sample Search page's query text ---------------------------------------------------------------
+# advanced_search's two stages (nextseek_api/graph_search/README.md, "What advanced_search returned"): every term is a
+# case-insensitive LIKE over the JSON text, key names included, combined as the text says; then a row is kept when one of
+# the text's positive terms is in (PARTIAL) or equal to (EXACT) one of its values.
+
+HOLDS = "toLower(s.search_text) CONTAINS $q{}"
+EQUALS = "$q{} IN split(toLower(s.search_text), '\\n')"
+
+
+def _query(text, **body):
+    return _build({"filter_searchText": "", **body, "extensions": {"query": text}})
+
+
+def test_query_one_term_is_a_fulltext_candidate_verified_on_the_values():
+    q = _query("Granuloma")
+    assert _source(q) == FULLTEXT
+    assert _where_line(q) == HOLDS.format(0)
+    assert q.params == {"lucene": "*granuloma*", "q0": "granuloma", "skip": 0, "limit": 100}
+
+
+def test_query_and_or_combine_as_the_text_says():
+    q = _query("(lung AND granuloma) OR liver")
+    assert _where_line(q) == f"(({HOLDS.format(0)} AND {HOLDS.format(1)}) OR {HOLDS.format(2)})"
+    assert q.params["lucene"] == "((*lung*) AND (*granuloma*)) OR (*liver*)"
+    assert (q.params["q0"], q.params["q1"], q.params["q2"]) == ("lung", "granuloma", "liver")
+
+
+def test_query_not_drops_samples_whose_json_holds_the_term():
+    q = _query("lung NOT granuloma")
+    assert _where_line(q) == f"({HOLDS.format(0)} AND NOT ({HOLDS.format(1)}))"
+    assert q.params["lucene"] == "*lung*"
+
+
+def test_query_not_also_drops_the_types_with_a_key_name_holding_the_term():
+    # `json_metadata NOT LIKE '%organ%'` is false for every sample whose type has an Organ attribute: SEEK writes every
+    # declared key into json_metadata. The catalog says which types those are.
+    q = _query("lung NOT organ")
+    assert _where_line(q) == f"({HOLDS.format(0)} AND NOT ({HOLDS.format(1)} OR s.type IN $qk1))"
+    assert q.params["qk1"] == ["MUS", "TIS"]
+
+
+def test_query_a_key_name_term_under_and_holds_through_the_key():
+    # `lung AND organ`: stage 1 holds on any TIS or MUS sample (the Organ key), stage 2 needs lung in a value.
+    q = _query("lung AND organ")
+    assert _where_line(q) == f"({HOLDS.format(0)} AND ({HOLDS.format(1)} OR s.type IN $qk1))"
+    assert q.params["lucene"] == "*lung*"
+
+
+def test_query_a_single_key_name_term_still_needs_a_value():
+    # Stage 2 is not implied when the term can hold through a key name alone, so it is added.
+    q = _query("organ")
+    assert _where_line(q) == f"(({HOLDS.format(0)} OR s.type IN $qk0) AND {HOLDS.format(0)})"
+    assert q.params["lucene"] == "*organ*"
+
+
+def test_query_a_tag_is_the_terms_sample_type_and_stays_outside_its_negation():
+    # advanced_search: `lung[TIS] NOT granuloma[MUS]` is (LIKE lung AND type TIS) AND (NOT LIKE granuloma AND type MUS).
+    q = _query("lung[TIS] NOT granuloma[mus]")
+    assert _where_line(q) == (
+        f"(({HOLDS.format(0)} AND s.type = $qt0) AND (NOT ({HOLDS.format(1)}) AND s.type = $qt1))")
+    assert (q.params["qt0"], q.params["qt1"]) == ("TIS", "MUS")
+
+
+def test_query_a_tag_resolves_as_advanced_search_looked_it_up():
+    # Upper-cased, cut at its first `_`, one title equal to it ignoring case; anything else matches nothing.
+    assert _query("lung[tis_extra]").params["qt0"] == "TIS"
+    for text in ("lung[XYZ]", "lung[]", "lung[NA]", "lung[_TIS]"):
+        q = _query(text)
+        assert _where_line(q) == "false", text
+        assert "qt0" not in q.params
+
+
+def test_query_a_tag_alone_is_every_sample_of_the_type_from_the_type_index():
+    q = _query("[TIS]")
+    assert _source(q) == "MATCH (s:Sample) WHERE s.type IN $query_types"
+    assert _where_line(q) == "s.type = $qt0"
+    assert q.params["query_types"] == ["TIS"]
+    assert "lucene" not in q.params
+
+
+def test_query_or_partly_tagged():
+    q = _query("lung[TIS] OR granuloma")
+    assert _where_line(q) == f"(({HOLDS.format(0)} AND s.type = $qt0) OR {HOLDS.format(1)})"
+    assert q.params["lucene"] == "(*lung*) OR (*granuloma*)"
+
+
+def test_query_or_with_a_bare_tag_keeps_advanced_searchs_value_stage():
+    # `[TIS] OR lung`: stage 1 holds on every TIS sample, but stage 2 still needs lung in a value.
+    q = _query("[TIS] OR lung")
+    assert _where_line(q) == f"((s.type = $qt0 OR {HOLDS.format(1)}) AND {HOLDS.format(1)})"
+    assert q.params["lucene"] == "*lung*"
+
+
+def test_query_not_before_a_group_negates_the_group():
+    q = _query("lung NOT (liver OR kidney)")
+    assert _where_line(q) == f"({HOLDS.format(0)} AND NOT (({HOLDS.format(1)} OR {HOLDS.format(2)})))"
+
+
+def test_query_exact_keeps_the_like_stage_and_needs_a_positive_term_equal_to_a_value():
+    q = _query("lung AND granuloma", filter_matchType="EXACT")
+    assert _where_line(q) == (
+        f"(({HOLDS.format(0)} AND {HOLDS.format(1)}) AND ({EQUALS.format(0)} OR {EQUALS.format(1)}))")
+
+
+def test_query_exact_ignores_negated_terms_in_the_value_stage():
+    q = _query("lung NOT granuloma", filter_matchType="EXACT")
+    assert _where_line(q) == f"(({HOLDS.format(0)} AND NOT ({HOLDS.format(1)})) AND {EQUALS.format(0)})"
+
+
+def test_query_a_bare_negation_is_bounded_by_the_sample_type_when_there_is_one():
+    q = _query("NOT granuloma", sampletype="TIS")
+    assert _source(q) == "MATCH (s:Sample) WHERE s.type IN $types"
+    assert _where_line(q) == f"NOT ({HOLDS.format(0)})"
+
+
+def test_query_a_bare_negation_bounded_by_a_tag_reads_that_types_index():
+    q = _query("NOT granuloma[TIS]")
+    assert _source(q) == "MATCH (s:Sample) WHERE s.type IN $query_types"
+    assert q.params["query_types"] == ["TIS"]
+
+
+def test_query_a_bare_negation_with_nothing_to_bound_it_is_a_logged_full_scan(caplog):
+    with caplog.at_level(logging.WARNING, logger="nextseek_api.graph_search.query"):
+        q = _query("NOT granuloma")
+    assert _source(q) == "MATCH (s:Sample)"
+    assert "full scan" in caplog.text
+
+
+def test_query_a_negation_never_widens_scope():
+    q = _build({"filter_searchText": "", "extensions": {"query": "NOT granuloma"}}, scope=MEMBER)
+    where = _where_line(q)
+    assert where == f"any(p IN s.project_ids WHERE p IN $projects) AND NOT ({HOLDS.format(0)})"
+    assert q.params["projects"] == [2, 6]
+    for statement in (q.page_cypher, q.count_cypher, q.ids_cypher):
+        assert "any(p IN s.project_ids WHERE p IN $projects)" in statement
+
+
+def test_query_negating_nothing_or_an_unknown_type_matches_nothing():
+    assert _where_line(_query("lung NOT [TIS]")) == f"({HOLDS.format(0)} AND false)"
+    assert _where_line(_query("lung NOT kidney[XYZ]")) == f"({HOLDS.format(0)} AND false)"
+
+
+def test_query_a_uid_is_an_ordinary_term_as_it_was_for_the_advanced_box():
+    q = _query("TIS-220119FLY-7")
+    assert "uids" not in q.params
+    assert q.params["q0"] == "tis-220119fly-7"
+
+
+def test_query_short_terms_fall_back_to_the_type_scan():
+    q = _query("6J OR lung", sampletype="MUS")
+    assert _source(q) == "MATCH (s:Sample) WHERE s.type IN $types"
+    assert "lucene" not in q.params
+
+
+def test_query_and_search_text_are_anded_and_so_are_their_candidates():
+    q = _build({"filter_searchText": "liver", "extensions": {"query": "lung NOT kidney"}})
+    assert q.params["lucene"] == "(*liver*) AND (*lung*)"
+    assert _where_line(q) == f"toLower(s.search_text) CONTAINS $t0 AND ({HOLDS.format(0)} AND NOT ({HOLDS.format(1)}))"
+
+
+def test_query_with_uid_terms_only_keeps_the_uid_source():
+    q = _build({"filter_searchText": "TIS-220119FLY-7", "extensions": {"query": "lung"}})
+    assert _source(q) == "MATCH (s:Sample) WHERE s.uuid IN $uids"
+    assert "lucene" not in q.params
+    assert _where_line(q) == HOLDS.format(0)
+
+
+def test_query_values_are_never_interpolated():
+    q = _query("Lung' AND 1=1 // `x` $q0 } NOT granuloma[TIS'] ")
+    for statement in (q.page_cypher, q.count_cypher, q.ids_cypher):
+        assert "1=1" not in statement and "ung'" not in statement and "TIS'" not in statement
+    assert q.params["q0"] == "lung'" and q.params["q1"] == "1=1 // `x` $q0 }"
+
+
+def test_query_text_the_parser_cannot_read_is_invalid_with_its_reason():
+    with pytest.raises(GraphSearchInvalid, match="query: Use parentheses"):
+        _query("a OR b AND c")
+    with pytest.raises(GraphSearchInvalid, match="query: NOT needs a term after it"):
+        _query("lung NOT")
+
+
+def test_query_statements_share_one_match():
+    q = _build({"filter_searchText": "", "extensions": {"query": "lung NOT granuloma"}}, scope=MEMBER)
+    body = q.page_cypher.rsplit("\n", 1)[0]
+    assert q.count_cypher.rsplit("\n", 1)[0] == body
+    assert q.ids_cypher.rsplit("\n", 1)[0] == body
 
 
 # --- nothing to search on ---------------------------------------------------------------------------------------------------
@@ -565,6 +865,8 @@ def test_lineage_rechecks_what_it_interpolates(lineage):
     {"filter_searchText": "", "attribute": "Organ"},
     {"filter_searchText": "", "extensions": {"where": []}},
     {"filter_searchText": "", "extensions": {"lineage": {"direction": "ancestor", "sample_type": "MUS"}}},
+    {"filter_searchText": "", "extensions": {"query": "   "}},
+    {"filter_searchText": "", "extensions": {"query": None}},
 ])
 def test_nothing_to_search_on_is_invalid(body):
     with pytest.raises(GraphSearchInvalid):

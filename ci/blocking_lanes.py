@@ -8,7 +8,7 @@ ci/pytest-baseline.txt and never fails the job. The modules these globs expand
 to run a second time, in the workflow's "Blocking unit tests
 (ci/blocking_lanes.py)" step, where any failure fails it. A new test module joins by its name, with no
 edit here: the graph_sync and graph_search tests under nextseek_api/tests/, and
-the Graph Search page's view and JavaScript tests under seek/tests/.
+the Sample Search page's view and JavaScript tests under seek/tests/.
 
 Exit 1, printing nothing on stdout, when a glob matches no file: the workflow
 passes the output to pytest as its paths, and pytest given no path walks the
@@ -28,9 +28,12 @@ BLOCKING_GLOBS = (
     "nextseek_api/tests/test_graph_sync_*.py",
     "nextseek_api/tests/test_graph_search_*.py",
     "nextseek_api/tests/test_services_graph_*.py",
-    # The Graph Search page: its view tests and its JavaScript cases, which skip
-    # where node is missing (the workflow step checks for node first).
-    "seek/tests/test_graph_search_*.py",
+    # The Sample Search page, whose two search boxes send their searches to
+    # graph_search: its view tests and its JavaScript cases, which skip where node
+    # is missing (the workflow step checks for node first). It replaced the
+    # glob seek/tests/test_graph_search_*.py when the separate Graph Search page
+    # was retired and its tests went with it.
+    "seek/tests/test_sample_search_*.py",
 )
 
 

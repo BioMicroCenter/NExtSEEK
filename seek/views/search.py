@@ -1,5 +1,9 @@
 """Simple and advanced sample search."""
 
+import json
+
+from nextseek_api.services.context_catalog import load_sample_types
+
 from ..dbtable_sample import DBtable_sample
 from ..dbtable_sampletype import DBtable_sampletype
 from django.http import HttpResponse
@@ -90,11 +94,22 @@ def sampleSearching(request):
 def remote(request):
     return samples(request)
 
+def _with_names(type_options):
+    """The sample type options with each type's curated name (sample_types_context), "" when it has none, for the
+    Associated with dropdown's name and code. load_sample_types never raises: without the catalog the names are
+    empty and the page still renders."""
+    options = json.loads(type_options)
+    names = {entry.code: entry.name for entry in load_sample_types()}
+    for option in options:
+        option['name'] = names.get(option.get('title'), '')
+    return json.dumps(options, default=str)
+
+
 @requires_seek_login_redirect('/seek/search/')
 def searchAdvanced(request):
     report = {}
     stype = DBtable_sampletype()
-    report['type_options'] = stype.getSampleTypes()
+    report['type_options'] = _with_names(stype.getSampleTypes())
     report['showSamplePage'] = True
     report['showSearch'] = True        
     return render(request,"searchAdvanced.html", {'report':report})
@@ -116,13 +131,3 @@ def smartSearch(request):
 @requires_seek_login_redirect()
 def newSearch(request):
     return render(request, "newSearch.html")
-
-@requires_seek_login_redirect('/seek/graph/search/')
-def graphSearch(request):
-    '''Sample Search with its results served by POST /nextseek_api/samples/graph_search/.
-
-    The page makes those calls from the browser (seek/templates/graphSearch.html), so
-    the view only supplies the sample type list the forms offer.
-    '''
-    report = {'type_options': DBtable_sampletype().getSampleTypes()}
-    return render(request, "graphSearch.html", {'report': report})

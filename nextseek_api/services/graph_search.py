@@ -5,8 +5,8 @@ body plus an optional ``extensions`` block; the response is advanced_search's en
 
 1. refuses an unauthenticated caller (401);
 2. validates the body with ``GraphSearchRequest`` (422, advanced_search's error envelope);
-3. refuses a search with nothing to search on (no term, no sample type that resolves, no ``extensions.where``) with
-   advanced_search's 422, before any lookup;
+3. refuses a search with nothing to search on (no term, no sample type that resolves, no ``extensions.where`` and no
+   ``extensions.query``) with advanced_search's 422, before any lookup;
 4. resolves the caller's scope from MySQL (403 when the caller maps to no SEEK person);
 5. answers ``total: 0`` without touching the graph when a non-superuser belongs to no project;
 6. runs the page and count statements through ``graph_search.service.search`` (READ transactions, 60 s timeout);
@@ -45,7 +45,7 @@ from nextseek_api.models import GraphSearchRequest, JsonApiErrorResponse, Sample
 log = logging.getLogger(__name__)
 
 NOTHING_TO_SEARCH = (
-    "Give a filter_searchText, a sampletype that exists on this instance, or extensions.where. "
+    "Give a filter_searchText, a sampletype that exists on this instance, extensions.where or extensions.query. "
     "A search with none of them would read every sample."
 )
 
@@ -212,6 +212,34 @@ class GraphSearchViewSet(viewsets.ViewSet):
                 request_only=True,
             ),
             OpenApiExample(
+                name="Associated with a sample type anywhere in the lineage tree",
+                description=(
+                    "The Sample Search page's Associated with: lung samples with a D.SEQ sample among their ancestors "
+                    "or descendants, the whole tree (12 hops). A non-superuser's related sample, and every sample "
+                    "between, must be in one of their projects."
+                ),
+                value={
+                    "filter_searchText": "",
+                    "extensions": {"query": "lung",
+                                   "lineage": {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}},
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="The Sample Search page's query text",
+                description=(
+                    "extensions.query reads the Advanced box's text as advanced_search did: upper-case AND, OR and "
+                    "NOT, parentheses to group, term[TYPE] limiting a term to a sample type. OR is never on one level "
+                    "with AND or NOT; a text graph_search cannot read is a 422 that says why."
+                ),
+                value={
+                    "filter_searchText": "",
+                    "filter_matchType": "PARTIAL",
+                    "extensions": {"query": "(lung[TIS] OR liver[TIS]) NOT granuloma"},
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
                 name="Keywords across every sample type (OR)",
                 value={
                     "filter_searchText": ["granuloma", "lung"],
@@ -261,9 +289,12 @@ class GraphSearchViewSet(viewsets.ViewSet):
             return _error(422, "Invalid request")
 
         # Nothing to search on: advanced_search's refusal, before any lookup. extensions.where alone is enough,
-        # because it names a sample type and the builder scans that type's label.
+        # because it names a sample type and the builder scans that type's label; so is extensions.query, the
+        # Sample Search page's query text.
         has_where = bool(req.extensions is not None and req.extensions.where)
-        if not split_terms(req.filter_searchText) and not filters.get("sampletype_ids") and not has_where:
+        has_query = bool(req.extensions is not None and (req.extensions.query or "").strip())
+        if (not split_terms(req.filter_searchText) and not filters.get("sampletype_ids") and not has_where
+                and not has_query):
             return _error(422, "Invalid request", NOTHING_TO_SEARCH)
 
         try:

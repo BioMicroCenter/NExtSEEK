@@ -1908,20 +1908,36 @@ class SampleAdvancedSearchResult(BaseModel):
 # against the graph catalog by the query builder (nextseek_api/graph_search/query.py).
 
 
+GRAPH_SEARCH_TRUTH_OPS = ("IS TRUE", "IS FALSE")
+
+
 class GraphSearchWhere(BaseModel):
     sample_type: str = Field(..., description='Sample type title the attribute belongs to, for example "TIS"')
     attribute: str = Field(..., description='Attribute title on that sample type, exact and case-sensitive')
-    op: Literal["=", "<>", "<", "<=", ">", ">=", "IN", "CONTAINS", "STARTS WITH"] = Field(
-        ..., description='Comparison operator; IN takes a list, every other operator a single value'
+    op: Literal["=", "<>", "<", "<=", ">", ">=", "IN", "CONTAINS", "NOT CONTAINS", "STARTS WITH",
+                "IS TRUE", "IS FALSE"] = Field(
+        ...,
+        description=(
+            'Comparison operator. IN takes a list; IS TRUE and IS FALSE take no value (the Sample Search page\'s '
+            'True and False rules); every other operator a single value. CONTAINS, NOT CONTAINS and STARTS WITH '
+            'compare the stored value\'s text; NOT CONTAINS keeps only samples that hold the attribute'
+        ),
     )
-    value: Union[str, int, float, List[Union[str, int, float]]] = Field(
-        ..., description="Value to compare with, cast by the attribute's value_type"
+    value: Optional[Union[str, int, float, List[Union[str, int, float]]]] = Field(
+        default=None,
+        description="Value to compare with, cast by the attribute's value_type; omitted for IS TRUE and IS FALSE",
     )
 
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def _value_shape_matches_op(self) -> "GraphSearchWhere":
+        if self.op in GRAPH_SEARCH_TRUTH_OPS:
+            if self.value is not None:
+                raise ValueError(f"op '{self.op}' takes no value")
+            return self
+        if self.value is None:
+            raise ValueError(f"op '{self.op}' requires a value")
         is_list = isinstance(self.value, list)
         if self.op == "IN" and not is_list:
             raise ValueError("op 'IN' requires a list value")
@@ -1931,11 +1947,18 @@ class GraphSearchWhere(BaseModel):
 
 
 class GraphSearchLineage(BaseModel):
-    direction: Literal["ancestor", "descendant"] = Field(
-        ..., description='Keep a sample when a sample of sample_type is its ancestor or its descendant'
+    direction: Literal["ancestor", "descendant", "either"] = Field(
+        ...,
+        description=(
+            'Keep a sample when a sample of sample_type is its ancestor, its descendant, or either. For a '
+            'non-superuser that sample, and every sample on the way to it, must be in one of their projects'
+        ),
     )
     sample_type: str = Field(..., description='Sample type title of the related sample')
-    max_hops: int = Field(default=4, ge=1, le=4, description='Most DERIVED_FROM hops to follow, 1 to 4')
+    max_hops: int = Field(
+        default=4, ge=1, le=12,
+        description='Most DERIVED_FROM hops to follow, 1 to 12; 12 reaches the whole tree (the longest chain is 11)',
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -1945,6 +1968,16 @@ class GraphSearchExtensions(BaseModel):
         default_factory=list, description='Attribute conditions, ANDed, all on one sample type'
     )
     lineage: Optional[GraphSearchLineage] = Field(default=None, description='One lineage condition')
+    query: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description=(
+            "The Sample Search page's query text, matched as advanced_search matched it: terms joined by the "
+            "upper-case words AND, OR and NOT (a NOT b is a AND NOT b; a leading NOT negates what follows), grouped "
+            "by parentheses, OR never on one level with AND or NOT; term[TYPE] limits a term to a sample type. "
+            "ANDed with everything else in the body"
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 

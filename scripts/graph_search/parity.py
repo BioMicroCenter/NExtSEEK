@@ -9,6 +9,12 @@ Scopes: the superuser; every distinct project set a person holds through group_m
 by ``graph_search.scope.resolve_scope``. Accounts whose project sets coincide are computed once and reported under
 every name.
 
+A ``compat`` query is one of three forms (``sides``): ``body`` alone goes to both engines; ``body`` and ``graph_body``
+give advanced_search's view the first and graph_search the second (the Sample Search page's query text, which
+advanced_search parses inside ``filter_searchText`` and graph_search in ``extensions.query``); ``engine: "FILTERING"``
+with ``filters`` runs the Simple box's own path (``SampleSearchMixin.searchAdvanced`` with searchType FILTERING, what
+``/seek/samples/searching/`` ran) against graph_search's ``body``. Declared difference 2 excuses only the first form.
+
 For each ``compat`` query in queries.json and each scope:
 
 - G, graph_search: ``service.all_ids`` (the ids statement, every match) and ``service.search`` (the endpoint's page and
@@ -72,6 +78,7 @@ from nextseek_api.models import GraphSearchRequest, SampleAdvancedSearchRequest 
 from nextseek_api.services import samples as advanced  # noqa: E402
 from nextseek_api.services.graph_search import _neo4j  # noqa: E402
 from seek.dbtable_sample import DBtable_sample  # noqa: E402
+from seek.dbtable_sampleattribute import DBtable_sampleattribute  # noqa: E402
 
 # Importing seek's URLconf runs logging.basicConfig at DEBUG (seek/CLAUDE.md), which would print every Bolt message
 # and every engine statement; the harness logs its own progress.
@@ -90,11 +97,14 @@ ADVANCED_PATH = "/nextseek_api/samples/advanced_search/"
 # envelope, paging, authentication and highlighting, which an id-set comparison does not see.
 DECLARED = {
     1: "rows are in global id order; a mixed UID-plus-text search keeps footer and sampleTypes",
-    2: "PubMed syntax inside one string (parentheses, NOT, term[TYPE]) is not supported; the string is one term",
+    2: ("PubMed syntax inside filter_searchText (parentheses, NOT, term[TYPE]) is not parsed; the string is one term "
+        "(the same text in extensions.query is)"),
     3: "sampleTypes is computed after every filter",
     4: "an out-of-range page returns an empty page, not every row",
     5: "a caller with no SEEK person is 403 even with Basic credentials; Token authentication is not offered",
     6: "no highlight HTML",
+    7: ("the Simple box's path judges each row after a sample that passes the rule without holding the attribute by "
+        "the rule's result on the row before it (seek/sample/queries.py _filterSamples skips its index)"),
 }
 # advanced_search's PubMed parser splits a string on these (seek/search.py, Search.__validateExpression and
 # __parseKeyword); graph_search keeps such a string as one term.
@@ -210,6 +220,98 @@ def g_side(body: dict, scope: Scope, driver, db: str, timeout: float) -> dict:
 # ---------------------------------------------------------------------------------------------------------------
 # A side
 # ---------------------------------------------------------------------------------------------------------------
+
+FILTERING = "FILTERING"
+
+
+def sides(q: dict) -> tuple[dict, dict | None, dict | None]:
+    """What each engine is given: (graph_search's body, advanced_search's view body or None, FILTERING filters or
+    None)."""
+    if q.get("engine") == FILTERING:
+        return q["body"], None, q["filters"]
+    return q.get("graph_body") or q["body"], q["body"], None
+
+
+def filtering_filters(spec: dict, resolve=None) -> dict:
+    """The GET parameters the Simple box sent to /seek/samples/searching/, the sample type title resolved to its id."""
+    resolve = resolve or advanced.resolve_sampletype_to_seek_id
+    type_id = resolve(spec["sampletype"])
+    if type_id is None or not str(type_id).isdigit():
+        raise HarnessError(f"sample type {spec['sampletype']!r} does not resolve on this instance")
+    return {"sampletype_id": int(type_id), "attribute": spec["attribute"], "filter_rule": spec["filter_rule"],
+            "filter_valueFrom": spec["filter_valueFrom"], "filter_valueTo": spec["filter_valueTo"]}
+
+
+def filtering_statements(filters: dict, scope: Scope) -> tuple[list[dict], bool]:
+    """The id-only statement the Simple box's engine path runs, and whether it has a Python stage (a chosen attribute
+    whose rule is not No Filter, or a keyword)."""
+    dbs = DBtable_sample()
+    with _quiet():
+        msg, status, fd = dbs._parseSearchFilters(filters, FILTERING, 0)
+        if status == 0:
+            raise HarnessError(f"advanced_search refuses the filters: {msg}")
+        if not scope.is_admin:
+            fd["scoped_project_ids"] = [str(p) for p in scope.project_ids]
+        where, params = dbs._sqlQuery_select_records_filters_advanced(fd)
+    sql = "SELECT A.id" + dbs._sqlQuery_select_records_from(fd["project_id"]) + where
+    python_stage = (filters["attribute"] != "none" and filters["filter_rule"] != "No Filter") or bool(
+        fd.get("searchText"))
+    return [{"search_type": FILTERING, "sql": sql, "params": list(params)}], python_stage
+
+
+def filtering_kept(rows: list[tuple[int, dict]], passes: list, attribute: str, slip: bool) -> list[int]:
+    """The ids ``_filterSamples`` keeps: a row that passes the rule and holds the attribute with a non-null value.
+
+    ``slip=True`` is its loop exactly (seek/sample/queries.py): a row that passes without a value ``continue``s
+    before ``index += 1``, so every later row reads the rule's result of the row before it (declared difference 7).
+    ``slip=False`` is the loop without that slip.
+    """
+    kept, index = [], 0
+    for sample_id, meta in rows:
+        if passes[index]:
+            if meta.get(attribute) is None:
+                if slip:
+                    continue
+            else:
+                kept.append(sample_id)
+        index += 1
+    return kept
+
+
+def a_side_filtering(filters: dict, scope: Scope) -> dict:
+    """advanced_search's answer on the Simple box's path, in the scope ``runSampleSearch`` gives a caller.
+
+    Also ``aligned``: the same rows judged by the engine's own rule functions without ``_filterSamples``' index slip,
+    and a note when the engine's answer is not what ``filtering_kept`` predicts for it.
+    """
+    start = time.perf_counter()
+    scoped = None if scope.is_admin else [str(p) for p in scope.project_ids]
+    with _quiet():
+        raw = DBtable_sample().searchAdvanced(None, dict(filters), FILTERING, 0, scoped_project_ids=scoped)
+    data = orjson.loads(raw)
+    if data.get("status") != 1:
+        raise HarnessError(f"advanced_search's FILTERING path answered {data.get('msg')!r}")
+    ids = [int(row["id"]) for row in data.get("rows") or []]
+    notes = [] if len(ids) == len(set(ids)) else [f"{len(ids) - len(set(ids))} duplicate row ids"]
+    aligned = ids
+    attribute = str(filters["attribute"]).strip()
+    if filters["attribute"] != "none" and filters["filter_rule"] != "No Filter":
+        dbs = DBtable_sample()
+        with _quiet():
+            _msg, _status, fd = dbs._parseSearchFilters(dict(filters), FILTERING, 0)
+            if scoped is not None:
+                fd["scoped_project_ids"] = scoped
+            engine_rows = dbs._retrieveRecords_advanced(None, fd)["rows"]
+            rows = [(int(r["id"]), json.loads(r["json_metadata"])) for r in engine_rows]
+            passes = DBtable_sampleattribute().filterValues(
+                [meta.get(attribute) for _, meta in rows], filters["sampletype_id"], filters["attribute"],
+                filters["filter_rule"], filters["filter_valueFrom"], filters["filter_valueTo"])
+        aligned = filtering_kept(rows, passes, attribute, slip=False)
+        if filtering_kept(rows, passes, attribute, slip=True) != ids:
+            notes.append("the engine's rows are not what filtering_kept predicts for them")
+    return {"ids": ids, "aligned": aligned, "total": int(data.get("total") or 0), "ms": _ms(start), "calls": 1,
+            "notes": notes}
+
 
 def advanced_filters(body: dict) -> dict:
     """The filters advanced_search's view computes for this body."""
@@ -341,9 +443,13 @@ def a_side_view(body: dict, scope: Scope) -> dict:
 # Classifying a difference
 # ---------------------------------------------------------------------------------------------------------------
 
-def _declared_for(body: dict) -> int | None:
-    """Declared difference 2 covers every difference of a query whose term carries PubMed syntax."""
-    terms = split_terms(body.get("filter_searchText"))
+def _declared_for(q: dict) -> int | None:
+    """Declared difference 2 covers every difference of a query whose term carries PubMed syntax, when both engines
+    are given that body. A query that gives graph_search the text in ``extensions.query``, or runs the Simple box's
+    path, must match."""
+    if q.get("engine") or q.get("graph_body"):
+        return None
+    terms = split_terms(q["body"].get("filter_searchText"))
     return 2 if any(_PUBMED_RE.search(t) for t in terms if not UID_RE.match(t)) else None
 
 
@@ -432,9 +538,10 @@ def probable_cause(side: str, ev: dict, body: dict) -> str:
     return "unexplained"
 
 
-def classify(result: dict, body: dict, driver, db: str, cache: dict, max_diagnose: int) -> list[dict]:
+def classify(result: dict, q: dict, driver, db: str, cache: dict, max_diagnose: int,
+             declared: int | None) -> list[dict]:
     """One entry per differing id (up to ``max_diagnose`` per side), classified against the declared list."""
-    declared = _declared_for(body)
+    body = q["body"]
     entries = []
     for side, ids in (("A", result["a_only"]), ("G", result["g_only"])):
         chosen = ids[:max_diagnose]
@@ -455,25 +562,33 @@ def classify(result: dict, body: dict, driver, db: str, cache: dict, max_diagnos
 # ---------------------------------------------------------------------------------------------------------------
 
 def compat_pair(q: dict, entry: dict, args, driver, db: str, cache: dict) -> dict:
-    body, scope = q["body"], entry["scope"]
+    graph_body, body, filtering = sides(q)
+    scope = entry["scope"]
+    aligned_ids = None
     result: dict = {"query": q["name"], "scope": entry["key"], "status": "compared", "notes": []}
     try:
-        g = g_side(body, scope, driver, db, args.timeout)
+        g = g_side(graph_body, scope, driver, db, args.timeout)
     except Exception as exc:  # the graph refused or timed out: the pair is unverified
         return {**result, "status": "error", "error": f"G: {type(exc).__name__}: {exc}"}
     result.update({"g_ids_n": len(g["ids"]), "g_total": g["total"], "g_ids_ms": g["ids_ms"],
                    "g_search_ms": g["search_ms"], "g_timings": g["timings"]})
     try:
-        filters = advanced_filters(body)
-        statements, python_stage = engine_statements(body, filters, scope)
+        if filtering is not None:
+            filters = filtering_filters(filtering)
+            statements, python_stage = filtering_statements(filters, scope)
+        else:
+            filters = advanced_filters(body)
+            statements, python_stage = engine_statements(body, filters, scope)
         start = time.perf_counter()
         sql_ids = run_statements(statements)
         result.update({"a_sql_count": len(sql_ids), "a_sql_ms": _ms(start), "a_python_stage": python_stage})
         if scope.is_admin:
             result["a_statements"] = statements
         if len(sql_ids) <= args.threshold:
-            a = a_side_view(body, scope)
+            a = a_side_filtering(filters, scope) if filtering is not None else a_side_view(body, scope)
             a_ids = set(a["ids"])
+            if "aligned" in a:
+                aligned_ids = set(a["aligned"])
             result.update({"a_method": "view", "a_total": a["total"], "a_ms": a["ms"], "a_calls": a["calls"]})
             result["notes"] += a["notes"]
             if a["notes"]:
@@ -490,11 +605,12 @@ def compat_pair(q: dict, entry: dict, args, driver, db: str, cache: dict) -> dic
             return result
     except Exception as exc:
         result.update({"status": "error", "error": f"A: {type(exc).__name__}: {exc}"})
-        try:  # what a client of the view would have been told
-            total, _ids = call_view(body, scope, page=1)
-            result["a_view_answer"] = f"200, total {total}"
-        except Exception as view_exc:
-            result["a_view_answer"] = str(view_exc)[:300]
+        if body is not None:
+            try:  # what a client of the view would have been told
+                total, _ids = call_view(body, scope, page=1)
+                result["a_view_answer"] = f"200, total {total}"
+            except Exception as view_exc:
+                result["a_view_answer"] = str(view_exc)[:300]
         return result
     finally:
         gc.collect()
@@ -508,9 +624,12 @@ def compat_pair(q: dict, entry: dict, args, driver, db: str, cache: dict) -> dic
     if g["total"] != len(g_ids):
         result["notes"].append(f"count statement total {g['total']} differs from the ids statement's {len(g_ids)}")
     result["total_mismatch"] = g["total"] != len(g_ids) or (result.get("a_total") != len(a_ids))
-    result["differences"] = classify({"a_only": a_only, "g_only": g_only}, body, driver, db, cache,
-                                     args.max_diagnose) if (a_only or g_only) else []
-    declared = _declared_for(body)
+    declared = _declared_for(q)
+    if (a_only or g_only) and aligned_ids is not None and aligned_ids == g_ids:
+        declared = 7
+        result["notes"].append("without _filterSamples' index slip advanced_search's rows equal graph_search's")
+    result["differences"] = classify({"a_only": a_only, "g_only": g_only}, q, driver, db, cache,
+                                     args.max_diagnose, declared) if (a_only or g_only) else []
     result["undeclared_n"] = 0 if declared else len(a_only) + len(g_only)
     result["declared_n"] = len(a_only) + len(g_only) if declared else 0
     if g["total"] != len(g_ids):

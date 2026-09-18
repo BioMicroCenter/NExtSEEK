@@ -186,14 +186,25 @@ maximum 1,000), plus one optional field:
     {"sample_type": "TIS", "attribute": "Organ", "op": "=", "value": "Lung"},
     {"sample_type": "TIS", "attribute": "CellCount", "op": ">=", "value": 10000000}
   ],
-  "lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 4}
+  "lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 4},
+  "query": "(lung[TIS] OR liver[TIS]) NOT granuloma"
 }
 ```
 
-`op` is one of `=`, `<>`, `<`, `<=`, `>`, `>=`, `IN`, `CONTAINS`, `STARTS WITH`. Every `where` item must name a
+`op` is one of `=`, `<>`, `<`, `<=`, `>`, `>=`, `IN`, `CONTAINS`, `NOT CONTAINS`, `STARTS WITH`, `IS TRUE`, `IS FALSE`
+(the last two take no value; they and `NOT CONTAINS` are the Sample Search page's Not Contain, True and False rules,
+with advanced_search's rows: `nextseek_api/graph_search/README.md`). Every `where` item must name a
 sample type and an attribute that exists on it in the catalog (422 otherwise). Items are ANDed. Values are cast by the
-attribute's `value_type`. `lineage` keeps a sample only when a sample of that type lies within `max_hops` (1 to 4)
-DERIVED_FROM hops in that direction; ancestors and descendants are not returned, so they need no scoping.
+attribute's `value_type`; `CONTAINS` and `STARTS WITH` compare the stored value's text (`toString`), so a number held by
+a string attribute matches by its digits, as advanced_search's Contain did. `query` is the Sample Search page's query text
+(upper-case `AND`, `OR` and `NOT`, parentheses, `term[TYPE]` tags) matched with advanced_search's two stages; its
+grammar, its rows and where they can still differ are in `nextseek_api/graph_search/README.md`, "How graph_search
+expresses them". `lineage` keeps a sample only when a sample of that type lies within `max_hops` (1 to 12, default 4;
+12 reaches the whole tree) DERIVED_FROM hops in that direction (`ancestor`, `descendant` or `either`). Ancestors and
+descendants are not returned, but lineage stops at the caller's project edge: for a non-superuser the related sample
+and every sample between must be in one of the caller's projects, so a sample in someone else's project never makes a
+sample match. This is graph_search's own condition (the Sample Search page's Associated with); advanced_search has
+none, so it has no parity.
 
 **Scope:**
 1. `request.user.is_superuser`: no clause.
@@ -231,11 +242,16 @@ validated by `SampleAdvancedSearchResult`. `?debug_meta=1` appends `{"debug": {"
 **Declared differences from advanced_search** (excluded from parity):
 1. Rows are in global `id` order; a mixed UID-plus-text search has `footer` and `sampleTypes` (advanced_search puts
    UID rows first and drops both).
-2. PubMed syntax inside one string (parentheses, `NOT`, `term[TYPE]`) is not supported; the string is one term.
+2. PubMed syntax inside `filter_searchText` (parentheses, `NOT`, `term[TYPE]`) is not parsed; the string is one term.
+   The same text sent as `extensions.query` is parsed, with advanced_search's rows except where its parser was
+   defective (`nextseek_api/graph_search/README.md`).
 3. `sampleTypes` is computed after every filter.
 4. An out-of-range page returns an empty page, not every row.
 5. A caller with no SEEK person is 403 even when Basic credentials are present; Token authentication is not offered.
 6. No highlight HTML.
+7. The Simple box's own path (`/seek/samples/searching/`, compared through `extensions.where`) judges each row after a
+   sample that passes the rule without holding the attribute by the result of the row before it: `_filterSamples`
+   skips its index there (`nextseek_api/graph_search/README.md`). graph_search judges each row by its own value.
 
 Gate E:
 1. Unit tests for the query builder (every filter shape, scope, escaping, catalog validation), the scope resolver and

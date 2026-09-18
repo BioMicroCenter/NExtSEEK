@@ -72,7 +72,6 @@ urlpatterns = [
     re_path(r'^studies/id=(?P<id>\d+)/$', views.getAssaysOptions, name='getAssaysOptions'),
     re_path(r'^instituion/id=(?P<id>\d+)/$', views.getInstituionUsers, name='getInstituionUsers'),    
     re_path(r'^search/', views.searchAdvanced, name='searchAdvanced'),
-    re_path(r'^graph/search/', views.graphSearch, name='graphSearch'),
     re_path(r'^searchAdvanced/', views.searchingAdvanced, name='searchingAdvanced'),
     re_path(r'^searchUIDs/', views.searchingUIDs, name='searchingUIDs'),
     re_path(r'^projects/$', views.projects, name='projects'),

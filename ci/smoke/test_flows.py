@@ -20,6 +20,14 @@ pytestmark = pytest.mark.flow
 
 UID_RE = re.compile(r"\A([A-Z]\.)?[A-Z]{2,}-\d{6}[A-Z]{2,5}-\d+(-PUB\d*)?\Z")
 
+# Both search boxes of the Sample Search page, and the graph search flow below, POST here.
+GRAPH_SEARCH_PATH = "/nextseek_api/samples/graph_search/"
+
+
+def _is_graph_search(response) -> bool:
+    return (response.url.split("?", 1)[0].endswith(GRAPH_SEARCH_PATH)
+            and response.request.method == "POST")
+
 
 @pytest.fixture(scope="session")
 def a_sample(discovered):
@@ -39,8 +47,13 @@ def a_sample(discovered):
 # Flow A: advanced search
 # --------------------------------------------------------------------------- #
 
+@pytest.mark.profiles("local", "dev")
 def test_advanced_search_returns_rendered_results(page, base_url):
-    """The daily driver.
+    """The daily driver, whose Advanced box searches through graph_search.
+
+    Local and dev only: the box sends its search as a POST to graph_search, which the
+    prod guard aborts at the network layer (see test_upload_validate_reports_a_result),
+    as it does for graph_search's own Route.
 
     Two things here are easy to get wrong and are deliberate:
 
@@ -64,20 +77,21 @@ def test_advanced_search_returns_rendered_results(page, base_url):
     page.click('a.easyui-linkbutton[onclick="searchAdd()"]')
     assert page.evaluate("() => $('#input_searchText').textbox('getText')") == SMOKE_SEARCH_TERM
 
-    with page.expect_response(
-        lambda r: "/seek/searchAdvanced/" in r.url, timeout=180_000
-    ) as got:
+    with page.expect_response(_is_graph_search, timeout=180_000) as got:
         # Scope by onclick: the simple tab has its own a.ns-btn-search.
         page.click('a.ns-btn-search[onclick*="searchAdvanced"]')
-    assert got.value.status == 200
+    assert got.value.status == 200, f"graph_search answered {got.value.status}"
 
     page.wait_for_selector("div.window-mask", state="hidden", timeout=60_000)
 
     reported = page.inner_text("#numberSamplesFound").strip()
     assert reported.isdigit() and int(reported) > 0, f"result count was {reported!r}"
+    assert int(reported) == got.value.json()["total"], (
+        f"the page reports {reported} samples; graph_search answered {got.value.json()['total']}"
+    )
 
-    # The grid paginates at pageSize 100 (searchAdvanced_stable.embed.html:194-195),
-    # so it holds one page, not the whole result set. Never assert equality here,
+    # graph_search pages in the database and the grid holds one page (#advanced_pager
+    # asks for the others), not the whole result set. Never assert equality here,
     # and never assert a literal count: totals are environment-specific.
     n_rows = page.evaluate("() => $('#advanced_dgtable').datagrid('getRows').length")
     assert 0 < n_rows <= int(reported), (
@@ -256,58 +270,62 @@ def test_upload_validate_reports_a_result(page, base_url, request):
 
 
 # --------------------------------------------------------------------------- #
-# Flow E: Graph Search
+# Flow E: Sample Search's Simple box, through graph_search
 # --------------------------------------------------------------------------- #
 
-GRAPH_SEARCH_PATH = "/nextseek_api/samples/graph_search/"
-# GraphSearchCore.timingText (graphSearch_core.embed.html): "12,345 samples in 900 ms",
-# then the server's own timings, which the page asks for with debug_meta=1.
-TIMING_RE = re.compile(r"\A([\d,]+) samples? in \d+ ms")
-
-
 @pytest.mark.profiles("local", "dev")
-def test_graph_search_page_searches_through_graph_search(page, base_url):
-    """The Graph Search page's Advanced tab runs one search through graph_search.
+def test_simple_search_asks_graph_search_for_one_sample_type(page, base_url, discovered):
+    """The Simple box sends one sample type to graph_search and the grid takes one page.
 
-    T0 already GETs the page, which proves a status and no bounce to /login/. A 200
-    cannot say whether the page's script works: 904f6f0f fixed a throw during
-    EasyUI's parse that stopped the tabs and grids being built, so the page
-    rendered and could not search. With --strict-console a script error fails this.
+    Flow A drives the Advanced box; this drives the other one, whose body names the
+    type by title and carries no terms. T0 already GETs the page, which proves a status
+    and no bounce to /login/; with --strict-console a script error fails this, the
+    class of defect where the page renders and cannot search.
 
-    Local and dev only, like the page's Route: the search is a POST, which the prod
+    Local and dev only, like graph_search's Route: the search is a POST, which the prod
     guard aborts at the network layer (see test_upload_validate_reports_a_result).
 
-    #gs_terms is a plain <textarea>, not an EasyUI textbox, so fill() works on it.
-    The timing line is written only after a 200 with a body, and the error path
-    clears it, so its text is the proof the grid took that response. No count is
-    asserted: a graph that holds none of the term is a working search.
+    The type is the discovered sample's, which the smoke account can see, else the
+    first the box offers. It is chosen with combobox('select'), the user's path, which
+    loads the type's attributes and leaves the attribute on 'none', so the search is for
+    every sample of the type. No count is asserted: a type the graph holds none of is a
+    working search. The pager must report graph_search's total, and the grid hold one
+    page of it.
     """
-    page.goto(f"{base_url}/seek/graph/search/?tab=advanced", wait_until="domcontentloaded",
+    page.goto(f"{base_url}/seek/search/?tab=simple", wait_until="domcontentloaded",
               timeout=120_000)
     page.wait_for_function(
-        "() => window.jQuery && !!jQuery('#gs_advanced_dgtable').data('datagrid')",
+        "() => window.jQuery && !!jQuery('#simple_dgtable').data('datagrid')"
+        " && !!jQuery('#simple_pager').data('pagination')",
         timeout=60_000,
     )
-    # ?tab=advanced is the page's own switch; a hidden textarea would mean it failed.
-    page.wait_for_selector("#gs_terms", state="visible", timeout=60_000)
-    page.fill("#gs_terms", SMOKE_SEARCH_TERM)
+    type_id = page.evaluate(
+        """(wanted) => {
+            var ids = (window.type_options || []).map(function (t) { return String(t.id); });
+            return ids.indexOf(wanted) >= 0 ? wanted : (ids[0] || null);
+        }""",
+        discovered.get("sample_type_id") or "",
+    )
+    if not type_id:
+        pytest.skip("the Simple box offers no sample type on this box")
+    page.evaluate("(id) => $('#simple_sample_type').combobox('select', id)", type_id)
 
-    with page.expect_response(
-        lambda r: r.url.split("?", 1)[0].endswith(GRAPH_SEARCH_PATH)
-        and r.request.method == "POST",
-        timeout=180_000,
-    ) as got:
-        # Scope by onclick: the Simple tab has its own a.ns-btn-search.
-        page.click('a.ns-btn-search[onclick="gsAdvancedSearch()"]')
+    with page.expect_response(_is_graph_search, timeout=180_000) as got:
+        # Scope by onclick: the Advanced tab has its own a.ns-btn-search.
+        page.click('a.ns-btn-search[onclick="simple_searchSamples()"]')
     resp = got.value
     assert resp.status == 200, f"graph_search answered {resp.status}"
+    sent = resp.request.post_data_json
+    assert sent.get("sampletype") and sent.get("filter_searchText") == "", (
+        f"the Simple box sent {sent!r}, not one sample type"
+    )
 
-    page.wait_for_function("() => $('#gs_advanced_status').text().trim().length > 0",
-                           timeout=60_000)
-    timing = page.inner_text("#gs_advanced_status").strip()
-    shown = TIMING_RE.match(timing)
-    assert shown, f"the timing line reads {timing!r}"
+    page.wait_for_selector("div.window-mask", state="hidden", timeout=60_000)
     total = resp.json()["total"]
-    assert int(shown.group(1).replace(",", "")) == total, (
-        f"the timing line reports {shown.group(1)} samples; graph_search answered {total}"
+    shown = page.evaluate("() => $('#simple_pager').pagination('options').total")
+    assert shown == total, f"the pager reports {shown} samples; graph_search answered {total}"
+    n_rows = page.evaluate("() => $('#simple_dgtable').datagrid('getRows').length")
+    size = page.evaluate("() => $('#simple_pager').pagination('options').pageSize")
+    assert n_rows == min(total, size), (
+        f"the grid holds {n_rows} rows of {total}, at a page size of {size}"
     )

@@ -316,8 +316,15 @@ def test_the_api_prompt_states_graph_search_s_operators_and_hop_limit_as_the_mod
     stated = stated[:stated.index("\n")]
     for op in ops:
         assert op in stated, op
-    assert re.search(r"max_hops: int = Field\(default=4, ge=1, le=4", models)
-    assert '"max_hops": 1-4' in api and "At most 4 hops" in api
+    bound = re.search(r"max_hops: int = Field\(\s*default=\d+, ge=1, le=(\d+)", models)
+    assert bound, "the lineage model states its hop bound"
+    le = bound.group(1)
+    assert f'"max_hops": 1-{le}' in api and f"At most {le} hops" in api
+    directions = re.search(r'direction: Literal\[([^\]]*)\]', models).group(1)
+    lineage = api[api.index('"lineage"'):]
+    lineage = lineage[:lineage.index("\n")]
+    for direction in (d.strip().strip('"') for d in directions.split(",")):
+        assert f'"{direction}"' in lineage, direction
 
 
 def test_the_api_prompt_discloses_that_total_and_rows_can_disagree():

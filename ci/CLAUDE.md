@@ -115,11 +115,11 @@
   Only the gate step, the blocking unit tests step, and a lanes step whose
   pytest did not run at all can fail that job (the comment above the gate step
   in `.github/workflows/ci-pytest.yml`).
-- `seek/tests/test_graph_search_js.py` skips every test where `node` is missing,
+- `seek/tests/test_sample_search_js.py` skips every test where `node` is missing,
   and the application image has no node, so the gate lane reports them skipped,
   never failed or passed. The blocking unit tests step fails on a runner without
   node for that reason. To run them, use a host with node:
-  `node seek/tests/js/graph_search_cases.js`, or that module under
+  `node seek/tests/js/sample_search_cases.js`, or that module under
   `uv run --no-project --with pytest pytest`, which needs no Django.
 - **`makemigrations --check` blocks for `nextseek_api` only, and the scope is
   deliberate.** Under `dmac.test_settings` the check needs `--skip-checks`,
@@ -159,7 +159,7 @@
   learns to skip. It under-reaches by design -- an overloaded name, a variable, a
   string dispatch, a decorator that does not set `__wrapped__` -- so read its
   output as routes worth re-reading, never as a verdict. Its one assertion is
-  that the Graph Search page is not in the list, which catches a walk gone loose.
+  that the Sample Search page is not in the list, which catches a walk gone loose.
 - `EXCLUDE_DEAD` and `EXCLUDE_ADMIN` are declared at `ci/routes.py:29-35` but no
   entry uses either: counting the `exclude` values across `REGISTRY` on
   2026-09-03 gives `EXCLUDE_UNSAFE_METHOD` 13, `EXCLUDE_COST` 12 and

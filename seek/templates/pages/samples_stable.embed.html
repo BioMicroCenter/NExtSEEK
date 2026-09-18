@@ -310,6 +310,12 @@
 			</tr>
 		</thead>
 	</table>
+	{% comment %}
+	One page of graph_search results at a time: this pager asks for the next one
+	(nsSearchPage in searchAdvanced.html). The grid keeps pagination off, because
+	datagrid-filter.js pages by slicing the rows the grid holds.
+	{% endcomment %}
+	<div id="simple_pager" class="easyui-pagination" style="border:1px solid #ddd;" data-options="total: 0, pageSize: 100, pageList: [20, 50, 100, 500, 1000], showRefresh: false, onSelectPage: function (pageNumber, pageSize) { nsSearchPage('simple', pageNumber, pageSize); }"></div>
 
 	<div id="simple_tb_toolbar" style="height: auto">
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"
