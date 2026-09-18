@@ -30,7 +30,7 @@ terms combine as the text says, a tag adds the sample type outside any negation;
 must be in (PARTIAL) or equal to (EXACT) one of the values.
 
 Every value is a parameter. The only text interpolated into Cypher is a catalog title or label (backtick-quoted,
-backticks doubled), an operator from a fixed set, and a hop count checked to be an integer from 1 to 4.
+backticks doubled), an operator from a fixed set, and a hop count checked to be an integer from 1 to 12.
 """
 from __future__ import annotations
 
@@ -47,7 +47,9 @@ log = logging.getLogger(__name__)
 
 FULLTEXT_INDEX = "sample_search_text"
 MAX_PAGE_SIZE = 1000
-MAX_HOPS = 4
+# The whole lineage tree: the longest DERIVED_FROM chain is 11 hops, and the Nessie graph guard allows the same 12
+# (NessieAI/chat_nextseek/src/chat_nextseek/cypher_text.py, APOC_PATH_MAX_LEVEL).
+MAX_HOPS = 12
 WHERE_OPS = frozenset({"=", "<>", "<", "<=", ">", ">=", "IN", "CONTAINS", "NOT CONTAINS", "STARTS WITH",
                        "IS TRUE", "IS FALSE"})
 _STRING_OPS = frozenset({"CONTAINS", "NOT CONTAINS", "STARTS WITH"})
@@ -56,9 +58,12 @@ _TRUTH_OPS = frozenset({"IS TRUE", "IS FALSE"})
 # underscores between digits, then 1. No backslash, so it needs no escaping inside a Cypher string.
 _ONE_RE = "[+]?(0_?)*1"
 _LINEAGE_PATTERNS = {
-    "descendant": "EXISTS {{ (s)<-[:DERIVED_FROM*1..{hops}]-(:{label}) }}",
-    "ancestor": "EXISTS {{ (s)-[:DERIVED_FROM*1..{hops}]->(:{label}) }}",
+    "descendant": "(s)<-[:DERIVED_FROM*1..{hops}]-(:{label})",
+    "ancestor": "(s)-[:DERIVED_FROM*1..{hops}]->(:{label})",
 }
+_LINEAGE_DIRECTIONS = {"ancestor": ("ancestor",), "descendant": ("descendant",), "either": ("ancestor", "descendant")}
+# Lineage stops at the caller's project edge: every sample on the path, the related one included, must be in scope.
+_PATH_SCOPE = "all(n IN nodes(path) WHERE any(p IN n.project_ids WHERE p IN $projects))"
 _INT64_MIN, _INT64_MAX = -(2 ** 63), 2 ** 63 - 1
 
 _FULLTEXT_SOURCE = f"CALL db.index.fulltext.queryNodes('{FULLTEXT_INDEX}', $lucene) YIELD node AS s"
@@ -288,20 +293,30 @@ def _where(items: list, catalog: Catalog, params: dict) -> tuple[Optional[str], 
     return label, predicates
 
 
-def _lineage(lineage, catalog: Catalog) -> Optional[str]:
+def _lineage(lineage, catalog: Catalog, scope: Scope) -> Optional[str]:
+    """``EXISTS`` over a bounded DERIVED_FROM path from ``s`` to a sample of the type, per direction ("either" ORs
+    both). For a non-admin every node of the path must be in the caller's projects, so a relative, or a sample between,
+    in someone else's project never makes ``s`` match. The type label sits on the far end."""
     if lineage is None:
         return None
     direction, sample_type = _get(lineage, "direction"), _get(lineage, "sample_type")
-    hops = _get(lineage, "max_hops", MAX_HOPS)
-    pattern = _LINEAGE_PATTERNS.get(direction)
-    if pattern is None:
+    hops = _get(lineage, "max_hops", 4)
+    directions = _LINEAGE_DIRECTIONS.get(direction)
+    if directions is None:
         raise GraphSearchInvalid(f"lineage: unsupported direction {direction!r}")
     if isinstance(hops, bool) or not isinstance(hops, int) or not 1 <= hops <= MAX_HOPS:
         raise GraphSearchInvalid(f"lineage: max_hops must be an integer from 1 to {MAX_HOPS}")
     label = catalog.label_by_title.get(sample_type)
     if label is None:
         raise GraphSearchInvalid(f"lineage: unknown sample_type {sample_type!r}")
-    return pattern.format(hops=int(hops), label=quote_name(label))
+    exists = []
+    for one in directions:
+        pattern = _LINEAGE_PATTERNS[one].format(hops=int(hops), label=quote_name(label))
+        if scope.is_admin:
+            exists.append(f"EXISTS {{ {pattern} }}")
+        else:
+            exists.append(f"EXISTS {{ MATCH path = {pattern} WHERE {_PATH_SCOPE} }}")
+    return _join(exists, "OR")
 
 
 def _tag_title(tag: str, catalog: Catalog) -> Optional[str]:
@@ -472,7 +487,7 @@ def build(filters: dict, extensions, scope: Scope, catalog: Catalog, page: int, 
     exact = str(filters.get("filter_matchType") or "PARTIAL").upper() == "EXACT"
     types = _type_titles(filters, catalog)
     where_label, where_predicates = _where(list(_get(extensions, "where", None) or []), catalog, params)
-    lineage_predicate = _lineage(_get(extensions, "lineage", None), catalog)
+    lineage_predicate = _lineage(_get(extensions, "lineage", None), catalog, scope)
     query_text = _get(extensions, "query", None)
     query = None
     if query_text is not None and str(query_text).strip():

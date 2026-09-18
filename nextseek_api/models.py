@@ -1947,11 +1947,18 @@ class GraphSearchWhere(BaseModel):
 
 
 class GraphSearchLineage(BaseModel):
-    direction: Literal["ancestor", "descendant"] = Field(
-        ..., description='Keep a sample when a sample of sample_type is its ancestor or its descendant'
+    direction: Literal["ancestor", "descendant", "either"] = Field(
+        ...,
+        description=(
+            'Keep a sample when a sample of sample_type is its ancestor, its descendant, or either. For a '
+            'non-superuser that sample, and every sample on the way to it, must be in one of their projects'
+        ),
     )
     sample_type: str = Field(..., description='Sample type title of the related sample')
-    max_hops: int = Field(default=4, ge=1, le=4, description='Most DERIVED_FROM hops to follow, 1 to 4')
+    max_hops: int = Field(
+        default=4, ge=1, le=12,
+        description='Most DERIVED_FROM hops to follow, 1 to 12; 12 reaches the whole tree (the longest chain is 11)',
+    )
 
     model_config = ConfigDict(extra="forbid")
 

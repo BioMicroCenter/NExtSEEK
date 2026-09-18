@@ -212,6 +212,20 @@ class GraphSearchViewSet(viewsets.ViewSet):
                 request_only=True,
             ),
             OpenApiExample(
+                name="Associated with a sample type anywhere in the lineage tree",
+                description=(
+                    "The Sample Search page's Associated with: lung samples with a D.SEQ sample among their ancestors "
+                    "or descendants, the whole tree (12 hops). A non-superuser's related sample, and every sample "
+                    "between, must be in one of their projects."
+                ),
+                value={
+                    "filter_searchText": "",
+                    "extensions": {"query": "lung",
+                                   "lineage": {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}},
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
                 name="The Sample Search page's query text",
                 description=(
                     "extensions.query reads the Advanced box's text as advanced_search did: upper-case AND, OR and "

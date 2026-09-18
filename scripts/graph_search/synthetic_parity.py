@@ -12,7 +12,10 @@ that script starts, memory-capped, and removes. Inside the app image, over an ex
    Simple box's Contain, Not Contain, True and False through its FILTERING path and ``extensions.where``;
 4. checks the documented residual (an empty-string value) and the parser defects the README lists, each against
    its expected rows;
-5. EXPLAINs a bare negation, and times one over ``--scale`` extra samples, for the README's cost note.
+5. checks ``extensions.lineage`` (Associated with, graph_search only) against a walk of the synthetic DERIVED_FROM
+   edges in each scope and direction, including relatives and in-between samples in a project the caller is not in;
+6. EXPLAINs a bare negation and the lineage conditions, and times a negation over ``--scale`` extra samples and a
+   12-hop lineage check over ``--scale`` / 12 extra eleven-hop chains, for the README's cost notes.
 
 Writes ``summary.json`` and ``summary.md`` (plus parity's own ``parity.json`` and ``parity.md``) under ``--out-dir``;
 exits 0 only when parity's gate passes and every check holds.
@@ -317,6 +320,111 @@ def residual_checks(parity, driver) -> list[dict]:
     return checks
 
 
+def lineage_checks(samples: list[dict], driver) -> list[dict]:
+    """``extensions.lineage`` against a breadth-first walk of the synthetic edges through visible samples only."""
+    from collections import defaultdict
+
+    from nextseek_api.graph_search.scope import Scope
+
+    by_id = {row["id"]: row for row in samples}
+    up, down = defaultdict(list), defaultdict(list)
+    for child, parent in lineage_pairs(samples):
+        up[child].append(parent)
+        down[parent].append(child)
+
+    def visible(sample_id, scope) -> bool:
+        return scope.is_admin or bool(set(by_id[sample_id]["projects"]) & set(scope.project_ids))
+
+    def reaches(start, steps, scope, hops, want) -> bool:
+        frontier = {start}
+        for _ in range(hops):
+            frontier = {m for n in frontier for m in steps[n] if visible(m, scope)}
+            if any(by_id[m]["type"] == want for m in frontier):
+                return True
+        return False
+
+    def expected(sample_type, direction, want, hops, scope, among=None) -> set[int]:
+        steps = {"ancestor": [up], "descendant": [down], "either": [up, down]}[direction]
+        return {i for i, row in by_id.items()
+                if (sample_type is None or row["type"] == sample_type) and visible(i, scope)
+                and (among is None or i in among) and any(reaches(i, st, scope, hops, want) for st in steps)}
+
+    scopes = {"admin": Scope(True, None, ()), "projects:1": Scope(False, 10, (1,)),
+              "projects:1,2": Scope(False, 11, (1, 2))}
+    cases = [("TIS", "descendant", "D.SEQ", 12), ("TIS", "either", "D.SEQ", 12), ("D.SEQ", "ancestor", "TIS", 12),
+             ("RNA", "either", "TIS", 12), ("MUS", "descendant", "D.SEQ", 12), ("MUS", "descendant", "D.SEQ", 4),
+             ("D.SEQ", "ancestor", "MUS", 12), ("D.SEQ", "either", "MUS", 11), ("D.SEQ", "either", "MUS", 10)]
+    checks = []
+    for name, scope in scopes.items():
+        for sample_type, direction, want, hops in cases:
+            lineage = {"direction": direction, "sample_type": want, "max_hops": hops}
+            got = graph_ids({"sampletype": sample_type, "filter_searchText": "",
+                             "extensions": {"lineage": lineage}}, scope, driver)
+            wanted = expected(sample_type, direction, want, hops, scope)
+            checks.append({"check": f"lineage {sample_type} {direction} {want} within {hops} as {name}",
+                           "graph_search": sorted(got), "expected": sorted(wanted), "ok": got == wanted})
+        # With a text: the lineage condition narrows what the text matched.
+        text_only = graph_ids({"filter_searchText": "", "extensions": {"query": "lung OR liver"}}, scope, driver)
+        got = graph_ids({"filter_searchText": "", "extensions": {
+            "query": "lung OR liver", "lineage": {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}}},
+            scope, driver)
+        wanted = expected(None, "either", "D.SEQ", 12, scope, among=text_only)
+        checks.append({"check": f"lineage either D.SEQ narrowing 'lung OR liver' as {name}",
+                       "graph_search": sorted(got), "expected": sorted(wanted), "ok": got == wanted})
+    # The cases the scope rule exists for: a relative, or a sample between, in project 2 only.
+    member = scopes["projects:1"]
+    tis_with_dseq = graph_ids({"sampletype": "TIS", "filter_searchText": "", "extensions": {"lineage": {
+        "direction": "descendant", "sample_type": "D.SEQ", "max_hops": 12}}}, member, driver)
+    admin_tis = graph_ids({"sampletype": "TIS", "filter_searchText": "", "extensions": {"lineage": {
+        "direction": "descendant", "sample_type": "D.SEQ", "max_hops": 12}}}, scopes["admin"], driver)
+    checks.append({"check": "a foreign relative (TIS-2's D.SEQ-5, project 2) and a foreign sample between (TIS-12's "
+                            "RNA-5, project 2) never make a project-1 sample match; a superuser sees both",
+                   "member": sorted(tis_with_dseq), "admin": sorted(admin_tis),
+                   "ok": not ({2, 12} & tis_with_dseq) and {2, 12} <= admin_tis})
+    return checks
+
+
+def lineage_scale(driver, roots: int) -> dict:
+    """``roots`` eleven-hop chains (root, ten links, an end), half ending in type SCE: a 12-hop descendant check from
+    every root, as the builder writes it for a superuser and for a member, and within 4 hops for comparison."""
+    if roots <= 0:
+        return {}
+    from nextseek_api.graph_search.query import Catalog, _lineage
+    from nextseek_api.graph_search.scope import Scope
+
+    base = 2_000_000
+    nodes, edges = [], []
+    for r in range(roots):
+        ids = [base + r * 12 + k for k in range(12)]
+        for k, node_id in enumerate(ids):
+            kind = "SCR" if k == 0 else ("SCE" if k == 11 and r % 2 == 0 else "SCI")
+            nodes.append({"id": node_id, "type": kind})
+            if k:
+                edges.append([node_id, ids[k - 1]])
+    for start in range(0, len(nodes), 10000):
+        for kind in ("SCR", "SCI", "SCE"):
+            batch = [n for n in nodes[start:start + 10000] if n["type"] == kind]
+            driver.execute_query(f"CYPHER 25 UNWIND $rows AS r CREATE (s:Sample:T_{kind} {{id: r.id, "
+                                 "uuid: 'SC-' + toString(r.id), type: r.type, project_ids: [1], search_text: 'x'})",
+                                 {"rows": batch}, database_=DB)
+    for start in range(0, len(edges), 10000):
+        driver.execute_query("UNWIND $rows AS r MATCH (c:Sample {id: r[0]}) MATCH (p:Sample {id: r[1]}) "
+                             "CREATE (c)-[:DERIVED_FROM]->(p)", {"rows": edges[start:start + 10000]}, database_=DB)
+    catalog = Catalog(type_title_by_id={}, label_by_title={"SCE": "T_SCE"}, titles_by_type={}, value_type={})
+    out = {"roots": roots, "chain_hops": 11, "timings": {}}
+    for label, scope, hops in (("superuser, 12 hops", Scope(True, None, ()), 12),
+                               ("member, 12 hops", Scope(False, 10, (1,)), 12),
+                               ("superuser, 4 hops", Scope(True, None, ()), 4)):
+        predicate = _lineage({"direction": "descendant", "sample_type": "SCE", "max_hops": hops}, catalog, scope)
+        statement = f"CYPHER 25 MATCH (s:Sample) WHERE s.type IN ['SCR'] WITH s WHERE {predicate} RETURN count(s) AS n"
+        params = {} if scope.is_admin else {"projects": [1]}
+        driver.execute_query(statement, params, database_=DB)  # warm
+        start = time.perf_counter()
+        records = driver.execute_query(statement, params, database_=DB).records
+        out["timings"][label] = {"matched": records[0]["n"], "ms": round((time.perf_counter() - start) * 1000, 1)}
+    return out
+
+
 def explain(driver, body: dict, scope) -> list[str]:
     """The operators of the page statement's plan, top first."""
     from nextseek_api.graph_search import catalog_cache
@@ -331,7 +439,8 @@ def explain(driver, body: dict, scope) -> list[str]:
     ops = []
 
     def walk(plan, depth=0):
-        ops.append("  " * depth + plan["operatorType"])
+        details = (plan.get("args") or {}).get("Details")
+        ops.append("  " * depth + plan["operatorType"] + (f" [{details}]" if details else ""))
         for child in plan.get("children") or []:
             walk(child, depth + 1)
 
@@ -401,8 +510,12 @@ def main(argv=None) -> int:
 
     from nextseek_api.graph_search.scope import Scope
 
-    checks = residual_checks(parity, driver)
+    checks = residual_checks(parity, driver) + lineage_checks(samples, driver)
+    lineage_body = {"sampletype": "TIS", "filter_searchText": "", "extensions": {"lineage": {
+        "direction": "either", "sample_type": "D.SEQ", "max_hops": 12}}}
     plans = {
+        "lineage either, superuser": explain(driver, lineage_body, Scope(True, None, ())),
+        "lineage either, member of project 1": explain(driver, lineage_body, Scope(False, 10, (1,))),
         "bare negation, no type": explain(driver, {"filter_searchText": "", "extensions": {
             "query": "NOT granuloma"}}, Scope(True, None, ())),
         "bare negation, member of project 1": explain(driver, {"filter_searchText": "", "extensions": {
@@ -411,6 +524,7 @@ def main(argv=None) -> int:
             "query": "lung NOT granuloma"}}, Scope(True, None, ())),
     }
     scale = scale_timing(driver, args.scale)
+    scale["lineage"] = lineage_scale(driver, args.scale // 12)
 
     summary = {
         "graph": loaded,
@@ -432,7 +546,9 @@ def main(argv=None) -> int:
     lines += ["", "## Checks", ""] + [f"- {'ok' if c['ok'] else 'FAILED'}: {c['check']}: "
                                       f"{json.dumps({k: v for k, v in c.items() if k not in ('check', 'ok')})}"
                                       for c in checks]
-    lines += ["", "## Plans", ""] + [f"- {name}: {' > '.join(op.strip() for op in ops)}" for name, ops in plans.items()]
+    lines += ["", "## Plans", ""]
+    for name, ops in plans.items():
+        lines += [f"- {name}:", "", "```"] + ops + ["```", ""]
     lines += ["", "## Scale", "", json.dumps(scale)]
     (args.out_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     _log(f"synthetic parity {'PASS' if ok else 'FAIL'}")

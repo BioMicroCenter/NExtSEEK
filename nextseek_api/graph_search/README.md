@@ -172,13 +172,37 @@ once for the count, under the 60 second timeout (504): a label scan and a filter
 plan), linear in the number of samples and the length of their text. The synthetic proof below prints that plan
 and, with `--scale N`, times such a negation over N extra samples.
 
+### Associated with: `extensions.lineage`
+
+graph_search's own condition, which advanced_search never had, so it has no parity: keep a sample only when a sample
+of the given type lies within `max_hops` DERIVED_FROM hops as its `ancestor`, its `descendant`, or `either` (the two
+`EXISTS` ORed). The Sample Search page's Associated with sends `max_hops: 12`.
+
+- **The bound.** `max_hops` is 1 to 12, default 4. The longest DERIVED_FROM chain is 11 hops, so 12 reaches the whole
+  tree; the Nessie graph guard allows the same 12 (`cypher_text.APOC_PATH_MAX_LEVEL`). The earlier cap of 4 came with
+  the request models in the proof of concept (`git log -S'le=4'`), and nothing recorded a measured cost behind it. The
+  path is always bounded, never `*`.
+- **Scope.** Lineage stops at the caller's project edge: for a non-superuser the pattern is
+  `EXISTS { MATCH path = (s)-[:DERIVED_FROM*1..h]->(:T_x) WHERE all(n IN nodes(path) WHERE any(p IN n.project_ids WHERE
+  p IN $projects)) }`, so the related sample and every sample between must be in one of the caller's projects, and a
+  sample in someone else's project never makes a sample match or reveals that it exists. A superuser's pattern has no
+  such clause.
+- **Cost.** The `EXISTS` runs once per sample the rest of the search kept, from that sample outward: its plan is a
+  semi-apply over `VarLengthExpand(All)` with the scope predicate evaluated during the expansion and the type label
+  filtered at the far end, stopping at the first match. So a broad text match times a full-tree check costs the
+  matched samples times the part of each one's tree within the bound, the whole tree when nothing matches. 12 hops
+  instead of 4 costs nothing on a sample whose tree is shallower than 4, and the depth of the rest of its tree
+  otherwise. The synthetic proof below prints the plan and times the check over eleven-hop chains.
+
 ### Proof
 
 `scripts/graph_search/synthetic_parity.sh` loads synthetic rows into an empty MySQL and, through graph_sync's own
 writer, an empty Neo4j, then runs the parity harness over `scripts/graph_search/synthetic_queries.json` in every
 scope: each query text through advanced_search's view and `extensions.query`, each Simple box rule through its own
 FILTERING path and `extensions.where`. It passes when every difference is a declared one, and it checks the residual
-(the empty-string value) and each parser defect above against their expected rows.
+(the empty-string value) and each parser defect above against their expected rows, and `extensions.lineage` against a
+walk of the synthetic edges in each scope, direction and bound, including a relative and a sample between that are in a
+project the caller is not in.
 
 ## Running and testing
 

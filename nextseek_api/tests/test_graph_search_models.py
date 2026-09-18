@@ -3,7 +3,7 @@
 GraphSearchRequest subclasses SampleAdvancedSearchRequest, so the shared fields, the
 `extra='forbid'` rule and `to_db_filters` behave exactly as they do for advanced_search.
 `extensions.where` items are exact, typed attribute conditions on one sample type, and
-`extensions.lineage` keeps a sample only when a sample of a given type sits within 1 to 4
+`extensions.lineage` keeps a sample only when a sample of a given type sits within 1 to 12
 DERIVED_FROM hops. Catalog checks (does the attribute exist on the type) belong to the
 query builder, not to these models.
 """
@@ -196,13 +196,19 @@ def test_lineage_defaults_to_four_hops():
     assert lineage.max_hops == 4
 
 
-@pytest.mark.parametrize("hops", [1, 2, 3, 4])
-def test_lineage_accepts_one_to_four_hops(hops):
+@pytest.mark.parametrize("hops", [1, 4, 11, 12])
+def test_lineage_accepts_one_to_twelve_hops(hops):
+    """12 reaches the whole tree: the longest DERIVED_FROM chain is 11 hops."""
     lineage = GraphSearchLineage.model_validate({"direction": "ancestor", "sample_type": "TIS", "max_hops": hops})
     assert lineage.max_hops == hops
 
 
-@pytest.mark.parametrize("hops", [0, 5, -1])
+def test_lineage_either_direction_validates():
+    lineage = GraphSearchLineage.model_validate({"direction": "either", "sample_type": "D.SEQ", "max_hops": 12})
+    assert lineage.direction == "either"
+
+
+@pytest.mark.parametrize("hops", [0, 13, -1])
 def test_lineage_hops_out_of_range_fail(hops):
     with pytest.raises(ValidationError):
         GraphSearchLineage.model_validate({"direction": "descendant", "sample_type": "D.SEQ", "max_hops": hops})

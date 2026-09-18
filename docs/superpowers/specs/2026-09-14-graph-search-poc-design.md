@@ -199,8 +199,12 @@ attribute's `value_type`; `CONTAINS` and `STARTS WITH` compare the stored value'
 a string attribute matches by its digits, as advanced_search's Contain did. `query` is the Sample Search page's query text
 (upper-case `AND`, `OR` and `NOT`, parentheses, `term[TYPE]` tags) matched with advanced_search's two stages; its
 grammar, its rows and where they can still differ are in `nextseek_api/graph_search/README.md`, "How graph_search
-expresses them". `lineage` keeps a sample only when a sample of that type lies within `max_hops` (1 to 4)
-DERIVED_FROM hops in that direction; ancestors and descendants are not returned, so they need no scoping.
+expresses them". `lineage` keeps a sample only when a sample of that type lies within `max_hops` (1 to 12, default 4;
+12 reaches the whole tree) DERIVED_FROM hops in that direction (`ancestor`, `descendant` or `either`). Ancestors and
+descendants are not returned, but lineage stops at the caller's project edge: for a non-superuser the related sample
+and every sample between must be in one of the caller's projects, so a sample in someone else's project never makes a
+sample match. This is graph_search's own condition (the Sample Search page's Associated with); advanced_search has
+none, so it has no parity.
 
 **Scope:**
 1. `request.user.is_superuser`: no clause.

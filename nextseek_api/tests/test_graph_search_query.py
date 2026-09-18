@@ -605,10 +605,59 @@ def test_lineage_ancestor_points_the_other_way_and_defaults_to_4_hops():
     assert "EXISTS { (s)-[:DERIVED_FROM*1..4]->(:`T_MUS`) }" in _where_line(q)
 
 
+def test_lineage_reaches_the_whole_tree_within_12_hops():
+    # The longest DERIVED_FROM chain in the graph is 11 hops; 12 is the bound the Nessie graph guard uses too.
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 12}}})
+    assert "EXISTS { (s)<-[:DERIVED_FROM*1..12]-(:`T_D_SEQ`) }" in _where_line(q)
+
+
+def test_lineage_either_direction_is_an_ancestor_or_a_descendant():
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}}})
+    assert _where_line(q) == ("(EXISTS { (s)-[:DERIVED_FROM*1..12]->(:`T_D_SEQ`) } "
+                              "OR EXISTS { (s)<-[:DERIVED_FROM*1..12]-(:`T_D_SEQ`) })")
+
+
+PATH_SCOPE = "all(n IN nodes(path) WHERE any(p IN n.project_ids WHERE p IN $projects))"
+
+
+@pytest.mark.parametrize("direction, pattern", [
+    ("ancestor", "(s)-[:DERIVED_FROM*1..12]->(:`T_D_SEQ`)"),
+    ("descendant", "(s)<-[:DERIVED_FROM*1..12]-(:`T_D_SEQ`)"),
+])
+def test_lineage_for_a_member_needs_every_sample_on_the_path_visible(direction, pattern):
+    # Lineage stops at the caller's project edge: the related sample, and every sample between, must be in one of the
+    # caller's projects, so a sample in someone else's project never makes a sample match.
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": direction, "sample_type": "D.SEQ", "max_hops": 12}}},
+               scope=MEMBER)
+    assert _where_line(q).endswith(f"EXISTS {{ MATCH path = {pattern} WHERE {PATH_SCOPE} }}")
+    assert q.params["projects"] == [2, 6]
+
+
+def test_lineage_either_for_a_member_scopes_both_directions():
+    q = _build({"sampletype": "TIS", "filter_searchText": "",
+                "extensions": {"lineage": {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}}},
+               scope=MEMBER)
+    assert _where_line(q).endswith(
+        f"(EXISTS {{ MATCH path = (s)-[:DERIVED_FROM*1..12]->(:`T_D_SEQ`) WHERE {PATH_SCOPE} }} "
+        f"OR EXISTS {{ MATCH path = (s)<-[:DERIVED_FROM*1..12]-(:`T_D_SEQ`) WHERE {PATH_SCOPE} }})")
+
+
+def test_lineage_scope_is_in_every_statement_and_the_admin_gets_none():
+    body = {"sampletype": "TIS", "filter_searchText": "",
+            "extensions": {"lineage": {"direction": "either", "sample_type": "D.SEQ", "max_hops": 12}}}
+    member = _build(body, scope=MEMBER)
+    for statement in (member.page_cypher, member.count_cypher, member.ids_cypher):
+        assert statement.count(PATH_SCOPE) == 2
+    assert "nodes(path)" not in _build(body, scope=ADMIN).page_cypher
+
+
 @pytest.mark.parametrize("lineage", [
     {"direction": "descendant", "sample_type": "NOPE", "max_hops": 2},
     {"direction": "sideways", "sample_type": "MUS", "max_hops": 2},
-    {"direction": "ancestor", "sample_type": "MUS", "max_hops": 5},
+    {"direction": "ancestor", "sample_type": "MUS", "max_hops": 13},
     {"direction": "ancestor", "sample_type": "MUS", "max_hops": 0},
     {"direction": "ancestor", "sample_type": "MUS", "max_hops": "2"},
     {"direction": "ancestor", "sample_type": "MUS", "max_hops": True},
