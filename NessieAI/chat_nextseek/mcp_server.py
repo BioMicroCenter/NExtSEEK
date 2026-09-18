@@ -46,6 +46,7 @@ def _quiet_stdout():
 
 from chat_nextseek import graph_catalog, graph_context
 from chat_nextseek.config import ChatConfig
+from chat_nextseek.graph_scope import operator_scope_from_env, with_scope
 from chat_nextseek.session import SessionState
 from chat_nextseek.agents import entity_agent as _entity_agent
 from chat_nextseek.helpers import tool_nextseek_api_request
@@ -117,9 +118,11 @@ _config: ChatConfig | None = None
 
 
 def _cfg() -> ChatConfig:
+    """The process-wide config. Graph queries run over every project only when the operator starts the server with
+    CHAT_NEXTSEEK_GRAPH_ADMIN=1; otherwise they are refused (and fall back) and the graph catalog is redacted."""
     global _config
     if _config is None:
-        _config = ChatConfig()
+        _config = with_scope(ChatConfig(), operator_scope_from_env("mcp"))
     return _config
 
 
