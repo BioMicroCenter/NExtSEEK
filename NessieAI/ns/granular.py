@@ -9,9 +9,11 @@ viewset module stays import-light and unit tests can patch the agents.
 The single intentional **superset** of dmac behavior is ``graph``: per the design
 decision for this work it ALSO executes the Cypher plan via Neo4j and returns the
 rows alongside the plan (dmac returns the plan only). The Neo4j tool holds that
-statement to the caller's project scope, which the view puts on the config; a
-statement refused for its scope comes back with an error that names graph_search,
-the project-scoped sample search, so the CC agent can ask it instead.
+statement to the caller's project scope, which the view puts on the config. A
+statement refused for its scope is answered through graph_search, the
+project-scoped sample search, exactly as the NS orchestrator falls back
+(``_fall_back_to_graph_search``): the parser plan retargeted to graph_search, built
+by the API agent, gated as a read and run, returned under ``fallback``.
 
 Error taxonomy (mirrors dmac _ws_contract.ERROR_EXIT):
 * :class:`OpValidationError` -> VALIDATION
@@ -72,11 +74,60 @@ def _parse(args, config, session, write_gate, neo4j_exec, outputs_dir):
     return _dump(parser_agent(session, config, args["query"], entity_out))
 
 
-#: Added to a ``graph`` op result refused for its project scope: the CC agent's way forward.
+#: The project-scoped sample search a refused graph question is answered through.
+GRAPH_SEARCH_ENDPOINT = "/nextseek_api/samples/graph_search/"
+
+#: Added to the error of a ``graph`` op result refused for its project scope.
 GRAPH_SCOPE_FALLBACK_HINT = (
-    "Search with nextseek-api-read against /nextseek_api/samples/graph_search/ instead; it applies the "
-    "caller's project scope on the server."
+    f"The op asked {GRAPH_SEARCH_ENDPOINT} instead, which applies the caller's project scope on the server; "
+    "its answer is under fallback."
 )
+
+#: What the CC agent must tell the user when it answers from ``fallback`` (the NS chatter gets the same note).
+GRAPH_SCOPE_FALLBACK_NOTE = (
+    "The graph query written for this question could not be confirmed to stay within the user's projects, so it "
+    "was not run. This answer comes from the project-scoped sample search instead. Say so, and say which "
+    "conditions of the question that search could not apply."
+)
+
+
+def _graph_search_fallback(config, parser_plan, refused: dict, write_gate) -> dict:
+    """Answer a scope-refused graph question through graph_search, as the NS orchestrator does.
+
+    Never raises: a fallback that cannot run reports why, and the refusal it answers stays in the
+    op's ``result``. Only graph_search is ever called here, and only through the read gate.
+    """
+    from chat_nextseek import helpers
+    from chat_nextseek.portable import api_agent_build_request
+
+    scope = refused.get("scope") if isinstance(refused.get("scope"), dict) else {}
+    out: dict[str, Any] = {
+        "ok": False, "endpoint": GRAPH_SEARCH_ENDPOINT, "note": GRAPH_SCOPE_FALLBACK_NOTE,
+        "codes": list(scope.get("codes") or ()), "reasons": list(scope.get("reasons") or ()),
+    }
+    retarget = {"mode": "new_search", "target_endpoint": GRAPH_SEARCH_ENDPOINT}
+    if hasattr(parser_plan, "model_copy"):
+        plan = parser_plan.model_copy(update=retarget)
+    elif isinstance(parser_plan, dict):
+        plan = {**parser_plan, **retarget}
+    else:
+        plan = retarget
+    try:
+        api_plan = api_agent_build_request(config, plan)
+        endpoint, method = api_plan.endpoint, (api_plan.method or "").upper()
+        out["api_plan"] = _dump(api_plan)
+        if endpoint != GRAPH_SEARCH_ENDPOINT:
+            out["error"] = f"the API agent built a request for {endpoint!r}, not {GRAPH_SEARCH_ENDPOINT}; nothing ran"
+            return out
+        write_gate("api-read", endpoint, method, False)
+        response = helpers.tool_nextseek_api_request(
+            config, endpoint, method, requestBody=api_plan.requestBody, queryParameters=api_plan.queryParameters,
+        )
+    except Exception as exc:  # the refusal is still the op's answer; say why its fallback did not run
+        out["error"] = f"graph_search fallback failed: {type(exc).__name__}: {exc}"
+        return out
+    out.update(ok=True, method=method, response=response)
+    return out
 
 
 def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
@@ -103,7 +154,9 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
         result = {"ok": False, "error": "graph agent produced no cypher", "data": []}
     from chat_nextseek.helpers.tools.neo4j import is_scope_refusal
     if is_scope_refusal(result):
+        fallback = _graph_search_fallback(config, parser_plan, result, write_gate)
         result = {**result, "error": f"{result.get('error') or ''} {GRAPH_SCOPE_FALLBACK_HINT}".strip()}
+        return {"plan": plan_dump, "result": result, "fallback": fallback}
     return {"plan": plan_dump, "result": result}
 
 
