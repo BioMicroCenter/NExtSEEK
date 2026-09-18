@@ -957,6 +957,48 @@ def _fallback_vocabulary(config: ChatConfig, user_query: str) -> list[str]:
     return blocks
 
 
+# --------------------------------------------------------------------------- #
+# P5 (PilotAPOC/review/PROPOSALS.md): what of the parser plan the graph agent sees
+# --------------------------------------------------------------------------- #
+#
+# Off by default. An evaluation prompt variant turns it on with ``project_parser_plan``
+# (prompt_variants.py sets PROJECT_PARSER_PLAN on the per-request config copy).
+#
+# Measured on the 60 reviewed graph-arm turns of run full-a (PilotAPOC/runs/full-a/graph/
+# payloads/<id>/main.json, query_complete.debug.parser_plan, which is the plan graph_agent
+# received): the parser writes its REST reasoning into three fields.
+#   notes                41 of 60 name advanced_search as the right endpoint, 15 assert that no
+#                        relationship (or lineage, or graph) traversal is needed
+#   endpoint_candidates  52 of 60 list a REST path, /nextseek_api/samples/advanced_search/
+#   intent_summary       1 of 60 carries REST prose ("via advanced_search ... since REST cannot
+#                        enforce numeric comparisons"); the rest paraphrase the question, which
+#                        the graph agent already receives verbatim as the user message
+# The rest carry nothing the graph agent can use (target_endpoint, previous_api_plan and metadata
+# were empty on all 60): target_endpoint is a REST path by definition, previous_api_plan is a REST
+# request body, target_result_id is the memory path's bundle id, report_mode and report_type are
+# the reporter's, metadata holds the parser's failure record, mode is graph_query whenever this
+# runs, and previous_user_query duplicates the prior query a graph refine already carries in its
+# refine_context (orchestrator._build_graph_refine_context).
+# What the graph agent needs from the plan is what the parser resolved: the entities and the
+# filters. Those are kept whole.
+PARSER_PLAN_KEPT: tuple[str, ...] = ("resolved", "filters")
+PARSER_PLAN_DROPPED: tuple[str, ...] = (
+    "mode", "target_endpoint", "intent_summary", "notes", "endpoint_candidates",
+    "previous_api_plan", "previous_user_query", "target_result_id", "report_mode", "report_type", "metadata",
+)
+PROJECTED_PLAN_HEADING = "RESOLVED ENTITIES AND FILTERS (from the Parser Agent):"
+
+
+def project_parser_plan(plan_dict: dict) -> dict:
+    """The parser plan cut down to ``PARSER_PLAN_KEPT``: the resolved entities and the filters."""
+    return {name: plan_dict[name] for name in PARSER_PLAN_KEPT if name in plan_dict}
+
+
+def _projects_parser_plan(config) -> bool:
+    # `is True`, not truthiness: tests hand the graph agent a MagicMock config, whose every attribute exists.
+    return getattr(config, "PROJECT_PARSER_PLAN", False) is True
+
+
 def graph_agent(
     config: ChatConfig,
     user_query: str,
@@ -995,7 +1037,9 @@ def graph_agent(
 
     # Use full parser plan when available (contains resolved entities + routing intent + filters)
     # Fall back to raw entity dict when called without a parser plan
-    if plan_dict:
+    if plan_dict and _projects_parser_plan(config):
+        upstream_context = PROJECTED_PLAN_HEADING + "\n" + json.dumps(project_parser_plan(plan_dict), indent=2)
+    elif plan_dict:
         upstream_context = "PARSER PLAN (from Parser Agent — routing intent + resolved entities + filters):\n" + json.dumps(plan_dict, indent=2)
     else:
         entity_json = json.dumps(entity_dict, indent=2)
