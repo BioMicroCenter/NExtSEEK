@@ -1,6 +1,7 @@
 {
-  "description": "v2_apoc: v2 plus three read-only APOC path procedures (apoc.path.subgraphNodes, apoc.path.spanningTree, apoc.path.expandConfig) taught in an appended graph agent section, for lineage from one or two anchored samples: whole ancestry or descent with each sample's distance, the nearest sample of a type, shared ancestors, and when apoc.text.clean helps value matching. Everything else is inherited from v2, so APOC is the only difference between the two arms. The guard admits a call only with a literal map, relationshipFilter naming only DERIVED_FROM, a literal maxLevel from 1 to 12, and NODE_GLOBAL uniqueness on expandConfig.",
-  "inherits": "v2",
+  "description": "v2_apoc: the shipped default prompts plus three read-only APOC path procedures (apoc.path.subgraphNodes, apoc.path.spanningTree, apoc.path.expandConfig) taught in an appended graph agent section, for lineage from one or two anchored samples: whole ancestry or descent with each sample's distance, the nearest sample of a type, shared ancestors, and when apoc.text.clean helps value matching. APOC is the only difference from the default, so the two arms stay comparable. The guard admits a call only with a literal map, relationshipFilter naming only DERIVED_FROM, a literal maxLevel from 1 to 12, and NODE_GLOBAL uniqueness on expandConfig.",
+  "inherits": null,
+  "project_parser_plan": true,
   "graph_agent_addendum": "graph_agent_apoc.txt",
   "allowed_procedures": ["apoc.path.subgraphNodes", "apoc.path.spanningTree", "apoc.path.expandConfig"]
 }

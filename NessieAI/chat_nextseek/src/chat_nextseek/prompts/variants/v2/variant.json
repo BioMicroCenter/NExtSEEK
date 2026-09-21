@@ -1,7 +1,0 @@
-{
-  "description": "v2: every sample-metadata question routes to graph_query (surgical parser change); the graph agent is taught schema 1.2 as deployed (a matching decision procedure, case and code tolerant values, the UID lab-code grammar, person names, bounded lineage, zero-result recovery, real aggregates); the API agent can use graph_search for the predicates advanced_search cannot express.",
-  "inherits": null,
-  "project_parser_plan": true,
-  "graph_agent_addendum": null,
-  "allowed_procedures": []
-}

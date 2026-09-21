@@ -1,9 +1,10 @@
-"""The v2_apoc prompt variant (prompts/variants/v2_apoc/): v2 plus an APOC section, and nothing else.
+"""The v2_apoc prompt variant (prompts/variants/v2_apoc/): the shipped defaults plus an APOC section, nothing else.
 
-The operator runs v2 and v2_apoc on the same questions to see whether APOC helps, so the only difference between
-the two arms must be APOC: v2_apoc inherits v2, adds one graph agent section and three allowed procedures, and
-overrides no file. v2 is written on its own branch; these tests load v2_apoc through the real loader over a
-stand-in v2 in a temporary tree, and the tests that need the real v2 skip until it is in this checkout.
+The operator runs the default prompts and v2_apoc on the same questions to see whether APOC helps, so the only
+difference between the two arms must be APOC: v2_apoc overrides no file, adds one graph agent section and three
+allowed procedures. Until F1 the baseline was a `v2` variant directory and v2_apoc inherited it; v2 is now the
+default itself, so the manifest inherits nothing and states `project_parser_plan` in its own right, and the
+addendum appends to whatever graph prompt the config carries.
 
 Every file is read by path from this checkout. Nothing here reaches Neo4j or a model.
 """
@@ -31,8 +32,8 @@ V2_APOC = VARIANTS / "v2_apoc"
 ADDENDUM_NAME = "graph_agent_apoc.txt"
 ALLOWED = ("apoc.path.subgraphNodes", "apoc.path.spanningTree", "apoc.path.expandConfig")
 NO_PASSWORD = "NEO4J_PASSWORD not configured"
-STAND_IN_V2 = ("STAND-IN V2 GRAPH PROMPT\nThe only procedure you may CALL is `db.index.fulltext.queryNodes`, unless a "
-               "section below adds another.\n")
+BASE_GRAPH_PROMPT = ("STAND-IN BASE GRAPH PROMPT\nThe only procedure you may CALL is `db.index.fulltext.queryNodes`, "
+                     "unless a section below adds another.\n")
 
 
 def manifest() -> dict:
@@ -49,18 +50,14 @@ def fenced(text: str) -> list[str]:
 
 @pytest.fixture
 def tree(tmp_path) -> Path:
-    """A variants tree holding the committed v2_apoc and a stand-in v2 (never committed)."""
+    """A variants tree holding the committed v2_apoc and nothing else, as the shipped tree is."""
     root = tmp_path / "variants"
     shutil.copytree(V2_APOC, root / "v2_apoc")
-    (root / "v2").mkdir()
-    (root / "v2" / "graph_agent.txt").write_text(STAND_IN_V2, encoding="utf-8")
-    (root / "v2" / "variant.json").write_text(json.dumps({"inherits": None, "project_parser_plan": True}),
-                                              encoding="utf-8")
     return root
 
 
 def _config(**attrs):
-    base = dict(GRAPH_AGENT_SYSTEM_PROMPT="DEFAULT GRAPH PROMPT\n", API_AGENT_SYSTEM_PROMPT="DEFAULT API\n",
+    base = dict(GRAPH_AGENT_SYSTEM_PROMPT=BASE_GRAPH_PROMPT, API_AGENT_SYSTEM_PROMPT="DEFAULT API\n",
                 PARSER_CORE_ROUTING_PROMPT="core", PARSER_SYSTEM_PROMPT="parser", MULTI_PARSER_SYSTEM_PROMPT="multi",
                 MIN_GRAPH_SCHEMA={}, MIN_API_ENDPOINTS=[], ENDPOINT_INDEX=None, PROMPTS_DIR=str(PROMPTS),
                 NEO4J_PASSWORD=None, NEO4J_URI="bolt://nowhere:7687", NEO4J_USER="neo4j")
@@ -79,17 +76,18 @@ def well_formed(proc: str) -> str:
 # --- the manifest and the directory ---------------------------------------------------------------------------------
 
 
-def test_the_manifest_inherits_v2_and_adds_only_apoc():
+def test_the_manifest_inherits_nothing_and_adds_only_apoc():
     meta = manifest()
-    assert set(meta) == {"description", "inherits", "graph_agent_addendum", "allowed_procedures"}
-    assert meta["inherits"] == "v2"
+    assert set(meta) == {"description", "inherits", "project_parser_plan", "graph_agent_addendum",
+                         "allowed_procedures"}
+    assert meta["inherits"] is None, "v2 was promoted to the default; there is nothing left to inherit"
     assert meta["graph_agent_addendum"] == ADDENDUM_NAME
     assert tuple(meta["allowed_procedures"]) == ALLOWED
-    assert "project_parser_plan" not in meta, "stated here it could differ from v2; left out, it is inherited"
+    assert meta["project_parser_plan"] is True, "stated here now that it cannot be inherited from v2"
     assert meta["description"].strip()
 
 
-def test_the_directory_overrides_no_v2_file():
+def test_the_directory_overrides_no_default_file():
     assert sorted(p.name for p in V2_APOC.iterdir()) == sorted([ADDENDUM_NAME, "variant.json"])
 
 
@@ -98,38 +96,35 @@ def test_the_directory_overrides_no_v2_file():
 
 def test_the_variant_loads_through_the_real_loader(tree):
     variant = pv.load_variant("v2_apoc", variants_dir=tree)
-    assert variant.inherits == "v2"
+    assert variant.inherits is None
     assert variant.allowed_procedures == ALLOWED
     assert variant.addendum == tree / "v2_apoc" / ADDENDUM_NAME
-    assert variant.chain == (tree / "v2_apoc", tree / "v2")
-    assert variant.project_parser_plan is True  # inherited from v2
-    assert set(pv.validate_tree(variants_dir=tree)) == {"v2", "v2_apoc"}
+    assert variant.chain == (tree / "v2_apoc",)
+    assert variant.project_parser_plan is True  # stated, not inherited
+    assert set(pv.validate_tree(variants_dir=tree)) == {"v2_apoc"}
 
 
-def test_the_copy_is_v2_plus_the_section_and_the_procedures(tree):
+def test_the_copy_is_the_default_plus_the_section_and_the_procedures(tree):
     singleton = _config()
-    v2 = pv.apply_variant(singleton, "v2", variants_dir=tree)
     apoc = pv.apply_variant(singleton, "v2_apoc", variants_dir=tree)
 
-    assert apoc.GRAPH_AGENT_SYSTEM_PROMPT == STAND_IN_V2.rstrip("\n") + "\n\n" + addendum()
-    assert apoc.EXTRA_ALLOWED_PROCEDURES == frozenset(ALLOWED) and v2.EXTRA_ALLOWED_PROCEDURES == frozenset()
-    assert apoc.PROMPT_VARIANT_FILES == {**v2.PROMPT_VARIANT_FILES,
-                                         "graph_agent_addendum": f"v2_apoc/{ADDENDUM_NAME}"}
-    differing = {k for k in vars(apoc) if getattr(apoc, k) != getattr(v2, k)}
+    assert apoc.GRAPH_AGENT_SYSTEM_PROMPT == BASE_GRAPH_PROMPT.rstrip("\n") + "\n\n" + addendum()
+    assert apoc.EXTRA_ALLOWED_PROCEDURES == frozenset(ALLOWED)
+    assert apoc.PROMPT_VARIANT_FILES == {"graph_agent_addendum": f"v2_apoc/{ADDENDUM_NAME}"}
+    _missing = object()
+    differing = {k for k in vars(apoc) if getattr(apoc, k) != getattr(singleton, k, _missing)}
     assert differing == {"GRAPH_AGENT_SYSTEM_PROMPT", "EXTRA_ALLOWED_PROCEDURES", "PROMPT_VARIANT",
-                         "PROMPT_VARIANT_FILES"}
-    assert singleton.GRAPH_AGENT_SYSTEM_PROMPT == "DEFAULT GRAPH PROMPT\n"
+                         "PROMPT_VARIANT_FILES", "PROJECT_PARSER_PLAN"}
+    assert singleton.GRAPH_AGENT_SYSTEM_PROMPT == BASE_GRAPH_PROMPT
 
 
-def test_the_real_v2_when_this_checkout_has_it():
-    """Live once v2 (feat/nessie-v2-prompts) is merged beside v2_apoc: the committed tree then loads whole."""
-    if not (VARIANTS / "v2").is_dir():
-        pytest.skip("prompts/variants/v2 is not in this checkout yet")
+def test_the_shipped_default_graph_prompt_ends_open_for_the_addendum():
+    """F1 promoted v2/v3 to the defaults; the addendum appends to that prompt, so it must still end open."""
     loaded = pv.validate_tree()
-    assert {"v2", "v2_apoc"} <= set(loaded)
-    v2_prompt = (VARIANTS / "v2" / "graph_agent.txt").read_text(encoding="utf-8")
-    assert "unless a section below adds another" in v2_prompt
-    assert "11 hops" in v2_prompt and "[:DERIVED_FROM*1..12]" in v2_prompt
+    assert set(loaded) == {"v2_apoc"}
+    default_prompt = (PROMPTS / "graph_agent.txt").read_text(encoding="utf-8")
+    assert "unless a section below adds another" in default_prompt
+    assert "[:DERIVED_FROM*1..12]" in default_prompt
 
 
 # --- the procedures: allowed only under the variant, and only these -------------------------------------------------
@@ -145,7 +140,7 @@ def test_each_allowed_procedure_passes_only_under_the_variant(tree, proc):
     variant = pv.apply_variant(singleton, "v2_apoc", variants_dir=tree)
     assert tool_neo4j_query(variant, q, {"uid": "X"})["error"] == NO_PASSWORD  # past the text check
     assert f"Refused: CALL {proc}" in tool_neo4j_query(singleton, q, {"uid": "X"})["error"]
-    assert f"Refused: CALL {proc}" in tool_neo4j_query(pv.apply_variant(singleton, "v2", variants_dir=tree),
+    assert f"Refused: CALL {proc}" in tool_neo4j_query(singleton,
                                                        q, {"uid": "X"})["error"]
 
 

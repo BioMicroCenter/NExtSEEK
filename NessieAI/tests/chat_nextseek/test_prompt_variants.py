@@ -61,7 +61,15 @@ def config(defaults) -> FakeConfig:
 
 
 @pytest.fixture
-def root(tmp_path) -> Path:
+def root(tmp_path, monkeypatch) -> Path:
+    """A synthetic variant tree, with the name check widened to the names these tests build.
+
+    The shipped contract is ``VARIANT_NAMES == ("v2_apoc",)`` after F1 promoted v2 and v3 to the
+    defaults, and ``test_the_variant_names_are_the_contract`` asserts exactly that without this
+    fixture. The loader rejects any directory whose name is not in ``VARIANT_NAMES``, so a
+    synthetic tree needs its own names; inheritance in particular cannot be exercised with one.
+    """
+    monkeypatch.setattr(pv, "VARIANT_NAMES", ("v2", "v2_apoc", "v3"))
     d = tmp_path / "variants"
     d.mkdir()
     return d
@@ -87,7 +95,7 @@ def _state(obj) -> dict:
 
 
 def test_the_variant_names_are_the_contract():
-    assert pv.VARIANT_NAMES == ("v2", "v2_apoc", "v3")
+    assert pv.VARIANT_NAMES == ("v2_apoc",)
 
 
 def test_the_variants_live_under_the_package_prompts_directory():

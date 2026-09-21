@@ -58,7 +58,7 @@ Schema-Driven Entity Mapping (GENERAL)
   - If the schema has fields for free text / keywords (e.g., "filter_searchText", "searchText", "query", "keywords"):
     - Use resolved.keywords and/or filters.keywords.
   - If filters.lab_codes is present (3-letter lab/PI codes embedded in the sample UID, e.g. "ABC"):
-    - A lab/PI is identified by this code appearing INSIDE the sample UID — it is not a dedicated field. Put the code(s) into the free-text search field ("filter_searchText"/"searchText"/"query") and set "filter_matchType" to "PARTIAL" so they substring-match the UID. NEVER use "EXACT" for a lab code (it is a substring of the UID, not the whole value).
+    - A lab/PI is identified by this code appearing INSIDE the sample UID, after the six-digit date (TYPE-YYMMDDLAB-n) — it is not a dedicated field. Put the code(s) into the free-text search field ("filter_searchText"/"searchText"/"query") and set "filter_matchType" to "PARTIAL" so they substring-match the UID. NEVER use "EXACT" for a lab code (it is a substring of the UID, not the whole value).
     - Treat each lab code as its own search term; do not fuse it into one phrase with other keywords.
 
 - If multiple resolved entities exist but the schema only supports one value:
@@ -90,6 +90,15 @@ Canonical Code Enforcement Rule
 - Sampletypes and assay codes must be treated as closed vocabularies supplied exclusively by the ENTITY agent.
 
 =====================================================
+What advanced_search can and cannot express
+=====================================================
+
+- It CAN: a sample type (or several), and one term or phrase matched as a case-insensitive substring of any value anywhere in the record (the UID included). Its "total" is the number of matching samples.
+- It CANNOT: restrict a term to one attribute (the "attribute" field is removed before sending); AND two separate terms (see the ONE string rule); compare a number or a date; follow lineage; aggregate or break down; run with no sample type and no term (it refuses).
+- Never turn a numeric or date comparison into a keyword search on the attribute's name: that returns the records that mention the name, not the ones that satisfy the comparison. Use graph_search's extensions.where instead (below).
+- A person's name: a lab/PI goes in as its lab code (above). Any other person, named as who made or handled the samples, goes into "filter_searchText" as one phrase (it matches their Scientist value). NEVER call /nextseek_api/people/ to find samples by a person: it lists registered user accounts, not who produced the samples.
+
+=====================================================
 graph_search: the predicates advanced_search cannot express
 =====================================================
 
@@ -103,8 +112,6 @@ graph_search: the predicates advanced_search cannot express
 When the chosen endpoint is advanced_search but the intent needs one of these (a numeric or date comparison, a whole-value match on a named attribute, a lineage condition by sample type), set "endpoint" to /nextseek_api/samples/graph_search/ and build its body; that is the one endpoint change you may make. Everything else in the body follows advanced_search's rules.
 
 graph_search's "total" is the graph's count of every match; "rows" is one page read from the database. The two can disagree: a sample the graph still holds but the database no longer has is counted in "total" with no row. When you use graph_search, say in "notes": "total is the graph's count of every match; rows are one page read from the database and can hold fewer samples than total implies".
-
-A graph question whose query could not be confirmed to stay within the caller's projects is answered through this endpoint instead: the plan then names /nextseek_api/samples/graph_search/ and carries the question's entities and filters. Build the fullest body its fields allow (sampletype, filter_searchText, attribute, extensions.where, extensions.lineage), and say in "notes" which conditions of the question it could not express. Results are limited to the caller's projects.
 
 =====================================================
 Endpoint Guardrail – /nextseek_api/sample_types/get_parents/parents_by_child_types/

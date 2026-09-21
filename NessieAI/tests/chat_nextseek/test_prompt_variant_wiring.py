@@ -121,11 +121,11 @@ def test_a_default_turn_records_no_variant():
 
 def test_a_variant_turn_records_its_name_and_files():
     config = _Config()
-    config.PROMPT_VARIANT = "v2"
-    config.PROMPT_VARIANT_FILES = {"graph_agent.txt": "v2/graph_agent.txt"}
+    config.PROMPT_VARIANT = "v2_apoc"
+    config.PROMPT_VARIANT_FILES = {"graph_agent.txt": "v2_apoc/graph_agent.txt"}
 
     payload = _run_query(config)
 
-    assert payload["debug"]["prompt_variant"] == "v2"
-    assert payload["debug"]["prompt_variant_files"] == {"graph_agent.txt": "v2/graph_agent.txt"}
+    assert payload["debug"]["prompt_variant"] == "v2_apoc"
+    assert payload["debug"]["prompt_variant_files"] == {"graph_agent.txt": "v2_apoc/graph_agent.txt"}
     assert payload["debug"]["parser_plan"]["mode"] == "unsupported"

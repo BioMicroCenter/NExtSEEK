@@ -1,6 +1,6 @@
 """The prompt-variant switch, host side: the request field and the CC turn's gate.
 
-`QueryRequest.prompt_variant` ("v2" or "v2_apoc") runs one NS turn on an alternative prompt set
+`QueryRequest.prompt_variant` ("v2_apoc") runs one NS turn on an alternative prompt set
 (`chat_nextseek.prompt_variants`). Same gate and shape as `force_parser_mode`: honoured only for a superuser
 (`is_superuser`, never `is_staff`) on a process that sets NEXTSEEK_EVAL_PARSER_FORCE=1, applied to a shallow
 per-request copy of the ChatConfig, and dropped without a word otherwise. It is independent of
@@ -44,6 +44,9 @@ class _Config:
 @pytest.fixture
 def variants(tmp_path, monkeypatch):
     root = tmp_path / "variants"
+    # Synthetic names: the shipped tuple is ("v2_apoc",) since F1 promoted v2 and v3 to the
+    # defaults, and the loader rejects a directory whose name is not in VARIANT_NAMES.
+    monkeypatch.setattr(pv, "VARIANT_NAMES", ("v2", "v2_apoc", "v3"))
     for name, files, manifest in (
         ("v2", {"graph_agent.txt": "V2 GRAPH"}, {"project_parser_plan": True}),
         ("v2_apoc", {}, {"inherits": "v2", "allowed_procedures": ["apoc.path.subgraphNodes"]}),
@@ -68,12 +71,12 @@ def test_prompt_variant_defaults_to_none():
     assert QueryRequest(query="hi", mode="standard").prompt_variant is None
 
 
-@pytest.mark.parametrize("val", ["v2", "v2_apoc", "v3"])
+@pytest.mark.parametrize("val", ["v2_apoc"])
 def test_prompt_variant_accepts_the_known_variants(val):
     assert QueryRequest(query="hi", mode="standard", prompt_variant=val).prompt_variant == val
 
 
-@pytest.mark.parametrize("val", ["v4", "apoc", "rewrite", "V2", "", "default"])
+@pytest.mark.parametrize("val", ["v2", "v3", "v4", "apoc", "rewrite", "V2", "", "default"])
 def test_prompt_variant_rejects_anything_else(val):
     with pytest.raises(ValidationError):
         QueryRequest(query="hi", mode="standard", prompt_variant=val)
@@ -101,10 +104,10 @@ def test_a_superuser_with_the_flag_gets_a_variant_copy(monkeypatch, variants):
     monkeypatch.setenv(ENV, "1")
     config = _Config()
 
-    out = turn._with_prompt_variant(config, SUPER, _req("v2"))
+    out = turn._with_prompt_variant(config, SUPER, _req("v2_apoc"))
 
     assert out is not config
-    assert out.PROMPT_VARIANT == "v2"
+    assert out.PROMPT_VARIANT == "v2_apoc"
     assert out.GRAPH_AGENT_SYSTEM_PROMPT == "V2 GRAPH"
     assert out.PROJECT_PARSER_PLAN is True
     assert config.GRAPH_AGENT_SYSTEM_PROMPT == "DEFAULT GRAPH"
@@ -123,13 +126,13 @@ def test_the_inherited_variant_carries_its_parents_files_and_its_own_procedures(
 def test_a_staff_user_who_is_not_a_superuser_is_ignored(monkeypatch, variants):
     monkeypatch.setenv(ENV, "1")
     config = _Config()
-    assert turn._with_prompt_variant(config, STAFF, _req("v2")) is config
+    assert turn._with_prompt_variant(config, STAFF, _req("v2_apoc")) is config
 
 
 def test_a_plain_user_is_ignored(monkeypatch, variants):
     monkeypatch.setenv(ENV, "1")
     config = _Config()
-    assert turn._with_prompt_variant(config, PLAIN, _req("v2")) is config
+    assert turn._with_prompt_variant(config, PLAIN, _req("v2_apoc")) is config
 
 
 @pytest.mark.parametrize("flag", [None, "", "0", "true", " 1"])
@@ -139,7 +142,7 @@ def test_without_the_flag_the_value_is_ignored(monkeypatch, variants, flag):
     else:
         monkeypatch.setenv(ENV, flag)
     config = _Config()
-    assert turn._with_prompt_variant(config, SUPER, _req("v2")) is config
+    assert turn._with_prompt_variant(config, SUPER, _req("v2_apoc")) is config
 
 
 @pytest.mark.parametrize("req", [
@@ -157,21 +160,21 @@ def test_a_missing_or_unknown_name_is_a_no_op(monkeypatch, variants, req):
 
 def test_a_broken_variant_runs_the_defaults_and_says_so_in_the_log(monkeypatch, variants, caplog):
     monkeypatch.setenv(ENV, "1")
-    (variants / "v2" / "stray.md").write_text("x", encoding="utf-8")
+    (variants / "v2_apoc" / "stray.md").write_text("x", encoding="utf-8")
     config = _Config()
 
     with caplog.at_level("ERROR"):
-        out = turn._with_prompt_variant(config, SUPER, _req("v2"))
+        out = turn._with_prompt_variant(config, SUPER, _req("v2_apoc"))
 
     assert out is config
-    assert any("prompt_variant 'v2'" in r.getMessage() and "stray.md" in r.getMessage()
+    assert any("prompt_variant 'v2_apoc'" in r.getMessage() and "stray.md" in r.getMessage()
                for r in caplog.records)
 
 
 def test_the_variant_works_without_a_parser_force(monkeypatch, variants):
     monkeypatch.setenv(ENV, "1")
-    out = turn._eval_config(_Config(), SUPER, _req("v2"))
-    assert out.PROMPT_VARIANT == "v2"
+    out = turn._eval_config(_Config(), SUPER, _req("v2_apoc"))
+    assert out.PROMPT_VARIANT == "v2_apoc"
     assert not hasattr(out, "FORCE_PARSER_MODE")
 
 
@@ -198,7 +201,7 @@ def test_the_real_chat_config_copies_without_touching_the_singleton(monkeypatch,
     monkeypatch.setenv(ENV, "1")
     before = singleton.GRAPH_AGENT_SYSTEM_PROMPT
 
-    out = turn._with_prompt_variant(singleton, SUPER, _req("v2"))
+    out = turn._with_prompt_variant(singleton, SUPER, _req("v2_apoc"))
 
     assert out is not singleton and type(out) is type(singleton)
     assert out.GRAPH_AGENT_SYSTEM_PROMPT == "V2 GRAPH"
@@ -260,10 +263,10 @@ def test_start_task_hands_the_ns_engine_the_variant_copy_unforced(monkeypatch, v
     monkeypatch.setenv(ENV, "1")
     config = _Config()
 
-    seen = _run_start_task(monkeypatch, user=SUPER, req=_req("v2", force_route="ns"), chat_config=config)
+    seen = _run_start_task(monkeypatch, user=SUPER, req=_req("v2_apoc", force_route="ns"), chat_config=config)
 
     assert seen["config"] is not config
-    assert seen["config"].PROMPT_VARIANT == "v2"
+    assert seen["config"].PROMPT_VARIANT == "v2_apoc"
     assert not hasattr(seen["config"], "FORCE_PARSER_MODE")
     assert not hasattr(config, "PROMPT_VARIANT")
 
@@ -271,15 +274,15 @@ def test_start_task_hands_the_ns_engine_the_variant_copy_unforced(monkeypatch, v
 def test_start_task_hands_the_planner_the_variant_copy(monkeypatch, variants):
     """multi_parser_agent.txt is read only on the plan path, so plan mode gets the variant too."""
     monkeypatch.setenv(ENV, "1")
-    req = QueryRequest(query="plan this", mode="plan", prompt_variant="v2")
+    req = QueryRequest(query="plan this", mode="plan", prompt_variant="v2_apoc")
 
     seen = _run_start_task(monkeypatch, user=SUPER, req=req, chat_config=_Config())
 
-    assert seen["config"].PROMPT_VARIANT == "v2"
+    assert seen["config"].PROMPT_VARIANT == "v2_apoc"
 
 
 def test_start_task_hands_a_non_superuser_the_singleton_itself(monkeypatch, variants):
     monkeypatch.setenv(ENV, "1")
     config = _Config()
-    seen = _run_start_task(monkeypatch, user=STAFF, req=_req("v2"), chat_config=config)
+    seen = _run_start_task(monkeypatch, user=STAFF, req=_req("v2_apoc"), chat_config=config)
     assert seen["config"] is config

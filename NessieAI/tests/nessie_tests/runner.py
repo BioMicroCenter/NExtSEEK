@@ -708,7 +708,7 @@ ARM_PRESETS = {
 # The evaluation prompt variants, `chat_nextseek.prompt_variants.VARIANT_NAMES`.
 # Pinned against that file's and the request model's source text by
 # tests/test_prompt_variant_harness.py: the host lane cannot import the engine.
-PROMPT_VARIANTS = ("v2", "v2_apoc", "v3")
+PROMPT_VARIANTS = ("v2_apoc",)
 
 ARMS_FILE = "arms.json"
 PAYLOADS_DIR = "payloads"

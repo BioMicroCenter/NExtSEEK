@@ -1,5 +1,0 @@
-{
-  "description": "v3: v2 plus the fixes from the 2026-09-18 review of the 30 Pilot A v2 turns. Graph agent: 'associated with X' is a text search and a guessed type is not a scope; lineage ends labelled :Sample; no *0 paths; lists and counts through a relationship count samples once; a recipe for questions that mix filters with relationships, with the assay edge in its own EXISTS; two findings on the zero ladder (a named technique, a UID not found); the UID CHECK block. Parser: routing unchanged, the graph-routing examples no longer quote evaluation questions, and the wrapper's output schema carries lab codes.",
-  "inherits": "v2",
-  "project_parser_plan": true
-}

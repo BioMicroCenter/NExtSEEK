@@ -67,14 +67,14 @@ def test_no_variant_by_default(suite, tmp_path):
 
 
 def test_a_variant_reaches_run_suite_without_a_parser_force(suite, tmp_path):
-    _call("--tier", "full", "--force-route", "ns", "--prompt-variant", "v2", "--out", str(tmp_path))
-    assert suite["prompt_variant"] == "v2" and suite["force_parser_mode"] is None
+    _call("--tier", "full", "--force-route", "ns", "--prompt-variant", "v2_apoc", "--out", str(tmp_path))
+    assert suite["prompt_variant"] == "v2_apoc" and suite["force_parser_mode"] is None
 
 
 @pytest.mark.parametrize("extra", [[], ["--force-route", "cc"]])
 def test_a_variant_needs_the_ns_route(extra, suite, tmp_path):
     with pytest.raises(CommandError, match="--prompt-variant needs --force-route ns"):
-        _call("--tier", "full", "--prompt-variant", "v2", *extra, "--out", str(tmp_path))
+        _call("--tier", "full", "--prompt-variant", "v2_apoc", *extra, "--out", str(tmp_path))
     assert suite == {}
 
 
@@ -97,5 +97,5 @@ def test_the_unforced_arm_runs_the_default_prompts(arms, tmp_path):
 
 
 def test_the_forced_arms_take_a_variant(arms, tmp_path):
-    _call(*_arms_args(tmp_path, "--arms", "graph,api", "--prompt-variant", "v2"))
-    assert arms["arms"] == ["graph", "api"] and arms["prompt_variant"] == "v2"
+    _call(*_arms_args(tmp_path, "--arms", "graph,api", "--prompt-variant", "v2_apoc"))
+    assert arms["arms"] == ["graph", "api"] and arms["prompt_variant"] == "v2_apoc"

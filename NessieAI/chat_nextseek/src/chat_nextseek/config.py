@@ -324,6 +324,12 @@ class ChatConfig:
         self.MEMORY_SYSTEM_PROMPT = self._load_prompt("memory_agent.txt")
         self.MEMORY_CODER_SYSTEM_PROMPT = self._load_prompt("memory_coder_agent.txt")
         self.GRAPH_AGENT_SYSTEM_PROMPT = self._load_prompt("graph_agent.txt")
+        # F1: the promoted prompt set is what v2/v3 ran, and both declared
+        # project_parser_plan. The graph agent reads it through
+        # agents/graph.py::_projects_parser_plan, which defaults False when the
+        # attribute is absent -- so the default path has to set it explicitly or
+        # the promoted prompts run without the parser plan they were measured on.
+        self.PROJECT_PARSER_PLAN = True
         self.SYSTEM_AGENT_SYSTEM_PROMPT = self._load_prompt("system_agent.txt")
         self.PLANNER_SYSTEM_PROMPT = self._load_prompt("planner_agent.txt")
         self.MULTI_PARSER_SYSTEM_PROMPT = self._load_composed_parser_prompt("multi_parser_agent.txt")

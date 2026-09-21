@@ -1,9 +1,9 @@
-"""The v3 prompt variant (prompts/variants/v3/): v2 plus the fixes from the review of the 30 unforced Pilot A v2
-turns (2026-09-18).
+"""The shipped default prompt set: the graph agent, its schema header and the parser, as promoted by F1.
 
-v3 inherits v2 and overrides four files. The graph agent prompt and its schema header carry the query-side fixes; the
-parser keeps v2's routing (30 of 30 routed correctly) and changes only examples that quoted evaluation questions, plus
-the wrapper's output schema. Every file is read by path from this checkout.
+These rules were developed and measured as prompt variants v2 and v3, scoring 49 of 52 against the previous
+default's 34 before promotion (.claude/work/2026-09-18-final-graph-testing/FIX-PLAN.md, F1). v2 and v3 are now
+retired as variant names: their content IS the default, so every guard below reads prompts/ by path. Only
+v2_apoc remains a variant, and it adds one appended section to the graph agent and nothing else.
 
 The worked examples were each run read-only against the local 1.2 graph when the prompt was written. One of them is
 here because running it caught a trap: a path and an assay test on the same edge in one MATCH pattern. Cypher never
@@ -26,8 +26,6 @@ from chat_nextseek.agents.graph import catalog_unknown_properties, whole_node_re
 NESSIE = Path(__file__).resolve().parents[2]
 PACKAGE = NESSIE / "chat_nextseek" / "src" / "chat_nextseek"
 PROMPTS = PACKAGE / "prompts"
-V2 = PROMPTS / "variants" / "v2"
-V3 = PROMPTS / "variants" / "v3"
 CORPUS = NESSIE / "tests" / "nessie_tests" / "corpus.json"
 GRAPH_FILES = ("graph_agent.txt", "graph_schema_structure.txt")
 
@@ -36,8 +34,9 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def v3(name: str) -> str:
-    return read(V3 / name)
+def prompt(name: str) -> str:
+    """A file of the shipped default set."""
+    return read(PROMPTS / name)
 
 
 def _fenced(text: str) -> list[str]:
@@ -47,26 +46,9 @@ def _fenced(text: str) -> list[str]:
 # --------------------------------------------------------------------------- the variant and what it overrides
 
 
-def test_variant_json_inherits_v2_and_keeps_the_projection():
-    manifest = json.loads(v3("variant.json"))
-    assert manifest["inherits"] == "v2"
-    assert manifest["project_parser_plan"] is True
-    assert set(manifest) <= {"description", "inherits", "project_parser_plan"}
-
-
-def test_v3_overrides_exactly_the_four_files_and_takes_the_rest_from_v2():
-    overridden = sorted(p.name for p in V3.iterdir() if p.name != "variant.json")
-    assert overridden == ["graph_agent.txt", "graph_schema_structure.txt", "parser_agent.txt",
-                          "parser_core_routing.txt"]
-    variant = pv.load_variant("v3")
-    for name in overridden:
-        assert variant.resolve(name) == V3 / name
-    for name in ("api_agent.txt", "min_graph_schema.json", "min_api_endpoints_enriched.json"):
-        assert variant.resolve(name) == V2 / name
-
-
 def test_the_committed_tree_still_validates():
-    assert "v3" in pv.validate_tree()
+    assert sorted(pv.validate_tree()) == ["v2_apoc"], "v2 and v3 are promoted, not variants"
+    assert pv.VARIANT_NAMES == ("v2_apoc",)
 
 
 # --------------------------------------------------------------------------- the worked examples
@@ -89,11 +71,11 @@ SNAPSHOT = gcat.CatalogSnapshot(
         "T_D_SEQ": frozenset({"Scientist"}),
     }),
 )
-EXAMPLES = [c for name in GRAPH_FILES for c in _fenced(v3(name))]
+EXAMPLES = [c for name in GRAPH_FILES for c in _fenced(prompt(name))]
 
 
 def test_the_graph_prompt_has_the_mixed_recipe_and_its_examples():
-    agent = v3("graph_agent.txt")
+    agent = prompt("graph_agent.txt")
     assert "### Filters and relationships together" in agent
     assert len(_fenced(agent)) >= 6
 
@@ -107,7 +89,7 @@ def test_every_worked_example_passes_the_write_check_and_both_guards(cypher):
 
 @pytest.mark.parametrize("name", GRAPH_FILES)
 def test_every_variable_length_path_is_bounded_and_none_starts_at_zero(name):
-    hops = re.findall(r"DERIVED_FROM\s*\*[^\]\s]*", v3(name))
+    hops = re.findall(r"DERIVED_FROM\s*\*[^\]\s]*", prompt(name))
     assert hops
     for hop in hops:
         assert re.fullmatch(r"DERIVED_FROM\s*\*[1-9]\d*\.\.\d+", hop), hop
@@ -126,34 +108,34 @@ def test_no_worked_example_tests_an_assay_on_an_edge_its_own_path_may_use(cypher
 
 
 def test_the_lineage_direction_is_written_with_both_ends_labelled():
-    assert "`(child:Sample)-[:DERIVED_FROM]->(parent:Sample)`" in v3("graph_agent.txt")
-    assert "(child:Sample)-[:DERIVED_FROM]->(parent:Sample), both ends labelled" in v3("graph_schema_structure.txt")
-    assert "so no sample query sees it" not in v3("graph_schema_structure.txt")
+    assert "`(child:Sample)-[:DERIVED_FROM]->(parent:Sample)`" in prompt("graph_agent.txt")
+    assert "(child:Sample)-[:DERIVED_FROM]->(parent:Sample), both ends labelled" in prompt("graph_schema_structure.txt")
+    assert "so no sample query sees it" not in prompt("graph_schema_structure.txt")
 
 
 # --------------------------------------------------------------------------- the operator's rulings on the 30
 
 
 def test_associated_with_is_a_text_search_and_a_guessed_type_is_not_a_scope():
-    agent = v3("graph_agent.txt")
+    agent = prompt("graph_agent.txt")
     assert "not the antibody type the entity step inferred" in agent
     assert "Follow DERIVED_FROM only when the question states the relationship" in agent
     assert '"associated with" alone is a text search' in agent
 
 
 def test_the_zero_ladder_keeps_a_named_technique_s_zero_and_reads_the_uid_check():
-    agent = v3("graph_agent.txt")
+    agent = prompt("graph_agent.txt")
     ladder = agent[agent.index("## When a query matched nothing"):agent.index("## Rules for every query")]
     assert "Never replace it with a related technique" in ladder
     assert "UID CHECK" in ladder
 
 
 def test_the_tool_total_is_named_as_a_row_count():
-    assert "The tool's total counts rows, not samples." in v3("graph_agent.txt")
+    assert "The tool's total counts rows, not samples." in prompt("graph_agent.txt")
 
 
 def test_the_prompt_ends_open_so_a_variant_can_append_a_section():
-    assert "unless a section below adds another" in v3("graph_agent.txt")
+    assert "unless a section below adds another" in prompt("graph_agent.txt")
 
 
 # --------------------------------------------------------------------------- the parser: routing unchanged
@@ -186,26 +168,18 @@ def _graph_path(text: str) -> str:
     return text[text.index("PATH: graph_query"):text.index("PATH: new_search")]
 
 
-def test_the_routing_core_differs_from_v2_only_in_ten_example_lines():
-    old, new = v3("parser_core_routing.txt").splitlines(), read(V2 / "parser_core_routing.txt").splitlines()
-    assert len(old) == len(new)
-    changed = [i for i, (a, b) in enumerate(zip(old, new), 1) if a != b]
-    assert len(changed) == 10, changed
-
-
 def test_no_graph_routing_example_quotes_a_corpus_question():
     corpus = set().union(*(_grams(q) for q in _corpus_queries()))
     assert corpus, "the corpus has questions"
-    examples = re.findall(r'"([^"]{12,})"', _graph_path(v3("parser_core_routing.txt")))
+    examples = re.findall(r'"([^"]{12,})"', _graph_path(prompt("parser_core_routing.txt")))
     assert examples
     for example in examples:
         assert not (_grams(example) & corpus), example
 
 
-def test_the_wrapper_differs_from_the_default_only_by_the_lab_fields():
-    default = read(PROMPTS / "parser_agent.txt")
-    wrapper = v3("parser_agent.txt")
-    added = [line.strip() for line in wrapper.splitlines() if line not in default.splitlines()]
-    assert sorted(added) == sorted(['"projects": ["string"],', '"labs": ["string"],', '"lab_codes": ["string"]',
-                                    '"uids": [string],', '"lab_codes": [string]'])
+def test_the_parser_wrapper_carries_the_lab_fields_and_the_core_placeholder():
+    """F1 promoted v3's wrapper, whose output schema added the lab fields the graph agent needs."""
+    wrapper = prompt("parser_agent.txt")
+    for field in ('"labs": ["string"]', '"lab_codes": ["string"]', '"uids": [string]', '"lab_codes": [string]'):
+        assert field in wrapper, field
     assert pv.PARSER_CORE_PLACEHOLDER in wrapper

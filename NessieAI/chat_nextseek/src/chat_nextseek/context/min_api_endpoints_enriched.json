@@ -18,7 +18,7 @@
     ],
     "llm_hint": "Use when the user provides explicit UIDs and wants full sample metadata including all related parent/child samples. This is the correct endpoint for 'retrieve all samples associated with UID X' \u2014 not samples/{uid}/ GET. POST body must use field name \"identifiers\" (list of UID strings).",
     "example_intents": [
-      "Retrieve all metadata for NHP-220630FLY-1-PUB and its derived samples",
+      "Retrieve all metadata for SLD-230105ABC-12-PUB and its derived samples",
       "Download an Excel spreadsheet with data for samples 12345 and 67890"
     ],
     "request_body": {
@@ -46,7 +46,7 @@
     "llm_hint": "Use for questions listing available assays or experimental procedures.",
     "example_intents": [
       "Show me all available assays",
-      "What experimental procedures have been run on the primate samples?"
+      "List every assay record in the catalog"
     ]
   },
   {
@@ -68,10 +68,10 @@
       "descendants",
       "ancestors"
     ],
-    "llm_hint": "Use when the user wants to see the full sample lineage or derivation tree from a specific known UID. Requires a UID. For full metadata export of associated samples, use admin/samples/retrieve/ instead.",
+    "llm_hint": "Use when the user explicitly asks to see or visualise the lineage TREE around one known UID. Requires a UID. A question about that lineage (what a sample was derived from, what came from it, how many of a type descend from it) is graph_query. For full metadata export of associated samples, use admin/samples/retrieve/ instead.",
     "example_intents": [
-      "Show me all samples derived from NHP-220630FLY-2-PUB",
-      "What tissue and cell samples came from PAT-241113DFC-3?"
+      "Show me the lineage tree around SLD-230105ABC-12-PUB",
+      "Visualise the derivation tree of SLD-230105ABC-12-PUB"
     ]
   },
   {
@@ -115,10 +115,9 @@
       "all",
       "parents"
     ],
-    "llm_hint": "Use when the user wants parent samples that have descendants of multiple specified types (AND logic across child types). E.g., 'monkeys that have both flow and sequencing data', 'animals with tissue AND cell line derivatives'.",
+    "llm_hint": "REST-path lookup of parent samples that have descendants of ALL the given child types (AND logic). A new lineage question is routed to graph_query, which checks each descendant type directly; use this endpoint for a refinement of a result that came from it.",
     "example_intents": [
-      "Which monkeys have both imaging data and sequencing results?",
-      "Find all animals that have tissue samples and cell line derivatives"
+      "Same parent lookup as before, but add the imaging data type"
     ]
   },
   {
@@ -140,11 +139,10 @@
       "count",
       "filter"
     ],
-    "llm_hint": "Use for attribute or keyword-based sample searches when the user wants to find, list, or filter samples by properties like type, treatment, keyword, or assay \u2014 and no more specific endpoint fits. Do NOT use this as a default for every query.",
+    "llm_hint": "REST-path keyword search over sample records: each term is a case-insensitive substring of any value, anywhere in the record. It cannot restrict a term to one attribute, AND two terms, compare numbers or aggregate. A new question about sample metadata is routed to graph_query; use this endpoint for a refinement of a result that came from REST, or when the turn must stay on REST.",
     "example_intents": [
-      "Find all mice treated with NDMA",
-      "Show me all samples associated with T cell depletion",
-      "What CD8 antibodies are in the database?"
+      "Same search as before, but only the slide samples",
+      "Run that keyword search again without the sample type"
     ]
   },
   {
@@ -168,10 +166,10 @@
       "not containing",
       "either direction"
     ],
-    "llm_hint": "Use for a sample search that needs what advanced_search cannot express: a numeric or date comparison on a named attribute, a whole-value match on a named attribute, NOT CONTAINS or a true/false attribute, or a lineage condition by sample type. A graph question refused for its project scope falls back to this endpoint.",
+    "llm_hint": "REST-path sample search for what advanced_search cannot express: a numeric or date comparison on a named attribute, a whole-value match on a named attribute, or a lineage condition by sample type. A new question about sample metadata is routed to graph_query; use this endpoint when the turn must stay on REST, for example a refinement of a REST result that adds such a condition.",
     "example_intents": [
-      "Find slides whose PercentNecrosis is at least 40",
-      "Find chemical samples that have an NMR data sample derived from them"
+      "Same slides as before, but only those with PercentNecrosis of at least 40",
+      "Keep only the chemical samples from that search that have an NMR data sample derived from them"
     ],
     "request_body": {
       "sampletype": "<sample type code, or a list of codes>",
@@ -249,9 +247,8 @@
       "people",
       "user accounts"
     ],
-    "llm_hint": "Use only when the user wants the list of registered SEEK user accounts themselves. A person named in a sample question (a lab or PI, or the Scientist who made or handled samples) is a sample search, never this endpoint.",
+    "llm_hint": "Use only when the user wants the list of registered SEEK user accounts themselves. A person named in a sample question (a lab or PI, or the Scientist who made or handled samples) is sample metadata and is routed to graph_query, never to this endpoint.",
     "example_intents": [
-      "Show me all researchers in the system",
       "List the registered user accounts in the system"
     ]
   },

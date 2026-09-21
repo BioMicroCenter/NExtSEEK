@@ -136,12 +136,12 @@ def test_without_a_plan_the_entities_path_is_unchanged(monkeypatch, project):
 
 def test_a_variant_with_project_parser_plan_projects_end_to_end(monkeypatch, tmp_path):
     root = tmp_path / "variants"
-    (root / "v2").mkdir(parents=True)
-    (root / "v2" / "variant.json").write_text(json.dumps({"project_parser_plan": True}), encoding="utf-8")
+    (root / "v2_apoc").mkdir(parents=True)
+    (root / "v2_apoc" / "variant.json").write_text(json.dumps({"project_parser_plan": True}), encoding="utf-8")
     base = _config(project=False)
     base.PROMPTS_DIR = str(tmp_path)
 
-    variant_config = pv.apply_variant(base, "v2", variants_dir=root)
+    variant_config = pv.apply_variant(base, "v2_apoc", variants_dir=root)
 
     assert _upstream(monkeypatch, variant_config).startswith(graph_mod.PROJECTED_PLAN_HEADING)
     assert _upstream(monkeypatch, base).startswith("PARSER PLAN (from Parser Agent")

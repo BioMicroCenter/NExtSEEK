@@ -17,7 +17,7 @@ Forced runs (the graph_search Nessie POC, all PAID at ``--tier full``):
     manage.py nessie --tier full --cases C --force-route ns --force-parser-mode graph
     manage.py nessie --tier full --cases C --force-route ns --arms graph,api
     manage.py nessie --tier full --cases C --force-route ns --arms graph,api --resume --max-turns 60
-    manage.py nessie --tier full --cases C --force-route ns --arms auto --prompt-variant v2
+    manage.py nessie --tier full --cases C --force-route ns --arms auto --prompt-variant v2_apoc
 
 ``--arms auto`` forces the NS route and NOT the parser, so the parser routes each question
 itself; its payloads land under ``<out>/auto/payloads/`` like any arm's. ``--prompt-variant``
@@ -85,7 +85,7 @@ class Command(BaseCommand):
                                  "the graph or the API path. Honoured only for a superuser on a "
                                  "server that sets NEXTSEEK_EVAL_PARSER_FORCE=1, and ignored "
                                  "without a word otherwise.")
-        parser.add_argument("--prompt-variant", choices=["v2", "v2_apoc", "v3"], default=None,
+        parser.add_argument("--prompt-variant", choices=["v2_apoc"], default=None,
                             help="With --force-route ns. Evaluation only: run every turn on that "
                                  "alternative prompt set (chat_nextseek/prompts/variants/<name>/), "
                                  "with or without a parser force. Honoured only for a superuser "
