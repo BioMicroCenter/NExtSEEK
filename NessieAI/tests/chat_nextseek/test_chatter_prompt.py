@@ -433,3 +433,54 @@ def test_an_assay_the_question_never_named_raises_no_not_applied_line(captured):
     )
 
     assert "NOT APPLIED" not in text
+
+
+# --------------------------------------------------------------------------
+# T17 / B8: describe the result by its distribution, not by its first rows.
+# --------------------------------------------------------------------------
+
+_hist = chatter_mod._type_histogram_block
+
+
+def _rows(**counts):
+    out = []
+    for code, n in counts.items():
+        out.extend({"uuid": f"{code}-{i}", "type": code} for i in range(n))
+    return out
+
+
+def test_the_histogram_covers_the_whole_result_not_the_preview():
+    """wesselr 437: a heterogeneous result was named after the one type that led the
+    preview. The writer saw twenty rows of it and called the whole thing that type."""
+    rows = _rows(D_FCS=20) + _rows(TIS=173, MUS=114)
+    block = _hist(rows, shown=20)
+
+    assert "across ALL 307 rows" in block
+    for code in ("TIS 173", "MUS 114", "D_FCS 20"):
+        assert code in block, code
+    assert "never name it after the type that happens to appear first" in block
+
+
+def test_no_histogram_when_the_writer_already_sees_every_row():
+    rows = _rows(TIS=3, MUS=2)
+    assert _hist(rows, shown=len(rows)) == ""
+
+
+def test_no_histogram_when_the_result_is_all_one_type():
+    """Nothing to correct: the preview is representative."""
+    assert _hist(_rows(TIS=500), shown=20) == ""
+
+
+def test_the_histogram_ranks_by_count_and_caps_the_list():
+    rows = []
+    for i in range(15):
+        rows.extend(_rows(**{f"T{i:02d}": i + 1}))
+    block = _hist(rows, shown=20)
+
+    assert block.index("T14 15") < block.index("T13 14"), "ranked by count, descending"
+    assert "and 3 more" in block
+
+
+def test_rows_without_a_type_are_ignored_rather_than_counted():
+    rows = [{"uuid": "x", "n": 5}, {"uuid": "y", "n": 6}]
+    assert _hist(rows, shown=1) == ""

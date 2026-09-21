@@ -92,6 +92,39 @@ def _breakdown_sum(rows: list) -> tuple[str, int | float] | None:
     return col, sum(r[col] for r in rows)
 
 
+def _type_histogram_block(all_rows: list, shown: int) -> str:
+    """How the sample types are distributed across the WHOLE result, not the preview.
+
+    B8 (wesselr 437): a query returned a heterogeneous result and the writer was shown its
+    first twenty rows, which happened to be one type. It named the whole result after that
+    type. The rows are all in memory, so the distribution costs a pass over a list.
+
+    Only emitted when it adds something the preview cannot show: the preview is short of
+    the full set, and the full set holds more than one type.
+    """
+    if shown >= len(all_rows):
+        return ""
+    counts: dict[str, int] = {}
+    for row in all_rows:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            k = str(key).lower()
+            if (k == "type" or k.endswith("_type")) and isinstance(value, str) and value:
+                counts[value] = counts.get(value, 0) + 1
+                break
+    if len(counts) < 2:
+        return ""
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    listed = ", ".join(f"{code} {n:,}" for code, n in ranked[:12])
+    more = f", and {len(ranked) - 12} more" if len(ranked) > 12 else ""
+    return (
+        f"Sample types across ALL {len(all_rows):,} rows, not just the preview: {listed}{more}. "
+        "The preview is the head of the result and is not representative: describe the result "
+        "by this distribution, and never name it after the type that happens to appear first.\n"
+    )
+
+
 def _type_names_block(config: Any, rows: list) -> str:
     """Catalog names for the sample type codes in the rows, so the writer does not invent them
     (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
@@ -341,7 +374,8 @@ def chatter_agent_answer(
             f"{heading}\n{preview_json}\n"
             + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. When the question "
                "asks how many, give this total first, then the breakdown.\n" if breakdown else "")
-            + _type_names_block(config, records)
+            + _type_histogram_block(all_rows, len(records))
+            + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
             + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")
         )
