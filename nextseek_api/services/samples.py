@@ -12,6 +12,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from pydantic import ValidationError
 from django.conf import settings
 
+from nextseek_api.services.uid_suffix import resolve_uid_with_suffix
 from seek.seekdb import SeekDB
 from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id, resolve_seek_auth
 from nextseek_api.helpers import paginate_rows_in_envelope
@@ -59,23 +60,29 @@ def _nest_boolean_search_terms(terms: list[str], op: str) -> str:
     return f"({terms[0]}){op}(" + _nest_boolean_search_terms(terms[1:], op) + ")"
 
 
-def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
-    """Resolve a path segment to a SEEK sample id.
-    - If numeric, use as-is.
-    - Else: attempt to resolve via DBtable_sample().getSampleID(uid) when available.
-    """
-    s = str(uid_or_id)
-    if s.isdigit():
-        return s
+def _lookup_sample_id(uid: str) -> Optional[str]:
+    """One spelling, through SEEK's own resolver. Returns None rather than raising."""
     try:
         if DBtable_sample is None:
             return None
-        dbs = DBtable_sample()
-        sid = dbs.getSampleID(s)
+        sid = DBtable_sample().getSampleID(uid)
         sid = int(sid) if sid is not None else 0
         return str(sid) if sid > 0 else None
     except Exception:
         return None
+
+
+def resolve_sample_uid(uid_or_id: str) -> tuple[Optional[str], Optional[str]]:
+    """``(seek_id, the spelling that resolved)``. F14/D2: a UID resolves with or without -PUB."""
+    text = str(uid_or_id)
+    if text.isdigit():
+        return text, text
+    return resolve_uid_with_suffix(text, _lookup_sample_id)
+
+
+def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
+    """Resolve a path segment to a SEEK sample id, trying each spelling of the UID."""
+    return resolve_sample_uid(uid_or_id)[0]
 
 
 def _graph_sync_sample_id(data, fallback: Optional[str] = None) -> Optional[str]:
