@@ -871,6 +871,36 @@ def _execute_graph_turn(
     )
     if entry:
         result_files.append(entry)
+
+    # F7: the rows themselves, as a file the user can have. The debug JSON above holds a
+    # 20-row slice and is kind="graph", which the export layer treats as internal, so a
+    # graph turn's payload carried no artifacts at all: a query returned hundreds of rows
+    # across six columns and the researcher got none of them, reachable only by accident
+    # through the debug panel's JSON button on the newest turn. The REST path has written
+    # its rows whole since it was built; this is the graph counterpart, with a kind the
+    # export layer does not exclude.
+    graph_rows = (graph_result or {}).get("data") or []
+    if graph_rows:
+        try:
+            rows_entry = artifact_store.write_json(
+                key="graph_result",
+                label="Graph query result rows",
+                filename=f"graph_result_bundle_{bundle_id}.json",
+                payload={
+                    "cypher": graph_plan.cypher,
+                    "parameters": graph_plan.parameters,
+                    "count": graph_result.get("count"),
+                    "total": graph_result.get("total"),
+                    "truncated": bool(graph_result.get("truncated")),
+                    "rows": graph_rows,
+                },
+                kind="graph_result",
+                bundle_id=bundle_id,
+            )
+            if rows_entry:
+                result_files.append(rows_entry)
+        except Exception as e:  # never lose a finished answer to the file that describes it
+            print("[DEBUG][GRAPH] Failed to write the graph result rows file:", repr(e))
     bundle = build_metadata_bundle(
         bundle_id=bundle_id, mode="graph_query", user_query=user_text,
         parser_plan=plan.model_dump(), graph_plan=graph_plan.model_dump(),

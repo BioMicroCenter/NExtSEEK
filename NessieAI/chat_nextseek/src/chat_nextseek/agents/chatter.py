@@ -374,6 +374,9 @@ def chatter_agent_answer(
             f"{heading}\n{preview_json}\n"
             + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. When the question "
                "asks how many, give this total first, then the breakdown.\n" if breakdown else "")
+            + ("Every row of this result is attached to the turn as a table and a downloadable "
+               "file, so say the full list is available rather than offering to re-run the "
+               "query or telling the user to narrow it.\n" if len(records) < len(all_rows) else "")
             + _type_histogram_block(all_rows, len(records))
             + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
             + f"Query status: {'success' if ok else 'failed'}"
