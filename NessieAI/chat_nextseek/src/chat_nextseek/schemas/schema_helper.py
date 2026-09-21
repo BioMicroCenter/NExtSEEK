@@ -22,6 +22,30 @@ from ..llm_clients import (
 # Default timeout for LLM calls (5 minutes)
 LLM_CALL_TIMEOUT_SECONDS = 300
 
+# Default ceiling for the timeout RETRY, i.e. the attempt that follows
+# `_recycle_client_connections`. A first attempt may legitimately be slow; a retry on a
+# freshly dialled socket should not be, and until now it simply inherited the 300 s above,
+# so one dead pooled socket could cost ten minutes before the call gave up.
+#
+# Measured on 2026-09-21 over the 2,638 successful calls in llm_calls.jsonl: p95 is at or
+# under 17 s for every agent, and the two extreme successes in the whole ledger are entity
+# at 167.3 s and graph_agent at 131.7 s. 180 s sits above both, so no call that has ever
+# succeeded would be cut short, while the worst case for a stalled socket drops from
+# 300 + 300 to 300 + 180.
+#
+# The same night gave the signature this exists for: memory_coder waited the full 300 s
+# without the request ever being acknowledged, then the retry answered in 9.2 s on a new
+# connection. The model was never slow; only the detection was.
+#
+# A caller that passes `timeout_retry_seconds` explicitly is untouched. `agents/parser.py`
+# does, with 60 s against a deliberately short 35 s first attempt -- the opposite shape (a
+# fast probe, then a patient retry), which is right for an agent whose p50 is 4.8 s.
+#
+# The one trap: this default is sized against the 300 s `timeout_seconds` above, so a caller
+# that shortens `timeout_seconds` and leaves this alone gets a retry LONGER than its first
+# attempt. Set both, as parser.py does. No caller in the tree does otherwise today.
+TIMEOUT_RETRY_SECONDS = 180
+
 # The raw response of every labelled call, one JSON line each, beside the ledger
 # (llm_calls.jsonl) in LOG_DIR. The ledger says a call happened and how it ended; this
 # file says what the model returned, which is the only evidence left when an output
@@ -631,7 +655,7 @@ def call_llm_structured(
     usage_label: str | None = None,
     rate_limit_sleep: float = 1.0,
     timeout_seconds: float = LLM_CALL_TIMEOUT_SECONDS,
-    timeout_retry_seconds: float | None = None,
+    timeout_retry_seconds: float | None = TIMEOUT_RETRY_SECONDS,
     timeout_retries: int = 1,
     thinking_budget: int | None = None,
     client=None,
@@ -755,7 +779,7 @@ def call_llm_text(
     thinking_budget: int | None = None,
     retries: int = 2,
     timeout_seconds: float = LLM_CALL_TIMEOUT_SECONDS,
-    timeout_retry_seconds: float | None = None,
+    timeout_retry_seconds: float | None = TIMEOUT_RETRY_SECONDS,
     timeout_retries: int = 1,
     rate_limit_sleep: float = 1.0,
     usage_label: str | None = None,
