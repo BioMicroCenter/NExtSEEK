@@ -25,6 +25,8 @@ never sees endpoint names, Cypher, requestBody or filter operators. That still h
 """
 from __future__ import annotations
 
+import pytest
+
 from chat_nextseek.helpers.query_scope import describe_query_scope, render_query_scope
 from chat_nextseek.schemas.entity import EntityAgentOutput, EntityItem, LabMatch
 from chat_nextseek.schemas.router import ParserPlan
@@ -505,6 +507,25 @@ def test_an_assay_reached_through_its_data_type_label_counts_as_applied():
     )
 
     assert not scope.not_applied, scope.not_applied
+
+
+@pytest.mark.parametrize("assay_code,assay_name,cypher", [
+    # Found by adversarial review: collapsing a label and asking "is the word inside it"
+    # reported three assays as applied against a query that only constrained a sample type.
+    ("A.TIS", "Tissue Collection", "MATCH (s:T_TIS) WHERE toLower(trim(toString(s.Organ))) = $o RETURN count(*) AS n"),
+    ("A.RNASEQ", "RNA Sequencing", "MATCH (s:T_RNA) WHERE toLower(s.search_text) CONTAINS $t RETURN count(*) AS n"),
+    ("A.DNAX", "DNA Extraction", "MATCH (s:T_DNA) RETURN count(*) AS n"),
+])
+def test_a_biological_type_label_is_not_evidence_the_assay_ran(assay_code, assay_name, cypher):
+    """T_TIS constrains the sample type to tissue. It says nothing about a collection assay."""
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code=assay_code, name=assay_name)]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": cypher},
+        user_query=f"How many samples went through {assay_name}?",
+    )
+
+    assert any(assay_code in item or assay_name in item for item in scope.not_applied), scope.applied
 
 
 def test_an_assay_word_does_not_count_against_an_unrelated_property():

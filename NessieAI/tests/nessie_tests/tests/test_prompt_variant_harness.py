@@ -1,6 +1,6 @@
 """The harness side of the prompt-variant switch, and the unforced POC arm.
 
-`prompt_variant` ("v2" or "v2_apoc") rides on every turn beside `force_route`, like `force_parser_mode`, and is
+`prompt_variant` ("v2_apoc") rides on every turn beside `force_route`, like `force_parser_mode`, and is
 dropped by the server without a word for anyone but a superuser on a process with NEXTSEEK_EVAL_PARSER_FORCE=1.
 The arm `auto` forces the NS route and NOT the parser, so the parser picks graph or API itself, while
 `run_arms` still writes every question's payload for the scorer. The preflight proves the variant landed by
@@ -104,8 +104,10 @@ def _run_arms(tmp_path, ep, **kw):
 def test_the_harness_variant_names_are_the_engines():
     src = ENGINE_SRC.read_text(encoding="utf-8")
     names = ", ".join(f'"{n}"' for n in runner.PROMPT_VARIANTS)
+    if len(runner.PROMPT_VARIANTS) == 1:
+        names += ","  # a one-element tuple literal carries a trailing comma
     assert f"VARIANT_NAMES: tuple[str, ...] = ({names})" in src
-    assert runner.PROMPT_VARIANTS == ("v2", "v2_apoc", "v3")
+    assert runner.PROMPT_VARIANTS == ("v2_apoc",), "F1 promoted v2 and v3 to the defaults"
 
 
 def test_the_harness_variant_names_are_the_request_models():
@@ -135,8 +137,8 @@ def test_prompt_variant_is_not_sent_unless_set():
 def test_prompt_variant_is_sent_without_a_parser_force():
     ep = Endpoint()
     http_driver.drive("q", tier="full", post_query=ep.post_query, get_progress=ep.get_progress,
-                      force_route="ns", prompt_variant="v2", sleep=lambda s: None, clock=lambda: 0.0)
-    assert ep.bodies[0]["prompt_variant"] == "v2"
+                      force_route="ns", prompt_variant="v2_apoc", sleep=lambda s: None, clock=lambda: 0.0)
+    assert ep.bodies[0]["prompt_variant"] == "v2_apoc"
     assert "force_parser_mode" not in ep.bodies[0]
 
 
@@ -159,7 +161,7 @@ def test_a_variant_needs_the_ns_route(route, tmp_path):
     with pytest.raises(ValueError, match="force_route='ns'"):
         runner.run_suite(base_url="http://x", auth_header="Basic x", tier="full", corpus_path=CORPUS,
                          out_dir=tmp_path / "out", post_query=ep.post_query, get_progress=ep.get_progress,
-                         cases_path=_cases(tmp_path), force_route=route, prompt_variant="v2")
+                         cases_path=_cases(tmp_path), force_route=route, prompt_variant="v2_apoc")
     assert ep.bodies == []
 
 
@@ -178,23 +180,23 @@ def test_an_unknown_variant_is_refused_before_any_turn(tmp_path):
 def test_the_auto_arm_runs_unforced_and_writes_every_payload(tmp_path):
     ep = Endpoint(parser_mode="new_search")
     out = tmp_path / "run"
-    result = _run_arms(tmp_path, ep, arms=["auto"], prompt_variant="v2", out=out)
+    result = _run_arms(tmp_path, ep, arms=["auto"], prompt_variant="v2_apoc", out=out)
 
     questions = ep.question_bodies()
     assert [_qid(b) for b in questions] == ["q.one", "q.two"]
     assert all(b["force_route"] == "ns" and "force_parser_mode" not in b for b in questions)
-    assert all(b["prompt_variant"] == "v2" for b in ep.bodies if b["query"] != preflight.PROBE_QUERY), \
+    assert all(b["prompt_variant"] == "v2_apoc" for b in ep.bodies if b["query"] != preflight.PROBE_QUERY), \
         "the parser probe carries it too"
     assert "prompt_variant" not in next(b for b in ep.bodies if b["query"] == preflight.PROBE_QUERY), \
         "the route probe is an out-of-scope question: no variant"
     for vid in ("q.one", "q.two"):
         doc = json.loads((out / "auto" / "payloads" / vid / "t0.json").read_text(encoding="utf-8"))
-        assert doc["prompt_variant"] == "v2" and doc["force_parser_mode"] is None
+        assert doc["prompt_variant"] == "v2_apoc" and doc["force_parser_mode"] is None
         debug = doc["query_complete"]["debug"]
-        assert debug["prompt_variant"] == "v2"                  # what the server ran
+        assert debug["prompt_variant"] == "v2_apoc"                  # what the server ran
         assert debug["parser_plan"]["mode"] == "new_search"     # the route the parser chose
-    assert result["run_meta"]["prompt_variant"] == "v2"
-    assert json.loads((out / runner.ARMS_FILE).read_text())["run_meta"]["prompt_variant"] == "v2"
+    assert result["run_meta"]["prompt_variant"] == "v2_apoc"
+    assert json.loads((out / runner.ARMS_FILE).read_text())["run_meta"]["prompt_variant"] == "v2_apoc"
     assert [e.id for e in load_manifest(out / "auto" / "manifest.json").entries] == ["q.one", "q.two"]
 
 
@@ -207,18 +209,20 @@ def test_the_default_prompts_run_records_no_variant(tmp_path):
 
 def test_the_forced_arms_carry_the_variant_as_well(tmp_path):
     ep = Endpoint()
-    _run_arms(tmp_path, ep, arms=["graph", "api"], prompt_variant="v2")
+    _run_arms(tmp_path, ep, arms=["graph", "api"], prompt_variant="v2_apoc")
     assert {b.get("force_parser_mode") for b in ep.question_bodies()} == {"graph", "api"}
-    assert all(b["prompt_variant"] == "v2" for b in ep.bodies if b["query"] != preflight.PROBE_QUERY)
+    assert all(b["prompt_variant"] == "v2_apoc" for b in ep.bodies if b["query"] != preflight.PROBE_QUERY)
 
 
 def test_a_resume_refuses_a_changed_variant_and_sends_nothing(tmp_path):
+    """Since F1 there is one legal variant, so the change under test is on/off rather than
+    between two names. The refusal is the same: a resume may not switch prompt sets."""
     out = tmp_path / "run"
     cases = _cases(tmp_path)
-    _run_arms(tmp_path, Endpoint(), prompt_variant="v2", out=out, cases=cases, max_turns=0)
+    _run_arms(tmp_path, Endpoint(), prompt_variant="v2_apoc", out=out, cases=cases, max_turns=0)
     ep = Endpoint()
     with pytest.raises(runner.ArmsRunRefused, match="prompt variant"):
-        _run_arms(tmp_path, ep, prompt_variant="v2_apoc", out=out, cases=cases, resume=True)
+        _run_arms(tmp_path, ep, out=out, cases=cases, resume=True)
     assert ep.bodies == []
 
 
@@ -232,7 +236,7 @@ def test_a_resume_of_a_run_that_predates_the_field_is_the_default_prompts(tmp_pa
 
     _run_arms(tmp_path, Endpoint(), out=out, cases=cases, resume=True)  # accepted
     with pytest.raises(runner.ArmsRunRefused, match="prompt variant"):
-        _run_arms(tmp_path, Endpoint(), prompt_variant="v2", out=out, cases=cases, resume=True)
+        _run_arms(tmp_path, Endpoint(), prompt_variant="v2_apoc", out=out, cases=cases, resume=True)
 
 
 def test_run_arms_refuses_an_unknown_variant_before_any_turn(tmp_path):
@@ -283,7 +287,7 @@ def test_a_landed_variant_passes(arms):
 @pytest.mark.parametrize("arms", [("auto",), ("graph", "api")])
 def test_a_dropped_variant_refuses_and_names_every_cause(arms):
     with pytest.raises(preflight.PromptVariantRejected) as e:
-        _preflight(Endpoint(drop_variant=True), arms=arms, prompt_variant="v2")
+        _preflight(Endpoint(drop_variant=True), arms=arms, prompt_variant="v2_apoc")
     msg = str(e.value)
     assert "NEXTSEEK_EVAL_PARSER_FORCE=1" in msg and "superuser" in msg
     assert "prompts/variants/v2" in msg, "a variant that failed to load is logged by the server"
@@ -292,7 +296,7 @@ def test_a_dropped_variant_refuses_and_names_every_cause(arms):
 
 def test_an_image_that_predates_the_field_refuses_naming_the_rebuild():
     with pytest.raises(preflight.PromptVariantRejected, match="rebuild"):
-        _preflight(Endpoint(record_field=False), prompt_variant="v2")
+        _preflight(Endpoint(record_field=False), prompt_variant="v2_apoc")
 
 
 def test_the_variant_rejection_is_a_preflight_refusal():
@@ -321,16 +325,16 @@ def test_the_cli_sends_no_variant_by_default(monkeypatch, tmp_path):
 
 def test_the_cli_variant_reaches_run_suite_unforced(monkeypatch, tmp_path):
     captured = _capture(monkeypatch)
-    assert cli.main(["--base-url", "http://x", "--force-route", "ns", "--prompt-variant", "v2",
+    assert cli.main(["--base-url", "http://x", "--force-route", "ns", "--prompt-variant", "v2_apoc",
                      "--out", str(tmp_path)]) == 0
-    assert captured["prompt_variant"] == "v2" and captured["force_parser_mode"] is None
+    assert captured["prompt_variant"] == "v2_apoc" and captured["force_parser_mode"] is None
 
 
 @pytest.mark.parametrize("extra", [[], ["--force-route", "cc"]])
 def test_the_cli_variant_needs_the_ns_route(extra, monkeypatch, capsys):
     monkeypatch.setattr(cli.runner, "run_suite", lambda **kw: pytest.fail("reached a spending path"))
     with pytest.raises(SystemExit) as e:
-        cli.main(["--base-url", "http://x", "--prompt-variant", "v2", *extra])
+        cli.main(["--base-url", "http://x", "--prompt-variant", "v2_apoc", *extra])
     assert e.value.code == 2
     assert "--prompt-variant" in capsys.readouterr().err
 
@@ -338,7 +342,7 @@ def test_the_cli_variant_needs_the_ns_route(extra, monkeypatch, capsys):
 def test_the_cli_refuses_the_variant_with_bayesian(monkeypatch, capsys):
     monkeypatch.setattr(cli.runner, "run_suite", lambda **kw: pytest.fail("reached a spending path"))
     with pytest.raises(SystemExit) as e:
-        cli.main(["--base-url", "http://x", "--bayesian", "--prompt-variant", "v2"])
+        cli.main(["--base-url", "http://x", "--bayesian", "--prompt-variant", "v2_apoc"])
     assert e.value.code == 2
     assert "--prompt-variant" in capsys.readouterr().err
 

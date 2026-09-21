@@ -279,41 +279,60 @@ def _fragment_is_applied(value: str, haystack: str) -> bool:
     return len(words) > 1 and any(_is_applied(w, haystack) for w in words)
 
 
-def _in_a_type_token(word: str, haystack: str) -> bool:
-    """Whether ``word`` appears inside a sample-type label or code in the query.
+#: A bare assay/type code such as ``A.TIS``: too short to carry meaning as a word.
+_BARE_ASSAY_CODE = re.compile(r"^[A-Za-z]\.[A-Za-z0-9]+$")
 
-    Flow Cytometry's data lands on D.FLOW samples, which the graph agent writes as the
-    label ``T_D_FLOW``. The word is not a free match: it has to sit inside a ``T_`` label
-    or a dotted type code, so "Flow" counts against ``:T_D_FLOW`` and not against a
-    property called ``Workflow``.
+
+def _data_type_segments(haystack: str) -> set[str]:
+    """The words of every DATA-type label in the query.
+
+    Only ``D.*`` and ``A.*`` types, written as ``T_D_FLOW`` / ``T_A_GEX``: those are the types
+    an assay PRODUCES, which is what makes reaching one evidence that the assay was applied.
+    A biological type is not -- ``MATCH (s:T_TIS)`` constrains the sample type to tissue and
+    says nothing about a Tissue Collection assay.
+
+    Segments, not a substring: collapsing the label and asking ``word in collapsed`` reported
+    "Tissue Collection" as applied against ``T_TIS`` (``tis`` inside ``ttis``), and the same
+    for RNA against ``T_RNA`` and DNA against ``T_DNA``. Three assays reported as constrained
+    by a query that only constrained a sample type, which is the exact failure the caveat
+    exists to prevent.
     """
-    for token in re.findall(r"T_[A-Za-z0-9_]+|\b[A-Z]\.[A-Z0-9]+\b", haystack):
-        if word.lower() in re.sub(r"[^a-z0-9]", "", token.lower()):
-            return True
-    return False
+    out: set[str] = set()
+    for token in re.findall(r"T_[AD]_[A-Za-z0-9_]+|\b[AD]\.[A-Z0-9]+\b", haystack):
+        parts = re.split(r"[_.]", token)
+        out.update(part.lower() for part in parts[1:] if part and part not in ("A", "D"))
+    return out
 
 
 def _assay_is_applied(code: str, name: str | None, haystack: str) -> bool:
     """Whether the query constrained on an assay.
 
-    An assay is asked for by its full title, and the query almost never carries that
-    title verbatim. The graph agent is told to write a lowercased fragment of it, or to
-    filter the edge property ``internal_assay_title``, or to reach the assay's data type
-    by its label. An exact containment test sees none of those, so six correct answers in
-    the 2026-09-18 runs opened by saying the assay had not been applied -- one of them
-    over a Cypher that filtered ``internal_assay_title`` on exactly the right term.
+    An assay is asked for by its full title, and the query almost never carries that title
+    verbatim. The graph agent is told to write a lowercased fragment of it, or to filter the
+    edge property ``internal_assay_title``, or to reach the assay's data type by its label. An
+    exact containment test sees none of those, so six correct answers in the 2026-09-18 runs
+    opened by saying the assay had not been applied -- one of them over a Cypher that filtered
+    ``internal_assay_title`` on exactly the right term.
 
-    Three ways to count, in the direction this module errs (it can miss a dropped assay,
-    it does not invent one): the title or code itself, any substantial word of it, or a
-    word of it inside a sample-type label.
+    Three ways to count: the title or code itself, any substantial word of it, or a word of
+    its TITLE naming a data type the query reached. The last is deliberately narrow, because
+    a loose version of it invented applied assays: only ``D.*``/``A.*`` labels count, only
+    whole segments match, and the short code is not a source of words for it.
     """
     for candidate in (code, name):
         if not candidate:
             continue
         if _is_applied(candidate, haystack) or _fragment_is_applied(candidate, haystack):
             return True
-        for word in re.split(r"[^A-Za-z0-9]+", candidate):
-            if len(word) >= 3 and word.lower() not in _GENERIC_LAST_WORDS and _in_a_type_token(word, haystack):
+    # The title, which is what `code` also holds when the catalog gives no separate name
+    # (`_codes_and_names` drops a name equal to its code, so `name` is often None here).
+    # A bare assay code is excluded: those are the three-letter strings whose substring
+    # match invented an applied assay in the first place.
+    title = name or code
+    segments = _data_type_segments(haystack)
+    if segments and title and not _BARE_ASSAY_CODE.match(title):
+        for word in re.split(r"[^A-Za-z0-9]+", title):
+            if len(word) >= 3 and word.lower() not in _GENERIC_LAST_WORDS and word.lower() in segments:
                 return True
     return False
 
